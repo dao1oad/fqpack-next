@@ -86,7 +86,7 @@ PR 合并策略（项目强制约束）：
 - **禁止直推 `main`**：所有改动在 feature 分支完成后提交 PR。
 - PR 必须满足：
   - CI 全绿（`CI / governance`、`CI / pre-commit`、`CI / pytest`）
-  - 至少 1 个 reviewer Approve
+  - reviewer Approve：GitHub 不允许 PR 作者自我 Approve；单账号仓库暂不强制（0），引入第二账号/团队后改回 ≥1
   - 解决所有 review discussion 后再合并
 
 ## 7. Skills（可选）
