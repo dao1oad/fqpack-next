@@ -18,10 +18,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Fetch base branch
-        run: git fetch origin ${{ github.base_ref }} --no-tags --prune --depth=1
+        run: git fetch origin ${{ github.base_ref || 'main' }} --no-tags --prune --depth=1
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -29,7 +29,7 @@ jobs:
           python-version: "3.12"
 
       - name: Governance checks (docs/migration + RFC)
-        run: python script/ci/check_governance.py --base-ref origin/${{ github.base_ref }} --head-ref HEAD
+        run: python script/ci/check_governance.py --base-ref origin/${{ github.base_ref || 'main' }} --head-ref HEAD
 
   pre-commit:
     name: pre-commit
@@ -39,10 +39,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Fetch base branch
-        run: git fetch origin ${{ github.base_ref }} --no-tags --prune --depth=1
+        run: git fetch origin ${{ github.base_ref || 'main' }} --no-tags --prune --depth=1
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -53,7 +53,7 @@ jobs:
         run: python -m pip install --upgrade pip pre-commit
 
       - name: Run pre-commit (PR diff only)
-        run: pre-commit run --show-diff-on-failure --color=always --from-ref origin/${{ github.base_ref }} --to-ref HEAD
+        run: pre-commit run --show-diff-on-failure --color=always --from-ref origin/${{ github.base_ref || 'main' }} --to-ref HEAD
 
   pytest:
     name: pytest
@@ -63,7 +63,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
