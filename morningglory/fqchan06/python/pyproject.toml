@@ -1,0 +1,13 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    "wheel",
+    "Cython"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fqchan06"
+version = "2026.1.10"
+readme = "README.md"
+requires-python = ">=3.8"

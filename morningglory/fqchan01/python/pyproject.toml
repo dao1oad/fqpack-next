@@ -1,0 +1,14 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    "wheel",
+    "Cython"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fqchan01"
+version = "2025.7.29"
+
+[tool.setuptools]
+packages = ["demo"]

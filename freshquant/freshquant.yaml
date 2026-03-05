@@ -1,0 +1,234 @@
+redis:
+  host: 127.0.0.1
+  port: 6379
+  db: 1
+
+proxy:
+  host: 127.0.0.1
+  port: 10809
+
+api:
+  # API 服务地址，用于 Docker 容器访问宿主机服务
+  # 支持环境变量: freshquant_API__BASE_URL
+  base_url: http://host.docker.internal
+
+output:
+  dir: E:\freshquant_data
+
+custom:
+  enabled: false
+  data:
+    dir: E:\freshquant_data
+
+signals:
+  - name: 上涨回拉中枢
+    description: 股价上涨回到上一个下跌中枢的中枢低点
+  - name: 上涨五浪V反
+    description: 前面是没有中枢的5笔的下跌，然后股价上涨突破最后下跌那笔的笔高点
+  - name: 上涨V反
+    description: 前面是带中枢的下跌，并且有3卖，然后股价上涨突破3卖那根K线的最高价
+  - name: 上涨线段破坏
+    description: 股价上涨形成新的线段，破坏前一个下跌线段
+  - name: 上涨突破中枢
+    description: 股价上涨突破中枢高高点
+  - name: 下跌回拉中枢
+    description: 股价下跌回到最后一个上涨中枢的中枢高点
+  - name: 下跌五浪V反
+    description: 前面是没有中枢的5笔上涨，然后股价下跌跌破最后上涨那笔的笔低点
+  - name: 下跌V反
+    description: 前面是带中枢的上涨，并且有3买，然后股价下跌跌破3买那根K线的最低价
+  - name: 下跌线段破坏
+    description: 股价下跌形成新的线段，破坏前一个上涨线段
+  - name: 下跌突破中枢
+    description: 股价下跌跌破中枢低低点
+
+stock:
+  periods:
+    - 1d
+    - 120m
+    - 90m
+    - 60m
+    - 30m
+    - 5m
+  factors:
+    - name: 离A0中枢高比率_1d
+      period: 1d
+      description: 当前收盘价相对日线笔中枢中枢高的比率
+    - name: 离A0中枢高比率_120m
+      period: 120m
+      description: 当前收盘价相对120分钟笔中枢中枢高的比率
+    - name: 离A0中枢高比率_90m
+      period: 90m
+      description: 当前收盘价相对90分钟笔中枢中枢高的比率
+    - name: 离A0中枢高比率_60m
+      period: 60m
+      description: 当前收盘价相对60分钟笔中枢中枢高的比率
+    - name: 离A0中枢高比率_30m
+      period: 30m
+      description: 当前收盘价相对30分钟笔中枢中枢高的比率
+    - name: 离A0中枢高比率_15m
+      period: 15m
+      description: 当前收盘价相对15分钟笔中枢中枢高的比率
+    - name: 离A0中枢高比率_5m
+      period: 5m
+      description: 当前收盘价相对5分钟笔中枢中枢高的比率
+    - name: 离A0中枢低比率_1d
+      period: 1d
+      description: 当前收盘价相对日线笔中枢中枢低的比率
+    - name: 离A0中枢低比率_120m
+      period: 120m
+      description: 当前收盘价相对120分钟笔中枢中枢低的比率
+    - name: 离A0中枢低比率_90m
+      period: 90m
+      description: 当前收盘价相对90分钟笔中枢中枢低的比率
+    - name: 离A0中枢低比率_60m
+      period: 60m
+      description: 当前收盘价相对60分钟笔中枢中枢低的比率
+    - name: 离A0中枢低比率_30m
+      period: 30m
+      description: 当前收盘价相对30分钟笔中枢中枢低的比率
+    - name: 离A0中枢低比率_15m
+      period: 15m
+      description: 当前收盘价相对15分钟笔中枢中枢低的比率
+    - name: 离A0中枢低比率_5m
+      period: 5m
+      description: 当前收盘价相对5分钟笔中枢中枢低的比率
+    - name: 离A0中枢高高比率_1d
+      period: 1d
+      description: 当前收盘价相对日线笔中枢中枢高高的比率
+    - name: 离A0中枢高高比率_120m
+      period: 120m
+      description: 当前收盘价相对120分钟笔中枢中枢高高的比率
+    - name: 离A0中枢高高比率_90m
+      period: 90m
+      description: 当前收盘价相对90分钟笔中枢中枢高高的比率
+    - name: 离A0中枢高高比率_60m
+      period: 60m
+      description: 当前收盘价相对60分钟笔中枢中枢高高的比率
+    - name: 离A0中枢高高比率_30m
+      period: 30m
+      description: 当前收盘价相对30分钟笔中枢中枢高高的比率
+    - name: 离A0中枢高高比率_15m
+      period: 15m
+      description: 当前收盘价相对15分钟笔中枢中枢高高的比率
+    - name: 离A0中枢高高比率_5m
+      period: 5m
+      description: 当前收盘价相对5分钟笔中枢中枢高高的比率
+    - name: 离A0中枢低低比率_1d
+      period: 1d
+      description: 当前收盘价相对日线笔中枢中枢低低的比率
+    - name: 离A0中枢低低比率_120m
+      period: 120m
+      description: 当前收盘价相对120分钟笔中枢中枢低低的比率
+    - name: 离A0中枢低低比率_90m
+      period: 90m
+      description: 当前收盘价相对90分钟笔中枢中枢低低的比率
+    - name: 离A0中枢低低比率_60m
+      period: 60m
+      description: 当前收盘价相对60分钟笔中枢中枢低低的比率
+    - name: 离A0中枢低低比率_30m
+      period: 30m
+      description: 当前收盘价相对30分钟笔中枢中枢低低的比率
+    - name: 离A0中枢低低比率_15m
+      period: 15m
+      description: 当前收盘价相对15分钟笔中枢中枢低低的比率
+    - name: 离A0中枢低低比率_5m
+      period: 5m
+      description: 当前收盘价相对5分钟笔中枢中枢低低的比率
+    - name: 离A0段高比率_1d
+      period: 1d
+      description: 当前收盘价相对日线前一个下跌线段的高点的比率
+    - name: 离A0段高比率_120m
+      period: 120m
+      description: 当前收盘价相对120分钟前一个下跌线段的高点的比率
+    - name: 离A0段高比率_90m
+      period: 90m
+      description: 当前收盘价相对90分钟前一个下跌线段的高点的比率
+    - name: 离A0段高比率_60m
+      period: 60m
+      description: 当前收盘价相对60分钟前一个下跌线段的高点的比率
+    - name: 离A0段高比率_30m
+      period: 30m
+      description: 当前收盘价相对30分钟前一个下跌线段的高点的比率
+    - name: 离A0段高比率_15m
+      period: 15m
+      description: 当前收盘价相对15分钟前一个下跌线段的高点的比率
+    - name: 离A0段高比率_5m
+      period: 5m
+      description: 当前收盘价相对5分钟前一个下跌线段的高点的比率
+    - name: 离A1段高比率_1d
+      period: 1d
+      description: 当前收盘价相对日线前一个下跌线段再往上递归一个线段的高点的比率
+    - name: 离A1段高比率_120m
+      period: 120m
+      description: 当前收盘价相对120分钟前一个下跌线段再往上递归一个线段的高点的比率
+    - name: 离A1段高比率_90m
+      period: 90m
+      description: 当前收盘价相对90分钟前一个下跌线段再往上递归一个线段的高点的比率
+    - name: 离A1段高比率_60m
+      period: 60m
+      description: 当前收盘价相对60分钟前一个下跌线段再往上递归一个线段的高点的比率
+    - name: 离A1段高比率_30m
+      period: 30m
+      description: 当前收盘价相对30分钟前一个下跌线段再往上递归一个线段的高点的比率
+    - name: 离A1段高比率_15m
+      period: 15m
+      description: 当前收盘价相对15分钟前一个下跌线段再往上递归一个线段的高点的比率
+    - name: 离A1段高比率_5m
+      period: 5m
+      description: 当前收盘价相对5分钟前一个下跌线段再往上递归一个线段的高点的比率
+    - name: 缠论形态_1d
+      period: 1d
+      description: 日线缠论形态，参考缠论信号说明
+    - name: 缠论形态_120m
+      period: 120m
+      description: 120分钟缠论形态，参考缠论信号说明
+    - name: 缠论形态_90m
+      period: 90m
+      description: 90分钟缠论形态，参考缠论信号说明
+    - name: 缠论形态_60m
+      period: 60m
+      description: 60分钟缠论形态，参考缠论信号说明
+    - name: 缠论形态_30m
+      period: 30m
+      description: 30分钟缠论形态，参考缠论信号说明
+    - name: 缠论形态_15m
+      period: 15m
+      description: 15分钟缠论形态，参考缠论信号说明
+    - name: 缠论形态_5m
+      period: 5m
+      description: 5分钟缠论形态，参考缠论信号说明
+  pools:
+    - name: 日线上涨线段_30m下跌线段_5m中枢突破
+      cond:
+        线段形态_1d: 上涨
+        线段形态_30m: 下跌
+        缠论形态_5m: 上涨突破中枢
+    - name: 日线完备
+      cond:
+        缠论形态_1d: 上涨线段破坏
+        $or:
+          - 缠论形态_5m: 上涨回拉中枢
+          - 缠论形态_30m: 上涨回拉中枢
+          - $and:
+              - 线段形态_30m: 下跌
+              - 缠论形态_5m: 上涨突破中枢
+    - name: 1d上涨回拉中枢+30m上涨线段破坏+5m上涨突破中枢
+      cond:
+        缠论形态_1d: 上涨回拉中枢
+        $and:
+          - 缠论形态_5m: 上涨突破中枢
+          - 缠论形态_30m: 上涨线段破坏
+        离A0中枢高比率_1d:
+          $lt: 1.0
+        离A0段高比率_1d:
+          $lt: 0.9
+    - name: 1d上涨回拉中枢+30m上涨线段破坏+5m上涨回拉中枢
+      cond:
+        缠论形态_1d: 上涨回拉中枢
+        缠论形态_30m: 上涨线段破坏
+        缠论形态_5m: 上涨回拉中枢
+        离A0中枢高比率_1d:
+          $lt: 1.0
+        离A0段高比率_1d:
+          $lt: 0.9

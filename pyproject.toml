@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools >= 64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "freshquant"
+version = "2026.2.23"
+requires-python = ">=3.12"
+description = "FreshQuant financial analysis toolkit"
+authors = [
+    { name="kldcty@vx", email="1106628276@qq.com" }
+]
+dependencies = [
+    "akshare",
+    "apscheduler",
+    "arrow",
+    "black",
+    "blinker",
+    "celery",
+    "click",
+    "colorama",
+    "colorlog",
+    "durationpy",
+    "dynaconf",
+    "et_stopwatch",
+    "fastapi",
+    "flask",
+    "func_timeout",
+    "gevent",
+    "interval",
+    "joblib",
+    "loguru",
+    "matplotlib",
+    "memoizit",
+    "MyTT",
+    "numpy~=2.2.6",
+    "pandas~=2.3.3",
+    "pendulum",
+    "pika",
+    "polars",
+    "pydash",
+    "pyecharts~=2.0.8",
+    "pymongo",
+    "pytest",
+    "pytz",
+    "ratelimit",
+    "redis",
+    "requests",
+    "retry",
+    "scipy",
+    "SQLAlchemy",
+    "tabulate",
+    "tqdm",
+    "tushare",
+    "ulid-py",
+    "uvicorn",
+    "xlrd",
+    "dagit~=1.11.16",
+    "dagster~=1.11.16",
+    "dagster-graphql~=1.11.16",
+    "dagster-celery~=0.27.8",
+    "dagster-webserver~=1.11.16",
+    "dagster-dg-cli~=1.11.16",
+    "chardet",
+    "qlib",
+    "docker",
+    "tzlocal",
+    "pydantic",
+    "eventlet",
+    "msgpack",
+    "quantstats",
+    "psutil",
+    "pybase62",
+    "jsonpickle",
+    "pywencai",
+    "pyperclip",
+    "huey",
+    "yfinance",
+    "pyalgotrade",
+    "pip>=25.3",
+]
+
+[project.scripts]
+fqctl = "freshquant.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["freshquant*"]
+
+[tool.setuptools.package-data]
+freshquant = ["*.pyd", "*.so", "*.yaml", "*.md", "*.toml"]
+
+[tool.dg]
+directory_type = "project"

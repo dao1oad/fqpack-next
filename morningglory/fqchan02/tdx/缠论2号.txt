@@ -1,0 +1,138 @@
+﻿{绑定为1号函数}
+BI:=TDXDLL2(2,H,L,0);
+NOTEXT画上升笔1:DRAWLINE(BI=-1,L,BI=+1,H,0), DOTLINE, COLORYELLOW;
+NOTEXT画下降笔1:DRAWLINE(BI=+1,H,BI=-1,L,0), DOTLINE, COLORYELLOW;
+
+BIZG:=TDXDLL2(5,BI,H,L);{输出BI中枢高}
+BIZD:=TDXDLL2(7,BI,H,L);{输出BI中枢低}
+BISE:=TDXDLL2(9,BI,H,L);{输出BI中枢开始和结束}
+BIMID:=(BIZG-BIZD)/2+BIZD;
+
+NOTEXT_BIZG:IF(BIZG,BIZG,DRAWNULL),COLORYELLOW;{画BI中枢高}
+NOTEXT_BIZD:IF(BIZD,BIZD,DRAWNULL),COLORYELLOW;{画BI中枢低}
+NOTEXT_BISE:STICKLINE(BISE,BIZD,BIZG,0,0),COLORYELLOW;{画BI中枢起始结束};
+NOTEXT_BIMID:IF(BIMID,BIMID,DRAWNULL),COLORFF00FF;
+
+DUAN:=TDXDLL2(3,BI,H,L);
+NOTEXT画上升段1:DRAWLINE(DUAN=-1,L,DUAN=+1,H,0), COLORFF8000;
+NOTEXT画下降段1:DRAWLINE(DUAN=+1,H,DUAN=-1,L,0), COLORFF8000;
+
+{段中枢}
+DUANZG:=TDXDLL2(5,DUAN,H,L);
+DUANZD:=TDXDLL2(7,DUAN,H,L);
+DUANSE:=TDXDLL2(9,DUAN,H,L);
+DUANMID:=(DUANZG-DUANZD)/2+DUANZD;
+
+NOTEXT_DDUANZG:IF(DUANZG,DUANZG,DRAWNULL),COLORFF8000;
+NOTEXT_DDUANZD:IF(DUANZD,DUANZD,DRAWNULL),COLORFF8000;
+NOTEXT_DDUANSE:STICKLINE(DUANSE,DUANZD,DUANZG,0,0),COLORFF8000;
+NOTEXT_DDUANMID:IF(DUANMID,DUANMID,DRAWNULL),COLORFF00FF;
+
+{-----------------------------------------------------------------------------}
+
+DIF:=EMA(CLOSE,12)-EMA(CLOSE,26);
+DEA:=EMA(DIF,9);
+MACD:=(DIF-DEA)*2;
+
+{----------------------------------}
+
+笔尖:=DUAN,NODRAW;
+笔涨日:=BARSLAST(笔尖=-1),NODRAW;
+笔跌日:=BARSLAST(笔尖=1),NODRAW;
+笔顶:=IF(笔尖=1,HHV(H,笔涨日),0),NODRAW;
+笔底:=IF(笔尖=-1,LLV(L,笔跌日),0),NODRAW;
+
+笔尾日:=BARSLAST(DUANSE=2),NODRAW;
+绿中枢UP:=REF(DUANZG,笔尾日),COLORGREEN,NODRAW;
+绿中枢MID:=(DUANZD+DUANZG)/2,COLORWHITE,NODRAW;
+绿中枢DN:=REF(DUANZD,笔尾日),COLORGREEN,NODRAW;
+
+{----------------------------------}
+上涨幅度:= (H-REF(L,笔涨日))*100/REF(L,笔涨日);
+下跌幅度:= (L-REF(H,笔跌日))*100/REF(H,笔跌日);
+笔力度:=IF(笔尖=-1,ABS(下跌幅度*笔跌日),ABS(上涨幅度*笔涨日));
+有效红柱:=IF(笔涨日<笔跌日 AND MACD>0,MACD,0);
+有效绿柱:=IF(笔涨日>笔跌日 AND MACD<0,MACD,0);
+红面积:=SUM(有效红柱,笔涨日),NODRAW;
+绿面积:=SUM(有效绿柱,笔跌日),NODRAW;
+
+{----------------------------------}
+
+LAST绿面积:=IF(笔尖=-1,REF(绿面积,REF(笔涨日,1)+1),DRAWNULL),NODRAW;
+LAST红面积:=IF(笔尖=1,REF(红面积,REF(笔跌日,1)+1),DRAWNULL),NODRAW;
+LAST底力度:=IF(笔尖=-1,REF(笔力度,REF(笔涨日,1)+1),DRAWNULL),NODRAW;
+LAST顶力度:=IF(笔尖=1,REF(笔力度,REF(笔跌日,1)+1),DRAWNULL),NODRAW;
+LAST底DIF:=IF(笔尖=-1,REF(MACD.DIF,REF(笔涨日,1)+1),DRAWNULL),NODRAW;
+LAST顶DIF:=IF(笔尖=1,REF(MACD.DIF,REF(笔跌日,1)+1),DRAWNULL),NODRAW;
+顶间日:=IF(笔尖=1,REF(笔跌日,1)+1,DRAWNULL),NODRAW;
+底间日:=IF(笔尖=-1,REF(笔涨日,1)+1,DRAWNULL),NODRAW;
+LAST顶间日:=IF(笔尖=1,REF(顶间日,顶间日),DRAWNULL),NODRAW;
+LAST底间日:=IF(笔尖=-1,REF(底间日,底间日),DRAWNULL),NODRAW;
+本顶间日:=IF(笔尖=-1,REF(顶间日,笔跌日),DRAWNULL),NODRAW;
+上顶间日:=IF(笔尖=-1,REF(LAST顶间日,笔跌日),DRAWNULL),NODRAW;
+
+{----------------------------------}
+
+高抛:笔尖=1 AND (红面积<LAST红面积 OR 笔力度<LAST顶力度),NODRAW;
+低吸:笔尖=-1 AND 绿面积>LAST绿面积 AND 笔力度>LAST底力度 AND DYNAINFO(8)>0,NODRAW;
+
+LAST底:=IF(笔尖=-1,REF(笔底,REF(笔涨日,1)+1),DRAWNULL),NODRAW;
+LAST顶:=IF(笔尖=1,REF(笔顶,REF(笔跌日,1)+1),DRAWNULL),NODRAW;
+创新低:=笔尖=-1 AND 笔底<LAST底,NODRAW;
+创新高:=笔尖=1 AND 笔顶>LAST顶,NODRAW;
+创新低日:=BARSLAST(创新低=1),NODRAW;
+创新高日:=BARSLAST(创新高=1),NODRAW;
+
+LD底背:=笔底<REF(笔底,REF(创新低日,1)+1) AND 笔力度>REF(笔力度,REF(创新低日,1)+1) AND 创新低,COLORMAGENTA,NODRAW;
+X底背:=笔底<REF(笔底,REF(创新低日,1)+1) AND DIF>REF(DIF,REF(创新低日,1)+1) AND 创新低,COLORMAGENTA,NODRAW;
+Z底背:=笔底<REF(笔底,REF(创新低日,1)+1) AND MACD>REF(MACD,REF(创新低日,1)+1) AND 创新低,COLORMAGENTA,NODRAW;
+M底背:=笔底<REF(笔底,REF(创新低日,1)+1) AND 绿面积>REF(绿面积,REF(创新低日,1)+1) AND 创新低,COLORMAGENTA,NODRAW;
+大底背:=X底背 OR  Z底背 OR  M底背;
+
+LD顶背:=笔顶>REF(笔顶,REF(创新高日,1)+1) AND 笔力度<REF(笔力度,REF(创新高日,1)+1) AND 创新高,COLORCYAN,NODRAW;
+X顶背:=笔顶>REF(笔顶,REF(创新高日,1)+1) AND DIF<REF(DIF,REF(创新高日,1)+1) AND 创新高,COLORCYAN,NODRAW;
+Z顶背:=笔顶>REF(笔顶,REF(创新高日,1)+1) AND MACD<REF(MACD,REF(创新高日,1)+1) AND 创新高,COLORCYAN,NODRAW;
+M顶背:=笔顶>REF(笔顶,REF(创新高日,1)+1) AND 红面积<REF(红面积,REF(创新高日,1)+1) AND 创新高,COLORCYAN,NODRAW;
+大顶背:=X顶背 OR Z顶背 OR M顶背;
+
+X小底背:=大底背=0 AND 笔底<REF(笔底,REF(笔涨日,1)+1) AND DIF>REF(DIF,REF(笔涨日,1)+1) AND 创新低,COLORMAGENTA,NODRAW;
+Z小底背:=大底背=0 AND 笔底<REF(笔底,REF(笔涨日,1)+1) AND MACD>REF(MACD,REF(笔涨日,1)+1) AND 创新低,COLORMAGENTA,NODRAW;
+M小底背:=大底背=0 AND 笔底<REF(笔底,REF(笔涨日,1)+1) AND 绿面积>REF(绿面积,REF(笔涨日,1)+1) AND 创新低,COLORMAGENTA,NODRAW;
+
+X小顶背:=大顶背=0 AND 笔顶>REF(笔顶,REF(笔跌日,1)+1) AND DIF<REF(DIF,REF(笔跌日,1)+1) AND 创新高,COLORCYAN,NODRAW;
+Z小顶背:=大顶背=0 AND 笔顶>REF(笔顶,REF(笔跌日,1)+1) AND MACD<REF(MACD,REF(笔跌日,1)+1) AND 创新高,COLORCYAN,NODRAW;
+M小顶背:=大顶背=0 AND 笔顶>REF(笔顶,REF(笔跌日,1)+1) AND 红面积<REF(红面积,REF(笔跌日,1)+1) AND 创新高,COLORCYAN,NODRAW;
+
+大底背数:=X底背+Z底背+M底背,COLORMAGENTA,NODRAW;
+大顶背数:=X顶背+Z顶背+M顶背,COLORCYAN,NODRAW;
+
+小底背数:=X小底背+Z小底背+M小底背,COLORMAGENTA,NODRAW;
+小顶背数:=X小顶背+Z小顶背+M小顶背,COLORCYAN,NODRAW;
+
+{----------------------------------}
+
+三买:笔尖=-1 AND 笔底>绿中枢UP AND SUM(笔尖=-1 AND 笔底>绿中枢UP,笔尾日)=1,COLORMAGENTA,NODRAW;
+三卖:笔尖=1 AND 笔顶<绿中枢DN  AND SUM(笔尖=1 AND 笔顶<绿中枢DN,笔尾日)=1,COLORCYAN,NODRAW;
+三卖日:BARSLAST(三卖),NODRAW;
+三买日:BARSLAST(三买),NODRAW;
+
+一买:三卖日<三买日 AND 创新低 AND 大底背数>0,COLORMAGENTA,NODRAW;
+二买:((三卖日<三买日 AND 三买=0) OR (三卖日>三买日 AND 三买)) AND 笔尖=-1 AND 笔底>LAST底 AND REF(创新低日,1)=REF(笔涨日,1),COLORMAGENTA,NODRAW;
+
+一卖:三卖日>三买日 AND 创新高 AND 大顶背数>0,COLORCYAN,NODRAW;
+二卖:((三买日<三卖日 AND 三卖=0) OR (三买日>三卖日 AND 三卖))  AND 笔尖=1 AND 笔顶<LAST顶 AND REF(创新高日,1)=REF(笔跌日,1),COLORCYAN,NODRAW;
+
+{----------------------------------}
+
+DRAWTEXT(一卖,H*1.001,'①卖'),COLORCYAN;
+DRAWTEXT(二卖 AND 三卖=0,H*1.001,'②卖'),COLORCYAN;
+DRAWTEXT(三卖 AND (二卖=0 OR 二卖=DRAWNULL),H*1.001,'③卖'),COLORCYAN;
+DRAWTEXT(二卖 AND 三卖,H*1.001,'②③卖'),COLORCYAN;
+
+DRAWTEXT(一买,L*0.999,'①买'),COLORYELLOW;
+DRAWTEXT(二买 AND 三买=0,L*0.999,'②买'),COLORYELLOW;
+DRAWTEXT(三买 AND (二买=0 OR 二买=DRAWNULL),L*0.999,'③买'),COLORYELLOW;
+DRAWTEXT(二买 AND 三买,L*0.999,'②③买'),COLORYELLOW;
+
+DRAWTEXT(笔尖=1 AND 高抛,H*1.002,'高抛'),COLORWHITE;
+DRAWTEXT(笔尖=-1 AND 低吸,L*0.998,'低吸'),COLORMAGENTA;

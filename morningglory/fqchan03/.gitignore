@@ -1,0 +1,13 @@
+.vscode/
+build/
+build32/
+build64/
+.idea/
+cmake-build-debug/
+build64/
+dist/
+fqchan03.egg-info/
+python/fqchan03.*.pyd
+python/fqchan03.*.so
+python/fqchan03.cpp
+fqchan03.zip

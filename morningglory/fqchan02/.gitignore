@@ -1,0 +1,17 @@
+﻿CMakeFiles
+build/
+build32/
+build64/
+.vscode/
+.history
+.project
+.settings
+.idea/
+cmake-build-debug/
+
+python/fqchan02.*.pyd
+python/fqchan02.*.so
+python/fqchan02.cpp
+dist/
+fqchan02.egg-info/
+fqchan02.zip

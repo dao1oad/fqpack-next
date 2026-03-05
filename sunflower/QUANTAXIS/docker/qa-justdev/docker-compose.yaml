@@ -1,0 +1,68 @@
+version: "2"
+services:
+
+    mgdb:
+        image: daocloud.io/quantaxis/qamongo_single:latest
+        ports:
+            - "27017:27017"
+        environment:
+            - TZ=Asia/Shanghai
+            - MONGO_INITDB_DATABASE=quantaxis
+        volumes:
+            - qamg:/data/db
+        networks:
+            qanetwork_pro:
+                ipv4_address: 172.19.3.2
+        restart: always
+
+    qaeventmq:
+        image: daocloud.io/quantaxis/qaeventmq:latest
+        ports:
+            - "15672:15672"
+            - "5672:5672"
+            - "4369:4369"
+        environment:
+            - TZ=Asia/Shanghai
+        networks:
+            qanetwork_pro:
+                ipv4_address: 172.19.3.5
+        restart: always
+
+        restart: always
+
+
+    qaredis:
+        image: daocloud.io/quantaxis/qaredis:latest
+        ports: 
+            - "6379:6379"
+        environment:
+            - TZ=Asia/Shanghai
+        networks:
+            qanetwork_pro:
+                ipv4_address: 172.19.3.9
+
+    # qaclickhouse:
+    #     image: daocloud.io/quantaxis/qa-clickhouse
+    #     ports:
+    #         - "9000:9000"
+    #         - "8123:8123"
+    #         - "9009:9009"
+    #     environment:
+    #         - TZ=Asia/Shanghai
+    #     networks:
+    #         qanetwork_pro:
+    #             ipv4_address: 172.19.3.10
+
+volumes:
+    qamg:
+        external:
+            name: qamg
+    qacode:
+        external:
+            name: qacode
+networks:
+    qanetwork_pro:
+        ipam:
+            config:
+                - subnet: 172.19.3.0/24
+                  gateway: 172.19.3.1

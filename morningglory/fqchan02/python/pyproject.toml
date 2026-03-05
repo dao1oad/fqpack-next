@@ -1,0 +1,13 @@
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+    "Cython"
+]
+
+[project]
+name = "fqchan02"
+version = "2025.2.1"
+
+[tool.setuptools]
+packages = []

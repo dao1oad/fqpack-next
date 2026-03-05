@@ -1,0 +1,15 @@
+tdx/dlls/*.dll
+tdx/formula/*
+tdx64/dlls/*.dll
+tdx64/formula/*
+mt5/dlls/*.dll
+mt5/formula/*
+dzh/dlls/*.dll
+dzh/formula/*
+jzt/dlls/*.dll
+jzt/formula/*
+jzt32/dlls/*.dll
+jzt32/formula/*
+kt/dlls/*.dll
+kt/formula/*
+version.txt

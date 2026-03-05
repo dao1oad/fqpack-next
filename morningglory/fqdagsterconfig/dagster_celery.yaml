@@ -1,0 +1,7 @@
+execution:
+  config:
+    broker: 'redis://fq_redis:6379/5'
+    backend: 'redis://fq_redis:6379/6'
+    config_source:
+      worker_concurrency: 50
+      worker_pool: threads

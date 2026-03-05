@@ -1,0 +1,53 @@
+sw:="fqchan04@SW";
+drawline(sw=1,h,sw=-1,l,0),colorwhite,linedot;
+drawline(sw=-1,l,sw=1,h,0),colorwhite,linedot;
+swzg:="fqchan04@ZSZGVAR"(sw);
+swzd:="fqchan04@ZSZDVAR"(sw);
+swse:="fqchan04@ZSSEVAR"(sw);
+DRAWLINE(swse=1, swzg, swse=2, swzg, 0), colorwhite, linedot;
+DRAWLINE(swse=1, swzd, swse=2, swzd, 0), colorwhite, linedot;
+STICKLINE(swse=1, swzg, swzd, 1, 0), colorwhite, linedot;
+STICKLINE(swse=2, swzg, swzd, 1, 0), colorwhite, linedot;
+
+bi:="fqchan04@BI";
+drawline(bi=1,h,bi=-1,l,0),coloryellow,linethick1;
+drawline(bi=-1,l,bi=1,h,0),coloryellow,linethick1;
+zszg:="fqchan04@ZSZGVAR"(bi);
+zszd:="fqchan04@ZSZDVAR"(bi);
+zsse:="fqchan04@ZSSEVAR"(bi);
+DRAWLINE(zsse=1, zszg, zsse=2, zszg, 0), coloryellow, linethick1;
+DRAWLINE(zsse=1, zszd, zsse=2, zszd, 0), coloryellow, linethick1;
+STICKLINE(zsse=1, zszg, zszd, 1, 0), coloryellow, linethick1;
+STICKLINE(zsse=2, zszg, zszd, 1, 0), coloryellow, linethick1;
+
+duan:="fqchan04@DUAN1VAR"(bi);
+drawline(duan=1,h,duan=-1,l,0),colorff8000,linethick1;
+drawline(duan=-1,l,duan=1,h,0),colorff8000,linethick1;
+dzszg:="fqchan04@ZSZGVAR"(duan);
+dzszd:="fqchan04@ZSZDVAR"(duan);
+dzsse:="fqchan04@ZSSEVAR"(duan);
+DRAWLINE(dzsse=1, dzszg, dzsse=2, dzszg, 0), colorff8000, linethick1;
+DRAWLINE(dzsse=1, dzszd, dzsse=2, dzszd, 0), colorff8000, linethick1;
+STICKLINE(dzsse=1, dzszg, dzszd, 1, 0), colorff8000, linethick1;
+STICKLINE(dzsse=2, dzszg, dzszd, 1, 0), colorff8000, linethick1;
+
+duan2:="fqchan04@DUAN1VAR"(duan);
+drawline(duan2=1,h,duan2=-1,l,0),colorffaec9,linethick1;
+drawline(duan2=-1,l,duan2=1,h,0),colorffaec9,linethick1;
+dzszg2:="fqchan04@ZSZGVAR"(duan2);
+dzszd2:="fqchan04@ZSZDVAR"(duan2);
+dzsse2:="fqchan04@ZSSEVAR"(duan2);
+DRAWLINE(dzsse2=1, dzszg2, dzsse2=2, dzszg2, 0), colorffaec9, linethick1;
+DRAWLINE(dzsse2=1, dzszd2, dzsse2=2, dzszd2, 0), colorffaec9, linethick1;
+STICKLINE(dzsse2=1, dzszg2, dzszd2, 1, 0), colorffaec9, linethick1;
+STICKLINE(dzsse2=2, dzszg2, dzszd2, 1, 0), colorffaec9, linethick1;
+
+MA5:MA(CLOSE,5), COLORWHITE;
+MA13:MA(CLOSE,13), COLORGRAY;
+MA25:MA(CLOSE,25), colorff8000;
+MA65:MA(CLOSE,65), colorffaec9;
+
+J:=(H+L)/2;
+MI:MA(J,230),LINEDOT,PRECISION0;
+UB:MI+2*STD(J,230),LINEDOT,PRECISION0;
+LB:MI-2*STD(J,230),LINEDOT,PRECISION0;

@@ -1,0 +1,414 @@
+from datetime import datetime, timedelta
+from typing import Dict, List
+
+import pandas as pd
+import pymongo
+from bson import json_util
+from QUANTAXIS.QAFetch.QAQuery_Advance import (
+    QA_fetch_index_day_adv,
+    QA_fetch_stock_day_adv,
+)
+from talib import ATR
+
+from freshquant.carnation.enum_instrument import InstrumentType
+from freshquant.database.cache import in_memory_cache, redis_cache
+from freshquant.db import DBfreshquant
+from freshquant.instrument.general import query_instrument_type
+from freshquant.strategy.common import get_grid_interval_config, get_trade_amount
+from freshquant.util.code import (
+    fq_util_code_append_market_code,
+    fq_util_code_append_market_code_suffix,
+    normalize_to_base_code,
+    normalize_to_inst_code_with_suffix,
+)
+
+
+def insertStockPosition(acc: List, item: Dict):
+    for i in range(len(acc)):
+        if acc[i]["price"] < item["price"]:
+            acc.insert(i, item)
+            break
+    else:
+        acc.append(item)
+    return acc
+
+
+def accStockTrades(acc: List, cur: Dict):
+    if "买" in cur["op"]:
+        acc = insertStockPosition(acc, json_util.loads(json_util.dumps(cur)))
+    elif "卖" in cur["op"]:
+        if len(acc) > 0:
+            if acc[-1]["quantity"] < cur["quantity"]:
+                r = float((cur["quantity"] - acc[-1]["quantity"])) / float(
+                    cur["quantity"]
+                )
+                cur["quantity"] = cur["quantity"] - acc[-1]["quantity"]
+                cur["amount"] = cur["amount"] * r
+                acc.pop()
+                acc = accStockTrades(acc, cur)
+            elif acc[-1]["quantity"] == cur["quantity"]:
+                acc.pop()
+            else:
+                r = acc[-1]["quantity"] - cur["quantity"] / float(acc[-1]["quantity"])
+                acc[-1]["quantity"] = acc[-1]["quantity"] - cur["quantity"]
+                acc[-1]["amount"] = acc[-1]["amount"] * r
+    return acc
+
+
+@in_memory_cache.memoize(expiration=900)
+def _compute_atr_last_stock(
+    inst_code_base: str, date_str: str, period: int
+) -> tuple[float, float]:
+    """
+    计算 A 股个股在给定周期下的最新 ATR 值，并使用内存缓存避免重复计算。
+    """
+    dt = datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=1)
+    start_date = (dt - timedelta(days=60)).strftime("%Y-%m-%d")
+    end_date = dt.strftime("%Y-%m-%d")
+    data = QA_fetch_stock_day_adv(inst_code_base, start_date, end_date)
+    data = data.to_qfq().data
+    atr_value = ATR(data.high.values, data.low.values, data.close.values, period)
+    return float(atr_value[-1]), float(data.close.values[-1])
+
+
+@in_memory_cache.memoize(expiration=900)
+def _compute_atr_last_index(
+    inst_code_base: str, date_str: str, period: int
+) -> tuple[float, float]:
+    """
+    计算 A 股指数/ETF 在给定周期下的最新 ATR 值，并使用内存缓存避免重复计算。
+    """
+    dt = datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=1)
+    start_date = (dt - timedelta(days=60)).strftime("%Y-%m-%d")
+    end_date = dt.strftime("%Y-%m-%d")
+    data = QA_fetch_index_day_adv(inst_code_base, start_date, end_date)
+    data = data.data
+    atr_value = ATR(data.high.values, data.low.values, data.close.values, period)
+    return float(atr_value[-1]), float(data.close.values[-1])
+
+
+@in_memory_cache.memoize(expiration=900)
+def _query_grid_interval(inst_code_base: str, date_str: str) -> float:
+    instrument_code = normalize_to_inst_code_with_suffix(inst_code_base)
+    cfg = get_grid_interval_config(instrument_code)
+    mode = cfg.get("mode", "percent")
+    if mode == "percent":
+        return 1.0 + float(cfg.get("percent", 3)) / 100
+    elif mode == "atr":
+        instrument_type = query_instrument_type(inst_code_base.lower())
+        period = int(cfg.get("atr", {}).get("period", 20))
+        multiplier = float(cfg.get("atr", {}).get("multiplier", 1))
+        if instrument_type == InstrumentType.STOCK_CN:
+            atr_value, close_price = _compute_atr_last_stock(
+                inst_code_base, date_str, period
+            )
+            return 1.0 + atr_value * multiplier / close_price
+        elif instrument_type == InstrumentType.ETF_CN:
+            atr_value, close_price = _compute_atr_last_index(
+                inst_code_base, date_str, period
+            )
+            return 1.0 + atr_value * multiplier / close_price
+
+    raise NotImplementedError("invalid mode")
+
+
+def accArrangedStockTrades(acc: List, cur: Dict, lotAmount: int):
+    if "买" in cur["op"]:
+        if cur["amount"] > lotAmount:
+            item = json_util.loads(json_util.dumps(cur))
+            quantity = int(lotAmount / item["price"] / 100) * 100
+            if quantity == 0:
+                quantity = 100
+            if quantity == item["quantity"]:
+                acc = insertStockPosition(acc, item)
+            else:
+                item["quantity"] = quantity
+                item["amount"] = quantity * item["price"]
+                acc = insertStockPosition(acc, item)
+                cur["quantity"] = cur["quantity"] - quantity
+                cur["amount"] = cur["amount"] - quantity * item["price"]
+                code = cur.get("symbol") or cur.get("code")
+                date_str = datetime.strptime(str(cur["date"]), "%Y%m%d").strftime(
+                    "%Y-%m-%d"
+                )
+                grid_interval = _query_grid_interval(code, date_str)
+                cur["price"] = float("%.2f" % (cur["price"] * grid_interval))
+                acc = accArrangedStockTrades(acc, cur, lotAmount)
+        else:
+            acc = insertStockPosition(acc, json_util.loads(json_util.dumps(cur)))
+    elif "卖" in cur["op"]:
+        if len(acc) > 0:
+            if acc[-1]["quantity"] < cur["quantity"]:
+                r = float((cur["quantity"] - acc[-1]["quantity"])) / float(
+                    cur["quantity"]
+                )
+                cur["quantity"] = cur["quantity"] - acc[-1]["quantity"]
+                cur["amount"] = cur["amount"] * r
+                acc.pop()
+                acc = accStockTrades(acc, cur)
+            elif acc[-1]["quantity"] == cur["quantity"]:
+                acc.pop()
+            else:
+                r = acc[-1]["quantity"] - cur["quantity"] / float(acc[-1]["quantity"])
+                acc[-1]["quantity"] = acc[-1]["quantity"] - cur["quantity"]
+                acc[-1]["amount"] = acc[-1]["amount"] * r
+    return acc
+
+
+def get_stock_fill_list(symbol):
+    records = (
+        DBfreshquant["stock_fills"]
+        .find({"symbol": symbol, "quantity": {"$ne": 0}})
+        .sort([("date", pymongo.ASCENDING), ("time", pymongo.ASCENDING)])
+    )
+    df = pd.DataFrame(records)
+    if not df.empty:
+        if 'amount_adjust' not in df.columns:
+            df['amount_adjust'] = 1
+        df['amount_adjust'].fillna(1, inplace=True)
+        records = df.to_dict("records")
+        acc = []
+        for record in records:
+            acc = accStockTrades(acc, record)
+        return acc
+    else:
+        return None
+
+
+# 查询InstrumentStrategy
+def getInstrumentStrategy(instrumentCode: str):
+    return DBfreshquant["instrument_strategy"].find_one(
+        {
+            "instrument_code": instrumentCode,
+        }
+    )
+
+
+def get_arranged_stock_fill_list(symbol):
+    records = list(
+        DBfreshquant["stock_fills"]
+        .find({"symbol": symbol, "quantity": {"$ne": 0}})
+        .sort([("date", pymongo.ASCENDING), ("time", pymongo.ASCENDING)])
+    )
+    if len(records) > 0:
+        stockCode = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
+        lotAmount = get_trade_amount(stockCode)
+        acc = []
+        for record in records:
+            acc = accArrangedStockTrades(acc, record, lotAmount)
+        return acc
+    else:
+        return None
+
+
+def get_stock_fills(symbol):
+    records = get_stock_fill_list(symbol)
+    if records is not None:
+        return pd.DataFrame(records)
+    else:
+        return None
+
+
+def get_stock_last_fill(symbol):
+    records = get_stock_fill_list(symbol)
+    if records is not None and len(records) > 0:
+        return records[-1]
+    else:
+        return None
+
+
+# 查询股票持仓，包括：
+# 1. 持仓数量为正
+# 2. 持仓金额为负
+def get_stock_positions():
+    records = (
+        DBfreshquant["stock_fills"]
+        .find({})
+        .sort([("date", pymongo.DESCENDING), ("time", pymongo.DESCENDING)])
+    )
+    df = pd.DataFrame(records)
+    if len(df) > 0:
+        df.drop(columns=["_id"], inplace=True)
+        if 'amount_adjust' not in df.columns:
+            df['amount_adjust'] = 1
+        df['amount_adjust'].fillna(1, inplace=True)
+        df["symbol"] = df["symbol"].apply(lambda x: fq_util_code_append_market_code(x))
+        df["direction"] = df["op"].apply(lambda op: -1 if "买" in op else 1)
+        df["amount"] = df["amount"] * df["direction"]
+        df["amount_adjusted"] = df["amount"] * df["amount_adjust"]
+        df["quantity"] = df["quantity"] * df["direction"] * -1
+
+        df = df.reset_index(drop=True)
+
+        # 先分组聚合
+        grouped = (
+            df.groupby(by=["symbol"])
+            .agg(
+                {
+                    "symbol": "first",
+                    "stock_code": "first",
+                    "name": "first",
+                    "quantity": "sum",
+                    "amount": "sum",
+                    "amount_adjusted": "sum",
+                    "date": "last",
+                    "time": "last",
+                }
+            )
+            .reset_index(drop=True)
+        )
+        # 筛选条件：持仓数量>0 且 调整后金额<0
+        grouped = grouped[(grouped["amount_adjusted"] < 0) | (grouped["quantity"] > 0)]
+        grouped = grouped.sort_values(by=["date", "time"])
+        df = df.round({"amount": 2})
+
+        return grouped.to_dict(orient="records")
+    else:
+        return []
+
+
+# 查询股票持仓，包括：
+# 1. 持仓数量为正
+# 2. 持仓金额为负
+# 只返回6位数的股票代码
+@redis_cache.memoize()
+def get_stock_holding_codes():
+    codes = []
+    records = get_stock_positions()
+    for record in records:
+        codes.append(record["symbol"][2:])
+    return codes
+
+
+def get_stock_hold_position(code):
+    """
+    获取单个股票的持仓信息
+
+    Args:
+        code (str): 股票代码 (symbol)
+
+    Returns:
+        dict: 单个股票的持仓信息，如果未找到则返回None
+    """
+    records = (
+        DBfreshquant["stock_fills"]
+        .find({"symbol": code})
+        .sort([("date", pymongo.DESCENDING), ("time", pymongo.DESCENDING)])
+    )
+    df = pd.DataFrame(records)
+    if len(df) > 0:
+        df.drop(columns=["_id"], inplace=True)
+        if 'amount_adjust' not in df.columns:
+            df['amount_adjust'] = 1
+        df['amount_adjust'].fillna(1, inplace=True)
+        df["symbol"] = df["symbol"].apply(lambda x: fq_util_code_append_market_code(x))
+        df["direction"] = df["op"].apply(lambda op: -1 if "买" in op else 1)
+        df["amount"] = df["amount"] * df["direction"]
+        df["amount_adjusted"] = df["amount"] * df["amount_adjust"]
+        df["quantity"] = df["quantity"] * df["direction"] * -1
+
+        # 重置索引以避免分组时的歧义
+        df = df.reset_index(drop=True)
+
+        # 先分组聚合
+        grouped = (
+            df.groupby(by=["symbol"])
+            .agg(
+                {
+                    "symbol": "first",
+                    "stock_code": "first",
+                    "name": "first",
+                    "quantity": "sum",
+                    "amount": "sum",
+                    "amount_adjusted": "sum",
+                    "date": "last",
+                    "time": "last",
+                }
+            )
+            .reset_index(drop=True)
+        )  # 重置索引以避免歧义
+
+        # 筛选条件：持仓数量>0 且 调整后金额<0
+        grouped = grouped[(grouped["amount_adjusted"] < 0) | (grouped["quantity"] > 0)]
+        grouped = grouped.sort_values(by=["date", "time"])
+        grouped = grouped.round({"amount": 2})
+
+        # 转换为字典并返回单个股票的信息
+        result = grouped.to_dict(orient="records")
+        if result:
+            return result[0]  # 返回第一个匹配的股票信息
+    return None
+
+
+# 清理股票持仓数据
+def clean_stock_fills():
+    # 检查当前时间是否在晚上8点之后
+    current_time = datetime.now()
+    if current_time.hour < 20:  # 20点是晚上8点
+        print(
+            f"清理操作只能在晚上8点之后执行，当前时间: {current_time.strftime('%H:%M:%S')}"
+        )
+        return False
+
+    # 在允许的时间范围内执行清理操作
+    codes = get_stock_holding_codes()
+    DBfreshquant["stock_fills"].delete_many({"symbol": {"$nin": codes}})
+    return True
+
+
+def compact_stock_fills(code=None):
+    # 检查当前时间是否在晚上8点之后
+    current_time = datetime.now()
+    if current_time.hour < 20:  # 20点是晚上8点
+        print(
+            f"compact_stock_fills只能在晚上8点之后执行，当前时间: {current_time.strftime('%H:%M:%S')}"
+        )
+        return False
+    holding_codes = get_stock_holding_codes()
+    if code is not None:
+        holding_codes = [c for c in holding_codes if c == code]
+    for code in holding_codes:
+        position_info = get_stock_hold_position(code)
+        if position_info:
+            stock_fill_list = list(DBfreshquant["stock_fills"].find({"symbol": code}))
+            quantity = int(position_info["quantity"])
+            amount_adjusted = float(position_info["amount_adjusted"])
+            if len(stock_fill_list) > 1 and quantity == 0 and amount_adjusted < 0:
+                records = [
+                    {
+                        "op": "买",
+                        "symbol": code,
+                        "date": int(datetime.now().strftime('%Y%m%d')),
+                        "time": datetime.now().strftime('%H:%M:%S'),
+                        "price": 0.0,
+                        "amount": -amount_adjusted,
+                        "name": position_info["name"],
+                        "quantity": 0,
+                        "source": "reset",
+                        "stock_code": position_info["stock_code"],
+                    }
+                ]
+                existing_records = list(DBfreshquant.stock_fills.find({"symbol": code}))
+                if len(existing_records) > 1:
+                    audit_record = {
+                        "operation": "reset_stock_fills",
+                        "symbol": code,
+                        "original_records": existing_records,
+                        "timestamp": datetime.now(),
+                        "record_count": len(existing_records),
+                    }
+                    DBfreshquant.audit_log.insert_one(audit_record)
+                DBfreshquant["stock_fills"].delete_many({"symbol": code})
+                DBfreshquant.stock_fills.insert_many(records)
+
+
+if __name__ == "__main__":
+    # stock_fills = get_stock_fills("002599")
+    # print(stock_fills)
+    fills = get_arranged_stock_fill_list("000026")
+    print(json_util.dumps(fills, indent=4))
+    # print(len(fills))
+    # print(json_util.dumps(get_stock_positions(), indent=4))
+    # print(get_stock_holding_codes())
+    # compact_stock_fills()
+    # clean_stock_fills()

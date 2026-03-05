@@ -1,0 +1,18 @@
+{拉回第一个上涨中枢的中枢低}
+FRAC:=TDXDLL2(2,H,L,0);{标准笔}
+BIZGG:=TDXDLL2(6,FRAC,H,L);{输出BI中枢高}
+BIZDD:=TDXDLL2(8,FRAC,H,L);{输出BI中枢低}
+BIZG:=TDXDLL2(5,FRAC,H,L);{输出BI中枢高}
+BIZD:=TDXDLL2(7,FRAC,H,L);{输出BI中枢低}
+方向:=TDXDLL2(10,FRAC,H,L);
+COND:=BIZD>0;
+周期距离:=BARSLAST(COND=1);
+中枢高:=REF(BIZG,周期距离);
+中枢低:=REF(BIZD,周期距离);
+中枢方向:=REF(方向,周期距离);
+拉回中枢:=REF(L,1)<=中枢低 AND C>中枢低 AND 中枢方向=1;
+中大阳:=C/O>1.03;
+COND1:=COUNT(BARSLAST(拉回中枢),中大阳)>0;
+COND2:=CLOSE>中枢低;
+COND3:=中枢高/中枢低<1.3;
+COND1 AND COND2 AND COND3;

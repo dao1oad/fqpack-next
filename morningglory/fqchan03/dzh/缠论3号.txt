@@ -1,0 +1,25 @@
+﻿bi:="freshczsc@BI2";
+drawline(bi=1,h,bi=-1,l,0),coloryellow,linethick1;
+drawline(bi=-1,l,bi=1,h,0),coloryellow,linethick1;
+
+duan:="freshczsc@DUAN1VAR"(bi);
+drawline(duan=1,h,duan=-1,l,0),colorblue,linethick1;
+drawline(duan=-1,l,duan=1,h,0),colorblue,linethick1;
+
+zszg:="freshczsc@ZSZGVAR"(bi);
+zszd:="freshczsc@ZSZDVAR"(bi);
+zsse:="freshczsc@ZSSEVAR"(bi);
+
+DRAWLINE(zsse=1, zszg, zsse=2, zszg, 0), colorred, linethick1;
+DRAWLINE(zsse=1, zszd, zsse=2, zszd, 0), colorred, linethick1;
+STICKLINE(zsse=1, zszg, zszd, 1, 0), colorred, linethick1;
+STICKLINE(zsse=2, zszg, zszd, 1, 0), colorred, linethick1;
+
+dzszg:="freshczsc@ZSZGVAR"(duan);
+dzszd:="freshczsc@ZSZDVAR"(duan);
+dzsse:="freshczsc@ZSSEVAR"(duan);
+
+DRAWLINE(dzsse=1, dzszg, dzsse=2, dzszg, 0), colorblue, linethick1;
+DRAWLINE(dzsse=1, dzszd, dzsse=2, dzszd, 0), colorblue, linethick1;
+STICKLINE(dzsse=1, dzszg, dzszd, 1, 0), colorblue, linethick1;
+STICKLINE(dzsse=2, dzszg, dzszd, 1, 0), colorblue, linethick1;

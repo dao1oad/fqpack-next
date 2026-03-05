@@ -1,0 +1,77 @@
+<h1 id="函数说明">函数说明</h1>
+<p>dist目录中是编译好的针对不同python版本的wheel文件，比如python3.9的话，运行python
+install fqchan01-0.2.3-cp39-cp39-win_amd64.whl进行安装。</p>
+<p>其它python版本雷同。</p>
+<p>demo.py是一个示例程序。</p>
+<h2 id="数据结构说明">数据结构说明</h2>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Bar表示原始的K柱</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>Class Bar:</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    pos: <span class="bu">int</span> <span class="co"># Bar所在的索引号</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    high: <span class="bu">float</span> <span class="co"># Bar的最高价</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    low: <span class="bu">float</span> <span class="co"># Bar的最低价</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co"># StdBar表示合并后的K柱</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>Class StdBar:</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    pos: <span class="bu">int</span> <span class="co"># StdBar所在的索引号</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    start: <span class="bu">int</span> <span class="co"># 合并K柱在原始K柱中的开始索引号</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    end: <span class="bu">int</span> <span class="co"># 合并K柱在原始K柱的结束索引号</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    high_vertex: <span class="bu">int</span> <span class="co"># 最高点在的原始K柱索引号</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    low_vertex: <span class="bu">int</span> <span class="co"># 最低点在的原始K柱索引号</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    high: <span class="bu">float</span> <span class="co"># 合并后的high</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    low: <span class="bu">float</span> <span class="co"># 合并后的low</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    high_high: <span class="bu">float</span> <span class="co"># 原始K柱的最高价</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    low_low: floatv <span class="co"># 原始K柱的最低价</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    direction: <span class="bu">float</span> <span class="co"># K柱方向</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    factor: <span class="bu">float</span> <span class="co"># -1=底分型的底，1=顶分型顶，0=不是分型</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    factor_high: <span class="bu">float</span> <span class="co"># 分型区间高</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    factor_low: <span class="bu">float</span> <span class="co"># 分型区间低</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    factor_strong: <span class="bu">float</span> <span class="co"># 是否强分型</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a><span class="co"># Pivot表示中枢</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>Class Pivot</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>    start: <span class="bu">int</span> <span class="co"># 中枢在原始K柱中的开始索引</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    end: <span class="bu">int</span> <span class="co"># 中枢在原始K柱中的结束索引</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>    zg: <span class="bu">float</span> <span class="co"># 中枢高点价格</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    zd: <span class="bu">float</span> <span class="co"># 中枢低点价格</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>    gg: <span class="bu">float</span> <span class="co"># 中枢最高点价格</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>    dd: <span class="bu">float</span> <span class="co"># 中枢最低点价格</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    direction: <span class="bu">float</span> <span class="co"># 中枢方向</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>    confirmed: <span class="bu">bool</span> <span class="co"># 是否确认中枢</span></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a><span class="co"># ChanOptions参数选项</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>Class ChanOptions</span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>    bi_mode: <span class="bu">int</span> <span class="co"># 笔模式: 4=最少满足4个K的笔，5=最少满足5个K的笔，6=大笔</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>    force_wave_stick_count: <span class="bu">int</span> <span class="co"># N等于14的时候，不强制成笔，N大于等于15的时候，N根K后必须要强制成笔，笔端点在最高最低点</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>    allow_pivot_across: <span class="bu">int</span> <span class="co"># 最后中枢是否允许跨中枢画</span></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>    merge_non_complehensive_wave: <span class="bu">int</span> <span class="co"># 是否合并未完备的笔</span></span></code></pre></div>
+<h2 id="fq_recognise_bars">fq_recognise_bars</h2>
+<p>入参是列表的元素个数，最高价的列表，最低价的列表
+出参是列表，每个元素是Bar</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>fq_recognise_bars(length: <span class="bu">int</span>, high: List[<span class="bu">float</span>], low: List[<span class="bu">float</span>]) <span class="op">-&gt;</span> List[Bar]</span></code></pre></div>
+<h2 id="fq_recognise_std_bars">fq_recognise_std_bars</h2>
+<p>入参是列表的元素个数，最高价的列表，最低价的列表
+出参是列表，每个元素是StdBar</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>fq_recognise_std_bars(length: <span class="bu">int</span>, high: List[<span class="bu">float</span>], low: List[<span class="bu">float</span>]) <span class="op">-&gt;</span> List[StdBar]</span></code></pre></div>
+<h2 id="fq_recognise_swing">fq_recognise_swing</h2>
+<p>入参是列表的元素个数，最高价的列表，最低价的列表
+出参是SW信号列表，每个元素是-1,0,1三种，表示是否是swing的低或者高</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>fq_recognise_swing(length: <span class="bu">int</span>, high: List[<span class="bu">float</span>], low: List[<span class="bu">float</span>]) <span class="op">-&gt;</span> List[<span class="bu">float</span>]</span></code></pre></div>
+<h2 id="fq_recognise_bi">fq_recognise_bi</h2>
+<p>入参是列表的元素个数，最高价的列表，最低价的列表，和笔的参数选项
+出参是笔信号列表，每个元素是-1,0,1三种，表示是否是bi的低或高</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>fq_recognise_bi(length: <span class="bu">int</span>, high: List[<span class="bu">float</span>], low: List[<span class="bu">float</span>], chan_options ChanOptions) <span class="op">-&gt;</span> List[<span class="bu">float</span>]</span></code></pre></div>
+<h2 id="fq_recognise_duan">fq_recognise_duan</h2>
+<p>入参是列表的元素个数，笔信号的列表，最高价的列表，最低价的列表
+出参是段信号列表，每个元素是-1,0,1三种，表示是否是段的低或者高</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>fq_recognise_duan(length: <span class="bu">int</span>, bi: List[<span class="bu">float</span>], high: List[<span class="bu">float</span>], low: List[<span class="bu">float</span>]) <span class="op">-&gt;</span> List[<span class="bu">float</span>]</span></code></pre></div>
+<h2 id="fq_recognise_pivots">fq_recognise_pivots</h2>
+<p>入参是列表的元素个数，笔信号列表，段参数列表，最高价的列表，最低价的列表
+出参是中枢列表，每个元素是Pivot</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>fq_recognise_pivots(length: <span class="bu">int</span>, duan: List[<span class="bu">float</span>], bi: List[<span class="bu">float</span>], high: List[<span class="bu">float</span>], low: List[<span class="bu">float</span>]) <span class="op">-&gt;</span> List[Pivot]</span></code></pre></div>

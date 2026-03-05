@@ -1,0 +1,17 @@
+venv/
+.idea/
+__pycache__/
+.DS_Store
+.vscode/
+*.log
+*.pid
+*.log.*
+fqxtrade.egg-info/
+dist/
+build/
+package-lock.json
+*.xlsx
+fqxtrade-*.zip
+.aider.chat.history.md
+.aider.tags.cache.v4/
+.aider.input.history

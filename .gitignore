@@ -1,0 +1,42 @@
+# Python specific files and folders
+__pycache__/
+*.egg-info/
+dist/
+build/
+*.log
+*.pid
+*.log.*
+package-lock.json
+
+# Virtual environments
+.venv/
+
+# IDEs and editors
+.idea/
+.vscode/
+.kiro/
+
+# Other files and folders
+.DS_Store
+morningglory/fqcopilot/tdx/dlls/*.dll
+morningglory/fqcopilot/dzh/dlls/*.dll
+morningglory/fqcopilot/jzt/dlls/*.dll
+morningglory/fqcopilot/kt/dlls/*.dll
+morningglory/fqcopilot/jzt32/dlls/*.dll
+
+# Other file types
+*.xlsx
+*.zip
+*.enc
+freshquant.txt
+.aider*
+.env
+.xmake/
+uv.lock
+/report/
+/output/
+/nul
+/ticket/
+/.claude/ralph-loop.local.md
+/.claude/settings.local.json
+/temp/

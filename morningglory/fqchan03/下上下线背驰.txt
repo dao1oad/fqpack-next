@@ -1,0 +1,15 @@
+BI:=TDXDLL1(1,H,L,0);
+
+D1:=BARSLAST(BI=-1);
+D2:=D1+REF(D1,D1+1)+1;
+
+G1:=BARSLAST(BI=1);
+G2:=G1+REF(G1,G1+1)+1;
+
+下上下:=G1>D1 AND REF(L,D1)<REF(L,D2) AND REF(H,G1)<REF(H, G2);
+
+DIF:=EMA(CLOSE,12)-EMA(CLOSE,26);
+DIF低:=LLV(DIF, G1);
+线背驰:=DIF低>REF(DIF低, G1+1)+0.01;
+
+下上下 AND 线背驰;
