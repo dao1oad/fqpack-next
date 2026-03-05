@@ -82,12 +82,12 @@ def queryEtfCandleSticksDayAdv(code, start, end):
 
 
 def queryEtfCandleSticksDay(code, start=None, end=None):
+    start_dt = start if start is not None else datetime.now() - timedelta(days=30)
+    end_dt = end if end is not None else datetime.now()
     data = queryEtfCandleSticksDayAdv(
         code,
-        QA_util_datetime_to_strdatetime(
-            start if start is not None else datetime.now() - timedelta(days=30)
-        ),
-        QA_util_datetime_to_strdatetime(end if end is not None else datetime.now()),
+        QA_util_datetime_to_strdatetime(start_dt),
+        QA_util_datetime_to_strdatetime(end_dt),
     )
     if data is None or len(data) == 0:
         return None
@@ -106,7 +106,7 @@ def queryEtfCandleSticksDay(code, start=None, end=None):
             {
                 "code": fq_util_code_append_market_code(code, upper_case=False),
                 "frequence": '1d',
-                "datetime": {"$gt": last_datetime, "$lte": end},
+                "datetime": {"$gt": last_datetime, "$lte": end_dt},
                 "open": {"$gt": 0},
                 "high": {"$gt": 0},
                 "low": {"$gt": 0},
@@ -144,10 +144,10 @@ def queryEtfCandleSticksDay(code, start=None, end=None):
         data = pd.concat([data, realtime_data_list])
         data.drop_duplicates(subset="datetime", keep="first", inplace=True)
 
-    adj = _fetch_etf_adj(code, start, end)
+    adj = _fetch_etf_adj(code, start_dt, end_dt)
     if adj is None or len(adj) == 0:
-        start_s = start.strftime("%Y-%m-%d") if start else "N/A"
-        end_s = end.strftime("%Y-%m-%d") if end else "N/A"
+        start_s = start_dt.strftime("%Y-%m-%d") if start_dt else "N/A"
+        end_s = end_dt.strftime("%Y-%m-%d") if end_dt else "N/A"
         logger.warning(
             f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]"
         )

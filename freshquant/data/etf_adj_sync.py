@@ -8,6 +8,12 @@ from typing import Iterable, Optional
 import pandas as pd
 import pymongo
 from loguru import logger
+from pymongo.errors import (
+    AutoReconnect,
+    ConnectionFailure,
+    OperationFailure,
+    ServerSelectionTimeoutError,
+)
 
 from freshquant.data.etf_adj import compute_etf_qfq_adj
 from freshquant.db import DBQuantAxis
@@ -81,13 +87,29 @@ def _market_from_sse_or_code(*, sse: str | None, code: str) -> int:
 
 def _ensure_indexes(db) -> None:
     for name in ["etf_xdxr", "etf_adj"]:
+        coll = getattr(db, name)
         try:
-            coll = getattr(db, name)
             coll.create_index(
                 [("code", pymongo.ASCENDING), ("date", pymongo.ASCENDING)], unique=True
             )
-        except Exception as e:
-            logger.warning(f"ensure index failed for {name}, drop and recreate: {e}")
+        except (ServerSelectionTimeoutError, ConnectionFailure, AutoReconnect) as e:
+            raise RuntimeError(
+                f"ensure index failed for {name}: db not reachable: {e}"
+            ) from e
+        except OperationFailure as e:
+            msg = str(e)
+            # Only do destructive recovery for duplicate-key / index conflict cases.
+            # Anything else should surface to avoid accidental data loss.
+            if (
+                "E11000" not in msg
+                and "duplicate key" not in msg
+                and "IndexOptionsConflict" not in msg
+            ):
+                raise
+
+            logger.warning(
+                f"ensure index failed for {name} due to duplicates/conflict, drop and recreate: {e}"
+            )
             db.drop_collection(name)
             coll = getattr(db, name)
             coll.create_index(
