@@ -1,0 +1,158 @@
+name: fqnext_20260223
+
+services:
+  fq_mongodb:
+    image: mongo:8.2.2
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "27027:27017"
+    volumes:
+      - fqnext_mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  fq_redis:
+    image: redis:7.0.12-alpine3.18
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - fqnext_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  fq_apiserver:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rear
+    image: fqnext_rear:2026.2.23
+    env_file:
+      - ../.env
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: "1"
+    command: ["python", "-m", "freshquant.rear.api_server", "--port", "5000"]
+    ports:
+      - "15000:5000"
+    depends_on:
+      fq_mongodb:
+        condition: service_healthy
+      fq_redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fq_tdxhq:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rear
+    image: fqnext_rear:2026.2.23
+    env_file:
+      - ../.env
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: "1"
+    command: ["python", "-m", "freshquant.gateway.tdxhq", "--port", "5001"]
+    ports:
+      - "15001:5001"
+    depends_on:
+      fq_mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fq_dagster_webserver:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rear
+    image: fqnext_rear:2026.2.23
+    env_file:
+      - ../.env
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: "1"
+    command:
+      [
+        "sh",
+        "-lc",
+        "mkdir -p /opt/dagster/home; cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; cd /opt/dagster/home; dagster-webserver -h 0.0.0.0 -p 10003 -w /opt/dagster/home/workspace.yaml",
+      ]
+    ports:
+      - "11003:10003"
+    volumes:
+      - fqnext_dagster_data:/opt/dagster
+    depends_on:
+      fq_mongodb:
+        condition: service_healthy
+      fq_redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fq_dagster_daemon:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rear
+    image: fqnext_rear:2026.2.23
+    env_file:
+      - ../.env
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: "1"
+    command:
+      [
+        "sh",
+        "-lc",
+        "mkdir -p /opt/dagster/home; cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; dagster-daemon run -w /opt/dagster/home/workspace.yaml",
+      ]
+    volumes:
+      - fqnext_dagster_data:/opt/dagster
+    depends_on:
+      fq_mongodb:
+        condition: service_healthy
+      fq_redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fq_qawebserver:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rear
+    image: fqnext_rear:2026.2.23
+    env_file:
+      - ../.env
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: "1"
+    command: ["python", "-m", "QUANTAXIS.QAWebServer.server"]
+    ports:
+      - "18010:8010"
+    depends_on:
+      fq_mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fq_webui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    image: fqnext_webui:2026.2.23
+    ports:
+      - "18080:80"
+    depends_on:
+      fq_apiserver:
+        condition: service_started
+      fq_qawebserver:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  fqnext_mongodb_data:
+  fqnext_redis_data:
+  fqnext_dagster_data:
