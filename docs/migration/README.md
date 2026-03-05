@@ -8,6 +8,13 @@
 2) 每个迁移单元必须在 `progress.md` 登记，并关联一个 RFC。
 3) 破坏性变更落地时，必须在 `breaking-changes.md` 追加记录，并引用对应 RFC。
 
+## 更新频率（强制）
+
+- RFC 状态任意变更时（Draft/Review/Approved/Implementing/Done/Blocked），必须在**同一提交**更新 `progress.md`。
+- 任何涉及迁移/重构/删改功能的合并到 `main`，必须在**同一提交**更新 `progress.md`。
+- 处于 Implementing 状态的 RFC，按 Asia/Shanghai 自然日 **每天至少更新一次**（可只写“无进展 + 原因”）。
+- 任何破坏性变更落地时，必须在**同一提交**更新 `breaking-changes.md` 并引用 RFC。
+
 ## 文件说明
 
 - `progress.md`：迁移进度总表（以 RFC 为单位）

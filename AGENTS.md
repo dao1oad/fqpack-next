@@ -69,6 +69,13 @@ RFC 必含内容（至少）：
 - 每个迁移单元必须关联一个 RFC（在进度表里写 RFC 编号/链接）。
 - 任何破坏性变更落地时，必须在 `breaking-changes.md` 追加记录，并引用对应 RFC。
 
+强制更新频率（必须遵守）：
+- **RFC 状态变更即更新**：RFC 从 Draft/Review/Approved/Implementing/Done/Blocked 任意变更时，必须在**同一提交**更新 `docs/migration/progress.md`。
+- **迁移代码合并即更新**：任何涉及迁移/重构/删改功能的合并到 `main`，必须在**同一提交**更新 `docs/migration/progress.md`（含“做了什么/下一步/风险”简述）。
+- **Implementing 每日更新**：处于 Implementing 的 RFC，按 Asia/Shanghai 自然日 **每天至少更新一次**进度（哪怕只是“无进展 + 原因”）。
+- **破坏性变更同提交登记**：任何破坏性变更（接口/配置/数据/行为语义）落地时，必须在**同一提交**更新 `docs/migration/breaking-changes.md` 并引用 RFC。
+- **未更新视为未完成**：未按上述规则更新进度/变更记录的工作，视为未完成，不应合并。
+
 ## 6. Git/GitHub
 
 - 默认使用 SSH 远端（本项目）：`ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git`
