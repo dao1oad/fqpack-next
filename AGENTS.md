@@ -82,6 +82,13 @@ RFC 必含内容（至少）：
 - 如必须走 HTTPS 且需要代理，可按命令级别注入（示例）：`git -c http.proxy=http://127.0.0.1:10809 -c https.proxy=http://127.0.0.1:10809 <cmd>`
 - 不要提交密钥/Token；`.env` 等敏感文件保持在 `.gitignore` 中。
 
+PR 合并策略（项目强制约束）：
+- **禁止直推 `main`**：所有改动在 feature 分支完成后提交 PR。
+- PR 必须满足：
+  - CI 全绿（`CI / governance`、`CI / pre-commit`、`CI / pytest`）
+  - 至少 1 个 reviewer Approve
+  - 解决所有 review discussion 后再合并
+
 ## 7. Skills（可选）
 
 - 本环境支持在本机 Codex skills 目录下按需加载 `SKILL.md`，并遵循其中工作流。
