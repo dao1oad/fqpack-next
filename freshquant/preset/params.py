@@ -63,6 +63,32 @@ def init_param_dict(quiet=False):
         upsert=True,
     )
 
+    # XTData 监控模式（严格二选一，重启后生效；标的集合在 Producer 侧可动态增量订阅）
+    monitor_config = DBfreshquant.params.find_one({"code": "monitor"}) or {}
+    xtdata_cfg = (monitor_config.get("value", {}) or {}).get("xtdata", {}) or {}
+    xtdata_mode = xtdata_cfg.get("mode", "clx_15_30")
+    xtdata_max_symbols = int(xtdata_cfg.get("max_symbols", 50) or 50)
+    prewarm_cfg = xtdata_cfg.get("prewarm", {}) or {}
+    prewarm_max_bars = int(prewarm_cfg.get("max_bars", 20000) or 20000)
+
+    if quiet:
+        print("\n当前XTData监控配置：")
+        print(f"mode: {xtdata_mode} (guardian_1m | clx_15_30)")
+        print(f"max_symbols: {xtdata_max_symbols}")
+        print(f"prewarm.max_bars: {prewarm_max_bars}")
+
+    DBfreshquant.params.update_one(
+        {"code": "monitor"},
+        {
+            "$set": {
+                "value.xtdata.mode": xtdata_mode,
+                "value.xtdata.max_symbols": xtdata_max_symbols,
+                "value.xtdata.prewarm.max_bars": prewarm_max_bars,
+            }
+        },
+        upsert=True,
+    )
+
     # 获取当前xtquant配置
     xtquant_config = DBfreshquant.params.find_one({"code": "xtquant"}) or {}
     current_value = xtquant_config.get("value", {})

@@ -40,3 +40,7 @@ uv.lock
 /.claude/ralph-loop.local.md
 /.claude/settings.local.json
 /temp/
+
+# Local build artifacts (fullcalc)
+morningglory/fqcopilot/python/fullcalc.pyd
+morningglory/fqcopilot/xmake_f_*.txt
