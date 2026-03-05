@@ -8,7 +8,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-
 PROGRESS_FILE = "docs/migration/progress.md"
 BREAKING_CHANGES_FILE = "docs/migration/breaking-changes.md"
 
@@ -64,7 +63,9 @@ class Change:
 
 
 def run(cmd: list[str]) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return subprocess.run(
+        cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
 
 
 def git_diff_name_only(base_ref: str, head_ref: str) -> list[str]:
@@ -111,9 +112,15 @@ def load_text(path: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="CI governance checks for migration/RFC discipline.")
-    parser.add_argument("--base-ref", required=True, help="Git ref/commit for base (e.g. origin/main)")
-    parser.add_argument("--head-ref", required=True, help="Git ref/commit for head (e.g. HEAD)")
+    parser = argparse.ArgumentParser(
+        description="CI governance checks for migration/RFC discipline."
+    )
+    parser.add_argument(
+        "--base-ref", required=True, help="Git ref/commit for base (e.g. origin/main)"
+    )
+    parser.add_argument(
+        "--head-ref", required=True, help="Git ref/commit for head (e.g. HEAD)"
+    )
     args = parser.parse_args()
 
     base_ref: str = args.base_ref
@@ -164,7 +171,8 @@ def main() -> int:
         requires_progress = True
 
     if any(
-        any_matches_prefix(p, PROGRESS_REQUIRED_PREFIXES) or p in PROGRESS_REQUIRED_FILES
+        any_matches_prefix(p, PROGRESS_REQUIRED_PREFIXES)
+        or p in PROGRESS_REQUIRED_FILES
         for p in relevant_changed_files
     ):
         requires_progress = True
@@ -183,10 +191,16 @@ def main() -> int:
         return 3
 
     if rfc_nums_added:
-        progress_text = load_text(PROGRESS_FILE) if PROGRESS_FILE in changed_set else load_text(PROGRESS_FILE)
+        progress_text = (
+            load_text(PROGRESS_FILE)
+            if PROGRESS_FILE in changed_set
+            else load_text(PROGRESS_FILE)
+        )
         missing: list[str] = []
         for num in rfc_nums_added:
-            if not re.search(rf"^\|\s*{re.escape(num)}\s*\|", progress_text, flags=re.MULTILINE):
+            if not re.search(
+                rf"^\|\s*{re.escape(num)}\s*\|", progress_text, flags=re.MULTILINE
+            ):
                 missing.append(num)
         if missing:
             sys.stderr.write(
@@ -198,7 +212,8 @@ def main() -> int:
             return 4
 
     requires_breaking = any(
-        any_matches_prefix(p, BREAKING_REQUIRED_PREFIXES) or p in BREAKING_REQUIRED_FILES
+        any_matches_prefix(p, BREAKING_REQUIRED_PREFIXES)
+        or p in BREAKING_REQUIRED_FILES
         for p in changed_files
     )
     if requires_breaking and BREAKING_CHANGES_FILE not in changed_set:
