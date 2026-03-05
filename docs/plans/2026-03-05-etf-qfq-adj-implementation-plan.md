@@ -4,7 +4,7 @@
 
 **Goal:** 新增 `quantaxis.etf_xdxr/etf_adj` 的同步链路，并让 `freshquant/quote/etf.py` 默认返回前复权(qfq) K 线，使 `get_data_v2()` 在股票/ETF 上行为一致（无开关）。
 
-**Architecture:**  
+**Architecture:**
 使用 TDX/pytdx 拉取 ETF xdxr（`category=1/11`），落库为 `etf_xdxr`；基于 `index_day`（bfq）+ `etf_xdxr` 计算 qfq 因子 `adj` 并写入 `etf_adj`；查询侧按日期 join `etf_adj` 并对 OHLC 乘因子。
 
 **Tech Stack:** `pandas`, `pymongo`, `pytdx`, `dagster`, `pytest`, `loguru`
@@ -72,7 +72,7 @@ def test_compute_etf_preclose_dividend_category1_uses_stock_formula():
 
 **Step 3: 运行测试（确认失败）**
 
-Run: `pytest freshquant/tests/test_etf_adj.py -q`  
+Run: `pytest freshquant/tests/test_etf_adj.py -q`
 Expected: FAIL（`freshquant.data.etf_adj`/函数尚不存在）
 
 ---
@@ -98,7 +98,7 @@ Expected: FAIL（`freshquant.data.etf_adj`/函数尚不存在）
 
 **Step 2: 运行测试（确认通过）**
 
-Run: `pytest freshquant/tests/test_etf_adj.py -q`  
+Run: `pytest freshquant/tests/test_etf_adj.py -q`
 Expected: PASS
 
 ---
@@ -118,7 +118,7 @@ Expected: PASS
 
 **Step 2: 增加轻量单测（不连 Mongo）**
 
-建议用 `monkeypatch` 把“查询 adj 的函数”替换成固定 DataFrame，验证 OHLC 被乘到。  
+建议用 `monkeypatch` 把“查询 adj 的函数”替换成固定 DataFrame，验证 OHLC 被乘到。
 （如现有测试体系较弱，可先不加；但建议至少覆盖 1 个测试用例。）
 
 ---
@@ -192,4 +192,3 @@ print(DBQuantAxis.etf_xdxr.count_documents({}))
 **Step 1: 登记变更（引用 RFC 0002）**
 
 说明 “ETF 查询默认从 bfq → qfq” 的影响面、迁移建议与回滚方式。
-

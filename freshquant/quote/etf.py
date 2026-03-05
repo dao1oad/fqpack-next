@@ -14,8 +14,7 @@ from freshquant.data.etf_adj import apply_qfq_to_bars
 from freshquant.database.cache import in_memory_cache, redis_cache
 from freshquant.db import DBfreshquant, DBQuantAxis
 from freshquant.quote.general import resample3min, resampleStockOrIndex120min
-from freshquant.util.code import fq_util_code_append_market_code
-from freshquant.util.code import normalize_to_base_code
+from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 
 
 def _fetch_etf_adj(
@@ -149,7 +148,9 @@ def queryEtfCandleSticksDay(code, start=None, end=None):
     if adj is None or len(adj) == 0:
         start_s = start.strftime("%Y-%m-%d") if start else "N/A"
         end_s = end.strftime("%Y-%m-%d") if end else "N/A"
-        logger.warning(f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]")
+        logger.warning(
+            f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]"
+        )
     else:
         data = apply_qfq_to_bars(data, adj, datetime_col="datetime")
 
@@ -228,7 +229,9 @@ def queryEtfCandleSticksMin(code, frequence, start=None, end=None):
     if adj is None or len(adj) == 0:
         start_s = start.strftime("%Y-%m-%d") if start else "N/A"
         end_s = end.strftime("%Y-%m-%d") if end else "N/A"
-        logger.warning(f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]")
+        logger.warning(
+            f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]"
+        )
     else:
         data = apply_qfq_to_bars(data, adj, datetime_col="datetime")
 

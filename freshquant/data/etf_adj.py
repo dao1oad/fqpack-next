@@ -11,7 +11,9 @@ def _normalize_date_series(date_series: pd.Series) -> pd.Series:
     return date_series.astype(str).str.slice(0, 10)
 
 
-def compute_etf_qfq_adj(day_df: pd.DataFrame, xdxr_df: pd.DataFrame | None) -> pd.DataFrame:
+def compute_etf_qfq_adj(
+    day_df: pd.DataFrame, xdxr_df: pd.DataFrame | None
+) -> pd.DataFrame:
     """
     计算 ETF 的前复权(qfq)因子。
 
@@ -59,18 +61,22 @@ def compute_etf_qfq_adj(day_df: pd.DataFrame, xdxr_df: pd.DataFrame | None) -> p
             for col in ["fenhong", "peigu", "peigujia", "songzhuangu"]:
                 merged[col] = merged[col].fillna(0.0)
 
-            has_event = merged["fenhong"].ne(0) | merged["peigu"].ne(0) | merged["songzhuangu"].ne(0) | merged[
-                "peigujia"
-            ].ne(0)
+            has_event = (
+                merged["fenhong"].ne(0)
+                | merged["peigu"].ne(0)
+                | merged["songzhuangu"].ne(0)
+                | merged["peigujia"].ne(0)
+            )
             # 只对 category==1 的日期应用（依赖 merge 后这些列是否为非空且该日期存在事件）
             # 由于 x1 是 left merge，无法直接知道是否来自事件行，使用 date 交集判断
             event_dates = set(x1["date"].tolist())
             has_event = merged["date"].isin(event_dates) & merged["prev_close"].notna()
 
             preclose_1 = (
-                (merged["prev_close"] * 10 - merged["fenhong"] + merged["peigu"] * merged["peigujia"])
-                / (10 + merged["peigu"] + merged["songzhuangu"])
-            )
+                merged["prev_close"] * 10
+                - merged["fenhong"]
+                + merged["peigu"] * merged["peigujia"]
+            ) / (10 + merged["peigu"] + merged["songzhuangu"])
             merged.loc[has_event, "preclose"] = preclose_1.loc[has_event]
             day = merged.drop(columns=["fenhong", "peigu", "peigujia", "songzhuangu"])
 

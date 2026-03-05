@@ -12,7 +12,6 @@ from loguru import logger
 from freshquant.data.etf_adj import compute_etf_qfq_adj
 from freshquant.db import DBQuantAxis
 
-
 _CATEGORY_MEANING = {
     1: "除权除息",
     2: "送配股上市",
@@ -84,12 +83,16 @@ def _ensure_indexes(db) -> None:
     for name in ["etf_xdxr", "etf_adj"]:
         try:
             coll = getattr(db, name)
-            coll.create_index([("code", pymongo.ASCENDING), ("date", pymongo.ASCENDING)], unique=True)
+            coll.create_index(
+                [("code", pymongo.ASCENDING), ("date", pymongo.ASCENDING)], unique=True
+            )
         except Exception as e:
             logger.warning(f"ensure index failed for {name}, drop and recreate: {e}")
             db.drop_collection(name)
             coll = getattr(db, name)
-            coll.create_index([("code", pymongo.ASCENDING), ("date", pymongo.ASCENDING)], unique=True)
+            coll.create_index(
+                [("code", pymongo.ASCENDING), ("date", pymongo.ASCENDING)], unique=True
+            )
 
 
 def _normalize_code_list(codes: Optional[Iterable[str]]) -> list[str]:
@@ -150,13 +153,21 @@ def sync_etf_xdxr_all(
                     if col not in df.columns:
                         raise ValueError(f"TDX xdxr missing column: {col}")
 
-                df["date"] = pd.to_datetime(df[["year", "month", "day"]], errors="coerce").dt.strftime("%Y-%m-%d")
-                df = df.drop(columns=[c for c in ["year", "month", "day"] if c in df.columns])
+                df["date"] = pd.to_datetime(
+                    df[["year", "month", "day"]], errors="coerce"
+                ).dt.strftime("%Y-%m-%d")
+                df = df.drop(
+                    columns=[c for c in ["year", "month", "day"] if c in df.columns]
+                )
                 df["code"] = code
-                df["category_meaning"] = df["category"].map(lambda x: _CATEGORY_MEANING.get(int(x)))
+                df["category_meaning"] = df["category"].map(
+                    lambda x: _CATEGORY_MEANING.get(int(x))
+                )
                 if "name" in df.columns:
                     df["category_meaning"] = df["category_meaning"].fillna(df["name"])
-                df["category_meaning"] = df["category_meaning"].fillna(df["category"].astype(str))
+                df["category_meaning"] = df["category_meaning"].fillna(
+                    df["category"].astype(str)
+                )
                 df = df.rename(
                     columns={
                         "panhouliutong": "liquidity_after",
@@ -179,7 +190,9 @@ def sync_etf_xdxr_all(
                 continue
 
             if i % 200 == 0:
-                logger.info(f"etf_xdxr progress: {i}/{len(code_list)} ok={ok} empty={empty} failed={failed}")
+                logger.info(
+                    f"etf_xdxr progress: {i}/{len(code_list)} ok={ok} empty={empty} failed={failed}"
+                )
 
     return {"total": len(code_list), "ok": ok, "empty": empty, "failed": failed}
 
@@ -200,7 +213,13 @@ def sync_etf_adj_all(
     code_list = _normalize_code_list(codes)
     if not code_list:
         cursor = db.etf_list.find({}, {"_id": 0, "code": 1})
-        code_list = sorted({str(doc.get("code", "")).zfill(6) for doc in cursor if str(doc.get("code", "")).isdigit()})
+        code_list = sorted(
+            {
+                str(doc.get("code", "")).zfill(6)
+                for doc in cursor
+                if str(doc.get("code", "")).isdigit()
+            }
+        )
 
     coll_adj = db.etf_adj
     coll_day = db.index_day
@@ -212,10 +231,10 @@ def sync_etf_adj_all(
 
     for i, code in enumerate(code_list, 1):
         try:
-            day_cursor = (
-                coll_day.find({"code": code}, {"_id": 0, "date": 1, "open": 1, "high": 1, "low": 1, "close": 1})
-                .sort("date", pymongo.ASCENDING)
-            )
+            day_cursor = coll_day.find(
+                {"code": code},
+                {"_id": 0, "date": 1, "open": 1, "high": 1, "low": 1, "close": 1},
+            ).sort("date", pymongo.ASCENDING)
             day = pd.DataFrame(list(day_cursor))
             if day is None or len(day) == 0:
                 skipped += 1
@@ -223,7 +242,16 @@ def sync_etf_adj_all(
 
             xdxr_cursor = coll_xdxr.find(
                 {"code": code},
-                {"_id": 0, "date": 1, "category": 1, "fenhong": 1, "peigu": 1, "peigujia": 1, "songzhuangu": 1, "suogu": 1},
+                {
+                    "_id": 0,
+                    "date": 1,
+                    "category": 1,
+                    "fenhong": 1,
+                    "peigu": 1,
+                    "peigujia": 1,
+                    "songzhuangu": 1,
+                    "suogu": 1,
+                },
             )
             xdxr = pd.DataFrame(list(xdxr_cursor))
             adj = compute_etf_qfq_adj(day, xdxr if len(xdxr) > 0 else None)
@@ -244,6 +272,8 @@ def sync_etf_adj_all(
             continue
 
         if i % 200 == 0:
-            logger.info(f"etf_adj progress: {i}/{len(code_list)} ok={ok} skipped={skipped} failed={failed}")
+            logger.info(
+                f"etf_adj progress: {i}/{len(code_list)} ok={ok} skipped={skipped} failed={failed}"
+            )
 
     return {"total": len(code_list), "ok": ok, "skipped": skipped, "failed": failed}

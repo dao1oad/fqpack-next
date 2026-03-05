@@ -26,6 +26,7 @@ from QUANTAXIS.QASU.main import (
     QA_SU_save_stock_min,
     QA_SU_save_stock_xdxr,
 )
+
 from freshquant.data.etf_adj_sync import sync_etf_adj_all, sync_etf_xdxr_all
 
 market_data_alert = signal("market_data_alert")

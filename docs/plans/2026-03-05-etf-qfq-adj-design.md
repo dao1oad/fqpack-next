@@ -41,11 +41,11 @@
 
 1) 从 `index_day` 获取 bfq 日线序列（按 `date` 升序）。
 2) 基于事件计算 `preclose`：
-   - `category=1`（除权除息）：复用股票口径  
+   - `category=1`（除权除息）：复用股票口径
      `preclose = (prev_close*10 - fenhong + peigu*peigujia) / (10 + peigu + songzhuangu)`
-   - `category=11`（扩缩股）：拆分/合并  
+   - `category=11`（扩缩股）：拆分/合并
      `preclose = preclose / suogu`（`suogu!=0` 时生效）
-3) 生成 qfq 因子（与股票一致、锚定最新交易日）：  
+3) 生成 qfq 因子（与股票一致、锚定最新交易日）：
    `adj = (preclose.shift(-1) / close).fillna(1)[::-1].cumprod()`
 
 ### 3.3 Dagster 同步（历史补全 + 每日增量）
@@ -69,4 +69,3 @@
 - 数据正确性（重点）：`512000` 的 `2025-08-04` 拆分点，qfq 后应基本连续（不出现 2 倍跳变）。
 - 行为一致性：`get_data_v2('sh600000','1d')` 与 `get_data_v2('sh512000','1d')` 均返回 qfq K 线。
 - 自动化测试：对“adj 计算 + OHLC 应用”做纯 pandas 单测（避免 CI 依赖 TDX 网络）。
-
