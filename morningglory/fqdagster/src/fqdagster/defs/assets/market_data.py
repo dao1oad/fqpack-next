@@ -27,6 +27,8 @@ from QUANTAXIS.QASU.main import (
     QA_SU_save_stock_xdxr,
 )
 
+from freshquant.data.etf_adj_sync import sync_etf_adj_all, sync_etf_xdxr_all
+
 market_data_alert = signal("market_data_alert")
 
 
@@ -97,11 +99,11 @@ def stock_min(context: AssetExecutionContext, stock_list: str) -> str:
     return pendulum.now().format("YYYY-MM-DD HH:mm:ss")
 
 
-@asset(deps=[stock_list], group_name="stock_data")
-def stock_xdxr(context: AssetExecutionContext, stock_list: str) -> str:
-    """Download and save stock dividend data. Depends on stock_list."""
+@asset(deps=[stock_day], group_name="stock_data")
+def stock_xdxr(context: AssetExecutionContext, stock_day: str) -> str:
+    """Download and save stock dividend/adjustment data. Depends on stock_day."""
     context.log.info(
-        f"Saving stock dividend data, triggered after stock_list at {stock_list}"
+        f"Saving stock dividend data, triggered after stock_day at {stock_day}"
     )
     QA_SU_save_stock_xdxr("tdx")
     market_data_alert.send(
@@ -205,6 +207,40 @@ def etf_min(context: AssetExecutionContext, etf_list: str) -> str:
         payload={
             "title": "事件通知-数据下载完成",
             "content": "ETF分钟数据已下载完成。",
+        },
+    )
+    return pendulum.now().format("YYYY-MM-DD HH:mm:ss")
+
+
+@asset(deps=[etf_list], group_name="etf_data")
+def etf_xdxr(context: AssetExecutionContext, etf_list: str) -> str:
+    """Download and save ETF xdxr(adjustment events) data. Depends on etf_list."""
+    context.log.info(f"Saving ETF xdxr data, triggered after etf_list at {etf_list}")
+    stats = sync_etf_xdxr_all()
+    context.log.info(f"ETF xdxr sync stats: {stats}")
+    market_data_alert.send(
+        "dagster-asset",
+        payload={
+            "title": "事件通知-数据下载完成",
+            "content": "ETF 除权除息/扩缩股(xdxr) 数据已下载完成。",
+        },
+    )
+    return pendulum.now().format("YYYY-MM-DD HH:mm:ss")
+
+
+@asset(deps=[etf_day, etf_xdxr], group_name="etf_data")
+def etf_adj(context: AssetExecutionContext, etf_day: str, etf_xdxr: str) -> str:
+    """Compute and save ETF qfq adjustment factors. Depends on etf_day + etf_xdxr."""
+    context.log.info(
+        f"Saving ETF adj(qfq) data, triggered after etf_day at {etf_day} and etf_xdxr at {etf_xdxr}"
+    )
+    stats = sync_etf_adj_all()
+    context.log.info(f"ETF adj sync stats: {stats}")
+    market_data_alert.send(
+        "dagster-asset",
+        payload={
+            "title": "事件通知-数据下载完成",
+            "content": "ETF 前复权因子(etf_adj) 数据已生成完成。",
         },
     )
     return pendulum.now().format("YYYY-MM-DD HH:mm:ss")

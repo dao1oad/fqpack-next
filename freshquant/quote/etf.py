@@ -4,15 +4,36 @@ from datetime import datetime, time, timedelta
 
 import pandas as pd
 import pymongo
+from loguru import logger
 from QUANTAXIS import QA_fetch_index_day_adv, QA_fetch_index_min_adv
 from QUANTAXIS.QAData.data_resample import QA_data_day_resample
 from QUANTAXIS.QAUtil.QADate import QA_util_datetime_to_strdatetime, QA_util_time_stamp
 
 from freshquant.carnation.config import TIME_DELTA, TZ
+from freshquant.data.etf_adj import apply_qfq_to_bars
 from freshquant.database.cache import in_memory_cache, redis_cache
-from freshquant.db import DBfreshquant
+from freshquant.db import DBfreshquant, DBQuantAxis
 from freshquant.quote.general import resample3min, resampleStockOrIndex120min
-from freshquant.util.code import fq_util_code_append_market_code
+from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
+
+
+def _fetch_etf_adj(
+    code: str, start: datetime | None, end: datetime | None
+) -> pd.DataFrame | None:
+    if start is None or end is None:
+        return None
+    code6 = normalize_to_base_code(code)
+    start_date = start.strftime("%Y-%m-%d")
+    end_date = end.strftime("%Y-%m-%d")
+    docs = list(
+        DBQuantAxis.etf_adj.find(
+            {"code": code6, "date": {"$gte": start_date, "$lte": end_date}},
+            {"_id": 0, "date": 1, "adj": 1},
+        ).sort("date", pymongo.ASCENDING)
+    )
+    if len(docs) == 0:
+        return None
+    return pd.DataFrame(docs)
 
 
 @in_memory_cache.memoize(expiration=3)
@@ -61,12 +82,12 @@ def queryEtfCandleSticksDayAdv(code, start, end):
 
 
 def queryEtfCandleSticksDay(code, start=None, end=None):
+    start_dt = start if start is not None else datetime.now() - timedelta(days=30)
+    end_dt = end if end is not None else datetime.now()
     data = queryEtfCandleSticksDayAdv(
         code,
-        QA_util_datetime_to_strdatetime(
-            start if start is not None else datetime.now() - timedelta(days=30)
-        ),
-        QA_util_datetime_to_strdatetime(end if end is not None else datetime.now()),
+        QA_util_datetime_to_strdatetime(start_dt),
+        QA_util_datetime_to_strdatetime(end_dt),
     )
     if data is None or len(data) == 0:
         return None
@@ -85,7 +106,7 @@ def queryEtfCandleSticksDay(code, start=None, end=None):
             {
                 "code": fq_util_code_append_market_code(code, upper_case=False),
                 "frequence": '1d',
-                "datetime": {"$gt": last_datetime, "$lte": end},
+                "datetime": {"$gt": last_datetime, "$lte": end_dt},
                 "open": {"$gt": 0},
                 "high": {"$gt": 0},
                 "low": {"$gt": 0},
@@ -122,6 +143,17 @@ def queryEtfCandleSticksDay(code, start=None, end=None):
         realtime_data_list.set_index("datetime", drop=False, inplace=True)
         data = pd.concat([data, realtime_data_list])
         data.drop_duplicates(subset="datetime", keep="first", inplace=True)
+
+    adj = _fetch_etf_adj(code, start_dt, end_dt)
+    if adj is None or len(adj) == 0:
+        start_s = start_dt.strftime("%Y-%m-%d") if start_dt else "N/A"
+        end_s = end_dt.strftime("%Y-%m-%d") if end_dt else "N/A"
+        logger.warning(
+            f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]"
+        )
+    else:
+        data = apply_qfq_to_bars(data, adj, datetime_col="datetime")
+
     data = data.round(
         {"open": 3, "high": 3, "low": 3, "close": 3, "volume": 2, "amount": 2}
     )
@@ -192,6 +224,17 @@ def queryEtfCandleSticksMin(code, frequence, start=None, end=None):
         realtime_data_list.set_index("datetime", drop=False, inplace=True)
         data = pd.concat([data, realtime_data_list])
         data.drop_duplicates(subset="datetime", keep="first", inplace=True)
+
+    adj = _fetch_etf_adj(code, start, end)
+    if adj is None or len(adj) == 0:
+        start_s = start.strftime("%Y-%m-%d") if start else "N/A"
+        end_s = end.strftime("%Y-%m-%d") if end else "N/A"
+        logger.warning(
+            f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]"
+        )
+    else:
+        data = apply_qfq_to_bars(data, adj, datetime_col="datetime")
+
     data = data.round(
         {"open": 3, "high": 3, "low": 3, "close": 3, "volume": 2, "amount": 2}
     )

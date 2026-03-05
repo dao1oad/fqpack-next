@@ -36,7 +36,13 @@ class TdxHqExecutor(metaclass=SingletonType):
                 f = self.executor.submit(func, *args, **kwargs)
                 try:
                     result = f.result()
-                    if result is not None and len(result) > 0:
+                    has_items = True
+                    if result is not None:
+                        try:
+                            has_items = len(result) > 0  # type: ignore[arg-type]
+                        except TypeError:
+                            has_items = True
+                    if result is not None and has_items:
                         self._queue.put(api)
                     return result
                 except Exception as e:
@@ -100,7 +106,13 @@ class TdxExHqExecutor(metaclass=SingletonType):
                 f = self.executor.submit(func, *args, **kwargs)
                 try:
                     result = f.result()
-                    if result is not None and len(result) > 0:
+                    has_items = True
+                    if result is not None:
+                        try:
+                            has_items = len(result) > 0  # type: ignore[arg-type]
+                        except TypeError:
+                            has_items = True
+                    if result is not None and has_items:
                         self._queue.put(api)
                     return result
                 except Exception as e:
