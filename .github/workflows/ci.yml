@@ -76,4 +76,6 @@ jobs:
           python -m pip install pytest numpy pandas akshare pymongo pydash pytz dynaconf loguru
 
       - name: Run pytest (unit tests only)
-        run: pytest -q freshquant/tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m pytest -q freshquant/tests
