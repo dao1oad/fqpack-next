@@ -1,0 +1,33 @@
+[
+  {
+    "name": "single_large_buy_then_sell_low_price_first",
+    "lot_amount": 3000,
+    "grid_interval": 1.03,
+    "trade_facts": [
+      {
+        "trade_fact_id": "trade_buy_1",
+        "symbol": "000001",
+        "side": "buy",
+        "quantity": 900,
+        "price": 10.0,
+        "trade_time": 1710000000,
+        "date": 20240102,
+        "time": "09:31:00"
+      },
+      {
+        "trade_fact_id": "trade_sell_1",
+        "symbol": "000001",
+        "side": "sell",
+        "quantity": 500,
+        "price": 10.8,
+        "trade_time": 1710003600,
+        "date": 20240103,
+        "time": "10:00:00"
+      }
+    ],
+    "expected_open_slices": [
+      {"price": 10.93, "quantity": 200, "amount": 2186.0},
+      {"price": 10.61, "quantity": 200, "amount": 2122.0}
+    ]
+  }
+]

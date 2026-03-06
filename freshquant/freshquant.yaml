@@ -4,6 +4,12 @@ mongodb:
   db: freshquant
   gantt_db: freshquant_gantt
 
+order_management:
+  mongo_database: freshquant_order_management
+  projection_database: freshquant
+  external_confirm_seconds: 120
+  guardian_allocation_policy: guardian_compat_low_price_first
+
 redis:
   host: 127.0.0.1
   port: 6379

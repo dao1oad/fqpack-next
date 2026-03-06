@@ -1,13 +1,9 @@
 # coding: utf-8
 
-import pickle
-from typing import Dict, List, Union
+from typing import Dict, List
 
-import numpy as np
-import pandas as pd
-
+from freshquant.data.astock.holding import get_stock_positions
 from freshquant.database.mongodb import DBfreshquant
-from freshquant.instrument.general import query_instrument_info
 
 
 def query_stock_position_pct(virtual: bool = False) -> float:
@@ -27,53 +23,17 @@ def query_stock_positions() -> List[Dict]:
     """
     查询持仓的股票，包含债券和ETF
     """
-    records = pd.DataFrame(
-        list(DBfreshquant.stock_fills.find({}).sort([("date", 1), ("time", 1)]))
-    )
-
-    def func(group):
-        stock_code: str = ''
-        name: str = ''
-        amount: float = 0.0
-        quantity: int = 0
-        price: float = np.nan
-        for _, row in group.iterrows():
-            stock_code = row['stock_code']
-            name = row['name']
-            if '买' in row['op']:
-                quantity = quantity + row['quantity']
-                amount = amount + row['amount']
-            elif '卖' in row['op']:
-                quantity = quantity - row['quantity']
-                amount = amount - row['amount']
-        instrument_info = query_instrument_info(stock_code)
-        decimal_point = instrument_info.get('decimal_point', 2)
-        sse = instrument_info.get('sse', '')
-        instrument_type = instrument_info.get('sec', '')
-        if quantity > 0:
-            price = round(amount / quantity, decimal_point)
-        if quantity > 0 or amount > 0:
-            return pd.DataFrame(
-                {
-                    'stock_code': [stock_code],
-                    'name': [name],
-                    'amount': [amount],
-                    'quantity': [quantity],
-                    'price': [price],
-                    'decimal_point': [decimal_point],
-                    'instrument_type': [instrument_type],
-                    'exchange': [sse],
-                }
-            )
-        else:
-            return None
-
-    return (
-        records.groupby('stock_code')
-        .apply(func)
-        .reset_index(drop=True)
-        .to_dict(orient="records")
-    )
+    positions = get_stock_positions()
+    for item in positions:
+        quantity = item.get("quantity", 0)
+        amount = abs(float(item.get("amount", 0)))
+        item["price"] = round(amount / quantity, 2) if quantity else None
+        item["exchange"] = (
+            item["stock_code"].split(".")[-1] if item.get("stock_code") else ""
+        )
+        item["instrument_type"] = "stock"
+        item["decimal_point"] = 2
+    return positions
 
 
 if __name__ == "__main__":

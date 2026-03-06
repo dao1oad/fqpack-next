@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from datetime import datetime, timedelta
 from typing import Dict, List
 
 import pandas as pd
-import pendulum
 import pymongo
 
 from freshquant.carnation.param import queryParam
@@ -269,12 +269,11 @@ def queryArrangedCnFutureFillList(symbol: str):
 
 
 def cleanCnFutureXtTrades():
+    one_year_ago_timestamp = int((datetime.now() - timedelta(days=365)).timestamp())
     DBfreshquant["future_fills"].delete_many(
         {
             "_dr": True,
-            "trade_date_time": {
-                "$lt": pendulum.now().subtract(years=1).int_timestamp
-            },
+            "trade_date_time": {"$lt": one_year_ago_timestamp},
         }
     )
     records = (

@@ -6,7 +6,14 @@ from importlib import import_module
 from typing import List
 
 from flask import Blueprint, Response, jsonify, request
-from func_timeout import func_timeout
+
+try:
+    from func_timeout import func_timeout
+except ModuleNotFoundError:  # pragma: no cover
+
+    def func_timeout(timeout, func, args=(), kwargs=None):
+        return func(*args, **(kwargs or {}))
+
 
 from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.chanlun_service import get_data_v2
@@ -43,6 +50,14 @@ def _get_stock_service():
 
 def _create_business_service():
     return import_module("freshquant.signal.BusinessService").BusinessService()
+
+
+def _get_manual_write_service():
+    from freshquant.order_management.manual.service import (
+        OrderManagementManualWriteService,
+    )
+
+    return OrderManagementManualWriteService()
 
 
 def _get_realtime_stock_data_from_cache(symbol, period, end_date):
@@ -554,7 +569,6 @@ def query_stock_fills():
 @stock_bp.route("/stock_fills/reset", methods=["POST"])
 def reset_stock_fills():
     try:
-        # 获取请求数据
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing request data"}), 400
@@ -584,84 +598,62 @@ def reset_stock_fills():
         if quantity != grid_quantity:
             return jsonify({"error": "Quantity mismatch"}), 400
 
-        # 1. 查询stock_fills表中有关这个code的记录，保存到审计表audit_log
-
-        # 获取现有记录
         existing_records = list(DBfreshquant.stock_fills.find({"symbol": code}))
-
-        # 保存到审计表
         if existing_records:
-            audit_record = {
-                "operation": "reset_stock_fills",
-                "symbol": code,
-                "original_records": existing_records,
-                "timestamp": datetime.now(),
-                "record_count": len(existing_records),
-            }
-            DBfreshquant.audit_log.insert_one(audit_record)
+            DBfreshquant.audit_log.insert_one(
+                {
+                    "operation": "reset_stock_fills",
+                    "symbol": code,
+                    "original_records": existing_records,
+                    "timestamp": datetime.now(),
+                    "record_count": len(existing_records),
+                }
+            )
 
-        # 2. 删除stock_fills中有关这个code的记录
-        DBfreshquant.stock_fills.delete_many({"symbol": code})
-
-        # 3. 根据入参重新生成这个code在stock_fills中的记录
-        # 获取股票信息（名称等）
-        if existing_records:
-            sample_record = existing_records[0]
-            stock_name = sample_record.get("name", "")
-            stock_code = sample_record.get("stock_code", "")
-        else:
-            # 如果没有现有记录，需要获取股票信息
-            instrument = query_instrument_info(code)
-            stock_name = instrument.get("name", "") if instrument else ""
-            stock_code = fq_util_code_append_market_code_suffix(code)
-
-        # 获取交易日历
+        instrument = query_instrument_info(code)
+        stock_name = instrument.get("name", "") if instrument else ""
+        stock_code = fq_util_code_append_market_code_suffix(code)
         trade_dates_df = fq_trading_fetch_trade_dates()
         trade_dates = trade_dates_df["trade_date"].tolist()
 
-        # 获取最近的交易日（倒序排列）
         today = datetime.now().date()
         past_trade_dates = [date for date in trade_dates if date < today]
-        past_trade_dates.sort(reverse=True)  # 从最近到最远
+        past_trade_dates.sort(reverse=True)
 
-        # 确保我们有足够的交易日
         if len(past_trade_dates) < len(grid_list):
             return jsonify({"error": "Not enough trading days for the grid items"}), 400
 
-        # 为每个grid_item创建stock_fill记录
-        # grid_items[0]是离今天最远的已过去的一个交易日
-        # grid_items[-1]是离今天最近的过去的一个交易日
         new_records = []
         for i, grid_item in enumerate(grid_list):
-            # 使用倒数第(len(grid_items) - i)个交易日
             trade_date = past_trade_dates[len(grid_list) - 1 - i]
             date_int = int(trade_date.strftime("%Y%m%d"))
 
-            record = {
-                "op": "买",
-                "symbol": code,
-                "date": date_int,
-                "time": "09:31:00",
-                "price": float(grid_item["price"]),
-                "amount": float(grid_item["amount"]),
-                "amount_adjust": float(grid_item["amount_adjust"]),
-                "name": stock_name,
-                "quantity": int(grid_item["quantity"]),
-                "source": "reset",
-                "stock_code": stock_code,
-            }
-            new_records.append(record)
+            new_records.append(
+                {
+                    "symbol": code,
+                    "date": date_int,
+                    "time": "09:31:00",
+                    "price": float(grid_item["price"]),
+                    "amount": float(grid_item["amount"]),
+                    "amount_adjust": float(grid_item["amount_adjust"]),
+                    "quantity": int(grid_item["quantity"]),
+                }
+            )
 
-        # 插入新记录
-        if new_records:
-            DBfreshquant.stock_fills.insert_many(new_records)
+        result = _get_manual_write_service().reset_symbol_lots(
+            code=code,
+            name=stock_name,
+            stock_code=stock_code,
+            grid_items=new_records,
+            source="reset",
+        )
 
         return (
             jsonify(
                 {
                     "message": f"Successfully reset stock fills for {code}",
-                    "deleted_count": len(existing_records),
-                    "inserted_count": len(new_records),
+                    "deleted_count": result["deleted_count"],
+                    "inserted_count": result["inserted_count"],
                 }
             ),
             200,

@@ -8,14 +8,13 @@ from loguru import logger
 
 import freshquant.util.datetime_helper as datetime_helper
 from freshquant.basic.singleton_type import SingletonType
-from freshquant.carnation.config import STOCK_ORDER_QUEUE
 from freshquant.data.astock.holding import (
     get_arranged_stock_fill_list,
     get_stock_holding_codes,
 )
 from freshquant.database.redis import redis_db
 from freshquant.db import DBfreshquant
-from freshquant.ordering.general import query_strategy_id
+from freshquant.order_management.submit.guardian import submit_guardian_order
 from freshquant.pool.general import queryMustPoolCodes
 from freshquant.position.stock import query_stock_position_pct
 from freshquant.strategy.common import get_auto_open, get_position_pct, get_trade_amount
@@ -176,21 +175,7 @@ class StrategyGuardian(metaclass=SingletonType):
                 if redis_db.get(f"buy:{code}") is None:
                     logger.info("下买入订单")
                     redis_db.set(f"buy:{code}", "1", timedelta(minutes=15))
-                    redis_db.lpush(
-                        STOCK_ORDER_QUEUE,
-                        json.dumps(
-                            {
-                                "action": "buy",
-                                "symbol": code,
-                                "price": price,
-                                "quantity": quantity,
-                                "fire_time": pendulum.now().format(
-                                    "YYYY-MM-DD hh:mm:ss"
-                                ),
-                                "strategy_name": query_strategy_id("Guardian"),
-                            }
-                        ),
-                    )
+                    submit_guardian_order("buy", code, price, quantity)
             elif position == "SELL_SHORT":
                 if last_fill is None:
                     logger.info("无持仓，跳过下单指令")
@@ -233,21 +218,7 @@ class StrategyGuardian(metaclass=SingletonType):
                             redis_db.set(f"sell:{code}", "1", timedelta(days=3))
                         else:
                             redis_db.set(f"sell:{code}", "1", timedelta(minutes=15))
-                        redis_db.lpush(
-                            STOCK_ORDER_QUEUE,
-                            json.dumps(
-                                {
-                                    "action": "sell",
-                                    "symbol": code,
-                                    "price": price,
-                                    "quantity": quantity,
-                                    "fire_time": pendulum.now().format(
-                                        "YYYY-MM-DD hh:mm:ss"
-                                    ),
-                                    "strategy_name": query_strategy_id("Guardian"),
-                                }
-                            ),
-                        )
+                        submit_guardian_order("sell", code, price, quantity)
         elif (
             redis_db.get("fq:xtrade:last_new_order_time") is None
             and position == "BUY_LONG"
@@ -286,11 +257,11 @@ class StrategyGuardian(metaclass=SingletonType):
                                 "fire_time": pendulum.now().format(
                                     "YYYY-MM-DD hh:mm:ss"
                                 ),
-                                "strategy_name": query_strategy_id("Guardian"),
+                                "strategy_name": "Guardian",
                             }
                         )
                         logger.info("下买单: " + buy_order_payload)
-                        redis_db.lpush(STOCK_ORDER_QUEUE, buy_order_payload)
+                        submit_guardian_order("buy", code, price, quantity)
                     else:
                         logger.info("可交易额度不足，不再自动买入")
                 else:
