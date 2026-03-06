@@ -3,6 +3,7 @@ import FuturesControl from '../views/FuturesControl.vue'
 import StockControl from '../views/StockControl.vue'
 import MultiPeriod from '../views/MultiPeriod.vue'
 import KlineBig from '../views/KlineBig.vue'
+import KlineSlim from '../views/KlineSlim.vue'
 import StockPools from '../components/StockPools.vue'
 import StockCjsd from '../components/StockCjsd.vue'
 
@@ -40,6 +41,11 @@ const routes = [
     path: '/kline-big',
     name: 'kline-big',
     component: KlineBig
+  },
+  {
+    path: '/kline-slim',
+    name: 'kline-slim',
+    component: KlineSlim
   }
 ]
 

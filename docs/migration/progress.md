@@ -4,18 +4,18 @@
 
 ## 更新规则（强制）
 
-- RFC 状态任意变更时（Draft/Review/Approved/Implementing/Done/Blocked），必须在**同一提交**更新本表。
-- 任何涉及迁移/重构/删改功能的合并到 `main`，必须在**同一提交**更新本表。
-- 处于 Implementing 状态的 RFC，按 Asia/Shanghai 自然日 **每天至少更新一次**（可只写“无进展 + 原因”）。
+- RFC 状态任意变更时（Draft / Review / Approved / Implementing / Done / Blocked），必须在同一提交更新本表。
+- 任何涉及迁移、重构、删改功能的合并到 `main`，必须在同一提交更新本表。
+- 处于 Implementing 状态的 RFC，按 Asia/Shanghai 自然日每天至少更新一次。
 
 ## 状态说明
 
 - Draft：起草中
 - Review：评审中
 - Approved：已通过，可开始编码
-- Implementing：编码中（必须已 Approved）
+- Implementing：编码中
 - Done：完成并合并
-- Blocked：阻塞（写清原因）
+- Blocked：阻塞中
 
 ## 进度总表
 
@@ -25,5 +25,5 @@
 | 0002 | ETF 前复权(qfq)因子同步（TDX xdxr → etf_adj）与查询默认 qfq | Done | TBD | 2026-03-05 | 现状缺口补齐（ETF 无 xdxr/adj） | 新增 `etf_xdxr/etf_adj`，Dagster 补历史+每日更新；ETF 查询链路默认应用 qfq，与股票一致（无开关）；容器内已验证 `512000` 拆分与 `510050` 分红连续性，`get_data_v2()` 股票/ETF 日线&分钟均可 qfq 读取 |
 | 0003 | XTData Producer/Consumer + fullcalc（替代轮询） | Done | TBD | 2026-03-06 | `D:\fqpack\freshquant\freshquant\market_data\xtdata\market_producer.py` / `strategy_consumer.py` / `morningglory\fqcopilot\fullcalc\*` | 已合并 main（PR #5）；Producer/Consumer/fullcalc/Guardian(event) 已落地骨架与关键语义（prewarm/backfill/qfq/积压只算最新）；端到端运行验收与部署说明待补充 |
 | 0004 | Windows PowerShell UTF-8 中文显示（cat/type 不乱码） | Done | TBD | 2026-03-05 | N/A（开发体验） | 新增 `script/pwsh_utf8.ps1`；`docs/agent` 与 `README.md` 增加提示；dot-source 后 `cat/type` 默认按 UTF-8 读取 |
-
+| 0005 | KlineSlim MVP（5m 主图 + 30m 缠论叠加） | Done | Codex | 2026-03-06 | `D:\fqpack\freshquant\morningglory\fqwebui\src\views\KlineSlim.vue` / `src\views\js\kline-slim.js` / `src\views\js\draw-slim.js` / `freshquant\rear\stock\routes.py` | 方案 A 已落地并完成联调：不使用 WebSocket，前端采用 HTTP 轮询并避免闪屏；后端 `/api/stock_data` 增加了 **opt-in** 的 Redis-first 实时读取（仅 `realtimeCache=1` 时启用，避免影响旧页面字段契约）；默认展示 `5m` K 线并叠加 `30m` 缠论结构。补充了 RFC、设计稿、实施计划、breaking-changes 记录和缓存路由回归测试，并已在本地通过 `pre-commit`、`pytest`（`15 passed, 1 skipped`）与 `npm run build` 验证。 |
 | 0006 | XGB / JYGS / Gantt / Shouban30 盘后读模型与独立分库 | Done | TBD | 2026-03-06 | D:\fqpack\freshquant\freshquant\data\xgb_cache_service.py / D:\fqpack\freshquant\freshquant\signal\astock\job\monitor_jygs_action_yidong.py / D:\fqpack\freshquant\freshquant\data\gantt_shouban30_service.py | 已在 `freshquant_gantt` 分库落地 XGB/JYGS 原始同步、`plate_reason_daily/gantt_*/shouban30_*` 读模型、`/api/gantt/*` 最小查询接口与盘后 Dagster job；统一改为 `FRESHQUANT_MONGODB__GANTT_DB` 覆盖分库配置，CI 已按 Linux 大小写语义验证 |

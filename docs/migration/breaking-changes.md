@@ -1,24 +1,24 @@
 ﻿# 破坏性变更清单（Breaking Changes）
 
-> 任何破坏性变更落地时必须追加记录，并引用对应 RFC。
+> 任何破坏性变更落地时必须追加记录，并引用对应 RFC。若接口区域发生实现调整但无破坏性，也在此登记。
 
 ## 记录模板
 
 - **日期**：YYYY-MM-DD
 - **RFC**：NNNN-<topic>
-- **变更**：做了什么不兼容的变化
-- **影响面**：哪些模块/脚本/用户会受影响
-- **迁移步骤**：如何升级（包含命令/配置修改）
+- **变更**：做了什么不兼容或重要的接口调整
+- **影响面**：哪些模块、脚本、服务或用户会受到影响
+- **迁移步骤**：如何升级
 - **回滚方案**：如何撤回
 
 ## 变更记录
 
 - **日期**：2026-03-05
 - **RFC**：0002-etf-qfq-adj-sync
-- **变更**：ETF K 线查询默认从 `bfq` 切换为 `qfq`（通过新增 `quantaxis.etf_xdxr/etf_adj` 并在查询侧应用复权因子）。
-- **影响面**：依赖 `freshquant/quote/etf.py:queryEtfCandleSticks*` 或 `freshquant/chanlun_service.py:get_data_v2()` 的策略/回测/可视化结果可能变化。
-- **迁移步骤**：如需 `bfq`，请直接读取底层原始集合 `quantaxis.index_day/index_min`（或回滚本变更）。
-- **回滚方案**：移除 ETF 查询侧对 `etf_adj` 的应用逻辑，并停用/移除 `etf_xdxr/etf_adj` 同步资产。
+- **变更**：ETF K 线查询默认从 `bfq` 调整为 `qfq`，通过新增 `quantaxis.etf_xdxr/etf_adj` 并在查询侧应用复权因子实现。
+- **影响面**：依赖 `freshquant/quote/etf.py` 或 `freshquant/chanlun_service.py:get_data_v2()` 的策略、回测和可视化结果可能变化。
+- **迁移步骤**：如需保留 `bfq`，请直接读取底层原始集合或回滚本变更。
+- **回滚方案**：移除 ETF 查询侧对 `etf_adj` 的应用逻辑，并停用 `etf_xdxr/etf_adj` 同步资产。
 
 - **日期**：2026-03-05
 - **RFC**：0003-xtdata-producer-consumer-fullcalc
@@ -33,6 +33,14 @@
   3) 启动 `python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`；
   4) Mode A 时启动 `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event`（替代轮询）。
 - **回滚方案**：停止上述 Producer/Consumer/Guardian(event) 进程，恢复启动旧的 TDX realtime 采集链路与 Guardian 轮询模式（`--mode poll` 或旧脚本链路）。
+
+- **日期**：2026-03-06
+- **RFC**：0005-kline-slim-mvp-5m-30m-overlay
+- **变更**：无对外破坏性变更。`/api/stock_data` 的实时查询路径调整为 Redis-first，但返回 JSON 结构保持兼容；前端新增 `/kline-slim` 页面，不影响现有路由。
+- **影响面**：实时页面会优先从 Redis 缓存取数；历史查询与非支持周期行为不变。
+- **迁移步骤**：无额外升级动作。如需关闭该调整，可回退到 `get_data_v2()` 全量计算路径。
+- **回滚方案**：移除 `/api/stock_data` 的 Redis-first 分支，前端下线 `/kline-slim` 或继续使用纯 fallback 请求。
+
 - **日期**：2026-03-06
 - **RFC**：0006-gantt-postclose-readmodel
 - **变更**：新增独立 MongoDB 分库 `freshquant_gantt` 承载 XGB/JYGS 原始同步与 `plate_reason_daily/gantt_*/shouban30_*` 读模型；新增统一最小接口 `/api/gantt/*`，且只保留盘后 Dagster 更新，不再兼容旧分支盘中 snapshot 注入与板块理由 fallback。
