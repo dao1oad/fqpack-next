@@ -37,6 +37,20 @@ def test_install_bat_prepares_runtime_prerequisites_before_uv_sync() -> None:
     assert prereq_index < sync_index
 
 
+def test_create_venv_bat_checks_python_version_without_expanding_errorlevel_early() -> (
+    None
+):
+    text = Path("create_venv.bat").read_text(encoding="utf-8")
+    assert "if not errorlevel 1 exit /b 0" in text
+    assert "if %errorlevel% equ 0 exit /b 0" not in text
+
+
+def test_create_venv_bat_resolves_uv_without_expanding_errorlevel_early() -> None:
+    text = Path("create_venv.bat").read_text(encoding="utf-8")
+    assert "where uv >nul 2>nul\nif not errorlevel 1 (" in text
+    assert "if %errorlevel% equ 0 (" not in text
+
+
 def test_install_py_does_not_require_chardet_before_uv_sync() -> None:
     text = Path("install.py").read_text(encoding="utf-8")
     assert "try:\n    import chardet" in text
