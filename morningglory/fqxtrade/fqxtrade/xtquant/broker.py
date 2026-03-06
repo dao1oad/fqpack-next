@@ -35,12 +35,21 @@ import random
 from fqxtrade.xtquant.trading_manager import TradingManager
 from fqxtrade.xtquant.connection_manager import ConnectionManager
 from fqxtrade.xtquant.handlers import handlers
+from freshquant.order_management.repository import OrderManagementRepository
+from freshquant.order_management.submit.execution_bridge import (
+    dispatch_cancel_execution,
+    finalize_submit_execution,
+    prepare_submit_execution,
+)
+from freshquant.order_management.tracking.service import OrderTrackingService
 
 # 全局交易对象管理（单例模式）
 trading_manager = TradingManager()
 
 # 全局连接管理对象（单例模式）
 connection_manager = ConnectionManager()
+order_management_repository = OrderManagementRepository()
+order_tracking_service = OrderTrackingService(repository=order_management_repository)
 
 class MyXtQuantTraderCallback(XtQuantTraderCallback):
     def on_connected(self):
@@ -208,14 +217,27 @@ def trading_main_loop():
                 if order is not None:
                     logger.info(order[1])
                     order = json.loads(order[1])
-                    if order.get("symbol") and checkManualStrategyInstument(
-                        fq_util_code_append_market_code_suffix(order["symbol"], upper_case=True)
+                    if (
+                        order.get("action") in {"buy", "sell"}
+                        and order.get("symbol")
+                        and checkManualStrategyInstument(
+                            fq_util_code_append_market_code_suffix(
+                                order["symbol"], upper_case=True
+                            )
+                        )
                     ):
                         logger.info("{symbol}是手动交易策略", symbol=order["symbol"])
                         continue
                     force = order.get("force", False)
-                    if nextStart <= 0 or force:
+                    if nextStart <= 0 or force or order.get("action") == "cancel":
                         if order["action"] == "buy":
+                            execution = prepare_submit_execution(
+                                order,
+                                repository=order_management_repository,
+                                tracking_service=order_tracking_service,
+                            )
+                            if execution.get("status") == "skipped":
+                                continue
                             r = puppet.buy(
                                 order["symbol"],
                                 order["price"],
@@ -225,7 +247,20 @@ def trading_main_loop():
                                 pydash.get(order, "retry_count", 0),
                             )
                             logger.info(r)
+                            finalize_submit_execution(
+                                order,
+                                broker_order_id=r,
+                                repository=order_management_repository,
+                                tracking_service=order_tracking_service,
+                            )
                         elif order["action"] == "sell":
+                            execution = prepare_submit_execution(
+                                order,
+                                repository=order_management_repository,
+                                tracking_service=order_tracking_service,
+                            )
+                            if execution.get("status") == "skipped":
+                                continue
                             r = puppet.sell(
                                 order["symbol"],
                                 pydash.get(order, "price_type"),
@@ -236,6 +271,27 @@ def trading_main_loop():
                                 pydash.get(order, "retry_count", 0),
                             )
                             logger.info(r)
+                            finalize_submit_execution(
+                                order,
+                                broker_order_id=r,
+                                repository=order_management_repository,
+                                tracking_service=order_tracking_service,
+                            )
+                        elif order["action"] == "cancel":
+                            xt_trader, acc, _ = trading_manager.get_connection()
+                            dispatch_result = dispatch_cancel_execution(
+                                order,
+                                cancel_executor=(
+                                    lambda broker_order_id: xt_trader.cancel_order_stock(
+                                        acc, broker_order_id
+                                    )
+                                    if xt_trader is not None and acc is not None
+                                    else -1
+                                ),
+                                repository=order_management_repository,
+                                tracking_service=order_tracking_service,
+                            )
+                            logger.info(dispatch_result)
                         elif order["action"] == "sync-trades":
                             puppet.sync_trades()
                         elif order["action"] == "sync-orders":

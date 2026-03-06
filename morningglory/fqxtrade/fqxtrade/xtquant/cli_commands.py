@@ -8,11 +8,17 @@ import pendulum
 import fqxtrade.xtquant.broker as broker
 from fqxtrade import ORDER_QUEUE
 from fqxtrade.database.redis import redis_db
+from freshquant.order_management.submit.service import OrderSubmitService
+from freshquant.util.code import normalize_to_base_code
 
 
 @click.group()
 def xtquant():
     pass
+
+
+def _get_order_submit_service():
+    return OrderSubmitService()
 
 
 @xtquant.command(name="sync-deals")
@@ -96,19 +102,18 @@ def sync_positions(force):
 @click.option("-q", "--quantity", type=int, default=100)
 @click.option("-f", "--force/--no-force", default=False)
 def buy(symbol: str, price: float, quantity: int, force: bool):
-    redis_db.lpush(
-        ORDER_QUEUE,
-        json.dumps(
-            {
-                "action": "buy",
-                "symbol": symbol,
-                "price": price,
-                "quantity": quantity,
-                "fire_time": pendulum.now().format("YYYY-MM-DD hh:mm:ss"),
-                "force": force,
-            }
-        ),
+    result = _get_order_submit_service().submit_order(
+        {
+            "action": "buy",
+            "symbol": normalize_to_base_code(symbol),
+            "price": price,
+            "quantity": quantity,
+            "source": "cli",
+            "force": force,
+            "strategy_name": "XtQuantCli",
+        }
     )
+    click.echo(f"submitted {result['internal_order_id']} {result['request_id']}")
 
 
 @xtquant.command(name="sell")
@@ -117,19 +122,31 @@ def buy(symbol: str, price: float, quantity: int, force: bool):
 @click.option("-q", "--quantity", type=int, default=100)
 @click.option("-f", "--force/--no-force", default=False)
 def sell(symbol: str, price: float, quantity: int, force: bool):
-    redis_db.lpush(
-        ORDER_QUEUE,
-        json.dumps(
-            {
-                "action": "sell",
-                "symbol": symbol,
-                "price": price,
-                "quantity": quantity,
-                "fire_time": pendulum.now().format("YYYY-MM-DD hh:mm:ss"),
-                "force": force,
-            }
-        ),
+    result = _get_order_submit_service().submit_order(
+        {
+            "action": "sell",
+            "symbol": normalize_to_base_code(symbol),
+            "price": price,
+            "quantity": quantity,
+            "source": "cli",
+            "force": force,
+            "strategy_name": "XtQuantCli",
+        }
     )
+    click.echo(f"submitted {result['internal_order_id']} {result['request_id']}")
+
+
+@xtquant.command(name="cancel")
+@click.option("--internal-order-id", type=str, required=True)
+def cancel(internal_order_id: str):
+    result = _get_order_submit_service().cancel_order(
+        {
+            "internal_order_id": internal_order_id,
+            "source": "cli",
+            "strategy_name": "XtQuantCli",
+        }
+    )
+    click.echo(f"canceled {result['internal_order_id']} {result['request_id']}")
 
 
 @xtquant.command(name="auto")

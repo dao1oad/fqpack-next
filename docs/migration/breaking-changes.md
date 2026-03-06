@@ -54,3 +54,10 @@
   3) 页面或调用方切换到 `/api/gantt/plates`、`/api/gantt/stocks`、`/api/gantt/shouban30/plates`、`/api/gantt/shouban30/stocks`；
   4) 停用旧分支依赖的盘中实时 Gantt/Shouban30 读取链路。
 - **回滚方案**：停用 `gantt_postclose_schedule` 与 `/api/gantt/*` 新接口，保留 `freshquant_gantt` 数据不删库；调用方退回旧分支页面/API。
+
+- **日期**：2026-03-06
+- **RFC**：0007-stock-etf-order-management
+- **变更**：无破坏性接口变更。本轮在公共接口区新增 `fqctl om-order`、`/api/order/*`、`/api/order-management/*`，并将 Guardian 与 `xtquant buy/sell/cancel` 下单入口切换到新的订单域受理层；旧 `/api/stock_order` 以兼容适配方式保留。另将旧 `stock_fills` 人工写入口（`freshquant/data/astock/fill.py`、`freshquant/toolkit/import_deals.py`、`/api/stock_fills/reset`）改为先写 `freshquant_order_management.om_*` 主账本，再由兼容投影视图对外提供 `stock_fills` 语义；`clean_stock_fills()` / `compact_stock_fills()` 只保留 legacy `stock_fills` 集合维护，不再作为订单事实写入口。
+- **影响面**：CLI、HTTP API、Guardian 策略入口与 XTQuant CLI 现在都会先生成 `om_*` 主账本记录，再进入执行队列；人工导入、重置网格与后续排障也需要优先查看 `internal_order_id`、`buy_lot_id`、`trade_fact_id` 等订单域标识，而不是假设 `freshquant.stock_fills` 是主事实表。
+- **迁移步骤**：优先改用 `fqctl om-order submit/cancel`、`/api/order/submit`、`/api/order/cancel`、`/api/order-management/buy-lots/<buy_lot_id>`、`/api/order-management/stoploss/bind`；若仍依赖 `/api/stock_order`，可继续使用兼容入口。对于手工导入与网格 reset，不再直接写 `freshquant.stock_fills`，而是通过现有 CLI/API 入口触发订单域手工写服务。
+- **回滚方案**：回退 `freshquant/rear/order/routes.py`、`freshquant/cli.py`、`freshquant/strategy/guardian.py`、`morningglory/fqxtrade/fqxtrade/xtquant/cli_commands.py`、`freshquant/data/astock/fill.py`、`freshquant/toolkit/import_deals.py`、`freshquant/rear/stock/routes.py` 与 broker/puppet 桥接改动，恢复旧的直接队列写入与 `stock_fills` 直接写入路径。

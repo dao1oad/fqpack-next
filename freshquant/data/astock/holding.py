@@ -4,16 +4,25 @@ from typing import Dict, List
 import pandas as pd
 import pymongo
 from bson import json_util
-from QUANTAXIS.QAFetch.QAQuery_Advance import (
-    QA_fetch_index_day_adv,
-    QA_fetch_stock_day_adv,
-)
-from talib import ATR
+from loguru import logger
 
 from freshquant.carnation.enum_instrument import InstrumentType
-from freshquant.database.cache import in_memory_cache, redis_cache
+from freshquant.config import settings
+from freshquant.database.cache import (
+    get_cache_version,
+    in_memory_cache,
+    redis_cache,
+)
 from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_type
+from freshquant.order_management.projection.cache_invalidator import (
+    STOCK_HOLDINGS_CACHE,
+)
+from freshquant.order_management.projection.stock_fills import (
+    list_arranged_fills,
+    list_open_buy_fills,
+    list_stock_positions,
+)
 from freshquant.strategy.common import get_grid_interval_config, get_trade_amount
 from freshquant.util.code import (
     fq_util_code_append_market_code,
@@ -21,6 +30,10 @@ from freshquant.util.code import (
     normalize_to_base_code,
     normalize_to_inst_code_with_suffix,
 )
+
+
+def _get_legacy_stock_fills_collection():
+    return DBfreshquant["stock_fills"]
 
 
 def insertStockPosition(acc: List, item: Dict):
@@ -62,6 +75,9 @@ def _compute_atr_last_stock(
     """
     计算 A 股个股在给定周期下的最新 ATR 值，并使用内存缓存避免重复计算。
     """
+    from QUANTAXIS.QAFetch.QAQuery_Advance import QA_fetch_stock_day_adv
+    from talib import ATR
+
     dt = datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=1)
     start_date = (dt - timedelta(days=60)).strftime("%Y-%m-%d")
     end_date = dt.strftime("%Y-%m-%d")
@@ -78,6 +94,9 @@ def _compute_atr_last_index(
     """
     计算 A 股指数/ETF 在给定周期下的最新 ATR 值，并使用内存缓存避免重复计算。
     """
+    from QUANTAXIS.QAFetch.QAQuery_Advance import QA_fetch_index_day_adv
+    from talib import ATR
+
     dt = datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=1)
     start_date = (dt - timedelta(days=60)).strftime("%Y-%m-%d")
     end_date = dt.strftime("%Y-%m-%d")
@@ -156,6 +175,19 @@ def accArrangedStockTrades(acc: List, cur: Dict, lotAmount: int):
 
 
 def get_stock_fill_list(symbol):
+    records = _get_order_management_stock_fill_list(symbol)
+    if records:
+        _compare_with_legacy_fill_list(symbol, records)
+        return records
+    return _get_legacy_stock_fill_list(symbol)
+
+
+def _get_order_management_stock_fill_list(symbol):
+    records = list_open_buy_fills(symbol)
+    return records or None
+
+
+def _get_legacy_stock_fill_list(symbol):
     records = (
         DBfreshquant["stock_fills"]
         .find({"symbol": symbol, "quantity": {"$ne": 0}})
@@ -185,6 +217,19 @@ def getInstrumentStrategy(instrumentCode: str):
 
 
 def get_arranged_stock_fill_list(symbol):
+    records = _get_order_management_arranged_fill_list(symbol)
+    if records:
+        _compare_with_legacy_arranged_fill_list(symbol, records)
+        return records
+    return _get_legacy_arranged_stock_fill_list(symbol)
+
+
+def _get_order_management_arranged_fill_list(symbol):
+    records = list_arranged_fills(symbol)
+    return records or None
+
+
+def _get_legacy_arranged_stock_fill_list(symbol):
     records = list(
         DBfreshquant["stock_fills"]
         .find({"symbol": symbol, "quantity": {"$ne": 0}})
@@ -199,6 +244,45 @@ def get_arranged_stock_fill_list(symbol):
         return acc
     else:
         return None
+
+
+def _compare_with_legacy_fill_list(symbol, projected_records):
+    if not settings.get("order_management", {}).get("enable_dual_read_compare", True):
+        return
+    legacy_records = _get_legacy_stock_fill_list(symbol)
+    if legacy_records is None:
+        return
+    if _normalize_records_for_compare(projected_records) != _normalize_records_for_compare(
+        legacy_records
+    ):
+        logger.warning("order_management open buy fills differ from legacy for {}", symbol)
+
+
+def _compare_with_legacy_arranged_fill_list(symbol, projected_records):
+    if not settings.get("order_management", {}).get("enable_dual_read_compare", True):
+        return
+    legacy_records = _get_legacy_arranged_stock_fill_list(symbol)
+    if legacy_records is None:
+        return
+    if _normalize_records_for_compare(projected_records) != _normalize_records_for_compare(
+        legacy_records
+    ):
+        logger.warning("order_management arranged fills differ from legacy for {}", symbol)
+
+
+def _normalize_records_for_compare(records):
+    normalized = []
+    for item in records or []:
+        normalized.append(
+            {
+                "date": item.get("date"),
+                "time": item.get("time"),
+                "price": round(float(item.get("price", 0)), 2),
+                "quantity": int(item.get("quantity", 0)),
+                "amount": round(float(item.get("amount", 0)), 2),
+            }
+        )
+    return normalized
 
 
 def get_stock_fills(symbol):
@@ -221,6 +305,13 @@ def get_stock_last_fill(symbol):
 # 1. 持仓数量为正
 # 2. 持仓金额为负
 def get_stock_positions():
+    records = list_stock_positions()
+    if records:
+        return records
+    return _get_legacy_stock_positions()
+
+
+def _get_legacy_stock_positions():
     records = (
         DBfreshquant["stock_fills"]
         .find({})
@@ -271,8 +362,13 @@ def get_stock_positions():
 # 1. 持仓数量为正
 # 2. 持仓金额为负
 # 只返回6位数的股票代码
-@redis_cache.memoize()
 def get_stock_holding_codes():
+    version = get_cache_version(STOCK_HOLDINGS_CACHE)
+    return _get_stock_holding_codes_cached(version)
+
+
+@redis_cache.memoize()
+def _get_stock_holding_codes_cached(_version):
     codes = []
     records = get_stock_positions()
     for record in records:
@@ -290,6 +386,11 @@ def get_stock_hold_position(code):
     Returns:
         dict: 单个股票的持仓信息，如果未找到则返回None
     """
+    current_positions = get_stock_positions()
+    for position in current_positions:
+        if position["symbol"][2:] == code:
+            return position
+
     records = (
         DBfreshquant["stock_fills"]
         .find({"symbol": code})
@@ -352,7 +453,7 @@ def clean_stock_fills():
 
     # 在允许的时间范围内执行清理操作
     codes = get_stock_holding_codes()
-    DBfreshquant["stock_fills"].delete_many({"symbol": {"$nin": codes}})
+    _get_legacy_stock_fills_collection().delete_many({"symbol": {"$nin": codes}})
     return True
 
 
@@ -370,7 +471,7 @@ def compact_stock_fills(code=None):
     for code in holding_codes:
         position_info = get_stock_hold_position(code)
         if position_info:
-            stock_fill_list = list(DBfreshquant["stock_fills"].find({"symbol": code}))
+            stock_fill_list = list(_get_legacy_stock_fills_collection().find({"symbol": code}))
             quantity = int(position_info["quantity"])
             amount_adjusted = float(position_info["amount_adjusted"])
             if len(stock_fill_list) > 1 and quantity == 0 and amount_adjusted < 0:
@@ -398,7 +499,7 @@ def compact_stock_fills(code=None):
                         "record_count": len(existing_records),
                     }
                     DBfreshquant.audit_log.insert_one(audit_record)
-                DBfreshquant["stock_fills"].delete_many({"symbol": code})
+                _get_legacy_stock_fills_collection().delete_many({"symbol": code})
                 DBfreshquant.stock_fills.insert_many(records)
 
 

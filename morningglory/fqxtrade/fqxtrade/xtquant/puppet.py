@@ -16,6 +16,11 @@ from xtquant import xtconstant
 from freshquant.instrument.bond import REPO_CODE_LIST
 from freshquant.instrument.general import query_instrument_info
 from freshquant.ordering.general import query_strategy_id
+from freshquant.order_management.ingest.xt_reports import (
+    try_ingest_xt_order_dict,
+    try_ingest_xt_trade_dict,
+)
+from freshquant.order_management.reconcile.service import ExternalOrderReconcileService
 from freshquant.trade.trade import calculateTradeFee, saveInstrumentStrategy
 from freshquant.util.code import fq_util_code_append_market_code_suffix
 from xtquant import xtdata
@@ -24,6 +29,7 @@ from freshquant.util.xtquant import translate_order_type, translate_account_type
 from fqxtrade.xtquant.trading_manager import TradingManager
 
 trading_manager = TradingManager()
+external_reconcile_service = ExternalOrderReconcileService()
 
 def saveTrades(trades):
     trades = pydash.filter_(trades, lambda x: x.stock_code not in REPO_CODE_LIST)
@@ -41,6 +47,11 @@ def saveTrades(trades):
         )
     if len(batch) > 0:
         DBfreshquant["xt_trades"].bulk_write(batch)
+    for trade in trades:
+        trade_dict = FqXtTrade(trade).to_dict()
+        reconciled = external_reconcile_service.reconcile_trade_reports([trade_dict])
+        if not reconciled:
+            try_ingest_xt_trade_dict(trade_dict)
     trades = pydash.filter_(trades, lambda x: x.order_type == xtconstant.STOCK_BUY)
     trades = pydash.uniq_by(trades, lambda x: x.stock_code)
     for trade in trades:
@@ -195,6 +206,8 @@ def saveOrders(orders):
         )
     if len(batch) > 0:
         DBfreshquant["xt_orders"].bulk_write(batch)
+    for order in orders:
+        try_ingest_xt_order_dict(FqXtOrder(order).to_dict())
     batch = []
     for order in orders:
         orderTime = pendulum.from_timestamp(
@@ -390,9 +403,15 @@ def sync_positions():
             return None
         # 查询当日所有的持仓
         positions = xt_trader.query_stock_positions(acc)
+        position_dicts = [FqXtPosition(position).to_dict() for position in positions]
         if len(positions) > 0:
             savePositions(positions)
-            positions = [FqXtPosition(position).to_dict() for position in positions]
+            positions = position_dicts
+            external_reconcile_service.reconcile_account(
+                getattr(acc, "account_id", "unknown"),
+                positions=position_dicts,
+                now=int(time.time()),
+            )
             # 创建Rich表格
             table = Table(show_header=True, header_style="bold magenta", show_lines=True, title="持仓记录", title_style="bold")
             
@@ -437,6 +456,11 @@ def sync_positions():
             console.print(t)
             return positions
         else:
+            external_reconcile_service.reconcile_account(
+                getattr(acc, "account_id", "unknown"),
+                positions=position_dicts,
+                now=int(time.time()),
+            )
             logger.info("当前无持仓")
             return None
 

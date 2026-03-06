@@ -51,6 +51,7 @@ from freshquant.command.trade import xt_trade_command_group
 from freshquant.command.order import xt_order_command_group
 from freshquant.command.position import xt_position_command_group
 from freshquant.command.channel import channel_command_group
+from freshquant.command.om_order import om_order_command_group
 
 @click.group()
 def commands():
@@ -107,6 +108,7 @@ def main():
     commands.add_command(xt_position_command_group)
 
     commands.add_command(channel_command_group)
+    commands.add_command(om_order_command_group)
 
     commands()
 
