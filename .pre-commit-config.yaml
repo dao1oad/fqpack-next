@@ -1,3 +1,5 @@
+exclude: ^third_party/tradingagents-cn/
+
 repos:
   - repo: https://github.com/psf/black
     rev: 25.9.0
