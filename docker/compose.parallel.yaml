@@ -34,13 +34,13 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.rear
-    image: fqnext_rear:2026.2.23
+    image: ${FQNEXT_REAR_IMAGE:-fqnext_rear:2026.2.23}
     env_file:
       - ../.env
     environment:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
-    command: ["python", "-m", "freshquant.rear.api_server", "--port", "5000"]
+    command: ["/freshquant/.venv/bin/python", "-m", "freshquant.rear.api_server", "--port", "5000"]
     ports:
       - "15000:5000"
     depends_on:
@@ -51,16 +51,13 @@ services:
     restart: unless-stopped
 
   fq_tdxhq:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.rear
-    image: fqnext_rear:2026.2.23
+    image: ${FQNEXT_REAR_IMAGE:-fqnext_rear:2026.2.23}
     env_file:
       - ../.env
     environment:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
-    command: ["python", "-m", "freshquant.gateway.tdxhq", "--port", "5001"]
+    command: ["/freshquant/.venv/bin/python", "-m", "freshquant.gateway.tdxhq", "--port", "5001"]
     ports:
       - "15001:5001"
     depends_on:
@@ -69,10 +66,7 @@ services:
     restart: unless-stopped
 
   fq_dagster_webserver:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.rear
-    image: fqnext_rear:2026.2.23
+    image: ${FQNEXT_REAR_IMAGE:-fqnext_rear:2026.2.23}
     env_file:
       - ../.env
     environment:
@@ -83,7 +77,7 @@ services:
       [
         "sh",
         "-lc",
-        "mkdir -p /opt/dagster/home; cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; cd /opt/dagster/home; dagster-webserver -h 0.0.0.0 -p 10003 -w /opt/dagster/home/workspace.yaml",
+        "mkdir -p /opt/dagster/home; cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; cd /opt/dagster/home; /freshquant/.venv/bin/dagster-webserver -h 0.0.0.0 -p 10003 -w /opt/dagster/home/workspace.yaml",
       ]
     ports:
       - "11003:10003"
@@ -101,10 +95,7 @@ services:
     restart: unless-stopped
 
   fq_dagster_daemon:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.rear
-    image: fqnext_rear:2026.2.23
+    image: ${FQNEXT_REAR_IMAGE:-fqnext_rear:2026.2.23}
     env_file:
       - ../.env
     environment:
@@ -115,7 +106,7 @@ services:
       [
         "sh",
         "-lc",
-        "mkdir -p /opt/dagster/home; cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; dagster-daemon run -w /opt/dagster/home/workspace.yaml",
+        "mkdir -p /opt/dagster/home; cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; /freshquant/.venv/bin/dagster-daemon run -w /opt/dagster/home/workspace.yaml",
       ]
     volumes:
       - fqnext_dagster_data:/opt/dagster
@@ -131,16 +122,13 @@ services:
     restart: unless-stopped
 
   fq_qawebserver:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.rear
-    image: fqnext_rear:2026.2.23
+    image: ${FQNEXT_REAR_IMAGE:-fqnext_rear:2026.2.23}
     env_file:
       - ../.env
     environment:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
-    command: ["python", "-m", "QUANTAXIS.QAWebServer.server"]
+    command: ["/freshquant/.venv/bin/python", "-m", "QUANTAXIS.QAWebServer.server"]
     ports:
       - "18010:8010"
     depends_on:
@@ -152,7 +140,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.web
-    image: fqnext_webui:2026.2.23
+    image: ${FQNEXT_WEBUI_IMAGE:-fqnext_webui:2026.2.23}
     ports:
       - "18080:80"
     depends_on:
@@ -166,7 +154,7 @@ services:
     build:
       context: ../third_party/tradingagents-cn
       dockerfile: Dockerfile.backend
-    image: fqnext_ta_backend:2026.2.23
+    image: ${FQNEXT_TA_BACKEND_IMAGE:-fqnext_ta_backend:2026.2.23}
     env_file:
       - ../.env
     environment:
@@ -191,6 +179,7 @@ services:
       REDIS_PASSWORD: ""
       REDIS_DB: "8"
       REDIS_URL: redis://fq_redis:6379/8
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       TA_USE_APP_CACHE: "true"
       TRADINGAGENTS_LOG_DIR: /app/logs
       TRADINGAGENTS_LOG_FILE: /app/logs/tradingagents.log
@@ -209,8 +198,8 @@ services:
       - sh
       - -lc
       - >
-        python -c "import asyncio; from app.services.user_service import user_service; asyncio.run(user_service.create_admin_user()); user_service.close()" &&
-        exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+        /app/.venv/bin/python -c "import asyncio; from app.services.user_service import user_service; asyncio.run(user_service.create_admin_user()); user_service.close()" &&
+        exec /app/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports:
       - "13000:8000"
     volumes:
@@ -233,7 +222,7 @@ services:
     build:
       context: ../third_party/tradingagents-cn
       dockerfile: Dockerfile.frontend
-    image: fqnext_ta_frontend:2026.2.23
+    image: ${FQNEXT_TA_FRONTEND_IMAGE:-fqnext_ta_frontend:2026.2.23}
     ports:
       - "13080:80"
     volumes:

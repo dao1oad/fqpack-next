@@ -82,3 +82,9 @@
 - **影响面**：Guardian、交易池与其他依赖 `get_stock_holding_codes()` 的路径，会更早把券商端新增但尚未完全入账的外部持仓代码识别为持仓股；漏掉显式失效时，holding codes 最长约 15 秒自动收敛。
 - **迁移步骤**：调用方无需修改；若有依赖旧的“仅投影口径”行为做调试脚本，应改为同时接受 `xt_positions` 带来的更早识别结果。
 - **回滚方案**：回退 `freshquant/data/astock/holding.py` 与 `freshquant/order_management/ingest/xt_reports.py` 的本次改动，恢复 holding codes 仅依赖订单域持仓投影且只靠版本号失效。
+
+- **RFC**：0009-project-local-uv-python-312
+- **变更**：宿主机与 Docker 的 Python 运行面统一切换到项目内 `.venv`；FreshQuant `docker/Dockerfile.rear` 与 `third_party/tradingagents-cn/Dockerfile.backend` 改为通过 `uv sync --frozen` 构建运行环境，CI 也改为基于 `uv` 同步锁定依赖。`TA-Lib` Python 包升级到 `0.6.8`，改为直接使用带 wheel 的发行版，不再依赖宿主机 MSI 或容器内 `.deb` 的前置安装链路。`docker/compose.parallel.yaml` 允许通过 `FQNEXT_REAR_IMAGE`、`FQNEXT_WEBUI_IMAGE`、`FQNEXT_TA_BACKEND_IMAGE`、`FQNEXT_TA_FRONTEND_IMAGE` 覆盖镜像标签，并将 `Dockerfile.rear` 的构建收口到单一服务复用；`ta_backend` 在本地并行 Compose 下若未显式提供 `JWT_SECRET`，会回落到开发默认值 `change-me-in-production`。
+- **影响面**：`Miniconda fqkit` 不再是标准运行环境；宿主机脚本、Docker 命令、CI 和后续 Supervisor 都需要以项目 `.venv` 为准。依赖旧的 `pip install ./...`、`pip install -r freeze.txt`、外部 Python/conda 环境或容器内系统级 `TA-Lib` 安装的部署脚本需要调整。多 worktree / 多分支并行验证时，如需隔离镜像缓存与标签，需要显式覆盖 `FQNEXT_*_IMAGE`；生产环境若使用 TradingAgents-CN，应显式配置非默认 `JWT_SECRET`。
+- **迁移步骤**：1) 在仓库根目录执行 `create_venv.bat` 与 `install.bat --skip-web`；2) 日常命令统一改为 `uv run ...` 或 `.venv\Scripts\python.exe ...`；3) Docker 改用 `docker compose -f docker/compose.parallel.yaml up -d --build`，由镜像内 `.venv` 启动；如在多个 worktree / 分支间并行验证，先覆盖 `FQNEXT_*_IMAGE`；4) TradingAgents-CN 后端使用 `third_party/tradingagents-cn/uv.lock` 构建 `/app/.venv`，并在生产环境显式设置 `JWT_SECRET`。
+- **回滚方案**：恢复 `install.bat/install.py` 的旧顺序、恢复 Dockerfile 中的 `pip install` 链路与外部 `TA-Lib` 安装步骤，并将宿主机服务命令切回原 `Miniconda fqkit` 解释器。

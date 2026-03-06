@@ -7,7 +7,7 @@ name = "tradingagents"
 version = "1.0.0-preview"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     # 后端API框架和服务器
     "fastapi>=0.104.0",
@@ -87,7 +87,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-qianfan = ["qianfan>=0.4.20"]
+qianfan = ["qianfan>=0.4.12.3,<0.5"]
 
 [project.scripts]
 tradingagents = "main:main"

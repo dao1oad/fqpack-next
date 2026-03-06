@@ -44,11 +44,8 @@ except Exception as e:
 
 pkg_name = 'pytdx'
 
-if cur_branch != 'master':
-    pkg_name = 'pytdx-' + cur_branch
-
 print(30 * '-')
-print("Current Branch is {}, so package name is {}".format(cur_branch, pkg_name))
+print("Current Branch is {}, package name is fixed to {}".format(cur_branch, pkg_name))
 print(30 * '-')
 
 setup(

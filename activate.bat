@@ -1,3 +1,3 @@
 @echo off
 cd /d "%~dp0"
-.venv\Scripts\activate
+call .venv\Scripts\activate.bat
