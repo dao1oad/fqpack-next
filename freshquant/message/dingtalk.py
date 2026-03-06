@@ -2,7 +2,7 @@ import json
 import logging
 import traceback
 
-import requests
+import requests  # type: ignore[import-untyped]
 from ratelimit import limits, sleep_and_retry
 from blinker import signal
 from freshquant.carnation.param import queryParam

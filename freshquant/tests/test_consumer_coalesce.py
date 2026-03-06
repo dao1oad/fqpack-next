@@ -42,4 +42,3 @@ def test_global_inflight_limit_blocks_new_submits():
     sched.mark_done(k1)
     # k2 is now inflight (submitted with latest "b")
     assert calls == [(k1, "a"), (k2, "b")]
-

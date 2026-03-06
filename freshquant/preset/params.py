@@ -3,10 +3,13 @@
 from freshquant.database.mongodb import DBfreshquant
 from freshquant.util.mask_helper import mask
 
+
 def init_param_dict(quiet=False):
     # 从数据库获取当前配置
     notification_config = DBfreshquant.params.find_one({"code": "notification"}) or {}
-    dingtalk_config = notification_config.get("value", {}).get("webhook", {}).get("dingtalk", {})
+    dingtalk_config = (
+        notification_config.get("value", {}).get("webhook", {}).get("dingtalk", {})
+    )
     webhook_dingtalk_private_url = dingtalk_config.get("private", "")
     webhook_dingtalk_public_url = dingtalk_config.get("public", "")
     if quiet:
@@ -15,8 +18,14 @@ def init_param_dict(quiet=False):
         print(f"公共URL: {mask(webhook_dingtalk_public_url, show_chars=10)}")
     else:
         print("请配置钉钉Webhook（直接回车保持当前值）")
-        webhook_dingtalk_private_url = input(f"私密URL [{mask(webhook_dingtalk_private_url, show_chars=10)}]: ") or webhook_dingtalk_private_url
-        webhook_dingtalk_public_url = input(f"公共URL [{mask(webhook_dingtalk_public_url, show_chars=10)}]: ") or webhook_dingtalk_public_url
+        webhook_dingtalk_private_url = (
+            input(f"私密URL [{mask(webhook_dingtalk_private_url, show_chars=10)}]: ")
+            or webhook_dingtalk_private_url
+        )
+        webhook_dingtalk_public_url = (
+            input(f"公共URL [{mask(webhook_dingtalk_public_url, show_chars=10)}]: ")
+            or webhook_dingtalk_public_url
+        )
     DBfreshquant.params.update_one(
         {"code": "notification"},
         {
@@ -25,7 +34,7 @@ def init_param_dict(quiet=False):
                     "webhook": {
                         "dingtalk": {
                             "private": webhook_dingtalk_private_url,
-                            "public": webhook_dingtalk_public_url
+                            "public": webhook_dingtalk_public_url,
                         }
                     },
                 },
@@ -36,15 +45,17 @@ def init_param_dict(quiet=False):
 
     # 获取当前监控配置
     monitor_config = DBfreshquant.params.find_one({"code": "monitor"}) or {}
-    current_periods = monitor_config.get("value", {}).get("stock", {}).get("periods", ["1m"])
-    
+    current_periods = (
+        monitor_config.get("value", {}).get("stock", {}).get("periods", ["1m"])
+    )
+
     if quiet:
         print("\n当前监控周期配置：")
         print(f"K线周期: {', '.join(current_periods)}")
     else:
         print("\n请配置监控周期（多个值用逗号分隔，直接回车保持当前值）")
         print("可选周期: 1m,3m,5m,15m,30m,60m,90m,120m,1d")
-        periods_input = input(f"K线周期 [{', '.join(current_periods)}]: ") 
+        periods_input = input(f"K线周期 [{', '.join(current_periods)}]: ")
         if periods_input:
             current_periods = [p.strip() for p in periods_input.split(",") if p.strip()]
 
@@ -55,7 +66,7 @@ def init_param_dict(quiet=False):
                 "value": {
                     "stock": {
                         "periods": current_periods,
-                        "auto_open": True  # 保持原有默认值
+                        "auto_open": True,  # 保持原有默认值
                     },
                 },
             }
@@ -103,16 +114,14 @@ def init_param_dict(quiet=False):
         print("\n请配置xtQuant（直接回车保持当前值）")
         print("提示：路径指向userdata_mini目录，账号为MiniQMT登录账号")
         current_path = input(f"MiniQMT路径 [{current_path}]: ") or current_path
-        current_account = input(f"交易账号 [{mask(current_account, show_chars=3)}]: ") or current_account
+        current_account = (
+            input(f"交易账号 [{mask(current_account, show_chars=3)}]: ")
+            or current_account
+        )
 
     DBfreshquant.params.update_one(
         {"code": "xtquant"},
-        {
-            "$set": {
-                "value.path": current_path,
-                "value.account": current_account
-            }
-        },
+        {"$set": {"value.path": current_path, "value.account": current_account}},
         upsert=True,
     )
 
@@ -132,11 +141,23 @@ def init_param_dict(quiet=False):
         print(f"最低一网交易金额: {current_min_amount}")
     else:
         print("\n请配置交易守护者（直接回车保持当前值）")
-        current_position_pct = float(input(f"最低仓位比例(%) [{current_position_pct}]: ") or current_position_pct)
-        auto_open_input = input(f"是否自动开仓(yes/no) [{'是' if current_auto_open else '否'}]: ").lower()
-        current_auto_open = auto_open_input in ['y', 'yes', '是'] if auto_open_input else current_auto_open
-        current_lot_amount = float(input(f"一网交易金额 [{current_lot_amount}]: ") or current_lot_amount)
-        current_min_amount = float(input(f"最低一网交易金额 [{current_min_amount}]: ") or current_min_amount)
+        current_position_pct = float(
+            input(f"最低仓位比例(%) [{current_position_pct}]: ") or current_position_pct
+        )
+        auto_open_input = input(
+            f"是否自动开仓(yes/no) [{'是' if current_auto_open else '否'}]: "
+        ).lower()
+        current_auto_open = (
+            auto_open_input in ['y', 'yes', '是']
+            if auto_open_input
+            else current_auto_open
+        )
+        current_lot_amount = float(
+            input(f"一网交易金额 [{current_lot_amount}]: ") or current_lot_amount
+        )
+        current_min_amount = float(
+            input(f"最低一网交易金额 [{current_min_amount}]: ") or current_min_amount
+        )
 
     DBfreshquant.params.update_one(
         {"code": "guardian"},
@@ -145,7 +166,7 @@ def init_param_dict(quiet=False):
                 "value.stock.position_pct": current_position_pct,
                 "value.stock.auto_open": current_auto_open,
                 "value.stock.lot_amount": current_lot_amount,
-                "value.stock.min_amount": current_min_amount
+                "value.stock.min_amount": current_min_amount,
             }
         },
         upsert=True,

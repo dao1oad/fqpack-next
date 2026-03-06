@@ -83,4 +83,3 @@ PYBIND11_MODULE(fullcalc, m) {
           py::arg("model_ids") = std::vector<int>{},
           "Compute chanlun structures and CLX signals in one pass.");
 }
-

@@ -38,4 +38,3 @@ def test_resample_5min_emits_on_bucket_end():
     assert b["low"] == 0.9
     assert b["volume"] == 50  # 5 * 10
     assert b["amount"] == 500  # 5 * 100
-

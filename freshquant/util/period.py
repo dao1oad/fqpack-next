@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 PUBSUB_CHANNEL = "CHANNEL:BAR_UPDATE"
 
 CACHE_KLINE_PREFIX = "CACHE:KLINE"
@@ -74,4 +73,3 @@ class PeriodSpec:
             except Exception:
                 return 0
         return 0
-

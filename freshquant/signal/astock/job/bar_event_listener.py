@@ -92,15 +92,19 @@ class BarEventListener:
         )
         self.channel = channel
         cpu_cnt = os.cpu_count() or 8
-        self.worker_num = worker_num if worker_num is not None else min(32, max(8, cpu_cnt))
+        self.worker_num = (
+            worker_num if worker_num is not None else min(32, max(8, cpu_cnt))
+        )
         self.queue_size = max(1000, int(queue_size))
         self.enqueue_timeout = max(0.0, float(enqueue_timeout))
         self.task_timeout = task_timeout
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
-        self._pubsub = None
-        self._queue: queue.Queue = queue.Queue(maxsize=self.queue_size)
+        self._pubsub: Any | None = None
+        self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue(
+            maxsize=self.queue_size
+        )
         self._workers: list[threading.Thread] = []
         self._reconnect_interval_s = 5
 
@@ -129,9 +133,13 @@ class BarEventListener:
             )
             t.start()
             self._workers.append(t)
-        self._thread = threading.Thread(target=self._listen_loop, daemon=True, name="BarEventListener")
+        self._thread = threading.Thread(
+            target=self._listen_loop, daemon=True, name="BarEventListener"
+        )
         self._thread.start()
-        logger.info(f"BarEventListener started: channel={self.channel} workers={self.worker_num} queue={self.queue_size}")
+        logger.info(
+            f"BarEventListener started: channel={self.channel} workers={self.worker_num} queue={self.queue_size}"
+        )
 
     def stop(self) -> None:
         self._running = False
@@ -169,10 +177,18 @@ class BarEventListener:
         return stats
 
     def update_filter_codes(self, codes: Optional[set[str]]) -> None:
-        self.filter_codes = {normalize_prefixed_code(c).lower() for c in (codes or set()) if c} if codes is not None else None
+        self.filter_codes = (
+            {normalize_prefixed_code(c).lower() for c in (codes or set()) if c}
+            if codes is not None
+            else None
+        )
 
     def update_filter_periods(self, periods: Optional[set[str]]) -> None:
-        self.filter_periods = {to_backend_period(p) for p in (periods or set()) if p} if periods is not None else None
+        self.filter_periods = (
+            {to_backend_period(p) for p in (periods or set()) if p}
+            if periods is not None
+            else None
+        )
 
     def _inc(self, key: str) -> None:
         with self._stats_lock:
@@ -180,13 +196,16 @@ class BarEventListener:
 
     def _listen_loop(self) -> None:
         if redis_db is None:  # pragma: no cover
-            raise RuntimeError("redis client unavailable: please install redis-py and configure redis")
+            raise RuntimeError(
+                "redis client unavailable: please install redis-py and configure redis"
+            )
         while self._running:
             try:
-                self._pubsub = redis_db.pubsub()
-                self._pubsub.subscribe(self.channel)
+                pubsub = redis_db.pubsub()
+                self._pubsub = pubsub
+                pubsub.subscribe(self.channel)
                 logger.info(f"Subscribed Redis channel: {self.channel}")
-                for msg in self._pubsub.listen():
+                for msg in pubsub.listen():
                     if not self._running:
                         break
                     if (msg or {}).get("type") != "message":
@@ -197,7 +216,9 @@ class BarEventListener:
                 if not self._running:
                     break
                 self._inc("errors")
-                logger.error(f"BarEventListener listen error: {e}; reconnecting in {self._reconnect_interval_s}s")
+                logger.error(
+                    f"BarEventListener listen error: {e}; reconnecting in {self._reconnect_interval_s}s"
+                )
                 time.sleep(self._reconnect_interval_s)
 
     def _enqueue(self, msg: dict[str, Any]) -> None:
@@ -228,13 +249,19 @@ class BarEventListener:
 
     def _process(self, msg: dict[str, Any]) -> None:
         try:
-            upd = parse_bar_update_message((msg or {}).get("data"))
+            raw = (msg or {}).get("data")
+            if not isinstance(raw, (str, bytes)):
+                return
+            upd = parse_bar_update_message(raw)
             if upd is None:
                 return
             if self.filter_codes is not None and upd.code not in self.filter_codes:
                 self._inc("filtered")
                 return
-            if self.filter_periods is not None and upd.period not in self.filter_periods:
+            if (
+                self.filter_periods is not None
+                and upd.period not in self.filter_periods
+            ):
                 self._inc("filtered")
                 return
 
@@ -244,7 +271,9 @@ class BarEventListener:
             if self.task_timeout is not None:
                 cost = time.time() - start_ts
                 if cost > self.task_timeout:
-                    logger.warning(f"BarEventListener callback slow: {upd.code} {upd.period} cost={cost:.3f}s")
+                    logger.warning(
+                        f"BarEventListener callback slow: {upd.code} {upd.period} cost={cost:.3f}s"
+                    )
         except Exception as e:
             self._inc("errors")
             logger.error(f"BarEventListener process error: {e}")

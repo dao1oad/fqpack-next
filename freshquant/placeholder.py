@@ -1,23 +1,27 @@
 # -*- coding: utf-8 -*-
 
-bidata = {"date": [], "data": []}
+from __future__ import annotations
 
-duandata = {"date": [], "data": []}
+from typing import Any
 
-higherDuanData = {"date": [], "data": []}
+bidata: dict[str, list[Any]] = {"date": [], "data": []}
 
-higherHigherDuanData = {"data": [], "date": []}
+duandata: dict[str, list[Any]] = {"date": [], "data": []}
 
-zsdata = []
-zsflag = []
+higherDuanData: dict[str, list[Any]] = {"date": [], "data": []}
 
-duan_zsdata = []
-duan_zsflag = []
+higherHigherDuanData: dict[str, list[Any]] = {"data": [], "date": []}
 
-higher_duan_zsdata = []
-higher_duan_zsflag = []
+zsdata: list[Any] = []
+zsflag: list[Any] = []
 
-buy_zs_huila = {
+duan_zsdata: list[Any] = []
+duan_zsflag: list[Any] = []
+
+higher_duan_zsdata: list[Any] = []
+higher_duan_zsflag: list[Any] = []
+
+buy_zs_huila: dict[str, list[Any]] = {
     "idx": [],
     "date": [],
     "data": [],
@@ -28,7 +32,7 @@ buy_zs_huila = {
     "above_ma20": [],
 }
 
-sell_zs_huila = {
+sell_zs_huila: dict[str, list[Any]] = {
     "idx": [],
     "date": [],
     "data": [],
@@ -39,7 +43,7 @@ sell_zs_huila = {
     "above_ma20": [],
 }
 
-buy_zs_tupo = {
+buy_zs_tupo: dict[str, list[Any]] = {
     "idx": [],
     "date": [],
     "data": [],
@@ -50,7 +54,7 @@ buy_zs_tupo = {
     "above_ma20": [],
 }
 
-sell_zs_tupo = {
+sell_zs_tupo: dict[str, list[Any]] = {
     "idx": [],
     "date": [],
     "data": [],
@@ -61,7 +65,7 @@ sell_zs_tupo = {
     "above_ma20": [],
 }
 
-buy_v_reverse = {
+buy_v_reverse: dict[str, list[Any]] = {
     "idx": [],
     "date": [],
     "data": [],
@@ -72,7 +76,7 @@ buy_v_reverse = {
     "above_ma20": [],
 }
 
-sell_v_reverse = {
+sell_v_reverse: dict[str, list[Any]] = {
     "idx": [],
     "date": [],
     "data": [],
@@ -83,7 +87,7 @@ sell_v_reverse = {
     "above_ma20": [],
 }
 
-buy_five_v_reverse = {
+buy_five_v_reverse: dict[str, list[Any]] = {
     "idx": [],
     "date": [],
     "data": [],
@@ -94,7 +98,7 @@ buy_five_v_reverse = {
     "above_ma20": [],
 }
 
-sell_five_v_reverse = {
+sell_five_v_reverse: dict[str, list[Any]] = {
     "idx": [],
     "date": [],
     "data": [],
@@ -105,7 +109,7 @@ sell_five_v_reverse = {
     "above_ma20": [],
 }
 
-buy_duan_break = {
+buy_duan_break: dict[str, list[Any]] = {
     "idx": [],
     "date": [],
     "data": [],
@@ -116,7 +120,7 @@ buy_duan_break = {
     "above_ma20": [],
 }
 
-sell_duan_break = {
+sell_duan_break: dict[str, list[Any]] = {
     "idx": [],
     "date": [],
     "data": [],
@@ -127,4 +131,4 @@ sell_duan_break = {
     "above_ma20": [],
 }
 
-fractal = []
+fractal: list[Any] = []

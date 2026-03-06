@@ -100,7 +100,7 @@ def identify_futures_code(code: str) -> str:
             return 'TQ'
         elif prefix == wh_product_code and len(month_code) == wh_month_code_len:
             return 'WH'
-    return None
+    raise ValueError(f"无法识别的期货代码: {code}")
 
 
 @in_memory_cache.memoize(expiration=864000)

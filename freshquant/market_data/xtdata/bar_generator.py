@@ -23,14 +23,21 @@ except Exception:  # pragma: no cover
 
 def _is_cn_a_trading_datetime(dt: datetime) -> bool:
     t = dt.time()
-    return (t >= datetime(dt.year, dt.month, dt.day, 9, 30).time() and t <= datetime(dt.year, dt.month, dt.day, 11, 30).time()) or (
-        t >= datetime(dt.year, dt.month, dt.day, 13, 0).time() and t <= datetime(dt.year, dt.month, dt.day, 15, 0).time()
+    return (
+        t >= datetime(dt.year, dt.month, dt.day, 9, 30).time()
+        and t <= datetime(dt.year, dt.month, dt.day, 11, 30).time()
+    ) or (
+        t >= datetime(dt.year, dt.month, dt.day, 13, 0).time()
+        and t <= datetime(dt.year, dt.month, dt.day, 15, 0).time()
     )
 
 
 def _is_noon_break(dt: datetime) -> bool:
     t = dt.time()
-    return t > datetime(dt.year, dt.month, dt.day, 11, 30).time() and t < datetime(dt.year, dt.month, dt.day, 13, 0).time()
+    return (
+        t > datetime(dt.year, dt.month, dt.day, 11, 30).time()
+        and t < datetime(dt.year, dt.month, dt.day, 13, 0).time()
+    )
 
 
 def _ceil_minute_end(dt: datetime) -> datetime:
@@ -92,11 +99,17 @@ class MultiPeriodResamplerFrom1m:
         dt_end = datetime.fromtimestamp(end_ts, tz=cfg.TZ)
         emitted: list[BarEvent] = []
 
+        o_raw = bar_data.get("open")
+        h_raw = bar_data.get("high")
+        l_raw = bar_data.get("low")
+        c_raw = bar_data.get("close")
+        if o_raw is None or h_raw is None or l_raw is None or c_raw is None:
+            return []
         try:
-            o = float(bar_data.get("open"))
-            h = float(bar_data.get("high"))
-            l = float(bar_data.get("low"))
-            c = float(bar_data.get("close"))
+            o = float(o_raw)
+            h = float(h_raw)
+            l = float(l_raw)
+            c = float(c_raw)
             v = float(bar_data.get("volume") or 0.0)
             a = float(bar_data.get("amount") or 0.0)
         except Exception:
@@ -189,7 +202,9 @@ class OneMinuteBarGenerator:
 
         self._lock = threading.Lock()
         self._bars: dict[str, dict[str, Any]] = defaultdict(dict)
-        self._tick_cache: dict[str, dict[str, Any]] = defaultdict(lambda: {"last_vol": 0.0, "last_amt": 0.0})
+        self._tick_cache: dict[str, dict[str, Any]] = defaultdict(
+            lambda: {"last_vol": 0.0, "last_amt": 0.0}
+        )
         self._last_close: dict[str, float] = {}
 
         self._resampler = None
@@ -197,7 +212,9 @@ class OneMinuteBarGenerator:
             self._resampler = MultiPeriodResamplerFrom1m(resample_periods_min)
 
         self._timer_stop = threading.Event()
-        self._timer_thread = threading.Thread(target=self._timer_loop, daemon=True, name="OneMinuteBarTimer")
+        self._timer_thread = threading.Thread(
+            target=self._timer_loop, daemon=True, name="OneMinuteBarTimer"
+        )
         self._timer_thread.start()
 
     def stop(self) -> None:
@@ -273,10 +290,14 @@ class OneMinuteBarGenerator:
         # init next synthetic bar
         last_close = float(bar.get("close") or 0.0)
         self._last_close[code] = last_close
-        next_end_dt = datetime.fromtimestamp(int(bar["time"]), tz=cfg.TZ) + timedelta(minutes=1)
+        next_end_dt = datetime.fromtimestamp(int(bar["time"]), tz=cfg.TZ) + timedelta(
+            minutes=1
+        )
         if _is_noon_break(next_end_dt):
             # skip noon break: jump to 13:01 end
-            next_end_dt = next_end_dt.replace(hour=13, minute=1, second=0, microsecond=0)
+            next_end_dt = next_end_dt.replace(
+                hour=13, minute=1, second=0, microsecond=0
+            )
         self._bars[code] = {
             "time": int(next_end_dt.timestamp()),
             "open": last_close,

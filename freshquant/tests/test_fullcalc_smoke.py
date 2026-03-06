@@ -1,5 +1,5 @@
-import pytest
 import pandas as pd
+import pytest
 
 
 def test_fullcalc_smoke():
@@ -25,4 +25,3 @@ def test_fullcalc_smoke():
     assert r["ok"] is True
     assert "bi" in r and len(r["bi"]) == 20
     assert r.get("signals") == []
-

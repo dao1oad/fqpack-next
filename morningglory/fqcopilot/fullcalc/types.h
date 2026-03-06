@@ -32,4 +32,3 @@ struct FullCalcResult {
     std::vector<PivotOut> pivots_high; // 高阶中枢（趋势级）
     std::vector<ClxSignalOut> signals;
 };
-

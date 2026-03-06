@@ -12,7 +12,7 @@ import pandas as pd
 from freshquant.basic.util import get_zhong_shu_data, str_from_timestamp
 from freshquant.config import cfg
 from freshquant.instrument.general import query_instrument_info
-from freshquant.util.period import to_frontend_period, to_backend_period
+from freshquant.util.period import to_backend_period, to_frontend_period
 
 
 def _safe_local_timestamp(dt_obj: Any) -> int:
@@ -151,9 +151,18 @@ def build_chanlun_payload(
         "close": merged_df["close"].tolist(),
         "volume": merged_df["volume"].tolist() if "volume" in merged_df.columns else [],
         "amount": merged_df["amount"].tolist() if "amount" in merged_df.columns else [],
-        "bidata": {"date": [str_from_timestamp(x) for x in bi_data["dt"]], "data": bi_data["data"]},
-        "duandata": {"date": [str_from_timestamp(x) for x in duan_data["dt"]], "data": duan_data["data"]},
-        "higherDuanData": {"date": [str_from_timestamp(x) for x in higher_duan_data["dt"]], "data": higher_duan_data["data"]},
+        "bidata": {
+            "date": [str_from_timestamp(x) for x in bi_data["dt"]],
+            "data": bi_data["data"],
+        },
+        "duandata": {
+            "date": [str_from_timestamp(x) for x in duan_data["dt"]],
+            "data": duan_data["data"],
+        },
+        "higherDuanData": {
+            "date": [str_from_timestamp(x) for x in higher_duan_data["dt"]],
+            "data": higher_duan_data["data"],
+        },
         "higherHigherDuanData": {"date": [], "data": []},
         "zsdata": zs_data,
         "zsflag": zs_flag,

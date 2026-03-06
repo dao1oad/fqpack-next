@@ -7,13 +7,12 @@ It will auto-load the compiled extension from:
 
 from __future__ import annotations
 
-from pathlib import Path
 import importlib
 import sys
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
 
 _MODULE_LOADED = False
 
@@ -71,4 +70,3 @@ def run_fullcalc(
 
 
 __all__ = ["run_fullcalc"]
-

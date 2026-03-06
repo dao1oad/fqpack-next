@@ -31,7 +31,9 @@ def load_monitor_codes(*, mode: str, max_symbols: int) -> list[str]:
 def _load_guardian_codes(limit: int) -> list[str]:
     codes: set[str] = set()
 
-    for doc in DBfreshquant["xt_positions"].find({}, {"stock_code": 1, "code": 1, "symbol": 1}):
+    for doc in DBfreshquant["xt_positions"].find(
+        {}, {"stock_code": 1, "code": 1, "symbol": 1}
+    ):
         raw = doc.get("stock_code") or doc.get("code") or doc.get("symbol") or ""
         norm = normalize_prefixed_code(str(raw)).lower()
         if norm:
@@ -63,4 +65,3 @@ def _load_clx_codes(limit: int) -> list[str]:
             codes.add(norm)
     out = sorted(c for c in codes if len(c) >= 8)[:limit]
     return out
-

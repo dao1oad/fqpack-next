@@ -198,4 +198,3 @@ FullCalcResult full_calc(const std::vector<float> &high,
 }
 
 } // namespace fullcalc
-

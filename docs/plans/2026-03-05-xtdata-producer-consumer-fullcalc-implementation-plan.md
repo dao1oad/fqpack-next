@@ -338,4 +338,3 @@ Plan complete and saved to `docs/plans/2026-03-05-xtdata-producer-consumer-fullc
 2. Parallel Session (separate) — new session uses superpowers:executing-plans
 
 Which approach?
-

@@ -18,4 +18,3 @@ FullCalcResult full_calc(const std::vector<float> &high,
                          const std::vector<int> &model_ids);
 
 } // namespace fullcalc
-

@@ -37,5 +37,8 @@ def upsert_realtime_bars(
     if not batch:
         return 0
     res = DBfreshquant[collection].bulk_write(batch, ordered=False)
-    return int(res.upserted_count or 0) + int(res.modified_count or 0) + int(res.matched_count or 0)
-
+    return (
+        int(res.upserted_count or 0)
+        + int(res.modified_count or 0)
+        + int(res.matched_count or 0)
+    )

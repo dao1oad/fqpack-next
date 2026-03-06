@@ -82,7 +82,11 @@ def start_producer():
     port = int(os.environ.get("XTQUANT_PORT", "58610"))
     xtdata.connect(port=port)
 
-    mode = str(queryParam("monitor.xtdata.mode", "clx_15_30") or "clx_15_30").strip().lower()
+    mode = (
+        str(queryParam("monitor.xtdata.mode", "clx_15_30") or "clx_15_30")
+        .strip()
+        .lower()
+    )
     max_symbols = int(queryParam("monitor.xtdata.max_symbols", 50) or 50)
     if max_symbols <= 0:
         max_symbols = 50
@@ -113,7 +117,11 @@ def start_producer():
 
         def on_data(datas):
             # datas keys are xt symbols; normalize to prefixed for generator
-            norm = {normalize_prefixed_code(k).lower(): v for k, v in (datas or {}).items() if k and v}
+            norm = {
+                normalize_prefixed_code(k).lower(): v
+                for k, v in (datas or {}).items()
+                if k and v
+            }
             pump.submit(norm)
 
         if sub_seq is not None:
@@ -123,7 +131,9 @@ def start_producer():
                 pass
         sub_seq = xtdata.subscribe_whole_quote(xt_codes, callback=on_data)
         sub_codes = set(codes_prefixed)
-        logger.info(f"[Producer] subscribed: mode={mode} codes={len(sub_codes)} seq={sub_seq}")
+        logger.info(
+            f"[Producer] subscribed: mode={mode} codes={len(sub_codes)} seq={sub_seq}"
+        )
 
     _subscribe(_load_codes())
 
@@ -134,7 +144,9 @@ def start_producer():
                 new_list = _load_codes()
                 new_set = set(new_list)
                 if new_set and new_set != sub_codes:
-                    logger.info(f"[Producer] pool changed: {len(sub_codes)} -> {len(new_set)}")
+                    logger.info(
+                        f"[Producer] pool changed: {len(sub_codes)} -> {len(new_set)}"
+                    )
                     _subscribe(new_list)
             except Exception:
                 logger.error(traceback.format_exc())

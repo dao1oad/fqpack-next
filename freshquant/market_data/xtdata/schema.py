@@ -8,7 +8,6 @@ from typing import Any
 
 from freshquant.util.period import to_backend_period
 
-
 _RE_PREF = re.compile(r"^(sh|sz|bj)(\d{6})$", re.I)
 _RE_SUFFIX = re.compile(r"^(\d{6})\.(sh|sz|bj)$", re.I)
 
@@ -73,10 +72,12 @@ class BarCloseEvent:
         data = raw.get("data") or {}
         if not isinstance(data, dict):
             raise TypeError("data must be dict")
-        return BarCloseEvent(code=code, period=period, data=data, created_at=raw.get("created_at"))
+        return BarCloseEvent(
+            code=code, period=period, data=data, created_at=raw.get("created_at")
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        d = {
+        d: dict[str, Any] = {
             "event": "BAR_CLOSE",
             "code": self.code,
             "period": self.period,

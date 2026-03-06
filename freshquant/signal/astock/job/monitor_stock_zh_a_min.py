@@ -19,7 +19,9 @@ from freshquant.instrument.general import query_instrument_type
 from freshquant.market_data.xtdata.pools import load_monitor_codes
 from freshquant.signal.a_stock_common import save_a_stock_signal
 from freshquant.signal.astock.job.bar_event_listener import BarEventListener
-from freshquant.signal.astock.job.monitor_helpers_event import calculate_guardian_signals_latest
+from freshquant.signal.astock.job.monitor_helpers_event import (
+    calculate_guardian_signals_latest,
+)
 from freshquant.strategy.guardian import StrategyGuardian
 from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 from freshquant.util.period import to_backend_period, to_frontend_period
@@ -97,7 +99,9 @@ def monitor_stock_zh_a_min_event_driven() -> None:
     """
     xt_mode = str(queryParam("monitor.xtdata.mode", "") or "").strip().lower()
     if xt_mode and xt_mode != "guardian_1m":
-        logger.warning(f"[Event] monitor.xtdata.mode={xt_mode}; expected guardian_1m. Exiting.")
+        logger.warning(
+            f"[Event] monitor.xtdata.mode={xt_mode}; expected guardian_1m. Exiting."
+        )
         return
 
     max_symbols = int(queryParam("monitor.xtdata.max_symbols", 50) or 50)
@@ -136,7 +140,9 @@ def monitor_stock_zh_a_min_event_driven() -> None:
                 if new_codes != old_codes:
                     codes_lock["codes"] = new_codes
                     listener.update_filter_codes(new_codes)
-                    logger.info(f"[Event] pool changed: {len(old_codes)} -> {len(new_codes)}")
+                    logger.info(
+                        f"[Event] pool changed: {len(old_codes)} -> {len(new_codes)}"
+                    )
             except Exception:
                 logger.error(traceback.format_exc())
 
@@ -185,11 +191,18 @@ def monitor_stock_zh_a_min_event_driven() -> None:
         task_timeout=2.0,
     )
     listener.start()
-    logger.info(f"[Event] Guardian monitor started: codes={len(codes_lock.get('codes') or [])} periods={sorted(filter_periods)}")
+    logger.info(
+        f"[Event] Guardian monitor started: codes={len(codes_lock.get('codes') or [])} periods={sorted(filter_periods)}"
+    )
 
     import threading
 
-    t = threading.Thread(target=_refresh_codes_loop, args=(listener,), daemon=True, name="GuardianPoolRefresh")
+    t = threading.Thread(
+        target=_refresh_codes_loop,
+        args=(listener,),
+        daemon=True,
+        name="GuardianPoolRefresh",
+    )
     t.start()
 
     try:
