@@ -2,6 +2,7 @@ import argparse
 from flask import Flask
 from gevent.pywsgi import WSGIServer
 from freshquant.rear.future.routes import future_bp
+from freshquant.rear.gantt.routes import gantt_bp
 from freshquant.rear.stock.routes import stock_bp
 from freshquant.rear.general.routes import general_bp
 
@@ -11,6 +12,7 @@ def create_app():
     app.register_blueprint(future_bp)
     app.register_blueprint(stock_bp)
     app.register_blueprint(general_bp)
+    app.register_blueprint(gantt_bp)
     return app
 
 def run(port):

@@ -1,4 +1,4 @@
-# 破坏性变更清单（Breaking Changes）
+﻿# 破坏性变更清单（Breaking Changes）
 
 > 任何破坏性变更落地时必须追加记录，并引用对应 RFC。
 
@@ -33,3 +33,16 @@
   3) 启动 `python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`；
   4) Mode A 时启动 `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event`（替代轮询）。
 - **回滚方案**：停止上述 Producer/Consumer/Guardian(event) 进程，恢复启动旧的 TDX realtime 采集链路与 Guardian 轮询模式（`--mode poll` 或旧脚本链路）。
+- **日期**：2026-03-06
+- **RFC**：0006-gantt-postclose-readmodel
+- **变更**：新增独立 MongoDB 分库 `freshquant_gantt` 承载 XGB/JYGS 原始同步与 `plate_reason_daily/gantt_*/shouban30_*` 读模型；新增统一最小接口 `/api/gantt/*`，且只保留盘后 Dagster 更新，不再兼容旧分支盘中 snapshot 注入与板块理由 fallback。
+- **影响面**：
+  - 依赖旧分支 `/api/xgb/*`、`/api/jygs/*`、旧 `/api/gantt/shouban30/*` 返回结构的页面或脚本不能直接复用；
+  - 运维需要额外备份 `freshquant_gantt`，不能再假设专题数据写入 `freshquant` 主库；
+  - 缺失板块理由将直接导致读模型构建失败，而不是静默降级。
+- **迁移步骤**：
+  1) 配置 `mongodb.gantt_db=freshquant_gantt`（或环境变量 `freshquant_MONGODB__GANTT_DB`）；
+  2) 部署并启用 `job_gantt_postclose` / `gantt_postclose_schedule`；
+  3) 页面或调用方切换到 `/api/gantt/plates`、`/api/gantt/stocks`、`/api/gantt/shouban30/plates`、`/api/gantt/shouban30/stocks`；
+  4) 停用旧分支依赖的盘中实时 Gantt/Shouban30 读取链路。
+- **回滚方案**：停用 `gantt_postclose_schedule` 与 `/api/gantt/*` 新接口，保留 `freshquant_gantt` 数据不删库；调用方退回旧分支页面/API。

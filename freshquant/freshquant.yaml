@@ -1,3 +1,9 @@
+mongodb:
+  host: 127.0.0.1
+  port: 27017
+  db: freshquant
+  gantt_db: freshquant_gantt
+
 redis:
   host: 127.0.0.1
   port: 6379

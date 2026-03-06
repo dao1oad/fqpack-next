@@ -1,4 +1,4 @@
-# 迁移进度（progress）
+﻿# 迁移进度（progress）
 
 > 记录粒度：以 RFC 为单位。每个 RFC 通过评审后才能进入编码状态。
 
@@ -25,3 +25,6 @@
 | 0002 | ETF 前复权(qfq)因子同步（TDX xdxr → etf_adj）与查询默认 qfq | Done | TBD | 2026-03-05 | 现状缺口补齐（ETF 无 xdxr/adj） | 新增 `etf_xdxr/etf_adj`，Dagster 补历史+每日更新；ETF 查询链路默认应用 qfq，与股票一致（无开关）；容器内已验证 `512000` 拆分与 `510050` 分红连续性，`get_data_v2()` 股票/ETF 日线&分钟均可 qfq 读取 |
 | 0003 | XTData Producer/Consumer + fullcalc（替代轮询） | Done | TBD | 2026-03-06 | `D:\fqpack\freshquant\freshquant\market_data\xtdata\market_producer.py` / `strategy_consumer.py` / `morningglory\fqcopilot\fullcalc\*` | 已合并 main（PR #5）；Producer/Consumer/fullcalc/Guardian(event) 已落地骨架与关键语义（prewarm/backfill/qfq/积压只算最新）；端到端运行验收与部署说明待补充 |
 | 0004 | Windows PowerShell UTF-8 中文显示（cat/type 不乱码） | Done | TBD | 2026-03-05 | N/A（开发体验） | 新增 `script/pwsh_utf8.ps1`；`docs/agent` 与 `README.md` 增加提示；dot-source 后 `cat/type` 默认按 UTF-8 读取 |
+
+| 0006 | XGB / JYGS / Gantt / Shouban30 盘后读模型与独立分库 | Implementing | TBD | 2026-03-06 | D:\fqpack\freshquant\freshquant\data\xgb_cache_service.py / D:\fqpack\freshquant\freshquant\signal\astock\job\monitor_jygs_action_yidong.py / D:\fqpack\freshquant\freshquant\data\gantt_shouban30_service.py | 已在 `freshquant_gantt` 分库落地 XGB/JYGS 原始同步、`plate_reason_daily/gantt_*/shouban30_*` 读模型、`/api/gantt/*` 最小查询接口与盘后 Dagster job；当前仅支持盘后更新，不保留盘中 snapshot/fallback 逻辑 |
+
