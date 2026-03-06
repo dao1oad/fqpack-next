@@ -1,3 +1,4 @@
+import freshquant.order_management.ingest.xt_reports as xt_reports_module
 from freshquant.order_management.ingest.xt_reports import (
     OrderManagementXtIngestService,
     normalize_xt_order_report,
@@ -214,6 +215,37 @@ def test_trade_report_creates_trade_fact_buy_lot_and_slices():
     assert len(repository.trade_facts) == 1
     assert result["buy_lot"]["original_quantity"] == 900
     assert len(result["lot_slices"]) == 4
+
+
+def test_trade_report_marks_holding_projection_updated(monkeypatch):
+    repository, ingest_service = _bootstrap_service()
+    marks = []
+
+    monkeypatch.setattr(
+        xt_reports_module,
+        "mark_stock_holdings_projection_updated",
+        lambda: marks.append("marked"),
+        raising=False,
+    )
+
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_test_1",
+            "broker_trade_id": "T-100-mark",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 900,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert marks == ["marked"]
 
 
 def test_sell_trade_report_creates_sell_allocations_and_updates_projection():

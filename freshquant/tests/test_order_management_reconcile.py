@@ -1,3 +1,4 @@
+import freshquant.order_management.ingest.xt_reports as xt_reports_module
 from freshquant.order_management.reconcile.service import ExternalOrderReconcileService
 from freshquant.order_management.tracking.service import OrderTrackingService
 
@@ -196,8 +197,15 @@ def test_detect_external_candidates_from_position_delta():
     assert candidates[0]["pending_until"] == 1_120
 
 
-def test_reconcile_matches_external_trade_report_to_existing_candidate():
+def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypatch):
     repository, service = _build_service()
+    marks = []
+    monkeypatch.setattr(
+        xt_reports_module,
+        "mark_stock_holdings_projection_updated",
+        lambda: marks.append("matched"),
+        raising=False,
+    )
     candidate = service.detect_external_candidates(
         positions=[
             {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
@@ -227,6 +235,7 @@ def test_reconcile_matches_external_trade_report_to_existing_candidate():
     assert repository.external_candidates[0]["matched_order_id"]
     assert len(repository.buy_lots) == 1
     assert repository.orders[0]["source_type"] == "external_reported"
+    assert marks == ["matched"]
 
 
 def test_reconcile_matches_inflight_internal_order_before_creating_external_order():
@@ -274,8 +283,15 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
     assert repository.trade_facts[0]["internal_order_id"] == "ord_internal_1"
 
 
-def test_inferred_pending_auto_confirms_after_120_seconds():
+def test_inferred_pending_auto_confirms_after_120_seconds(monkeypatch):
     repository, service = _build_service()
+    marks = []
+    monkeypatch.setattr(
+        xt_reports_module,
+        "mark_stock_holdings_projection_updated",
+        lambda: marks.append("confirmed"),
+        raising=False,
+    )
     candidate = service.detect_external_candidates(
         positions=[
             {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
@@ -291,3 +307,4 @@ def test_inferred_pending_auto_confirms_after_120_seconds():
     assert repository.orders[0]["state"] == "INFERRED_CONFIRMED"
     assert repository.trade_facts[0]["provisional"] is True
     assert len(repository.buy_lots) == 1
+    assert marks == ["confirmed"]

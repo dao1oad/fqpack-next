@@ -13,6 +13,9 @@ from freshquant.order_management.guardian.arranger import (
     arrange_buy_lot,
     build_buy_lot_from_trade_fact,
 )
+from freshquant.order_management.projection.cache_invalidator import (
+    mark_stock_holdings_projection_updated,
+)
 from freshquant.order_management.projection.stock_fills import (
     build_arranged_fills_view,
     build_open_buy_fills_view,
@@ -38,6 +41,7 @@ class OrderManagementXtIngestService:
         buy_lot = None
         lot_slices = []
         sell_allocations = []
+        holdings_changed = False
 
         if trade_fact["side"] == "buy":
             buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
@@ -55,6 +59,7 @@ class OrderManagementXtIngestService:
                     buy_lot["buy_lot_id"],
                     lot_slices,
                 )
+                holdings_changed = True
             else:
                 lot_slices = self.repository.list_open_slices(symbol)
         elif trade_fact["side"] == "sell":
@@ -69,9 +74,12 @@ class OrderManagementXtIngestService:
                 self.repository.replace_buy_lot(item)
             self.repository.replace_open_slices(open_slices)
             self.repository.insert_sell_allocations(sell_allocations)
+            holdings_changed = bool(sell_allocations)
 
         buy_lots = self.repository.list_buy_lots(symbol)
         open_slices = self.repository.list_open_slices(symbol)
+        if holdings_changed:
+            mark_stock_holdings_projection_updated()
 
         return {
             "trade_fact": trade_fact,
