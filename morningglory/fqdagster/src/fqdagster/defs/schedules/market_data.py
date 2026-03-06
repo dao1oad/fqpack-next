@@ -12,7 +12,6 @@ from dagster import (
     ScheduleDefinition,
     define_asset_job,
 )
-
 from fqdagster.defs.assets.market_data import (
     bond_list,
     etf_list,
@@ -20,6 +19,7 @@ from fqdagster.defs.assets.market_data import (
     index_list,
     stock_list,
 )
+
 from freshquant.config import cfg
 
 TIME_ZONE = cast(str, getattr(cfg, "TIME_ZONE", "Asia/Shanghai"))
