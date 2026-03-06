@@ -10,6 +10,7 @@ from freshquant.db import DBGantt
 
 COL_XGB_TOP_GAINER_HISTORY = "xgb_top_gainer_history"
 BASE_URL = "https://flash-api.xuangubao.cn/api"
+XGB_EXCLUDE_PLATE_NAMES = {"其他"}
 
 
 def _to_str(value: Any) -> str:
@@ -63,6 +64,14 @@ def ensure_xgb_history_indexes() -> None:
     collection = DBGantt[COL_XGB_TOP_GAINER_HISTORY]
     collection.create_index([("trade_date", 1), ("plate_id", 1)], unique=True)
     collection.create_index([("trade_date", -1), ("rank", 1)])
+
+
+def _fetch_plate_set_detail(plate_id: int) -> dict[str, Any]:
+    payload = _fetch_json(f"{BASE_URL}/plate/plate_set", params={"id": int(plate_id)})
+    data = payload.get("data") or {}
+    if not isinstance(data, dict):
+        return {}
+    return data
 
 
 def _build_xgb_hot_stock_map(
@@ -144,17 +153,29 @@ def sync_xgb_history_for_date(trade_date: str) -> int:
     collection = DBGantt[COL_XGB_TOP_GAINER_HISTORY]
     collection.delete_many({"trade_date": date_str})
     count = 0
+    plate_set_cache: dict[int, dict[str, Any]] = {}
     for rank, plate in enumerate(plates, start=1):
         plate_id = plate.get("id")
         if plate_id is None:
             continue
         detail = detail_map.get(str(plate_id), {})
+        plate_name = _to_str(detail.get("plate_name")) or _to_str(plate.get("name"))
+        if plate_name in XGB_EXCLUDE_PLATE_NAMES:
+            continue
+
+        description = _to_str(plate.get("description"))
+        if not description:
+            cached_detail = plate_set_cache.get(int(plate_id))
+            if cached_detail is None:
+                cached_detail = _fetch_plate_set_detail(int(plate_id))
+                plate_set_cache[int(plate_id)] = cached_detail
+            description = _to_str(cached_detail.get("desc"))
+
         document = {
             "trade_date": date_str,
             "plate_id": int(plate_id),
-            "plate_name": _to_str(detail.get("plate_name"))
-            or _to_str(plate.get("name")),
-            "description": _to_str(plate.get("description")),
+            "plate_name": plate_name,
+            "description": description,
             "limit_up_count": detail.get("limit_up_count"),
             "rank": rank,
             "hot_stocks": hot_stock_map.get(int(plate_id), []),

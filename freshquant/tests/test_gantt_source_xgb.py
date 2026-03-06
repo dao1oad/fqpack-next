@@ -125,6 +125,54 @@ def test_sync_xgb_history_for_date_writes_dbgantt(monkeypatch):
     ]
 
 
+def test_sync_xgb_history_for_date_uses_plate_set_desc_and_skips_others(monkeypatch):
+    from freshquant.data import gantt_source_xgb as svc
+
+    def fake_fetch_json(url, params=None):
+        if url.endswith("/surge_stock/plates"):
+            return {
+                "data": {
+                    "items": [
+                        {"id": -1, "name": "其他", "description": ""},
+                        {"id": 11, "name": "robotics", "description": ""},
+                    ]
+                }
+            }
+        if url.endswith("/plate/data"):
+            return {
+                "data": {
+                    "-1": {"plate_name": "其他", "limit_up_count": 0},
+                    "11": {"plate_name": "robotics", "limit_up_count": 2},
+                }
+            }
+        if url.endswith("/plate/plate_set"):
+            assert params == {"id": 11}
+            return {"data": {"name": "robotics", "desc": "detail reason"}}
+        if url.endswith("/surge_stock/stocks"):
+            return {"data": {"fields": [], "items": []}}
+        raise AssertionError(url)
+
+    fake_db = FakeDB()
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+    monkeypatch.setattr(svc, "_fetch_json", fake_fetch_json)
+
+    count = svc.sync_xgb_history_for_date("2026-03-05")
+
+    assert count == 1
+    assert fake_db[svc.COL_XGB_TOP_GAINER_HISTORY].docs == [
+        {
+            "trade_date": "2026-03-05",
+            "plate_id": 11,
+            "plate_name": "robotics",
+            "description": "detail reason",
+            "limit_up_count": 2,
+            "rank": 2,
+            "hot_stocks": [],
+            "provider": "xgb",
+        }
+    ]
+
+
 def test_sync_xgb_history_for_date_replaces_stale_rows(monkeypatch):
     from freshquant.data import gantt_source_xgb as svc
 

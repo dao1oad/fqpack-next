@@ -149,3 +149,16 @@ docker compose -f docker/compose.parallel.yaml logs --tail 200 ta_backend
 - `ta_backend` 是否成功连接 `fq_mongodb` / `fq_redis`
 - 根目录 `.env` 是否已配置可用 LLM Key
 - `tradingagents_cn` 和 Redis `db 8` 是否已经开始写入
+
+### 9.4 `job_gantt_postclose` 提示 JYGS “登录失效”
+
+- 根因：JYGS 的 `action/*` 接口需要登录态；Docker 内若没有 `JYGS_SESSION` / `JYGS_COOKIE`，Dagster 会在 `op_sync_jygs_action_daily` 失败。
+- 当前 Compose 会只把宿主机配置目录只读挂载到容器内 `/run/host-config`，并通过 `JYGS_ENV_FILE=/run/host-config/envs.conf` 让 Dagster 读取 `JYGS_SESSION` / `JYGS_COOKIE`；默认宿主机目录是 `D:\fqpack\config`，如需改路径，可先设置 `FQPACK_CONFIG_DIR`。
+- 若你不用该文件，也可直接把 `JYGS_SESSION` / `JYGS_COOKIE` 写进仓库根目录 `.env` 后重启 Dagster 容器。
+- 注意：不要把整个宿主机 `envs.conf` 直接注入容器环境变量；其中像 `DAGSTER_HOME=D:/fqpack/dagster` 这样的宿主机路径会让 Linux 容器启动失败。
+
+重启命令：
+
+```powershell
+docker compose -f docker/compose.parallel.yaml up -d --build fq_dagster_webserver fq_dagster_daemon
+```
