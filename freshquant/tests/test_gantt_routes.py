@@ -82,6 +82,64 @@ def test_get_gantt_stocks_requires_plate_key():
     assert response.get_json()["message"] == "plate_key required"
 
 
+def test_get_gantt_plates_rejects_invalid_end_date(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    fake_db = _fake_db(
+        gantt_plate_daily=[
+            {
+                "provider": "xgb",
+                "trade_date": "2026-03-05",
+                "plate_key": "11",
+                "plate_name": "robotics",
+                "rank": 1,
+                "hot_stock_count": 8,
+                "limit_up_count": 3,
+                "stock_codes": ["000001"],
+            }
+        ]
+    )
+    monkeypatch.setattr(gantt_routes.svc, "DBGantt", fake_db)
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.get("/api/gantt/plates?provider=xgb&end_date=20260305")
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "end_date must be YYYY-MM-DD"
+
+
+def test_get_gantt_stocks_rejects_invalid_end_date(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    fake_db = _fake_db(
+        gantt_stock_daily=[
+            {
+                "provider": "xgb",
+                "trade_date": "2026-03-05",
+                "plate_key": "11",
+                "plate_name": "robotics",
+                "code6": "000001",
+                "name": "alpha",
+                "is_limit_up": 1,
+                "stock_reason": "stock reason",
+            }
+        ]
+    )
+    monkeypatch.setattr(gantt_routes.svc, "DBGantt", fake_db)
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.get(
+        "/api/gantt/stocks?provider=xgb&plate_key=11&end_date=20260305"
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "end_date must be YYYY-MM-DD"
+
+
 def test_get_shouban30_plates_reads_as_of_date(monkeypatch):
     from freshquant.rear.gantt import routes as gantt_routes
 

@@ -37,6 +37,13 @@ class FakeCollection:
             self.docs.append(target)
         target.update(update.get("$set", {}))
 
+    def delete_many(self, query):
+        self.docs = [
+            doc
+            for doc in self.docs
+            if not all(doc.get(key) == value for key, value in query.items())
+        ]
+
 
 class FakeDB(dict):
     def __getitem__(self, name):
@@ -113,6 +120,60 @@ def test_sync_xgb_history_for_date_writes_dbgantt(monkeypatch):
                     "plates": [{"id": 11, "name": "robotics"}],
                 }
             ],
+            "provider": "xgb",
+        }
+    ]
+
+
+def test_sync_xgb_history_for_date_replaces_stale_rows(monkeypatch):
+    from freshquant.data import gantt_source_xgb as svc
+
+    def fake_fetch_json(url, params=None):
+        if url.endswith("/surge_stock/plates"):
+            return {
+                "data": {
+                    "items": [
+                        {"id": 11, "name": "robotics", "description": "plate reason"}
+                    ]
+                }
+            }
+        if url.endswith("/plate/data"):
+            return {
+                "data": {
+                    "11": {
+                        "plate_name": "robotics",
+                        "limit_up_count": 2,
+                    }
+                }
+            }
+        if url.endswith("/surge_stock/stocks"):
+            return {"data": {"fields": [], "items": []}}
+        raise AssertionError(url)
+
+    fake_db = FakeDB()
+    fake_db[svc.COL_XGB_TOP_GAINER_HISTORY].docs = [
+        {
+            "trade_date": "2026-03-05",
+            "plate_id": 99,
+            "plate_name": "stale plate",
+            "description": "stale reason",
+            "provider": "xgb",
+        }
+    ]
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+    monkeypatch.setattr(svc, "_fetch_json", fake_fetch_json)
+
+    svc.sync_xgb_history_for_date("2026-03-05")
+
+    assert fake_db[svc.COL_XGB_TOP_GAINER_HISTORY].docs == [
+        {
+            "trade_date": "2026-03-05",
+            "plate_id": 11,
+            "plate_name": "robotics",
+            "description": "plate reason",
+            "limit_up_count": 2,
+            "rank": 1,
+            "hot_stocks": [],
             "provider": "xgb",
         }
     ]

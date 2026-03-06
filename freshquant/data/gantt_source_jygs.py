@@ -172,6 +172,8 @@ def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
 
     action_collection = DBGantt[COL_JYGS_ACTION_FIELDS]
     yidong_collection = DBGantt[COL_JYGS_YIDONG]
+    action_collection.delete_many({"date": resolved_date})
+    yidong_collection.delete_many({"date": resolved_date})
 
     yidong_records: dict[str, dict[str, Any]] = {}
     action_field_count = 0

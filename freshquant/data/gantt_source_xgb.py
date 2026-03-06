@@ -142,6 +142,7 @@ def sync_xgb_history_for_date(trade_date: str) -> int:
     hot_stock_map = _build_xgb_hot_stock_map(stock_payload)
 
     collection = DBGantt[COL_XGB_TOP_GAINER_HISTORY]
+    collection.delete_many({"trade_date": date_str})
     count = 0
     for rank, plate in enumerate(plates, start=1):
         plate_id = plate.get("id")
