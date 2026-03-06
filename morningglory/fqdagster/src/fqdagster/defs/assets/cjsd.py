@@ -7,7 +7,7 @@ This module defines assets for CJSD calculation with proper dependencies:
 """
 
 import pendulum
-from dagster import AssetExecutionContext, AutoMaterializePolicy, asset
+from dagster import AssetExecutionContext, asset
 
 from freshquant.research.cjsd.main import (
     apply_cjsd_to_stock_pool,
@@ -19,7 +19,6 @@ from freshquant.research.cjsd.main import (
 @asset(
     deps=["stock_day", "stock_xdxr", "index_day"],
     group_name="cjsd_data",
-    auto_materialize_policy=AutoMaterializePolicy.eager(),
 )
 def cjsd_index(context: AssetExecutionContext) -> str:
     """准备超级赛道指数数据。依赖stock_day和index_day更新。"""
@@ -31,7 +30,6 @@ def cjsd_index(context: AssetExecutionContext) -> str:
 @asset(
     deps=["cjsd_index"],
     group_name="cjsd_data",
-    auto_materialize_policy=AutoMaterializePolicy.eager(),
 )
 def cjsd_score(context: AssetExecutionContext, cjsd_index: str) -> str:
     """计算超级赛道得分。依赖cjsd_index更新。"""
@@ -44,7 +42,6 @@ def cjsd_score(context: AssetExecutionContext, cjsd_index: str) -> str:
 @asset(
     deps=["cjsd_score"],
     group_name="cjsd_data",
-    auto_materialize_policy=AutoMaterializePolicy.eager(),
 )
 def cjsd_stock_pool(context: AssetExecutionContext, cjsd_score: str) -> str:
     """更新股票池超级赛道数据。依赖cjsd_score更新。"""
