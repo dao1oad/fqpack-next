@@ -143,6 +143,16 @@ def test_projection_refresh_invalidates_holding_code_cache(monkeypatch):
         [{"symbol": "sh600000"}],
     ]
 
+    class FakeXtPositionsCollection:
+        def find(self, *args, **kwargs):
+            return []
+
+    monkeypatch.setattr(
+        holding_module,
+        "DBfreshquant",
+        {"xt_positions": FakeXtPositionsCollection()},
+    )
+
     def fake_positions():
         return states[0]
 

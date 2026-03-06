@@ -195,9 +195,9 @@ def _get_legacy_stock_fill_list(symbol):
     )
     df = pd.DataFrame(records)
     if not df.empty:
-        if 'amount_adjust' not in df.columns:
-            df['amount_adjust'] = 1
-        df['amount_adjust'].fillna(1, inplace=True)
+        if "amount_adjust" not in df.columns:
+            df["amount_adjust"] = 1
+        df["amount_adjust"].fillna(1, inplace=True)
         records = df.to_dict("records")
         acc = []
         for record in records:
@@ -324,9 +324,9 @@ def _get_legacy_stock_positions():
     df = pd.DataFrame(records)
     if len(df) > 0:
         df.drop(columns=["_id"], inplace=True)
-        if 'amount_adjust' not in df.columns:
-            df['amount_adjust'] = 1
-        df['amount_adjust'].fillna(1, inplace=True)
+        if "amount_adjust" not in df.columns:
+            df["amount_adjust"] = 1
+        df["amount_adjust"].fillna(1, inplace=True)
         df["symbol"] = df["symbol"].apply(lambda x: fq_util_code_append_market_code(x))
         df["direction"] = df["op"].apply(lambda op: -1 if "买" in op else 1)
         df["amount"] = df["amount"] * df["direction"]
@@ -382,7 +382,9 @@ def _get_stock_holding_codes_cached(_version):
 def _extract_holding_codes(records):
     codes = []
     for record in records or []:
-        raw_code = record.get("symbol") or record.get("stock_code") or record.get("code")
+        raw_code = (
+            record.get("symbol") or record.get("stock_code") or record.get("code")
+        )
         normalized = normalize_to_base_code(raw_code or "")
         if normalized and len(normalized) == 6 and normalized.isdigit():
             codes.append(normalized)
@@ -418,9 +420,9 @@ def get_stock_hold_position(code):
     df = pd.DataFrame(records)
     if len(df) > 0:
         df.drop(columns=["_id"], inplace=True)
-        if 'amount_adjust' not in df.columns:
-            df['amount_adjust'] = 1
-        df['amount_adjust'].fillna(1, inplace=True)
+        if "amount_adjust" not in df.columns:
+            df["amount_adjust"] = 1
+        df["amount_adjust"].fillna(1, inplace=True)
         df["symbol"] = df["symbol"].apply(lambda x: fq_util_code_append_market_code(x))
         df["direction"] = df["op"].apply(lambda op: -1 if "买" in op else 1)
         df["amount"] = df["amount"] * df["direction"]
@@ -500,8 +502,8 @@ def compact_stock_fills(code=None):
                     {
                         "op": "买",
                         "symbol": code,
-                        "date": int(datetime.now().strftime('%Y%m%d')),
-                        "time": datetime.now().strftime('%H:%M:%S'),
+                        "date": int(datetime.now().strftime("%Y%m%d")),
+                        "time": datetime.now().strftime("%H:%M:%S"),
                         "price": 0.0,
                         "amount": -amount_adjusted,
                         "name": position_info["name"],
