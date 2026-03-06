@@ -47,6 +47,9 @@ class OrderManagementRepository:
         self.order_requests.insert_one(document)
         return document
 
+    def find_order_request(self, request_id):
+        return self.order_requests.find_one({"request_id": request_id})
+
     def insert_order(self, document):
         self.orders.insert_one(document)
         return document
@@ -121,6 +124,19 @@ class OrderManagementRepository:
         if symbol is not None:
             query["symbol"] = symbol
         return list(self.buy_lots.find(query))
+
+    def list_orders(self, symbol=None, states=None, missing_broker_only=False):
+        query = {}
+        if symbol is not None:
+            query["symbol"] = symbol
+        if states is not None:
+            query["state"] = {"$in": list(states)}
+        if missing_broker_only:
+            query["$or"] = [
+                {"broker_order_id": None},
+                {"broker_order_id": ""},
+            ]
+        return list(self.orders.find(query))
 
     def list_trade_facts(self, symbol=None):
         query = {}

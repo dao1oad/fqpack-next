@@ -85,7 +85,10 @@ def create_stock_order():
             return jsonify({"error": "amount must be positive"}), 400
         quantity = int(amount / price / 100) * 100
     else:
-        quantity = int(quantity)
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            return jsonify({"error": "quantity must be numeric"}), 400
 
     if quantity <= 0:
         return jsonify({"error": "quantity must be positive"}), 400

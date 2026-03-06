@@ -93,6 +93,31 @@ class ExternalOrderReconcileService:
             ):
                 continue
 
+            match_status, matched_order = self._match_inflight_internal_order(
+                normalized
+            )
+            if match_status == "matched":
+                normalized["internal_order_id"] = matched_order["internal_order_id"]
+                if normalized.get("broker_order_id") and not matched_order.get(
+                    "broker_order_id"
+                ):
+                    self.repository.update_order(
+                        matched_order["internal_order_id"],
+                        {
+                            "broker_order_id": normalized.get("broker_order_id"),
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
+                result = self.ingest_service.ingest_trade_report(
+                    normalized,
+                    lot_amount=_safe_resolve_lot_amount(normalized["symbol"]),
+                    grid_interval_lookup=_safe_grid_interval_lookup,
+                )
+                results.append(result)
+                continue
+            if match_status == "defer":
+                continue
+
             candidate = next(
                 (
                     item
@@ -128,6 +153,35 @@ class ExternalOrderReconcileService:
                 )
             results.append(result)
         return results
+
+    def _match_inflight_internal_order(self, normalized_trade):
+        candidates = []
+        for order in self.repository.list_orders(
+            symbol=normalized_trade["symbol"],
+            states={"ACCEPTED", "QUEUED", "SUBMITTING"},
+            missing_broker_only=True,
+        ):
+            if order.get("side") != normalized_trade["side"]:
+                continue
+            if order.get("source_type") in {"external_reported", "external_inferred"}:
+                continue
+            request = self.repository.find_order_request(order["request_id"])
+            if request is None:
+                continue
+            if int(request.get("quantity") or 0) != int(normalized_trade["quantity"]):
+                continue
+            request_price = request.get("price")
+            if request_price is not None and abs(
+                float(request_price) - float(normalized_trade["price"])
+            ) > 1e-6:
+                continue
+            candidates.append(order)
+
+        if len(candidates) == 1:
+            return "matched", candidates[0]
+        if len(candidates) > 1:
+            return "defer", None
+        return "missing", None
 
     def confirm_expired_candidates(self, now):
         confirmed = []

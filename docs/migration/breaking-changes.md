@@ -68,3 +68,10 @@
 - **影响面**：`xtquant sync-*` CLI 的 `fire_time` 现在由标准库 `datetime` 生成；最小依赖环境下导入股票路由与期货持仓读模块不再因缺失 `pendulum/func_timeout` 失败；Linux/UTC 环境下订单回报日期与中国市场语义保持一致。
 - **迁移步骤**：调用方无需调整；若依赖旧的本地时区推断行为，应统一改为以中国市场时区解释 XT 时间戳。
 - **回滚方案**：恢复 `pendulum`、移除 `func_timeout` fallback，并将 XT 回报时间恢复为宿主机本地时区解释。
+
+- **日期**：2026-03-06
+- **RFC**：0007-stock-etf-order-management
+- **变更**：无破坏性接口变更。`freshquant/order_management/reconcile/service.py` 在将成交回报外部化之前，先对 `ACCEPTED/QUEUED/SUBMITTING` 且尚未回填 `broker_order_id` 的内部订单做匹配，避免在途内部单被误建成外部订单；`freshquant/rear/order/routes.py` 将 `/api/stock_order` 的非数字 `quantity` 输入统一转换为 400 参数错误，而不再抛出 500。
+- **影响面**：XT 成交回报早于 `broker_order_id` 回填时，会优先回写到已有内部订单，不再生成重复的 `external_reported` 订单；依赖 `/api/stock_order` 的调用方在传入非法 `quantity` 时将稳定收到 400 与错误消息 `quantity must be numeric`。
+- **迁移步骤**：调用方无需修改成功路径；如有依赖非法 `quantity` 触发 500 的外部监控，应改为按 400 参数错误处理。
+- **回滚方案**：恢复 `reconcile_trade_reports()` 的旧外部化判定与 `/api/stock_order` 对 `quantity` 的直接 `int()` 转换逻辑。

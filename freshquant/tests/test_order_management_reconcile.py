@@ -21,6 +21,12 @@ class InMemoryRepository:
         self.order_requests.append(document)
         return document
 
+    def find_order_request(self, request_id):
+        for request in self.order_requests:
+            if request["request_id"] == request_id:
+                return request
+        return None
+
     def insert_order(self, document):
         self.orders.append(document)
         return document
@@ -102,6 +108,17 @@ class InMemoryRepository:
         if symbol is None:
             return list(self.buy_lots)
         return [item for item in self.buy_lots if item["symbol"] == symbol]
+
+    def list_orders(self, symbol=None, states=None, missing_broker_only=False):
+        records = list(self.orders)
+        if symbol is not None:
+            records = [item for item in records if item.get("symbol") == symbol]
+        if states is not None:
+            allowed = set(states)
+            records = [item for item in records if item.get("state") in allowed]
+        if missing_broker_only:
+            records = [item for item in records if not item.get("broker_order_id")]
+        return records
 
     def list_open_slices(self, symbol=None):
         records = [item for item in self.lot_slices if item["remaining_quantity"] > 0]
@@ -210,6 +227,51 @@ def test_reconcile_matches_external_trade_report_to_existing_candidate():
     assert repository.external_candidates[0]["matched_order_id"]
     assert len(repository.buy_lots) == 1
     assert repository.orders[0]["source_type"] == "external_reported"
+
+
+def test_reconcile_matches_inflight_internal_order_before_creating_external_order():
+    repository, service = _build_service()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_internal_1",
+        }
+    )
+    tracking_service.mark_order_queued("ord_internal_1")
+    tracking_service.ingest_order_report(
+        {
+            "internal_order_id": "ord_internal_1",
+            "state": "SUBMITTING",
+            "event_type": "submit_started",
+            "broker_order_id": None,
+        }
+    )
+
+    results = service.reconcile_trade_reports(
+        [
+            {
+                "order_id": 90002,
+                "traded_id": "T90002",
+                "stock_code": "000001.SZ",
+                "order_type": 23,
+                "traded_volume": 200,
+                "traded_price": 10.5,
+                "traded_time": 1_030,
+            }
+        ]
+    )
+
+    assert len(results) == 1
+    assert len(repository.orders) == 1
+    assert repository.orders[0]["internal_order_id"] == "ord_internal_1"
+    assert repository.orders[0]["source_type"] == "strategy"
+    assert results[0]["trade_fact"]["internal_order_id"] == "ord_internal_1"
+    assert repository.trade_facts[0]["internal_order_id"] == "ord_internal_1"
 
 
 def test_inferred_pending_auto_confirms_after_120_seconds():

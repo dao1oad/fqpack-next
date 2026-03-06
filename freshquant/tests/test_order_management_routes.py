@@ -64,3 +64,27 @@ def test_order_cancel_route_passes_internal_order_id(monkeypatch):
     assert response.status_code == 200
     assert captured["internal_order_id"] == "ord_123"
     assert body["request_id"] == "req_cancel_1"
+
+
+def test_stock_order_compat_route_rejects_non_numeric_quantity(monkeypatch):
+    class FakeService:
+        def submit_order(self, payload):
+            raise AssertionError("submit_order should not be called")
+
+    monkeypatch.setattr(
+        "freshquant.rear.order.routes._get_order_submit_service",
+        lambda: FakeService(),
+    )
+
+    app = Flask("test_order_routes_invalid_quantity")
+    app.register_blueprint(order_bp)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/stock_order",
+        data=json.dumps({"symbol": "sz000001", "quantity": "abc", "price": 10.1}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "quantity must be numeric"}
