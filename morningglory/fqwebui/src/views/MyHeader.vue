@@ -11,6 +11,11 @@
         >
       </el-button-group>
       <el-button-group>
+        <el-button type="warning" @click="jumpToControl('klineSlim')" size="small"
+          >KlineSlim</el-button
+        >
+      </el-button-group>
+      <el-button-group>
         <el-button type="primary" @click="jumpToControl('stock')" size="small"
           >股票</el-button
         >
@@ -42,6 +47,8 @@ export default {
     jumpToControl (type) {
       if (type === 'futures') {
         this.$router.replace('/futures-control')
+      } else if (type === 'klineSlim') {
+        this.$router.replace('/kline-slim')
       } else if (type === 'stock') {
         this.$router.replace('/stock-control')
       } else if (type === 'pool') {

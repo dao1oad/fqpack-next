@@ -24,8 +24,41 @@ from freshquant.signal.BusinessService import BusinessService
 from freshquant.trading.dt import fq_trading_fetch_trade_dates
 from freshquant.util.code import fq_util_code_append_market_code_suffix
 from freshquant.util.encoder import FqJsonEncoder
+from freshquant.util.period import get_redis_cache_key, is_supported_realtime_period, to_backend_period
+
+try:
+    from freshquant.database.redis import redis_db
+except Exception:  # pragma: no cover
+    redis_db = None
 
 stock_bp = Blueprint('stock', __name__, url_prefix='/api')
+
+
+def _get_realtime_stock_data_from_cache(symbol, period, end_date):
+    if end_date or not symbol or not period or redis_db is None:
+        return None
+
+    period_backend = to_backend_period(period)
+    if not is_supported_realtime_period(period_backend):
+        return None
+
+    cache_key = get_redis_cache_key(symbol, period_backend)
+    try:
+        cached = redis_db.get(cache_key)
+    except Exception as exc:  # pragma: no cover
+        logging.warning("stock_data redis read failed for %s %s: %s", symbol, period, exc)
+        return None
+
+    if not cached:
+        return None
+
+    try:
+        payload = json.loads(cached)
+    except Exception as exc:
+        logging.warning("stock_data redis payload invalid for %s %s: %s", symbol, period, exc)
+        return None
+
+    return payload if isinstance(payload, dict) else None
 
 
 @stock_bp.route("/stock_data")
@@ -33,7 +66,9 @@ def stock_data():
     period = request.args.get("period")
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
-    result = get_data_v2(symbol, period, end_date)
+    result = _get_realtime_stock_data_from_cache(symbol, period, end_date)
+    if result is None:
+        result = get_data_v2(symbol, period, end_date)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
 
 
