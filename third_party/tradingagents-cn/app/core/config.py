@@ -4,6 +4,16 @@ from typing import List
 import os
 import warnings
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency fallback
+    load_dotenv = None
+
+if load_dotenv is not None:
+    # Ensure non-Pydantic consumers (for example TradingAgents core adapters)
+    # can read credentials from the same local .env file.
+    load_dotenv(override=False)
+
 # Legacy env var aliases (deprecated): map API_HOST/PORT/DEBUG -> HOST/PORT/DEBUG
 _LEGACY_ENV_ALIASES = {
     "API_HOST": "HOST",

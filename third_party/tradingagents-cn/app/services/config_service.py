@@ -401,14 +401,19 @@ class ConfigService:
             config_type="system",
             llm_configs=[
                 LLMConfig(
-                    provider=ModelProvider.OPENAI,
-                    model_name="gpt-3.5-turbo",
-                    api_key="your-openai-api-key",
-                    api_base="https://api.openai.com/v1",
+                    provider=ModelProvider.DEEPSEEK,
+                    model_name="deepseek-chat",
+                    api_key="your-deepseek-api-key",
+                    api_base="https://api.deepseek.com",
                     max_tokens=4000,
-                    temperature=0.7,
-                    enabled=False,
-                    description="OpenAI GPT-3.5 Turbo模型"
+                    temperature=0.3,
+                    enabled=True,
+                    description="DeepSeek Chat模型（默认）",
+                    capability_level=3,
+                    suitable_roles=["both"],
+                    features=["tool_calling", "long_context", "cost_effective"],
+                    recommended_depths=["基础", "标准", "深度"],
+                    performance_metrics={"speed": 4, "cost": 5, "quality": 4},
                 ),
                 LLMConfig(
                     provider=ModelProvider.ZHIPU,
@@ -417,8 +422,8 @@ class ConfigService:
                     api_base="https://open.bigmodel.cn/api/paas/v4",
                     max_tokens=4000,
                     temperature=0.7,
-                    enabled=True,
-                    description="智谱AI GLM-4模型（推荐）"
+                    enabled=False,
+                    description="智谱AI GLM-4模型"
                 ),
                 LLMConfig(
                     provider=ModelProvider.QWEN,
@@ -431,8 +436,19 @@ class ConfigService:
                     description="阿里云通义千问模型"
                 )
             ],
-            default_llm="glm-4",
+            default_llm="deepseek-chat",
             data_source_configs=[
+                DataSourceConfig(
+                    name="Tushare",
+                    type=DataSourceType.TUSHARE,
+                    api_key="your-tushare-token",
+                    endpoint="http://api.tushare.pro",
+                    timeout=30,
+                    rate_limit=200,
+                    enabled=True,
+                    priority=3,
+                    description="Tushare专业金融数据接口"
+                ),
                 DataSourceConfig(
                     name="AKShare",
                     type=DataSourceType.AKSHARE,
@@ -452,20 +468,9 @@ class ConfigService:
                     enabled=True,
                     priority=1,
                     description="BaoStock free A-share data source"
-                ),
-                DataSourceConfig(
-                    name="Tushare",
-                    type=DataSourceType.TUSHARE,
-                    api_key="your-tushare-token",
-                    endpoint="http://api.tushare.pro",
-                    timeout=30,
-                    rate_limit=200,
-                    enabled=False,
-                    priority=2,
-                    description="Tushare专业金融数据接口"
                 )
             ],
-            default_data_source="AKShare",
+            default_data_source="Tushare",
             database_configs=[
                 DatabaseConfig(
                     name="MongoDB主库",
@@ -516,7 +521,9 @@ class ConfigService:
                 "ta_us_min_api_interval_seconds": 1.0,
                 "ta_google_news_sleep_min_seconds": 2.0,
                 "ta_google_news_sleep_max_seconds": 6.0,
-                "app_timezone": "Asia/Shanghai"
+                "app_timezone": "Asia/Shanghai",
+                "quick_analysis_model": "deepseek-chat",
+                "deep_analysis_model": "deepseek-chat",
             }
         )
         
