@@ -124,6 +124,10 @@ def _install_route_import_stubs(monkeypatch):
     cjsd_module.getCjsdList = lambda *args, **kwargs: []
     monkeypatch.setitem(sys.modules, "freshquant.research.cjsd.main", cjsd_module)
 
+    cn_future_module = types.ModuleType("freshquant.position.cn_future")
+    cn_future_module.queryArrangedCnFutureFillList = lambda *args, **kwargs: []
+    monkeypatch.setitem(sys.modules, "freshquant.position.cn_future", cn_future_module)
+
 
 def _load_stock_routes(monkeypatch):
     _install_route_import_stubs(monkeypatch)
