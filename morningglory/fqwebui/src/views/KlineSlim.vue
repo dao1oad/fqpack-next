@@ -48,7 +48,7 @@
 
     <div ref="chartHost" class="kline-slim-chart"></div>
     <div v-if="!routeSymbol" class="kline-slim-empty">
-      请输入或通过 query 传入 `symbol`，例如 `/kline-slim?symbol=sh510050`
+      {{ emptyMessage }}
     </div>
   </div>
 </template>

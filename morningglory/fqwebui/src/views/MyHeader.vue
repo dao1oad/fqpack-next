@@ -12,7 +12,7 @@
       </el-button-group>
       <el-button-group>
         <el-button type="warning" @click="jumpToControl('klineSlim')" size="small"
-          >KlineSlim</el-button
+          >行情图表</el-button
         >
       </el-button-group>
       <el-button-group>
