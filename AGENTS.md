@@ -107,6 +107,7 @@ RFC 必含内容（至少）：
 - 默认使用 SSH 远端（本项目）：`ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git`
 - 如必须走 HTTPS 且需要代理，可按命令级别注入（示例）：`git -c http.proxy=http://127.0.0.1:10809 -c https.proxy=http://127.0.0.1:10809 <cmd>`
 - 不要提交密钥/Token；`.env` 等敏感文件保持在 `.gitignore` 中。
+- Git commit message、PR 标题、PR 描述、merge 说明默认使用简体中文编写（除非用户明确要求英文）。
 
 PR 合并策略（项目强制约束）：
 - **禁止直推 `main`**：所有改动在 feature 分支完成后提交 PR。

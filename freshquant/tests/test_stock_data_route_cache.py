@@ -1,11 +1,14 @@
+import importlib
 import json
 import sys
 import types
 
+import pytest
+
 from freshquant.util.period import get_redis_cache_key
 
 
-def _install_route_stubs():
+def _install_route_stubs(monkeypatch):
     flask_module = types.ModuleType("flask")
 
     class _Blueprint:
@@ -87,24 +90,38 @@ def _install_route_stubs():
 
     util_encoder.FqJsonEncoder = _FqJsonEncoder
 
-    sys.modules["flask"] = flask_module
-    sys.modules["func_timeout"] = func_timeout_module
-    sys.modules["freshquant.stock_service"] = stock_service
-    sys.modules["freshquant.chanlun_service"] = chanlun_service
-    sys.modules["freshquant.data.astock.holding"] = holding
-    sys.modules["freshquant.db"] = db
-    sys.modules["freshquant.instrument.general"] = instrument_general
-    sys.modules["freshquant.position.cn_future"] = position_future
-    sys.modules["freshquant.research.cjsd.main"] = cjsd_main
-    sys.modules["freshquant.signal.BusinessService"] = business_service
-    sys.modules["freshquant.trading.dt"] = trading_dt
-    sys.modules["freshquant.util.code"] = util_code
-    sys.modules["freshquant.util.encoder"] = util_encoder
+    monkeypatch.setitem(sys.modules, "flask", flask_module)
+    monkeypatch.setitem(sys.modules, "func_timeout", func_timeout_module)
+    monkeypatch.setitem(sys.modules, "freshquant.stock_service", stock_service)
+    monkeypatch.setitem(sys.modules, "freshquant.chanlun_service", chanlun_service)
+    monkeypatch.setitem(sys.modules, "freshquant.data.astock.holding", holding)
+    monkeypatch.setitem(sys.modules, "freshquant.db", db)
+    monkeypatch.setitem(
+        sys.modules, "freshquant.instrument.general", instrument_general
+    )
+    monkeypatch.setitem(sys.modules, "freshquant.position.cn_future", position_future)
+    monkeypatch.setitem(sys.modules, "freshquant.research.cjsd.main", cjsd_main)
+    monkeypatch.setitem(
+        sys.modules, "freshquant.signal.BusinessService", business_service
+    )
+    monkeypatch.setitem(sys.modules, "freshquant.trading.dt", trading_dt)
+    monkeypatch.setitem(sys.modules, "freshquant.util.code", util_code)
+    monkeypatch.setitem(sys.modules, "freshquant.util.encoder", util_encoder)
 
 
-_install_route_stubs()
+@pytest.fixture
+def stock_routes(monkeypatch):
+    original_routes = sys.modules.get("freshquant.rear.stock.routes")
+    _install_route_stubs(monkeypatch)
+    try:
+        import freshquant.rear.stock.routes as stock_routes_module
 
-import freshquant.rear.stock.routes as stock_routes
+        yield importlib.reload(stock_routes_module)
+    finally:
+        if original_routes is None:
+            sys.modules.pop("freshquant.rear.stock.routes", None)
+        else:
+            sys.modules["freshquant.rear.stock.routes"] = original_routes
 
 
 class FakeRedis:
@@ -120,12 +137,12 @@ class FakeRedis:
         return self.value
 
 
-def call_stock_data(**params):
+def call_stock_data(stock_routes, **params):
     stock_routes.request.args = params
     return stock_routes.stock_data()
 
 
-def test_stock_data_uses_fallback_by_default(monkeypatch):
+def test_stock_data_uses_fallback_by_default(monkeypatch, stock_routes):
     fake_redis = FakeRedis(value=json.dumps({"source": "cache"}))
     fallback_calls = []
 
@@ -136,7 +153,7 @@ def test_stock_data_uses_fallback_by_default(monkeypatch):
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
-    response = call_stock_data(symbol="sz000001", period="5m")
+    response = call_stock_data(stock_routes, symbol="sz000001", period="5m")
 
     assert response.status_code == 200
     assert response.get_json() == {
@@ -148,7 +165,7 @@ def test_stock_data_uses_fallback_by_default(monkeypatch):
     assert fake_redis.keys == []
 
 
-def test_stock_data_reads_redis_for_opt_in_realtime_period(monkeypatch):
+def test_stock_data_reads_redis_for_opt_in_realtime_period(monkeypatch, stock_routes):
     cached_payload = {"symbol": "sz000001", "period": "5m", "close": [1, 2, 3]}
     fake_redis = FakeRedis(value=json.dumps(cached_payload))
 
@@ -159,14 +176,16 @@ def test_stock_data_reads_redis_for_opt_in_realtime_period(monkeypatch):
         lambda symbol, period, end_date: {"source": "fallback"},
     )
 
-    response = call_stock_data(symbol="sz000001", period="5m", realtimeCache="1")
+    response = call_stock_data(
+        stock_routes, symbol="sz000001", period="5m", realtimeCache="1"
+    )
 
     assert response.status_code == 200
     assert response.get_json() == cached_payload
     assert fake_redis.keys == [get_redis_cache_key("sz000001", "5min")]
 
 
-def test_stock_data_falls_back_when_opt_in_cache_missing(monkeypatch):
+def test_stock_data_falls_back_when_opt_in_cache_missing(monkeypatch, stock_routes):
     fake_redis = FakeRedis(value=None)
     fallback_calls = []
 
@@ -177,7 +196,9 @@ def test_stock_data_falls_back_when_opt_in_cache_missing(monkeypatch):
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
-    response = call_stock_data(symbol="sz000001", period="15m", realtimeCache="true")
+    response = call_stock_data(
+        stock_routes, symbol="sz000001", period="15m", realtimeCache="true"
+    )
 
     assert response.status_code == 200
     assert response.get_json() == {
@@ -189,7 +210,7 @@ def test_stock_data_falls_back_when_opt_in_cache_missing(monkeypatch):
     assert fake_redis.keys == [get_redis_cache_key("sz000001", "15min")]
 
 
-def test_stock_data_skips_redis_when_end_date_present(monkeypatch):
+def test_stock_data_skips_redis_when_end_date_present(monkeypatch, stock_routes):
     fake_redis = FakeRedis(value=json.dumps({"source": "cache"}))
     fallback_calls = []
 
@@ -200,7 +221,9 @@ def test_stock_data_skips_redis_when_end_date_present(monkeypatch):
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
-    response = call_stock_data(symbol="sz000001", period="5m", endDate="2026-03-05")
+    response = call_stock_data(
+        stock_routes, symbol="sz000001", period="5m", endDate="2026-03-05"
+    )
 
     assert response.status_code == 200
     assert response.get_json() == {"source": "history", "endDate": "2026-03-05"}
