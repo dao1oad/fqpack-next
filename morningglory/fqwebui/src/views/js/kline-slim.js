@@ -7,6 +7,7 @@ import drawSlim from './draw-slim'
 import echartsConfig from './echartsConfig'
 import {
   buildResolvedKlineSlimQuery,
+  canApplyResolvedKlineSlimRoute,
   getKlineSlimEmptyMessage,
   pickFirstHoldingSymbol,
   shouldResolveDefaultSymbol
@@ -103,6 +104,8 @@ export default {
     window.addEventListener('resize', this.handleResize)
   },
   beforeUnmount() {
+    this.routeToken += 1
+    this.resolvingDefaultSymbol = false
     document.removeEventListener('visibilitychange', this.handleVisibilityChange)
     window.removeEventListener('resize', this.handleResize)
     this.stopPolling()
@@ -219,13 +222,29 @@ export default {
     async resolveDefaultSymbol(token) {
       try {
         const positions = await stockApi.getHoldingPositionList()
-        if (token !== this.routeToken) {
+        if (
+          !canApplyResolvedKlineSlimRoute({
+            token,
+            routeToken: this.routeToken,
+            routePath: this.$route?.path
+          })
+        ) {
           return
         }
 
         const symbol = pickFirstHoldingSymbol(positions)
         this.resolvingDefaultSymbol = false
         if (!symbol) {
+          return
+        }
+
+        if (
+          !canApplyResolvedKlineSlimRoute({
+            token,
+            routeToken: this.routeToken,
+            routePath: this.$route?.path
+          })
+        ) {
           return
         }
 

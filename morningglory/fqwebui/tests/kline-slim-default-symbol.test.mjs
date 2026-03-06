@@ -5,6 +5,7 @@ import {
   shouldResolveDefaultSymbol,
   pickFirstHoldingSymbol,
   buildResolvedKlineSlimQuery,
+  canApplyResolvedKlineSlimRoute,
   getKlineSlimEmptyMessage
 } from '../src/views/js/kline-slim-default-symbol.mjs'
 
@@ -31,6 +32,33 @@ test('buildResolvedKlineSlimQuery keeps existing query and injects defaults', ()
       period: '5m'
     }),
     { endDate: '2026-03-07', symbol: 'sh600000', period: '5m' }
+  )
+})
+
+test('canApplyResolvedKlineSlimRoute rejects stale or inactive routes', () => {
+  assert.equal(
+    canApplyResolvedKlineSlimRoute({
+      token: 3,
+      routeToken: 3,
+      routePath: '/kline-slim'
+    }),
+    true
+  )
+  assert.equal(
+    canApplyResolvedKlineSlimRoute({
+      token: 3,
+      routeToken: 4,
+      routePath: '/kline-slim'
+    }),
+    false
+  )
+  assert.equal(
+    canApplyResolvedKlineSlimRoute({
+      token: 3,
+      routeToken: 3,
+      routePath: '/stock-control'
+    }),
+    false
   )
 })
 
