@@ -3,12 +3,14 @@ import logging
 import traceback
 
 import requests  # type: ignore[import-untyped]
-from ratelimit import limits, sleep_and_retry
 from blinker import signal
+from ratelimit import limits, sleep_and_retry
+
 from freshquant.carnation.param import queryParam
 
 order_alert = signal("order_alert")
 market_data_alert = signal("market_data_alert")
+
 
 @sleep_and_retry
 @limits(calls=1, period=10)
@@ -30,10 +32,16 @@ def send_dingtalk_message(url, title, text):
 
 
 def send_private_message(title, text):
-    send_dingtalk_message(queryParam("notification.webhook.dingtalk.private"), title, text)
+    send_dingtalk_message(
+        queryParam("notification.webhook.dingtalk.private"), title, text
+    )
+
 
 def send_public_message(title, text):
-    send_dingtalk_message(queryParam("notification.webhook.dingtalk.public"), title, text)
+    send_dingtalk_message(
+        queryParam("notification.webhook.dingtalk.public"), title, text
+    )
+
 
 @order_alert.connect
 def send_order_alert_to_dingtalk(sender, **kwargs):
@@ -45,13 +53,28 @@ def send_order_alert_to_dingtalk(sender, **kwargs):
         'period': payload.get("period", ""),
         'price': payload.get("price", ""),
         'quantity': payload.get("quantity", ""),
-        'fire_time': payload.get("fire_time", "").strftime("%Y年%m月%d日%H时%M分%S秒") if payload.get("fire_time", "") else "",
-        'discover_time': payload.get("discover_time", "").strftime("%Y年%m月%d日%H时%M分%S秒") if payload.get("discover_time", "") else "",
-        'delay': int((payload.get("discover_time", "") - payload.get("fire_time", "")).total_seconds()) 
-                if payload.get("discover_time", "") and payload.get("fire_time", "") else 0,
-        'remark': payload.get("remark", "")
+        'fire_time': (
+            payload.get("fire_time", "").strftime("%Y年%m月%d日%H时%M分%S秒")
+            if payload.get("fire_time", "")
+            else ""
+        ),
+        'discover_time': (
+            payload.get("discover_time", "").strftime("%Y年%m月%d日%H时%M分%S秒")
+            if payload.get("discover_time", "")
+            else ""
+        ),
+        'delay': (
+            int(
+                (
+                    payload.get("discover_time", "") - payload.get("fire_time", "")
+                ).total_seconds()
+            )
+            if payload.get("discover_time", "") and payload.get("fire_time", "")
+            else 0
+        ),
+        'remark': payload.get("remark", ""),
     }
-    
+
     title = f'{("买点通知" if fields["position"] == "BUY_LONG" else "卖点通知")}-{fields["code"]}-{fields["name"]}'
     text_lines = [
         f'### {title}',
@@ -60,13 +83,13 @@ def send_order_alert_to_dingtalk(sender, **kwargs):
         f'> 发现时间: {fields["discover_time"]}',
         f'> 信号延迟: {fields["delay"]}秒',
         f'> 备注: {fields["remark"]}',
-        f'> sender: {sender}'
+        f'> sender: {sender}',
     ]
-    
+
     (send_private_message if kwargs.get("private", False) else send_public_message)(
-        title, 
-        '  \n'.join(text_lines)
+        title, '  \n'.join(text_lines)
     )
+
 
 @market_data_alert.connect
 def send_market_data_alert_to_dingtalk(sender, **kwargs):
@@ -75,15 +98,8 @@ def send_market_data_alert_to_dingtalk(sender, **kwargs):
         'title': payload.get('title', ''),
         'content': payload.get('content', ''),
     }
-    
+
     title = fields['title']
-    text_lines = [
-        f'### {title}',
-        f'{fields["content"]}',
-        f'sender: {sender}'
-    ]
-    
-    send_private_message(
-        title,
-        '  \n'.join(text_lines)
-    )
+    text_lines = [f'### {title}', f'{fields["content"]}', f'sender: {sender}']
+
+    send_private_message(title, '  \n'.join(text_lines))
