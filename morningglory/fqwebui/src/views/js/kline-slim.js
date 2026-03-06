@@ -187,7 +187,8 @@ export default {
         const payload = await futureApi.stockData({
           symbol: this.routeSymbol,
           period: this.currentPeriod,
-          endDate: this.endDateModel || undefined
+          endDate: this.endDateModel || undefined,
+          realtimeCache: this.isRealtimeMode
         })
         if (token !== this.routeToken || !payload) {
           return
@@ -227,7 +228,8 @@ export default {
         const payload = await futureApi.stockData({
           symbol: this.routeSymbol,
           period: this.overlayPeriod,
-          endDate: this.endDateModel || undefined
+          endDate: this.endDateModel || undefined,
+          realtimeCache: this.isRealtimeMode
         })
         if (token !== this.routeToken || !payload) {
           return

@@ -81,7 +81,14 @@ def stock_data():
     period = request.args.get("period")
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
-    result = _get_realtime_stock_data_from_cache(symbol, period, end_date)
+    use_realtime_cache = request.args.get("realtimeCache", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    result = None
+    if use_realtime_cache:
+        result = _get_realtime_stock_data_from_cache(symbol, period, end_date)
     if result is None:
         result = get_data_v2(symbol, period, end_date)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")

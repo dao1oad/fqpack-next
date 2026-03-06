@@ -125,7 +125,30 @@ def call_stock_data(**params):
     return stock_routes.stock_data()
 
 
-def test_stock_data_reads_redis_for_realtime_period(monkeypatch):
+def test_stock_data_uses_fallback_by_default(monkeypatch):
+    fake_redis = FakeRedis(value=json.dumps({"source": "cache"}))
+    fallback_calls = []
+
+    def fake_get_data_v2(symbol, period, end_date):
+        fallback_calls.append((symbol, period, end_date))
+        return {"source": "fallback", "symbol": symbol, "period": period}
+
+    monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
+
+    response = call_stock_data(symbol="sz000001", period="5m")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "source": "fallback",
+        "symbol": "sz000001",
+        "period": "5m",
+    }
+    assert fallback_calls == [("sz000001", "5m", None)]
+    assert fake_redis.keys == []
+
+
+def test_stock_data_reads_redis_for_opt_in_realtime_period(monkeypatch):
     cached_payload = {"symbol": "sz000001", "period": "5m", "close": [1, 2, 3]}
     fake_redis = FakeRedis(value=json.dumps(cached_payload))
 
@@ -136,14 +159,14 @@ def test_stock_data_reads_redis_for_realtime_period(monkeypatch):
         lambda symbol, period, end_date: {"source": "fallback"},
     )
 
-    response = call_stock_data(symbol="sz000001", period="5m")
+    response = call_stock_data(symbol="sz000001", period="5m", realtimeCache="1")
 
     assert response.status_code == 200
     assert response.get_json() == cached_payload
     assert fake_redis.keys == [get_redis_cache_key("sz000001", "5min")]
 
 
-def test_stock_data_falls_back_when_cache_missing(monkeypatch):
+def test_stock_data_falls_back_when_opt_in_cache_missing(monkeypatch):
     fake_redis = FakeRedis(value=None)
     fallback_calls = []
 
@@ -154,7 +177,7 @@ def test_stock_data_falls_back_when_cache_missing(monkeypatch):
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
-    response = call_stock_data(symbol="sz000001", period="15m")
+    response = call_stock_data(symbol="sz000001", period="15m", realtimeCache="true")
 
     assert response.status_code == 200
     assert response.get_json() == {

@@ -11,6 +11,9 @@ export const futureApi = {
     } else {
       url = `/api/stock_data?period=${data.period}&symbol=${data.symbol}&endDate=${data.endDate}`
     }
+    if (data.realtimeCache) {
+      url += '&realtimeCache=1'
+    }
     return axios({
       url,
       method: 'get'
