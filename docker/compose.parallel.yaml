@@ -78,6 +78,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
+      JYGS_ENV_FILE: /run/host-config/envs.conf
     command:
       [
         "sh",
@@ -88,6 +89,10 @@ services:
       - "11003:10003"
     volumes:
       - fqnext_dagster_data:/opt/dagster
+      - type: bind
+        source: ${FQPACK_CONFIG_DIR:-D:/fqpack/config}
+        target: /run/host-config
+        read_only: true
     depends_on:
       fq_mongodb:
         condition: service_healthy
@@ -105,6 +110,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
+      JYGS_ENV_FILE: /run/host-config/envs.conf
     command:
       [
         "sh",
@@ -113,6 +119,10 @@ services:
       ]
     volumes:
       - fqnext_dagster_data:/opt/dagster
+      - type: bind
+        source: ${FQPACK_CONFIG_DIR:-D:/fqpack/config}
+        target: /run/host-config
+        read_only: true
     depends_on:
       fq_mongodb:
         condition: service_healthy
