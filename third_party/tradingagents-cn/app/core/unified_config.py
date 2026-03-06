@@ -245,7 +245,7 @@ class UnifiedConfigManager:
         """获取深度分析模型"""
         settings = self.get_system_settings()
         # 优先读取新字段名，如果不存在则读取旧字段名（向后兼容）
-        return settings.get("deep_analysis_model") or settings.get("deep_think_llm", "deepseek-chat")
+        return settings.get("deep_analysis_model") or settings.get("deep_think_llm", "deepseek-reasoner")
 
     def set_analysis_models(self, quick_model: str, deep_model: str) -> bool:
         """设置分析模型"""

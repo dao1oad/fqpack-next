@@ -88,3 +88,10 @@
 - **影响面**：`Miniconda fqkit` 不再是标准运行环境；宿主机脚本、Docker 命令、CI 和后续 Supervisor 都需要以项目 `.venv` 为准。依赖旧的 `pip install ./...`、`pip install -r freeze.txt`、外部 Python/conda 环境或容器内系统级 `TA-Lib` 安装的部署脚本需要调整。多 worktree / 多分支并行验证时，如需隔离镜像缓存与标签，需要显式覆盖 `FQNEXT_*_IMAGE`；生产环境若使用 TradingAgents-CN，应显式配置非默认 `JWT_SECRET`。
 - **迁移步骤**：1) 在仓库根目录执行 `create_venv.bat` 与 `install.bat --skip-web`；2) 日常命令统一改为 `uv run ...` 或 `.venv\Scripts\python.exe ...`；3) Docker 改用 `docker compose -f docker/compose.parallel.yaml up -d --build`，由镜像内 `.venv` 启动；如在多个 worktree / 分支间并行验证，先覆盖 `FQNEXT_*_IMAGE`；4) TradingAgents-CN 后端使用 `third_party/tradingagents-cn/uv.lock` 构建 `/app/.venv`，并在生产环境显式设置 `JWT_SECRET`。
 - **回滚方案**：恢复 `install.bat/install.py` 的旧顺序、恢复 Dockerfile 中的 `pip install` 链路与外部 `TA-Lib` 安装步骤，并将宿主机服务命令切回原 `Miniconda fqkit` 解释器。
+
+- **日期**：2026-03-07
+- **RFC**：0008-tradingagents-cn-integration-phase1
+- **变更**：`TradingAgents-CN` 接入层的默认深度分析模型从 `deepseek-chat` 调整为 `deepseek-reasoner`，并在 `ta_backend` 启动时自动把活动系统配置与 DeepSeek 模型目录迁移到该默认值；若 `deepseek-reasoner` 仅在工具调用兼容链路失败，则自动回退到 `deepseek-chat` 继续任务。
+- **影响面**：依赖 `TradingAgents-CN` 默认模型配置的页面、脚本和运维流程会观察到 `deep_analysis_model` 默认值变化；模型目录中新增 `deepseek-reasoner`，启动后活动配置会被自动补齐。
+- **迁移步骤**：重新构建并启动 `ta_backend` / `ta_frontend`；登录后可在 `/api/config/settings` 或前端配置页确认 `quick_analysis_model=deepseek-chat`、`deep_analysis_model=deepseek-reasoner`。若要恢复旧行为，可在系统配置里手动改回 `deepseek-chat`。
+- **回滚方案**：移除 `bootstrap_reasoner_defaults` 启动步骤，恢复 `deepseek-chat` 为默认深度模型，并删除 `deepseek-reasoner` 的默认注册与回退逻辑。

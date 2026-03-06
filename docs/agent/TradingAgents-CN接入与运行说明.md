@@ -74,13 +74,13 @@ docker compose -f docker/compose.parallel.yaml ps
   - `BaoStock`
 - 默认分析模型会初始化为：
   - `quick_analysis_model=deepseek-chat`
-  - `deep_analysis_model=deepseek-chat`
+  - `deep_analysis_model=deepseek-reasoner`
 
 说明：
 
-- 没有把 `deepseek-reasoner` 设成默认模型。
-- 原因是 `TradingAgents-CN` 当前多智能体流程依赖工具调用（tool calling），而上游文档明确标注 `deepseek-reasoner` 不适用于该架构。
-- 因此本次按“保证股票分析流程可运行”的目标，默认使用支持工具调用的 `deepseek-chat`。
+- 本地接入层已经正式注册 `deepseek-reasoner`，并将其加入 `TradingAgents-CN` 的默认模型目录、能力声明与 provider 映射。
+- `deepseek-reasoner` 只作为深度分析模型使用；快速分析仍固定为 `deepseek-chat`，避免首轮分析阶段被重推理模型拖慢。
+- 如果 `deepseek-reasoner` 在工具调用链路出现兼容性异常，后端只会把 `deep_analysis_model` 自动回退到 `deepseek-chat`，任务继续执行。
 
 ## 5. 登录与单股分析
 
@@ -180,22 +180,31 @@ docker compose -f docker/compose.parallel.yaml logs --tail 200 ta_frontend
 
 ### 7.3 当前真实验收状态（2026-03-07）
 
-- 验收任务：`000001`
-- 最近一次完整跑通任务：`7740f2f7-daaa-444e-a369-6baef00f3029`
-- 对应结果：`analysis_id=298df2a5-51ba-48c4-aab2-f2e23e5b716d`
+- 验收标的：`002682`
+- 最近一次完整跑通任务：`c4ffec0d-5878-4cdd-8c45-35cdc36db6e0`
+- 任务完成时间：`2026-03-07 01:36:04`（Asia/Shanghai）
+- 最终建议：`卖出`
+- 置信度：`0.85`
+- 关键模型证据：
+  - `analysis_tasks.result.performance_metrics.llm_config.deep_think_model=deepseek-reasoner`
+  - `analysis_tasks.result.performance_metrics.llm_config.quick_think_model=deepseek-chat`
+  - `analysis_tasks.result.detailed_analysis.model_info=ChatDeepSeek:deepseek-reasoner`
 - 已确认打通的链路：
   - 登录
   - 创建任务
   - `/app/.env` 挂载并加载到进程环境
   - `Tushare > AKShare > BaoStock` 默认优先级生效
-  - `deepseek-chat` 默认模型生效
+  - `quick_analysis_model=deepseek-chat`
+  - `deep_analysis_model=deepseek-reasoner`
   - Mongo 本地数据检查
   - Redis 进度初始化
   - 多智能体分析全流程完成
-  - `deepseek-chat` 工具调用能力校验通过
+  - `deepseek-reasoner` 深度模型能力校验通过
   - 最终结果落到 Mongo
 - 当前已确认修复：
   - `ta_backend` 运行容器实际挂载工作树 `third_party/tradingagents-cn/.env`
   - `your_*` 占位密钥不会再覆盖真实 `TUSHARE_TOKEN` / `DEEPSEEK_API_KEY`
   - `memory` 模块在缺少有效 embedding provider 时会直接禁用，不再触发 `DashScope InvalidApiKey`
+  - `deepseek-reasoner` 已写入活动配置和 DeepSeek 模型目录，启动时自动补齐
+  - 本次真实任务日志中未出现 `deepseek-reasoner -> deepseek-chat` 回退
   - 本轮真实任务执行期间，后端日志未再出现 `DashScope API错误` / `InvalidApiKey`

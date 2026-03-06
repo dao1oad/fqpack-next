@@ -349,6 +349,32 @@ def _get_default_backend_url(provider: str) -> str:
     return url
 
 
+def _should_fallback_deepseek_reasoner(model_name: str, error: Exception) -> bool:
+    """Fallback only when deepseek-reasoner fails on tool calling compatibility."""
+    if model_name != "deepseek-reasoner" or error is None:
+        return False
+
+    error_text = str(error).lower()
+    tool_call_markers = (
+        "tool_calls",
+        "tool calls",
+        "tool_calling",
+        "unsupported tool",
+        "unsupported tools",
+        "tools parameter",
+        "function_call",
+        "function call",
+    )
+    return any(marker in error_text for marker in tool_call_markers)
+
+
+def _get_fallback_deep_analysis_model(model_name: str, error: Exception) -> Optional[str]:
+    """Return the safe fallback deep model when reasoner cannot complete tool calls."""
+    if _should_fallback_deepseek_reasoner(model_name, error):
+        return "deepseek-chat"
+    return None
+
+
 def _get_default_provider_by_model(model_name: str) -> str:
     """
     根据模型名称返回默认的供应商映射
@@ -377,6 +403,7 @@ def _get_default_provider_by_model(model_name: str) -> str:
 
         # DeepSeek
         'deepseek-chat': 'deepseek',
+        'deepseek-reasoner': 'deepseek',
         'deepseek-coder': 'deepseek',
 
         # 智谱AI
@@ -1247,61 +1274,61 @@ class SimpleAnalysisService:
                 )
                 logger.info(f"🤖 自动推荐模型: quick={quick_model}, deep={deep_model}")
 
-            # 🔧 根据快速模型和深度模型分别查找对应的供应商和 API URL
-            quick_provider_info = get_provider_and_url_by_model_sync(quick_model)
-            deep_provider_info = get_provider_and_url_by_model_sync(deep_model)
-
-            quick_provider = quick_provider_info["provider"]
-            deep_provider = deep_provider_info["provider"]
-            quick_backend_url = quick_provider_info["backend_url"]
-            deep_backend_url = deep_provider_info["backend_url"]
-
-            logger.info(f"🔍 [供应商查找] 快速模型 {quick_model} 对应的供应商: {quick_provider}")
-            logger.info(f"🔍 [API地址] 快速模型使用 backend_url: {quick_backend_url}")
-            logger.info(f"🔍 [供应商查找] 深度模型 {deep_model} 对应的供应商: {deep_provider}")
-            logger.info(f"🔍 [API地址] 深度模型使用 backend_url: {deep_backend_url}")
-
-            # 检查两个模型是否来自同一个厂家
-            if quick_provider == deep_provider:
-                logger.info(f"✅ [供应商验证] 两个模型来自同一厂家: {quick_provider}")
-            else:
-                logger.info(f"✅ [混合模式] 快速模型({quick_provider}) 和 深度模型({deep_provider}) 来自不同厂家")
-
             # 获取市场类型
             market_type = request.parameters.market_type if request.parameters else "A股"
             logger.info(f"📊 [市场类型] 使用市场类型: {market_type}")
 
-            # 创建分析配置（支持混合模式）
-            config = create_analysis_config(
-                research_depth=research_depth,
-                selected_analysts=request.parameters.selected_analysts if request.parameters else ["market", "fundamentals"],
-                quick_model=quick_model,
-                deep_model=deep_model,
-                llm_provider=quick_provider,  # 主要使用快速模型的供应商
-                market_type=market_type  # 使用前端传递的市场类型
-            )
+            if request.parameters:
+                request.parameters.quick_analysis_model = quick_model
+                request.parameters.deep_analysis_model = deep_model
 
-            # 🔧 添加混合模式配置
-            config["quick_provider"] = quick_provider
-            config["deep_provider"] = deep_provider
-            config["quick_backend_url"] = quick_backend_url
-            config["deep_backend_url"] = deep_backend_url
-            config["backend_url"] = quick_backend_url  # 保持向后兼容
+            def _build_trading_graph_for_models(active_quick_model: str, active_deep_model: str):
+                active_quick_provider_info = get_provider_and_url_by_model_sync(active_quick_model)
+                active_deep_provider_info = get_provider_and_url_by_model_sync(active_deep_model)
+                active_quick_provider = active_quick_provider_info["provider"]
+                active_deep_provider = active_deep_provider_info["provider"]
+                active_quick_backend_url = active_quick_provider_info["backend_url"]
+                active_deep_backend_url = active_deep_provider_info["backend_url"]
 
-            # 🔍 验证配置中的模型
-            logger.info(f"🔍 [模型验证] 配置中的快速模型: {config.get('quick_think_llm')}")
-            logger.info(f"🔍 [模型验证] 配置中的深度模型: {config.get('deep_think_llm')}")
-            logger.info(f"🔍 [模型验证] 配置中的LLM供应商: {config.get('llm_provider')}")
+                logger.info(f"🔍 [供应商查找] 快速模型 {active_quick_model} 对应的供应商: {active_quick_provider}")
+                logger.info(f"🔍 [API地址] 快速模型使用 backend_url: {active_quick_backend_url}")
+                logger.info(f"🔍 [供应商查找] 深度模型 {active_deep_model} 对应的供应商: {active_deep_provider}")
+                logger.info(f"🔍 [API地址] 深度模型使用 backend_url: {active_deep_backend_url}")
+
+                if active_quick_provider == active_deep_provider:
+                    logger.info(f"✅ [供应商验证] 两个模型来自同一厂家: {active_quick_provider}")
+                else:
+                    logger.info(
+                        f"✅ [混合模式] 快速模型({active_quick_provider}) 和 深度模型({active_deep_provider}) 来自不同厂家"
+                    )
+
+                active_config = create_analysis_config(
+                    research_depth=research_depth,
+                    selected_analysts=request.parameters.selected_analysts if request.parameters else ["market", "fundamentals"],
+                    quick_model=active_quick_model,
+                    deep_model=active_deep_model,
+                    llm_provider=active_quick_provider,
+                    market_type=market_type
+                )
+                active_config["quick_provider"] = active_quick_provider
+                active_config["deep_provider"] = active_deep_provider
+                active_config["quick_backend_url"] = active_quick_backend_url
+                active_config["deep_backend_url"] = active_deep_backend_url
+                active_config["backend_url"] = active_quick_backend_url
+
+                logger.info(f"🔍 [模型验证] 配置中的快速模型: {active_config.get('quick_think_llm')}")
+                logger.info(f"🔍 [模型验证] 配置中的深度模型: {active_config.get('deep_think_llm')}")
+                logger.info(f"🔍 [模型验证] 配置中的LLM供应商: {active_config.get('llm_provider')}")
+
+                active_graph = self._get_trading_graph(active_config)
+                logger.info(f"🔍 [引擎验证] TradingGraph配置中的快速模型: {active_graph.config.get('quick_think_llm')}")
+                logger.info(f"🔍 [引擎验证] TradingGraph配置中的深度模型: {active_graph.config.get('deep_think_llm')}")
+                return active_config, active_graph
 
             # 初始化分析引擎 - 对应步骤4 "🚀 启动引擎" (8-10%)
             update_progress_sync(9, "🚀 初始化AI分析引擎", "engine_initialization")
-            trading_graph = self._get_trading_graph(config)
+            config, trading_graph = _build_trading_graph_for_models(quick_model, deep_model)
 
-            # 🔍 验证TradingGraph实例中的配置
-            logger.info(f"🔍 [引擎验证] TradingGraph配置中的快速模型: {trading_graph.config.get('quick_think_llm')}")
-            logger.info(f"🔍 [引擎验证] TradingGraph配置中的深度模型: {trading_graph.config.get('deep_think_llm')}")
-
-            # 准备分析数据
             start_time = datetime.now()
 
             # 🔧 使用前端传递的分析日期，如果没有则使用当前日期
@@ -1538,12 +1565,31 @@ class SimpleAnalysisService:
             logger.info(f"🚀 准备调用 trading_graph.propagate，progress_callback={graph_progress_callback}")
 
             # 执行实际分析，传递进度回调和task_id
-            state, decision = trading_graph.propagate(
-                request.stock_code,
-                analysis_date,
-                progress_callback=graph_progress_callback,
-                task_id=task_id
-            )
+            try:
+                state, decision = trading_graph.propagate(
+                    request.stock_code,
+                    analysis_date,
+                    progress_callback=graph_progress_callback,
+                    task_id=task_id
+                )
+            except Exception as graph_error:
+                fallback_deep_model = _get_fallback_deep_analysis_model(deep_model, graph_error)
+                if not fallback_deep_model:
+                    raise
+
+                logger.warning(
+                    f"deepseek-reasoner failed on tool calling, fallback to {fallback_deep_model}: {graph_error}"
+                )
+                deep_model = fallback_deep_model
+                if request.parameters:
+                    request.parameters.deep_analysis_model = deep_model
+                config, trading_graph = _build_trading_graph_for_models(quick_model, deep_model)
+                state, decision = trading_graph.propagate(
+                    request.stock_code,
+                    analysis_date,
+                    progress_callback=graph_progress_callback,
+                    task_id=task_id
+                )
 
             logger.info(f"✅ trading_graph.propagate 执行完成")
 

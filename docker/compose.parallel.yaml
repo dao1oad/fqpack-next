@@ -198,6 +198,7 @@ services:
       - sh
       - -lc
       - >
+        /app/.venv/bin/python -m app.scripts.bootstrap_reasoner_defaults &&
         /app/.venv/bin/python -c "import asyncio; from app.services.user_service import user_service; asyncio.run(user_service.create_admin_user()); user_service.close()" &&
         exec /app/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports:

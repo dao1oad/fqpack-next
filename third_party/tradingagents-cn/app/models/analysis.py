@@ -50,7 +50,7 @@ class AnalysisParameters(BaseModel):
     language: str = "zh-CN"
     # 模型配置
     quick_analysis_model: Optional[str] = "deepseek-chat"
-    deep_analysis_model: Optional[str] = "deepseek-chat"
+    deep_analysis_model: Optional[str] = "deepseek-reasoner"
 
 
 class AnalysisResult(BaseModel):
