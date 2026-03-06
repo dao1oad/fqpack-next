@@ -21,6 +21,82 @@ from app.models.config import (
 
 logger = logging.getLogger(__name__)
 
+DEEPSEEK_CHAT_MODEL_NAME = "deepseek-chat"
+DEEPSEEK_REASONER_MODEL_NAME = "deepseek-reasoner"
+
+
+def build_deepseek_reasoner_llm_config(existing: Optional[LLMConfig] = None) -> LLMConfig:
+    """Build or normalize the DeepSeek reasoner config."""
+    normalized = existing.model_copy(deep=True) if existing else LLMConfig(
+        provider=ModelProvider.DEEPSEEK,
+        model_name=DEEPSEEK_REASONER_MODEL_NAME,
+    )
+    normalized.provider = ModelProvider.DEEPSEEK
+    normalized.model_name = DEEPSEEK_REASONER_MODEL_NAME
+    normalized.model_display_name = "DeepSeek Reasoner"
+    normalized.api_key = normalized.api_key or "your-deepseek-api-key"
+    normalized.api_base = normalized.api_base or "https://api.deepseek.com"
+    normalized.max_tokens = 4000
+    normalized.temperature = 0.2
+    normalized.timeout = max(getattr(normalized, "timeout", 0) or 0, 240)
+    normalized.retry_times = max(getattr(normalized, "retry_times", 0) or 0, 3)
+    normalized.enabled = True
+    normalized.description = "DeepSeek Reasoner model (default deep analysis)"
+    normalized.capability_level = 4
+    normalized.suitable_roles = ["deep_analysis"]
+    normalized.features = ["tool_calling", "long_context", "reasoning", "cost_effective"]
+    normalized.recommended_depths = ["标准", "深度", "全面"]
+    normalized.performance_metrics = {"speed": 3, "cost": 4, "quality": 5}
+    normalized.input_price_per_1k = 0.0002
+    normalized.output_price_per_1k = 0.0008
+    normalized.currency = "CNY"
+    return normalized
+
+
+def build_deepseek_reasoner_model_info(existing: Optional[ModelInfo] = None) -> ModelInfo:
+    """Build or normalize the DeepSeek reasoner catalog entry."""
+    normalized = existing.model_copy(deep=True) if existing else ModelInfo(
+        name=DEEPSEEK_REASONER_MODEL_NAME,
+        display_name="DeepSeek Reasoner - Deep Analysis",
+    )
+    normalized.name = DEEPSEEK_REASONER_MODEL_NAME
+    normalized.display_name = "DeepSeek Reasoner - Deep Analysis"
+    normalized.description = "DeepSeek Reasoner for deep analysis and reasoning"
+    normalized.context_length = 64000
+    normalized.input_price_per_1k = 0.0002
+    normalized.output_price_per_1k = 0.0008
+    normalized.currency = "CNY"
+    normalized.capabilities = ["reasoning", "function_calling", "long_context"]
+    return normalized
+
+
+def apply_deepseek_reasoner_defaults(config: SystemConfig) -> bool:
+    """Ensure the active system config can recommend and use deepseek-reasoner."""
+    changed = False
+    llm_by_name = {item.model_name: item for item in config.llm_configs}
+    reasoner_config = llm_by_name.get(DEEPSEEK_REASONER_MODEL_NAME)
+    normalized_reasoner = build_deepseek_reasoner_llm_config(reasoner_config)
+
+    if reasoner_config is None:
+        config.llm_configs.append(normalized_reasoner)
+        changed = True
+    else:
+        before = reasoner_config.model_dump()
+        after = normalized_reasoner.model_dump()
+        if before != after:
+            index = config.llm_configs.index(reasoner_config)
+            config.llm_configs[index] = normalized_reasoner
+            changed = True
+
+    if not config.system_settings.get("quick_analysis_model"):
+        config.system_settings["quick_analysis_model"] = DEEPSEEK_CHAT_MODEL_NAME
+        changed = True
+    if not config.system_settings.get("deep_analysis_model"):
+        config.system_settings["deep_analysis_model"] = DEEPSEEK_REASONER_MODEL_NAME
+        changed = True
+
+    return changed
+
 
 class ConfigService:
     """配置管理服务类"""
@@ -402,7 +478,7 @@ class ConfigService:
             llm_configs=[
                 LLMConfig(
                     provider=ModelProvider.DEEPSEEK,
-                    model_name="deepseek-chat",
+                    model_name=DEEPSEEK_CHAT_MODEL_NAME,
                     api_key="your-deepseek-api-key",
                     api_base="https://api.deepseek.com",
                     max_tokens=4000,
@@ -415,6 +491,7 @@ class ConfigService:
                     recommended_depths=["基础", "标准", "深度"],
                     performance_metrics={"speed": 4, "cost": 5, "quality": 4},
                 ),
+                build_deepseek_reasoner_llm_config(),
                 LLMConfig(
                     provider=ModelProvider.ZHIPU,
                     model_name="glm-4",
@@ -436,7 +513,7 @@ class ConfigService:
                     description="阿里云通义千问模型"
                 )
             ],
-            default_llm="deepseek-chat",
+            default_llm=DEEPSEEK_CHAT_MODEL_NAME,
             data_source_configs=[
                 DataSourceConfig(
                     name="Tushare",
@@ -522,8 +599,8 @@ class ConfigService:
                 "ta_google_news_sleep_min_seconds": 2.0,
                 "ta_google_news_sleep_max_seconds": 6.0,
                 "app_timezone": "Asia/Shanghai",
-                "quick_analysis_model": "deepseek-chat",
-                "deep_analysis_model": "deepseek-chat",
+                "quick_analysis_model": DEEPSEEK_CHAT_MODEL_NAME,
+                "deep_analysis_model": DEEPSEEK_REASONER_MODEL_NAME,
             }
         )
         
@@ -2556,6 +2633,7 @@ class ConfigService:
                         "context_length": 32768,
                         "currency": "CNY"
                     },
+                    build_deepseek_reasoner_model_info().model_dump(),
                     {
                         "name": "deepseek-coder",
                         "display_name": "DeepSeek Coder - 代码专用",
@@ -3560,6 +3638,53 @@ class ConfigService:
                 "success": False,
                 "message": f"{display_name} API测试异常: {str(e)}"
             }
+
+    async def ensure_deepseek_reasoner_defaults(self) -> bool:
+        """Upgrade the active config and DeepSeek catalog to the reasoner defaults."""
+        try:
+            config = await self.get_system_config()
+            if not config:
+                return False
+
+            changed = apply_deepseek_reasoner_defaults(config)
+            if changed:
+                await self.save_system_config(config)
+                try:
+                    unified_config.sync_to_legacy_format(config)
+                except Exception as sync_error:
+                    logger.warning(f"Failed to sync legacy config after reasoner upgrade: {sync_error}")
+
+            deepseek_catalog = await self.get_provider_models("deepseek")
+            catalog_changed = False
+            if deepseek_catalog is None:
+                deepseek_catalog = ModelCatalog(
+                    **next(item for item in self._get_default_model_catalog() if item["provider"] == "deepseek")
+                )
+                catalog_changed = True
+            else:
+                reasoner_info = next(
+                    (model for model in deepseek_catalog.models if model.name == DEEPSEEK_REASONER_MODEL_NAME),
+                    None,
+                )
+                normalized_reasoner = build_deepseek_reasoner_model_info(reasoner_info)
+                if reasoner_info is None:
+                    deepseek_catalog.models.append(normalized_reasoner)
+                    catalog_changed = True
+                else:
+                    before = reasoner_info.model_dump()
+                    after = normalized_reasoner.model_dump()
+                    if before != after:
+                        index = deepseek_catalog.models.index(reasoner_info)
+                        deepseek_catalog.models[index] = normalized_reasoner
+                        catalog_changed = True
+
+            if catalog_changed:
+                await self.save_model_catalog(deepseek_catalog)
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to ensure deepseek-reasoner defaults: {e}")
+            return False
 
     def _test_deepseek_api(self, api_key: str, display_name: str, model_name: str = None) -> dict:
         """测试DeepSeek API"""
