@@ -7,7 +7,10 @@ def test_submit_guardian_order_uses_strategy_source_and_guardian_strategy(monkey
     class FakeService:
         def submit_order(self, payload):
             captured.update(payload)
-            return {"request_id": "req_guardian_1", "internal_order_id": "ord_guardian_1"}
+            return {
+                "request_id": "req_guardian_1",
+                "internal_order_id": "ord_guardian_1",
+            }
 
     monkeypatch.setattr(
         "freshquant.order_management.submit.guardian._get_order_submit_service",

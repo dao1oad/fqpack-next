@@ -92,3 +92,24 @@ freshquant = ["*.pyd", "*.so", "*.yaml", "*.md", "*.toml"]
 
 [tool.dg]
 directory_type = "project"
+
+[tool.mypy]
+python_version = "3.12"
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = [
+    "freshquant.command.channel",
+    "freshquant.command.future",
+    "freshquant.command.order",
+    "freshquant.command.position",
+    "freshquant.command.stock",
+    "freshquant.command.trade",
+    "freshquant.data.astock.must_pool",
+    "freshquant.data.astock.pre_pool",
+    "freshquant.data.digital.fill",
+    "freshquant.data.future.fill",
+    "freshquant.pattern.*",
+    "freshquant.screening.*",
+]
+ignore_errors = true

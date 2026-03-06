@@ -38,14 +38,20 @@ def build_open_buy_fills_view(buy_lots):
             "time": item.get("time"),
             "price": item["buy_price_real"],
             "quantity": item["remaining_quantity"],
-            "amount": round(
-                float(item.get("amount", item["buy_price_real"] * item["original_quantity"]))
-                * float(item["remaining_quantity"])
-                / float(item["original_quantity"]),
-                2,
-            )
-            if item.get("original_quantity")
-            else 0.0,
+            "amount": (
+                round(
+                    float(
+                        item.get(
+                            "amount", item["buy_price_real"] * item["original_quantity"]
+                        )
+                    )
+                    * float(item["remaining_quantity"])
+                    / float(item["original_quantity"]),
+                    2,
+                )
+                if item.get("original_quantity")
+                else 0.0
+            ),
             "amount_adjust": float(item.get("amount_adjust", 1.0)),
             "stock_code": item.get("stock_code"),
             "name": item.get("name", ""),
@@ -99,7 +105,11 @@ def list_stock_positions(repository=None):
         )
         remaining_amount = (
             round(
-                float(item.get("amount", item["buy_price_real"] * item["original_quantity"]))
+                float(
+                    item.get(
+                        "amount", item["buy_price_real"] * item["original_quantity"]
+                    )
+                )
                 * float(item["remaining_quantity"])
                 / float(item["original_quantity"])
                 * -1,

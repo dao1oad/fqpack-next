@@ -57,8 +57,10 @@ class BuyLotStoplossService:
         if buy_lot is None:
             raise ValueError("buy_lot_id not found")
         remaining_quantity = int(buy_lot.get("remaining_quantity", 0))
-        sell_quantity = remaining_quantity if quantity is None else min(
-            remaining_quantity, int(quantity)
+        sell_quantity = (
+            remaining_quantity
+            if quantity is None
+            else min(remaining_quantity, int(quantity))
         )
         return {
             "action": "sell",

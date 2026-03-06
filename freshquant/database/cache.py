@@ -1,11 +1,13 @@
 # -*- coding:utf-8 -*-
 
 from collections import defaultdict
+from typing import DefaultDict
 
 try:
-    from memoizit import Memoizer
+    from memoizit import Memoizer as _Memoizer
 except ModuleNotFoundError:
-    class Memoizer:
+
+    class _Memoizer:  # type: ignore[no-redef]
         def __init__(self, *args, **kwargs):
             self._memoized_wrappers = []
 
@@ -25,6 +27,9 @@ except ModuleNotFoundError:
 
             return decorator
 
+
+Memoizer = _Memoizer
+
 from pydash import get
 
 from freshquant.config import settings
@@ -36,7 +41,7 @@ password = get(settings, 'redis.password')
 
 redis_cache = Memoizer(backend="redis", host=host, port=port, db=db)
 in_memory_cache = Memoizer()
-_cache_versions = defaultdict(int)
+_cache_versions: DefaultDict[str, int] = defaultdict(int)
 
 
 def get_cache_version(cache_name: str) -> int:

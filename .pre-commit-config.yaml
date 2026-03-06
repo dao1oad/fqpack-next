@@ -26,6 +26,7 @@ repos:
         args:
           [
             --ignore-missing-imports,
+            --explicit-package-bases,
             --warn-no-return,
             --warn-redundant-casts,
             --disallow-incomplete-defs,

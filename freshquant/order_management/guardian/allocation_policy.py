@@ -14,7 +14,9 @@ def allocate_sell_to_slices(buy_lots, open_slices, sell_trade_fact):
         if slice_document["remaining_quantity"] <= 0:
             continue
 
-        allocated_quantity = min(slice_document["remaining_quantity"], remaining_sell_quantity)
+        allocated_quantity = min(
+            slice_document["remaining_quantity"], remaining_sell_quantity
+        )
         slice_document["remaining_quantity"] -= allocated_quantity
         slice_document["remaining_amount"] = round(
             slice_document["guardian_price"] * slice_document["remaining_quantity"],

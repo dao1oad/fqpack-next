@@ -39,7 +39,9 @@ def test_xtquant_buy_command_delegates_to_order_submit_service(monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(xtquant, ["buy", "600000.SH", "--price", "10.0", "--quantity", "300"])
+    result = runner.invoke(
+        xtquant, ["buy", "600000.SH", "--price", "10.0", "--quantity", "300"]
+    )
 
     assert result.exit_code == 0
     assert captured["action"] == "buy"

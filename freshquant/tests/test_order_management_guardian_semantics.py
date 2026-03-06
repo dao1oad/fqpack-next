@@ -15,7 +15,9 @@ from freshquant.order_management.guardian.read_model import (
 
 
 def _load_cases():
-    asset_path = Path(__file__).parent / "assets" / "order_management_guardian_cases.json"
+    asset_path = (
+        Path(__file__).parent / "assets" / "order_management_guardian_cases.json"
+    )
     return json.loads(asset_path.read_text(encoding="utf-8"))
 
 
@@ -74,7 +76,9 @@ def test_sell_allocation_consumes_lowest_guardian_price_first():
         },
     )
 
-    assert [(item["guardian_price"], item["allocated_quantity"]) for item in allocations] == [
+    assert [
+        (item["guardian_price"], item["allocated_quantity"]) for item in allocations
+    ] == [
         (10.0, 300),
         (10.3, 200),
     ]

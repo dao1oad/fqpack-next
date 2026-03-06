@@ -80,13 +80,17 @@ class InMemoryRepository:
         return document
 
     def replace_lot_slices_for_lot(self, buy_lot_id, slices):
-        self.lot_slices = [item for item in self.lot_slices if item["buy_lot_id"] != buy_lot_id]
+        self.lot_slices = [
+            item for item in self.lot_slices if item["buy_lot_id"] != buy_lot_id
+        ]
         self.lot_slices.extend(slices)
         return slices
 
     def replace_open_slices(self, slices):
         slice_ids = {item["lot_slice_id"] for item in slices}
-        self.lot_slices = [item for item in self.lot_slices if item["lot_slice_id"] not in slice_ids]
+        self.lot_slices = [
+            item for item in self.lot_slices if item["lot_slice_id"] not in slice_ids
+        ]
         self.lot_slices.extend(slices)
         return slices
 
@@ -199,7 +203,9 @@ def test_reconcile_matches_external_trade_report_to_existing_candidate():
     )
 
     assert len(results) == 1
-    assert repository.external_candidates[0]["candidate_id"] == candidate["candidate_id"]
+    assert (
+        repository.external_candidates[0]["candidate_id"] == candidate["candidate_id"]
+    )
     assert repository.external_candidates[0]["state"] == "MATCHED"
     assert repository.external_candidates[0]["matched_order_id"]
     assert len(repository.buy_lots) == 1

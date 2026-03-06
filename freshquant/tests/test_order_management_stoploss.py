@@ -2,8 +2,8 @@ import json
 
 from flask import Flask
 
-from freshquant.rear.order.routes import order_bp
 from freshquant.order_management.stoploss.service import BuyLotStoplossService
+from freshquant.rear.order.routes import order_bp
 
 
 class InMemoryRepository:

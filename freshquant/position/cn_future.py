@@ -273,9 +273,7 @@ def cleanCnFutureXtTrades():
     DBfreshquant["future_fills"].delete_many(
         {
             "_dr": True,
-            "trade_date_time": {
-                "$lt": one_year_ago_timestamp
-            },
+            "trade_date_time": {"$lt": one_year_ago_timestamp},
         }
     )
     records = (

@@ -4,10 +4,10 @@ import json
 from datetime import datetime
 
 import click
-
 import fqxtrade.xtquant.broker as broker
 from fqxtrade import ORDER_QUEUE
 from fqxtrade.database.redis import redis_db
+
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.util.code import normalize_to_base_code
 

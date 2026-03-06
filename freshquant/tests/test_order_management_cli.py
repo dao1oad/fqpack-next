@@ -46,7 +46,10 @@ def test_om_order_cancel_command_calls_cancel_service(monkeypatch):
     class FakeService:
         def cancel_order(self, payload):
             captured.update(payload)
-            return {"request_id": "req_cli_cancel_1", "internal_order_id": payload["internal_order_id"]}
+            return {
+                "request_id": "req_cli_cancel_1",
+                "internal_order_id": payload["internal_order_id"],
+            }
 
     monkeypatch.setattr(
         "freshquant.command.om_order._get_order_submit_service",

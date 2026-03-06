@@ -1,35 +1,36 @@
 import json
 import time
+
 import pendulum
 import pydash
 from fqxtrade import ORDER_QUEUE
 from fqxtrade.database.mongodb import DBfreshquant
 from fqxtrade.database.redis import redis_db
 from fqxtrade.xtquant.fqtype import FqXtAsset, FqXtOrder, FqXtPosition, FqXtTrade
+from fqxtrade.xtquant.lock import redis_distributed_lock
+from fqxtrade.xtquant.trading_manager import TradingManager
 from loguru import logger
 from pymongo import UpdateOne
-from rich.table import Table
 from rich.console import Console
 from rich.padding import Padding
-from xtquant import xtconstant
+from rich.table import Table
+from xtquant import xtconstant, xtdata
 
 from freshquant.instrument.bond import REPO_CODE_LIST
 from freshquant.instrument.general import query_instrument_info
-from freshquant.ordering.general import query_strategy_id
 from freshquant.order_management.ingest.xt_reports import (
     try_ingest_xt_order_dict,
     try_ingest_xt_trade_dict,
 )
 from freshquant.order_management.reconcile.service import ExternalOrderReconcileService
+from freshquant.ordering.general import query_strategy_id
 from freshquant.trade.trade import calculateTradeFee, saveInstrumentStrategy
 from freshquant.util.code import fq_util_code_append_market_code_suffix
-from xtquant import xtdata
-from fqxtrade.xtquant.lock import redis_distributed_lock
-from freshquant.util.xtquant import translate_order_type, translate_account_type
-from fqxtrade.xtquant.trading_manager import TradingManager
+from freshquant.util.xtquant import translate_account_type, translate_order_type
 
 trading_manager = TradingManager()
 external_reconcile_service = ExternalOrderReconcileService()
+
 
 def saveTrades(trades):
     trades = pydash.filter_(trades, lambda x: x.stock_code not in REPO_CODE_LIST)
@@ -58,9 +59,11 @@ def saveTrades(trades):
         saveInstrumentStrategy(
             trade.stock_code,
             "stock",
-            query_strategy_id("Gardian")
-            if trade.strategy_name is None or trade.strategy_name == ""
-            else trade.strategy_name,
+            (
+                query_strategy_id("Gardian")
+                if trade.strategy_name is None or trade.strategy_name == ""
+                else trade.strategy_name
+            ),
         )
     trades = list(
         DBfreshquant["xt_trades"].find(
@@ -126,6 +129,7 @@ def saveTrades(trades):
     if len(batch) > 0:
         DBfreshquant["stock_fills"].bulk_write(batch)
 
+
 def sync_trades():
     """线程与进程安全的成交同步函数"""
     with trading_manager.lock():
@@ -137,12 +141,18 @@ def sync_trades():
         lock_key = f"lock:sync_trades:{acc}"
         while True:
             with redis_distributed_lock(lock_key) as acquired:
-                if acquired:# 查询当日所有的成交
+                if acquired:  # 查询当日所有的成交
                     trades = xt_trader.query_stock_trades(acc)
                     if trades is not None and len(trades) > 0:
                         # 创建Rich表格
-                        table = Table(show_header=True, header_style="bold magenta", show_lines=True, title="成交记录", title_style="bold")
-                        
+                        table = Table(
+                            show_header=True,
+                            header_style="bold magenta",
+                            show_lines=True,
+                            title="成交记录",
+                            title_style="bold",
+                        )
+
                         # 定义列样式
                         column_definitions = {
                             "账户ID": {"style": "dim", "overflow": "fold"},
@@ -154,31 +164,56 @@ def sync_trades():
                             "成交数量": {"justify": "right", "overflow": "fold"},
                             "成交金额": {"justify": "right", "overflow": "fold"},
                             "成交时间": {"overflow": "fold"},
-                            "策略名称": {"overflow": "fold"}
+                            "策略名称": {"overflow": "fold"},
                         }
-                        
+
                         # 添加列
                         for field in column_definitions:
                             table.add_column(field, **column_definitions[field])
-                        
+
                         # 添加数据
                         for trade in trades:
                             trade_dict = FqXtTrade(trade).to_dict()
-                            instrument_info = query_instrument_info(trade_dict.get("stock_code", "")[:6])
+                            instrument_info = query_instrument_info(
+                                trade_dict.get("stock_code", "")[:6]
+                            )
                             row_data = [
-                                (lambda x: x[:len(x)//3] + '*'*(len(x)//3) + x[-(len(x)-2*(len(x)//3)):] if len(x) >= 3 else x)(str(trade_dict.get("account_id", ""))),
-                                (lambda x: x[:len(x)//3] + '*'*(len(x)//3) + x[-(len(x)-2*(len(x)//3)):] if len(x) >= 3 else x)(str(trade_dict.get("traded_id", ""))),
+                                (
+                                    lambda x: (
+                                        x[: len(x) // 3]
+                                        + '*' * (len(x) // 3)
+                                        + x[-(len(x) - 2 * (len(x) // 3)) :]
+                                        if len(x) >= 3
+                                        else x
+                                    )
+                                )(str(trade_dict.get("account_id", ""))),
+                                (
+                                    lambda x: (
+                                        x[: len(x) // 3]
+                                        + '*' * (len(x) // 3)
+                                        + x[-(len(x) - 2 * (len(x) // 3)) :]
+                                        if len(x) >= 3
+                                        else x
+                                    )
+                                )(str(trade_dict.get("traded_id", ""))),
                                 str(trade_dict.get("stock_code", "")),
                                 str(pydash.get(instrument_info, "name")),
-                                str(translate_order_type(trade_dict.get("order_type", ""))),
+                                str(
+                                    translate_order_type(
+                                        trade_dict.get("order_type", "")
+                                    )
+                                ),
                                 f"{trade_dict.get('traded_price', 0):.2f}",
                                 f"{trade_dict.get('traded_volume', 0)}",
                                 f"{trade_dict.get('traded_amount', 0):.2f}",
-                                pendulum.from_timestamp(trade_dict.get("traded_time", 0), tz=pendulum.local_timezone()).format("YYYY-MM-DD HH:mm:ss"),
-                                str(trade_dict.get("strategy_name", ""))
+                                pendulum.from_timestamp(
+                                    trade_dict.get("traded_time", 0),
+                                    tz=pendulum.local_timezone(),
+                                ).format("YYYY-MM-DD HH:mm:ss"),
+                                str(trade_dict.get("strategy_name", "")),
                             ]
                             table.add_row(*row_data)
-                        
+
                         # 打印表格
                         console = Console()
                         t = Padding(table, (1, 0, 0, 0))
@@ -235,7 +270,7 @@ def saveOrders(orders):
                     "$set": {
                         "date": date,
                         "time": strTime,
-                        "symbol": short_code, # 以后删除这个，用stort_code代替
+                        "symbol": short_code,  # 以后删除这个，用stort_code代替
                         "short_code": short_code,
                         "stock_code": order.stock_code,
                         "name": name,
@@ -267,8 +302,14 @@ def sync_orders():
         orders = xt_trader.query_stock_orders(acc)
         if orders is not None and len(orders) > 0:
             # 创建Rich表格
-            table = Table(show_header=True, header_style="bold magenta", show_lines=True, title="委托记录", title_style="bold")
-            
+            table = Table(
+                show_header=True,
+                header_style="bold magenta",
+                show_lines=True,
+                title="委托记录",
+                title_style="bold",
+            )
+
             # 定义列样式
             column_definitions = {
                 "账户ID": {"style": "dim", "overflow": "fold"},
@@ -279,30 +320,42 @@ def sync_orders():
                 "委托数量": {"justify": "right", "overflow": "fold"},
                 "成交数量": {"justify": "right", "overflow": "fold"},
                 "委托时间": {"overflow": "fold"},
-                "策略名称": {"overflow": "fold"}
+                "策略名称": {"overflow": "fold"},
             }
-            
+
             # 添加列
             for field in column_definitions:
                 table.add_column(field, **column_definitions[field])
-            
+
             # 添加数据
             for order in orders:
                 order_dict = FqXtOrder(order).to_dict()
-                instrument_info = query_instrument_info(order_dict.get("stock_code", "")[:6])
+                instrument_info = query_instrument_info(
+                    order_dict.get("stock_code", "")[:6]
+                )
                 row_data = [
-                    (lambda x: x[:len(x)//3] + '*'*(len(x)//3) + x[-(len(x)-2*(len(x)//3)):] if len(x) >= 3 else x)(str(order_dict.get("account_id", ""))),
+                    (
+                        lambda x: (
+                            x[: len(x) // 3]
+                            + '*' * (len(x) // 3)
+                            + x[-(len(x) - 2 * (len(x) // 3)) :]
+                            if len(x) >= 3
+                            else x
+                        )
+                    )(str(order_dict.get("account_id", ""))),
                     str(order_dict.get("stock_code", "")),
                     pydash.get(instrument_info, "name"),
                     str(translate_order_type(order_dict.get("order_type", ""))),
                     f"{order_dict.get('price', 0):.2f}",
                     f"{order_dict.get('order_volume', 0)}",
                     f"{order_dict.get('traded_volume', 0)}",
-                    pendulum.from_timestamp(order_dict.get("order_time", 0), tz=pendulum.local_timezone()).format("YYYY-MM-DD HH:mm:ss"),
-                    str(order_dict.get("strategy_name", ""))
+                    pendulum.from_timestamp(
+                        order_dict.get("order_time", 0), tz=pendulum.local_timezone()
+                    ).format("YYYY-MM-DD HH:mm:ss"),
+                    str(order_dict.get("strategy_name", "")),
                 ]
                 table.add_row(*row_data)
-            
+
             # 打印表格
             console = Console()
             t = Padding(table, (1, 0, 0, 0))
@@ -343,28 +396,48 @@ def sync_summary():
             saveAssets([asset])
             asset = FqXtAsset(asset).to_dict()
             # 创建Rich表格
-            table = Table(show_header=True, header_style="bold magenta", show_lines=True, title="资产概况", title_style="bold")
-            
+            table = Table(
+                show_header=True,
+                header_style="bold magenta",
+                show_lines=True,
+                title="资产概况",
+                title_style="bold",
+            )
+
             # 定义列样式
             table.add_column("账户ID", style="cyan", overflow="fold")
             table.add_column("账户类型", style="cyan", overflow="fold")
-            table.add_column("可用资金", justify="right", style="green", overflow="fold")
-            table.add_column("冻结资金", justify="right", style="green", overflow="fold")
+            table.add_column(
+                "可用资金", justify="right", style="green", overflow="fold"
+            )
+            table.add_column(
+                "冻结资金", justify="right", style="green", overflow="fold"
+            )
             table.add_column("市值", justify="right", style="green", overflow="fold")
             table.add_column("总资产", justify="right", style="green", overflow="fold")
-            table.add_column("仓位比例", justify="right", style="green", overflow="fold")
-            
+            table.add_column(
+                "仓位比例", justify="right", style="green", overflow="fold"
+            )
+
             # 添加资产数据
             table.add_row(
-                (lambda x: x[:len(x)//3] + '*'*(len(x)//3) + x[-(len(x)-2*(len(x)//3)):] if len(x) >= 3 else x)(str(asset.get("account_id", ""))),
+                (
+                    lambda x: (
+                        x[: len(x) // 3]
+                        + '*' * (len(x) // 3)
+                        + x[-(len(x) - 2 * (len(x) // 3)) :]
+                        if len(x) >= 3
+                        else x
+                    )
+                )(str(asset.get("account_id", ""))),
                 str(translate_account_type(asset.get("account_type", ""))),
                 f"{asset.get('cash', 0):.2f}",
                 f"{asset.get('frozen_cash', 0):.2f}",
                 f"{asset.get('market_value', 0):.2f}",
                 f"{asset.get('total_asset', 0):.2f}",
-                f"{asset.get('position_pct', 0):.2f}%"
+                f"{asset.get('position_pct', 0):.2f}%",
             )
-            
+
             # 打印表格
             console = Console()
             t = Padding(table, (1, 0, 0, 0))
@@ -413,8 +486,14 @@ def sync_positions():
                 now=int(time.time()),
             )
             # 创建Rich表格
-            table = Table(show_header=True, header_style="bold magenta", show_lines=True, title="持仓记录", title_style="bold")
-            
+            table = Table(
+                show_header=True,
+                header_style="bold magenta",
+                show_lines=True,
+                title="持仓记录",
+                title_style="bold",
+            )
+
             # 定义列样式
             column_definitions = {
                 "账户ID": {"style": "dim", "overflow": "fold"},
@@ -426,18 +505,28 @@ def sync_positions():
                 "可用数量": {"justify": "right", "overflow": "fold"},
                 "冻结数量": {"justify": "right", "overflow": "fold"},
                 "在途数量": {"justify": "right", "overflow": "fold"},
-                "昨日数量": {"justify": "right", "overflow": "fold"}
+                "昨日数量": {"justify": "right", "overflow": "fold"},
             }
-            
+
             # 添加列
             for field in column_definitions:
                 table.add_column(field, **column_definitions[field])
-            
+
             # 添加数据
             for position in positions:
-                instrument_info = query_instrument_info(position.get("stock_code", "")[:6])
+                instrument_info = query_instrument_info(
+                    position.get("stock_code", "")[:6]
+                )
                 row_data = [
-                    (lambda x: x[:len(x)//3] + '*'*(len(x)//3) + x[-(len(x)-2*(len(x)//3)):] if len(x) >= 3 else x)(str(position.get("account_id", ""))),
+                    (
+                        lambda x: (
+                            x[: len(x) // 3]
+                            + '*' * (len(x) // 3)
+                            + x[-(len(x) - 2 * (len(x) // 3)) :]
+                            if len(x) >= 3
+                            else x
+                        )
+                    )(str(position.get("account_id", ""))),
                     str(position.get("stock_code", "")),
                     pydash.get(instrument_info, "name"),
                     f"{position.get('volume', 0)}",
@@ -446,10 +535,10 @@ def sync_positions():
                     f"{position.get('can_use_volume', 0)}",
                     f"{position.get('frozen_volume', 0)}",
                     f"{position.get('on_road_volume', 0)}",
-                    f"{position.get('yesterday_volume', 0)}"
+                    f"{position.get('yesterday_volume', 0)}",
                 ]
                 table.add_row(*row_data)
-            
+
             # 打印表格
             console = Console()
             t = Padding(table, (1, 0, 0, 0))
@@ -524,7 +613,7 @@ def buy(
         if fix_result_order_id < 0:
             if retryCount < 3:
                 # Exponential backoff delay: 2^retryCount seconds
-                delay = 2 ** retryCount
+                delay = 2**retryCount
                 time.sleep(delay)
                 redis_db.lpush(
                     ORDER_QUEUE,
@@ -592,7 +681,11 @@ def sell(
         if price == 0.0:
             ticks = xtdata.get_full_tick([stock_code])
             if ticks is not None and stock_code in ticks:
-                price = ticks[stock_code]["bidPrice"][0] if ticks[stock_code]["bidPrice"][0] != 0 else ticks[stock_code]["lastPrice"]
+                price = (
+                    ticks[stock_code]["bidPrice"][0]
+                    if ticks[stock_code]["bidPrice"][0] != 0
+                    else ticks[stock_code]["lastPrice"]
+                )
         order_type = xtconstant.STOCK_SELL
         if stock_code in REPO_CODE_LIST:
             order_type = xtconstant.CREDIT_SELL
@@ -610,7 +703,11 @@ def sell(
             stock_code,
             order_type,
             int(quantity),
-            xtconstant.FIX_PRICE if price_type == 0 or price_type is None else price_type,
+            (
+                xtconstant.FIX_PRICE
+                if price_type == 0 or price_type is None
+                else price_type
+            ),
             float(price),
             strategyName,
             remark,
@@ -618,7 +715,7 @@ def sell(
         if fix_result_order_id < 0:
             if retryCount < 3:
                 # Exponential backoff delay: 2^retryCount seconds
-                delay = 2 ** retryCount
+                delay = 2**retryCount
                 time.sleep(delay)
                 redis_db.lpush(
                     ORDER_QUEUE,

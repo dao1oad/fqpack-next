@@ -1,3 +1,5 @@
+from typing import Optional
+
 from bson import ObjectId
 from prettytable import PrettyTable
 
@@ -15,7 +17,7 @@ def _get_manual_write_service():
     return OrderManagementManualWriteService()
 
 
-def list_fill(code: str = None, dt: str = None):
+def list_fill(code: Optional[str] = None, dt: Optional[str] = None):
     if code:
         repository = OrderManagementRepository()
         results = build_raw_fills_view(repository.list_trade_facts(code))
@@ -77,7 +79,9 @@ def list_fill(code: str = None, dt: str = None):
         current_quantity = 0
         current_cost = 0.0
         last_trade_price = 0.0
-        stock_code = results[-1].get("stock_code") or query_instrument_info(code).get("code")
+        stock_code = results[-1].get("stock_code") or query_instrument_info(code).get(
+            "code"
+        )
         for result in results:
             last_trade_price = float(result.get("price", 0))
             if result.get("op") == "买":

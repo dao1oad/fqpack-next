@@ -11,4 +11,8 @@ def match_candidate_to_trade(candidate, normalized_trade, max_window_seconds=300
 
     detected_at = int(candidate["detected_at"])
     trade_time = int(normalized_trade["trade_time"])
-    return detected_at <= trade_time <= int(candidate["pending_until"]) + max_window_seconds
+    return (
+        detected_at
+        <= trade_time
+        <= int(candidate["pending_until"]) + max_window_seconds
+    )

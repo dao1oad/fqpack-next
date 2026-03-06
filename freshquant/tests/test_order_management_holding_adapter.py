@@ -48,16 +48,21 @@ def _install_holding_import_stubs(monkeypatch):
 
     strategy_package = types.ModuleType("freshquant.strategy")
     strategy_common_module = types.ModuleType("freshquant.strategy.common")
-    strategy_common_module.get_grid_interval_config = lambda instrument_code: {"mode": "percent", "percent": 3}
+    strategy_common_module.get_grid_interval_config = lambda instrument_code: {
+        "mode": "percent",
+        "percent": 3,
+    }
     strategy_common_module.get_trade_amount = lambda instrument_code: 3000
     monkeypatch.setitem(sys.modules, "freshquant.strategy", strategy_package)
-    monkeypatch.setitem(sys.modules, "freshquant.strategy.common", strategy_common_module)
+    monkeypatch.setitem(
+        sys.modules, "freshquant.strategy.common", strategy_common_module
+    )
 
 
 def _reload_modules(monkeypatch):
     _install_holding_import_stubs(monkeypatch)
-    import freshquant.database.cache as cache_module
     import freshquant.data.astock.holding as holding_module
+    import freshquant.database.cache as cache_module
     import freshquant.order_management.projection.cache_invalidator as invalidator_module
 
     cache_module = importlib.reload(cache_module)
@@ -79,12 +84,18 @@ def test_get_stock_fill_list_reads_open_buy_projection(monkeypatch):
         }
     ]
 
-    monkeypatch.setattr(holding_module, "_get_order_management_stock_fill_list", lambda symbol: sample)
-    monkeypatch.setattr(holding_module, "_compare_with_legacy_fill_list", lambda symbol, records: None)
+    monkeypatch.setattr(
+        holding_module, "_get_order_management_stock_fill_list", lambda symbol: sample
+    )
+    monkeypatch.setattr(
+        holding_module, "_compare_with_legacy_fill_list", lambda symbol, records: None
+    )
     monkeypatch.setattr(
         holding_module,
         "_get_legacy_stock_fill_list",
-        lambda symbol: (_ for _ in ()).throw(AssertionError("legacy reader should not be used")),
+        lambda symbol: (_ for _ in ()).throw(
+            AssertionError("legacy reader should not be used")
+        ),
     )
 
     assert holding_module.get_stock_fill_list("000001") == sample
@@ -103,7 +114,11 @@ def test_get_arranged_stock_fill_list_matches_projection_output(monkeypatch):
         }
     ]
 
-    monkeypatch.setattr(holding_module, "_get_order_management_arranged_fill_list", lambda symbol: sample)
+    monkeypatch.setattr(
+        holding_module,
+        "_get_order_management_arranged_fill_list",
+        lambda symbol: sample,
+    )
     monkeypatch.setattr(
         holding_module,
         "_compare_with_legacy_arranged_fill_list",
@@ -112,7 +127,9 @@ def test_get_arranged_stock_fill_list_matches_projection_output(monkeypatch):
     monkeypatch.setattr(
         holding_module,
         "_get_legacy_arranged_stock_fill_list",
-        lambda symbol: (_ for _ in ()).throw(AssertionError("legacy arranged reader should not be used")),
+        lambda symbol: (_ for _ in ()).throw(
+            AssertionError("legacy arranged reader should not be used")
+        ),
     )
 
     assert holding_module.get_arranged_stock_fill_list("000001") == sample

@@ -1,11 +1,17 @@
 import json
+import random
+import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 import fqxtrade.xtquant.puppet as puppet
 import pydash
+import tornado.web
 from fqxtrade import ORDER_QUEUE
+from fqxtrade.database.redis import redis_db
 from fqxtrade.util.trade_date_hist import tool_trade_date_seconds_to_start
+from fqxtrade.xtquant.connection_manager import ConnectionManager
 from fqxtrade.xtquant.fqtype import (
     FqXtAccountStatus,
     FqXtAsset,
@@ -18,23 +24,15 @@ from fqxtrade.xtquant.fqtype import (
     FqXtSmtAppointmentResponse,
     FqXtTrade,
 )
+from fqxtrade.xtquant.handlers import handlers
+
+# 导入新的单例 TradingManager 和 ConnectionManager（从 xtquant/base 子目录中导入）
+from fqxtrade.xtquant.trading_manager import TradingManager
 from loguru import logger
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
 
 from freshquant.carnation.param import queryParam
-from fqxtrade.database.redis import redis_db
-from freshquant.trade.trade import checkManualStrategyInstument
-from freshquant.util.code import fq_util_code_append_market_code_suffix
-from concurrent.futures import ThreadPoolExecutor
-import threading
-import tornado.web
-import random
-
-# 导入新的单例 TradingManager 和 ConnectionManager（从 xtquant/base 子目录中导入）
-from fqxtrade.xtquant.trading_manager import TradingManager
-from fqxtrade.xtquant.connection_manager import ConnectionManager
-from fqxtrade.xtquant.handlers import handlers
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.submit.execution_bridge import (
     dispatch_cancel_execution,
@@ -42,6 +40,8 @@ from freshquant.order_management.submit.execution_bridge import (
     prepare_submit_execution,
 )
 from freshquant.order_management.tracking.service import OrderTrackingService
+from freshquant.trade.trade import checkManualStrategyInstument
+from freshquant.util.code import fq_util_code_append_market_code_suffix
 
 # 全局交易对象管理（单例模式）
 trading_manager = TradingManager()
@@ -50,6 +50,7 @@ trading_manager = TradingManager()
 connection_manager = ConnectionManager()
 order_management_repository = OrderManagementRepository()
 order_tracking_service = OrderTrackingService(repository=order_management_repository)
+
 
 class MyXtQuantTraderCallback(XtQuantTraderCallback):
     def on_connected(self):
@@ -95,7 +96,9 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         :param position: XtPosition对象
         :return:
         """
-        logger.info("收到持仓变动推送: {position}", position=FqXtPosition(position).to_dict())
+        logger.info(
+            "收到持仓变动推送: {position}", position=FqXtPosition(position).to_dict()
+        )
 
     def on_order_error(self, order_error):
         """
@@ -103,7 +106,9 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         :param order_error:XtOrderError 对象
         :return:
         """
-        logger.info("收到委托失败推送: {error}", error=FqXtOrderError(order_error).to_dict())
+        logger.info(
+            "收到委托失败推送: {error}", error=FqXtOrderError(order_error).to_dict()
+        )
 
     def on_cancel_error(self, cancel_error):
         """
@@ -111,7 +116,9 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         :param cancel_error: XtCancelError 对象
         :return:
         """
-        logger.info("委托失败推送: {error}", error=FqXtCancelError(cancel_error).to_dict())
+        logger.info(
+            "委托失败推送: {error}", error=FqXtCancelError(cancel_error).to_dict()
+        )
 
     def on_order_stock_async_response(self, response):
         """
@@ -120,7 +127,8 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         :return:
         """
         logger.info(
-            "收到异步下单回报推送: {response}", response=FqXtOrderResponse(response).to_dict()
+            "收到异步下单回报推送: {response}",
+            response=FqXtOrderResponse(response).to_dict(),
         )
 
     def on_account_status(self, status):
@@ -128,7 +136,9 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         :param response: XtAccountStatus 对象
         :return:
         """
-        logger.info("收到账号状态变化推送: {status}", status=FqXtAccountStatus(status).to_dict())
+        logger.info(
+            "收到账号状态变化推送: {status}", status=FqXtAccountStatus(status).to_dict()
+        )
 
     def on_smt_appointment_async_response(self, response):
         """
@@ -175,7 +185,7 @@ def connect(session_id: int = 100):
             return xt_trader, acc, False
         else:
             logger.info("连接成功")
-            
+
         # 对交易回调进行订阅，订阅后可以收到交易主推，返回0表示订阅成功
         subscribe_result = xt_trader.subscribe(acc)
         if subscribe_result != 0:
@@ -186,11 +196,12 @@ def connect(session_id: int = 100):
             logger.info("订阅成功")
         connection_manager.mark_connected()
         return xt_trader, acc, True
-        
+
     except Exception as e:
         logger.error(f"连接过程中发生异常: {str(e)}")
         connection_manager.mark_disconnected()
         return None, None, False
+
 
 def trading_main_loop():
     while True:
@@ -203,9 +214,13 @@ def trading_main_loop():
                     if not success:
                         delay = connection_manager.get_retry_delay()
                         if connection_manager.can_retry():
-                            logger.warning(f"对接miniqmt失败，将在{delay}秒后重试... (重试次数: {connection_manager.retry_count}/{connection_manager.max_retries})")
+                            logger.warning(
+                                f"对接miniqmt失败，将在{delay}秒后重试... (重试次数: {connection_manager.retry_count}/{connection_manager.max_retries})"
+                            )
                         else:
-                            logger.error(f"达到最大重试次数({connection_manager.max_retries})，开始重新连接")
+                            logger.error(
+                                f"达到最大重试次数({connection_manager.max_retries})，开始重新连接"
+                            )
                             connection_manager.reset_retry_count()
                         time.sleep(delay)
                         continue
@@ -282,11 +297,13 @@ def trading_main_loop():
                             dispatch_result = dispatch_cancel_execution(
                                 order,
                                 cancel_executor=(
-                                    lambda broker_order_id: xt_trader.cancel_order_stock(
-                                        acc, broker_order_id
+                                    lambda broker_order_id: (
+                                        xt_trader.cancel_order_stock(
+                                            acc, broker_order_id
+                                        )
+                                        if xt_trader is not None and acc is not None
+                                        else -1
                                     )
-                                    if xt_trader is not None and acc is not None
-                                    else -1
                                 ),
                                 repository=order_management_repository,
                                 tracking_service=order_tracking_service,
@@ -332,11 +349,13 @@ def trading_main_loop():
 def main():
     trading_thread = threading.Thread(target=trading_main_loop, daemon=True)
     trading_thread.start()
-    
+
     thread_pool = ThreadPoolExecutor(max_workers=4)
     # 配置 Tornado
-    app = tornado.web.Application(handlers, autoreload=True, compress_response=True, thread_pool=thread_pool)
-    
+    app = tornado.web.Application(
+        handlers, autoreload=True, compress_response=True, thread_pool=thread_pool
+    )
+
     app.listen(10088)
     logger.info("服务已启动，REST API 端口: 10088")
     try:
@@ -344,6 +363,7 @@ def main():
     except KeyboardInterrupt:
         thread_pool.shutdown()
         logger.info("服务正常退出")
+
 
 if __name__ == "__main__":
     main()

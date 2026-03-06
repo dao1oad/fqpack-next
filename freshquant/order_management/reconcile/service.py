@@ -67,7 +67,9 @@ class ExternalOrderReconcileService:
                 "symbol": symbol,
                 "side": side,
                 "quantity_delta": quantity_delta,
-                "price_estimate": position.get("avg_price") or position.get("open_price") or 0.0,
+                "price_estimate": position.get("avg_price")
+                or position.get("open_price")
+                or 0.0,
                 "detected_at": int(detected_at),
                 "pending_until": int(detected_at) + int(self.external_confirm_seconds),
                 "state": "INFERRED_PENDING",
@@ -81,7 +83,9 @@ class ExternalOrderReconcileService:
 
     def reconcile_trade_reports(self, trade_reports):
         results = []
-        pending_candidates = self.repository.list_external_candidates("INFERRED_PENDING")
+        pending_candidates = self.repository.list_external_candidates(
+            "INFERRED_PENDING"
+        )
         for report in trade_reports:
             normalized = normalize_xt_trade_report(report, repository=self.repository)
             if self.repository.find_order_by_broker_order_id(
@@ -140,7 +144,9 @@ class ExternalOrderReconcileService:
                 state="INFERRED_CONFIRMED",
                 broker_order_id=None,
             )
-            trade_report = _build_inferred_trade_report(candidate, order["internal_order_id"])
+            trade_report = _build_inferred_trade_report(
+                candidate, order["internal_order_id"]
+            )
             result = self.ingest_service.ingest_trade_report(
                 trade_report,
                 lot_amount=_safe_resolve_lot_amount(candidate["symbol"]),
@@ -208,7 +214,9 @@ class ExternalOrderReconcileService:
         order = {
             "internal_order_id": internal_order_id,
             "request_id": request_id,
-            "broker_order_id": str(broker_order_id) if broker_order_id is not None else None,
+            "broker_order_id": (
+                str(broker_order_id) if broker_order_id is not None else None
+            ),
             "symbol": symbol,
             "side": side,
             "state": state,

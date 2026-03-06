@@ -1,9 +1,9 @@
 import argparse
 import importlib
 import sys
+import types
 from datetime import date
 from types import SimpleNamespace
-import types
 
 import pandas as pd
 from flask import Flask
@@ -42,7 +42,9 @@ class InMemoryRepository:
         return document
 
     def replace_lot_slices_for_lot(self, buy_lot_id, slices):
-        self.lot_slices = [item for item in self.lot_slices if item["buy_lot_id"] != buy_lot_id]
+        self.lot_slices = [
+            item for item in self.lot_slices if item["buy_lot_id"] != buy_lot_id
+        ]
         self.lot_slices.extend(slices)
         return slices
 
@@ -111,10 +113,15 @@ def _install_route_import_stubs(monkeypatch):
 
     strategy_package = types.ModuleType("freshquant.strategy")
     strategy_common_module = types.ModuleType("freshquant.strategy.common")
-    strategy_common_module.get_grid_interval_config = lambda instrument_code: {"mode": "percent", "percent": 3}
+    strategy_common_module.get_grid_interval_config = lambda instrument_code: {
+        "mode": "percent",
+        "percent": 3,
+    }
     strategy_common_module.get_trade_amount = lambda instrument_code: 3000
     monkeypatch.setitem(sys.modules, "freshquant.strategy", strategy_package)
-    monkeypatch.setitem(sys.modules, "freshquant.strategy.common", strategy_common_module)
+    monkeypatch.setitem(
+        sys.modules, "freshquant.strategy.common", strategy_common_module
+    )
 
     chanlun_module = types.ModuleType("freshquant.chanlun_service")
     chanlun_module.get_data_v2 = lambda *args, **kwargs: {}
@@ -136,7 +143,9 @@ def _load_stock_routes(monkeypatch):
     return importlib.reload(routes_module)
 
 
-def test_manual_write_service_import_fill_creates_trade_fact_and_projection(monkeypatch):
+def test_manual_write_service_import_fill_creates_trade_fact_and_projection(
+    monkeypatch,
+):
     from freshquant.order_management.manual.service import (
         OrderManagementManualWriteService,
     )
@@ -218,7 +227,9 @@ def test_manual_write_service_reset_symbol_lots_closes_existing_and_creates_manu
         ],
     )
 
-    runtime_lot = [item for item in repository.buy_lots if item["arrange_mode"] == "runtime_grid"][0]
+    runtime_lot = [
+        item for item in repository.buy_lots if item["arrange_mode"] == "runtime_grid"
+    ][0]
     manual_locked_lots = [
         item for item in repository.buy_lots if item["arrange_mode"] == "manual_locked"
     ]
@@ -241,7 +252,9 @@ def test_import_deals_routes_rows_through_manual_write_service(monkeypatch):
             captured.append(payload)
             return payload
 
-    monkeypatch.setattr(import_deals, "_get_manual_write_service", lambda: FakeService())
+    monkeypatch.setattr(
+        import_deals, "_get_manual_write_service", lambda: FakeService()
+    )
     monkeypatch.setattr(
         pd,
         "read_excel",
@@ -338,7 +351,12 @@ def test_reset_stock_fills_route_uses_manual_write_service(monkeypatch):
         json={
             "code": "000001",
             "grid_list": [
-                {"price": 10.0, "quantity": 300, "amount": 3000.0, "amount_adjust": 1.1},
+                {
+                    "price": 10.0,
+                    "quantity": 300,
+                    "amount": 3000.0,
+                    "amount_adjust": 1.1,
+                },
                 {"price": 9.7, "quantity": 300, "amount": 2910.0, "amount_adjust": 1.1},
             ],
         },

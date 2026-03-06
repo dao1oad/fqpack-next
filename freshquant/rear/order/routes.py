@@ -2,8 +2,8 @@
 
 from flask import Blueprint, jsonify, request
 
-from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.order_management.stoploss.service import BuyLotStoplossService
+from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.util.code import normalize_to_base_code
 
 order_bp = Blueprint("order", __name__, url_prefix="/api")

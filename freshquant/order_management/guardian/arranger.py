@@ -52,7 +52,11 @@ def rebuild_guardian_position(trade_facts, lot_amount, grid_interval_lookup):
 
     ordered_trade_facts = sorted(
         trade_facts,
-        key=lambda item: (item.get("trade_time", 0), item.get("date", 0), item.get("time", "")),
+        key=lambda item: (
+            item.get("trade_time", 0),
+            item.get("date", 0),
+            item.get("time", ""),
+        ),
     )
 
     for trade_fact in ordered_trade_facts:

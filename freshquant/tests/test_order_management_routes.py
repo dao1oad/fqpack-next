@@ -40,7 +40,10 @@ def test_order_cancel_route_passes_internal_order_id(monkeypatch):
     class FakeService:
         def cancel_order(self, payload):
             captured.update(payload)
-            return {"request_id": "req_cancel_1", "internal_order_id": payload["internal_order_id"]}
+            return {
+                "request_id": "req_cancel_1",
+                "internal_order_id": payload["internal_order_id"],
+            }
 
     monkeypatch.setattr(
         "freshquant.rear.order.routes._get_order_submit_service",

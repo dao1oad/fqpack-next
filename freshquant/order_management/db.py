@@ -26,4 +26,3 @@ def get_order_management_db():
 
 def get_projection_db():
     return DBOrderProjection
-

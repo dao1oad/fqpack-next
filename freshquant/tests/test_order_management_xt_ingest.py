@@ -68,7 +68,9 @@ class InMemoryRepository:
         return document
 
     def replace_lot_slices_for_lot(self, buy_lot_id, slices):
-        self.lot_slices = [item for item in self.lot_slices if item["buy_lot_id"] != buy_lot_id]
+        self.lot_slices = [
+            item for item in self.lot_slices if item["buy_lot_id"] != buy_lot_id
+        ]
         self.lot_slices.extend(slices)
 
     def list_buy_lots(self, symbol):

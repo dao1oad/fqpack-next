@@ -29,4 +29,3 @@ class OrderStateMachine:
                 f"Invalid order state transition: {current_state} -> {next_state}"
             )
         return next_state
-

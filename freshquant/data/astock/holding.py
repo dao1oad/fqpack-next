@@ -252,10 +252,12 @@ def _compare_with_legacy_fill_list(symbol, projected_records):
     legacy_records = _get_legacy_stock_fill_list(symbol)
     if legacy_records is None:
         return
-    if _normalize_records_for_compare(projected_records) != _normalize_records_for_compare(
-        legacy_records
-    ):
-        logger.warning("order_management open buy fills differ from legacy for {}", symbol)
+    if _normalize_records_for_compare(
+        projected_records
+    ) != _normalize_records_for_compare(legacy_records):
+        logger.warning(
+            "order_management open buy fills differ from legacy for {}", symbol
+        )
 
 
 def _compare_with_legacy_arranged_fill_list(symbol, projected_records):
@@ -264,10 +266,12 @@ def _compare_with_legacy_arranged_fill_list(symbol, projected_records):
     legacy_records = _get_legacy_arranged_stock_fill_list(symbol)
     if legacy_records is None:
         return
-    if _normalize_records_for_compare(projected_records) != _normalize_records_for_compare(
-        legacy_records
-    ):
-        logger.warning("order_management arranged fills differ from legacy for {}", symbol)
+    if _normalize_records_for_compare(
+        projected_records
+    ) != _normalize_records_for_compare(legacy_records):
+        logger.warning(
+            "order_management arranged fills differ from legacy for {}", symbol
+        )
 
 
 def _normalize_records_for_compare(records):
@@ -471,7 +475,9 @@ def compact_stock_fills(code=None):
     for code in holding_codes:
         position_info = get_stock_hold_position(code)
         if position_info:
-            stock_fill_list = list(_get_legacy_stock_fills_collection().find({"symbol": code}))
+            stock_fill_list = list(
+                _get_legacy_stock_fills_collection().find({"symbol": code})
+            )
             quantity = int(position_info["quantity"])
             amount_adjusted = float(position_info["amount_adjusted"])
             if len(stock_fill_list) > 1 and quantity == 0 and amount_adjusted < 0:

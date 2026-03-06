@@ -64,9 +64,11 @@ class OrderManagementManualWriteService:
             "side": side,
             "quantity": int(quantity),
             "price": float(price),
-            "amount": float(amount)
-            if amount is not None
-            else round(float(price) * int(quantity), 2),
+            "amount": (
+                float(amount)
+                if amount is not None
+                else round(float(price) * int(quantity), 2)
+            ),
             "trade_time": int(traded_at.timestamp()),
             "date": int(traded_at.strftime("%Y%m%d")),
             "time": traded_at.strftime("%H:%M:%S"),
