@@ -29,6 +29,10 @@
 - Redis：`6380`
 - MongoDB：`27027`
 
+合并后部署规则：
+
+- 模块代码合并到 `main` 后，必须重新构建新代码并部署该模块（Docker 并行模式示例：`docker compose -f docker/compose.parallel.yaml up -d --build`）。
+
 ## 1. 语言与风格
 
 - 默认使用简体中文回复（除非用户明确要求英文）。
