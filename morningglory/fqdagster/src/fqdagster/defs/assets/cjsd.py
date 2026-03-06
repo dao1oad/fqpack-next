@@ -2,7 +2,7 @@
 
 This module defines assets for CJSD calculation with proper dependencies:
 - cjsd_index: depends on stock_day and index_day
-- cjsd_score: depends on cjsd_index  
+- cjsd_score: depends on cjsd_index
 - cjsd_stock_pool: depends on cjsd_score
 """
 
