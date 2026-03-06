@@ -4,14 +4,14 @@ This module defines schedules that trigger asset materialization.
 Each schedule targets the root asset (list assets), and dependent assets are automatically triggered.
 """
 
+from typing import cast
+
 from dagster import (
     AssetSelection,
     DefaultScheduleStatus,
     ScheduleDefinition,
     define_asset_job,
 )
-
-from freshquant.config import cfg
 
 from fqdagster.defs.assets.market_data import (
     bond_list,
@@ -20,6 +20,9 @@ from fqdagster.defs.assets.market_data import (
     index_list,
     stock_list,
 )
+from freshquant.config import cfg
+
+TIME_ZONE = cast(str, getattr(cfg, "TIME_ZONE", "Asia/Shanghai"))
 
 # Define asset jobs that will materialize the root assets and their dependencies
 stock_data_job = define_asset_job(
@@ -66,7 +69,7 @@ stock_data_schedule = ScheduleDefinition(
     description="股票收盘作业保存行情数据定时任务",
     job=stock_data_job,
     cron_schedule="0 16 * * 1-5",
-    execution_timezone=cfg.TIME_ZONE,
+    execution_timezone=TIME_ZONE,
     default_status=DefaultScheduleStatus.RUNNING,
 )
 
@@ -75,7 +78,7 @@ future_data_schedule = ScheduleDefinition(
     description="期货收盘数据保存定时任务",
     job=future_data_job,
     cron_schedule="30 8,16 * * 1-5",
-    execution_timezone=cfg.TIME_ZONE,
+    execution_timezone=TIME_ZONE,
     default_status=DefaultScheduleStatus.RUNNING,
 )
 
@@ -84,7 +87,7 @@ etf_data_schedule = ScheduleDefinition(
     description="ETF收盘数据保存定时任务",
     job=etf_data_job,
     cron_schedule="0 16 * * 1-5",
-    execution_timezone=cfg.TIME_ZONE,
+    execution_timezone=TIME_ZONE,
     default_status=DefaultScheduleStatus.RUNNING,
 )
 
@@ -93,7 +96,7 @@ bond_data_schedule = ScheduleDefinition(
     description="债券收盘数据保存定时任务",
     job=bond_data_job,
     cron_schedule="0 16 * * 1-5",
-    execution_timezone=cfg.TIME_ZONE,
+    execution_timezone=TIME_ZONE,
     default_status=DefaultScheduleStatus.RUNNING,
 )
 
@@ -102,6 +105,6 @@ index_data_schedule = ScheduleDefinition(
     description="指数收盘数据保存定时任务",
     job=index_data_job,
     cron_schedule="0 16 * * 1-5",
-    execution_timezone=cfg.TIME_ZONE,
+    execution_timezone=TIME_ZONE,
     default_status=DefaultScheduleStatus.RUNNING,
 )
