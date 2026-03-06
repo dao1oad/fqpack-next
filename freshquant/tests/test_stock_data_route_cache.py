@@ -2,12 +2,45 @@ import json
 import sys
 import types
 
-from flask import Flask
-
 from freshquant.util.period import get_redis_cache_key
 
 
 def _install_route_stubs():
+    flask_module = types.ModuleType("flask")
+
+    class _Blueprint:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def route(self, *args, **kwargs):
+            def decorator(func):
+                return func
+
+            return decorator
+
+    class _Response:
+        def __init__(self, response="", mimetype=None, status=200):
+            self._body = response
+            self.mimetype = mimetype
+            self.status_code = status
+
+        def get_json(self):
+            return json.loads(self._body)
+
+    def _jsonify(payload=None):
+        return _Response(json.dumps(payload), mimetype="application/json")
+
+    flask_module.Blueprint = _Blueprint
+    flask_module.Response = _Response
+    flask_module.jsonify = _jsonify
+    flask_module.request = types.SimpleNamespace(args={}, json=None)
+
+    func_timeout_module = types.ModuleType("func_timeout")
+    func_timeout_module.func_timeout = lambda timeout, func, args=(), kwargs=None: func(
+        *(args or ()), **(kwargs or {})
+    )
+
     stock_service = types.ModuleType("freshquant.stock_service")
     stock_service.get_stock_signal_list = lambda *args, **kwargs: []
     stock_service.get_stock_pools_list = lambda *args, **kwargs: []
@@ -54,6 +87,8 @@ def _install_route_stubs():
 
     util_encoder.FqJsonEncoder = _FqJsonEncoder
 
+    sys.modules["flask"] = flask_module
+    sys.modules["func_timeout"] = func_timeout_module
     sys.modules["freshquant.stock_service"] = stock_service
     sys.modules["freshquant.chanlun_service"] = chanlun_service
     sys.modules["freshquant.data.astock.holding"] = holding
@@ -85,10 +120,9 @@ class FakeRedis:
         return self.value
 
 
-def make_client():
-    app = Flask(__name__)
-    app.register_blueprint(stock_routes.stock_bp)
-    return app.test_client()
+def call_stock_data(**params):
+    stock_routes.request.args = params
+    return stock_routes.stock_data()
 
 
 def test_stock_data_reads_redis_for_realtime_period(monkeypatch):
@@ -102,8 +136,7 @@ def test_stock_data_reads_redis_for_realtime_period(monkeypatch):
         lambda symbol, period, end_date: {"source": "fallback"},
     )
 
-    client = make_client()
-    response = client.get("/api/stock_data?symbol=sz000001&period=5m")
+    response = call_stock_data(symbol="sz000001", period="5m")
 
     assert response.status_code == 200
     assert response.get_json() == cached_payload
@@ -121,8 +154,7 @@ def test_stock_data_falls_back_when_cache_missing(monkeypatch):
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
-    client = make_client()
-    response = client.get("/api/stock_data?symbol=sz000001&period=15m")
+    response = call_stock_data(symbol="sz000001", period="15m")
 
     assert response.status_code == 200
     assert response.get_json() == {
@@ -145,10 +177,7 @@ def test_stock_data_skips_redis_when_end_date_present(monkeypatch):
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
-    client = make_client()
-    response = client.get(
-        "/api/stock_data?symbol=sz000001&period=5m&endDate=2026-03-05"
-    )
+    response = call_stock_data(symbol="sz000001", period="5m", endDate="2026-03-05")
 
     assert response.status_code == 200
     assert response.get_json() == {"source": "history", "endDate": "2026-03-05"}
