@@ -41,7 +41,7 @@
   - 运维需要额外备份 `freshquant_gantt`，不能再假设专题数据写入 `freshquant` 主库；
   - 缺失板块理由将直接导致读模型构建失败，而不是静默降级。
 - **迁移步骤**：
-  1) 配置 `mongodb.gantt_db=freshquant_gantt`（或环境变量 `freshquant_MONGODB__GANTT_DB`）；
+  1) 配置 `mongodb.gantt_db=freshquant_gantt`（或环境变量 `FRESHQUANT_MONGODB__GANTT_DB`）；
   2) 部署并启用 `job_gantt_postclose` / `gantt_postclose_schedule`；
   3) 页面或调用方切换到 `/api/gantt/plates`、`/api/gantt/stocks`、`/api/gantt/shouban30/plates`、`/api/gantt/shouban30/stocks`；
   4) 停用旧分支依赖的盘中实时 Gantt/Shouban30 读取链路。

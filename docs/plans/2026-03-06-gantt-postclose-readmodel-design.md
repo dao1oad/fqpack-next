@@ -30,7 +30,7 @@
 - 库名：`freshquant_gantt`
 - 配置建议：
   - `mongodb.gantt_db: freshquant_gantt`
-  - 环境变量覆盖：`freshquant_MONGODB__GANTT_DB`
+  - 环境变量覆盖：`FRESHQUANT_MONGODB__GANTT_DB`
 
 ### 3.2 原始层集合
 

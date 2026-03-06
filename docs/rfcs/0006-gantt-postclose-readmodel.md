@@ -146,7 +146,7 @@
 
 - `mongodb.gantt_db`
   - 默认值：`freshquant_gantt`
-  - 环境变量：`freshquant_MONGODB__GANTT_DB`
+  - 环境变量：`FRESHQUANT_MONGODB__GANTT_DB`
 
 数据库：
 
