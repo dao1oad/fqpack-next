@@ -2,12 +2,12 @@ import json
 import logging
 import traceback
 from datetime import datetime
+from importlib import import_module
 from typing import List
 
 from flask import Blueprint, Response, jsonify, request
 from func_timeout import func_timeout
 
-import freshquant.stock_service as stock_service
 from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.chanlun_service import get_data_v2
 from freshquant.data.astock.holding import (
@@ -20,12 +20,60 @@ from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_info, query_instrument_type
 from freshquant.position.cn_future import queryArrangedCnFutureFillList
 from freshquant.research.cjsd.main import getCjsdList
-from freshquant.signal.BusinessService import BusinessService
 from freshquant.trading.dt import fq_trading_fetch_trade_dates
 from freshquant.util.code import fq_util_code_append_market_code_suffix
 from freshquant.util.encoder import FqJsonEncoder
+from freshquant.util.period import (
+    get_redis_cache_key,
+    is_supported_realtime_period,
+    to_backend_period,
+)
+
+try:
+    from freshquant.database.redis import redis_db
+except Exception:  # pragma: no cover
+    redis_db = None
 
 stock_bp = Blueprint('stock', __name__, url_prefix='/api')
+
+
+def _get_stock_service():
+    return import_module("freshquant.stock_service")
+
+
+def _create_business_service():
+    return import_module("freshquant.signal.BusinessService").BusinessService()
+
+
+def _get_realtime_stock_data_from_cache(symbol, period, end_date):
+    if end_date or not symbol or not period or redis_db is None:
+        return None
+
+    period_backend = to_backend_period(period)
+    if not is_supported_realtime_period(period_backend):
+        return None
+
+    cache_key = get_redis_cache_key(symbol, period_backend)
+    try:
+        cached = redis_db.get(cache_key)
+    except Exception as exc:  # pragma: no cover
+        logging.warning(
+            "stock_data redis read failed for %s %s: %s", symbol, period, exc
+        )
+        return None
+
+    if not cached:
+        return None
+
+    try:
+        payload = json.loads(cached)
+    except Exception as exc:
+        logging.warning(
+            "stock_data redis payload invalid for %s %s: %s", symbol, period, exc
+        )
+        return None
+
+    return payload if isinstance(payload, dict) else None
 
 
 @stock_bp.route("/stock_data")
@@ -33,7 +81,16 @@ def stock_data():
     period = request.args.get("period")
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
-    result = get_data_v2(symbol, period, end_date)
+    use_realtime_cache = request.args.get("realtimeCache", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    result = None
+    if use_realtime_cache:
+        result = _get_realtime_stock_data_from_cache(symbol, period, end_date)
+    if result is None:
+        result = get_data_v2(symbol, period, end_date)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
 
 
@@ -52,7 +109,7 @@ def get_stock_signal_list():
     page = int(request.args.get("page", "1"))
     size = int(request.args.get("size", "1000"))
     category = request.args.get("category", "candidates")
-    signalList = stock_service.get_stock_signal_list(page, size, category)
+    signalList = _get_stock_service().get_stock_signal_list(page, size, category)
     return jsonify(signalList)
 
 
@@ -62,7 +119,7 @@ def get_stock_pools_list():
     page = int(request.args.get("page", "1"))
     if page <= 0:
         page = 1
-    pools_list = stock_service.get_stock_pools_list(page)
+    pools_list = _get_stock_service().get_stock_pools_list(page)
     return jsonify(pools_list)
 
 
@@ -127,7 +184,7 @@ def plan_grid_trade():
             return jsonify({"error": "grid_num must be at least 2"}), 400
 
         # 调用服务计算网格方案
-        result = stock_service.plan_stock_grid_trade(
+        result = _get_stock_service().plan_stock_grid_trade(
             ceiling_price=ceiling_price,
             floor_price=floor_price,
             amount=amount,
@@ -149,7 +206,7 @@ def plan_grid_trade():
 # 获取预选股票池分类列表
 @stock_bp.route("/get_stock_pre_pools_category")
 def get_stock_pre_pools_category():
-    category_list = stock_service.get_stock_pre_pools_category()
+    category_list = _get_stock_service().get_stock_pre_pools_category()
     return jsonify(category_list)
 
 
@@ -163,7 +220,7 @@ def get_stock_pre_pools_list():
     if page <= 0:
         page = 1
     category = request.args.get("category")
-    pools_list = stock_service.get_stock_pre_pools_list(page, category)
+    pools_list = _get_stock_service().get_stock_pre_pools_list(page, category)
     return jsonify(pools_list)
 
 
@@ -173,7 +230,7 @@ def get_stock_must_pools_list():
     page = int(request.args.get("page", "1"))
     if page <= 0:
         page = 1
-    pools_list = stock_service.get_stock_must_pools_list(page)
+    pools_list = _get_stock_service().get_stock_must_pools_list(page)
     return jsonify(pools_list)
 
 
@@ -184,7 +241,7 @@ def add_to_stock_pools_by_code():
     if code is None:
         return jsonify({"code": "1", "msg": "code is None"})
     days = int(request.args.get("days", "30"))
-    result = stock_service.add_to_stock_pools_by_code(code, days)
+    result = _get_stock_service().add_to_stock_pools_by_code(code, days)
     if result:
         return jsonify({"code": "0", "msg": "操作成功"})
     else:
@@ -197,7 +254,7 @@ def delete_from_stock_pools_by_code():
     code = request.args.get("code")
     if code is None:
         return jsonify({"code": "1", "msg": "code is None"})
-    result = stock_service.delete_from_stock_pools_by_code(code)
+    result = _get_stock_service().delete_from_stock_pools_by_code(code)
     if result:
         return jsonify({"code": "0", "msg": "操作成功"})
     else:
@@ -210,7 +267,7 @@ def delete_from_stock_pre_pools_by_code():
     code = request.args.get("code")
     if code is None:
         return jsonify({"code": "1", "msg": "code is None"})
-    result = stock_service.delete_from_stock_pre_pools_by_code(code)
+    result = _get_stock_service().delete_from_stock_pre_pools_by_code(code)
     if result:
         return jsonify({"code": "0", "msg": "操作成功"})
     else:
@@ -238,7 +295,7 @@ def add_to_must_pool_by_code():
     forever = request.args.get("forever", "").lower() == "true"
     if code is None or stop_loss_price < 0 or initial_lot_amount < 0 or lot_amount < 0:
         return jsonify({"code": "1", "msg": "code is None"})
-    result = stock_service.add_to_must_pool(
+    result = _get_stock_service().add_to_must_pool(
         code, stop_loss_price, initial_lot_amount, lot_amount, forever
     )
     if result:
@@ -253,7 +310,7 @@ def delete_from_must_pool_by_code():
     code = request.args.get("code")
     if code is None:
         return jsonify({"code": "1", "msg": "code is None"})
-    result = stock_service.delete_from_must_pool_by_code(code)
+    result = _get_stock_service().delete_from_must_pool_by_code(code)
     if result:
         return jsonify({"code": "0", "msg": "操作成功"})
     else:
@@ -312,7 +369,7 @@ def get_stock_position():
     period = request.args.get("period") or "all"
     status = request.args.get("status")
     singlePosition = func_timeout(
-        30, BusinessService().getStockPosition, args=(symbol, period, status)
+        30, _create_business_service().getStockPosition, args=(symbol, period, status)
     )
     return Response(
         json.dumps(singlePosition, cls=FqJsonEncoder), mimetype="application/json"
@@ -324,7 +381,7 @@ def get_stock_position():
 def create_stock_position():
     position = request.json
     inserted_id = func_timeout(
-        30, BusinessService().createStockPosition, args=(position,)
+        30, _create_business_service().createStockPosition, args=(position,)
     )
     res = {"id": str(inserted_id)}
     return Response(json.dumps(res, cls=FqJsonEncoder), mimetype="application/json")
@@ -334,7 +391,7 @@ def create_stock_position():
 @stock_bp.route("/update_stock_position", methods=["POST"])
 def update_stock_position():
     position = request.json
-    func_timeout(30, BusinessService().updateStockPosition, args=(position,))
+    func_timeout(30, _create_business_service().updateStockPosition, args=(position,))
     res = {"code": "ok"}
     return Response(json.dumps(res, cls=FqJsonEncoder), mimetype="application/json")
 
@@ -344,14 +401,16 @@ def update_stock_position():
 def update_stock_position_status():
     id = request.args.get("id")
     status = request.args.get("status")
-    func_timeout(30, BusinessService().updateStockPositionStatus, args=(id, status))
+    func_timeout(
+        30, _create_business_service().updateStockPositionStatus, args=(id, status)
+    )
     res = {"code": "ok"}
     return Response(json.dumps(res, cls=FqJsonEncoder), mimetype="application/json")
 
 
 @stock_bp.route("/get_settings")
 def get_params():
-    params = stock_service.get_params()
+    params = _get_stock_service().get_params()
     return jsonify(params)
 
 
@@ -382,7 +441,7 @@ def update_params():
             return jsonify({"code": "1", "msg": "参数名称不能为空字符串"})
 
         # 调用服务层函数
-        result = stock_service.update_params(name, value)
+        result = _get_stock_service().update_params(name, value)
 
         if result:
             return jsonify({"code": "0", "msg": "操作成功"})
@@ -424,7 +483,7 @@ def add_to_stock_pools_by_stock():
             return jsonify({"code": "1", "msg": "参数名称不能为空字符串"})
 
         # 调用服务层函数
-        result = stock_service.add_to_stock_pools_by_stock(stock)
+        result = _get_stock_service().add_to_stock_pools_by_stock(stock)
 
         if result:
             return jsonify({"code": "0", "msg": "操作成功"})
