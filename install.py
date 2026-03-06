@@ -51,7 +51,9 @@ def run_command(cmd, check=True, shell=True):
                         try:
                             stdout_text = result.stdout.decode("gbk")
                         except UnicodeDecodeError:
-                            stdout_text = result.stdout.decode("utf-8", errors="replace")
+                            stdout_text = result.stdout.decode(
+                                "utf-8", errors="replace"
+                            )
                 print(f"输出: {stdout_text}")
             else:
                 print(f"输出: {result.stdout}")
@@ -107,7 +109,9 @@ def build_project_extensions():
 def parse_arguments():
     parser = argparse.ArgumentParser(description="FreshQuant 安装脚本 - Python 3.12")
     parser.add_argument("--skip-env", action="store_true", help="跳过环境变量设置")
-    parser.add_argument("--skip-packages", action="store_true", help="跳过运行时前置依赖安装")
+    parser.add_argument(
+        "--skip-packages", action="store_true", help="跳过运行时前置依赖安装"
+    )
     parser.add_argument("--skip-web", action="store_true", help="跳过 web 文件复制")
     parser.add_argument(
         "--runtime-prereqs-only",

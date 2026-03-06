@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TypedDict
 
 from freshquant.runtime.python_env import xmake_python_env
+
+
+class BuildPlan(TypedDict):
+    workdir: Path
+    commands: list[list[str]]
+    env: dict[str, str]
 
 
 def build_fullcalc_plan(
@@ -10,7 +17,7 @@ def build_fullcalc_plan(
     *,
     target: str | None = None,
     xmake_bin: str = "xmake",
-) -> dict[str, object]:
+) -> BuildPlan:
     root = Path(repo_root)
     return {
         "workdir": root / "morningglory" / "fqcopilot",

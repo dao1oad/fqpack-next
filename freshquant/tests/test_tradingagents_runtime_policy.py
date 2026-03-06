@@ -1,6 +1,5 @@
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
 
 
 def test_tradingagents_backend_targets_python312() -> None:
@@ -19,9 +18,11 @@ def test_tradingagents_pyproject_requires_python312() -> None:
 
 
 def test_tradingagents_python_version_file_is_312() -> None:
-    version = Path("third_party/tradingagents-cn/.python-version").read_text(
-        encoding="utf-8"
-    ).strip()
+    version = (
+        Path("third_party/tradingagents-cn/.python-version")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
     assert version == "3.12"
 
 

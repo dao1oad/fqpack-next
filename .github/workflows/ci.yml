@@ -62,7 +62,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Run pre-commit (PR diff only)
-        run: uv run pre-commit run --show-diff-on-failure --color=always --from-ref origin/${{ github.base_ref || 'main' }} --to-ref HEAD
+        run: uv tool run pre-commit run --show-diff-on-failure --color=always --from-ref origin/${{ github.base_ref || 'main' }} --to-ref HEAD
 
   pytest:
     name: pytest

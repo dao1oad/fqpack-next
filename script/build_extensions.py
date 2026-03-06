@@ -36,10 +36,10 @@ def main() -> int:
         xmake_bin=args.xmake_bin,
     )
     env = dict(os.environ)
-    env.update(plan["env"])  # type: ignore[arg-type]
-    workdir = Path(plan["workdir"])  # type: ignore[arg-type]
+    env.update(plan["env"])
+    workdir = plan["workdir"]
 
-    for command in plan["commands"]:  # type: ignore[assignment]
+    for command in plan["commands"]:
         subprocess.run(command, cwd=workdir, env=env, check=True)
 
     return 0

@@ -1,6 +1,5 @@
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
 
 from freshquant.runtime.extension_build import build_fullcalc_plan
 
@@ -21,12 +20,18 @@ def test_fullcalc_build_plan_uses_repo_venv() -> None:
         xmake_bin="xmake.exe",
     )
 
-    assert str(plan["workdir"]).endswith("morningglory\\fqcopilot")
+    workdir = Path(plan["workdir"])
+    assert workdir.parts[-2:] == ("morningglory", "fqcopilot")
     assert plan["commands"] == [
         ["xmake.exe", "f", "-m", "release"],
         ["xmake.exe", "build", "-v", "fullcalc_py"],
     ]
     assert plan["env"]["FQ_PY_LIB"] == "python312"
-    assert plan["env"]["FQ_PYBIND_INC"].endswith(
-        ".venv\\Lib\\site-packages\\pybind11\\include"
+    pybind_include = Path(plan["env"]["FQ_PYBIND_INC"])
+    assert pybind_include.parts[-5:] == (
+        ".venv",
+        "Lib",
+        "site-packages",
+        "pybind11",
+        "include",
     )

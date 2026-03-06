@@ -1,6 +1,5 @@
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
 
 
 def load_root_pyproject() -> dict:
@@ -14,7 +13,10 @@ def test_project_python_is_312_only() -> None:
 
 def test_tool_uv_sources_contains_local_runtime_packages() -> None:
     data = load_root_pyproject()
-    dependency_names = {item.split("[")[0].split(">=")[0].split("==")[0] for item in data["project"]["dependencies"]}
+    dependency_names = {
+        item.split("[")[0].split(">=")[0].split("==")[0]
+        for item in data["project"]["dependencies"]
+    }
     sources = data["tool"]["uv"]["sources"]
     assert "fqchan01" in dependency_names
     assert "fqchan02" in dependency_names
@@ -51,7 +53,8 @@ def test_root_runtime_dependencies_cover_deployment_tools() -> None:
     data = load_root_pyproject()
     dependencies = data["project"]["dependencies"]
     dependency_names = {
-        item.split("[")[0].split(">=")[0].split("==")[0].lower() for item in dependencies
+        item.split("[")[0].split(">=")[0].split("==")[0].lower()
+        for item in dependencies
     }
     assert "jupyterlab" in dependency_names
     assert "ta-lib" in dependency_names
@@ -60,6 +63,8 @@ def test_root_runtime_dependencies_cover_deployment_tools() -> None:
 def test_talib_dependency_uses_binary_wheel_release() -> None:
     data = load_root_pyproject()
     talib_dependency = next(
-        item for item in data["project"]["dependencies"] if item.lower().startswith("ta-lib")
+        item
+        for item in data["project"]["dependencies"]
+        if item.lower().startswith("ta-lib")
     )
     assert talib_dependency == "TA-Lib==0.6.8"

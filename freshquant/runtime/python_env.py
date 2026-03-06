@@ -54,8 +54,8 @@ def xmake_python_env(
     python_lib = f"python{major}{minor}"
 
     if normalized_target == "windows":
-        py_base = PureWindowsPath(pyvenv_cfg.get("home") or str(venv_path))
-        pybind_inc = (
+        windows_base = PureWindowsPath(pyvenv_cfg.get("home") or str(venv_path))
+        windows_pybind_inc = (
             PureWindowsPath(str(venv_root))
             / "Lib"
             / "site-packages"
@@ -63,15 +63,15 @@ def xmake_python_env(
             / "include"
         )
         return {
-            "FQ_PY_BASE": str(py_base),
-            "FQ_PY_INC": str(py_base / "Include"),
-            "FQ_PY_LIBDIR": str(py_base / "libs"),
+            "FQ_PY_BASE": str(windows_base),
+            "FQ_PY_INC": str(windows_base / "Include"),
+            "FQ_PY_LIBDIR": str(windows_base / "libs"),
             "FQ_PY_LIB": python_lib,
-            "FQ_PYBIND_INC": str(pybind_inc),
+            "FQ_PYBIND_INC": str(windows_pybind_inc),
         }
 
-    py_base = PurePosixPath(pyvenv_cfg.get("home") or str(venv_path))
-    pybind_inc = (
+    posix_base = PurePosixPath(pyvenv_cfg.get("home") or str(venv_path))
+    posix_pybind_inc = (
         PurePosixPath(str(venv_root))
         / "lib"
         / f"python{major}.{minor}"
@@ -80,9 +80,9 @@ def xmake_python_env(
         / "include"
     )
     return {
-        "FQ_PY_BASE": str(py_base),
-        "FQ_PY_INC": str(py_base / "include" / f"python{major}.{minor}"),
-        "FQ_PY_LIBDIR": str(py_base / "lib"),
+        "FQ_PY_BASE": str(posix_base),
+        "FQ_PY_INC": str(posix_base / "include" / f"python{major}.{minor}"),
+        "FQ_PY_LIBDIR": str(posix_base / "lib"),
         "FQ_PY_LIB": python_lib,
-        "FQ_PYBIND_INC": str(pybind_inc),
+        "FQ_PYBIND_INC": str(posix_pybind_inc),
     }
