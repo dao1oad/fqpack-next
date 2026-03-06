@@ -152,6 +152,91 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  ta_backend:
+    build:
+      context: ../third_party/tradingagents-cn
+      dockerfile: Dockerfile.backend
+    image: fqnext_ta_backend:2026.2.23
+    env_file:
+      - ../.env
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: "1"
+      DOCKER_CONTAINER: "true"
+      MONGODB_ENABLED: "true"
+      MONGODB_HOST: fq_mongodb
+      MONGODB_PORT: "27017"
+      MONGODB_USERNAME: ""
+      MONGODB_PASSWORD: ""
+      MONGODB_DATABASE: tradingagents_cn
+      MONGODB_DATABASE_NAME: tradingagents_cn
+      MONGODB_AUTH_SOURCE: admin
+      MONGODB_URL: mongodb://fq_mongodb:27017/tradingagents_cn
+      MONGO_URI: mongodb://fq_mongodb:27017/tradingagents_cn
+      MONGODB_CONNECTION_STRING: mongodb://fq_mongodb:27017/tradingagents_cn
+      USE_MONGODB_STORAGE: "true"
+      REDIS_ENABLED: "true"
+      REDIS_HOST: fq_redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ""
+      REDIS_DB: "8"
+      REDIS_URL: redis://fq_redis:6379/8
+      TA_USE_APP_CACHE: "true"
+      TRADINGAGENTS_LOG_DIR: /app/logs
+      TRADINGAGENTS_LOG_FILE: /app/logs/tradingagents.log
+      LOG_FILE: /app/logs/tradingagents.log
+      TRADINGAGENTS_DATA_DIR: /app/data
+      TRADINGAGENTS_CACHE_DIR: /app/data/cache
+      TRADINGAGENTS_SESSIONS_DIR: /app/data/sessions
+      TRADINGAGENTS_LOGS_DIR: /app/data/logs
+      TRADINGAGENTS_CONFIG_DIR: /app/data/config
+      TRADINGAGENTS_TEMP_DIR: /app/data/temp
+      TRADINGAGENTS_RESULTS_DIR: /app/data/analysis_results
+      ALLOWED_ORIGINS: '["http://localhost:13080","http://127.0.0.1:13080"]'
+      ALLOWED_HOSTS: '["*"]'
+      CONFIG_SOT: file
+    command:
+      - sh
+      - -lc
+      - >
+        python -c "import asyncio; from app.services.user_service import user_service; asyncio.run(user_service.create_admin_user()); user_service.close()" &&
+        exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "13000:8000"
+    volumes:
+      - ../runtime/tradingagents-cn/data:/app/data
+      - ../runtime/tradingagents-cn/logs:/app/logs
+    depends_on:
+      fq_mongodb:
+        condition: service_healthy
+      fq_redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  ta_frontend:
+    build:
+      context: ../third_party/tradingagents-cn
+      dockerfile: Dockerfile.frontend
+    image: fqnext_ta_frontend:2026.2.23
+    ports:
+      - "13080:80"
+    volumes:
+      - ./tradingagents/frontend.nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      ta_backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
 volumes:
   fqnext_mongodb_data:
   fqnext_redis_data:
