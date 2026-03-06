@@ -21,9 +21,11 @@ def _safe_local_timestamp(dt_obj: Any) -> int:
             return 0
         if hasattr(dt_obj, "to_pydatetime"):
             dt_obj = dt_obj.to_pydatetime()
-        if getattr(dt_obj, "tzinfo", None) is not None:
-            dt_obj = dt_obj.replace(tzinfo=None)
         if hasattr(dt_obj, "timestamp"):
+            if getattr(dt_obj, "tzinfo", None) is None:
+                dt_obj = cfg.TZ.localize(dt_obj)
+            else:
+                dt_obj = dt_obj.astimezone(cfg.TZ)
             return int(dt_obj.timestamp())
     except Exception:
         pass
@@ -38,6 +40,8 @@ def _format_dt_ymdhm(dt_obj: Any) -> str:
             dt_obj = dt_obj.to_pydatetime()
         if getattr(dt_obj, "tzinfo", None) is None:
             dt_obj = cfg.TZ.localize(dt_obj)
+        else:
+            dt_obj = dt_obj.astimezone(cfg.TZ)
         return dt_obj.strftime("%Y-%m-%d %H:%M")
     except Exception:
         try:

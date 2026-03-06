@@ -258,23 +258,31 @@ class OneMinuteBarGenerator:
             time.sleep(0.5)
 
     def _close_until(self, code: str, before_end_ts: int) -> list[BarEvent]:
-        bar = self._bars.get(code) or {}
         events: list[BarEvent] = []
-        while bar and int(bar.get("time") or 0) < int(before_end_ts):
+        while True:
+            bar = self._bars.get(code) or {}
+            cur_end = int(bar.get("time") or 0)
+            if not bar or cur_end <= 0 or cur_end >= int(before_end_ts):
+                break
             if bar.get("_had_tick") or self.enable_synthetic:
                 events.extend(self._close_bar(code))
-            else:
-                bar.clear()
-                break
+                continue
+            self._bars.pop(code, None)
+            break
         return events
 
     def _close_bar(self, code: str) -> list[BarEvent]:
         bar = self._bars.get(code) or {}
-        if not bar or int(bar.get("time") or 0) <= 0:
+        end_ts = int(bar.get("time") or 0)
+        if not bar or end_ts <= 0:
+            return []
+        end_dt = datetime.fromtimestamp(end_ts, tz=cfg.TZ)
+        if not _is_cn_a_trading_datetime(end_dt) or _is_noon_break(end_dt):
+            self._bars.pop(code, None)
             return []
         evs: list[BarEvent] = []
         data = {
-            "time": int(bar["time"]),
+            "time": end_ts,
             "open": float(bar["open"]),
             "high": float(bar["high"]),
             "low": float(bar["low"]),
@@ -290,24 +298,25 @@ class OneMinuteBarGenerator:
         # init next synthetic bar
         last_close = float(bar.get("close") or 0.0)
         self._last_close[code] = last_close
-        next_end_dt = datetime.fromtimestamp(int(bar["time"]), tz=cfg.TZ) + timedelta(
-            minutes=1
-        )
+        next_end_dt = end_dt + timedelta(minutes=1)
         if _is_noon_break(next_end_dt):
             # skip noon break: jump to 13:01 end
             next_end_dt = next_end_dt.replace(
                 hour=13, minute=1, second=0, microsecond=0
             )
-        self._bars[code] = {
-            "time": int(next_end_dt.timestamp()),
-            "open": last_close,
-            "high": last_close,
-            "low": last_close,
-            "close": last_close,
-            "volume": 0.0,
-            "amount": 0.0,
-            "_had_tick": False,
-        }
+        if _is_cn_a_trading_datetime(next_end_dt):
+            self._bars[code] = {
+                "time": int(next_end_dt.timestamp()),
+                "open": last_close,
+                "high": last_close,
+                "low": last_close,
+                "close": last_close,
+                "volume": 0.0,
+                "amount": 0.0,
+                "_had_tick": False,
+            }
+        else:
+            self._bars.pop(code, None)
         return evs
 
     def _process_single_tick(self, code: str, tick: dict[str, Any]) -> list[BarEvent]:
