@@ -279,6 +279,17 @@ def test_reset_stock_fills_route_uses_manual_write_service(monkeypatch):
     routes_module = _load_stock_routes(monkeypatch)
     captured = {}
 
+    class FakeCollection:
+        def find(self, *_args, **_kwargs):
+            return []
+
+        def insert_one(self, *_args, **_kwargs):
+            return None
+
+    class FakeDb:
+        stock_fills = FakeCollection()
+        audit_log = FakeCollection()
+
     class FakeService:
         def reset_symbol_lots(self, **payload):
             captured.update(payload)
@@ -316,6 +327,7 @@ def test_reset_stock_fills_route_uses_manual_write_service(monkeypatch):
             }
         ),
     )
+    monkeypatch.setattr(routes_module, "DBfreshquant", FakeDb())
 
     app = Flask("test_reset_stock_fills_route")
     app.register_blueprint(routes_module.stock_bp)
