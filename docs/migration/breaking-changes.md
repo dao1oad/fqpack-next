@@ -75,3 +75,10 @@
 - **影响面**：XT 成交回报早于 `broker_order_id` 回填时，会优先回写到已有内部订单，不再生成重复的 `external_reported` 订单；依赖 `/api/stock_order` 的调用方在传入非法 `quantity` 时将稳定收到 400 与错误消息 `quantity must be numeric`。
 - **迁移步骤**：调用方无需修改成功路径；如有依赖非法 `quantity` 触发 500 的外部监控，应改为按 400 参数错误处理。
 - **回滚方案**：恢复 `reconcile_trade_reports()` 的旧外部化判定与 `/api/stock_order` 对 `quantity` 的直接 `int()` 转换逻辑。
+
+- **日期**：2026-03-07
+- **RFC**：0007-stock-etf-order-management
+- **变更**：无破坏性接口变更。`freshquant/data/astock/holding.py:get_stock_holding_codes()` 的读取口径从“仅订单域持仓投影”调整为“`xt_positions` 与订单域持仓投影并集”，并为 holding codes 缓存增加 15 秒 TTL 兜底；`freshquant/order_management/ingest/xt_reports.py` 在真实持仓变化后主动触发 `mark_stock_holdings_projection_updated()`。
+- **影响面**：Guardian、交易池与其他依赖 `get_stock_holding_codes()` 的路径，会更早把券商端新增但尚未完全入账的外部持仓代码识别为持仓股；漏掉显式失效时，holding codes 最长约 15 秒自动收敛。
+- **迁移步骤**：调用方无需修改；若有依赖旧的“仅投影口径”行为做调试脚本，应改为同时接受 `xt_positions` 带来的更早识别结果。
+- **回滚方案**：回退 `freshquant/data/astock/holding.py` 与 `freshquant/order_management/ingest/xt_reports.py` 的本次改动，恢复 holding codes 仅依赖订单域持仓投影且只靠版本号失效。

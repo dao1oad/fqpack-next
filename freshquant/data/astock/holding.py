@@ -371,13 +371,28 @@ def get_stock_holding_codes():
     return _get_stock_holding_codes_cached(version)
 
 
-@redis_cache.memoize()
+@redis_cache.memoize(expiration=15)
 def _get_stock_holding_codes_cached(_version):
+    codes = set()
+    codes.update(_extract_holding_codes(get_stock_positions()))
+    codes.update(_extract_holding_codes(_get_xt_position_records()))
+    return sorted(codes)
+
+
+def _extract_holding_codes(records):
     codes = []
-    records = get_stock_positions()
-    for record in records:
-        codes.append(record["symbol"][2:])
+    for record in records or []:
+        raw_code = record.get("symbol") or record.get("stock_code") or record.get("code")
+        normalized = normalize_to_base_code(raw_code or "")
+        if normalized and len(normalized) == 6 and normalized.isdigit():
+            codes.append(normalized)
     return codes
+
+
+def _get_xt_position_records():
+    return list(
+        DBfreshquant["xt_positions"].find({}, {"stock_code": 1, "code": 1, "symbol": 1})
+    )
 
 
 def get_stock_hold_position(code):
