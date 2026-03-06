@@ -28,7 +28,7 @@
 - 默认展示 `5m` 主图 K 线，并默认叠加 `30m` 缠论结构。
 - 前端使用 HTTP 轮询，不引入 WebSocket。
 - 轮询刷新过程中避免明显闪屏，保留缩放与 legend 选择状态。
-- 后端增强 `/api/stock_data`，实时查询优先命中 Redis 缓存，历史查询仍走原逻辑。
+- 后端增强 `/api/stock_data`，提供 **opt-in** 的 Redis-first 实时查询路径，供 `KlineSlim` 实时模式使用，同时保持旧页面默认仍走原 `get_data_v2()` 契约。
 
 ## 3. 非目标（Non-Goals）
 
@@ -46,7 +46,7 @@
 - 迁移并裁剪旧分支 `draw-slim.js` 的单图跨周期叠加能力。
 - 页面默认请求 `5m` 主图与 `30m` 叠加数据。
 - 轮询刷新与 ECharts 增量更新策略。
-- `/api/stock_data` 的 Redis-first 实时读取逻辑。
+- `/api/stock_data` 的 **opt-in Redis-first** 实时读取逻辑。
 - 文档、迁移进度与变更记录同步更新。
 
 **Out of Scope**
@@ -61,7 +61,7 @@
 **负责（Must）**
 
 - `morningglory/fqwebui` 负责 KlineSlim MVP UI、轮询、图表状态保持。
-- `freshquant/rear/stock/routes.py` 负责实时场景下的 Redis 优先返回。
+- `freshquant/rear/stock/routes.py` 负责 `realtimeCache=1` 场景下的 Redis 优先返回。
 - `freshquant/util/period.py` 与 Redis cache key 约定继续作为周期归一入口。
 
 **不负责（Must Not）**
@@ -93,22 +93,25 @@
 
 ### 6.2 HTTP API
 
-- 复用现有 `GET /api/stock_data?symbol=<code>&period=<period>&endDate=<optional>`
+- 复用现有 `GET /api/stock_data?symbol=<code>&period=<period>&endDate=<optional>&realtimeCache=<optional>`
 - 行为调整：
-  - 当 `endDate` 为空，且 `period in {1m, 5m, 15m, 30m}` 时，优先读 Redis 缓存；
+  - 当 `realtimeCache in {1, true, yes}`、`endDate` 为空、且 `period in {1m, 5m, 15m, 30m}` 时，优先读 Redis 缓存；
   - Redis 命中则直接返回缓存 payload；
   - Redis miss、Redis 异常、或非实时/非支持周期请求时，回退到 `get_data_v2()`；
+  - 当 `realtimeCache` 缺省或为假值时，保持旧行为，直接走 `get_data_v2()`；
   - 返回 JSON 结构维持兼容，不新增强制字段。
 
 ### 6.3 错误语义
 
 - Redis 读取失败不改变 HTTP 返回码，记录 warning 后回退数据库/计算路径。
 - 前端轮询失败不清空图表，保持上一次成功数据并等待下次轮询。
+- 旧页面不需要感知 `realtimeCache`；只有 `KlineSlim` 的实时模式默认带上该参数。
 
 ## 7. 数据与配置（Data / Config）
 
 - Redis Key：`CACHE:KLINE:<code_lower>:<period_backend>`
 - 支持实时缓存周期：`1m/5m/15m/30m`
+- `realtimeCache=1` 仅由 `KlineSlim` 在“未指定 `endDate` 的实时模式”下默认发送；历史模式不发送。
 - 前端轮询策略：
   - 主图 `5m` 默认每 `5s` 轮询一次；
   - 叠加 `30m` 默认每 `15s` 轮询一次；
@@ -121,8 +124,8 @@
 ## 8. 破坏性变更（Breaking Changes）
 
 - 本 RFC 不引入对调用方可见的破坏性变更。
-- `/api/stock_data` 的实时请求将优先返回 Redis 缓存结果，但返回字段语义保持兼容。
-- 回滚方案：移除 Redis-first 分支，恢复全部请求走 `get_data_v2()`；前端可继续保留页面代码但改为纯接口轮询。
+- `/api/stock_data` 的 Redis-first 仅在 `realtimeCache=1` 时启用，默认调用契约保持不变。
+- 回滚方案：移除 `realtimeCache` 分支，恢复全部请求走 `get_data_v2()`；前端可继续保留页面代码但改为纯接口轮询。
 
 ## 9. 迁移映射（From `D:\fqpack\freshquant`）
 
@@ -141,8 +144,11 @@
 
 - [ ] 访问 `/kline-slim?symbol=sh510050` 时，页面默认展示 `5m` K 线。
 - [ ] 页面默认可见 `30m` 缠论叠加结构，且图例处于选中状态。
-- [ ] `endDate` 为空且 Redis 命中时，`/api/stock_data` 返回缓存 payload。
-- [ ] Redis miss 时，`/api/stock_data` 能正确回退到 `get_data_v2()`。
+- [ ] `KlineSlim` 在 `endDate` 为空时，对 `/api/stock_data` 的请求默认携带 `realtimeCache=1`。
+- [ ] `KlineSlim` 在带 `endDate` 的历史模式下，不发送 `realtimeCache=1`。
+- [ ] `realtimeCache=1` 且 Redis 命中时，`/api/stock_data` 返回缓存 payload。
+- [ ] `realtimeCache=1` 且 Redis miss 时，`/api/stock_data` 能正确回退到 `get_data_v2()`。
+- [ ] 未携带 `realtimeCache` 的旧页面请求，仍走原 `get_data_v2()` 路径。
 - [ ] 轮询刷新时不出现明显闪屏，不因失败轮询清空已有图表。
 - [ ] 用户手动缩放/切换 legend 后，下次轮询仍保持状态。
 
@@ -152,7 +158,7 @@
 - 缓解：只迁移单图叠加所需能力，去掉 WebSocket、侧边栏、MACD 扩展等非 MVP 部分。
 - 风险点：Redis 缓存 payload 与 `splitData.js` 的兼容边界存在历史差异。
 - 缓解：优先复用旧 `draw-slim.js` 中 `extraChanlunMap` 与 `buildChanlunDataFromPayload()` 逻辑。
-- 回滚：后端去掉 Redis-first 分支，前端暂时下线路由 `/kline-slim`。
+- 回滚：后端去掉 `realtimeCache` 分支，前端暂时下线路由 `/kline-slim`。
 
 ## 12. 里程碑与拆分（Milestones）
 

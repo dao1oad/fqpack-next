@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 交付 `KlineSlim` MVP：默认 `5m` 主图、默认叠加 `30m` 缠论结构，使用 Redis-first `/api/stock_data` 与无闪屏轮询刷新。
+**Goal:** 交付 `KlineSlim` MVP：默认 `5m` 主图、默认叠加 `30m` 缠论结构，使用 **opt-in** Redis-first `/api/stock_data` 与无闪屏轮询刷新，同时保持旧页面默认契约不变。
 
-**Architecture:** 后端在实时请求路径优先命中 Redis `CACHE:KLINE:*`，前端新增独立 `KlineSlim` 页面，轮询拉取 `5m` 主图与 `30m` 叠加结构，并通过裁剪迁移的 `draw-slim.js` 进行单图叠加渲染。图表实例全生命周期复用，通过版本号比较与 merge 更新避免闪屏。
+**Architecture:** 后端仅在 `realtimeCache=1` 的实时请求路径优先命中 Redis `CACHE:KLINE:*`，前端新增独立 `KlineSlim` 页面，在实时模式下显式附带该参数并轮询拉取 `5m` 主图与 `30m` 叠加结构，通过裁剪迁移的 `draw-slim.js` 进行单图叠加渲染。图表实例全生命周期复用，通过版本号比较与 merge 更新避免闪屏。
 
 **Tech Stack:** Flask、Redis、Vue 3、Vue Router、@tanstack/vue-query、ECharts。
 
@@ -24,9 +24,9 @@
 
 **Step 2: 更新治理记录**
 
-在 `progress.md` 登记 `0005`，在 `breaking-changes.md` 记录 `/api/stock_data` 的实时路径调整与“无破坏性变更”说明。
+在 `progress.md` 登记 `0005`，在 `breaking-changes.md` 记录 `/api/stock_data` 的 **opt-in** 实时路径调整与“无破坏性变更”说明。
 
-### Task 2: 为 Redis-first `/api/stock_data` 写回归测试
+### Task 2: 为 opt-in Redis-first `/api/stock_data` 写回归测试
 
 **Files:**
 - Create: `freshquant/tests/test_stock_data_route_cache.py`
@@ -34,11 +34,12 @@
 
 **Step 1: 写失败测试**
 
-覆盖 3 个场景：
+覆盖 4 个场景：
 
 ```python
-def test_stock_data_reads_redis_for_realtime_period(...): ...
-def test_stock_data_falls_back_when_cache_missing(...): ...
+def test_stock_data_uses_fallback_by_default(...): ...
+def test_stock_data_reads_redis_for_opt_in_realtime_period(...): ...
+def test_stock_data_falls_back_when_opt_in_cache_missing(...): ...
 def test_stock_data_skips_redis_when_end_date_present(...): ...
 ```
 
@@ -51,6 +52,7 @@ Run: `pytest freshquant/tests/test_stock_data_route_cache.py -q`
 - 归一化 `period`
 - 构造 Redis key
 - 读取并解析 JSON
+- 仅在 `realtimeCache=1` 时启用 Redis-first
 - 失败时 fallback `get_data_v2()`
 
 **Step 4: 重新运行测试**
@@ -73,6 +75,7 @@ Run: `pytest freshquant/tests/test_stock_data_route_cache.py -q`
 - 主图 `5m`：`refetchInterval = 5000`
 - 叠加 `30m`：`refetchInterval = 15000`
 - 页面不可见时返回 `false`
+- 仅实时模式（无 `endDate`）为两路请求附带 `realtimeCache=1`
 
 **Step 3: 增加渲染调度**
 
