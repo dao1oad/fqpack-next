@@ -64,7 +64,7 @@
 
 - **日期**：2026-03-06
 - **RFC**：0007-stock-etf-order-management
-- **变更**：无破坏性接口变更。为保证 CI 与 Linux runner 下的一致性，`morningglory/fqxtrade/fqxtrade/xtquant/cli_commands.py` 去除了对 `pendulum` 的硬依赖，`freshquant/rear/stock/routes.py` 为缺失 `func_timeout` 的环境增加了兼容 fallback，`freshquant/order_management/ingest/xt_reports.py` 将 XT 回报时间统一按 `Asia/Shanghai` 解释，避免日期受宿主机时区漂移。
-- **影响面**：`xtquant sync-*` CLI 的 `fire_time` 现在由标准库 `datetime` 生成；最小依赖环境下导入股票路由不再因缺失 `func_timeout` 失败；Linux/UTC 环境下订单回报日期与中国市场语义保持一致。
+- **变更**：无破坏性接口变更。为保证 CI 与 Linux runner 下的一致性，`morningglory/fqxtrade/fqxtrade/xtquant/cli_commands.py` 与 `freshquant/position/cn_future.py` 去除了对 `pendulum` 的硬依赖，`freshquant/rear/stock/routes.py` 为缺失 `func_timeout` 的环境增加了兼容 fallback，`freshquant/order_management/ingest/xt_reports.py` 将 XT 回报时间统一按 `Asia/Shanghai` 解释，避免日期受宿主机时区漂移。
+- **影响面**：`xtquant sync-*` CLI 的 `fire_time` 现在由标准库 `datetime` 生成；最小依赖环境下导入股票路由与期货持仓读模块不再因缺失 `pendulum/func_timeout` 失败；Linux/UTC 环境下订单回报日期与中国市场语义保持一致。
 - **迁移步骤**：调用方无需调整；若依赖旧的本地时区推断行为，应统一改为以中国市场时区解释 XT 时间戳。
 - **回滚方案**：恢复 `pendulum`、移除 `func_timeout` fallback，并将 XT 回报时间恢复为宿主机本地时区解释。
