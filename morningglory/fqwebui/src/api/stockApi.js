@@ -86,6 +86,12 @@ export const stockApi = {
       method: 'get'
     })
   },
+  getHoldingPositionList () {
+    return axios({
+      url: '/api/get_stock_position_list',
+      method: 'get'
+    })
+  },
   // 更新持仓
   updatePosition (data) {
     const url = '/api/update_stock_position'

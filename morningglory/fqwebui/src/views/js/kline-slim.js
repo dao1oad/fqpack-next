@@ -1,9 +1,17 @@
 import * as echarts from 'echarts'
 
 import { futureApi } from '@/api/futureApi'
+import { stockApi } from '@/api/stockApi'
 
 import drawSlim from './draw-slim'
 import echartsConfig from './echartsConfig'
+import {
+  buildResolvedKlineSlimQuery,
+  canApplyResolvedKlineSlimRoute,
+  getKlineSlimEmptyMessage,
+  pickFirstHoldingSymbol,
+  shouldResolveDefaultSymbol
+} from './kline-slim-default-symbol.mjs'
 
 const MAIN_PERIODS = ['1m', '5m', '15m', '30m']
 const DEFAULT_PERIOD = '5m'
@@ -49,6 +57,8 @@ export default {
       lastMainBarLabel: '--',
       lastOverlayBarLabel: '--',
       lastError: '',
+      resolvingDefaultSymbol: false,
+      defaultSymbolResolveError: '',
       resetChartStateOnNextRender: true,
       periodList: MAIN_PERIODS
     }
@@ -60,7 +70,19 @@ export default {
     isRealtimeMode() {
       return !this.endDateModel
     },
+    emptyMessage() {
+      return getKlineSlimEmptyMessage({
+        resolvingDefaultSymbol: this.resolvingDefaultSymbol,
+        resolveError: this.defaultSymbolResolveError
+      })
+    },
     statusText() {
+      if (this.defaultSymbolResolveError) {
+        return this.defaultSymbolResolveError
+      }
+      if (this.resolvingDefaultSymbol) {
+        return '默认标的解析中'
+      }
       if (this.lastError) {
         return this.lastError
       }
@@ -82,6 +104,8 @@ export default {
     window.addEventListener('resize', this.handleResize)
   },
   beforeUnmount() {
+    this.routeToken += 1
+    this.resolvingDefaultSymbol = false
     document.removeEventListener('visibilitychange', this.handleVisibilityChange)
     window.removeEventListener('resize', this.handleResize)
     this.stopPolling()
@@ -119,6 +143,33 @@ export default {
       this.currentPeriod = getRoutePeriod(this.$route)
       this.symbolInput = this.routeSymbol
       this.endDateModel = this.$route.query.endDate || ''
+
+      if (!this.routeSymbol && shouldResolveDefaultSymbol(this.$route.query)) {
+        this.routeToken += 1
+        this.lastError = ''
+        this.defaultSymbolResolveError = ''
+        this.lastRenderedVersion = ''
+        this.mainVersion = ''
+        this.overlayVersion = ''
+        this.mainData = null
+        this.overlayData = null
+        this.lastMainBarLabel = '--'
+        this.lastOverlayBarLabel = '--'
+        this.resetChartStateOnNextRender = true
+        this.stopPolling()
+        this.resolvingDefaultSymbol = true
+
+        if (this.chart) {
+          this.chart.clear()
+          this.chart.hideLoading()
+        }
+
+        this.resolveDefaultSymbol(this.routeToken)
+        return
+      }
+
+      this.resolvingDefaultSymbol = false
+      this.defaultSymbolResolveError = ''
 
       if (!this.$route.query.period) {
         this.$router.replace({
@@ -166,6 +217,51 @@ export default {
           () => this.fetchOverlayData(this.routeToken),
           OVERLAY_POLL_MS
         )
+      }
+    },
+    async resolveDefaultSymbol(token) {
+      try {
+        const positions = await stockApi.getHoldingPositionList()
+        if (
+          !canApplyResolvedKlineSlimRoute({
+            token,
+            routeToken: this.routeToken,
+            routePath: this.$route?.path
+          })
+        ) {
+          return
+        }
+
+        const symbol = pickFirstHoldingSymbol(positions)
+        this.resolvingDefaultSymbol = false
+        if (!symbol) {
+          return
+        }
+
+        if (
+          !canApplyResolvedKlineSlimRoute({
+            token,
+            routeToken: this.routeToken,
+            routePath: this.$route?.path
+          })
+        ) {
+          return
+        }
+
+        this.$router.replace({
+          path: '/kline-slim',
+          query: buildResolvedKlineSlimQuery({
+            currentQuery: this.$route.query,
+            symbol,
+            period: this.currentPeriod
+          })
+        })
+      } catch (error) {
+        if (token !== this.routeToken) {
+          return
+        }
+        this.resolvingDefaultSymbol = false
+        this.defaultSymbolResolveError = '默认持仓解析失败'
       }
     },
     stopPolling() {
