@@ -88,8 +88,18 @@ def test_select_shouban30_plate_rows_prefers_latest_as_of_date():
 def test_select_shouban30_stock_rows_filters_by_plate_key():
     rows = select_shouban30_stock_rows(
         [
-            {"provider": "xgb", "as_of_date": "2026-03-05", "plate_key": "11", "code6": "000001"},
-            {"provider": "xgb", "as_of_date": "2026-03-05", "plate_key": "22", "code6": "000002"},
+            {
+                "provider": "xgb",
+                "as_of_date": "2026-03-05",
+                "plate_key": "11",
+                "code6": "000001",
+            },
+            {
+                "provider": "xgb",
+                "as_of_date": "2026-03-05",
+                "plate_key": "22",
+                "code6": "000002",
+            },
         ],
         provider="xgb",
         plate_key="11",
@@ -97,5 +107,10 @@ def test_select_shouban30_stock_rows_filters_by_plate_key():
     )
 
     assert rows == [
-        {"provider": "xgb", "as_of_date": "2026-03-05", "plate_key": "11", "code6": "000001"}
+        {
+            "provider": "xgb",
+            "as_of_date": "2026-03-05",
+            "plate_key": "11",
+            "code6": "000001",
+        }
     ]

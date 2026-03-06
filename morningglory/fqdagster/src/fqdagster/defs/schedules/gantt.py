@@ -4,7 +4,6 @@ from freshquant.config import cfg
 
 from ..jobs.gantt import job_gantt_postclose
 
-
 gantt_postclose_schedule = ScheduleDefinition(
     description="盘后构建 Gantt 与 Shouban30 读模型",
     job=job_gantt_postclose,

@@ -4,7 +4,6 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
-from freshquant.db import DBGantt
 from freshquant.data.gantt_source_jygs import (
     COL_JYGS_ACTION_FIELDS,
     COL_JYGS_YIDONG,
@@ -15,7 +14,7 @@ from freshquant.data.gantt_source_xgb import (
     COL_XGB_TOP_GAINER_HISTORY,
     normalize_xgb_history_row,
 )
-
+from freshquant.db import DBGantt
 
 COL_PLATE_REASON_DAILY = "plate_reason_daily"
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
@@ -264,7 +263,9 @@ def persist_plate_reason_daily_for_date(trade_date: str) -> int:
     )
 
 
-def _build_xgb_gantt_rows(trade_date: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _build_xgb_gantt_rows(
+    trade_date: str, rows: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     plate_rows: list[dict[str, Any]] = []
     stock_rows: list[dict[str, Any]] = []
 
@@ -309,7 +310,8 @@ def _build_xgb_gantt_rows(trade_date: str, rows: list[dict[str, Any]]) -> tuple[
                     "plate_key": normalized["plate_key"],
                     "plate_name": normalized["plate_name"],
                     "code6": code6,
-                    "name": _to_str(item.get("stock_name") or item.get("name")) or code6,
+                    "name": _to_str(item.get("stock_name") or item.get("name"))
+                    or code6,
                     "is_limit_up": int(item.get("up_limit") or 0),
                     "stock_reason": _to_str(item.get("description")) or None,
                 }
@@ -318,7 +320,9 @@ def _build_xgb_gantt_rows(trade_date: str, rows: list[dict[str, Any]]) -> tuple[
     return plate_rows, stock_rows
 
 
-def _build_jygs_gantt_rows(trade_date: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _build_jygs_gantt_rows(
+    trade_date: str, rows: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     plate_map: dict[tuple[str, str, str], dict[str, Any]] = {}
     stock_rows: list[dict[str, Any]] = []
 
@@ -330,7 +334,9 @@ def _build_jygs_gantt_rows(trade_date: str, rows: list[dict[str, Any]]) -> tuple
         analysis = _to_str(row.get("analysis")) or None
 
         for board in list(row.get("boards") or []):
-            board_key = _to_str(board.get("board_key")) or normalize_board_key(board.get("name"))
+            board_key = _to_str(board.get("board_key")) or normalize_board_key(
+                board.get("name")
+            )
             if not board_key:
                 continue
             key = ("jygs", board_key, trade_date)
@@ -413,11 +419,19 @@ def _group_shouban30_plate_candidates(
     *,
     as_of_date: str,
 ) -> list[dict[str, Any]]:
-    all_dates = sorted({_to_str(item.get("trade_date")) for item in rows if _to_str(item.get("trade_date"))})
+    all_dates = sorted(
+        {
+            _to_str(item.get("trade_date"))
+            for item in rows
+            if _to_str(item.get("trade_date"))
+        }
+    )
     date_index = {date_str: idx for idx, date_str in enumerate(all_dates)}
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        grouped[(_to_str(row.get("provider")), _to_str(row.get("plate_key")))].append(row)
+        grouped[(_to_str(row.get("provider")), _to_str(row.get("plate_key")))].append(
+            row
+        )
 
     candidates: list[dict[str, Any]] = []
     for (provider, plate_key), items in grouped.items():
@@ -607,7 +621,13 @@ def build_gantt_plate_matrix(
     if not rows:
         return {"dates": [], "y_axis": [], "series": []}
 
-    dates = sorted({_to_str(item.get("trade_date")) for item in rows if _to_str(item.get("trade_date"))})
+    dates = sorted(
+        {
+            _to_str(item.get("trade_date"))
+            for item in rows
+            if _to_str(item.get("trade_date"))
+        }
+    )
     date_map = {date_str: idx for idx, date_str in enumerate(dates)}
 
     plate_stats: dict[str, dict[str, Any]] = {}
@@ -685,11 +705,19 @@ def build_gantt_stock_matrix(
     plate_key: str,
 ) -> dict[str, list[Any]]:
     target_plate_key = _to_str(plate_key)
-    filtered = [item for item in rows if _to_str(item.get("plate_key")) == target_plate_key]
+    filtered = [
+        item for item in rows if _to_str(item.get("plate_key")) == target_plate_key
+    ]
     if not filtered:
         return {"dates": [], "y_axis": [], "series": []}
 
-    dates = sorted({_to_str(item.get("trade_date")) for item in filtered if _to_str(item.get("trade_date"))})
+    dates = sorted(
+        {
+            _to_str(item.get("trade_date"))
+            for item in filtered
+            if _to_str(item.get("trade_date"))
+        }
+    )
     date_map = {date_str: idx for idx, date_str in enumerate(dates)}
 
     rows_by_date: dict[str, list[dict[str, Any]]] = {date_str: [] for date_str in dates}
@@ -763,7 +791,9 @@ def build_gantt_stock_matrix(
     series.sort(key=lambda item: (item[0], item[1]))
     return {
         "dates": dates,
-        "y_axis": [{"symbol": item["symbol"], "name": item["name"]} for item in sorted_stocks],
+        "y_axis": [
+            {"symbol": item["symbol"], "name": item["name"]} for item in sorted_stocks
+        ],
         "series": series,
     }
 

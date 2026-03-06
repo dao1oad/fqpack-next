@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from freshquant.db import DBGantt
 
@@ -65,27 +65,36 @@ def ensure_xgb_history_indexes() -> None:
     collection.create_index([("trade_date", -1), ("rank", 1)])
 
 
-def _build_xgb_hot_stock_map(payload: dict[str, Any]) -> dict[int, list[dict[str, Any]]]:
+def _build_xgb_hot_stock_map(
+    payload: dict[str, Any],
+) -> dict[int, list[dict[str, Any]]]:
     fields = list((payload.get("data") or {}).get("fields") or [])
     items = list((payload.get("data") or {}).get("items") or [])
     hot_map: dict[int, list[dict[str, Any]]] = {}
 
     for item in items:
+        if not isinstance(item, list):
+            continue
         row = {}
         for index, key in enumerate(fields):
             row[key] = item[index] if index < len(item) else None
 
-        stock = {
+        plates = row.get("plates")
+        if not isinstance(plates, list):
+            plates = []
+        stock: dict[str, Any] = {
             "symbol": _to_str(row.get("code")),
             "stock_name": _to_str(row.get("prod_name")),
             "description": _to_str(row.get("description")),
             "up_limit": row.get("up_limit"),
-            "plates": list(row.get("plates") or []),
+            "plates": plates,
         }
         if not stock["symbol"]:
             continue
 
         for plate in stock["plates"]:
+            if not isinstance(plate, dict):
+                continue
             plate_id = plate.get("id") or plate.get("plate_id")
             if plate_id is None:
                 continue
@@ -102,7 +111,9 @@ def sync_xgb_history_for_date(trade_date: str) -> int:
     ensure_xgb_history_indexes()
 
     timestamp = int(time.mktime(datetime.strptime(date_str, "%Y-%m-%d").timetuple()))
-    plate_payload = _fetch_json(f"{BASE_URL}/surge_stock/plates", params={"date": timestamp})
+    plate_payload = _fetch_json(
+        f"{BASE_URL}/surge_stock/plates", params={"date": timestamp}
+    )
     plates = list((plate_payload.get("data") or {}).get("items") or [])
     if not plates:
         return 0
@@ -140,7 +151,8 @@ def sync_xgb_history_for_date(trade_date: str) -> int:
         document = {
             "trade_date": date_str,
             "plate_id": int(plate_id),
-            "plate_name": _to_str(detail.get("plate_name")) or _to_str(plate.get("name")),
+            "plate_name": _to_str(detail.get("plate_name"))
+            or _to_str(plate.get("name")),
             "description": _to_str(plate.get("description")),
             "limit_up_count": detail.get("limit_up_count"),
             "rank": rank,

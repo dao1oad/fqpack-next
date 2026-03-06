@@ -5,7 +5,7 @@ import re
 import time
 from typing import Any
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from freshquant.db import DBGantt
 
@@ -135,7 +135,9 @@ def fetch_action_list(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def ensure_jygs_indexes() -> None:
-    DBGantt[COL_JYGS_ACTION_FIELDS].create_index([("date", 1), ("board_key", 1)], unique=True)
+    DBGantt[COL_JYGS_ACTION_FIELDS].create_index(
+        [("date", 1), ("board_key", 1)], unique=True
+    )
     DBGantt[COL_JYGS_YIDONG].create_index([("date", 1), ("stock_code", 1)], unique=True)
 
 

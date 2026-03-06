@@ -37,13 +37,17 @@ def op_sync_jygs_action_daily(context) -> str:
 
 
 @op
-def op_build_plate_reason_daily(context, xgb_trade_date: str, jygs_trade_date: str) -> str:
+def op_build_plate_reason_daily(
+    context, xgb_trade_date: str, jygs_trade_date: str
+) -> str:
     if xgb_trade_date != jygs_trade_date:
         raise RuntimeError(
             f"trade_date mismatch xgb={xgb_trade_date} jygs={jygs_trade_date}"
         )
     count = persist_plate_reason_daily_for_date(xgb_trade_date)
-    context.log.info("built plate_reason_daily rows=%s trade_date=%s", count, xgb_trade_date)
+    context.log.info(
+        "built plate_reason_daily rows=%s trade_date=%s", count, xgb_trade_date
+    )
     return xgb_trade_date
 
 

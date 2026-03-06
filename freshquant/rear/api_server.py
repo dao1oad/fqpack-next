@@ -1,19 +1,19 @@
 import argparse
+
 from flask import Flask
 from gevent.pywsgi import WSGIServer
-from freshquant.rear.future.routes import future_bp
-from freshquant.rear.gantt.routes import gantt_bp
-from freshquant.rear.stock.routes import stock_bp
-from freshquant.rear.general.routes import general_bp
 
 
 def create_app():
+    from importlib import import_module
+
     app = Flask(__name__)
-    app.register_blueprint(future_bp)
-    app.register_blueprint(stock_bp)
-    app.register_blueprint(general_bp)
-    app.register_blueprint(gantt_bp)
+    app.register_blueprint(import_module("freshquant.rear.future.routes").future_bp)
+    app.register_blueprint(import_module("freshquant.rear.stock.routes").stock_bp)
+    app.register_blueprint(import_module("freshquant.rear.general.routes").general_bp)
+    app.register_blueprint(import_module("freshquant.rear.gantt.routes").gantt_bp)
     return app
+
 
 def run(port):
     app = create_app()

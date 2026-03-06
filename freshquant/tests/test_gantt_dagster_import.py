@@ -29,7 +29,9 @@ def _build_dagster_stub():
 
 
 def test_gantt_dagster_modules_import(monkeypatch):
-    project_src = Path(__file__).resolve().parents[2] / "morningglory" / "fqdagster" / "src"
+    project_src = (
+        Path(__file__).resolve().parents[2] / "morningglory" / "fqdagster" / "src"
+    )
     monkeypatch.syspath_prepend(str(project_src))
     monkeypatch.setitem(sys.modules, "dagster", _build_dagster_stub())
 

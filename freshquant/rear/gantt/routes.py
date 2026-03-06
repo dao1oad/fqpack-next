@@ -2,7 +2,6 @@ from flask import Blueprint, jsonify, request
 
 import freshquant.data.gantt_readmodel as svc
 
-
 gantt_bp = Blueprint("gantt", __name__, url_prefix="/api/gantt")
 
 

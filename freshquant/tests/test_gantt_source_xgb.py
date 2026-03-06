@@ -69,7 +69,13 @@ def test_sync_xgb_history_for_date_writes_dbgantt(monkeypatch):
         if url.endswith("/surge_stock/stocks"):
             return {
                 "data": {
-                    "fields": ["code", "prod_name", "description", "plates", "up_limit"],
+                    "fields": [
+                        "code",
+                        "prod_name",
+                        "description",
+                        "plates",
+                        "up_limit",
+                    ],
                     "items": [
                         [
                             "000001",

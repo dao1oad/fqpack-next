@@ -96,7 +96,9 @@ def test_get_shouban30_plates_reads_as_of_date(monkeypatch):
     app = Flask(__name__)
     app.register_blueprint(gantt_routes.gantt_bp)
     client = app.test_client()
-    response = client.get("/api/gantt/shouban30/plates?provider=xgb&as_of_date=2026-03-05")
+    response = client.get(
+        "/api/gantt/shouban30/plates?provider=xgb&as_of_date=2026-03-05"
+    )
 
     assert response.status_code == 200
     payload = response.get_json()

@@ -27,4 +27,3 @@
 | 0004 | Windows PowerShell UTF-8 中文显示（cat/type 不乱码） | Done | TBD | 2026-03-05 | N/A（开发体验） | 新增 `script/pwsh_utf8.ps1`；`docs/agent` 与 `README.md` 增加提示；dot-source 后 `cat/type` 默认按 UTF-8 读取 |
 
 | 0006 | XGB / JYGS / Gantt / Shouban30 盘后读模型与独立分库 | Implementing | TBD | 2026-03-06 | D:\fqpack\freshquant\freshquant\data\xgb_cache_service.py / D:\fqpack\freshquant\freshquant\signal\astock\job\monitor_jygs_action_yidong.py / D:\fqpack\freshquant\freshquant\data\gantt_shouban30_service.py | 已在 `freshquant_gantt` 分库落地 XGB/JYGS 原始同步、`plate_reason_daily/gantt_*/shouban30_*` 读模型、`/api/gantt/*` 最小查询接口与盘后 Dagster job；当前仅支持盘后更新，不保留盘中 snapshot/fallback 逻辑 |
-
