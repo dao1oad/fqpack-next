@@ -25,7 +25,10 @@ from fqdagster.defs.assets.market_data import (
 stock_data_job = define_asset_job(
     name="stock_data_job",
     description="Materialize stock data assets starting from stock_list",
-    selection=AssetSelection.assets(stock_list).downstream(),
+    selection=(
+        AssetSelection.assets(stock_list).downstream()
+        - AssetSelection.groups("cjsd_data")
+    ),
     tags={"dagster/max_concurrent_runs": "1"},
 )
 
