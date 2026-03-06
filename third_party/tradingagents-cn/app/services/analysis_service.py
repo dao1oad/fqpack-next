@@ -456,7 +456,7 @@ class AnalysisService:
             if not getattr(params, 'quick_analysis_model', None):
                 params.quick_analysis_model = effective_settings.get("quick_analysis_model", "deepseek-chat")
             if not getattr(params, 'deep_analysis_model', None):
-                params.deep_analysis_model = effective_settings.get("deep_analysis_model", "deepseek-chat")
+                params.deep_analysis_model = effective_settings.get("deep_analysis_model", "deepseek-reasoner")
 
             # 应用系统级并发与可见性超时（若提供）
             try:
@@ -534,7 +534,7 @@ class AnalysisService:
             if not getattr(params, 'quick_analysis_model', None):
                 params.quick_analysis_model = effective_settings.get("quick_analysis_model", "deepseek-chat")
             if not getattr(params, 'deep_analysis_model', None):
-                params.deep_analysis_model = effective_settings.get("deep_analysis_model", "deepseek-chat")
+                params.deep_analysis_model = effective_settings.get("deep_analysis_model", "deepseek-reasoner")
 
             try:
                 self.queue_service.user_concurrent_limit = int(effective_settings.get("max_concurrent_tasks", DEFAULT_USER_CONCURRENT_LIMIT))

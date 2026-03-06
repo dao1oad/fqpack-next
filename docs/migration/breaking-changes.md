@@ -76,9 +76,15 @@
 - **迁移步骤**：调用方无需修改成功路径；如有依赖非法 `quantity` 触发 500 的外部监控，应改为按 400 参数错误处理。
 - **回滚方案**：恢复 `reconcile_trade_reports()` 的旧外部化判定与 `/api/stock_order` 对 `quantity` 的直接 `int()` 转换逻辑。
 
-- **日期**：2026-03-07
-- **RFC**：0007-stock-etf-order-management
-- **变更**：无破坏性接口变更。`freshquant/data/astock/holding.py:get_stock_holding_codes()` 的读取口径从“仅订单域持仓投影”调整为“`xt_positions` 与订单域持仓投影并集”，并为 holding codes 缓存增加 15 秒 TTL 兜底；`freshquant/order_management/ingest/xt_reports.py` 在真实持仓变化后主动触发 `mark_stock_holdings_projection_updated()`。
-- **影响面**：Guardian、交易池与其他依赖 `get_stock_holding_codes()` 的路径，会更早把券商端新增但尚未完全入账的外部持仓代码识别为持仓股；漏掉显式失效时，holding codes 最长约 15 秒自动收敛。
-- **迁移步骤**：调用方无需修改；若有依赖旧的“仅投影口径”行为做调试脚本，应改为同时接受 `xt_positions` 带来的更早识别结果。
-- **回滚方案**：回退 `freshquant/data/astock/holding.py` 与 `freshquant/order_management/ingest/xt_reports.py` 的本次改动，恢复 holding codes 仅依赖订单域持仓投影且只靠版本号失效。
+-- **日期**：2026-03-07
+-- **RFC**：0007-stock-etf-order-management
+-- **变更**：无破坏性接口变更。`freshquant/data/astock/holding.py:get_stock_holding_codes()` 的读取口径从“仅订单域持仓投影”调整为“`xt_positions` 与订单域持仓投影并集”，并为 holding codes 缓存增加 15 秒 TTL 兜底；`freshquant/order_management/ingest/xt_reports.py` 在真实持仓变化后主动触发 `mark_stock_holdings_projection_updated()`。
+-- **影响面**：Guardian、交易池与其他依赖 `get_stock_holding_codes()` 的路径，会更早把券商端新增但尚未完全入账的外部持仓代码识别为持仓股；漏掉显式失效时，holding codes 最长约 15 秒自动收敛。
+-- **迁移步骤**：调用方无需修改；若有依赖旧的“仅投影口径”行为做调试脚本，应改为同时接受 `xt_positions` 带来的更早识别结果。
+-- **回滚方案**：回退 `freshquant/data/astock/holding.py` 与 `freshquant/order_management/ingest/xt_reports.py` 的本次改动，恢复 holding codes 仅依赖订单域持仓投影且只靠版本号失效。
+
+- **RFC**：0008-tradingagents-cn-integration-phase1
+- **变更**：`TradingAgents-CN` 接入层的默认深度分析模型从 `deepseek-chat` 调整为 `deepseek-reasoner`，并在 `ta_backend` 启动时自动把活动系统配置与 DeepSeek 模型目录迁移到该默认值；若 `deepseek-reasoner` 仅在工具调用兼容链路失败，则自动回退到 `deepseek-chat` 继续任务。
+- **影响面**：依赖 `TradingAgents-CN` 默认模型配置的页面、脚本和运维流程会观察到 `deep_analysis_model` 默认值变化；模型目录中新增 `deepseek-reasoner`，启动后活动配置会被自动补齐。
+- **迁移步骤**：重新构建并启动 `ta_backend` / `ta_frontend`；登录后可在 `/api/config/settings` 或前端配置页确认 `quick_analysis_model=deepseek-chat`、`deep_analysis_model=deepseek-reasoner`。若要恢复旧行为，可在系统配置里手动改回 `deepseek-chat`。
+- **回滚方案**：移除 `bootstrap_reasoner_defaults` 启动步骤，恢复 `deepseek-chat` 为默认深度模型，并删除 `deepseek-reasoner` 的默认注册与回退逻辑。

@@ -349,6 +349,32 @@ def _get_default_backend_url(provider: str) -> str:
     return url
 
 
+def _should_fallback_deepseek_reasoner(model_name: str, error: Exception) -> bool:
+    """Fallback only when deepseek-reasoner fails on tool calling compatibility."""
+    if model_name != "deepseek-reasoner" or error is None:
+        return False
+
+    error_text = str(error).lower()
+    tool_call_markers = (
+        "tool_calls",
+        "tool calls",
+        "tool_calling",
+        "unsupported tool",
+        "unsupported tools",
+        "tools parameter",
+        "function_call",
+        "function call",
+    )
+    return any(marker in error_text for marker in tool_call_markers)
+
+
+def _get_fallback_deep_analysis_model(model_name: str, error: Exception) -> Optional[str]:
+    """Return the safe fallback deep model when reasoner cannot complete tool calls."""
+    if _should_fallback_deepseek_reasoner(model_name, error):
+        return "deepseek-chat"
+    return None
+
+
 def _get_default_provider_by_model(model_name: str) -> str:
     """
     根据模型名称返回默认的供应商映射
@@ -377,6 +403,7 @@ def _get_default_provider_by_model(model_name: str) -> str:
 
         # DeepSeek
         'deepseek-chat': 'deepseek',
+        'deepseek-reasoner': 'deepseek',
         'deepseek-coder': 'deepseek',
 
         # 智谱AI
@@ -1302,6 +1329,51 @@ class SimpleAnalysisService:
             logger.info(f"🔍 [引擎验证] TradingGraph配置中的深度模型: {trading_graph.config.get('deep_think_llm')}")
 
             # 准备分析数据
+            if request.parameters:
+                request.parameters.quick_analysis_model = quick_model
+                request.parameters.deep_analysis_model = deep_model
+
+            def _build_trading_graph_for_models(active_quick_model: str, active_deep_model: str):
+                active_quick_provider_info = get_provider_and_url_by_model_sync(active_quick_model)
+                active_deep_provider_info = get_provider_and_url_by_model_sync(active_deep_model)
+                active_quick_provider = active_quick_provider_info["provider"]
+                active_deep_provider = active_deep_provider_info["provider"]
+                active_quick_backend_url = active_quick_provider_info["backend_url"]
+                active_deep_backend_url = active_deep_provider_info["backend_url"]
+
+                logger.info(
+                    f"[model-provider] quick={active_quick_model} provider={active_quick_provider} backend_url={active_quick_backend_url}"
+                )
+                logger.info(
+                    f"[model-provider] deep={active_deep_model} provider={active_deep_provider} backend_url={active_deep_backend_url}"
+                )
+
+                active_config = create_analysis_config(
+                    research_depth=research_depth,
+                    selected_analysts=request.parameters.selected_analysts if request.parameters else ["market", "fundamentals"],
+                    quick_model=active_quick_model,
+                    deep_model=active_deep_model,
+                    llm_provider=active_quick_provider,
+                    market_type=market_type
+                )
+                active_config["quick_provider"] = active_quick_provider
+                active_config["deep_provider"] = active_deep_provider
+                active_config["quick_backend_url"] = active_quick_backend_url
+                active_config["deep_backend_url"] = active_deep_backend_url
+                active_config["backend_url"] = active_quick_backend_url
+
+                logger.info(
+                    f"[analysis-config] quick={active_config.get('quick_think_llm')} deep={active_config.get('deep_think_llm')}"
+                )
+
+                active_graph = self._get_trading_graph(active_config)
+                logger.info(
+                    f"[graph-config] quick={active_graph.config.get('quick_think_llm')} deep={active_graph.config.get('deep_think_llm')}"
+                )
+                return active_config, active_graph
+
+            config, trading_graph = _build_trading_graph_for_models(quick_model, deep_model)
+
             start_time = datetime.now()
 
             # 🔧 使用前端传递的分析日期，如果没有则使用当前日期
@@ -1538,12 +1610,31 @@ class SimpleAnalysisService:
             logger.info(f"🚀 准备调用 trading_graph.propagate，progress_callback={graph_progress_callback}")
 
             # 执行实际分析，传递进度回调和task_id
-            state, decision = trading_graph.propagate(
-                request.stock_code,
-                analysis_date,
-                progress_callback=graph_progress_callback,
-                task_id=task_id
-            )
+            try:
+                state, decision = trading_graph.propagate(
+                    request.stock_code,
+                    analysis_date,
+                    progress_callback=graph_progress_callback,
+                    task_id=task_id
+                )
+            except Exception as graph_error:
+                fallback_deep_model = _get_fallback_deep_analysis_model(deep_model, graph_error)
+                if not fallback_deep_model:
+                    raise
+
+                logger.warning(
+                    f"deepseek-reasoner failed on tool calling, fallback to {fallback_deep_model}: {graph_error}"
+                )
+                deep_model = fallback_deep_model
+                if request.parameters:
+                    request.parameters.deep_analysis_model = deep_model
+                config, trading_graph = _build_trading_graph_for_models(quick_model, deep_model)
+                state, decision = trading_graph.propagate(
+                    request.stock_code,
+                    analysis_date,
+                    progress_callback=graph_progress_callback,
+                    task_id=task_id
+                )
 
             logger.info(f"✅ trading_graph.propagate 执行完成")
 
