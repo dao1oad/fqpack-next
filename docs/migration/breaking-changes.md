@@ -29,7 +29,7 @@
 
 - **日期**：2026-03-06
 - **RFC**：0005-kline-slim-mvp-5m-30m-overlay
-- **变更**：无对外破坏性变更。`/api/stock_data` 的实时查询路径调整为 Redis-first，但返回 JSON 结构保持兼容；前端新增 `/kline-slim` 页面，不影响现有路由。
-- **影响面**：实时页面会优先从 Redis 缓存取数；历史查询与非支持周期行为不变。
-- **迁移步骤**：无额外升级动作。如需关闭该调整，可回退到 `get_data_v2()` 全量计算路径。
-- **回滚方案**：移除 `/api/stock_data` 的 Redis-first 分支，前端下线 `/kline-slim` 或继续使用纯 fallback 请求。
+- **变更**：无对外破坏性变更。`/api/stock_data` 新增 **opt-in** 的 Redis-first 实时查询路径，仅当请求显式带 `realtimeCache=1`（或 `true/yes`）且属于实时支持周期时才启用；默认请求继续保持 `get_data_v2()` 返回契约。前端新增 `/kline-slim` 页面，并在无 `endDate` 的实时模式下默认附带该参数。
+- **影响面**：`KlineSlim` 实时页面会优先从 Redis 缓存取数；旧页面、历史查询与非支持周期行为不变。
+- **迁移步骤**：旧调用方无需调整。如需让新页面也关闭该路径，可移除 `realtimeCache=1` 参数或回退到 `get_data_v2()` 全量计算路径。
+- **回滚方案**：移除 `/api/stock_data` 的 `realtimeCache` 分支，前端下线 `/kline-slim` 或继续使用纯 fallback 请求。

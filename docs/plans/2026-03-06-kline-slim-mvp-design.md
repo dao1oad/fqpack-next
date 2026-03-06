@@ -1,6 +1,6 @@
 # KlineSlim MVP 设计稿
 
-**目标**：在目标仓库恢复旧分支 `KlineSlim` 的核心能力，只交付“单图跨周期叠加”最小可用版本：`5m` 主图 + `30m` 缠论结构叠加，使用 HTTP 轮询刷新且无明显闪屏。
+**目标**：在目标仓库恢复旧分支 `KlineSlim` 的核心能力，只交付“单图跨周期叠加”最小可用版本：`5m` 主图 + `30m` 缠论结构叠加，使用 HTTP 轮询刷新且无明显闪屏，同时保证旧页面不因 Redis 缓存命中而改变 `/api/stock_data` 返回契约。
 
 ## 1. 设计结论
 
@@ -8,6 +8,7 @@
 - 页面默认主周期固定为 `5m`，不再沿用旧分支默认 `120m`。
 - 默认叠加周期固定为 `30m`，原因是目标仓库实时缓存只维护 `1m/5m/15m/30m`。
 - 不引入 WebSocket，实时数据完全依赖 `/api/stock_data` + 轮询。
+- Redis-first 读取只对 `KlineSlim` 实时模式 **opt-in**，通过接口参数 `realtimeCache=1` 启用。
 
 ## 2. 前端方案
 
@@ -29,6 +30,7 @@
 - `5m` 主图数据使用 `vue-query` 每 `5s` 轮询。
 - `30m` 叠加数据使用独立 query 每 `15s` 轮询。
 - 页面隐藏时暂停轮询，避免后台无意义请求。
+- 仅在 `endDate` 为空时向 `/api/stock_data` 附带 `realtimeCache=1`；历史模式不附带。
 - 渲染时只创建一次 ECharts 实例；后续刷新不 `dispose()`、不 `clear()`、不 `showLoading()`。
 - 用“版本号”判定是否需要重绘，版本号由以下字段组成：
   - `date.length`
@@ -41,13 +43,14 @@
 
 - 仅增强现有 `/api/stock_data`。
 - 条件命中：
+  - `realtimeCache in {1, true, yes}`；
   - `endDate` 为空；
   - `period` 属于 `1m/5m/15m/30m`。
 - 命中后：
   - 将前端周期转成 backend period；
   - 用 `get_redis_cache_key()` 读取 Redis；
   - JSON 解析成功则原样返回。
-- 其他情况继续调用 `get_data_v2()`。
+- 其他情况继续调用 `get_data_v2()`，保证旧页面字段契约不变。
 
 ## 5. 风险控制
 
@@ -59,5 +62,6 @@
 
 - 默认进入页面即看到 `5m` K 线。
 - `30m` 笔/段/中枢默认叠加。
+- 不带 `endDate` 打开 `KlineSlim` 时，请求会带 `realtimeCache=1`；带 `endDate` 时不会带。
 - 拖动缩放后等待轮询刷新，视图不跳回默认区间。
 - 人为断开 Redis 或让缓存 miss 时，页面仍能通过 fallback 正常显示。
