@@ -13,6 +13,28 @@ from tradingagents.utils.logging_init import get_logger
 logger = get_logger("agents.utils.memory")
 
 
+def _looks_like_real_secret(value: Optional[str]) -> bool:
+    """Ignore placeholder credentials shipped in example env files."""
+    if not value:
+        return False
+
+    normalized = value.strip()
+    if not normalized:
+        return False
+
+    lowered = normalized.lower()
+    if lowered in {"...", "***", "changeme", "null", "none"}:
+        return False
+    if lowered.startswith(("your_", "your-")):
+        return False
+    if lowered.endswith(("_here", "-here")):
+        return False
+    if "your" in lowered and ("key" in lowered or "token" in lowered):
+        return False
+
+    return True
+
+
 class ChromaDBManager:
     """单例ChromaDB管理器，避免并发创建集合的冲突"""
 
@@ -115,7 +137,7 @@ class FinancialSituationMemory:
 
             # 设置DashScope API密钥
             dashscope_key = os.getenv('DASHSCOPE_API_KEY')
-            if dashscope_key:
+            if _looks_like_real_secret(dashscope_key):
                 try:
                     # 尝试导入和初始化DashScope
                     import dashscope
@@ -147,7 +169,7 @@ class FinancialSituationMemory:
             # 千帆（文心一言）embedding配置
             # 千帆目前没有独立的embedding API，使用阿里百炼作为降级选项
             dashscope_key = os.getenv('DASHSCOPE_API_KEY')
-            if dashscope_key:
+            if _looks_like_real_secret(dashscope_key):
                 try:
                     # 使用阿里百炼嵌入服务作为千帆的embedding解决方案
                     import dashscope
@@ -177,6 +199,8 @@ class FinancialSituationMemory:
             if not force_openai:
                 # 尝试使用阿里百炼嵌入
                 dashscope_key = os.getenv('DASHSCOPE_API_KEY')
+                if not _looks_like_real_secret(dashscope_key):
+                    dashscope_key = None
                 if dashscope_key:
                     try:
                         # 测试阿里百炼是否可用
@@ -201,7 +225,7 @@ class FinancialSituationMemory:
                 # 降级到OpenAI嵌入
                 self.embedding = "text-embedding-3-small"
                 openai_key = os.getenv('OPENAI_API_KEY')
-                if openai_key:
+                if _looks_like_real_secret(openai_key):
                     self.client = OpenAI(
                         api_key=openai_key,
                         base_url=config.get("backend_url", "https://api.openai.com/v1")
@@ -209,8 +233,9 @@ class FinancialSituationMemory:
                     logger.warning(f"⚠️ DeepSeek回退到OpenAI嵌入服务")
                 else:
                     # 最后尝试DeepSeek自己的嵌入
-                    deepseek_key = os.getenv('DEEPSEEK_API_KEY')
-                    if deepseek_key:
+                    logger.info("No valid embedding provider configured for DeepSeek; memory disabled")
+                    deepseek_key = None
+                    if _looks_like_real_secret(deepseek_key):
                         try:
                             self.client = OpenAI(
                                 api_key=deepseek_key,
@@ -231,7 +256,7 @@ class FinancialSituationMemory:
             dashscope_key = os.getenv('DASHSCOPE_API_KEY')
             openai_key = os.getenv('OPENAI_API_KEY')
             
-            if dashscope_key:
+            if _looks_like_real_secret(dashscope_key):
                 try:
                     # 尝试初始化DashScope
                     import dashscope
@@ -242,7 +267,7 @@ class FinancialSituationMemory:
                     dashscope.api_key = dashscope_key
                     
                     # 检查是否有OpenAI密钥作为降级选项
-                    if openai_key:
+                    if _looks_like_real_secret(openai_key):
                         logger.info(f"💡 Google AI使用阿里百炼嵌入服务（OpenAI作为降级选项）")
                         self.fallback_available = True
                         self.fallback_client = OpenAI(api_key=openai_key, base_url=config["backend_url"])
@@ -268,7 +293,7 @@ class FinancialSituationMemory:
         elif self.llm_provider == "openrouter":
             # OpenRouter支持：优先使用阿里百炼嵌入，否则禁用记忆功能
             dashscope_key = os.getenv('DASHSCOPE_API_KEY')
-            if dashscope_key:
+            if _looks_like_real_secret(dashscope_key):
                 try:
                     # 尝试使用阿里百炼嵌入
                     import dashscope
@@ -297,7 +322,7 @@ class FinancialSituationMemory:
         else:
             self.embedding = "text-embedding-3-small"
             openai_key = os.getenv('OPENAI_API_KEY')
-            if openai_key:
+            if _looks_like_real_secret(openai_key):
                 self.client = OpenAI(
                     api_key=openai_key,
                     base_url=config["backend_url"]
@@ -409,7 +434,7 @@ class FinancialSituationMemory:
                 from dashscope import TextEmbedding
 
                 # 检查DashScope API密钥是否可用
-                if not hasattr(dashscope, 'api_key') or not dashscope.api_key:
+                if not hasattr(dashscope, 'api_key') or not _looks_like_real_secret(dashscope.api_key):
                     logger.warning(f"⚠️ DashScope API密钥未设置，记忆功能降级")
                     return [0.0] * 1024  # 返回空向量
 
