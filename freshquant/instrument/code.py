@@ -48,7 +48,7 @@ def convert_code_tq_to_tdx(code: str):
 def convert_code_wh_to_tdx(code: str):
     """
     将文华格式的期货代码转换为通达信格式。
-    
+
     :param code: 文华格式的期货代码
     :return: 通达信格式的期货代码
     """
@@ -63,10 +63,10 @@ def convert_code_wh_to_tdx(code: str):
 
     if month_code_len == 4:
         year = str(pendulum.now().year)[-2:]
-        month_code = code[len(whProductCode):]
+        month_code = code[len(whProductCode) :]
         code = f"{productId}{year}{month_code}"
     elif month_code_len == 3:
-        month_code = code[len(whProductCode):]
+        month_code = code[len(whProductCode) :]
         code = f"{productId}{month_code}"
     else:
         raise ValueError(f"不支持的月份代码长度: {month_code_len}")
@@ -78,7 +78,7 @@ def convert_code_wh_to_tdx(code: str):
 def identify_futures_code(code: str) -> str:
     """
     根据给定的期货代码，判断其属于哪个软件的编码格式。
-    
+
     :param code: 期货代码
     :return: 软件名称 ('TQ', 'TDX', 'WH')
     """
@@ -90,9 +90,9 @@ def identify_futures_code(code: str) -> str:
         tq_month_code_len = row['tq_month_code_len']
         wh_product_code = row['wh_product_code']
         wh_month_code_len = row['wh_month_code_len']
-        
+
         prefix = extract_code_alpha_prefix(code)
-        month_code = code[len(prefix):]
+        month_code = code[len(prefix) :]
 
         if prefix == tdx_product_code and len(month_code) == tdx_month_code_len:
             return 'TDX'
@@ -100,14 +100,14 @@ def identify_futures_code(code: str) -> str:
             return 'TQ'
         elif prefix == wh_product_code and len(month_code) == wh_month_code_len:
             return 'WH'
-    return None
+    raise ValueError(f"无法识别的期货代码: {code}")
 
 
 @in_memory_cache.memoize(expiration=864000)
 def convert_code_wh_to_tq(code: str) -> str:
     """
     将文华格式的期货代码转换为天勤格式。
-    
+
     :param code: 文华格式的期货代码
     :return: 天勤格式的期货代码
     """
@@ -122,10 +122,10 @@ def convert_code_wh_to_tq(code: str) -> str:
 
     if month_code_len == 4:
         year = str(pendulum.now().year)[-2:]
-        month_code = code[len(whProductCode):]
+        month_code = code[len(whProductCode) :]
         code = f"{productId}{year}{month_code}"
     elif month_code_len == 3:
-        month_code = code[len(whProductCode):]
+        month_code = code[len(whProductCode) :]
         code = f"{productId}{month_code}"
     else:
         raise ValueError(f"不支持的月份代码长度: {month_code_len}")
@@ -137,7 +137,7 @@ def convert_code_wh_to_tq(code: str) -> str:
 def convert_code_to_tdx(code: str) -> str:
     """
     将任意格式的期货代码转换为通达信的格式。
-    
+
     :param code: 期货代码
     :return: 通达信格式的期货代码
     """
@@ -156,7 +156,7 @@ def convert_code_to_tdx(code: str) -> str:
 def convert_code_to_tq(code: str) -> str:
     """
     将任意格式的期货代码转换为天勤的格式。
-    
+
     :param code: 期货代码
     :return: 天勤格式的期货代码
     """
@@ -169,6 +169,7 @@ def convert_code_to_tq(code: str) -> str:
         return convert_code_wh_to_tq(code)
     else:
         raise ValueError(f"无法识别的期货代码格式: {code}")
+
 
 if __name__ == "__main__":
     print(convert_code_to_tq("c2405"))

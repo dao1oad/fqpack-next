@@ -2,6 +2,7 @@
 
 import os
 import sys
+from typing import cast
 
 import pytz  # type: ignore
 from dynaconf import Dynaconf
@@ -481,7 +482,9 @@ config = {
         },
     ],
 }
-cfg = config[os.environ.get('FRESHQUANT_CONFIG_ENV', 'default')]
+cfg: type[Config] = cast(
+    type[Config], config[os.environ.get("FRESHQUANT_CONFIG_ENV", "default")]
+)
 config_path = os.path.expanduser('~')
 config_path = '{}{}{}'.format(config_path, os.sep, '.freshquant')
 settings = Dynaconf(

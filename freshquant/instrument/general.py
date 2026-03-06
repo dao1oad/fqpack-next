@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
-from typing import Dict
+from __future__ import annotations
+
+from typing import Any
 
 from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.database.cache import in_memory_cache
@@ -12,7 +14,7 @@ from freshquant.instrument.stock import query_stock_map
 
 
 @in_memory_cache.memoize(expiration=900)
-def query_instrument_type(code: str) -> InstrumentType:
+def query_instrument_type(code: str) -> InstrumentType | None:
     code = code.lower()
     if query_stock_map().get(code):
         return InstrumentType.STOCK_CN
@@ -27,7 +29,7 @@ def query_instrument_type(code: str) -> InstrumentType:
 
 
 @in_memory_cache.memoize(expiration=900)
-def query_instrument_info(code: str) -> Dict:
+def query_instrument_info(code: str) -> dict[str, Any] | None:
     if query_stock_map().get(code):
         return query_stock_map().get(code)
     elif query_etf_map().get(code):
