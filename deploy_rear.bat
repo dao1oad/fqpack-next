@@ -55,7 +55,7 @@ docker run -d --name fq_tdxhq --restart=always --network fq_network ^
     --env-file .env ^
     -p 5001:5001 ^
     fq_rear:latest ^
-    python -m freshquant.gateway.tdxhq --port 5001
+    /freshquant/.venv/bin/python -m freshquant.gateway.tdxhq --port 5001
 
 xcopy /Y morningglory\fqdagsterconfig\* %DAGSTER_DIR%\home\
 
@@ -67,14 +67,14 @@ docker run -d --name fq_dagster_webserver --restart=always --network fq_network 
     -p 10003:10003 ^
     -w /opt/dagster/home ^
     fq_rear:latest ^
-    dagster-webserver -h 0.0.0.0 -p 10003
+    /freshquant/.venv/bin/dagster-webserver -h 0.0.0.0 -p 10003
 
 echo deploy fq_guardian
 docker run -d --name fq_guardian --restart=always --network fq_network ^
     --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 ^
     --env-file .env ^
     fq_rear:latest ^
-    python -m freshquant.signal.astock.job.monitor_stock_zh_a_min
+    /freshquant/.venv/bin/python -m freshquant.signal.astock.job.monitor_stock_zh_a_min
 
 echo deploy fq_dagster_daemon
 docker run -d --name fq_dagster_daemon --restart=always --network fq_network ^
@@ -84,7 +84,7 @@ docker run -d --name fq_dagster_daemon --restart=always --network fq_network ^
     -v %TDX_HOME%:/opt/tdx ^
     -w /opt/dagster/home ^
     fq_rear:latest ^
-    dagster-daemon run
+    /freshquant/.venv/bin/dagster-daemon run
 
 echo deploy fq_apiserver
 docker run -d --name fq_apiserver --restart=always --network fq_network ^
@@ -93,7 +93,7 @@ docker run -d --name fq_apiserver --restart=always --network fq_network ^
     -v %TDX_HOME%:/opt/tdx ^
     -p 5000:5000 ^
     fq_rear:latest ^
-    python -m freshquant.rear.api_server
+    /freshquant/.venv/bin/python -m freshquant.rear.api_server
 
 echo deploy fq_qawebserver
 docker run -d --name fq_qawebserver --restart=always --network fq_network ^
@@ -102,35 +102,35 @@ docker run -d --name fq_qawebserver --restart=always --network fq_network ^
     -v %TDX_HOME%:/opt/tdx ^
     -p 8010:8010 ^
     fq_rear:latest ^
-    python -m QUANTAXIS.QAWebServer.server
+    /freshquant/.venv/bin/python -m QUANTAXIS.QAWebServer.server
 
 echo deploy fq_stock_cn_a_collector
 docker run -d --name fq_stock_cn_a_collector --restart=always --network fq_network ^
     --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 ^
     --env-file .env ^
     fq_rear:latest ^
-    python -m freshquant.market_data.stock_cn_a_collector
+    /freshquant/.venv/bin/python -m freshquant.market_data.stock_cn_a_collector
 
 echo deploy fq_stock_cn_a_sina_tick_collector
 docker run -d --name fq_stock_cn_a_sina_tick_collector --restart=always --network fq_network ^
     --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 ^
     --env-file .env ^
     fq_rear:latest ^
-    python -m freshquant.market_data.stock_cn_a_sina_tick_collector
+    /freshquant/.venv/bin/python -m freshquant.market_data.stock_cn_a_sina_tick_collector
 
 echo deploy fq_collect_future_zh_min
 docker run -d --name fq_collect_future_zh_min --restart=always --network fq_network ^
     --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 ^
     --env-file .env ^
     fq_rear:latest ^
-    python -m freshquant.data.future.job.collect_future_zh_min
+    /freshquant/.venv/bin/python -m freshquant.data.future.job.collect_future_zh_min
 
 echo deploy fq_huey_worker
 docker run -d --name fq_huey_worker --restart=always --network fq_network ^
     --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 ^
     --env-file .env ^
     fq_rear:latest ^
-    python -m freshquant.worker.consumer freshquant.worker.queue.huey -w 50
+    /freshquant/.venv/bin/python -m freshquant.worker.consumer freshquant.worker.queue.huey -w 50
 
 echo deploy fq_jupyter_lab
 docker run -d --name fq_jupyter_lab --restart=always --network fq_network ^
@@ -140,13 +140,13 @@ docker run -d --name fq_jupyter_lab --restart=always --network fq_network ^
     -v %FQ_DATA_DIR%:/opt/data ^
     -p 8888:8888 ^
     fq_rear:latest ^
-    jupyter lab --port 8888 --ip 0.0.0.0 --allow-root --no-browser --notebook-dir /opt/notebook
+    /freshquant/.venv/bin/jupyter lab --port 8888 --ip 0.0.0.0 --allow-root --no-browser --notebook-dir /opt/notebook
 
 docker run --rm --name fq_initialize --network fq_network ^
     --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 ^
     --env-file .env ^
     fq_rear:latest ^
-    python -m freshquant.initialize --quiet
+    /freshquant/.venv/bin/python -m freshquant.initialize --quiet
 
 echo restart fq_webui
 docker restart fq_webui

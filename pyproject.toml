@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "freshquant"
 version = "2026.2.23"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 description = "FreshQuant financial analysis toolkit"
 authors = [
     { name="kldcty@vx", email="1106628276@qq.com" }
@@ -29,6 +29,7 @@ dependencies = [
     "gevent",
     "interval",
     "joblib",
+    "jupyterlab",
     "loguru",
     "matplotlib",
     "memoizit",
@@ -52,6 +53,7 @@ dependencies = [
     "tabulate",
     "tqdm",
     "tushare",
+    "TA-Lib==0.6.8",
     "ulid-py",
     "uvicorn",
     "xlrd",
@@ -78,6 +80,19 @@ dependencies = [
     "yfinance",
     "pyalgotrade",
     "pip>=25.3",
+    "pybind11",
+    "fqchan01",
+    "fqchan02",
+    "fqchan03",
+    "fqchan04",
+    "fqchan06",
+    "fqcopilot",
+    "fqdagster",
+    "fqxtrade",
+    "xtquant",
+    "pytdx",
+    "backtrader",
+    "quantaxis",
 ]
 
 [project.scripts]
@@ -96,6 +111,20 @@ directory_type = "project"
 [tool.mypy]
 python_version = "3.12"
 explicit_package_bases = true
+
+[tool.uv.sources]
+fqchan01 = { path = "morningglory/fqchan01/python" }
+fqchan02 = { path = "morningglory/fqchan02/python" }
+fqchan03 = { path = "morningglory/fqchan03/python" }
+fqchan04 = { path = "morningglory/fqchan04/python" }
+fqchan06 = { path = "morningglory/fqchan06/python" }
+fqcopilot = { path = "morningglory/fqcopilot/python" }
+fqdagster = { path = "morningglory/fqdagster" }
+fqxtrade = { path = "morningglory/fqxtrade" }
+xtquant = { path = "sunflower/xtquant" }
+pytdx = { path = "sunflower/pytdx" }
+backtrader = { path = "sunflower/backtrader" }
+quantaxis = { path = "sunflower/QUANTAXIS" }
 
 [[tool.mypy.overrides]]
 module = [

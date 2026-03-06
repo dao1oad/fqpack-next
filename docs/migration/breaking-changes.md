@@ -76,13 +76,20 @@
 - **迁移步骤**：调用方无需修改成功路径；如有依赖非法 `quantity` 触发 500 的外部监控，应改为按 400 参数错误处理。
 - **回滚方案**：恢复 `reconcile_trade_reports()` 的旧外部化判定与 `/api/stock_order` 对 `quantity` 的直接 `int()` 转换逻辑。
 
--- **日期**：2026-03-07
--- **RFC**：0007-stock-etf-order-management
--- **变更**：无破坏性接口变更。`freshquant/data/astock/holding.py:get_stock_holding_codes()` 的读取口径从“仅订单域持仓投影”调整为“`xt_positions` 与订单域持仓投影并集”，并为 holding codes 缓存增加 15 秒 TTL 兜底；`freshquant/order_management/ingest/xt_reports.py` 在真实持仓变化后主动触发 `mark_stock_holdings_projection_updated()`。
--- **影响面**：Guardian、交易池与其他依赖 `get_stock_holding_codes()` 的路径，会更早把券商端新增但尚未完全入账的外部持仓代码识别为持仓股；漏掉显式失效时，holding codes 最长约 15 秒自动收敛。
--- **迁移步骤**：调用方无需修改；若有依赖旧的“仅投影口径”行为做调试脚本，应改为同时接受 `xt_positions` 带来的更早识别结果。
--- **回滚方案**：回退 `freshquant/data/astock/holding.py` 与 `freshquant/order_management/ingest/xt_reports.py` 的本次改动，恢复 holding codes 仅依赖订单域持仓投影且只靠版本号失效。
+- **日期**：2026-03-07
+- **RFC**：0007-stock-etf-order-management
+- **变更**：无破坏性接口变更。`freshquant/data/astock/holding.py:get_stock_holding_codes()` 的读取口径从“仅订单域持仓投影”调整为“`xt_positions` 与订单域持仓投影并集”，并为 holding codes 缓存增加 15 秒 TTL 兜底；`freshquant/order_management/ingest/xt_reports.py` 在真实持仓变化后主动触发 `mark_stock_holdings_projection_updated()`。
+- **影响面**：Guardian、交易池与其他依赖 `get_stock_holding_codes()` 的路径，会更早把券商端新增但尚未完全入账的外部持仓代码识别为持仓股；漏掉显式失效时，holding codes 最长约 15 秒自动收敛。
+- **迁移步骤**：调用方无需修改；若有依赖旧的“仅投影口径”行为做调试脚本，应改为同时接受 `xt_positions` 带来的更早识别结果。
+- **回滚方案**：回退 `freshquant/data/astock/holding.py` 与 `freshquant/order_management/ingest/xt_reports.py` 的本次改动，恢复 holding codes 仅依赖订单域持仓投影且只靠版本号失效。
 
+- **RFC**：0009-project-local-uv-python-312
+- **变更**：宿主机与 Docker 的 Python 运行面统一切换到项目内 `.venv`；FreshQuant `docker/Dockerfile.rear` 与 `third_party/tradingagents-cn/Dockerfile.backend` 改为通过 `uv sync --frozen` 构建运行环境，CI 也改为基于 `uv` 同步锁定依赖。`TA-Lib` Python 包升级到 `0.6.8`，改为直接使用带 wheel 的发行版，不再依赖宿主机 MSI 或容器内 `.deb` 的前置安装链路。`docker/compose.parallel.yaml` 允许通过 `FQNEXT_REAR_IMAGE`、`FQNEXT_WEBUI_IMAGE`、`FQNEXT_TA_BACKEND_IMAGE`、`FQNEXT_TA_FRONTEND_IMAGE` 覆盖镜像标签，并将 `Dockerfile.rear` 的构建收口到单一服务复用；`ta_backend` 在本地并行 Compose 下若未显式提供 `JWT_SECRET`，会回落到开发默认值 `change-me-in-production`。
+- **影响面**：`Miniconda fqkit` 不再是标准运行环境；宿主机脚本、Docker 命令、CI 和后续 Supervisor 都需要以项目 `.venv` 为准。依赖旧的 `pip install ./...`、`pip install -r freeze.txt`、外部 Python/conda 环境或容器内系统级 `TA-Lib` 安装的部署脚本需要调整。多 worktree / 多分支并行验证时，如需隔离镜像缓存与标签，需要显式覆盖 `FQNEXT_*_IMAGE`；生产环境若使用 TradingAgents-CN，应显式配置非默认 `JWT_SECRET`。
+- **迁移步骤**：1) 在仓库根目录执行 `create_venv.bat` 与 `install.bat --skip-web`；2) 日常命令统一改为 `uv run ...` 或 `.venv\Scripts\python.exe ...`；3) Docker 改用 `docker compose -f docker/compose.parallel.yaml up -d --build`，由镜像内 `.venv` 启动；如在多个 worktree / 分支间并行验证，先覆盖 `FQNEXT_*_IMAGE`；4) TradingAgents-CN 后端使用 `third_party/tradingagents-cn/uv.lock` 构建 `/app/.venv`，并在生产环境显式设置 `JWT_SECRET`。
+- **回滚方案**：恢复 `install.bat/install.py` 的旧顺序、恢复 Dockerfile 中的 `pip install` 链路与外部 `TA-Lib` 安装步骤，并将宿主机服务命令切回原 `Miniconda fqkit` 解释器。
+
+- **日期**：2026-03-07
 - **RFC**：0008-tradingagents-cn-integration-phase1
 - **变更**：`TradingAgents-CN` 接入层的默认深度分析模型从 `deepseek-chat` 调整为 `deepseek-reasoner`，并在 `ta_backend` 启动时自动把活动系统配置与 DeepSeek 模型目录迁移到该默认值；若 `deepseek-reasoner` 仅在工具调用兼容链路失败，则自动回退到 `deepseek-chat` 继续任务。
 - **影响面**：依赖 `TradingAgents-CN` 默认模型配置的页面、脚本和运维流程会观察到 `deep_analysis_model` 默认值变化；模型目录中新增 `deepseek-reasoner`，启动后活动配置会被自动补齐。
