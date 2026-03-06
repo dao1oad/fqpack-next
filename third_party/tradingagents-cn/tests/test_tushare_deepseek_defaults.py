@@ -88,7 +88,26 @@ async def test_apply_deepseek_reasoner_defaults_upgrades_existing_config(monkeyp
     assert changed is True
     assert "deepseek-reasoner" in llm_by_name
     assert llm_by_name["deepseek-reasoner"].provider.value == "deepseek"
-    assert config.system_settings["deep_analysis_model"] == "deepseek-reasoner"
+    assert config.system_settings["deep_analysis_model"] == "deepseek-chat"
+
+
+@pytest.mark.asyncio
+async def test_apply_deepseek_reasoner_defaults_preserves_existing_user_model_selection(monkeypatch):
+    monkeypatch.setenv("MONGODB_DATABASE", "tradingagents_cn")
+    service = ConfigService()
+
+    config = await service._create_default_config()
+    config.llm_configs = [item for item in config.llm_configs if item.model_name != "deepseek-reasoner"]
+    config.system_settings["quick_analysis_model"] = "glm-4"
+    config.system_settings["deep_analysis_model"] = "qwen-plus"
+
+    changed = apply_deepseek_reasoner_defaults(config)
+    llm_by_name = {item.model_name: item for item in config.llm_configs}
+
+    assert changed is True
+    assert "deepseek-reasoner" in llm_by_name
+    assert config.system_settings["quick_analysis_model"] == "glm-4"
+    assert config.system_settings["deep_analysis_model"] == "qwen-plus"
 
 
 def test_reasoner_provider_mapping_points_to_deepseek():

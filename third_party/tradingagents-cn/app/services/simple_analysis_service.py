@@ -1274,61 +1274,10 @@ class SimpleAnalysisService:
                 )
                 logger.info(f"🤖 自动推荐模型: quick={quick_model}, deep={deep_model}")
 
-            # 🔧 根据快速模型和深度模型分别查找对应的供应商和 API URL
-            quick_provider_info = get_provider_and_url_by_model_sync(quick_model)
-            deep_provider_info = get_provider_and_url_by_model_sync(deep_model)
-
-            quick_provider = quick_provider_info["provider"]
-            deep_provider = deep_provider_info["provider"]
-            quick_backend_url = quick_provider_info["backend_url"]
-            deep_backend_url = deep_provider_info["backend_url"]
-
-            logger.info(f"🔍 [供应商查找] 快速模型 {quick_model} 对应的供应商: {quick_provider}")
-            logger.info(f"🔍 [API地址] 快速模型使用 backend_url: {quick_backend_url}")
-            logger.info(f"🔍 [供应商查找] 深度模型 {deep_model} 对应的供应商: {deep_provider}")
-            logger.info(f"🔍 [API地址] 深度模型使用 backend_url: {deep_backend_url}")
-
-            # 检查两个模型是否来自同一个厂家
-            if quick_provider == deep_provider:
-                logger.info(f"✅ [供应商验证] 两个模型来自同一厂家: {quick_provider}")
-            else:
-                logger.info(f"✅ [混合模式] 快速模型({quick_provider}) 和 深度模型({deep_provider}) 来自不同厂家")
-
             # 获取市场类型
             market_type = request.parameters.market_type if request.parameters else "A股"
             logger.info(f"📊 [市场类型] 使用市场类型: {market_type}")
 
-            # 创建分析配置（支持混合模式）
-            config = create_analysis_config(
-                research_depth=research_depth,
-                selected_analysts=request.parameters.selected_analysts if request.parameters else ["market", "fundamentals"],
-                quick_model=quick_model,
-                deep_model=deep_model,
-                llm_provider=quick_provider,  # 主要使用快速模型的供应商
-                market_type=market_type  # 使用前端传递的市场类型
-            )
-
-            # 🔧 添加混合模式配置
-            config["quick_provider"] = quick_provider
-            config["deep_provider"] = deep_provider
-            config["quick_backend_url"] = quick_backend_url
-            config["deep_backend_url"] = deep_backend_url
-            config["backend_url"] = quick_backend_url  # 保持向后兼容
-
-            # 🔍 验证配置中的模型
-            logger.info(f"🔍 [模型验证] 配置中的快速模型: {config.get('quick_think_llm')}")
-            logger.info(f"🔍 [模型验证] 配置中的深度模型: {config.get('deep_think_llm')}")
-            logger.info(f"🔍 [模型验证] 配置中的LLM供应商: {config.get('llm_provider')}")
-
-            # 初始化分析引擎 - 对应步骤4 "🚀 启动引擎" (8-10%)
-            update_progress_sync(9, "🚀 初始化AI分析引擎", "engine_initialization")
-            trading_graph = self._get_trading_graph(config)
-
-            # 🔍 验证TradingGraph实例中的配置
-            logger.info(f"🔍 [引擎验证] TradingGraph配置中的快速模型: {trading_graph.config.get('quick_think_llm')}")
-            logger.info(f"🔍 [引擎验证] TradingGraph配置中的深度模型: {trading_graph.config.get('deep_think_llm')}")
-
-            # 准备分析数据
             if request.parameters:
                 request.parameters.quick_analysis_model = quick_model
                 request.parameters.deep_analysis_model = deep_model
@@ -1341,12 +1290,17 @@ class SimpleAnalysisService:
                 active_quick_backend_url = active_quick_provider_info["backend_url"]
                 active_deep_backend_url = active_deep_provider_info["backend_url"]
 
-                logger.info(
-                    f"[model-provider] quick={active_quick_model} provider={active_quick_provider} backend_url={active_quick_backend_url}"
-                )
-                logger.info(
-                    f"[model-provider] deep={active_deep_model} provider={active_deep_provider} backend_url={active_deep_backend_url}"
-                )
+                logger.info(f"🔍 [供应商查找] 快速模型 {active_quick_model} 对应的供应商: {active_quick_provider}")
+                logger.info(f"🔍 [API地址] 快速模型使用 backend_url: {active_quick_backend_url}")
+                logger.info(f"🔍 [供应商查找] 深度模型 {active_deep_model} 对应的供应商: {active_deep_provider}")
+                logger.info(f"🔍 [API地址] 深度模型使用 backend_url: {active_deep_backend_url}")
+
+                if active_quick_provider == active_deep_provider:
+                    logger.info(f"✅ [供应商验证] 两个模型来自同一厂家: {active_quick_provider}")
+                else:
+                    logger.info(
+                        f"✅ [混合模式] 快速模型({active_quick_provider}) 和 深度模型({active_deep_provider}) 来自不同厂家"
+                    )
 
                 active_config = create_analysis_config(
                     research_depth=research_depth,
@@ -1362,16 +1316,17 @@ class SimpleAnalysisService:
                 active_config["deep_backend_url"] = active_deep_backend_url
                 active_config["backend_url"] = active_quick_backend_url
 
-                logger.info(
-                    f"[analysis-config] quick={active_config.get('quick_think_llm')} deep={active_config.get('deep_think_llm')}"
-                )
+                logger.info(f"🔍 [模型验证] 配置中的快速模型: {active_config.get('quick_think_llm')}")
+                logger.info(f"🔍 [模型验证] 配置中的深度模型: {active_config.get('deep_think_llm')}")
+                logger.info(f"🔍 [模型验证] 配置中的LLM供应商: {active_config.get('llm_provider')}")
 
                 active_graph = self._get_trading_graph(active_config)
-                logger.info(
-                    f"[graph-config] quick={active_graph.config.get('quick_think_llm')} deep={active_graph.config.get('deep_think_llm')}"
-                )
+                logger.info(f"🔍 [引擎验证] TradingGraph配置中的快速模型: {active_graph.config.get('quick_think_llm')}")
+                logger.info(f"🔍 [引擎验证] TradingGraph配置中的深度模型: {active_graph.config.get('deep_think_llm')}")
                 return active_config, active_graph
 
+            # 初始化分析引擎 - 对应步骤4 "🚀 启动引擎" (8-10%)
+            update_progress_sync(9, "🚀 初始化AI分析引擎", "engine_initialization")
             config, trading_graph = _build_trading_graph_for_models(quick_model, deep_model)
 
             start_time = datetime.now()

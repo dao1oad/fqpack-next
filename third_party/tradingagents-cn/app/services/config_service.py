@@ -88,10 +88,10 @@ def apply_deepseek_reasoner_defaults(config: SystemConfig) -> bool:
             config.llm_configs[index] = normalized_reasoner
             changed = True
 
-    if config.system_settings.get("quick_analysis_model") != DEEPSEEK_CHAT_MODEL_NAME:
+    if not config.system_settings.get("quick_analysis_model"):
         config.system_settings["quick_analysis_model"] = DEEPSEEK_CHAT_MODEL_NAME
         changed = True
-    if config.system_settings.get("deep_analysis_model") != DEEPSEEK_REASONER_MODEL_NAME:
+    if not config.system_settings.get("deep_analysis_model"):
         config.system_settings["deep_analysis_model"] = DEEPSEEK_REASONER_MODEL_NAME
         changed = True
 
