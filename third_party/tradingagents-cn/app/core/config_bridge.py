@@ -12,6 +12,27 @@ from typing import Optional
 logger = logging.getLogger("app.config_bridge")
 
 
+def _is_effective_secret(value: Optional[str]) -> bool:
+    """Return True when the value looks like a real credential rather than a placeholder."""
+    if not value:
+        return False
+
+    value = value.strip()
+    if not value:
+        return False
+
+    if value == "your-api-key":
+        return False
+    if value.startswith("your_") or value.startswith("your-"):
+        return False
+    if value.endswith("_here") or value.endswith("-here"):
+        return False
+    if "..." in value:
+        return False
+
+    return True
+
+
 def bridge_config_to_env():
     """
     将统一配置桥接到环境变量
@@ -82,10 +103,10 @@ def bridge_config_to_env():
                 existing_env_value = os.getenv(env_key)
 
                 # 检查环境变量是否已存在且有效（不是占位符）
-                if existing_env_value and not existing_env_value.startswith("your_"):
+                if _is_effective_secret(existing_env_value):
                     logger.info(f"  ✓ 使用 .env 文件中的 {env_key} (长度: {len(existing_env_value)})")
                     bridged_count += 1
-                elif provider.api_key and not provider.api_key.startswith("your_"):
+                elif _is_effective_secret(provider.api_key):
                     # 只有当环境变量不存在或为占位符时，才使用数据库配置
                     os.environ[env_key] = provider.api_key
                     logger.info(f"  ✓ 使用数据库厂家配置的 {env_key} (长度: {len(provider.api_key)})")
@@ -108,12 +129,12 @@ def bridge_config_to_env():
                 existing_env_value = os.getenv(env_key)
 
                 # 检查环境变量是否已存在且有效（不是占位符）
-                if existing_env_value and not existing_env_value.startswith("your_"):
+                if _is_effective_secret(existing_env_value):
                     logger.info(f"  ✓ 使用 .env 文件中的 {env_key} (长度: {len(existing_env_value)})")
                     bridged_count += 1
                 elif llm_config.enabled and llm_config.api_key:
                     # 只有当环境变量不存在或为占位符时，才使用数据库配置
-                    if not llm_config.api_key.startswith("your_"):
+                    if _is_effective_secret(llm_config.api_key):
                         os.environ[env_key] = llm_config.api_key
                         logger.info(f"  ✓ 使用 JSON 文件中的 {env_key} (长度: {len(llm_config.api_key)})")
                         bridged_count += 1
@@ -185,13 +206,13 @@ def bridge_config_to_env():
                     existing_token = os.getenv('TUSHARE_TOKEN')
 
                     # 优先使用数据库配置
-                    if ds_config.api_key and not ds_config.api_key.startswith("your_"):
+                    if _is_effective_secret(ds_config.api_key):
                         os.environ['TUSHARE_TOKEN'] = ds_config.api_key
                         logger.info(f"  ✓ 使用数据库中的 TUSHARE_TOKEN (长度: {len(ds_config.api_key)})")
                         if existing_token and existing_token != ds_config.api_key:
                             logger.info(f"  ℹ️  已覆盖 .env 文件中的 TUSHARE_TOKEN")
                     # 降级到 .env 文件配置
-                    elif existing_token and not existing_token.startswith("your_"):
+                    elif _is_effective_secret(existing_token):
                         logger.info(f"  ✓ 使用 .env 文件中的 TUSHARE_TOKEN (长度: {len(existing_token)})")
                         logger.info(f"  ℹ️  数据库中未配置有效的 TUSHARE_TOKEN，使用 .env 降级方案")
                     else:
@@ -205,13 +226,13 @@ def bridge_config_to_env():
                     existing_key = os.getenv('FINNHUB_API_KEY')
 
                     # 优先使用数据库配置
-                    if ds_config.api_key and not ds_config.api_key.startswith("your_"):
+                    if _is_effective_secret(ds_config.api_key):
                         os.environ['FINNHUB_API_KEY'] = ds_config.api_key
                         logger.info(f"  ✓ 使用数据库中的 FINNHUB_API_KEY (长度: {len(ds_config.api_key)})")
                         if existing_key and existing_key != ds_config.api_key:
                             logger.info(f"  ℹ️  已覆盖 .env 文件中的 FINNHUB_API_KEY")
                     # 降级到 .env 文件配置
-                    elif existing_key and not existing_key.startswith("your_"):
+                    elif _is_effective_secret(existing_key):
                         logger.info(f"  ✓ 使用 .env 文件中的 FINNHUB_API_KEY (长度: {len(existing_key)})")
                         logger.info(f"  ℹ️  数据库中未配置有效的 FINNHUB_API_KEY，使用 .env 降级方案")
                     else:

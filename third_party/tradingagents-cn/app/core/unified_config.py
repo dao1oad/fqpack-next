@@ -227,7 +227,7 @@ class UnifiedConfigManager:
         """获取默认模型（向后兼容）"""
         settings = self.get_system_settings()
         # 优先返回快速分析模型，保持向后兼容
-        return settings.get("quick_analysis_model", settings.get("default_model", "qwen-turbo"))
+        return settings.get("quick_analysis_model", settings.get("default_model", "deepseek-chat"))
 
     def set_default_model(self, model_name: str) -> bool:
         """设置默认模型（向后兼容）"""
@@ -239,13 +239,13 @@ class UnifiedConfigManager:
         """获取快速分析模型"""
         settings = self.get_system_settings()
         # 优先读取新字段名，如果不存在则读取旧字段名（向后兼容）
-        return settings.get("quick_analysis_model") or settings.get("quick_think_llm", "qwen-turbo")
+        return settings.get("quick_analysis_model") or settings.get("quick_think_llm", "deepseek-chat")
 
     def get_deep_analysis_model(self) -> str:
         """获取深度分析模型"""
         settings = self.get_system_settings()
         # 优先读取新字段名，如果不存在则读取旧字段名（向后兼容）
-        return settings.get("deep_analysis_model") or settings.get("deep_think_llm", "qwen-max")
+        return settings.get("deep_analysis_model") or settings.get("deep_think_llm", "deepseek-chat")
 
     def set_analysis_models(self, quick_model: str, deep_model: str) -> bool:
         """设置分析模型"""
@@ -296,29 +296,38 @@ class UnifiedConfigManager:
         settings = self.get_system_settings()
         data_sources = []
 
-        # AKShare (默认启用)
+        tushare_token = settings.get("tushare_token") or os.getenv("TUSHARE_TOKEN", "")
+
+        tushare_config = DataSourceConfig(
+            name="Tushare",
+            type=DataSourceType.TUSHARE,
+            api_key=tushare_token,
+            endpoint="http://api.tushare.pro",
+            enabled=True,
+            priority=3,
+            description="Tushare专业金融数据接口"
+        )
+        data_sources.append(tushare_config)
+
         akshare_config = DataSourceConfig(
             name="AKShare",
             type=DataSourceType.AKSHARE,
             endpoint="https://akshare.akfamily.xyz",
             enabled=True,
-            priority=1,
+            priority=2,
             description="AKShare开源金融数据接口"
         )
         data_sources.append(akshare_config)
 
-        # Tushare (如果有配置)
-        if settings.get("tushare_token"):
-            tushare_config = DataSourceConfig(
-                name="Tushare",
-                type=DataSourceType.TUSHARE,
-                api_key=settings.get("tushare_token"),
-                endpoint="http://api.tushare.pro",
-                enabled=True,
-                priority=2,
-                description="Tushare专业金融数据接口"
-            )
-            data_sources.append(tushare_config)
+        baostock_config = DataSourceConfig(
+            name="BaoStock",
+            type=DataSourceType.BAOSTOCK,
+            endpoint="http://baostock.com",
+            enabled=True,
+            priority=1,
+            description="BaoStock free A-share data source"
+        )
+        data_sources.append(baostock_config)
 
         # 按优先级排序
         data_sources.sort(key=lambda x: x.priority, reverse=True)
@@ -364,29 +373,38 @@ class UnifiedConfigManager:
         settings = self.get_system_settings()
         data_sources = []
 
-        # AKShare (默认启用)
+        tushare_token = settings.get("tushare_token") or os.getenv("TUSHARE_TOKEN", "")
+
+        tushare_config = DataSourceConfig(
+            name="Tushare",
+            type=DataSourceType.TUSHARE,
+            api_key=tushare_token,
+            endpoint="http://api.tushare.pro",
+            enabled=True,
+            priority=3,
+            description="Tushare专业金融数据接口"
+        )
+        data_sources.append(tushare_config)
+
         akshare_config = DataSourceConfig(
             name="AKShare",
             type=DataSourceType.AKSHARE,
             endpoint="https://akshare.akfamily.xyz",
             enabled=True,
-            priority=1,
+            priority=2,
             description="AKShare开源金融数据接口"
         )
         data_sources.append(akshare_config)
 
-        # Tushare (如果有配置)
-        if settings.get("tushare_token"):
-            tushare_config = DataSourceConfig(
-                name="Tushare",
-                type=DataSourceType.TUSHARE,
-                api_key=settings.get("tushare_token"),
-                endpoint="http://api.tushare.pro",
-                enabled=True,
-                priority=2,
-                description="Tushare专业金融数据接口"
-            )
-            data_sources.append(tushare_config)
+        baostock_config = DataSourceConfig(
+            name="BaoStock",
+            type=DataSourceType.BAOSTOCK,
+            endpoint="http://baostock.com",
+            enabled=True,
+            priority=1,
+            description="BaoStock free A-share data source"
+        )
+        data_sources.append(baostock_config)
 
         # Finnhub (如果有配置)
         if settings.get("finnhub_api_key"):
@@ -446,7 +464,7 @@ class UnifiedConfigManager:
                 llm_configs=self.get_llm_configs(),
                 default_llm=self.get_default_model(),
                 data_source_configs=self.get_data_source_configs(),
-                default_data_source="AKShare",
+                default_data_source="Tushare",
                 database_configs=self.get_database_configs(),
                 system_settings=self.get_system_settings()
             )

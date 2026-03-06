@@ -49,8 +49,8 @@ class AnalysisParameters(BaseModel):
     include_risk: bool = True
     language: str = "zh-CN"
     # 模型配置
-    quick_analysis_model: Optional[str] = "qwen-turbo"
-    deep_analysis_model: Optional[str] = "qwen-max"
+    quick_analysis_model: Optional[str] = "deepseek-chat"
+    deep_analysis_model: Optional[str] = "deepseek-chat"
 
 
 class AnalysisResult(BaseModel):

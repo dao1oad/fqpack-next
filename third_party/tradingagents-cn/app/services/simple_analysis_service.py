@@ -50,6 +50,27 @@ logger = logging.getLogger("app.services.simple_analysis_service")
 config_service = ConfigService()
 
 
+def _looks_like_real_secret(value: Optional[str]) -> bool:
+    """Best-effort placeholder filter for model/provider API keys."""
+    if not value:
+        return False
+
+    value = value.strip()
+    if not value:
+        return False
+
+    if value == "your-api-key":
+        return False
+    if value.startswith("your_") or value.startswith("your-"):
+        return False
+    if value.endswith("_here") or value.endswith("-here"):
+        return False
+    if "..." in value:
+        return False
+
+    return True
+
+
 async def get_provider_by_model_name(model_name: str) -> str:
     """
     根据模型名称从数据库配置中查找对应的供应商（异步版本）
@@ -135,12 +156,12 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
 
                     # 🔥 确定 API Key（优先级：模型配置 > 厂家配置 > 环境变量）
                     api_key = None
-                    if model_api_key and model_api_key.strip() and model_api_key != "your-api-key":
+                    if _looks_like_real_secret(model_api_key):
                         api_key = model_api_key
                         logger.info(f"✅ [同步查询] 使用模型配置的 API Key")
                     elif provider_doc and provider_doc.get("api_key"):
                         provider_api_key = provider_doc["api_key"]
-                        if provider_api_key and provider_api_key.strip() and provider_api_key != "your-api-key":
+                        if _looks_like_real_secret(provider_api_key):
                             api_key = provider_api_key
                             logger.info(f"✅ [同步查询] 使用厂家配置的 API Key")
 
@@ -194,7 +215,7 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
 
                 if provider_doc.get("api_key"):
                     provider_api_key = provider_doc["api_key"]
-                    if provider_api_key and provider_api_key.strip() and provider_api_key != "your-api-key":
+                    if _looks_like_real_secret(provider_api_key):
                         api_key = provider_api_key
                         logger.info(f"✅ [同步查询] 使用厂家 {provider} 的 API Key")
 
@@ -296,7 +317,7 @@ def _get_env_api_key_for_provider(provider: str) -> str:
     env_key_name = env_key_map.get(provider.lower())
     if env_key_name:
         api_key = os.getenv(env_key_name)
-        if api_key and api_key.strip() and api_key != "your-api-key":
+        if _looks_like_real_secret(api_key):
             return api_key
 
     return None
