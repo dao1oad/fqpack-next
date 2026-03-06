@@ -6,7 +6,11 @@ from importlib import import_module
 from typing import List
 
 from flask import Blueprint, Response, jsonify, request
-from func_timeout import func_timeout
+try:
+    from func_timeout import func_timeout
+except ModuleNotFoundError:  # pragma: no cover
+    def func_timeout(timeout, func, args=(), kwargs=None):
+        return func(*args, **(kwargs or {}))
 
 from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.chanlun_service import get_data_v2

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 
@@ -21,6 +22,7 @@ from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.tracking.service import OrderTrackingService
 
 _BUY_ORDER_TYPES = {23, "23", "buy", "BUY"}
+_XT_REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 class OrderManagementXtIngestService:
@@ -99,7 +101,7 @@ def normalize_xt_trade_report(report, repository=None):
         return report
 
     traded_time = report["traded_time"]
-    traded_datetime = datetime.fromtimestamp(traded_time)
+    traded_datetime = _xt_timestamp_to_datetime(traded_time)
     stock_code = report.get("stock_code", "")
     symbol = report.get("symbol") or stock_code[:6]
     order_id = report.get("order_id")
@@ -145,7 +147,7 @@ def normalize_xt_order_report(report, repository=None):
         "state": _map_xt_order_status_to_state(report.get("order_status")),
         "event_type": "xt_order_reported",
         "submitted_at": (
-            datetime.fromtimestamp(report["order_time"]).isoformat()
+            _xt_timestamp_to_datetime(report["order_time"]).isoformat()
             if report.get("order_time") is not None
             else None
         ),
@@ -229,3 +231,7 @@ def _map_xt_order_status_to_state(order_status):
     if order_status == xtconstant.ORDER_JUNK:
         return "FAILED"
     return "SUBMITTED"
+
+
+def _xt_timestamp_to_datetime(timestamp):
+    return datetime.fromtimestamp(timestamp, _XT_REPORT_TIMEZONE).replace(tzinfo=None)

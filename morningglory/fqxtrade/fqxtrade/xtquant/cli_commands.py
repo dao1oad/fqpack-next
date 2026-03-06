@@ -1,9 +1,9 @@
 # coding=utf-8
 
 import json
+from datetime import datetime
 
 import click
-import pendulum
 
 import fqxtrade.xtquant.broker as broker
 from fqxtrade import ORDER_QUEUE
@@ -21,6 +21,10 @@ def _get_order_submit_service():
     return OrderSubmitService()
 
 
+def _now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 @xtquant.command(name="sync-deals")
 @click.option("--force/--no-force", default=False)
 def sync_deals(force):
@@ -29,7 +33,7 @@ def sync_deals(force):
         json.dumps(
             {
                 "action": "sync-deals",
-                "fire_time": pendulum.now().format("YYYY-MM-DD hh:mm:ss"),
+                "fire_time": _now_str(),
                 "force": force,
             }
         ),
@@ -44,7 +48,7 @@ def sync_trades(force):
         json.dumps(
             {
                 "action": "sync-trades",
-                "fire_time": pendulum.now().format("YYYY-MM-DD hh:mm:ss"),
+                "fire_time": _now_str(),
                 "force": force,
             }
         ),
@@ -59,7 +63,7 @@ def sync_orders(force):
         json.dumps(
             {
                 "action": "sync-orders",
-                "fire_time": pendulum.now().format("YYYY-MM-DD hh:mm:ss"),
+                "fire_time": _now_str(),
                 "force": force,
             }
         ),
@@ -74,7 +78,7 @@ def sync_summary(force):
         json.dumps(
             {
                 "action": "sync-summary",
-                "fire_time": pendulum.now().format("YYYY-MM-DD hh:mm:ss"),
+                "fire_time": _now_str(),
                 "force": force,
             }
         ),
@@ -89,7 +93,7 @@ def sync_positions(force):
         json.dumps(
             {
                 "action": "sync-positions",
-                "fire_time": pendulum.now().format("YYYY-MM-DD hh:mm:ss"),
+                "fire_time": _now_str(),
                 "force": force,
             }
         ),
