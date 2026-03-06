@@ -171,9 +171,10 @@ class ExternalOrderReconcileService:
             if int(request.get("quantity") or 0) != int(normalized_trade["quantity"]):
                 continue
             request_price = request.get("price")
-            if request_price is not None and abs(
-                float(request_price) - float(normalized_trade["price"])
-            ) > 1e-6:
+            if (
+                request_price is not None
+                and abs(float(request_price) - float(normalized_trade["price"])) > 1e-6
+            ):
                 continue
             candidates.append(order)
 
