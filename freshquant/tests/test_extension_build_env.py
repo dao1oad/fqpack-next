@@ -1,5 +1,5 @@
 import tomllib
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from freshquant.runtime.extension_build import build_fullcalc_plan
 
@@ -27,7 +27,7 @@ def test_fullcalc_build_plan_uses_repo_venv() -> None:
         ["xmake.exe", "build", "-v", "fullcalc_py"],
     ]
     assert plan["env"]["FQ_PY_LIB"] == "python312"
-    pybind_include = Path(plan["env"]["FQ_PYBIND_INC"])
+    pybind_include = PureWindowsPath(plan["env"]["FQ_PYBIND_INC"])
     assert pybind_include.parts[-5:] == (
         ".venv",
         "Lib",
