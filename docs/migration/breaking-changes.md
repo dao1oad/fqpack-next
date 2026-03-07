@@ -95,3 +95,14 @@
 - **影响面**：依赖 `TradingAgents-CN` 默认模型配置的页面、脚本和运维流程会观察到 `deep_analysis_model` 默认值变化；模型目录中新增 `deepseek-reasoner`，启动后活动配置会被自动补齐。
 - **迁移步骤**：重新构建并启动 `ta_backend` / `ta_frontend`；登录后可在 `/api/config/settings` 或前端配置页确认 `quick_analysis_model=deepseek-chat`、`deep_analysis_model=deepseek-reasoner`。若要恢复旧行为，可在系统配置里手动改回 `deepseek-chat`。
 - **回滚方案**：移除 `bootstrap_reasoner_defaults` 启动步骤，恢复 `deepseek-chat` 为默认深度模型，并删除 `deepseek-reasoner` 的默认注册与回退逻辑。
+
+- **日期**：2026-03-07
+- **RFC**：0010-host-runtime-docker-mongo-alignment
+- **变更**：Docker 并行模式下，宿主机 `broker / xtdata producer / xtdata consumer` 的推荐运行时事实源从宿主机 Mongo `127.0.0.1:27017` 与宿主机 Redis `127.0.0.1:6379` 调整为 Docker Mongo `127.0.0.1:27027` 与 Docker Redis 宿主机映射端口 `127.0.0.1:6380`；同时 `broker` 连接 MiniQMT 时不再忽略 `xtquant.account_type`，会按 `CREDIT/STOCK` 等真实账户类型构造 `StockAccount`。
+- **影响面**：实盘排障时需要优先查看 Docker `freshquant.params / xt_positions / xt_trades`，并通过 Docker Redis 队列观察宿主机 `broker / xtdata producer / xtdata consumer` 的消息流，而不再假设宿主机 `27017/6379` 是事实源；使用信用账户的 MiniQMT broker 现在会按真实账户类型连入，持仓同步结果将发生变化。
+- **迁移步骤**：
+  1. 在宿主机环境文件中显式设置 `FRESHQUANT_MONGODB__HOST=127.0.0.1`、`FRESHQUANT_MONGODB__PORT=27027`、`FRESHQUANT_REDIS__HOST=127.0.0.1` 与 `FRESHQUANT_REDIS__PORT=6380`；
+  2. 对 Docker `freshquant` 库执行 `python -m freshquant.initialize --quiet`；
+  3. 将宿主机旧库中的 `freshquant.params` 同步到 Docker `freshquant.params`；
+  4. 重启宿主机 `broker / xtdata producer / xtdata consumer`。
+- **回滚方案**：将宿主机 Mongo/Redis 端口改回 `27017/6379` 并重启宿主机进程；如需恢复旧 broker 行为，回退 `morningglory/fqxtrade/fqxtrade/xtquant/broker.py` 与 `morningglory/fqxtrade/fqxtrade/xtquant/account.py` 的账户类型修复。
