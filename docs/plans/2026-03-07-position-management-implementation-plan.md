@@ -466,4 +466,3 @@ Expected: PASS
 git add freshquant/position_management/service.py freshquant/strategy/guardian.py docs/migration/progress.md docs/migration/breaking-changes.md docs/agent/项目目标与代码现状调研.md freshquant/tests/test_position_management_guardian_placeholder.py
 git commit -m "feat: add guardian placeholder for profit reduce state"
 ```
-
