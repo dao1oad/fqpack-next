@@ -50,6 +50,14 @@ class TpslService:
     def get_takeprofit_profile(self, symbol):
         return self.takeprofit_service.get_profile_with_state(symbol)
 
+    def set_takeprofit_tier_enabled(self, symbol, *, level, enabled, updated_by="system"):
+        return self.takeprofit_service.set_tier_manual_enabled(
+            symbol,
+            level=level,
+            enabled=enabled,
+            updated_by=updated_by,
+        )
+
     def get_takeprofit_state(self, symbol):
         return self.takeprofit_service.get_state(symbol)
 
@@ -60,6 +68,25 @@ class TpslService:
             batch_id=batch_id,
             updated_by=updated_by,
         )
+
+    def rearm_takeprofit(self, symbol, *, updated_by="system"):
+        return self.takeprofit_service.rearm_all_levels(
+            symbol,
+            updated_by=updated_by,
+            reason="manual",
+        )
+
+    def list_events(self, *, symbol=None, limit=50):
+        repository = self.takeprofit_service.repository
+        if not hasattr(repository, "list_exit_trigger_events"):
+            return []
+        return repository.list_exit_trigger_events(symbol=symbol, limit=limit)
+
+    def get_batch_events(self, batch_id):
+        repository = self.takeprofit_service.repository
+        if not hasattr(repository, "list_exit_trigger_events"):
+            return []
+        return repository.list_exit_trigger_events(batch_id=batch_id, limit=200)
 
     def submit_takeprofit_batch(self, batch):
         return self._submit_batch(

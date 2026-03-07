@@ -123,6 +123,38 @@ class TakeprofitService:
         }
         return self.repository.upsert_takeprofit_state(updated_state)
 
+    def set_tier_manual_enabled(self, symbol, *, level, enabled, updated_by="system"):
+        detail = self.get_profile_with_state(symbol)
+        target_level = int(level)
+        found = False
+        tiers = []
+        for tier in detail.get("tiers") or []:
+            item = dict(tier)
+            if int(item["level"]) == target_level:
+                item["manual_enabled"] = bool(enabled)
+                found = True
+            tiers.append(item)
+        if not found:
+            raise ValueError("takeprofit tier not found")
+
+        profile = self.save_profile(symbol, tiers=tiers, updated_by=updated_by)
+        state = self.get_state(symbol)
+        armed_levels = dict(state.get("armed_levels") or {})
+        armed_levels[target_level] = bool(enabled)
+        updated_state = {
+            **state,
+            "symbol": _normalize_symbol(symbol),
+            "armed_levels": armed_levels,
+            "updated_at": _now(),
+            "updated_by": updated_by,
+            "version": int(state.get("version") or 0) + 1,
+        }
+        saved_state = self.repository.upsert_takeprofit_state(updated_state)
+        return {
+            **profile,
+            "state": saved_state,
+        }
+
     def _ensure_state(self, symbol, *, tiers, current_state, updated_by):
         if current_state is not None:
             return current_state

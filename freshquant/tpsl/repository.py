@@ -47,3 +47,13 @@ class TpslRepository:
         self.exit_trigger_events.insert_one(document)
         return document
 
+    def list_exit_trigger_events(self, *, symbol=None, batch_id=None, limit=50):
+        query = {}
+        if symbol is not None:
+            query["symbol"] = symbol
+        if batch_id is not None:
+            query["batch_id"] = batch_id
+        cursor = self.exit_trigger_events.find(query).sort("created_at", -1)
+        if limit is not None:
+            cursor = cursor.limit(int(limit))
+        return list(cursor)
