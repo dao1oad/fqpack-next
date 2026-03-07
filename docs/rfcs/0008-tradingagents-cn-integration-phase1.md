@@ -1,6 +1,6 @@
 # RFC 0008: TradingAgents-CN 集成（阶段 1：保持原生本地数据逻辑可用）
 
-- **状态**：Implementing
+- **状态**：Done
 - **负责人**：Codex
 - **评审人**：TBD
 - **创建日期**：2026-03-06
@@ -245,7 +245,7 @@ MongoDB / Redis 隔离：
   - 先检查本地缓存；
   - 本地不足时按需补数；
   - 之后继续进入完整分析图。
-- [ ] 单股分析任务能完整走完市场/社交/新闻/基本面/研究/交易/风控全流程，并返回最终分析结果。
+- [x] 单股分析任务能完整走完市场/社交/新闻/基本面/研究/交易/风控全流程，并返回最终分析结果。
 - [x] 任务执行期间，Redis 进度数据可见；Mongo 中任务状态和结果可查询。
 - [x] 同一股票二次分析时，可复用已写入的本地数据缓存，不需要人工预热。
 - [x] FreshQuant 现有服务与端口不受影响。
@@ -273,3 +273,12 @@ MongoDB / Redis 隔离：
 - M4：A 股单股分析按原生数据逻辑跑通
 - M5：完整分析结果可查询
 - M6：进入阶段 2 RFC，讨论以 FreshQuant 数据替换 `TradingAgents-CN` 数据层
+
+## 13. 完成说明（Completion Notes）
+
+- **完成日期**：2026-03-07
+- **完成结论**：阶段 1 已完成，不再处于 Implementing。
+- **验收依据**：
+  - `ta_backend` / `ta_frontend` 在 Docker 并行部署下稳定运行，并持续复用 `fq_mongodb` / `fq_redis`。
+  - `tradingagents_cn` 中已存在 `analysis_tasks`、`analysis_reports`、`stock_basic_info`、`market_quotes` 等运行数据，说明本地缓存、补数与结果落库链路已闭环。
+  - 已使用真实任务 `c4ffec0d-5878-4cdd-8c45-35cdc36db6e0` 完整验收 `002682`：任务状态为 `completed`，结果已返回最终投资建议，`model_info=ChatDeepSeek:deepseek-reasoner`。
