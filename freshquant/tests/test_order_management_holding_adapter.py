@@ -199,3 +199,33 @@ def test_get_stock_holding_codes_cache_has_short_ttl(monkeypatch):
     _, holding_module, _ = _reload_modules(monkeypatch)
 
     assert holding_module._get_stock_holding_codes_cached._test_expiration == 15
+
+
+def test_get_stock_positions_fills_missing_name_from_instrument_info(monkeypatch):
+    _, holding_module, _ = _reload_modules(monkeypatch)
+
+    monkeypatch.setattr(
+        holding_module,
+        "list_stock_positions",
+        lambda: [
+            {
+                "symbol": "sz002262",
+                "stock_code": "002262.SZ",
+                "name": "",
+                "quantity": 100,
+                "amount": -1000.0,
+                "amount_adjusted": -1000.0,
+                "date": 20260115,
+                "time": "10:01:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        holding_module,
+        "query_instrument_info",
+        lambda code: {"name": "恩华药业"} if code in {"sz002262", "002262"} else None,
+    )
+
+    result = holding_module.get_stock_positions()
+
+    assert result[0]["name"] == "恩华药业"

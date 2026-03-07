@@ -128,9 +128,13 @@ def get_stock_pre_pools_category():
 
 
 def get_stock_pre_pools_list(page=1, category=""):
+    query = {}
+    normalized_category = str(category or "").strip()
+    if normalized_category:
+        query["category"] = normalized_category
     data = list(
         DBfreshquant["stock_pre_pools"]
-        .find({"category": category})
+        .find(query)
         .sort("datetime", pymongo.DESCENDING)
         .skip((page - 1) * 1000)
         .limit(1000)

@@ -7,6 +7,7 @@ from freshquant.data.gantt_readmodel import (
     persist_gantt_daily_for_date,
     persist_plate_reason_daily_for_date,
     persist_shouban30_for_date,
+    persist_stock_hot_reason_daily_for_date,
 )
 from freshquant.data.gantt_source_jygs import sync_jygs_action_for_date
 from freshquant.data.gantt_source_xgb import sync_xgb_history_for_date
@@ -120,6 +121,12 @@ def run_gantt_pipeline_for_date(context, trade_date: str) -> dict[str, Any]:
     gantt_result = persist_gantt_daily_for_date(trade_date)
     context.log.info("built gantt daily=%s", gantt_result)
 
+    stock_hot_reason_count = persist_stock_hot_reason_daily_for_date(trade_date)
+    context.log.info(
+        "built stock_hot_reason_daily rows=%s trade_date=%s",
+        stock_hot_reason_count,
+        trade_date,
+    )
     shouban30_result = persist_shouban30_for_date(trade_date)
     context.log.info("built shouban30=%s", shouban30_result)
 
@@ -129,6 +136,7 @@ def run_gantt_pipeline_for_date(context, trade_date: str) -> dict[str, Any]:
         "jygs": jygs_result,
         "plate_reason_rows": plate_reason_count,
         "gantt": gantt_result,
+        "stock_hot_reason_rows": stock_hot_reason_count,
         "shouban30": shouban30_result,
     }
 
@@ -197,6 +205,15 @@ def op_build_plate_reason_daily(
 def op_build_gantt_daily(context, trade_date: str) -> str:
     result = persist_gantt_daily_for_date(trade_date)
     context.log.info("built gantt daily=%s", result)
+    return trade_date
+
+
+@op
+def op_build_stock_hot_reason_daily(context, trade_date: str) -> str:
+    count = persist_stock_hot_reason_daily_for_date(trade_date)
+    context.log.info(
+        "built stock_hot_reason_daily rows=%s trade_date=%s", count, trade_date
+    )
     return trade_date
 
 

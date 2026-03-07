@@ -82,6 +82,8 @@ def test_sync_xgb_history_for_date_writes_dbgantt(monkeypatch):
                         "description",
                         "plates",
                         "up_limit",
+                        "enter_time",
+                        "time_on_market",
                     ],
                     "items": [
                         [
@@ -90,6 +92,8 @@ def test_sync_xgb_history_for_date_writes_dbgantt(monkeypatch):
                             "stock reason",
                             [{"id": 11, "name": "robotics"}],
                             1,
+                            1761271489,
+                            "1004",
                         ]
                     ],
                 }
@@ -117,6 +121,8 @@ def test_sync_xgb_history_for_date_writes_dbgantt(monkeypatch):
                     "stock_name": "alpha",
                     "description": "stock reason",
                     "up_limit": 1,
+                    "enter_time": 1761271489,
+                    "time_on_market": "1004",
                     "plates": [{"id": 11, "name": "robotics"}],
                 }
             ],

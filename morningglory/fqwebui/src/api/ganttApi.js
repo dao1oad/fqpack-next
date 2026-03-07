@@ -41,3 +41,19 @@ export const getGanttStocks = ({
     params
   })
 }
+
+export const getGanttStockReasons = ({
+  code6,
+  provider = 'all',
+  limit = 0
+} = {}) => {
+  return http({
+    url: '/api/gantt/stocks/reasons',
+    method: 'get',
+    params: {
+      code6: String(code6 || '').trim(),
+      provider: String(provider || 'all').trim() || 'all',
+      limit: Number.isFinite(Number(limit)) ? Number(limit) : 0
+    }
+  })
+}

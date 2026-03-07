@@ -77,35 +77,18 @@
 - **回滚方案**：恢复 `reconcile_trade_reports()` 的旧外部化判定与 `/api/stock_order` 对 `quantity` 的直接 `int()` 转换逻辑。
 
 - **日期**：2026-03-07
-- **RFC**：0007-stock-etf-order-management
-- **变更**：无破坏性接口变更。`freshquant/data/astock/holding.py:get_stock_holding_codes()` 的读取口径从“仅订单域持仓投影”调整为“`xt_positions` 与订单域持仓投影并集”，并为 holding codes 缓存增加 15 秒 TTL 兜底；`freshquant/order_management/ingest/xt_reports.py` 在真实持仓变化后主动触发 `mark_stock_holdings_projection_updated()`。
-- **影响面**：Guardian、交易池与其他依赖 `get_stock_holding_codes()` 的路径，会更早把券商端新增但尚未完全入账的外部持仓代码识别为持仓股；漏掉显式失效时，holding codes 最长约 15 秒自动收敛。
-- **迁移步骤**：调用方无需修改；若有依赖旧的“仅投影口径”行为做调试脚本，应改为同时接受 `xt_positions` 带来的更早识别结果。
-- **回滚方案**：回退 `freshquant/data/astock/holding.py` 与 `freshquant/order_management/ingest/xt_reports.py` 的本次改动，恢复 holding codes 仅依赖订单域持仓投影且只靠版本号失效。
-
-- **RFC**：0009-project-local-uv-python-312
-- **变更**：宿主机与 Docker 的 Python 运行面统一切换到项目内 `.venv`；FreshQuant `docker/Dockerfile.rear` 与 `third_party/tradingagents-cn/Dockerfile.backend` 改为通过 `uv sync --frozen` 构建运行环境，CI 也改为基于 `uv` 同步锁定依赖。`TA-Lib` Python 包升级到 `0.6.8`，改为直接使用带 wheel 的发行版，不再依赖宿主机 MSI 或容器内 `.deb` 的前置安装链路。`docker/compose.parallel.yaml` 允许通过 `FQNEXT_REAR_IMAGE`、`FQNEXT_WEBUI_IMAGE`、`FQNEXT_TA_BACKEND_IMAGE`、`FQNEXT_TA_FRONTEND_IMAGE` 覆盖镜像标签，并将 `Dockerfile.rear` 的构建收口到单一服务复用；`ta_backend` 在本地并行 Compose 下若未显式提供 `JWT_SECRET`，会回落到开发默认值 `change-me-in-production`。
-- **影响面**：`Miniconda fqkit` 不再是标准运行环境；宿主机脚本、Docker 命令、CI 和后续 Supervisor 都需要以项目 `.venv` 为准。依赖旧的 `pip install ./...`、`pip install -r freeze.txt`、外部 Python/conda 环境或容器内系统级 `TA-Lib` 安装的部署脚本需要调整。多 worktree / 多分支并行验证时，如需隔离镜像缓存与标签，需要显式覆盖 `FQNEXT_*_IMAGE`；生产环境若使用 TradingAgents-CN，应显式配置非默认 `JWT_SECRET`。
-- **迁移步骤**：1) 在仓库根目录执行 `create_venv.bat` 与 `install.bat --skip-web`；2) 日常命令统一改为 `uv run ...` 或 `.venv\Scripts\python.exe ...`；3) Docker 改用 `docker compose -f docker/compose.parallel.yaml up -d --build`，由镜像内 `.venv` 启动；如在多个 worktree / 分支间并行验证，先覆盖 `FQNEXT_*_IMAGE`；4) TradingAgents-CN 后端使用 `third_party/tradingagents-cn/uv.lock` 构建 `/app/.venv`，并在生产环境显式设置 `JWT_SECRET`。
-- **回滚方案**：恢复 `install.bat/install.py` 的旧顺序、恢复 Dockerfile 中的 `pip install` 链路与外部 `TA-Lib` 安装步骤，并将宿主机服务命令切回原 `Miniconda fqkit` 解释器。
+- **RFC**：0011-stock-etf-tpsl-module
+- **变更**：规划新增 XTData `TICK_QUOTE` 事件协议、`/api/tpsl/*` 后端接口，以及订单域 `takeprofit_batch / stoploss_batch` 作用域；TPSL 运行时状态将不再使用旧分支的 `grid_configs / stoploss_configs / fill_stoploss_configs`。
+- **影响面**：XTData producer、TPSL consumer、后端 API 与订单作用域会新增接口面；依赖旧 Grid/StopLoss 执行链的运维脚本需要切换到新模块。
+- **迁移步骤**：待 RFC 0011 实现落地后补充最终迁移步骤。
+- **回滚方案**：待 RFC 0011 实现落地后补充最终回滚说明。
 
 - **日期**：2026-03-07
-- **RFC**：0008-tradingagents-cn-integration-phase1
-- **变更**：`TradingAgents-CN` 接入层的默认深度分析模型从 `deepseek-chat` 调整为 `deepseek-reasoner`，并在 `ta_backend` 启动时自动把活动系统配置与 DeepSeek 模型目录迁移到该默认值；若 `deepseek-reasoner` 仅在工具调用兼容链路失败，则自动回退到 `deepseek-chat` 继续任务。
-- **影响面**：依赖 `TradingAgents-CN` 默认模型配置的页面、脚本和运维流程会观察到 `deep_analysis_model` 默认值变化；模型目录中新增 `deepseek-reasoner`，启动后活动配置会被自动补齐。
-- **迁移步骤**：重新构建并启动 `ta_backend` / `ta_frontend`；登录后可在 `/api/config/settings` 或前端配置页确认 `quick_analysis_model=deepseek-chat`、`deep_analysis_model=deepseek-reasoner`。若要恢复旧行为，可在系统配置里手动改回 `deepseek-chat`。
-- **回滚方案**：移除 `bootstrap_reasoner_defaults` 启动步骤，恢复 `deepseek-chat` 为默认深度模型，并删除 `deepseek-reasoner` 的默认注册与回退逻辑。
-
-- **日期**：2026-03-07
-- **RFC**：0010-host-runtime-docker-mongo-alignment
-- **变更**：Docker 并行模式下，宿主机 `broker / xtdata producer / xtdata consumer` 的推荐运行时事实源从宿主机 Mongo `127.0.0.1:27017` 与宿主机 Redis `127.0.0.1:6379` 调整为 Docker Mongo `127.0.0.1:27027` 与 Docker Redis 宿主机映射端口 `127.0.0.1:6380`；同时 `broker` 连接 MiniQMT 时不再忽略 `xtquant.account_type`，会按 `CREDIT/STOCK` 等真实账户类型构造 `StockAccount`。
-- **影响面**：实盘排障时需要优先查看 Docker `freshquant.params / xt_positions / xt_trades`，并通过 Docker Redis 队列观察宿主机 `broker / xtdata producer / xtdata consumer` 的消息流，而不再假设宿主机 `27017/6379` 是事实源；使用信用账户的 MiniQMT broker 现在会按真实账户类型连入，持仓同步结果将发生变化。
-- **迁移步骤**：
-  1. 在宿主机环境文件中显式设置 `FRESHQUANT_MONGODB__HOST=127.0.0.1`、`FRESHQUANT_MONGODB__PORT=27027`、`FRESHQUANT_REDIS__HOST=127.0.0.1` 与 `FRESHQUANT_REDIS__PORT=6380`；
-  2. 对 Docker `freshquant` 库执行 `python -m freshquant.initialize --quiet`；
-  3. 将宿主机旧库中的 `freshquant.params` 同步到 Docker `freshquant.params`；
-  4. 重启宿主机 `broker / xtdata producer / xtdata consumer`。
-- **回滚方案**：将宿主机 Mongo/Redis 端口改回 `27017/6379` 并重启宿主机进程；如需恢复旧 broker 行为，回退 `morningglory/fqxtrade/fqxtrade/xtquant/broker.py` 与 `morningglory/fqxtrade/fqxtrade/xtquant/account.py` 的账户类型修复。
+- **RFC**：0015-kline-slim-sidebar-hot-reasons
+- **变更**：`GET /api/get_stock_pre_pools_list` 在 `category` 缺省或为空字符串时，从“只匹配 `category=\"\"`”调整为“返回全分类合并结果”；同时新增 `GET /api/gantt/stocks/reasons`，供 `KlineSlim` hover 展示历史热门记录。
+- **影响面**：依赖空 `category` 返回空集或仅空分类数据的调用方会改变结果；`KlineSlim` 页面会新增左侧 4 组股票池和 hover 热门原因弹层。
+- **迁移步骤**：如需继续按分类过滤，请显式传入 `category`；如需读取 hover 历史热门记录，改用 `/api/gantt/stocks/reasons?code6=<6位代码>&provider=all`。
+- **回滚方案**：恢复 `get_stock_pre_pools_list()` 对空 `category` 的旧查询语义，并回退 `/api/gantt/stocks/reasons`、`stock_hot_reason_daily` 与 `KlineSlim` hover 调用链。
 
 - **RFC**：0014-stock-etf-tpsl-module
 - **变更**：已落地 XTData `TICK_QUOTE` Redis 队列协议（`QUEUE:TICK_QUOTE:*`）、独立 `freshquant.tpsl` 模块、`/api/tpsl/*` 后端接口，以及订单域 `takeprofit_batch / stoploss_batch` 作用域。止盈止损运行时状态迁移到 `om_takeprofit_profiles / om_takeprofit_states / om_exit_trigger_events`，不再沿用旧分支 `grid_configs / stoploss_configs / fill_stoploss_configs` 执行链。

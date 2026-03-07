@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from freshquant.data.gantt_source_jygs import (
     COL_JYGS_ACTION_FIELDS,
@@ -19,14 +21,26 @@ from freshquant.db import DBGantt
 COL_PLATE_REASON_DAILY = "plate_reason_daily"
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
 COL_GANTT_STOCK_DAILY = "gantt_stock_daily"
+COL_STOCK_HOT_REASON_DAILY = "stock_hot_reason_daily"
 COL_SHOUBAN30_PLATES = "shouban30_plates"
 COL_SHOUBAN30_STOCKS = "shouban30_stocks"
+CN_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def _to_str(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _normalize_code6(value: Any) -> str:
+    text = _to_str(value)
+    if not text:
+        return ""
+    match = re.search(r"(\d{6})", text)
+    if not match:
+        return text
+    return match.group(1)
 
 
 def _to_int(value: Any, default: int) -> int:
@@ -81,6 +95,13 @@ def ensure_readmodel_indexes() -> None:
     _get_collection(COL_GANTT_STOCK_DAILY).create_index(
         [("provider", 1), ("plate_key", 1), ("code6", 1), ("trade_date", 1)],
         unique=True,
+    )
+    _get_collection(COL_STOCK_HOT_REASON_DAILY).create_index(
+        [("provider", 1), ("trade_date", 1), ("plate_key", 1), ("code6", 1)],
+        unique=True,
+    )
+    _get_collection(COL_STOCK_HOT_REASON_DAILY).create_index(
+        [("code6", 1), ("trade_date", -1), ("time", -1)]
     )
     _get_collection(COL_SHOUBAN30_PLATES).create_index(
         [("provider", 1), ("plate_key", 1), ("as_of_date", 1)],
@@ -146,6 +167,83 @@ def _build_plate_reason_lookup(
         ): item
         for item in (rows or [])
     }
+
+
+def _normalize_hit_time(value: Any) -> str | None:
+    text = _to_str(value)
+    if not text:
+        return None
+
+    if re.fullmatch(r"\d{10,13}", text):
+        raw = int(text)
+        seconds = raw / 1000 if len(text) == 13 else raw
+        try:
+            return datetime.fromtimestamp(seconds, tz=CN_TZ).strftime("%H:%M")
+        except (OverflowError, OSError, ValueError):
+            pass
+
+    match = re.fullmatch(r"(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?", text)
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+
+    if re.fullmatch(r"\d{3,4}", text):
+        digits = text.zfill(4)
+        hour = int(digits[:2])
+        minute = int(digits[2:])
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+
+    return text or None
+
+
+def build_stock_hot_reason_rows(
+    *,
+    gantt_stock_rows: list[dict[str, Any]],
+    plate_reason_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    reason_map = _build_plate_reason_lookup(plate_reason_rows)
+    rows: list[dict[str, Any]] = []
+
+    for item in gantt_stock_rows or []:
+        provider = _to_str(item.get("provider"))
+        trade_date = _to_str(item.get("trade_date"))
+        plate_key = _to_str(item.get("plate_key"))
+        code6 = _to_str(item.get("code6"))
+        reason_row = reason_map.get((provider, plate_key, trade_date))
+        if not reason_row:
+            raise ValueError(
+                f"missing stock hot reason for provider={provider} plate_key={plate_key} trade_date={trade_date}"
+            )
+        rows.append(
+            {
+                "trade_date": trade_date,
+                "provider": provider,
+                "code6": code6,
+                "name": _to_str(item.get("name")) or code6,
+                "plate_key": plate_key,
+                "plate_name": _to_str(item.get("plate_name"))
+                or _to_str(reason_row.get("plate_name"))
+                or plate_key,
+                "plate_reason": _to_str(reason_row.get("reason_text")) or None,
+                "stock_reason": _to_str(item.get("stock_reason")) or None,
+                "time": _normalize_hit_time(item.get("time")),
+                "reason_ref": reason_row.get("source_ref"),
+            }
+        )
+
+    rows.sort(
+        key=lambda item: (
+            _to_str(item.get("provider")),
+            _to_str(item.get("plate_name")),
+            _to_str(item.get("stock_reason")),
+        )
+    )
+    rows.sort(key=lambda item: _to_str(item.get("time")), reverse=True)
+    rows.sort(key=lambda item: _to_str(item.get("trade_date")), reverse=True)
+    return rows
 
 
 def _query_gantt_plate_rows(
@@ -340,9 +438,9 @@ def _build_xgb_gantt_rows(
         normalized_trade_date = normalized["trade_date"]
         hot_stocks = list(row.get("hot_stocks") or [])
         stock_codes = [
-            _to_str(item.get("symbol") or item.get("code"))
+            _normalize_code6(item.get("symbol") or item.get("code"))
             for item in hot_stocks
-            if _to_str(item.get("symbol") or item.get("code"))
+            if _normalize_code6(item.get("symbol") or item.get("code"))
         ]
         plate_rows.append(
             {
@@ -357,7 +455,7 @@ def _build_xgb_gantt_rows(
             }
         )
         for item in hot_stocks:
-            code6 = _to_str(item.get("symbol") or item.get("code"))
+            code6 = _normalize_code6(item.get("symbol") or item.get("code"))
             if not code6:
                 continue
             stock_rows.append(
@@ -371,6 +469,9 @@ def _build_xgb_gantt_rows(
                     or code6,
                     "is_limit_up": int(item.get("up_limit") or 0),
                     "stock_reason": _to_str(item.get("description")) or None,
+                    "time": _normalize_hit_time(
+                        item.get("enter_time") or item.get("time_on_market")
+                    ),
                 }
             )
 
@@ -424,6 +525,7 @@ def _build_jygs_gantt_rows(
                     "name": stock_name,
                     "is_limit_up": 0,
                     "stock_reason": analysis,
+                    "time": _normalize_hit_time(row.get("limit_up_time")),
                 }
             )
 
@@ -483,6 +585,70 @@ def persist_gantt_daily_for_date(trade_date: str) -> dict[str, Any]:
         "plates": len(plate_rows),
         "stocks": len(stock_rows),
     }
+
+
+def persist_stock_hot_reason_daily_for_date(trade_date: str) -> int:
+    date_str = _to_str(trade_date)
+    if not date_str:
+        raise ValueError("trade_date is required")
+
+    ensure_readmodel_indexes()
+    gantt_stock_rows = _find_rows(COL_GANTT_STOCK_DAILY, {"trade_date": date_str})
+    plate_reason_rows = _find_rows(COL_PLATE_REASON_DAILY, {"trade_date": date_str})
+    rows = build_stock_hot_reason_rows(
+        gantt_stock_rows=gantt_stock_rows,
+        plate_reason_rows=plate_reason_rows,
+    )
+    _delete_rows(COL_STOCK_HOT_REASON_DAILY, {"trade_date": date_str})
+    return _upsert_rows(
+        COL_STOCK_HOT_REASON_DAILY,
+        rows,
+        key_fields=("provider", "trade_date", "plate_key", "code6"),
+    )
+
+
+def query_stock_hot_reason_rows(
+    *,
+    code6: str,
+    provider: str = "all",
+    limit: int = 0,
+) -> list[dict[str, Any]]:
+    code = _to_str(code6)
+    provider_key = _to_str(provider).lower() or "all"
+    if provider_key not in {"all", "xgb", "jygs"}:
+        raise ValueError("provider must be all|xgb|jygs")
+    if not re.fullmatch(r"\d{6}", code):
+        raise ValueError("code6 must be 6 digits")
+
+    query: dict[str, Any] = {"code6": code}
+    if provider_key != "all":
+        query["provider"] = provider_key
+
+    rows = _find_rows(COL_STOCK_HOT_REASON_DAILY, query)
+    rows.sort(
+        key=lambda item: (
+            _to_str(item.get("provider")),
+            _to_str(item.get("plate_name")),
+            _to_str(item.get("stock_reason")),
+        )
+    )
+    rows.sort(key=lambda item: _to_str(item.get("time")), reverse=True)
+    rows.sort(key=lambda item: _to_str(item.get("trade_date")), reverse=True)
+    normalized = [
+        {
+            "date": _to_str(item.get("trade_date")) or None,
+            "time": _normalize_hit_time(item.get("time")),
+            "provider": _to_str(item.get("provider")) or None,
+            "plate_name": _to_str(item.get("plate_name")) or None,
+            "plate_reason": _to_str(item.get("plate_reason")) or None,
+            "stock_reason": _to_str(item.get("stock_reason")) or None,
+        }
+        for item in rows
+    ]
+    max_items = max(_to_int(limit, 0), 0)
+    if max_items > 0:
+        return normalized[:max_items]
+    return normalized
 
 
 def _group_shouban30_plate_candidates(

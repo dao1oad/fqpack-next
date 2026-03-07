@@ -14,7 +14,7 @@ from freshquant.database.cache import (
     redis_cache,
 )
 from freshquant.db import DBfreshquant
-from freshquant.instrument.general import query_instrument_type
+from freshquant.instrument.general import query_instrument_info, query_instrument_type
 from freshquant.order_management.projection.cache_invalidator import (
     STOCK_HOLDINGS_CACHE,
 )
@@ -34,6 +34,54 @@ from freshquant.util.code import (
 
 def _get_legacy_stock_fills_collection():
     return DBfreshquant["stock_fills"]
+
+
+def _resolve_position_name(position: Dict) -> str:
+    raw_name = str(position.get("name") or "").strip()
+    if raw_name:
+        return raw_name
+
+    symbol = str(position.get("symbol") or "").strip().lower()
+    stock_code = str(position.get("stock_code") or "").strip().lower()
+    base_code = normalize_to_base_code(symbol or stock_code)
+    guessed_symbol = ""
+    if base_code:
+        if symbol.startswith("sh") or stock_code.endswith(".sh"):
+            guessed_symbol = f"sh{base_code}"
+        elif symbol.startswith("sz") or stock_code.endswith(".sz"):
+            guessed_symbol = f"sz{base_code}"
+        else:
+            guessed_symbol = (
+                f"{'sh' if base_code.startswith(('5', '6', '9')) else 'sz'}{base_code}"
+            )
+    candidates = []
+    for candidate in (
+        symbol,
+        stock_code,
+        stock_code.split(".")[0] if stock_code else "",
+        base_code,
+        guessed_symbol,
+    ):
+        candidate = str(candidate or "").strip().lower()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    for candidate in candidates:
+        instrument = query_instrument_info(candidate)
+        name = str((instrument or {}).get("name") or "").strip()
+        if name:
+            return name
+
+    return raw_name
+
+
+def _enrich_position_names(records: List[Dict]) -> List[Dict]:
+    enriched = []
+    for item in records or []:
+        record = dict(item)
+        record["name"] = _resolve_position_name(record)
+        enriched.append(record)
+    return enriched
 
 
 def insertStockPosition(acc: List, item: Dict):
@@ -311,7 +359,7 @@ def get_stock_last_fill(symbol):
 def get_stock_positions():
     records = list_stock_positions()
     if records:
-        return records
+        return _enrich_position_names(records)
     return _get_legacy_stock_positions()
 
 
@@ -357,7 +405,7 @@ def _get_legacy_stock_positions():
         grouped = grouped.sort_values(by=["date", "time"])
         df = df.round({"amount": 2})
 
-        return grouped.to_dict(orient="records")
+        return _enrich_position_names(grouped.to_dict(orient="records"))
     else:
         return []
 

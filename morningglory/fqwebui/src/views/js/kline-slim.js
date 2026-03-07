@@ -1,6 +1,7 @@
 import * as echarts from 'echarts'
 
 import { futureApi } from '@/api/futureApi'
+import { getGanttStockReasons } from '@/api/ganttApi'
 import { stockApi } from '@/api/stockApi'
 
 import drawSlim from './draw-slim'
@@ -12,6 +13,14 @@ import {
   pickFirstHoldingSymbol,
   shouldResolveDefaultSymbol
 } from './kline-slim-default-symbol.mjs'
+import {
+  buildSidebarSections,
+  getSidebarDeleteBehavior,
+  getReasonPanelMessage,
+  getSidebarCode6,
+  normalizeReasonItems,
+  toggleSidebarExpandedKey
+} from './kline-slim-sidebar.mjs'
 
 const MAIN_PERIODS = ['1m', '5m', '15m', '30m']
 const DEFAULT_PERIOD = '5m'
@@ -60,15 +69,52 @@ export default {
       resolvingDefaultSymbol: false,
       defaultSymbolResolveError: '',
       resetChartStateOnNextRender: true,
-      periodList: MAIN_PERIODS
+      periodList: MAIN_PERIODS,
+      holdings: [],
+      mustPools: [],
+      stockPools: [],
+      prePools: [],
+      sidebarLoading: {
+        holding: false,
+        must_pool: false,
+        stock_pools: false,
+        stock_pre_pools: false
+      },
+      sidebarErrors: {
+        holding: '',
+        must_pool: '',
+        stock_pools: '',
+        stock_pre_pools: ''
+      },
+      expandedSidebarKey: 'holding',
+      sidebarDeleting: {},
+      reasonCache: {},
+      reasonLoading: {},
+      reasonError: {}
     }
   },
   computed: {
     routeSymbol() {
       return (this.$route.query.symbol || '').trim()
     },
+    activeCode6() {
+      return getSidebarCode6({ symbol: this.routeSymbol, code: this.routeSymbol })
+    },
     isRealtimeMode() {
       return !this.endDateModel
+    },
+    sidebarSections() {
+      return buildSidebarSections({
+        holdings: this.holdings,
+        mustPools: this.mustPools,
+        stockPools: this.stockPools,
+        prePools: this.prePools,
+        expandedKey: this.expandedSidebarKey
+      }).map((section) => ({
+        ...section,
+        loading: !!this.sidebarLoading[section.key],
+        error: this.sidebarErrors[section.key] || ''
+      }))
     },
     emptyMessage() {
       return getKlineSlimEmptyMessage({
@@ -97,6 +143,9 @@ export default {
       }
     }
   },
+  created() {
+    this.loadSidebarData()
+  },
   mounted() {
     this.initChart()
     this.scheduleRender()
@@ -119,6 +168,66 @@ export default {
     }
   },
   methods: {
+    async loadSidebarData() {
+      await Promise.allSettled([
+        this.loadHoldingList(),
+        this.loadMustPools(),
+        this.loadStockPools(),
+        this.loadPrePools()
+      ])
+    },
+    async loadHoldingList() {
+      this.sidebarLoading.holding = true
+      this.sidebarErrors.holding = ''
+      try {
+        const items = await stockApi.getHoldingPositionList()
+        this.holdings = Array.isArray(items) ? items : []
+      } catch (error) {
+        this.holdings = []
+        this.sidebarErrors.holding = '加载失败'
+      } finally {
+        this.sidebarLoading.holding = false
+      }
+    },
+    async loadMustPools() {
+      this.sidebarLoading.must_pool = true
+      this.sidebarErrors.must_pool = ''
+      try {
+        const items = await stockApi.getStockMustPoolsList({ page: 1, size: 1000 })
+        this.mustPools = Array.isArray(items) ? items : []
+      } catch (error) {
+        this.mustPools = []
+        this.sidebarErrors.must_pool = '加载失败'
+      } finally {
+        this.sidebarLoading.must_pool = false
+      }
+    },
+    async loadStockPools() {
+      this.sidebarLoading.stock_pools = true
+      this.sidebarErrors.stock_pools = ''
+      try {
+        const items = await stockApi.getStockPoolsList({ page: 1, size: 1000 })
+        this.stockPools = Array.isArray(items) ? items : []
+      } catch (error) {
+        this.stockPools = []
+        this.sidebarErrors.stock_pools = '加载失败'
+      } finally {
+        this.sidebarLoading.stock_pools = false
+      }
+    },
+    async loadPrePools() {
+      this.sidebarLoading.stock_pre_pools = true
+      this.sidebarErrors.stock_pre_pools = ''
+      try {
+        const items = await stockApi.getStockPrePoolsList({ page: 1, size: 1000 })
+        this.prePools = Array.isArray(items) ? items : []
+      } catch (error) {
+        this.prePools = []
+        this.sidebarErrors.stock_pre_pools = '加载失败'
+      } finally {
+        this.sidebarLoading.stock_pre_pools = false
+      }
+    },
     initChart() {
       const chartDom = this.$refs.chartHost
       if (!chartDom || this.chart) {
@@ -263,6 +372,112 @@ export default {
         this.resolvingDefaultSymbol = false
         this.defaultSymbolResolveError = '默认持仓解析失败'
       }
+    },
+    isSidebarItemActive(item) {
+      return getSidebarCode6(item) === this.activeCode6
+    },
+    toggleSidebarSection(sectionKey) {
+      this.expandedSidebarKey = toggleSidebarExpandedKey(this.expandedSidebarKey, sectionKey)
+    },
+    selectSidebarItem(item) {
+      const symbol = (item && item.symbol) || ''
+      if (!symbol) {
+        return
+      }
+      this.$router.replace({
+        path: '/kline-slim',
+        query: {
+          ...this.$route.query,
+          symbol,
+          period: this.currentPeriod
+        }
+      })
+    },
+    getSidebarDeleteKey(sectionKey, item) {
+      const code6 = getSidebarCode6(item)
+      return code6 ? `${sectionKey}:${code6}` : ''
+    },
+    isSidebarDeletePending(sectionKey, item) {
+      const deleteKey = this.getSidebarDeleteKey(sectionKey, item)
+      return deleteKey ? !!this.sidebarDeleting[deleteKey] : false
+    },
+    async loadSidebarSectionByKey(sectionKey) {
+      switch (sectionKey) {
+        case 'holding':
+          await this.loadHoldingList()
+          break
+        case 'must_pool':
+          await this.loadMustPools()
+          break
+        case 'stock_pools':
+          await this.loadStockPools()
+          break
+        case 'stock_pre_pools':
+          await this.loadPrePools()
+          break
+        default:
+          break
+      }
+    },
+    async refreshSidebarSections(sectionKeys = []) {
+      const uniqueKeys = Array.from(new Set(sectionKeys.filter(Boolean)))
+      await Promise.allSettled(uniqueKeys.map((sectionKey) => this.loadSidebarSectionByKey(sectionKey)))
+    },
+    async deleteSidebarItem(sectionKey, item) {
+      const behavior = getSidebarDeleteBehavior(sectionKey)
+      const code6 = getSidebarCode6(item)
+      if (!behavior || !code6) {
+        return
+      }
+
+      const deleteKey = this.getSidebarDeleteKey(sectionKey, item)
+      this.sidebarDeleting = { ...this.sidebarDeleting, [deleteKey]: true }
+      try {
+        const method = stockApi[behavior.method]
+        if (typeof method !== 'function') {
+          throw new Error(`missing stockApi method: ${behavior.method}`)
+        }
+        await method.call(stockApi, code6)
+        await this.refreshSidebarSections(behavior.refreshKeys)
+      } catch (error) {
+        if (typeof this.$message?.error === 'function') {
+          this.$message.error('删除失败')
+        }
+      } finally {
+        this.sidebarDeleting = { ...this.sidebarDeleting, [deleteKey]: false }
+      }
+    },
+    async handleReasonPopoverShow(item) {
+      const code6 = getSidebarCode6(item)
+      if (!code6 || this.reasonCache[code6] || this.reasonLoading[code6]) {
+        return
+      }
+
+      this.reasonLoading = { ...this.reasonLoading, [code6]: true }
+      this.reasonError = { ...this.reasonError, [code6]: '' }
+      try {
+        const payload = await getGanttStockReasons({ code6, provider: 'all', limit: 0 })
+        this.reasonCache = {
+          ...this.reasonCache,
+          [code6]: normalizeReasonItems(payload)
+        }
+      } catch (error) {
+        this.reasonError = { ...this.reasonError, [code6]: '加载失败' }
+      } finally {
+        this.reasonLoading = { ...this.reasonLoading, [code6]: false }
+      }
+    },
+    getReasonItems(item) {
+      const code6 = getSidebarCode6(item)
+      return this.reasonCache[code6] || []
+    },
+    getReasonMessage(item) {
+      const code6 = getSidebarCode6(item)
+      return getReasonPanelMessage({
+        loading: !!this.reasonLoading[code6],
+        error: this.reasonError[code6] || '',
+        items: this.reasonCache[code6] || []
+      })
     },
     stopPolling() {
       if (this.mainTimer) {

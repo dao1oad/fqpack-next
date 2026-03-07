@@ -96,6 +96,61 @@ def test_get_gantt_stocks_requires_plate_key():
     assert response.get_json()["message"] == "plate_key required"
 
 
+def test_get_gantt_stock_reasons_requires_code6():
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.get("/api/gantt/stocks/reasons?provider=all")
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "code6 required"
+
+
+def test_get_gantt_stock_reasons_reads_stock_hot_reason_rows(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    called = {}
+
+    def fake_query_stock_hot_reason_rows(*, code6, provider, limit):
+        called.update({"code6": code6, "provider": provider, "limit": limit})
+        return [
+            {
+                "date": "2026-03-05",
+                "time": "09:31",
+                "provider": "xgb",
+                "plate_name": "robotics",
+                "plate_reason": "xgb plate reason",
+                "stock_reason": "xgb stock reason",
+            }
+        ]
+
+    monkeypatch.setattr(
+        gantt_routes.svc,
+        "query_stock_hot_reason_rows",
+        fake_query_stock_hot_reason_rows,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.get("/api/gantt/stocks/reasons?code6=000001&provider=all")
+
+    assert response.status_code == 200
+    assert called == {"code6": "000001", "provider": "all", "limit": 0}
+    assert response.get_json()["data"]["items"] == [
+        {
+            "date": "2026-03-05",
+            "time": "09:31",
+            "provider": "xgb",
+            "plate_name": "robotics",
+            "plate_reason": "xgb plate reason",
+            "stock_reason": "xgb stock reason",
+        }
+    ]
+
+
 def test_get_gantt_plates_rejects_invalid_end_date(monkeypatch):
     from freshquant.rear.gantt import routes as gantt_routes
 

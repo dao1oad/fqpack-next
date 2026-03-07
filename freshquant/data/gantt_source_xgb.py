@@ -97,6 +97,8 @@ def _build_xgb_hot_stock_map(
             "stock_name": _to_str(row.get("prod_name")),
             "description": _to_str(row.get("description")),
             "up_limit": row.get("up_limit"),
+            "enter_time": row.get("enter_time"),
+            "time_on_market": row.get("time_on_market"),
             "plates": plates,
         }
         if not stock["symbol"]:
