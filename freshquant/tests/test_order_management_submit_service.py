@@ -1,4 +1,5 @@
 from freshquant.order_management.submit.service import OrderSubmitService
+from freshquant.position_management.models import PositionDecision
 
 
 class FakeQueueClient:
@@ -62,10 +63,25 @@ class InMemoryRepository:
         return order
 
 
+class AllowingPositionService:
+    def evaluate_strategy_order(self, payload):
+        return PositionDecision(
+            allowed=True,
+            state="ALLOW_OPEN",
+            reason_code="buy_allowed",
+            reason_text="当前状态允许策略买入",
+            decision_id="pmd_test_allow",
+        )
+
+
 def test_submit_service_enqueues_buy_and_marks_order_queued():
     repository = InMemoryRepository()
     queue_client = FakeQueueClient()
-    service = OrderSubmitService(repository=repository, queue_client=queue_client)
+    service = OrderSubmitService(
+        repository=repository,
+        queue_client=queue_client,
+        position_management_service=AllowingPositionService(),
+    )
 
     result = service.submit_order(
         {
@@ -86,6 +102,7 @@ def test_submit_service_enqueues_buy_and_marks_order_queued():
     assert queue_client.messages[0][0] == "freshquant_order_queue"
     assert '"internal_order_id"' in queue_client.messages[0][1]
     assert '"symbol": "000001"' in queue_client.messages[0][1]
+    assert '"position_management_state": "ALLOW_OPEN"' in queue_client.messages[0][1]
 
 
 def test_submit_service_enqueues_cancel_and_preserves_cancel_requested_state():

@@ -6,16 +6,26 @@ from datetime import datetime, timezone
 from freshquant.carnation.config import STOCK_ORDER_QUEUE
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.tracking.service import OrderTrackingService
+from freshquant.position_management.errors import PositionManagementRejectedError
 from freshquant.util.code import normalize_to_base_code
 
 
 class OrderSubmitService:
-    def __init__(self, repository=None, tracking_service=None, queue_client=None):
+    def __init__(
+        self,
+        repository=None,
+        tracking_service=None,
+        queue_client=None,
+        position_management_service=None,
+    ):
         self.repository = repository or OrderManagementRepository()
         self.tracking_service = tracking_service or OrderTrackingService(
             repository=self.repository
         )
         self.queue_client = queue_client or _load_queue_client()
+        self.position_management_service = (
+            position_management_service or _load_position_management_service()
+        )
 
     def submit_order(self, payload):
         action = payload["action"].lower()
@@ -27,6 +37,22 @@ class OrderSubmitService:
         quantity = int(payload["quantity"])
         if quantity <= 0:
             raise ValueError("quantity must be positive")
+
+        position_decision = None
+        if payload.get("source") == "strategy":
+            position_decision = self.position_management_service.evaluate_strategy_order(
+                {
+                    **payload,
+                    "action": action,
+                    "symbol": symbol,
+                    "price": price,
+                    "quantity": quantity,
+                }
+            )
+            if not position_decision.allowed:
+                raise PositionManagementRejectedError(
+                    f"position management rejected: {position_decision.reason_code}"
+                )
 
         request_id = self.tracking_service.submit_order(
             {
@@ -56,6 +82,11 @@ class OrderSubmitService:
             "scope_type": payload.get("scope_type"),
             "scope_ref_id": payload.get("scope_ref_id"),
         }
+        if position_decision is not None:
+            queue_payload["position_management_state"] = position_decision.state
+            queue_payload["position_management_decision_id"] = (
+                position_decision.decision_id
+            )
         self.queue_client.lpush(
             STOCK_ORDER_QUEUE,
             json.dumps(queue_payload, ensure_ascii=False),
@@ -115,6 +146,12 @@ def _load_queue_client():
     from freshquant.database.redis import redis_db
 
     return redis_db
+
+
+def _load_position_management_service():
+    from freshquant.position_management.service import PositionManagementService
+
+    return PositionManagementService()
 
 
 def _now_local_string():

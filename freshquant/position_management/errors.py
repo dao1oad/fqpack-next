@@ -5,7 +5,7 @@ class PositionManagementError(Exception):
     pass
 
 
-class PositionManagementRejectedError(PositionManagementError):
+class PositionManagementRejectedError(ValueError, PositionManagementError):
     pass
 
 
