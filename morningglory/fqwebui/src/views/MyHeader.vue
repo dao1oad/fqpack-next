@@ -16,6 +16,11 @@
         >
       </el-button-group>
       <el-button-group>
+        <el-button type="success" @click="jumpToControl('gantt')" size="small"
+          >板块趋势</el-button
+        >
+      </el-button-group>
+      <el-button-group>
         <el-button type="primary" @click="jumpToControl('stock')" size="small"
           >股票</el-button
         >
@@ -49,6 +54,8 @@ export default {
         this.$router.replace('/futures-control')
       } else if (type === 'klineSlim') {
         this.$router.replace('/kline-slim')
+      } else if (type === 'gantt') {
+        this.$router.replace('/gantt?p=xgb')
       } else if (type === 'stock') {
         this.$router.replace('/stock-control')
       } else if (type === 'pool') {

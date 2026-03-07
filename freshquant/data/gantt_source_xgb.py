@@ -10,6 +10,7 @@ from freshquant.db import DBGantt
 
 COL_XGB_TOP_GAINER_HISTORY = "xgb_top_gainer_history"
 BASE_URL = "https://flash-api.xuangubao.cn/api"
+XGB_EXCLUDE_PLATE_IDS = {-1}
 XGB_EXCLUDE_PLATE_NAMES = {"其他"}
 
 
@@ -158,31 +159,35 @@ def sync_xgb_history_for_date(trade_date: str) -> int:
         plate_id = plate.get("id")
         if plate_id is None:
             continue
-        detail = detail_map.get(str(plate_id), {})
+        plate_id_int = int(plate_id)
+        if plate_id_int in XGB_EXCLUDE_PLATE_IDS:
+            continue
+
+        detail = detail_map.get(str(plate_id_int), {})
         plate_name = _to_str(detail.get("plate_name")) or _to_str(plate.get("name"))
         if plate_name in XGB_EXCLUDE_PLATE_NAMES:
             continue
 
         description = _to_str(plate.get("description"))
         if not description:
-            cached_detail = plate_set_cache.get(int(plate_id))
+            cached_detail = plate_set_cache.get(plate_id_int)
             if cached_detail is None:
-                cached_detail = _fetch_plate_set_detail(int(plate_id))
-                plate_set_cache[int(plate_id)] = cached_detail
+                cached_detail = _fetch_plate_set_detail(plate_id_int)
+                plate_set_cache[plate_id_int] = cached_detail
             description = _to_str(cached_detail.get("desc"))
 
         document = {
             "trade_date": date_str,
-            "plate_id": int(plate_id),
+            "plate_id": plate_id_int,
             "plate_name": plate_name,
             "description": description,
             "limit_up_count": detail.get("limit_up_count"),
             "rank": rank,
-            "hot_stocks": hot_stock_map.get(int(plate_id), []),
+            "hot_stocks": hot_stock_map.get(plate_id_int, []),
             "provider": "xgb",
         }
         collection.update_one(
-            {"trade_date": date_str, "plate_id": int(plate_id)},
+            {"trade_date": date_str, "plate_id": plate_id_int},
             {"$set": document},
             upsert=True,
         )

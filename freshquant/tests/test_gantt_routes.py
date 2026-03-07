@@ -44,6 +44,8 @@ def test_get_gantt_plates_reads_readmodel_collection(monkeypatch):
                 "hot_stock_count": 5,
                 "limit_up_count": 1,
                 "stock_codes": ["000001", "000002"],
+                "reason_text": "day1 reason",
+                "reason_ref": {"trade_date": "2026-03-04", "plate_id": 11},
             },
             {
                 "provider": "xgb",
@@ -54,6 +56,8 @@ def test_get_gantt_plates_reads_readmodel_collection(monkeypatch):
                 "hot_stock_count": 8,
                 "limit_up_count": 3,
                 "stock_codes": ["000001", "000002", "000003"],
+                "reason_text": "day2 reason",
+                "reason_ref": {"trade_date": "2026-03-05", "plate_id": 11},
             },
         ]
     )
@@ -68,6 +72,16 @@ def test_get_gantt_plates_reads_readmodel_collection(monkeypatch):
     payload = response.get_json()
     assert payload["data"]["dates"] == ["2026-03-04", "2026-03-05"]
     assert payload["data"]["y_axis"] == [{"id": "11", "name": "robotics"}]
+    assert payload["meta"]["reason_map"] == {
+        "2026-03-04|11": {
+            "reason_text": "day1 reason",
+            "reason_ref": {"trade_date": "2026-03-04", "plate_id": 11},
+        },
+        "2026-03-05|11": {
+            "reason_text": "day2 reason",
+            "reason_ref": {"trade_date": "2026-03-05", "plate_id": 11},
+        },
+    }
 
 
 def test_get_gantt_stocks_requires_plate_key():

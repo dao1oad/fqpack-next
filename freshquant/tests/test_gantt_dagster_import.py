@@ -40,5 +40,6 @@ def test_gantt_dagster_modules_import(monkeypatch):
     schedules_module = importlib.import_module("fqdagster.defs.schedules.gantt")
 
     assert hasattr(ops_module, "op_sync_xgb_history_daily")
+    assert hasattr(ops_module, "op_run_gantt_postclose_incremental")
     assert hasattr(jobs_module, "job_gantt_postclose")
     assert hasattr(schedules_module, "gantt_postclose_schedule")
