@@ -13,14 +13,14 @@
 ### Task 1: 起草 RFC 并登记迁移进度
 
 **Files:**
-- Create: `docs/rfcs/0012-position-management.md`
+- Create: `docs/rfcs/0013-position-management.md`
 - Modify: `docs/migration/progress.md`
 - Reference: `docs/plans/2026-03-07-position-management-design.md`
 
-**Step 1: 按设计稿起草 RFC 0012**
+**Step 1: 按设计稿起草 RFC 0013**
 
 ```markdown
-# RFC 0012: 融资账户仓位管理模块
+# RFC 0013: 融资账户仓位管理模块
 
 - **状态**：Draft
 - **负责人**：Codex
@@ -37,26 +37,26 @@
 - 只控制 `source=strategy` 的订单
 ```
 
-**Step 2: 在迁移进度表登记 RFC 0012**
+**Step 2: 在迁移进度表登记 RFC 0013**
 
 在 `docs/migration/progress.md` 新增一行，状态先写 `Draft`，备注中引用设计稿：
 
 ```markdown
-| 0012 | 融资账户仓位管理模块 | Draft | Codex | 2026-03-07 | `D:\fqpack\freshquant\freshquant\strategy\toolkit\position_manager.py` / `position_risk_guard.py` / xtquant `query_credit_detail` | 设计稿已确认：独立分库、独立 worker、唯一状态源 `pm_current_state`、默认兜底状态 `HOLDING_ONLY`。 |
+| 0013 | 融资账户仓位管理模块 | Draft | Codex | 2026-03-07 | `D:\fqpack\freshquant\freshquant\strategy\toolkit\position_manager.py` / `position_risk_guard.py` / xtquant `query_credit_detail` | 设计稿已确认：独立分库、独立 worker、唯一状态源 `pm_current_state`、默认兜底状态 `HOLDING_ONLY`。 |
 ```
 
 **Step 3: 自检 RFC 与进度登记**
 
-Run: `rg -n "0012|position-management|仓位管理模块" docs/rfcs docs/migration/progress.md`
+Run: `rg -n "0013|position-management|仓位管理模块" docs/rfcs docs/migration/progress.md`
 
 Expected:
-- 输出 `docs/rfcs/0012-position-management.md`
-- 输出 `docs/migration/progress.md` 中的 RFC 0012 行
+- 输出 `docs/rfcs/0013-position-management.md`
+- 输出 `docs/migration/progress.md` 中的 RFC 0013 行
 
 **Step 4: Commit**
 
 ```bash
-git add docs/rfcs/0012-position-management.md docs/migration/progress.md
+git add docs/rfcs/0013-position-management.md docs/migration/progress.md
 git commit -m "docs: draft rfc for position management module"
 ```
 
