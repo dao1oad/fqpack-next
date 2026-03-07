@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "fqxtrade"
 version = "2025.11.3"
 description = "fqxtrade cli"
+requires-python = ">=3.12,<3.13"
 authors = [
     { name="kldcty@vx", email="1106628276@qq.com" }
 ]
