@@ -19,6 +19,16 @@ export const futureApi = {
       method: 'get'
     })
   },
+  stockChanlunStructure (data) {
+    let url = `/api/stock_data_chanlun_structure?period=${data.period}&symbol=${data.symbol}`
+    if (data.endDate) {
+      url += `&endDate=${data.endDate}`
+    }
+    return axios({
+      url,
+      method: 'get'
+    })
+  },
 
   // 获取期货统计列表
   getStatisticList (dateRange) {

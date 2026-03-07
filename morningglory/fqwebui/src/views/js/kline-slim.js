@@ -27,6 +27,11 @@ const DEFAULT_PERIOD = '5m'
 const OVERLAY_PERIOD = '30m'
 const MAIN_POLL_MS = 5000
 const OVERLAY_POLL_MS = 15000
+const CHANLUN_SOURCE_LABELS = {
+  realtime_cache_fullcalc: '实时 fullcalc',
+  history_fullcalc: '历史 fullcalc',
+  fallback_fullcalc: '实时回退 fullcalc'
+}
 
 function buildVersion(data) {
   if (!data || !Array.isArray(data.date)) {
@@ -41,6 +46,32 @@ function buildVersion(data) {
 function getRoutePeriod(route) {
   const period = route?.query?.period || DEFAULT_PERIOD
   return MAIN_PERIODS.includes(period) ? period : DEFAULT_PERIOD
+}
+
+function formatDirectionLabel(value) {
+  if (value === 'up') {
+    return '上'
+  }
+  if (value === 'down') {
+    return '下'
+  }
+  return '--'
+}
+
+function formatPriceValue(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return '--'
+  }
+  return number.toFixed(2)
+}
+
+function formatPercentValue(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return '--'
+  }
+  return `${number.toFixed(2)}%`
 }
 
 export default {
@@ -90,7 +121,12 @@ export default {
       sidebarDeleting: {},
       reasonCache: {},
       reasonLoading: {},
-      reasonError: {}
+      reasonError: {},
+      showChanlunStructurePanel: false,
+      chanlunStructureLoading: false,
+      chanlunStructureError: '',
+      chanlunStructureRefreshError: '',
+      chanlunStructureData: null
     }
   },
   computed: {
@@ -121,6 +157,43 @@ export default {
         resolvingDefaultSymbol: this.resolvingDefaultSymbol,
         resolveError: this.defaultSymbolResolveError
       })
+    },
+    chanlunStructure() {
+      if (!this.chanlunStructureData || typeof this.chanlunStructureData !== 'object') {
+        return {}
+      }
+      return this.chanlunStructureData.structure || {}
+    },
+    chanlunStructureAsof() {
+      return this.chanlunStructureData?.asof || ''
+    },
+    chanlunStructureMessage() {
+      return this.chanlunStructureData?.message || ''
+    },
+    chanlunStructureSourceLabel() {
+      const source = this.chanlunStructureData?.source || ''
+      return CHANLUN_SOURCE_LABELS[source] || source || '--'
+    },
+    chanlunHigherSegment() {
+      return this.chanlunStructure.higher_segment || null
+    },
+    chanlunHigherSegmentPivots() {
+      if (!Array.isArray(this.chanlunHigherSegment?.pivots)) {
+        return []
+      }
+      return this.chanlunHigherSegment.pivots
+    },
+    chanlunSegment() {
+      return this.chanlunStructure.segment || null
+    },
+    chanlunSegmentPivots() {
+      if (!Array.isArray(this.chanlunSegment?.pivots)) {
+        return []
+      }
+      return this.chanlunSegment.pivots
+    },
+    chanlunBi() {
+      return this.chanlunStructure.bi || null
     },
     statusText() {
       if (this.defaultSymbolResolveError) {
@@ -252,6 +325,7 @@ export default {
       this.currentPeriod = getRoutePeriod(this.$route)
       this.symbolInput = this.routeSymbol
       this.endDateModel = this.$route.query.endDate || ''
+      this.resetChanlunStructureState()
 
       if (!this.routeSymbol && shouldResolveDefaultSymbol(this.$route.query)) {
         this.routeToken += 1
@@ -478,6 +552,94 @@ export default {
         error: this.reasonError[code6] || '',
         items: this.reasonCache[code6] || []
       })
+    },
+    resetChanlunStructureState() {
+      this.showChanlunStructurePanel = false
+      this.chanlunStructureLoading = false
+      this.chanlunStructureError = ''
+      this.chanlunStructureRefreshError = ''
+      this.chanlunStructureData = null
+    },
+    async openChanlunStructurePanel() {
+      if (!this.routeSymbol) {
+        return
+      }
+      this.showChanlunStructurePanel = true
+      if (this.chanlunStructureData || this.chanlunStructureLoading) {
+        return
+      }
+      await this.loadChanlunStructure({ preserveData: false })
+    },
+    closeChanlunStructurePanel() {
+      this.showChanlunStructurePanel = false
+      this.chanlunStructureRefreshError = ''
+    },
+    async refreshChanlunStructure() {
+      if (!this.showChanlunStructurePanel) {
+        return
+      }
+      await this.loadChanlunStructure({ preserveData: true })
+    },
+    async retryChanlunStructure() {
+      await this.loadChanlunStructure({ preserveData: false })
+    },
+    async loadChanlunStructure({ preserveData = true } = {}) {
+      if (this.chanlunStructureLoading || !this.routeSymbol) {
+        return
+      }
+
+      const requestToken = this.routeToken
+      const hasPreviousData = preserveData && !!this.chanlunStructureData
+      this.chanlunStructureLoading = true
+      this.chanlunStructureError = ''
+      this.chanlunStructureRefreshError = ''
+      if (!preserveData) {
+        this.chanlunStructureData = null
+      }
+
+      try {
+        const payload = await futureApi.stockChanlunStructure({
+          symbol: this.routeSymbol,
+          period: this.currentPeriod,
+          endDate: this.endDateModel || undefined
+        })
+        if (requestToken !== this.routeToken || !payload) {
+          return
+        }
+        this.chanlunStructureData = payload
+      } catch (error) {
+        if (requestToken !== this.routeToken) {
+          return
+        }
+        if (hasPreviousData) {
+          this.chanlunStructureRefreshError = '刷新失败，保留上次结果'
+          return
+        }
+        this.chanlunStructureData = null
+        this.chanlunStructureError = '缠论结构加载失败'
+      } finally {
+        if (requestToken === this.routeToken) {
+          this.chanlunStructureLoading = false
+        }
+      }
+    },
+    formatChanlunDirection(value) {
+      return formatDirectionLabel(value)
+    },
+    formatChanlunPivotDirection(value) {
+      if (value === 1) {
+        return '上'
+      }
+      if (value === -1) {
+        return '下'
+      }
+      return '--'
+    },
+    formatChanlunPrice(value) {
+      return formatPriceValue(value)
+    },
+    formatChanlunPercent(value) {
+      return formatPercentValue(value)
     },
     stopPolling() {
       if (this.mainTimer) {
