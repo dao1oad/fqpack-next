@@ -33,7 +33,6 @@ freshquant.txt
 .env
 docker/tradingagents/.env
 .xmake/
-uv.lock
 /report/
 /output/
 /nul

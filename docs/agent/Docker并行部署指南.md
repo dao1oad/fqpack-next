@@ -1,36 +1,48 @@
 ---
 name: docker-parallel-deployment
-description: 在宿主机旧 freshquant 已占用端口时，让本仓库通过 Docker 并行启动，并补充 TradingAgents-CN 第三方服务的端口、启动和排障说明。
+description: 当宿主机旧仓 `D:\fqpack\freshquant` 已占用默认端口时，使用本仓 Docker 并行启动 FreshQuant 与 TradingAgents-CN。
 ---
 
-# Docker 并行部署指南（与宿主机 `D:\fqpack\freshquant` 并行）
+# Docker 并行部署指南
 
-> 适用场景：宿主机已经在跑 `D:\fqpack\freshquant`，本仓库 `D:\fqpack\freshquant-2026.2.23` 需要通过 Docker 并行运行，且不抢占已有端口。
+适用场景：宿主机已经运行旧仓 `D:\fqpack\freshquant`，当前仓 `D:\fqpack\freshquant-2026.2.23` 需要通过 Docker 并行运行且不抢占既有端口。
 
-## 1. 入口
+## 入口
 
 - Compose 文件：`docker/compose.parallel.yaml`
-- 项目名固定：`fqnext_20260223`
-- 作用：
-  - 隔离网络、卷名和容器名
-  - 复用当前仓库 Docker 构建链
-  - 并行托管 FreshQuant 与 `TradingAgents-CN`
+- 项目名：`fqnext_20260223`
 
-## 2. 端口映射
+## 当前镜像约定
 
-| 组件 | 宿主机旧项目端口 | 本仓库 Docker 并行端口 | 说明 |
-|---|---:|---:|---|
-| Web UI (nginx) | 80 | **18080** | FreshQuant 前端入口 |
-| API Server | 5000 | **15000** | FreshQuant API |
-| TDXHQ | 5001 | **15001** | FreshQuant 行情网关 |
-| Dagster UI | 10003 | **11003** | FreshQuant 调度界面 |
-| QAWebServer | 通常未占用 | **18010** | QUANTAXIS 入口 |
-| Redis | 6379 | **6380** | `fq_redis` |
-| MongoDB | 27017 | **27027** | `fq_mongodb` |
-| TradingAgents Backend | N/A | **13000** | `ta_backend` |
-| TradingAgents Frontend | N/A | **13080** | `ta_frontend` |
+- `docker/Dockerfile.rear`
+  - 基础镜像：`python:3.12-bookworm`
+  - 依赖安装：`uv sync --frozen`
+  - 运行环境：`/freshquant/.venv`
+- `third_party/tradingagents-cn/Dockerfile.backend`
+  - 基础镜像：`python:3.12-bookworm`
+  - 依赖安装：`uv sync --frozen`
+  - 运行环境：`/app/.venv`
 
-## 3. 启动
+因此 Compose 里的 Python 进程均显式调用容器内 `.venv`：
+
+- FreshQuant：`/freshquant/.venv/bin/python`
+- TradingAgents-CN：`/app/.venv/bin/python`
+
+## 端口映射
+
+| 组件 | 并行端口 |
+|---|---:|
+| FreshQuant Web UI | `18080` |
+| FreshQuant API | `15000` |
+| FreshQuant TDXHQ | `15001` |
+| Dagster UI | `11003` |
+| QAWebServer | `18010` |
+| Redis | `6380` |
+| MongoDB | `27027` |
+| TradingAgents Backend | `13000` |
+| TradingAgents Frontend | `13080` |
+
+## 启动
 
 全量启动：
 
@@ -39,7 +51,16 @@ cd D:\fqpack\freshquant-2026.2.23
 docker compose -f docker/compose.parallel.yaml up -d --build
 ```
 
-只启动 TradingAgents-CN 相关服务：
+如需在多个 worktree / 分支间隔离镜像标签，可先覆盖：
+```powershell
+$env:FQNEXT_REAR_IMAGE="fqnext_rear:<tag>"
+$env:FQNEXT_WEBUI_IMAGE="fqnext_webui:<tag>"
+$env:FQNEXT_TA_BACKEND_IMAGE="fqnext_ta_backend:<tag>"
+$env:FQNEXT_TA_FRONTEND_IMAGE="fqnext_ta_frontend:<tag>"
+docker compose -f docker/compose.parallel.yaml up -d --build
+```
+
+只启动 TradingAgents-CN：
 
 ```powershell
 docker compose -f docker/compose.parallel.yaml up -d --build fq_mongodb fq_redis ta_backend ta_frontend
@@ -51,75 +72,36 @@ docker compose -f docker/compose.parallel.yaml up -d --build fq_mongodb fq_redis
 docker compose -f docker/compose.parallel.yaml ps
 ```
 
-## 4. 访问入口
+## 访问入口
 
-### 4.1 FreshQuant
+- FreshQuant Web UI：`http://127.0.0.1:18080/`
+- FreshQuant API：`http://127.0.0.1:15000/`
+- FreshQuant Dagster：`http://127.0.0.1:11003/`
+- TradingAgents Frontend：`http://127.0.0.1:13080/`
+- TradingAgents Backend Health：`http://127.0.0.1:13000/api/health`
 
-- Web UI：`http://127.0.0.1:18080/`
-- Dagster UI：`http://127.0.0.1:11003/`
-- API：`http://127.0.0.1:15000/`
-
-### 4.2 TradingAgents-CN
-
-- 前端：`http://127.0.0.1:13080/`
-- 后端健康检查：`http://127.0.0.1:13000/api/health`
-
-## 5. TradingAgents-CN 运行约束
+## TradingAgents-CN 运行约定
 
 - 第三方源码目录：`third_party/tradingagents-cn/`
-- 共享基础设施：
-  - MongoDB：`fq_mongodb`
-  - Redis：`fq_redis`
-- 逻辑隔离：
-  - MongoDB 数据库：`tradingagents_cn`
-  - Redis：`db 8`
-- 本地挂载目录：
+- MongoDB 数据库：`tradingagents_cn`
+- Redis DB：`8`
+- 挂载目录：
   - `runtime/tradingagents-cn/data`
   - `runtime/tradingagents-cn/logs`
 
-## 6. TradingAgents-CN 环境变量
+## 环境变量
 
-- `ta_backend` 会读取仓库根目录 `.env`
-- 参考模板：`docker/tradingagents/.env.example`
-- 至少需要一个可用 LLM Key 才能真正完成分析推理：
+- Compose 默认读取仓库根目录 `.env`
+- TradingAgents 参考模板：`docker/tradingagents/.env.example`
+- 若 `.env` 未显式配置 `JWT_SECRET`，并行 Compose 会为 `ta_backend` 注入开发默认值 `change-me-in-production`，仅用于本地开发/验收，生产环境仍应显式覆盖
+- 至少应配置一个可用的大模型 Key，例如：
   - `DASHSCOPE_API_KEY`
   - `DEEPSEEK_API_KEY`
   - `OPENAI_API_KEY`
-- 如需启用 Tushare，再补 `TUSHARE_TOKEN`
 
-## 7. Dagster 自动调度
+## 常见排障
 
-当前 Compose 默认会启动 `fq_dagster_daemon`。
-
-检查：
-
-```powershell
-docker compose -f docker/compose.parallel.yaml exec -T fq_dagster_daemon dagster-daemon liveness-check
-```
-
-临时关闭：
-
-```powershell
-docker compose -f docker/compose.parallel.yaml stop fq_dagster_daemon
-```
-
-## 8. 停止与清理
-
-停止但保留卷：
-
-```powershell
-docker compose -f docker/compose.parallel.yaml down
-```
-
-停止并删除卷：
-
-```powershell
-docker compose -f docker/compose.parallel.yaml down -v
-```
-
-## 9. 常用排障
-
-### 9.1 Docker Hub 拉取失败
+### Docker Hub 拉取失败
 
 ```powershell
 docker pull python:3.12-bookworm
@@ -129,36 +111,93 @@ docker pull redis:7.0.12-alpine3.18
 docker pull mongo:8.2.2
 ```
 
-### 9.2 FreshQuant 前端 `/api/*` 502
+### FreshQuant 服务异常
 
 ```powershell
-docker compose -f docker/compose.parallel.yaml ps
-docker compose -f docker/compose.parallel.yaml logs --tail 200 fq_webui
 docker compose -f docker/compose.parallel.yaml logs --tail 200 fq_apiserver
+docker compose -f docker/compose.parallel.yaml logs --tail 200 fq_tdxhq
+docker compose -f docker/compose.parallel.yaml logs --tail 200 fq_dagster_webserver
 ```
 
-### 9.3 TradingAgents-CN 前端或后端异常
+### TradingAgents-CN 异常
 
 ```powershell
-docker compose -f docker/compose.parallel.yaml logs --tail 200 ta_frontend
 docker compose -f docker/compose.parallel.yaml logs --tail 200 ta_backend
+docker compose -f docker/compose.parallel.yaml logs --tail 200 ta_frontend
 ```
 
 重点检查：
 
-- `ta_backend` 是否成功连接 `fq_mongodb` / `fq_redis`
+- `ta_backend` 是否成功连接 `fq_mongodb` 与 `fq_redis`
 - 根目录 `.env` 是否已配置可用 LLM Key
-- `tradingagents_cn` 和 Redis `db 8` 是否已经开始写入
+- `tradingagents_cn` 与 Redis `db 8` 是否已开始写入
 
-### 9.4 `job_gantt_postclose` 提示 JYGS “登录失效”
+## 停止
 
-- 根因：JYGS 的 `action/*` 接口需要登录态；Docker 内若没有 `JYGS_SESSION` / `JYGS_COOKIE`，Dagster 会在 `op_sync_jygs_action_daily` 失败。
-- 当前 Compose 会只把宿主机配置目录只读挂载到容器内 `/run/host-config`，并通过 `JYGS_ENV_FILE=/run/host-config/envs.conf` 让 Dagster 读取 `JYGS_SESSION` / `JYGS_COOKIE`；默认宿主机目录是 `D:\fqpack\config`，如需改路径，可先设置 `FQPACK_CONFIG_DIR`。
-- 若你不用该文件，也可直接把 `JYGS_SESSION` / `JYGS_COOKIE` 写进仓库根目录 `.env` 后重启 Dagster 容器。
-- 注意：不要把整个宿主机 `envs.conf` 直接注入容器环境变量；其中像 `DAGSTER_HOME=D:/fqpack/dagster` 这样的宿主机路径会让 Linux 容器启动失败。
-
-重启命令：
+保留卷：
 
 ```powershell
-docker compose -f docker/compose.parallel.yaml up -d --build fq_dagster_webserver fq_dagster_daemon
+docker compose -f docker/compose.parallel.yaml down
 ```
+
+连卷一起删除：
+
+```powershell
+docker compose -f docker/compose.parallel.yaml down -v
+```
+
+### 9.5 宿主机 `broker / xtdata producer / consumer` 读错 Mongo
+
+现象：
+
+- Docker `127.0.0.1:27027/freshquant` 中看不到 `params`
+- 宿主机 `127.0.0.1:27017/freshquant` 中却有 `params / xt_positions / xt_trades`
+- Docker 内 API 与宿主机 MiniQMT 链路看到的是两套数据
+
+根因：
+
+- Docker 内服务连接 `fq_mongodb:27017`
+- 宿主机进程如果没有显式配置 `FRESHQUANT_MONGODB__PORT=27027`，会回落到默认 `27017`
+
+处理步骤：
+
+1. 在宿主机 `envs.conf` 中显式设置：
+
+```text
+FRESHQUANT_MONGODB__HOST=127.0.0.1
+FRESHQUANT_MONGODB__PORT=27027
+FRESHQUANT_REDIS__HOST=127.0.0.1
+FRESHQUANT_REDIS__PORT=6380
+```
+
+2. 首次使用 Docker `freshquant` 库时，先初始化：
+
+```powershell
+$env:FRESHQUANT_MONGODB__HOST="127.0.0.1"
+$env:FRESHQUANT_MONGODB__PORT="27027"
+python -m freshquant.initialize --quiet
+```
+
+3. 若宿主机旧库已有参数，按 `code` 同步 `freshquant.params` 到 Docker：
+
+```powershell
+@'
+from pymongo import MongoClient
+
+src = MongoClient("mongodb://127.0.0.1:27017")["freshquant"]["params"]
+dst = MongoClient("mongodb://127.0.0.1:27027")["freshquant"]["params"]
+
+for doc in src.find({}, {"_id": 0}):
+    dst.update_one({"code": doc["code"]}, {"$set": doc}, upsert=True)
+'@ | python -
+```
+
+4. 重启宿主机 `broker / producer / consumer`
+
+补充说明：
+
+- MiniQMT / XTData 仍必须运行在 Windows 宿主机，不建议尝试将 `broker` 放入 Linux 容器。
+- Docker 并行模式下，如需让宿主机 `broker / producer / consumer` 与容器内 API 共用同一队列，Redis 应连接宿主机映射端口 `6380`，而不是旧宿主机 Redis `6379`。
+- 推荐直接使用仓库内模板：
+  - `docs/配置文件模板/envs.fqnext.example`
+  - `docs/配置文件模板/supervisord.fqnext.example.conf`

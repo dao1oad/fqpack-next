@@ -5,11 +5,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-import chardet
+try:
+    import chardet
+except ImportError:
+    chardet = None
 
 
 def run_command(cmd, check=True, shell=True):
-    """运行命令行命令"""
     print(f"执行命令: {cmd}")
     try:
         result = subprocess.run(
@@ -17,199 +19,154 @@ def run_command(cmd, check=True, shell=True):
         )
         if result.stdout:
             if isinstance(result.stdout, bytes):
-                # 使用 chardet 检测编码
                 if chardet:
                     detected = chardet.detect(result.stdout)
-                    encoding = detected['encoding'] or 'utf-8'
-                    confidence = detected['confidence'] or 0
+                    encoding = detected["encoding"] or "utf-8"
+                    confidence = detected["confidence"] or 0
 
-                    if confidence > 0.7:  # 置信度较高时使用检测到的编码
+                    if confidence > 0.7:
                         try:
                             stdout_text = result.stdout.decode(encoding)
                         except UnicodeDecodeError:
-                            # 如果检测的编码失败，尝试常见编码
                             try:
-                                stdout_text = result.stdout.decode('utf-8')
-                            except UnicodeDecodeError:
-                                try:
-                                    stdout_text = result.stdout.decode('gbk')
-                                except UnicodeDecodeError:
-                                    stdout_text = result.stdout.decode(
-                                        'utf-8', errors='replace'
-                                    )
-                    else:
-                        # 置信度较低时尝试常见编码
-                        try:
-                            stdout_text = result.stdout.decode('utf-8')
-                        except UnicodeDecodeError:
-                            try:
-                                stdout_text = result.stdout.decode('gbk')
+                                stdout_text = result.stdout.decode("utf-8")
                             except UnicodeDecodeError:
                                 stdout_text = result.stdout.decode(
-                                    'utf-8', errors='replace'
+                                    "utf-8", errors="replace"
+                                )
+                    else:
+                        try:
+                            stdout_text = result.stdout.decode("utf-8")
+                        except UnicodeDecodeError:
+                            try:
+                                stdout_text = result.stdout.decode("gbk")
+                            except UnicodeDecodeError:
+                                stdout_text = result.stdout.decode(
+                                    "utf-8", errors="replace"
                                 )
                 else:
-                    # 没有 chardet 时使用常见编码尝试
                     try:
-                        stdout_text = result.stdout.decode('utf-8')
+                        stdout_text = result.stdout.decode("utf-8")
                     except UnicodeDecodeError:
                         try:
-                            stdout_text = result.stdout.decode('gbk')
+                            stdout_text = result.stdout.decode("gbk")
                         except UnicodeDecodeError:
                             stdout_text = result.stdout.decode(
-                                'utf-8', errors='replace'
+                                "utf-8", errors="replace"
                             )
                 print(f"输出: {stdout_text}")
             else:
                 print(f"输出: {result.stdout}")
         return result
-    except subprocess.CalledProcessError as e:
-        print(f"命令执行失败: {e}")
-        if e.stderr:
-            print(f"错误输出: {e.stderr}")
+    except subprocess.CalledProcessError as exc:
+        print(f"命令执行失败: {exc}")
+        if exc.stderr:
+            try:
+                stderr_text = exc.stderr.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    stderr_text = exc.stderr.decode("gbk")
+                except UnicodeDecodeError:
+                    stderr_text = exc.stderr.decode("utf-8", errors="replace")
+            print(f"错误输出: {stderr_text}")
         if check:
             raise
-        return e
+        return exc
 
 
 def set_environment_variables():
-    """设置环境变量"""
     print("设置环境变量...")
+    os.environ["PYTHONUTF8"] = "1"
 
-    # 设置PYTHONUTF8
-    os.environ['PYTHONUTF8'] = '1'
-    try:
-        if sys.platform == 'win32':
-            run_command('setx PYTHONUTF8 1', check=False)
-        else:
-            # 在Linux/macOS上设置环境变量
-            run_command('echo "export PYTHONUTF8=1" >> ~/.bashrc', check=False)
-    except Exception:
-        print("设置PYTHONUTF8环境变量失败，继续执行...")
-
-    # 设置PIP镜像和信任主机
     pip_vars = {
-        'PIP_INDEX_URL': 'https://mirrors.aliyun.com/pypi/simple',
-        'PIP_TRUSTED_HOST': 'mirrors.aliyun.com',
+        "PIP_INDEX_URL": "https://mirrors.aliyun.com/pypi/simple",
+        "PIP_TRUSTED_HOST": "mirrors.aliyun.com",
     }
 
     for var_name, var_value in pip_vars.items():
         os.environ[var_name] = var_value
         try:
-            if sys.platform == 'win32':
-                run_command(f'setx {var_name} {var_value}', check=False)
+            if sys.platform == "win32":
+                run_command(f"setx {var_name} {var_value}", check=False)
             else:
                 run_command(
                     f'echo "export {var_name}={var_value}" >> ~/.bashrc', check=False
                 )
         except Exception:
-            print(f"设置{var_name}环境变量失败，继续执行...")
+            print(f"设置 {var_name} 失败，继续执行...")
 
 
-def install_packages():
-    """安装Python包"""
-    print("安装Python包...")
+def install_runtime_prerequisites():
+    print("安装运行时前置依赖...")
+    print("当前项目依赖已通过 wheel 提供 TA-Lib，跳过宿主机原生前置安装")
 
-    # 安装TA-Lib
-    run_command(
-        f'msiexec /package {os.path.join("deps", "ta-lib-0.6.4-windows-x86_64.msi")} /quiet',
-        check=False,
-    )
-    run_command('uv pip install ta-lib==0.6.4', check=False)
 
-    # 安装pip包
-    pip_packages = [
-        'Cython',
-        './morningglory/fqchan01/python',
-        './morningglory/fqchan02/python',
-        './morningglory/fqchan03/python',
-        './morningglory/fqchan04/python',
-        './morningglory/fqchan06/python',
-        './morningglory/fqcopilot/python',
-        './sunflower/xtquant',
-        './sunflower/backtrader',
-        './sunflower/pytdx',
-        './sunflower/QUANTAXIS',
-        '.',
-        './morningglory/fqdagster',
-        './morningglory/fqxtrade',
-    ]
-
-    for pkg in pip_packages:
-        try:
-            run_command(f'uv pip install {pkg}', check=False)
-        except Exception:
-            print(f"安装 {pkg} 失败，继续执行...")
+def build_project_extensions():
+    print("构建项目扩展...")
+    run_command(f'"{sys.executable}" script/build_extensions.py --target fullcalc')
 
 
 def parse_arguments():
-    """解析命令行参数"""
-    parser = argparse.ArgumentParser(description='FreshQuant 安装脚本 - Python版本')
-    parser.add_argument('--skip-env', action='store_true', help='跳过环境变量设置')
-    parser.add_argument('--skip-packages', action='store_true', help='跳过包安装')
-    parser.add_argument('--skip-web', action='store_true', help='跳过web文件复制')
+    parser = argparse.ArgumentParser(description="FreshQuant 安装脚本 - Python 3.12")
+    parser.add_argument("--skip-env", action="store_true", help="跳过环境变量设置")
     parser.add_argument(
-        '--nginx-dir',
-        default='D:/fqpack/nginx/html',
-        help='nginx html目录路径 (默认: D:/fqpack/nginx/html)',
+        "--skip-packages", action="store_true", help="跳过运行时前置依赖安装"
+    )
+    parser.add_argument("--skip-web", action="store_true", help="跳过 web 文件复制")
+    parser.add_argument(
+        "--runtime-prereqs-only",
+        action="store_true",
+        help="只安装运行时前置依赖",
     )
     parser.add_argument(
-        '--web-source',
-        default='morningglory/fqwebui/web',
-        help='web源文件目录路径 (默认: morningglory/fqwebui/web)',
+        "--nginx-dir",
+        default="D:/fqpack/nginx/html",
+        help="nginx html 目录路径 (默认: D:/fqpack/nginx/html)",
     )
     parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='干运行模式，只显示将要执行的命令但不实际执行',
+        "--web-source",
+        default="morningglory/fqwebui/web",
+        help="web 源目录路径 (默认: morningglory/fqwebui/web)",
     )
-
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="干运行模式，仅显示步骤信息但不真正执行",
+    )
     return parser.parse_args()
 
 
 def copy_web_files(nginx_dir, web_source):
-    """复制web文件到nginx目录"""
-    print("检查并复制web文件到nginx目录...")
+    print("检查并复制 web 文件到 nginx 目录...")
 
     nginx_html_dir = Path(nginx_dir)
     web_source_dir = Path(web_source)
 
     if not web_source_dir.exists():
-        print(f"Web源目录 {web_source_dir} 不存在，跳过复制")
+        print(f"Web 源目录 {web_source_dir} 不存在，跳过复制")
         return
 
     if nginx_html_dir.exists():
-        print("目录存在，正在清空并复制web文件...")
+        print("目录存在，正在清空并复制 web 文件...")
         try:
-            # 删除目标目录
-            if nginx_html_dir.exists():
-                shutil.rmtree(nginx_html_dir)
-
-            # 创建目标目录
+            shutil.rmtree(nginx_html_dir)
             nginx_html_dir.mkdir(parents=True, exist_ok=True)
-
-            # 复制文件
-            if web_source_dir.exists():
-                shutil.copytree(web_source_dir, nginx_html_dir, dirs_exist_ok=True)
-                print(f"Web文件已成功复制到 {nginx_html_dir}")
-            else:
-                print(f"Web源目录 {web_source_dir} 不存在")
-
-        except Exception as e:
-            print(f"复制web文件失败: {e}")
+            shutil.copytree(web_source_dir, nginx_html_dir, dirs_exist_ok=True)
+            print(f"Web 文件已成功复制到 {nginx_html_dir}")
+        except Exception as exc:
+            print(f"复制 web 文件失败: {exc}")
     else:
-        print(f"{nginx_html_dir} 目录不存在，跳过web文件复制")
+        print(f"{nginx_html_dir} 目录不存在，跳过 web 文件复制")
 
 
 def main():
-    """主函数"""
     args = parse_arguments()
 
-    print("开始执行FreshQuant安装脚本...")
+    print("开始执行 FreshQuant 安装脚本...")
     print(f"工作目录: {os.getcwd()}")
 
     if args.dry_run:
-        print("干运行模式 - 只显示命令，不实际执行")
+        print("当前为 dry-run，仅输出步骤信息")
 
     try:
         if not args.skip_env:
@@ -218,23 +175,29 @@ def main():
             print("跳过环境变量设置")
 
         if not args.skip_packages:
-            install_packages()
+            install_runtime_prerequisites()
         else:
-            print("跳过包安装")
+            print("跳过运行时前置依赖安装")
+
+        if args.runtime_prereqs_only:
+            print("仅安装运行时前置依赖，提前结束")
+            return 0
+
+        if not args.skip_packages:
+            build_project_extensions()
 
         if not args.skip_web:
             copy_web_files(args.nginx_dir, args.web_source)
         else:
-            print("跳过web文件复制")
+            print("跳过 web 文件复制")
 
-        print("安装完成！")
-
-    except Exception as e:
-        print(f"安装过程中出现错误: {e}")
+        print("安装完成")
+    except Exception as exc:
+        print(f"安装过程中出现错误: {exc}")
         return 1
 
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

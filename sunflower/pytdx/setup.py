@@ -1,26 +1,31 @@
 #!/usr/bin/env python
 
-from setuptools import setup, find_packages
 import os
+
+from setuptools import find_packages, setup
 
 PYTDX_CYTHON = os.getenv("PYTDX_CYTHON", None)
 
 if PYTDX_CYTHON:
     from Cython.Build import cythonize
+
     cythonkw = {
         "ext_modules": cythonize(
-            ["pytdx/reader/c_gbbq_reader.pyx",
-             'pytdx/parser/get_security_quotes.py',
-             'pytdx/parser/base.py',
-             'pytdx/helper.py',
-             'pytdx/hq.py',
-             'pytdx/base_socket_client.py',
-             ])
+            [
+                "pytdx/reader/c_gbbq_reader.pyx",
+                'pytdx/parser/get_security_quotes.py',
+                'pytdx/parser/base.py',
+                'pytdx/helper.py',
+                'pytdx/hq.py',
+                'pytdx/base_socket_client.py',
+            ]
+        )
     }
 else:
     cythonkw = {}
 try:
     import pypandoc
+
     long_description = pypandoc.convert('README.md', 'rst')
 except (IOError, ImportError):
     print(30 * "*")
@@ -32,6 +37,7 @@ except (IOError, ImportError):
 cur_branch = 'master'
 try:
     from git import Repo
+
     cur_path = os.path.abspath(os.path.dirname(__file__))
     repo = Repo(cur_path)
     cur_branch = repo.active_branch.name
@@ -44,11 +50,8 @@ except Exception as e:
 
 pkg_name = 'pytdx'
 
-if cur_branch != 'master':
-    pkg_name = 'pytdx-' + cur_branch
-
 print(30 * '-')
-print("Current Branch is {}, so package name is {}".format(cur_branch, pkg_name))
+print("Current Branch is {}, package name is fixed to {}".format(cur_branch, pkg_name))
 print(30 * '-')
 
 setup(
@@ -61,10 +64,10 @@ setup(
     url='https://github.com/rainx/pytdx',
     packages=find_packages(),
     install_requires=[
-            'click',
-            'pandas',
-            'six',
-            'cryptography',
+        'click',
+        'pandas',
+        'six',
+        'cryptography',
     ],
     entry_points={
         'console_scripts': [
@@ -74,5 +77,5 @@ setup(
             'hqbenchmark=pytdx.bin.hqbenchmark:main',
         ]
     },
-    **cythonkw
+    **cythonkw,
 )

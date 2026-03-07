@@ -1,44 +1,22 @@
 FROM python:3.12-bookworm
 
 ENV TZ=Asia/Shanghai
-# ENV DEBIAN_FRONTEND=noninteractive
+ENV UV_PROJECT_ENVIRONMENT=/freshquant/.venv
+ENV PATH="/freshquant/.venv/bin:${PATH}"
 
-# RUN apt-get -y update && apt-get -y install \
-#     ca-certificates \
-#     build-essential \
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 WORKDIR /freshquant
 
 COPY . .
 
-ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
-ENV PIP_TRUSTED_HOST=mirrors.aliyun.com
+RUN python -m pip install --no-cache-dir uv
+RUN uv sync --frozen
 
-RUN dpkg -i ./deps/ta-lib_0.6.4_amd64.deb && pip install ta-lib==0.6.4
-
-ENV TA_LIBRARY_PATH=/usr/lib
-ENV TA_INCLUDE_PATH=/usr/include
-
-RUN pip install Cython jupyter
-RUN pip install ./morningglory/fqchan01/python
-RUN pip install ./morningglory/fqchan02/python
-RUN pip install ./morningglory/fqchan03/python
-RUN pip install ./morningglory/fqchan04/python
-RUN pip install ./morningglory/fqchan06/python
-RUN pip install ./morningglory/fqcopilot/python
-RUN pip install ./sunflower/xtquant
-RUN pip install ./sunflower/backtrader
-RUN pip install ./sunflower/pytdx
-RUN pip install ./sunflower/QUANTAXIS
-RUN pip install .
-RUN pip install ./morningglory/fqdagster
-
-RUN mkdir -p /root/.jupyter && jupyter lab --generate-config && cp jupyter_server_config.json /root/.jupyter/jupyter_server_config.json
+RUN mkdir -p /root/.jupyter \
+    && /freshquant/.venv/bin/jupyter lab --generate-config \
+    && cp jupyter_server_config.json /root/.jupyter/jupyter_server_config.json
 
 ENV TDX_HOME=/opt/tdx
 ENV DAGSTER_DIR=/opt/dagster
 ENV DAGSTER_HOME=/opt/dagster/home
-
-# 修正下可能的版本问题
-RUN pip install -r freeze.txt

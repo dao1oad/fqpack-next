@@ -145,6 +145,7 @@ class ModelCapabilityService:
                 for config_dict in llm_configs:
                     if config_dict.get("model_name") == model_name:
                         logger.info(f"🔍 [MongoDB] 找到模型配置: {model_name}")
+                        fallback = DEFAULT_MODEL_CAPABILITIES.get(model_name, {})
                         # 🔧 将字符串列表转换为枚举列表
                         features_str = config_dict.get('features', [])
                         features_enum = []
@@ -165,9 +166,11 @@ class ModelCapabilityService:
                             except ValueError:
                                 logger.warning(f"⚠️ 未知的角色值: {role_str}")
 
-                        # 如果没有角色，默认为 both
+                        if not features_enum and fallback.get("features"):
+                            features_enum = list(fallback["features"])
+
                         if not roles_enum:
-                            roles_enum = [ModelRole.BOTH]
+                            roles_enum = list(fallback.get("suitable_roles", [ModelRole.BOTH]))
 
                         logger.info(f"📊 [MongoDB配置] {model_name}: features={features_enum}, roles={roles_enum}")
 
@@ -176,11 +179,11 @@ class ModelCapabilityService:
 
                         return {
                             "model_name": config_dict.get("model_name"),
-                            "capability_level": config_dict.get('capability_level', 2),
+                            "capability_level": config_dict.get('capability_level', fallback.get('capability_level', 2)),
                             "suitable_roles": roles_enum,
                             "features": features_enum,
-                            "recommended_depths": config_dict.get('recommended_depths', ["快速", "基础", "标准"]),
-                            "performance_metrics": config_dict.get('performance_metrics', None)
+                            "recommended_depths": config_dict.get('recommended_depths', fallback.get("recommended_depths", ["快速", "基础", "标准"])),
+                            "performance_metrics": config_dict.get('performance_metrics', fallback.get("performance_metrics"))
                         }
 
             # 关闭连接

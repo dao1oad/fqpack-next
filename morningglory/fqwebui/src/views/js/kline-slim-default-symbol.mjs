@@ -18,6 +18,14 @@ export function buildResolvedKlineSlimQuery({ currentQuery, symbol, period }) {
   }
 }
 
+export function canApplyResolvedKlineSlimRoute({
+  token,
+  routeToken,
+  routePath
+}) {
+  return token === routeToken && routePath === '/kline-slim'
+}
+
 export function getKlineSlimEmptyMessage({
   resolvingDefaultSymbol,
   resolveError

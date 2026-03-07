@@ -21,12 +21,26 @@ description: FreshQuant 中以 Docker 方式接入 TradingAgents-CN 的运行说
 
 ## 2. 环境变量来源
 
-- `ta_backend` 通过 `docker/compose.parallel.yaml` 的 `env_file: ../.env` 读取仓库根目录 `.env`
+- `ta_backend` 启动时会把 `third_party/tradingagents-cn/.env` 挂载到容器内 `/app/.env`
+- `third_party/tradingagents-cn/app/core/config.py` 会在进程启动时显式 `load_dotenv()`，确保：
+  - `Pydantic Settings`
+  - `TradingAgents` 内核
+  - `DeepSeek/Tushare` 这类直接读取 `os.getenv()` 的模块
+  使用同一份配置
+- 仓库根目录 `.env` 只保留 FreshQuant 基础设施变量，不再承载 TradingAgents-CN 的模型和数据源密钥
 - `docker/tradingagents/.env.example` 仅作为变量参考模板
-- 要完成股票分析，至少需要在根目录 `.env` 中配置：
-  - `DASHSCOPE_API_KEY` 或 `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY` 之一
-- 如需启用 Tushare 路径，再补：
+- 要完成股票分析，至少需要在 `third_party/tradingagents-cn/.env` 中配置：
+  - `DEEPSEEK_API_KEY`
+  - `DEEPSEEK_BASE_URL=https://api.deepseek.com`
+  - `DEEPSEEK_ENABLED=true`
   - `TUSHARE_TOKEN`
+  - `TUSHARE_ENABLED=true`
+  - `DEFAULT_CHINA_DATA_SOURCE=tushare`
+
+补充说明：
+
+- 这次已经把本地 `third_party/tradingagents-cn/.env` 的重复键清理掉，保留首个定义并统一了上述默认值。
+- 如果 `DEEPSEEK_API_KEY` 或 `TUSHARE_TOKEN` 仍是 `your_*` 占位值，容器能启动，但真实分析一定失败。
 
 ## 3. 启动
 
@@ -54,6 +68,19 @@ docker compose -f docker/compose.parallel.yaml ps
   - 用户名：`admin`
   - 密码：`admin123`
 - 这是接入层自动化，不改第三方业务代码。
+- 默认 A 股数据源优先级会初始化为：
+  - `Tushare`
+  - `AKShare`
+  - `BaoStock`
+- 默认分析模型会初始化为：
+  - `quick_analysis_model=deepseek-chat`
+  - `deep_analysis_model=deepseek-reasoner`
+
+说明：
+
+- 本地接入层已经正式注册 `deepseek-reasoner`，并将其加入 `TradingAgents-CN` 的默认模型目录、能力声明与 provider 映射。
+- `deepseek-reasoner` 只作为深度分析模型使用；快速分析仍固定为 `deepseek-chat`，避免首轮分析阶段被重推理模型拖慢。
+- 如果 `deepseek-reasoner` 在工具调用链路出现兼容性异常，后端只会把 `deep_analysis_model` 自动回退到 `deepseek-chat`，任务继续执行。
 
 ## 5. 登录与单股分析
 
@@ -130,8 +157,9 @@ Invoke-RestMethod `
 
 优先检查：
 
-- 根目录 `.env` 中是否有可用 LLM Key
-- `ta_backend` 日志里是否出现数据源鉴权失败
+- `third_party/tradingagents-cn/.env` 中是否有可用 `DEEPSEEK_API_KEY`
+- `third_party/tradingagents-cn/.env` 中是否有可用 `TUSHARE_TOKEN`
+- `ta_backend` 日志里是否出现模型或数据源鉴权失败
 - `fq_mongodb` 中是否已创建 `tradingagents_cn`
 - `fq_redis` 的 `db 8` 是否可写
 
@@ -150,15 +178,33 @@ docker compose -f docker/compose.parallel.yaml logs --tail 200 ta_frontend
   - `/api/*`
   - `/api/ws/*`
 
-### 7.3 当前真实验收状态（2026-03-06）
+### 7.3 当前真实验收状态（2026-03-07）
 
-- `000001` 单股任务已经可以完成：
+- 验收标的：`002682`
+- 最近一次完整跑通任务：`c4ffec0d-5878-4cdd-8c45-35cdc36db6e0`
+- 任务完成时间：`2026-03-07 01:36:04`（Asia/Shanghai）
+- 最终建议：`卖出`
+- 置信度：`0.85`
+- 关键模型证据：
+  - `analysis_tasks.result.performance_metrics.llm_config.deep_think_model=deepseek-reasoner`
+  - `analysis_tasks.result.performance_metrics.llm_config.quick_think_model=deepseek-chat`
+  - `analysis_tasks.result.detailed_analysis.model_info=ChatDeepSeek:deepseek-reasoner`
+- 已确认打通的链路：
   - 登录
   - 创建任务
+  - `/app/.env` 挂载并加载到进程环境
+  - `Tushare > AKShare > BaoStock` 默认优先级生效
+  - `quick_analysis_model=deepseek-chat`
+  - `deep_analysis_model=deepseek-reasoner`
   - Mongo 本地数据检查
   - Redis 进度初始化
-  - 进入 `agent_analysis` 多智能体分析阶段
-- 当前主要阻塞不是本地数据，而是大模型凭证：
-  - DashScope 实际返回 `401 invalid_api_key`
-  - Mongo `analysis_tasks.last_error` 会记录 `大模型 API Key 无效`
-- 这意味着当前接入层、本地缓存读取、按需补数和任务状态写入已经联通；后续若要跑完整分析闭环，需先替换有效的 LLM API Key。
+  - 多智能体分析全流程完成
+  - `deepseek-reasoner` 深度模型能力校验通过
+  - 最终结果落到 Mongo
+- 当前已确认修复：
+  - `ta_backend` 运行容器实际挂载工作树 `third_party/tradingagents-cn/.env`
+  - `your_*` 占位密钥不会再覆盖真实 `TUSHARE_TOKEN` / `DEEPSEEK_API_KEY`
+  - `memory` 模块在缺少有效 embedding provider 时会直接禁用，不再触发 `DashScope InvalidApiKey`
+  - `deepseek-reasoner` 已写入活动配置和 DeepSeek 模型目录，启动时自动补齐
+  - 本次真实任务日志中未出现 `deepseek-reasoner -> deepseek-chat` 回退
+  - 本轮真实任务执行期间，后端日志未再出现 `DashScope API错误` / `InvalidApiKey`

@@ -4,10 +4,12 @@ requires = [
     "wheel",
     "Cython"
 ]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "fqchan03"
 version = "2025.2.1"
+requires-python = ">=3.12,<3.13"
 
 [tool.setuptools]
 packages = []

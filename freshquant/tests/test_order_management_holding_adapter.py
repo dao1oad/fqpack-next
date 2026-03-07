@@ -22,6 +22,7 @@ def _install_holding_import_stubs(monkeypatch):
                     return cache[key]
 
                 wrapper._test_cache = cache
+                wrapper._test_expiration = expiration
                 return wrapper
 
             return decorator
@@ -142,6 +143,16 @@ def test_projection_refresh_invalidates_holding_code_cache(monkeypatch):
         [{"symbol": "sh600000"}],
     ]
 
+    class FakeXtPositionsCollection:
+        def find(self, *args, **kwargs):
+            return []
+
+    monkeypatch.setattr(
+        holding_module,
+        "DBfreshquant",
+        {"xt_positions": FakeXtPositionsCollection()},
+    )
+
     def fake_positions():
         return states[0]
 
@@ -157,3 +168,34 @@ def test_projection_refresh_invalidates_holding_code_cache(monkeypatch):
     invalidator_module.mark_stock_holdings_projection_updated()
 
     assert holding_module.get_stock_holding_codes() == ["600000"]
+
+
+def test_get_stock_holding_codes_merges_projection_and_xt_positions(monkeypatch):
+    _, holding_module, _ = _reload_modules(monkeypatch)
+
+    class FakeXtPositionsCollection:
+        def find(self, *args, **kwargs):
+            return [
+                {"stock_code": "600000.SH"},
+                {"code": "sz300001"},
+                {"symbol": "sh600000"},
+            ]
+
+    monkeypatch.setattr(
+        holding_module,
+        "get_stock_positions",
+        lambda: [{"symbol": "sz000001"}, {"symbol": "sh600000"}],
+    )
+    monkeypatch.setattr(
+        holding_module,
+        "DBfreshquant",
+        {"xt_positions": FakeXtPositionsCollection()},
+    )
+
+    assert holding_module.get_stock_holding_codes() == ["000001", "300001", "600000"]
+
+
+def test_get_stock_holding_codes_cache_has_short_ttl(monkeypatch):
+    _, holding_module, _ = _reload_modules(monkeypatch)
+
+    assert holding_module._get_stock_holding_codes_cached._test_expiration == 15
