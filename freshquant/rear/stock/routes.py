@@ -16,6 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 from freshquant.carnation.enum_instrument import InstrumentType
+from freshquant.chanlun_structure_service import get_chanlun_structure
 from freshquant.chanlun_service import get_data_v2
 from freshquant.data.astock.holding import (
     get_arranged_stock_fill_list,
@@ -115,6 +116,15 @@ def stock_data_v2():
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
     result = get_data_v2(symbol, period, end_date)
+    return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
+
+
+@stock_bp.route("/stock_data_chanlun_structure")
+def stock_data_chanlun_structure():
+    period = request.args.get("period")
+    symbol = request.args.get("symbol")
+    end_date = request.args.get("endDate")
+    result = get_chanlun_structure(symbol, period, end_date)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
 
 
