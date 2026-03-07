@@ -29,11 +29,12 @@ _XT_REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 class OrderManagementXtIngestService:
-    def __init__(self, repository=None, tracking_service=None):
+    def __init__(self, repository=None, tracking_service=None, tpsl_service=None):
         self.repository = repository or OrderManagementRepository()
         self.tracking_service = tracking_service or OrderTrackingService(
             repository=self.repository
         )
+        self.tpsl_service = tpsl_service or _get_tpsl_service()
 
     def ingest_trade_report(self, report, lot_amount, grid_interval_lookup):
         trade_fact = self.tracking_service.ingest_trade_report(report)
@@ -60,6 +61,7 @@ class OrderManagementXtIngestService:
                     lot_slices,
                 )
                 holdings_changed = True
+                self._notify_new_buy_trade(symbol=symbol, price=trade_fact["price"])
             else:
                 lot_slices = self.repository.list_open_slices(symbol)
         elif trade_fact["side"] == "sell":
@@ -92,6 +94,14 @@ class OrderManagementXtIngestService:
                 "arranged_fills": build_arranged_fills_view(open_slices),
             },
         }
+
+    def _notify_new_buy_trade(self, *, symbol, price):
+        if self.tpsl_service is None:
+            return
+        try:
+            self.tpsl_service.on_new_buy_trade(symbol=symbol, buy_price=price)
+        except Exception:
+            logger.exception("failed to notify TPSL service for new buy trade")
 
     def ingest_order_report(self, report):
         normalized_report = normalize_xt_order_report(
@@ -243,3 +253,9 @@ def _map_xt_order_status_to_state(order_status):
 
 def _xt_timestamp_to_datetime(timestamp):
     return datetime.fromtimestamp(timestamp, _XT_REPORT_TIMEZONE).replace(tzinfo=None)
+
+
+def _get_tpsl_service():
+    from freshquant.tpsl.service import TpslService
+
+    return TpslService()

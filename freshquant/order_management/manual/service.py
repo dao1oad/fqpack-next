@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+from loguru import logger
+
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_slices,
 )
@@ -26,8 +28,9 @@ from freshquant.util.code import (
 
 
 class OrderManagementManualWriteService:
-    def __init__(self, repository=None):
+    def __init__(self, repository=None, tpsl_service=None):
         self.repository = repository or OrderManagementRepository()
+        self.tpsl_service = tpsl_service or _get_tpsl_service()
 
     def import_fill(
         self,
@@ -98,6 +101,7 @@ class OrderManagementManualWriteService:
                     buy_lot["buy_lot_id"],
                     lot_slices,
                 )
+                self._notify_new_buy_trade(symbol=symbol, price=trade_fact["price"])
             else:
                 buy_lots = self.repository.list_buy_lots(symbol)
                 open_slices = self.repository.list_open_slices(symbol)
@@ -202,6 +206,14 @@ class OrderManagementManualWriteService:
             "projections": self._build_current_projections(symbol),
         }
 
+    def _notify_new_buy_trade(self, *, symbol, price):
+        if self.tpsl_service is None:
+            return
+        try:
+            self.tpsl_service.on_new_buy_trade(symbol=symbol, buy_price=price)
+        except Exception:
+            logger.exception("failed to notify TPSL service for manual buy trade")
+
     def _build_current_projections(self, symbol):
         buy_lots = self.repository.list_buy_lots(symbol)
         open_slices = self.repository.list_open_slices(symbol)
@@ -279,3 +291,9 @@ def _resolve_grid_interval(symbol, traded_at):
     from freshquant.data.astock.holding import _query_grid_interval
 
     return _query_grid_interval(symbol, traded_at.strftime("%Y-%m-%d"))
+
+
+def _get_tpsl_service():
+    from freshquant.tpsl.service import TpslService
+
+    return TpslService()
