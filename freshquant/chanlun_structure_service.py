@@ -59,7 +59,7 @@ def build_dataframe_from_cache_payload(payload: dict[str, Any]) -> pd.DataFrame:
             "amount": _ensure_numeric_list(payload.get("amount"), size),
         }
     )
-    df = df.dropna(subset=["datetime"]).sort_values("datetime").reset_index(drop=True)
+    df = df.dropna(subset=["datetime"]).reset_index(drop=True)
     if df.empty:
         raise ValueError("cache payload contains no valid datetime rows")
     return df
@@ -91,6 +91,7 @@ def _sanitize_kline_df(
     clean[["open", "high", "low", "close", "volume", "amount"]] = clean[
         ["open", "high", "low", "close", "volume", "amount"]
     ].apply(pd.to_numeric, errors="coerce")
+    clean = clean.sort_values("datetime")
     clean[["open", "high", "low", "close", "volume", "amount"]] = (
         clean[["open", "high", "low", "close", "volume", "amount"]]
         .ffill()
@@ -378,7 +379,10 @@ def get_chanlun_structure(
     cache_payload = _get_realtime_cache_payload(symbol, period, end_date)
     if cache_payload is not None:
         try:
-            df = build_dataframe_from_cache_payload(cache_payload)
+            df = _sanitize_kline_df(
+                build_dataframe_from_cache_payload(cache_payload),
+                limit=DEFAULT_BAR_LIMIT,
+            )
             source = "realtime_cache_fullcalc"
         except Exception as exc:  # pragma: no cover
             logging.warning(
