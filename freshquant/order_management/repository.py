@@ -119,10 +119,12 @@ class OrderManagementRepository:
             self.sell_allocations.insert_many(allocations)
         return allocations
 
-    def list_buy_lots(self, symbol=None):
+    def list_buy_lots(self, symbol=None, buy_lot_ids=None):
         query = {}
         if symbol is not None:
             query["symbol"] = symbol
+        if buy_lot_ids is not None:
+            query["buy_lot_id"] = {"$in": list(buy_lot_ids)}
         return list(self.buy_lots.find(query))
 
     def list_orders(self, symbol=None, states=None, missing_broker_only=False):
@@ -144,10 +146,12 @@ class OrderManagementRepository:
             query["symbol"] = symbol
         return list(self.trade_facts.find(query))
 
-    def list_open_slices(self, symbol=None):
+    def list_open_slices(self, symbol=None, buy_lot_ids=None):
         query = {"remaining_quantity": {"$gt": 0}}
         if symbol is not None:
             query["symbol"] = symbol
+        if buy_lot_ids is not None:
+            query["buy_lot_id"] = {"$in": list(buy_lot_ids)}
         return list(self.lot_slices.find(query))
 
     def insert_external_candidate(self, document):
@@ -177,3 +181,11 @@ class OrderManagementRepository:
             upsert=True,
         )
         return self.find_stoploss_binding(document["buy_lot_id"])
+
+    def list_stoploss_bindings(self, symbol=None, enabled=None):
+        query = {}
+        if symbol is not None:
+            query["symbol"] = symbol
+        if enabled is not None:
+            query["enabled"] = bool(enabled)
+        return list(self.stoploss_bindings.find(query))
