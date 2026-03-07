@@ -1,4 +1,4 @@
-from morningglory.fqxtrade.fqxtrade.xtquant.account import resolve_stock_account
+from fqxtrade.xtquant.account import resolve_stock_account
 
 
 def test_resolve_stock_account_uses_configured_account_type():
