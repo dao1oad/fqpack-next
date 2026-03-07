@@ -14,6 +14,13 @@
 ## 变更记录
 
 - **日期**：2026-03-07
+- **RFC**：0017-gantt-shouban30-phase1-page
+- **变更**：`shouban30_plates / shouban30_stocks` 读模型 schema 扩展了 `stock_window_days` 维度；`/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 新增 `stock_window_days=30|45|60|90` 查询语义并返回 `data.meta`。板块列表字段从旧命名 `stocks_count_90` 收敛为 `stocks_count`，标的列表字段从 `appear_days_90 / stock_reason` 收敛为 `hit_count_window / latest_reason`，并新增 `hit_count_30`、`stock_window_from`、`stock_window_to`。前端新增 `/gantt/shouban30` 页面与头部导航“首板选股”，页面详情改为直接复用 `/api/gantt/stocks/reasons` 的历史全量热门理由，不再触发旧页导出/重算行为。
+- **影响面**：任何依赖旧 `shouban30` 返回结构、旧字段名或假设页面进入即自动导出/重算的调用方都需要调整；盘后任务会额外为 30/45/60/90 四档窗口构建 `shouban30` 快照。
+- **迁移步骤**：1) 调用 `/api/gantt/shouban30/plates|stocks` 时显式传入 `stock_window_days`；2) 适配 `data.meta` 与新字段名 `stocks_count / hit_count_window / latest_reason`；3) 标的详情统一改用 `/api/gantt/stocks/reasons?code6=<6位代码>&provider=all&limit=0`；4) 页面入口改为 `/gantt/shouban30?p=xgb&stock_window_days=30`。
+- **回滚方案**：回退 `freshquant/data/gantt_readmodel.py`、`freshquant/rear/gantt/routes.py`、`morningglory/fqdagster/src/fqdagster/defs/ops/gantt.py`、`morningglory/fqwebui/src/api/ganttShouban30.js`、`morningglory/fqwebui/src/views/GanttShouban30Phase1.vue`、`morningglory/fqwebui/src/router/index.js` 与 `morningglory/fqwebui/src/views/MyHeader.vue`，恢复现有最小 `shouban30` 列表能力。
+
+- **日期**：2026-03-07
 - **RFC**：0016-tradingagents-env-sot-sync
 - **变更**：`ta_backend` 的 DeepSeek/Tushare 配置来源从“宿主根 `.env`、镜像内 `.env.docker`、Mongo 配置并存”收敛为“仓库根 `.env` 单一真相源 + 启动时同步到 Mongo 镜像”；同时 `config_bridge` 改为环境变量优先，不再让数据库旧值覆盖根 `.env`，默认模型桥接优先读取激活 `system_configs` 的 DeepSeek 配置。
 - **影响面**：`third_party/tradingagents-cn` 的 Docker 启动链、Mongo `llm_providers/system_configs`、任务中心 `engine_initialization`、Tushare 数据源初始化，以及配置页观察到的密钥来源都会受影响；手工改 Mongo 或依赖 `.env.docker` 占位值的方式在重启后不再保留。

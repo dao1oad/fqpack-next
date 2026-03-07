@@ -6,30 +6,33 @@
         <el-button type="primary" @click="goSetting">设置</el-button>
       </el-button-group>
       <el-button-group>
-        <el-button type="primary" @click="jumpToControl('futures')" size="small"
-          >期货</el-button
-        >
+        <el-button type="primary" @click="jumpToControl('futures')" size="small">
+          期货
+        </el-button>
       </el-button-group>
       <el-button-group>
-        <el-button type="warning" @click="jumpToControl('klineSlim')" size="small"
-          >行情图表</el-button
-        >
+        <el-button type="warning" @click="jumpToControl('klineSlim')" size="small">
+          行情图表
+        </el-button>
       </el-button-group>
       <el-button-group>
-        <el-button type="success" @click="jumpToControl('gantt')" size="small"
-          >板块趋势</el-button
-        >
+        <el-button type="success" @click="jumpToControl('gantt')" size="small">
+          板块趋势
+        </el-button>
+        <el-button type="warning" @click="jumpToControl('shouban30')" size="small">
+          首板选股
+        </el-button>
       </el-button-group>
       <el-button-group>
-        <el-button type="primary" @click="jumpToControl('stock')" size="small"
-          >股票</el-button
-        >
-        <el-button type="primary" @click="jumpToControl('pool')" size="small"
-          >股票池</el-button
-        >
-        <el-button type="primary" @click="jumpToControl('cjsd')" size="small"
-          >超级赛道</el-button
-        >
+        <el-button type="primary" @click="jumpToControl('stock')" size="small">
+          股票
+        </el-button>
+        <el-button type="primary" @click="jumpToControl('pool')" size="small">
+          股票池
+        </el-button>
+        <el-button type="primary" @click="jumpToControl('cjsd')" size="small">
+          超级赛道
+        </el-button>
       </el-button-group>
     </div>
     <div class="header-tip">
@@ -37,14 +40,12 @@
     </div>
   </div>
 </template>
+
 <script>
 import MySetting from '@/components/MySetting.vue'
 
 export default {
   name: 'my-header',
-  data () {
-    return {}
-  },
   components: {
     MySetting
   },
@@ -56,6 +57,8 @@ export default {
         this.$router.replace('/kline-slim')
       } else if (type === 'gantt') {
         this.$router.replace('/gantt?p=xgb')
+      } else if (type === 'shouban30') {
+        this.$router.replace('/gantt/shouban30?p=xgb&stock_window_days=30')
       } else if (type === 'stock') {
         this.$router.replace('/stock-control')
       } else if (type === 'pool') {
@@ -70,6 +73,7 @@ export default {
   }
 }
 </script>
+
 <style lang="stylus">
 @import "../style/my-header.styl";
 </style>

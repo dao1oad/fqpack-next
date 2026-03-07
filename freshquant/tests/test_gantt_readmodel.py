@@ -2,9 +2,12 @@ import pytest
 
 from freshquant.data.gantt_readmodel import (
     _build_xgb_gantt_rows,
+    _group_shouban30_plate_candidates,
     build_plate_reason_daily,
     build_shouban30_plate_rows,
     build_stock_hot_reason_rows,
+    select_shouban30_plate_rows,
+    select_shouban30_stock_rows,
 )
 
 
@@ -90,7 +93,10 @@ def test_build_shouban30_joins_reason_from_plate_reason_daily_only():
                 "seg_to": "2026-03-05",
                 "appear_days_30": 2,
                 "seg_from": "2026-03-04",
-                "stocks_count_90": 8,
+                "stock_window_days": 60,
+                "stocks_count": 8,
+                "stock_window_from": "2026-01-06",
+                "stock_window_to": "2026-03-05",
             }
         ],
         plate_reason_rows=[
@@ -112,6 +118,8 @@ def test_build_shouban30_joins_reason_from_plate_reason_daily_only():
         "trade_date": "2026-03-05",
         "plate_id": 11,
     }
+    assert rows[0]["stock_window_days"] == 60
+    assert rows[0]["stocks_count"] == 8
 
 
 def test_build_shouban30_fails_when_plate_reason_is_missing():
@@ -125,12 +133,104 @@ def test_build_shouban30_fails_when_plate_reason_is_missing():
                     "seg_to": "2026-03-05",
                     "appear_days_30": 2,
                     "seg_from": "2026-03-04",
-                    "stocks_count_90": 8,
+                    "stock_window_days": 60,
+                    "stocks_count": 8,
+                    "stock_window_from": "2026-01-06",
+                    "stock_window_to": "2026-03-05",
                 }
             ],
             plate_reason_rows=[],
             as_of_date="2026-03-05",
         )
+
+
+def test_select_shouban30_plate_rows_distinguishes_stock_window_days():
+    rows = [
+        {
+            "provider": "xgb",
+            "plate_key": "11",
+            "as_of_date": "2026-03-07",
+            "stock_window_days": 30,
+            "plate_name": "robotics-30",
+        },
+        {
+            "provider": "xgb",
+            "plate_key": "11",
+            "as_of_date": "2026-03-07",
+            "stock_window_days": 60,
+            "plate_name": "robotics-60",
+        },
+    ]
+
+    items = select_shouban30_plate_rows(
+        rows,
+        provider="xgb",
+        as_of_date="2026-03-07",
+        stock_window_days=60,
+    )
+
+    assert items == [rows[1]]
+
+
+def test_select_shouban30_stock_rows_distinguishes_stock_window_days():
+    rows = [
+        {
+            "provider": "xgb",
+            "plate_key": "11",
+            "code6": "000001",
+            "as_of_date": "2026-03-07",
+            "stock_window_days": 30,
+        },
+        {
+            "provider": "xgb",
+            "plate_key": "11",
+            "code6": "000001",
+            "as_of_date": "2026-03-07",
+            "stock_window_days": 90,
+        },
+    ]
+
+    items = select_shouban30_stock_rows(
+        rows,
+        provider="xgb",
+        plate_key="11",
+        as_of_date="2026-03-07",
+        stock_window_days=90,
+    )
+
+    assert items == [rows[1]]
+
+
+def test_group_shouban30_plate_candidates_uses_trade_date_axis():
+    items = _group_shouban30_plate_candidates(
+        [
+            {
+                "provider": "xgb",
+                "plate_key": "11",
+                "plate_name": "robotics",
+                "trade_date": "2026-03-06",
+            },
+            {
+                "provider": "xgb",
+                "plate_key": "11",
+                "plate_name": "robotics",
+                "trade_date": "2026-03-09",
+            },
+        ],
+        as_of_date="2026-03-09",
+        trade_dates=["2026-03-06", "2026-03-09"],
+    )
+
+    assert items == [
+        {
+            "provider": "xgb",
+            "plate_key": "11",
+            "plate_name": "robotics",
+            "appear_days_30": 2,
+            "seg_from": "2026-03-06",
+            "seg_to": "2026-03-09",
+        }
+    ]
 
 
 def test_build_stock_hot_reason_rows_joins_plate_reason_and_sorts_desc():
@@ -611,10 +711,40 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
                     "limit_up_count": 1,
                     "stock_codes": ["000001"],
                 },
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-03",
+                    "plate_key": "22",
+                    "plate_name": "broken",
+                    "rank": 2,
+                    "hot_stock_count": 1,
+                    "limit_up_count": 1,
+                    "stock_codes": ["000009"],
+                },
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "22",
+                    "plate_name": "broken",
+                    "rank": 1,
+                    "hot_stock_count": 1,
+                    "limit_up_count": 1,
+                    "stock_codes": ["000009"],
+                },
             ]
         ),
         gantt_stock_daily=FakeCollection(
             [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-02-10",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "code6": "000001",
+                    "name": "alpha",
+                    "is_limit_up": 1,
+                    "stock_reason": "older stock reason",
+                },
                 {
                     "provider": "xgb",
                     "trade_date": "2026-03-05",
@@ -624,25 +754,33 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
                     "name": "alpha",
                     "is_limit_up": 1,
                     "stock_reason": "stock reason",
-                }
+                },
             ]
         ),
     )
     monkeypatch.setattr(svc, "DBGantt", fake_db)
 
-    result = svc.persist_shouban30_for_date("2026-03-05")
+    result = svc.persist_shouban30_for_date("2026-03-05", stock_window_days=60)
 
-    assert result == {"as_of_date": "2026-03-05", "plates": 1, "stocks": 1}
+    assert result == {
+        "as_of_date": "2026-03-05",
+        "plates": 1,
+        "stocks": 1,
+        "stock_window_days": 60,
+    }
     assert fake_db[svc.COL_SHOUBAN30_PLATES].docs == [
         {
             "provider": "xgb",
             "as_of_date": "2026-03-05",
             "plate_key": "11",
             "plate_name": "robotics",
+            "stock_window_days": 60,
             "appear_days_30": 2,
             "seg_from": "2026-03-04",
             "seg_to": "2026-03-05",
-            "stocks_count_90": 1,
+            "stocks_count": 1,
+            "stock_window_from": "2026-02-10",
+            "stock_window_to": "2026-03-05",
             "reason_text": "canonical reason",
             "reason_ref": {"trade_date": "2026-03-05", "plate_id": 11},
         }
@@ -655,9 +793,11 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
             "plate_name": "robotics",
             "code6": "000001",
             "name": "alpha",
-            "appear_days_90": 1,
+            "stock_window_days": 60,
+            "hit_count_30": 1,
+            "hit_count_window": 2,
             "latest_trade_date": "2026-03-05",
-            "stock_reason": "stock reason",
+            "latest_reason": "stock reason",
         }
     ]
 

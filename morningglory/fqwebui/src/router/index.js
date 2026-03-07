@@ -9,6 +9,7 @@ import StockCjsd from '../components/StockCjsd.vue'
 
 const GanttUnified = () => import('../views/GanttUnified.vue')
 const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
+const GanttShouban30Phase1 = () => import('../views/GanttShouban30Phase1.vue')
 
 const routes = [
   {
@@ -54,6 +55,11 @@ const routes = [
     path: '/gantt',
     name: 'gantt',
     component: GanttUnified
+  },
+  {
+    path: '/gantt/shouban30',
+    name: 'gantt-shouban30',
+    component: GanttShouban30Phase1
   },
   {
     path: '/gantt/stocks/:plateKey',
