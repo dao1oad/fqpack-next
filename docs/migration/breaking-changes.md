@@ -106,3 +106,9 @@
   3. 将宿主机旧库中的 `freshquant.params` 同步到 Docker `freshquant.params`；
   4. 重启宿主机 `broker / xtdata producer / xtdata consumer`。
 - **回滚方案**：将宿主机 Mongo/Redis 端口改回 `27017/6379` 并重启宿主机进程；如需恢复旧 broker 行为，回退 `morningglory/fqxtrade/fqxtrade/xtquant/broker.py` 与 `morningglory/fqxtrade/fqxtrade/xtquant/account.py` 的账户类型修复。
+
+- **RFC**：0011-stock-etf-tpsl-module
+- **变更**：规划新增 XTData `TICK_QUOTE` 事件协议、`/api/tpsl/*` 后端接口，以及订单域 `takeprofit_batch / stoploss_batch` 作用域；TPSL 运行时状态将不再使用旧分支的 `grid_configs / stoploss_configs / fill_stoploss_configs`。
+- **影响面**：XTData producer、TPSL consumer、后端 API 与订单作用域会新增接口面；依赖旧 Grid/StopLoss 执行链的运维脚本需要切换到新模块。
+- **迁移步骤**：待 RFC 0011 实现落地后补充最终迁移步骤。
+- **回滚方案**：待 RFC 0011 实现落地后补充最终回滚说明。
