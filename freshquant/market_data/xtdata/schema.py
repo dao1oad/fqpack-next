@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ _RE_SUFFIX = re.compile(r"^(\d{6})\.(sh|sz|bj)$", re.I)
 
 def normalize_prefixed_code(code: str) -> str:
     """
-    Normalize to `sh600000` / `sz000001` (lowercase) without依赖数据库映射。
+    Normalize to `sh600000` / `sz000001` (lowercase) without database mapping.
 
     Supported inputs:
     - `sh600000` / `SZ000001`
@@ -40,7 +40,6 @@ def normalize_prefixed_code(code: str) -> str:
     if len(digits) != 6:
         return low
 
-    # Heuristic exchange mapping (A股 + 常见 ETF)
     first = digits[0]
     if first in {"6", "9", "5"}:
         prefix = "sh"
@@ -82,6 +81,45 @@ class BarCloseEvent:
             "code": self.code,
             "period": self.period,
             "data": self.data,
+        }
+        if self.created_at is not None:
+            d["created_at"] = self.created_at
+        return d
+
+
+@dataclass(frozen=True)
+class TickQuoteEvent:
+    code: str
+    bid1: float
+    ask1: float
+    last_price: float
+    tick_time: int
+    created_at: float | None = None
+
+    @staticmethod
+    def from_dict(raw: dict[str, Any]) -> "TickQuoteEvent":
+        if not isinstance(raw, dict):
+            raise TypeError("event must be dict")
+        if (raw.get("event") or "") != "TICK_QUOTE":
+            raise ValueError("unsupported event")
+        code = normalize_prefixed_code(str(raw.get("code") or raw.get("symbol") or ""))
+        return TickQuoteEvent(
+            code=code,
+            bid1=float(raw.get("bid1") or 0.0),
+            ask1=float(raw.get("ask1") or 0.0),
+            last_price=float(raw.get("last_price") or raw.get("lastPrice") or 0.0),
+            tick_time=int(raw.get("tick_time") or raw.get("time") or 0),
+            created_at=raw.get("created_at"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "event": "TICK_QUOTE",
+            "code": self.code,
+            "bid1": self.bid1,
+            "ask1": self.ask1,
+            "last_price": self.last_price,
+            "tick_time": self.tick_time,
         }
         if self.created_at is not None:
             d["created_at"] = self.created_at
