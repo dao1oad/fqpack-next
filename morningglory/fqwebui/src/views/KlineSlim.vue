@@ -589,7 +589,7 @@ export default klineSlim
   top 12px
   left 12px
   right 12px
-  max-height min(420px, calc(100% - 24px))
+  max-height calc(100% - 24px)
   display flex
   flex-direction column
   border 1px solid rgba(148, 163, 184, 0.28)
@@ -838,7 +838,7 @@ export default klineSlim
     left 8px
     right 8px
     top 8px
-    max-height min(460px, calc(100% - 16px))
+    max-height calc(100% - 16px)
 
   .chanlun-panel-header
     flex-direction column
