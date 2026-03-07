@@ -7,30 +7,85 @@ import os
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
+
+from app.utils.api_key_utils import get_preferred_api_key
 
 logger = logging.getLogger("app.config_bridge")
 
+DATASOURCE_ENV_KEY_MAP = {
+    "tushare": "TUSHARE_TOKEN",
+    "finnhub": "FINNHUB_API_KEY",
+}
 
-def _is_effective_secret(value: Optional[str]) -> bool:
-    """Return True when the value looks like a real credential rather than a placeholder."""
-    if not value:
-        return False
 
-    value = value.strip()
-    if not value:
-        return False
+def _load_active_system_config_from_db():
+    """Load the latest active system config from MongoDB when available."""
+    try:
+        from pymongo import MongoClient
+        from app.core.config import settings
+        from app.models.config import SystemConfig
 
-    if value == "your-api-key":
-        return False
-    if value.startswith("your_") or value.startswith("your-"):
-        return False
-    if value.endswith("_here") or value.endswith("-here"):
-        return False
-    if "..." in value:
-        return False
+        client = MongoClient(settings.MONGO_URI)
+        try:
+            db = client[settings.MONGO_DB]
+            config_data = db.system_configs.find_one(
+                {"is_active": True},
+                sort=[("version", -1)],
+            )
+        finally:
+            client.close()
 
-    return True
+        if not config_data:
+            return None
+
+        return SystemConfig(**config_data)
+    except Exception as exc:
+        logger.warning(f"Failed to load active system config from MongoDB: {exc}")
+        return None
+
+
+def _resolve_runtime_model_names(system_config: Any, unified_config: Any) -> dict:
+    """Resolve runtime model names with active DB config preferred over file cache."""
+    system_settings = getattr(system_config, "system_settings", None) or {}
+
+    quick_model = (
+        system_settings.get("quick_analysis_model")
+        or unified_config.get_quick_analysis_model()
+    )
+    deep_model = (
+        system_settings.get("deep_analysis_model")
+        or unified_config.get_deep_analysis_model()
+    )
+    default_model = (
+        getattr(system_config, "default_llm", None)
+        or system_settings.get("default_model")
+        or quick_model
+        or unified_config.get_default_model()
+    )
+
+    if not quick_model:
+        quick_model = default_model
+    if not deep_model:
+        deep_model = quick_model or default_model
+
+    return {
+        "default_model": default_model,
+        "quick_model": quick_model,
+        "deep_model": deep_model,
+    }
+
+
+def _resolve_runtime_secret(
+    env_key: str,
+    env_value: Optional[str],
+    db_value: Optional[str],
+) -> tuple[Optional[str], str]:
+    """Resolve a secret with the fixed priority env > database > missing."""
+    value, source = get_preferred_api_key(env_value=env_value, db_value=db_value)
+    if value:
+        os.environ[env_key] = value
+    return value, source
 
 
 def bridge_config_to_env():
@@ -52,6 +107,7 @@ def bridge_config_to_env():
 
         logger.info("🔧 开始桥接配置到环境变量...")
         bridged_count = 0
+        system_config = _load_active_system_config_from_db()
 
         # 强制启用 MongoDB 存储（用于 Token 使用统计）
         # 从 .env 文件读取配置，如果未设置则默认启用
@@ -102,14 +158,16 @@ def bridge_config_to_env():
                 env_key = f"{provider.name.upper()}_API_KEY"
                 existing_env_value = os.getenv(env_key)
 
-                # 检查环境变量是否已存在且有效（不是占位符）
-                if _is_effective_secret(existing_env_value):
-                    logger.info(f"  ✓ 使用 .env 文件中的 {env_key} (长度: {len(existing_env_value)})")
-                    bridged_count += 1
-                elif _is_effective_secret(provider.api_key):
-                    # 只有当环境变量不存在或为占位符时，才使用数据库配置
-                    os.environ[env_key] = provider.api_key
-                    logger.info(f"  ✓ 使用数据库厂家配置的 {env_key} (长度: {len(provider.api_key)})")
+                resolved_value, source = _resolve_runtime_secret(
+                    env_key=env_key,
+                    env_value=existing_env_value,
+                    db_value=provider.api_key,
+                )
+                if resolved_value:
+                    source_label = ".env 文件" if source == "env" else "数据库厂家配置"
+                    logger.info(
+                        f"  ✓ 使用 {source_label}中的 {env_key} (长度: {len(resolved_value)})"
+                    )
                     bridged_count += 1
                 else:
                     logger.debug(f"  ⏭️  {env_key} 未配置有效的 API Key")
@@ -128,35 +186,35 @@ def bridge_config_to_env():
                 env_key = f"{llm_config.provider.upper()}_API_KEY"
                 existing_env_value = os.getenv(env_key)
 
-                # 检查环境变量是否已存在且有效（不是占位符）
-                if _is_effective_secret(existing_env_value):
-                    logger.info(f"  ✓ 使用 .env 文件中的 {env_key} (长度: {len(existing_env_value)})")
+                resolved_value, source = _resolve_runtime_secret(
+                    env_key=env_key,
+                    env_value=existing_env_value,
+                    db_value=llm_config.api_key if llm_config.enabled else None,
+                )
+                if resolved_value:
+                    source_label = ".env 文件" if source == "env" else "JSON 文件"
+                    logger.info(
+                        f"  ✓ 使用 {source_label}中的 {env_key} (长度: {len(resolved_value)})"
+                    )
                     bridged_count += 1
-                elif llm_config.enabled and llm_config.api_key:
-                    # 只有当环境变量不存在或为占位符时，才使用数据库配置
-                    if _is_effective_secret(llm_config.api_key):
-                        os.environ[env_key] = llm_config.api_key
-                        logger.info(f"  ✓ 使用 JSON 文件中的 {env_key} (长度: {len(llm_config.api_key)})")
-                        bridged_count += 1
-                    else:
-                        logger.warning(f"  ⚠️  {env_key} 在 .env 和 JSON 文件中都是占位符，跳过")
                 else:
                     logger.debug(f"  ⏭️  {env_key} 未配置")
 
         # 2. 桥接默认模型配置
-        default_model = unified_config.get_default_model()
+        model_names = _resolve_runtime_model_names(system_config, unified_config)
+        default_model = model_names["default_model"]
         if default_model:
             os.environ['TRADINGAGENTS_DEFAULT_MODEL'] = default_model
             logger.info(f"  ✓ 桥接默认模型: {default_model}")
             bridged_count += 1
 
-        quick_model = unified_config.get_quick_analysis_model()
+        quick_model = model_names["quick_model"]
         if quick_model:
             os.environ['TRADINGAGENTS_QUICK_MODEL'] = quick_model
             logger.info(f"  ✓ 桥接快速分析模型: {quick_model}")
             bridged_count += 1
 
-        deep_model = unified_config.get_deep_analysis_model()
+        deep_model = model_names["deep_model"]
         if deep_model:
             os.environ['TRADINGAGENTS_DEEP_MODEL'] = deep_model
             logger.info(f"  ✓ 桥接深度分析模型: {deep_model}")
@@ -164,81 +222,35 @@ def bridge_config_to_env():
 
         # 3. 桥接数据源配置（基础 API 密钥）
         # 🔧 [优先级] .env 文件 > 数据库配置
-        # 🔥 修改：从数据库的 system_configs 集合读取数据源配置，而不是从 JSON 文件
-        try:
-            # 使用同步 MongoDB 客户端读取系统配置
-            from pymongo import MongoClient
-            from app.core.config import settings
-            from app.models.config import SystemConfig
-
-            # 创建同步 MongoDB 客户端
-            client = MongoClient(settings.MONGO_URI)
-            db = client[settings.MONGO_DB]
-            config_collection = db.system_configs
-
-            # 查询最新的系统配置
-            config_data = config_collection.find_one(
-                {"is_active": True},
-                sort=[("version", -1)]
-            )
-
-            if config_data and config_data.get('data_source_configs'):
-                system_config = SystemConfig(**config_data)
-                data_source_configs = system_config.data_source_configs
-                logger.info(f"  📊 从数据库读取到 {len(data_source_configs)} 个数据源配置")
-            else:
-                logger.warning("  ⚠️  数据库中没有数据源配置，使用 JSON 文件配置")
-                data_source_configs = unified_config.get_data_source_configs()
-
-            # 关闭同步客户端
-            client.close()
-
-        except Exception as e:
-            logger.error(f"❌ 从数据库读取数据源配置失败: {e}", exc_info=True)
-            logger.warning("⚠️  将尝试从 JSON 文件读取配置作为后备方案")
+        if system_config and system_config.data_source_configs:
+            data_source_configs = system_config.data_source_configs
+            logger.info(f"  📊 从数据库读取到 {len(data_source_configs)} 个数据源配置")
+        else:
+            logger.warning("  ⚠️  数据库中没有数据源配置，使用 JSON 文件配置")
             data_source_configs = unified_config.get_data_source_configs()
 
         for ds_config in data_source_configs:
-            if ds_config.enabled and ds_config.api_key:
-                # Tushare Token
-                # 🔥 优先级：数据库配置 > .env 文件（用户在 Web 后台修改后立即生效）
-                if ds_config.type.value == 'tushare':
-                    existing_token = os.getenv('TUSHARE_TOKEN')
+            if not ds_config.enabled:
+                continue
 
-                    # 优先使用数据库配置
-                    if _is_effective_secret(ds_config.api_key):
-                        os.environ['TUSHARE_TOKEN'] = ds_config.api_key
-                        logger.info(f"  ✓ 使用数据库中的 TUSHARE_TOKEN (长度: {len(ds_config.api_key)})")
-                        if existing_token and existing_token != ds_config.api_key:
-                            logger.info(f"  ℹ️  已覆盖 .env 文件中的 TUSHARE_TOKEN")
-                    # 降级到 .env 文件配置
-                    elif _is_effective_secret(existing_token):
-                        logger.info(f"  ✓ 使用 .env 文件中的 TUSHARE_TOKEN (长度: {len(existing_token)})")
-                        logger.info(f"  ℹ️  数据库中未配置有效的 TUSHARE_TOKEN，使用 .env 降级方案")
-                    else:
-                        logger.warning(f"  ⚠️  TUSHARE_TOKEN 在数据库和 .env 中都未配置有效值")
-                        continue
-                    bridged_count += 1
+            ds_type = ds_config.type.value
+            env_key = DATASOURCE_ENV_KEY_MAP.get(ds_type)
+            if not env_key:
+                continue
 
-                # FinnHub API Key
-                # 🔥 优先级：数据库配置 > .env 文件
-                elif ds_config.type.value == 'finnhub':
-                    existing_key = os.getenv('FINNHUB_API_KEY')
-
-                    # 优先使用数据库配置
-                    if _is_effective_secret(ds_config.api_key):
-                        os.environ['FINNHUB_API_KEY'] = ds_config.api_key
-                        logger.info(f"  ✓ 使用数据库中的 FINNHUB_API_KEY (长度: {len(ds_config.api_key)})")
-                        if existing_key and existing_key != ds_config.api_key:
-                            logger.info(f"  ℹ️  已覆盖 .env 文件中的 FINNHUB_API_KEY")
-                    # 降级到 .env 文件配置
-                    elif _is_effective_secret(existing_key):
-                        logger.info(f"  ✓ 使用 .env 文件中的 FINNHUB_API_KEY (长度: {len(existing_key)})")
-                        logger.info(f"  ℹ️  数据库中未配置有效的 FINNHUB_API_KEY，使用 .env 降级方案")
-                    else:
-                        logger.warning(f"  ⚠️  FINNHUB_API_KEY 在数据库和 .env 中都未配置有效值")
-                        continue
-                    bridged_count += 1
+            resolved_value, source = _resolve_runtime_secret(
+                env_key=env_key,
+                env_value=os.getenv(env_key),
+                db_value=ds_config.api_key,
+            )
+            if resolved_value:
+                source_label = ".env 文件" if source == "env" else "数据库中的"
+                logger.info(
+                    f"  ✓ 使用{source_label} {env_key} (长度: {len(resolved_value)})"
+                )
+                bridged_count += 1
+            else:
+                logger.warning(f"  ⚠️  {env_key} 在数据库和 .env 中都未配置有效值")
 
         # 4. 桥接数据源细节配置（超时、重试、缓存等）
         bridged_count += _bridge_datasource_details(data_source_configs)

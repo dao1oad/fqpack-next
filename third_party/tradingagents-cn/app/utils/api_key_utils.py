@@ -5,7 +5,7 @@ API Key 处理工具函数
 """
 
 import os
-from typing import Optional
+from typing import Optional, Tuple
 
 
 def is_valid_api_key(api_key: Optional[str]) -> bool:
@@ -132,6 +132,23 @@ def get_env_api_key_for_datasource(ds_type: str) -> Optional[str]:
         return env_key
     
     return None
+
+
+def get_preferred_api_key(
+    env_value: Optional[str],
+    db_value: Optional[str],
+) -> Tuple[Optional[str], str]:
+    """
+    Return the preferred credential using the fixed priority:
+    environment variable > database > missing.
+    """
+    if is_valid_api_key(env_value):
+        return env_value.strip(), "env"
+
+    if is_valid_api_key(db_value):
+        return db_value.strip(), "database"
+
+    return None, "missing"
 
 
 def should_skip_api_key_update(api_key: Optional[str]) -> bool:

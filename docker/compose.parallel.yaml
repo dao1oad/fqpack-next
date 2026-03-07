@@ -204,7 +204,6 @@ services:
     ports:
       - "13000:8000"
     volumes:
-      - ../third_party/tradingagents-cn/.env:/app/.env:ro
       - ../runtime/tradingagents-cn/data:/app/data
       - ../runtime/tradingagents-cn/logs:/app/logs
     depends_on:

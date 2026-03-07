@@ -38,6 +38,63 @@ from .reflection import Reflector
 from .signal_processing import SignalProcessor
 
 
+def _is_valid_api_key(api_key: Optional[str]) -> bool:
+    try:
+        from app.utils.api_key_utils import is_valid_api_key
+    except ImportError:
+        if not api_key:
+            return False
+        api_key = api_key.strip()
+        if len(api_key) <= 10:
+            return False
+        if api_key.startswith("your_") or api_key.startswith("your-"):
+            return False
+        if api_key.endswith("_here") or api_key.endswith("-here"):
+            return False
+        if "..." in api_key:
+            return False
+        return True
+
+    return is_valid_api_key(api_key)
+
+
+def _iter_provider_api_key_env_vars(provider: str) -> List[str]:
+    provider = provider.lower()
+    env_var_map = {
+        "google": ["GOOGLE_API_KEY"],
+        "dashscope": ["DASHSCOPE_API_KEY"],
+        "deepseek": ["DEEPSEEK_API_KEY"],
+        "zhipu": ["ZHIPU_API_KEY"],
+        "siliconflow": ["SILICONFLOW_API_KEY"],
+        "openrouter": ["OPENROUTER_API_KEY", "OPENAI_API_KEY"],
+        "openai": ["OPENAI_API_KEY"],
+        "anthropic": ["ANTHROPIC_API_KEY"],
+        "qianfan": ["QIANFAN_API_KEY"],
+        "custom_openai": ["CUSTOM_OPENAI_API_KEY"],
+    }
+    return env_var_map.get(
+        provider,
+        [f"{provider.upper()}_API_KEY", f"{provider}_API_KEY", "CUSTOM_OPENAI_API_KEY"],
+    )
+
+
+def _resolve_provider_api_key(provider: str, configured_api_key: Optional[str]) -> Tuple[Optional[str], str]:
+    if _is_valid_api_key(configured_api_key):
+        return configured_api_key.strip(), "config"
+
+    if configured_api_key:
+        logger.warning(f"⚠️ [API Key] 忽略 {provider} 的无效配置 Key，占位值不会覆盖环境变量")
+
+    for env_var in _iter_provider_api_key_env_vars(provider):
+        env_api_key = os.getenv(env_var)
+        if _is_valid_api_key(env_api_key):
+            return env_api_key.strip(), env_var
+        if env_api_key:
+            logger.warning(f"⚠️ [API Key] 忽略环境变量 {env_var} 中的无效值")
+
+    return None, "missing"
+
+
 def create_llm_by_provider(provider: str, model: str, backend_url: str, temperature: float, max_tokens: int, timeout: int, api_key: str = None):
     """
     根据 provider 创建对应的 LLM 实例
@@ -60,9 +117,12 @@ def create_llm_by_provider(provider: str, model: str, backend_url: str, temperat
     logger.info(f"🔧 [创建LLM] provider={provider}, model={model}, url={backend_url}")
     logger.info(f"🔑 [API Key] 来源: {'数据库配置' if api_key else '环境变量'}")
 
+    resolved_api_key, api_key_source = _resolve_provider_api_key(provider, api_key)
+    logger.info(f"🔑 [API Key] 来源: {api_key_source}")
+
     if provider.lower() == "google":
         # 优先使用传入的 API Key，否则从环境变量读取
-        google_api_key = api_key or os.getenv('GOOGLE_API_KEY')
+        google_api_key = resolved_api_key
         if not google_api_key:
             raise ValueError("使用Google需要设置GOOGLE_API_KEY环境变量或在数据库中配置API Key")
 
@@ -78,7 +138,7 @@ def create_llm_by_provider(provider: str, model: str, backend_url: str, temperat
 
     elif provider.lower() == "dashscope":
         # 优先使用传入的 API Key，否则从环境变量读取
-        dashscope_api_key = api_key or os.getenv('DASHSCOPE_API_KEY')
+        dashscope_api_key = resolved_api_key
 
         # 传递 base_url 参数，使厂家配置的 default_base_url 生效
         return ChatDashScopeOpenAI(
@@ -92,7 +152,7 @@ def create_llm_by_provider(provider: str, model: str, backend_url: str, temperat
 
     elif provider.lower() == "deepseek":
         # 优先使用传入的 API Key，否则从环境变量读取
-        deepseek_api_key = api_key or os.getenv('DEEPSEEK_API_KEY')
+        deepseek_api_key = resolved_api_key
         if not deepseek_api_key:
             raise ValueError("使用DeepSeek需要设置DEEPSEEK_API_KEY环境变量或在数据库中配置API Key")
 
@@ -107,7 +167,7 @@ def create_llm_by_provider(provider: str, model: str, backend_url: str, temperat
 
     elif provider.lower() == "zhipu":
         # 智谱AI处理
-        zhipu_api_key = api_key or os.getenv('ZHIPU_API_KEY')
+        zhipu_api_key = resolved_api_key
         if not zhipu_api_key:
             raise ValueError("使用智谱AI需要设置ZHIPU_API_KEY环境变量或在数据库中配置API Key")
         
@@ -134,7 +194,7 @@ def create_llm_by_provider(provider: str, model: str, backend_url: str, temperat
         return ChatOpenAI(
             model=model,
             base_url=backend_url,
-            api_key=api_key,
+            api_key=resolved_api_key,
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout
@@ -379,11 +439,14 @@ class TradingAgentsGraph:
             logger.info(f"🔧 使用Google AI OpenAI 兼容适配器 (解决工具调用问题)")
 
             # 🔥 优先使用数据库配置的 API Key，否则从环境变量读取
-            google_api_key = self.config.get("quick_api_key") or self.config.get("deep_api_key") or os.getenv('GOOGLE_API_KEY')
+            google_api_key, google_api_key_source = _resolve_provider_api_key(
+                "google",
+                self.config.get("quick_api_key") or self.config.get("deep_api_key"),
+            )
             if not google_api_key:
                 raise ValueError("使用Google AI需要在数据库中配置API Key或设置GOOGLE_API_KEY环境变量")
 
-            logger.info(f"🔑 [Google AI] API Key 来源: {'数据库配置' if self.config.get('quick_api_key') or self.config.get('deep_api_key') else '环境变量'}")
+            logger.info(f"🔑 [Google AI] API Key 来源: {google_api_key_source}")
 
             # 🔧 从配置中读取模型参数（优先使用用户配置，否则使用默认值）
             quick_config = self.config.get("quick_model_config", {})
@@ -434,8 +497,11 @@ class TradingAgentsGraph:
             logger.info(f"🔧 使用阿里百炼 OpenAI 兼容适配器 (支持原生工具调用)")
 
             # 🔥 优先使用数据库配置的 API Key，否则从环境变量读取
-            dashscope_api_key = self.config.get("quick_api_key") or self.config.get("deep_api_key") or os.getenv('DASHSCOPE_API_KEY')
-            logger.info(f"🔑 [阿里百炼] API Key 来源: {'数据库配置' if self.config.get('quick_api_key') or self.config.get('deep_api_key') else '环境变量'}")
+            dashscope_api_key, dashscope_api_key_source = _resolve_provider_api_key(
+                "dashscope",
+                self.config.get("quick_api_key") or self.config.get("deep_api_key"),
+            )
+            logger.info(f"🔑 [阿里百炼] API Key 来源: {dashscope_api_key_source}")
 
             # 🔧 从配置中读取模型参数（优先使用用户配置，否则使用默认值）
             quick_config = self.config.get("quick_model_config", {})
@@ -503,10 +569,14 @@ class TradingAgentsGraph:
             # DeepSeek V3配置 - 使用支持token统计的适配器
             from tradingagents.llm_adapters.deepseek_adapter import ChatDeepSeek
 
-            deepseek_api_key = os.getenv('DEEPSEEK_API_KEY')
+            deepseek_api_key, deepseek_api_key_source = _resolve_provider_api_key(
+                "deepseek",
+                self.config.get("quick_api_key") or self.config.get("deep_api_key"),
+            )
             if not deepseek_api_key:
                 raise ValueError("使用DeepSeek需要设置DEEPSEEK_API_KEY环境变量")
 
+            logger.info(f"🔑 [DeepSeek] API Key 来源: {deepseek_api_key_source}")
             deepseek_base_url = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
 
             # 🔧 从配置中读取模型参数（优先使用用户配置，否则使用默认值）
@@ -630,8 +700,11 @@ class TradingAgentsGraph:
             from tradingagents.llm_adapters.openai_compatible_base import ChatZhipuOpenAI
             
             # 🔥 优先使用数据库配置的 API Key，否则从环境变量读取
-            zhipu_api_key = self.config.get("quick_api_key") or self.config.get("deep_api_key") or os.getenv('ZHIPU_API_KEY')
-            logger.info(f"🔑 [智谱AI] API Key 来源: {'数据库配置' if self.config.get('quick_api_key') or self.config.get('deep_api_key') else '环境变量'}")
+            zhipu_api_key, zhipu_api_key_source = _resolve_provider_api_key(
+                "zhipu",
+                self.config.get("quick_api_key") or self.config.get("deep_api_key"),
+            )
+            logger.info(f"🔑 [智谱AI] API Key 来源: {zhipu_api_key_source}")
             
             if not zhipu_api_key:
                 raise ValueError("使用智谱AI需要在数据库中配置API Key或设置ZHIPU_API_KEY环境变量")
