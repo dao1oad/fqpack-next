@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from freshquant.db import DBOrderManagement, DBfreshquant
+from freshquant.db import DBfreshquant, DBOrderManagement
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
 
 
@@ -54,4 +54,3 @@ def _coerce_positive_int(value) -> int:
         return int(value or 0)
     except Exception:
         return 0
-

@@ -24,7 +24,8 @@ class TickQuoteListener:
         self.callback = callback
         self.redis_client = redis_client or redis_db
         self.queue_keys = queue_keys or [
-            f"{REDIS_TICK_QUEUE_PREFIX}:{index}" for index in range(int(REDIS_QUEUE_SHARDS))
+            f"{REDIS_TICK_QUEUE_PREFIX}:{index}"
+            for index in range(int(REDIS_QUEUE_SHARDS))
         ]
         self.timeout = max(int(timeout or 0), 1)
 

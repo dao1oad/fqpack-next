@@ -9,11 +9,11 @@ from freshquant.db import DBfreshquant
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.tpsl.stoploss_batch import build_stoploss_batch
-from freshquant.tpsl.takeprofit_service import TakeprofitService
 from freshquant.tpsl.takeprofit_quantity import (
     choose_takeprofit_level,
     resolve_takeprofit_sell_quantity,
 )
+from freshquant.tpsl.takeprofit_service import TakeprofitService
 from freshquant.util.code import normalize_to_base_code
 
 try:
@@ -50,7 +50,9 @@ class TpslService:
     def get_takeprofit_profile(self, symbol):
         return self.takeprofit_service.get_profile_with_state(symbol)
 
-    def set_takeprofit_tier_enabled(self, symbol, *, level, enabled, updated_by="system"):
+    def set_takeprofit_tier_enabled(
+        self, symbol, *, level, enabled, updated_by="system"
+    ):
         return self.takeprofit_service.set_tier_manual_enabled(
             symbol,
             level=level,
@@ -61,7 +63,9 @@ class TpslService:
     def get_takeprofit_state(self, symbol):
         return self.takeprofit_service.get_state(symbol)
 
-    def mark_takeprofit_triggered(self, *, symbol, level, batch_id, updated_by="system"):
+    def mark_takeprofit_triggered(
+        self, *, symbol, level, batch_id, updated_by="system"
+    ):
         return self.takeprofit_service.mark_level_triggered(
             symbol,
             level=level,
@@ -360,7 +364,9 @@ def _cap_takeprofit_breakdown(profit_slices, *, quantity_cap):
         slice_id = slice_document["lot_slice_id"]
         buy_lot_id = slice_document["buy_lot_id"]
         slice_quantities[slice_id] = allocatable
-        buy_lot_quantities[buy_lot_id] = buy_lot_quantities.get(buy_lot_id, 0) + allocatable
+        buy_lot_quantities[buy_lot_id] = (
+            buy_lot_quantities.get(buy_lot_id, 0) + allocatable
+        )
         slice_details.append(
             {
                 "lot_slice_id": slice_id,

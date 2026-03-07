@@ -33,7 +33,9 @@ def _to_xt_symbol(code_prefixed: str) -> str:
     return s
 
 
-def _merge_subscription_codes(base_codes: list[str], tpsl_codes: list[str]) -> list[str]:
+def _merge_subscription_codes(
+    base_codes: list[str], tpsl_codes: list[str]
+) -> list[str]:
     merged = {
         normalize_prefixed_code(code).lower()
         for code in [*(base_codes or []), *(tpsl_codes or [])]
@@ -91,7 +93,6 @@ class TickPump:
                 traceback.print_exc()
 
 
-
 def _extract_level_price(value) -> float:
     if isinstance(value, (list, tuple)):
         if not value:
@@ -103,7 +104,6 @@ def _extract_level_price(value) -> float:
         return 0.0
 
 
-
 def _coerce_tick_time(raw_time) -> int:
     try:
         tick_time = int(raw_time or 0)
@@ -112,7 +112,6 @@ def _coerce_tick_time(raw_time) -> int:
     if tick_time >= 1_000_000_000_000:
         return int(tick_time / 1000)
     return tick_time
-
 
 
 def _build_tick_quote_event(code_prefixed: str, tick: dict) -> TickQuoteEvent | None:
@@ -135,7 +134,6 @@ def _build_tick_quote_event(code_prefixed: str, tick: dict) -> TickQuoteEvent | 
     )
 
 
-
 def _push_tick_quote_events(datas: dict[str, dict], *, redis_client=redis_db) -> None:
     if not datas or redis_client is None:
         return
@@ -155,7 +153,6 @@ def _push_tick_quote_events(datas: dict[str, dict], *, redis_client=redis_db) ->
             pipe.execute()
     except Exception:
         traceback.print_exc()
-
 
 
 def start_producer():

@@ -14,7 +14,9 @@ class TakeprofitService:
 
     def save_profile(self, symbol, *, tiers, updated_by="system"):
         normalized_symbol = _normalize_symbol(symbol)
-        current_profile = self.repository.find_takeprofit_profile(normalized_symbol) or {}
+        current_profile = (
+            self.repository.find_takeprofit_profile(normalized_symbol) or {}
+        )
         current_state = self.repository.find_takeprofit_state(normalized_symbol)
         normalized_tiers = _normalize_tiers(tiers)
         now = _now()
@@ -163,8 +165,7 @@ class TakeprofitService:
         state = {
             "symbol": symbol,
             "armed_levels": {
-                int(tier["level"]): bool(tier.get("manual_enabled"))
-                for tier in tiers
+                int(tier["level"]): bool(tier.get("manual_enabled")) for tier in tiers
             },
             "version": 1,
             "updated_at": now,

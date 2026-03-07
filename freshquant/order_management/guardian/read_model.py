@@ -25,7 +25,9 @@ def list_active_open_slices(open_slices):
 def list_profitable_open_slices(open_slices, *, exit_price):
     active_slices = list_active_open_slices(open_slices)
     profitable_slices = [
-        item for item in active_slices if float(item["guardian_price"]) < float(exit_price)
+        item
+        for item in active_slices
+        if float(item["guardian_price"]) < float(exit_price)
     ]
     profitable_slices.sort(
         key=lambda item: (float(item["guardian_price"]), item.get("sort_key", 0))
