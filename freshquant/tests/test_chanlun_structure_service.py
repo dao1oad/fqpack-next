@@ -1,14 +1,10 @@
 import pandas as pd
 import pytest
 
-try:
-    from freshquant.chanlun_structure_service import (
-        build_chanlun_structure_payload,
-        build_dataframe_from_cache_payload,
-    )
-except ImportError:
-    build_chanlun_structure_payload = None
-    build_dataframe_from_cache_payload = None
+from freshquant.chanlun_structure_service import (
+    build_chanlun_structure_payload,
+    build_dataframe_from_cache_payload,
+)
 
 
 def test_build_dataframe_from_cache_payload_keeps_ohlcv_alignment():

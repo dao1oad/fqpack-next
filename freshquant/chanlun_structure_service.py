@@ -18,7 +18,9 @@ def _format_dt_ymdhm(dt_obj: Any) -> str:
         return str(dt_obj)
 
 
-def _ensure_numeric_list(values: Any, size: int, *, default: float = 0.0) -> list[float]:
+def _ensure_numeric_list(
+    values: Any, size: int, *, default: float = 0.0
+) -> list[float]:
     if not isinstance(values, list):
         return [default] * size
     output = []
@@ -63,7 +65,9 @@ def build_dataframe_from_cache_payload(payload: dict[str, Any]) -> pd.DataFrame:
     return df
 
 
-def _sanitize_kline_df(df: pd.DataFrame, *, limit: int = DEFAULT_BAR_LIMIT) -> pd.DataFrame:
+def _sanitize_kline_df(
+    df: pd.DataFrame, *, limit: int = DEFAULT_BAR_LIMIT
+) -> pd.DataFrame:
     if df is None or len(df) == 0:
         raise ValueError("kline data is empty")
     required = ["open", "high", "low", "close", "volume"]
@@ -87,16 +91,21 @@ def _sanitize_kline_df(df: pd.DataFrame, *, limit: int = DEFAULT_BAR_LIMIT) -> p
     clean[["open", "high", "low", "close", "volume", "amount"]] = clean[
         ["open", "high", "low", "close", "volume", "amount"]
     ].apply(pd.to_numeric, errors="coerce")
-    clean[["open", "high", "low", "close", "volume", "amount"]] = clean[
-        ["open", "high", "low", "close", "volume", "amount"]
-    ].ffill().bfill().fillna(0.0)
+    clean[["open", "high", "low", "close", "volume", "amount"]] = (
+        clean[["open", "high", "low", "close", "volume", "amount"]]
+        .ffill()
+        .bfill()
+        .fillna(0.0)
+    )
     clean = clean.sort_values("datetime")
     if limit > 0 and len(clean) > limit:
         clean = clean.iloc[-limit:].copy()
     return clean.reset_index(drop=True)
 
 
-def _build_vertices(df: pd.DataFrame, sig_list: list[int] | None) -> list[dict[str, Any]]:
+def _build_vertices(
+    df: pd.DataFrame, sig_list: list[int] | None
+) -> list[dict[str, Any]]:
     if df is None or df.empty or not isinstance(sig_list, list):
         return []
 
@@ -256,7 +265,9 @@ def build_chanlun_structure_payload(
         "endDate": end_date,
         "source": source,
         "bar_count": int(len(clean_df)),
-        "asof": _format_dt_ymdhm(clean_df["datetime"].iloc[-1]) if len(clean_df) else "",
+        "asof": (
+            _format_dt_ymdhm(clean_df["datetime"].iloc[-1]) if len(clean_df) else ""
+        ),
         "message": "",
         "structure": {
             "higher_segment": _build_higher_segment_payload(clean_df, fc_res, higher),
@@ -315,9 +326,9 @@ def _get_realtime_cache_payload(
 
 
 def _fetch_kline_df(symbol: str, period: str, end_date: str | None) -> pd.DataFrame:
-    from freshquant.KlineDataTool import get_future_data_v2, get_stock_data
     from freshquant.carnation.enum_instrument import InstrumentType
     from freshquant.instrument.general import query_instrument_type
+    from freshquant.KlineDataTool import get_future_data_v2, get_stock_data
     from freshquant.quote.etf import queryEtfCandleSticks
 
     instrument_type = query_instrument_type((symbol or "").lower())

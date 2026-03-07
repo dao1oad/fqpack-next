@@ -122,3 +122,10 @@
 - **影响面**：所有 `source=strategy` 的股票/ETF 订单都会新增一层仓位准入判断；当仓位状态缺失或过旧时，策略买入会按默认保守状态 `HOLDING_ONLY` 处理。运维需要备份独立分库 `freshquant_position_management`，并确保独立 worker 周期刷新 `pm_current_state`。
 - **迁移步骤**：1) 配置 `position_management.mongo_database`、`xtquant.account_type=CREDIT`、`xtquant.account`、`xtquant.path`；2) 启动 `python -m freshquant.position_management.worker` 持续刷新信用资产；3) 确认 `pm_current_state` 正常更新后，再让 Guardian 等策略通过 `OrderSubmitService` 发单；4) 若后续实现 Guardian 强制减仓算法，应继续沿用当前 `position_management_force_profit_reduce/profit_reduce_mode` 占位字段。
 - **回滚方案**：回退 `freshquant/order_management/submit/service.py` 与 `freshquant/position_management/*` 的接入改动，停用仓位管理 worker，并保留 `freshquant_position_management` 历史快照用于排障。
+
+- **日期**：2026-03-08
+- **RFC**：0018-kline-slim-chanlun-structure-panel
+- **变更**：无破坏性变更。本次新增 `/api/stock_data_chanlun_structure` 作为独立专用接口，并在 `KlineSlim` 增加手动打开的缠论结构半透明面板；现有 `/api/stock_data`、consumer Redis payload 与旧页面契约保持不变。
+- **影响面**：仅新增能力，不改变既有调用方行为。需要该能力的前端应显式调用新接口或使用新版 `KlineSlim` 页面。
+- **迁移步骤**：旧调用方无需迁移；如需展示高级段/段/笔及中枢明细，切换到 `/api/stock_data_chanlun_structure` 并使用 RFC 0018 对应的前端面板。
+- **回滚方案**：删除新接口、`freshquant/chanlun_structure_service.py` 与 `KlineSlim` 面板代码即可，既有 `/api/stock_data` 与其他页面无需调整。
