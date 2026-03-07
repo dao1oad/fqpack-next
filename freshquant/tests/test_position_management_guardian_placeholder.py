@@ -146,9 +146,7 @@ def test_submit_service_carries_guardian_placeholder_meta_to_queue():
         }
     )
 
-    assert (
-        result["queue_payload"]["position_management_force_profit_reduce"] is True
-    )
+    assert result["queue_payload"]["position_management_force_profit_reduce"] is True
     assert (
         result["queue_payload"]["position_management_profit_reduce_mode"]
         == "guardian_placeholder"

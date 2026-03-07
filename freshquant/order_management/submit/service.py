@@ -40,14 +40,16 @@ class OrderSubmitService:
 
         position_decision = None
         if payload.get("source") == "strategy":
-            position_decision = self.position_management_service.evaluate_strategy_order(
-                {
-                    **payload,
-                    "action": action,
-                    "symbol": symbol,
-                    "price": price,
-                    "quantity": quantity,
-                }
+            position_decision = (
+                self.position_management_service.evaluate_strategy_order(
+                    {
+                        **payload,
+                        "action": action,
+                        "symbol": symbol,
+                        "price": price,
+                        "quantity": quantity,
+                    }
+                )
             )
             if not position_decision.allowed:
                 raise PositionManagementRejectedError(

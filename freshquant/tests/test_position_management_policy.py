@@ -74,7 +74,10 @@ def test_holding_only_blocks_new_symbol_buy_and_records_decision():
 
     decision = service.evaluate_strategy_order(
         payload={"source": "strategy", "action": "buy", "symbol": "000001"},
-        current_state={"state": HOLDING_ONLY, "evaluated_at": "2026-03-07T12:00:00+08:00"},
+        current_state={
+            "state": HOLDING_ONLY,
+            "evaluated_at": "2026-03-07T12:00:00+08:00",
+        },
     )
 
     assert decision.allowed is False
@@ -93,7 +96,10 @@ def test_holding_only_allows_existing_symbol_buy_after_symbol_normalization():
 
     decision = service.evaluate_strategy_order(
         payload={"source": "strategy", "action": "buy", "symbol": "sz000001"},
-        current_state={"state": HOLDING_ONLY, "evaluated_at": "2026-03-07T12:00:00+08:00"},
+        current_state={
+            "state": HOLDING_ONLY,
+            "evaluated_at": "2026-03-07T12:00:00+08:00",
+        },
     )
 
     assert decision.allowed is True
@@ -133,7 +139,10 @@ def test_stale_allow_open_state_blocks_new_symbol_buy():
 
     decision = service.evaluate_strategy_order(
         payload={"source": "strategy", "action": "buy", "symbol": "000001"},
-        current_state={"state": ALLOW_OPEN, "evaluated_at": "2026-03-07T11:59:30+08:00"},
+        current_state={
+            "state": ALLOW_OPEN,
+            "evaluated_at": "2026-03-07T11:59:30+08:00",
+        },
     )
 
     assert decision.allowed is False
