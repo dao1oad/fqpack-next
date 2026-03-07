@@ -111,6 +111,9 @@ RFC 必含内容（至少）：
 
 PR 合并策略（项目强制约束）：
 - **禁止直推 `main`**：所有改动在 feature 分支完成后提交 PR。
+- **禁止在本地 `main` 分支直接开发或提交**：本地 `main` 只能用于同步远程 `origin/main`，不能承载任何需求开发、修复、实验性改动或临时提交。
+- **强制使用 git worktree + feature 分支开展修改**：每次开始开发前，必须从最新 `origin/main` 拉出独立 worktree 和 feature 分支；开发、提交、验证、PR 都在该 worktree 内完成。
+- **合并顺序固定**：仅允许“feature worktree 开发 -> 提交 PR -> 合并到远程 `main` -> 本地 `main` fast-forward 同步远程 `main`”这一条路径；禁止把本地 `main` 作为中间集成分支或预提交分支。
 - PR 必须满足：
   - CI 全绿（`CI / governance`、`CI / pre-commit`、`CI / pytest`）
   - reviewer Approve：GitHub 不允许 PR 作者自我 Approve；单账号仓库暂不强制（0），引入第二账号/团队后改回 ≥1
