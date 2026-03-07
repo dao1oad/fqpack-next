@@ -60,7 +60,7 @@
 
 - Windows 宿主机上的 MiniQMT / XTData。
 - Docker 并行部署的 `fq_mongodb`（宿主机 `27027`）。
-- 宿主机 Redis（当前仍使用 `127.0.0.1:6379`）。
+- Docker 并行部署的 `fq_redis`（宿主机 `127.0.0.1:6380`，容器内 `6379`）。
 - Mongo `params` 初始化入口：`python -m freshquant.initialize --quiet`。
 
 ## 7. Public API
@@ -72,6 +72,8 @@
 - 宿主机 `broker / xtdata producer / xtdata consumer` 必须在环境中显式设置：
   - `FRESHQUANT_MONGODB__HOST=127.0.0.1`
   - `FRESHQUANT_MONGODB__PORT=27027`
+  - `FRESHQUANT_REDIS__HOST=127.0.0.1`
+  - `FRESHQUANT_REDIS__PORT=6380`
 - `xtquant.account_type` 若配置为 `CREDIT`，broker 会按信用账户类型连接。
 
 ## 8. 数据与配置

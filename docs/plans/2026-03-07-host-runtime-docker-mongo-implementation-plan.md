@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 将宿主机 broker、xtdata producer、xtdata consumer 的 Mongo 连接切到 Docker Mongo，并完成 Docker `freshquant` 初始化与 `params` 同步。
+**Goal:** 将宿主机 broker、xtdata producer、xtdata consumer 的 Mongo/Redis 连接切到 Docker 并行部署实例，并完成 Docker `freshquant` 初始化与 `params` 同步。
 
-**Architecture:** 通过宿主机 supervisor 共享环境文件 `D:/fqpack/config/envs.conf` 统一覆盖 `mongodb.host/port`，再在 Docker Mongo 上运行一次初始化脚本，最后把宿主机 `params` 按 `code` upsert 过去并重启三个宿主机进程验证。
+**Architecture:** 通过宿主机 supervisor 共享环境文件 `D:/fqpack/config/envs.conf` 统一覆盖 `mongodb.host/port` 与 `redis.host/port`，再在 Docker Mongo 上运行一次初始化脚本，最后把宿主机 `params` 按 `code` upsert 过去并重启三个宿主机进程验证。
 
 **Tech Stack:** Dynaconf、PyMongo、supervisor、Docker Compose、Python 3.12/3.10
 
@@ -48,12 +48,13 @@ D:\fqpack\supervisord\supervisord.exe ctl -c D:\fqpack\config\supervisord.fqnext
 **Files:**
 - Modify: `D:/fqpack/config/envs.conf`
 
-**Step 1: 添加 Docker Mongo 端口**
+**Step 1: 添加 Docker Mongo/Redis 端口**
 
 在 `envs.conf` 中加入：
 
 ```text
 FRESHQUANT_MONGODB__PORT=27027
+FRESHQUANT_REDIS__PORT=6380
 ```
 
 ### Task 3: 初始化 Docker Mongo 并同步 params
@@ -142,7 +143,7 @@ import json
 from datetime import datetime
 import redis
 
-r = redis.Redis(host="127.0.0.1", port=6379, db=1, decode_responses=True)
+r = redis.Redis(host="127.0.0.1", port=6380, db=1, decode_responses=True)
 payload = {"action": "sync-positions", "force": True, "fire_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 r.lpush("freshquant_order_queue", json.dumps(payload, ensure_ascii=False))
 print(payload)

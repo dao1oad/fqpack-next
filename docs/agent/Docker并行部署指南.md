@@ -166,6 +166,8 @@ docker compose -f docker/compose.parallel.yaml down -v
 ```text
 FRESHQUANT_MONGODB__HOST=127.0.0.1
 FRESHQUANT_MONGODB__PORT=27027
+FRESHQUANT_REDIS__HOST=127.0.0.1
+FRESHQUANT_REDIS__PORT=6380
 ```
 
 2. 首次使用 Docker `freshquant` 库时，先初始化：
@@ -195,6 +197,7 @@ for doc in src.find({}, {"_id": 0}):
 补充说明：
 
 - MiniQMT / XTData 仍必须运行在 Windows 宿主机，不建议尝试将 `broker` 放入 Linux 容器。
+- Docker 并行模式下，如需让宿主机 `broker / producer / consumer` 与容器内 API 共用同一队列，Redis 应连接宿主机映射端口 `6380`，而不是旧宿主机 Redis `6379`。
 - 推荐直接使用仓库内模板：
   - `docs/配置文件模板/envs.fqnext.example`
   - `docs/配置文件模板/supervisord.fqnext.example.conf`
