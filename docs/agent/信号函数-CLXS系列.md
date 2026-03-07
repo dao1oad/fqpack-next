@@ -50,7 +50,7 @@ signals = fq_clxs(
 当需要批量筛选符合条件的股票时使用：
 
 ```python
-# freshquant/screening/clxs.py
+# freshquant/screening/strategies/clxs.py
 signals = fq_clxs(
     length, highs, lows, opens, closes, volumes,
     wave_opt=1560, stretch_opt=0, trend_opt=1, model_opt=10001
@@ -146,7 +146,8 @@ volume_list = [1.0] * length  # 默认值，不影响信号计算
 
 ## 相关代码文件
 
-- `freshquant/screening/clxs.py` - CLXS 选股主程序
+- `freshquant/screening/strategies/clxs.py` - CLXS 选股策略实现
+- `freshquant/command/stock.py` - `fqctl stock` 的 CLXS 策略入口
 - `freshquant/pattern/chanlun/pullback.py` - 拉回信号识别
 - `freshquant/pattern/chanlun/v_reversal.py` - V 反转识别
 - `freshquant/pattern/chanlun/macd_divergence.py` - MACD 背驰识别

@@ -1,238 +1,230 @@
 ---
 name: agent-docs-index
-description: FreshQuant AI 助手文档索引。列出了所有面向 AI 编码助手的参考文档，涵盖信号函数、行情数据获取、股票池与持仓管理等核心模块的使用指南。
+description: FreshQuant AI 助手文档索引，覆盖目标仓当前代码现状、迁移治理、旧仓参考实现与各专项使用指南。
 ---
 
-> NOTE (Windows PowerShell 5.1): If Chinese looks garbled in `cat/type`, run: `. .\script\pwsh_utf8.ps1`
+> NOTE (Windows PowerShell 5.1): 如果 `cat/type` 中文乱码，先执行：`. .\script\pwsh_utf8.ps1`
 
 # FreshQuant AI 助手文档索引
 
-本文档目录包含面向 AI 编码助手的技术参考文档。当 AI 需要编写与 FreshQuant 相关的代码时，应根据任务类型查阅对应文档。
+本文档是 AI 编码助手和新接手开发者的统一入口。请先区分两类文档：
 
-## 建议阅读顺序（新接入/换人接手）
+- **当前事实**：目标仓当前代码、运行方式、治理规则
+- **旧仓参考**：旧仓 `D:\fqpack\freshquant` 的实现细节，仅用于迁移映射和 RFC 背景调研
 
-1. `项目目标与代码现状调研.md`：先对齐“本期迁移目标 + 当前代码/入口/依赖/CI 门禁”
-2. `旧仓库freshquant-重点迁移模块调研.md`：理解“旧仓库实现/数据流/接口/存储”，为后续 RFC 拆分与迁移验收打底
-3. 再按任务类型查阅下方具体模块文档（信号、行情、股票池、配置等）
+## 当前状态快照（2026-03-07）
+
+- 目标仓是 `D:\fqpack\freshquant-2026.2.23`
+- `docs/migration/progress.md` 中 `0001` 到 `0016` 当前均已登记
+- 已落地核心能力包括：
+  - XTData producer/consumer
+  - ETF `qfq`
+  - 订单管理 / 仓位管理 / TPSL
+  - Gantt / Shouban30 读模型与页面
+  - KlineSlim
+  - TradingAgents-CN 并行部署与配置治理
+- 旧仓调研文档仍然重要，但不代表当前代码事实
+
+## 建议阅读顺序（新接入 / 换人接手）
+
+1. [项目目标与代码现状调研](./项目目标与代码现状调研.md)
+2. [迁移进度（progress）](../migration/progress.md)
+3. [破坏性变更清单](../migration/breaking-changes.md)
+4. 按任务进入对应专项文档
+5. 需要理解旧实现时，再读 [旧仓库freshquant-重点迁移模块调研](./旧仓库freshquant-重点迁移模块调研.md)
 
 ## 核心文档
 
 ### [项目目标与代码现状调研](./项目目标与代码现状调研.md)
 `project-goals-and-codebase-survey`
 
-**用途**：快速掌握“本仓库的迁移治理目标”与“当前代码现状/关键入口/集成点”。
+**用途**：快速掌握目标仓当前代码现状、关键入口、配置/存储分层、测试与治理基线。
 
 **适用场景**：
+
 - 开始迁移/重构前做范围界定
-- 需要定位关键入口（CLI/API/worker/web）与外部依赖（MongoDB/Redis/MiniQMT）
-- 编写/评审 RFC 前的背景调研
+- 需要定位 CLI/API/worker/web 入口
+- 编写或评审 RFC 前做当前事实确认
 
 **关键内容**：
-- 迁移治理规则（RFC + progress + breaking changes）
-- 仓库组成（freshquant/morningglory/sunflower/ikebana）
-- 关键入口与运行形态（fqctl、TDX 网关、rear API、Dagster、Huey worker）
+
+- 目标仓当前迁移现状快照
+- 仓库结构（`freshquant` / `morningglory` / `sunflower` / `third_party`）
+- 关键入口与运行链路
+- 配置、Mongo/Redis 分层与 CI 门禁
+
+---
+
+### [迁移进度（progress）](../migration/progress.md)
+
+**用途**：查看各 RFC 当前状态、对应模块、更新时间与已落地范围。
+
+**适用场景**：
+
+- 判断某个迁移单元是否已经做完
+- 评估当前代码的迁移覆盖范围
+- 开始新任务前避免重复设计
+
+---
+
+### [破坏性变更清单](../migration/breaking-changes.md)
+
+**用途**：查看已经落地的接口、配置、数据结构和行为语义调整。
+
+**适用场景**：
+
+- 修改 CLI / API / 配置 / 数据结构前核对已有不兼容调整
+- 回滚、排障、部署前确认迁移步骤
 
 ---
 
 ### [旧仓库freshquant-重点迁移模块调研](./旧仓库freshquant-重点迁移模块调研.md)
 `legacy-freshquant-migration-modules-survey`
 
-**用途**：掌握旧仓库 `D:\fqpack\freshquant` 的代码结构与运行逻辑，聚焦 10 个后续重点迁移模块。
+**用途**：理解旧仓 `D:\fqpack\freshquant` 的 10 个重点模块实现、数据流、存储结构与迁移映射。
 
 **适用场景**：
-- 拆分 RFC（按“模块边界/输入输出/依赖/验收”）
-- 定位旧实现入口（producer/consumer、guardian、stoploss、gantt、KlineSlim 等）
-- 迁移对齐对外契约（API/WS/Redis key/Mongo collections）与验收口径
 
-**关键内容**：
-- xtdata 生产者/消费者模式（tick → bar 事件 → fullcalc → Redis cache + Pub/Sub）
-- guardian / grid / stoploss / position 风控链路
-- 订单管理：Redis 队列优先级（high/normal/low）+ broker/puppet 执行 + `xt_orders/xt_trades` 落库 + remark 追踪
-- 结构化日志（JSONL）+ SystemLogs 可视化
-- KlineSlim：前端 3 级缓存 + WebSocket 实时刷新 + 后端 `/api/stock_data`
-- XGB/JYGS 数据同步与甘特图数据结构（plates/stocks matrix）
-- 30 日热门（Shouban30）导出 + 缠论 calc/cache/filter + 预选池/blk 闭环
+- 拆分 RFC
+- 定位旧实现入口
+- 对齐旧接口契约与验收口径
 
----
+**关键提醒**：
 
-### [信号函数-CLXS系列](./信号函数-CLXS系列.md)
-`signal-clxs-functions`
-
-**用途**：缠论信号计算
-
-**适用场景**：
-- 股票筛选与选股系统
-- MACD 背驰信号识别
-- 中枢拉回信号识别
-- V 型反转信号识别
-
-**关键内容**：
-- `fq_clxs` 函数签名与参数
-- `model_opt` 信号模型类型表
-- 止损价格计算方法
-- 配合 `fq_recognise_bi` 使用
-
----
-
-### [行情数据获取指南](./行情数据获取指南.md)
-`market-data-fetching`
-
-**用途**：A 股行情数据获取
-
-**适用场景**：
-- 技术分析需要历史数据
-- 选股系统需要行情数据
-- 信号计算需要 OHLCV 数据
-
-**关键内容**：
-- 交易日历获取 `fq_trading_fetch_trade_dates`
-- 股票列表获取 `fq_inst_fetch_stock_list`
-- 日线/分钟线数据获取 `fq_data_stock_fetch_day/min`
-- 数据源与缓存策略
-
----
-
-### [股票池与持仓数据获取指南](./股票池与持仓数据获取指南.md)
-`stock-pool-and-position`
-
-**用途**：股票池与持仓数据管理
-
-**适用场景**：
-- 选股后保存候选股票池
-- 读取股票池进行监控
-- 获取持仓数据进行分析
-- 组合监控代码集合
-
-**关键内容**：
-- 候选股票池 (`stock_pre_pools`) 操作
-- 股票池 (`stock_pools`) 操作
-- 必选池 (`must_pool`) 查询
-- 持仓数据 (`stock_fills`) 获取
-
----
-
-### [ETF行情数据获取指南](./ETF行情数据获取指南.md)
-`etf-market-data-fetching`
-
-**用途**：ETF 行情数据获取
-
-**适用场景**：
-- 获取 ETF 历史行情数据
-- 处理混合持仓（A 股 + ETF）
-- ETF 信号计算
-
-**关键内容**：
-- ETF 日线/分钟线获取 `queryEtfCandleSticksDay/min`
-- ETF vs A 股数据获取差异对比
-- 标的类型判断方法
-
----
-
-### [配置管理指南](./配置管理指南.md)
-`config-management`
-
-**用途**：配置管理与环境变量
-
-**适用场景**：
-- 需要从配置文件获取参数
-- Docker 环境下配置 API 地址
-- 环境变量覆盖配置
-
-**关键内容**：
-- dynaconf 配置系统用法
-- 环境变量命名规范 `freshquant_<SECTION>__<KEY>`
-- API 地址配置模式
+- 文档主体以旧仓实现为主
+- 顶部“迁移状态追加”用于说明目标仓当前落点
+- 若与当前代码冲突，以当前代码和 `progress.md` 为准
 
 ---
 
 ### [Docker并行部署指南](./Docker并行部署指南.md)
 `docker-parallel-deployment`
 
-**用途**：宿主机旧项目已占用端口时，本仓库用 Docker **并行运行**（端口隔离 + 最小验证 + 排障）。
+**用途**：在宿主机旧仓仍运行时，用 Docker 并行启动目标仓和 TradingAgents-CN。
 
 **适用场景**：
-- `D:\\fqpack\\freshquant` 在宿主机运行中，仍需启动 `D:\\fqpack\\freshquant-2026.2.23` 做迁移/验证
-- 避免端口冲突（80/5000/5001/6379/27017 等）
+
+- 避免端口冲突
+- 验证目标仓新能力
+- 部署 TradingAgents-CN 并行环境
 
 **关键内容**：
-- Compose 文件：`docker/compose.parallel.yaml`
-- 并行端口映射：Web UI 18080 / API 15000 / TDXHQ 15001 / Dagster 11003 / Redis 6380 / Mongo 27027
+
+- `docker/compose.parallel.yaml`
+- 并行端口：Web `18080` / API `15000` / TDXHQ `15001` / Dagster `11003` / Redis `6380` / Mongo `27027`
+- TradingAgents：`13000` / `13080`
 
 ---
 
-### [TradingAgents-CN股票分析流程调研](./TradingAgents-CN股票分析流程调研.md)
-`tradingagents-cn-analysis-flow-survey`
+### [配置管理指南](./配置管理指南.md)
+`config-management`
 
-**用途**：理解 `TradingAgents-CN` 股票分析全流程、A 股本地数据依赖、Mongo/Redis 读写职责，以及后续与 FreshQuant 的数据替换切入点。
+**用途**：说明 Dynaconf、环境变量和订单域分库配置等现有配置体系。
 
 **适用场景**：
-- 评审 `TradingAgents-CN` 集成 RFC
-- 判断哪些分析阶段必须有本地数据支持
-- 设计“阶段 1 保持原生数据逻辑”与“阶段 2 替换 FreshQuant 数据层”的边界
 
-**关键内容**：
-- FastAPI 入口 → 数据准备 gate → 多智能体分析图的完整调用链
-- A 股 `prepare_stock_data_async(...)` 的本地缓存检查与按需补数逻辑
-- 市场分析师 / 基本面分析师 / 新闻分析师对本地数据的依赖强弱
-- 后续优先替换点：`prepare_stock_data_async(...)`、`get_china_stock_data_unified(...)`、`get_stock_fundamentals_unified(...)`
+- 需要读取或覆盖配置
+- Docker 环境下设置 API / Mongo / Redis
+- 对齐 `order_management` 等独立分库配置
 
 ---
 
 ### [TradingAgents-CN接入与运行说明](./TradingAgents-CN接入与运行说明.md)
 `tradingagents-cn-integration-guide`
 
-**用途**：说明如何在本仓库中以 Docker 方式启动 `TradingAgents-CN`，包括共享 `fq_mongodb` / `fq_redis`、默认管理员、环境变量来源和单股分析请求示例。
+**用途**：说明如何在本仓库中启动 `ta_backend` / `ta_frontend`，并按当前配置治理语义完成登录、提交分析和排障。
 
 **适用场景**：
-- 启动 `ta_backend` / `ta_frontend`
-- 检查 `TradingAgents-CN` 与本仓库并行运行的端口和存储隔离
-- 通过 PowerShell 提交单股分析任务并查看结果
+
+- 启动 TradingAgents-CN
+- 校验端口、Mongo、Redis 隔离
+- 用 PowerShell 验证单股分析链路
 
 **关键内容**：
-- 运行边界：仅接入 `FastAPI backend + Vue frontend`
-- 端口：`13000` / `13080`
-- MongoDB：`tradingagents_cn`
-- Redis：`db 8`
-- 登录、分析、状态查询示例
+
+- Docker 并行启动
+- 根 `.env` 单一真相源
+- Mongo `tradingagents_cn`
+- Redis `db 8`
 
 ---
+
+### [TradingAgents-CN股票分析流程调研](./TradingAgents-CN股票分析流程调研.md)
+`tradingagents-cn-analysis-flow-survey`
+
+**用途**：理解 TradingAgents-CN 从 FastAPI 请求进入、数据准备、任务系统到多智能体分析图的调用链。
+
+**适用场景**：
+
+- 评审 TradingAgents 相关 RFC
+- 判断阶段 2 的数据替换切入点
+
+---
+
+### [股票池与持仓数据获取指南](./股票池与持仓数据获取指南.md)
+`stock-pool-and-position`
+
+**用途**：说明 `stock_pre_pools`、`stock_pools`、`must_pool` 以及当前持仓读取口径。
+
+**适用场景**：
+
+- 获取监控标的集合
+- 读取当前持仓
+- 理解股票池与订单域持仓投影的关系
+
+---
+
+### [行情数据获取指南](./行情数据获取指南.md)
+`market-data-fetching`
+
+**用途**：A 股行情数据获取与使用方式。
+
+---
+
+### [ETF行情数据获取指南](./ETF行情数据获取指南.md)
+`etf-market-data-fetching`
+
+**用途**：ETF 行情数据获取与与 A 股差异说明。
+
+---
+
+### [信号函数-CLXS系列](./信号函数-CLXS系列.md)
+`signal-clxs-functions`
+
+**用途**：缠论信号函数签名、模型类型和止损价格计算说明。
 
 ## 按任务类型查找
 
 | 任务类型 | 参考文档 |
 |---------|---------|
-| 使用缠论信号计算 | [信号函数-CLXS系列](./信号函数-CLXS系列.md) |
-| 获取 A 股历史行情数据 | [行情数据获取指南](./行情数据获取指南.md) |
-| 获取 ETF 历史行情数据 | [ETF行情数据获取指南](./ETF行情数据获取指南.md) |
-| 保存选股结果到候选池 | [股票池与持仓数据获取指南](./股票池与持仓数据获取指南.md) |
-| 获取持仓数据 | [股票池与持仓数据获取指南](./股票池与持仓数据获取指南.md) |
-| 计算止损价格 | [信号函数-CLXS系列](./信号函数-CLXS系列.md#止损价格计算) |
-| 批量处理股票数据 | [行情数据获取指南](./行情数据获取指南.md#批量处理模式) |
-| 判断标的类型（A 股/ETF） | [ETF行情数据获取指南](./ETF行情数据获取指南.md#判断标的类型) |
-| 使用配置文件/环境变量 | [配置管理指南](./配置管理指南.md) |
-| Docker 环境 API 配置 | [配置管理指南](./配置管理指南.md#docker-环境配置) |
-| Docker 并行部署（与宿主机并行） | [Docker并行部署指南](./Docker并行部署指南.md) |
-| 调研 TradingAgents-CN 股票分析流程 | [TradingAgents-CN股票分析流程调研](./TradingAgents-CN股票分析流程调研.md) |
+| 了解项目目标 / 代码现状 | [项目目标与代码现状调研](./项目目标与代码现状调研.md) |
+| 查看迁移进度 | [迁移进度（progress）](../migration/progress.md) |
+| 查看破坏性变更 | [破坏性变更清单](../migration/breaking-changes.md) |
+| 了解旧仓库实现 / 迁移对象 | [旧仓库freshquant-重点迁移模块调研](./旧仓库freshquant-重点迁移模块调研.md) |
+| Docker 并行部署 | [Docker并行部署指南](./Docker并行部署指南.md) |
+| 配置文件 / 环境变量 | [配置管理指南](./配置管理指南.md) |
 | 启动并运行 TradingAgents-CN | [TradingAgents-CN接入与运行说明](./TradingAgents-CN接入与运行说明.md) |
-| 了解项目目标/代码现状 | [项目目标与代码现状调研](./项目目标与代码现状调研.md) |
-| 了解旧仓库实现/迁移对象 | [旧仓库freshquant-重点迁移模块调研](./旧仓库freshquant-重点迁移模块调研.md) |
+| 调研 TradingAgents-CN 调用链 | [TradingAgents-CN股票分析流程调研](./TradingAgents-CN股票分析流程调研.md) |
+| 获取 A 股历史行情 | [行情数据获取指南](./行情数据获取指南.md) |
+| 获取 ETF 历史行情 | [ETF行情数据获取指南](./ETF行情数据获取指南.md) |
+| 获取股票池与持仓 | [股票池与持仓数据获取指南](./股票池与持仓数据获取指南.md) |
+| 使用缠论信号函数 | [信号函数-CLXS系列](./信号函数-CLXS系列.md) |
 
 ## 使用说明
 
-1. **开始编码前**：先查阅相关文档了解函数签名和用法
-2. **遇到问题时**：参考文档中的完整示例代码
-3. **数据结构不明确时**：查看文档中的数据结构表
-4. **需要最佳实践时**：参考文档中的"注意事项"部分
+1. 开始编码前，先读“当前事实”文档，避免把旧仓实现当成目标仓现状。
+2. 需要迁移旧能力时，先读旧仓调研，再回到 `progress.md` / RFC 判断是否已经落地。
+3. 触及 CLI / API / 配置 / 数据结构时，务必同步检查 `breaking-changes.md`。
 
 ## 文档规范
 
-所有文档采用 YAML frontmatter 格式：
+所有 agent 文档采用 YAML frontmatter：
 
 ```yaml
 ---
 name: document-id
-description: 文档描述，说明内容和适用场景
+description: 文档描述
 ---
 ```
 
-AI 可通过读取 frontmatter 快速识别文档用途。
+AI 可据此快速识别文档用途与适用场景。
