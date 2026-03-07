@@ -234,7 +234,6 @@ def get_stock_pre_pools_list():
         category = ""
     if page <= 0:
         page = 1
-    category = request.args.get("category")
     pools_list = _get_stock_service().get_stock_pre_pools_list(page, category)
     return jsonify(pools_list)
 

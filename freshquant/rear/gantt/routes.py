@@ -88,6 +88,29 @@ def get_gantt_stocks():
     return jsonify({"data": data})
 
 
+@gantt_bp.route("/stocks/reasons")
+def get_gantt_stock_reasons():
+    code6 = _required_arg("code6")
+    if not code6:
+        return _bad_request("code6 required")
+
+    provider = (_required_arg("provider") or "all").lower()
+    try:
+        limit = max(int(request.args.get("limit", "0")), 0)
+    except (TypeError, ValueError):
+        limit = 0
+
+    try:
+        items = svc.query_stock_hot_reason_rows(
+            code6=code6,
+            provider=provider,
+            limit=limit,
+        )
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    return jsonify({"data": {"items": items}})
+
+
 @gantt_bp.route("/shouban30/plates")
 def get_shouban30_plates():
     provider = _required_arg("provider")

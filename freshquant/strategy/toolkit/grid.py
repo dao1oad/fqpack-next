@@ -1,7 +1,15 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-def plan_grid_distribution(ceiling_price: float, floor_price: float, amount: float, quantity: int, grid_num: int = 10, lot_shares: int = 100) -> pd.DataFrame:
+
+def plan_grid_distribution(
+    ceiling_price: float,
+    floor_price: float,
+    amount: float,
+    quantity: int,
+    grid_num: int = 10,
+    lot_shares: int = 100,
+) -> pd.DataFrame:
     """
     计划网格交易的价格和数量分布。使用等百分比间隔的价格网格，按价格倒数分配交易数量。
 
@@ -31,7 +39,7 @@ def plan_grid_distribution(ceiling_price: float, floor_price: float, amount: flo
     base_prices = [floor_price * (1 + step_percent * i) for i in range(grid_num)]
     if base_prices[-1] < ceiling_price:
         base_prices[-1] = ceiling_price  # 确保最高价为ceiling_price
-    base_prices = np.array(base_prices)    # 按价格的倒数分配权重
+    base_prices = np.array(base_prices)  # 按价格的倒数分配权重
     base_weights = 1 / base_prices
     base_weights /= base_weights.sum()  # 归一化
 
@@ -66,12 +74,14 @@ def plan_grid_distribution(ceiling_price: float, floor_price: float, amount: flo
     amount_adjust = amount / total_amount if abs(total_amount) > 1e-8 else 1.0
 
     # 创建数据帧（高价格在前）
-    df = pd.DataFrame({
-        "price": prices,
-        "quantity": quantities,
-        "amount": amounts,
-        "amount_adjust": amount_adjust
-    })
+    df = pd.DataFrame(
+        {
+            "price": prices,
+            "quantity": quantities,
+            "amount": amounts,
+            "amount_adjust": amount_adjust,
+        }
+    )
     # 删除0数量行
     df = df[df["quantity"] > 0]
 
@@ -79,13 +89,9 @@ def plan_grid_distribution(ceiling_price: float, floor_price: float, amount: flo
     # 使用shift(-1)获取下一行的价格，因为价格是从高到低排序的
     next_prices = df["price"].shift(-1)  # 获取下一行的价格
     df["price_diff"] = df["price"] - next_prices  # 当前价格减去下一行价格
-    df["price_percent"] = (df["price_diff"] / next_prices * 100)  # 相对下一行的涨幅百分比
+    df["price_percent"] = df["price_diff"] / next_prices * 100  # 相对下一行的涨幅百分比
 
     # 最后一行的差价和百分比设为NaN，因为没有下一个价格了
     df.loc[df.index[-1], ["price_diff", "price_percent"]] = float("nan")
 
     return df
-
-
-if __name__ == "__main__":
-    test_plan_grid()

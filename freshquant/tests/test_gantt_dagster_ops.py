@@ -134,6 +134,11 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
     )
     monkeypatch.setattr(
         ops,
+        "persist_stock_hot_reason_daily_for_date",
+        lambda trade_date: calls.append(("stock_hot_reason", trade_date)) or 1,
+    )
+    monkeypatch.setattr(
+        ops,
         "persist_shouban30_for_date",
         lambda trade_date: calls.append(("shouban30", trade_date))
         or {"as_of_date": trade_date},
@@ -145,11 +150,13 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
         ("jygs", "2026-03-04"),
         ("plate_reason", "2026-03-04"),
         ("gantt", "2026-03-04"),
+        ("stock_hot_reason", "2026-03-04"),
         ("shouban30", "2026-03-04"),
         ("xgb", "2026-03-05"),
         ("jygs", "2026-03-05"),
         ("plate_reason", "2026-03-05"),
         ("gantt", "2026-03-05"),
+        ("stock_hot_reason", "2026-03-05"),
         ("shouban30", "2026-03-05"),
     ]
 
@@ -194,6 +201,11 @@ def test_run_gantt_backfill_stops_on_first_failed_trade_date(monkeypatch):
     monkeypatch.setattr(ops, "persist_gantt_daily_for_date", _persist_gantt)
     monkeypatch.setattr(
         ops,
+        "persist_stock_hot_reason_daily_for_date",
+        lambda trade_date: calls.append(("stock_hot_reason", trade_date)) or 1,
+    )
+    monkeypatch.setattr(
+        ops,
         "persist_shouban30_for_date",
         lambda trade_date: calls.append(("shouban30", trade_date))
         or {"as_of_date": trade_date},
@@ -207,6 +219,7 @@ def test_run_gantt_backfill_stops_on_first_failed_trade_date(monkeypatch):
         ("jygs", "2026-03-04"),
         ("plate_reason", "2026-03-04"),
         ("gantt", "2026-03-04"),
+        ("stock_hot_reason", "2026-03-04"),
         ("shouban30", "2026-03-04"),
         ("xgb", "2026-03-05"),
         ("jygs", "2026-03-05"),
