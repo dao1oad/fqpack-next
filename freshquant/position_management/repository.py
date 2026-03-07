@@ -27,3 +27,23 @@ class PositionManagementRepository:
     @property
     def strategy_decisions(self):
         return self.database[self.decision_collection_name]
+
+    def get_config(self):
+        document = self.configs.find_one({"enabled": True}, sort=[("updated_at", -1)])
+        if document is not None:
+            return document
+        return self.configs.find_one({"code": "default"})
+
+    def insert_snapshot(self, document):
+        self.credit_asset_snapshots.insert_one(document)
+        return document
+
+    def upsert_current_state(self, document):
+        account_id = document.get("account_id")
+        query = {"account_id": account_id} if account_id else {"code": "default"}
+        self.current_state.replace_one(query, document, upsert=True)
+        return document
+
+    def get_current_state(self, account_id=None):
+        query = {"account_id": account_id} if account_id else {}
+        return self.current_state.find_one(query, sort=[("evaluated_at", -1)])
