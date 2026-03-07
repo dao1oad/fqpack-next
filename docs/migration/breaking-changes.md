@@ -14,6 +14,13 @@
 ## 变更记录
 
 - **日期**：2026-03-07
+- **RFC**：0017-gantt-shouban30-phase1-page
+- **变更**：`shouban30_plates / shouban30_stocks` 读模型 schema 扩展了 `stock_window_days` 维度；`/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 新增 `stock_window_days=30|45|60|90` 查询语义并返回 `data.meta`。板块列表字段从旧命名 `stocks_count_90` 收敛为 `stocks_count`，标的列表字段从 `appear_days_90 / stock_reason` 收敛为 `hit_count_window / latest_reason`，并新增 `hit_count_30`、`stock_window_from`、`stock_window_to`。前端新增 `/gantt/shouban30` 页面与头部导航“首板选股”，页面详情改为直接复用 `/api/gantt/stocks/reasons` 的历史全量热门理由，不再触发旧页导出/重算行为。
+- **影响面**：任何依赖旧 `shouban30` 返回结构、旧字段名或假设页面进入即自动导出/重算的调用方都需要调整；盘后任务会额外为 30/45/60/90 四档窗口构建 `shouban30` 快照。
+- **迁移步骤**：1) 调用 `/api/gantt/shouban30/plates|stocks` 时显式传入 `stock_window_days`；2) 适配 `data.meta` 与新字段名 `stocks_count / hit_count_window / latest_reason`；3) 标的详情统一改用 `/api/gantt/stocks/reasons?code6=<6位代码>&provider=all&limit=0`；4) 页面入口改为 `/gantt/shouban30?p=xgb&stock_window_days=30`。
+- **回滚方案**：回退 `freshquant/data/gantt_readmodel.py`、`freshquant/rear/gantt/routes.py`、`morningglory/fqdagster/src/fqdagster/defs/ops/gantt.py`、`morningglory/fqwebui/src/api/ganttShouban30.js`、`morningglory/fqwebui/src/views/GanttShouban30Phase1.vue`、`morningglory/fqwebui/src/router/index.js` 与 `morningglory/fqwebui/src/views/MyHeader.vue`，恢复现有最小 `shouban30` 列表能力。
+
+- **日期**：2026-03-07
 - **RFC**：0016-tradingagents-env-sot-sync
 - **变更**：`ta_backend` 的 DeepSeek/Tushare 配置来源从“宿主根 `.env`、镜像内 `.env.docker`、Mongo 配置并存”收敛为“仓库根 `.env` 单一真相源 + 启动时同步到 Mongo 镜像”；同时 `config_bridge` 改为环境变量优先，不再让数据库旧值覆盖根 `.env`，默认模型桥接优先读取激活 `system_configs` 的 DeepSeek 配置。
 - **影响面**：`third_party/tradingagents-cn` 的 Docker 启动链、Mongo `llm_providers/system_configs`、任务中心 `engine_initialization`、Tushare 数据源初始化，以及配置页观察到的密钥来源都会受影响；手工改 Mongo 或依赖 `.env.docker` 占位值的方式在重启后不再保留。
@@ -84,19 +91,13 @@
 - **回滚方案**：恢复 `reconcile_trade_reports()` 的旧外部化判定与 `/api/stock_order` 对 `quantity` 的直接 `int()` 转换逻辑。
 
 - **日期**：2026-03-07
-- **RFC**：0011-stock-etf-tpsl-module
-- **变更**：规划新增 XTData `TICK_QUOTE` 事件协议、`/api/tpsl/*` 后端接口，以及订单域 `takeprofit_batch / stoploss_batch` 作用域；TPSL 运行时状态将不再使用旧分支的 `grid_configs / stoploss_configs / fill_stoploss_configs`。
-- **影响面**：XTData producer、TPSL consumer、后端 API 与订单作用域会新增接口面；依赖旧 Grid/StopLoss 执行链的运维脚本需要切换到新模块。
-- **迁移步骤**：待 RFC 0011 实现落地后补充最终迁移步骤。
-- **回滚方案**：待 RFC 0011 实现落地后补充最终回滚说明。
-
-- **日期**：2026-03-07
 - **RFC**：0015-kline-slim-sidebar-hot-reasons
 - **变更**：`GET /api/get_stock_pre_pools_list` 在 `category` 缺省或为空字符串时，从“只匹配 `category=\"\"`”调整为“返回全分类合并结果”；同时新增 `GET /api/gantt/stocks/reasons`，供 `KlineSlim` hover 展示历史热门记录。
 - **影响面**：依赖空 `category` 返回空集或仅空分类数据的调用方会改变结果；`KlineSlim` 页面会新增左侧 4 组股票池和 hover 热门原因弹层。
 - **迁移步骤**：如需继续按分类过滤，请显式传入 `category`；如需读取 hover 历史热门记录，改用 `/api/gantt/stocks/reasons?code6=<6位代码>&provider=all`。
 - **回滚方案**：恢复 `get_stock_pre_pools_list()` 对空 `category` 的旧查询语义，并回退 `/api/gantt/stocks/reasons`、`stock_hot_reason_daily` 与 `KlineSlim` hover 调用链。
 
+- **日期**：2026-03-07
 - **RFC**：0014-stock-etf-tpsl-module
 - **变更**：已落地 XTData `TICK_QUOTE` Redis 队列协议（`QUEUE:TICK_QUOTE:*`）、独立 `freshquant.tpsl` 模块、`/api/tpsl/*` 后端接口，以及订单域 `takeprofit_batch / stoploss_batch` 作用域。止盈止损运行时状态迁移到 `om_takeprofit_profiles / om_takeprofit_states / om_exit_trigger_events`，不再沿用旧分支 `grid_configs / stoploss_configs / fill_stoploss_configs` 执行链。
 - **影响面**：XTData producer、独立 TPSL worker、后端 API、订单受理层与运维脚本都需要切换到新模块；依赖旧 `monitor_stock_zh_a_min.py` 中 Grid/StopLoss tick 执行链的运维方式不再适用。
@@ -107,6 +108,7 @@
   4) 通过 `/api/tpsl/takeprofit/<symbol>` 配置三层止盈，通过现有 `/api/order-management/stoploss/bind` 绑定 `buy_lot` 单笔止损；
   5) 调用方若要识别新批次卖单，应兼容 `scope_type=takeprofit_batch|stoploss_batch`。
 - **回滚方案**：停止 `freshquant.tpsl.tick_listener`，回退 `market_producer.py` 的 `TICK_QUOTE` 推送、`/api/tpsl/*` 蓝图注册与 `takeprofit_batch / stoploss_batch` 相关代码，恢复旧分支的 Grid/StopLoss 执行链或仅保留 `RFC 0007` 的 `buy_lot` 止损绑定能力。
+
 - **日期**：2026-03-07
 - **RFC**：0012-gantt-postclose-incremental-backfill
 - **变更**：`job_gantt_postclose` 的默认运行语义从“只处理单个上一交易日”调整为“从 `gantt_plate_daily` 最新已完成交易日的下一天开始，连续回补到按交易日历与 `15:05` 截止时间解析出的最新已完成交易日”；Dagster job 内部入口改为统一的增量回填 op，不再直接串接单日 op 链。

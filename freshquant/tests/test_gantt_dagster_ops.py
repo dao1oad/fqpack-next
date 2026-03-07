@@ -140,7 +140,9 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
     monkeypatch.setattr(
         ops,
         "persist_shouban30_for_date",
-        lambda trade_date: calls.append(("shouban30", trade_date))
+        lambda trade_date, stock_window_days=30: calls.append(
+            ("shouban30", trade_date, stock_window_days)
+        )
         or {"as_of_date": trade_date},
     )
 
@@ -151,13 +153,19 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
         ("plate_reason", "2026-03-04"),
         ("gantt", "2026-03-04"),
         ("stock_hot_reason", "2026-03-04"),
-        ("shouban30", "2026-03-04"),
+        ("shouban30", "2026-03-04", 30),
+        ("shouban30", "2026-03-04", 45),
+        ("shouban30", "2026-03-04", 60),
+        ("shouban30", "2026-03-04", 90),
         ("xgb", "2026-03-05"),
         ("jygs", "2026-03-05"),
         ("plate_reason", "2026-03-05"),
         ("gantt", "2026-03-05"),
         ("stock_hot_reason", "2026-03-05"),
-        ("shouban30", "2026-03-05"),
+        ("shouban30", "2026-03-05", 30),
+        ("shouban30", "2026-03-05", 45),
+        ("shouban30", "2026-03-05", 60),
+        ("shouban30", "2026-03-05", 90),
     ]
 
 
@@ -207,7 +215,9 @@ def test_run_gantt_backfill_stops_on_first_failed_trade_date(monkeypatch):
     monkeypatch.setattr(
         ops,
         "persist_shouban30_for_date",
-        lambda trade_date: calls.append(("shouban30", trade_date))
+        lambda trade_date, stock_window_days=30: calls.append(
+            ("shouban30", trade_date, stock_window_days)
+        )
         or {"as_of_date": trade_date},
     )
 
@@ -220,9 +230,38 @@ def test_run_gantt_backfill_stops_on_first_failed_trade_date(monkeypatch):
         ("plate_reason", "2026-03-04"),
         ("gantt", "2026-03-04"),
         ("stock_hot_reason", "2026-03-04"),
-        ("shouban30", "2026-03-04"),
+        ("shouban30", "2026-03-04", 30),
+        ("shouban30", "2026-03-04", 45),
+        ("shouban30", "2026-03-04", 60),
+        ("shouban30", "2026-03-04", 90),
         ("xgb", "2026-03-05"),
         ("jygs", "2026-03-05"),
         ("plate_reason", "2026-03-05"),
         ("gantt", "2026-03-05"),
     ]
+
+
+def test_op_build_shouban30_daily_builds_all_stock_window_days(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+    calls = []
+
+    monkeypatch.setattr(
+        ops,
+        "persist_shouban30_for_date",
+        lambda trade_date, stock_window_days=30: calls.append(
+            (trade_date, stock_window_days)
+        )
+        or {"as_of_date": trade_date, "stock_window_days": stock_window_days},
+    )
+
+    result = ops.op_build_shouban30_daily(context, "2026-03-05")
+
+    assert calls == [
+        ("2026-03-05", 30),
+        ("2026-03-05", 45),
+        ("2026-03-05", 60),
+        ("2026-03-05", 90),
+    ]
+    assert result["trade_date"] == "2026-03-05"
+    assert result["windows"] == [30, 45, 60, 90]

@@ -1,4 +1,4 @@
-# KlineSlim 缠论结构面板 Implementation Plan
+﻿# KlineSlim 缠论结构面板 Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -10,10 +10,10 @@
 
 ---
 
-### Task 1: 起草 RFC 0017 并登记进度
+### Task 1: 起草 RFC 0018 并登记进度
 
 **Files:**
-- Create: `docs/rfcs/0017-kline-slim-chanlun-structure-panel.md`
+- Create: `docs/rfcs/0018-kline-slim-chanlun-structure-panel.md`
 - Modify: `docs/migration/progress.md`
 - Reference: `docs/rfcs/0000-template.md`
 - Reference: `docs/plans/2026-03-07-kline-slim-chanlun-structure-design.md`
@@ -21,7 +21,7 @@
 **Step 1: 复制模板并写出 RFC Draft**
 
 ```md
-# RFC 0017: KlineSlim 缠论结构面板
+# RFC 0018: KlineSlim 缠论结构面板
 
 Status: Draft
 
@@ -39,7 +39,7 @@ Status: Draft
 **Step 2: 在 `progress.md` 增加 0017 行**
 
 ```md
-| 0017 | KlineSlim 缠论结构面板 | Draft | Codex | 2026-03-07 | `D:\fqpack\freshquant\freshquant\data\gantt_shouban30_service.py` / `volume_turnover_screener.py` / `morningglory\fqwebui\src\views\KlineSlim.vue` | 基于 fullcalc 的独立结构接口与 KlineSlim 面板，实时优先复用 consumer 缓存 bar，历史模式现场 fullcalc |
+| 0018 | KlineSlim 缠论结构面板 | Draft | Codex | 2026-03-07 | `D:\fqpack\freshquant\freshquant\data\gantt_shouban30_service.py` / `volume_turnover_screener.py` / `morningglory\fqwebui\src\views\KlineSlim.vue` | 基于 fullcalc 的独立结构接口与 KlineSlim 面板，实时优先复用 consumer 缓存 bar，历史模式现场 fullcalc |
 ```
 
 **Step 3: 运行文档引用检查**
@@ -47,20 +47,20 @@ Status: Draft
 Run: `rg -n "0017|KlineSlim 缠论结构" docs/rfcs docs/migration/progress.md`
 
 Expected:
-- `docs/rfcs/0017-kline-slim-chanlun-structure-panel.md` 被检出
+- `docs/rfcs/0018-kline-slim-chanlun-structure-panel.md` 被检出
 - `docs/migration/progress.md` 中新增 0017 行
 
 **Step 4: Commit**
 
 ```bash
-git add docs/rfcs/0017-kline-slim-chanlun-structure-panel.md docs/migration/progress.md
-git commit -m "docs: 起草 RFC 0017 缠论结构面板"
+git add docs/rfcs/0018-kline-slim-chanlun-structure-panel.md docs/migration/progress.md
+git commit -m "docs: 起草 RFC 0018 缠论结构面板"
 ```
 
 ### Task 2: RFC 评审通过后切到 Approved，再进入 Implementing
 
 **Files:**
-- Modify: `docs/rfcs/0017-kline-slim-chanlun-structure-panel.md`
+- Modify: `docs/rfcs/0018-kline-slim-chanlun-structure-panel.md`
 - Modify: `docs/migration/progress.md`
 
 **Step 1: 评审通过后把 RFC 状态改为 `Approved`**
@@ -72,7 +72,7 @@ Status: Approved
 **Step 2: 同一提交更新进度表**
 
 ```md
-| 0017 | KlineSlim 缠论结构面板 | Approved | Codex | 2026-03-07 | ... | RFC 已通过，可开始编码 |
+| 0018 | KlineSlim 缠论结构面板 | Approved | Codex | 2026-03-07 | ... | RFC 已通过，可开始编码 |
 ```
 
 **Step 3: 开始编码前立刻切到 `Implementing`**
@@ -82,14 +82,14 @@ Status: Implementing
 ```
 
 ```md
-| 0017 | KlineSlim 缠论结构面板 | Implementing | Codex | 2026-03-07 | ... | 开始实现后端 fullcalc 结构接口与 KlineSlim 面板 |
+| 0018 | KlineSlim 缠论结构面板 | Implementing | Codex | 2026-03-07 | ... | 开始实现后端 fullcalc 结构接口与 KlineSlim 面板 |
 ```
 
 **Step 4: Commit**
 
 ```bash
-git add docs/rfcs/0017-kline-slim-chanlun-structure-panel.md docs/migration/progress.md
-git commit -m "docs: 更新 RFC 0017 状态为 Implementing"
+git add docs/rfcs/0018-kline-slim-chanlun-structure-panel.md docs/migration/progress.md
+git commit -m "docs: 更新 RFC 0018 状态为 Implementing"
 ```
 
 ### Task 3: 先用测试锁定后端结构提取服务
@@ -418,7 +418,7 @@ git commit -m "feat: 接入 KlineSlim 缠论结构面板"
 ### Task 7: 做聚合验证并同步 RFC / 进度说明
 
 **Files:**
-- Modify: `docs/rfcs/0017-kline-slim-chanlun-structure-panel.md`
+- Modify: `docs/rfcs/0018-kline-slim-chanlun-structure-panel.md`
 - Modify: `docs/migration/progress.md`
 
 **Step 1: 跑后端测试**
@@ -444,7 +444,7 @@ Status: Review
 ```
 
 ```md
-| 0017 | KlineSlim 缠论结构面板 | Review | Codex | 2026-03-07 | ... | 已完成后端 fullcalc 结构接口与 KlineSlim 面板实现，待 review / 合并 |
+| 0018 | KlineSlim 缠论结构面板 | Review | Codex | 2026-03-07 | ... | 已完成后端 fullcalc 结构接口与 KlineSlim 面板实现，待 review / 合并 |
 ```
 
 如果功能在后续合并到 `main`，再单独把状态切到 `Done` 并补最终完成说明。
@@ -452,8 +452,8 @@ Status: Review
 **Step 4: Commit**
 
 ```bash
-git add docs/rfcs/0017-kline-slim-chanlun-structure-panel.md docs/migration/progress.md
-git commit -m "docs: 更新 RFC 0017 实现进度"
+git add docs/rfcs/0018-kline-slim-chanlun-structure-panel.md docs/migration/progress.md
+git commit -m "docs: 更新 RFC 0018 实现进度"
 ```
 
 ### Task 8: 合并前总体验证
@@ -480,6 +480,6 @@ Expected:
 ```md
 1. 新增 `/api/stock_data_chanlun_structure`，统一基于 fullcalc 输出高级段/段/笔结构表格
 2. KlineSlim 新增手动打开的“缠论结构”半透明面板
-3. RFC 0017 与 progress 已同步更新
+3. RFC 0018 与 progress 已同步更新
 ```
 

@@ -24,6 +24,7 @@ COL_GANTT_STOCK_DAILY = "gantt_stock_daily"
 COL_STOCK_HOT_REASON_DAILY = "stock_hot_reason_daily"
 COL_SHOUBAN30_PLATES = "shouban30_plates"
 COL_SHOUBAN30_STOCKS = "shouban30_stocks"
+SHOUBAN30_STOCK_WINDOWS = (30, 45, 60, 90)
 CN_TZ = ZoneInfo("Asia/Shanghai")
 
 
@@ -55,6 +56,13 @@ def _calc_start_date(end_date: str, days: int) -> str:
         return end_date
     end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
     return (end_dt - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+
+
+def _resolve_shouban30_stock_window_days(value: Any, default: int = 30) -> int:
+    parsed = _to_int(value, default)
+    if parsed in SHOUBAN30_STOCK_WINDOWS:
+        return parsed
+    return default
 
 
 def _get_collection(name: str):
@@ -104,11 +112,22 @@ def ensure_readmodel_indexes() -> None:
         [("code6", 1), ("trade_date", -1), ("time", -1)]
     )
     _get_collection(COL_SHOUBAN30_PLATES).create_index(
-        [("provider", 1), ("plate_key", 1), ("as_of_date", 1)],
+        [
+            ("provider", 1),
+            ("plate_key", 1),
+            ("as_of_date", 1),
+            ("stock_window_days", 1),
+        ],
         unique=True,
     )
     _get_collection(COL_SHOUBAN30_STOCKS).create_index(
-        [("provider", 1), ("plate_key", 1), ("code6", 1), ("as_of_date", 1)],
+        [
+            ("provider", 1),
+            ("plate_key", 1),
+            ("code6", 1),
+            ("as_of_date", 1),
+            ("stock_window_days", 1),
+        ],
         unique=True,
     )
 
@@ -130,6 +149,30 @@ def _resolve_trade_window(
     normalized_days = max(_to_int(days, 30), 1)
     start_date = _calc_start_date(normalized_end_date, normalized_days)
     return start_date, normalized_end_date
+
+
+def _resolve_recent_trade_dates(
+    rows: list[dict[str, Any]],
+    *,
+    days: int,
+    end_date: str,
+    field_name: str,
+) -> list[str]:
+    target_end_date = _to_str(end_date)
+    if not target_end_date:
+        return []
+    all_dates = sorted(
+        {
+            _to_str(item.get(field_name))
+            for item in rows
+            if _to_str(item.get(field_name))
+            and _to_str(item.get(field_name)) <= target_end_date
+        }
+    )
+    if not all_dates:
+        return []
+    target_days = max(_to_int(days, 1), 1)
+    return all_dates[-target_days:]
 
 
 def _filter_rows_by_window(
@@ -327,13 +370,19 @@ def query_shouban30_plate_rows(
     *,
     provider: str,
     as_of_date: str | None = None,
+    stock_window_days: int = 30,
 ) -> list[dict[str, Any]]:
     provider_key = _to_str(provider)
-    rows = _find_rows(COL_SHOUBAN30_PLATES, {"provider": provider_key})
+    target_window = _resolve_shouban30_stock_window_days(stock_window_days)
+    rows = _find_rows(
+        COL_SHOUBAN30_PLATES,
+        {"provider": provider_key, "stock_window_days": target_window},
+    )
     return select_shouban30_plate_rows(
         rows,
         provider=provider_key,
         as_of_date=as_of_date,
+        stock_window_days=target_window,
     )
 
 
@@ -342,18 +391,25 @@ def query_shouban30_stock_rows(
     provider: str,
     plate_key: str,
     as_of_date: str | None = None,
+    stock_window_days: int = 30,
 ) -> list[dict[str, Any]]:
     provider_key = _to_str(provider)
     target_plate_key = _to_str(plate_key)
+    target_window = _resolve_shouban30_stock_window_days(stock_window_days)
     rows = _find_rows(
         COL_SHOUBAN30_STOCKS,
-        {"provider": provider_key, "plate_key": target_plate_key},
+        {
+            "provider": provider_key,
+            "plate_key": target_plate_key,
+            "stock_window_days": target_window,
+        },
     )
     return select_shouban30_stock_rows(
         rows,
         provider=provider_key,
         plate_key=target_plate_key,
         as_of_date=as_of_date,
+        stock_window_days=target_window,
     )
 
 
@@ -655,15 +711,9 @@ def _group_shouban30_plate_candidates(
     rows: list[dict[str, Any]],
     *,
     as_of_date: str,
+    trade_dates: list[str],
 ) -> list[dict[str, Any]]:
-    all_dates = sorted(
-        {
-            _to_str(item.get("trade_date"))
-            for item in rows
-            if _to_str(item.get("trade_date"))
-        }
-    )
-    date_index = {date_str: idx for idx, date_str in enumerate(all_dates)}
+    date_index = {date_str: idx for idx, date_str in enumerate(trade_dates)}
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         grouped[(_to_str(row.get("provider")), _to_str(row.get("plate_key")))].append(
@@ -676,17 +726,16 @@ def _group_shouban30_plate_candidates(
         unique_dates = sorted({_to_str(item.get("trade_date")) for item in items})
         if not unique_dates:
             continue
+        date_indexes = [date_index.get(date_str, -1) for date_str in unique_dates]
+        if any(idx < 0 for idx in date_indexes):
+            continue
+        if any(
+            current_idx != previous_idx + 1
+            for previous_idx, current_idx in zip(date_indexes, date_indexes[1:])
+        ):
+            continue
         seg_from = unique_dates[0]
-        seg_to = unique_dates[0]
-        previous_idx = date_index.get(seg_to, -1)
-        for current_date in unique_dates[1:]:
-            current_idx = date_index.get(current_date, -1)
-            if current_idx == previous_idx + 1:
-                seg_to = current_date
-            else:
-                seg_from = current_date
-                seg_to = current_date
-            previous_idx = current_idx
+        seg_to = unique_dates[-1]
 
         last_item = max(items, key=lambda item: _to_str(item.get("trade_date")))
         candidates.append(
@@ -707,104 +756,189 @@ def _build_shouban30_stock_rows(
     rows: list[dict[str, Any]],
     *,
     as_of_date: str,
+    stock_window_days: int,
+    allowed_plate_keys: set[tuple[str, str]] | None = None,
+    hit_count_30_dates: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    target_hit_count_30_dates = {item for item in (hit_count_30_dates or set()) if item}
     for row in rows:
         provider = _to_str(row.get("provider"))
         plate_key = _to_str(row.get("plate_key"))
         code6 = _to_str(row.get("code6"))
         if not provider or not plate_key or not code6:
             continue
+        if allowed_plate_keys and (provider, plate_key) not in allowed_plate_keys:
+            continue
         grouped[(provider, plate_key, code6)].append(row)
 
     results: list[dict[str, Any]] = []
     for (provider, plate_key, code6), items in grouped.items():
-        items.sort(key=lambda item: _to_str(item.get("trade_date")))
+        items.sort(
+            key=lambda item: (
+                _to_str(item.get("trade_date")),
+                _to_str(item.get("time")),
+            )
+        )
         latest = items[-1]
-        appear_days = len({_to_str(item.get("trade_date")) for item in items})
+        hit_dates = {_to_str(item.get("trade_date")) for item in items}
+        hit_count_window = len(hit_dates)
+        hit_count_30 = len(
+            {
+                _to_str(item.get("trade_date"))
+                for item in items
+                if _to_str(item.get("trade_date")) in target_hit_count_30_dates
+            }
+        )
         results.append(
             {
                 "provider": provider,
                 "as_of_date": as_of_date,
+                "stock_window_days": stock_window_days,
                 "plate_key": plate_key,
                 "plate_name": _to_str(latest.get("plate_name")) or plate_key,
                 "code6": code6,
                 "name": _to_str(latest.get("name")) or code6,
-                "appear_days_90": appear_days,
+                "hit_count_30": hit_count_30,
+                "hit_count_window": hit_count_window,
                 "latest_trade_date": _to_str(latest.get("trade_date")),
-                "stock_reason": _to_str(latest.get("stock_reason")) or None,
+                "latest_reason": _to_str(latest.get("stock_reason")) or None,
             }
         )
     results.sort(key=lambda item: (item["provider"], item["plate_key"], item["code6"]))
     return results
 
 
-def persist_shouban30_for_date(as_of_date: str) -> dict[str, Any]:
+def persist_shouban30_for_date(
+    as_of_date: str,
+    *,
+    stock_window_days: int = 30,
+) -> dict[str, Any]:
     date_str = _to_str(as_of_date)
     if not date_str:
         raise ValueError("as_of_date is required")
 
     ensure_readmodel_indexes()
-    start_30 = _calc_start_date(date_str, 30)
-    start_90 = _calc_start_date(date_str, 90)
+    target_window = _resolve_shouban30_stock_window_days(stock_window_days)
+    all_plate_rows = _find_rows(
+        COL_GANTT_PLATE_DAILY, {"trade_date": {"$lte": date_str}}
+    )
+    plate_trade_dates = _resolve_recent_trade_dates(
+        all_plate_rows,
+        days=30,
+        end_date=date_str,
+        field_name="trade_date",
+    )
+    if not plate_trade_dates:
+        _delete_rows(
+            COL_SHOUBAN30_PLATES,
+            {"as_of_date": date_str, "stock_window_days": target_window},
+        )
+        _delete_rows(
+            COL_SHOUBAN30_STOCKS,
+            {"as_of_date": date_str, "stock_window_days": target_window},
+        )
+        return {
+            "as_of_date": date_str,
+            "plates": 0,
+            "stocks": 0,
+            "stock_window_days": target_window,
+        }
+    plate_trade_date_set = set(plate_trade_dates)
+    plate_window_rows = [
+        item
+        for item in all_plate_rows
+        if _to_str(item.get("trade_date")) in plate_trade_date_set
+    ]
 
-    plate_window_rows = _find_rows(
-        COL_GANTT_PLATE_DAILY,
-        {"trade_date": {"$gte": start_30, "$lte": date_str}},
+    all_stock_rows = _find_rows(
+        COL_GANTT_STOCK_DAILY, {"trade_date": {"$lte": date_str}}
     )
-    stock_window_rows = _find_rows(
-        COL_GANTT_STOCK_DAILY,
-        {"trade_date": {"$gte": start_90, "$lte": date_str}},
+    stock_trade_dates = _resolve_recent_trade_dates(
+        all_stock_rows,
+        days=target_window,
+        end_date=date_str,
+        field_name="trade_date",
     )
+    stock_trade_date_set = set(stock_trade_dates)
+    stock_window_rows = [
+        item
+        for item in all_stock_rows
+        if _to_str(item.get("trade_date")) in stock_trade_date_set
+    ]
     reason_window_rows = _find_rows(
         COL_PLATE_REASON_DAILY,
-        {"trade_date": {"$gte": start_30, "$lte": date_str}},
+        {"trade_date": {"$gte": plate_trade_dates[0], "$lte": date_str}},
     )
 
     plate_candidates = _group_shouban30_plate_candidates(
         plate_window_rows,
         as_of_date=date_str,
+        trade_dates=plate_trade_dates,
     )
 
+    allowed_plate_keys = {
+        (_to_str(item.get("provider")), _to_str(item.get("plate_key")))
+        for item in plate_candidates
+    }
     stock_counts: dict[tuple[str, str], int] = defaultdict(int)
     grouped_stocks = defaultdict(set)
     for row in stock_window_rows:
         key = (_to_str(row.get("provider")), _to_str(row.get("plate_key")))
         code6 = _to_str(row.get("code6"))
-        if key[0] and key[1] and code6:
+        if key in allowed_plate_keys and code6:
             grouped_stocks[key].add(code6)
     for key, codes in grouped_stocks.items():
         stock_counts[key] = len(codes)
 
     for item in plate_candidates:
-        item["stocks_count_90"] = stock_counts.get(
+        item["stock_window_days"] = target_window
+        item["stocks_count"] = stock_counts.get(
             (_to_str(item.get("provider")), _to_str(item.get("plate_key"))),
             0,
         )
+        item["stock_window_from"] = (
+            stock_trade_dates[0] if stock_trade_dates else date_str
+        )
+        item["stock_window_to"] = date_str
 
     plate_rows = build_shouban30_plate_rows(
         plate_rows=plate_candidates,
         plate_reason_rows=reason_window_rows,
         as_of_date=date_str,
     )
-    stock_rows = _build_shouban30_stock_rows(stock_window_rows, as_of_date=date_str)
+    stock_rows = _build_shouban30_stock_rows(
+        stock_window_rows,
+        as_of_date=date_str,
+        stock_window_days=target_window,
+        allowed_plate_keys=allowed_plate_keys,
+        hit_count_30_dates=plate_trade_date_set,
+    )
 
-    _delete_rows(COL_SHOUBAN30_PLATES, {"as_of_date": date_str})
-    _delete_rows(COL_SHOUBAN30_STOCKS, {"as_of_date": date_str})
+    delete_query = {"as_of_date": date_str, "stock_window_days": target_window}
+    _delete_rows(COL_SHOUBAN30_PLATES, delete_query)
+    _delete_rows(COL_SHOUBAN30_STOCKS, delete_query)
     _upsert_rows(
         COL_SHOUBAN30_PLATES,
         plate_rows,
-        key_fields=("provider", "plate_key", "as_of_date"),
+        key_fields=("provider", "plate_key", "as_of_date", "stock_window_days"),
     )
     _upsert_rows(
         COL_SHOUBAN30_STOCKS,
         stock_rows,
-        key_fields=("provider", "plate_key", "code6", "as_of_date"),
+        key_fields=(
+            "provider",
+            "plate_key",
+            "code6",
+            "as_of_date",
+            "stock_window_days",
+        ),
     )
     return {
         "as_of_date": date_str,
         "plates": len(plate_rows),
         "stocks": len(stock_rows),
+        "stock_window_days": target_window,
     }
 
 
@@ -840,10 +974,16 @@ def build_shouban30_plate_rows(
                 "as_of_date": _to_str(as_of_date),
                 "plate_key": plate_key,
                 "plate_name": _to_str(item.get("plate_name")),
+                "stock_window_days": _resolve_shouban30_stock_window_days(
+                    item.get("stock_window_days")
+                ),
                 "appear_days_30": item.get("appear_days_30"),
                 "seg_from": _to_str(item.get("seg_from")),
                 "seg_to": seg_to,
-                "stocks_count_90": item.get("stocks_count_90"),
+                "stocks_count": _to_int(item.get("stocks_count"), 0),
+                "stock_window_from": _to_str(item.get("stock_window_from")) or None,
+                "stock_window_to": _to_str(item.get("stock_window_to"))
+                or _to_str(as_of_date),
                 "reason_text": _to_str(reason_row.get("reason_text")),
                 "reason_ref": reason_row.get("source_ref"),
             }
@@ -1056,9 +1196,17 @@ def select_shouban30_plate_rows(
     *,
     provider: str,
     as_of_date: str | None = None,
+    stock_window_days: int = 30,
 ) -> list[dict[str, Any]]:
     provider_key = _to_str(provider)
-    filtered = [item for item in rows if _to_str(item.get("provider")) == provider_key]
+    target_window = _resolve_shouban30_stock_window_days(stock_window_days)
+    filtered = [
+        item
+        for item in rows
+        if _to_str(item.get("provider")) == provider_key
+        and _resolve_shouban30_stock_window_days(item.get("stock_window_days"))
+        == target_window
+    ]
     if not filtered:
         return []
 
@@ -1075,14 +1223,18 @@ def select_shouban30_stock_rows(
     provider: str,
     plate_key: str,
     as_of_date: str | None = None,
+    stock_window_days: int = 30,
 ) -> list[dict[str, Any]]:
     provider_key = _to_str(provider)
     target_plate_key = _to_str(plate_key)
+    target_window = _resolve_shouban30_stock_window_days(stock_window_days)
     filtered = [
         item
         for item in rows
         if _to_str(item.get("provider")) == provider_key
         and _to_str(item.get("plate_key")) == target_plate_key
+        and _resolve_shouban30_stock_window_days(item.get("stock_window_days"))
+        == target_window
     ]
     if not filtered:
         return []
