@@ -1,6 +1,6 @@
 # RFC 0009: 项目内 uv 管理的 Python 3.12 统一运行环境与构建/部署收敛
 
-- **状态**：Approved
+- **状态**：Done
 - **负责人**：Codex
 - **评审人**：TBD
 - **创建日期**：2026-03-06
@@ -230,15 +230,15 @@
 
 ## 10. 测试与验收（Acceptance Criteria）
 
-- [ ] 宿主机根目录可成功创建 `.venv`，且 `.\.venv\Scripts\python.exe --version` 返回 `Python 3.12.x`
-- [ ] `uv sync` 可在宿主机完整安装本仓库依赖
-- [ ] `uv sync --frozen` 可在 Docker 镜像构建中成功执行
-- [ ] `fullcalc`、`fqchan01/04/06` 可在项目内 Python 3.12 下成功构建并导入
-- [ ] `D:\fqpack\config\supervisord.fqnext.conf` 中的 `fqnext` Python 进程全部改用项目内 `.venv`
-- [ ] `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 容器内 Python 版本均为 `3.12.x`
-- [ ] `ta_backend` 容器内 Python 版本为 `3.12.x`
-- [ ] 日常命令口径统一为 `uv run ...` 或项目内 `.venv` Python
-- [ ] README、部署文档、Docker 并行部署文档、安装说明全部完成更新
+- [x] 宿主机根目录可成功创建 `.venv`，且 `.\.venv\Scripts\python.exe --version` 返回 `Python 3.12.x`
+- [x] `uv sync` 可在宿主机完整安装本仓库依赖
+- [x] `uv sync --frozen` 可在 Docker 镜像构建中成功执行
+- [x] `fullcalc`、`fqchan01/04/06` 可在项目内 Python 3.12 下成功构建并导入
+- [x] `D:\fqpack\config\supervisord.fqnext.conf` 中的 `fqnext` Python 进程全部改用项目内 `.venv`
+- [x] `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 容器内 Python 版本均为 `3.12.x`
+- [x] `ta_backend` 容器内 Python 版本为 `3.12.x`
+- [x] 日常命令口径统一为 `uv run ...` 或项目内 `.venv` Python
+- [x] README、部署文档、Docker 并行部署文档、安装说明全部完成更新
 
 ## 11. 风险与回滚（Risks / Rollback）
 
@@ -259,3 +259,13 @@
 - M4：宿主机 Supervisor 切换完成
 - M5：FreshQuant Docker + `ta_backend` Docker 切换完成
 - M6：文档更新与验收完成
+
+## 13. 完成说明（Completion Notes）
+
+- **完成日期**：2026-03-07
+- **完成结论**：RFC 0009 已完成，宿主机、Docker、CI 与扩展构建链已统一到项目内 `uv` 管理的 Python 3.12 运行面。
+- **验收依据**：
+  - 已完成 `pyproject.toml + uv.lock` 收口、本地 `.venv` bootstrap、`fullcalc` 构建链绑定项目 Python、FreshQuant Docker/CI/Supervisor 切换到项目内 `.venv`。
+  - `TradingAgents-CN` 后端已切换到 Python 3.12 + `uv`，并生成独立 `third_party/tradingagents-cn/uv.lock`。
+  - 已完成 `pytest freshquant/tests -q`、`py_compile`、`install.bat --skip-env --skip-web --skip-packages`、`docker build`、`docker compose -f docker/compose.parallel.yaml up -d --build`、`127.0.0.1:13000/api/health` 与 `127.0.0.1:15000` 联通验证。
+  - 2026-03-07 追加收敛 `morningglory/fqdagster`、`morningglory/fqxtrade`、`morningglory/fqchan01/04/06` 的 `requires-python` 到 `>=3.12,<3.13`，并补齐 `freshquant/tests/test_project_python_policy.py` 覆盖，消除本地包元数据与统一运行面不一致的问题。
