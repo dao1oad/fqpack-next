@@ -106,3 +106,10 @@
   3. 将宿主机旧库中的 `freshquant.params` 同步到 Docker `freshquant.params`；
   4. 重启宿主机 `broker / xtdata producer / xtdata consumer`。
 - **回滚方案**：将宿主机 Mongo/Redis 端口改回 `27017/6379` 并重启宿主机进程；如需恢复旧 broker 行为，回退 `morningglory/fqxtrade/fqxtrade/xtquant/broker.py` 与 `morningglory/fqxtrade/fqxtrade/xtquant/account.py` 的账户类型修复。
+
+- **日期**：2026-03-07
+- **RFC**：0013-position-management
+- **变更**：新增独立分库 `freshquant_position_management` 与模块 `freshquant/position_management/`，策略订单在 `OrderSubmitService` 受理前会先读取仓位状态做门禁；人工/API/CLI 手工单继续旁路。对于 `FORCE_PROFIT_REDUCE` 状态下的 Guardian 盈利卖点，本轮只新增占位标志透传到队列，不实现最终强制卖出算法。
+- **影响面**：所有 `source=strategy` 的股票/ETF 订单都会新增一层仓位准入判断；当仓位状态缺失或过旧时，策略买入会按默认保守状态 `HOLDING_ONLY` 处理。运维需要备份独立分库 `freshquant_position_management`，并确保独立 worker 周期刷新 `pm_current_state`。
+- **迁移步骤**：1) 配置 `position_management.mongo_database`、`xtquant.account_type=CREDIT`、`xtquant.account`、`xtquant.path`；2) 启动 `python -m freshquant.position_management.worker` 持续刷新信用资产；3) 确认 `pm_current_state` 正常更新后，再让 Guardian 等策略通过 `OrderSubmitService` 发单；4) 若后续实现 Guardian 强制减仓算法，应继续沿用当前 `position_management_force_profit_reduce/profit_reduce_mode` 占位字段。
+- **回滚方案**：回退 `freshquant/order_management/submit/service.py` 与 `freshquant/position_management/*` 的接入改动，停用仓位管理 worker，并保留 `freshquant_position_management` 历史快照用于排障。
