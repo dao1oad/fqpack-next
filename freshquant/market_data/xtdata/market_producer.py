@@ -1,7 +1,8 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -12,8 +13,15 @@ from loguru import logger
 
 from freshquant.carnation.param import queryParam
 from freshquant.market_data.xtdata.bar_generator import OneMinuteBarGenerator
+from freshquant.market_data.xtdata.constants import tick_queue_key_for_code
 from freshquant.market_data.xtdata.pools import load_monitor_codes
-from freshquant.market_data.xtdata.schema import normalize_prefixed_code
+from freshquant.market_data.xtdata.schema import TickQuoteEvent, normalize_prefixed_code
+from freshquant.tpsl.pools import load_active_tpsl_codes
+
+try:
+    from freshquant.database.redis import redis_db  # type: ignore
+except Exception:  # pragma: no cover
+    redis_db = None  # type: ignore
 
 
 def _to_xt_symbol(code_prefixed: str) -> str:
@@ -23,6 +31,18 @@ def _to_xt_symbol(code_prefixed: str) -> str:
         mkt = s[:2].upper()
         return f"{base}.{mkt}"
     return s
+
+
+def _merge_subscription_codes(
+    base_codes: list[str], tpsl_codes: list[str]
+) -> list[str]:
+    merged = {
+        normalize_prefixed_code(code).lower()
+        for code in [*(base_codes or []), *(tpsl_codes or [])]
+        if code
+    }
+    merged.discard("")
+    return sorted(merged)
 
 
 class TickPump:
@@ -73,6 +93,68 @@ class TickPump:
                 traceback.print_exc()
 
 
+def _extract_level_price(value) -> float:
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return 0.0
+        value = value[0]
+    try:
+        return float(value or 0.0)
+    except Exception:
+        return 0.0
+
+
+def _coerce_tick_time(raw_time) -> int:
+    try:
+        tick_time = int(raw_time or 0)
+    except Exception:
+        return 0
+    if tick_time >= 1_000_000_000_000:
+        return int(tick_time / 1000)
+    return tick_time
+
+
+def _build_tick_quote_event(code_prefixed: str, tick: dict) -> TickQuoteEvent | None:
+    code = normalize_prefixed_code(code_prefixed).lower()
+    if not code:
+        return None
+    last_price = _extract_level_price(tick.get("lastPrice"))
+    bid1 = _extract_level_price(tick.get("bidPrice") or tick.get("bid1"))
+    ask1 = _extract_level_price(tick.get("askPrice") or tick.get("ask1"))
+    tick_time = _coerce_tick_time(tick.get("time"))
+    if tick_time <= 0:
+        return None
+    return TickQuoteEvent(
+        code=code,
+        bid1=bid1,
+        ask1=ask1,
+        last_price=last_price,
+        tick_time=tick_time,
+        created_at=time.time(),
+    )
+
+
+def _push_tick_quote_events(datas: dict[str, dict], *, redis_client=redis_db) -> None:
+    if not datas or redis_client is None:
+        return
+    try:
+        pipe = redis_client.pipeline()
+        pushed = 0
+        for code, tick in datas.items():
+            event = _build_tick_quote_event(code, tick)
+            if event is None:
+                continue
+            pipe.rpush(
+                tick_queue_key_for_code(event.code),
+                json.dumps(event.to_dict(), ensure_ascii=False),
+            )
+            pushed += 1
+        if pushed > 0:
+            pipe.execute()
+    except Exception:
+        traceback.print_exc()
+
+
 def start_producer():
     try:
         from xtquant import xtdata  # type: ignore
@@ -106,7 +188,9 @@ def start_producer():
     sub_codes: set[str] = set()
 
     def _load_codes() -> list[str]:
-        return load_monitor_codes(mode=mode, max_symbols=max_symbols)
+        base_codes = load_monitor_codes(mode=mode, max_symbols=max_symbols)
+        tpsl_codes = load_active_tpsl_codes()
+        return _merge_subscription_codes(base_codes, tpsl_codes)
 
     def _subscribe(codes_prefixed: list[str]):
         nonlocal sub_seq, sub_codes
@@ -116,12 +200,12 @@ def start_producer():
         xt_codes = [_to_xt_symbol(c) for c in codes_prefixed]
 
         def on_data(datas):
-            # datas keys are xt symbols; normalize to prefixed for generator
             norm = {
                 normalize_prefixed_code(k).lower(): v
                 for k, v in (datas or {}).items()
                 if k and v
             }
+            _push_tick_quote_events(norm)
             pump.submit(norm)
 
         if sub_seq is not None:
