@@ -21,26 +21,25 @@ description: FreshQuant 中以 Docker 方式接入 TradingAgents-CN 的运行说
 
 ## 2. 环境变量来源
 
-- `ta_backend` 启动时会把 `third_party/tradingagents-cn/.env` 挂载到容器内 `/app/.env`
-- `third_party/tradingagents-cn/app/core/config.py` 会在进程启动时显式 `load_dotenv()`，确保：
-  - `Pydantic Settings`
-  - `TradingAgents` 内核
-  - `DeepSeek/Tushare` 这类直接读取 `os.getenv()` 的模块
-  使用同一份配置
-- 仓库根目录 `.env` 只保留 FreshQuant 基础设施变量，不再承载 TradingAgents-CN 的模型和数据源密钥
+- 当前单一真相源（source of truth）是**仓库根目录 `.env`**
+- `docker/compose.parallel.yaml` 通过 `env_file: ../.env` 把根 `.env` 注入 `ta_backend`
+- `third_party/tradingagents-cn/.env` 不再是正式运行入口；即便项目内仍保留 `load_dotenv()` 逻辑，Docker 并行模式也不依赖该文件
+- 启动阶段会把根 `.env` 中的关键配置同步到 Mongo 配置镜像；运行期 `config_bridge` 采用“环境变量优先”
 - `docker/tradingagents/.env.example` 仅作为变量参考模板
-- 要完成股票分析，至少需要在 `third_party/tradingagents-cn/.env` 中配置：
+- 要完成股票分析，至少需要在**仓库根 `.env`** 中配置：
   - `DEEPSEEK_API_KEY`
   - `DEEPSEEK_BASE_URL=https://api.deepseek.com`
   - `DEEPSEEK_ENABLED=true`
   - `TUSHARE_TOKEN`
   - `TUSHARE_ENABLED=true`
   - `DEFAULT_CHINA_DATA_SOURCE=tushare`
+  - `JWT_SECRET`
 
 补充说明：
 
-- 这次已经把本地 `third_party/tradingagents-cn/.env` 的重复键清理掉，保留首个定义并统一了上述默认值。
+- 运行时不应再手工改 Mongo 来覆盖根 `.env`；重启后会重新按根 `.env` 收敛。
 - 如果 `DEEPSEEK_API_KEY` 或 `TUSHARE_TOKEN` 仍是 `your_*` 占位值，容器能启动，但真实分析一定失败。
+- 若 `JWT_SECRET` 未显式设置，并行 Compose 会为 `ta_backend` 注入开发默认值 `change-me-in-production`，仅适用于本地开发/验收。
 
 ## 3. 启动
 
@@ -157,8 +156,9 @@ Invoke-RestMethod `
 
 优先检查：
 
-- `third_party/tradingagents-cn/.env` 中是否有可用 `DEEPSEEK_API_KEY`
-- `third_party/tradingagents-cn/.env` 中是否有可用 `TUSHARE_TOKEN`
+- 仓库根 `.env` 中是否有可用 `DEEPSEEK_API_KEY`
+- 仓库根 `.env` 中是否有可用 `TUSHARE_TOKEN`
+- 仓库根 `.env` 中是否显式配置了 `JWT_SECRET`
 - `ta_backend` 日志里是否出现模型或数据源鉴权失败
 - `fq_mongodb` 中是否已创建 `tradingagents_cn`
 - `fq_redis` 的 `db 8` 是否可写
@@ -202,7 +202,7 @@ docker compose -f docker/compose.parallel.yaml logs --tail 200 ta_frontend
   - `deepseek-reasoner` 深度模型能力校验通过
   - 最终结果落到 Mongo
 - 当前已确认修复：
-  - `ta_backend` 运行容器实际挂载工作树 `third_party/tradingagents-cn/.env`
+  - 根 `.env` 已成为 TradingAgents-CN 配置单一真相源
   - `your_*` 占位密钥不会再覆盖真实 `TUSHARE_TOKEN` / `DEEPSEEK_API_KEY`
   - `memory` 模块在缺少有效 embedding provider 时会直接禁用，不再触发 `DashScope InvalidApiKey`
   - `deepseek-reasoner` 已写入活动配置和 DeepSeek 模型目录，启动时自动补齐
