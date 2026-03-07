@@ -145,3 +145,56 @@ docker compose -f docker/compose.parallel.yaml down
 ```powershell
 docker compose -f docker/compose.parallel.yaml down -v
 ```
+
+### 9.5 宿主机 `broker / xtdata producer / consumer` 读错 Mongo
+
+现象：
+
+- Docker `127.0.0.1:27027/freshquant` 中看不到 `params`
+- 宿主机 `127.0.0.1:27017/freshquant` 中却有 `params / xt_positions / xt_trades`
+- Docker 内 API 与宿主机 MiniQMT 链路看到的是两套数据
+
+根因：
+
+- Docker 内服务连接 `fq_mongodb:27017`
+- 宿主机进程如果没有显式配置 `FRESHQUANT_MONGODB__PORT=27027`，会回落到默认 `27017`
+
+处理步骤：
+
+1. 在宿主机 `envs.conf` 中显式设置：
+
+```text
+FRESHQUANT_MONGODB__HOST=127.0.0.1
+FRESHQUANT_MONGODB__PORT=27027
+```
+
+2. 首次使用 Docker `freshquant` 库时，先初始化：
+
+```powershell
+$env:FRESHQUANT_MONGODB__HOST="127.0.0.1"
+$env:FRESHQUANT_MONGODB__PORT="27027"
+python -m freshquant.initialize --quiet
+```
+
+3. 若宿主机旧库已有参数，按 `code` 同步 `freshquant.params` 到 Docker：
+
+```powershell
+@'
+from pymongo import MongoClient
+
+src = MongoClient("mongodb://127.0.0.1:27017")["freshquant"]["params"]
+dst = MongoClient("mongodb://127.0.0.1:27027")["freshquant"]["params"]
+
+for doc in src.find({}, {"_id": 0}):
+    dst.update_one({"code": doc["code"]}, {"$set": doc}, upsert=True)
+'@ | python -
+```
+
+4. 重启宿主机 `broker / producer / consumer`
+
+补充说明：
+
+- MiniQMT / XTData 仍必须运行在 Windows 宿主机，不建议尝试将 `broker` 放入 Linux 容器。
+- 推荐直接使用仓库内模板：
+  - `docs/配置文件模板/envs.fqnext.example`
+  - `docs/配置文件模板/supervisord.fqnext.example.conf`

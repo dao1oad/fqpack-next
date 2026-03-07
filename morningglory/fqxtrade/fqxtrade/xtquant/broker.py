@@ -11,6 +11,7 @@ import tornado.web
 from fqxtrade import ORDER_QUEUE
 from fqxtrade.database.redis import redis_db
 from fqxtrade.util.trade_date_hist import tool_trade_date_seconds_to_start
+from fqxtrade.xtquant.account import resolve_stock_account
 from fqxtrade.xtquant.connection_manager import ConnectionManager
 from fqxtrade.xtquant.fqtype import (
     FqXtAccountStatus,
@@ -30,7 +31,6 @@ from fqxtrade.xtquant.handlers import handlers
 from fqxtrade.xtquant.trading_manager import TradingManager
 from loguru import logger
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
-from xtquant.xttype import StockAccount
 
 from freshquant.carnation.param import queryParam
 from freshquant.order_management.repository import OrderManagementRepository
@@ -168,11 +168,15 @@ def connect(session_id: int = 100):
             logger.error("请在配置文件中设置 xtquant.path 参数")
             return None, None, False
         xt_trader = XtQuantTrader(path, session_id)
-        account = str(queryParam("xtquant.account", ""))
+        acc, account, account_type = resolve_stock_account(queryParam)
         if not account:
             logger.error("请在配置文件中设置 xtquant.account 参数")
             return None, None, False
-        acc = StockAccount(account)
+        logger.info(
+            "use xtquant account {account} type {account_type}",
+            account=account,
+            account_type=account_type,
+        )
         callback = MyXtQuantTraderCallback()
         xt_trader.register_callback(callback)
         # 启动交易线程
@@ -189,7 +193,7 @@ def connect(session_id: int = 100):
         # 对交易回调进行订阅，订阅后可以收到交易主推，返回0表示订阅成功
         subscribe_result = xt_trader.subscribe(acc)
         if subscribe_result != 0:
-            logger.error(f'账号订阅失败，错误码: {subscribe_result}')
+            logger.error(f"账号订阅失败，错误码: {subscribe_result}")
             connection_manager.mark_disconnected()
             return xt_trader, acc, False
         else:
