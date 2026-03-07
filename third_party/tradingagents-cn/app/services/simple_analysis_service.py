@@ -32,6 +32,7 @@ from app.services.config_service import ConfigService
 from app.services.memory_state_manager import get_memory_state_manager, TaskStatus
 from app.services.redis_progress_tracker import RedisProgressTracker, get_progress_by_id
 from app.services.progress_log_handler import register_analysis_tracker, unregister_analysis_tracker
+from app.utils.api_key_utils import is_valid_api_key
 
 # 股票基础信息获取（用于补充显示名称）
 try:
@@ -52,23 +53,7 @@ config_service = ConfigService()
 
 def _looks_like_real_secret(value: Optional[str]) -> bool:
     """Best-effort placeholder filter for model/provider API keys."""
-    if not value:
-        return False
-
-    value = value.strip()
-    if not value:
-        return False
-
-    if value == "your-api-key":
-        return False
-    if value.startswith("your_") or value.startswith("your-"):
-        return False
-    if value.endswith("_here") or value.endswith("-here"):
-        return False
-    if "..." in value:
-        return False
-
-    return True
+    return is_valid_api_key(value)
 
 
 async def get_provider_by_model_name(model_name: str) -> str:
@@ -265,7 +250,7 @@ def get_provider_and_url_by_model_sync(model_name: str) -> dict:
 
                 if provider_doc.get("api_key"):
                     provider_api_key = provider_doc["api_key"]
-                    if provider_api_key and provider_api_key.strip() and provider_api_key != "your-api-key":
+                    if is_valid_api_key(provider_api_key):
                         api_key = provider_api_key
                         logger.info(f"✅ [同步查询] 使用厂家 {provider} 的 API Key")
 

@@ -229,6 +229,14 @@ async def lifespan(app: FastAPI):
 
     await init_db()
 
+    try:
+        from app.services.env_config_sync_service import sync_env_runtime_config_to_db
+
+        await sync_env_runtime_config_to_db()
+    except Exception as e:
+        logger.warning(f"⚠️ 启动期环境配置同步失败: {e}")
+        logger.warning("⚠️ 将继续使用当前 Mongo/.env 配置")
+
     #  配置桥接：将统一配置写入环境变量，供 TradingAgents 核心库使用
     try:
         from app.core.config_bridge import bridge_config_to_env

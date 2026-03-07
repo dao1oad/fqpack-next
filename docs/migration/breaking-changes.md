@@ -13,6 +13,13 @@
 
 ## 变更记录
 
+- **日期**：2026-03-07
+- **RFC**：0016-tradingagents-env-sot-sync
+- **变更**：`ta_backend` 的 DeepSeek/Tushare 配置来源从“宿主根 `.env`、镜像内 `.env.docker`、Mongo 配置并存”收敛为“仓库根 `.env` 单一真相源 + 启动时同步到 Mongo 镜像”；同时 `config_bridge` 改为环境变量优先，不再让数据库旧值覆盖根 `.env`，默认模型桥接优先读取激活 `system_configs` 的 DeepSeek 配置。
+- **影响面**：`third_party/tradingagents-cn` 的 Docker 启动链、Mongo `llm_providers/system_configs`、任务中心 `engine_initialization`、Tushare 数据源初始化，以及配置页观察到的密钥来源都会受影响；手工改 Mongo 或依赖 `.env.docker` 占位值的方式在重启后不再保留。
+- **迁移步骤**：1) 仅在仓库根 `.env` 维护 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`TUSHARE_TOKEN`、`JWT_SECRET`；2) 重建 `ta_backend`；3) 验证 `llm_providers.deepseek`、激活 `system_configs.llm_configs`、激活 `system_configs.data_source_configs[type=tushare]` 与根 `.env` 一致。
+- **回滚方案**：回退 `third_party/tradingagents-cn/Dockerfile.backend`、`app/main.py`、`app/services/env_config_sync_service.py`、`app/core/config_bridge.py` 及相关测试，恢复 `.env.docker` 注入和旧的多来源优先级。
+
 - **日期**：2026-03-05
 - **RFC**：0002-etf-qfq-adj-sync
 - **变更**：ETF K 线查询默认从 `bfq` 调整为 `qfq`，通过新增 `quantaxis.etf_xdxr/etf_adj` 并在查询侧应用复权因子实现。
