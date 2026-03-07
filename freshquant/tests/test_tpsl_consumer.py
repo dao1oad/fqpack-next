@@ -99,3 +99,27 @@ def test_consumer_runs_stoploss_when_takeprofit_not_hit():
         "evaluate_stoploss",
         "submit_stoploss",
     ]
+
+
+def test_consumer_skips_ticks_when_active_tpsl_universe_is_empty():
+    service = FakeTpslService(
+        takeprofit_batch={"batch_id": "tp1", "symbol": "000001", "quantity": 300},
+    )
+    consumer = TpslTickConsumer(
+        service=service,
+        universe_loader=lambda: [],
+        refresh_interval_s=999,
+    )
+
+    result = consumer.handle_tick(
+        {
+            "code": "sz000001",
+            "ask1": 10.8,
+            "bid1": 9.2,
+            "lastPrice": 10.0,
+            "time": 1710000000,
+        }
+    )
+
+    assert result is None
+    assert service.calls == []

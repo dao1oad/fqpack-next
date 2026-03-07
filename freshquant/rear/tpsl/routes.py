@@ -11,6 +11,12 @@ def _get_tpsl_service():
     return TpslService()
 
 
+def _value_error_response(error):
+    message = str(error)
+    status_code = 404 if message == "takeprofit profile not found" else 400
+    return jsonify({"error": message}), status_code
+
+
 @tpsl_bp.route("/takeprofit/<symbol>", methods=["GET"])
 def get_takeprofit_profile(symbol):
     try:
@@ -40,34 +46,43 @@ def save_takeprofit_profile(symbol):
 @tpsl_bp.route("/takeprofit/<symbol>/tiers/<int:level>/enable", methods=["POST"])
 def enable_takeprofit_tier(symbol, level):
     payload = request.get_json(silent=True) or {}
-    detail = _get_tpsl_service().set_takeprofit_tier_enabled(
-        symbol,
-        level=level,
-        enabled=True,
-        updated_by=payload.get("updated_by", "api"),
-    )
+    try:
+        detail = _get_tpsl_service().set_takeprofit_tier_enabled(
+            symbol,
+            level=level,
+            enabled=True,
+            updated_by=payload.get("updated_by", "api"),
+        )
+    except ValueError as error:
+        return _value_error_response(error)
     return jsonify(detail)
 
 
 @tpsl_bp.route("/takeprofit/<symbol>/tiers/<int:level>/disable", methods=["POST"])
 def disable_takeprofit_tier(symbol, level):
     payload = request.get_json(silent=True) or {}
-    detail = _get_tpsl_service().set_takeprofit_tier_enabled(
-        symbol,
-        level=level,
-        enabled=False,
-        updated_by=payload.get("updated_by", "api"),
-    )
+    try:
+        detail = _get_tpsl_service().set_takeprofit_tier_enabled(
+            symbol,
+            level=level,
+            enabled=False,
+            updated_by=payload.get("updated_by", "api"),
+        )
+    except ValueError as error:
+        return _value_error_response(error)
     return jsonify(detail)
 
 
 @tpsl_bp.route("/takeprofit/<symbol>/rearm", methods=["POST"])
 def rearm_takeprofit(symbol):
     payload = request.get_json(silent=True) or {}
-    detail = _get_tpsl_service().rearm_takeprofit(
-        symbol,
-        updated_by=payload.get("updated_by", "api"),
-    )
+    try:
+        detail = _get_tpsl_service().rearm_takeprofit(
+            symbol,
+            updated_by=payload.get("updated_by", "api"),
+        )
+    except ValueError as error:
+        return _value_error_response(error)
     return jsonify(detail)
 
 

@@ -52,6 +52,19 @@ class FakeTpslService:
         return [{"event_id": "evt_1", "batch_id": batch_id}]
 
 
+class RaisingTpslService(FakeTpslService):
+    def __init__(self, *, enable_error=None, rearm_error=None):
+        super().__init__()
+        self.enable_error = enable_error
+        self.rearm_error = rearm_error
+
+    def set_takeprofit_tier_enabled(self, symbol, *, level, enabled, updated_by):
+        raise self.enable_error
+
+    def rearm_takeprofit(self, symbol, *, updated_by):
+        raise self.rearm_error
+
+
 def _build_client(monkeypatch, service):
     monkeypatch.setattr(
         "freshquant.rear.tpsl.routes._get_tpsl_service",
@@ -105,3 +118,23 @@ def test_tpsl_batch_route_returns_batch_events(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json()[0]["batch_id"] == "tp_batch_1"
+
+
+def test_takeprofit_tier_enable_route_returns_400_for_unknown_tier(monkeypatch):
+    service = RaisingTpslService(enable_error=ValueError("takeprofit tier not found"))
+    client = _build_client(monkeypatch, service)
+
+    response = client.post("/api/tpsl/takeprofit/000001/tiers/9/enable")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "takeprofit tier not found"
+
+
+def test_rearm_takeprofit_route_returns_404_for_missing_profile(monkeypatch):
+    service = RaisingTpslService(rearm_error=ValueError("takeprofit profile not found"))
+    client = _build_client(monkeypatch, service)
+
+    response = client.post("/api/tpsl/takeprofit/000001/rearm")
+
+    assert response.status_code == 404
+    assert response.get_json()["error"] == "takeprofit profile not found"

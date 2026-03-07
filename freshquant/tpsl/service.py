@@ -142,10 +142,14 @@ class TpslService:
             return None
 
         sell_cap = self.position_reader.get_can_use_volume(base_symbol)
-        if sell_cap > 0:
-            quantity_cap = min(int(quantity_result["quantity"]), int(sell_cap))
-        else:
-            quantity_cap = int(quantity_result["quantity"])
+        if int(sell_cap or 0) <= 0:
+            return {
+                "status": "blocked",
+                "symbol": base_symbol,
+                "blocked_reason": "can_use_volume",
+                "quantity": 0,
+            }
+        quantity_cap = min(int(quantity_result["quantity"]), int(sell_cap))
         order_quantity = _floor_to_board_lot(quantity_cap)
         if order_quantity < 100:
             return {

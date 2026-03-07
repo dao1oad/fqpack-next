@@ -29,7 +29,7 @@ class TpslTickConsumer:
         if (
             not force
             and self.refresh_interval_s > 0
-            and self.active_codes
+            and self._last_refresh_at > 0
             and (now - self._last_refresh_at) < self.refresh_interval_s
         ):
             return self.active_codes
@@ -47,7 +47,7 @@ class TpslTickConsumer:
             return None
 
         active_codes = self.refresh_universe()
-        if active_codes and event.code not in active_codes:
+        if event.code not in active_codes:
             return None
 
         symbol = normalize_to_base_code(event.code)
