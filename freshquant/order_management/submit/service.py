@@ -48,7 +48,10 @@ class OrderSubmitService:
                         "symbol": symbol,
                         "price": price,
                         "quantity": quantity,
-                    }
+                    },
+                    is_profitable=bool(
+                        payload.get("position_management_is_profitable", False)
+                    ),
                 )
             )
             if not position_decision.allowed:

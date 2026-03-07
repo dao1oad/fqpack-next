@@ -64,7 +64,7 @@ class InMemoryRepository:
 
 
 class AllowingPositionService:
-    def evaluate_strategy_order(self, payload):
+    def evaluate_strategy_order(self, payload, is_profitable=False):
         return PositionDecision(
             allowed=True,
             state="ALLOW_OPEN",

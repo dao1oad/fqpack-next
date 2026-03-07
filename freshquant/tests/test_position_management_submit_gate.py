@@ -72,8 +72,8 @@ class RejectingPositionService:
     def __init__(self):
         self.calls = []
 
-    def evaluate_strategy_order(self, payload):
-        self.calls.append(payload)
+    def evaluate_strategy_order(self, payload, is_profitable=False):
+        self.calls.append((payload, is_profitable))
         return PositionDecision(
             allowed=False,
             state="HOLDING_ONLY",
@@ -87,8 +87,8 @@ class AllowingPositionService:
     def __init__(self):
         self.calls = []
 
-    def evaluate_strategy_order(self, payload):
-        self.calls.append(payload)
+    def evaluate_strategy_order(self, payload, is_profitable=False):
+        self.calls.append((payload, is_profitable))
         return PositionDecision(
             allowed=True,
             state="ALLOW_OPEN",

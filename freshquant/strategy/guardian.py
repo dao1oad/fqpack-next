@@ -219,7 +219,11 @@ class StrategyGuardian(metaclass=SingletonType):
                         else:
                             redis_db.set(f"sell:{code}", "1", timedelta(minutes=15))
                         submit_result = submit_guardian_order(
-                            "sell", code, price, quantity
+                            "sell",
+                            code,
+                            price,
+                            quantity,
+                            is_profitable=not is_force,
                         )
                         queue_payload = (submit_result or {}).get("queue_payload") or {}
                         if queue_payload.get("position_management_force_profit_reduce"):

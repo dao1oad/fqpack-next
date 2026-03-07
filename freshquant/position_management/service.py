@@ -59,7 +59,7 @@ class PositionManagementService:
             and action == "sell"
             and effective_state == FORCE_PROFIT_REDUCE
             and is_profitable
-            and str(payload.get("strategy_name") or "").lower() == "guardian"
+            and _is_guardian_strategy(payload.get("strategy_name"))
         ):
             meta["force_profit_reduce"] = True
             meta["profit_reduce_mode"] = "guardian_placeholder"
@@ -121,3 +121,25 @@ def _default_holding_codes_provider():
     from freshquant.data.astock.holding import get_stock_holding_codes
 
     return get_stock_holding_codes()
+
+
+def _is_guardian_strategy(strategy_name):
+    normalized = str(strategy_name or "").strip()
+    if not normalized:
+        return False
+    if normalized.lower() == "guardian":
+        return True
+    resolved_identifier = _resolve_guardian_strategy_identifier()
+    return bool(resolved_identifier) and normalized == resolved_identifier
+
+
+def _resolve_guardian_strategy_identifier():
+    try:
+        from freshquant.ordering.general import query_strategy_id
+
+        strategy_id = query_strategy_id("Guardian")
+    except Exception:
+        return None
+    if strategy_id is None:
+        return None
+    return str(strategy_id)

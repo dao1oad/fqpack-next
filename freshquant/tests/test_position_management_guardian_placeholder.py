@@ -8,11 +8,12 @@ from freshquant.position_management.service import PositionManagementService
 
 
 class FakeDecisionRepository:
-    def __init__(self):
+    def __init__(self, current_state=None):
+        self.current_state = current_state
         self.decisions = []
 
     def get_current_state(self):
-        return None
+        return self.current_state
 
     def insert_decision(self, document):
         self.decisions.append(document)
@@ -81,7 +82,7 @@ class InMemoryRepository:
 
 
 class PlaceholderPositionService:
-    def evaluate_strategy_order(self, payload):
+    def evaluate_strategy_order(self, payload, is_profitable=False):
         return PositionDecision(
             allowed=True,
             state=FORCE_PROFIT_REDUCE,
@@ -143,6 +144,49 @@ def test_submit_service_carries_guardian_placeholder_meta_to_queue():
             "quantity": 100,
             "source": "strategy",
             "strategy_name": "Guardian",
+        }
+    )
+
+    assert result["queue_payload"]["position_management_force_profit_reduce"] is True
+    assert (
+        result["queue_payload"]["position_management_profit_reduce_mode"]
+        == "guardian_placeholder"
+    )
+
+
+def test_submit_service_marks_placeholder_for_guardian_strategy_identifier(
+    monkeypatch,
+):
+    decision_repository = FakeDecisionRepository(
+        current_state={
+            "state": FORCE_PROFIT_REDUCE,
+            "evaluated_at": "2026-03-07T12:00:00+08:00",
+        }
+    )
+    position_service = PositionManagementService(
+        repository=decision_repository,
+        holding_codes_provider=lambda: ["000001"],
+        now_provider=_fixed_now,
+    )
+    submit_service = OrderSubmitService(
+        repository=InMemoryRepository(),
+        queue_client=FakeQueueClient(),
+        position_management_service=position_service,
+    )
+    monkeypatch.setattr(
+        "freshquant.position_management.service._resolve_guardian_strategy_identifier",
+        lambda: "strategy::Guardian",
+    )
+
+    result = submit_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "strategy",
+            "strategy_name": "strategy::Guardian",
+            "position_management_is_profitable": True,
         }
     )
 
