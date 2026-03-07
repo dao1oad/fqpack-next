@@ -68,3 +68,18 @@ def test_talib_dependency_uses_binary_wheel_release() -> None:
         if item.lower().startswith("ta-lib")
     )
     assert talib_dependency == "TA-Lib==0.6.8"
+
+
+def test_local_extension_packages_require_python312() -> None:
+    package_paths = {
+        "fqdagster": Path("morningglory/fqdagster/pyproject.toml"),
+        "fqchan01": Path("morningglory/fqchan01/python/pyproject.toml"),
+        "fqchan04": Path("morningglory/fqchan04/python/pyproject.toml"),
+        "fqchan06": Path("morningglory/fqchan06/python/pyproject.toml"),
+        "fqcopilot": Path("morningglory/fqcopilot/python/pyproject.toml"),
+        "fqxtrade": Path("morningglory/fqxtrade/pyproject.toml"),
+    }
+
+    for package_name, path in package_paths.items():
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        assert data["project"]["requires-python"] == ">=3.12,<3.13", package_name
