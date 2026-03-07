@@ -91,19 +91,13 @@
 - **回滚方案**：恢复 `reconcile_trade_reports()` 的旧外部化判定与 `/api/stock_order` 对 `quantity` 的直接 `int()` 转换逻辑。
 
 - **日期**：2026-03-07
-- **RFC**：0011-stock-etf-tpsl-module
-- **变更**：规划新增 XTData `TICK_QUOTE` 事件协议、`/api/tpsl/*` 后端接口，以及订单域 `takeprofit_batch / stoploss_batch` 作用域；TPSL 运行时状态将不再使用旧分支的 `grid_configs / stoploss_configs / fill_stoploss_configs`。
-- **影响面**：XTData producer、TPSL consumer、后端 API 与订单作用域会新增接口面；依赖旧 Grid/StopLoss 执行链的运维脚本需要切换到新模块。
-- **迁移步骤**：待 RFC 0011 实现落地后补充最终迁移步骤。
-- **回滚方案**：待 RFC 0011 实现落地后补充最终回滚说明。
-
-- **日期**：2026-03-07
 - **RFC**：0015-kline-slim-sidebar-hot-reasons
 - **变更**：`GET /api/get_stock_pre_pools_list` 在 `category` 缺省或为空字符串时，从“只匹配 `category=\"\"`”调整为“返回全分类合并结果”；同时新增 `GET /api/gantt/stocks/reasons`，供 `KlineSlim` hover 展示历史热门记录。
 - **影响面**：依赖空 `category` 返回空集或仅空分类数据的调用方会改变结果；`KlineSlim` 页面会新增左侧 4 组股票池和 hover 热门原因弹层。
 - **迁移步骤**：如需继续按分类过滤，请显式传入 `category`；如需读取 hover 历史热门记录，改用 `/api/gantt/stocks/reasons?code6=<6位代码>&provider=all`。
 - **回滚方案**：恢复 `get_stock_pre_pools_list()` 对空 `category` 的旧查询语义，并回退 `/api/gantt/stocks/reasons`、`stock_hot_reason_daily` 与 `KlineSlim` hover 调用链。
 
+- **日期**：2026-03-07
 - **RFC**：0014-stock-etf-tpsl-module
 - **变更**：已落地 XTData `TICK_QUOTE` Redis 队列协议（`QUEUE:TICK_QUOTE:*`）、独立 `freshquant.tpsl` 模块、`/api/tpsl/*` 后端接口，以及订单域 `takeprofit_batch / stoploss_batch` 作用域。止盈止损运行时状态迁移到 `om_takeprofit_profiles / om_takeprofit_states / om_exit_trigger_events`，不再沿用旧分支 `grid_configs / stoploss_configs / fill_stoploss_configs` 执行链。
 - **影响面**：XTData producer、独立 TPSL worker、后端 API、订单受理层与运维脚本都需要切换到新模块；依赖旧 `monitor_stock_zh_a_min.py` 中 Grid/StopLoss tick 执行链的运维方式不再适用。
@@ -114,6 +108,7 @@
   4) 通过 `/api/tpsl/takeprofit/<symbol>` 配置三层止盈，通过现有 `/api/order-management/stoploss/bind` 绑定 `buy_lot` 单笔止损；
   5) 调用方若要识别新批次卖单，应兼容 `scope_type=takeprofit_batch|stoploss_batch`。
 - **回滚方案**：停止 `freshquant.tpsl.tick_listener`，回退 `market_producer.py` 的 `TICK_QUOTE` 推送、`/api/tpsl/*` 蓝图注册与 `takeprofit_batch / stoploss_batch` 相关代码，恢复旧分支的 Grid/StopLoss 执行链或仅保留 `RFC 0007` 的 `buy_lot` 止损绑定能力。
+
 - **日期**：2026-03-07
 - **RFC**：0012-gantt-postclose-incremental-backfill
 - **变更**：`job_gantt_postclose` 的默认运行语义从“只处理单个上一交易日”调整为“从 `gantt_plate_daily` 最新已完成交易日的下一天开始，连续回补到按交易日历与 `15:05` 截止时间解析出的最新已完成交易日”；Dagster job 内部入口改为统一的增量回填 op，不再直接串接单日 op 链。
