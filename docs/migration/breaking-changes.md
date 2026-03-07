@@ -108,6 +108,13 @@
 - **回滚方案**：将宿主机 Mongo/Redis 端口改回 `27017/6379` 并重启宿主机进程；如需恢复旧 broker 行为，回退 `morningglory/fqxtrade/fqxtrade/xtquant/broker.py` 与 `morningglory/fqxtrade/fqxtrade/xtquant/account.py` 的账户类型修复。
 
 - **日期**：2026-03-07
+- **RFC**：0012-gantt-postclose-incremental-backfill
+- **变更**：`job_gantt_postclose` 的默认运行语义从“只处理单个上一交易日”调整为“从 `gantt_plate_daily` 最新已完成交易日的下一天开始，连续回补到按交易日历与 `15:05` 截止时间解析出的最新已完成交易日”；Dagster job 内部入口改为统一的增量回填 op，不再直接串接单日 op 链。
+- **影响面**：Dagster 单次 run 可能连续处理多天数据，耗时和日志量都会增加；盘后 `15:05` 之后触发的 run 会将当天视为可处理目标日；运维不能再按“每天固定只跑 1 天”估算执行时间。
+- **迁移步骤**：部署包含 RFC 0012 的代码并重建 Dagster 容器；保持现有 `gantt_postclose_schedule` 不变；若存在尾部缺口，下一次 schedule 或手工运行会自动从缺口起点补到最新已完成交易日。
+- **回滚方案**：回退 `morningglory/fqdagster/src/fqdagster/defs/ops/gantt.py` 与 `morningglory/fqdagster/src/fqdagster/defs/jobs/gantt.py`，恢复旧的单日 job 实现后重建 Dagster 容器。
+
+- **日期**：2026-03-07
 - **RFC**：0013-position-management
 - **变更**：新增独立分库 `freshquant_position_management` 与模块 `freshquant/position_management/`，策略订单在 `OrderSubmitService` 受理前会先读取仓位状态做门禁；人工/API/CLI 手工单继续旁路。对于 `FORCE_PROFIT_REDUCE` 状态下的 Guardian 盈利卖点，本轮只新增占位标志透传到队列，不实现最终强制卖出算法。
 - **影响面**：所有 `source=strategy` 的股票/ETF 订单都会新增一层仓位准入判断；当仓位状态缺失或过旧时，策略买入会按默认保守状态 `HOLDING_ONLY` 处理。运维需要备份独立分库 `freshquant_position_management`，并确保独立 worker 周期刷新 `pm_current_state`。

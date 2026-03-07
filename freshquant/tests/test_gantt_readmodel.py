@@ -239,6 +239,32 @@ def test_persist_gantt_daily_for_date_writes_xgb_and_jygs_rows(monkeypatch):
     from freshquant.data import gantt_readmodel as svc
 
     fake_db = FakeDB(
+        plate_reason_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "reason_text": "xgb plate reason",
+                    "reason_source": "xgb_top_gainer_history.description",
+                    "source_ref": {"trade_date": "2026-03-05", "plate_id": 11},
+                },
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "robotics",
+                    "plate_name": "robotics",
+                    "reason_text": "jygs plate reason",
+                    "reason_source": "jygs_action_fields.reason",
+                    "source_ref": {
+                        "trade_date": "2026-03-05",
+                        "board_key": "robotics",
+                        "action_field_id": "field-1",
+                    },
+                },
+            ]
+        ),
         xgb_top_gainer_history=FakeCollection(
             [
                 {
@@ -292,6 +318,8 @@ def test_persist_gantt_daily_for_date_writes_xgb_and_jygs_rows(monkeypatch):
             "hot_stock_count": 1,
             "limit_up_count": 2,
             "stock_codes": ["000001"],
+            "reason_text": "xgb plate reason",
+            "reason_ref": {"trade_date": "2026-03-05", "plate_id": 11},
         },
         {
             "provider": "jygs",
@@ -302,6 +330,12 @@ def test_persist_gantt_daily_for_date_writes_xgb_and_jygs_rows(monkeypatch):
             "hot_stock_count": 1,
             "limit_up_count": 0,
             "stock_codes": ["000002"],
+            "reason_text": "jygs plate reason",
+            "reason_ref": {
+                "trade_date": "2026-03-05",
+                "board_key": "robotics",
+                "action_field_id": "field-1",
+            },
         },
     ]
     assert fake_db[svc.COL_GANTT_STOCK_DAILY].docs == [
@@ -326,6 +360,31 @@ def test_persist_gantt_daily_for_date_writes_xgb_and_jygs_rows(monkeypatch):
             "stock_reason": "jygs stock reason",
         },
     ]
+
+
+def test_persist_gantt_daily_for_date_fails_when_plate_reason_is_missing(monkeypatch):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        plate_reason_daily=FakeCollection([]),
+        xgb_top_gainer_history=FakeCollection(
+            [
+                {
+                    "trade_date": "2026-03-05",
+                    "plate_id": 11,
+                    "plate_name": "robotics",
+                    "rank": 1,
+                    "limit_up_count": 2,
+                    "hot_stocks": [{"symbol": "000001", "stock_name": "alpha"}],
+                }
+            ]
+        ),
+        jygs_yidong=FakeCollection([]),
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+
+    with pytest.raises(ValueError, match="missing plate reason"):
+        svc.persist_gantt_daily_for_date("2026-03-05")
 
 
 def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
