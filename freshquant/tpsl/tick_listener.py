@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 
+import click
+
 from freshquant.market_data.xtdata.constants import (
     REDIS_QUEUE_SHARDS,
     REDIS_TICK_QUEUE_PREFIX,
 )
 from freshquant.market_data.xtdata.schema import TickQuoteEvent
+from freshquant.tpsl.consumer import TpslTickConsumer
 
 try:
     from freshquant.database.redis import redis_db  # type: ignore
@@ -43,3 +46,14 @@ class TickQuoteListener:
     def run_forever(self):
         while True:
             self.listen_once()
+
+
+@click.command()
+def main():
+    consumer = TpslTickConsumer()
+    listener = TickQuoteListener(consumer.handle_tick)
+    listener.run_forever()
+
+
+if __name__ == "__main__":
+    main()
