@@ -111,30 +111,87 @@ def _resolve_trade_window(
     return start_date, normalized_end_date
 
 
+def _filter_rows_by_window(
+    rows: list[dict[str, Any]],
+    *,
+    days: int,
+    end_date: str | None,
+    field_name: str,
+) -> list[dict[str, Any]]:
+    window = _resolve_trade_window(
+        rows,
+        days=days,
+        end_date=end_date,
+        field_name=field_name,
+    )
+    if not window:
+        return []
+
+    start_date, resolved_end_date = window
+    return [
+        item
+        for item in rows
+        if start_date <= _to_str(item.get(field_name)) <= resolved_end_date
+    ]
+
+
+def _build_plate_reason_lookup(
+    rows: list[dict[str, Any]],
+) -> dict[tuple[str, str, str], dict[str, Any]]:
+    return {
+        (
+            _to_str(item.get("provider")),
+            _to_str(item.get("plate_key")),
+            _to_str(item.get("trade_date")),
+        ): item
+        for item in (rows or [])
+    }
+
+
+def _query_gantt_plate_rows(
+    *,
+    provider: str,
+    days: int = 30,
+    end_date: str | None = None,
+) -> list[dict[str, Any]]:
+    provider_key = _to_str(provider)
+    rows = _find_rows(COL_GANTT_PLATE_DAILY, {"provider": provider_key})
+    return _filter_rows_by_window(
+        rows,
+        days=days,
+        end_date=end_date,
+        field_name="trade_date",
+    )
+
+
 def query_gantt_plate_matrix(
     *,
     provider: str,
     days: int = 30,
     end_date: str | None = None,
 ) -> dict[str, list[Any]]:
-    provider_key = _to_str(provider)
-    rows = _find_rows(COL_GANTT_PLATE_DAILY, {"provider": provider_key})
-    window = _resolve_trade_window(
-        rows,
+    filtered = _query_gantt_plate_rows(
+        provider=provider,
         days=days,
         end_date=end_date,
-        field_name="trade_date",
     )
-    if not window:
+    if not filtered:
         return {"dates": [], "y_axis": [], "series": []}
-
-    start_date, resolved_end_date = window
-    filtered = [
-        item
-        for item in rows
-        if start_date <= _to_str(item.get("trade_date")) <= resolved_end_date
-    ]
     return build_gantt_plate_matrix(filtered)
+
+
+def query_gantt_plate_reason_map(
+    *,
+    provider: str,
+    days: int = 30,
+    end_date: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    filtered = _query_gantt_plate_rows(
+        provider=provider,
+        days=days,
+        end_date=end_date,
+    )
+    return build_gantt_plate_reason_map(filtered)
 
 
 def query_gantt_stock_matrix(
@@ -388,11 +445,25 @@ def persist_gantt_daily_for_date(trade_date: str) -> dict[str, Any]:
     ensure_readmodel_indexes()
     xgb_rows = _find_rows(COL_XGB_TOP_GAINER_HISTORY, {"trade_date": date_str})
     jygs_rows = _find_rows(COL_JYGS_YIDONG, {"date": date_str})
+    plate_reason_rows = _find_rows(COL_PLATE_REASON_DAILY, {"trade_date": date_str})
+    plate_reason_lookup = _build_plate_reason_lookup(plate_reason_rows)
 
     xgb_plate_rows, xgb_stock_rows = _build_xgb_gantt_rows(date_str, xgb_rows)
     jygs_plate_rows, jygs_stock_rows = _build_jygs_gantt_rows(date_str, jygs_rows)
 
-    plate_rows = xgb_plate_rows + jygs_plate_rows
+    plate_rows: list[dict[str, Any]] = []
+    for row in xgb_plate_rows + jygs_plate_rows:
+        provider = _to_str(row.get("provider"))
+        plate_key = _to_str(row.get("plate_key"))
+        reason_row = plate_reason_lookup.get((provider, plate_key, date_str))
+        if not reason_row:
+            raise ValueError(
+                f"missing plate reason for provider={provider} plate_key={plate_key} trade_date={date_str}"
+            )
+        enriched_row = dict(row)
+        enriched_row["reason_text"] = _to_str(reason_row.get("reason_text")) or None
+        enriched_row["reason_ref"] = reason_row.get("source_ref")
+        plate_rows.append(enriched_row)
     stock_rows = xgb_stock_rows + jygs_stock_rows
 
     _delete_rows(COL_GANTT_PLATE_DAILY, {"trade_date": date_str})
@@ -613,6 +684,22 @@ def build_shouban30_plate_rows(
         )
 
     return results
+
+
+def build_gantt_plate_reason_map(
+    rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    reason_map: dict[str, dict[str, Any]] = {}
+    for item in rows or []:
+        trade_date = _to_str(item.get("trade_date"))
+        plate_key = _to_str(item.get("plate_key"))
+        if not trade_date or not plate_key:
+            continue
+        reason_map[f"{trade_date}|{plate_key}"] = {
+            "reason_text": _to_str(item.get("reason_text")) or None,
+            "reason_ref": item.get("reason_ref"),
+        }
+    return reason_map
 
 
 def build_gantt_plate_matrix(

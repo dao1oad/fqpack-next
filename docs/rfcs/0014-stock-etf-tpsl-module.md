@@ -1,4 +1,4 @@
-# RFC 0011: 股票/ETF 独立止盈止损模块
+# RFC 0014: 股票/ETF 独立止盈止损模块
 
 - **状态**：Approved
 - **负责人**：Codex
@@ -248,7 +248,7 @@
 
 ## 12. 里程碑与拆分（Milestones）
 
-- M1：RFC 0011 Approved
+- M1：RFC 0014 Approved
 - M2：`TICK_QUOTE` 事件协议与 producer 并池逻辑落地
 - M3：TPSL profile/state/service 落地
 - M4：止盈/止损批次计算与聚合卖单落地

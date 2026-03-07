@@ -56,9 +56,14 @@ def get_gantt_plates():
             days=_parse_days(),
             end_date=_validate_iso_date(_resolve_end_date_arg(), "end_date"),
         )
+        reason_map = svc.query_gantt_plate_reason_map(
+            provider=provider,
+            days=_parse_days(),
+            end_date=_validate_iso_date(_resolve_end_date_arg(), "end_date"),
+        )
     except ValueError as exc:
         return _bad_request(str(exc))
-    return jsonify({"data": data})
+    return jsonify({"data": data, "meta": {"reason_map": reason_map}})
 
 
 @gantt_bp.route("/stocks")

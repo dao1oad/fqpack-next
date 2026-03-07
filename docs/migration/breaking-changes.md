@@ -107,7 +107,7 @@
   4. 重启宿主机 `broker / xtdata producer / xtdata consumer`。
 - **回滚方案**：将宿主机 Mongo/Redis 端口改回 `27017/6379` 并重启宿主机进程；如需恢复旧 broker 行为，回退 `morningglory/fqxtrade/fqxtrade/xtquant/broker.py` 与 `morningglory/fqxtrade/fqxtrade/xtquant/account.py` 的账户类型修复。
 
-- **RFC**：0011-stock-etf-tpsl-module
+- **RFC**：0014-stock-etf-tpsl-module
 - **变更**：已落地 XTData `TICK_QUOTE` Redis 队列协议（`QUEUE:TICK_QUOTE:*`）、独立 `freshquant.tpsl` 模块、`/api/tpsl/*` 后端接口，以及订单域 `takeprofit_batch / stoploss_batch` 作用域。止盈止损运行时状态迁移到 `om_takeprofit_profiles / om_takeprofit_states / om_exit_trigger_events`，不再沿用旧分支 `grid_configs / stoploss_configs / fill_stoploss_configs` 执行链。
 - **影响面**：XTData producer、独立 TPSL worker、后端 API、订单受理层与运维脚本都需要切换到新模块；依赖旧 `monitor_stock_zh_a_min.py` 中 Grid/StopLoss tick 执行链的运维方式不再适用。
 - **迁移步骤**：
@@ -117,6 +117,13 @@
   4) 通过 `/api/tpsl/takeprofit/<symbol>` 配置三层止盈，通过现有 `/api/order-management/stoploss/bind` 绑定 `buy_lot` 单笔止损；
   5) 调用方若要识别新批次卖单，应兼容 `scope_type=takeprofit_batch|stoploss_batch`。
 - **回滚方案**：停止 `freshquant.tpsl.tick_listener`，回退 `market_producer.py` 的 `TICK_QUOTE` 推送、`/api/tpsl/*` 蓝图注册与 `takeprofit_batch / stoploss_batch` 相关代码，恢复旧分支的 Grid/StopLoss 执行链或仅保留 `RFC 0007` 的 `buy_lot` 止损绑定能力。
+- **日期**：2026-03-07
+- **RFC**：0012-gantt-postclose-incremental-backfill
+- **变更**：`job_gantt_postclose` 的默认运行语义从“只处理单个上一交易日”调整为“从 `gantt_plate_daily` 最新已完成交易日的下一天开始，连续回补到按交易日历与 `15:05` 截止时间解析出的最新已完成交易日”；Dagster job 内部入口改为统一的增量回填 op，不再直接串接单日 op 链。
+- **影响面**：Dagster 单次 run 可能连续处理多天数据，耗时和日志量都会增加；盘后 `15:05` 之后触发的 run 会将当天视为可处理目标日；运维不能再按“每天固定只跑 1 天”估算执行时间。
+- **迁移步骤**：部署包含 RFC 0012 的代码并重建 Dagster 容器；保持现有 `gantt_postclose_schedule` 不变；若存在尾部缺口，下一次 schedule 或手工运行会自动从缺口起点补到最新已完成交易日。
+- **回滚方案**：回退 `morningglory/fqdagster/src/fqdagster/defs/ops/gantt.py` 与 `morningglory/fqdagster/src/fqdagster/defs/jobs/gantt.py`，恢复旧的单日 job 实现后重建 Dagster 容器。
+
 - **日期**：2026-03-07
 - **RFC**：0013-position-management
 - **变更**：新增独立分库 `freshquant_position_management` 与模块 `freshquant/position_management/`，策略订单在 `OrderSubmitService` 受理前会先读取仓位状态做门禁；人工/API/CLI 手工单继续旁路。对于 `FORCE_PROFIT_REDUCE` 状态下的 Guardian 盈利卖点，本轮只新增占位标志透传到队列，不实现最终强制卖出算法。

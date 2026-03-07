@@ -7,6 +7,9 @@ import KlineSlim from '../views/KlineSlim.vue'
 import StockPools from '../components/StockPools.vue'
 import StockCjsd from '../components/StockCjsd.vue'
 
+const GanttUnified = () => import('../views/GanttUnified.vue')
+const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
+
 const routes = [
   {
     path: '/',
@@ -46,6 +49,16 @@ const routes = [
     path: '/kline-slim',
     name: 'kline-slim',
     component: KlineSlim
+  },
+  {
+    path: '/gantt',
+    name: 'gantt',
+    component: GanttUnified
+  },
+  {
+    path: '/gantt/stocks/:plateKey',
+    name: 'gantt-stocks',
+    component: GanttUnifiedStocks
   }
 ]
 
