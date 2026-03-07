@@ -35,7 +35,6 @@ class PositionManagementService:
         holding_codes=None,
         is_profitable=False,
     ):
-        del is_profitable
         resolved_current_state = current_state or self.repository.get_current_state()
         effective_state = self.policy.effective_state(
             resolved_current_state,
@@ -51,8 +50,20 @@ class PositionManagementService:
             action=action,
             is_holding_symbol=is_holding_symbol,
         )
+        meta = {
+            "is_holding_symbol": is_holding_symbol,
+            "evaluated_at": self.now_provider().isoformat(),
+        }
+        if (
+            allowed
+            and action == "sell"
+            and effective_state == FORCE_PROFIT_REDUCE
+            and is_profitable
+            and str(payload.get("strategy_name") or "").lower() == "guardian"
+        ):
+            meta["force_profit_reduce"] = True
+            meta["profit_reduce_mode"] = "guardian_placeholder"
         decision_id = _build_decision_id()
-        evaluated_at = self.now_provider().isoformat()
         decision_document = {
             "decision_id": decision_id,
             "strategy_name": payload.get("strategy_name"),
@@ -63,7 +74,8 @@ class PositionManagementService:
             "allowed": allowed,
             "reason_code": reason_code,
             "reason_text": reason_text,
-            "evaluated_at": evaluated_at,
+            "evaluated_at": meta["evaluated_at"],
+            "meta": meta,
         }
         self.repository.insert_decision(decision_document)
         return PositionDecision(
@@ -72,10 +84,7 @@ class PositionManagementService:
             reason_code=reason_code,
             reason_text=reason_text,
             decision_id=decision_id,
-            meta={
-                "is_holding_symbol": is_holding_symbol,
-                "evaluated_at": evaluated_at,
-            },
+            meta=meta,
         )
 
 

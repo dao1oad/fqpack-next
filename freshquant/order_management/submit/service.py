@@ -87,6 +87,14 @@ class OrderSubmitService:
             queue_payload["position_management_decision_id"] = (
                 position_decision.decision_id
             )
+            if position_decision.meta.get("force_profit_reduce") is not None:
+                queue_payload["position_management_force_profit_reduce"] = bool(
+                    position_decision.meta.get("force_profit_reduce")
+                )
+            if position_decision.meta.get("profit_reduce_mode"):
+                queue_payload["position_management_profit_reduce_mode"] = (
+                    position_decision.meta.get("profit_reduce_mode")
+                )
         self.queue_client.lpush(
             STOCK_ORDER_QUEUE,
             json.dumps(queue_payload, ensure_ascii=False),

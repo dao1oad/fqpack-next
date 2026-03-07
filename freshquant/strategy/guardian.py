@@ -218,7 +218,18 @@ class StrategyGuardian(metaclass=SingletonType):
                             redis_db.set(f"sell:{code}", "1", timedelta(days=3))
                         else:
                             redis_db.set(f"sell:{code}", "1", timedelta(minutes=15))
-                        submit_guardian_order("sell", code, price, quantity)
+                        submit_result = submit_guardian_order(
+                            "sell", code, price, quantity
+                        )
+                        queue_payload = (submit_result or {}).get("queue_payload") or {}
+                        if queue_payload.get("position_management_force_profit_reduce"):
+                            logger.info(
+                                "{code} 命中仓位管理减仓盈利占位模式：{mode}",
+                                code=code,
+                                mode=queue_payload.get(
+                                    "position_management_profit_reduce_mode"
+                                ),
+                            )
         elif (
             redis_db.get("fq:xtrade:last_new_order_time") is None
             and position == "BUY_LONG"
