@@ -214,8 +214,18 @@ def test_get_shouban30_plates_reads_as_of_date(monkeypatch):
 
     fake_db = _fake_db(
         shouban30_plates=[
-            {"provider": "xgb", "as_of_date": "2026-03-04", "plate_key": "11"},
-            {"provider": "xgb", "as_of_date": "2026-03-05", "plate_key": "22"},
+            {
+                "provider": "xgb",
+                "as_of_date": "2026-03-05",
+                "stock_window_days": 30,
+                "plate_key": "11",
+            },
+            {
+                "provider": "xgb",
+                "as_of_date": "2026-03-05",
+                "stock_window_days": 60,
+                "plate_key": "22",
+            },
         ]
     )
     monkeypatch.setattr(gantt_routes.svc, "DBGantt", fake_db)
@@ -224,14 +234,23 @@ def test_get_shouban30_plates_reads_as_of_date(monkeypatch):
     app.register_blueprint(gantt_routes.gantt_bp)
     client = app.test_client()
     response = client.get(
-        "/api/gantt/shouban30/plates?provider=xgb&as_of_date=2026-03-05"
+        "/api/gantt/shouban30/plates?provider=xgb&as_of_date=2026-03-05&stock_window_days=60"
     )
 
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["data"]["items"] == [
-        {"provider": "xgb", "as_of_date": "2026-03-05", "plate_key": "22"}
+        {
+            "provider": "xgb",
+            "as_of_date": "2026-03-05",
+            "stock_window_days": 60,
+            "plate_key": "22",
+        }
     ]
+    assert payload["data"]["meta"] == {
+        "as_of_date": "2026-03-05",
+        "stock_window_days": 60,
+    }
 
 
 def test_get_shouban30_stocks_returns_empty_when_missing(monkeypatch):
@@ -244,9 +263,29 @@ def test_get_shouban30_stocks_returns_empty_when_missing(monkeypatch):
     app.register_blueprint(gantt_routes.gantt_bp)
     client = app.test_client()
     response = client.get(
-        "/api/gantt/shouban30/stocks?provider=xgb&plate_key=11&as_of_date=2026-03-05"
+        "/api/gantt/shouban30/stocks?provider=xgb&plate_key=11&as_of_date=2026-03-05&stock_window_days=90"
     )
 
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["data"]["items"] == []
+    assert payload["data"]["meta"] == {
+        "as_of_date": "2026-03-05",
+        "stock_window_days": 90,
+    }
+
+
+def test_get_shouban30_plates_rejects_invalid_stock_window_days():
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.get(
+        "/api/gantt/shouban30/plates?provider=xgb&stock_window_days=15"
+    )
+
+    assert response.status_code == 400
+    assert (
+        response.get_json()["message"] == "stock_window_days must be one of 30|45|60|90"
+    )

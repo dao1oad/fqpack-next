@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request
 import freshquant.data.gantt_readmodel as svc
 
 gantt_bp = Blueprint("gantt", __name__, url_prefix="/api/gantt")
+SHOUBAN30_STOCK_WINDOWS = {30, 45, 60, 90}
 
 
 def _bad_request(message: str):
@@ -34,6 +35,17 @@ def _resolve_as_of_date_arg() -> str | None:
     return _required_arg("as_of_date") or _required_arg("asOfDate")
 
 
+def _resolve_stock_window_days_arg() -> int:
+    raw = _required_arg("stock_window_days") or "30"
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("stock_window_days must be one of 30|45|60|90") from exc
+    if value not in SHOUBAN30_STOCK_WINDOWS:
+        raise ValueError("stock_window_days must be one of 30|45|60|90")
+    return value
+
+
 def _validate_iso_date(value: str | None, field_name: str) -> str | None:
     if not value:
         return None
@@ -42,6 +54,18 @@ def _validate_iso_date(value: str | None, field_name: str) -> str | None:
     except ValueError as exc:
         raise ValueError(f"{field_name} must be YYYY-MM-DD") from exc
     return value
+
+
+def _resolve_shouban30_as_of_date(
+    items: list[dict], requested: str | None
+) -> str | None:
+    if requested:
+        return requested
+    dates = [str(item.get("as_of_date") or "").strip() for item in items or []]
+    dates = [item for item in dates if item]
+    if not dates:
+        return None
+    return max(dates)
 
 
 @gantt_bp.route("/plates")
@@ -117,11 +141,27 @@ def get_shouban30_plates():
     if not provider:
         return _bad_request("provider required")
 
-    items = svc.query_shouban30_plate_rows(
-        provider=provider,
-        as_of_date=_resolve_as_of_date_arg(),
+    try:
+        as_of_date = _validate_iso_date(_resolve_as_of_date_arg(), "as_of_date")
+        stock_window_days = _resolve_stock_window_days_arg()
+        items = svc.query_shouban30_plate_rows(
+            provider=provider,
+            as_of_date=as_of_date,
+            stock_window_days=stock_window_days,
+        )
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "items": items,
+                "meta": {
+                    "as_of_date": _resolve_shouban30_as_of_date(items, as_of_date),
+                    "stock_window_days": stock_window_days,
+                },
+            }
+        }
     )
-    return jsonify({"data": {"items": items}})
 
 
 @gantt_bp.route("/shouban30/stocks")
@@ -134,9 +174,25 @@ def get_shouban30_stocks():
     if not plate_key:
         return _bad_request("plate_key required")
 
-    items = svc.query_shouban30_stock_rows(
-        provider=provider,
-        plate_key=plate_key,
-        as_of_date=_resolve_as_of_date_arg(),
+    try:
+        as_of_date = _validate_iso_date(_resolve_as_of_date_arg(), "as_of_date")
+        stock_window_days = _resolve_stock_window_days_arg()
+        items = svc.query_shouban30_stock_rows(
+            provider=provider,
+            plate_key=plate_key,
+            as_of_date=as_of_date,
+            stock_window_days=stock_window_days,
+        )
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "items": items,
+                "meta": {
+                    "as_of_date": _resolve_shouban30_as_of_date(items, as_of_date),
+                    "stock_window_days": stock_window_days,
+                },
+            }
+        }
     )
-    return jsonify({"data": {"items": items}})

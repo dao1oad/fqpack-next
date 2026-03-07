@@ -20,6 +20,7 @@ from freshquant.db import DBGantt
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
 POSTCLOSE_CUTOFF_HOUR = 15
 POSTCLOSE_CUTOFF_MINUTE = 5
+SHOUBAN30_STOCK_WINDOWS = (30, 45, 60, 90)
 
 
 def _to_str(value: Any) -> str:
@@ -78,6 +79,27 @@ def _resolve_trade_date(trade_date: str | None = None) -> str:
     return _query_latest_trade_date()
 
 
+def _build_shouban30_snapshots_for_date(context, trade_date: str) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    for stock_window_days in SHOUBAN30_STOCK_WINDOWS:
+        result = persist_shouban30_for_date(
+            trade_date,
+            stock_window_days=stock_window_days,
+        )
+        results.append(result)
+        context.log.info(
+            "built shouban30 trade_date=%s stock_window_days=%s result=%s",
+            trade_date,
+            stock_window_days,
+            result,
+        )
+    return {
+        "trade_date": trade_date,
+        "windows": list(SHOUBAN30_STOCK_WINDOWS),
+        "results": results,
+    }
+
+
 def resolve_gantt_backfill_trade_dates() -> list[str]:
     latest_trade_date = _query_latest_trade_date()
     latest_completed_trade_date = _query_latest_completed_gantt_trade_date()
@@ -127,8 +149,7 @@ def run_gantt_pipeline_for_date(context, trade_date: str) -> dict[str, Any]:
         stock_hot_reason_count,
         trade_date,
     )
-    shouban30_result = persist_shouban30_for_date(trade_date)
-    context.log.info("built shouban30=%s", shouban30_result)
+    shouban30_result = _build_shouban30_snapshots_for_date(context, trade_date)
 
     return {
         "trade_date": trade_date,
@@ -219,9 +240,7 @@ def op_build_stock_hot_reason_daily(context, trade_date: str) -> str:
 
 @op
 def op_build_shouban30_daily(context, trade_date: str) -> dict:
-    result = persist_shouban30_for_date(trade_date)
-    context.log.info("built shouban30=%s", result)
-    return result
+    return _build_shouban30_snapshots_for_date(context, trade_date)
 
 
 @op
