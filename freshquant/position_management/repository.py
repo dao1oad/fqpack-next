@@ -47,3 +47,7 @@ class PositionManagementRepository:
     def get_current_state(self, account_id=None):
         query = {"account_id": account_id} if account_id else {}
         return self.current_state.find_one(query, sort=[("evaluated_at", -1)])
+
+    def insert_decision(self, document):
+        self.strategy_decisions.insert_one(document)
+        return document
