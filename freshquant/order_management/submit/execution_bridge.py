@@ -161,6 +161,12 @@ def dispatch_cancel_execution(
     return {"status": "cancel_failed", "broker_order_id": str(broker_order_id)}
 
 
+def resolve_sell_price_type_compat(order_message):
+    return _optional_int(
+        order_message.get("broker_price_type") or order_message.get("price_type")
+    )
+
+
 def resolve_runtime_credit_execution(
     account_type,
     action,

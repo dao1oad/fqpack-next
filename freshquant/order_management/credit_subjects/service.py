@@ -24,7 +24,8 @@ class CreditSubjectSyncService:
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
 
     def sync_once(self):
-        subjects = list(self.client.query_credit_subjects() or [])
+        raw_subjects = self.client.query_credit_subjects()
+        subjects = list(raw_subjects or [])
         updated_at = self.now_provider().isoformat()
         account_id = getattr(self.client, "account_id", None)
 
@@ -36,11 +37,19 @@ class CreditSubjectSyncService:
             )
             self.repository.upsert_subject(document)
 
+        deleted_count = 0
+        if raw_subjects is not None:
+            deleted_count = self.repository.delete_missing_subjects(
+                account_id,
+                [getattr(subject, "instrument_id", None) for subject in subjects],
+            )
+
         return {
             "count": len(subjects),
             "account_id": account_id,
             "account_type": getattr(self.client, "account_type", None),
             "updated_at": updated_at,
+            "deleted_count": deleted_count,
         }
 
 

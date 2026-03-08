@@ -59,6 +59,13 @@ class InMemoryCreditSubjectRepository:
     def count_subjects(self):
         return len(self.documents)
 
+    def delete_missing_subjects(self, account_id, instrument_ids):
+        keep = set(instrument_ids)
+        for key in list(self.documents):
+            doc_account_id, instrument_id = key
+            if doc_account_id == account_id and instrument_id not in keep:
+                del self.documents[key]
+
 
 class FakeSyncService:
     def __init__(self, result=None):
@@ -88,6 +95,36 @@ def test_sync_credit_subjects_once_writes_subjects_into_order_management_collect
     assert document["exchange"] == "SH"
     assert document["fin_status"] == 48
     assert document["updated_at"] == "2026-03-08T00:00:00+00:00"
+
+
+def test_sync_credit_subjects_once_prunes_removed_subjects_for_same_account():
+    client = FakeXtClient(subjects=[FakeSubject("600000.SH", fin_status=48)])
+    repository = InMemoryCreditSubjectRepository()
+    repository.upsert_subject(
+        {
+            "account_id": "1208970161",
+            "instrument_id": "600000.SH",
+            "symbol": "600000",
+        }
+    )
+    repository.upsert_subject(
+        {
+            "account_id": "1208970161",
+            "instrument_id": "600001.SH",
+            "symbol": "600001",
+        }
+    )
+
+    result = sync_credit_subjects_once(
+        client=client,
+        repository=repository,
+        now_provider=lambda: datetime(2026, 3, 8, tzinfo=timezone.utc),
+    )
+
+    assert result["count"] == 1
+    assert repository.find_one("600000.SH", account_id="1208970161") is not None
+    assert repository.find_one("600001.SH", account_id="1208970161") is None
+    assert repository.count_subjects() == 1
 
 
 def test_worker_run_once_calls_sync_service():

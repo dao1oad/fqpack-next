@@ -38,3 +38,17 @@ class CreditSubjectRepository:
         if account_id is not None:
             query["account_id"] = str(account_id).strip()
         return self.collection.count_documents(query, limit=1) > 0
+
+    def delete_missing_subjects(self, account_id, instrument_ids):
+        if account_id in (None, ""):
+            return 0
+        query = {"account_id": str(account_id).strip()}
+        instrument_id_values = [
+            str(instrument_id or "").strip().upper()
+            for instrument_id in instrument_ids
+            if str(instrument_id or "").strip()
+        ]
+        if instrument_id_values:
+            query["instrument_id"] = {"$nin": instrument_id_values}
+        result = self.collection.delete_many(query)
+        return result.deleted_count

@@ -38,6 +38,7 @@ from freshquant.order_management.submit.execution_bridge import (
     dispatch_cancel_execution,
     finalize_submit_execution,
     prepare_submit_execution,
+    resolve_sell_price_type_compat,
 )
 from freshquant.order_management.tracking.service import OrderTrackingService
 from freshquant.trade.trade import checkManualStrategyInstument
@@ -290,7 +291,7 @@ def trading_main_loop():
                             resolved_order = execution.get("order_message", order)
                             r = puppet.sell(
                                 resolved_order["symbol"],
-                                pydash.get(resolved_order, "broker_price_type"),
+                                resolve_sell_price_type_compat(resolved_order),
                                 resolved_order["price"],
                                 resolved_order["quantity"],
                                 pydash.get(resolved_order, "strategy_name", "N/A"),
