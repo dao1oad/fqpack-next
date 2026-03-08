@@ -7,6 +7,16 @@ from datetime import datetime
 from freshquant.db import DBfreshquant
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
 
+DEFAULT_XTDATA_MODE = "guardian_1m"
+VALID_XTDATA_MODES = {"guardian_1m", "clx_15_30"}
+
+
+def normalize_xtdata_mode(mode: str | None) -> str:
+    m = str(mode or "").strip().lower()
+    if m in VALID_XTDATA_MODES:
+        return m
+    return DEFAULT_XTDATA_MODE
+
 
 def load_monitor_codes(*, mode: str, max_symbols: int) -> list[str]:
     """
@@ -15,7 +25,7 @@ def load_monitor_codes(*, mode: str, max_symbols: int) -> list[str]:
     - guardian_1m: holdings (xt_positions) + must_pool
     - clx_15_30:   stock_pools (non-expired)
     """
-    m = str(mode or "").strip().lower()
+    m = normalize_xtdata_mode(mode)
     try:
         limit = int(max_symbols or 50)
     except Exception:
