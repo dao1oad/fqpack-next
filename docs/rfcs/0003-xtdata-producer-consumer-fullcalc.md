@@ -1,6 +1,6 @@
 # RFC 0003: XTData Producer/Consumer + fullcalc（替代轮询，统一缠论结构推送）
 
-- **状态**：Approved
+- **状态**：Done
 - **负责人**：TBD
 - **评审人**：TBD
 - **创建日期**：2026-03-05

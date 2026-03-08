@@ -1,6 +1,6 @@
 # RFC 0005: KlineSlim MVP（5m 主图 + 30m 缠论叠加）
 
-- **状态**：Approved
+- **状态**：Done
 - **负责人**：Codex
 - **评审人**：User
 - **创建日期**：2026-03-06

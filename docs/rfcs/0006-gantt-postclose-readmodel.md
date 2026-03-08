@@ -1,6 +1,6 @@
 ﻿# RFC 0006: XGB / JYGS / Gantt / Shouban30 盘后读模型与独立分库
 
-- **状态**：Approved
+- **状态**：Done
 - **负责人**：TBD
 - **评审人**：TBD
 - **创建日期**：2026-03-06

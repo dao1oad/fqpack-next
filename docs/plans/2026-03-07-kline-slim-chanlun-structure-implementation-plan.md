@@ -444,10 +444,10 @@ Status: Review
 ```
 
 ```md
-| 0018 | KlineSlim 缠论结构面板 | Review | Codex | 2026-03-07 | ... | 已完成后端 fullcalc 结构接口与 KlineSlim 面板实现，待 review / 合并 |
+| 0018 | KlineSlim 缠论结构面板 | Review | Codex | 2026-03-07 | ... | 已完成后端 fullcalc 结构接口与 KlineSlim 面板实现；该任务后续已合并，当前状态以 `docs/migration/progress.md` 为准 |
 ```
 
-如果功能在后续合并到 `main`，再单独把状态切到 `Done` 并补最终完成说明。
+该任务后续已合并到 `main`；当前完成状态与最终说明见 `docs/migration/progress.md`。
 
 **Step 4: Commit**
 
