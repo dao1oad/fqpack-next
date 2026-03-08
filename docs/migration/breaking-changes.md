@@ -14,6 +14,13 @@
 ## 变更记录
 
 - **日期**：2026-03-08
+- **RFC**：0021-xtdata-default-guardian-mode
+- **变更**：`monitor.xtdata.mode` 在未设置、空字符串或非法值时的运行时缺省语义，从 `clx_15_30` 调整为 `guardian_1m`；`preset/params.py` 初始化默认写入也同步改为 `guardian_1m`。显式配置 `clx_15_30` 或 `guardian_1m` 的实例行为不变。
+- **影响面**：宿主机 `xtdata producer / consumer`、Guardian event 监听入口，以及任何依赖“未配置 mode 时默认走 stock_pools / clx_15_30”这一旧语义的运行环境都会受到影响。缺省配置环境重启后会优先按 `xt_positions + must_pool` 预热和订阅。
+- **迁移步骤**：1) 若希望保持旧行为，显式设置 `monitor.xtdata.mode=clx_15_30`；2) 若接受新默认值，无需写配置，只需重启宿主机 `xtdata producer / consumer`；3) 验证日志中的 `mode=guardian_1m`、`prewarm start: codes>0` 与 Redis `CACHE:KLINE:*` 是否恢复。
+- **回滚方案**：回退 `freshquant/market_data/xtdata/pools.py`、`market_producer.py`、`strategy_consumer.py`、`freshquant/preset/params.py` 与 `freshquant/signal/astock/job/monitor_stock_zh_a_min.py` 中的默认值收口改动，恢复缺省 `clx_15_30` 语义。
+
+- **日期**：2026-03-08
 - **RFC**：0019-guardian-buy-side-grid-sizing
 - **变更**：Guardian 买单语义从“`get_trade_amount + position_pct/near_pattern` 旧缩量规则 + `must_pool` 近似持仓处理 + `auto_open` 路径”调整为“持仓加仓使用 `BUY-1/2/3 -> 2/3/4` buy-side grid 状态机，新开仓仅允许 `must_pool` 标的且使用 `initial_lot_amount ?? lot_amount ?? 150000`”；同时去掉“当天卖过就不再买”与 Guardian 本地强制卖分支，新增 `guardian_buy_grid_configs / guardian_buy_grid_states` 运行时数据，以及 stock API / CLI 入口 `guardian_buy_grid_*` / `stock.guardian-grid`。手工修改 `BUY-1/2/3` 会默认重置 `buy_active`，手工改配置/状态会写入 `audit_log`。
 - **影响面**：Guardian 自动交易行为、must_pool 新开仓语义、订单跟踪上下文、XT 卖出成交后的 buy-side 状态重置、以及依赖旧 `position_pct/auto_open/near_pattern` 买单数量规则的脚本或排障手册都需要更新；运维新增 Guardian buy-side grid 配置与状态维护入口。
