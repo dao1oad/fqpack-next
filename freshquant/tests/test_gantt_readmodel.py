@@ -93,6 +93,7 @@ def test_build_shouban30_joins_reason_from_plate_reason_daily_only():
                 "seg_to": "2026-03-05",
                 "appear_days_30": 2,
                 "seg_from": "2026-03-04",
+                "hit_trade_dates_30": ["2026-03-04", "2026-03-05"],
                 "stock_window_days": 60,
                 "stocks_count": 8,
                 "stock_window_from": "2026-01-06",
@@ -120,6 +121,7 @@ def test_build_shouban30_joins_reason_from_plate_reason_daily_only():
     }
     assert rows[0]["stock_window_days"] == 60
     assert rows[0]["stocks_count"] == 8
+    assert rows[0]["hit_trade_dates_30"] == ["2026-03-04", "2026-03-05"]
 
 
 def test_build_shouban30_fails_when_plate_reason_is_missing():
@@ -229,6 +231,7 @@ def test_group_shouban30_plate_candidates_uses_trade_date_axis():
             "appear_days_30": 2,
             "seg_from": "2026-03-06",
             "seg_to": "2026-03-09",
+            "hit_trade_dates_30": ["2026-03-06", "2026-03-09"],
         }
     ]
 
@@ -778,6 +781,7 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
             "appear_days_30": 2,
             "seg_from": "2026-03-04",
             "seg_to": "2026-03-05",
+            "hit_trade_dates_30": ["2026-03-04", "2026-03-05"],
             "stocks_count": 1,
             "stock_window_from": "2026-02-10",
             "stock_window_to": "2026-03-05",
@@ -796,6 +800,8 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
             "stock_window_days": 60,
             "hit_count_30": 1,
             "hit_count_window": 2,
+            "hit_trade_dates_30": ["2026-03-05"],
+            "hit_trade_dates_window": ["2026-02-10", "2026-03-05"],
             "latest_trade_date": "2026-03-05",
             "latest_reason": "stock reason",
         }

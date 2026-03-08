@@ -130,7 +130,11 @@ export const aggregateStockRows = (rows = []) => {
     })
   }
 
-  return aggregated.sort((left, right) => {
+  return sortStockRows(aggregated)
+}
+
+export const sortStockRows = (rows = []) => {
+  return [...rows].sort((left, right) => {
     const dateCompare = sortByDateDesc(left?.latest_trade_date, right?.latest_trade_date)
     if (dateCompare !== 0) return dateCompare
     const hitCompare = Number(right?.hit_count_window || 0) - Number(left?.hit_count_window || 0)

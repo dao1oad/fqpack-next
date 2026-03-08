@@ -5,6 +5,7 @@ import {
   aggregatePlateRows,
   aggregateStockRows,
   buildViewStats,
+  sortStockRows,
   sortPlateRows,
 } from './shouban30Aggregation.mjs'
 
@@ -154,6 +155,31 @@ test('aggregateStockRows merges same code6 and keeps latest reason', () => {
       hit_trade_dates_window: ['2026-03-06'],
     },
   ])
+})
+
+test('sortStockRows sorts by latest trade date desc then hit count desc then code6 asc', () => {
+  const rows = sortStockRows([
+    {
+      code6: '000003',
+      latest_trade_date: '2026-03-05',
+      hit_count_window: 1,
+    },
+    {
+      code6: '000001',
+      latest_trade_date: '2026-03-06',
+      hit_count_window: 1,
+    },
+    {
+      code6: '000002',
+      latest_trade_date: '2026-03-06',
+      hit_count_window: 2,
+    },
+  ])
+
+  assert.deepEqual(
+    rows.map((item) => item.code6),
+    ['000002', '000001', '000003'],
+  )
 })
 
 test('buildViewStats counts unique stocks by code6', () => {

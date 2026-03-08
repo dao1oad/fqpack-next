@@ -4,7 +4,7 @@
 
 当前 `/gantt/shouban30` 页面只支持按单一来源 `xgb` 或 `jygs` 展示 30 天首板板块、板块内热点标的和标的详情。页面顶部的来源/窗口切换器占用横向空间，左栏板块列表仍以连续段展示，且没有“跨来源聚合”的统一视图。
 
-这次需求只扩展现有页面能力，不引入新的后端聚合接口和新的盘后快照。聚合语义由前端基于现有 `xgb/jygs` 两份查询结果完成，避免扩大 Dagster 和读模型改动面。
+这次需求不引入新的后端聚合接口。聚合语义仍由前端基于现有 `xgb/jygs` 两份查询结果完成；为支持精确并集统计，读模型会在原有 `shouban30_plates / shouban30_stocks` 文档上附加命中交易日数组字段，但不新增新的查询路由。
 
 ## 目标
 
@@ -72,11 +72,16 @@
   - 聚合板块构建
   - 聚合标的构建
   - 统计信息计算
+- 后端在现有读模型上追加：
+  - `shouban30_plates.hit_trade_dates_30`
+  - `shouban30_stocks.hit_trade_dates_30`
+  - `shouban30_stocks.hit_trade_dates_window`
+  这些字段只用于精确聚合，不改变既有接口入参与路由结构。
 - Vue 页面只负责：
   - 并行拉取 `xgb/jygs`
   - 根据当前标签切换计算后的视图
   - 触发下钻
-- 后端只保留现有 `/api/gantt/shouban30/plates|stocks` 与 `/api/gantt/stocks/reasons`。
+- 后端仍只保留现有 `/api/gantt/shouban30/plates|stocks` 与 `/api/gantt/stocks/reasons`。
 
 ## 测试策略
 
@@ -95,4 +100,3 @@
 
 - 前端聚合依赖两次 API 请求，切换标签时请求数量会增加，需要用请求序号防止旧响应覆盖新状态。
 - `plate_name` 完全同名去重是业务约定，若来源间同义不同名仍会保留为两条，这是本次明确接受的边界。
-
