@@ -182,14 +182,11 @@ def _load_minute_history_from_quantaxis_db(
     raw_df = pd.DataFrame(list(cursor))
     if "time_stamp" in raw_df.columns and raw_df["time_stamp"].notna().any():
         raw_df = raw_df.copy()
-        raw_df["datetime"] = (
-            pd.to_datetime(
-                pd.to_numeric(raw_df["time_stamp"], errors="coerce"),
-                unit="s",
-                utc=True,
-            )
-            .dt.tz_convert(cfg.TZ)
-        )
+        raw_df["datetime"] = pd.to_datetime(
+            pd.to_numeric(raw_df["time_stamp"], errors="coerce"),
+            unit="s",
+            utc=True,
+        ).dt.tz_convert(cfg.TZ)
     hist_df = _normalize_bar_window_df(raw_df)
     if hist_df.empty:
         return hist_df
@@ -466,7 +463,9 @@ class StrategyConsumer:
         )
         rt_df = pd.DataFrame(list(rt_cur))
 
-        merged = _normalize_bar_window_df(pd.concat([hist_df, rt_df], ignore_index=True))
+        merged = _normalize_bar_window_df(
+            pd.concat([hist_df, rt_df], ignore_index=True)
+        )
         if merged.empty:
             return merged
 

@@ -41,7 +41,7 @@ class FakeCursor:
         self._docs = list(docs)
 
     def sort(self, key: str, direction: int):
-        self._docs.sort(key=lambda item: item.get(key), reverse=direction < 0)
+        self._docs.sort(key=lambda item: str(item.get(key, "")), reverse=direction < 0)
         return self
 
     def __iter__(self):
