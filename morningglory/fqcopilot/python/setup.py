@@ -8,20 +8,53 @@ from setuptools.command.build_ext import build_ext
 from setuptools.extension import Extension
 
 ROOT = Path(__file__).resolve().parent
-IS_WINDOWS = os.name == "nt"
-FQCOPILOT_COMPILE_ARGS = ["/utf-8"] if IS_WINDOWS else ["-std=c++14"]
-FULLCALC_COMPILE_ARGS = ["/utf-8"] if IS_WINDOWS else []
 DEFINE_MACROS = [
     ("_FORCE_SWELL_WHEN_9WAVE", "1"),
     ("_GAP_COUNT_AS_ONE_BAR", "1"),
     ("_RIPPLE_REVERSE_WAVE_NO_MERGE", "1"),
 ]
+COMPILE_ARGS_BY_COMPILER: dict[str, dict[str, list[str]]] = {
+    "msvc": {
+        "fqcopilot": ["/utf-8"],
+        "fullcalc": ["/utf-8"],
+    },
+    "mingw32": {
+        "fqcopilot": ["-std=c++14"],
+        "fullcalc": [],
+    },
+    "unix": {
+        "fqcopilot": ["-std=c++14"],
+        "fullcalc": [],
+    },
+}
+LINK_ARGS_BY_COMPILER: dict[str, dict[str, list[str]]] = {
+    "mingw32": {"fqcopilot": [], "fullcalc": []}
+}
 
 INSTALL_REQUIRES = ["setuptools", "wheel"]
 
 
+def _resolve_extension_args(
+    arg_map: dict[str, dict[str, list[str]]],
+    compiler_type: str,
+    extension_name: str,
+) -> list[str]:
+    compiler_args = arg_map.get(compiler_type, {})
+    return list(compiler_args.get(extension_name, []))
+
+
 class build_ext_subclass(build_ext):
     def build_extensions(self):
+        compiler_type = getattr(self.compiler, "compiler_type", "")
+        for extension in self.extensions:
+            extension.extra_compile_args = _resolve_extension_args(
+                COMPILE_ARGS_BY_COMPILER, compiler_type, extension.name
+            )
+            link_args = _resolve_extension_args(
+                LINK_ARGS_BY_COMPILER, compiler_type, extension.name
+            )
+            if link_args:
+                extension.extra_link_args = link_args
         build_ext.build_extensions(self)
 
 
@@ -73,7 +106,6 @@ extensions = [
         include_dirs=[str((ROOT / "../cpp").resolve())],
         language="c++",
         define_macros=DEFINE_MACROS,
-        extra_compile_args=FQCOPILOT_COMPILE_ARGS,
     ),
     Pybind11Extension(
         name="fullcalc",
@@ -85,7 +117,6 @@ extensions = [
         ],
         language="c++",
         define_macros=DEFINE_MACROS + [("MAKE_X64", "1")],
-        extra_compile_args=FULLCALC_COMPILE_ARGS,
         cxx_std=17,
     ),
 ]

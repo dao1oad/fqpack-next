@@ -3,7 +3,7 @@ import sys
 import tomllib
 import types
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 
 def load_root_pyproject() -> dict:
@@ -165,3 +165,72 @@ def test_fqcopilot_setup_declares_fullcalc_extension(monkeypatch) -> None:
         source.replace("\\", "/").endswith("cpp/func_set.cpp")
         for source in fullcalc_ext.sources
     )
+
+
+def test_fqcopilot_build_ext_uses_compiler_specific_flags(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_setup(**kwargs):
+        captured.update(kwargs)
+
+    class DummyBuildExt:
+        def build_extensions(self):
+            return None
+
+    class DummyExtension:
+        def __init__(self, name, sources, **kwargs):
+            self.name = name
+            self.sources = sources
+            self.extra_compile_args = kwargs.get("extra_compile_args")
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    cython_build = types.SimpleNamespace(cythonize=lambda exts: exts)
+    setuptools_module = types.SimpleNamespace(
+        setup=fake_setup, Extension=DummyExtension
+    )
+    setuptools_command = types.SimpleNamespace(
+        build_ext=types.SimpleNamespace(build_ext=DummyBuildExt)
+    )
+    setuptools_extension = types.SimpleNamespace(Extension=DummyExtension)
+    monkeypatch.setitem(sys.modules, "setuptools", setuptools_module)
+    monkeypatch.setitem(sys.modules, "setuptools.command", setuptools_command)
+    monkeypatch.setitem(
+        sys.modules,
+        "setuptools.command.build_ext",
+        types.SimpleNamespace(build_ext=DummyBuildExt),
+    )
+    monkeypatch.setitem(sys.modules, "setuptools.extension", setuptools_extension)
+    monkeypatch.setitem(
+        sys.modules, "Cython", types.SimpleNamespace(Build=cython_build)
+    )
+    monkeypatch.setitem(sys.modules, "Cython.Build", cython_build)
+    monkeypatch.setitem(
+        sys.modules,
+        "pybind11.setup_helpers",
+        types.SimpleNamespace(Pybind11Extension=DummyExtension),
+    )
+
+    runpy.run_path("morningglory/fqcopilot/python/setup.py", run_name="__main__")
+
+    build_ext_cls = cast(type[DummyBuildExt], captured["cmdclass"]["build_ext"])
+
+    mingw_cmd = cast(Any, object.__new__(build_ext_cls))
+    mingw_fqcopilot = DummyExtension("fqcopilot", [])
+    mingw_fullcalc = DummyExtension("fullcalc", [])
+    mingw_cmd.compiler = types.SimpleNamespace(compiler_type="mingw32")
+    mingw_cmd.extensions = [mingw_fqcopilot, mingw_fullcalc]
+    build_ext_cls.build_extensions(mingw_cmd)
+
+    assert mingw_fqcopilot.extra_compile_args == ["-std=c++14"]
+    assert mingw_fullcalc.extra_compile_args == []
+
+    msvc_cmd = cast(Any, object.__new__(build_ext_cls))
+    msvc_fqcopilot = DummyExtension("fqcopilot", [])
+    msvc_fullcalc = DummyExtension("fullcalc", [])
+    msvc_cmd.compiler = types.SimpleNamespace(compiler_type="msvc")
+    msvc_cmd.extensions = [msvc_fqcopilot, msvc_fullcalc]
+    build_ext_cls.build_extensions(msvc_cmd)
+
+    assert msvc_fqcopilot.extra_compile_args == ["/utf-8"]
+    assert msvc_fullcalc.extra_compile_args == ["/utf-8"]
