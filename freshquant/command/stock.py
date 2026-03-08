@@ -1,3 +1,5 @@
+import json
+
 import click
 from QUANTAXIS.QASU.main import (
     QA_SU_save_stock_block,
@@ -22,6 +24,28 @@ from freshquant.util.code import fq_util_code_append_market_code
 from rich.table import Table
 from rich.console import Console
 from rich.padding import Padding
+
+
+def _get_guardian_buy_grid_service():
+    from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
+
+    return get_guardian_buy_grid_service()
+
+
+def _echo_json(payload):
+    click.echo(json.dumps(payload, ensure_ascii=False, default=str))
+
+
+def _parse_bool_text(value: str) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _parse_buy_active_text(value: str) -> List[bool]:
+    parts = [item.strip() for item in str(value).split(",") if item.strip()]
+    if len(parts) != 3:
+        raise click.BadParameter("--buy-active 需要 3 个逗号分隔的布尔值")
+    return [_parse_bool_text(item) for item in parts]
+
 
 @click.group(name="stock.list")
 def stock_list_command_group():
@@ -255,6 +279,87 @@ def stock_must_pool_update_command(code: Tuple[str], codes: List[str], set_field
 
     click.echo(f"成功更新 {result.modified_count} 条记录")
     list_stock_pool(None, "must-pool")
+
+@click.group(name="stock.guardian-grid")
+def stock_guardian_grid_command_group():
+    pass
+
+
+@stock_guardian_grid_command_group.command(name="get")
+@click.option("--code", type=str, required=True)
+def stock_guardian_grid_get_command(code: str):
+    result = _get_guardian_buy_grid_service().get_config(code)
+    _echo_json(result or {})
+
+
+@stock_guardian_grid_command_group.command(name="set")
+@click.option("--code", type=str, required=True)
+@click.option("--buy1", type=float, required=True)
+@click.option("--buy2", type=float, required=True)
+@click.option("--buy3", type=float, required=True)
+@click.option("--enabled", type=str, default="true")
+def stock_guardian_grid_set_command(
+    code: str,
+    buy1: float,
+    buy2: float,
+    buy3: float,
+    enabled: str,
+):
+    result = _get_guardian_buy_grid_service().upsert_config(
+        code,
+        buy_1=buy1,
+        buy_2=buy2,
+        buy_3=buy3,
+        enabled=_parse_bool_text(enabled),
+        updated_by="cli",
+    )
+    _echo_json(result)
+
+
+@stock_guardian_grid_command_group.command(name="state")
+@click.option("--code", type=str, required=True)
+def stock_guardian_grid_state_command(code: str):
+    result = _get_guardian_buy_grid_service().get_state(code)
+    _echo_json(result or {})
+
+
+@stock_guardian_grid_command_group.command(name="set-state")
+@click.option("--code", type=str, required=True)
+@click.option("--buy-active", type=str, required=True)
+@click.option("--last-hit-level", type=str, default=None)
+@click.option("--last-hit-price", type=float, default=None)
+@click.option("--last-hit-signal-time", type=str, default=None)
+@click.option("--last-reset-reason", type=str, default=None)
+def stock_guardian_grid_set_state_command(
+    code: str,
+    buy_active: str,
+    last_hit_level: str | None,
+    last_hit_price: float | None,
+    last_hit_signal_time: str | None,
+    last_reset_reason: str | None,
+):
+    result = _get_guardian_buy_grid_service().upsert_state(
+        code,
+        buy_active=_parse_buy_active_text(buy_active),
+        last_hit_level=last_hit_level,
+        last_hit_price=last_hit_price,
+        last_hit_signal_time=last_hit_signal_time,
+        last_reset_reason=last_reset_reason,
+        updated_by="cli",
+    )
+    _echo_json(result)
+
+
+@stock_guardian_grid_command_group.command(name="reset")
+@click.option("--code", type=str, required=True)
+def stock_guardian_grid_reset_command(code: str):
+    result = _get_guardian_buy_grid_service().reset_after_sell_trade(
+        code,
+        updated_by="cli",
+        reason="manual_reset",
+    )
+    _echo_json(result)
+
 
 @click.group(name="stock.pool")
 def stock_pool_command_group():

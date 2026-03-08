@@ -61,6 +61,21 @@ def _get_manual_write_service():
     return OrderManagementManualWriteService()
 
 
+def _get_guardian_buy_grid_service():
+    from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
+
+    return get_guardian_buy_grid_service()
+
+
+def _request_json_payload():
+    getter = getattr(request, "get_json", None)
+    if callable(getter):
+        payload = getter(silent=True)
+    else:  # pragma: no cover
+        payload = getattr(request, "json", None)
+    return payload or {}
+
+
 def _get_realtime_stock_data_from_cache(symbol, period, end_date):
     if end_date or not symbol or not period or redis_db is None:
         return None
@@ -378,6 +393,60 @@ def stock_hold_position():
             )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@stock_bp.route("/guardian_buy_grid_config", methods=["GET"])
+def guardian_buy_grid_config_get():
+    code = request.args.get("code")
+    result = _get_guardian_buy_grid_service().get_config(code)
+    return jsonify(result or {})
+
+
+@stock_bp.route("/guardian_buy_grid_config", methods=["POST"])
+def guardian_buy_grid_config_post():
+    payload = _request_json_payload()
+    result = _get_guardian_buy_grid_service().upsert_config(
+        payload.get("code"),
+        buy_1=payload.get("buy_1"),
+        buy_2=payload.get("buy_2"),
+        buy_3=payload.get("buy_3"),
+        enabled=payload.get("enabled"),
+        updated_by=payload.get("updated_by", "api"),
+    )
+    return jsonify(result)
+
+
+@stock_bp.route("/guardian_buy_grid_state", methods=["GET"])
+def guardian_buy_grid_state_get():
+    code = request.args.get("code")
+    result = _get_guardian_buy_grid_service().get_state(code)
+    return jsonify(result or {})
+
+
+@stock_bp.route("/guardian_buy_grid_state", methods=["POST"])
+def guardian_buy_grid_state_post():
+    payload = _request_json_payload()
+    result = _get_guardian_buy_grid_service().upsert_state(
+        payload.get("code"),
+        buy_active=payload.get("buy_active"),
+        last_hit_level=payload.get("last_hit_level"),
+        last_hit_price=payload.get("last_hit_price"),
+        last_hit_signal_time=payload.get("last_hit_signal_time"),
+        last_reset_reason=payload.get("last_reset_reason"),
+        updated_by=payload.get("updated_by", "api"),
+    )
+    return jsonify(result)
+
+
+@stock_bp.route("/guardian_buy_grid_state/reset", methods=["POST"])
+def guardian_buy_grid_state_reset():
+    payload = _request_json_payload()
+    result = _get_guardian_buy_grid_service().reset_after_sell_trade(
+        payload.get("code"),
+        updated_by=payload.get("updated_by", "api"),
+        reason=payload.get("reason", "manual_reset"),
+    )
+    return jsonify(result)
 
 
 @stock_bp.route("/get_cjsd_list")

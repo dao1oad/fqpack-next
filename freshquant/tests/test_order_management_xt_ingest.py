@@ -293,6 +293,55 @@ def test_sell_trade_report_creates_sell_allocations_and_updates_projection():
     ]
 
 
+def test_sell_trade_report_resets_guardian_buy_grid_state(monkeypatch):
+    repository, ingest_service = _bootstrap_service()
+    resets = []
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_test_1",
+            "broker_trade_id": "T-100-reset",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 900,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_guardian_buy_grid_service",
+        lambda: type(
+            "FakeGuardianBuyGridService",
+            (),
+            {"reset_after_sell_trade": lambda self, code: resets.append(code)},
+        )(),
+    )
+
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_test_1",
+            "broker_trade_id": "T-101-reset",
+            "symbol": "000001",
+            "side": "sell",
+            "quantity": 500,
+            "price": 10.8,
+            "trade_time": 1710003600,
+            "date": 20240103,
+            "time": "10:00:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert resets == ["000001"]
+
+
 def test_repeated_callback_does_not_duplicate_trade_fact_or_projection():
     repository, ingest_service = _bootstrap_service()
     report = {

@@ -13,6 +13,13 @@
 
 ## 变更记录
 
+- **日期**：2026-03-08
+- **RFC**：0019-guardian-buy-side-grid-sizing
+- **变更**：Guardian 买单语义从“`get_trade_amount + position_pct/near_pattern` 旧缩量规则 + `must_pool` 近似持仓处理 + `auto_open` 路径”调整为“持仓加仓使用 `BUY-1/2/3 -> 2/3/4` buy-side grid 状态机，新开仓仅允许 `must_pool` 标的且使用 `initial_lot_amount ?? lot_amount ?? 150000`”；同时去掉“当天卖过就不再买”与 Guardian 本地强制卖分支，新增 `guardian_buy_grid_configs / guardian_buy_grid_states` 运行时数据，以及 stock API / CLI 入口 `guardian_buy_grid_*` / `stock.guardian-grid`。手工修改 `BUY-1/2/3` 会默认重置 `buy_active`，手工改配置/状态会写入 `audit_log`。
+- **影响面**：Guardian 自动交易行为、must_pool 新开仓语义、订单跟踪上下文、XT 卖出成交后的 buy-side 状态重置、以及依赖旧 `position_pct/auto_open/near_pattern` 买单数量规则的脚本或排障手册都需要更新；运维新增 Guardian buy-side grid 配置与状态维护入口。
+- **迁移步骤**：1) 为需要分层加仓的标的配置 `BUY-1/2/3`；2) 为 must_pool 标的补齐 `initial_lot_amount`（缺省时将按 `lot_amount` 或 15 万回退）；3) 若需要人工修正状态，改用 `/api/guardian_buy_grid_config`、`/api/guardian_buy_grid_state`、`/api/guardian_buy_grid_state/reset` 或 `fqctl stock.guardian-grid *`；4) 不再依赖旧 `position_pct`、`near_pattern`、`auto_open` 和 `xt_trades` 同日限制解释 Guardian 买单。
+- **回滚方案**：回退 `freshquant/strategy/guardian.py`、`freshquant/strategy/guardian_buy_grid.py`、`freshquant/order_management/submit/guardian.py`、`freshquant/order_management/submit/service.py`、`freshquant/order_management/tracking/service.py`、`freshquant/order_management/ingest/xt_reports.py`、`freshquant/rear/stock/routes.py`、`freshquant/command/stock.py`、`freshquant/cli.py` 及对应测试，恢复旧 Guardian 买单数量路径和无独立 buy-side grid 状态机的实现。
+
 - **日期**：2026-03-07
 - **RFC**：0017-gantt-shouban30-phase1-page
 - **变更**：`shouban30_plates / shouban30_stocks` 读模型 schema 扩展了 `stock_window_days` 维度；`/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 新增 `stock_window_days=30|45|60|90` 查询语义并返回 `data.meta`。板块列表字段从旧命名 `stocks_count_90` 收敛为 `stocks_count`，标的列表字段从 `appear_days_90 / stock_reason` 收敛为 `hit_count_window / latest_reason`，并新增 `hit_count_30`、`stock_window_from`、`stock_window_to`。前端新增 `/gantt/shouban30` 页面与头部导航“首板选股”，页面详情改为直接复用 `/api/gantt/stocks/reasons` 的历史全量热门理由，不再触发旧页导出/重算行为。
