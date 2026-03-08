@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:shouban30": "node --test src/views/shouban30Aggregation.test.mjs"
   },
   "dependencies": {
     "@tanstack/vue-query": "^5.92.9",
