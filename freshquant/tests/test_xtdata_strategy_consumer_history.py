@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 from datetime import datetime, timedelta
+from typing import Any, cast
 
 import pandas as pd
 
@@ -90,10 +91,10 @@ def _project(doc: dict, projection: dict | None) -> dict:
 
 
 def _make_consumer(*, is_index_like: bool) -> sc.StrategyConsumer:
-    consumer = object.__new__(sc.StrategyConsumer)
+    consumer = cast(Any, object.__new__(sc.StrategyConsumer))
     consumer.max_bars = 32
     consumer._is_index_like = lambda _code: is_index_like
-    return consumer
+    return cast(sc.StrategyConsumer, consumer)
 
 
 def test_load_window_from_db_reads_stock_history_without_external_quantaxis(
