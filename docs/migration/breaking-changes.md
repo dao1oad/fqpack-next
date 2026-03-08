@@ -14,6 +14,13 @@
 ## 变更记录
 
 - **日期**：2026-03-08
+- **RFC**：0021-xtdata-default-guardian-mode
+- **变更**：`monitor.xtdata.mode` 在未设置、空字符串或非法值时的运行时缺省语义，从 `clx_15_30` 调整为 `guardian_1m`；`preset/params.py` 初始化默认写入也同步改为 `guardian_1m`。显式配置 `clx_15_30` 或 `guardian_1m` 的实例行为不变。
+- **影响面**：宿主机 `xtdata producer / consumer`、Guardian event 监听入口，以及任何依赖“未配置 mode 时默认走 stock_pools / clx_15_30”这一旧语义的运行环境都会受到影响。缺省配置环境重启后会优先按 `xt_positions + must_pool` 预热和订阅。
+- **迁移步骤**：1) 若希望保持旧行为，显式设置 `monitor.xtdata.mode=clx_15_30`；2) 若接受新默认值，无需写配置，只需重启宿主机 `xtdata producer / consumer`；3) 验证日志中的 `mode=guardian_1m`、`prewarm start: codes>0` 与 Redis `CACHE:KLINE:*` 是否恢复。
+- **回滚方案**：回退 `freshquant/market_data/xtdata/pools.py`、`market_producer.py`、`strategy_consumer.py`、`freshquant/preset/params.py` 与 `freshquant/signal/astock/job/monitor_stock_zh_a_min.py` 中的默认值收口改动，恢复缺省 `clx_15_30` 语义。
+
+- **日期**：2026-03-08
 - **RFC**：0019-guardian-buy-side-grid-sizing
 - **变更**：Guardian 买单语义从“`get_trade_amount + position_pct/near_pattern` 旧缩量规则 + `must_pool` 近似持仓处理 + `auto_open` 路径”调整为“持仓加仓使用 `BUY-1/2/3 -> 2/3/4` buy-side grid 状态机，新开仓仅允许 `must_pool` 标的且使用 `initial_lot_amount ?? lot_amount ?? 150000`”；同时去掉“当天卖过就不再买”与 Guardian 本地强制卖分支，新增 `guardian_buy_grid_configs / guardian_buy_grid_states` 运行时数据，以及 stock API / CLI 入口 `guardian_buy_grid_*` / `stock.guardian-grid`。手工修改 `BUY-1/2/3` 会默认重置 `buy_active`，手工改配置/状态会写入 `audit_log`。
 - **影响面**：Guardian 自动交易行为、must_pool 新开仓语义、订单跟踪上下文、XT 卖出成交后的 buy-side 状态重置、以及依赖旧 `position_pct/auto_open/near_pattern` 买单数量规则的脚本或排障手册都需要更新；运维新增 Guardian buy-side grid 配置与状态维护入口。
@@ -136,3 +143,10 @@
 - **影响面**：仅新增能力，不改变既有调用方行为。需要该能力的前端应显式调用新接口或使用新版 `KlineSlim` 页面。
 - **迁移步骤**：旧调用方无需迁移；如需展示高级段/段/笔及中枢明细，切换到 `/api/stock_data_chanlun_structure` 并使用 RFC 0018 对应的前端面板。
 - **回滚方案**：删除新接口、`freshquant/chanlun_structure_service.py` 与 `KlineSlim` 面板代码即可，既有 `/api/stock_data` 与其他页面无需调整。
+
+- **日期**：2026-03-08
+- **RFC**：0020-credit-account-order-support
+- **变更**：`CREDIT` 账户的下单语义从“broker/puppet 内部临时判断”收敛到订单域：提交阶段基于 `om_credit_subjects` 决定 `CREDIT_FIN_BUY / CREDIT_BUY`，执行前基于实时 `query_credit_detail()` 决定 `CREDIT_SELL_SECU_REPAY / CREDIT_SELL`，并对信用账户恢复自动报价模式。宿主机新增 `freshquant.order_management.credit_subjects.worker` 负责同步融资标的列表；XT ingest 与兼容投影改为支持 `23/27 -> buy`、`24/31 -> sell`，且优先信任订单域记录的 `broker_order_type`。
+- **影响面**：宿主机 `broker`、`puppet`、信用账户下单路径、XT 回报 ingest、兼容 `stock_fills/stock_orders` 投影，以及宿主机 supervisor 托管进程都会受影响。未启动 `credit_subjects.worker` 的环境，信用买单可能因缺少融资标的列表而被拒绝。
+- **迁移步骤**：1) 部署包含 RFC 0020 的代码；2) 在 Windows 宿主机 supervisor 中新增并启动 `python -m freshquant.order_management.credit_subjects.worker`；3) 确认 `freshquant_order_management.om_credit_subjects` 已同步到融资标的列表；4) 保持 `xtquant.account_type=CREDIT`、`xtquant.account`、`xtquant.path` 配置正确；5) 如使用 Docker 并行模式，确保宿主机 worker/broker 连接 `127.0.0.1:27027` 与 `127.0.0.1:6380`。
+- **回滚方案**：停止 `credit_subjects.worker`，回退 `freshquant/order_management/credit_subjects/*`、`freshquant/order_management/submit/*`、`freshquant/order_management/ingest/xt_reports.py`、`morningglory/fqxtrade/fqxtrade/xtquant/broker.py`、`morningglory/fqxtrade/fqxtrade/xtquant/puppet.py` 及相关测试，恢复当前普通股票语义与旧兼容投影行为。

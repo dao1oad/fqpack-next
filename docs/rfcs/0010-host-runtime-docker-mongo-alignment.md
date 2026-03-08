@@ -1,6 +1,6 @@
 # RFC 0010: 宿主机 XT/XTData 运行时对齐 Docker Mongo
 
-- **状态**：Approved
+- **状态**：Done
 - **负责人**：Codex
 - **评审人**：TBD
 - **创建日期**：2026-03-07

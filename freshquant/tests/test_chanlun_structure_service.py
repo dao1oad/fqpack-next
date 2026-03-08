@@ -152,6 +152,32 @@ def test_sanitize_kline_df_sorts_before_fill():
     assert clean["open"].tolist() == [10.0, 10.0, 20.0]
 
 
+def test_sanitize_kline_df_handles_datetime_as_index_and_column():
+    idx = pd.Index(
+        pd.to_datetime(["2026-03-07 09:35", "2026-03-07 09:30"]),
+        name="datetime",
+    )
+    df = pd.DataFrame(
+        {
+            "open": [20.0, 10.0],
+            "high": [20.2, 10.2],
+            "low": [19.8, 9.8],
+            "close": [20.1, 10.1],
+            "volume": [200.0, 100.0],
+        },
+        index=idx,
+    )
+    df["datetime"] = df.index
+
+    clean = _sanitize_kline_df(df, limit=0)
+
+    assert clean["datetime"].dt.strftime("%Y-%m-%d %H:%M").tolist() == [
+        "2026-03-07 09:30",
+        "2026-03-07 09:35",
+    ]
+    assert clean["open"].tolist() == [10.0, 20.0]
+
+
 def test_get_chanlun_structure_sanitizes_realtime_cache_before_fullcalc(monkeypatch):
     dates = pd.date_range("2026-03-07 09:30", periods=DEFAULT_BAR_LIMIT + 5, freq="min")
     payload = {

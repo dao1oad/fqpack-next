@@ -1,8 +1,8 @@
 """
 Python wrapper for the native fullcalc (chanlun + CLX + stop-loss) module.
 
-It will auto-load the compiled extension from:
-`morningglory/fqcopilot/python/fullcalc.pyd`
+Prefer the installed extension from the active environment. Fall back to the
+legacy source-tree binary only when the package build did not install it.
 """
 
 from __future__ import annotations
@@ -21,11 +21,17 @@ def _ensure_module_loaded() -> None:
     global _MODULE_LOADED
     if _MODULE_LOADED:
         return
-    root = Path(__file__).resolve().parents[2]
-    mod_dir = root / "morningglory" / "fqcopilot" / "python"
-    if str(mod_dir) not in sys.path:
-        sys.path.insert(0, str(mod_dir))
-    importlib.import_module("fullcalc")
+    try:
+        importlib.import_module("fullcalc")
+    except ModuleNotFoundError:
+        root = Path(__file__).resolve().parents[2]
+        mod_dir = root / "morningglory" / "fqcopilot" / "python"
+        if str(mod_dir) not in sys.path:
+            sys.path.insert(0, str(mod_dir))
+        try:
+            importlib.import_module("fullcalc")
+        except Exception as exc:
+            raise ModuleNotFoundError(f"fullcalc extension unavailable: {exc}") from exc
     _MODULE_LOADED = True
 
 

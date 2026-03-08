@@ -24,7 +24,28 @@ from freshquant.order_management.projection.stock_fills import (
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.tracking.service import OrderTrackingService
 
-_BUY_ORDER_TYPES = {23, "23", "buy", "BUY"}
+_BUY_ORDER_TYPES = {
+    xtconstant.STOCK_BUY,
+    xtconstant.CREDIT_BUY,
+    xtconstant.CREDIT_FIN_BUY,
+    23,
+    27,
+    "23",
+    "27",
+    "buy",
+    "BUY",
+}
+_SELL_ORDER_TYPES = {
+    xtconstant.STOCK_SELL,
+    xtconstant.CREDIT_SELL,
+    xtconstant.CREDIT_SELL_SECU_REPAY,
+    24,
+    31,
+    "24",
+    "31",
+    "sell",
+    "SELL",
+}
 _XT_REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
@@ -131,16 +152,22 @@ def normalize_xt_trade_report(report, repository=None):
     symbol = report.get("symbol") or stock_code[:6]
     order_id = report.get("order_id")
     internal_order_id = report.get("internal_order_id")
+    order = None
+    order_type = report.get("order_type")
+    if internal_order_id is not None and repository is not None:
+        order = repository.find_order(internal_order_id)
     if internal_order_id is None and repository is not None and order_id is not None:
         order = repository.find_order_by_broker_order_id(order_id)
         if order is not None:
             internal_order_id = order["internal_order_id"]
+    if order is not None and order.get("broker_order_type") is not None:
+        order_type = order.get("broker_order_type")
     return {
         "internal_order_id": internal_order_id or str(order_id),
         "broker_order_id": str(order_id) if order_id is not None else None,
         "broker_trade_id": str(report["traded_id"]),
         "symbol": symbol,
-        "side": "buy" if report.get("order_type") in _BUY_ORDER_TYPES else "sell",
+        "side": _map_xt_order_type_to_side(order_type),
         "quantity": report["traded_volume"],
         "price": report["traded_price"],
         "trade_time": traded_time,
@@ -256,6 +283,14 @@ def _map_xt_order_status_to_state(order_status):
     if order_status == xtconstant.ORDER_JUNK:
         return "FAILED"
     return "SUBMITTED"
+
+
+def _map_xt_order_type_to_side(order_type):
+    if order_type in _BUY_ORDER_TYPES:
+        return "buy"
+    if order_type in _SELL_ORDER_TYPES:
+        return "sell"
+    return "sell"
 
 
 def _xt_timestamp_to_datetime(timestamp):

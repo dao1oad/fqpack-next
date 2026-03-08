@@ -78,6 +78,9 @@ def _sanitize_kline_df(
     clean = df.copy()
     if "datetime" not in clean.columns:
         clean["datetime"] = clean.index
+    # Legacy kline fetchers often keep `datetime` both as index name and column.
+    # Drop index semantics here so downstream sort/select only sees the column.
+    clean = clean.reset_index(drop=True)
     clean["datetime"] = pd.to_datetime(clean["datetime"], errors="coerce")
     clean = clean.dropna(subset=["datetime"])
     if clean.empty:
