@@ -136,3 +136,10 @@
 - **影响面**：仅新增能力，不改变既有调用方行为。需要该能力的前端应显式调用新接口或使用新版 `KlineSlim` 页面。
 - **迁移步骤**：旧调用方无需迁移；如需展示高级段/段/笔及中枢明细，切换到 `/api/stock_data_chanlun_structure` 并使用 RFC 0018 对应的前端面板。
 - **回滚方案**：删除新接口、`freshquant/chanlun_structure_service.py` 与 `KlineSlim` 面板代码即可，既有 `/api/stock_data` 与其他页面无需调整。
+
+- **日期**：2026-03-08
+- **RFC**：0020-credit-account-order-support
+- **变更**：`CREDIT` 账户的下单语义从“broker/puppet 内部临时判断”收敛到订单域：提交阶段基于 `om_credit_subjects` 决定 `CREDIT_FIN_BUY / CREDIT_BUY`，执行前基于实时 `query_credit_detail()` 决定 `CREDIT_SELL_SECU_REPAY / CREDIT_SELL`，并对信用账户恢复自动报价模式。宿主机新增 `freshquant.order_management.credit_subjects.worker` 负责同步融资标的列表；XT ingest 与兼容投影改为支持 `23/27 -> buy`、`24/31 -> sell`，且优先信任订单域记录的 `broker_order_type`。
+- **影响面**：宿主机 `broker`、`puppet`、信用账户下单路径、XT 回报 ingest、兼容 `stock_fills/stock_orders` 投影，以及宿主机 supervisor 托管进程都会受影响。未启动 `credit_subjects.worker` 的环境，信用买单可能因缺少融资标的列表而被拒绝。
+- **迁移步骤**：1) 部署包含 RFC 0020 的代码；2) 在 Windows 宿主机 supervisor 中新增并启动 `python -m freshquant.order_management.credit_subjects.worker`；3) 确认 `freshquant_order_management.om_credit_subjects` 已同步到融资标的列表；4) 保持 `xtquant.account_type=CREDIT`、`xtquant.account`、`xtquant.path` 配置正确；5) 如使用 Docker 并行模式，确保宿主机 worker/broker 连接 `127.0.0.1:27027` 与 `127.0.0.1:6380`。
+- **回滚方案**：停止 `credit_subjects.worker`，回退 `freshquant/order_management/credit_subjects/*`、`freshquant/order_management/submit/*`、`freshquant/order_management/ingest/xt_reports.py`、`morningglory/fqxtrade/fqxtrade/xtquant/broker.py`、`morningglory/fqxtrade/fqxtrade/xtquant/puppet.py` 及相关测试，恢复当前普通股票语义与旧兼容投影行为。

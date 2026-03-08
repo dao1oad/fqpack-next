@@ -201,3 +201,31 @@ for doc in src.find({}, {"_id": 0}):
 - 推荐直接使用仓库内模板：
   - `docs/配置文件模板/envs.fqnext.example`
   - `docs/配置文件模板/supervisord.fqnext.example.conf`
+
+### 9.6 信用账户宿主机补充
+
+信用账户支持新增了一个必须运行在宿主机的参考数据 worker：
+
+```powershell
+python -m freshquant.order_management.credit_subjects.worker
+```
+
+并行 Docker 模式下的要求：
+
+- 该 worker 必须和 `fqnext_xtquant_broker` 一样运行在 Windows 宿主机
+- 它必须连接 Docker 暴露出来的 Mongo/Redis 宿主机端口，而不是默认 `27017/6379`
+- 推荐直接复用 `envs.conf` 中与宿主机 `broker / producer / consumer` 相同的：
+
+```text
+FRESHQUANT_MONGODB__HOST=127.0.0.1
+FRESHQUANT_MONGODB__PORT=27027
+FRESHQUANT_REDIS__HOST=127.0.0.1
+FRESHQUANT_REDIS__PORT=6380
+```
+
+运行语义：
+
+- 启动即同步一次融资标的列表到 `freshquant_order_management.om_credit_subjects`
+- 常驻运行时默认每天 `09:20` 再同步一次
+- 下单时只查库，不实时查 `query_credit_subjects()`
+- 卖券还款仍在执行前实时 `query_credit_detail()` 判定，条件为 `m_dAvailable > 10000 && m_dFinDebt > 0`

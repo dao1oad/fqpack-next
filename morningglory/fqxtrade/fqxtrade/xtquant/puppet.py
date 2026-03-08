@@ -30,6 +30,16 @@ from freshquant.util.xtquant import translate_account_type, translate_order_type
 
 trading_manager = TradingManager()
 external_reconcile_service = ExternalOrderReconcileService()
+BUY_ORDER_TYPES = {
+    xtconstant.STOCK_BUY,
+    xtconstant.CREDIT_BUY,
+    xtconstant.CREDIT_FIN_BUY,
+}
+SELL_ORDER_TYPES = {
+    xtconstant.STOCK_SELL,
+    xtconstant.CREDIT_SELL,
+    xtconstant.CREDIT_SELL_SECU_REPAY,
+}
 
 
 def saveTrades(trades):
@@ -53,7 +63,7 @@ def saveTrades(trades):
         reconciled = external_reconcile_service.reconcile_trade_reports([trade_dict])
         if not reconciled:
             try_ingest_xt_trade_dict(trade_dict)
-    trades = pydash.filter_(trades, lambda x: x.order_type == xtconstant.STOCK_BUY)
+    trades = pydash.filter_(trades, lambda x: x.order_type in BUY_ORDER_TYPES)
     trades = pydash.uniq_by(trades, lambda x: x.stock_code)
     for trade in trades:
         saveInstrumentStrategy(
@@ -96,6 +106,7 @@ def saveTrades(trades):
         instrumentInfo = query_instrument_info(symbol)
         name = pydash.get(instrumentInfo, "name")
         op = "买" if value[-1]["order_type"] == xtconstant.STOCK_BUY else "卖"
+        op = "买" if value[-1]["order_type"] in BUY_ORDER_TYPES else "卖"
         quantity = pydash.sum_([item["traded_volume"] for item in value])
         price = value[-1]["traded_price"]
         amount = pydash.sum_([item["traded_amount"] for item in value])
@@ -255,6 +266,7 @@ def saveOrders(orders):
         name = pydash.get(instrumentInfo, "name")
         op = "买" if order.order_type == xtconstant.STOCK_BUY else "卖"
         status = "未知"
+        op = "买" if order.order_type in BUY_ORDER_TYPES else "卖"
         if order.order_status == xtconstant.ORDER_SUCCEEDED:
             status = "已成交"
         if order.order_status == xtconstant.ORDER_PART_SUCC:
@@ -561,6 +573,8 @@ def buy(
     strategyName="N/A",
     remark="N/A",
     retryCount=0,
+    order_type=None,
+    price_type=None,
 ):
     with trading_manager.lock():
         # 获取当前连接的xt_trader和acc
@@ -599,12 +613,22 @@ def buy(
             logger.info("资金不足")
             return
         stock_code = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
+        order_type_to_use = (
+            xtconstant.STOCK_BUY
+            if order_type in (None, "", "None")
+            else int(order_type)
+        )
+        price_type_to_use = (
+            xtconstant.FIX_PRICE
+            if price_type in (None, "", "None", 0, "0")
+            else int(price_type)
+        )
         fix_result_order_id = xt_trader.order_stock(
             acc,
             stock_code,
-            xtconstant.STOCK_BUY,
+            order_type_to_use,
             int(quantity),
-            xtconstant.FIX_PRICE,
+            price_type_to_use,
             float(price),
             strategy_name=strategyName,
             order_remark=remark,
@@ -641,6 +665,7 @@ def sell(
     strategyName="N/A",
     remark="N/A",
     retryCount=0,
+    order_type=None,
 ):
     with trading_manager.lock():
         # 获取当前连接的xt_trader和acc
@@ -686,9 +711,13 @@ def sell(
                     if ticks[stock_code]["bidPrice"][0] != 0
                     else ticks[stock_code]["lastPrice"]
                 )
-        order_type = xtconstant.STOCK_SELL
-        if stock_code in REPO_CODE_LIST:
-            order_type = xtconstant.CREDIT_SELL
+        order_type_to_use = (
+            None if order_type in (None, "", "None") else int(order_type)
+        )
+        if order_type_to_use is None:
+            order_type_to_use = xtconstant.STOCK_SELL
+            if stock_code in REPO_CODE_LIST:
+                order_type_to_use = xtconstant.CREDIT_SELL
         if stock_code not in REPO_CODE_LIST:
             positions = xt_trader.query_stock_positions(acc)
             position = pydash.find(positions, lambda p: p.stock_code == stock_code)
@@ -701,12 +730,12 @@ def sell(
         fix_result_order_id = xt_trader.order_stock(
             acc,
             stock_code,
-            order_type,
+            order_type_to_use,
             int(quantity),
             (
                 xtconstant.FIX_PRICE
-                if price_type == 0 or price_type is None
-                else price_type
+                if price_type in (0, None, "", "None", "0")
+                else int(price_type)
             ),
             float(price),
             strategyName,

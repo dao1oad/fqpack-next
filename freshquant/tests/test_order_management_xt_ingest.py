@@ -145,6 +145,78 @@ def test_normalize_xt_trade_report_extracts_side_symbol_and_timestamp():
     assert normalized["date"] == 20240310
 
 
+def test_normalize_xt_trade_report_treats_credit_fin_buy_as_buy():
+    normalized = normalize_xt_trade_report(
+        {
+            "order_id": "O-200",
+            "traded_id": "T-200",
+            "stock_code": "600000.SH",
+            "order_type": 27,
+            "traded_volume": 100,
+            "traded_price": 10.0,
+            "traded_time": 1710000000,
+        }
+    )
+
+    assert normalized["side"] == "buy"
+
+
+def test_normalize_xt_trade_report_treats_sell_repay_as_sell():
+    normalized = normalize_xt_trade_report(
+        {
+            "order_id": "O-201",
+            "traded_id": "T-201",
+            "stock_code": "600000.SH",
+            "order_type": 31,
+            "traded_volume": 100,
+            "traded_price": 10.0,
+            "traded_time": 1710000000,
+        }
+    )
+
+    assert normalized["side"] == "sell"
+
+
+def test_normalize_xt_trade_report_prefers_order_domain_broker_order_type():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "600000",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "api",
+            "internal_order_id": "ord_credit_ingest_1",
+            "broker_order_type": 27,
+        }
+    )
+    repository.update_order(
+        "ord_credit_ingest_1",
+        {
+            "state": "SUBMITTED",
+            "broker_order_id": "92001",
+            "broker_order_type": 27,
+        },
+    )
+
+    normalized = normalize_xt_trade_report(
+        {
+            "order_id": "92001",
+            "traded_id": "T-202",
+            "stock_code": "600000.SH",
+            "order_type": 24,
+            "traded_volume": 100,
+            "traded_price": 10.0,
+            "traded_time": 1710000000,
+        },
+        repository=repository,
+    )
+
+    assert normalized["internal_order_id"] == "ord_credit_ingest_1"
+    assert normalized["side"] == "buy"
+
+
 def test_normalize_xt_order_report_maps_broker_order_back_to_internal_order():
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)

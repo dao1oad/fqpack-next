@@ -1,3 +1,4 @@
+from freshquant.carnation import xtconstant
 from freshquant.order_management.submit.execution_bridge import (
     dispatch_cancel_execution,
     finalize_submit_execution,
@@ -154,3 +155,58 @@ def test_dispatch_cancel_execution_is_idempotent_for_already_canceled_order():
 
     assert result["status"] == "already_canceled"
     assert repository.find_order("ord_cancel_2")["state"] == "CANCELED"
+
+
+def test_prepare_submit_execution_resolves_credit_sell_order_before_submit():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "600000",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "api",
+            "internal_order_id": "ord_runtime_sell_1",
+            "account_type": "CREDIT",
+            "credit_trade_mode": "auto",
+            "price_mode": "auto",
+        }
+    )
+    repository.update_order(
+        "ord_runtime_sell_1",
+        {
+            "state": "QUEUED",
+            "account_type": "CREDIT",
+            "credit_trade_mode_requested": "auto",
+            "price_mode_requested": "auto",
+        },
+    )
+
+    result = prepare_submit_execution(
+        {
+            "internal_order_id": "ord_runtime_sell_1",
+            "action": "sell",
+            "symbol": "600000",
+            "price": 10.0,
+            "quantity": 100,
+        },
+        repository=repository,
+        tracking_service=tracking_service,
+        credit_detail_loader=lambda: {"m_dAvailable": 10001, "m_dFinDebt": 1},
+        continuous_auction_provider=lambda: True,
+    )
+
+    order = repository.find_order("ord_runtime_sell_1")
+    assert result["status"] == "execute"
+    assert (
+        result["order_message"]["broker_order_type"]
+        == xtconstant.CREDIT_SELL_SECU_REPAY
+    )
+    assert (
+        result["order_message"]["broker_price_type"]
+        == xtconstant.MARKET_SH_CONVERT_5_CANCEL
+    )
+    assert result["order_message"]["price"] == 9.92
+    assert order["broker_order_type"] == xtconstant.CREDIT_SELL_SECU_REPAY
+    assert order["broker_price_type"] == xtconstant.MARKET_SH_CONVERT_5_CANCEL
