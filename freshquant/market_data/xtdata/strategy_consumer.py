@@ -22,21 +22,14 @@ from freshquant.data.etf_adj import apply_qfq_to_bars
 from freshquant.db import DBfreshquant, DBQuantAxis
 from freshquant.market_data.xtdata.chanlun_payload import build_chanlun_payload
 from freshquant.market_data.xtdata.coalesce import CoalescingScheduler
-from freshquant.market_data.xtdata.constants import (
-    REDIS_QUEUE_PREFIX,
-    REDIS_QUEUE_SHARDS,
-)
-from freshquant.market_data.xtdata.pools import (
-    normalize_xtdata_mode,
-    load_monitor_codes,
-)
+from freshquant.market_data.xtdata.constants import (REDIS_QUEUE_PREFIX,
+                                                     REDIS_QUEUE_SHARDS)
+from freshquant.market_data.xtdata.pools import (load_monitor_codes,
+                                                 normalize_xtdata_mode)
 from freshquant.market_data.xtdata.realtime_store import upsert_realtime_bars
 from freshquant.market_data.xtdata.schema import BarCloseEvent
-from freshquant.util.period import (
-    PUBSUB_CHANNEL,
-    get_redis_cache_key,
-    to_backend_period,
-)
+from freshquant.util.period import (PUBSUB_CHANNEL, get_redis_cache_key,
+                                    to_backend_period)
 
 try:
     from freshquant.database.redis import redis_db  # type: ignore
@@ -312,7 +305,8 @@ class StrategyConsumer:
             columns=["datetime", "open", "high", "low", "close", "volume", "amount"]
         )
         try:
-            from QUANTAXIS import QA_fetch_index_min_adv, QA_fetch_stock_min_adv
+            from QUANTAXIS import (QA_fetch_index_min_adv,
+                                   QA_fetch_stock_min_adv)
             from QUANTAXIS.QAUtil.QADate import QA_util_datetime_to_strdatetime
 
             start_s = QA_util_datetime_to_strdatetime(start_dt)
