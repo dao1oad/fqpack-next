@@ -1,6 +1,6 @@
 # RFC 0021: XTData 默认模式改为 guardian_1m
 
-- **状态**：Approved
+- **状态**：Done
 - **负责人**：Codex
 - **评审人**：User
 - **创建日期**：2026-03-08

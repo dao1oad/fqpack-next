@@ -1,6 +1,6 @@
 # RFC 0017: Gantt Shouban30 首期页面迁移
 
-- **状态**：Approved
+- **状态**：Done
 - **负责人**：Codex
 - **评审人**：User
 - **创建日期**：2026-03-07
