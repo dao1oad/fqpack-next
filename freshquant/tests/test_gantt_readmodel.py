@@ -462,6 +462,17 @@ class FakeCollection:
         self.docs = [doc for doc in self.docs if not _matches(doc, query)]
 
 
+class FakeMissingNamespaceError(Exception):
+    def __init__(self):
+        super().__init__("NamespaceNotFound: collection does not exist")
+        self.code = 26
+
+
+class MissingNamespaceCollection(FakeCollection):
+    def list_indexes(self):
+        raise FakeMissingNamespaceError()
+
+
 class FakeDB(dict):
     def __getitem__(self, name):
         if name not in self:
@@ -881,6 +892,46 @@ def test_ensure_readmodel_indexes_drops_legacy_shouban30_unique_indexes(monkeypa
         "provider_1_plate_key_1_code6_1_as_of_date_1_stock_window_days_1"
         in stock_index_names
     )
+
+
+def test_ensure_readmodel_indexes_tolerates_absent_shouban30_collections(monkeypatch):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        shouban30_plates=MissingNamespaceCollection(),
+        shouban30_stocks=MissingNamespaceCollection(),
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+
+    svc.ensure_readmodel_indexes()
+
+    assert fake_db[svc.COL_SHOUBAN30_PLATES].indexes == [
+        {"name": "_id_", "key": {"_id": 1}},
+        {
+            "name": "provider_1_plate_key_1_as_of_date_1_stock_window_days_1",
+            "key": {
+                "provider": 1,
+                "plate_key": 1,
+                "as_of_date": 1,
+                "stock_window_days": 1,
+            },
+            "unique": True,
+        },
+    ]
+    assert fake_db[svc.COL_SHOUBAN30_STOCKS].indexes == [
+        {"name": "_id_", "key": {"_id": 1}},
+        {
+            "name": "provider_1_plate_key_1_code6_1_as_of_date_1_stock_window_days_1",
+            "key": {
+                "provider": 1,
+                "plate_key": 1,
+                "code6": 1,
+                "as_of_date": 1,
+                "stock_window_days": 1,
+            },
+            "unique": True,
+        },
+    ]
 
 
 def test_persist_stock_hot_reason_daily_for_date_joins_and_queries(monkeypatch):

@@ -97,11 +97,24 @@ def _upsert_rows(
     return len(rows)
 
 
+def _is_missing_namespace_error(exc: Exception) -> bool:
+    code = getattr(exc, "code", None)
+    if code == 26:
+        return True
+    message = _to_str(exc).lower()
+    return "namespacenotfound" in message or "ns not found" in message
+
+
 def _drop_index_if_exists(collection, index_name: str) -> None:
-    existing_names = {
-        _to_str(item.get("name")) if isinstance(item, dict) else _to_str(item.name)
-        for item in collection.list_indexes()
-    }
+    try:
+        existing_names = {
+            _to_str(item.get("name")) if isinstance(item, dict) else _to_str(item.name)
+            for item in collection.list_indexes()
+        }
+    except Exception as exc:
+        if _is_missing_namespace_error(exc):
+            return
+        raise
     if index_name in existing_names:
         collection.drop_index(index_name)
 
