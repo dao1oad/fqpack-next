@@ -86,6 +86,7 @@ class OrderSubmitService:
             "source": payload.get("source", "unknown"),
             "scope_type": payload.get("scope_type"),
             "scope_ref_id": payload.get("scope_ref_id"),
+            "strategy_context": payload.get("strategy_context"),
         }
         if position_decision is not None:
             queue_payload["position_management_state"] = position_decision.state

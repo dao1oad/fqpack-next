@@ -173,3 +173,37 @@ def test_allowed_strategy_order_carries_position_management_summary_to_queue():
     assert result["queue_payload"]["position_management_state"] == "ALLOW_OPEN"
     assert result["queue_payload"]["position_management_decision_id"] == "pmd_allow_1"
     assert len(position_management_service.calls) == 1
+
+
+def test_strategy_order_persists_strategy_context_to_tracking_and_queue():
+    repository = InMemoryRepository()
+    queue_client = FakeQueueClient()
+    position_management_service = AllowingPositionService()
+    service = OrderSubmitService(
+        repository=repository,
+        queue_client=queue_client,
+        position_management_service=position_management_service,
+    )
+    strategy_context = {
+        "guardian_buy_grid": {
+            "path": "holding_add",
+            "grid_level": "BUY-3",
+            "hit_levels": ["BUY-1", "BUY-2", "BUY-3"],
+            "multiplier": 4,
+        }
+    }
+
+    result = service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "strategy_context": strategy_context,
+        }
+    )
+
+    assert repository.order_requests[0]["strategy_context"] == strategy_context
+    assert result["queue_payload"]["strategy_context"] == strategy_context

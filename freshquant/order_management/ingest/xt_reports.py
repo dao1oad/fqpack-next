@@ -77,6 +77,7 @@ class OrderManagementXtIngestService:
             self.repository.replace_open_slices(open_slices)
             self.repository.insert_sell_allocations(sell_allocations)
             holdings_changed = bool(sell_allocations)
+            self._reset_guardian_buy_grid_after_sell(symbol)
 
         buy_lots = self.repository.list_buy_lots(symbol)
         open_slices = self.repository.list_open_slices(symbol)
@@ -102,6 +103,12 @@ class OrderManagementXtIngestService:
             self.tpsl_service.on_new_buy_trade(symbol=symbol, buy_price=price)
         except Exception:
             logger.exception("failed to notify TPSL service for new buy trade")
+
+    def _reset_guardian_buy_grid_after_sell(self, symbol):
+        try:
+            _get_guardian_buy_grid_service().reset_after_sell_trade(symbol)
+        except Exception:
+            logger.exception("failed to reset guardian buy grid state after sell trade")
 
     def ingest_order_report(self, report):
         normalized_report = normalize_xt_order_report(
@@ -259,3 +266,9 @@ def _get_tpsl_service():
     from freshquant.tpsl.service import TpslService
 
     return TpslService()
+
+
+def _get_guardian_buy_grid_service():
+    from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
+
+    return get_guardian_buy_grid_service()

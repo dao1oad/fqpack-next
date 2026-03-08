@@ -24,6 +24,11 @@ LAZY_COMMANDS: dict[str, tuple[str, str, str]] = {
         "stock_must_pool_command_group",
         "股票必选池",
     ),
+    "stock.guardian-grid": (
+        "freshquant.command.stock",
+        "stock_guardian_grid_command_group",
+        "Guardian 买入层级",
+    ),
     "stock.pool": ("freshquant.command.stock", "stock_pool_command_group", "股票池"),
     "stock.pre-pool": (
         "freshquant.command.stock",
@@ -74,11 +79,7 @@ LAZY_COMMANDS: dict[str, tuple[str, str, str]] = {
         "XT 持仓",
     ),
     "channel": ("freshquant.command.channel", "channel_command_group", "缠论频道"),
-    "om-order": (
-        "freshquant.command.om_order",
-        "om_order_command_group",
-        "订单管理",
-    ),
+    "om-order": ("freshquant.command.om_order", "om_order_command_group", "订单管理"),
 }
 
 

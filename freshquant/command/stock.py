@@ -1,3 +1,9 @@
+import asyncio
+import json
+import webbrowser
+from datetime import datetime
+from typing import List, Tuple
+
 import click
 from QUANTAXIS.QASU.main import (
     QA_SU_save_stock_block,
@@ -6,71 +12,98 @@ from QUANTAXIS.QASU.main import (
     QA_SU_save_stock_min,
     QA_SU_save_stock_xdxr,
 )
-from typing import List, Tuple
-from freshquant.data.astock import pre_pool
-from freshquant.data.astock import pool
-from freshquant.data.astock import must_pool
-from freshquant.data.astock import fill
-from freshquant.db import DBfreshquant
-from datetime import datetime
-import asyncio
-import webbrowser
-from freshquant.screening.strategies.clxs import ClxsStrategy
-from freshquant.screening.strategies.chanlun_service import ChanlunServiceStrategy
-from freshquant.trading.dt import query_current_trade_date, query_prev_trade_date
-from freshquant.util.code import fq_util_code_append_market_code
-from rich.table import Table
 from rich.console import Console
 from rich.padding import Padding
+from rich.table import Table
+
+from freshquant.data.astock import fill, must_pool, pool, pre_pool
+from freshquant.db import DBfreshquant
+from freshquant.screening.strategies.chanlun_service import ChanlunServiceStrategy
+from freshquant.screening.strategies.clxs import ClxsStrategy
+from freshquant.trading.dt import query_current_trade_date, query_prev_trade_date
+from freshquant.util.code import fq_util_code_append_market_code
+
+
+def _get_guardian_buy_grid_service():
+    from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
+
+    return get_guardian_buy_grid_service()
+
+
+def _echo_json(payload):
+    click.echo(json.dumps(payload, ensure_ascii=False, default=str))
+
+
+def _parse_bool_text(value: str) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _parse_buy_active_text(value: str) -> List[bool]:
+    parts = [item.strip() for item in str(value).split(",") if item.strip()]
+    if len(parts) != 3:
+        raise click.BadParameter("--buy-active 需要 3 个逗号分隔的布尔值")
+    return [_parse_bool_text(item) for item in parts]
+
 
 @click.group(name="stock.list")
 def stock_list_command_group():
     pass
+
 
 @stock_list_command_group.command(name="save")
 @click.option("-e", "--engine", type=str, default="tdx")
 def stock_list_save_command(engine: str):
     QA_SU_save_stock_list(engine=engine)
 
+
 @click.group(name="stock.block")
 def stock_block_command_group():
     pass
+
 
 @stock_block_command_group.command(name="save")
 @click.option("-e", "--engine", type=str, default="tdx")
 def stock_block_save_command(engine: str):
     QA_SU_save_stock_block(engine=engine)
 
+
 @click.group(name="stock.day")
 def stock_day_command_group():
     pass
+
 
 @stock_day_command_group.command(name="save")
 @click.option("-e", "--engine", type=str, default="tdx")
 def stock_day_save_command(engine: str):
     QA_SU_save_stock_day(engine=engine)
 
+
 @click.group(name="stock.min")
 def stock_min_command_group():
     pass
+
 
 @stock_min_command_group.command(name="save")
 @click.option("-e", "--engine", type=str, default="tdx")
 def stock_min_save_command(engine: str):
     QA_SU_save_stock_min(engine=engine)
 
+
 @click.group(name="stock.xdxr")
 def stock_xdxr_command_group():
     pass
+
 
 @stock_xdxr_command_group.command(name="save")
 @click.option("-e", "--engine", type=str, default="tdx")
 def stock_xdxr_save_command(engine: str):
     QA_SU_save_stock_xdxr(engine=engine)
 
+
 @click.group(name="stock")
 def stock_command_group():
     pass
+
 
 @stock_command_group.command(name="save")
 @click.option("-e", "--engine", type=str, default="tdx")
@@ -81,9 +114,12 @@ def stock_save_command(engine: str, args: Tuple[str, ...] = ()):
     QA_SU_save_stock_min(engine=engine)
     QA_SU_save_stock_xdxr(engine=engine)
 
+
 @stock_command_group.command(name="browse")
 @click.argument("code")
-@click.option("-p", "--period", type=str, default="1m", help="K线周期，如 1m/5m/15m/30m/1h/1d")
+@click.option(
+    "-p", "--period", type=str, default="1m", help="K线周期，如 1m/5m/15m/30m/1h/1d"
+)
 def stock_browse_command(code: str, period: str):
     """打开浏览器查看指定股票的K线图"""
     # 处理股票代码前缀
@@ -92,6 +128,7 @@ def stock_browse_command(code: str, period: str):
 
     url = f"http://127.0.0.1/kline-big?symbol={code}&period={period}&endDate={end_date}"
     webbrowser.open(url)
+
 
 @stock_command_group.command(name="screen")
 @click.option("-d", "--days", type=int, default=1, help="扫描最近N天的信号")
@@ -122,7 +159,7 @@ def stock_screen_command(
             wave_opt=wave_opt,
             stretch_opt=stretch_opt,
             trend_opt=trend_opt,
-            model_opt=model_opt
+            model_opt=model_opt,
         )
         asyncio.run(strategy.screen(days=days, code=code))
     elif model in ("chanlun", "chanlun_service"):
@@ -131,14 +168,17 @@ def stock_screen_command(
     else:
         raise click.BadParameter(f"未知策略: {model}，可用策略: clxs, chanlun")
 
+
 @click.group(name="stock.must-pool")
 def stock_must_pool_command_group():
     pass
+
 
 @stock_must_pool_command_group.command(name="list")
 @click.option("--category", type=str, default=None, help="Category for fuzzy matching")
 def stock_must_pool_list_command(category: str):
     list_stock_pool(category, "must-pool")
+
 
 @stock_must_pool_command_group.command(name="copy")
 @click.option("--category", type=str)
@@ -146,6 +186,7 @@ def stock_must_pool_copy_command(category: str):
     codes = must_pool.copy(category)
     click.echo(",".join(codes))
     click.echo(f"已复制{len(codes)}个股票代码到剪贴板")
+
 
 @stock_must_pool_command_group.command(name="import")
 @click.option("-c", "--code", type=str, required=True)
@@ -155,12 +196,22 @@ def stock_must_pool_copy_command(category: str):
 @click.option("-ila", "--initial-lot-amount", type=float, help="第一次买入的金额")
 @click.option("-la", "--lot-amount", type=float, help="每次买入的金额")
 @click.option("--forever", type=bool, default=False)
-def stock_must_pool_import_command(category: str, days: int, code: str,
-                   stop_loss_price: float = None, initial_lot_amount: float = None, lot_amount: float = None, forever: bool = False):
+def stock_must_pool_import_command(
+    category: str,
+    days: int,
+    code: str,
+    stop_loss_price: float = None,
+    initial_lot_amount: float = None,
+    lot_amount: float = None,
+    forever: bool = False,
+):
     if not all([code, category, stop_loss_price]):
         raise ValueError("--code, --category, --stop_loss_price 参数必须提供")
-    must_pool.import_pool(code, category, stop_loss_price, initial_lot_amount, lot_amount, forever)
+    must_pool.import_pool(
+        code, category, stop_loss_price, initial_lot_amount, lot_amount, forever
+    )
     list_stock_pool(category, "must-pool")
+
 
 @stock_must_pool_command_group.command(name="rm")
 @click.option("--category", type=str)
@@ -181,11 +232,22 @@ def stock_must_pool_rm_command(category: str, codes: List[str], id: str):
         must_pool.remove(category=category, codes=codes)
     list_stock_pool(category, "must-pool")
 
+
 @stock_must_pool_command_group.command(name="update")
 @click.argument("code", nargs=-1, required=False)
-@click.option("--code", "codes", type=str, multiple=True, help="股票代码(支持多个或逗号分隔)")
-@click.option("--set", "set_fields", type=str, multiple=True, help="设置的字段，格式为 field=value")
-def stock_must_pool_update_command(code: Tuple[str], codes: List[str], set_fields: List[str]):
+@click.option(
+    "--code", "codes", type=str, multiple=True, help="股票代码(支持多个或逗号分隔)"
+)
+@click.option(
+    "--set",
+    "set_fields",
+    type=str,
+    multiple=True,
+    help="设置的字段，格式为 field=value",
+)
+def stock_must_pool_update_command(
+    code: Tuple[str], codes: List[str], set_fields: List[str]
+):
     """
     更新必买股票池中的股票字段值
     Args:
@@ -212,7 +274,15 @@ def stock_must_pool_update_command(code: Tuple[str], codes: List[str], set_field
 
     # 解析设置字段（支持逗号分隔多个字段）
     update_fields = {}
-    valid_fields = {'lot_amount', 'initial_lot_amount', 'forever', 'disabled', 'stop_loss_price', 'enabled', 'category'}
+    valid_fields = {
+        'lot_amount',
+        'initial_lot_amount',
+        'forever',
+        'disabled',
+        'stop_loss_price',
+        'enabled',
+        'category',
+    }
 
     # 展开所有用逗号分隔的字段
     all_fields = []
@@ -221,11 +291,15 @@ def stock_must_pool_update_command(code: Tuple[str], codes: List[str], set_field
 
     for field in all_fields:
         if '=' not in field:
-            raise click.BadParameter(f"无效的字段格式: {field}，应使用 field=value 格式（多个字段可用逗号分隔）")
+            raise click.BadParameter(
+                f"无效的字段格式: {field}，应使用 field=value 格式（多个字段可用逗号分隔）"
+            )
         key, value = (s.strip() for s in field.split('=', 1))
         key = key.strip()
         if key not in valid_fields:
-            raise click.BadParameter(f"无效字段: {key}，可用字段: {', '.join(valid_fields)}")
+            raise click.BadParameter(
+                f"无效字段: {key}，可用字段: {', '.join(valid_fields)}"
+            )
 
         # 类型转换
         if key in {'lot_amount', 'initial_lot_amount', 'stop_loss_price'}:
@@ -250,20 +324,104 @@ def stock_must_pool_update_command(code: Tuple[str], codes: List[str], set_field
     # 执行更新
     result = DBfreshquant["must_pool"].update_many(
         {"code": {"$in": expanded_codes}},
-        {"$set": {**update_fields, "updated_at": datetime.now()}}
+        {"$set": {**update_fields, "updated_at": datetime.now()}},
     )
 
     click.echo(f"成功更新 {result.modified_count} 条记录")
     list_stock_pool(None, "must-pool")
 
+
+@click.group(name="stock.guardian-grid")
+def stock_guardian_grid_command_group():
+    pass
+
+
+@stock_guardian_grid_command_group.command(name="get")
+@click.option("--code", type=str, required=True)
+def stock_guardian_grid_get_command(code: str):
+    result = _get_guardian_buy_grid_service().get_config(code)
+    _echo_json(result or {})
+
+
+@stock_guardian_grid_command_group.command(name="set")
+@click.option("--code", type=str, required=True)
+@click.option("--buy1", type=float, required=True)
+@click.option("--buy2", type=float, required=True)
+@click.option("--buy3", type=float, required=True)
+@click.option("--enabled", type=str, default="true")
+def stock_guardian_grid_set_command(
+    code: str,
+    buy1: float,
+    buy2: float,
+    buy3: float,
+    enabled: str,
+):
+    result = _get_guardian_buy_grid_service().upsert_config(
+        code,
+        buy_1=buy1,
+        buy_2=buy2,
+        buy_3=buy3,
+        enabled=_parse_bool_text(enabled),
+        updated_by="cli",
+    )
+    _echo_json(result)
+
+
+@stock_guardian_grid_command_group.command(name="state")
+@click.option("--code", type=str, required=True)
+def stock_guardian_grid_state_command(code: str):
+    result = _get_guardian_buy_grid_service().get_state(code)
+    _echo_json(result or {})
+
+
+@stock_guardian_grid_command_group.command(name="set-state")
+@click.option("--code", type=str, required=True)
+@click.option("--buy-active", type=str, required=True)
+@click.option("--last-hit-level", type=str, default=None)
+@click.option("--last-hit-price", type=float, default=None)
+@click.option("--last-hit-signal-time", type=str, default=None)
+@click.option("--last-reset-reason", type=str, default=None)
+def stock_guardian_grid_set_state_command(
+    code: str,
+    buy_active: str,
+    last_hit_level: str | None,
+    last_hit_price: float | None,
+    last_hit_signal_time: str | None,
+    last_reset_reason: str | None,
+):
+    result = _get_guardian_buy_grid_service().upsert_state(
+        code,
+        buy_active=_parse_buy_active_text(buy_active),
+        last_hit_level=last_hit_level,
+        last_hit_price=last_hit_price,
+        last_hit_signal_time=last_hit_signal_time,
+        last_reset_reason=last_reset_reason,
+        updated_by="cli",
+    )
+    _echo_json(result)
+
+
+@stock_guardian_grid_command_group.command(name="reset")
+@click.option("--code", type=str, required=True)
+def stock_guardian_grid_reset_command(code: str):
+    result = _get_guardian_buy_grid_service().reset_after_sell_trade(
+        code,
+        updated_by="cli",
+        reason="manual_reset",
+    )
+    _echo_json(result)
+
+
 @click.group(name="stock.pool")
 def stock_pool_command_group():
     pass
+
 
 @stock_pool_command_group.command(name="list")
 @click.option("--category", type=str, default=None, help="Category for fuzzy matching")
 def stock_pool_list_command(category: str):
     list_stock_pool(category, "pool")
+
 
 @stock_pool_command_group.command(name="copy")
 @click.option("--category", type=str)
@@ -271,6 +429,7 @@ def stock_pool_copy_command(category: str):
     codes = pool.copy(category)
     click.echo(",".join(codes))
     click.echo(f"已复制{len(codes)}个股票代码到剪贴板")
+
 
 @stock_pool_command_group.command(name="import")
 @click.option("-f", "--file", type=str)
@@ -282,6 +441,7 @@ def stock_pool_import_command(file: str, category: str, days: int, codes: List[s
         raise click.UsageError("必须提供 --file 或 --code 参数")
     pool.import_pool(file, category, days, codes)
     list_stock_pool(category, "pool")
+
 
 @stock_pool_command_group.command(name="rm")
 @click.option("--category", type=str)
@@ -302,14 +462,17 @@ def stock_pool_rm_command(category: str, codes: List[str], id: str):
         pool.remove(category=category, codes=codes)
     list_stock_pool(category, "pool")
 
+
 @click.group(name="stock.pre-pool")
 def stock_pre_pool_command_group():
     pass
+
 
 @stock_pre_pool_command_group.command(name="list")
 @click.option("--category", type=str, default=None, help="Category for fuzzy matching")
 def stock_pre_pool_list_command(category: str):
     list_stock_pool(category, "pre-pool")
+
 
 @stock_pre_pool_command_group.command(name="copy")
 @click.option("--category", type=str)
@@ -318,14 +481,18 @@ def stock_pre_pool_copy_command(category: str):
     click.echo(",".join(codes))
     click.echo(f"已复制{len(codes)}个股票代码到剪贴板")
 
+
 @stock_pre_pool_command_group.command(name="import")
 @click.option("-f", "--file", type=str)
 @click.option("-cat", "--category", type=str)
 @click.option("-d", "--days", type=int, default=89)
 @click.option("-c", "--code", "codes", type=str, multiple=True)
-def stock_pre_pool_import_command(file: str, category: str, days: int, codes: List[str]):
+def stock_pre_pool_import_command(
+    file: str, category: str, days: int, codes: List[str]
+):
     pre_pool.import_pool(file, category, days, codes)
     list_stock_pool(category, "pre-pool")
+
 
 @stock_pre_pool_command_group.command(name="rm")
 @click.option("--category", type=str)
@@ -346,13 +513,20 @@ def stock_pre_pool_rm_command(category: str, codes: List[str], id: str):
         pre_pool.remove(category=category, codes=codes)
     list_stock_pool(category, "pre-pool")
 
+
 def list_stock_pool(category: str, pool_name: str):
 
     query = {"category": {"$regex": category, "$options": "i"}} if category else {}
     if pool_name == "pre-pool":
-        records = list(DBfreshquant["stock_pre_pools"].find(query).sort([('code', 1), ('datetime', 1)]))
+        records = list(
+            DBfreshquant["stock_pre_pools"]
+            .find(query)
+            .sort([('code', 1), ('datetime', 1)])
+        )
     elif pool_name == "pool":
-        records = list(DBfreshquant["stock_pools"].find(query).sort([('code', 1), ('datetime', 1)]))
+        records = list(
+            DBfreshquant["stock_pools"].find(query).sort([('code', 1), ('datetime', 1)])
+        )
     elif pool_name == "must-pool":
         records = list(DBfreshquant["must_pool"].find(query).sort([('code', 1)]))
     else:
@@ -360,8 +534,13 @@ def list_stock_pool(category: str, pool_name: str):
         return
 
     # 创建Rich表格
-    table = Table(show_header=True, header_style="bold magenta", show_lines=True,
-                 title=f"{pool_name} 股票池", title_style="bold")
+    table = Table(
+        show_header=True,
+        header_style="bold magenta",
+        show_lines=True,
+        title=f"{pool_name} 股票池",
+        title_style="bold",
+    )
 
     # 定义列样式
     column_definitions = {
@@ -376,7 +555,7 @@ def list_stock_pool(category: str, pool_name: str):
         "stop_loss_price": {"justify": "right", "overflow": "fold"},
         "disabled": {"justify": "center", "overflow": "fold"},
         "created_at": {"overflow": "fold"},
-        "expire_at": {"overflow": "fold"}
+        "expire_at": {"overflow": "fold"},
     }
 
     # 字段名到中文的映射
@@ -392,13 +571,24 @@ def list_stock_pool(category: str, pool_name: str):
         "stop_loss_price": "止损价",
         "disabled": "禁用",
         "created_at": "创建时间",
-        "expire_at": "过期时间"
+        "expire_at": "过期时间",
     }
 
     # 根据池类型添加列
     if pool_name == "must-pool":
-        fields = ['id', 'code', 'name', 'category', 'instrument_type',
-                 'lot_amount', 'initial_lot_amount', 'forever', 'stop_loss_price', 'disabled', 'created_at']
+        fields = [
+            'id',
+            'code',
+            'name',
+            'category',
+            'instrument_type',
+            'lot_amount',
+            'initial_lot_amount',
+            'forever',
+            'stop_loss_price',
+            'disabled',
+            'created_at',
+        ]
     else:
         fields = ['id', 'code', 'name', 'category', 'created_at', 'expire_at']
 
@@ -455,11 +645,13 @@ def list_stock_pool(category: str, pool_name: str):
 def stock_fill_command_group():
     pass
 
+
 @stock_fill_command_group.command(name="list")
 @click.option("-c", "--code", type=str)
 @click.option("-dt", "--date", type=str)
 def stock_fill_list_command(code: str, date: str):
     fill.list_fill(code, date)
+
 
 @stock_fill_command_group.command(name="rm")
 @click.option("--id", type=str)
@@ -472,6 +664,7 @@ def stock_fill_rm_command(id: str, code: str):
     else:
         fill.remove_fill(code=code)
 
+
 @stock_fill_command_group.command(name="import")
 @click.argument("op", type=click.Choice(["buy", "sell"]))
 @click.argument("code", required=False)
@@ -480,7 +673,15 @@ def stock_fill_rm_command(id: str, code: str):
 @click.option("-p", "--price", type=float, required=True)
 @click.option("-a", "--amount", type=float)
 @click.option("-dt", "--date", type=str)
-def stock_fill_import_command(op: str, code: str, code_option: str, quantity: int, price: float, amount: float, date: str):
+def stock_fill_import_command(
+    op: str,
+    code: str,
+    code_option: str,
+    quantity: int,
+    price: float,
+    amount: float,
+    date: str,
+):
     # 合并code参数，优先使用--code选项
     code = code_option if code_option else code
 
@@ -492,11 +693,20 @@ def stock_fill_import_command(op: str, code: str, code_option: str, quantity: in
         prev_trade_date = query_prev_trade_date()
         now = datetime.now()
         if current_trade_date.strftime('%Y-%m-%d') == now.strftime('%Y-%m-%d'):
-            if now.time() >= datetime.strptime('09:25', '%H:%M').time() and now.time() <= datetime.strptime('11:30', '%H:%M').time():
+            if (
+                now.time() >= datetime.strptime('09:25', '%H:%M').time()
+                and now.time() <= datetime.strptime('11:30', '%H:%M').time()
+            ):
                 dt = now.strftime('%Y-%m-%d %H:%M:%S')
-            elif now.time() > datetime.strptime('11:30', '%H:%M').time() and now.time() <= datetime.strptime('13:00', '%H:%M').time():
+            elif (
+                now.time() > datetime.strptime('11:30', '%H:%M').time()
+                and now.time() <= datetime.strptime('13:00', '%H:%M').time()
+            ):
                 dt = current_trade_date.strftime('%Y-%m-%d 11:30:00')
-            elif now.time() > datetime.strptime('13:00', '%H:%M').time() and now.time() <= datetime.strptime('15:00', '%H:%M').time():
+            elif (
+                now.time() > datetime.strptime('13:00', '%H:%M').time()
+                and now.time() <= datetime.strptime('15:00', '%H:%M').time()
+            ):
                 dt = now.strftime('%Y-%m-%d %H:%M:%S')
             elif now.time() > datetime.strptime('15:00', '%H:%M').time():
                 dt = current_trade_date.strftime('%Y-%m-%d 15:00:00')
@@ -511,13 +721,13 @@ def stock_fill_import_command(op: str, code: str, code_option: str, quantity: in
     date_formats = [
         '%Y-%m-%d %H:%M:%S',  # 标准格式
         '%Y/%m/%d %H:%M:%S',  # 斜杠分隔
-        '%Y%m%d %H%M%S',      # 紧凑格式
-        '%Y-%m-%d %H:%M',     # 不带秒
-        '%Y-%m-%d',           # 仅日期
-        '%Y/%m/%d',           # 斜杠分隔仅日期
-        '%Y%m%d',             # 紧凑格式仅日期
-        '%H:%M:%S',           # 仅时间
-        '%H:%M'               # 仅时间不带秒
+        '%Y%m%d %H%M%S',  # 紧凑格式
+        '%Y-%m-%d %H:%M',  # 不带秒
+        '%Y-%m-%d',  # 仅日期
+        '%Y/%m/%d',  # 斜杠分隔仅日期
+        '%Y%m%d',  # 紧凑格式仅日期
+        '%H:%M:%S',  # 仅时间
+        '%H:%M',  # 仅时间不带秒
     ]
 
     parsed_date = None
@@ -529,21 +739,25 @@ def stock_fill_import_command(op: str, code: str, code_option: str, quantity: in
             continue
 
     if not parsed_date:
-        raise ValueError("无法解析日期格式，请使用以下格式之一：\n" +
-                        "YYYY-MM-DD HH:MM:SS\n" +
-                        "YYYY/MM/DD HH:MM:SS\n" +
-                        "YYYYMMDD HHMMSS\n" +
-                        "YYYY-MM-DD HH:MM\n" +
-                        "YYYY-MM-DD\n" +
-                        "YYYY/MM/DD\n" +
-                        "YYYYMMDD\n" +
-                        "HH:MM:SS\n" +
-                        "HH:MM")
+        raise ValueError(
+            "无法解析日期格式，请使用以下格式之一：\n"
+            + "YYYY-MM-DD HH:MM:SS\n"
+            + "YYYY/MM/DD HH:MM:SS\n"
+            + "YYYYMMDD HHMMSS\n"
+            + "YYYY-MM-DD HH:MM\n"
+            + "YYYY-MM-DD\n"
+            + "YYYY/MM/DD\n"
+            + "YYYYMMDD\n"
+            + "HH:MM:SS\n"
+            + "HH:MM"
+        )
 
     # 如果只提供了时间，则使用当天日期
     if not any(c in dt for c in ['-', '/']):  # 没有日期部分
         today = datetime.now().strftime('%Y-%m-%d')
-        parsed_date = datetime.strptime(f"{today} {parsed_date.strftime('%H:%M:%S')}", '%Y-%m-%d %H:%M:%S')
+        parsed_date = datetime.strptime(
+            f"{today} {parsed_date.strftime('%H:%M:%S')}", '%Y-%m-%d %H:%M:%S'
+        )
 
     # 标准化日期格式
     standardized_date = parsed_date.strftime('%Y-%m-%d %H:%M:%S')
