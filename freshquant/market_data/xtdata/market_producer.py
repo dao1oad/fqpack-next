@@ -14,10 +14,11 @@ from loguru import logger
 from freshquant.carnation.param import queryParam
 from freshquant.market_data.xtdata.bar_generator import OneMinuteBarGenerator
 from freshquant.market_data.xtdata.constants import tick_queue_key_for_code
-from freshquant.market_data.xtdata.pools import (load_monitor_codes,
-                                                 normalize_xtdata_mode)
-from freshquant.market_data.xtdata.schema import (TickQuoteEvent,
-                                                  normalize_prefixed_code)
+from freshquant.market_data.xtdata.pools import (
+    load_monitor_codes,
+    normalize_xtdata_mode,
+)
+from freshquant.market_data.xtdata.schema import TickQuoteEvent, normalize_prefixed_code
 from freshquant.tpsl.pools import load_active_tpsl_codes
 
 try:
