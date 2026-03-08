@@ -18,6 +18,7 @@ from freshquant.data.trade_date_hist import (
 from freshquant.db import DBGantt
 
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
+COL_SHOUBAN30_PLATES = "shouban30_plates"
 POSTCLOSE_CUTOFF_HOUR = 15
 POSTCLOSE_CUTOFF_MINUTE = 5
 SHOUBAN30_STOCK_WINDOWS = (30, 45, 60, 90)
@@ -64,6 +65,23 @@ def _query_latest_completed_gantt_trade_date() -> str | None:
     return max(dates)
 
 
+def _has_legacy_shouban30_snapshot(trade_date: str) -> bool:
+    date_str = _to_str(trade_date)
+    if not date_str:
+        return False
+
+    collection = DBGantt[COL_SHOUBAN30_PLATES]
+    if collection.count_documents({"as_of_date": date_str}) <= 0:
+        return False
+
+    windows = {
+        int(value)
+        for value in collection.distinct("stock_window_days", {"as_of_date": date_str})
+        if isinstance(value, int) and value in SHOUBAN30_STOCK_WINDOWS
+    }
+    return not windows
+
+
 def _query_trade_dates_between(start_date: str, end_date: str) -> list[str]:
     if not start_date or not end_date or start_date > end_date:
         return []
@@ -108,6 +126,8 @@ def resolve_gantt_backfill_trade_dates() -> list[str]:
         return [latest_trade_date]
 
     if latest_completed_trade_date >= latest_trade_date:
+        if _has_legacy_shouban30_snapshot(latest_trade_date):
+            return [latest_trade_date]
         return []
 
     trade_dates = _query_trade_dates_between(
