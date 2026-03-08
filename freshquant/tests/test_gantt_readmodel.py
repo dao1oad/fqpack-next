@@ -430,7 +430,9 @@ class FakeCollection:
 
     def create_index(self, keys, unique=False, name=None):
         key = dict(keys)
-        index_name = name or "_".join(f"{field}_{direction}" for field, direction in keys)
+        index_name = name or "_".join(
+            f"{field}_{direction}" for field, direction in keys
+        )
         self.indexes = [item for item in self.indexes if item.get("name") != index_name]
         self.indexes.append({"name": index_name, "key": key, "unique": unique})
         return index_name
