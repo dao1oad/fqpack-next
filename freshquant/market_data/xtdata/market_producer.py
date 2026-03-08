@@ -14,7 +14,10 @@ from loguru import logger
 from freshquant.carnation.param import queryParam
 from freshquant.market_data.xtdata.bar_generator import OneMinuteBarGenerator
 from freshquant.market_data.xtdata.constants import tick_queue_key_for_code
-from freshquant.market_data.xtdata.pools import load_monitor_codes
+from freshquant.market_data.xtdata.pools import (
+    normalize_xtdata_mode,
+    load_monitor_codes,
+)
 from freshquant.market_data.xtdata.schema import TickQuoteEvent, normalize_prefixed_code
 from freshquant.tpsl.pools import load_active_tpsl_codes
 
@@ -164,11 +167,7 @@ def start_producer():
     port = int(os.environ.get("XTQUANT_PORT", "58610"))
     xtdata.connect(port=port)
 
-    mode = (
-        str(queryParam("monitor.xtdata.mode", "clx_15_30") or "clx_15_30")
-        .strip()
-        .lower()
-    )
+    mode = normalize_xtdata_mode(queryParam("monitor.xtdata.mode", None))
     max_symbols = int(queryParam("monitor.xtdata.max_symbols", 50) or 50)
     if max_symbols <= 0:
         max_symbols = 50

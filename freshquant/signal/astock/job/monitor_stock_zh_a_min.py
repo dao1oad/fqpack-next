@@ -16,7 +16,10 @@ from freshquant.config import cfg
 from freshquant.data.astock.pool import get_stock_monitor_codes
 from freshquant.data.trade_date_hist import tool_trade_date_seconds_to_start
 from freshquant.instrument.general import query_instrument_type
-from freshquant.market_data.xtdata.pools import load_monitor_codes
+from freshquant.market_data.xtdata.pools import (
+    normalize_xtdata_mode,
+    load_monitor_codes,
+)
 from freshquant.signal.a_stock_common import save_a_stock_signal
 from freshquant.signal.astock.job.bar_event_listener import BarEventListener
 from freshquant.signal.astock.job.monitor_helpers_event import (
@@ -97,8 +100,8 @@ def monitor_stock_zh_a_min_event_driven() -> None:
 
     Subscribe `CHANNEL:BAR_UPDATE` and calculate Guardian signals on 1min updates.
     """
-    xt_mode = str(queryParam("monitor.xtdata.mode", "") or "").strip().lower()
-    if xt_mode and xt_mode != "guardian_1m":
+    xt_mode = normalize_xtdata_mode(queryParam("monitor.xtdata.mode", None))
+    if xt_mode != "guardian_1m":
         logger.warning(
             f"[Event] monitor.xtdata.mode={xt_mode}; expected guardian_1m. Exiting."
         )
