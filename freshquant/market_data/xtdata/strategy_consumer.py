@@ -463,17 +463,6 @@ class StrategyConsumer:
         )
         rt_df = pd.DataFrame(list(rt_cur))
 
-        merged = _normalize_bar_window_df(
-            pd.concat([hist_df, rt_df], ignore_index=True)
-        )
-        if merged.empty:
-            return merged
-
-        merged = merged.drop_duplicates(subset=["datetime"], keep="last")
-        merged = merged.sort_values("datetime")
-
-        # Apply qfq on merged raw bars. Index-like symbols reuse etf_adj; plain indexes
-        # simply no-op when no adj rows exist.
         start_date = start_dt.strftime("%Y-%m-%d")
         end_date = end_dt.strftime("%Y-%m-%d")
         adj_coll = "etf_adj" if is_index_like else "stock_adj"
@@ -483,7 +472,20 @@ class StrategyConsumer:
             start_date=start_date,
             end_date=end_date,
         )
-        if not adj_df.empty:
+        if (not is_index_like) and (not adj_df.empty):
+            hist_df = apply_qfq_to_bars(hist_df, adj_df, datetime_col="datetime")
+
+        merged = _normalize_bar_window_df(
+            pd.concat([hist_df, rt_df], ignore_index=True)
+        )
+        if merged.empty:
+            return merged
+
+        merged = merged.drop_duplicates(subset=["datetime"], keep="last")
+        merged = merged.sort_values("datetime")
+
+        # index_realtime stores raw bars, so qfq still applies on the merged frame.
+        if is_index_like and (not adj_df.empty):
             merged = apply_qfq_to_bars(merged, adj_df, datetime_col="datetime")
 
         if len(merged) > self.max_bars:

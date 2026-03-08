@@ -141,6 +141,70 @@ def test_load_window_from_db_reads_stock_history_without_external_quantaxis(
     assert result["volume"].tolist() == [100.0, 110.0]
 
 
+def test_load_window_from_db_does_not_double_apply_qfq_to_stock_realtime(
+    monkeypatch,
+):
+    _disable_quantaxis_import(monkeypatch)
+
+    now_dt = datetime.now(tz=cfg.TZ).replace(second=0, microsecond=0)
+    hist_bar = now_dt - timedelta(minutes=10)
+    rt_bar = now_dt - timedelta(minutes=5)
+
+    monkeypatch.setattr(
+        sc,
+        "DBQuantAxis",
+        FakeDatabase(
+            {
+                "stock_min": FakeCollection(
+                    [_make_bar_doc(hist_bar, code="000001", period="5min", open_=10.0)]
+                ),
+                "stock_adj": FakeCollection(
+                    [
+                        {
+                            "code": "000001",
+                            "date": hist_bar.strftime("%Y-%m-%d"),
+                            "adj": 2.0,
+                        }
+                    ]
+                ),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        sc,
+        "DBfreshquant",
+        FakeDatabase(
+            {
+                "stock_realtime": FakeCollection(
+                    [
+                        {
+                            "code": "sz000001",
+                            "frequence": "5min",
+                            "datetime": rt_bar,
+                            "open": 24.0,
+                            "high": 26.0,
+                            "low": 22.0,
+                            "close": 25.0,
+                            "volume": 120.0,
+                            "amount": 1200.0,
+                        }
+                    ]
+                )
+            }
+        ),
+    )
+
+    consumer = _make_consumer(is_index_like=False)
+    result = consumer._load_window_from_db(code="sz000001", period_backend="5min")
+
+    assert result["datetime"].dt.strftime("%H:%M").tolist() == [
+        hist_bar.strftime("%H:%M"),
+        rt_bar.strftime("%H:%M"),
+    ]
+    assert result["open"].tolist() == [20.0, 24.0]
+    assert result["close"].tolist() == [21.0, 25.0]
+
+
 def test_load_window_from_db_reads_index_like_history_without_external_quantaxis(
     monkeypatch,
 ):
