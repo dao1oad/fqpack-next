@@ -43,6 +43,10 @@ class OrderManagementRepository:
     def stoploss_bindings(self):
         return self.database["om_stoploss_bindings"]
 
+    @property
+    def credit_subjects(self):
+        return self.database["om_credit_subjects"]
+
     def insert_order_request(self, document):
         self.order_requests.insert_one(document)
         return document

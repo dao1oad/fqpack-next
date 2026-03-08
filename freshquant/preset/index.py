@@ -6,6 +6,7 @@ import pymongo
 from pymongo.collection import Collection
 
 from freshquant.database.mongodb import DBfreshquant
+from freshquant.order_management.db import DBOrderManagement
 
 
 def _create_index_if_not_exists(
@@ -60,4 +61,34 @@ def init_indexes():
         DBfreshquant.stock_board_concept_name_em,
         "idx_boards_code_date",
         [("board_code", pymongo.ASCENDING), ("date", pymongo.ASCENDING)],
+    )
+
+    _create_index_if_not_exists(
+        DBOrderManagement["om_credit_subjects"],
+        "uniq_account_instrument",
+        [
+            ("account_id", pymongo.ASCENDING),
+            ("instrument_id", pymongo.ASCENDING),
+        ],
+    )
+
+    _create_index_if_not_exists(
+        DBOrderManagement["om_credit_subjects"],
+        "idx_symbol",
+        [("symbol", pymongo.ASCENDING)],
+        unique=False,
+    )
+
+    _create_index_if_not_exists(
+        DBOrderManagement["om_credit_subjects"],
+        "idx_fin_status",
+        [("fin_status", pymongo.ASCENDING)],
+        unique=False,
+    )
+
+    _create_index_if_not_exists(
+        DBOrderManagement["om_credit_subjects"],
+        "idx_updated_at",
+        [("updated_at", pymongo.DESCENDING)],
+        unique=False,
     )
