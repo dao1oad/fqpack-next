@@ -26,6 +26,8 @@ COL_SHOUBAN30_PLATES = "shouban30_plates"
 COL_SHOUBAN30_STOCKS = "shouban30_stocks"
 SHOUBAN30_STOCK_WINDOWS = (30, 45, 60, 90)
 CN_TZ = ZoneInfo("Asia/Shanghai")
+LEGACY_SHOUBAN30_PLATES_INDEX = "provider_1_plate_key_1_as_of_date_1"
+LEGACY_SHOUBAN30_STOCKS_INDEX = "provider_1_plate_key_1_code6_1_as_of_date_1"
 
 
 def _to_str(value: Any) -> str:
@@ -95,6 +97,15 @@ def _upsert_rows(
     return len(rows)
 
 
+def _drop_index_if_exists(collection, index_name: str) -> None:
+    existing_names = {
+        _to_str(item.get("name")) if isinstance(item, dict) else _to_str(item.name)
+        for item in collection.list_indexes()
+    }
+    if index_name in existing_names:
+        collection.drop_index(index_name)
+
+
 def ensure_readmodel_indexes() -> None:
     _get_collection(COL_PLATE_REASON_DAILY).create_index(
         [("provider", 1), ("plate_key", 1), ("trade_date", 1)],
@@ -115,7 +126,9 @@ def ensure_readmodel_indexes() -> None:
     _get_collection(COL_STOCK_HOT_REASON_DAILY).create_index(
         [("code6", 1), ("trade_date", -1), ("time", -1)]
     )
-    _get_collection(COL_SHOUBAN30_PLATES).create_index(
+    shouban30_plates = _get_collection(COL_SHOUBAN30_PLATES)
+    _drop_index_if_exists(shouban30_plates, LEGACY_SHOUBAN30_PLATES_INDEX)
+    shouban30_plates.create_index(
         [
             ("provider", 1),
             ("plate_key", 1),
@@ -124,7 +137,9 @@ def ensure_readmodel_indexes() -> None:
         ],
         unique=True,
     )
-    _get_collection(COL_SHOUBAN30_STOCKS).create_index(
+    shouban30_stocks = _get_collection(COL_SHOUBAN30_STOCKS)
+    _drop_index_if_exists(shouban30_stocks, LEGACY_SHOUBAN30_STOCKS_INDEX)
+    shouban30_stocks.create_index(
         [
             ("provider", 1),
             ("plate_key", 1),

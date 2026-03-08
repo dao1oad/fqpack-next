@@ -71,6 +71,25 @@ def test_resolve_gantt_backfill_trade_dates_returns_empty_when_no_gap(monkeypatc
     assert ops.resolve_gantt_backfill_trade_dates() == []
 
 
+def test_resolve_gantt_backfill_trade_dates_returns_latest_day_when_no_gap_but_shouban30_is_legacy(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+
+    monkeypatch.setattr(ops, "_query_latest_trade_date", lambda: "2026-03-06")
+    monkeypatch.setattr(
+        ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-06"
+    )
+    monkeypatch.setattr(
+        ops,
+        "_has_legacy_shouban30_snapshot",
+        lambda trade_date: trade_date == "2026-03-06",
+        raising=False,
+    )
+
+    assert ops.resolve_gantt_backfill_trade_dates() == ["2026-03-06"]
+
+
 def test_resolve_gantt_backfill_trade_dates_returns_incremental_window(monkeypatch):
     ops = _load_ops_module(monkeypatch)
 

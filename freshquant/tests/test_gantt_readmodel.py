@@ -416,11 +416,30 @@ def test_build_xgb_gantt_rows_normalizes_symbol_to_code6():
 
 
 class FakeCollection:
-    def __init__(self, docs=None):
+    def __init__(self, docs=None, indexes=None):
         self.docs = list(docs or [])
+        self.indexes = list(
+            indexes
+            or [
+                {
+                    "name": "_id_",
+                    "key": {"_id": 1},
+                }
+            ]
+        )
 
-    def create_index(self, *args, **kwargs):
-        return None
+    def create_index(self, keys, unique=False, name=None):
+        key = dict(keys)
+        index_name = name or "_".join(f"{field}_{direction}" for field, direction in keys)
+        self.indexes = [item for item in self.indexes if item.get("name") != index_name]
+        self.indexes.append({"name": index_name, "key": key, "unique": unique})
+        return index_name
+
+    def list_indexes(self):
+        return list(self.indexes)
+
+    def drop_index(self, name):
+        self.indexes = [item for item in self.indexes if item.get("name") != name]
 
     def find(self, query=None, projection=None):
         query = query or {}
@@ -452,6 +471,8 @@ def _matches(doc, query):
     for key, expected in query.items():
         actual = doc.get(key)
         if isinstance(expected, dict):
+            if "$exists" in expected and (key in doc) != bool(expected["$exists"]):
+                return False
             if "$gte" in expected and actual < expected["$gte"]:
                 return False
             if "$lte" in expected and actual > expected["$lte"]:
@@ -806,6 +827,58 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
             "latest_reason": "stock reason",
         }
     ]
+
+
+def test_ensure_readmodel_indexes_drops_legacy_shouban30_unique_indexes(monkeypatch):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        shouban30_plates=FakeCollection(
+            indexes=[
+                {"name": "_id_", "key": {"_id": 1}},
+                {
+                    "name": "provider_1_plate_key_1_as_of_date_1",
+                    "key": {"provider": 1, "plate_key": 1, "as_of_date": 1},
+                    "unique": True,
+                },
+            ]
+        ),
+        shouban30_stocks=FakeCollection(
+            indexes=[
+                {"name": "_id_", "key": {"_id": 1}},
+                {
+                    "name": "provider_1_plate_key_1_code6_1_as_of_date_1",
+                    "key": {
+                        "provider": 1,
+                        "plate_key": 1,
+                        "code6": 1,
+                        "as_of_date": 1,
+                    },
+                    "unique": True,
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+
+    svc.ensure_readmodel_indexes()
+
+    plate_index_names = {
+        item["name"] for item in fake_db[svc.COL_SHOUBAN30_PLATES].list_indexes()
+    }
+    stock_index_names = {
+        item["name"] for item in fake_db[svc.COL_SHOUBAN30_STOCKS].list_indexes()
+    }
+
+    assert "provider_1_plate_key_1_as_of_date_1" not in plate_index_names
+    assert (
+        "provider_1_plate_key_1_as_of_date_1_stock_window_days_1" in plate_index_names
+    )
+    assert "provider_1_plate_key_1_code6_1_as_of_date_1" not in stock_index_names
+    assert (
+        "provider_1_plate_key_1_code6_1_as_of_date_1_stock_window_days_1"
+        in stock_index_names
+    )
 
 
 def test_persist_stock_hot_reason_daily_for_date_joins_and_queries(monkeypatch):
