@@ -1,10 +1,10 @@
+from freshquant.carnation import xtconstant
 from freshquant.order_management.submit.execution_bridge import (
     dispatch_cancel_execution,
     finalize_submit_execution,
     prepare_submit_execution,
 )
 from freshquant.order_management.tracking.service import OrderTrackingService
-from freshquant.carnation import xtconstant
 
 
 class InMemoryRepository:
@@ -199,8 +199,14 @@ def test_prepare_submit_execution_resolves_credit_sell_order_before_submit():
 
     order = repository.find_order("ord_runtime_sell_1")
     assert result["status"] == "execute"
-    assert result["order_message"]["broker_order_type"] == xtconstant.CREDIT_SELL_SECU_REPAY
-    assert result["order_message"]["broker_price_type"] == xtconstant.MARKET_SH_CONVERT_5_CANCEL
+    assert (
+        result["order_message"]["broker_order_type"]
+        == xtconstant.CREDIT_SELL_SECU_REPAY
+    )
+    assert (
+        result["order_message"]["broker_price_type"]
+        == xtconstant.MARKET_SH_CONVERT_5_CANCEL
+    )
     assert result["order_message"]["price"] == 9.92
     assert order["broker_order_type"] == xtconstant.CREDIT_SELL_SECU_REPAY
     assert order["broker_price_type"] == xtconstant.MARKET_SH_CONVERT_5_CANCEL

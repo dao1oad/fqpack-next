@@ -265,10 +265,9 @@ def _resolve_runtime_execution(
         or order.get("credit_trade_mode_requested")
         or "auto"
     )
-    resolved_credit_trade_mode = (
-        order_message.get("credit_trade_mode_resolved")
-        or order.get("credit_trade_mode_resolved")
-    )
+    resolved_credit_trade_mode = order_message.get(
+        "credit_trade_mode_resolved"
+    ) or order.get("credit_trade_mode_resolved")
     requested_price_mode = (
         order_message.get("price_mode") or order.get("price_mode_requested") or "auto"
     )

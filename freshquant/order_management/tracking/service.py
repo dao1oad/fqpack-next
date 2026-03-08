@@ -51,9 +51,7 @@ class OrderTrackingService:
             "symbol": payload.get("symbol"),
             "side": payload["action"],
             "credit_trade_mode_requested": payload.get("credit_trade_mode"),
-            "credit_trade_mode_resolved": payload.get(
-                "credit_trade_mode_resolved"
-            ),
+            "credit_trade_mode_resolved": payload.get("credit_trade_mode_resolved"),
             "price_mode_requested": payload.get("price_mode"),
             "price_mode_resolved": payload.get("price_mode_resolved"),
             "state": "ACCEPTED",

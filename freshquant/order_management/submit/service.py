@@ -37,7 +37,9 @@ class OrderSubmitService:
             position_management_service or _load_position_management_service()
         )
         self.account_type_loader = account_type_loader or get_configured_account_type
-        self.credit_subject_lookup = credit_subject_lookup or _default_credit_subject_lookup
+        self.credit_subject_lookup = (
+            credit_subject_lookup or _default_credit_subject_lookup
+        )
         self.credit_subjects_available = (
             credit_subjects_available or _default_credit_subjects_available
         )
