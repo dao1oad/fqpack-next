@@ -90,9 +90,7 @@ def test_local_extension_packages_require_python312() -> None:
 
 def test_fqcopilot_build_system_includes_pybind11() -> None:
     data = tomllib.loads(
-        Path("morningglory/fqcopilot/python/pyproject.toml").read_text(
-            encoding="utf-8"
-        )
+        Path("morningglory/fqcopilot/python/pyproject.toml").read_text(encoding="utf-8")
     )
     requires = {
         item.split("[")[0].split(">=")[0].split("==")[0].lower()
@@ -119,8 +117,12 @@ def test_fqcopilot_setup_declares_fullcalc_extension(monkeypatch) -> None:
                 setattr(self, key, value)
 
     cython_build = types.SimpleNamespace(cythonize=lambda exts: exts)
-    setuptools_module = types.SimpleNamespace(setup=fake_setup, Extension=DummyExtension)
-    setuptools_command = types.SimpleNamespace(build_ext=types.SimpleNamespace(build_ext=DummyBuildExt))
+    setuptools_module = types.SimpleNamespace(
+        setup=fake_setup, Extension=DummyExtension
+    )
+    setuptools_command = types.SimpleNamespace(
+        build_ext=types.SimpleNamespace(build_ext=DummyBuildExt)
+    )
     setuptools_extension = types.SimpleNamespace(Extension=DummyExtension)
     monkeypatch.setitem(sys.modules, "setuptools", setuptools_module)
     monkeypatch.setitem(sys.modules, "setuptools.command", setuptools_command)
@@ -130,12 +132,16 @@ def test_fqcopilot_setup_declares_fullcalc_extension(monkeypatch) -> None:
         types.SimpleNamespace(build_ext=DummyBuildExt),
     )
     monkeypatch.setitem(sys.modules, "setuptools.extension", setuptools_extension)
-    monkeypatch.setitem(sys.modules, "Cython", types.SimpleNamespace(Build=cython_build))
+    monkeypatch.setitem(
+        sys.modules, "Cython", types.SimpleNamespace(Build=cython_build)
+    )
     monkeypatch.setitem(sys.modules, "Cython.Build", cython_build)
     monkeypatch.setitem(
         sys.modules,
         "pybind11",
-        types.SimpleNamespace(setup_helpers=types.SimpleNamespace(Pybind11Extension=DummyExtension)),
+        types.SimpleNamespace(
+            setup_helpers=types.SimpleNamespace(Pybind11Extension=DummyExtension)
+        ),
     )
     monkeypatch.setitem(
         sys.modules,
