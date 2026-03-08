@@ -3,6 +3,7 @@ import sys
 import tomllib
 import types
 from pathlib import Path
+from typing import cast
 
 
 def load_root_pyproject() -> dict:
@@ -151,7 +152,7 @@ def test_fqcopilot_setup_declares_fullcalc_extension(monkeypatch) -> None:
 
     runpy.run_path("morningglory/fqcopilot/python/setup.py", run_name="__main__")
 
-    ext_modules = captured.get("ext_modules")
+    ext_modules = cast(list[DummyExtension] | None, captured.get("ext_modules"))
     assert ext_modules is not None
     ext_names = {ext.name for ext in ext_modules}
     assert "fullcalc" in ext_names
