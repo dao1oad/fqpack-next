@@ -7,10 +7,18 @@ import click
 LAZY_COMMANDS: dict[str, tuple[str, str, str]] = {
     "stock": ("freshquant.command.stock", "stock_command_group", "股票主命令"),
     "stock.list": ("freshquant.command.stock", "stock_list_command_group", "股票列表"),
-    "stock.block": ("freshquant.command.stock", "stock_block_command_group", "股票板块"),
+    "stock.block": (
+        "freshquant.command.stock",
+        "stock_block_command_group",
+        "股票板块",
+    ),
     "stock.day": ("freshquant.command.stock", "stock_day_command_group", "股票日线"),
     "stock.min": ("freshquant.command.stock", "stock_min_command_group", "股票分钟线"),
-    "stock.xdxr": ("freshquant.command.stock", "stock_xdxr_command_group", "股票除权除息"),
+    "stock.xdxr": (
+        "freshquant.command.stock",
+        "stock_xdxr_command_group",
+        "股票除权除息",
+    ),
     "stock.must-pool": (
         "freshquant.command.stock",
         "stock_must_pool_command_group",
@@ -41,10 +49,22 @@ LAZY_COMMANDS: dict[str, tuple[str, str, str]] = {
     "bond.day": ("freshquant.command.bond", "bond_day_command_group", "债券日线"),
     "bond.min": ("freshquant.command.bond", "bond_min_command_group", "债券分钟线"),
     "future": ("freshquant.command.future", "future_command_group", "期货主命令"),
-    "future.list": ("freshquant.command.future", "future_list_command_group", "期货列表"),
+    "future.list": (
+        "freshquant.command.future",
+        "future_list_command_group",
+        "期货列表",
+    ),
     "future.day": ("freshquant.command.future", "future_day_command_group", "期货日线"),
-    "future.min": ("freshquant.command.future", "future_min_command_group", "期货分钟线"),
-    "future.fill": ("freshquant.command.future", "future_fill_command_group", "期货成交"),
+    "future.min": (
+        "freshquant.command.future",
+        "future_min_command_group",
+        "期货分钟线",
+    ),
+    "future.fill": (
+        "freshquant.command.future",
+        "future_fill_command_group",
+        "期货成交",
+    ),
     "digital.fill": (
         "freshquant.command.digital",
         "digital_fill_command_group",
@@ -53,7 +73,11 @@ LAZY_COMMANDS: dict[str, tuple[str, str, str]] = {
     "xt-asset": ("freshquant.command.asset", "xt_asset_command_group", "XT 资产"),
     "xt-trade": ("freshquant.command.trade", "xt_trade_command_group", "XT 成交"),
     "xt-order": ("freshquant.command.order", "xt_order_command_group", "XT 委托"),
-    "xt-position": ("freshquant.command.position", "xt_position_command_group", "XT 持仓"),
+    "xt-position": (
+        "freshquant.command.position",
+        "xt_position_command_group",
+        "XT 持仓",
+    ),
     "channel": ("freshquant.command.channel", "channel_command_group", "缠论频道"),
     "om-order": ("freshquant.command.om_order", "om_order_command_group", "订单管理"),
 }

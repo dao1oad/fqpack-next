@@ -7,22 +7,32 @@ import pendulum
 
 from freshquant.position_management.errors import PositionManagementRejectedError
 
+
+def _module(name: str, **attrs: object) -> types.ModuleType:
+    module = types.ModuleType(name)
+    for attr_name, value in attrs.items():
+        setattr(module, attr_name, value)
+    return module
+
+
 sys.modules.setdefault("freshquant.message", types.ModuleType("freshquant.message"))
 sys.modules.setdefault(
     "arrow",
-    types.SimpleNamespace(
+    _module(
+        "arrow",
         get=lambda dt: types.SimpleNamespace(
             floor=lambda _unit: types.SimpleNamespace(datetime=dt)
-        )
+        ),
     ),
 )
 sys.modules.setdefault(
     "tzlocal",
-    types.SimpleNamespace(get_localzone=lambda: pendulum.local_timezone()),
+    _module("tzlocal", get_localzone=lambda: pendulum.local_timezone()),
 )
 sys.modules.setdefault(
     "redis",
-    types.SimpleNamespace(
+    _module(
+        "redis",
         ConnectionPool=lambda **_kwargs: object(),
         StrictRedis=lambda **_kwargs: types.SimpleNamespace(
             get=lambda *_args, **_kwargs: None,
@@ -30,24 +40,35 @@ sys.modules.setdefault(
         ),
     ),
 )
-threshold_module = types.ModuleType("freshquant.strategy.toolkit.threshold")
-threshold_module.eval_stock_threshold_price = (
-    lambda _code, _price: {"bot_river_price": 0.0, "top_river_price": 0.0}
+sys.modules.setdefault(
+    "freshquant.strategy.toolkit.threshold",
+    _module(
+        "freshquant.strategy.toolkit.threshold",
+        eval_stock_threshold_price=lambda _code, _price: {
+            "bot_river_price": 0.0,
+            "top_river_price": 0.0,
+        },
+    ),
 )
-sys.modules.setdefault("freshquant.strategy.toolkit.threshold", threshold_module)
-
-holding_module = types.ModuleType("freshquant.data.astock.holding")
-holding_module.get_arranged_stock_fill_list = lambda _code: []
-holding_module.get_stock_holding_codes = lambda: []
-sys.modules.setdefault("freshquant.data.astock.holding", holding_module)
-
-pool_general_module = types.ModuleType("freshquant.pool.general")
-pool_general_module.queryMustPoolCodes = lambda: []
-sys.modules.setdefault("freshquant.pool.general", pool_general_module)
-
-position_stock_module = types.ModuleType("freshquant.position.stock")
-position_stock_module.query_stock_position_pct = lambda *_args, **_kwargs: 0
-sys.modules.setdefault("freshquant.position.stock", position_stock_module)
+sys.modules.setdefault(
+    "freshquant.data.astock.holding",
+    _module(
+        "freshquant.data.astock.holding",
+        get_arranged_stock_fill_list=lambda _code: [],
+        get_stock_holding_codes=lambda: [],
+    ),
+)
+sys.modules.setdefault(
+    "freshquant.pool.general",
+    _module("freshquant.pool.general", queryMustPoolCodes=lambda: []),
+)
+sys.modules.setdefault(
+    "freshquant.position.stock",
+    _module(
+        "freshquant.position.stock",
+        query_stock_position_pct=lambda *_args, **_kwargs: 0,
+    ),
+)
 
 from freshquant.strategy.guardian import StrategyGuardian
 
@@ -93,7 +114,9 @@ class FakeGuardianBuyGridService:
         return dict(self.new_open_decision)
 
 
-def _make_signal(*, code="000001", position="BUY_LONG", price=7.8, remark="test-remark"):
+def _make_signal(
+    *, code="000001", position="BUY_LONG", price=7.8, remark="test-remark"
+):
     now = pendulum.now()
     return {
         "symbol": code,
@@ -189,7 +212,15 @@ def test_holding_buy_uses_guardian_buy_grid_and_sets_cooldown_after_submit(
         raising=False,
     )
 
-    def fake_submit(action, symbol, price, quantity, remark=None, strategy_context=None, is_profitable=None):
+    def fake_submit(
+        action,
+        symbol,
+        price,
+        quantity,
+        remark=None,
+        strategy_context=None,
+        is_profitable=None,
+    ):
         events.append("submit")
         captured.update(
             {
@@ -202,9 +233,15 @@ def test_holding_buy_uses_guardian_buy_grid_and_sets_cooldown_after_submit(
                 "is_profitable": is_profitable,
             }
         )
-        return {"request_id": "req_1", "internal_order_id": "ord_1", "queue_payload": {}}
+        return {
+            "request_id": "req_1",
+            "internal_order_id": "ord_1",
+            "queue_payload": {},
+        }
 
-    monkeypatch.setattr("freshquant.strategy.guardian.submit_guardian_order", fake_submit)
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order", fake_submit
+    )
 
     StrategyGuardian().on_signal(signal)
 
@@ -274,7 +311,15 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
         raising=False,
     )
 
-    def fake_submit(action, symbol, price, quantity, remark=None, strategy_context=None, is_profitable=None):
+    def fake_submit(
+        action,
+        symbol,
+        price,
+        quantity,
+        remark=None,
+        strategy_context=None,
+        is_profitable=None,
+    ):
         captured.update(
             {
                 "action": action,
@@ -285,9 +330,15 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
                 "strategy_context": strategy_context,
             }
         )
-        return {"request_id": "req_2", "internal_order_id": "ord_2", "queue_payload": {}}
+        return {
+            "request_id": "req_2",
+            "internal_order_id": "ord_2",
+            "queue_payload": {},
+        }
 
-    monkeypatch.setattr("freshquant.strategy.guardian.submit_guardian_order", fake_submit)
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order", fake_submit
+    )
 
     StrategyGuardian().on_signal(signal)
 
@@ -353,7 +404,9 @@ def test_position_management_rejection_does_not_write_buy_cooldown(monkeypatch):
     def fake_submit(*_args, **_kwargs):
         raise PositionManagementRejectedError("rejected")
 
-    monkeypatch.setattr("freshquant.strategy.guardian.submit_guardian_order", fake_submit)
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order", fake_submit
+    )
 
     StrategyGuardian().on_signal(signal)
 

@@ -5,7 +5,6 @@ from typing import Any
 
 from freshquant.util.code import normalize_to_base_code
 
-
 BUY_LEVELS = ("BUY-1", "BUY-2", "BUY-3")
 BUY_LEVEL_MULTIPLIERS = {
     "BUY-1": 2,
@@ -228,7 +227,7 @@ class GuardianBuyGridService:
             buy_active=state["buy_active"],
         )
         grid_level = hit_levels[-1] if hit_levels else None
-        multiplier = BUY_LEVEL_MULTIPLIERS.get(grid_level, 1)
+        multiplier = BUY_LEVEL_MULTIPLIERS[grid_level] if grid_level is not None else 1
         amount = base_amount * multiplier
         return {
             "code": normalized,
@@ -263,9 +262,11 @@ class GuardianBuyGridService:
             normalized,
             buy_active=new_buy_active,
             last_hit_level=grid_level,
-            last_hit_price=_coerce_float(source_price, default=0.0)
-            if source_price is not None
-            else None,
+            last_hit_price=(
+                _coerce_float(source_price, default=0.0)
+                if source_price is not None
+                else None
+            ),
             last_hit_signal_time=signal_time,
             last_reset_reason=None,
             updated_by=updated_by,
@@ -302,7 +303,9 @@ class GuardianBuyGridService:
 
     def get_initial_lot_amount(self, code: str) -> int:
         normalized = normalize_to_base_code(code)
-        must_pool_record = self._must_pool_collection().find_one({"code": normalized}) or {}
+        must_pool_record = (
+            self._must_pool_collection().find_one({"code": normalized}) or {}
+        )
         initial_amount = must_pool_record.get("initial_lot_amount")
         if initial_amount is not None:
             return int(initial_amount)
