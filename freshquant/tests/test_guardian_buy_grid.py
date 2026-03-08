@@ -82,7 +82,11 @@ def test_new_open_prefers_initial_lot_amount_then_lot_amount_then_default():
         {
             "must_pool": FakeCollection(
                 [
-                    {"code": "000001", "initial_lot_amount": 180000, "lot_amount": 60000},
+                    {
+                        "code": "000001",
+                        "initial_lot_amount": 180000,
+                        "lot_amount": 60000,
+                    },
                     {"code": "000002", "lot_amount": 80000},
                     {"code": "000003"},
                 ]
@@ -110,7 +114,15 @@ def test_holding_add_uses_deepest_active_hit_level():
     database = FakeDatabase(
         {
             "guardian_buy_grid_configs": FakeCollection(
-                [{"code": "000001", "BUY-1": 10.0, "BUY-2": 9.0, "BUY-3": 8.0, "enabled": True}]
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "enabled": True,
+                    }
+                ]
             ),
             "guardian_buy_grid_states": FakeCollection(
                 [{"code": "000001", "buy_active": [True, True, True]}]
@@ -132,7 +144,15 @@ def test_holding_add_skips_inactive_levels_and_uses_next_active_match():
     database = FakeDatabase(
         {
             "guardian_buy_grid_configs": FakeCollection(
-                [{"code": "000001", "BUY-1": 10.0, "BUY-2": 9.0, "BUY-3": 8.0, "enabled": True}]
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "enabled": True,
+                    }
+                ]
             ),
             "guardian_buy_grid_states": FakeCollection(
                 [{"code": "000001", "buy_active": [False, True, True]}]
@@ -164,7 +184,15 @@ def test_accepting_buy_deactivates_all_hit_levels():
     database = FakeDatabase(
         {
             "guardian_buy_grid_configs": FakeCollection(
-                [{"code": "000001", "BUY-1": 10.0, "BUY-2": 9.0, "BUY-3": 8.0, "enabled": True}]
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "enabled": True,
+                    }
+                ]
             ),
             "guardian_buy_grid_states": FakeCollection(
                 [{"code": "000001", "buy_active": [True, True, True]}]
@@ -215,7 +243,15 @@ def test_updating_config_resets_buy_active_and_records_audit_log():
     database = FakeDatabase(
         {
             "guardian_buy_grid_configs": FakeCollection(
-                [{"code": "000001", "BUY-1": 10.0, "BUY-2": 9.0, "BUY-3": 8.0, "enabled": True}]
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "enabled": True,
+                    }
+                ]
             ),
             "guardian_buy_grid_states": FakeCollection(
                 [{"code": "000001", "buy_active": [False, False, True]}]
@@ -236,7 +272,10 @@ def test_updating_config_resets_buy_active_and_records_audit_log():
 
     assert result["BUY-1"] == 10.1
     assert service.get_state("000001")["buy_active"] == [True, True, True]
-    assert database["audit_log"].docs[-1]["operation"] == "guardian_buy_grid_config_updated"
+    assert (
+        database["audit_log"].docs[-1]["operation"]
+        == "guardian_buy_grid_config_updated"
+    )
     assert database["audit_log"].docs[-1]["state_reset"] is True
 
 

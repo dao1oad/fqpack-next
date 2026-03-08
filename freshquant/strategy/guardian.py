@@ -160,7 +160,9 @@ class StrategyGuardian(metaclass=SingletonType):
 
         decision = get_guardian_buy_grid_service().build_new_open_decision(code, price)
         if decision.get("quantity", 0) <= 0:
-            logger.info("{code} {name} 新开仓可交易数量不足，跳过下单", code=code, name=name)
+            logger.info(
+                "{code} {name} 新开仓可交易数量不足，跳过下单", code=code, name=name
+            )
             return
 
         self._submit_buy_order(
