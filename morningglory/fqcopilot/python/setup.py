@@ -1,65 +1,92 @@
 import os
+from pathlib import Path
 from setuptools.command.build_ext import build_ext
 from setuptools import setup
 from Cython.Build import cythonize
 from setuptools.extension import Extension
+from pybind11.setup_helpers import Pybind11Extension
 
-copt = {'msvc': ['/utf-8'], 'mingw32': ['-std=c++14'], 'unix': ['-std=c++14']}
-lopt = {'mingw32': []}
+ROOT = Path(__file__).resolve().parent
+IS_WINDOWS = os.name == "nt"
+FQCOPILOT_COMPILE_ARGS = ["/utf-8"] if IS_WINDOWS else ["-std=c++14"]
+FULLCALC_COMPILE_ARGS = ["/utf-8"] if IS_WINDOWS else []
+DEFINE_MACROS = [
+    ("_FORCE_SWELL_WHEN_9WAVE", "1"),
+    ("_GAP_COUNT_AS_ONE_BAR", "1"),
+    ("_RIPPLE_REVERSE_WAVE_NO_MERGE", "1"),
+]
 
 INSTALL_REQUIRES = ['setuptools', 'wheel']
 
 
 class build_ext_subclass(build_ext):
     def build_extensions(self):
-        c = self.compiler.compiler_type
-        print("compiler type:", c)
-        if copt.get(c):
-            for e in self.extensions:
-                e.extra_compile_args = copt[c]
-        if lopt.get(c):
-            for e in self.extensions:
-                e.extra_link_args = lopt[c]
         build_ext.build_extensions(self)
 
 
 cython_files = ["*.pyx"]
 
 
-def gather_cpp_files(directories):
+def gather_cpp_files(directories, *, exclude_dirs=None):
+    exclude_roots = {
+        (ROOT / directory).resolve() for directory in (exclude_dirs or [])
+    }
     cpp_files = []
     for directory in directories:
-        for root, _, files in os.walk(directory):
+        base_dir = (ROOT / directory).resolve()
+        for root, _, files in os.walk(base_dir):
+            root_path = Path(root).resolve()
+            if any(root_path == exclude or exclude in root_path.parents for exclude in exclude_roots):
+                continue
             for file in files:
                 if file.endswith(".cpp"):
-                    cpp_files.append(os.path.join(root, file))
+                    cpp_files.append(os.path.relpath(os.path.join(root, file), ROOT))
     return cpp_files
 
-directories_to_include = [
-    '../cpp/chanlun',
-    '../cpp/common',
-    '../cpp/copilot',
-    '../cpp/indicator'
-]
-
-cpp_files = gather_cpp_files(directories_to_include)
+fqcopilot_cpp_files = gather_cpp_files(
+    [
+        "../cpp/chanlun",
+        "../cpp/common",
+        "../cpp/copilot",
+        "../cpp/indicator",
+    ]
+)
+fullcalc_cpp_files = [os.path.relpath(ROOT / "../cpp/func_set.cpp", ROOT)] + gather_cpp_files(
+    [
+        "../fullcalc",
+        "../cpp/common",
+        "../cpp/copilot",
+        "../cpp/indicator",
+        "../../fqchan04/cpp/chanlun",
+    ]
+)
 
 extensions = [
     Extension(
         name="fqcopilot",
-        sources=cython_files + cpp_files,
-        include_dirs=["../cpp"],
+        sources=cython_files + fqcopilot_cpp_files,
+        include_dirs=[str((ROOT / "../cpp").resolve())],
         language="c++",
-        define_macros=[
-            ("_FORCE_SWELL_WHEN_9WAVE", "1"),
-            ("_GAP_COUNT_AS_ONE_BAR", "1"),
-            ("_RIPPLE_REVERSE_WAVE_NO_MERGE", "1"),
+        define_macros=DEFINE_MACROS,
+        extra_compile_args=FQCOPILOT_COMPILE_ARGS,
+    ),
+    Pybind11Extension(
+        name="fullcalc",
+        sources=fullcalc_cpp_files,
+        include_dirs=[
+            str((ROOT / "../fullcalc").resolve()),
+            str((ROOT / "../cpp").resolve()),
+            str((ROOT / "../../fqchan04/cpp").resolve()),
         ],
-    )
+        language="c++",
+        define_macros=DEFINE_MACROS + [("MAKE_X64", "1")],
+        extra_compile_args=FULLCALC_COMPILE_ARGS,
+        cxx_std=17,
+    ),
 ]
 
 setup(
-    ext_modules=cythonize(extensions),
+    ext_modules=cythonize([extensions[0]]) + [extensions[1]],
     cmdclass={'build_ext': build_ext_subclass},
     install_requires=INSTALL_REQUIRES,
 )

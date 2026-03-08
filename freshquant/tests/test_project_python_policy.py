@@ -1,4 +1,7 @@
+import runpy
+import sys
 import tomllib
+import types
 from pathlib import Path
 
 
@@ -83,3 +86,75 @@ def test_local_extension_packages_require_python312() -> None:
     for package_name, path in package_paths.items():
         data = tomllib.loads(path.read_text(encoding="utf-8"))
         assert data["project"]["requires-python"] == ">=3.12,<3.13", package_name
+
+
+def test_fqcopilot_build_system_includes_pybind11() -> None:
+    data = tomllib.loads(
+        Path("morningglory/fqcopilot/python/pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )
+    requires = {
+        item.split("[")[0].split(">=")[0].split("==")[0].lower()
+        for item in data["build-system"]["requires"]
+    }
+    assert "pybind11" in requires
+
+
+def test_fqcopilot_setup_declares_fullcalc_extension(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_setup(**kwargs):
+        captured.update(kwargs)
+
+    class DummyBuildExt:
+        def build_extensions(self):
+            return None
+
+    class DummyExtension:
+        def __init__(self, name, sources, **kwargs):
+            self.name = name
+            self.sources = sources
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    cython_build = types.SimpleNamespace(cythonize=lambda exts: exts)
+    setuptools_module = types.SimpleNamespace(setup=fake_setup, Extension=DummyExtension)
+    setuptools_command = types.SimpleNamespace(build_ext=types.SimpleNamespace(build_ext=DummyBuildExt))
+    setuptools_extension = types.SimpleNamespace(Extension=DummyExtension)
+    monkeypatch.setitem(sys.modules, "setuptools", setuptools_module)
+    monkeypatch.setitem(sys.modules, "setuptools.command", setuptools_command)
+    monkeypatch.setitem(
+        sys.modules,
+        "setuptools.command.build_ext",
+        types.SimpleNamespace(build_ext=DummyBuildExt),
+    )
+    monkeypatch.setitem(sys.modules, "setuptools.extension", setuptools_extension)
+    monkeypatch.setitem(sys.modules, "Cython", types.SimpleNamespace(Build=cython_build))
+    monkeypatch.setitem(sys.modules, "Cython.Build", cython_build)
+    monkeypatch.setitem(
+        sys.modules,
+        "pybind11",
+        types.SimpleNamespace(setup_helpers=types.SimpleNamespace(Pybind11Extension=DummyExtension)),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "pybind11.setup_helpers",
+        types.SimpleNamespace(Pybind11Extension=DummyExtension),
+    )
+
+    runpy.run_path("morningglory/fqcopilot/python/setup.py", run_name="__main__")
+
+    ext_modules = captured.get("ext_modules")
+    assert ext_modules is not None
+    ext_names = {ext.name for ext in ext_modules}
+    assert "fullcalc" in ext_names
+    fullcalc_ext = next(ext for ext in ext_modules if ext.name == "fullcalc")
+    assert any(
+        source.replace("\\", "/").endswith("fqchan04/cpp/chanlun/czsc.cpp")
+        for source in fullcalc_ext.sources
+    )
+    assert any(
+        source.replace("\\", "/").endswith("cpp/func_set.cpp")
+        for source in fullcalc_ext.sources
+    )
