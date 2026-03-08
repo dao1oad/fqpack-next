@@ -100,6 +100,123 @@ def _estimate_history_window_days(period_backend: str, *, max_bars: int) -> int:
     return int(days * 1.35)
 
 
+def _empty_bar_window_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=["datetime", "open", "high", "low", "close", "volume", "amount"]
+    )
+
+
+def _coerce_bar_datetime(value: Any) -> pd.Timestamp | pd.NaT:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return pd.NaT
+    try:
+        ts = pd.Timestamp(value)
+    except Exception:
+        return pd.NaT
+    if pd.isna(ts):
+        return pd.NaT
+    if ts.tzinfo is None:
+        return ts.tz_localize(cfg.TZ)
+    return ts.tz_convert(cfg.TZ)
+
+
+def _normalize_bar_window_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return _empty_bar_window_df()
+
+    bars = df.copy()
+    if "vol" in bars.columns and "volume" not in bars.columns:
+        bars["volume"] = bars["vol"]
+    for col in ["datetime", "open", "high", "low", "close", "volume", "amount"]:
+        if col not in bars.columns:
+            bars[col] = None
+
+    bars = bars[["datetime", "open", "high", "low", "close", "volume", "amount"]]
+    bars["datetime"] = bars["datetime"].apply(_coerce_bar_datetime)
+    bars = bars.dropna(subset=["datetime"])
+    if bars.empty:
+        return _empty_bar_window_df()
+    bars["datetime"] = pd.DatetimeIndex(bars["datetime"])
+
+    return bars.sort_values("datetime").reset_index(drop=True)
+
+
+def _load_minute_history_from_quantaxis_db(
+    *,
+    base_code6: str,
+    period_backend: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    coll_name: str,
+) -> pd.DataFrame:
+    date_query = {
+        "code": str(base_code6),
+        "type": to_backend_period(period_backend),
+        "date": {
+            "$gte": start_dt.strftime("%Y-%m-%d"),
+            "$lte": end_dt.strftime("%Y-%m-%d"),
+        },
+    }
+    cursor = (
+        DBQuantAxis[coll_name]
+        .find(
+            date_query,
+            {
+                "_id": 0,
+                "datetime": 1,
+                "open": 1,
+                "high": 1,
+                "low": 1,
+                "close": 1,
+                "vol": 1,
+                "volume": 1,
+                "amount": 1,
+                "time_stamp": 1,
+            },
+        )
+        .sort("time_stamp", 1)
+    )
+    raw_df = pd.DataFrame(list(cursor))
+    if "time_stamp" in raw_df.columns and raw_df["time_stamp"].notna().any():
+        raw_df = raw_df.copy()
+        raw_df["datetime"] = (
+            pd.to_datetime(
+                pd.to_numeric(raw_df["time_stamp"], errors="coerce"),
+                unit="s",
+                utc=True,
+            )
+            .dt.tz_convert(cfg.TZ)
+        )
+    hist_df = _normalize_bar_window_df(raw_df)
+    if hist_df.empty:
+        return hist_df
+    hist_df = hist_df[
+        (hist_df["datetime"] >= start_dt) & (hist_df["datetime"] <= end_dt)
+    ]
+    return hist_df.reset_index(drop=True)
+
+
+def _load_qfq_adj_df(
+    *,
+    coll_name: str,
+    base_code6: str,
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame:
+    cursor = (
+        DBQuantAxis[coll_name]
+        .find(
+            {
+                "code": str(base_code6),
+                "date": {"$gte": start_date, "$lte": end_date},
+            },
+            {"_id": 0, "date": 1, "adj": 1},
+        )
+        .sort("date", 1)
+    )
+    return pd.DataFrame(list(cursor))
+
+
 def _worker_fullcalc(df: pd.DataFrame, model_ids: list[int]) -> dict[str, Any]:
     return run_fullcalc(df, model_ids=model_ids)
 
@@ -296,7 +413,7 @@ class StrategyConsumer:
     def _load_window_from_db(self, *, code: str, period_backend: str) -> pd.DataFrame:
         """
         Load a max_bars window:
-        - history: QUANTAXIS minute DB
+        - history: quantaxis minute DB via project-configured Mongo
         - realtime: DBfreshquant.<stock_realtime/index_realtime>
         - return: DataFrame with tz-aware `datetime` and columns open/high/low/close/volume/amount
         """
@@ -309,51 +426,21 @@ class StrategyConsumer:
         base6 = _base_code(code)
         is_index_like = self._is_index_like(code)
 
-        hist_df = pd.DataFrame(
-            columns=["datetime", "open", "high", "low", "close", "volume", "amount"]
-        )
+        hist_coll = "index_min" if is_index_like else "stock_min"
+        hist_df = _empty_bar_window_df()
         try:
-            from QUANTAXIS import QA_fetch_index_min_adv, QA_fetch_stock_min_adv
-            from QUANTAXIS.QAUtil.QADate import QA_util_datetime_to_strdatetime
-
-            start_s = QA_util_datetime_to_strdatetime(start_dt)
-            end_s = QA_util_datetime_to_strdatetime(end_dt)
-            if is_index_like:
-                adv = QA_fetch_index_min_adv(
-                    base6, start_s, end_s, frequence=period_backend
-                )
-                qa = adv.data if adv is not None else None
-            else:
-                adv = QA_fetch_stock_min_adv(
-                    base6, start_s, end_s, frequence=period_backend
-                )
-                qa = adv.to_qfq().data if adv is not None else None
-
-            if qa is not None and len(qa) > 0:
-                qdf = qa.reset_index() if "datetime" not in qa.columns else qa.copy()
-                if "vol" in qdf.columns and "volume" not in qdf.columns:
-                    qdf["volume"] = qdf["vol"]
-                cols = [
-                    c
-                    for c in [
-                        "datetime",
-                        "open",
-                        "high",
-                        "low",
-                        "close",
-                        "volume",
-                        "amount",
-                    ]
-                    if c in qdf.columns
-                ]
-                hist_df = qdf[cols].copy()
+            hist_df = _load_minute_history_from_quantaxis_db(
+                base_code6=base6,
+                period_backend=period_backend,
+                start_dt=start_dt,
+                end_dt=end_dt,
+                coll_name=hist_coll,
+            )
         except Exception as e:
             logger.warning(
-                f"[Consumer] QUANTAXIS unavailable; history window is empty: {e}"
+                f"[Consumer] quantaxis history query failed; history window is empty: {e}"
             )
-            hist_df = pd.DataFrame(
-                columns=["datetime", "open", "high", "low", "close", "volume", "amount"]
-            )
+            hist_df = _empty_bar_window_df()
 
         # realtime bars (may be empty)
         coll = "index_realtime" if is_index_like else "stock_realtime"
@@ -380,36 +467,26 @@ class StrategyConsumer:
         )
         rt_df = pd.DataFrame(list(rt_cur))
 
-        merged = pd.concat([hist_df, rt_df], ignore_index=True)
+        merged = _normalize_bar_window_df(pd.concat([hist_df, rt_df], ignore_index=True))
         if merged.empty:
             return merged
 
-        merged["datetime"] = pd.to_datetime(merged["datetime"], errors="coerce")
-        if getattr(merged["datetime"].dt, "tz", None) is None:
-            merged["datetime"] = merged["datetime"].dt.tz_localize(cfg.TZ)
-        else:
-            merged["datetime"] = merged["datetime"].dt.tz_convert(cfg.TZ)
-
-        merged = merged.dropna(subset=["datetime"])
         merged = merged.drop_duplicates(subset=["datetime"], keep="last")
         merged = merged.sort_values("datetime")
 
-        if is_index_like:
-            # apply ETF qfq on merged raw bars (best-effort; missing adj => factor=1)
-            start_date = start_dt.strftime("%Y-%m-%d")
-            end_date = end_dt.strftime("%Y-%m-%d")
-            adj_docs = list(
-                DBQuantAxis["etf_adj"]
-                .find(
-                    {"code": base6, "date": {"$gte": start_date, "$lte": end_date}},
-                    {"_id": 0, "date": 1, "adj": 1},
-                )
-                .sort("date", 1)
-            )
-            if adj_docs:
-                merged = apply_qfq_to_bars(
-                    merged, pd.DataFrame(adj_docs), datetime_col="datetime"
-                )
+        # Apply qfq on merged raw bars. Index-like symbols reuse etf_adj; plain indexes
+        # simply no-op when no adj rows exist.
+        start_date = start_dt.strftime("%Y-%m-%d")
+        end_date = end_dt.strftime("%Y-%m-%d")
+        adj_coll = "etf_adj" if is_index_like else "stock_adj"
+        adj_df = _load_qfq_adj_df(
+            coll_name=adj_coll,
+            base_code6=base6,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if not adj_df.empty:
+            merged = apply_qfq_to_bars(merged, adj_df, datetime_col="datetime")
 
         if len(merged) > self.max_bars:
             merged = merged.iloc[-self.max_bars :]
