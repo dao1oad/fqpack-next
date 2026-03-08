@@ -26,7 +26,10 @@ from freshquant.market_data.xtdata.constants import (
     REDIS_QUEUE_PREFIX,
     REDIS_QUEUE_SHARDS,
 )
-from freshquant.market_data.xtdata.pools import load_monitor_codes
+from freshquant.market_data.xtdata.pools import (
+    load_monitor_codes,
+    normalize_xtdata_mode,
+)
 from freshquant.market_data.xtdata.realtime_store import upsert_realtime_bars
 from freshquant.market_data.xtdata.schema import BarCloseEvent
 from freshquant.util.period import (
@@ -269,11 +272,7 @@ class StrategyConsumer:
             submit_fn=self._submit_fullcalc,
         )
 
-        self.mode = (
-            str(queryParam("monitor.xtdata.mode", "clx_15_30") or "clx_15_30")
-            .strip()
-            .lower()
-        )
+        self.mode = normalize_xtdata_mode(queryParam("monitor.xtdata.mode", None))
         self.max_symbols = int(queryParam("monitor.xtdata.max_symbols", 50) or 50)
 
         logger.info(
