@@ -561,6 +561,8 @@ def buy(
     strategyName="N/A",
     remark="N/A",
     retryCount=0,
+    order_type=None,
+    price_type=None,
 ):
     with trading_manager.lock():
         # 获取当前连接的xt_trader和acc
@@ -599,12 +601,22 @@ def buy(
             logger.info("资金不足")
             return
         stock_code = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
+        order_type_to_use = (
+            xtconstant.STOCK_BUY
+            if order_type in (None, "", "None")
+            else int(order_type)
+        )
+        price_type_to_use = (
+            xtconstant.FIX_PRICE
+            if price_type in (None, "", "None", 0, "0")
+            else int(price_type)
+        )
         fix_result_order_id = xt_trader.order_stock(
             acc,
             stock_code,
-            xtconstant.STOCK_BUY,
+            order_type_to_use,
             int(quantity),
-            xtconstant.FIX_PRICE,
+            price_type_to_use,
             float(price),
             strategy_name=strategyName,
             order_remark=remark,
@@ -641,6 +653,7 @@ def sell(
     strategyName="N/A",
     remark="N/A",
     retryCount=0,
+    order_type=None,
 ):
     with trading_manager.lock():
         # 获取当前连接的xt_trader和acc
@@ -686,9 +699,13 @@ def sell(
                     if ticks[stock_code]["bidPrice"][0] != 0
                     else ticks[stock_code]["lastPrice"]
                 )
-        order_type = xtconstant.STOCK_SELL
-        if stock_code in REPO_CODE_LIST:
-            order_type = xtconstant.CREDIT_SELL
+        order_type_to_use = (
+            None if order_type in (None, "", "None") else int(order_type)
+        )
+        if order_type_to_use is None:
+            order_type_to_use = xtconstant.STOCK_SELL
+            if stock_code in REPO_CODE_LIST:
+                order_type_to_use = xtconstant.CREDIT_SELL
         if stock_code not in REPO_CODE_LIST:
             positions = xt_trader.query_stock_positions(acc)
             position = pydash.find(positions, lambda p: p.stock_code == stock_code)
@@ -701,12 +718,12 @@ def sell(
         fix_result_order_id = xt_trader.order_stock(
             acc,
             stock_code,
-            order_type,
+            order_type_to_use,
             int(quantity),
             (
                 xtconstant.FIX_PRICE
-                if price_type == 0 or price_type is None
-                else price_type
+                if price_type in (0, None, "", "None", "0")
+                else int(price_type)
             ),
             float(price),
             strategyName,

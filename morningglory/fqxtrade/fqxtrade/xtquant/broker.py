@@ -257,13 +257,20 @@ def trading_main_loop():
                             )
                             if execution.get("status") == "skipped":
                                 continue
+                            resolved_order = execution.get("order_message", order)
                             r = puppet.buy(
-                                order["symbol"],
-                                order["price"],
-                                order["quantity"],
-                                pydash.get(order, "strategy_name", "N/A"),
-                                pydash.get(order, "remark", "N/A"),
-                                pydash.get(order, "retry_count", 0),
+                                resolved_order["symbol"],
+                                resolved_order["price"],
+                                resolved_order["quantity"],
+                                pydash.get(resolved_order, "strategy_name", "N/A"),
+                                pydash.get(resolved_order, "remark", "N/A"),
+                                pydash.get(resolved_order, "retry_count", 0),
+                                order_type=pydash.get(
+                                    resolved_order, "broker_order_type"
+                                ),
+                                price_type=pydash.get(
+                                    resolved_order, "broker_price_type"
+                                ),
                             )
                             logger.info(r)
                             finalize_submit_execution(
@@ -280,14 +287,18 @@ def trading_main_loop():
                             )
                             if execution.get("status") == "skipped":
                                 continue
+                            resolved_order = execution.get("order_message", order)
                             r = puppet.sell(
-                                order["symbol"],
-                                pydash.get(order, "price_type"),
-                                order["price"],
-                                order["quantity"],
-                                pydash.get(order, "strategy_name", "N/A"),
-                                pydash.get(order, "remark", "N/A"),
-                                pydash.get(order, "retry_count", 0),
+                                resolved_order["symbol"],
+                                pydash.get(resolved_order, "broker_price_type"),
+                                resolved_order["price"],
+                                resolved_order["quantity"],
+                                pydash.get(resolved_order, "strategy_name", "N/A"),
+                                pydash.get(resolved_order, "remark", "N/A"),
+                                pydash.get(resolved_order, "retry_count", 0),
+                                order_type=pydash.get(
+                                    resolved_order, "broker_order_type"
+                                ),
                             )
                             logger.info(r)
                             finalize_submit_execution(
