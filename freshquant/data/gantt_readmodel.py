@@ -65,6 +65,10 @@ def _resolve_shouban30_stock_window_days(value: Any, default: int = 30) -> int:
     return default
 
 
+def _sorted_unique_texts(values: list[Any]) -> list[str]:
+    return sorted({_to_str(item) for item in values if _to_str(item)})
+
+
 def _get_collection(name: str):
     return DBGantt[name]
 
@@ -746,6 +750,7 @@ def _group_shouban30_plate_candidates(
                 "appear_days_30": len(unique_dates),
                 "seg_from": seg_from,
                 "seg_to": seg_to,
+                "hit_trade_dates_30": unique_dates,
             }
         )
 
@@ -781,15 +786,18 @@ def _build_shouban30_stock_rows(
             )
         )
         latest = items[-1]
-        hit_dates = {_to_str(item.get("trade_date")) for item in items}
-        hit_count_window = len(hit_dates)
-        hit_count_30 = len(
-            {
+        hit_trade_dates_window = _sorted_unique_texts(
+            [_to_str(item.get("trade_date")) for item in items]
+        )
+        hit_count_window = len(hit_trade_dates_window)
+        hit_trade_dates_30 = _sorted_unique_texts(
+            [
                 _to_str(item.get("trade_date"))
                 for item in items
                 if _to_str(item.get("trade_date")) in target_hit_count_30_dates
-            }
+            ]
         )
+        hit_count_30 = len(hit_trade_dates_30)
         results.append(
             {
                 "provider": provider,
@@ -801,6 +809,8 @@ def _build_shouban30_stock_rows(
                 "name": _to_str(latest.get("name")) or code6,
                 "hit_count_30": hit_count_30,
                 "hit_count_window": hit_count_window,
+                "hit_trade_dates_30": hit_trade_dates_30,
+                "hit_trade_dates_window": hit_trade_dates_window,
                 "latest_trade_date": _to_str(latest.get("trade_date")),
                 "latest_reason": _to_str(latest.get("stock_reason")) or None,
             }
@@ -980,6 +990,9 @@ def build_shouban30_plate_rows(
                 "appear_days_30": item.get("appear_days_30"),
                 "seg_from": _to_str(item.get("seg_from")),
                 "seg_to": seg_to,
+                "hit_trade_dates_30": _sorted_unique_texts(
+                    list(item.get("hit_trade_dates_30") or [])
+                ),
                 "stocks_count": _to_int(item.get("stocks_count"), 0),
                 "stock_window_from": _to_str(item.get("stock_window_from")) or None,
                 "stock_window_to": _to_str(item.get("stock_window_to"))
