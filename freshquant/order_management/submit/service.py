@@ -5,6 +5,12 @@ from datetime import datetime, timezone
 
 from freshquant.carnation.config import STOCK_ORDER_QUEUE
 from freshquant.order_management.repository import OrderManagementRepository
+from freshquant.order_management.submit.credit_order_resolver import (
+    build_credit_subject_lookup,
+    build_credit_subjects_available,
+    get_configured_account_type,
+    resolve_submit_credit_order,
+)
 from freshquant.order_management.tracking.service import OrderTrackingService
 from freshquant.position_management.errors import PositionManagementRejectedError
 from freshquant.util.code import normalize_to_base_code
@@ -17,6 +23,10 @@ class OrderSubmitService:
         tracking_service=None,
         queue_client=None,
         position_management_service=None,
+        account_type_loader=None,
+        credit_subject_lookup=None,
+        credit_subjects_available=None,
+        credit_order_resolver=None,
     ):
         self.repository = repository or OrderManagementRepository()
         self.tracking_service = tracking_service or OrderTrackingService(
@@ -25,6 +35,14 @@ class OrderSubmitService:
         self.queue_client = queue_client or _load_queue_client()
         self.position_management_service = (
             position_management_service or _load_position_management_service()
+        )
+        self.account_type_loader = account_type_loader or get_configured_account_type
+        self.credit_subject_lookup = credit_subject_lookup or _default_credit_subject_lookup
+        self.credit_subjects_available = (
+            credit_subjects_available or _default_credit_subjects_available
+        )
+        self.credit_order_resolver = (
+            credit_order_resolver or resolve_submit_credit_order
         )
 
     def submit_order(self, payload):
@@ -37,6 +55,19 @@ class OrderSubmitService:
         quantity = int(payload["quantity"])
         if quantity <= 0:
             raise ValueError("quantity must be positive")
+        account_type = _normalize_account_type(
+            payload.get("account_type") or self.account_type_loader()
+        )
+        credit_trade_mode = _normalize_mode(payload.get("credit_trade_mode"))
+        price_mode = _normalize_mode(payload.get("price_mode"))
+        credit_resolution = self.credit_order_resolver(
+            account_type=account_type,
+            action=action,
+            symbol=symbol,
+            requested_mode=credit_trade_mode,
+            credit_subject_lookup=self.credit_subject_lookup,
+            credit_subjects_available=self.credit_subjects_available,
+        )
 
         position_decision = None
         if payload.get("source") == "strategy":
@@ -66,6 +97,10 @@ class OrderSubmitService:
                 "symbol": symbol,
                 "price": price,
                 "quantity": quantity,
+                "account_type": account_type,
+                "credit_trade_mode": credit_trade_mode,
+                "price_mode": price_mode,
+                **credit_resolution,
             }
         )
         order = self.repository.find_order_by_request_id(request_id)
@@ -87,6 +122,13 @@ class OrderSubmitService:
             "scope_type": payload.get("scope_type"),
             "scope_ref_id": payload.get("scope_ref_id"),
             "strategy_context": payload.get("strategy_context"),
+            "account_type": account_type,
+            "credit_trade_mode": credit_trade_mode,
+            "price_mode": price_mode,
+            "credit_trade_mode_resolved": credit_resolution[
+                "credit_trade_mode_resolved"
+            ],
+            "broker_order_type": credit_resolution["broker_order_type"],
         }
         if position_decision is not None:
             queue_payload["position_management_state"] = position_decision.state
@@ -170,3 +212,21 @@ def _load_position_management_service():
 
 def _now_local_string():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _normalize_account_type(account_type):
+    value = str(account_type or "STOCK").strip().upper()
+    return value or "STOCK"
+
+
+def _normalize_mode(value, default="auto"):
+    normalized = str(value or default).strip().lower()
+    return normalized or default
+
+
+def _default_credit_subject_lookup(symbol):
+    return build_credit_subject_lookup()(symbol)
+
+
+def _default_credit_subjects_available():
+    return build_credit_subjects_available()()

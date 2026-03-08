@@ -136,3 +136,37 @@ def test_submit_service_enqueues_cancel_and_preserves_cancel_requested_state():
     assert repository.order_events[-1]["event_type"] == "cancel_queued"
     assert '"action": "cancel"' in queue_client.messages[-1][1]
     assert '"broker_order_id": "90001"' in queue_client.messages[-1][1]
+
+
+def test_credit_buy_persists_resolved_credit_metadata_and_queue_payload():
+    repository = InMemoryRepository()
+    queue_client = FakeQueueClient()
+    service = OrderSubmitService(
+        repository=repository,
+        queue_client=queue_client,
+        position_management_service=AllowingPositionService(),
+        account_type_loader=lambda: "CREDIT",
+        credit_subject_lookup=lambda _symbol: {"fin_status": 48},
+        credit_subjects_available=lambda: True,
+    )
+
+    result = service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "600000.SH",
+            "price": 10.0,
+            "quantity": 300,
+            "source": "api",
+        }
+    )
+
+    assert repository.order_requests[0]["account_type"] == "CREDIT"
+    assert repository.order_requests[0]["credit_trade_mode"] == "auto"
+    assert repository.order_requests[0]["price_mode"] == "auto"
+    assert repository.orders[0]["credit_trade_mode_requested"] == "auto"
+    assert repository.orders[0]["credit_trade_mode_resolved"] == "finance_buy"
+    assert repository.orders[0]["broker_order_type"] == 27
+    assert result["queue_payload"]["account_type"] == "CREDIT"
+    assert result["queue_payload"]["credit_trade_mode"] == "auto"
+    assert result["queue_payload"]["credit_trade_mode_resolved"] == "finance_buy"
+    assert result["queue_payload"]["broker_order_type"] == 27
