@@ -67,6 +67,12 @@ def test_resolve_gantt_backfill_trade_dates_returns_empty_when_no_gap(monkeypatc
     monkeypatch.setattr(
         ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-06"
     )
+    monkeypatch.setattr(
+        ops,
+        "_has_legacy_shouban30_snapshot",
+        lambda trade_date: False,
+        raising=False,
+    )
 
     assert ops.resolve_gantt_backfill_trade_dates() == []
 
