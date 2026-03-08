@@ -5,6 +5,9 @@ import {
   aggregatePlateRows,
   aggregateStockRows,
   buildViewStats,
+  formatProviderLoadErrors,
+  loadProvidersIndependently,
+  normalizeSourcePlateRefs,
   sortStockRows,
   sortPlateRows,
 } from './shouban30Aggregation.mjs'
@@ -46,7 +49,7 @@ test('aggregatePlateRows merges same-name plates and deduplicates stock codes', 
       {
         provider: 'xgb',
         plate_key: '11',
-        plate_name: '机器人',
+        plate_name: 'robotics',
         seg_to: '2026-03-05',
         appear_days_30: 2,
         hit_trade_dates_30: ['2026-03-04', '2026-03-05'],
@@ -57,7 +60,7 @@ test('aggregatePlateRows merges same-name plates and deduplicates stock codes', 
       {
         provider: 'jygs',
         plate_key: 'robot',
-        plate_name: '机器人',
+        plate_name: 'robotics',
         seg_to: '2026-03-06',
         appear_days_30: 2,
         hit_trade_dates_30: ['2026-03-05', '2026-03-06'],
@@ -66,7 +69,7 @@ test('aggregatePlateRows merges same-name plates and deduplicates stock codes', 
       {
         provider: 'jygs',
         plate_key: 'chip',
-        plate_name: '芯片',
+        plate_name: 'chips',
         seg_to: '2026-03-03',
         appear_days_30: 1,
         hit_trade_dates_30: ['2026-03-03'],
@@ -86,22 +89,63 @@ test('aggregatePlateRows merges same-name plates and deduplicates stock codes', 
 
   assert.equal(rows.length, 2)
   assert.deepEqual(rows[0], {
-    view_key: 'agg|机器人',
+    view_key: 'agg|robotics',
     provider: 'agg',
-    plate_key: 'agg|机器人',
-    plate_name: '机器人',
+    plate_key: 'agg|robotics',
+    plate_name: 'robotics',
     appear_days_30: 3,
     last_up_date: '2026-03-06',
     seg_to: '2026-03-06',
     stocks_count: 3,
     reason_text: 'jygs reason',
     providers: ['xgb', 'jygs'],
-    source_plate_keys: {
-      xgb: '11',
-      jygs: 'robot',
-    },
+    source_plate_refs: [
+      { provider: 'xgb', plate_key: '11' },
+      { provider: 'jygs', plate_key: 'robot' },
+    ],
     hit_trade_dates_30: ['2026-03-04', '2026-03-05', '2026-03-06'],
   })
+})
+
+test('aggregatePlateRows keeps all source plate refs for same provider and same name', () => {
+  const rows = aggregatePlateRows({
+    xgbPlates: [
+      {
+        provider: 'xgb',
+        plate_key: 'robot-a',
+        plate_name: 'robotics',
+        seg_to: '2026-03-05',
+        appear_days_30: 1,
+        hit_trade_dates_30: ['2026-03-05'],
+        reason_text: 'xgb a',
+      },
+      {
+        provider: 'xgb',
+        plate_key: 'robot-b',
+        plate_name: 'robotics',
+        seg_to: '2026-03-06',
+        appear_days_30: 1,
+        hit_trade_dates_30: ['2026-03-06'],
+        reason_text: 'xgb b',
+      },
+    ],
+    jygsPlates: [],
+    stockRowsByProvider: {
+      xgb: {
+        'robot-a': [{ code6: '000001' }],
+        'robot-b': [{ code6: '000002' }, { code6: '000003' }],
+      },
+      jygs: {},
+    },
+  })
+
+  assert.equal(rows.length, 1)
+  assert.deepEqual(rows[0].source_plate_refs, [
+    { provider: 'xgb', plate_key: 'robot-a' },
+    { provider: 'xgb', plate_key: 'robot-b' },
+  ])
+  assert.equal(rows[0].stocks_count, 3)
+  assert.equal(rows[0].last_up_date, '2026-03-06')
 })
 
 test('aggregateStockRows merges same code6 and keeps latest reason', () => {
@@ -195,4 +239,54 @@ test('buildViewStats counts unique stocks by code6', () => {
     plate_count: 2,
     stock_count: 3,
   })
+})
+
+test('normalizeSourcePlateRefs supports legacy object shape and new array shape', () => {
+  assert.deepEqual(normalizeSourcePlateRefs({
+    xgb: 'robot-a',
+    jygs: 'robot',
+  }), [
+    { provider: 'xgb', plate_key: 'robot-a' },
+    { provider: 'jygs', plate_key: 'robot' },
+  ])
+
+  assert.deepEqual(normalizeSourcePlateRefs([
+    { provider: 'xgb', plate_key: 'robot-a' },
+    { provider: 'xgb', plate_key: 'robot-a' },
+    { provider: 'jygs', plate_key: 'robot' },
+  ]), [
+    { provider: 'xgb', plate_key: 'robot-a' },
+    { provider: 'jygs', plate_key: 'robot' },
+  ])
+})
+
+test('loadProvidersIndependently keeps successful provider data when peer fails', async () => {
+  const result = await loadProvidersIndependently({
+    providers: ['xgb', 'jygs'],
+    fetcher: async (provider) => {
+      if (provider === 'jygs') throw new Error('timeout')
+      return { items: ['ok'] }
+    },
+    emptyValueFactory: () => ({ items: [] }),
+  })
+
+  assert.deepEqual(result.valuesByProvider, {
+    xgb: { items: ['ok'] },
+    jygs: { items: [] },
+  })
+  assert.equal(result.errors.length, 1)
+  assert.equal(result.errors[0].provider, 'jygs')
+  assert.equal(result.errors[0].error.message, 'timeout')
+})
+
+test('formatProviderLoadErrors includes provider labels and messages', () => {
+  const message = formatProviderLoadErrors({
+    errors: [
+      { provider: 'jygs', error: new Error('timeout') },
+      { provider: 'xgb', error: { response: { data: { message: '500' } } } },
+    ],
+    targetLabel: '首板板块',
+  })
+
+  assert.equal(message, 'JYGS首板板块加载失败: timeout；XGB首板板块加载失败: 500')
 })

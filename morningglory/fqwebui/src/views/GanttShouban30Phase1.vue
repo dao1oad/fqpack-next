@@ -206,6 +206,10 @@ import {
   aggregatePlateRows,
   aggregateStockRows,
   buildViewStats,
+  formatProviderLabel,
+  formatProviderLoadErrors,
+  loadProvidersIndependently,
+  normalizeSourcePlateRefs,
   sortPlateRows,
   sortStockRows,
 } from './shouban30Aggregation.mjs'
@@ -307,7 +311,7 @@ const getSourceStockRows = (provider, plateKey) => {
 const getViewStocksForPlate = (plate) => {
   if (!plate) return []
   if (toText(plate.provider) === 'agg') {
-    const sourceRows = Object.entries(plate.source_plate_keys || {}).flatMap(([provider, plateKey]) => {
+    const sourceRows = normalizeSourcePlateRefs(plate.source_plate_refs || plate.source_plate_keys).flatMap(({ provider, plate_key: plateKey }) => {
       return getSourceStockRows(provider, plateKey)
     })
     return aggregateStockRows(sourceRows)
@@ -384,10 +388,7 @@ const formatTabStats = (stats) => {
   return `${target.plate_count}板 / ${target.stock_count}股`
 }
 
-const formatProvider = (value) => {
-  const provider = toText(value).toUpperCase()
-  return provider || '-'
-}
+const formatProvider = (value) => formatProviderLabel(value)
 
 const clearDetailState = () => {
   reasonRequestId += 1
@@ -466,33 +467,55 @@ const loadViewData = async () => {
   sourceStocksByProvider.value = { xgb: {}, jygs: {} }
 
   try {
-    const [xgbResult, jygsResult] = await Promise.all([
-      fetchProviderPlates('xgb'),
-      fetchProviderPlates('jygs'),
-    ])
+    const plateLoad = await loadProvidersIndependently({
+      providers: SOURCE_PROVIDERS,
+      fetcher: fetchProviderPlates,
+      emptyValueFactory: () => ({ items: [], meta: {} }),
+    })
     if (requestId !== viewRequestId) return
 
-    const nextPlates = {
-      xgb: xgbResult.items,
-      jygs: jygsResult.items,
-    }
-    const nextMeta = {
-      xgb: xgbResult.meta,
-      jygs: jygsResult.meta,
-    }
+    const nextPlates = Object.fromEntries(
+      SOURCE_PROVIDERS.map((provider) => [
+        provider,
+        normalizeList(plateLoad.valuesByProvider?.[provider]?.items),
+      ]),
+    )
+    const nextMeta = Object.fromEntries(
+      SOURCE_PROVIDERS.map((provider) => [
+        provider,
+        plateLoad.valuesByProvider?.[provider]?.meta || {},
+      ]),
+    )
 
-    const [xgbStocks, jygsStocks] = await Promise.all([
-      fetchProviderStocksByPlate('xgb', nextPlates.xgb, toText(nextMeta.xgb.as_of_date)),
-      fetchProviderStocksByPlate('jygs', nextPlates.jygs, toText(nextMeta.jygs.as_of_date)),
-    ])
+    const stockLoad = await loadProvidersIndependently({
+      providers: SOURCE_PROVIDERS,
+      fetcher: (provider) => {
+        return fetchProviderStocksByPlate(
+          provider,
+          nextPlates[provider],
+          toText(nextMeta[provider]?.as_of_date),
+        )
+      },
+      emptyValueFactory: () => ({}),
+    })
     if (requestId !== viewRequestId) return
 
     sourcePlatesByProvider.value = nextPlates
     sourceMetaByProvider.value = nextMeta
-    sourceStocksByProvider.value = {
-      xgb: xgbStocks,
-      jygs: jygsStocks,
-    }
+    sourceStocksByProvider.value = Object.fromEntries(
+      SOURCE_PROVIDERS.map((provider) => [
+        provider,
+        stockLoad.valuesByProvider?.[provider] || {},
+      ]),
+    )
+    platesError.value = formatProviderLoadErrors({
+      errors: plateLoad.errors,
+      targetLabel: '首板板块',
+    })
+    stocksError.value = formatProviderLoadErrors({
+      errors: stockLoad.errors,
+      targetLabel: '热门标的',
+    })
   } catch (error) {
     if (requestId !== viewRequestId) return
     const message = getErrorMessage(error, '加载首板数据失败')

@@ -4,6 +4,11 @@ const PROVIDER_ORDER = {
   jygs: 1,
   agg: 2,
 }
+const PROVIDER_LABELS = {
+  xgb: 'XGB',
+  jygs: 'JYGS',
+  agg: '聚合',
+}
 
 const sortByDateDesc = (left, right) => {
   return toText(right) === toText(left)
@@ -31,6 +36,79 @@ const uniqueSortedProviders = (values) => {
 
 const uniqueCodeCount = (rows) => {
   return new Set((rows || []).map((item) => toText(item?.code6)).filter(Boolean)).size
+}
+
+const uniqueSourcePlateRefs = (rows = []) => {
+  const refs = []
+  const seen = new Set()
+  for (const row of rows) {
+    const provider = toText(row?.provider)
+    const plateKey = toText(row?.plate_key)
+    if (!provider || !plateKey) continue
+    const dedupeKey = `${provider}|${plateKey}`
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+    refs.push({ provider, plate_key: plateKey })
+  }
+  return refs.sort((left, right) => {
+    const providerCompare = (PROVIDER_ORDER[left.provider] ?? 99) - (PROVIDER_ORDER[right.provider] ?? 99)
+    if (providerCompare !== 0) return providerCompare
+    return sortByNameAsc(left.plate_key, right.plate_key)
+  })
+}
+
+export const normalizeSourcePlateRefs = (value) => {
+  if (Array.isArray(value)) return uniqueSourcePlateRefs(value)
+  if (!value || typeof value !== 'object') return []
+  return uniqueSourcePlateRefs(
+    Object.entries(value).map(([provider, plateKey]) => ({
+      provider,
+      plate_key: plateKey,
+    })),
+  )
+}
+
+const toErrorText = (error) => {
+  return String(error?.response?.data?.message || error?.message || error || '未知错误')
+}
+
+export const formatProviderLabel = (provider) => {
+  const value = toText(provider).toLowerCase()
+  return PROVIDER_LABELS[value] || value.toUpperCase() || '-'
+}
+
+export const formatProviderLoadErrors = ({ errors = [], targetLabel = '数据' } = {}) => {
+  const messages = (errors || [])
+    .map(({ provider, error }) => {
+      const label = formatProviderLabel(provider)
+      const reason = toErrorText(error)
+      return `${label}${targetLabel}加载失败: ${reason}`
+    })
+    .filter(Boolean)
+  return messages.join('；')
+}
+
+export const loadProvidersIndependently = async ({
+  providers = [],
+  fetcher,
+  emptyValueFactory = () => undefined,
+} = {}) => {
+  const settled = await Promise.allSettled(
+    (providers || []).map((provider) => Promise.resolve().then(() => fetcher(provider))),
+  )
+
+  const valuesByProvider = {}
+  const errors = []
+  for (const [index, provider] of (providers || []).entries()) {
+    const result = settled[index]
+    if (result?.status === 'fulfilled') {
+      valuesByProvider[provider] = result.value
+      continue
+    }
+    valuesByProvider[provider] = emptyValueFactory(provider)
+    errors.push({ provider, error: result?.reason })
+  }
+  return { valuesByProvider, errors }
 }
 
 const normalizePlateRow = (row) => {
@@ -72,11 +150,7 @@ export const aggregatePlateRows = ({
     const providers = uniqueSortedProviders(rows.map((item) => item?.provider))
     const latestRow = [...rows].sort((left, right) => sortByDateDesc(left?.seg_to, right?.seg_to))[0]
     const tradeDates = uniqueSortedTexts(rows.flatMap((item) => item?.hit_trade_dates_30 || []))
-    const sourcePlateKeys = Object.fromEntries(
-      rows
-        .map((item) => [toText(item?.provider), toText(item?.plate_key)])
-        .filter(([provider, plateKey]) => provider && plateKey),
-    )
+    const sourcePlateRefs = uniqueSourcePlateRefs(rows)
     const stockRows = rows.flatMap((item) => {
       const provider = toText(item?.provider)
       const plateKey = toText(item?.plate_key)
@@ -94,7 +168,7 @@ export const aggregatePlateRows = ({
       stocks_count: uniqueCodeCount(stockRows),
       reason_text: toText(latestRow?.reason_text) || null,
       providers,
-      source_plate_keys: sourcePlateKeys,
+      source_plate_refs: sourcePlateRefs,
       hit_trade_dates_30: tradeDates,
     })
   }
