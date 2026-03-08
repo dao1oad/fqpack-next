@@ -30,6 +30,16 @@ from freshquant.util.xtquant import translate_account_type, translate_order_type
 
 trading_manager = TradingManager()
 external_reconcile_service = ExternalOrderReconcileService()
+BUY_ORDER_TYPES = {
+    xtconstant.STOCK_BUY,
+    xtconstant.CREDIT_BUY,
+    xtconstant.CREDIT_FIN_BUY,
+}
+SELL_ORDER_TYPES = {
+    xtconstant.STOCK_SELL,
+    xtconstant.CREDIT_SELL,
+    xtconstant.CREDIT_SELL_SECU_REPAY,
+}
 
 
 def saveTrades(trades):
@@ -53,7 +63,7 @@ def saveTrades(trades):
         reconciled = external_reconcile_service.reconcile_trade_reports([trade_dict])
         if not reconciled:
             try_ingest_xt_trade_dict(trade_dict)
-    trades = pydash.filter_(trades, lambda x: x.order_type == xtconstant.STOCK_BUY)
+    trades = pydash.filter_(trades, lambda x: x.order_type in BUY_ORDER_TYPES)
     trades = pydash.uniq_by(trades, lambda x: x.stock_code)
     for trade in trades:
         saveInstrumentStrategy(
@@ -96,6 +106,7 @@ def saveTrades(trades):
         instrumentInfo = query_instrument_info(symbol)
         name = pydash.get(instrumentInfo, "name")
         op = "买" if value[-1]["order_type"] == xtconstant.STOCK_BUY else "卖"
+        op = "买" if value[-1]["order_type"] in BUY_ORDER_TYPES else "卖"
         quantity = pydash.sum_([item["traded_volume"] for item in value])
         price = value[-1]["traded_price"]
         amount = pydash.sum_([item["traded_amount"] for item in value])
@@ -255,6 +266,7 @@ def saveOrders(orders):
         name = pydash.get(instrumentInfo, "name")
         op = "买" if order.order_type == xtconstant.STOCK_BUY else "卖"
         status = "未知"
+        op = "买" if order.order_type in BUY_ORDER_TYPES else "卖"
         if order.order_status == xtconstant.ORDER_SUCCEEDED:
             status = "已成交"
         if order.order_status == xtconstant.ORDER_PART_SUCC:

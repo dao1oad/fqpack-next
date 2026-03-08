@@ -81,6 +81,7 @@ def test_submit_service_enqueues_buy_and_marks_order_queued():
         repository=repository,
         queue_client=queue_client,
         position_management_service=AllowingPositionService(),
+        account_type_loader=lambda: "STOCK",
     )
 
     result = service.submit_order(
@@ -108,7 +109,11 @@ def test_submit_service_enqueues_buy_and_marks_order_queued():
 def test_submit_service_enqueues_cancel_and_preserves_cancel_requested_state():
     repository = InMemoryRepository()
     queue_client = FakeQueueClient()
-    service = OrderSubmitService(repository=repository, queue_client=queue_client)
+    service = OrderSubmitService(
+        repository=repository,
+        queue_client=queue_client,
+        account_type_loader=lambda: "STOCK",
+    )
     create_result = service.submit_order(
         {
             "action": "sell",

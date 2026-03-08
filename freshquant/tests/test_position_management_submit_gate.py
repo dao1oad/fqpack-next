@@ -106,6 +106,7 @@ def test_strategy_order_is_blocked_before_tracking_when_position_management_reje
         repository=repository,
         queue_client=queue_client,
         position_management_service=position_management_service,
+        account_type_loader=lambda: "STOCK",
     )
 
     with pytest.raises(PositionManagementRejectedError):
@@ -132,6 +133,7 @@ def test_api_order_bypasses_position_management():
         repository=repository,
         queue_client=queue_client,
         position_management_service=position_management_service,
+        account_type_loader=lambda: "STOCK",
     )
 
     result = service.submit_order(
@@ -157,6 +159,7 @@ def test_allowed_strategy_order_carries_position_management_summary_to_queue():
         repository=repository,
         queue_client=queue_client,
         position_management_service=position_management_service,
+        account_type_loader=lambda: "STOCK",
     )
 
     result = service.submit_order(
