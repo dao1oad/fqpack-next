@@ -56,7 +56,6 @@ def init_indexes():
         "idx_stock_code_date",
         [("stock_code", pymongo.ASCENDING), ("date", pymongo.ASCENDING)],
     )
-    
     _create_index_if_not_exists(
         DBfreshquant.stock_board_concept_name_em,
         "idx_boards_code_date",
