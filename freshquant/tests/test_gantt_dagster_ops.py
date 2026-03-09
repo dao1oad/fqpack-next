@@ -1,4 +1,5 @@
 import importlib
+import inspect
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -8,23 +9,157 @@ import pytest
 
 def _build_dagster_stub():
     module = ModuleType("dagster")
+    builder_stack = []
+
+    class DynamicOut:
+        def __init__(self, dagster_type=None):
+            self.dagster_type = dagster_type
+
+    class DynamicOutput:
+        def __init__(self, value, mapping_key):
+            self.value = value
+            self.mapping_key = mapping_key
+
+    class _FakeValue:
+        def __init__(self, producer_name=None, is_dynamic=False):
+            self.producer_name = producer_name
+            self.is_dynamic = is_dynamic
+
+        def map(self, fn):
+            if not self.is_dynamic:
+                raise TypeError("map() only supported on dynamic outputs")
+            return fn(_FakeValue(f"{self.producer_name}__item"))
+
+    def _collect_dependencies(args):
+        dependencies = set()
+        for arg in args:
+            if isinstance(arg, _FakeValue) and arg.producer_name:
+                dependencies.add(arg.producer_name)
+            elif isinstance(arg, (list, tuple, set)):
+                dependencies.update(_collect_dependencies(arg))
+        return dependencies
+
+    class _FakeBuilder:
+        def __init__(self, owner):
+            self.owner = owner
+            self.node_defs = []
+            self.node_names = set()
+            self.dependency_map = {}
+
+        def add_node(self, node_def, args):
+            if node_def.name not in self.node_names:
+                self.node_defs.append(node_def)
+                self.node_names.add(node_def.name)
+            self.dependency_map.setdefault(node_def.name, set()).update(
+                _collect_dependencies(args)
+            )
+
+        def extend_graph(self, graph_def):
+            graph_def._ensure_built()
+            for node_def in graph_def.node_defs:
+                if node_def.name not in self.node_names:
+                    self.node_defs.append(node_def)
+                    self.node_names.add(node_def.name)
+            for node_name, dependencies in graph_def.dependency_map.items():
+                self.dependency_map.setdefault(node_name, set()).update(dependencies)
+
+        def finalize(self):
+            self.owner.node_defs = list(self.node_defs)
+            self.owner.dependency_map = {
+                node_name: set(dependencies)
+                for node_name, dependencies in self.dependency_map.items()
+            }
+
+    class _FakeNodeDef:
+        def __init__(self, fn, name):
+            self._fn = fn
+            self.name = name
+
+        def __call__(self, *args, **kwargs):
+            if not builder_stack:
+                return self._fn(*args, **kwargs)
+            builder = builder_stack[-1]
+            builder.add_node(self, args)
+            return _FakeValue(
+                self.name,
+                is_dynamic=getattr(self, "_is_dynamic_output", False),
+            )
+
+    class _FakeOpDef(_FakeNodeDef):
+        def __init__(self, fn, name, out=None):
+            super().__init__(fn, name)
+            self._is_dynamic_output = isinstance(out, DynamicOut)
+
+    class _FakeGraphDef(_FakeNodeDef):
+        def __init__(self, fn, name):
+            super().__init__(fn, name)
+            self.node_defs = []
+            self.dependency_map = {}
+
+        def _ensure_built(self):
+            if self.node_defs:
+                return
+            builder = _FakeBuilder(self)
+            builder_stack.append(builder)
+            try:
+                params = inspect.signature(self._fn).parameters
+                args = [_FakeValue(f"input_{name}") for name in params]
+                self._fn(*args)
+            finally:
+                builder_stack.pop()
+            builder.finalize()
+
+        def __call__(self, *args, **kwargs):
+            if not builder_stack:
+                return self._fn(*args, **kwargs)
+            builder = builder_stack[-1]
+            builder.add_node(self, args)
+            self._ensure_built()
+            builder.extend_graph(self)
+            return _FakeValue(self.name)
+
+        def to_job(self, name=None):
+            self._ensure_built()
+            return _FakeJobDef(name or self.name, self)
+
+    class _FakeJobDef:
+        def __init__(self, name, graph_def):
+            self.name = name
+            self.graph = graph_def
 
     def op(fn=None, **kwargs):
         if fn is None:
-            return lambda inner: inner
-        return fn
+            return lambda inner: _FakeOpDef(
+                inner, kwargs.get("name") or inner.__name__, kwargs.get("out")
+            )
+        return _FakeOpDef(fn, kwargs.get("name") or fn.__name__, kwargs.get("out"))
+
+    def graph(fn=None, **kwargs):
+        if fn is None:
+            return lambda inner: _FakeGraphDef(
+                inner, kwargs.get("name") or inner.__name__
+            )
+        return _FakeGraphDef(fn, kwargs.get("name") or fn.__name__)
 
     def job(fn=None, **kwargs):
+        def _build_job(inner):
+            graph_def = _FakeGraphDef(inner, inner.__name__)
+            graph_def._ensure_built()
+            return _FakeJobDef(kwargs.get("name") or inner.__name__, graph_def)
+
         if fn is None:
-            return lambda inner: inner
-        return fn
+            return _build_job
+        return _build_job(fn)
 
     class ScheduleDefinition:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
     module.op = op
+    module.graph = graph
     module.job = job
+    module.DynamicOut = DynamicOut
+    module.DynamicOutput = DynamicOutput
     module.ScheduleDefinition = ScheduleDefinition
     module.DefaultScheduleStatus = SimpleNamespace(RUNNING="RUNNING")
     return module
@@ -38,6 +173,17 @@ def _load_ops_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "dagster", _build_dagster_stub())
     sys.modules.pop("fqdagster.defs.ops.gantt", None)
     return importlib.import_module("fqdagster.defs.ops.gantt")
+
+
+def _load_jobs_module(monkeypatch):
+    project_src = (
+        Path(__file__).resolve().parents[2] / "morningglory" / "fqdagster" / "src"
+    )
+    monkeypatch.syspath_prepend(str(project_src))
+    monkeypatch.setitem(sys.modules, "dagster", _build_dagster_stub())
+    sys.modules.pop("fqdagster.defs.jobs.gantt", None)
+    sys.modules.pop("fqdagster.defs.ops.gantt", None)
+    return importlib.import_module("fqdagster.defs.jobs.gantt")
 
 
 def _build_context():
@@ -401,3 +547,12 @@ def test_has_legacy_shouban30_snapshot_detects_mixed_legacy_and_new_rows(monkeyp
     )
 
     assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True
+
+
+def test_job_gantt_postclose_uses_multi_op_graph(monkeypatch):
+    jobs = _load_jobs_module(monkeypatch)
+
+    node_names = {node.name for node in jobs.job_gantt_postclose.graph.node_defs}
+
+    assert "op_run_gantt_postclose_incremental" not in node_names
+    assert "op_resolve_pending_gantt_trade_dates" in node_names

@@ -1,10 +1,3 @@
-from dagster import job
+from ..ops.gantt import graph_gantt_postclose
 
-from ..ops.gantt import (
-    op_run_gantt_postclose_incremental,
-)
-
-
-@job
-def job_gantt_postclose():
-    op_run_gantt_postclose_incremental()
+job_gantt_postclose = graph_gantt_postclose.to_job(name="job_gantt_postclose")
