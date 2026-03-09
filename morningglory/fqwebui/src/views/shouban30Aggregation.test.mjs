@@ -107,6 +107,48 @@ test('aggregatePlateRows merges same-name plates and deduplicates stock codes', 
   })
 })
 
+test('aggregatePlateRows uses only chanlun-passed stocks and drops zero-count plates', () => {
+  const rows = aggregatePlateRows({
+    xgbPlates: [
+      {
+        provider: 'xgb',
+        plate_key: '11',
+        plate_name: 'robotics',
+        seg_to: '2026-03-05',
+        appear_days_30: 2,
+        hit_trade_dates_30: ['2026-03-04', '2026-03-05'],
+        reason_text: 'xgb reason',
+      },
+      {
+        provider: 'xgb',
+        plate_key: '22',
+        plate_name: 'chips',
+        seg_to: '2026-03-04',
+        appear_days_30: 1,
+        hit_trade_dates_30: ['2026-03-04'],
+        reason_text: 'chip reason',
+      },
+    ],
+    jygsPlates: [],
+    stockRowsByProvider: {
+      xgb: {
+        '11': [
+          { code6: '000001', chanlun_passed: true },
+          { code6: '000002', chanlun_passed: false },
+        ],
+        '22': [
+          { code6: '000003', chanlun_passed: false },
+        ],
+      },
+      jygs: {},
+    },
+  })
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].plate_name, 'robotics')
+  assert.equal(rows[0].stocks_count, 1)
+})
+
 test('aggregatePlateRows keeps all source plate refs for same provider and same name', () => {
   const rows = aggregatePlateRows({
     xgbPlates: [
@@ -196,6 +238,43 @@ test('aggregateStockRows merges same code6 and keeps latest reason', () => {
       latest_trade_date: '2026-03-06',
       latest_reason: 'beta latest',
       providers: ['xgb'],
+      hit_trade_dates_window: ['2026-03-06'],
+    },
+  ])
+})
+
+test('aggregateStockRows drops chanlun-failed rows before dedupe', () => {
+  const rows = aggregateStockRows([
+    {
+      provider: 'xgb',
+      code6: '000001',
+      name: 'Alpha',
+      latest_trade_date: '2026-03-05',
+      latest_reason: 'xgb latest',
+      hit_count_window: 2,
+      hit_trade_dates_window: ['2026-03-04', '2026-03-05'],
+      chanlun_passed: false,
+    },
+    {
+      provider: 'jygs',
+      code6: '000001',
+      name: 'Alpha',
+      latest_trade_date: '2026-03-06',
+      latest_reason: 'jygs latest',
+      hit_count_window: 1,
+      hit_trade_dates_window: ['2026-03-06'],
+      chanlun_passed: true,
+    },
+  ])
+
+  assert.deepEqual(rows, [
+    {
+      code6: '000001',
+      name: 'Alpha',
+      hit_count_window: 1,
+      latest_trade_date: '2026-03-06',
+      latest_reason: 'jygs latest',
+      providers: ['jygs'],
       hit_trade_dates_window: ['2026-03-06'],
     },
   ])

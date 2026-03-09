@@ -34,8 +34,15 @@ const uniqueSortedProviders = (values) => {
   })
 }
 
+const isChanlunPassed = (row) => row?.chanlun_passed !== false
+
 const uniqueCodeCount = (rows) => {
-  return new Set((rows || []).map((item) => toText(item?.code6)).filter(Boolean)).size
+  return new Set(
+    (rows || [])
+      .filter(isChanlunPassed)
+      .map((item) => toText(item?.code6))
+      .filter(Boolean),
+  ).size
 }
 
 const uniqueSourcePlateRefs = (rows = []) => {
@@ -155,7 +162,10 @@ export const aggregatePlateRows = ({
       const provider = toText(item?.provider)
       const plateKey = toText(item?.plate_key)
       return stockRowsByProvider?.[provider]?.[plateKey] || []
-    })
+    }).filter(isChanlunPassed)
+
+    const stocksCount = uniqueCodeCount(stockRows)
+    if (stocksCount <= 0) continue
 
     aggregated.push({
       view_key: `agg|${plateName}`,
@@ -165,7 +175,7 @@ export const aggregatePlateRows = ({
       appear_days_30: tradeDates.length || Math.max(...rows.map((item) => Number(item?.appear_days_30 || 0)), 0),
       last_up_date: toText(latestRow?.seg_to) || null,
       seg_to: toText(latestRow?.seg_to) || null,
-      stocks_count: uniqueCodeCount(stockRows),
+      stocks_count: stocksCount,
       reason_text: toText(latestRow?.reason_text) || null,
       providers,
       source_plate_refs: sourcePlateRefs,
@@ -178,7 +188,7 @@ export const aggregatePlateRows = ({
 
 export const aggregateStockRows = (rows = []) => {
   const grouped = new Map()
-  for (const row of rows) {
+  for (const row of (rows || []).filter(isChanlunPassed)) {
     const code6 = toText(row?.code6)
     if (!code6) continue
     if (!grouped.has(code6)) grouped.set(code6, [])
@@ -218,7 +228,7 @@ export const sortStockRows = (rows = []) => {
 }
 
 export const buildViewStats = ({ plates = [], stockRowsByPlate = {} } = {}) => {
-  const stockRows = Object.values(stockRowsByPlate || {}).flat()
+  const stockRows = Object.values(stockRowsByPlate || {}).flat().filter(isChanlunPassed)
   return {
     plate_count: Array.isArray(plates) ? plates.length : 0,
     stock_count: uniqueCodeCount(stockRows),
