@@ -42,6 +42,14 @@ export const formatDurationMs = (value) => {
   return `${minutes}m ${seconds}s`
 }
 
+export const stopPollingTimer = (timerHandle, options = {}) => {
+  const clearIntervalFn = options?.clearInterval
+  if (timerHandle && typeof clearIntervalFn === 'function') {
+    clearIntervalFn(timerHandle)
+  }
+  return null
+}
+
 const buildStepTags = (step = {}) => {
   const tags = []
   for (const [key, label] of [

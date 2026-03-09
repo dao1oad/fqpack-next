@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as runtimeObservability from './runtimeObservability.mjs'
 
 import {
   applyBoardFilter,
@@ -101,6 +102,21 @@ test('buildTraceQuery trims empty fields', () => {
       symbol: '000001',
     },
   )
+})
+
+test('stopPollingTimer clears current timer without arming a new one', () => {
+  assert.equal(typeof runtimeObservability.stopPollingTimer, 'function')
+
+  const cleared = []
+  const timerHandle = { id: 'overview-1' }
+  const nextHandle = runtimeObservability.stopPollingTimer(timerHandle, {
+    clearInterval: (handle) => {
+      cleared.push(handle)
+    },
+  })
+
+  assert.deepEqual(cleared, [timerHandle])
+  assert.equal(nextHandle, null)
 })
 
 test('buildIssuePriorityCards prioritizes failed traces before warnings', () => {

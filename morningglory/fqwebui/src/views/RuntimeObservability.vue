@@ -465,6 +465,7 @@ import {
   filterTraceSteps,
   groupStepsByComponent,
   pickDefaultTraceStep,
+  stopPollingTimer,
 } from './runtimeObservability.mjs'
 
 const loading = reactive({
@@ -827,10 +828,7 @@ const copyText = async (value) => {
 }
 
 const resetOverviewTimer = () => {
-  if (overviewTimer) {
-    window.clearInterval(overviewTimer)
-    overviewTimer = null
-  }
+  overviewTimer = stopPollingTimer(overviewTimer, { clearInterval: window.clearInterval.bind(window) })
   if (!autoRefresh.value) return
   overviewTimer = window.setInterval(() => {
     loadOverview()
@@ -909,7 +907,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  resetOverviewTimer()
+  overviewTimer = stopPollingTimer(overviewTimer, { clearInterval: window.clearInterval.bind(window) })
 })
 </script>
 
