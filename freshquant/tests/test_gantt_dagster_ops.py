@@ -303,7 +303,9 @@ def test_build_shouban30_snapshots_for_date_shares_chanlun_result_cache(monkeypa
         cache_refs.append((trade_date, stock_window_days, chanlun_result_cache))
         return {"as_of_date": trade_date, "stock_window_days": stock_window_days}
 
-    monkeypatch.setattr(ops, "persist_shouban30_for_date", persist_shouban30_for_date_stub)
+    monkeypatch.setattr(
+        ops, "persist_shouban30_for_date", persist_shouban30_for_date_stub
+    )
 
     result = ops._build_shouban30_snapshots_for_date(context, "2026-03-05")
 

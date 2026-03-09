@@ -73,7 +73,9 @@ def _resolve_shouban30_as_of_date(
 
 
 def _resolve_shouban30_chanlun_filter_version(items: list[dict]) -> str | None:
-    versions = [str(item.get("chanlun_filter_version") or "").strip() for item in items or []]
+    versions = [
+        str(item.get("chanlun_filter_version") or "").strip() for item in items or []
+    ]
     versions = [item for item in versions if item]
     if not versions:
         return None
@@ -172,7 +174,9 @@ def get_shouban30_plates():
                 "meta": {
                     "as_of_date": _resolve_shouban30_as_of_date(items, as_of_date),
                     "stock_window_days": stock_window_days,
-                    "chanlun_filter_version": _resolve_shouban30_chanlun_filter_version(items),
+                    "chanlun_filter_version": _resolve_shouban30_chanlun_filter_version(
+                        items
+                    ),
                 },
             }
         }
@@ -209,7 +213,9 @@ def get_shouban30_stocks():
                 "meta": {
                     "as_of_date": _resolve_shouban30_as_of_date(items, as_of_date),
                     "stock_window_days": stock_window_days,
-                    "chanlun_filter_version": _resolve_shouban30_chanlun_filter_version(items),
+                    "chanlun_filter_version": _resolve_shouban30_chanlun_filter_version(
+                        items
+                    ),
                 },
             }
         }

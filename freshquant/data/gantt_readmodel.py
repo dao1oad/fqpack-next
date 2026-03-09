@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from freshquant.chanlun_structure_service import get_chanlun_structure
 from freshquant.data.gantt_source_jygs import (
     COL_JYGS_ACTION_FIELDS,
     COL_JYGS_YIDONG,
@@ -17,7 +18,6 @@ from freshquant.data.gantt_source_xgb import (
     normalize_xgb_history_row,
 )
 from freshquant.db import DBGantt
-from freshquant.chanlun_structure_service import get_chanlun_structure
 
 COL_PLATE_REASON_DAILY = "plate_reason_daily"
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
@@ -423,10 +423,10 @@ def query_shouban30_plate_rows(
     )
     return _ensure_shouban30_chanlun_snapshot_ready(
         select_shouban30_plate_rows(
-        rows,
-        provider=provider_key,
-        as_of_date=as_of_date,
-        stock_window_days=target_window,
+            rows,
+            provider=provider_key,
+            as_of_date=as_of_date,
+            stock_window_days=target_window,
         )
     )
 
@@ -451,11 +451,11 @@ def query_shouban30_stock_rows(
     )
     return _ensure_shouban30_chanlun_snapshot_ready(
         select_shouban30_stock_rows(
-        rows,
-        provider=provider_key,
-        plate_key=target_plate_key,
-        as_of_date=as_of_date,
-        stock_window_days=target_window,
+            rows,
+            provider=provider_key,
+            plate_key=target_plate_key,
+            as_of_date=as_of_date,
+            stock_window_days=target_window,
         )
     )
 
@@ -811,9 +811,7 @@ def _filter_shouban30_plate_candidates(
 
 
 def _build_shouban30_chanlun_cache_key(code6: Any, as_of_date: Any) -> str:
-    return (
-        f"{_normalize_code6(code6)}|{_to_str(as_of_date)}|{SHOUBAN30_CHANLUN_PERIOD}"
-    )
+    return f"{_normalize_code6(code6)}|{_to_str(as_of_date)}|{SHOUBAN30_CHANLUN_PERIOD}"
 
 
 def _get_segment_gain_multiple(segment: dict[str, Any] | None) -> float | None:
@@ -828,12 +826,8 @@ def _build_default_shouban30_chanlun_result(
     response: dict[str, Any] | None,
 ) -> dict[str, Any]:
     structure = (response or {}).get("structure") or {}
-    higher_multiple = _get_segment_gain_multiple(
-        structure.get("higher_segment")
-    )
-    segment_multiple = _get_segment_gain_multiple(
-        structure.get("segment")
-    )
+    higher_multiple = _get_segment_gain_multiple(structure.get("higher_segment"))
+    segment_multiple = _get_segment_gain_multiple(structure.get("segment"))
     bi = structure.get("bi") or {}
     bi_gain_percent = _to_float(bi.get("price_change_pct"))
     result = {
@@ -1031,9 +1025,9 @@ def persist_shouban30_for_date(
 
     plate_candidates = _filter_shouban30_plate_candidates(
         _group_shouban30_plate_candidates(
-        plate_window_rows,
-        as_of_date=date_str,
-        trade_dates=plate_trade_dates,
+            plate_window_rows,
+            as_of_date=date_str,
+            trade_dates=plate_trade_dates,
         )
     )
 
@@ -1155,9 +1149,7 @@ def build_shouban30_plate_rows(
                     item.get("candidate_stocks_count"), 0
                 ),
                 "failed_stocks_count": _to_int(item.get("failed_stocks_count"), 0),
-                "chanlun_filter_version": _to_str(
-                    item.get("chanlun_filter_version")
-                )
+                "chanlun_filter_version": _to_str(item.get("chanlun_filter_version"))
                 or SHOUBAN30_CHANLUN_FILTER_VERSION,
                 "stock_window_from": _to_str(item.get("stock_window_from")) or None,
                 "stock_window_to": _to_str(item.get("stock_window_to"))
