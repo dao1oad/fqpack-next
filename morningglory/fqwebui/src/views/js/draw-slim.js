@@ -302,6 +302,14 @@ function resolveDataZoomState({ keepState, dataZoomState, previousDataZoom }) {
   }))
 }
 
+export function buildSlimViewportDataZoomState(dataZoomState, previousDataZoom = null) {
+  return resolveDataZoomState({
+    keepState: true,
+    dataZoomState,
+    previousDataZoom
+  })
+}
+
 function buildPeriodSeries(period, payload, axisDates, axisTimestamps, options = {}) {
   const {
     showZhongshu = true,

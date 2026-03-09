@@ -4,7 +4,7 @@ import { futureApi } from '@/api/futureApi'
 import { getGanttStockReasons } from '@/api/ganttApi'
 import { stockApi } from '@/api/stockApi'
 
-import drawSlim from './draw-slim'
+import drawSlim, { buildSlimViewportDataZoomState } from './draw-slim'
 import echartsConfig from './echartsConfig'
 import {
   buildResolvedKlineSlimQuery,
@@ -146,6 +146,7 @@ export default {
       chanlunRefreshTimer: null,
       renderFrameId: 0,
       dataZoomSyncFrameId: 0,
+      isApplyingViewportWindow: false,
       routeToken: 0,
       mainLoading: false,
       mainVersion: '',
@@ -844,7 +845,36 @@ export default {
       this.refreshVisibleChanlunPeriods(this.routeToken)
       this.scheduleRender()
     },
+    applySlimViewportWindow(nextState) {
+      if (!this.chart || typeof this.chart.setOption !== 'function') {
+        return
+      }
+
+      const previousOption = typeof this.chart.getOption === 'function' ? this.chart.getOption() : null
+      const previousDataZoom = Array.isArray(previousOption?.dataZoom) ? previousOption.dataZoom : null
+      const dataZoom = buildSlimViewportDataZoomState(nextState, previousDataZoom)
+
+      this.isApplyingViewportWindow = true
+      try {
+        this.chart.setOption(
+          {
+            dataZoom
+          },
+          {
+            notMerge: false,
+            lazyUpdate: true
+          }
+        )
+      } finally {
+        window.requestAnimationFrame(() => {
+          this.isApplyingViewportWindow = false
+        })
+      }
+    },
     handleSlimDataZoom(event) {
+      if (this.isApplyingViewportWindow) {
+        return
+      }
       const windowState = extractDataZoomWindow(event)
       const nextState = windowState || null
       if (
@@ -854,7 +884,7 @@ export default {
         return
       }
       this.chartDataZoomState = nextState
-      this.scheduleRender(true)
+      this.applySlimViewportWindow(nextState)
     },
     handleSlimDataZoomPointerUp() {
       if (this.dataZoomSyncFrameId) {
@@ -874,7 +904,7 @@ export default {
           return
         }
         this.chartDataZoomState = nextState
-        this.scheduleRender(true)
+        this.applySlimViewportWindow(nextState)
       })
     },
     scheduleRender(force = false) {
