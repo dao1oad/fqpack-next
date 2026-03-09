@@ -61,3 +61,16 @@ test('kline-slim controller uses multi-period chanlun state instead of fixed ove
   assert.doesNotMatch(content, /overlayTimer/)
   assert.doesNotMatch(content, /OVERLAY_PERIOD/)
 })
+
+test('draw-slim consumes all multi-period chanlun layer fields and global zhongshu legends', async () => {
+  const content = await readFile(new URL('../src/views/js/draw-slim.js', import.meta.url), 'utf8')
+
+  assert.match(content, /higherDuanData/)
+  assert.match(content, /duan_zsdata/)
+  assert.match(content, /higher_duan_zsdata/)
+  assert.match(content, /PERIOD_STYLE_MAP/)
+  assert.match(content, /PERIOD_WIDTH_FACTOR/)
+  assert.match(content, /'中枢'/)
+  assert.match(content, /'段中枢'/)
+  assert.match(content, /markArea/)
+})
