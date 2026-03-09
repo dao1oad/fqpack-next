@@ -23,6 +23,7 @@ from freshquant.order_management.projection.stock_fills import (
 )
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.tracking.service import OrderTrackingService
+from freshquant.runtime_observability.logger import RuntimeEventLogger
 
 _BUY_ORDER_TYPES = {
     xtconstant.STOCK_BUY,
@@ -50,14 +51,24 @@ _XT_REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 class OrderManagementXtIngestService:
-    def __init__(self, repository=None, tracking_service=None, tpsl_service=None):
+    def __init__(
+        self,
+        repository=None,
+        tracking_service=None,
+        tpsl_service=None,
+        runtime_logger=None,
+    ):
         self.repository = repository or OrderManagementRepository()
         self.tracking_service = tracking_service or OrderTrackingService(
             repository=self.repository
         )
         self.tpsl_service = tpsl_service or _get_tpsl_service()
+        self.runtime_logger = runtime_logger or _get_runtime_logger()
 
     def ingest_trade_report(self, report, lot_amount, grid_interval_lookup):
+        self._emit_runtime(
+            "report_receive", report, extra_payload={"report_type": "trade"}
+        )
         trade_fact = self.tracking_service.ingest_trade_report(report)
         symbol = trade_fact["symbol"]
         buy_lot = None
@@ -104,6 +115,16 @@ class OrderManagementXtIngestService:
         open_slices = self.repository.list_open_slices(symbol)
         if holdings_changed:
             mark_stock_holdings_projection_updated()
+        self._emit_runtime(
+            "trade_match",
+            report,
+            internal_order_id=trade_fact["internal_order_id"],
+            extra_payload={
+                "side": trade_fact["side"],
+                "quantity": trade_fact["quantity"],
+                "holdings_changed": holdings_changed,
+            },
+        )
 
         return {
             "trade_fact": trade_fact,
@@ -138,8 +159,43 @@ class OrderManagementXtIngestService:
         )
         if normalized_report is None:
             return None
+        self._emit_runtime(
+            "report_receive",
+            normalized_report,
+            extra_payload={"report_type": "order"},
+        )
         self.tracking_service.ingest_order_report(normalized_report)
+        self._emit_runtime(
+            "order_match",
+            normalized_report,
+            internal_order_id=normalized_report["internal_order_id"],
+            extra_payload={"state": normalized_report["state"]},
+        )
         return normalized_report
+
+    def _emit_runtime(
+        self,
+        node,
+        report,
+        *,
+        internal_order_id=None,
+        extra_payload=None,
+    ):
+        event = {
+            "component": "xt_report_ingest",
+            "node": node,
+            "trace_id": report.get("trace_id"),
+            "intent_id": report.get("intent_id"),
+            "request_id": report.get("request_id"),
+            "internal_order_id": internal_order_id or report.get("internal_order_id"),
+            "symbol": report.get("symbol"),
+            "source": report.get("source"),
+            "payload": dict(extra_payload or {}),
+        }
+        try:
+            self.runtime_logger.emit(event)
+        except Exception:
+            return
 
 
 def normalize_xt_trade_report(report, repository=None):
@@ -175,6 +231,9 @@ def normalize_xt_trade_report(report, repository=None):
         "time": traded_datetime.strftime("%H:%M:%S"),
         "source": report.get("source", "xt_trade_callback"),
         "strategy_name": report.get("strategy_name"),
+        "request_id": report.get("request_id") or (order or {}).get("request_id"),
+        "trace_id": report.get("trace_id") or (order or {}).get("trace_id"),
+        "intent_id": report.get("intent_id") or (order or {}).get("intent_id"),
     }
 
 
@@ -186,18 +245,27 @@ def normalize_xt_order_report(report, repository=None):
     if broker_order_id is None:
         return None
     internal_order_id = report.get("internal_order_id")
+    order = None
     if internal_order_id is None and repository is not None:
         order = repository.find_order_by_broker_order_id(broker_order_id)
         if order is not None:
             internal_order_id = order["internal_order_id"]
+    else:
+        order = (
+            repository.find_order(internal_order_id) if repository is not None else None
+        )
     if internal_order_id is None:
         internal_order_id = str(broker_order_id)
+        order = None
 
     return {
         "internal_order_id": internal_order_id,
         "broker_order_id": str(broker_order_id),
         "state": _map_xt_order_status_to_state(report.get("order_status")),
         "event_type": "xt_order_reported",
+        "request_id": report.get("request_id") or (order or {}).get("request_id"),
+        "trace_id": report.get("trace_id") or (order or {}).get("trace_id"),
+        "intent_id": report.get("intent_id") or (order or {}).get("intent_id"),
         "submitted_at": (
             _xt_timestamp_to_datetime(report["order_time"]).isoformat()
             if report.get("order_time") is not None
@@ -307,3 +375,13 @@ def _get_guardian_buy_grid_service():
     from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
 
     return get_guardian_buy_grid_service()
+
+
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        _runtime_logger = RuntimeEventLogger("xt_report_ingest")
+    return _runtime_logger

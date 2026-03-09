@@ -41,6 +41,7 @@ from freshquant.order_management.submit.execution_bridge import (
     resolve_sell_price_type_compat,
 )
 from freshquant.order_management.tracking.service import OrderTrackingService
+from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.trade.trade import checkManualStrategyInstument
 from freshquant.util.code import fq_util_code_append_market_code_suffix
 
@@ -58,9 +59,20 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         """
         连接成功推送
         """
+        _emit_broker_event(
+            "watchdog",
+            event_type="heartbeat",
+            metrics={"connected": 1},
+        )
         logger.info("连接成功")
 
     def on_disconnected(self):
+        _emit_broker_event(
+            "watchdog",
+            event_type="heartbeat",
+            status="warning",
+            metrics={"connected": 0},
+        )
         logger.warning("交易接口断开，即将重连")
         connection_manager.mark_disconnected()
 
@@ -70,7 +82,19 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         :param order: XtOrder对象
         :return:
         """
-        logger.info("收到委托回报推送: {order}", order=FqXtOrder(order).to_dict())
+        order_dict = FqXtOrder(order).to_dict()
+        logger.info("收到委托回报推送: {order}", order=order_dict)
+        _emit_broker_event(
+            "order_callback",
+            context=_resolve_runtime_context_by_broker_order_id(
+                order_dict.get("order_id")
+            ),
+            symbol=str(order_dict.get("stock_code") or "")[:6],
+            payload={
+                "broker_order_id": order_dict.get("order_id"),
+                "order_status": order_dict.get("order_status"),
+            },
+        )
         puppet.saveOrders([order])
 
     def on_stock_asset(self, asset):
@@ -88,7 +112,19 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         :param trade: XtTrade对象
         :return:
         """
-        logger.info("收到成交变动推送: {trade}", trade=FqXtTrade(trade).to_dict())
+        trade_dict = FqXtTrade(trade).to_dict()
+        logger.info("收到成交变动推送: {trade}", trade=trade_dict)
+        _emit_broker_event(
+            "trade_callback",
+            context=_resolve_runtime_context_by_broker_order_id(
+                trade_dict.get("order_id")
+            ),
+            symbol=str(trade_dict.get("stock_code") or "")[:6],
+            payload={
+                "broker_order_id": trade_dict.get("order_id"),
+                "broker_trade_id": trade_dict.get("traded_id"),
+            },
+        )
         puppet.saveTrades([trade])
 
     def on_stock_position(self, position):
@@ -218,6 +254,16 @@ def trading_main_loop():
                     xt_trader, acc, success = connect(session_id)
                     if not success:
                         delay = connection_manager.get_retry_delay()
+                        _emit_broker_event(
+                            "watchdog",
+                            event_type="metric_snapshot",
+                            status="warning",
+                            metrics={
+                                "connected": 0,
+                                "retry_count": connection_manager.retry_count,
+                                "retry_delay_s": delay,
+                            },
+                        )
                         if connection_manager.can_retry():
                             logger.warning(
                                 f"对接miniqmt失败，将在{delay}秒后重试... (重试次数: {connection_manager.retry_count}/{connection_manager.max_retries})"
@@ -237,6 +283,13 @@ def trading_main_loop():
                 if order is not None:
                     logger.info(order[1])
                     order = json.loads(order[1])
+                    _emit_broker_event(
+                        "queue_consume",
+                        context=_runtime_context_from_order_message(order),
+                        action=order.get("action"),
+                        symbol=order.get("symbol"),
+                        payload={"force": bool(order.get("force", False))},
+                    )
                     if (
                         order.get("action") in {"buy", "sell"}
                         and order.get("symbol")
@@ -250,6 +303,13 @@ def trading_main_loop():
                         continue
                     force = order.get("force", False)
                     if nextStart <= 0 or force or order.get("action") == "cancel":
+                        _emit_broker_event(
+                            "action_dispatch",
+                            context=_runtime_context_from_order_message(order),
+                            action=order.get("action"),
+                            symbol=order.get("symbol"),
+                            payload={"next_action": order.get("action")},
+                        )
                         if order["action"] == "buy":
                             execution = prepare_submit_execution(
                                 order,
@@ -272,6 +332,12 @@ def trading_main_loop():
                                 price_type=pydash.get(
                                     resolved_order, "broker_price_type"
                                 ),
+                                trace_id=pydash.get(resolved_order, "trace_id"),
+                                intent_id=pydash.get(resolved_order, "intent_id"),
+                                request_id=pydash.get(resolved_order, "request_id"),
+                                internal_order_id=pydash.get(
+                                    resolved_order, "internal_order_id"
+                                ),
                             )
                             logger.info(r)
                             finalize_submit_execution(
@@ -279,6 +345,16 @@ def trading_main_loop():
                                 broker_order_id=r,
                                 repository=order_management_repository,
                                 tracking_service=order_tracking_service,
+                            )
+                            _emit_broker_event(
+                                "submit_result",
+                                context=_runtime_context_from_order_message(
+                                    resolved_order
+                                ),
+                                action="buy",
+                                symbol=resolved_order.get("symbol"),
+                                status="success" if r and int(r) > 0 else "failed",
+                                payload={"broker_order_id": r},
                             )
                         elif order["action"] == "sell":
                             execution = prepare_submit_execution(
@@ -300,6 +376,12 @@ def trading_main_loop():
                                 order_type=pydash.get(
                                     resolved_order, "broker_order_type"
                                 ),
+                                trace_id=pydash.get(resolved_order, "trace_id"),
+                                intent_id=pydash.get(resolved_order, "intent_id"),
+                                request_id=pydash.get(resolved_order, "request_id"),
+                                internal_order_id=pydash.get(
+                                    resolved_order, "internal_order_id"
+                                ),
                             )
                             logger.info(r)
                             finalize_submit_execution(
@@ -307,6 +389,16 @@ def trading_main_loop():
                                 broker_order_id=r,
                                 repository=order_management_repository,
                                 tracking_service=order_tracking_service,
+                            )
+                            _emit_broker_event(
+                                "submit_result",
+                                context=_runtime_context_from_order_message(
+                                    resolved_order
+                                ),
+                                action="sell",
+                                symbol=resolved_order.get("symbol"),
+                                status="success" if r and int(r) > 0 else "failed",
+                                payload={"broker_order_id": r},
                             )
                         elif order["action"] == "cancel":
                             xt_trader, acc, _ = trading_manager.get_connection()
@@ -325,6 +417,19 @@ def trading_main_loop():
                                 tracking_service=order_tracking_service,
                             )
                             logger.info(dispatch_result)
+                            _emit_broker_event(
+                                "submit_result",
+                                context=_runtime_context_from_order_message(order),
+                                action="cancel",
+                                symbol=order.get("symbol"),
+                                status=(
+                                    "success"
+                                    if dispatch_result.get("status")
+                                    == "cancel_submitted"
+                                    else "failed"
+                                ),
+                                payload=dispatch_result,
+                            )
                         elif order["action"] == "sync-trades":
                             puppet.sync_trades()
                         elif order["action"] == "sync-orders":
@@ -383,3 +488,77 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def _runtime_context_from_order_message(order):
+    payload = dict(order or {})
+    return {
+        "trace_id": payload.get("trace_id"),
+        "intent_id": payload.get("intent_id"),
+        "request_id": payload.get("request_id"),
+        "internal_order_id": payload.get("internal_order_id"),
+        "symbol": payload.get("symbol"),
+        "action": payload.get("action"),
+    }
+
+
+def _resolve_runtime_context_by_broker_order_id(broker_order_id):
+    if broker_order_id in (None, "", "None"):
+        return {}
+    try:
+        order = order_management_repository.find_order_by_broker_order_id(
+            broker_order_id
+        )
+    except Exception:
+        order = None
+    if order is None:
+        return {}
+    return {
+        "trace_id": order.get("trace_id"),
+        "intent_id": order.get("intent_id"),
+        "request_id": order.get("request_id"),
+        "internal_order_id": order.get("internal_order_id"),
+        "symbol": order.get("symbol"),
+        "action": order.get("side"),
+    }
+
+
+def _emit_broker_event(
+    node,
+    *,
+    context=None,
+    action=None,
+    symbol=None,
+    status="info",
+    event_type="trace_step",
+    payload=None,
+    metrics=None,
+):
+    event = {
+        "component": "broker_gateway",
+        "node": node,
+        "event_type": event_type,
+        "status": status,
+        "trace_id": (context or {}).get("trace_id"),
+        "intent_id": (context or {}).get("intent_id"),
+        "request_id": (context or {}).get("request_id"),
+        "internal_order_id": (context or {}).get("internal_order_id"),
+        "symbol": symbol or (context or {}).get("symbol"),
+        "action": action or (context or {}).get("action"),
+        "payload": dict(payload or {}),
+        "metrics": dict(metrics or {}),
+    }
+    try:
+        _get_runtime_logger().emit(event)
+    except Exception:
+        return
+
+
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        _runtime_logger = RuntimeEventLogger("broker_gateway")
+    return _runtime_logger

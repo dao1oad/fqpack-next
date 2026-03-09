@@ -10,6 +10,7 @@ from freshquant.position_management.models import (
 )
 from freshquant.position_management.policy import PositionPolicy
 from freshquant.position_management.repository import PositionManagementRepository
+from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.util.code import normalize_to_base_code
 
 
@@ -20,6 +21,7 @@ class PositionManagementService:
         holding_codes_provider=None,
         now_provider=None,
         policy=None,
+        runtime_logger=None,
     ):
         self.repository = repository or PositionManagementRepository()
         self.holding_codes_provider = (
@@ -27,6 +29,7 @@ class PositionManagementService:
         )
         self.now_provider = now_provider or _default_now_provider
         self.policy = policy or PositionPolicy()
+        self.runtime_logger = runtime_logger or _get_runtime_logger()
 
     def evaluate_strategy_order(
         self,
@@ -36,9 +39,22 @@ class PositionManagementService:
         is_profitable=False,
     ):
         resolved_current_state = current_state or self.repository.get_current_state()
+        self._emit_runtime(
+            "state_load",
+            payload=payload,
+            extra_payload={"current_state": resolved_current_state},
+        )
         effective_state = self.policy.effective_state(
             resolved_current_state,
             now_value=self.now_provider(),
+        )
+        self._emit_runtime(
+            "freshness_check",
+            payload=payload,
+            extra_payload={
+                "current_state": resolved_current_state,
+                "effective_state": effective_state,
+            },
         )
         action = str(payload.get("action") or "").lower()
         symbol = _normalize_symbol(payload.get("symbol"))
@@ -49,6 +65,18 @@ class PositionManagementService:
             state=effective_state,
             action=action,
             is_holding_symbol=is_holding_symbol,
+        )
+        self._emit_runtime(
+            "policy_eval",
+            payload=payload,
+            action=action,
+            symbol=symbol,
+            reason_code=reason_code,
+            extra_payload={
+                "effective_state": effective_state,
+                "is_holding_symbol": is_holding_symbol,
+                "allowed": allowed,
+            },
         )
         meta = {
             "is_holding_symbol": is_holding_symbol,
@@ -78,6 +106,18 @@ class PositionManagementService:
             "meta": meta,
         }
         self.repository.insert_decision(decision_document)
+        self._emit_runtime(
+            "decision_record",
+            payload=payload,
+            action=action,
+            symbol=symbol,
+            reason_code=reason_code,
+            extra_payload={
+                "decision_id": decision_id,
+                "allowed": allowed,
+                "meta": meta,
+            },
+        )
         return PositionDecision(
             allowed=allowed,
             state=effective_state,
@@ -86,6 +126,33 @@ class PositionManagementService:
             decision_id=decision_id,
             meta=meta,
         )
+
+    def _emit_runtime(
+        self,
+        node,
+        *,
+        payload,
+        action=None,
+        symbol=None,
+        reason_code=None,
+        extra_payload=None,
+    ):
+        event = {
+            "component": "position_gate",
+            "node": node,
+            "trace_id": payload.get("trace_id"),
+            "intent_id": payload.get("intent_id"),
+            "action": action or payload.get("action"),
+            "symbol": symbol or payload.get("symbol"),
+            "strategy_name": payload.get("strategy_name"),
+            "source": payload.get("source"),
+            "reason_code": reason_code or "",
+            "payload": dict(extra_payload or {}),
+        }
+        try:
+            self.runtime_logger.emit(event)
+        except Exception:
+            return
 
 
 def _evaluate_action(state, action, is_holding_symbol):
@@ -143,3 +210,13 @@ def _resolve_guardian_strategy_identifier():
     if strategy_id is None:
         return None
     return str(strategy_id)
+
+
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        _runtime_logger = RuntimeEventLogger("position_gate")
+    return _runtime_logger
