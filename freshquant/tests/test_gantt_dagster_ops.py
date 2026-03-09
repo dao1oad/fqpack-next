@@ -327,6 +327,11 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
     )
     monkeypatch.setattr(
         ops,
+        "refresh_quality_stock_universe",
+        lambda: calls.append(("quality_stock_universe",)) or {"count": 2},
+    )
+    monkeypatch.setattr(
+        ops,
         "persist_shouban30_for_date",
         lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
             ("shouban30", trade_date, stock_window_days)
@@ -341,6 +346,7 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
         ("plate_reason", "2026-03-04"),
         ("gantt", "2026-03-04"),
         ("stock_hot_reason", "2026-03-04"),
+        ("quality_stock_universe",),
         ("shouban30", "2026-03-04", 30),
         ("shouban30", "2026-03-04", 45),
         ("shouban30", "2026-03-04", 60),
@@ -350,6 +356,7 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
         ("plate_reason", "2026-03-05"),
         ("gantt", "2026-03-05"),
         ("stock_hot_reason", "2026-03-05"),
+        ("quality_stock_universe",),
         ("shouban30", "2026-03-05", 30),
         ("shouban30", "2026-03-05", 45),
         ("shouban30", "2026-03-05", 60),
@@ -402,6 +409,11 @@ def test_run_gantt_backfill_stops_on_first_failed_trade_date(monkeypatch):
     )
     monkeypatch.setattr(
         ops,
+        "refresh_quality_stock_universe",
+        lambda: calls.append(("quality_stock_universe",)) or {"count": 2},
+    )
+    monkeypatch.setattr(
+        ops,
         "persist_shouban30_for_date",
         lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
             ("shouban30", trade_date, stock_window_days)
@@ -418,6 +430,7 @@ def test_run_gantt_backfill_stops_on_first_failed_trade_date(monkeypatch):
         ("plate_reason", "2026-03-04"),
         ("gantt", "2026-03-04"),
         ("stock_hot_reason", "2026-03-04"),
+        ("quality_stock_universe",),
         ("shouban30", "2026-03-04", 30),
         ("shouban30", "2026-03-04", 45),
         ("shouban30", "2026-03-04", 60),
@@ -617,6 +630,7 @@ def test_job_gantt_postclose_uses_multi_op_graph(monkeypatch):
 
     assert "op_run_gantt_postclose_incremental" not in node_names
     assert "op_resolve_pending_gantt_trade_dates" in node_names
+    assert "op_refresh_quality_stock_universe_daily" in node_names
 
 
 def test_op_resolve_pending_gantt_trade_dates_yields_dynamic_outputs(monkeypatch):
@@ -652,6 +666,26 @@ def test_job_gantt_postclose_daily_pipeline_dependencies(monkeypatch):
     }
     assert dependency_map["op_build_gantt_daily"] == {"op_build_plate_reason_daily"}
     assert dependency_map["op_build_stock_hot_reason_daily"] == {"op_build_gantt_daily"}
-    assert dependency_map["op_build_shouban30_daily"] == {
+    assert dependency_map["op_refresh_quality_stock_universe_daily"] == {
         "op_build_stock_hot_reason_daily"
     }
+    assert dependency_map["op_build_shouban30_daily"] == {
+        "op_refresh_quality_stock_universe_daily"
+    }
+
+
+def test_op_refresh_quality_stock_universe_daily_calls_refresh_once(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+    calls = []
+
+    def refresh_stub():
+        calls.append("called")
+        return {"count": 2, "source_version": "xgt_hot_blocks_v1"}
+
+    monkeypatch.setattr(ops, "refresh_quality_stock_universe", refresh_stub)
+
+    result = ops.op_refresh_quality_stock_universe_daily(context, "2026-03-09")
+
+    assert result == "2026-03-09"
+    assert calls == ["called"]
