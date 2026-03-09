@@ -215,7 +215,7 @@ class AdjRefreshService:
             target_adj = front_close / raw_close
             anchor_scale = target_adj / base_adj
             document = {
-                "code": str(code),
+                "code": normalize_to_base_code(code),
                 "trade_date": trade_date,
                 "base_anchor_date": effective_anchor_date,
                 "anchor_scale": float(anchor_scale),

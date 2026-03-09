@@ -68,9 +68,11 @@ def test_sync_adj_refresh_once_writes_stock_and_etf_intraday_overrides():
     assert result["count"] == 2
     assert result["stock_count"] == 1
     assert result["etf_count"] == 1
+    assert repository.saved_docs["stock"][0]["code"] == "000001"
     assert repository.saved_docs["stock"][0]["trade_date"] == "2026-03-09"
     assert repository.saved_docs["stock"][0]["base_anchor_date"] == "2026-03-08"
     assert repository.saved_docs["stock"][0]["anchor_scale"] == pytest.approx(0.9)
+    assert repository.saved_docs["etf"][0]["code"] == "510050"
     assert repository.saved_docs["etf"][0]["anchor_scale"] == pytest.approx(0.8)
 
 
