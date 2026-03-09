@@ -11,6 +11,7 @@ from freshquant.data.gantt_readmodel import (
 )
 from freshquant.data.gantt_source_jygs import sync_jygs_action_for_date
 from freshquant.data.gantt_source_xgb import sync_xgb_history_for_date
+from freshquant.data.quality_stock_universe import refresh_quality_stock_universe
 from freshquant.data.trade_date_hist import (
     get_trade_dates_between,
     tool_trade_date_hist_sina,
@@ -190,6 +191,12 @@ def run_gantt_pipeline_for_date(context, trade_date: str) -> dict[str, Any]:
         stock_hot_reason_count,
         trade_date,
     )
+    quality_stock_result = refresh_quality_stock_universe()
+    context.log.info(
+        "refreshed quality_stock_universe trade_date=%s result=%s",
+        trade_date,
+        quality_stock_result,
+    )
     shouban30_result = _build_shouban30_snapshots_for_date(context, trade_date)
 
     return {
@@ -199,6 +206,7 @@ def run_gantt_pipeline_for_date(context, trade_date: str) -> dict[str, Any]:
         "plate_reason_rows": plate_reason_count,
         "gantt": gantt_result,
         "stock_hot_reason_rows": stock_hot_reason_count,
+        "quality_stock_universe": quality_stock_result,
         "shouban30": shouban30_result,
     }
 
@@ -304,6 +312,17 @@ def op_build_stock_hot_reason_daily(context, trade_date: str) -> str:
 
 
 @op
+def op_refresh_quality_stock_universe_daily(context, trade_date: str) -> str:
+    result = refresh_quality_stock_universe()
+    context.log.info(
+        "refreshed quality_stock_universe trade_date=%s result=%s",
+        trade_date,
+        result,
+    )
+    return trade_date
+
+
+@op
 def op_build_shouban30_daily(context, trade_date: str) -> dict:
     return _build_shouban30_snapshots_for_date(context, trade_date)
 
@@ -320,7 +339,10 @@ def graph_gantt_postclose_for_trade_date(trade_date):
     agreed_trade_date = op_build_plate_reason_daily(xgb_trade_date, jygs_trade_date)
     gantt_trade_date = op_build_gantt_daily(agreed_trade_date)
     hot_reason_trade_date = op_build_stock_hot_reason_daily(gantt_trade_date)
-    op_build_shouban30_daily(hot_reason_trade_date)
+    quality_stock_trade_date = op_refresh_quality_stock_universe_daily(
+        hot_reason_trade_date
+    )
+    op_build_shouban30_daily(quality_stock_trade_date)
 
 
 @graph

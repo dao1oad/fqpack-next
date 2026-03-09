@@ -133,3 +133,20 @@ test('page binds to postclose chanlun snapshot presentation', () => {
   assert.match(pageSource, /未通过\/不可用/)
   assert.match(pageSource, /首板缠论快照未构建完成/)
 })
+
+test('page no longer uses default overflow tooltip for reason columns and uses reason popover component', () => {
+  assert.match(pageSource, /Shouban30ReasonPopover/)
+  assert.doesNotMatch(pageSource, /<el-table-column prop="reason_text" label="板块理由"[^>]*show-overflow-tooltip/)
+  assert.doesNotMatch(pageSource, /<el-table-column prop="latest_reason" label="最近理由"[^>]*show-overflow-tooltip/)
+  assert.doesNotMatch(pageSource, /<el-table-column label="理由"[^>]*show-overflow-tooltip/)
+})
+
+test('page wires extra stock filters through helper-based intersection filtering', () => {
+  assert.match(pageSource, /EXTRA_FILTER_OPTIONS/)
+  assert.match(pageSource, /selectedExtraFilterKeys/)
+  assert.match(pageSource, /toggleExtraFilterSelection/)
+  assert.match(pageSource, /filterStockRowsByPlate/)
+  assert.match(pageSource, /rebuildPlatesFromFilteredStocks/)
+  assert.match(pageSource, /option\.label/)
+  assert.match(pageSource, /当前筛选条件下暂无标的/)
+})

@@ -306,6 +306,20 @@ def test_get_shouban30_stocks_returns_chanlun_snapshot_fields(monkeypatch):
                 "chanlun_segment_multiple": 2.5,
                 "chanlun_bi_gain_percent": 20.0,
                 "chanlun_filter_version": "30m_v1",
+                "is_credit_subject": True,
+                "credit_subject_snapshot_ready": True,
+                "near_long_term_ma_passed": True,
+                "near_long_term_ma_basis": "ma250",
+                "close_price": 103.0,
+                "ma250": 100.0,
+                "ma500": 99.0,
+                "ma1000": 98.0,
+                "ma250_distance_pct": 3.0,
+                "ma500_distance_pct": 4.0404,
+                "ma1000_distance_pct": 5.102,
+                "is_quality_subject": False,
+                "quality_subject_snapshot_ready": True,
+                "quality_subject_source_version": "xgt_hot_blocks_v1",
             }
         ]
     )
@@ -333,6 +347,20 @@ def test_get_shouban30_stocks_returns_chanlun_snapshot_fields(monkeypatch):
             "chanlun_segment_multiple": 2.5,
             "chanlun_bi_gain_percent": 20.0,
             "chanlun_filter_version": "30m_v1",
+            "is_credit_subject": True,
+            "credit_subject_snapshot_ready": True,
+            "near_long_term_ma_passed": True,
+            "near_long_term_ma_basis": "ma250",
+            "close_price": 103.0,
+            "ma250": 100.0,
+            "ma500": 99.0,
+            "ma1000": 98.0,
+            "ma250_distance_pct": 3.0,
+            "ma500_distance_pct": 4.0404,
+            "ma1000_distance_pct": 5.102,
+            "is_quality_subject": False,
+            "quality_subject_snapshot_ready": True,
+            "quality_subject_source_version": "xgt_hot_blocks_v1",
         }
     ]
     assert payload["data"]["meta"] == {
