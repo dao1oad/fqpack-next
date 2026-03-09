@@ -2,11 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildIssueSummary,
+  buildRawRecordSummary,
   buildTraceSummaryMeta,
   buildTraceDetail,
   buildHealthCards,
   buildRawLookupFromStep,
   buildTraceQuery,
+  findRawRecordIndex,
   filterTraceSteps,
   formatDurationMs,
   groupStepsByComponent,
@@ -179,4 +182,60 @@ test('groupStepsByComponent and pickDefaultTraceStep keep component groups and c
   assert.equal(groups[0].duration_label, '100ms')
   assert.equal(groups[1].duration_label, '900ms')
   assert.equal(pickDefaultTraceStep(detail.steps).node, 'decision')
+})
+
+test('buildIssueSummary aggregates reason labels into readable headline', () => {
+  const detail = buildTraceDetail({
+    steps: [
+      { component: 'guardian_strategy', node: 'decision', status: 'warning', reason_code: 'cooldown_active' },
+      { component: 'broker_gateway', node: 'submit_result', status: 'failed', reason_code: 'broker_rejected' },
+      { component: 'broker_gateway', node: 'submit_result', status: 'failed', reason_code: 'broker_rejected' },
+    ],
+  })
+  const summary = buildIssueSummary(detail)
+
+  assert.match(summary.headline, /3 个异常节点/)
+  assert.deepEqual(summary.items, [
+    { label: 'broker_rejected', count: 2 },
+    { label: 'cooldown_active', count: 1 },
+  ])
+})
+
+test('findRawRecordIndex matches the current step and buildRawRecordSummary marks key fields', () => {
+  const step = buildTraceDetail({
+    steps: [
+      {
+        component: 'order_submit',
+        node: 'queue_write',
+        status: 'success',
+        ts: '2026-03-09T10:00:01+08:00',
+        trace_id: 'trc_1',
+        request_id: 'req_1',
+        internal_order_id: 'ord_1',
+        symbol: '600000',
+      },
+    ],
+  }).steps[0]
+
+  const records = [
+    { component: 'guardian_strategy', node: 'receive_signal', ts: '2026-03-09T10:00:00+08:00' },
+    {
+      component: 'order_submit',
+      node: 'queue_write',
+      ts: '2026-03-09T10:00:01+08:00',
+      trace_id: 'trc_1',
+      request_id: 'req_1',
+      internal_order_id: 'ord_1',
+      symbol: '600000',
+      payload: { quantity: 300 },
+    },
+  ]
+
+  assert.equal(findRawRecordIndex(records, step), 1)
+  assert.deepEqual(buildRawRecordSummary(records[1]), {
+    title: 'order_submit.queue_write',
+    subtitle: '2026-03-09T10:00:01+08:00',
+    badges: ['trace trc_1', 'request req_1', 'order ord_1', 'symbol 600000'],
+    body: '{\n  "quantity": 300\n}',
+  })
 })

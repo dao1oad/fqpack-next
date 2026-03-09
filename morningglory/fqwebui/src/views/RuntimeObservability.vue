@@ -97,6 +97,10 @@
                   </article>
                 </div>
 
+                <div class="trace-issue-banner" :class="{ 'is-empty': issueSummary.items.length === 0 }">
+                  {{ issueSummary.headline }}
+                </div>
+
                 <div class="trace-affected-row">
                   <span>涉及组件</span>
                   <div class="trace-affected-list">
@@ -257,24 +261,48 @@
           <el-option v-for="item in rawFiles" :key="item.name" :label="item.name" :value="item.name" />
         </el-select>
         <el-button @click="loadRawFiles">文件</el-button>
-        <el-button type="primary" :disabled="!rawQuery.file" @click="loadRawTail">Tail</el-button>
+        <el-button type="primary" :disabled="!rawQuery.file" @click="loadRawTail()">Tail</el-button>
       </div>
-      <pre class="raw-content">{{ rawContent }}</pre>
+      <div v-if="rawFocusedIndex >= 0" class="raw-focus-banner">
+        已定位到第 {{ rawFocusedIndex + 1 }} 条记录
+      </div>
+      <div v-if="rawRecordCards.length" class="raw-record-list">
+        <article
+          v-for="(record, index) in rawRecordCards"
+          :key="`${record.title}-${record.subtitle}-${index}`"
+          :ref="(el) => setRawRecordRef(el, index)"
+          class="raw-record-card"
+          :class="{ active: rawFocusedIndex === index }"
+        >
+          <header>
+            <strong>{{ record.title }}</strong>
+            <span>{{ record.subtitle }}</span>
+          </header>
+          <div v-if="record.badges.length" class="raw-record-badges">
+            <span v-for="badge in record.badges" :key="`${record.title}-${badge}-${index}`">{{ badge }}</span>
+          </div>
+          <pre class="raw-content">{{ record.body }}</pre>
+        </article>
+      </div>
+      <pre v-else class="raw-content">暂无记录</pre>
     </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
 import MyHeader from './MyHeader.vue'
 import {
+  buildIssueSummary,
+  buildRawRecordSummary,
   buildTraceSummaryMeta,
   buildTraceDetail,
   buildHealthCards,
   buildRawLookupFromStep,
   buildTraceQuery,
+  findRawRecordIndex,
   filterTraceSteps,
   groupStepsByComponent,
   pickDefaultTraceStep,
@@ -305,6 +333,8 @@ const collapsedComponents = ref({})
 const rawDrawerVisible = ref(false)
 const rawFiles = ref([])
 const rawRecords = ref([])
+const rawFocusedIndex = ref(-1)
+const rawRecordRefs = ref({})
 const rawQuery = reactive({
   runtime_node: '',
   component: '',
@@ -318,6 +348,7 @@ const traceRows = computed(() => {
 
 const selectedTraceDetail = computed(() => buildTraceDetail(selectedTrace.value || {}))
 const traceSummaryMeta = computed(() => buildTraceSummaryMeta(selectedTraceDetail.value))
+const issueSummary = computed(() => buildIssueSummary(selectedTraceDetail.value))
 const filteredSteps = computed(() => {
   return filterTraceSteps(selectedTraceDetail.value.steps, { onlyIssues: onlyIssues.value })
 })
@@ -330,11 +361,7 @@ const traceIdentityGroups = computed(() => {
     { label: 'Order', values: selectedTraceDetail.value.internal_order_ids || [] },
   ]
 })
-
-const rawContent = computed(() => {
-  if (!rawRecords.value.length) return '暂无记录'
-  return JSON.stringify(rawRecords.value, null, 2)
-})
+const rawRecordCards = computed(() => rawRecords.value.map((record) => buildRawRecordSummary(record)))
 
 const loadOverview = async () => {
   loading.overview = true
@@ -391,7 +418,7 @@ const openRawFromStep = async (step) => {
   await loadRawFiles()
   if (rawFiles.value.length > 0) {
     rawQuery.file = rawFiles.value[0].name
-    await loadRawTail()
+    await loadRawTail(step)
   }
 }
 
@@ -409,7 +436,7 @@ const loadRawFiles = async () => {
   }
 }
 
-const loadRawTail = async () => {
+const loadRawTail = async (targetStep = selectedStep.value) => {
   if (!rawQuery.file) return
   loading.raw = true
   try {
@@ -421,6 +448,8 @@ const loadRawTail = async () => {
       lines: 120,
     })
     rawRecords.value = response?.data?.records || []
+    rawFocusedIndex.value = findRawRecordIndex(rawRecords.value, targetStep)
+    await scrollToFocusedRawRecord()
   } finally {
     loading.raw = false
   }
@@ -507,12 +536,32 @@ const isGroupCollapsed = (component) => {
   return Boolean(collapsedComponents.value[String(component || '')])
 }
 
+const setRawRecordRef = (element, index) => {
+  rawRecordRefs.value = {
+    ...rawRecordRefs.value,
+    [index]: element || null,
+  }
+}
+
+const scrollToFocusedRawRecord = async () => {
+  if (rawFocusedIndex.value < 0) return
+  await nextTick()
+  rawRecordRefs.value[rawFocusedIndex.value]?.scrollIntoView({
+    block: 'nearest',
+    behavior: 'smooth',
+  })
+}
+
 watch([selectedTraceDetail, onlyIssues], () => {
   syncSelectedStep()
 })
 
 watch(() => selectedTrace.value?.trace_id || selectedTrace.value?.trace_key || '', () => {
   collapsedComponents.value = {}
+})
+
+watch(rawRecords, () => {
+  rawRecordRefs.value = {}
 })
 
 onMounted(() => {
@@ -697,6 +746,22 @@ onMounted(() => {
   color: #56718d;
   font-size: 12px;
   font-style: normal;
+}
+
+.trace-issue-banner {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff4f2;
+  color: #8f342b;
+  border: 1px solid #f5d2ce;
+  font-size: 13px;
+}
+
+.trace-issue-banner.is-empty {
+  background: #eef7f1;
+  color: #2f6a48;
+  border-color: #cde8d7;
 }
 
 .trace-affected-row {
@@ -1092,10 +1157,70 @@ onMounted(() => {
   margin-bottom: 14px;
 }
 
+.raw-focus-banner {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #eef4fb;
+  color: #35506c;
+  font-size: 12px;
+}
+
+.raw-record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.raw-record-card {
+  border: 1px solid #d8e2ee;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+}
+
+.raw-record-card.active {
+  border-color: #5d8fbd;
+  box-shadow: 0 10px 24px rgba(35, 73, 115, 0.1);
+}
+
+.raw-record-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.raw-record-card header strong {
+  color: #20405e;
+}
+
+.raw-record-card header span {
+  color: #6a8198;
+  font-size: 12px;
+}
+
+.raw-record-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.raw-record-badges span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #35506c;
+  font-size: 12px;
+}
+
 .raw-content {
   margin: 0;
-  min-height: 320px;
-  max-height: 70vh;
+  min-height: 120px;
+  max-height: 48vh;
   overflow: auto;
   padding: 16px;
   border-radius: 12px;
@@ -1122,7 +1247,8 @@ onMounted(() => {
   .trace-detail-head,
   .step-inspector-actions,
   .trace-timeline-hint,
-  .trace-affected-row {
+  .trace-affected-row,
+  .raw-record-card header {
     flex-direction: column;
     align-items: stretch;
   }

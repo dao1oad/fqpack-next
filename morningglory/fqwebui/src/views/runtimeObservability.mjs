@@ -59,6 +59,16 @@ const buildJsonBlock = (value) => {
   }
 }
 
+const summarizeReasonLabel = (step = {}) => {
+  return (
+    toText(step?.reason_code) ||
+    toText(step?.decision_branch) ||
+    toText(step?.message) ||
+    toText(step?.status) ||
+    'issue'
+  )
+}
+
 export const buildTraceQuery = (form = {}) => {
   const query = {}
   for (const key of ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component']) {
@@ -230,4 +240,71 @@ export const groupStepsByComponent = (steps = []) => {
     group.duration_label = formatDurationMs(group.duration_ms)
   }
   return groups
+}
+
+export const buildIssueSummary = (detail = {}) => {
+  const steps = Array.isArray(detail?.steps) ? detail.steps : []
+  const issueSteps = steps.filter((step) => step?.is_issue)
+  if (issueSteps.length === 0) {
+    return {
+      headline: '无异常节点',
+      items: [],
+    }
+  }
+  const counts = new Map()
+  for (const step of issueSteps) {
+    const label = summarizeReasonLabel(step)
+    counts.set(label, (counts.get(label) || 0) + 1)
+  }
+  const items = [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => {
+      const diff = right.count - left.count
+      return diff !== 0 ? diff : left.label.localeCompare(right.label)
+    })
+  return {
+    headline: `${issueSteps.length} 个异常节点，主要原因：${items.map((item) => `${item.label} x${item.count}`).join('，')}`,
+    items,
+  }
+}
+
+export const findRawRecordIndex = (records = [], step = {}) => {
+  const normalized = Array.isArray(records) ? records : []
+  let bestIndex = -1
+  let bestScore = 0
+  for (const [index, record] of normalized.entries()) {
+    let score = 0
+    if (toText(record?.component) && toText(record?.component) === toText(step?.component)) score += 3
+    if (toText(record?.node) && toText(record?.node) === toText(step?.node)) score += 3
+    if (toText(record?.ts) && toText(record?.ts) === toText(step?.ts)) score += 4
+    if (toText(record?.trace_id) && toText(record?.trace_id) === toText(step?.trace_id)) score += 3
+    if (toText(record?.request_id) && toText(record?.request_id) === toText(step?.request_id)) score += 3
+    if (toText(record?.internal_order_id) && toText(record?.internal_order_id) === toText(step?.internal_order_id)) score += 3
+    if (toText(record?.symbol) && toText(record?.symbol) === toText(step?.symbol)) score += 1
+    if (score > bestScore) {
+      bestScore = score
+      bestIndex = index
+    }
+  }
+  return bestScore >= 6 ? bestIndex : -1
+}
+
+export const buildRawRecordSummary = (record = {}) => {
+  const badges = []
+  for (const [key, label] of [
+    ['trace_id', 'trace'],
+    ['request_id', 'request'],
+    ['internal_order_id', 'order'],
+    ['symbol', 'symbol'],
+  ]) {
+    const value = toText(record?.[key])
+    if (!value) continue
+    badges.push(`${label} ${value}`)
+  }
+  return {
+    title: `${toText(record?.component) || 'runtime'}.${toText(record?.node) || 'event'}`,
+    subtitle: toText(record?.ts) || '-',
+    badges,
+    body: buildJsonBlock(record?.payload) || buildJsonBlock(record?.metrics) || buildJsonBlock(record),
+  }
 }
