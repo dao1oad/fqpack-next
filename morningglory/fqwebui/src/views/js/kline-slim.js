@@ -131,6 +131,7 @@ export default {
       loadedChanlunPeriods: [],
       chanlunPeriodLoading: {},
       chanlunLegendSelected: buildLegendSelectionState(),
+      chartDataZoomState: null,
       holdings: [],
       mustPools: [],
       stockPools: [],
@@ -293,6 +294,7 @@ export default {
     }
     if (this.chart) {
       this.chart.off('legendselectchanged', this.handleSlimLegendSelectChanged)
+      this.chart.off('datazoom', this.handleSlimDataZoom)
       this.chart.dispose()
       this.chart = null
     }
@@ -366,6 +368,7 @@ export default {
       this.chart = echarts.init(chartDom, 'dark')
       this.chart.showLoading(echartsConfig.loadingOption)
       this.chart.on('legendselectchanged', this.handleSlimLegendSelectChanged)
+      this.chart.on('datazoom', this.handleSlimDataZoom)
     },
     handleResize() {
       if (this.chart) {
@@ -390,6 +393,7 @@ export default {
       this.chanlunPeriodLoading = {}
       this.visibleChanlunPeriods = [...DEFAULT_VISIBLE_CHANLUN_PERIODS]
       this.chanlunLegendSelected = buildLegendSelectionState()
+      this.chartDataZoomState = null
       this.lastMainBarLabel = '--'
       this.resetChartStateOnNextRender = true
     },
@@ -803,6 +807,21 @@ export default {
       this.refreshVisibleChanlunPeriods(this.routeToken)
       this.scheduleRender()
     },
+    handleSlimDataZoom() {
+      if (!this.chart || typeof this.chart.getOption !== 'function') {
+        return
+      }
+      const option = this.chart.getOption()
+      if (!Array.isArray(option?.dataZoom) || !option.dataZoom.length) {
+        this.chartDataZoomState = null
+        return
+      }
+      this.chartDataZoomState = option.dataZoom.map((item) => ({
+        ...item,
+        ...(item?.handleStyle ? { handleStyle: { ...item.handleStyle } } : {}),
+        ...(item?.textStyle ? { textStyle: { ...item.textStyle } } : {})
+      }))
+    },
     scheduleRender() {
       if (!this.chart || !this.mainData) {
         return
@@ -817,6 +836,7 @@ export default {
         const renderVersion = [this.currentPeriod]
           .concat(extraPeriods)
           .map((period) => this.chanlunVersionMap[period] || '')
+          .concat(JSON.stringify(this.chanlunLegendSelected))
           .join('__')
         if (
           renderVersion === this.lastRenderedVersion &&
@@ -831,6 +851,8 @@ export default {
               .map((period) => [period, this.chanlunMultiData[period]])
               .filter(([, payload]) => !!payload)
           ),
+          legendSelected: this.chanlunLegendSelected,
+          dataZoomState: this.chartDataZoomState,
           renderVersion,
           keepState: !this.resetChartStateOnNextRender
         })
