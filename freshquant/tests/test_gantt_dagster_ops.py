@@ -290,3 +290,54 @@ def test_op_build_shouban30_daily_builds_all_stock_window_days(monkeypatch):
     ]
     assert result["trade_date"] == "2026-03-05"
     assert result["windows"] == [30, 45, 60, 90]
+
+
+def test_build_shouban30_snapshots_for_date_shares_chanlun_result_cache(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+    cache_refs = []
+
+    def persist_shouban30_for_date_stub(
+        trade_date, stock_window_days=30, chanlun_result_cache=None
+    ):
+        cache_refs.append((trade_date, stock_window_days, chanlun_result_cache))
+        return {"as_of_date": trade_date, "stock_window_days": stock_window_days}
+
+    monkeypatch.setattr(ops, "persist_shouban30_for_date", persist_shouban30_for_date_stub)
+
+    result = ops._build_shouban30_snapshots_for_date(context, "2026-03-05")
+
+    assert result["windows"] == [30, 45, 60, 90]
+    assert [item[:2] for item in cache_refs] == [
+        ("2026-03-05", 30),
+        ("2026-03-05", 45),
+        ("2026-03-05", 60),
+        ("2026-03-05", 90),
+    ]
+    assert len({id(item[2]) for item in cache_refs}) == 1
+    assert isinstance(cache_refs[0][2], dict)
+
+
+def test_has_legacy_shouban30_snapshot_detects_missing_chanlun_filter_version(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+
+    class FakeCollection:
+        def count_documents(self, query):
+            return 4
+
+        def distinct(self, field, query):
+            if field == "stock_window_days":
+                return [30, 45, 60, 90]
+            if field == "chanlun_filter_version":
+                return []
+            raise AssertionError(field)
+
+    monkeypatch.setattr(
+        ops,
+        "DBGantt",
+        {ops.COL_SHOUBAN30_PLATES: FakeCollection()},
+    )
+
+    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True
