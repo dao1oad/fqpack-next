@@ -421,11 +421,13 @@ def query_shouban30_plate_rows(
         COL_SHOUBAN30_PLATES,
         {"provider": provider_key, "stock_window_days": target_window},
     )
-    return select_shouban30_plate_rows(
+    return _ensure_shouban30_chanlun_snapshot_ready(
+        select_shouban30_plate_rows(
         rows,
         provider=provider_key,
         as_of_date=as_of_date,
         stock_window_days=target_window,
+        )
     )
 
 
@@ -447,12 +449,14 @@ def query_shouban30_stock_rows(
             "stock_window_days": target_window,
         },
     )
-    return select_shouban30_stock_rows(
+    return _ensure_shouban30_chanlun_snapshot_ready(
+        select_shouban30_stock_rows(
         rows,
         provider=provider_key,
         plate_key=target_plate_key,
         as_of_date=as_of_date,
         stock_window_days=target_window,
+        )
     )
 
 
@@ -1389,6 +1393,17 @@ def select_shouban30_plate_rows(
         target_date = max(_to_str(item.get("as_of_date")) for item in filtered)
 
     return [item for item in filtered if _to_str(item.get("as_of_date")) == target_date]
+
+
+def _ensure_shouban30_chanlun_snapshot_ready(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+    for item in rows:
+        if not _to_str(item.get("chanlun_filter_version")):
+            raise ValueError("shouban30 chanlun snapshot not ready")
+    return rows
 
 
 def select_shouban30_stock_rows(

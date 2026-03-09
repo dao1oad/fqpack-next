@@ -285,6 +285,7 @@ def test_get_shouban30_stocks_returns_empty_when_missing(monkeypatch):
     assert payload["data"]["meta"] == {
         "as_of_date": "2026-03-05",
         "stock_window_days": 90,
+        "chanlun_filter_version": None,
     }
 
 

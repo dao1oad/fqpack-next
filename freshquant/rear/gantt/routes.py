@@ -12,6 +12,10 @@ def _bad_request(message: str):
     return jsonify({"message": message}), 400
 
 
+def _conflict(message: str):
+    return jsonify({"message": message}), 409
+
+
 def _required_arg(name: str) -> str | None:
     value = request.args.get(name)
     if value is None:
@@ -66,6 +70,14 @@ def _resolve_shouban30_as_of_date(
     if not dates:
         return None
     return max(dates)
+
+
+def _resolve_shouban30_chanlun_filter_version(items: list[dict]) -> str | None:
+    versions = [str(item.get("chanlun_filter_version") or "").strip() for item in items or []]
+    versions = [item for item in versions if item]
+    if not versions:
+        return None
+    return max(versions)
 
 
 @gantt_bp.route("/plates")
@@ -150,6 +162,8 @@ def get_shouban30_plates():
             stock_window_days=stock_window_days,
         )
     except ValueError as exc:
+        if str(exc) == "shouban30 chanlun snapshot not ready":
+            return _conflict(str(exc))
         return _bad_request(str(exc))
     return jsonify(
         {
@@ -158,6 +172,7 @@ def get_shouban30_plates():
                 "meta": {
                     "as_of_date": _resolve_shouban30_as_of_date(items, as_of_date),
                     "stock_window_days": stock_window_days,
+                    "chanlun_filter_version": _resolve_shouban30_chanlun_filter_version(items),
                 },
             }
         }
@@ -184,6 +199,8 @@ def get_shouban30_stocks():
             stock_window_days=stock_window_days,
         )
     except ValueError as exc:
+        if str(exc) == "shouban30 chanlun snapshot not ready":
+            return _conflict(str(exc))
         return _bad_request(str(exc))
     return jsonify(
         {
@@ -192,6 +209,7 @@ def get_shouban30_stocks():
                 "meta": {
                     "as_of_date": _resolve_shouban30_as_of_date(items, as_of_date),
                     "stock_window_days": stock_window_days,
+                    "chanlun_filter_version": _resolve_shouban30_chanlun_filter_version(items),
                 },
             }
         }
