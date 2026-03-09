@@ -13,12 +13,19 @@ from freshquant.data.gantt_source_jygs import (
     normalize_board_key,
     normalize_jygs_action_field_row,
 )
+from freshquant.data.quality_stock_universe import (
+    COL_QUALITY_STOCK_UNIVERSE,
+    load_quality_stock_lookup,
+)
 from freshquant.data.gantt_source_xgb import (
     COL_XGB_TOP_GAINER_HISTORY,
     normalize_xgb_history_row,
 )
-from freshquant.db import DBGantt
+from freshquant.db import DBGantt, DBfreshquant
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
+from freshquant.order_management.credit_subjects.repository import (
+    CreditSubjectRepository,
+)
 
 COL_PLATE_REASON_DAILY = "plate_reason_daily"
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
@@ -33,6 +40,8 @@ SHOUBAN30_EXCLUDED_PLATE_NAMES = frozenset({"其他", "公告", "ST股", "ST板�
 CN_TZ = ZoneInfo("Asia/Shanghai")
 LEGACY_SHOUBAN30_PLATES_INDEX = "provider_1_plate_key_1_as_of_date_1"
 LEGACY_SHOUBAN30_STOCKS_INDEX = "provider_1_plate_key_1_code6_1_as_of_date_1"
+SHOUBAN30_FILTER_CACHE_PREFIX = "filter"
+SHOUBAN30_LONG_TERM_MA_CACHE_PREFIX = "long_term_ma"
 
 
 def _to_str(value: Any) -> str:
@@ -820,6 +829,18 @@ def _build_shouban30_chanlun_cache_key(code6: Any, as_of_date: Any) -> str:
     return f"{_normalize_code6(code6)}|{_to_str(as_of_date)}|{SHOUBAN30_CHANLUN_PERIOD}"
 
 
+def _build_shouban30_filter_cache_key(code6: Any, as_of_date: Any) -> str:
+    return (
+        f"{SHOUBAN30_FILTER_CACHE_PREFIX}|{_normalize_code6(code6)}|{_to_str(as_of_date)}"
+    )
+
+
+def _build_shouban30_long_term_ma_cache_key(code6: Any, as_of_date: Any) -> str:
+    return (
+        f"{SHOUBAN30_LONG_TERM_MA_CACHE_PREFIX}|{_normalize_code6(code6)}|{_to_str(as_of_date)}"
+    )
+
+
 def _resolve_shouban30_chanlun_symbol(code6: Any) -> str:
     normalized_code6 = _normalize_code6(code6)
     if not normalized_code6:
@@ -897,6 +918,185 @@ def _resolve_shouban30_chanlun_result(
     return result
 
 
+def _load_shouban30_credit_subject_lookup():
+    repository = CreditSubjectRepository()
+    rows = list(repository.collection.find({}, {"_id": 0, "symbol": 1, "instrument_id": 1}))
+    if not rows:
+        return {}, False
+    lookup = {}
+    for row in rows:
+        code6 = _normalize_code6(row.get("symbol") or row.get("instrument_id"))
+        if not code6:
+            continue
+        lookup[code6] = dict(row)
+    return lookup, True
+
+
+def _load_shouban30_quality_subject_lookup():
+    collection = DBfreshquant[COL_QUALITY_STOCK_UNIVERSE]
+    lookup = load_quality_stock_lookup(target_collection=collection)
+    if not lookup:
+        return {}, False, None
+    source_version = None
+    for item in lookup.values():
+        source_version = _to_str(item.get("source_version")) or None
+        if source_version:
+            break
+    return lookup, True, source_version
+
+
+def _compute_simple_moving_average(values: list[float], period: int) -> float | None:
+    if period <= 0 or len(values) < period:
+        return None
+    window = values[-period:]
+    if not window:
+        return None
+    return round(sum(window) / period, 4)
+
+
+def _compute_ma_distance_pct(close_price: float | None, ma_value: float | None) -> float | None:
+    if close_price is None or ma_value is None or ma_value <= 0:
+        return None
+    return round(((close_price - ma_value) / ma_value) * 100, 4)
+
+
+def _build_default_shouban30_long_term_ma_result() -> dict[str, Any]:
+    return {
+        "near_long_term_ma_passed": False,
+        "near_long_term_ma_basis": None,
+        "close_price": None,
+        "ma250": None,
+        "ma500": None,
+        "ma1000": None,
+        "ma250_distance_pct": None,
+        "ma500_distance_pct": None,
+        "ma1000_distance_pct": None,
+    }
+
+
+def _resolve_shouban30_long_term_ma_result(
+    code6: Any,
+    as_of_date: str,
+    filter_result_cache: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    cache_key = _build_shouban30_long_term_ma_cache_key(code6, as_of_date)
+    target_cache = filter_result_cache if filter_result_cache is not None else {}
+    cached = target_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = _build_default_shouban30_long_term_ma_result()
+    symbol = _resolve_shouban30_chanlun_symbol(code6)
+    if not symbol:
+        target_cache[cache_key] = result
+        return result
+
+    try:
+        from freshquant.KlineDataTool import get_stock_data
+
+        kline_data = get_stock_data(symbol, "1d", as_of_date)
+    except Exception:
+        target_cache[cache_key] = result
+        return result
+
+    if kline_data is None or getattr(kline_data, "empty", False):
+        target_cache[cache_key] = result
+        return result
+
+    try:
+        close_values = [
+            float(value)
+            for value in list(kline_data["close"])
+            if _to_float(value) is not None
+        ]
+    except Exception:
+        target_cache[cache_key] = result
+        return result
+
+    if not close_values:
+        target_cache[cache_key] = result
+        return result
+
+    close_price = round(close_values[-1], 4)
+    ma250 = _compute_simple_moving_average(close_values, 250)
+    ma500 = _compute_simple_moving_average(close_values, 500)
+    ma1000 = _compute_simple_moving_average(close_values, 1000)
+    ma250_distance_pct = _compute_ma_distance_pct(close_price, ma250)
+    ma500_distance_pct = _compute_ma_distance_pct(close_price, ma500)
+    ma1000_distance_pct = _compute_ma_distance_pct(close_price, ma1000)
+
+    eligible = [
+        ("ma250", ma250_distance_pct),
+        ("ma500", ma500_distance_pct),
+        ("ma1000", ma1000_distance_pct),
+    ]
+    eligible = [
+        (basis, distance_pct)
+        for basis, distance_pct in eligible
+        if distance_pct is not None and 0 <= distance_pct <= 3
+    ]
+    near_long_term_ma_basis = None
+    if eligible:
+        near_long_term_ma_basis = min(eligible, key=lambda item: item[1])[0]
+
+    result = {
+        "near_long_term_ma_passed": near_long_term_ma_basis is not None,
+        "near_long_term_ma_basis": near_long_term_ma_basis,
+        "close_price": close_price,
+        "ma250": ma250,
+        "ma500": ma500,
+        "ma1000": ma1000,
+        "ma250_distance_pct": ma250_distance_pct,
+        "ma500_distance_pct": ma500_distance_pct,
+        "ma1000_distance_pct": ma1000_distance_pct,
+    }
+    target_cache[cache_key] = result
+    return result
+
+
+def _resolve_shouban30_extra_filter_result(
+    code6: Any,
+    *,
+    as_of_date: str,
+    filter_result_cache: dict[str, dict[str, Any]] | None,
+    credit_subject_lookup: dict[str, dict[str, Any]] | None,
+    credit_subject_snapshot_ready: bool,
+    quality_subject_lookup: dict[str, dict[str, Any]] | None,
+    quality_subject_snapshot_ready: bool,
+    quality_subject_source_version: str | None,
+) -> dict[str, Any]:
+    cache_key = _build_shouban30_filter_cache_key(code6, as_of_date)
+    target_cache = filter_result_cache if filter_result_cache is not None else {}
+    cached = target_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    normalized_code6 = _normalize_code6(code6)
+    long_term_ma_result = _resolve_shouban30_long_term_ma_result(
+        normalized_code6,
+        as_of_date,
+        filter_result_cache=target_cache,
+    )
+    result = {
+        "is_credit_subject": bool(
+            credit_subject_snapshot_ready
+            and normalized_code6
+            and normalized_code6 in (credit_subject_lookup or {})
+        ),
+        "credit_subject_snapshot_ready": bool(credit_subject_snapshot_ready),
+        "is_quality_subject": bool(
+            quality_subject_snapshot_ready
+            and normalized_code6
+            and normalized_code6 in (quality_subject_lookup or {})
+        ),
+        "quality_subject_snapshot_ready": bool(quality_subject_snapshot_ready),
+        "quality_subject_source_version": quality_subject_source_version,
+        **long_term_ma_result,
+    }
+    target_cache[cache_key] = result
+    return result
+
+
 def _build_shouban30_stock_rows(
     rows: list[dict[str, Any]],
     *,
@@ -905,6 +1105,11 @@ def _build_shouban30_stock_rows(
     allowed_plate_keys: set[tuple[str, str]] | None = None,
     hit_count_30_dates: set[str] | None = None,
     chanlun_result_cache: dict[str, dict[str, Any]] | None = None,
+    credit_subject_lookup: dict[str, dict[str, Any]] | None = None,
+    credit_subject_snapshot_ready: bool = False,
+    quality_subject_lookup: dict[str, dict[str, Any]] | None = None,
+    quality_subject_snapshot_ready: bool = False,
+    quality_subject_source_version: str | None = None,
 ) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     target_hit_count_30_dates = {item for item in (hit_count_30_dates or set()) if item}
@@ -952,6 +1157,16 @@ def _build_shouban30_stock_rows(
             as_of_date=as_of_date,
             chanlun_result_cache=target_chanlun_result_cache,
         )
+        extra_filter_result = _resolve_shouban30_extra_filter_result(
+            code6,
+            as_of_date=as_of_date,
+            filter_result_cache=target_chanlun_result_cache,
+            credit_subject_lookup=credit_subject_lookup,
+            credit_subject_snapshot_ready=credit_subject_snapshot_ready,
+            quality_subject_lookup=quality_subject_lookup,
+            quality_subject_snapshot_ready=quality_subject_snapshot_ready,
+            quality_subject_source_version=quality_subject_source_version,
+        )
         results.append(
             {
                 "provider": provider,
@@ -974,6 +1189,7 @@ def _build_shouban30_stock_rows(
                 "chanlun_segment_multiple": chanlun.get("segment_multiple"),
                 "chanlun_bi_gain_percent": chanlun.get("bi_gain_percent"),
                 "chanlun_filter_version": SHOUBAN30_CHANLUN_FILTER_VERSION,
+                **extra_filter_result,
             }
         )
     results.sort(key=lambda item: (item["provider"], item["plate_key"], item["code6"]))
@@ -1058,6 +1274,14 @@ def persist_shouban30_for_date(
     target_chanlun_result_cache = (
         chanlun_result_cache if chanlun_result_cache is not None else {}
     )
+    credit_subject_lookup, credit_subject_snapshot_ready = (
+        _load_shouban30_credit_subject_lookup()
+    )
+    (
+        quality_subject_lookup,
+        quality_subject_snapshot_ready,
+        quality_subject_source_version,
+    ) = _load_shouban30_quality_subject_lookup()
     stock_rows = _build_shouban30_stock_rows(
         stock_window_rows,
         as_of_date=date_str,
@@ -1065,6 +1289,11 @@ def persist_shouban30_for_date(
         allowed_plate_keys=allowed_plate_keys,
         hit_count_30_dates=plate_trade_date_set,
         chanlun_result_cache=target_chanlun_result_cache,
+        credit_subject_lookup=credit_subject_lookup,
+        credit_subject_snapshot_ready=credit_subject_snapshot_ready,
+        quality_subject_lookup=quality_subject_lookup,
+        quality_subject_snapshot_ready=quality_subject_snapshot_ready,
+        quality_subject_source_version=quality_subject_source_version,
     )
 
     plate_stock_rows: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)

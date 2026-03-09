@@ -11,6 +11,40 @@ from freshquant.data.gantt_readmodel import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _stub_shouban30_extra_filter_dependencies(monkeypatch):
+    from freshquant.data import gantt_readmodel as svc
+
+    monkeypatch.setattr(
+        svc,
+        "_load_shouban30_credit_subject_lookup",
+        lambda: ({}, False),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        svc,
+        "_load_shouban30_quality_subject_lookup",
+        lambda: ({}, False, None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        svc,
+        "_resolve_shouban30_long_term_ma_result",
+        lambda code6, as_of_date, filter_result_cache=None: {
+            "near_long_term_ma_passed": False,
+            "near_long_term_ma_basis": None,
+            "close_price": None,
+            "ma250": None,
+            "ma500": None,
+            "ma1000": None,
+            "ma250_distance_pct": None,
+            "ma500_distance_pct": None,
+            "ma1000_distance_pct": None,
+        },
+        raising=False,
+    )
+
+
 def test_build_plate_reason_daily_uses_xgb_description():
     rows = build_plate_reason_daily(
         xgb_history_rows=[
@@ -866,6 +900,20 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
             "chanlun_segment_multiple": 2.0,
             "chanlun_bi_gain_percent": 10.0,
             "chanlun_filter_version": "30m_v1",
+            "is_credit_subject": False,
+            "credit_subject_snapshot_ready": False,
+            "near_long_term_ma_passed": False,
+            "near_long_term_ma_basis": None,
+            "close_price": None,
+            "ma250": None,
+            "ma500": None,
+            "ma1000": None,
+            "ma250_distance_pct": None,
+            "ma500_distance_pct": None,
+            "ma1000_distance_pct": None,
+            "is_quality_subject": False,
+            "quality_subject_snapshot_ready": False,
+            "quality_subject_source_version": None,
         }
     ]
 
@@ -1018,6 +1066,57 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
         get_chanlun_structure_stub,
         raising=False,
     )
+    monkeypatch.setattr(
+        svc,
+        "_load_shouban30_credit_subject_lookup",
+        lambda: ({"000001": {"symbol": "000001"}}, True),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        svc,
+        "_load_shouban30_quality_subject_lookup",
+        lambda: (
+            {
+                "000002": {
+                    "code6": "000002",
+                    "block_names": ["行业龙头"],
+                    "source_version": "xgt_hot_blocks_v1",
+                }
+            },
+            True,
+            "xgt_hot_blocks_v1",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        svc,
+        "_resolve_shouban30_long_term_ma_result",
+        lambda code6, as_of_date, filter_result_cache=None: {
+            "000001": {
+                "near_long_term_ma_passed": True,
+                "near_long_term_ma_basis": "ma250",
+                "close_price": 103.0,
+                "ma250": 100.0,
+                "ma500": 99.0,
+                "ma1000": 98.0,
+                "ma250_distance_pct": 3.0,
+                "ma500_distance_pct": 4.0404,
+                "ma1000_distance_pct": 5.102,
+            },
+            "000002": {
+                "near_long_term_ma_passed": False,
+                "near_long_term_ma_basis": None,
+                "close_price": 109.0,
+                "ma250": 100.0,
+                "ma500": 101.0,
+                "ma1000": 102.0,
+                "ma250_distance_pct": 9.0,
+                "ma500_distance_pct": 7.9208,
+                "ma1000_distance_pct": 6.8627,
+            },
+        }[code6],
+        raising=False,
+    )
 
     result = svc.persist_shouban30_for_date("2026-03-05", stock_window_days=60)
 
@@ -1069,6 +1168,20 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
             "chanlun_segment_multiple": 2.5,
             "chanlun_bi_gain_percent": 20.0,
             "chanlun_filter_version": "30m_v1",
+            "is_credit_subject": True,
+            "credit_subject_snapshot_ready": True,
+            "near_long_term_ma_passed": True,
+            "near_long_term_ma_basis": "ma250",
+            "close_price": 103.0,
+            "ma250": 100.0,
+            "ma500": 99.0,
+            "ma1000": 98.0,
+            "ma250_distance_pct": 3.0,
+            "ma500_distance_pct": 4.0404,
+            "ma1000_distance_pct": 5.102,
+            "is_quality_subject": False,
+            "quality_subject_snapshot_ready": True,
+            "quality_subject_source_version": "xgt_hot_blocks_v1",
         },
         {
             "provider": "xgb",
@@ -1090,7 +1203,153 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
             "chanlun_segment_multiple": 2.0,
             "chanlun_bi_gain_percent": 20.0,
             "chanlun_filter_version": "30m_v1",
+            "is_credit_subject": False,
+            "credit_subject_snapshot_ready": True,
+            "near_long_term_ma_passed": False,
+            "near_long_term_ma_basis": None,
+            "close_price": 109.0,
+            "ma250": 100.0,
+            "ma500": 101.0,
+            "ma1000": 102.0,
+            "ma250_distance_pct": 9.0,
+            "ma500_distance_pct": 7.9208,
+            "ma1000_distance_pct": 6.8627,
+            "is_quality_subject": True,
+            "quality_subject_snapshot_ready": True,
+            "quality_subject_source_version": "xgt_hot_blocks_v1",
         },
+    ]
+
+
+def test_persist_shouban30_for_date_marks_extra_filter_sources_not_ready(
+    monkeypatch,
+):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        plate_reason_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "reason_text": "canonical reason",
+                    "reason_source": "xgb_top_gainer_history.description",
+                    "source_ref": {"trade_date": "2026-03-05", "plate_id": 11},
+                }
+            ]
+        ),
+        gantt_plate_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "rank": 1,
+                    "hot_stock_count": 1,
+                    "limit_up_count": 1,
+                    "stock_codes": ["000001"],
+                }
+            ]
+        ),
+        gantt_stock_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "code6": "000001",
+                    "name": "alpha",
+                    "is_limit_up": 1,
+                    "stock_reason": "alpha reason",
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+    monkeypatch.setattr(
+        svc,
+        "get_chanlun_structure",
+        lambda symbol, period, end_date: {
+            "ok": True,
+            "structure": {
+                "higher_segment": {"start_price": 10, "end_price": 20},
+                "segment": {"start_price": 10, "end_price": 20},
+                "bi": {"price_change_pct": 10},
+            },
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(
+        svc,
+        "_load_shouban30_credit_subject_lookup",
+        lambda: ({}, False),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        svc,
+        "_load_shouban30_quality_subject_lookup",
+        lambda: ({}, False, None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        svc,
+        "_resolve_shouban30_long_term_ma_result",
+        lambda code6, as_of_date, filter_result_cache=None: {
+            "near_long_term_ma_passed": False,
+            "near_long_term_ma_basis": None,
+            "close_price": None,
+            "ma250": None,
+            "ma500": None,
+            "ma1000": None,
+            "ma250_distance_pct": None,
+            "ma500_distance_pct": None,
+            "ma1000_distance_pct": None,
+        },
+        raising=False,
+    )
+
+    svc.persist_shouban30_for_date("2026-03-05", stock_window_days=30)
+
+    assert fake_db[svc.COL_SHOUBAN30_STOCKS].docs == [
+        {
+            "provider": "xgb",
+            "as_of_date": "2026-03-05",
+            "plate_key": "11",
+            "plate_name": "robotics",
+            "code6": "000001",
+            "name": "alpha",
+            "stock_window_days": 30,
+            "hit_count_30": 1,
+            "hit_count_window": 1,
+            "hit_trade_dates_30": ["2026-03-05"],
+            "hit_trade_dates_window": ["2026-03-05"],
+            "latest_trade_date": "2026-03-05",
+            "latest_reason": "alpha reason",
+            "chanlun_passed": True,
+            "chanlun_reason": "passed",
+            "chanlun_higher_multiple": 2.0,
+            "chanlun_segment_multiple": 2.0,
+            "chanlun_bi_gain_percent": 10.0,
+            "chanlun_filter_version": "30m_v1",
+            "is_credit_subject": False,
+            "credit_subject_snapshot_ready": False,
+            "near_long_term_ma_passed": False,
+            "near_long_term_ma_basis": None,
+            "close_price": None,
+            "ma250": None,
+            "ma500": None,
+            "ma1000": None,
+            "ma250_distance_pct": None,
+            "ma500_distance_pct": None,
+            "ma1000_distance_pct": None,
+            "is_quality_subject": False,
+            "quality_subject_snapshot_ready": False,
+            "quality_subject_source_version": None,
+        }
     ]
 
 
@@ -1331,6 +1590,20 @@ def test_persist_shouban30_for_date_excludes_bj_stocks_and_empty_plates(
             "chanlun_segment_multiple": 2.0,
             "chanlun_bi_gain_percent": 10.0,
             "chanlun_filter_version": "30m_v1",
+            "is_credit_subject": False,
+            "credit_subject_snapshot_ready": False,
+            "near_long_term_ma_passed": False,
+            "near_long_term_ma_basis": None,
+            "close_price": None,
+            "ma250": None,
+            "ma500": None,
+            "ma1000": None,
+            "ma250_distance_pct": None,
+            "ma500_distance_pct": None,
+            "ma1000_distance_pct": None,
+            "is_quality_subject": False,
+            "quality_subject_snapshot_ready": False,
+            "quality_subject_source_version": None,
         }
     ]
 
@@ -1434,7 +1707,23 @@ def test_persist_shouban30_for_date_reuses_chanlun_result_cache_across_windows(
             "higher_multiple": 2.0,
             "segment_multiple": 2.0,
             "bi_gain_percent": 10.0,
-        }
+        },
+        "filter|000001|2026-03-05": {
+            "is_credit_subject": False,
+            "credit_subject_snapshot_ready": False,
+            "is_quality_subject": False,
+            "quality_subject_snapshot_ready": False,
+            "quality_subject_source_version": None,
+            "near_long_term_ma_passed": False,
+            "near_long_term_ma_basis": None,
+            "close_price": None,
+            "ma250": None,
+            "ma500": None,
+            "ma1000": None,
+            "ma250_distance_pct": None,
+            "ma500_distance_pct": None,
+            "ma1000_distance_pct": None,
+        },
     }
 
 
