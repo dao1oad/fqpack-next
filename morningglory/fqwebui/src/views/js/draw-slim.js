@@ -109,6 +109,8 @@ function remapLine(values, axisDates, axisTimestamps) {
 }
 
 function remapZhongshu(values, flags, axisDates, axisTimestamps, color, borderWidth) {
+  const axisMinTs = axisTimestamps.length ? axisTimestamps[0] : -Infinity
+
   return values
     .map((item, index) => {
       if (!Array.isArray(item) || item.length < 2) {
@@ -121,8 +123,14 @@ function remapZhongshu(values, flags, axisDates, axisTimestamps, color, borderWi
         return null
       }
 
-      const startAxis = findNearestAxis(axisDates, axisTimestamps, toTimestamp(start[0]))
-      const endAxis = findNearestAxis(axisDates, axisTimestamps, toTimestamp(end[0]))
+      const startTs = toTimestamp(start[0])
+      const endTs = toTimestamp(end[0])
+      if (Number.isFinite(endTs) && endTs < axisMinTs) {
+        return null
+      }
+
+      const startAxis = findNearestAxis(axisDates, axisTimestamps, startTs)
+      const endAxis = findNearestAxis(axisDates, axisTimestamps, endTs)
       if (!startAxis || !endAxis || startAxis.index === endAxis.index) {
         return null
       }
@@ -140,7 +148,8 @@ function remapZhongshu(values, flags, axisDates, axisTimestamps, color, borderWi
 
       return [
         {
-          coord: [leftAxis.date, top],
+          xAxis: leftAxis.index,
+          yAxis: top,
           itemStyle: {
             color: withAlpha(color, 0.12),
             borderColor,
@@ -149,7 +158,8 @@ function remapZhongshu(values, flags, axisDates, axisTimestamps, color, borderWi
           }
         },
         {
-          coord: [rightAxis.date, bottom]
+          xAxis: rightAxis.index,
+          yAxis: bottom
         }
       ]
     })
@@ -194,6 +204,32 @@ function buildZhongshuSeries({ id, name, values, z }) {
     markArea: {
       silent: true,
       data: values
+    }
+  }
+}
+
+function buildLegendPlaceholderSeries(name, color, z = 1) {
+  return {
+    id: `legend-${name}`,
+    name,
+    type: 'line',
+    data: [null],
+    silent: true,
+    animation: false,
+    z,
+    showSymbol: true,
+    symbol: 'roundRect',
+    symbolSize: 10,
+    lineStyle: {
+      width: 0,
+      opacity: 0
+    },
+    itemStyle: {
+      color,
+      opacity: 1
+    },
+    tooltip: {
+      show: false
     }
   }
 }
@@ -370,6 +406,12 @@ export default function drawSlim(chart, klineData, period, options = {}) {
   }
 
   const series = [
+    buildLegendPlaceholderSeries('1m', PERIOD_STYLE_MAP['1m'].bi),
+    buildLegendPlaceholderSeries('5m', PERIOD_STYLE_MAP['5m'].bi),
+    buildLegendPlaceholderSeries('15m', PERIOD_STYLE_MAP['15m'].bi),
+    buildLegendPlaceholderSeries('30m', PERIOD_STYLE_MAP['30m'].bi),
+    buildLegendPlaceholderSeries(GLOBAL_ZHONGSHU_LEGEND, '#94a3b8'),
+    buildLegendPlaceholderSeries(GLOBAL_DUAN_ZHONGSHU_LEGEND, '#cbd5e1'),
     {
       id: `${period}-candlestick`,
       name: `${period} K线`,
@@ -492,9 +534,12 @@ export default function drawSlim(chart, klineData, period, options = {}) {
     series
   }
 
+  if (!keepState && typeof chart.clear === 'function') {
+    chart.clear()
+  }
   chart.setOption(option, {
-    notMerge: false,
-    replaceMerge: ['series', 'legend', 'xAxis', 'yAxis']
+    notMerge: !keepState,
+    replaceMerge: ['series', 'legend', 'xAxis', 'yAxis', 'grid', 'dataZoom']
   })
   chart.hideLoading()
 
