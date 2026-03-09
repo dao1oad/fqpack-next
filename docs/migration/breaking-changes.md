@@ -14,6 +14,13 @@
 ## 变更记录
 
 - **日期**：2026-03-09
+- **RFC**：0026-gantt-shouban30-filters-and-reason-popovers
+- **变更**：`/api/gantt/shouban30/stocks` 将新增 `is_credit_subject / near_long_term_ma_passed / is_quality_subject` 及其辅助字段；`/gantt/shouban30` 页面将新增三个交集筛选按钮，并将理由展示从默认 `show-overflow-tooltip` 调整为卡片式 `el-popover`。盘后构建链还将新增 `quality_stock_universe` 基础集合，用于固化旧分支固定优质 `block_names` 名单对应的股票集合。
+- **影响面**：直接消费 `/api/gantt/shouban30/stocks` 的调用方、`/gantt/shouban30` 页面用户、Dagster 盘后任务耗时与数据链路、以及依赖旧 tooltip 展示与无额外筛选页面行为的截图/文档都会受到影响。
+- **迁移步骤**：1) 部署包含 RFC 0026 的后端、Dagster 和前端代码；2) 运行或等待 `job_gantt_postclose` 更新优质基础集合并重建目标交易日 `shouban30`；3) 调用方按新字段读取三类筛选标记；4) 页面用户改用按钮交集过滤，不再假设列表只受默认缠论筛选控制。
+- **回滚方案**：回退 `quality_stock_universe`、`gantt_readmodel.py`、Dagster `gantt.py`、`GanttShouban30Phase1.vue` 与 popover 组件改动，重新构建不带新增筛选字段的 `shouban30` 快照。
+
+- **日期**：2026-03-09
 - **RFC**：0025-gantt-shouban30-exclude-bj-stocks
 - **变更**：`/api/gantt/shouban30/plates|stocks` 的快照语义进一步收口为“仅覆盖 A 股候选”，盘后构建阶段会直接排除 `43/83/87/92` 开头的北交所标的；过滤后若某板块已无剩余候选股，该板块也不再写入 `shouban30_plates`。同轮修复了 `shouban30` 盘后缠论筛选向 `/api/stock_data_chanlun_structure` 传入裸 `code6` 的错误，统一改为 prefixed symbol，避免将可计算股票误判为 `structure_unavailable`。
 - **影响面**：`/gantt/shouban30` 页面、`/api/gantt/shouban30/plates|stocks` 调用方、依赖旧候选统计的截图/说明文档，以及任何仍假设北交所标的会出现在 `shouban30` 快照中的脚本都会受到影响。统计值会下降，部分仅由北交所标的构成的板块会直接消失。
