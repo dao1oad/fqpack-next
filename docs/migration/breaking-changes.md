@@ -14,6 +14,13 @@
 ## 变更记录
 
 - **日期**：2026-03-09
+- **RFC**：0025-runtime-observability-and-log-visualization
+- **变更**：新增 `freshquant/runtime_observability/`、后端只读接口 `/api/runtime/components`、`/api/runtime/health/summary`、`/api/runtime/traces`、`/api/runtime/traces/<trace_id>`、`/api/runtime/events`、`/api/runtime/raw-files/*`，以及前端页面 `/runtime-observability`。运行观测主入口不再沿用旧仓 `SystemLogs` 的前端聚合语义，而是改为“后端 trace 聚合 + 健康看板 + raw JSONL tail”的组合。`Guardian` 也不再被视为完整交易链容器，跨组件链路统一按 `trace_id -> intent_id -> request_id -> internal_order_id` 关联。
+- **影响面**：FreshQuant Web UI、Flask API、策略/订单/执行链日志排障手册，以及任何仍假设旧 `/api/system_logs/*` 或旧 `SystemLogs.vue` 聚合模型的迁移脚本都会受到影响。`XTData Producer/Consumer`、`Guardian`、`TPSL`、`Position Management`、`Order Management`、`Broker/Puppet`、`XT ingest`、`Reconcile` 现已统一接入新的运行观测事件模型。
+- **迁移步骤**：1) 部署包含 RFC 0025 的后端、宿主机 broker/puppet 与前端代码；2) 如需覆盖运行节点标识，可配置 `runtime_observability.runtime_node` 或对应环境变量；3) 使用 `/runtime-observability` 查看健康卡片、trace 列表、trace 详情和 raw tail；4) 旧排障流程若依赖 `SystemLogs`，请改用 `/api/runtime/*` 或页面内 raw tail。运行观测日志只允许旁路写入，不得接入任何会阻塞下单链路的同步外部依赖。
+- **回滚方案**：回退 `freshquant/runtime_observability/`、`freshquant/rear/runtime/routes.py`、`freshquant/rear/api_server.py`、相关业务埋点，以及 `morningglory/fqwebui/src/views/RuntimeObservability.vue` 与路由/导航改动；业务链路本身不依赖运行观测模块，回滚后仅失去新观测能力。
+
+- **日期**：2026-03-09
 - **RFC**：0023-gantt-shouban30-postclose-chanlun-snapshot
 - **变更**：`/api/gantt/shouban30/plates|stocks` 的运行语义从“页面读取后再由前端复用 `/api/stock_data_chanlun_structure` 做 30m 缠论筛选”切换为“只读取盘后 Dagster 预计算快照”。`shouban30_plates` 新增 `candidate_stocks_count / failed_stocks_count / chanlun_filter_version`，且 `stocks_count` 语义改为“通过默认 30m 缠论筛选后的唯一标的数”；`shouban30_stocks` 新增 `chanlun_passed / chanlun_reason / chanlun_higher_multiple / chanlun_segment_multiple / chanlun_bi_gain_percent / chanlun_filter_version`。盘后构建阶段会直接过滤 `其他 / 公告 / ST股 / ST板块` 四类板块，并在同一交易日的 `30/45/60/90` 四档窗口之间共享缠论结果缓存。命中缺少 `chanlun_filter_version` 的 legacy snapshot 时，后端返回 409“快照未构建完成”，页面不再做前端现算 fallback。
 - **影响面**：`/gantt/shouban30` 页面、`/api/gantt/shouban30/plates|stocks` 调用方、`job_gantt_postclose` 构建耗时、`shouban30_*` 读模型 schema，以及任何依赖旧前端现算链路或旧 `stocks_count` 语义的脚本/说明文档都会受到影响。

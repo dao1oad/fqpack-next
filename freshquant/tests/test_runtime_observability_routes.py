@@ -30,7 +30,8 @@ def test_runtime_components_route(monkeypatch, tmp_path):
 
     body = resp.get_json()
     assert resp.status_code == 200
-    assert body["components"] == ["guardian_strategy"]
+    assert "guardian_strategy" in body["components"]
+    assert "broker_gateway" in body["components"]
 
 
 def test_runtime_traces_and_detail_routes(monkeypatch, tmp_path):
@@ -99,7 +100,7 @@ def test_runtime_raw_file_tail_route(monkeypatch, tmp_path):
     client = _make_runtime_client()
 
     resp = client.get(
-        "/api/runtime/raw-files/tail?runtime_node=host_guardian"
+        "/api/runtime/raw-files/tail?runtime_node=host:guardian"
         "&component=guardian_strategy&date=2026-03-09"
         "&file=guardian_strategy_2026-03-09_1.jsonl"
     )

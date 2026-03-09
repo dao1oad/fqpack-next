@@ -157,6 +157,8 @@ class OrderSubmitService:
             "force": bool(payload.get("force", False)),
             "internal_order_id": order["internal_order_id"],
             "request_id": request_id,
+            "trace_id": payload.get("trace_id"),
+            "intent_id": payload.get("intent_id"),
             "source": payload.get("source", "unknown"),
             "scope_type": payload.get("scope_type"),
             "scope_ref_id": payload.get("scope_ref_id"),

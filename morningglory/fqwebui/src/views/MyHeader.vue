@@ -14,6 +14,9 @@
         <el-button type="warning" @click="jumpToControl('klineSlim')" size="small">
           行情图表
         </el-button>
+        <el-button type="danger" @click="jumpToControl('runtime')" size="small">
+          运行观测
+        </el-button>
       </el-button-group>
       <el-button-group>
         <el-button type="success" @click="jumpToControl('gantt')" size="small">
@@ -55,6 +58,8 @@ export default {
         this.$router.replace('/futures-control')
       } else if (type === 'klineSlim') {
         this.$router.replace('/kline-slim')
+      } else if (type === 'runtime') {
+        this.$router.replace('/runtime-observability')
       } else if (type === 'gantt') {
         this.$router.replace('/gantt?p=xgb')
       } else if (type === 'shouban30') {

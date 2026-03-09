@@ -10,7 +10,11 @@ from flask import Blueprint, jsonify, request
 
 from freshquant.runtime_observability.assembler import assemble_traces
 from freshquant.runtime_observability.health import build_health_summary
-from freshquant.runtime_observability.logger import get_runtime_log_root
+from freshquant.runtime_observability.logger import (
+    get_runtime_log_root,
+    runtime_node_path,
+)
+from freshquant.runtime_observability.node_catalog import COMPONENTS
 
 runtime_bp = Blueprint("runtime", __name__, url_prefix="/api/runtime")
 
@@ -102,6 +106,7 @@ def get_components_payload() -> dict:
             for component_dir in runtime_dir.iterdir():
                 if component_dir.is_dir():
                     components.add(component_dir.name)
+    components.update(COMPONENTS)
     return {
         "root": str(root),
         "runtime_nodes": sorted(runtime_nodes),
@@ -110,7 +115,7 @@ def get_components_payload() -> dict:
 
 
 def get_raw_files_payload(runtime_node: Any, component: Any, day: Any) -> dict:
-    runtime_segment = _safe_segment(runtime_node, "runtime_node")
+    runtime_segment = _normalize_runtime_node_segment(runtime_node)
     component_segment = _safe_segment(component, "component")
     day_value = _safe_date(day)
     base = _resolve_under_root(runtime_segment, component_segment, day_value)
@@ -149,7 +154,7 @@ def get_raw_tail_payload(
     *,
     lines: Any = None,
 ) -> dict:
-    runtime_segment = _safe_segment(runtime_node, "runtime_node")
+    runtime_segment = _normalize_runtime_node_segment(runtime_node)
     component_segment = _safe_segment(component, "component")
     day_value = _safe_date(day)
     file_value = _safe_filename(file_name)
@@ -256,6 +261,15 @@ def _safe_segment(value: Any, field_name: str) -> str:
     if not text or not _SAFE_SEGMENT_RE.match(text):
         raise ValueError(f"invalid {field_name}")
     return text
+
+
+def _normalize_runtime_node_segment(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("invalid runtime_node")
+    if ":" in text:
+        return runtime_node_path(text)
+    return _safe_segment(text, "runtime_node")
 
 
 def _safe_date(value: Any) -> str:

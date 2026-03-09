@@ -8,6 +8,8 @@ from uuid import uuid4
 from freshquant.db import DBfreshquant
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.submit.service import OrderSubmitService
+from freshquant.runtime_observability.ids import new_intent_id, new_trace_id
+from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.tpsl.stoploss_batch import build_stoploss_batch
 from freshquant.tpsl.takeprofit_quantity import (
     choose_takeprofit_level,
@@ -32,6 +34,7 @@ class TpslService:
         position_reader=None,
         lock_client=None,
         cooldown_seconds=3,
+        runtime_logger=None,
     ):
         self.takeprofit_service = takeprofit_service or TakeprofitService()
         self.order_submit_service = order_submit_service
@@ -39,6 +42,7 @@ class TpslService:
         self.position_reader = position_reader or _PositionReader(DBfreshquant)
         self.lock_client = lock_client or _CooldownLockClient(redis_db)
         self.cooldown_seconds = max(int(cooldown_seconds or 0), 0)
+        self.runtime_logger = runtime_logger or _get_runtime_logger()
 
     def save_takeprofit_profile(self, symbol, *, tiers, updated_by="system"):
         return self.takeprofit_service.save_profile(
@@ -117,18 +121,31 @@ class TpslService:
         bid1=None,
         last_price=None,
         tick_time=None,
+        trace_id=None,
     ):
         base_symbol = _normalize_symbol(symbol or code)
         try:
             profile = self.takeprofit_service.get_profile_with_state(base_symbol)
         except ValueError:
             return None
+        self._emit_runtime(
+            "profile_load",
+            symbol=base_symbol,
+            trace_id=trace_id,
+            payload={"code": code},
+        )
 
         state = profile.get("state") or {}
         hit = choose_takeprofit_level(
             ask1=ask1,
             tiers=profile.get("tiers") or [],
             armed_levels=state.get("armed_levels") or {},
+        )
+        self._emit_runtime(
+            "trigger_eval",
+            symbol=base_symbol,
+            trace_id=trace_id,
+            payload={"kind": "takeprofit", "hit_level": (hit or {}).get("level")},
         )
         if hit is None:
             return None
@@ -164,10 +181,21 @@ class TpslService:
             quantity_cap=order_quantity,
         )
         batch_id = f"takeprofit_batch_{uuid4().hex}"
+        trace_id_value = str(trace_id or "").strip() or new_trace_id()
+        intent_id_value = new_intent_id()
+        self._emit_runtime(
+            "batch_create",
+            symbol=base_symbol,
+            trace_id=trace_id_value,
+            intent_id=intent_id_value,
+            payload={"kind": "takeprofit", "batch_id": batch_id, "quantity": order_quantity},
+        )
         return {
             "batch_id": batch_id,
             "status": "ready",
             "symbol": base_symbol,
+            "trace_id": trace_id_value,
+            "intent_id": intent_id_value,
             "price": float(hit["price"]),
             "quantity": order_quantity,
             "level": int(hit["level"]),
@@ -195,6 +223,7 @@ class TpslService:
         ask1=None,
         last_price=None,
         tick_time=None,
+        trace_id=None,
     ):
         base_symbol = _normalize_symbol(symbol or code)
         triggered_bindings = []
@@ -207,6 +236,15 @@ class TpslService:
                 continue
             if float(bid1 or 0.0) <= float(stop_price):
                 triggered_bindings.append(binding)
+        self._emit_runtime(
+            "trigger_eval",
+            symbol=base_symbol,
+            trace_id=trace_id,
+            payload={
+                "kind": "stoploss",
+                "triggered_bindings": len(triggered_bindings),
+            },
+        )
         if not triggered_bindings:
             return None
 
@@ -219,9 +257,24 @@ class TpslService:
             can_use_volume=can_use_volume,
         )
         if batch.get("status") != "blocked":
+            trace_id_value = str(trace_id or "").strip() or new_trace_id()
+            intent_id_value = new_intent_id()
             batch["ask1"] = float(ask1 or 0.0)
             batch["last_price"] = float(last_price or 0.0)
             batch["tick_time"] = int(tick_time or 0)
+            batch["trace_id"] = trace_id_value
+            batch["intent_id"] = intent_id_value
+            self._emit_runtime(
+                "batch_create",
+                symbol=base_symbol,
+                trace_id=trace_id_value,
+                intent_id=intent_id_value,
+                payload={
+                    "kind": "stoploss",
+                    "batch_id": batch.get("batch_id"),
+                    "quantity": batch.get("quantity"),
+                },
+            )
         return batch
 
     def on_new_buy_trade(self, *, symbol, buy_price):
@@ -269,12 +322,23 @@ class TpslService:
                 "symbol": symbol,
                 "price": float(batch["price"]),
                 "quantity": int(batch["quantity"]),
+                "trace_id": batch.get("trace_id"),
+                "intent_id": batch.get("intent_id"),
                 "scope_type": scope_type,
                 "scope_ref_id": batch_id,
                 "source": source,
                 "strategy_name": batch.get("strategy_name") or strategy_name,
                 "remark": batch.get("remark") or f"{scope_type}:{batch_id}",
             }
+        )
+        self._emit_runtime(
+            "submit_intent",
+            symbol=symbol,
+            trace_id=batch.get("trace_id"),
+            intent_id=batch.get("intent_id"),
+            request_id=submit_result.get("request_id"),
+            internal_order_id=submit_result.get("internal_order_id"),
+            payload={"scope_type": scope_type, "batch_id": batch_id},
         )
         if scope_type == "takeprofit_batch" and batch.get("level") is not None:
             self.mark_takeprofit_triggered(
@@ -289,6 +353,32 @@ class TpslService:
         if self.order_submit_service is None:
             self.order_submit_service = OrderSubmitService()
         return self.order_submit_service
+
+    def _emit_runtime(
+        self,
+        node,
+        *,
+        symbol,
+        trace_id=None,
+        intent_id=None,
+        request_id=None,
+        internal_order_id=None,
+        payload=None,
+    ):
+        event = {
+            "component": "tpsl_worker",
+            "node": node,
+            "trace_id": trace_id,
+            "intent_id": intent_id,
+            "request_id": request_id,
+            "internal_order_id": internal_order_id,
+            "symbol": symbol,
+            "payload": dict(payload or {}),
+        }
+        try:
+            self.runtime_logger.emit(event)
+        except Exception:
+            return
 
 
 class _CooldownLockClient:
@@ -386,3 +476,13 @@ def _cap_takeprofit_breakdown(profit_slices, *, quantity_cap):
         "buy_lot_quantities": buy_lot_quantities,
         "slice_details": slice_details,
     }
+
+
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        _runtime_logger = RuntimeEventLogger("tpsl_worker")
+    return _runtime_logger

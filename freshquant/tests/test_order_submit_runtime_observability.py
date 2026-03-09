@@ -118,3 +118,5 @@ def test_submit_order_emits_runtime_trace_steps():
     assert runtime_logger.events[0]["intent_id"] == "int_1"
     assert runtime_logger.events[2]["request_id"] == result["request_id"]
     assert runtime_logger.events[3]["internal_order_id"] == result["internal_order_id"]
+    assert result["queue_payload"]["trace_id"] == "trc_1"
+    assert result["queue_payload"]["intent_id"] == "int_1"
