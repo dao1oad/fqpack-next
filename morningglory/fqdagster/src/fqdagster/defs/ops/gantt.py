@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from dagster import op
+from dagster import DynamicOut, DynamicOutput, graph, op
 
 from freshquant.data.gantt_readmodel import (
     persist_gantt_daily_for_date,
@@ -103,6 +103,17 @@ def _resolve_trade_date(trade_date: str | None = None) -> str:
     if trade_date:
         return str(trade_date).strip()
     return _query_latest_trade_date()
+
+
+def _require_result_trade_date(result: dict[str, Any] | None, source_name: str) -> str:
+    trade_date = _to_str((result or {}).get("trade_date"))
+    if not trade_date:
+        raise RuntimeError(f"missing trade_date in {source_name} result")
+    return trade_date
+
+
+def _build_trade_date_mapping_key(trade_date: str) -> str:
+    return _to_str(trade_date).replace("-", "_")
 
 
 def _build_shouban30_snapshots_for_date(context, trade_date: str) -> dict[str, Any]:
@@ -221,6 +232,16 @@ def run_gantt_backfill(context) -> list[str]:
     return processed_trade_dates
 
 
+@op(out=DynamicOut(str))
+def op_resolve_pending_gantt_trade_dates(context):
+    trade_dates = resolve_gantt_backfill_trade_dates()
+    context.log.info("resolved gantt pending trade_dates=%s", trade_dates)
+    for trade_date in trade_dates:
+        yield DynamicOutput(
+            trade_date, mapping_key=_build_trade_date_mapping_key(trade_date)
+        )
+
+
 @op
 def op_sync_xgb_history_daily(context) -> str:
     trade_date = _resolve_trade_date()
@@ -234,7 +255,21 @@ def op_sync_jygs_action_daily(context) -> str:
     trade_date = _resolve_trade_date()
     result = sync_jygs_action_for_date(trade_date)
     context.log.info("synced jygs action=%s", result)
-    return result["trade_date"]
+    return _require_result_trade_date(result, "jygs action")
+
+
+@op
+def op_sync_xgb_history_for_trade_date(context, trade_date: str) -> str:
+    rows = sync_xgb_history_for_date(_to_str(trade_date))
+    context.log.info("synced xgb history rows=%s trade_date=%s", rows, trade_date)
+    return _to_str(trade_date)
+
+
+@op
+def op_sync_jygs_action_for_trade_date(context, trade_date: str) -> str:
+    result = sync_jygs_action_for_date(_to_str(trade_date))
+    context.log.info("synced jygs action=%s", result)
+    return _require_result_trade_date(result, "jygs action")
 
 
 @op
@@ -276,3 +311,18 @@ def op_build_shouban30_daily(context, trade_date: str) -> dict:
 @op
 def op_run_gantt_postclose_incremental(context) -> list[str]:
     return run_gantt_backfill(context)
+
+
+@graph
+def graph_gantt_postclose_for_trade_date(trade_date):
+    xgb_trade_date = op_sync_xgb_history_for_trade_date(trade_date)
+    jygs_trade_date = op_sync_jygs_action_for_trade_date(trade_date)
+    agreed_trade_date = op_build_plate_reason_daily(xgb_trade_date, jygs_trade_date)
+    gantt_trade_date = op_build_gantt_daily(agreed_trade_date)
+    hot_reason_trade_date = op_build_stock_hot_reason_daily(gantt_trade_date)
+    op_build_shouban30_daily(hot_reason_trade_date)
+
+
+@graph
+def graph_gantt_postclose():
+    op_resolve_pending_gantt_trade_dates().map(graph_gantt_postclose_for_trade_date)
