@@ -242,6 +242,21 @@ function cloneDataZoomState(dataZoomState = []) {
   }))
 }
 
+function pickDataZoomWindow(source) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return null
+  }
+
+  const windowState = {}
+  for (const key of ['start', 'end', 'startValue', 'endValue']) {
+    if (source[key] !== undefined && source[key] !== null) {
+      windowState[key] = source[key]
+    }
+  }
+
+  return Object.keys(windowState).length ? windowState : null
+}
+
 function buildDefaultDataZoom() {
   return [
     {
@@ -264,6 +279,27 @@ function buildDefaultDataZoom() {
       }
     }
   ]
+}
+
+function resolveDataZoomState({ keepState, dataZoomState, previousDataZoom }) {
+  if (Array.isArray(dataZoomState) && dataZoomState.length) {
+    return cloneDataZoomState(dataZoomState)
+  }
+
+  const windowState = pickDataZoomWindow(dataZoomState)
+  const baseState =
+    keepState && Array.isArray(previousDataZoom) && previousDataZoom.length
+      ? cloneDataZoomState(previousDataZoom)
+      : buildDefaultDataZoom()
+
+  if (!windowState) {
+    return baseState
+  }
+
+  return baseState.map((item) => ({
+    ...item,
+    ...windowState
+  }))
 }
 
 function buildPeriodSeries(period, payload, axisDates, axisTimestamps, options = {}) {
@@ -544,10 +580,11 @@ export default function drawSlim(chart, klineData, period, options = {}) {
         }
       }
     },
-    dataZoom:
-      (Array.isArray(dataZoomState) && dataZoomState.length
-        ? cloneDataZoomState(dataZoomState)
-        : previousDataZoom) || buildDefaultDataZoom(),
+    dataZoom: resolveDataZoomState({
+      keepState,
+      dataZoomState,
+      previousDataZoom
+    }),
     series
   }
 
