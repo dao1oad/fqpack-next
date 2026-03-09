@@ -74,6 +74,31 @@ function formatPercentValue(value) {
   return `${number.toFixed(2)}%`
 }
 
+function buildChanlunTimePriceValue(item, timeKey, priceKey) {
+  const time = item?.[timeKey] || '--'
+  const price = formatPriceValue(item?.[priceKey])
+  return `${time} (${price})`
+}
+
+function computeChanlunBiBarCount(item) {
+  const start = Number(item?.start_idx)
+  const end = Number(item?.end_idx)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return '--'
+  }
+  return String(end - start + 1)
+}
+
+function buildChanlunSummaryItems({ item, fields }) {
+  if (!item) {
+    return null
+  }
+  return fields.map((field) => ({
+    label: field.label,
+    value: field.value
+  }))
+}
+
 export default {
   name: 'kline-slim',
   data() {
@@ -177,23 +202,49 @@ export default {
     chanlunHigherSegment() {
       return this.chanlunStructure.higher_segment || null
     },
-    chanlunHigherSegmentPivots() {
-      if (!Array.isArray(this.chanlunHigherSegment?.pivots)) {
-        return []
-      }
-      return this.chanlunHigherSegment.pivots
+    chanlunHigherSegmentSummary() {
+      return buildChanlunSummaryItems({
+        item: this.chanlunHigherSegment,
+        fields: [
+          { label: '方向', value: formatDirectionLabel(this.chanlunHigherSegment?.direction) },
+          { label: '价格比例', value: formatPercentValue(this.chanlunHigherSegment?.price_change_pct) },
+          { label: '包含段数', value: this.chanlunHigherSegment?.contained_duan_count ?? '--' },
+          { label: '中枢数', value: this.chanlunHigherSegment?.pivot_count ?? '--' },
+          { label: '起始', value: buildChanlunTimePriceValue(this.chanlunHigherSegment, 'start_time', 'start_price') },
+          { label: '终点', value: buildChanlunTimePriceValue(this.chanlunHigherSegment, 'end_time', 'end_price') }
+        ]
+      })
     },
     chanlunSegment() {
       return this.chanlunStructure.segment || null
     },
-    chanlunSegmentPivots() {
-      if (!Array.isArray(this.chanlunSegment?.pivots)) {
-        return []
-      }
-      return this.chanlunSegment.pivots
+    chanlunSegmentSummary() {
+      return buildChanlunSummaryItems({
+        item: this.chanlunSegment,
+        fields: [
+          { label: '方向', value: formatDirectionLabel(this.chanlunSegment?.direction) },
+          { label: '价格比例', value: formatPercentValue(this.chanlunSegment?.price_change_pct) },
+          { label: '包含笔数', value: this.chanlunSegment?.contained_bi_count ?? '--' },
+          { label: '中枢数', value: this.chanlunSegment?.pivot_count ?? '--' },
+          { label: '起始', value: buildChanlunTimePriceValue(this.chanlunSegment, 'start_time', 'start_price') },
+          { label: '终点', value: buildChanlunTimePriceValue(this.chanlunSegment, 'end_time', 'end_price') }
+        ]
+      })
     },
     chanlunBi() {
       return this.chanlunStructure.bi || null
+    },
+    chanlunBiSummary() {
+      return buildChanlunSummaryItems({
+        item: this.chanlunBi,
+        fields: [
+          { label: '方向', value: formatDirectionLabel(this.chanlunBi?.direction) },
+          { label: '价格比例', value: formatPercentValue(this.chanlunBi?.price_change_pct) },
+          { label: 'K线数', value: computeChanlunBiBarCount(this.chanlunBi) },
+          { label: '起始', value: buildChanlunTimePriceValue(this.chanlunBi, 'start_time', 'start_price') },
+          { label: '终点', value: buildChanlunTimePriceValue(this.chanlunBi, 'end_time', 'end_price') }
+        ]
+      })
     },
     statusText() {
       if (this.defaultSymbolResolveError) {
@@ -622,24 +673,6 @@ export default {
           this.chanlunStructureLoading = false
         }
       }
-    },
-    formatChanlunDirection(value) {
-      return formatDirectionLabel(value)
-    },
-    formatChanlunPivotDirection(value) {
-      if (value === 1) {
-        return '上'
-      }
-      if (value === -1) {
-        return '下'
-      }
-      return '--'
-    },
-    formatChanlunPrice(value) {
-      return formatPriceValue(value)
-    },
-    formatChanlunPercent(value) {
-      return formatPercentValue(value)
     },
     stopPolling() {
       if (this.mainTimer) {

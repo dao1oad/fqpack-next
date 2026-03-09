@@ -193,168 +193,46 @@
             </div>
             <div v-else class="chanlun-panel-sections">
               <section class="chanlun-structure-section">
-                <header class="chanlun-structure-section__header">高级段</header>
-                <div v-if="chanlunHigherSegment" class="chanlun-summary-grid">
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">方向</span>
-                    <span>{{ formatChanlunDirection(chanlunHigherSegment.direction) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">起点时间</span>
-                    <span>{{ chanlunHigherSegment.start_time || '--' }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">起点价格</span>
-                    <span>{{ formatChanlunPrice(chanlunHigherSegment.start_price) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">终点时间</span>
-                    <span>{{ chanlunHigherSegment.end_time || '--' }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">终点价格</span>
-                    <span>{{ formatChanlunPrice(chanlunHigherSegment.end_price) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">价格比例</span>
-                    <span>{{ formatChanlunPercent(chanlunHigherSegment.price_change_pct) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">包含段数</span>
-                    <span>{{ chanlunHigherSegment.contained_duan_count ?? '--' }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">中枢数</span>
-                    <span>{{ chanlunHigherSegment.pivot_count ?? '--' }}</span>
-                  </div>
+                <div v-if="chanlunHigherSegmentSummary" class="chanlun-summary-line">
+                  <span class="chanlun-summary-line__title">高级段</span>
+                  <span
+                    v-for="field in chanlunHigherSegmentSummary"
+                    :key="`higher:${field.label}`"
+                    class="chanlun-summary-chip"
+                  >
+                    <span class="chanlun-summary-chip__label">{{ field.label }}</span>
+                    <span class="chanlun-summary-chip__value">{{ field.value }}</span>
+                  </span>
                 </div>
                 <div v-else class="chanlun-panel-empty">暂无已完成高级段</div>
-
-                <div
-                  v-if="chanlunHigherSegment && chanlunHigherSegmentPivots.length"
-                  class="chanlun-pivot-table"
-                >
-                  <div class="chanlun-pivot-table__row chanlun-pivot-table__row--header">
-                    <span>起点时间</span>
-                    <span>终点时间</span>
-                    <span>段 ZG</span>
-                    <span>段 ZD</span>
-                    <span>段 GG</span>
-                    <span>段 DD</span>
-                    <span>方向</span>
-                  </div>
-                  <div
-                    v-for="pivot in chanlunHigherSegmentPivots"
-                    :key="`higher:${pivot.start_idx}:${pivot.end_idx}`"
-                    class="chanlun-pivot-table__row"
-                  >
-                    <span>{{ pivot.start_time || '--' }}</span>
-                    <span>{{ pivot.end_time || '--' }}</span>
-                    <span>{{ formatChanlunPrice(pivot.zg) }}</span>
-                    <span>{{ formatChanlunPrice(pivot.zd) }}</span>
-                    <span>{{ formatChanlunPrice(pivot.gg) }}</span>
-                    <span>{{ formatChanlunPrice(pivot.dd) }}</span>
-                    <span>{{ formatChanlunPivotDirection(pivot.direction) }}</span>
-                  </div>
-                </div>
-                <div v-else-if="chanlunHigherSegment" class="chanlun-panel-empty">暂无段中枢</div>
               </section>
 
               <section class="chanlun-structure-section">
-                <header class="chanlun-structure-section__header">段</header>
-                <div v-if="chanlunSegment" class="chanlun-summary-grid">
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">方向</span>
-                    <span>{{ formatChanlunDirection(chanlunSegment.direction) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">起点时间</span>
-                    <span>{{ chanlunSegment.start_time || '--' }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">起点价格</span>
-                    <span>{{ formatChanlunPrice(chanlunSegment.start_price) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">终点时间</span>
-                    <span>{{ chanlunSegment.end_time || '--' }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">终点价格</span>
-                    <span>{{ formatChanlunPrice(chanlunSegment.end_price) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">价格比例</span>
-                    <span>{{ formatChanlunPercent(chanlunSegment.price_change_pct) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">包含笔数</span>
-                    <span>{{ chanlunSegment.contained_bi_count ?? '--' }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">中枢数</span>
-                    <span>{{ chanlunSegment.pivot_count ?? '--' }}</span>
-                  </div>
+                <div v-if="chanlunSegmentSummary" class="chanlun-summary-line">
+                  <span class="chanlun-summary-line__title">段</span>
+                  <span
+                    v-for="field in chanlunSegmentSummary"
+                    :key="`segment:${field.label}`"
+                    class="chanlun-summary-chip"
+                  >
+                    <span class="chanlun-summary-chip__label">{{ field.label }}</span>
+                    <span class="chanlun-summary-chip__value">{{ field.value }}</span>
+                  </span>
                 </div>
                 <div v-else class="chanlun-panel-empty">暂无已完成段</div>
-
-                <div
-                  v-if="chanlunSegment && chanlunSegmentPivots.length"
-                  class="chanlun-pivot-table"
-                >
-                  <div class="chanlun-pivot-table__row chanlun-pivot-table__row--header">
-                    <span>起点时间</span>
-                    <span>终点时间</span>
-                    <span>中枢 ZG</span>
-                    <span>中枢 ZD</span>
-                    <span>中枢 GG</span>
-                    <span>中枢 DD</span>
-                    <span>方向</span>
-                  </div>
-                  <div
-                    v-for="pivot in chanlunSegmentPivots"
-                    :key="`segment:${pivot.start_idx}:${pivot.end_idx}`"
-                    class="chanlun-pivot-table__row"
-                  >
-                    <span>{{ pivot.start_time || '--' }}</span>
-                    <span>{{ pivot.end_time || '--' }}</span>
-                    <span>{{ formatChanlunPrice(pivot.zg) }}</span>
-                    <span>{{ formatChanlunPrice(pivot.zd) }}</span>
-                    <span>{{ formatChanlunPrice(pivot.gg) }}</span>
-                    <span>{{ formatChanlunPrice(pivot.dd) }}</span>
-                    <span>{{ formatChanlunPivotDirection(pivot.direction) }}</span>
-                  </div>
-                </div>
-                <div v-else-if="chanlunSegment" class="chanlun-panel-empty">暂无笔中枢</div>
               </section>
 
               <section class="chanlun-structure-section">
-                <header class="chanlun-structure-section__header">笔</header>
-                <div v-if="chanlunBi" class="chanlun-summary-grid">
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">方向</span>
-                    <span>{{ formatChanlunDirection(chanlunBi.direction) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">起点时间</span>
-                    <span>{{ chanlunBi.start_time || '--' }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">起点价格</span>
-                    <span>{{ formatChanlunPrice(chanlunBi.start_price) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">终点时间</span>
-                    <span>{{ chanlunBi.end_time || '--' }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">终点价格</span>
-                    <span>{{ formatChanlunPrice(chanlunBi.end_price) }}</span>
-                  </div>
-                  <div class="chanlun-summary-item">
-                    <span class="chanlun-summary-item__label">价格比例</span>
-                    <span>{{ formatChanlunPercent(chanlunBi.price_change_pct) }}</span>
-                  </div>
+                <div v-if="chanlunBiSummary" class="chanlun-summary-line">
+                  <span class="chanlun-summary-line__title">笔</span>
+                  <span
+                    v-for="field in chanlunBiSummary"
+                    :key="`bi:${field.label}`"
+                    class="chanlun-summary-chip"
+                  >
+                    <span class="chanlun-summary-chip__label">{{ field.label }}</span>
+                    <span class="chanlun-summary-chip__value">{{ field.value }}</span>
+                  </span>
                 </div>
                 <div v-else class="chanlun-panel-empty">暂无已完成笔</div>
               </section>
@@ -672,72 +550,48 @@ export default klineSlim
   gap 14px
 
 .chanlun-structure-section
-  padding 14px
+  padding 12px 14px
   border 1px solid rgba(148, 163, 184, 0.14)
   border-radius 14px
   background rgba(15, 23, 42, 0.52)
 
-.chanlun-structure-section__header
-  margin-bottom 12px
+.chanlun-summary-line
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+
+.chanlun-summary-line__title
+  flex 0 0 auto
+  min-width 40px
+  color #f8fafc
   font-size 14px
   font-weight 600
-  color #f8fafc
 
-.chanlun-summary-grid
-  display grid
-  grid-template-columns repeat(4, minmax(0, 1fr))
-  gap 10px
-
-.chanlun-summary-item
-  display flex
-  flex-direction column
-  gap 4px
-  min-height 56px
-  padding 10px 12px
-  border-radius 12px
+.chanlun-summary-chip
+  display inline-flex
+  align-items center
+  gap 6px
+  padding 6px 10px
+  border 1px solid rgba(127, 127, 122, 0.18)
+  border-radius 999px
   background rgba(30, 41, 59, 0.5)
   color #e2e8f0
   font-size 12px
 
-.chanlun-summary-item__label
+.chanlun-summary-chip__label
   color #93c5fd
 
+.chanlun-summary-chip__value
+  color #f8fafc
+
 .chanlun-panel-empty
-  margin-top 10px
   padding 10px 12px
   border 1px dashed rgba(148, 163, 184, 0.2)
   border-radius 12px
   color #94a3b8
   font-size 12px
   background rgba(15, 23, 42, 0.32)
-
-.chanlun-pivot-table
-  margin-top 12px
-  display flex
-  flex-direction column
-  gap 6px
-
-.chanlun-pivot-table__row
-  display grid
-  grid-template-columns 1.35fr 1.35fr repeat(4, minmax(72px, 0.7fr)) 56px
-  gap 8px
-  align-items center
-  padding 10px 12px
-  border-radius 12px
-  background rgba(30, 41, 59, 0.44)
-  color #e2e8f0
-  font-size 12px
-
-.chanlun-pivot-table__row--header
-  background rgba(59, 130, 246, 0.18)
-  color #dbeafe
-  font-weight 600
-
-.chanlun-pivot-table__row > span
-  min-width 0
-  overflow hidden
-  text-overflow ellipsis
-  white-space nowrap
 
 .kline-slim-chart
   position absolute
@@ -815,12 +669,6 @@ export default klineSlim
   .kline-slim-body
     top 120px
 
-  .chanlun-summary-grid
-    grid-template-columns repeat(2, minmax(0, 1fr))
-
-  .chanlun-pivot-table__row
-    grid-template-columns repeat(2, minmax(0, 1fr))
-
 @media (max-width: 900px)
   .kline-slim-body
     flex-direction column
@@ -847,8 +695,8 @@ export default klineSlim
   .chanlun-panel-actions
     justify-content flex-end
 
-  .chanlun-summary-grid
-    grid-template-columns 1fr
+  .chanlun-summary-line
+    align-items flex-start
 
   .reason-table-row
     grid-template-columns repeat(2, minmax(0, 1fr))
