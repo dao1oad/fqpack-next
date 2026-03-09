@@ -2,9 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildTraceDetail,
   buildHealthCards,
   buildRawLookupFromStep,
   buildTraceQuery,
+  filterTraceSteps,
+  formatDurationMs,
   sortTraceSummaries,
   summarizeTrace,
 } from './runtimeObservability.mjs'
@@ -78,4 +81,59 @@ test('buildHealthCards and buildRawLookupFromStep normalize view data', () => {
       date: '2026-03-09',
     },
   )
+})
+
+test('buildTraceDetail derives durations, issue steps and step metadata', () => {
+  const detail = buildTraceDetail({
+    trace_id: 'trc_1',
+    intent_ids: ['intent_1'],
+    request_ids: ['req_1'],
+    internal_order_ids: ['ord_1'],
+    steps: [
+      {
+        component: 'guardian_strategy',
+        node: 'receive_signal',
+        status: 'info',
+        ts: '2026-03-09T10:00:00+08:00',
+      },
+      {
+        component: 'position_gate',
+        node: 'decision',
+        status: 'skipped',
+        ts: '2026-03-09T10:00:00.250+08:00',
+        reason_code: 'cooldown_active',
+        decision_branch: 'cooldown_block',
+        decision_expr: 'cooldown_remaining > 0',
+        payload: { quantity: 300 },
+      },
+    ],
+  })
+
+  assert.equal(detail.trace_id, 'trc_1')
+  assert.equal(detail.issue_count, 1)
+  assert.equal(detail.total_duration_label, '250ms')
+  assert.equal(detail.first_issue.node, 'decision')
+  assert.equal(detail.steps[1].delta_from_prev_label, '250ms')
+  assert.equal(detail.steps[1].is_issue, true)
+  assert.deepEqual(
+    detail.steps[1].tags.map((item) => item.key),
+    ['decision_branch', 'reason_code', 'decision_expr'],
+  )
+  assert.match(detail.steps[1].payload_text, /"quantity": 300/)
+})
+
+test('filterTraceSteps keeps only issue steps when requested', () => {
+  const detail = buildTraceDetail({
+    steps: [
+      { component: 'guardian_strategy', node: 'receive_signal', status: 'info' },
+      { component: 'position_gate', node: 'decision', status: 'warning' },
+      { component: 'order_submit', node: 'queue_write', status: 'success' },
+    ],
+  })
+
+  assert.deepEqual(
+    filterTraceSteps(detail.steps, { onlyIssues: true }).map((item) => item.node),
+    ['decision'],
+  )
+  assert.equal(formatDurationMs(1520), '1.5s')
 })

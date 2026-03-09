@@ -56,21 +56,144 @@
 
           <div class="trace-detail">
             <div class="trace-detail-head">
-              <strong>{{ selectedTrace?.trace_id || '选择一条 Trace' }}</strong>
-              <el-button :disabled="!selectedTrace" @click="openRawBrowser">Raw</el-button>
+              <div>
+                <strong>{{ selectedTraceDetail.trace_id || selectedTrace?.trace_key || '选择一条 Trace' }}</strong>
+                <div v-if="selectedTrace" class="trace-summary-chips">
+                  <span class="trace-summary-chip">steps {{ selectedTraceDetail.step_count }}</span>
+                  <span class="trace-summary-chip" :class="{ 'is-issue': selectedTraceDetail.issue_count > 0 }">
+                    issues {{ selectedTraceDetail.issue_count }}
+                  </span>
+                  <span class="trace-summary-chip">duration {{ selectedTraceDetail.total_duration_label }}</span>
+                </div>
+              </div>
+              <div class="trace-detail-actions">
+                <el-switch
+                  v-model="onlyIssues"
+                  :disabled="!selectedTrace"
+                  inline-prompt
+                  active-text="异常"
+                  inactive-text="全部"
+                />
+                <el-button :disabled="!selectedStep" @click="openRawBrowser">Raw</el-button>
+              </div>
             </div>
-            <div v-if="selectedTrace" class="trace-step-list">
-              <article v-for="(step, index) in selectedTrace.steps" :key="`${step.ts}-${index}`" class="trace-step-card">
-                <header>
-                  <strong>{{ step.component }}.{{ step.node }}</strong>
-                  <span>{{ step.status || 'info' }}</span>
-                </header>
-                <p>{{ step.ts }}</p>
-                <p v-if="step.reason_code">reason: {{ step.reason_code }}</p>
-                <p v-if="step.request_id">request: {{ step.request_id }}</p>
-                <p v-if="step.internal_order_id">order: {{ step.internal_order_id }}</p>
-                <el-button text type="primary" @click="openRawFromStep(step)">查看 Raw</el-button>
-              </article>
+            <div v-if="selectedTrace" class="trace-detail-body">
+              <div class="trace-timeline-panel">
+                <div class="trace-identity-grid">
+                  <div v-for="group in traceIdentityGroups" :key="group.label" class="trace-identity-card">
+                    <span>{{ group.label }}</span>
+                    <div class="trace-identity-values">
+                      <button
+                        v-for="value in group.values"
+                        :key="`${group.label}-${value}`"
+                        type="button"
+                        class="trace-copy-chip"
+                        @click="copyText(value)"
+                      >
+                        {{ value }}
+                      </button>
+                      <span v-if="group.values.length === 0">-</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="trace-timeline-hint">
+                  <span>{{ onlyIssues ? '仅显示异常节点' : '显示全部节点' }}</span>
+                  <span>可见 {{ visibleStepCount }} / {{ selectedTraceDetail.step_count }}</span>
+                </div>
+
+                <div v-if="filteredSteps.length > 0" class="trace-step-list">
+                  <article
+                    v-for="step in filteredSteps"
+                    :key="stepKey(step)"
+                    class="trace-step-card"
+                    :class="[statusClass(step.status), { active: isActiveStep(step) }]"
+                    @click="handleStepSelect(step)"
+                  >
+                    <span class="trace-step-marker" />
+                    <header>
+                      <div>
+                        <strong>{{ step.component }}.{{ step.node }}</strong>
+                        <div class="trace-step-subline">
+                          <span>#{{ step.index + 1 }}</span>
+                          <span>{{ step.ts || '-' }}</span>
+                        </div>
+                      </div>
+                      <div class="trace-step-side">
+                        <span v-if="step.delta_from_prev_label" class="trace-step-delta">
+                          +{{ step.delta_from_prev_label }}
+                        </span>
+                        <span class="trace-step-status">{{ step.status || 'info' }}</span>
+                      </div>
+                    </header>
+                    <div v-if="step.tags.length" class="trace-step-tags">
+                      <span v-for="tag in step.tags" :key="`${stepKey(step)}-${tag.key}`">
+                        {{ tag.label }}: {{ tag.value }}
+                      </span>
+                    </div>
+                    <p v-if="step.message">{{ step.message }}</p>
+                    <div class="trace-step-meta">
+                      <span v-if="step.request_id">request {{ step.request_id }}</span>
+                      <span v-if="step.internal_order_id">order {{ step.internal_order_id }}</span>
+                    </div>
+                  </article>
+                </div>
+                <div v-else class="trace-empty">当前过滤条件下没有节点</div>
+              </div>
+
+              <aside class="step-inspector">
+                <template v-if="selectedStep">
+                  <div class="step-inspector-head" :class="statusClass(selectedStep.status)">
+                    <div>
+                      <strong>{{ selectedStep.component }}.{{ selectedStep.node }}</strong>
+                      <p>{{ selectedStep.ts || '-' }}</p>
+                    </div>
+                    <span class="trace-step-status">{{ selectedStep.status || 'info' }}</span>
+                  </div>
+
+                  <div class="step-inspector-summary">
+                    <span>step #{{ selectedStep.index + 1 }}</span>
+                    <span v-if="selectedStep.delta_from_prev_label">
+                      delta {{ selectedStep.delta_from_prev_label }}
+                    </span>
+                    <span v-if="selectedStep.event_type">{{ selectedStep.event_type }}</span>
+                  </div>
+
+                  <section class="step-inspector-section">
+                    <h4>关联字段</h4>
+                    <div v-for="field in selectedStep.detail_fields" :key="`${stepKey(selectedStep)}-${field.key}`" class="inspector-field-row">
+                      <span>{{ field.key }}</span>
+                      <code>{{ field.value }}</code>
+                      <button type="button" class="trace-copy-link" @click.stop="copyText(field.value)">复制</button>
+                    </div>
+                  </section>
+
+                  <section v-if="selectedStep.tags.length" class="step-inspector-section">
+                    <h4>分支判断</h4>
+                    <div class="inspector-tag-list">
+                      <span v-for="tag in selectedStep.tags" :key="`${stepKey(selectedStep)}-detail-${tag.key}`" class="inspector-tag">
+                        {{ tag.label }}: {{ tag.value }}
+                      </span>
+                    </div>
+                  </section>
+
+                  <section v-if="selectedStep.payload_text" class="step-inspector-section">
+                    <h4>Payload</h4>
+                    <pre>{{ selectedStep.payload_text }}</pre>
+                  </section>
+
+                  <section v-if="selectedStep.metrics_text" class="step-inspector-section">
+                    <h4>Metrics</h4>
+                    <pre>{{ selectedStep.metrics_text }}</pre>
+                  </section>
+
+                  <div class="step-inspector-actions">
+                    <el-button type="primary" plain @click="openRawFromStep(selectedStep)">查看 Raw</el-button>
+                    <el-button text @click="copyText(buildStepCopyText(selectedStep))">复制节点摘要</el-button>
+                  </div>
+                </template>
+                <div v-else class="trace-empty">暂无选中节点</div>
+              </aside>
             </div>
             <div v-else class="trace-empty">暂无选中链路</div>
           </div>
@@ -95,14 +218,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
 import MyHeader from './MyHeader.vue'
 import {
+  buildTraceDetail,
   buildHealthCards,
   buildRawLookupFromStep,
   buildTraceQuery,
+  filterTraceSteps,
   sortTraceSummaries,
   summarizeTrace,
 } from './runtimeObservability.mjs'
@@ -124,6 +249,8 @@ const query = reactive({
 const healthCards = ref([])
 const traces = ref([])
 const selectedTrace = ref(null)
+const selectedStep = ref(null)
+const onlyIssues = ref(false)
 const rawDrawerVisible = ref(false)
 const rawFiles = ref([])
 const rawRecords = ref([])
@@ -136,6 +263,19 @@ const rawQuery = reactive({
 
 const traceRows = computed(() => {
   return sortTraceSummaries(traces.value.map((item) => summarizeTrace(item)))
+})
+
+const selectedTraceDetail = computed(() => buildTraceDetail(selectedTrace.value || {}))
+const filteredSteps = computed(() => {
+  return filterTraceSteps(selectedTraceDetail.value.steps, { onlyIssues: onlyIssues.value })
+})
+const visibleStepCount = computed(() => filteredSteps.value.length)
+const traceIdentityGroups = computed(() => {
+  return [
+    { label: 'Intent', values: selectedTraceDetail.value.intent_ids || [] },
+    { label: 'Request', values: selectedTraceDetail.value.request_ids || [] },
+    { label: 'Order', values: selectedTraceDetail.value.internal_order_ids || [] },
+  ]
 })
 
 const rawContent = computed(() => {
@@ -161,24 +301,28 @@ const loadTraces = async () => {
   try {
     const response = await runtimeObservabilityApi.listTraces(buildTraceQuery(query))
     traces.value = response?.data?.traces || []
-    if (!selectedTrace.value && traces.value.length > 0) {
-      selectedTrace.value = traces.value[0]
-    }
+    const currentTraceId = selectedTrace.value?.trace_id
+    selectedTrace.value = traces.value.find((item) => item.trace_id === currentTraceId) || traces.value[0] || null
   } finally {
     loading.traces = false
   }
 }
 
 const handleTraceClick = async (row) => {
-  if (!row?.trace_id) {
-    selectedTrace.value = traces.value.find((item) => summarizeTrace(item).trace_id === row?.trace_id) || null
-    return
-  }
+  if (!row?.trace_id) return
   const response = await runtimeObservabilityApi.getTraceDetail(row.trace_id)
   selectedTrace.value = response?.data?.trace || null
 }
 
-const openRawBrowser = () => {
+const handleStepSelect = (step) => {
+  selectedStep.value = step || null
+}
+
+const openRawBrowser = async () => {
+  if (selectedStep.value) {
+    await openRawFromStep(selectedStep.value)
+    return
+  }
   rawDrawerVisible.value = true
 }
 
@@ -227,6 +371,66 @@ const loadRawTail = async () => {
     loading.raw = false
   }
 }
+
+const stepKey = (step) => {
+  return [
+    step?.ts || '',
+    step?.component || '',
+    step?.node || '',
+    step?.index ?? '',
+  ].join('|')
+}
+
+const isActiveStep = (step) => {
+  return stepKey(selectedStep.value) === stepKey(step)
+}
+
+const statusClass = (status) => {
+  const normalized = String(status || 'info').trim()
+  if (normalized === 'success') return 'is-success'
+  if (normalized === 'warning') return 'is-warning'
+  if (normalized === 'failed' || normalized === 'error') return 'is-failed'
+  if (normalized === 'skipped') return 'is-skipped'
+  return 'is-info'
+}
+
+const buildStepCopyText = (step) => {
+  if (!step) return ''
+  const lines = [
+    `${step.component}.${step.node}`,
+    `status: ${step.status || 'info'}`,
+    step.ts ? `ts: ${step.ts}` : '',
+    ...(step.detail_fields || []).map((field) => `${field.key}: ${field.value}`),
+    ...(step.tags || []).map((tag) => `${tag.label}: ${tag.value}`),
+  ].filter(Boolean)
+  return lines.join('\n')
+}
+
+const copyText = async (value) => {
+  const text = String(value || '').trim()
+  if (!text) return
+  try {
+    if (window?.navigator?.clipboard?.writeText) {
+      await window.navigator.clipboard.writeText(text)
+    }
+  } catch {
+    return
+  }
+}
+
+const syncSelectedStep = () => {
+  const steps = filteredSteps.value
+  if (!steps.length) {
+    selectedStep.value = null
+    return
+  }
+  const currentKey = stepKey(selectedStep.value)
+  selectedStep.value = steps.find((step) => stepKey(step) === currentKey) || steps[0]
+}
+
+watch([selectedTraceDetail, onlyIssues], () => {
+  syncSelectedStep()
+})
 
 onMounted(() => {
   loadOverview()
@@ -344,19 +548,142 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 
+.trace-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.trace-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.trace-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #31506e;
+  font-size: 12px;
+}
+
+.trace-summary-chip.is-issue {
+  background: #fff1f0;
+  color: #9f2d24;
+}
+
+.trace-detail-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 14px;
+}
+
+.trace-timeline-panel,
+.step-inspector {
+  min-width: 0;
+}
+
+.trace-identity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.trace-identity-card {
+  border: 1px solid #d8e2ee;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+}
+
+.trace-identity-card > span {
+  display: block;
+  margin-bottom: 8px;
+  color: #5e7690;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.trace-identity-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #35506c;
+  font-size: 12px;
+}
+
+.trace-copy-chip,
+.trace-copy-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.trace-copy-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #edf4fb;
+}
+
+.trace-copy-chip:hover,
+.trace-copy-link:hover {
+  color: #0f5ba7;
+}
+
+.trace-timeline-hint {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: #64809b;
+  font-size: 12px;
+}
+
 .trace-step-list {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 460px;
+  max-height: 520px;
   overflow: auto;
+  padding-left: 20px;
+  border-left: 2px solid #dbe5ef;
 }
 
 .trace-step-card {
+  position: relative;
   border: 1px solid #d8e2ee;
   border-radius: 12px;
   padding: 12px;
   background: #fff;
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.trace-step-card:hover,
+.trace-step-card.active {
+  border-color: #5d8fbd;
+  box-shadow: 0 10px 24px rgba(35, 73, 115, 0.1);
+  transform: translateX(2px);
+}
+
+.trace-step-marker {
+  position: absolute;
+  left: -27px;
+  top: 18px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #7390ac;
+  box-shadow: 0 0 0 4px #eef4fb;
 }
 
 .trace-step-card header {
@@ -366,9 +693,207 @@ onMounted(() => {
   margin-bottom: 8px;
 }
 
+.trace-step-subline,
+.trace-step-meta,
+.step-inspector-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #66829c;
+  font-size: 12px;
+}
+
+.trace-step-subline {
+  margin-top: 6px;
+}
+
+.trace-step-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.trace-step-delta {
+  color: #6d879f;
+  font-size: 12px;
+}
+
+.trace-step-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 66px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #35506c;
+  font-size: 12px;
+  text-transform: lowercase;
+}
+
+.trace-step-tags,
+.inspector-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.trace-step-tags span,
+.inspector-tag {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f1f5fa;
+  color: #4b6580;
+  font-size: 12px;
+}
+
 .trace-step-card p {
   margin: 4px 0;
   color: #46607a;
+}
+
+.trace-step-card.is-success .trace-step-marker,
+.trace-step-card.is-success .trace-step-status,
+.step-inspector-head.is-success .trace-step-status {
+  background: #1e9b61;
+  color: #fff;
+}
+
+.trace-step-card.is-warning .trace-step-marker,
+.trace-step-card.is-warning .trace-step-status,
+.step-inspector-head.is-warning .trace-step-status {
+  background: #de8f1f;
+  color: #fff;
+}
+
+.trace-step-card.is-failed .trace-step-marker,
+.trace-step-card.is-failed .trace-step-status,
+.step-inspector-head.is-failed .trace-step-status {
+  background: #cf4a3c;
+  color: #fff;
+}
+
+.trace-step-card.is-skipped .trace-step-marker,
+.trace-step-card.is-skipped .trace-step-status,
+.step-inspector-head.is-skipped .trace-step-status {
+  background: #7d74b6;
+  color: #fff;
+}
+
+.trace-step-card.is-success {
+  background: linear-gradient(180deg, #ffffff 0%, #f2fbf6 100%);
+}
+
+.trace-step-card.is-warning {
+  background: linear-gradient(180deg, #ffffff 0%, #fff8ec 100%);
+}
+
+.trace-step-card.is-failed {
+  background: linear-gradient(180deg, #ffffff 0%, #fff1f0 100%);
+}
+
+.trace-step-card.is-skipped {
+  background: linear-gradient(180deg, #ffffff 0%, #f5f2ff 100%);
+}
+
+.step-inspector {
+  border: 1px solid #d8e2ee;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  min-height: 320px;
+}
+
+.step-inspector-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  background: #f4f8fc;
+}
+
+.step-inspector-head strong {
+  display: block;
+  color: #1d3b58;
+}
+
+.step-inspector-head p {
+  margin: 6px 0 0;
+  color: #6b859e;
+  font-size: 12px;
+}
+
+.step-inspector-head.is-success {
+  background: #eefaf3;
+}
+
+.step-inspector-head.is-warning {
+  background: #fff6e6;
+}
+
+.step-inspector-head.is-failed {
+  background: #fff0ef;
+}
+
+.step-inspector-head.is-skipped {
+  background: #f4f1ff;
+}
+
+.step-inspector-section {
+  margin-top: 14px;
+}
+
+.step-inspector-section h4 {
+  margin: 0 0 8px;
+  color: #274564;
+}
+
+.inspector-field-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid #edf2f7;
+}
+
+.inspector-field-row:first-of-type {
+  border-top: 0;
+}
+
+.inspector-field-row span {
+  color: #68829b;
+  font-size: 12px;
+}
+
+.inspector-field-row code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #2e4d69;
+}
+
+.step-inspector pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: #0f2034;
+  color: #dff0ff;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow: auto;
+}
+
+.step-inspector-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
 }
 
 .trace-empty {
@@ -401,7 +926,20 @@ onMounted(() => {
 @media (max-width: 1080px) {
   .trace-toolbar,
   .raw-toolbar,
-  .trace-layout {
+  .trace-layout,
+  .trace-detail-body,
+  .trace-identity-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trace-detail-head,
+  .step-inspector-actions,
+  .trace-timeline-hint {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .inspector-field-row {
     grid-template-columns: 1fr;
   }
 }
