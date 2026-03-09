@@ -18,6 +18,7 @@ from freshquant.data.gantt_source_xgb import (
     normalize_xgb_history_row,
 )
 from freshquant.db import DBGantt
+from freshquant.market_data.xtdata.schema import normalize_prefixed_code
 
 COL_PLATE_REASON_DAILY = "plate_reason_daily"
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
@@ -48,6 +49,11 @@ def _normalize_code6(value: Any) -> str:
     if not match:
         return text
     return match.group(1)
+
+
+def _is_shouban30_excluded_stock_code(code6: Any) -> bool:
+    normalized = _normalize_code6(code6)
+    return bool(re.fullmatch(r"(43|83|87|92)\d{4}", normalized))
 
 
 def _to_int(value: Any, default: int) -> int:
@@ -814,6 +820,15 @@ def _build_shouban30_chanlun_cache_key(code6: Any, as_of_date: Any) -> str:
     return f"{_normalize_code6(code6)}|{_to_str(as_of_date)}|{SHOUBAN30_CHANLUN_PERIOD}"
 
 
+def _resolve_shouban30_chanlun_symbol(code6: Any) -> str:
+    normalized_code6 = _normalize_code6(code6)
+    if not normalized_code6:
+        return ""
+    if normalized_code6.startswith("92"):
+        return f"bj{normalized_code6}"
+    return normalize_prefixed_code(normalized_code6)
+
+
 def _get_segment_gain_multiple(segment: dict[str, Any] | None) -> float | None:
     start_price = _to_float((segment or {}).get("start_price"))
     end_price = _to_float((segment or {}).get("end_price"))
@@ -873,7 +888,7 @@ def _resolve_shouban30_chanlun_result(
     if cached is not None:
         return cached
     response = get_chanlun_structure(
-        _normalize_code6(code6),
+        _resolve_shouban30_chanlun_symbol(code6),
         SHOUBAN30_CHANLUN_PERIOD,
         as_of_date,
     )
@@ -901,6 +916,8 @@ def _build_shouban30_stock_rows(
         plate_key = _to_str(row.get("plate_key"))
         code6 = _to_str(row.get("code6"))
         if not provider or not plate_key or not code6:
+            continue
+        if _is_shouban30_excluded_stock_code(code6):
             continue
         if (
             allowed_plate_keys is not None
@@ -1056,9 +1073,12 @@ def persist_shouban30_for_date(
             (_to_str(row.get("provider")), _to_str(row.get("plate_key")))
         ].append(row)
 
+    filtered_plate_candidates: list[dict[str, Any]] = []
     for item in plate_candidates:
         plate_key = (_to_str(item.get("provider")), _to_str(item.get("plate_key")))
         stock_items = plate_stock_rows.get(plate_key, [])
+        if not stock_items:
+            continue
         item["stock_window_days"] = target_window
         item["stocks_count"] = sum(
             1 for stock_item in stock_items if stock_item.get("chanlun_passed")
@@ -1072,9 +1092,10 @@ def persist_shouban30_for_date(
             stock_trade_dates[0] if stock_trade_dates else date_str
         )
         item["stock_window_to"] = date_str
+        filtered_plate_candidates.append(item)
 
     plate_rows = build_shouban30_plate_rows(
-        plate_rows=plate_candidates,
+        plate_rows=filtered_plate_candidates,
         plate_reason_rows=reason_window_rows,
         as_of_date=date_str,
     )

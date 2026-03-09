@@ -14,6 +14,13 @@
 ## 变更记录
 
 - **日期**：2026-03-09
+- **RFC**：0025-gantt-shouban30-exclude-bj-stocks
+- **变更**：`/api/gantt/shouban30/plates|stocks` 的快照语义进一步收口为“仅覆盖 A 股候选”，盘后构建阶段会直接排除 `43/83/87/92` 开头的北交所标的；过滤后若某板块已无剩余候选股，该板块也不再写入 `shouban30_plates`。同轮修复了 `shouban30` 盘后缠论筛选向 `/api/stock_data_chanlun_structure` 传入裸 `code6` 的错误，统一改为 prefixed symbol，避免将可计算股票误判为 `structure_unavailable`。
+- **影响面**：`/gantt/shouban30` 页面、`/api/gantt/shouban30/plates|stocks` 调用方、依赖旧候选统计的截图/说明文档，以及任何仍假设北交所标的会出现在 `shouban30` 快照中的脚本都会受到影响。统计值会下降，部分仅由北交所标的构成的板块会直接消失。
+- **迁移步骤**：1) 部署包含 RFC 0025 的后端与 Dagster 代码；2) 重建或等待 `job_gantt_postclose` 重建目标交易日 `30/45/60/90` 四档 `shouban30` 快照；3) 调用 `/api/gantt/shouban30/plates|stocks` 时，不再假设会返回北交所 `43/83/87/92` 标的或纯北交所板块；4) 若有历史报表需要与旧口径对齐，应显式注明“旧口径包含北交所候选”。
+- **回滚方案**：回退 `freshquant/data/gantt_readmodel.py` 与相关测试/文档，重新构建受影响交易日的 `shouban30` 快照，恢复旧的“北交所标的也进入候选集”语义。
+
+- **日期**：2026-03-09
 - **RFC**：0023-gantt-shouban30-postclose-chanlun-snapshot
 - **变更**：`/api/gantt/shouban30/plates|stocks` 的运行语义从“页面读取后再由前端复用 `/api/stock_data_chanlun_structure` 做 30m 缠论筛选”切换为“只读取盘后 Dagster 预计算快照”。`shouban30_plates` 新增 `candidate_stocks_count / failed_stocks_count / chanlun_filter_version`，且 `stocks_count` 语义改为“通过默认 30m 缠论筛选后的唯一标的数”；`shouban30_stocks` 新增 `chanlun_passed / chanlun_reason / chanlun_higher_multiple / chanlun_segment_multiple / chanlun_bi_gain_percent / chanlun_filter_version`。盘后构建阶段会直接过滤 `其他 / 公告 / ST股 / ST板块` 四类板块，并在同一交易日的 `30/45/60/90` 四档窗口之间共享缠论结果缓存。命中缺少 `chanlun_filter_version` 的 legacy snapshot 时，后端返回 409“快照未构建完成”，页面不再做前端现算 fallback。
 - **影响面**：`/gantt/shouban30` 页面、`/api/gantt/shouban30/plates|stocks` 调用方、`job_gantt_postclose` 构建耗时、`shouban30_*` 读模型 schema，以及任何依赖旧前端现算链路或旧 `stocks_count` 语义的脚本/说明文档都会受到影响。
