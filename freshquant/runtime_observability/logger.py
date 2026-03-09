@@ -45,8 +45,8 @@ class RuntimeEventLogger:
         flush: bool = True,
     ) -> None:
         self.component = _sanitize_path_segment(component, "default")
-        self.runtime_node = (
-            str(runtime_node or "").strip() or resolve_runtime_node(self.component)
+        self.runtime_node = str(runtime_node or "").strip() or resolve_runtime_node(
+            self.component
         )
         self.root_dir = (
             Path(root_dir) if root_dir is not None else get_runtime_log_root()
