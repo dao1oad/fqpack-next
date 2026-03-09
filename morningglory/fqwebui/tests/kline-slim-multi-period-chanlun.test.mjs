@@ -11,6 +11,8 @@ import {
   DEFAULT_VISIBLE_CHANLUN_PERIODS,
   PERIOD_STYLE_MAP,
   PERIOD_WIDTH_FACTOR,
+  ZHONGSHU_LEGEND_NAME,
+  DUAN_ZHONGSHU_LEGEND_NAME,
   buildLegendSelectionState,
   getRealtimeRefreshPeriods
 } from '../src/views/js/kline-slim-chanlun-periods.mjs'
@@ -64,7 +66,7 @@ async function loadDrawSlim() {
 function createSamplePayload(overrides = {}) {
   return {
     symbol: 'sz002262',
-    name: '恩华药业',
+    name: '鎭╁崕鑽笟',
     date: [
       '2026-03-09 09:30',
       '2026-03-09 09:35',
@@ -117,8 +119,8 @@ test('legend selection defaults to only 5m plus enabled zhongshu groups', () => 
     '5m': true,
     '15m': false,
     '30m': false,
-    '中枢': true,
-    '段中枢': true
+    [ZHONGSHU_LEGEND_NAME]: true,
+    [DUAN_ZHONGSHU_LEGEND_NAME]: true
   })
 })
 
@@ -155,8 +157,8 @@ test('draw-slim consumes all multi-period chanlun layer fields and global zhongs
   assert.match(content, /higher_duan_zsdata/)
   assert.match(content, /PERIOD_STYLE_MAP/)
   assert.match(content, /PERIOD_WIDTH_FACTOR/)
-  assert.match(content, /'中枢'/)
-  assert.match(content, /'段中枢'/)
+  assert.match(content, /GLOBAL_ZHONGSHU_LEGEND/)
+  assert.match(content, /GLOBAL_DUAN_ZHONGSHU_LEGEND/)
   assert.match(content, /markArea/)
   assert.match(content, /renderVersion = ''/)
 })
@@ -176,10 +178,74 @@ test('draw-slim materializes visible period legend groups as placeholder series'
   assert.ok(option.series.some((series) => series.name === '5m'))
 })
 
+test('draw-slim honors explicit legend selection state for current period layers', async () => {
+  const drawSlim = await loadDrawSlim()
+  const chart = createStubChart({
+    legend: [
+      {
+        selected: {
+          '5m': true,
+          [ZHONGSHU_LEGEND_NAME]: true,
+          [DUAN_ZHONGSHU_LEGEND_NAME]: true
+        }
+      }
+    ]
+  })
+  const payload = createSamplePayload()
+  const legendSelected = {
+    '1m': false,
+    '5m': false,
+    '15m': false,
+    '30m': false,
+    [ZHONGSHU_LEGEND_NAME]: false,
+    [DUAN_ZHONGSHU_LEGEND_NAME]: false
+  }
+
+  drawSlim(chart, payload, '5m', {
+    keepState: true,
+    renderVersion: 'render-main-hidden',
+    legendSelected
+  })
+
+  const [{ option }] = chart.setOptionCalls
+  assert.deepEqual(option.legend.selected, legendSelected)
+  assert.ok(option.series.some((series) => series.id === '5m-candlestick'))
+  assert.ok(!option.series.some((series) => series.id === '5m-bi'))
+  assert.ok(!option.series.some((series) => series.id === '5m-duan'))
+})
+
+test('draw-slim reuses explicit dataZoom state and does not replace it on keepState refresh', async () => {
+  const drawSlim = await loadDrawSlim()
+  const chart = createStubChart()
+  const payload = createSamplePayload()
+  const dataZoomState = [
+    { type: 'inside', start: 25, end: 75, startValue: 1, endValue: 3 },
+    { type: 'slider', start: 25, end: 75, startValue: 1, endValue: 3, bottom: 20 }
+  ]
+
+  drawSlim(chart, payload, '5m', {
+    keepState: true,
+    renderVersion: 'render-main-zoomed',
+    dataZoomState
+  })
+
+  const [{ option, opts }] = chart.setOptionCalls
+  assert.deepEqual(option.dataZoom, dataZoomState)
+  assert.ok(!opts.replaceMerge.includes('dataZoom'))
+})
+
 test('draw-slim uses full replace when keepState is false', async () => {
   const drawSlim = await loadDrawSlim()
   const chart = createStubChart({
-    legend: [{ selected: { '5m': true, '中枢': true, '段中枢': true } }],
+    legend: [
+      {
+        selected: {
+          '5m': true,
+          [ZHONGSHU_LEGEND_NAME]: true,
+          [DUAN_ZHONGSHU_LEGEND_NAME]: true
+        }
+      }
+    ],
     dataZoom: [{ start: 40, end: 100 }]
   })
   const payload = createSamplePayload()
@@ -193,7 +259,7 @@ test('draw-slim uses full replace when keepState is false', async () => {
   assert.equal(chart.clearCount, 1)
   assert.equal(opts.notMerge, true)
   assert.ok(opts.replaceMerge.includes('grid'))
-  assert.ok(opts.replaceMerge.includes('dataZoom'))
+  assert.ok(!opts.replaceMerge.includes('dataZoom'))
 })
 
 test('draw-slim remaps zhongshu markArea with axis coordinates and filters out-of-range boxes', async () => {
@@ -219,7 +285,7 @@ test('draw-slim remaps zhongshu markArea with axis coordinates and filters out-o
   })
 
   const [{ option }] = chart.setOptionCalls
-  const zhongshuSeries = option.series.find((series) => series.name === '5m 中枢')
+  const zhongshuSeries = option.series.find((series) => series.id === '5m-zhongshu')
   assert.ok(zhongshuSeries)
   assert.equal(zhongshuSeries.markArea.data.length, 1)
   assert.equal(typeof zhongshuSeries.markArea.data[0][0].xAxis, 'number')
@@ -229,7 +295,7 @@ test('draw-slim remaps zhongshu markArea with axis coordinates and filters out-o
 test('KlineSlim removes fixed overlay status copy and hints legend-driven extra periods', async () => {
   const content = await readFile(new URL('../src/views/KlineSlim.vue', import.meta.url), 'utf8')
 
-  assert.doesNotMatch(content, /叠加/)
+  assert.doesNotMatch(content, /固定叠加/)
   assert.match(content, /图例控制额外周期缠论层/)
 })
 
@@ -241,4 +307,14 @@ test('kline-slim controller binds legend selection changes to lazy period loadin
   assert.match(content, /visibleChanlunPeriods =/)
   assert.match(content, /const renderVersion = \[this\.currentPeriod\]/)
   assert.match(content, /renderVersion,\s*keepState/s)
+})
+
+test('kline-slim controller persists datazoom state and includes legend state in render key', async () => {
+  const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(content, /chartDataZoomState/)
+  assert.match(content, /datazoom/)
+  assert.match(content, /handleSlimDataZoom/)
+  assert.match(content, /JSON\.stringify\(this\.chanlunLegendSelected\)/)
+  assert.match(content, /dataZoomState:\s*this\.chartDataZoomState/)
 })
