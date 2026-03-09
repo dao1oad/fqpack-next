@@ -13,6 +13,13 @@
 
 ## 变更记录
 
+- **日期**：2026-03-09
+- **RFC**：0022-kline-slim-multi-period-chanlun-display
+- **变更**：`KlineSlim` 的默认显示语义从“`5m` 主图 + 固定 `30m` 缠论叠加”调整为“默认仅显示 `5m`，`1m / 15m / 30m` 通过图例按需打开”；图表层同时恢复旧仓四周期配色、线宽倍率，以及 `高级别段 / 段中枢 / 高级段中枢` 图层。
+- **影响面**：依赖旧默认可见 `30m` 叠加的用户在新版页面中需要手动点开 `30m` 图例；`KlineSlim` 前端轮询也从“固定主图 + 固定叠加”变为“仅刷新当前可见周期集合”。
+- **迁移步骤**：1) 如需旧视觉效果，进入 `/kline-slim` 后手动打开 `30m` 图例；2) 如需叠加更多周期，按需打开 `1m / 15m / 30m`；3) 若依赖默认展示语义做培训或截图说明，更新为新版图例驱动说明。
+- **回滚方案**：回退 `morningglory/fqwebui/src/views/KlineSlim.vue`、`src/views/js/kline-slim.js`、`src/views/js/draw-slim.js`、`src/views/js/kline-slim-chanlun-periods.mjs` 及对应测试，恢复 RFC 0005 的固定 `30m` overlay 实现。
+
 - **日期**：2026-03-08
 - **RFC**：0021-xtdata-default-guardian-mode
 - **变更**：`monitor.xtdata.mode` 在未设置、空字符串或非法值时的运行时缺省语义，从 `clx_15_30` 调整为 `guardian_1m`；`preset/params.py` 初始化默认写入也同步改为 `guardian_1m`。显式配置 `clx_15_30` 或 `guardian_1m` 的实例行为不变。

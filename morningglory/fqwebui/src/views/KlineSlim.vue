@@ -38,11 +38,8 @@
       </div>
       <div class="toolbar-right">
         <span class="status-chip">主图 {{ currentPeriod }}</span>
-        <span class="status-chip">叠加 {{ overlayPeriod }}</span>
+        <span class="status-chip">图例控制额外周期缠论层</span>
         <span class="status-chip">主图末 bar {{ lastMainBarLabel }}</span>
-        <span class="status-chip" v-if="currentPeriod !== overlayPeriod">
-          叠加末 bar {{ lastOverlayBarLabel }}
-        </span>
         <span class="status-chip" :class="{ error: lastError }">{{ statusText }}</span>
       </div>
     </div>
