@@ -7,16 +7,21 @@ from QUANTAXIS import QA_fetch_stock_day_adv, QA_fetch_stock_min_adv
 from QUANTAXIS.QAUtil.QADate import QA_util_datetime_to_strdatetime, QA_util_time_stamp
 from talib import ATR
 
+from freshquant.data.adj_intraday import (
+    apply_qfq_with_intraday_override,
+    fetch_intraday_override,
+    fetch_qfq_adj_df,
+)
 from freshquant.database.cache import redis_cache
 from freshquant.db import DBfreshquant
-from freshquant.util.code import fq_util_code_append_market_code
+from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 
 
 @redis_cache.memoize(expiration=900)
 def fq_data_QA_fetch_stock_min_adv(code, start, end, frequence):
     data = QA_fetch_stock_min_adv(code, start, end, frequence)
     if data is not None:
-        return data.to_qfq().data
+        return data.data
     return
 
 
@@ -24,11 +29,44 @@ def fq_data_QA_fetch_stock_min_adv(code, start, end, frequence):
 def fq_data_QA_fetch_stock_day_adv(code, start, end):
     data = QA_fetch_stock_day_adv(code, start, end)
     if data is not None:
-        return data.to_qfq().data
+        return data.data
     return
 
 
+def _apply_stock_qfq(
+    data: pd.DataFrame,
+    *,
+    code: str,
+    start: datetime | None,
+    end: datetime | None,
+) -> pd.DataFrame:
+    if data is None or len(data) == 0 or start is None or end is None:
+        return data
+    start_date = start.strftime("%Y-%m-%d")
+    end_date = end.strftime("%Y-%m-%d")
+    base_code = normalize_to_base_code(code)
+    adj = fetch_qfq_adj_df(
+        coll_name="stock_adj",
+        code=base_code,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    override = fetch_intraday_override(
+        coll_name="stock_adj_intraday",
+        code=base_code,
+        trade_date=end_date,
+    )
+    return apply_qfq_with_intraday_override(
+        data,
+        adj,
+        override=override,
+        datetime_col="datetime",
+    )
+
+
 def fq_data_stock_fetch_min(code, frequence, start=None, end=None):
+    start_dt = start
+    end_dt = end
     data = fq_data_QA_fetch_stock_min_adv(
         code,
         QA_util_datetime_to_strdatetime(start),
@@ -87,6 +125,7 @@ def fq_data_stock_fetch_min(code, frequence, start=None, end=None):
         realtime_data_list.set_index("datetime", drop=False, inplace=True)
         data = pd.concat([data, realtime_data_list])
         data.drop_duplicates(subset="datetime", keep="first", inplace=True)
+    data = _apply_stock_qfq(data, code=code, start=start_dt, end=end_dt)
     data = data.round(
         {"open": 2, "high": 2, "low": 2, "close": 2, "volume": 2, "amount": 2}
     )
@@ -98,15 +137,19 @@ def fq_data_stock_fetch_day(code, start=None, end=None):
     start_param = start if start is not None else datetime.now() - timedelta(days=60)
     if isinstance(start_param, str):
         start_str = start_param
+        start_dt = datetime.fromisoformat(start_param[:19])
     else:
         start_str = QA_util_datetime_to_strdatetime(start_param)
+        start_dt = start_param
 
     # 处理end参数：如果已经是字符串类型就不需要转换
     end_param = end if end is not None else datetime.now()
     if isinstance(end_param, str):
         end_str = end_param
+        end_dt = datetime.fromisoformat(end_param[:19])
     else:
         end_str = QA_util_datetime_to_strdatetime(end_param)
+        end_dt = end_param
 
     data = fq_data_QA_fetch_stock_day_adv(code, start_str, end_str)
     if data is None or len(data) == 0:
@@ -166,6 +209,7 @@ def fq_data_stock_fetch_day(code, start=None, end=None):
         realtime_data_list.set_index("datetime", drop=False, inplace=True)
         data = pd.concat([data, realtime_data_list])
         data.drop_duplicates(subset="datetime", keep="first", inplace=True)
+    data = _apply_stock_qfq(data, code=code, start=start_dt, end=end_dt)
     data = data.round(
         {"open": 2, "high": 2, "low": 2, "close": 2, "volume": 2, "amount": 2}
     )

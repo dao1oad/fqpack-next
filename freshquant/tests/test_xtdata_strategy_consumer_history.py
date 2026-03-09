@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import threading
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -8,6 +9,7 @@ import pandas as pd
 
 import freshquant.market_data.xtdata.strategy_consumer as sc
 from freshquant.config import cfg
+from freshquant.market_data.xtdata.schema import BarCloseEvent
 
 
 def _disable_quantaxis_import(monkeypatch) -> None:
@@ -58,6 +60,21 @@ class FakeCollection:
         docs = [doc for doc in self._docs if _matches(doc, query)]
         projected = [_project(doc, projection) for doc in docs]
         return FakeCursor(projected)
+
+    def find_one(
+        self,
+        query: dict | None = None,
+        projection: dict | None = None,
+        sort: list[tuple[str, int]] | None = None,
+    ):
+        docs = list(self.find(query, projection))
+        if sort:
+            for key, direction in reversed(sort):
+                docs.sort(
+                    key=lambda item: str(item.get(key, "")),
+                    reverse=int(direction) < 0,
+                )
+        return docs[0] if docs else None
 
 
 class FakeDatabase:
@@ -141,7 +158,7 @@ def test_load_window_from_db_reads_stock_history_without_external_quantaxis(
     assert result["volume"].tolist() == [100.0, 110.0]
 
 
-def test_load_window_from_db_does_not_double_apply_qfq_to_stock_realtime(
+def test_load_window_from_db_applies_single_qfq_to_raw_stock_realtime(
     monkeypatch,
 ):
     _disable_quantaxis_import(monkeypatch)
@@ -181,10 +198,10 @@ def test_load_window_from_db_does_not_double_apply_qfq_to_stock_realtime(
                             "code": "sz000001",
                             "frequence": "5min",
                             "datetime": rt_bar,
-                            "open": 24.0,
-                            "high": 26.0,
-                            "low": 22.0,
-                            "close": 25.0,
+                            "open": 12.0,
+                            "high": 13.0,
+                            "low": 11.0,
+                            "close": 12.5,
                             "volume": 120.0,
                             "amount": 1200.0,
                         }
@@ -203,6 +220,82 @@ def test_load_window_from_db_does_not_double_apply_qfq_to_stock_realtime(
     ]
     assert result["open"].tolist() == [20.0, 24.0]
     assert result["close"].tolist() == [21.0, 25.0]
+
+
+def test_handle_bar_close_stores_stock_realtime_as_raw_bar(monkeypatch):
+    now_dt = datetime.now(tz=cfg.TZ).replace(second=0, microsecond=0)
+    captured: dict[str, Any] = {}
+
+    def fake_upsert_realtime_bars(*, collection, code, frequence, records):
+        captured["collection"] = collection
+        captured["code"] = code
+        captured["frequence"] = frequence
+        captured["records"] = records
+        return len(records)
+
+    class DummyScheduler:
+        def __init__(self) -> None:
+            self.updates: list[tuple[tuple[str, str], dict[str, Any]]] = []
+
+        def update(self, key, meta) -> None:
+            self.updates.append((key, meta))
+
+    monkeypatch.setattr(sc, "upsert_realtime_bars", fake_upsert_realtime_bars)
+    monkeypatch.setattr(
+        sc,
+        "DBQuantAxis",
+        FakeDatabase(
+            {
+                "stock_adj": FakeCollection(
+                    [
+                        {
+                            "code": "000001",
+                            "date": now_dt.strftime("%Y-%m-%d"),
+                            "adj": 2.0,
+                        }
+                    ]
+                )
+            }
+        ),
+    )
+
+    consumer = cast(Any, object.__new__(sc.StrategyConsumer))
+    consumer.max_bars = 32
+    consumer._is_index_like = lambda _code: False
+    consumer._lock = threading.Lock()
+    consumer._backfill_lock = threading.Lock()
+    consumer._backfilling_codes = set()
+    consumer._known_codes = {"sz000001"}
+    consumer._last_bar_ts = {}
+    consumer._windows = {}
+    consumer._dirty_latest = {}
+    consumer._catchup_mode = False
+    consumer._adj_factor_cache = {}
+    consumer._scheduler = DummyScheduler()
+    consumer._model_ids_for = lambda _period: []
+    consumer._maybe_trigger_backfill = lambda **_kwargs: False
+
+    consumer.handle_bar_close(
+        BarCloseEvent(
+            code="sz000001",
+            period="5min",
+            data={
+                "time": int(now_dt.timestamp()),
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.5,
+                "close": 10.5,
+                "volume": 1000.0,
+                "amount": 10000.0,
+            },
+        )
+    )
+
+    assert captured["collection"] == "stock_realtime"
+    assert captured["code"] == "sz000001"
+    assert captured["frequence"] == "5min"
+    assert captured["records"][0]["open"] == 10.0
+    assert captured["records"][0]["close"] == 10.5
 
 
 def test_load_window_from_db_reads_index_like_history_without_external_quantaxis(

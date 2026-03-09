@@ -21,6 +21,13 @@
 - **回滚方案**：回退 `freshquant/data/gantt_readmodel.py`、`freshquant/rear/gantt/routes.py`、`morningglory/fqdagster/src/fqdagster/defs/ops/gantt.py`、`morningglory/fqwebui/src/views/GanttShouban30Phase1.vue` 及相关测试/构建产物，恢复 RFC 0017 的首期页面和旧 `shouban30` 字段语义。
 
 - **日期**：2026-03-09
+- **RFC**：0024-xtdata-subscription-pool-and-qfq-refresh
+- **变更**：`market_producer` 的订阅池从“`monitor_codes ∪ active_tpsl_codes`”收敛为“只订阅 `load_monitor_codes(...)`”；`stock_realtime` 与 `index_realtime` 统一改为只存 `raw/bfq`，股票与 ETF 的 qfq 读取语义统一为“历史 raw + realtime raw 先拼接，再应用 base `stock_adj/etf_adj` 与当日 `intraday override`”。同时新增宿主机 `freshquant.market_data.xtdata.adj_refresh_worker`，用于在盘前写入 `quantaxis.stock_adj_intraday / etf_adj_intraday`。
+- **影响面**：宿主机 `xtdata producer / consumer`、`freshquant.data.stock`、`freshquant.quote.etf`、任何直接读取 `stock_realtime/index_realtime` 且假设股票 realtime 已经是 qfq 的脚本、以及宿主机 supervisor 运维配置都会受到影响。
+- **迁移步骤**：1) 部署包含 RFC 0024 的代码；2) 停止宿主机 `market_producer / strategy_consumer`；3) 清理或重建当天 `stock_realtime / index_realtime`，避免旧 qfq realtime 数据与新 raw 数据混存；4) 新增并启动 `python -m freshquant.market_data.xtdata.adj_refresh_worker`，与 `credit_subjects.worker` 一起纳入 `fqnext_reference_data` 组；5) 重启 `market_producer / strategy_consumer / API`，确认实时窗口、Redis 缓存与盘前 override 正常生成。
+- **回滚方案**：回退 `freshquant/market_data/xtdata/market_producer.py`、`freshquant/market_data/xtdata/strategy_consumer.py`、`freshquant/data/stock.py`、`freshquant/quote/etf.py`、`freshquant/data/adj_intraday.py`、`freshquant/market_data/xtdata/adj_refresh_*` 与对应 supervisor/docs 变更；清理当天 raw-only realtime 数据后，恢复旧的股票 qfq realtime 写入语义与 TPSL 并集订阅逻辑。
+
+- **日期**：2026-03-09
 - **RFC**：0022-kline-slim-multi-period-chanlun-display
 - **变更**：`KlineSlim` 的默认显示语义从“`5m` 主图 + 固定 `30m` 缠论叠加”调整为“默认仅显示 `5m`，`1m / 15m / 30m` 通过图例按需打开”；图表层同时恢复旧仓四周期配色、线宽倍率，以及 `高级别段 / 段中枢 / 高级段中枢` 图层。
 - **影响面**：依赖旧默认可见 `30m` 叠加的用户在新版页面中需要手动点开 `30m` 图例；`KlineSlim` 前端轮询也从“固定主图 + 固定叠加”变为“仅刷新当前可见周期集合”。

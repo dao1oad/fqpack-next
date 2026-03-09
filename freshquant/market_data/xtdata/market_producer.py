@@ -19,7 +19,6 @@ from freshquant.market_data.xtdata.pools import (
     normalize_xtdata_mode,
 )
 from freshquant.market_data.xtdata.schema import TickQuoteEvent, normalize_prefixed_code
-from freshquant.tpsl.pools import load_active_tpsl_codes
 
 try:
     from freshquant.database.redis import redis_db  # type: ignore
@@ -36,16 +35,14 @@ def _to_xt_symbol(code_prefixed: str) -> str:
     return s
 
 
-def _merge_subscription_codes(
-    base_codes: list[str], tpsl_codes: list[str]
-) -> list[str]:
-    merged = {
+def _load_subscription_codes(*, mode: str, max_symbols: int) -> list[str]:
+    codes = {
         normalize_prefixed_code(code).lower()
-        for code in [*(base_codes or []), *(tpsl_codes or [])]
+        for code in (load_monitor_codes(mode=mode, max_symbols=max_symbols) or [])
         if code
     }
-    merged.discard("")
-    return sorted(merged)
+    codes.discard("")
+    return sorted(codes)
 
 
 class TickPump:
@@ -186,11 +183,6 @@ def start_producer():
     sub_seq = None
     sub_codes: set[str] = set()
 
-    def _load_codes() -> list[str]:
-        base_codes = load_monitor_codes(mode=mode, max_symbols=max_symbols)
-        tpsl_codes = load_active_tpsl_codes()
-        return _merge_subscription_codes(base_codes, tpsl_codes)
-
     def _subscribe(codes_prefixed: list[str]):
         nonlocal sub_seq, sub_codes
         if not codes_prefixed:
@@ -218,13 +210,13 @@ def start_producer():
             f"[Producer] subscribed: mode={mode} codes={len(sub_codes)} seq={sub_seq}"
         )
 
-    _subscribe(_load_codes())
+    _subscribe(_load_subscription_codes(mode=mode, max_symbols=max_symbols))
 
     def _pool_monitor_loop():
         while True:
             try:
                 time.sleep(30)
-                new_list = _load_codes()
+                new_list = _load_subscription_codes(mode=mode, max_symbols=max_symbols)
                 new_set = set(new_list)
                 if new_set and new_set != sub_codes:
                     logger.info(
