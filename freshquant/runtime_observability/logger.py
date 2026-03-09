@@ -7,6 +7,7 @@ import queue
 import threading
 from datetime import datetime
 from pathlib import Path
+from typing import TextIO
 
 from freshquant.runtime_observability.schema import normalize_event
 
@@ -43,8 +44,12 @@ class RuntimeEventLogger:
         flush: bool = True,
     ) -> None:
         self.component = _sanitize_path_segment(component, "default")
-        self.runtime_node = str(runtime_node or "host:unknown").strip() or "host:unknown"
-        self.root_dir = Path(root_dir) if root_dir is not None else get_runtime_log_root()
+        self.runtime_node = (
+            str(runtime_node or "host:unknown").strip() or "host:unknown"
+        )
+        self.root_dir = (
+            Path(root_dir) if root_dir is not None else get_runtime_log_root()
+        )
         self.flush = bool(flush)
         self._queue: queue.Queue[dict] = queue.Queue(
             maxsize=max(int(queue_maxsize or 1), 1)
@@ -54,7 +59,7 @@ class RuntimeEventLogger:
         self._dropped = 0
         self._written = 0
         self._path: str | None = None
-        self._fp = None
+        self._fp: TextIO | None = None
         self._current_day = ""
         self._writer = threading.Thread(
             target=self._run,

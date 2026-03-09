@@ -112,7 +112,11 @@ class PositionManagementService:
             action=action,
             symbol=symbol,
             reason_code=reason_code,
-            extra_payload={"decision_id": decision_id, "allowed": allowed, "meta": meta},
+            extra_payload={
+                "decision_id": decision_id,
+                "allowed": allowed,
+                "meta": meta,
+            },
         )
         return PositionDecision(
             allowed=allowed,

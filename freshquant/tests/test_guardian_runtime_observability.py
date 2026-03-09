@@ -167,16 +167,23 @@ def test_guardian_submit_intent_emits_trace_step(monkeypatch):
                 "intent_id": intent_id,
             }
         )
-        return {"request_id": "req_1", "internal_order_id": "ord_1", "queue_payload": {}}
+        return {
+            "request_id": "req_1",
+            "internal_order_id": "ord_1",
+            "queue_payload": {},
+        }
 
-    monkeypatch.setattr("freshquant.strategy.guardian.submit_guardian_order", fake_submit)
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order", fake_submit
+    )
 
     guardian.on_signal(signal)
 
     submit_event = next(
         event
         for event in runtime_logger.events
-        if event["component"] == "guardian_strategy" and event["node"] == "submit_intent"
+        if event["component"] == "guardian_strategy"
+        and event["node"] == "submit_intent"
     )
     assert submit_event["trace_id"].startswith("trc_")
     assert submit_event["intent_id"].startswith("int_")

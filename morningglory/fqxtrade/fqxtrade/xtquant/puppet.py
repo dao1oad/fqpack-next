@@ -592,7 +592,11 @@ def buy(
     _emit_puppet_event(
         "submit_prepare",
         context=context,
-        payload={"price": float(price), "quantity": int(quantity), "retry_count": retryCount},
+        payload={
+            "price": float(price),
+            "quantity": int(quantity),
+            "retry_count": retryCount,
+        },
     )
     with trading_manager.lock():
         # 获取当前连接的xt_trader和acc
@@ -682,7 +686,11 @@ def buy(
         _emit_puppet_event(
             "submit_result",
             context=context,
-            status="success" if fix_result_order_id and int(fix_result_order_id) > 0 else "failed",
+            status=(
+                "success"
+                if fix_result_order_id and int(fix_result_order_id) > 0
+                else "failed"
+            ),
             payload={"broker_order_id": fix_result_order_id},
         )
         if fix_result_order_id < 0:
@@ -733,7 +741,11 @@ def sell(
     _emit_puppet_event(
         "submit_prepare",
         context=context,
-        payload={"price": float(price), "quantity": int(quantity), "retry_count": retryCount},
+        payload={
+            "price": float(price),
+            "quantity": int(quantity),
+            "retry_count": retryCount,
+        },
     )
     with trading_manager.lock():
         # 获取当前连接的xt_trader和acc
@@ -849,7 +861,11 @@ def sell(
         _emit_puppet_event(
             "submit_result",
             context=context,
-            status="success" if fix_result_order_id and int(fix_result_order_id) > 0 else "failed",
+            status=(
+                "success"
+                if fix_result_order_id and int(fix_result_order_id) > 0
+                else "failed"
+            ),
             payload={"broker_order_id": fix_result_order_id},
         )
         if fix_result_order_id < 0:

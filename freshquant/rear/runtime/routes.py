@@ -31,7 +31,9 @@ def list_components():
 @runtime_bp.get("/health/summary")
 def health_summary():
     events = load_runtime_events(limit=_limit_arg(default=2000, cap=10000))
-    return jsonify({"components": build_health_summary(events, now=request.args.get("now"))})
+    return jsonify(
+        {"components": build_health_summary(events, now=request.args.get("now"))}
+    )
 
 
 @runtime_bp.get("/traces")
@@ -158,7 +160,9 @@ def get_raw_tail_payload(
     component_segment = _safe_segment(component, "component")
     day_value = _safe_date(day)
     file_value = _safe_filename(file_name)
-    path = _resolve_under_root(runtime_segment, component_segment, day_value, file_value)
+    path = _resolve_under_root(
+        runtime_segment, component_segment, day_value, file_value
+    )
     if not path.exists():
         raise FileNotFoundError(path)
     records = []
@@ -179,7 +183,9 @@ def get_raw_tail_payload(
     }
 
 
-def load_runtime_events(*, limit: int = 2000, filters: dict | None = None) -> list[dict]:
+def load_runtime_events(
+    *, limit: int = 2000, filters: dict | None = None
+) -> list[dict]:
     matched = []
     for path in _iter_jsonl_files():
         for event in _iter_jsonl_records(path):

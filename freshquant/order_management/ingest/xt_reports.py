@@ -66,7 +66,9 @@ class OrderManagementXtIngestService:
         self.runtime_logger = runtime_logger or _get_runtime_logger()
 
     def ingest_trade_report(self, report, lot_amount, grid_interval_lookup):
-        self._emit_runtime("report_receive", report, extra_payload={"report_type": "trade"})
+        self._emit_runtime(
+            "report_receive", report, extra_payload={"report_type": "trade"}
+        )
         trade_fact = self.tracking_service.ingest_trade_report(report)
         symbol = trade_fact["symbol"]
         buy_lot = None
@@ -185,8 +187,7 @@ class OrderManagementXtIngestService:
             "trace_id": report.get("trace_id"),
             "intent_id": report.get("intent_id"),
             "request_id": report.get("request_id"),
-            "internal_order_id": internal_order_id
-            or report.get("internal_order_id"),
+            "internal_order_id": internal_order_id or report.get("internal_order_id"),
             "symbol": report.get("symbol"),
             "source": report.get("source"),
             "payload": dict(extra_payload or {}),
@@ -250,7 +251,9 @@ def normalize_xt_order_report(report, repository=None):
         if order is not None:
             internal_order_id = order["internal_order_id"]
     else:
-        order = repository.find_order(internal_order_id) if repository is not None else None
+        order = (
+            repository.find_order(internal_order_id) if repository is not None else None
+        )
     if internal_order_id is None:
         internal_order_id = str(broker_order_id)
         order = None

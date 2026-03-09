@@ -38,7 +38,9 @@ def assemble_traces(events: list[dict] | tuple[dict, ...]) -> list[dict]:
                 "steps": steps,
             }
         )
-    traces.sort(key=lambda item: _sort_timestamp(item["steps"][0]) if item["steps"] else "")
+    traces.sort(
+        key=lambda item: _sort_timestamp(item["steps"][0]) if item["steps"] else ""
+    )
     return traces
 
 

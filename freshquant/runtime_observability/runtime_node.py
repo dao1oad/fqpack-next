@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 _NODE_ALIASES = {
     "guardian_strategy": "guardian",
     "broker_gateway": "broker",
@@ -22,9 +21,13 @@ def resolve_runtime_node(component: str | None = None) -> str:
 
 
 def _resolve_runtime_mode() -> str:
-    explicit_mode = str(
-        os.environ.get("FQ_RUNTIME_MODE") or os.environ.get("FQ_RUNTIME_KIND") or ""
-    ).strip().lower()
+    explicit_mode = (
+        str(
+            os.environ.get("FQ_RUNTIME_MODE") or os.environ.get("FQ_RUNTIME_KIND") or ""
+        )
+        .strip()
+        .lower()
+    )
     if explicit_mode in {"docker", "container", "pod"}:
         return "docker"
     if explicit_mode in {"host", "local"}:

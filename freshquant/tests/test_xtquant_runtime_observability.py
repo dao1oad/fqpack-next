@@ -4,7 +4,6 @@ import sys
 import types
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PUPPET_PATH = (
     REPO_ROOT / "morningglory" / "fqxtrade" / "fqxtrade" / "xtquant" / "puppet.py"
@@ -87,9 +86,7 @@ def _install_runtime_logger_stub(monkeypatch):
             return None
 
     module.RuntimeEventLogger = RuntimeEventLogger
-    monkeypatch.setitem(
-        sys.modules, "freshquant.runtime_observability.logger", module
-    )
+    monkeypatch.setitem(sys.modules, "freshquant.runtime_observability.logger", module)
 
 
 def _install_puppet_stubs(monkeypatch, xt_trader):
@@ -127,7 +124,9 @@ def _install_puppet_stubs(monkeypatch, xt_trader):
     monkeypatch.setitem(sys.modules, "fqxtrade.xtquant.lock", lock_module)
 
     trading_manager_module = types.ModuleType("fqxtrade.xtquant.trading_manager")
-    trading_manager_module.TradingManager = lambda: FakeTradingManager(xt_trader=xt_trader)
+    trading_manager_module.TradingManager = lambda: FakeTradingManager(
+        xt_trader=xt_trader
+    )
     monkeypatch.setitem(
         sys.modules, "fqxtrade.xtquant.trading_manager", trading_manager_module
     )
@@ -261,12 +260,10 @@ def _install_broker_stubs(monkeypatch):
     monkeypatch.setitem(sys.modules, "fqxtrade.util.trade_date_hist", trade_date_module)
 
     account_module = types.ModuleType("fqxtrade.xtquant.account")
-    account_module.resolve_stock_account = (
-        lambda query_param: (
-            types.SimpleNamespace(account_id="acct-1"),
-            "acct-1",
-            "STOCK",
-        )
+    account_module.resolve_stock_account = lambda query_param: (
+        types.SimpleNamespace(account_id="acct-1"),
+        "acct-1",
+        "STOCK",
     )
     monkeypatch.setitem(sys.modules, "fqxtrade.xtquant.account", account_module)
 
@@ -291,9 +288,7 @@ def _install_broker_stubs(monkeypatch):
         def reset_retry_count(self):
             self.retry_count = 0
 
-    connection_manager_module = types.ModuleType(
-        "fqxtrade.xtquant.connection_manager"
-    )
+    connection_manager_module = types.ModuleType("fqxtrade.xtquant.connection_manager")
     connection_manager_module.ConnectionManager = FakeConnectionManager
     monkeypatch.setitem(
         sys.modules,
@@ -373,13 +368,14 @@ def _install_broker_stubs(monkeypatch):
     execution_bridge_module = types.ModuleType(
         "freshquant.order_management.submit.execution_bridge"
     )
-    execution_bridge_module.dispatch_cancel_execution = (
-        lambda *args, **kwargs: {"status": "cancel_submitted"}
-    )
+    execution_bridge_module.dispatch_cancel_execution = lambda *args, **kwargs: {
+        "status": "cancel_submitted"
+    }
     execution_bridge_module.finalize_submit_execution = lambda *args, **kwargs: None
-    execution_bridge_module.prepare_submit_execution = (
-        lambda order, **kwargs: {"status": "ready", "order_message": order}
-    )
+    execution_bridge_module.prepare_submit_execution = lambda order, **kwargs: {
+        "status": "ready",
+        "order_message": order,
+    }
     execution_bridge_module.resolve_sell_price_type_compat = lambda order: 11
     monkeypatch.setitem(
         sys.modules,
@@ -388,7 +384,9 @@ def _install_broker_stubs(monkeypatch):
     )
 
     tracking_module = types.ModuleType("freshquant.order_management.tracking.service")
-    tracking_module.OrderTrackingService = lambda repository=None: types.SimpleNamespace()
+    tracking_module.OrderTrackingService = (
+        lambda repository=None: types.SimpleNamespace()
+    )
     monkeypatch.setitem(
         sys.modules, "freshquant.order_management.tracking.service", tracking_module
     )

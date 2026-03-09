@@ -86,7 +86,9 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         logger.info("收到委托回报推送: {order}", order=order_dict)
         _emit_broker_event(
             "order_callback",
-            context=_resolve_runtime_context_by_broker_order_id(order_dict.get("order_id")),
+            context=_resolve_runtime_context_by_broker_order_id(
+                order_dict.get("order_id")
+            ),
             symbol=str(order_dict.get("stock_code") or "")[:6],
             payload={
                 "broker_order_id": order_dict.get("order_id"),
@@ -114,7 +116,9 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         logger.info("收到成交变动推送: {trade}", trade=trade_dict)
         _emit_broker_event(
             "trade_callback",
-            context=_resolve_runtime_context_by_broker_order_id(trade_dict.get("order_id")),
+            context=_resolve_runtime_context_by_broker_order_id(
+                trade_dict.get("order_id")
+            ),
             symbol=str(trade_dict.get("stock_code") or "")[:6],
             payload={
                 "broker_order_id": trade_dict.get("order_id"),
@@ -344,7 +348,9 @@ def trading_main_loop():
                             )
                             _emit_broker_event(
                                 "submit_result",
-                                context=_runtime_context_from_order_message(resolved_order),
+                                context=_runtime_context_from_order_message(
+                                    resolved_order
+                                ),
                                 action="buy",
                                 symbol=resolved_order.get("symbol"),
                                 status="success" if r and int(r) > 0 else "failed",
@@ -386,7 +392,9 @@ def trading_main_loop():
                             )
                             _emit_broker_event(
                                 "submit_result",
-                                context=_runtime_context_from_order_message(resolved_order),
+                                context=_runtime_context_from_order_message(
+                                    resolved_order
+                                ),
                                 action="sell",
                                 symbol=resolved_order.get("symbol"),
                                 status="success" if r and int(r) > 0 else "failed",
@@ -416,7 +424,8 @@ def trading_main_loop():
                                 symbol=order.get("symbol"),
                                 status=(
                                     "success"
-                                    if dispatch_result.get("status") == "cancel_submitted"
+                                    if dispatch_result.get("status")
+                                    == "cancel_submitted"
                                     else "failed"
                                 ),
                                 payload=dispatch_result,
@@ -497,7 +506,9 @@ def _resolve_runtime_context_by_broker_order_id(broker_order_id):
     if broker_order_id in (None, "", "None"):
         return {}
     try:
-        order = order_management_repository.find_order_by_broker_order_id(broker_order_id)
+        order = order_management_repository.find_order_by_broker_order_id(
+            broker_order_id
+        )
     except Exception:
         order = None
     if order is None:

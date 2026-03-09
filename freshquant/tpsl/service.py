@@ -188,7 +188,11 @@ class TpslService:
             symbol=base_symbol,
             trace_id=trace_id_value,
             intent_id=intent_id_value,
-            payload={"kind": "takeprofit", "batch_id": batch_id, "quantity": order_quantity},
+            payload={
+                "kind": "takeprofit",
+                "batch_id": batch_id,
+                "quantity": order_quantity,
+            },
         )
         return {
             "batch_id": batch_id,
