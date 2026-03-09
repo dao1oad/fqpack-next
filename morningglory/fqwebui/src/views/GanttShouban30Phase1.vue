@@ -65,7 +65,6 @@
               <span>缠论通过 {{ currentChanlunStats.passed_total }}</span>
               <span>/</span>
               <span>未通过/不可用 {{ currentChanlunStats.failed_total }}</span>
-              <span v-if="chanlunLoading" class="muted">计算中</span>
             </div>
           </div>
 
@@ -217,7 +216,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getChanlunStructure } from '@/api/futureApi'
+
 import { getGanttStockReasons } from '@/api/ganttApi'
 import {
   SHOUBAN30_STOCK_WINDOW_OPTIONS,
@@ -225,6 +224,7 @@ import {
   getShouban30Stocks,
   normalizeShouban30StockWindowDays,
 } from '@/api/ganttShouban30'
+
 import MyHeader from './MyHeader.vue'
 import {
   aggregatePlateRows,
@@ -232,16 +232,11 @@ import {
   buildChanlunFilterStats,
   buildViewStats,
   formatProviderLabel,
-  formatProviderLoadErrors,
-  hydratePlateRowsWithPassedStocks,
   loadProvidersIndependently,
   normalizeSourcePlateRefs,
+  sortPlateRows,
   sortStockRows,
 } from './shouban30Aggregation.mjs'
-import {
-  filterExcludedPlates,
-  passesDefaultChanlunFilter,
-} from './shouban30ChanlunFilter.mjs'
 
 const VIEW_PROVIDER_OPTIONS = [
   { name: 'xgb', label: 'XGB' },
@@ -255,8 +250,8 @@ const EMPTY_CHANLUN_STATS = Object.freeze({
   passed_total: 0,
   failed_total: 0,
 })
-const CHANLUN_PERIOD = '30m'
-const CHANLUN_REQUEST_CONCURRENCY = 4
+const SHOUBAN30_CHANLUN_SNAPSHOT_PENDING_MESSAGE = '首板缠论快照未构建完成'
+const SHOUBAN30_CHANLUN_SNAPSHOT_NOT_READY_ERROR = 'shouban30 chanlun snapshot not ready'
 
 const route = useRoute()
 const router = useRouter()
@@ -264,9 +259,6 @@ const router = useRouter()
 const sourcePlatesByProvider = ref({ xgb: [], jygs: [] })
 const sourceMetaByProvider = ref({ xgb: {}, jygs: {} })
 const sourceStocksByProvider = ref({ xgb: {}, jygs: {} })
-const chanlunStructureCache = ref({})
-const chanlunStats = ref(EMPTY_CHANLUN_STATS)
-const chanlunLoading = ref(false)
 
 const stockReasons = ref([])
 
@@ -283,7 +275,6 @@ const selectedStockCode6 = ref('')
 
 let viewRequestId = 0
 let reasonRequestId = 0
-let chanlunRequestId = 0
 
 const toText = (value) => String(value || '').trim()
 
@@ -305,8 +296,31 @@ const unwrapApiData = (response) => {
   return payload && typeof payload === 'object' ? payload : {}
 }
 
+const normalizeShouban30ErrorMessage = (message, fallback) => {
+  const text = toText(message || fallback)
+  if (!text) return fallback
+  if (text === SHOUBAN30_CHANLUN_SNAPSHOT_NOT_READY_ERROR) {
+    return SHOUBAN30_CHANLUN_SNAPSHOT_PENDING_MESSAGE
+  }
+  return text
+}
+
 const getErrorMessage = (error, fallback) => {
-  return String(error?.response?.data?.message || error?.message || fallback)
+  return normalizeShouban30ErrorMessage(
+    error?.response?.data?.message || error?.message,
+    fallback,
+  )
+}
+
+const formatLoadErrors = ({ errors = [], targetLabel = '数据' } = {}) => {
+  const messages = normalizeList(errors)
+    .map(({ provider, error }) => {
+      const providerLabel = formatProviderLabel(provider)
+      const reason = getErrorMessage(error, '未知错误')
+      return `${providerLabel}${targetLabel}加载失败: ${reason}`
+    })
+    .filter(Boolean)
+  return messages.join('；')
 }
 
 const formatChanlunMetric = (value) => {
@@ -316,125 +330,10 @@ const formatChanlunMetric = (value) => {
   return number.toFixed(2)
 }
 
-const buildChanlunCacheKey = (code6, asOfDate) => {
-  return `${toText(code6)}|${toText(asOfDate)}|${CHANLUN_PERIOD}`
-}
-
-const collectChanlunCandidates = ({ stockRowsByProvider, metaByProvider }) => {
-  const candidates = []
-  const seen = new Set()
-
-  for (const provider of SOURCE_PROVIDERS) {
-    const providerStocks = stockRowsByProvider?.[provider] || {}
-    const asOfDate = toText(metaByProvider?.[provider]?.as_of_date || requestedAsOfDate.value)
-    for (const rows of Object.values(providerStocks)) {
-      for (const row of normalizeList(rows)) {
-        const code6 = toText(row?.code6)
-        if (!code6) continue
-        const cacheKey = buildChanlunCacheKey(code6, asOfDate)
-        if (seen.has(cacheKey)) continue
-        seen.add(cacheKey)
-        candidates.push({ code6, asOfDate, cacheKey })
-      }
-    }
-  }
-
-  return candidates
-}
-
-const annotateStocksWithChanlun = ({ stockRowsByProvider, metaByProvider, cache }) => {
-  return Object.fromEntries(
-    SOURCE_PROVIDERS.map((provider) => {
-      const asOfDate = toText(metaByProvider?.[provider]?.as_of_date || requestedAsOfDate.value)
-      const providerStocks = stockRowsByProvider?.[provider] || {}
-      const nextStocks = Object.fromEntries(
-        Object.entries(providerStocks).map(([plateKey, rows]) => [
-          plateKey,
-          normalizeList(rows).map((row) => {
-            const code6 = toText(row?.code6)
-            const chanlun = cache?.[buildChanlunCacheKey(code6, asOfDate)] || null
-            return {
-              ...row,
-              chanlun_passed: !!chanlun?.passed,
-              chanlun_reason: chanlun?.reason || 'structure_unavailable',
-              chanlun_higher_multiple: chanlun?.higher_multiple ?? null,
-              chanlun_segment_multiple: chanlun?.segment_multiple ?? null,
-              chanlun_bi_gain_percent: chanlun?.bi_gain_percent ?? null,
-            }
-          }),
-        ]),
-      )
-      return [provider, nextStocks]
-    }),
+const filterVisiblePlates = (rows = []) => {
+  return sortPlateRows(
+    normalizeList(rows).filter((row) => Number(row?.stocks_count || 0) > 0),
   )
-}
-
-const loadChanlunStructures = async ({ stockRowsByProvider, metaByProvider }) => {
-  const requestId = ++chanlunRequestId
-  const candidates = collectChanlunCandidates({ stockRowsByProvider, metaByProvider })
-  const nextCache = { ...(chanlunStructureCache.value || {}) }
-  const pendingCandidates = candidates.filter((item) => !nextCache[item.cacheKey])
-
-  chanlunLoading.value = true
-
-  const runCandidate = async (candidate) => {
-    try {
-      const response = await getChanlunStructure({
-        symbol: candidate.code6,
-        period: '30m',
-        endDate: candidate.asOfDate || undefined,
-      })
-      nextCache[candidate.cacheKey] = passesDefaultChanlunFilter(response?.data || {})
-    } catch (error) {
-      nextCache[candidate.cacheKey] = passesDefaultChanlunFilter({ ok: false, structure: {} })
-    }
-  }
-
-  const queue = [...pendingCandidates]
-  const workers = Array.from(
-    { length: Math.min(CHANLUN_REQUEST_CONCURRENCY, Math.max(queue.length, 1)) },
-    () => (async () => {
-      while (queue.length) {
-        const candidate = queue.shift()
-        if (!candidate) return
-        await runCandidate(candidate)
-      }
-    })(),
-  )
-
-  await Promise.all(workers)
-
-  const stats = candidates.reduce((accumulator, candidate) => {
-    const result = nextCache[candidate.cacheKey]
-    accumulator.candidate_total += 1
-    if (result?.passed) accumulator.passed_total += 1
-    else accumulator.failed_total += 1
-    return accumulator
-  }, {
-    candidate_total: 0,
-    passed_total: 0,
-    failed_total: 0,
-  })
-
-  if (requestId !== chanlunRequestId) {
-    return {
-      annotatedStockRowsByProvider: stockRowsByProvider,
-      stats,
-    }
-  }
-
-  chanlunStructureCache.value = nextCache
-  chanlunStats.value = stats
-  chanlunLoading.value = false
-
-  return {
-    annotatedStockRowsByProvider: annotateStocksWithChanlun({
-      stockRowsByProvider,
-      metaByProvider,
-      cache: nextCache,
-    }),
-    stats,
-  }
 }
 
 const activeViewProvider = computed(() => normalizeViewProvider(route.query.p))
@@ -460,19 +359,15 @@ const updateQuery = (patch = {}) => {
   }).catch(() => {})
 }
 
-const xgbPlates = computed(() => hydratePlateRowsWithPassedStocks({
-  plates: normalizeList(sourcePlatesByProvider.value.xgb),
-  stockRowsByPlate: sourceStocksByProvider.value.xgb,
-}))
-const jygsPlates = computed(() => hydratePlateRowsWithPassedStocks({
-  plates: normalizeList(sourcePlatesByProvider.value.jygs),
-  stockRowsByPlate: sourceStocksByProvider.value.jygs,
-}))
-const aggPlates = computed(() => aggregatePlateRows({
-  xgbPlates: xgbPlates.value,
-  jygsPlates: jygsPlates.value,
-  stockRowsByProvider: sourceStocksByProvider.value,
-}))
+const xgbPlates = computed(() => filterVisiblePlates(sourcePlatesByProvider.value.xgb))
+const jygsPlates = computed(() => filterVisiblePlates(sourcePlatesByProvider.value.jygs))
+const aggPlates = computed(() => {
+  return aggregatePlateRows({
+    xgbPlates: xgbPlates.value,
+    jygsPlates: jygsPlates.value,
+    stockRowsByProvider: sourceStocksByProvider.value,
+  })
+})
 
 const platesByView = computed(() => {
   return {
@@ -489,7 +384,9 @@ const getSourceStockRows = (provider, plateKey) => {
 const getViewStocksForPlate = (plate) => {
   if (!plate) return []
   if (toText(plate.provider) === 'agg') {
-    const sourceRows = normalizeSourcePlateRefs(plate.source_plate_refs || plate.source_plate_keys).flatMap(({ provider, plate_key: plateKey }) => {
+    const sourceRows = normalizeSourcePlateRefs(
+      plate.source_plate_refs || plate.source_plate_keys,
+    ).flatMap(({ provider, plate_key: plateKey }) => {
       return getSourceStockRows(provider, plateKey)
     })
     return aggregateStockRows(sourceRows)
@@ -533,7 +430,7 @@ const chanlunStatsByView = computed(() => {
 const currentPlates = computed(() => platesByView.value[activeViewProvider.value] || [])
 const currentStats = computed(() => statsByView.value[activeViewProvider.value] || EMPTY_STATS)
 const currentChanlunStats = computed(() => {
-  return chanlunStatsByView.value[activeViewProvider.value] || chanlunStats.value || EMPTY_CHANLUN_STATS
+  return chanlunStatsByView.value[activeViewProvider.value] || EMPTY_CHANLUN_STATS
 })
 
 const selectedPlate = computed(() => {
@@ -610,7 +507,9 @@ const loadStockReasons = async (code6) => {
     if (requestId !== reasonRequestId) return
     stockReasonsError.value = getErrorMessage(error, '加载标的详情失败')
   } finally {
-    if (requestId === reasonRequestId) stockReasonsLoading.value = false
+    if (requestId === reasonRequestId) {
+      stockReasonsLoading.value = false
+    }
   }
 }
 
@@ -629,7 +528,7 @@ const fetchProviderPlates = async (provider) => {
 
 const fetchProviderStocksByPlate = async (provider, plates, asOfDate) => {
   const entries = await Promise.all(
-    plates.map(async (plate) => {
+    normalizeList(plates).map(async (plate) => {
       const plateKey = toText(plate?.plate_key)
       if (!plateKey) return [plateKey, []]
       const response = await getShouban30Stocks({
@@ -656,7 +555,6 @@ const loadViewData = async () => {
   sourcePlatesByProvider.value = { xgb: [], jygs: [] }
   sourceMetaByProvider.value = { xgb: {}, jygs: {} }
   sourceStocksByProvider.value = { xgb: {}, jygs: {} }
-  chanlunStats.value = EMPTY_CHANLUN_STATS
 
   try {
     const plateLoad = await loadProvidersIndependently({
@@ -669,7 +567,7 @@ const loadViewData = async () => {
     const nextPlates = Object.fromEntries(
       SOURCE_PROVIDERS.map((provider) => [
         provider,
-        filterExcludedPlates(normalizeList(plateLoad.valuesByProvider?.[provider]?.items)),
+        normalizeList(plateLoad.valuesByProvider?.[provider]?.items),
       ]),
     )
     const nextMeta = Object.fromEntries(
@@ -692,28 +590,21 @@ const loadViewData = async () => {
     })
     if (requestId !== viewRequestId) return
 
-    const rawStocksByProvider = Object.fromEntries(
+    sourcePlatesByProvider.value = nextPlates
+    sourceMetaByProvider.value = nextMeta
+    sourceStocksByProvider.value = Object.fromEntries(
       SOURCE_PROVIDERS.map((provider) => [
         provider,
         stockLoad.valuesByProvider?.[provider] || {},
       ]),
     )
-    const chanlunLoad = await loadChanlunStructures({
-      stockRowsByProvider: rawStocksByProvider,
-      metaByProvider: nextMeta,
-    })
-    if (requestId !== viewRequestId) return
-
-    sourcePlatesByProvider.value = nextPlates
-    sourceMetaByProvider.value = nextMeta
-    sourceStocksByProvider.value = chanlunLoad.annotatedStockRowsByProvider
-    platesError.value = formatProviderLoadErrors({
+    platesError.value = formatLoadErrors({
       errors: plateLoad.errors,
       targetLabel: '首板板块',
     })
-    stocksError.value = formatProviderLoadErrors({
+    stocksError.value = formatLoadErrors({
       errors: stockLoad.errors,
-      targetLabel: '热门标的',
+      targetLabel: '热点标的',
     })
   } catch (error) {
     if (requestId !== viewRequestId) return
@@ -724,7 +615,6 @@ const loadViewData = async () => {
     if (requestId === viewRequestId) {
       platesLoading.value = false
       stocksLoading.value = false
-      chanlunLoading.value = false
     }
   }
 }

@@ -1,36 +1,38 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 
 import {
-  CHANLUN_EXCLUDED_PLATE_NAMES,
   filterExcludedPlates,
   getSegmentGainMultiple,
-  passesDefaultChanlunFilter
+  passesDefaultChanlunFilter,
 } from './shouban30ChanlunFilter.mjs'
 
-test('filters excluded plate names', () => {
-  assert.deepEqual(
-    filterExcludedPlates([
-      { plate_name: '机器人' },
-      { plate_name: 'ST股' },
-      { plate_name: '公告' },
-      { plate_name: 'ST板块' },
-      { plate_name: '其他' }
-    ]).map((item) => item.plate_name),
-    ['机器人']
-  )
+const pageSource = readFileSync(new URL('./GanttShouban30Phase1.vue', import.meta.url), 'utf8')
 
-  assert.deepEqual(
-    [...CHANLUN_EXCLUDED_PLATE_NAMES].sort(),
-    ['ST股', 'ST板块', '公告', '其他'].sort()
-  )
+test('filters excluded plate names', () => {
+  const rows = filterExcludedPlates([
+    { plate_name: '机器人' },
+    { plate_name: '其他' },
+    { plate_name: '公告' },
+    { plate_name: 'ST股' },
+    { plate_name: 'ST板块' },
+    { plate_name: '芯片' },
+  ])
+
+  assert.deepEqual(rows, [
+    { plate_name: '机器人' },
+    { plate_name: '芯片' },
+  ])
 })
 
 test('computes price multiple from segment prices', () => {
-  assert.equal(getSegmentGainMultiple({ start_price: 10, end_price: 30 }), 3)
-  assert.equal(getSegmentGainMultiple({ start_price: 0, end_price: 30 }), null)
-  assert.equal(getSegmentGainMultiple({ start_price: 10, end_price: null }), null)
+  assert.equal(
+    getSegmentGainMultiple({ start_price: 10, end_price: 29.95 }),
+    2.995,
+  )
+  assert.equal(getSegmentGainMultiple({ start_price: 0, end_price: 10 }), null)
+  assert.equal(getSegmentGainMultiple({ start_price: null, end_price: 10 }), null)
 })
 
 test('passes default 30m chanlun filter only when higher segment, segment, bi all satisfy limits', () => {
@@ -38,107 +40,96 @@ test('passes default 30m chanlun filter only when higher segment, segment, bi al
     passesDefaultChanlunFilter({
       ok: true,
       structure: {
-        higher_segment: { start_price: 10, end_price: 20 },
-        segment: { start_price: 10, end_price: 29.9 },
-        bi: { price_change_pct: 30 }
-      }
+        higher_segment: { start_price: 10, end_price: 29.9 },
+        segment: { start_price: 8, end_price: 23.6 },
+        bi: { price_change_pct: 29.8 },
+      },
     }),
     {
       passed: true,
-      higher_multiple: 2,
-      segment_multiple: 2.99,
-      bi_gain_percent: 30,
-      reason: 'passed'
-    }
+      higher_multiple: 2.99,
+      segment_multiple: 2.95,
+      bi_gain_percent: 29.8,
+      reason: 'passed',
+    },
   )
 
   assert.equal(
     passesDefaultChanlunFilter({
       ok: true,
       structure: {
-        higher_segment: { start_price: 10, end_price: 31 },
-        segment: { start_price: 10, end_price: 20 },
-        bi: { price_change_pct: 10 }
-      }
-    }).passed,
-    false
-  )
-
-  assert.equal(
-    passesDefaultChanlunFilter({
-      ok: true,
-      structure: {
-        higher_segment: { start_price: 10, end_price: 20 },
-        segment: { start_price: 10, end_price: 31 },
-        bi: { price_change_pct: 10 }
-      }
+        higher_segment: { start_price: 10, end_price: 30.1 },
+        segment: { start_price: 8, end_price: 23.6 },
+        bi: { price_change_pct: 29.8 },
+      },
     }).reason,
-    'segment_multiple_exceed'
+    'higher_multiple_exceed',
   )
-
   assert.equal(
     passesDefaultChanlunFilter({
       ok: true,
       structure: {
-        higher_segment: { start_price: 10, end_price: 20 },
-        segment: { start_price: 10, end_price: 20 },
-        bi: { price_change_pct: 30.1 }
-      }
+        higher_segment: { start_price: 10, end_price: 29.9 },
+        segment: { start_price: 8, end_price: 24.4 },
+        bi: { price_change_pct: 29.8 },
+      },
     }).reason,
-    'bi_gain_exceed'
+    'segment_multiple_exceed',
+  )
+  assert.equal(
+    passesDefaultChanlunFilter({
+      ok: true,
+      structure: {
+        higher_segment: { start_price: 10, end_price: 29.9 },
+        segment: { start_price: 8, end_price: 23.6 },
+        bi: { price_change_pct: 30.1 },
+      },
+    }).reason,
+    'bi_gain_exceed',
   )
 })
 
 test('treats missing structure or failed response as not passed', () => {
-  assert.equal(
-    passesDefaultChanlunFilter({ ok: false, structure: {} }).reason,
-    'structure_unavailable'
+  assert.deepEqual(
+    passesDefaultChanlunFilter({ ok: false, structure: {} }),
+    {
+      passed: false,
+      higher_multiple: null,
+      segment_multiple: null,
+      bi_gain_percent: null,
+      reason: 'structure_unavailable',
+    },
   )
+
   assert.equal(
     passesDefaultChanlunFilter({
       ok: true,
       structure: {
-        higher_segment: null,
-        segment: { start_price: 10, end_price: 20 },
-        bi: { price_change_pct: 10 }
-      }
-    }).passed,
-    false
+        higher_segment: { start_price: 10, end_price: 20 },
+        segment: {},
+        bi: { price_change_pct: 10 },
+      },
+    }).reason,
+    'segment_multiple_unavailable',
   )
 })
 
-test('page uses chanlun cache and existing futureApi helper for 30m structure requests', async () => {
-  const viewContent = await readFile(
-    new URL('./GanttShouban30Phase1.vue', import.meta.url),
-    'utf8'
-  )
-  const apiContent = await readFile(
-    new URL('../api/futureApi.js', import.meta.url),
-    'utf8'
-  )
-
-  assert.match(apiContent, /export const getChanlunStructure\s*=/)
-  assert.match(viewContent, /getChanlunStructure/)
-  assert.match(viewContent, /chanlunStructureCache/)
-  assert.match(viewContent, /chanlunStats/)
-  assert.match(viewContent, /chanlunRequestId/)
-  assert.match(viewContent, /loadChanlunStructures/)
-  assert.match(viewContent, /period:\s*'30m'/)
+test('page no longer calculates chanlun structures on the client', () => {
+  assert.doesNotMatch(pageSource, /getChanlunStructure/)
+  assert.doesNotMatch(pageSource, /chanlunStructureCache/)
+  assert.doesNotMatch(pageSource, /chanlunRequestId/)
+  assert.doesNotMatch(pageSource, /loadChanlunStructures/)
+  assert.doesNotMatch(pageSource, /filterExcludedPlates/)
 })
 
-test('page binds left count column and stock table to chanlun-passed presentation', async () => {
-  const viewContent = await readFile(
-    new URL('./GanttShouban30Phase1.vue', import.meta.url),
-    'utf8'
-  )
-
-  assert.match(viewContent, /filterExcludedPlates/)
-  assert.match(viewContent, /const plateCountLabel = computed\(\(\) => '通过数'\)/)
-  assert.match(viewContent, /label="高级段倍数"/)
-  assert.match(viewContent, /label="段倍数"/)
-  assert.match(viewContent, /label="笔涨幅%"/)
-  assert.match(viewContent, /currentChanlunStats/)
-  assert.match(viewContent, /原始候选/)
-  assert.match(viewContent, /缠论通过/)
-  assert.match(viewContent, /未通过\/不可用/)
+test('page binds to postclose chanlun snapshot presentation', () => {
+  assert.match(pageSource, /const plateCountLabel = computed\(\(\) => '通过数'\)/)
+  assert.match(pageSource, /label="高级段倍数"/)
+  assert.match(pageSource, /label="段倍数"/)
+  assert.match(pageSource, /label="笔涨幅%"/)
+  assert.match(pageSource, /currentChanlunStats/)
+  assert.match(pageSource, /原始候选/)
+  assert.match(pageSource, /缠论通过/)
+  assert.match(pageSource, /未通过\/不可用/)
+  assert.match(pageSource, /首板缠论快照未构建完成/)
 })
