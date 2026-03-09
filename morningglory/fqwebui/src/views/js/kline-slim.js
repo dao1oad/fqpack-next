@@ -241,6 +241,7 @@ export default {
       this.renderFrameId = 0
     }
     if (this.chart) {
+      this.chart.off('legendselectchanged', this.handleSlimLegendSelectChanged)
       this.chart.dispose()
       this.chart = null
     }
@@ -313,6 +314,7 @@ export default {
       }
       this.chart = echarts.init(chartDom, 'dark')
       this.chart.showLoading(echartsConfig.loadingOption)
+      this.chart.on('legendselectchanged', this.handleSlimLegendSelectChanged)
     },
     handleResize() {
       if (this.chart) {
@@ -766,6 +768,7 @@ export default {
         (name) => MAIN_PERIODS.includes(name) && this.chanlunLegendSelected[name]
       )
       this.refreshVisibleChanlunPeriods(this.routeToken)
+      this.scheduleRender()
     },
     scheduleRender() {
       if (!this.chart || !this.mainData) {

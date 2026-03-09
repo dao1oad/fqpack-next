@@ -74,3 +74,18 @@ test('draw-slim consumes all multi-period chanlun layer fields and global zhongs
   assert.match(content, /'段中枢'/)
   assert.match(content, /markArea/)
 })
+
+test('KlineSlim removes fixed overlay status copy and hints legend-driven extra periods', async () => {
+  const content = await readFile(new URL('../src/views/KlineSlim.vue', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(content, /叠加/)
+  assert.match(content, /图例控制额外周期缠论层/)
+})
+
+test('kline-slim controller binds legend selection changes to lazy period loading', async () => {
+  const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(content, /legendselectchanged/)
+  assert.match(content, /ensureChanlunPeriodLoaded/)
+  assert.match(content, /visibleChanlunPeriods =/)
+})
