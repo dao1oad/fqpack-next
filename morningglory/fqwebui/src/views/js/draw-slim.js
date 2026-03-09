@@ -336,7 +336,8 @@ export default function drawSlim(chart, klineData, period, options = {}) {
 
   const {
     extraChanlunMap = {},
-    keepState = true
+    keepState = true,
+    renderVersion = ''
   } = options
 
   const dates = klineData.date
@@ -497,7 +498,16 @@ export default function drawSlim(chart, klineData, period, options = {}) {
   })
   chart.hideLoading()
 
-  return SUPPORTED_CHANLUN_PERIODS
-    .map((visiblePeriod) => buildVersion(periodPayloadMap[visiblePeriod]))
+  return (renderVersion
+    ? [renderVersion]
+    : [period]
+        .concat(
+          SUPPORTED_CHANLUN_PERIODS.filter(
+            (visiblePeriod) => visiblePeriod !== period && periodPayloadMap[visiblePeriod]
+          )
+        )
+        .map((visiblePeriod) => buildVersion(periodPayloadMap[visiblePeriod]))
+  )
+    .filter(Boolean)
     .join('__')
 }

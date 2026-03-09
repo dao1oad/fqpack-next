@@ -814,11 +814,12 @@ export default {
       this.renderFrameId = window.requestAnimationFrame(() => {
         this.renderFrameId = 0
         const extraPeriods = this.visibleChanlunPeriods.filter((period) => period !== this.currentPeriod)
-        const combinedVersion = [this.mainVersion]
-          .concat(extraPeriods.map((period) => this.chanlunVersionMap[period] || ''))
+        const renderVersion = [this.currentPeriod]
+          .concat(extraPeriods)
+          .map((period) => this.chanlunVersionMap[period] || '')
           .join('__')
         if (
-          combinedVersion === this.lastRenderedVersion &&
+          renderVersion === this.lastRenderedVersion &&
           !this.resetChartStateOnNextRender
         ) {
           return
@@ -830,9 +831,10 @@ export default {
               .map((period) => [period, this.chanlunMultiData[period]])
               .filter(([, payload]) => !!payload)
           ),
+          renderVersion,
           keepState: !this.resetChartStateOnNextRender
         })
-        this.lastRenderedVersion = nextVersion || combinedVersion
+        this.lastRenderedVersion = nextVersion || renderVersion
         this.resetChartStateOnNextRender = false
       })
     },
