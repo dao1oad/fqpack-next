@@ -842,6 +842,334 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
     ]
 
 
+def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_blacklisted_plates(
+    monkeypatch,
+):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        plate_reason_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "reason_text": "canonical reason",
+                    "reason_source": "xgb_top_gainer_history.description",
+                    "source_ref": {"trade_date": "2026-03-05", "plate_id": 11},
+                },
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "99",
+                    "plate_name": "ST股",
+                    "reason_text": "st reason",
+                    "reason_source": "xgb_top_gainer_history.description",
+                    "source_ref": {"trade_date": "2026-03-05", "plate_id": 99},
+                },
+            ]
+        ),
+        gantt_plate_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-04",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "rank": 2,
+                    "hot_stock_count": 2,
+                    "limit_up_count": 2,
+                    "stock_codes": ["000001", "000002"],
+                },
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "rank": 1,
+                    "hot_stock_count": 2,
+                    "limit_up_count": 2,
+                    "stock_codes": ["000001", "000002"],
+                },
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-04",
+                    "plate_key": "99",
+                    "plate_name": "ST股",
+                    "rank": 2,
+                    "hot_stock_count": 1,
+                    "limit_up_count": 1,
+                    "stock_codes": ["000099"],
+                },
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "99",
+                    "plate_name": "ST股",
+                    "rank": 1,
+                    "hot_stock_count": 1,
+                    "limit_up_count": 1,
+                    "stock_codes": ["000099"],
+                },
+            ]
+        ),
+        gantt_stock_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-04",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "code6": "000001",
+                    "name": "alpha",
+                    "is_limit_up": 1,
+                    "stock_reason": "older alpha reason",
+                },
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "code6": "000001",
+                    "name": "alpha",
+                    "is_limit_up": 1,
+                    "stock_reason": "alpha reason",
+                },
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "code6": "000002",
+                    "name": "beta",
+                    "is_limit_up": 1,
+                    "stock_reason": "beta reason",
+                },
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "99",
+                    "plate_name": "ST股",
+                    "code6": "000099",
+                    "name": "st beta",
+                    "is_limit_up": 1,
+                    "stock_reason": "st reason",
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+
+    def get_chanlun_structure_stub(symbol, period, end_date):
+        assert period == "30m"
+        assert end_date == "2026-03-05"
+        if symbol == "000001":
+            return {
+                "ok": True,
+                "structure": {
+                    "higher_segment": {"start_price": 10, "end_price": 20},
+                    "segment": {"start_price": 10, "end_price": 25},
+                    "bi": {"price_change_pct": 20},
+                },
+            }
+        if symbol == "000002":
+            return {
+                "ok": True,
+                "structure": {
+                    "higher_segment": {"start_price": 10, "end_price": 31},
+                    "segment": {"start_price": 10, "end_price": 20},
+                    "bi": {"price_change_pct": 20},
+                },
+            }
+        raise AssertionError(f"unexpected symbol {symbol}")
+
+    monkeypatch.setattr(
+        svc,
+        "get_chanlun_structure",
+        get_chanlun_structure_stub,
+        raising=False,
+    )
+
+    result = svc.persist_shouban30_for_date("2026-03-05", stock_window_days=60)
+
+    assert result == {
+        "as_of_date": "2026-03-05",
+        "plates": 1,
+        "stocks": 2,
+        "stock_window_days": 60,
+    }
+    assert fake_db[svc.COL_SHOUBAN30_PLATES].docs == [
+        {
+            "provider": "xgb",
+            "as_of_date": "2026-03-05",
+            "plate_key": "11",
+            "plate_name": "robotics",
+            "stock_window_days": 60,
+            "appear_days_30": 2,
+            "seg_from": "2026-03-04",
+            "seg_to": "2026-03-05",
+            "hit_trade_dates_30": ["2026-03-04", "2026-03-05"],
+            "stocks_count": 1,
+            "candidate_stocks_count": 2,
+            "failed_stocks_count": 1,
+            "chanlun_filter_version": "30m_v1",
+            "stock_window_from": "2026-03-04",
+            "stock_window_to": "2026-03-05",
+            "reason_text": "canonical reason",
+            "reason_ref": {"trade_date": "2026-03-05", "plate_id": 11},
+        }
+    ]
+    assert fake_db[svc.COL_SHOUBAN30_STOCKS].docs == [
+        {
+            "provider": "xgb",
+            "as_of_date": "2026-03-05",
+            "plate_key": "11",
+            "plate_name": "robotics",
+            "code6": "000001",
+            "name": "alpha",
+            "stock_window_days": 60,
+            "hit_count_30": 1,
+            "hit_count_window": 2,
+            "hit_trade_dates_30": ["2026-03-05"],
+            "hit_trade_dates_window": ["2026-03-04", "2026-03-05"],
+            "latest_trade_date": "2026-03-05",
+            "latest_reason": "alpha reason",
+            "chanlun_passed": True,
+            "chanlun_reason": "passed",
+            "chanlun_higher_multiple": 2,
+            "chanlun_segment_multiple": 2.5,
+            "chanlun_bi_gain_percent": 20,
+            "chanlun_filter_version": "30m_v1",
+        },
+        {
+            "provider": "xgb",
+            "as_of_date": "2026-03-05",
+            "plate_key": "11",
+            "plate_name": "robotics",
+            "code6": "000002",
+            "name": "beta",
+            "stock_window_days": 60,
+            "hit_count_30": 1,
+            "hit_count_window": 1,
+            "hit_trade_dates_30": ["2026-03-05"],
+            "hit_trade_dates_window": ["2026-03-05"],
+            "latest_trade_date": "2026-03-05",
+            "latest_reason": "beta reason",
+            "chanlun_passed": False,
+            "chanlun_reason": "higher_multiple_exceed",
+            "chanlun_higher_multiple": 3.1,
+            "chanlun_segment_multiple": 2,
+            "chanlun_bi_gain_percent": 20,
+            "chanlun_filter_version": "30m_v1",
+        },
+    ]
+
+
+def test_persist_shouban30_for_date_reuses_chanlun_result_cache_across_windows(
+    monkeypatch,
+):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        plate_reason_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "reason_text": "canonical reason",
+                    "reason_source": "xgb_top_gainer_history.description",
+                    "source_ref": {"trade_date": "2026-03-05", "plate_id": 11},
+                }
+            ]
+        ),
+        gantt_plate_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-04",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "rank": 2,
+                    "hot_stock_count": 1,
+                    "limit_up_count": 1,
+                    "stock_codes": ["000001"],
+                },
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "rank": 1,
+                    "hot_stock_count": 1,
+                    "limit_up_count": 1,
+                    "stock_codes": ["000001"],
+                },
+            ]
+        ),
+        gantt_stock_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "code6": "000001",
+                    "name": "alpha",
+                    "is_limit_up": 1,
+                    "stock_reason": "alpha reason",
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+
+    calls = []
+
+    def get_chanlun_structure_stub(symbol, period, end_date):
+        calls.append((symbol, period, end_date))
+        return {
+            "ok": True,
+            "structure": {
+                "higher_segment": {"start_price": 10, "end_price": 20},
+                "segment": {"start_price": 10, "end_price": 20},
+                "bi": {"price_change_pct": 10},
+            },
+        }
+
+    monkeypatch.setattr(
+        svc,
+        "get_chanlun_structure",
+        get_chanlun_structure_stub,
+        raising=False,
+    )
+
+    cache = {}
+    svc.persist_shouban30_for_date(
+        "2026-03-05",
+        stock_window_days=30,
+        chanlun_result_cache=cache,
+    )
+    svc.persist_shouban30_for_date(
+        "2026-03-05",
+        stock_window_days=60,
+        chanlun_result_cache=cache,
+    )
+
+    assert calls == [("000001", "30m", "2026-03-05")]
+    assert cache == {
+        "000001|2026-03-05|30m": {
+            "passed": True,
+            "reason": "passed",
+            "higher_multiple": 2,
+            "segment_multiple": 2,
+            "bi_gain_percent": 10,
+        }
+    }
+
+
 def test_ensure_readmodel_indexes_drops_legacy_shouban30_unique_indexes(monkeypatch):
     from freshquant.data import gantt_readmodel as svc
 
