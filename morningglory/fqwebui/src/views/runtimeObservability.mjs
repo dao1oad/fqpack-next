@@ -308,3 +308,46 @@ export const buildRawRecordSummary = (record = {}) => {
     body: buildJsonBlock(record?.payload) || buildJsonBlock(record?.metrics) || buildJsonBlock(record),
   }
 }
+
+export const buildTraceListSummary = (traces = []) => {
+  const normalized = Array.isArray(traces) ? traces : []
+  const issueComponents = new Map()
+  let issueTraceCount = 0
+  let issueStepCount = 0
+
+  for (const trace of normalized) {
+    const detail = buildTraceDetail(trace)
+    if (detail.issue_count > 0) issueTraceCount += 1
+    issueStepCount += detail.issue_count
+
+    const componentTraceMarks = new Set()
+    for (const step of detail.steps) {
+      if (!step?.is_issue) continue
+      const component = toText(step?.component) || 'runtime'
+      const current = issueComponents.get(component) || {
+        component,
+        issue_count: 0,
+        trace_count: 0,
+      }
+      current.issue_count += 1
+      if (!componentTraceMarks.has(component)) {
+        current.trace_count += 1
+        componentTraceMarks.add(component)
+      }
+      issueComponents.set(component, current)
+    }
+  }
+
+  return {
+    trace_count: normalized.length,
+    issue_trace_count: issueTraceCount,
+    issue_step_count: issueStepCount,
+    components: [...issueComponents.values()].sort((left, right) => {
+      const issueDiff = right.issue_count - left.issue_count
+      if (issueDiff !== 0) return issueDiff
+      const traceDiff = right.trace_count - left.trace_count
+      if (traceDiff !== 0) return traceDiff
+      return left.component.localeCompare(right.component)
+    }),
+  }
+}

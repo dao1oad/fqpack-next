@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildTraceListSummary,
   buildIssueSummary,
   buildRawRecordSummary,
   buildTraceSummaryMeta,
@@ -238,4 +239,56 @@ test('findRawRecordIndex matches the current step and buildRawRecordSummary mark
     badges: ['trace trc_1', 'request req_1', 'order ord_1', 'symbol 600000'],
     body: '{\n  "quantity": 300\n}',
   })
+})
+
+test('buildTraceListSummary aggregates visible traces and issue components', () => {
+  const summary = buildTraceListSummary([
+    {
+      trace_id: 'trc_1',
+      steps: [
+        { component: 'guardian_strategy', node: 'decision', status: 'warning' },
+        { component: 'order_submit', node: 'queue_write', status: 'success' },
+      ],
+    },
+    {
+      trace_id: 'trc_2',
+      steps: [
+        { component: 'broker_gateway', node: 'submit_result', status: 'failed' },
+        { component: 'broker_gateway', node: 'order_callback', status: 'warning' },
+      ],
+    },
+    {
+      trace_id: 'trc_3',
+      steps: [
+        { component: 'order_submit', node: 'queue_write', status: 'success' },
+      ],
+    },
+  ])
+
+  assert.equal(summary.trace_count, 3)
+  assert.equal(summary.issue_trace_count, 2)
+  assert.equal(summary.issue_step_count, 3)
+  assert.deepEqual(summary.components, [
+    { component: 'broker_gateway', issue_count: 2, trace_count: 1 },
+    { component: 'guardian_strategy', issue_count: 1, trace_count: 1 },
+  ])
+})
+
+test('buildTraceListSummary respects already filtered component slices', () => {
+  const summary = buildTraceListSummary([
+    {
+      trace_id: 'trc_1',
+      steps: [
+        { component: 'order_submit', node: 'queue_write', status: 'warning' },
+        { component: 'order_submit', node: 'submit_result', status: 'failed' },
+      ],
+    },
+  ])
+
+  assert.equal(summary.trace_count, 1)
+  assert.equal(summary.issue_trace_count, 1)
+  assert.equal(summary.issue_step_count, 2)
+  assert.deepEqual(summary.components, [
+    { component: 'order_submit', issue_count: 2, trace_count: 1 },
+  ])
 })

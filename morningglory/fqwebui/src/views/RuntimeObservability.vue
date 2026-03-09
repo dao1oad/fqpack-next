@@ -37,6 +37,33 @@
           <el-button type="primary" :loading="loading.traces" @click="loadTraces">查询</el-button>
         </div>
 
+        <div class="trace-list-summary">
+          <article class="trace-list-summary-card">
+            <span>可见 Trace</span>
+            <strong>{{ traceListSummary.trace_count }}</strong>
+          </article>
+          <article class="trace-list-summary-card">
+            <span>异常链路</span>
+            <strong>{{ traceListSummary.issue_trace_count }}</strong>
+          </article>
+          <article class="trace-list-summary-card">
+            <span>异常节点</span>
+            <strong>{{ traceListSummary.issue_step_count }}</strong>
+          </article>
+          <article class="trace-list-summary-card trace-list-summary-card--wide">
+            <span>组件异常分布<span v-if="activeComponentFilter"> · filter {{ activeComponentFilter }}</span></span>
+            <div class="trace-list-summary-components">
+              <span
+                v-for="item in traceListSummary.components"
+                :key="`${item.component}-${item.issue_count}-${item.trace_count}`"
+              >
+                {{ item.component }} · {{ item.issue_count }}/{{ item.trace_count }}
+              </span>
+              <span v-if="traceListSummary.components.length === 0">-</span>
+            </div>
+          </article>
+        </div>
+
         <div class="trace-layout">
           <div class="trace-list">
             <el-table :data="traceRows" stripe height="460" :row-class-name="traceRowClassName" @row-click="handleTraceClick">
@@ -295,6 +322,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
 import MyHeader from './MyHeader.vue'
 import {
+  buildTraceListSummary,
   buildIssueSummary,
   buildRawRecordSummary,
   buildTraceSummaryMeta,
@@ -345,6 +373,8 @@ const rawQuery = reactive({
 const traceRows = computed(() => {
   return sortTraceSummaries(traces.value.map((item) => summarizeTrace(item)))
 })
+const traceListSummary = computed(() => buildTraceListSummary(traces.value))
+const activeComponentFilter = computed(() => String(query.component || '').trim())
 
 const selectedTraceDetail = computed(() => buildTraceDetail(selectedTrace.value || {}))
 const traceSummaryMeta = computed(() => buildTraceSummaryMeta(selectedTraceDetail.value))
@@ -652,6 +682,52 @@ onMounted(() => {
   grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.trace-list-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(280px, 1.6fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.trace-list-summary-card {
+  border: 1px solid #d8e2ee;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f8fc 100%);
+  padding: 12px;
+}
+
+.trace-list-summary-card > span {
+  display: block;
+  margin-bottom: 8px;
+  color: #69829b;
+  font-size: 12px;
+}
+
+.trace-list-summary-card strong {
+  display: block;
+  color: #21405e;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.trace-list-summary-card--wide strong {
+  font-size: 18px;
+}
+
+.trace-list-summary-components {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trace-list-summary-components span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #35506c;
+  font-size: 12px;
 }
 
 .trace-layout {
@@ -1236,6 +1312,7 @@ onMounted(() => {
 
 @media (max-width: 1080px) {
   .trace-toolbar,
+  .trace-list-summary,
   .raw-toolbar,
   .trace-layout,
   .trace-detail-body,
