@@ -352,8 +352,8 @@ test('kline-slim controller persists datazoom state and includes legend state in
 test('kline-slim controller derives datazoom state from event payload instead of getOption snapshots', async () => {
   const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
   const handleSlimDataZoomBody = content.match(
-    /handleSlimDataZoom\((event|params)\)\s*\{([\s\S]*?)\n\s*\},\n\s*handleSlimDataZoomPointerUp/
-  )?.[2]
+    /handleSlimDataZoom\((?:event|params)\)\s*\{([\s\S]*?)\r?\n\s*\},\r?\n\s*handleSlimDataZoomPointerUp/
+  )?.[1]
 
   assert.match(content, /handleSlimDataZoom\((event|params)\)/)
   assert.match(content, /(event|params)\?\.(batch|start|end|startValue|endValue)/)
