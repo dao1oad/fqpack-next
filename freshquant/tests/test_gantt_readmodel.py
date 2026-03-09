@@ -796,6 +796,19 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
         ),
     )
     monkeypatch.setattr(svc, "DBGantt", fake_db)
+    monkeypatch.setattr(
+        svc,
+        "get_chanlun_structure",
+        lambda symbol, period, end_date: {
+            "ok": True,
+            "structure": {
+                "higher_segment": {"start_price": 10, "end_price": 20},
+                "segment": {"start_price": 10, "end_price": 20},
+                "bi": {"price_change_pct": 10},
+            },
+        },
+        raising=False,
+    )
 
     result = svc.persist_shouban30_for_date("2026-03-05", stock_window_days=60)
 
@@ -817,6 +830,9 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
             "seg_to": "2026-03-05",
             "hit_trade_dates_30": ["2026-03-04", "2026-03-05"],
             "stocks_count": 1,
+            "candidate_stocks_count": 1,
+            "failed_stocks_count": 0,
+            "chanlun_filter_version": "30m_v1",
             "stock_window_from": "2026-02-10",
             "stock_window_to": "2026-03-05",
             "reason_text": "canonical reason",
@@ -838,6 +854,12 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
             "hit_trade_dates_window": ["2026-02-10", "2026-03-05"],
             "latest_trade_date": "2026-03-05",
             "latest_reason": "stock reason",
+            "chanlun_passed": True,
+            "chanlun_reason": "passed",
+            "chanlun_higher_multiple": 2.0,
+            "chanlun_segment_multiple": 2.0,
+            "chanlun_bi_gain_percent": 10.0,
+            "chanlun_filter_version": "30m_v1",
         }
     ]
 
@@ -1029,17 +1051,17 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
             "code6": "000001",
             "name": "alpha",
             "stock_window_days": 60,
-            "hit_count_30": 1,
+            "hit_count_30": 2,
             "hit_count_window": 2,
-            "hit_trade_dates_30": ["2026-03-05"],
+            "hit_trade_dates_30": ["2026-03-04", "2026-03-05"],
             "hit_trade_dates_window": ["2026-03-04", "2026-03-05"],
             "latest_trade_date": "2026-03-05",
             "latest_reason": "alpha reason",
             "chanlun_passed": True,
             "chanlun_reason": "passed",
-            "chanlun_higher_multiple": 2,
+            "chanlun_higher_multiple": 2.0,
             "chanlun_segment_multiple": 2.5,
-            "chanlun_bi_gain_percent": 20,
+            "chanlun_bi_gain_percent": 20.0,
             "chanlun_filter_version": "30m_v1",
         },
         {
@@ -1059,8 +1081,8 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
             "chanlun_passed": False,
             "chanlun_reason": "higher_multiple_exceed",
             "chanlun_higher_multiple": 3.1,
-            "chanlun_segment_multiple": 2,
-            "chanlun_bi_gain_percent": 20,
+            "chanlun_segment_multiple": 2.0,
+            "chanlun_bi_gain_percent": 20.0,
             "chanlun_filter_version": "30m_v1",
         },
     ]
@@ -1163,9 +1185,9 @@ def test_persist_shouban30_for_date_reuses_chanlun_result_cache_across_windows(
         "000001|2026-03-05|30m": {
             "passed": True,
             "reason": "passed",
-            "higher_multiple": 2,
-            "segment_multiple": 2,
-            "bi_gain_percent": 10,
+            "higher_multiple": 2.0,
+            "segment_multiple": 2.0,
+            "bi_gain_percent": 10.0,
         }
     }
 
