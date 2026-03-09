@@ -165,7 +165,7 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
     monkeypatch.setattr(
         ops,
         "persist_shouban30_for_date",
-        lambda trade_date, stock_window_days=30: calls.append(
+        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
             ("shouban30", trade_date, stock_window_days)
         )
         or {"as_of_date": trade_date},
@@ -240,7 +240,7 @@ def test_run_gantt_backfill_stops_on_first_failed_trade_date(monkeypatch):
     monkeypatch.setattr(
         ops,
         "persist_shouban30_for_date",
-        lambda trade_date, stock_window_days=30: calls.append(
+        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
             ("shouban30", trade_date, stock_window_days)
         )
         or {"as_of_date": trade_date},
@@ -274,7 +274,7 @@ def test_op_build_shouban30_daily_builds_all_stock_window_days(monkeypatch):
     monkeypatch.setattr(
         ops,
         "persist_shouban30_for_date",
-        lambda trade_date, stock_window_days=30: calls.append(
+        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
             (trade_date, stock_window_days)
         )
         or {"as_of_date": trade_date, "stock_window_days": stock_window_days},

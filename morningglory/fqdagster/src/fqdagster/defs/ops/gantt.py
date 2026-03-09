@@ -79,7 +79,17 @@ def _has_legacy_shouban30_snapshot(trade_date: str) -> bool:
         for value in collection.distinct("stock_window_days", {"as_of_date": date_str})
         if isinstance(value, int) and value in SHOUBAN30_STOCK_WINDOWS
     }
-    return not windows
+    if not windows:
+        return True
+
+    versions = {
+        _to_str(value)
+        for value in collection.distinct(
+            "chanlun_filter_version", {"as_of_date": date_str}
+        )
+        if _to_str(value)
+    }
+    return not versions
 
 
 def _query_trade_dates_between(start_date: str, end_date: str) -> list[str]:
@@ -99,10 +109,12 @@ def _resolve_trade_date(trade_date: str | None = None) -> str:
 
 def _build_shouban30_snapshots_for_date(context, trade_date: str) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
+    chanlun_result_cache: dict[str, dict[str, Any]] = {}
     for stock_window_days in SHOUBAN30_STOCK_WINDOWS:
         result = persist_shouban30_for_date(
             trade_date,
             stock_window_days=stock_window_days,
+            chanlun_result_cache=chanlun_result_cache,
         )
         results.append(result)
         context.log.info(
