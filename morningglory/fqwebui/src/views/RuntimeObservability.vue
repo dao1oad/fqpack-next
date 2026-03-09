@@ -330,6 +330,7 @@ import {
   buildHealthCards,
   buildRawLookupFromStep,
   buildTraceQuery,
+  findTraceByRow,
   findRawRecordIndex,
   filterTraceSteps,
   groupStepsByComponent,
@@ -411,17 +412,25 @@ const loadTraces = async () => {
   try {
     const response = await runtimeObservabilityApi.listTraces(buildTraceQuery(query))
     traces.value = response?.data?.traces || []
-    const currentTraceId = selectedTrace.value?.trace_id
-    selectedTrace.value = traces.value.find((item) => item.trace_id === currentTraceId) || traces.value[0] || null
+    const currentTraceRow = {
+      trace_key: selectedTrace.value?.trace_key,
+      trace_id: selectedTrace.value?.trace_id,
+    }
+    selectedTrace.value = findTraceByRow(traces.value, currentTraceRow) || traces.value[0] || null
   } finally {
     loading.traces = false
   }
 }
 
 const handleTraceClick = async (row) => {
-  if (!row?.trace_id) return
-  const response = await runtimeObservabilityApi.getTraceDetail(row.trace_id)
-  selectedTrace.value = response?.data?.trace || null
+  const selected = findTraceByRow(traces.value, row)
+  if (!selected) return
+  if (selected.trace_id) {
+    const response = await runtimeObservabilityApi.getTraceDetail(selected.trace_id)
+    selectedTrace.value = response?.data?.trace || selected
+  } else {
+    selectedTrace.value = selected
+  }
   collapsedComponents.value = {}
 }
 

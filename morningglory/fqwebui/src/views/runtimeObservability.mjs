@@ -83,6 +83,7 @@ export const summarizeTrace = (trace = {}) => {
   const summaryMeta = buildTraceSummaryMeta(detail)
   const lastStep = detail.steps[detail.steps.length - 1] || {}
   return {
+    trace_key: toText(trace?.trace_key) || null,
     trace_id: detail.trace_id,
     request_ids: detail.request_ids,
     internal_order_ids: detail.internal_order_ids,
@@ -96,6 +97,17 @@ export const summarizeTrace = (trace = {}) => {
     last_status: toText(lastStep.status) || 'info',
     last_ts: toText(lastStep.ts) || '',
   }
+}
+
+export const findTraceByRow = (traces = [], row = {}) => {
+  const traceKey = toText(row?.trace_key)
+  const traceId = toText(row?.trace_id)
+  const normalized = Array.isArray(traces) ? traces : []
+  return (
+    normalized.find((trace) => toText(trace?.trace_key) === traceKey) ||
+    normalized.find((trace) => toText(trace?.trace_id) === traceId) ||
+    null
+  )
 }
 
 export const sortTraceSummaries = (rows = []) => {

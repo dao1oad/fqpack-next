@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
+from freshquant.runtime_observability.runtime_node import resolve_runtime_node
 from freshquant.runtime_observability.schema import normalize_event
 
 
@@ -45,7 +46,7 @@ class RuntimeEventLogger:
     ) -> None:
         self.component = _sanitize_path_segment(component, "default")
         self.runtime_node = (
-            str(runtime_node or "host:unknown").strip() or "host:unknown"
+            str(runtime_node or "").strip() or resolve_runtime_node(self.component)
         )
         self.root_dir = (
             Path(root_dir) if root_dir is not None else get_runtime_log_root()

@@ -11,6 +11,7 @@ import {
   buildRawLookupFromStep,
   buildTraceQuery,
   findRawRecordIndex,
+  findTraceByRow,
   filterTraceSteps,
   formatDurationMs,
   groupStepsByComponent,
@@ -54,6 +55,37 @@ test('summarizeTrace and sortTraceSummaries prioritize traces with issues before
   assert.equal(rows[0].issue_count, 1)
   assert.equal(rows[1].trace_id, 'trc_2')
   assert.equal(rows[2].last_status, 'success')
+})
+
+test('summarizeTrace preserves trace_key for traces without trace_id', () => {
+  const row = summarizeTrace({
+    trace_key: 'request:req_1',
+    request_ids: ['req_1'],
+    internal_order_ids: ['ord_1'],
+    steps: [
+      { node: 'queue_write', ts: '2026-03-09T10:00:03+08:00', status: 'info' },
+    ],
+  })
+
+  assert.equal(row.trace_key, 'request:req_1')
+  assert.equal(row.trace_id, null)
+  assert.deepEqual(row.request_ids, ['req_1'])
+})
+
+test('findTraceByRow resolves request-key traces without trace_id', () => {
+  const traces = [
+    {
+      trace_key: 'request:req_1',
+      trace_id: null,
+      request_ids: ['req_1'],
+      internal_order_ids: ['ord_1'],
+      steps: [{ component: 'order_submit', node: 'queue_write', status: 'info' }],
+    },
+  ]
+
+  const row = summarizeTrace(traces[0])
+
+  assert.equal(findTraceByRow(traces, row), traces[0])
 })
 
 test('buildHealthCards and buildRawLookupFromStep normalize view data', () => {
