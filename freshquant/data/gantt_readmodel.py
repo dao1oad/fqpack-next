@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from freshquant.chanlun_structure_service import get_chanlun_structure
 from freshquant.data.gantt_source_jygs import (
     COL_JYGS_ACTION_FIELDS,
     COL_JYGS_YIDONG,
@@ -25,6 +26,9 @@ COL_STOCK_HOT_REASON_DAILY = "stock_hot_reason_daily"
 COL_SHOUBAN30_PLATES = "shouban30_plates"
 COL_SHOUBAN30_STOCKS = "shouban30_stocks"
 SHOUBAN30_STOCK_WINDOWS = (30, 45, 60, 90)
+SHOUBAN30_CHANLUN_PERIOD = "30m"
+SHOUBAN30_CHANLUN_FILTER_VERSION = "30m_v1"
+SHOUBAN30_EXCLUDED_PLATE_NAMES = frozenset({"其他", "公告", "ST股", "ST板块"})
 CN_TZ = ZoneInfo("Asia/Shanghai")
 LEGACY_SHOUBAN30_PLATES_INDEX = "provider_1_plate_key_1_as_of_date_1"
 LEGACY_SHOUBAN30_STOCKS_INDEX = "provider_1_plate_key_1_code6_1_as_of_date_1"
@@ -49,6 +53,13 @@ def _normalize_code6(value: Any) -> str:
 def _to_int(value: Any, default: int) -> int:
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_float(value: Any, default: float | None = None) -> float | None:
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return default
 
@@ -410,11 +421,13 @@ def query_shouban30_plate_rows(
         COL_SHOUBAN30_PLATES,
         {"provider": provider_key, "stock_window_days": target_window},
     )
-    return select_shouban30_plate_rows(
-        rows,
-        provider=provider_key,
-        as_of_date=as_of_date,
-        stock_window_days=target_window,
+    return _ensure_shouban30_chanlun_snapshot_ready(
+        select_shouban30_plate_rows(
+            rows,
+            provider=provider_key,
+            as_of_date=as_of_date,
+            stock_window_days=target_window,
+        )
     )
 
 
@@ -436,12 +449,14 @@ def query_shouban30_stock_rows(
             "stock_window_days": target_window,
         },
     )
-    return select_shouban30_stock_rows(
-        rows,
-        provider=provider_key,
-        plate_key=target_plate_key,
-        as_of_date=as_of_date,
-        stock_window_days=target_window,
+    return _ensure_shouban30_chanlun_snapshot_ready(
+        select_shouban30_stock_rows(
+            rows,
+            provider=provider_key,
+            plate_key=target_plate_key,
+            as_of_date=as_of_date,
+            stock_window_days=target_window,
+        )
     )
 
 
@@ -785,6 +800,88 @@ def _group_shouban30_plate_candidates(
     return candidates
 
 
+def _filter_shouban30_plate_candidates(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in rows or []
+        if _to_str(item.get("plate_name")) not in SHOUBAN30_EXCLUDED_PLATE_NAMES
+    ]
+
+
+def _build_shouban30_chanlun_cache_key(code6: Any, as_of_date: Any) -> str:
+    return f"{_normalize_code6(code6)}|{_to_str(as_of_date)}|{SHOUBAN30_CHANLUN_PERIOD}"
+
+
+def _get_segment_gain_multiple(segment: dict[str, Any] | None) -> float | None:
+    start_price = _to_float((segment or {}).get("start_price"))
+    end_price = _to_float((segment or {}).get("end_price"))
+    if start_price is None or end_price is None or start_price <= 0:
+        return None
+    return round(end_price / start_price, 4)
+
+
+def _build_default_shouban30_chanlun_result(
+    response: dict[str, Any] | None,
+) -> dict[str, Any]:
+    structure = (response or {}).get("structure") or {}
+    higher_multiple = _get_segment_gain_multiple(structure.get("higher_segment"))
+    segment_multiple = _get_segment_gain_multiple(structure.get("segment"))
+    bi = structure.get("bi") or {}
+    bi_gain_percent = _to_float(bi.get("price_change_pct"))
+    result = {
+        "passed": False,
+        "reason": "structure_unavailable",
+        "higher_multiple": higher_multiple,
+        "segment_multiple": segment_multiple,
+        "bi_gain_percent": bi_gain_percent,
+    }
+    if not (response or {}).get("ok"):
+        return result
+    if higher_multiple is None:
+        result["reason"] = "higher_multiple_unavailable"
+        return result
+    if segment_multiple is None:
+        result["reason"] = "segment_multiple_unavailable"
+        return result
+    if bi_gain_percent is None:
+        result["reason"] = "bi_gain_unavailable"
+        return result
+    if higher_multiple > 3.0:
+        result["reason"] = "higher_multiple_exceed"
+        return result
+    if segment_multiple > 3.0:
+        result["reason"] = "segment_multiple_exceed"
+        return result
+    if bi_gain_percent > 30:
+        result["reason"] = "bi_gain_exceed"
+        return result
+    result["passed"] = True
+    result["reason"] = "passed"
+    return result
+
+
+def _resolve_shouban30_chanlun_result(
+    code6: Any,
+    *,
+    as_of_date: str,
+    chanlun_result_cache: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    cache_key = _build_shouban30_chanlun_cache_key(code6, as_of_date)
+    cached = chanlun_result_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    response = get_chanlun_structure(
+        _normalize_code6(code6),
+        SHOUBAN30_CHANLUN_PERIOD,
+        as_of_date,
+    )
+    result = _build_default_shouban30_chanlun_result(response)
+    chanlun_result_cache[cache_key] = result
+    return result
+
+
 def _build_shouban30_stock_rows(
     rows: list[dict[str, Any]],
     *,
@@ -792,16 +889,23 @@ def _build_shouban30_stock_rows(
     stock_window_days: int,
     allowed_plate_keys: set[tuple[str, str]] | None = None,
     hit_count_30_dates: set[str] | None = None,
+    chanlun_result_cache: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     target_hit_count_30_dates = {item for item in (hit_count_30_dates or set()) if item}
+    target_chanlun_result_cache = (
+        chanlun_result_cache if chanlun_result_cache is not None else {}
+    )
     for row in rows:
         provider = _to_str(row.get("provider"))
         plate_key = _to_str(row.get("plate_key"))
         code6 = _to_str(row.get("code6"))
         if not provider or not plate_key or not code6:
             continue
-        if allowed_plate_keys and (provider, plate_key) not in allowed_plate_keys:
+        if (
+            allowed_plate_keys is not None
+            and (provider, plate_key) not in allowed_plate_keys
+        ):
             continue
         grouped[(provider, plate_key, code6)].append(row)
 
@@ -826,6 +930,11 @@ def _build_shouban30_stock_rows(
             ]
         )
         hit_count_30 = len(hit_trade_dates_30)
+        chanlun = _resolve_shouban30_chanlun_result(
+            code6,
+            as_of_date=as_of_date,
+            chanlun_result_cache=target_chanlun_result_cache,
+        )
         results.append(
             {
                 "provider": provider,
@@ -841,6 +950,13 @@ def _build_shouban30_stock_rows(
                 "hit_trade_dates_window": hit_trade_dates_window,
                 "latest_trade_date": _to_str(latest.get("trade_date")),
                 "latest_reason": _to_str(latest.get("stock_reason")) or None,
+                "chanlun_passed": bool(chanlun.get("passed")),
+                "chanlun_reason": _to_str(chanlun.get("reason"))
+                or "structure_unavailable",
+                "chanlun_higher_multiple": chanlun.get("higher_multiple"),
+                "chanlun_segment_multiple": chanlun.get("segment_multiple"),
+                "chanlun_bi_gain_percent": chanlun.get("bi_gain_percent"),
+                "chanlun_filter_version": SHOUBAN30_CHANLUN_FILTER_VERSION,
             }
         )
     results.sort(key=lambda item: (item["provider"], item["plate_key"], item["code6"]))
@@ -851,6 +967,7 @@ def persist_shouban30_for_date(
     as_of_date: str,
     *,
     stock_window_days: int = 30,
+    chanlun_result_cache: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     date_str = _to_str(as_of_date)
     if not date_str:
@@ -909,32 +1026,48 @@ def persist_shouban30_for_date(
         {"trade_date": {"$gte": plate_trade_dates[0], "$lte": date_str}},
     )
 
-    plate_candidates = _group_shouban30_plate_candidates(
-        plate_window_rows,
-        as_of_date=date_str,
-        trade_dates=plate_trade_dates,
+    plate_candidates = _filter_shouban30_plate_candidates(
+        _group_shouban30_plate_candidates(
+            plate_window_rows,
+            as_of_date=date_str,
+            trade_dates=plate_trade_dates,
+        )
     )
 
     allowed_plate_keys = {
         (_to_str(item.get("provider")), _to_str(item.get("plate_key")))
         for item in plate_candidates
     }
-    stock_counts: dict[tuple[str, str], int] = defaultdict(int)
-    grouped_stocks = defaultdict(set)
-    for row in stock_window_rows:
-        key = (_to_str(row.get("provider")), _to_str(row.get("plate_key")))
-        code6 = _to_str(row.get("code6"))
-        if key in allowed_plate_keys and code6:
-            grouped_stocks[key].add(code6)
-    for key, codes in grouped_stocks.items():
-        stock_counts[key] = len(codes)
+    target_chanlun_result_cache = (
+        chanlun_result_cache if chanlun_result_cache is not None else {}
+    )
+    stock_rows = _build_shouban30_stock_rows(
+        stock_window_rows,
+        as_of_date=date_str,
+        stock_window_days=target_window,
+        allowed_plate_keys=allowed_plate_keys,
+        hit_count_30_dates=plate_trade_date_set,
+        chanlun_result_cache=target_chanlun_result_cache,
+    )
+
+    plate_stock_rows: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in stock_rows:
+        plate_stock_rows[
+            (_to_str(row.get("provider")), _to_str(row.get("plate_key")))
+        ].append(row)
 
     for item in plate_candidates:
+        plate_key = (_to_str(item.get("provider")), _to_str(item.get("plate_key")))
+        stock_items = plate_stock_rows.get(plate_key, [])
         item["stock_window_days"] = target_window
-        item["stocks_count"] = stock_counts.get(
-            (_to_str(item.get("provider")), _to_str(item.get("plate_key"))),
-            0,
+        item["stocks_count"] = sum(
+            1 for stock_item in stock_items if stock_item.get("chanlun_passed")
         )
+        item["candidate_stocks_count"] = len(stock_items)
+        item["failed_stocks_count"] = sum(
+            1 for stock_item in stock_items if not stock_item.get("chanlun_passed")
+        )
+        item["chanlun_filter_version"] = SHOUBAN30_CHANLUN_FILTER_VERSION
         item["stock_window_from"] = (
             stock_trade_dates[0] if stock_trade_dates else date_str
         )
@@ -944,13 +1077,6 @@ def persist_shouban30_for_date(
         plate_rows=plate_candidates,
         plate_reason_rows=reason_window_rows,
         as_of_date=date_str,
-    )
-    stock_rows = _build_shouban30_stock_rows(
-        stock_window_rows,
-        as_of_date=date_str,
-        stock_window_days=target_window,
-        allowed_plate_keys=allowed_plate_keys,
-        hit_count_30_dates=plate_trade_date_set,
     )
 
     delete_query = {"as_of_date": date_str, "stock_window_days": target_window}
@@ -1022,6 +1148,12 @@ def build_shouban30_plate_rows(
                     list(item.get("hit_trade_dates_30") or [])
                 ),
                 "stocks_count": _to_int(item.get("stocks_count"), 0),
+                "candidate_stocks_count": _to_int(
+                    item.get("candidate_stocks_count"), 0
+                ),
+                "failed_stocks_count": _to_int(item.get("failed_stocks_count"), 0),
+                "chanlun_filter_version": _to_str(item.get("chanlun_filter_version"))
+                or SHOUBAN30_CHANLUN_FILTER_VERSION,
                 "stock_window_from": _to_str(item.get("stock_window_from")) or None,
                 "stock_window_to": _to_str(item.get("stock_window_to"))
                 or _to_str(as_of_date),
@@ -1256,6 +1388,17 @@ def select_shouban30_plate_rows(
         target_date = max(_to_str(item.get("as_of_date")) for item in filtered)
 
     return [item for item in filtered if _to_str(item.get("as_of_date")) == target_date]
+
+
+def _ensure_shouban30_chanlun_snapshot_ready(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+    for item in rows:
+        if not _to_str(item.get("chanlun_filter_version")):
+            raise ValueError("shouban30 chanlun snapshot not ready")
+    return rows
 
 
 def select_shouban30_stock_rows(

@@ -14,6 +14,13 @@
 ## 变更记录
 
 - **日期**：2026-03-09
+- **RFC**：0023-gantt-shouban30-postclose-chanlun-snapshot
+- **变更**：`/api/gantt/shouban30/plates|stocks` 的运行语义从“页面读取后再由前端复用 `/api/stock_data_chanlun_structure` 做 30m 缠论筛选”切换为“只读取盘后 Dagster 预计算快照”。`shouban30_plates` 新增 `candidate_stocks_count / failed_stocks_count / chanlun_filter_version`，且 `stocks_count` 语义改为“通过默认 30m 缠论筛选后的唯一标的数”；`shouban30_stocks` 新增 `chanlun_passed / chanlun_reason / chanlun_higher_multiple / chanlun_segment_multiple / chanlun_bi_gain_percent / chanlun_filter_version`。盘后构建阶段会直接过滤 `其他 / 公告 / ST股 / ST板块` 四类板块，并在同一交易日的 `30/45/60/90` 四档窗口之间共享缠论结果缓存。命中缺少 `chanlun_filter_version` 的 legacy snapshot 时，后端返回 409“快照未构建完成”，页面不再做前端现算 fallback。
+- **影响面**：`/gantt/shouban30` 页面、`/api/gantt/shouban30/plates|stocks` 调用方、`job_gantt_postclose` 构建耗时、`shouban30_*` 读模型 schema，以及任何依赖旧前端现算链路或旧 `stocks_count` 语义的脚本/说明文档都会受到影响。
+- **迁移步骤**：1) 部署包含 RFC 0023 的后端、Dagster 与前端代码；2) 运行或等待 `job_gantt_postclose` 重建最新交易日的 `30/45/60/90` 四档 `shouban30` 快照；3) 调用 `/api/gantt/shouban30/plates|stocks` 时按新字段读取 `stocks_count / candidate_stocks_count / failed_stocks_count / chanlun_* / chanlun_filter_version`；4) 前端或调用方若收到 409 `shouban30 chanlun snapshot not ready`，应提示“首板缠论快照未构建完成”并等待盘后快照完成，而不是再去逐股调用 `/api/stock_data_chanlun_structure`。
+- **回滚方案**：回退 `freshquant/data/gantt_readmodel.py`、`freshquant/rear/gantt/routes.py`、`morningglory/fqdagster/src/fqdagster/defs/ops/gantt.py`、`morningglory/fqwebui/src/views/GanttShouban30Phase1.vue` 及相关测试/构建产物，恢复 RFC 0017 的首期页面和旧 `shouban30` 字段语义。
+
+- **日期**：2026-03-09
 - **RFC**：0022-kline-slim-multi-period-chanlun-display
 - **变更**：`KlineSlim` 的默认显示语义从“`5m` 主图 + 固定 `30m` 缠论叠加”调整为“默认仅显示 `5m`，`1m / 15m / 30m` 通过图例按需打开”；图表层同时恢复旧仓四周期配色、线宽倍率，以及 `高级别段 / 段中枢 / 高级段中枢` 图层。
 - **影响面**：依赖旧默认可见 `30m` 叠加的用户在新版页面中需要手动点开 `30m` 图例；`KlineSlim` 前端轮询也从“固定主图 + 固定叠加”变为“仅刷新当前可见周期集合”。

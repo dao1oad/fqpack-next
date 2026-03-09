@@ -59,6 +59,13 @@
               <span>/</span>
               <span>{{ currentStats.stock_count }} 个热门个股</span>
             </div>
+            <div class="panel-summary panel-summary-chanlun">
+              <span>原始候选 {{ currentChanlunStats.candidate_total }}</span>
+              <span>/</span>
+              <span>缠论通过 {{ currentChanlunStats.passed_total }}</span>
+              <span>/</span>
+              <span>未通过/不可用 {{ currentChanlunStats.failed_total }}</span>
+            </div>
           </div>
 
           <el-alert
@@ -128,6 +135,21 @@
                   <span class="mono">{{ row.latest_trade_date || '-' }}</span>
                 </template>
               </el-table-column>
+              <el-table-column label="高级段倍数" min-width="102">
+                <template #default="{ row }">
+                  <span class="mono">{{ formatChanlunMetric(row.chanlun_higher_multiple) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="段倍数" min-width="92">
+                <template #default="{ row }">
+                  <span class="mono">{{ formatChanlunMetric(row.chanlun_segment_multiple) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="笔涨幅%" min-width="92">
+                <template #default="{ row }">
+                  <span class="mono">{{ formatChanlunMetric(row.chanlun_bi_gain_percent) }}</span>
+                </template>
+              </el-table-column>
               <el-table-column prop="latest_reason" label="最近理由" min-width="180" show-overflow-tooltip />
             </el-table>
           </div>
@@ -194,6 +216,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+
 import { getGanttStockReasons } from '@/api/ganttApi'
 import {
   SHOUBAN30_STOCK_WINDOW_OPTIONS,
@@ -201,16 +224,17 @@ import {
   getShouban30Stocks,
   normalizeShouban30StockWindowDays,
 } from '@/api/ganttShouban30'
+
 import MyHeader from './MyHeader.vue'
 import {
   aggregatePlateRows,
   aggregateStockRows,
+  buildChanlunFilterStats,
   buildViewStats,
+  filterLoadedPlateRows,
   formatProviderLabel,
-  formatProviderLoadErrors,
   loadProvidersIndependently,
   normalizeSourcePlateRefs,
-  sortPlateRows,
   sortStockRows,
 } from './shouban30Aggregation.mjs'
 
@@ -221,6 +245,13 @@ const VIEW_PROVIDER_OPTIONS = [
 ]
 const SOURCE_PROVIDERS = ['xgb', 'jygs']
 const EMPTY_STATS = Object.freeze({ plate_count: 0, stock_count: 0 })
+const EMPTY_CHANLUN_STATS = Object.freeze({
+  candidate_total: 0,
+  passed_total: 0,
+  failed_total: 0,
+})
+const SHOUBAN30_CHANLUN_SNAPSHOT_PENDING_MESSAGE = '首板缠论快照未构建完成'
+const SHOUBAN30_CHANLUN_SNAPSHOT_NOT_READY_ERROR = 'shouban30 chanlun snapshot not ready'
 
 const route = useRoute()
 const router = useRouter()
@@ -228,6 +259,7 @@ const router = useRouter()
 const sourcePlatesByProvider = ref({ xgb: [], jygs: [] })
 const sourceMetaByProvider = ref({ xgb: {}, jygs: {} })
 const sourceStocksByProvider = ref({ xgb: {}, jygs: {} })
+const stockLoadErrorProviders = ref([])
 
 const stockReasons = ref([])
 
@@ -251,6 +283,10 @@ const normalizeList = (value) => {
   return Array.isArray(value) ? value : []
 }
 
+const flattenStockRowsByPlate = (stockRowsByPlate) => {
+  return Object.values(stockRowsByPlate || {}).flatMap((rows) => normalizeList(rows))
+}
+
 const normalizeViewProvider = (provider) => {
   const value = toText(provider).toLowerCase()
   return VIEW_PROVIDER_OPTIONS.some((item) => item.name === value) ? value : 'xgb'
@@ -261,8 +297,38 @@ const unwrapApiData = (response) => {
   return payload && typeof payload === 'object' ? payload : {}
 }
 
+const normalizeShouban30ErrorMessage = (message, fallback) => {
+  const text = toText(message || fallback)
+  if (!text) return fallback
+  if (text === SHOUBAN30_CHANLUN_SNAPSHOT_NOT_READY_ERROR) {
+    return SHOUBAN30_CHANLUN_SNAPSHOT_PENDING_MESSAGE
+  }
+  return text
+}
+
 const getErrorMessage = (error, fallback) => {
-  return String(error?.response?.data?.message || error?.message || fallback)
+  return normalizeShouban30ErrorMessage(
+    error?.response?.data?.message || error?.message,
+    fallback,
+  )
+}
+
+const formatLoadErrors = ({ errors = [], targetLabel = '数据' } = {}) => {
+  const messages = normalizeList(errors)
+    .map(({ provider, error }) => {
+      const providerLabel = formatProviderLabel(provider)
+      const reason = getErrorMessage(error, '未知错误')
+      return `${providerLabel}${targetLabel}加载失败: ${reason}`
+    })
+    .filter(Boolean)
+  return messages.join('；')
+}
+
+const formatChanlunMetric = (value) => {
+  if (value == null || value === '') return '-'
+  const number = Number(value)
+  if (!Number.isFinite(number)) return '-'
+  return number.toFixed(2)
 }
 
 const activeViewProvider = computed(() => normalizeViewProvider(route.query.p))
@@ -288,13 +354,21 @@ const updateQuery = (patch = {}) => {
   }).catch(() => {})
 }
 
-const xgbPlates = computed(() => sortPlateRows(normalizeList(sourcePlatesByProvider.value.xgb)))
-const jygsPlates = computed(() => sortPlateRows(normalizeList(sourcePlatesByProvider.value.jygs)))
-const aggPlates = computed(() => aggregatePlateRows({
-  xgbPlates: xgbPlates.value,
-  jygsPlates: jygsPlates.value,
-  stockRowsByProvider: sourceStocksByProvider.value,
+const xgbPlates = computed(() => filterLoadedPlateRows({
+  plates: sourcePlatesByProvider.value.xgb,
+  hasLoadError: stockLoadErrorProviders.value.includes('xgb'),
 }))
+const jygsPlates = computed(() => filterLoadedPlateRows({
+  plates: sourcePlatesByProvider.value.jygs,
+  hasLoadError: stockLoadErrorProviders.value.includes('jygs'),
+}))
+const aggPlates = computed(() => {
+  return aggregatePlateRows({
+    xgbPlates: xgbPlates.value,
+    jygsPlates: jygsPlates.value,
+    stockRowsByProvider: sourceStocksByProvider.value,
+  })
+})
 
 const platesByView = computed(() => {
   return {
@@ -311,7 +385,9 @@ const getSourceStockRows = (provider, plateKey) => {
 const getViewStocksForPlate = (plate) => {
   if (!plate) return []
   if (toText(plate.provider) === 'agg') {
-    const sourceRows = normalizeSourcePlateRefs(plate.source_plate_refs || plate.source_plate_keys).flatMap(({ provider, plate_key: plateKey }) => {
+    const sourceRows = normalizeSourcePlateRefs(
+      plate.source_plate_refs || plate.source_plate_keys,
+    ).flatMap(({ provider, plate_key: plateKey }) => {
       return getSourceStockRows(provider, plateKey)
     })
     return aggregateStockRows(sourceRows)
@@ -342,8 +418,21 @@ const statsByView = computed(() => {
   }
 })
 
+const chanlunStatsByView = computed(() => {
+  const xgbRows = flattenStockRowsByPlate(sourceStocksByProvider.value.xgb)
+  const jygsRows = flattenStockRowsByPlate(sourceStocksByProvider.value.jygs)
+  return {
+    xgb: buildChanlunFilterStats(xgbRows),
+    jygs: buildChanlunFilterStats(jygsRows),
+    agg: buildChanlunFilterStats([...xgbRows, ...jygsRows]),
+  }
+})
+
 const currentPlates = computed(() => platesByView.value[activeViewProvider.value] || [])
 const currentStats = computed(() => statsByView.value[activeViewProvider.value] || EMPTY_STATS)
+const currentChanlunStats = computed(() => {
+  return chanlunStatsByView.value[activeViewProvider.value] || EMPTY_CHANLUN_STATS
+})
 
 const selectedPlate = computed(() => {
   return currentPlates.value.find((item) => item.view_key === selectedPlateViewKey.value) || null
@@ -380,7 +469,7 @@ const activeViewLabel = computed(() => {
   return VIEW_PROVIDER_OPTIONS.find((item) => item.name === activeViewProvider.value)?.label || 'XGB'
 })
 
-const plateCountLabel = computed(() => `${stockWindowDays.value}标的`)
+const plateCountLabel = computed(() => '通过数')
 const stockHitCountLabel = computed(() => `${stockWindowDays.value}次`)
 
 const formatTabStats = (stats) => {
@@ -419,7 +508,9 @@ const loadStockReasons = async (code6) => {
     if (requestId !== reasonRequestId) return
     stockReasonsError.value = getErrorMessage(error, '加载标的详情失败')
   } finally {
-    if (requestId === reasonRequestId) stockReasonsLoading.value = false
+    if (requestId === reasonRequestId) {
+      stockReasonsLoading.value = false
+    }
   }
 }
 
@@ -438,7 +529,7 @@ const fetchProviderPlates = async (provider) => {
 
 const fetchProviderStocksByPlate = async (provider, plates, asOfDate) => {
   const entries = await Promise.all(
-    plates.map(async (plate) => {
+    normalizeList(plates).map(async (plate) => {
       const plateKey = toText(plate?.plate_key)
       if (!plateKey) return [plateKey, []]
       const response = await getShouban30Stocks({
@@ -465,6 +556,7 @@ const loadViewData = async () => {
   sourcePlatesByProvider.value = { xgb: [], jygs: [] }
   sourceMetaByProvider.value = { xgb: {}, jygs: {} }
   sourceStocksByProvider.value = { xgb: {}, jygs: {} }
+  stockLoadErrorProviders.value = []
 
   try {
     const plateLoad = await loadProvidersIndependently({
@@ -508,13 +600,14 @@ const loadViewData = async () => {
         stockLoad.valuesByProvider?.[provider] || {},
       ]),
     )
-    platesError.value = formatProviderLoadErrors({
+    stockLoadErrorProviders.value = normalizeList(stockLoad.errors).map(({ provider }) => toText(provider))
+    platesError.value = formatLoadErrors({
       errors: plateLoad.errors,
       targetLabel: '首板板块',
     })
-    stocksError.value = formatProviderLoadErrors({
+    stocksError.value = formatLoadErrors({
       errors: stockLoad.errors,
-      targetLabel: '热门标的',
+      targetLabel: '热点标的',
     })
   } catch (error) {
     if (requestId !== viewRequestId) return
@@ -722,6 +815,11 @@ watch(
   flex-wrap: wrap;
   font-size: 12px;
   color: #606266;
+}
+
+.panel-summary-chanlun {
+  padding-top: 2px;
+  border-top: 1px dashed #ebeef5;
 }
 
 .panel-alert {

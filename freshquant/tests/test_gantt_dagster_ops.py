@@ -165,7 +165,7 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
     monkeypatch.setattr(
         ops,
         "persist_shouban30_for_date",
-        lambda trade_date, stock_window_days=30: calls.append(
+        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
             ("shouban30", trade_date, stock_window_days)
         )
         or {"as_of_date": trade_date},
@@ -240,7 +240,7 @@ def test_run_gantt_backfill_stops_on_first_failed_trade_date(monkeypatch):
     monkeypatch.setattr(
         ops,
         "persist_shouban30_for_date",
-        lambda trade_date, stock_window_days=30: calls.append(
+        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
             ("shouban30", trade_date, stock_window_days)
         )
         or {"as_of_date": trade_date},
@@ -274,7 +274,7 @@ def test_op_build_shouban30_daily_builds_all_stock_window_days(monkeypatch):
     monkeypatch.setattr(
         ops,
         "persist_shouban30_for_date",
-        lambda trade_date, stock_window_days=30: calls.append(
+        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
             (trade_date, stock_window_days)
         )
         or {"as_of_date": trade_date, "stock_window_days": stock_window_days},
@@ -290,3 +290,114 @@ def test_op_build_shouban30_daily_builds_all_stock_window_days(monkeypatch):
     ]
     assert result["trade_date"] == "2026-03-05"
     assert result["windows"] == [30, 45, 60, 90]
+
+
+def test_build_shouban30_snapshots_for_date_shares_chanlun_result_cache(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+    cache_refs = []
+
+    def persist_shouban30_for_date_stub(
+        trade_date, stock_window_days=30, chanlun_result_cache=None
+    ):
+        cache_refs.append((trade_date, stock_window_days, chanlun_result_cache))
+        return {"as_of_date": trade_date, "stock_window_days": stock_window_days}
+
+    monkeypatch.setattr(
+        ops, "persist_shouban30_for_date", persist_shouban30_for_date_stub
+    )
+
+    result = ops._build_shouban30_snapshots_for_date(context, "2026-03-05")
+
+    assert result["windows"] == [30, 45, 60, 90]
+    assert [item[:2] for item in cache_refs] == [
+        ("2026-03-05", 30),
+        ("2026-03-05", 45),
+        ("2026-03-05", 60),
+        ("2026-03-05", 90),
+    ]
+    assert len({id(item[2]) for item in cache_refs}) == 1
+    assert isinstance(cache_refs[0][2], dict)
+
+
+def test_has_legacy_shouban30_snapshot_detects_missing_chanlun_filter_version(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+
+    class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
+        def count_documents(self, query):
+            return len(self.find(query))
+
+        def distinct(self, field, query):
+            return list({doc[field] for doc in self.find(query) if field in doc})
+
+        def find(self, query, projection=None):
+            return [
+                doc
+                for doc in self.docs
+                if all(doc.get(key) == value for key, value in query.items())
+            ]
+
+    monkeypatch.setattr(
+        ops,
+        "DBGantt",
+        {
+            ops.COL_SHOUBAN30_PLATES: FakeCollection(
+                [
+                    {"as_of_date": "2026-03-05", "stock_window_days": 30},
+                    {"as_of_date": "2026-03-05", "stock_window_days": 45},
+                    {"as_of_date": "2026-03-05", "stock_window_days": 60},
+                    {"as_of_date": "2026-03-05", "stock_window_days": 90},
+                ]
+            )
+        },
+    )
+
+    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True
+
+
+def test_has_legacy_shouban30_snapshot_detects_mixed_legacy_and_new_rows(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+
+    class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
+        def count_documents(self, query):
+            return len(self.find(query))
+
+        def distinct(self, field, query):
+            return list({doc[field] for doc in self.find(query) if field in doc})
+
+        def find(self, query, projection=None):
+            return [
+                doc
+                for doc in self.docs
+                if all(doc.get(key) == value for key, value in query.items())
+            ]
+
+    monkeypatch.setattr(
+        ops,
+        "DBGantt",
+        {
+            ops.COL_SHOUBAN30_PLATES: FakeCollection(
+                [
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 30,
+                        "chanlun_filter_version": "30m_v1",
+                    },
+                    {
+                        "as_of_date": "2026-03-05",
+                        "plate_key": "legacy-missing-fields",
+                    },
+                ]
+            )
+        },
+    )
+
+    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True

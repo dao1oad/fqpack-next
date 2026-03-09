@@ -1,5 +1,16 @@
 import axios from 'axios'
 
+export const getChanlunStructure = (data) => {
+  let url = `/api/stock_data_chanlun_structure?period=${data.period}&symbol=${data.symbol}`
+  if (data.endDate) {
+    url += `&endDate=${data.endDate}`
+  }
+  return axios({
+    url,
+    method: 'get'
+  })
+}
+
 export const futureApi = {
   /**
    * 获取K线数据
@@ -20,14 +31,7 @@ export const futureApi = {
     })
   },
   stockChanlunStructure (data) {
-    let url = `/api/stock_data_chanlun_structure?period=${data.period}&symbol=${data.symbol}`
-    if (data.endDate) {
-      url += `&endDate=${data.endDate}`
-    }
-    return axios({
-      url,
-      method: 'get'
-    })
+    return getChanlunStructure(data)
   },
 
   // 获取期货统计列表
