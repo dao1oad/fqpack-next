@@ -237,6 +237,47 @@ def test_select_shouban30_stock_rows_distinguishes_stock_window_days():
     assert items == [rows[1]]
 
 
+def test_load_shouban30_credit_subject_lookup_scopes_to_configured_account(
+    monkeypatch,
+):
+    import importlib
+
+    from freshquant.data import gantt_readmodel as svc
+
+    importlib.reload(svc)
+    seen = {}
+
+    class FakeCollection:
+        def find(self, query, projection):
+            seen["query"] = query
+            seen["projection"] = projection
+            return [
+                {
+                    "account_id": "acct-2",
+                    "symbol": "000002",
+                    "instrument_id": "000002.SZ",
+                }
+            ]
+
+    class FakeRepository:
+        def __init__(self):
+            self.collection = FakeCollection()
+
+    monkeypatch.setattr(svc, "CreditSubjectRepository", FakeRepository)
+    monkeypatch.setattr(
+        svc,
+        "queryParam",
+        lambda key, default=None: "acct-2" if key == "xtquant.account" else default,
+    )
+
+    lookup, ready = svc._load_shouban30_credit_subject_lookup()
+
+    assert seen["query"] == {"account_id": "acct-2"}
+    assert seen["projection"] == {"_id": 0, "symbol": 1, "instrument_id": 1}
+    assert ready is True
+    assert list(lookup) == ["000002"]
+
+
 def test_group_shouban30_plate_candidates_uses_trade_date_axis():
     items = _group_shouban30_plate_candidates(
         [

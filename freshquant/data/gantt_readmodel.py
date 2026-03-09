@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from freshquant.carnation.param import queryParam
 from freshquant.chanlun_structure_service import get_chanlun_structure
 from freshquant.data.gantt_source_jygs import (
     COL_JYGS_ACTION_FIELDS,
@@ -916,8 +917,14 @@ def _resolve_shouban30_chanlun_result(
 
 def _load_shouban30_credit_subject_lookup():
     repository = CreditSubjectRepository()
+    account_id = _to_str(queryParam("xtquant.account", ""))
+    if not account_id:
+        return {}, False
     rows = list(
-        repository.collection.find({}, {"_id": 0, "symbol": 1, "instrument_id": 1})
+        repository.collection.find(
+            {"account_id": account_id},
+            {"_id": 0, "symbol": 1, "instrument_id": 1},
+        )
     )
     if not rows:
         return {}, False
