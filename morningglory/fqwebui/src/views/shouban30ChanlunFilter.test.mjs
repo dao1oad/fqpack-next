@@ -137,4 +137,8 @@ test('page binds left count column and stock table to chanlun-passed presentatio
   assert.match(viewContent, /label="高级段倍数"/)
   assert.match(viewContent, /label="段倍数"/)
   assert.match(viewContent, /label="笔涨幅%"/)
+  assert.match(viewContent, /currentChanlunStats/)
+  assert.match(viewContent, /原始候选/)
+  assert.match(viewContent, /缠论通过/)
+  assert.match(viewContent, /未通过\/不可用/)
 })

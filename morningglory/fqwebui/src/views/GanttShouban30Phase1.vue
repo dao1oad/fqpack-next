@@ -59,6 +59,14 @@
               <span>/</span>
               <span>{{ currentStats.stock_count }} 个热门个股</span>
             </div>
+            <div class="panel-summary panel-summary-chanlun">
+              <span>原始候选 {{ currentChanlunStats.candidate_total }}</span>
+              <span>/</span>
+              <span>缠论通过 {{ currentChanlunStats.passed_total }}</span>
+              <span>/</span>
+              <span>未通过/不可用 {{ currentChanlunStats.failed_total }}</span>
+              <span v-if="chanlunLoading" class="muted">计算中</span>
+            </div>
           </div>
 
           <el-alert
@@ -221,6 +229,7 @@ import MyHeader from './MyHeader.vue'
 import {
   aggregatePlateRows,
   aggregateStockRows,
+  buildChanlunFilterStats,
   buildViewStats,
   formatProviderLabel,
   formatProviderLoadErrors,
@@ -280,6 +289,10 @@ const toText = (value) => String(value || '').trim()
 
 const normalizeList = (value) => {
   return Array.isArray(value) ? value : []
+}
+
+const flattenStockRowsByPlate = (stockRowsByPlate) => {
+  return Object.values(stockRowsByPlate || {}).flatMap((rows) => normalizeList(rows))
 }
 
 const normalizeViewProvider = (provider) => {
@@ -507,8 +520,21 @@ const statsByView = computed(() => {
   }
 })
 
+const chanlunStatsByView = computed(() => {
+  const xgbRows = flattenStockRowsByPlate(sourceStocksByProvider.value.xgb)
+  const jygsRows = flattenStockRowsByPlate(sourceStocksByProvider.value.jygs)
+  return {
+    xgb: buildChanlunFilterStats(xgbRows),
+    jygs: buildChanlunFilterStats(jygsRows),
+    agg: buildChanlunFilterStats([...xgbRows, ...jygsRows]),
+  }
+})
+
 const currentPlates = computed(() => platesByView.value[activeViewProvider.value] || [])
 const currentStats = computed(() => statsByView.value[activeViewProvider.value] || EMPTY_STATS)
+const currentChanlunStats = computed(() => {
+  return chanlunStatsByView.value[activeViewProvider.value] || chanlunStats.value || EMPTY_CHANLUN_STATS
+})
 
 const selectedPlate = computed(() => {
   return currentPlates.value.find((item) => item.view_key === selectedPlateViewKey.value) || null
@@ -896,6 +922,11 @@ watch(
   flex-wrap: wrap;
   font-size: 12px;
   color: #606266;
+}
+
+.panel-summary-chanlun {
+  padding-top: 2px;
+  border-top: 1px dashed #ebeef5;
 }
 
 .panel-alert {

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   aggregatePlateRows,
   aggregateStockRows,
+  buildChanlunFilterStats,
   buildViewStats,
   formatProviderLoadErrors,
   hydratePlateRowsWithPassedStocks,
@@ -381,6 +382,21 @@ test('sortStockRows drops chanlun-failed rows before sorting', () => {
   ])
 
   assert.deepEqual(rows.map((item) => item.code6), ['000001'])
+})
+
+test('buildChanlunFilterStats deduplicates code6 and treats any passing row as passed', () => {
+  const stats = buildChanlunFilterStats([
+    { code6: '000001', chanlun_passed: false },
+    { code6: '000001', chanlun_passed: true },
+    { code6: '000002', chanlun_passed: false },
+    { code6: '000003', chanlun_passed: true },
+  ])
+
+  assert.deepEqual(stats, {
+    candidate_total: 3,
+    passed_total: 2,
+    failed_total: 1,
+  })
 })
 
 test('buildViewStats counts unique stocks by code6', () => {

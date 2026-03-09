@@ -248,6 +248,24 @@ export const sortStockRows = (rows = []) => {
   })
 }
 
+export const buildChanlunFilterStats = (rows = []) => {
+  const statusByCode = new Map()
+  for (const row of rows || []) {
+    const code6 = toText(row?.code6)
+    if (!code6) continue
+    const previousPassed = statusByCode.get(code6) === true
+    statusByCode.set(code6, previousPassed || row?.chanlun_passed === true)
+  }
+
+  const candidateTotal = statusByCode.size
+  const passedTotal = [...statusByCode.values()].filter(Boolean).length
+  return {
+    candidate_total: candidateTotal,
+    passed_total: passedTotal,
+    failed_total: candidateTotal - passedTotal,
+  }
+}
+
 export const buildViewStats = ({ plates = [], stockRowsByPlate = {} } = {}) => {
   const stockRows = Object.values(stockRowsByPlate || {}).flat().filter(isChanlunPassed)
   return {
