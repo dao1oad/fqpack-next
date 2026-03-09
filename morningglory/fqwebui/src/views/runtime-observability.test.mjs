@@ -147,6 +147,22 @@ test('buildRecentTraceFeed returns latest 20 rows by default', () => {
   assert.equal(feed[19].trace_id, 'trc_6')
 })
 
+test('buildRecentTraceFeed accepts a higher limit for expanded recent view', () => {
+  const traces = Array.from({ length: 25 }, (_, index) =>
+    makeTrace({
+      traceId: `trc_expand_${index + 1}`,
+      lastTs: `2026-03-09T11:${String(index).padStart(2, '0')}:10+08:00`,
+      durationMs: 150 + index * 10,
+    }),
+  )
+
+  const feed = buildRecentTraceFeed(traces, { limit: 50 })
+
+  assert.equal(feed.length, 25)
+  assert.equal(feed[0].trace_id, 'trc_expand_25')
+  assert.equal(feed[24].trace_id, 'trc_expand_1')
+})
+
 test('buildComponentBoard summarizes core component issue counts', () => {
   const board = buildComponentBoard(
     [
@@ -221,6 +237,34 @@ test('applyBoardFilter narrows traces by selected component', () => {
   const filtered = applyBoardFilter(traces, { component: 'order_submit' })
 
   assert.deepEqual(filtered.map((trace) => trace.trace_id), ['trc_order_submit'])
+})
+
+test('component filter narrows issue cards and recent feed together', () => {
+  const traces = [
+    makeTrace({
+      traceId: 'trc_order_submit',
+      component: 'order_submit',
+      issueComponent: 'order_submit',
+      status: 'warning',
+      issueCount: 0,
+      lastTs: '2026-03-09T10:00:10+08:00',
+    }),
+    makeTrace({
+      traceId: 'trc_broker',
+      component: 'broker_gateway',
+      issueComponent: 'broker_gateway',
+      status: 'failed',
+      issueCount: 0,
+      lastTs: '2026-03-09T10:00:12+08:00',
+    }),
+  ]
+
+  const filtered = applyBoardFilter(traces, { component: 'order_submit' })
+  const cards = buildIssuePriorityCards(filtered)
+  const feed = buildRecentTraceFeed(filtered)
+
+  assert.deepEqual(cards.map((card) => card.trace_id), ['trc_order_submit'])
+  assert.deepEqual(feed.map((item) => item.trace_id), ['trc_order_submit'])
 })
 
 test('summarizeTrace and sortTraceSummaries prioritize traces with issues before latest timestamp', () => {

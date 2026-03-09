@@ -422,7 +422,7 @@ git commit -m "feat: 完成运行观测首页无输入重构"
 
 **Step 1: 启动本地前端或并行 Docker 环境**
 
-如只验证前端构建产物，可直接依赖现有 `npm run build`。  
+如只验证前端构建产物，可直接依赖现有 `npm run build`。
 如做完整页面验收，可使用：
 
 ```bash
