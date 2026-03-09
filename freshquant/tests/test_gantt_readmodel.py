@@ -415,6 +415,12 @@ def test_build_xgb_gantt_rows_normalizes_symbol_to_code6():
     ]
 
 
+def test_resolve_shouban30_chanlun_symbol_maps_bj_920_codes():
+    from freshquant.data import gantt_readmodel as svc
+
+    assert svc._resolve_shouban30_chanlun_symbol("920001") == "bj920001"
+
+
 class FakeCollection:
     def __init__(self, docs=None, indexes=None):
         self.docs = list(docs or [])
@@ -986,7 +992,7 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
     def get_chanlun_structure_stub(symbol, period, end_date):
         assert period == "30m"
         assert end_date == "2026-03-05"
-        if symbol == "000001":
+        if symbol == "sz000001":
             return {
                 "ok": True,
                 "structure": {
@@ -995,7 +1001,7 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
                     "bi": {"price_change_pct": 20},
                 },
             }
-        if symbol == "000002":
+        if symbol == "sz000002":
             return {
                 "ok": True,
                 "structure": {
@@ -1163,6 +1169,172 @@ def test_persist_shouban30_for_date_skips_stock_rows_when_all_plates_are_blackli
     assert fake_db[svc.COL_SHOUBAN30_STOCKS].docs == []
 
 
+def test_persist_shouban30_for_date_excludes_bj_stocks_and_empty_plates(
+    monkeypatch,
+):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        plate_reason_daily=FakeCollection(
+            [
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "gas",
+                    "plate_name": "天然气",
+                    "reason_text": "gas reason",
+                    "reason_source": "jygs_action_fields.reason",
+                    "source_ref": {"trade_date": "2026-03-05", "board_key": "gas"},
+                },
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "led",
+                    "plate_name": "LED面板",
+                    "reason_text": "led reason",
+                    "reason_source": "jygs_action_fields.reason",
+                    "source_ref": {"trade_date": "2026-03-05", "board_key": "led"},
+                },
+            ]
+        ),
+        gantt_plate_daily=FakeCollection(
+            [
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "gas",
+                    "plate_name": "天然气",
+                    "rank": 1,
+                    "hot_stock_count": 2,
+                    "limit_up_count": 2,
+                    "stock_codes": ["000001", "920001"],
+                },
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "led",
+                    "plate_name": "LED面板",
+                    "rank": 2,
+                    "hot_stock_count": 1,
+                    "limit_up_count": 1,
+                    "stock_codes": ["920001"],
+                },
+            ]
+        ),
+        gantt_stock_daily=FakeCollection(
+            [
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "gas",
+                    "plate_name": "天然气",
+                    "code6": "000001",
+                    "name": "alpha",
+                    "is_limit_up": 1,
+                    "stock_reason": "alpha reason",
+                },
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "gas",
+                    "plate_name": "天然气",
+                    "code6": "920001",
+                    "name": "bj gas",
+                    "is_limit_up": 1,
+                    "stock_reason": "bj gas reason",
+                },
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "led",
+                    "plate_name": "LED面板",
+                    "code6": "920001",
+                    "name": "bj led",
+                    "is_limit_up": 1,
+                    "stock_reason": "bj led reason",
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+
+    calls = []
+
+    def get_chanlun_structure_stub(symbol, period, end_date):
+        calls.append((symbol, period, end_date))
+        if symbol != "sz000001":
+            raise AssertionError(f"unexpected symbol {symbol}")
+        return {
+            "ok": True,
+            "structure": {
+                "higher_segment": {"start_price": 10, "end_price": 20},
+                "segment": {"start_price": 10, "end_price": 20},
+                "bi": {"price_change_pct": 10},
+            },
+        }
+
+    monkeypatch.setattr(
+        svc,
+        "get_chanlun_structure",
+        get_chanlun_structure_stub,
+        raising=False,
+    )
+
+    result = svc.persist_shouban30_for_date("2026-03-05", stock_window_days=30)
+
+    assert result == {
+        "as_of_date": "2026-03-05",
+        "plates": 1,
+        "stocks": 1,
+        "stock_window_days": 30,
+    }
+    assert calls == [("sz000001", "30m", "2026-03-05")]
+    assert fake_db[svc.COL_SHOUBAN30_PLATES].docs == [
+        {
+            "provider": "jygs",
+            "as_of_date": "2026-03-05",
+            "plate_key": "gas",
+            "plate_name": "天然气",
+            "stock_window_days": 30,
+            "appear_days_30": 1,
+            "seg_from": "2026-03-05",
+            "seg_to": "2026-03-05",
+            "hit_trade_dates_30": ["2026-03-05"],
+            "stocks_count": 1,
+            "candidate_stocks_count": 1,
+            "failed_stocks_count": 0,
+            "chanlun_filter_version": "30m_v1",
+            "stock_window_from": "2026-03-05",
+            "stock_window_to": "2026-03-05",
+            "reason_text": "gas reason",
+            "reason_ref": {"trade_date": "2026-03-05", "board_key": "gas"},
+        }
+    ]
+    assert fake_db[svc.COL_SHOUBAN30_STOCKS].docs == [
+        {
+            "provider": "jygs",
+            "as_of_date": "2026-03-05",
+            "plate_key": "gas",
+            "plate_name": "天然气",
+            "code6": "000001",
+            "name": "alpha",
+            "stock_window_days": 30,
+            "hit_count_30": 1,
+            "hit_count_window": 1,
+            "hit_trade_dates_30": ["2026-03-05"],
+            "hit_trade_dates_window": ["2026-03-05"],
+            "latest_trade_date": "2026-03-05",
+            "latest_reason": "alpha reason",
+            "chanlun_passed": True,
+            "chanlun_reason": "passed",
+            "chanlun_higher_multiple": 2.0,
+            "chanlun_segment_multiple": 2.0,
+            "chanlun_bi_gain_percent": 10.0,
+            "chanlun_filter_version": "30m_v1",
+        }
+    ]
+
+
 def test_persist_shouban30_for_date_reuses_chanlun_result_cache_across_windows(
     monkeypatch,
 ):
@@ -1222,7 +1394,6 @@ def test_persist_shouban30_for_date_reuses_chanlun_result_cache_across_windows(
         ),
     )
     monkeypatch.setattr(svc, "DBGantt", fake_db)
-
     calls = []
 
     def get_chanlun_structure_stub(symbol, period, end_date):
@@ -1255,7 +1426,7 @@ def test_persist_shouban30_for_date_reuses_chanlun_result_cache_across_windows(
         chanlun_result_cache=cache,
     )
 
-    assert calls == [("000001", "30m", "2026-03-05")]
+    assert calls == [("sz000001", "30m", "2026-03-05")]
     assert cache == {
         "000001|2026-03-05|30m": {
             "passed": True,
