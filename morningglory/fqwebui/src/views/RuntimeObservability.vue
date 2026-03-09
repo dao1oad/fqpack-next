@@ -21,10 +21,19 @@
               active-text="仅异常"
               inactive-text="全部"
             />
-            <el-button @click="advancedFilterVisible = true">高级筛选</el-button>
+            <el-button @click="openAdvancedFilter">高级筛选</el-button>
             <el-button type="primary" :loading="loading.overview" @click="loadOverview">刷新</el-button>
           </div>
         </div>
+
+        <el-alert
+          v-if="pageError"
+          class="runtime-error-banner"
+          type="error"
+          :title="pageError"
+          show-icon
+          :closable="false"
+        />
 
         <div class="trace-list-summary">
           <article class="trace-list-summary-card">
@@ -384,11 +393,11 @@
 
     <el-drawer v-model="advancedFilterVisible" size="420px" title="高级筛选">
       <div class="advanced-filter-grid">
-        <el-input v-model="query.trace_id" clearable placeholder="trace_id" />
-        <el-input v-model="query.request_id" clearable placeholder="request_id" />
-        <el-input v-model="query.internal_order_id" clearable placeholder="internal_order_id" />
-        <el-input v-model="query.symbol" clearable placeholder="symbol" />
-        <el-input v-model="query.component" clearable placeholder="component" />
+        <el-input v-model="draftQuery.trace_id" clearable placeholder="trace_id" />
+        <el-input v-model="draftQuery.request_id" clearable placeholder="request_id" />
+        <el-input v-model="draftQuery.internal_order_id" clearable placeholder="internal_order_id" />
+        <el-input v-model="draftQuery.symbol" clearable placeholder="symbol" />
+        <el-input v-model="draftQuery.component" clearable placeholder="component" />
       </div>
       <div class="advanced-filter-actions">
         <el-button @click="resetAdvancedFilter">清空</el-button>
@@ -463,8 +472,16 @@ const loading = reactive({
   traces: false,
   raw: false,
 })
+const QUERY_FIELDS = ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component']
 
 const query = reactive({
+  trace_id: '',
+  request_id: '',
+  internal_order_id: '',
+  symbol: '',
+  component: '',
+})
+const draftQuery = reactive({
   trace_id: '',
   request_id: '',
   internal_order_id: '',
@@ -487,6 +504,7 @@ const rawRecords = ref([])
 const rawFocusedIndex = ref(-1)
 const rawRecordRefs = ref({})
 const recentFeedRef = ref(null)
+const pageError = ref('')
 const boardFilter = reactive({
   component: '',
 })
@@ -562,22 +580,50 @@ const traceIdentityGroups = computed(() => {
 })
 const rawRecordCards = computed(() => rawRecords.value.map((record) => buildRawRecordSummary(record)))
 
+const syncQueryState = (target, source = {}) => {
+  for (const field of QUERY_FIELDS) {
+    target[field] = String(source?.[field] || '').trim()
+  }
+}
+
+const summarizeRequestError = (fallback, error) => {
+  const detail = String(
+    error?.response?.data?.detail ||
+      error?.response?.data?.message ||
+      error?.message ||
+      '',
+  ).trim()
+  return detail ? `${fallback}：${detail}` : fallback
+}
+
 const loadOverview = async () => {
   loading.overview = true
   try {
-    const [healthResp] = await Promise.all([
+    pageError.value = ''
+    const [healthResult, traceResult] = await Promise.allSettled([
       runtimeObservabilityApi.getHealthSummary(),
-      loadTraces(),
+      loadTraces({ suppressError: true }),
     ])
-    healthCards.value = buildHealthCards(healthResp?.data?.components || [])
+    const errors = []
+    if (healthResult.status === 'fulfilled') {
+      healthCards.value = buildHealthCards(healthResult.value?.data?.components || [])
+    } else {
+      errors.push(summarizeRequestError('健康摘要加载失败', healthResult.reason))
+    }
+    if (traceResult.status === 'rejected') {
+      errors.push(summarizeRequestError('Trace 列表加载失败', traceResult.reason))
+    }
+    pageError.value = errors.join('；')
   } finally {
     loading.overview = false
   }
 }
 
-const loadTraces = async () => {
+const loadTraces = async (options = {}) => {
+  const suppressError = Boolean(options?.suppressError)
   loading.traces = true
   try {
+    if (!suppressError) pageError.value = ''
     const response = await runtimeObservabilityApi.listTraces(buildTraceQuery(query))
     traces.value = response?.data?.traces || []
     const currentTraceRow = {
@@ -585,23 +631,30 @@ const loadTraces = async () => {
       trace_id: selectedTrace.value?.trace_id,
     }
     selectedTrace.value = findTraceByRow(traces.value, currentTraceRow) || traces.value[0] || null
+  } catch (error) {
+    if (!suppressError) {
+      pageError.value = summarizeRequestError('Trace 列表加载失败', error)
+    }
+    throw error
   } finally {
     loading.traces = false
   }
 }
 
+const openAdvancedFilter = () => {
+  syncQueryState(draftQuery, query)
+  advancedFilterVisible.value = true
+}
+
 const applyAdvancedFilter = async () => {
+  syncQueryState(query, draftQuery)
   recentTraceLimit.value = 20
   await loadTraces()
   advancedFilterVisible.value = false
 }
 
 const resetAdvancedFilter = () => {
-  query.trace_id = ''
-  query.request_id = ''
-  query.internal_order_id = ''
-  query.symbol = ''
-  query.component = ''
+  syncQueryState(draftQuery)
 }
 
 const handleTraceClick = async (row) => {
@@ -642,6 +695,7 @@ const clearFilterChip = async (chip) => {
   }
   if (chip.kind === 'query' && chip.field) {
     query[chip.field] = ''
+    draftQuery[chip.field] = ''
     await loadTraces()
   }
 }
@@ -905,6 +959,10 @@ onBeforeUnmount(() => {
 .runtime-title-row p {
   margin: 6px 0 0;
   color: #56718d;
+}
+
+.runtime-error-banner {
+  margin-bottom: 14px;
 }
 
 .runtime-filter-chips {
