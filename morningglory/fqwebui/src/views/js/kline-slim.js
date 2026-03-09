@@ -49,6 +49,36 @@ function buildVersion(data) {
   return `${dateList.length}_${lastDate}_${updatedAt}`
 }
 
+function pickDataZoomWindow(source) {
+  if (!source || typeof source !== 'object') {
+    return null
+  }
+
+  const windowState = {}
+  for (const key of ['start', 'end', 'startValue', 'endValue']) {
+    if (source[key] !== undefined && source[key] !== null) {
+      windowState[key] = source[key]
+    }
+  }
+
+  return Object.keys(windowState).length ? windowState : null
+}
+
+function extractDataZoomWindow(event) {
+  const batch = Array.isArray(event?.batch) && event.batch.length ? event.batch : [event]
+  for (const candidate of batch) {
+    const windowState = pickDataZoomWindow(candidate)
+    if (windowState) {
+      return windowState
+    }
+  }
+  return null
+}
+
+function buildDataZoomWindowSignature(dataZoomState) {
+  return JSON.stringify(dataZoomState || null)
+}
+
 function getRoutePeriod(route) {
   return normalizeChanlunPeriod(route?.query?.period || DEFAULT_PERIOD)
 }
@@ -115,6 +145,7 @@ export default {
       mainData: null,
       chanlunRefreshTimer: null,
       renderFrameId: 0,
+      dataZoomSyncFrameId: 0,
       routeToken: 0,
       mainLoading: false,
       mainVersion: '',
@@ -295,8 +326,13 @@ export default {
     if (this.chart) {
       this.chart.off('legendselectchanged', this.handleSlimLegendSelectChanged)
       this.chart.off('datazoom', this.handleSlimDataZoom)
+      this.chart.getZr().off('mouseup', this.handleSlimDataZoomPointerUp)
       this.chart.dispose()
       this.chart = null
+    }
+    if (this.dataZoomSyncFrameId) {
+      window.cancelAnimationFrame(this.dataZoomSyncFrameId)
+      this.dataZoomSyncFrameId = 0
     }
   },
   methods: {
@@ -369,6 +405,7 @@ export default {
       this.chart.showLoading(echartsConfig.loadingOption)
       this.chart.on('legendselectchanged', this.handleSlimLegendSelectChanged)
       this.chart.on('datazoom', this.handleSlimDataZoom)
+      this.chart.getZr().on('mouseup', this.handleSlimDataZoomPointerUp)
     },
     handleResize() {
       if (this.chart) {
@@ -807,22 +844,40 @@ export default {
       this.refreshVisibleChanlunPeriods(this.routeToken)
       this.scheduleRender()
     },
-    handleSlimDataZoom() {
-      if (!this.chart || typeof this.chart.getOption !== 'function') {
+    handleSlimDataZoom(event) {
+      const windowState = extractDataZoomWindow(event)
+      const nextState = windowState || null
+      if (
+        buildDataZoomWindowSignature(nextState) ===
+        buildDataZoomWindowSignature(this.chartDataZoomState)
+      ) {
         return
       }
-      const option = this.chart.getOption()
-      if (!Array.isArray(option?.dataZoom) || !option.dataZoom.length) {
-        this.chartDataZoomState = null
-        return
-      }
-      this.chartDataZoomState = option.dataZoom.map((item) => ({
-        ...item,
-        ...(item?.handleStyle ? { handleStyle: { ...item.handleStyle } } : {}),
-        ...(item?.textStyle ? { textStyle: { ...item.textStyle } } : {})
-      }))
+      this.chartDataZoomState = nextState
+      this.scheduleRender(true)
     },
-    scheduleRender() {
+    handleSlimDataZoomPointerUp() {
+      if (this.dataZoomSyncFrameId) {
+        window.cancelAnimationFrame(this.dataZoomSyncFrameId)
+      }
+      this.dataZoomSyncFrameId = window.requestAnimationFrame(() => {
+        this.dataZoomSyncFrameId = 0
+        if (!this.chart || typeof this.chart.getOption !== 'function') {
+          return
+        }
+        const option = this.chart.getOption()
+        const nextState = pickDataZoomWindow(option?.dataZoom?.[0]) || null
+        if (
+          buildDataZoomWindowSignature(nextState) ===
+          buildDataZoomWindowSignature(this.chartDataZoomState)
+        ) {
+          return
+        }
+        this.chartDataZoomState = nextState
+        this.scheduleRender(true)
+      })
+    },
+    scheduleRender(force = false) {
       if (!this.chart || !this.mainData) {
         return
       }
@@ -839,6 +894,7 @@ export default {
           .concat(JSON.stringify(this.chanlunLegendSelected))
           .join('__')
         if (
+          !force &&
           renderVersion === this.lastRenderedVersion &&
           !this.resetChartStateOnNextRender
         ) {

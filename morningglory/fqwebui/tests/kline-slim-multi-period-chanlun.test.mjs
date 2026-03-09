@@ -234,6 +234,36 @@ test('draw-slim reuses explicit dataZoom state and does not replace it on keepSt
   assert.ok(!opts.replaceMerge.includes('dataZoom'))
 })
 
+test('draw-slim expands a datazoom window snapshot into component states', async () => {
+  const drawSlim = await loadDrawSlim()
+  const chart = createStubChart()
+  const payload = createSamplePayload()
+
+  drawSlim(chart, payload, '5m', {
+    keepState: true,
+    renderVersion: 'render-main-window-state',
+    dataZoomState: {
+      start: 25,
+      end: 75,
+      startValue: 1,
+      endValue: 3
+    }
+  })
+
+  const [{ option }] = chart.setOptionCalls
+  assert.equal(option.dataZoom.length, 2)
+  assert.equal(option.dataZoom[0].type, 'inside')
+  assert.equal(option.dataZoom[0].start, 25)
+  assert.equal(option.dataZoom[0].end, 75)
+  assert.equal(option.dataZoom[0].startValue, 1)
+  assert.equal(option.dataZoom[0].endValue, 3)
+  assert.equal(option.dataZoom[1].type, 'slider')
+  assert.equal(option.dataZoom[1].start, 25)
+  assert.equal(option.dataZoom[1].end, 75)
+  assert.equal(option.dataZoom[1].startValue, 1)
+  assert.equal(option.dataZoom[1].endValue, 3)
+})
+
 test('draw-slim uses full replace when keepState is false', async () => {
   const drawSlim = await loadDrawSlim()
   const chart = createStubChart({
@@ -317,4 +347,20 @@ test('kline-slim controller persists datazoom state and includes legend state in
   assert.match(content, /handleSlimDataZoom/)
   assert.match(content, /JSON\.stringify\(this\.chanlunLegendSelected\)/)
   assert.match(content, /dataZoomState:\s*this\.chartDataZoomState/)
+})
+
+test('kline-slim controller derives datazoom state from event payload instead of getOption snapshots', async () => {
+  const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+  const handleSlimDataZoomBody = content.match(
+    /handleSlimDataZoom\((event|params)\)\s*\{([\s\S]*?)\n\s*\},\n\s*handleSlimDataZoomPointerUp/
+  )?.[2]
+
+  assert.match(content, /handleSlimDataZoom\((event|params)\)/)
+  assert.match(content, /(event|params)\?\.(batch|start|end|startValue|endValue)/)
+  assert.match(content, /scheduleRender\(force = false\)/)
+  assert.match(content, /handleSlimDataZoom\([^)]*\)\s*\{[\s\S]*scheduleRender\(true\)/m)
+  assert.match(content, /getZr\(\)\.on\('mouseup',\s*this\.handleSlimDataZoomPointerUp\)/)
+  assert.match(content, /handleSlimDataZoomPointerUp\(\)\s*\{[\s\S]*getOption\(\)/m)
+  assert.ok(handleSlimDataZoomBody)
+  assert.doesNotMatch(handleSlimDataZoomBody, /getOption\(/)
 })
