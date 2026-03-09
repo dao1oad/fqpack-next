@@ -70,6 +70,7 @@ export const buildTraceQuery = (form = {}) => {
 
 export const summarizeTrace = (trace = {}) => {
   const detail = buildTraceDetail(trace)
+  const summaryMeta = buildTraceSummaryMeta(detail)
   const lastStep = detail.steps[detail.steps.length - 1] || {}
   return {
     trace_id: detail.trace_id,
@@ -77,7 +78,10 @@ export const summarizeTrace = (trace = {}) => {
     internal_order_ids: detail.internal_order_ids,
     step_count: detail.step_count,
     issue_count: detail.issue_count,
+    has_issue: detail.issue_count > 0,
     total_duration_label: detail.total_duration_label,
+    first_issue_node: toText(summaryMeta.first_issue?.node) || '-',
+    slowest_step_label: summaryMeta.slowest_step?.delta_from_prev_label || '-',
     last_node: toText(lastStep.node) || '-',
     last_status: toText(lastStep.status) || 'info',
     last_ts: toText(lastStep.ts) || '',
@@ -85,7 +89,13 @@ export const summarizeTrace = (trace = {}) => {
 }
 
 export const sortTraceSummaries = (rows = []) => {
-  return [...rows].sort((left, right) => toText(right.last_ts).localeCompare(toText(left.last_ts)))
+  return [...rows].sort((left, right) => {
+    const issueRank = Number(Boolean(right?.issue_count)) - Number(Boolean(left?.issue_count))
+    if (issueRank !== 0) return issueRank
+    const issueCountRank = Number(right?.issue_count || 0) - Number(left?.issue_count || 0)
+    if (issueCountRank !== 0) return issueCountRank
+    return toText(right.last_ts).localeCompare(toText(left.last_ts))
+  })
 }
 
 export const buildHealthCards = (components = []) => {
@@ -169,4 +179,55 @@ export const buildTraceDetail = (trace = {}) => {
 export const filterTraceSteps = (steps = [], options = {}) => {
   const onlyIssues = Boolean(options?.onlyIssues)
   return (steps || []).filter((step) => !onlyIssues || step?.is_issue)
+}
+
+export const pickDefaultTraceStep = (steps = []) => {
+  const normalized = Array.isArray(steps) ? steps : []
+  return normalized.find((step) => step?.is_issue) || normalized[0] || null
+}
+
+export const buildTraceSummaryMeta = (detail = {}) => {
+  const steps = Array.isArray(detail?.steps) ? detail.steps : []
+  const issueSteps = steps.filter((step) => step?.is_issue)
+  const slowestStep = [...steps]
+    .filter((step) => Number.isFinite(step?.delta_from_prev_ms))
+    .sort((left, right) => Number(right.delta_from_prev_ms || 0) - Number(left.delta_from_prev_ms || 0))[0] || null
+  const affectedComponents = [...new Set(
+    (issueSteps.length > 0 ? issueSteps : steps)
+      .map((step) => toText(step?.component))
+      .filter(Boolean),
+  )].sort((left, right) => left.localeCompare(right))
+  return {
+    first_issue: issueSteps[0] || null,
+    last_issue: issueSteps[issueSteps.length - 1] || null,
+    slowest_step: slowestStep,
+    affected_components: affectedComponents,
+  }
+}
+
+export const groupStepsByComponent = (steps = []) => {
+  const groups = []
+  const bucket = new Map()
+  for (const step of Array.isArray(steps) ? steps : []) {
+    const component = toText(step?.component) || 'runtime'
+    if (!bucket.has(component)) {
+      const group = {
+        component,
+        steps: [],
+        step_count: 0,
+        issue_count: 0,
+        duration_ms: 0,
+        duration_label: '0ms',
+      }
+      bucket.set(component, group)
+      groups.push(group)
+    }
+    const group = bucket.get(component)
+    group.steps.push(step)
+    group.step_count += 1
+    if (step?.is_issue) group.issue_count += 1
+    group.duration_ms += Number(step?.delta_from_prev_ms || 0)
+    group.duration_label = formatDurationMs(group.duration_ms)
+  }
+  return groups
 }

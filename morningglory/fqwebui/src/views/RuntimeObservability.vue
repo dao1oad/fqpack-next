@@ -39,7 +39,7 @@
 
         <div class="trace-layout">
           <div class="trace-list">
-            <el-table :data="traceRows" stripe height="460" @row-click="handleTraceClick">
+            <el-table :data="traceRows" stripe height="460" :row-class-name="traceRowClassName" @row-click="handleTraceClick">
               <el-table-column prop="trace_id" label="Trace" min-width="180" />
               <el-table-column prop="request_ids" label="Request" min-width="160">
                 <template #default="{ row }">{{ row.request_ids.join(', ') || '-' }}</template>
@@ -48,6 +48,8 @@
                 <template #default="{ row }">{{ row.internal_order_ids.join(', ') || '-' }}</template>
               </el-table-column>
               <el-table-column prop="step_count" label="Steps" width="80" />
+              <el-table-column prop="issue_count" label="Issues" width="84" />
+              <el-table-column prop="total_duration_label" label="Duration" width="96" />
               <el-table-column prop="last_node" label="Last Node" min-width="140" />
               <el-table-column prop="last_status" label="Status" width="100" />
               <el-table-column prop="last_ts" label="Latest" min-width="180" />
@@ -79,6 +81,30 @@
             </div>
             <div v-if="selectedTrace" class="trace-detail-body">
               <div class="trace-timeline-panel">
+                <div class="trace-summary-grid">
+                  <article class="trace-summary-card">
+                    <span>首个异常</span>
+                    <strong>{{ traceSummaryMeta.first_issue ? `${traceSummaryMeta.first_issue.component}.${traceSummaryMeta.first_issue.node}` : '-' }}</strong>
+                  </article>
+                  <article class="trace-summary-card">
+                    <span>最后异常</span>
+                    <strong>{{ traceSummaryMeta.last_issue ? `${traceSummaryMeta.last_issue.component}.${traceSummaryMeta.last_issue.node}` : '-' }}</strong>
+                  </article>
+                  <article class="trace-summary-card">
+                    <span>最长耗时</span>
+                    <strong>{{ traceSummaryMeta.slowest_step ? `${traceSummaryMeta.slowest_step.component}.${traceSummaryMeta.slowest_step.node}` : '-' }}</strong>
+                    <em>{{ traceSummaryMeta.slowest_step?.delta_from_prev_label || '-' }}</em>
+                  </article>
+                </div>
+
+                <div class="trace-affected-row">
+                  <span>涉及组件</span>
+                  <div class="trace-affected-list">
+                    <span v-for="component in traceSummaryMeta.affected_components" :key="component">{{ component }}</span>
+                    <span v-if="traceSummaryMeta.affected_components.length === 0">-</span>
+                  </div>
+                </div>
+
                 <div class="trace-identity-grid">
                   <div v-for="group in traceIdentityGroups" :key="group.label" class="trace-identity-card">
                     <span>{{ group.label }}</span>
@@ -102,41 +128,57 @@
                   <span>可见 {{ visibleStepCount }} / {{ selectedTraceDetail.step_count }}</span>
                 </div>
 
-                <div v-if="filteredSteps.length > 0" class="trace-step-list">
-                  <article
-                    v-for="step in filteredSteps"
-                    :key="stepKey(step)"
-                    class="trace-step-card"
-                    :class="[statusClass(step.status), { active: isActiveStep(step) }]"
-                    @click="handleStepSelect(step)"
-                  >
-                    <span class="trace-step-marker" />
-                    <header>
+                <div v-if="filteredSteps.length > 0" class="trace-group-list">
+                  <section v-for="group in groupedSteps" :key="group.component" class="trace-group-card">
+                    <button type="button" class="trace-group-head" @click="toggleGroup(group.component)">
                       <div>
-                        <strong>{{ step.component }}.{{ step.node }}</strong>
+                        <strong>{{ group.component }}</strong>
                         <div class="trace-step-subline">
-                          <span>#{{ step.index + 1 }}</span>
-                          <span>{{ step.ts || '-' }}</span>
+                          <span>steps {{ group.step_count }}</span>
+                          <span>issues {{ group.issue_count }}</span>
+                          <span>duration {{ group.duration_label }}</span>
                         </div>
                       </div>
-                      <div class="trace-step-side">
-                        <span v-if="step.delta_from_prev_label" class="trace-step-delta">
-                          +{{ step.delta_from_prev_label }}
-                        </span>
-                        <span class="trace-step-status">{{ step.status || 'info' }}</span>
-                      </div>
-                    </header>
-                    <div v-if="step.tags.length" class="trace-step-tags">
-                      <span v-for="tag in step.tags" :key="`${stepKey(step)}-${tag.key}`">
-                        {{ tag.label }}: {{ tag.value }}
-                      </span>
+                      <span>{{ isGroupCollapsed(group.component) ? '展开' : '收起' }}</span>
+                    </button>
+
+                    <div v-if="!isGroupCollapsed(group.component)" class="trace-step-list">
+                      <article
+                        v-for="step in group.steps"
+                        :key="stepKey(step)"
+                        class="trace-step-card"
+                        :class="[statusClass(step.status), { active: isActiveStep(step) }]"
+                        @click="handleStepSelect(step)"
+                      >
+                        <span class="trace-step-marker" />
+                        <header>
+                          <div>
+                            <strong>{{ step.component }}.{{ step.node }}</strong>
+                            <div class="trace-step-subline">
+                              <span>#{{ step.index + 1 }}</span>
+                              <span>{{ step.ts || '-' }}</span>
+                            </div>
+                          </div>
+                          <div class="trace-step-side">
+                            <span v-if="step.delta_from_prev_label" class="trace-step-delta">
+                              +{{ step.delta_from_prev_label }}
+                            </span>
+                            <span class="trace-step-status">{{ step.status || 'info' }}</span>
+                          </div>
+                        </header>
+                        <div v-if="step.tags.length" class="trace-step-tags">
+                          <span v-for="tag in step.tags" :key="`${stepKey(step)}-${tag.key}`">
+                            {{ tag.label }}: {{ tag.value }}
+                          </span>
+                        </div>
+                        <p v-if="step.message">{{ step.message }}</p>
+                        <div class="trace-step-meta">
+                          <span v-if="step.request_id">request {{ step.request_id }}</span>
+                          <span v-if="step.internal_order_id">order {{ step.internal_order_id }}</span>
+                        </div>
+                      </article>
                     </div>
-                    <p v-if="step.message">{{ step.message }}</p>
-                    <div class="trace-step-meta">
-                      <span v-if="step.request_id">request {{ step.request_id }}</span>
-                      <span v-if="step.internal_order_id">order {{ step.internal_order_id }}</span>
-                    </div>
-                  </article>
+                  </section>
                 </div>
                 <div v-else class="trace-empty">当前过滤条件下没有节点</div>
               </div>
@@ -157,6 +199,11 @@
                       delta {{ selectedStep.delta_from_prev_label }}
                     </span>
                     <span v-if="selectedStep.event_type">{{ selectedStep.event_type }}</span>
+                  </div>
+
+                  <div class="step-inspector-flags">
+                    <span v-if="isFirstIssueStep(selectedStep)" class="inspector-tag">首个异常</span>
+                    <span v-if="isSlowestStep(selectedStep)" class="inspector-tag">最长耗时节点</span>
                   </div>
 
                   <section class="step-inspector-section">
@@ -223,11 +270,14 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
 import MyHeader from './MyHeader.vue'
 import {
+  buildTraceSummaryMeta,
   buildTraceDetail,
   buildHealthCards,
   buildRawLookupFromStep,
   buildTraceQuery,
   filterTraceSteps,
+  groupStepsByComponent,
+  pickDefaultTraceStep,
   sortTraceSummaries,
   summarizeTrace,
 } from './runtimeObservability.mjs'
@@ -251,6 +301,7 @@ const traces = ref([])
 const selectedTrace = ref(null)
 const selectedStep = ref(null)
 const onlyIssues = ref(false)
+const collapsedComponents = ref({})
 const rawDrawerVisible = ref(false)
 const rawFiles = ref([])
 const rawRecords = ref([])
@@ -266,9 +317,11 @@ const traceRows = computed(() => {
 })
 
 const selectedTraceDetail = computed(() => buildTraceDetail(selectedTrace.value || {}))
+const traceSummaryMeta = computed(() => buildTraceSummaryMeta(selectedTraceDetail.value))
 const filteredSteps = computed(() => {
   return filterTraceSteps(selectedTraceDetail.value.steps, { onlyIssues: onlyIssues.value })
 })
+const groupedSteps = computed(() => groupStepsByComponent(filteredSteps.value))
 const visibleStepCount = computed(() => filteredSteps.value.length)
 const traceIdentityGroups = computed(() => {
   return [
@@ -312,6 +365,7 @@ const handleTraceClick = async (row) => {
   if (!row?.trace_id) return
   const response = await runtimeObservabilityApi.getTraceDetail(row.trace_id)
   selectedTrace.value = response?.data?.trace || null
+  collapsedComponents.value = {}
 }
 
 const handleStepSelect = (step) => {
@@ -385,6 +439,14 @@ const isActiveStep = (step) => {
   return stepKey(selectedStep.value) === stepKey(step)
 }
 
+const isFirstIssueStep = (step) => {
+  return stepKey(traceSummaryMeta.value.first_issue) === stepKey(step)
+}
+
+const isSlowestStep = (step) => {
+  return stepKey(traceSummaryMeta.value.slowest_step) === stepKey(step)
+}
+
 const statusClass = (status) => {
   const normalized = String(status || 'info').trim()
   if (normalized === 'success') return 'is-success'
@@ -425,11 +487,32 @@ const syncSelectedStep = () => {
     return
   }
   const currentKey = stepKey(selectedStep.value)
-  selectedStep.value = steps.find((step) => stepKey(step) === currentKey) || steps[0]
+  selectedStep.value = steps.find((step) => stepKey(step) === currentKey) || pickDefaultTraceStep(steps)
+}
+
+const traceRowClassName = ({ row }) => {
+  return row?.issue_count > 0 ? 'runtime-trace-row--issue' : ''
+}
+
+const toggleGroup = (component) => {
+  const key = String(component || '')
+  if (!key) return
+  collapsedComponents.value = {
+    ...collapsedComponents.value,
+    [key]: !collapsedComponents.value[key],
+  }
+}
+
+const isGroupCollapsed = (component) => {
+  return Boolean(collapsedComponents.value[String(component || '')])
 }
 
 watch([selectedTraceDetail, onlyIssues], () => {
   syncSelectedStep()
+})
+
+watch(() => selectedTrace.value?.trace_id || selectedTrace.value?.trace_key || '', () => {
+  collapsedComponents.value = {}
 })
 
 onMounted(() => {
@@ -582,6 +665,67 @@ onMounted(() => {
   gap: 14px;
 }
 
+.trace-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.trace-summary-card {
+  border: 1px solid #d8e2ee;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+}
+
+.trace-summary-card span {
+  display: block;
+  color: #68829b;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.trace-summary-card strong {
+  display: block;
+  color: #21405e;
+}
+
+.trace-summary-card em {
+  display: inline-block;
+  margin-top: 6px;
+  color: #56718d;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.trace-affected-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.trace-affected-row > span {
+  min-width: 72px;
+  color: #68829b;
+  font-size: 12px;
+}
+
+.trace-affected-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trace-affected-list span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #35506c;
+  font-size: 12px;
+}
+
 .trace-timeline-panel,
 .step-inspector {
   min-width: 0;
@@ -652,10 +796,41 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 520px;
+  max-height: 420px;
   overflow: auto;
   padding-left: 20px;
   border-left: 2px solid #dbe5ef;
+}
+
+.trace-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.trace-group-card {
+  border: 1px solid #d8e2ee;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.8);
+  overflow: hidden;
+}
+
+.trace-group-head {
+  width: 100%;
+  border: 0;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f8fc 100%);
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  cursor: pointer;
+  text-align: left;
+  color: #21405e;
+}
+
+.trace-group-head:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #edf4fb 100%);
 }
 
 .trace-step-card {
@@ -848,6 +1023,13 @@ onMounted(() => {
   margin-top: 14px;
 }
 
+.step-inspector-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .step-inspector-section h4 {
   margin: 0 0 8px;
   color: #274564;
@@ -923,18 +1105,24 @@ onMounted(() => {
   line-height: 1.55;
 }
 
+:deep(.runtime-trace-row--issue) td {
+  background: #fff7f5 !important;
+}
+
 @media (max-width: 1080px) {
   .trace-toolbar,
   .raw-toolbar,
   .trace-layout,
   .trace-detail-body,
-  .trace-identity-grid {
+  .trace-identity-grid,
+  .trace-summary-grid {
     grid-template-columns: 1fr;
   }
 
   .trace-detail-head,
   .step-inspector-actions,
-  .trace-timeline-hint {
+  .trace-timeline-hint,
+  .trace-affected-row {
     flex-direction: column;
     align-items: stretch;
   }
