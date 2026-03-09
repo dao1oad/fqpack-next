@@ -1,6 +1,24 @@
 const toText = (value) => String(value || '').trim()
 const ISSUE_STATUSES = new Set(['warning', 'failed', 'error', 'skipped'])
 const DETAIL_FIELDS = ['trace_id', 'intent_id', 'request_id', 'internal_order_id', 'symbol', 'action']
+const CORE_COMPONENTS = [
+  'xtdata_producer',
+  'xtdata_consumer',
+  'guardian_strategy',
+  'position_gate',
+  'order_submit',
+  'broker_gateway',
+  'puppet_gateway',
+  'xt_report_ingest',
+  'order_reconcile',
+  'tpsl_worker',
+]
+const ISSUE_STATUS_RANK = {
+  failed: 4,
+  error: 3,
+  warning: 2,
+  skipped: 1,
+}
 
 const parseTimestampMs = (value) => {
   const text = toText(value)
@@ -69,6 +87,65 @@ const summarizeReasonLabel = (step = {}) => {
   )
 }
 
+const normalizeTraces = (traces = []) => (Array.isArray(traces) ? traces : [])
+
+const findTraceSymbol = (trace = {}, steps = []) => {
+  if (toText(trace?.symbol)) return toText(trace.symbol)
+  for (const step of steps) {
+    const symbol = toText(step?.symbol)
+    if (symbol) return symbol
+  }
+  return '-'
+}
+
+const findTraceNode = (steps = [], mode = 'last') => {
+  const normalized = Array.isArray(steps) ? steps : []
+  const issueSteps = normalized.filter((step) => step?.is_issue)
+  const target =
+    mode === 'first-issue'
+      ? issueSteps[0]
+      : mode === 'last-issue'
+        ? issueSteps[issueSteps.length - 1]
+        : normalized[normalized.length - 1]
+  if (!target) return '-'
+  const component = toText(target?.component)
+  const node = toText(target?.node)
+  return component && node ? `${component}.${node}` : node || component || '-'
+}
+
+const buildTracePathNodes = (steps = []) => {
+  const nodes = []
+  for (const step of Array.isArray(steps) ? steps : []) {
+    const component = toText(step?.component)
+    if (!component || nodes[nodes.length - 1] === component) continue
+    nodes.push(component)
+  }
+  return nodes
+}
+
+const buildTracePathSummary = (steps = []) => {
+  const components = buildTracePathNodes(steps)
+  return components.length > 0 ? components.join(' -> ') : '-'
+}
+
+const summarizeIssueStatus = (detail = {}) => {
+  const firstIssueStatus = toText(detail?.first_issue?.status).toLowerCase()
+  if (firstIssueStatus && ISSUE_STATUS_RANK[firstIssueStatus]) return firstIssueStatus
+  const lastStatus = toText(detail?.last_status).toLowerCase()
+  if (lastStatus && ISSUE_STATUS_RANK[lastStatus]) return lastStatus
+  return lastStatus || 'success'
+}
+
+const compareIssueCards = (left = {}, right = {}) => {
+  const statusDiff = (ISSUE_STATUS_RANK[toText(right?.status).toLowerCase()] || 0) - (ISSUE_STATUS_RANK[toText(left?.status).toLowerCase()] || 0)
+  if (statusDiff !== 0) return statusDiff
+  const issueDiff = Number(right?.issue_count || 0) - Number(left?.issue_count || 0)
+  if (issueDiff !== 0) return issueDiff
+  const durationDiff = Number(right?.total_duration_ms || 0) - Number(left?.total_duration_ms || 0)
+  if (durationDiff !== 0) return durationDiff
+  return toText(right?.last_ts).localeCompare(toText(left?.last_ts))
+}
+
 export const buildTraceQuery = (form = {}) => {
   const query = {}
   for (const key of ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component']) {
@@ -90,12 +167,16 @@ export const summarizeTrace = (trace = {}) => {
     step_count: detail.step_count,
     issue_count: detail.issue_count,
     has_issue: detail.issue_count > 0,
+    symbol: detail.symbol,
     total_duration_label: detail.total_duration_label,
+    total_duration_ms: detail.total_duration_ms,
     first_issue_node: toText(summaryMeta.first_issue?.node) || '-',
     slowest_step_label: summaryMeta.slowest_step?.delta_from_prev_label || '-',
     last_node: toText(lastStep.node) || '-',
     last_status: toText(lastStep.status) || 'info',
     last_ts: toText(lastStep.ts) || '',
+    path_nodes: buildTracePathNodes(detail.steps),
+    path_summary: buildTracePathSummary(detail.steps),
   }
 }
 
@@ -184,17 +265,23 @@ export const buildTraceDetail = (trace = {}) => {
   const lastTsMs = [...steps].reverse().find((item) => item.ts_ms !== null)?.ts_ms ?? null
   const totalDurationMs = firstTsMs === null || lastTsMs === null ? null : Math.max(0, lastTsMs - firstTsMs)
   const issueSteps = steps.filter((item) => item.is_issue)
+  const lastStep = steps[steps.length - 1] || null
   return {
+    trace_key: toText(trace?.trace_key) || null,
     trace_id: toText(trace?.trace_id) || null,
     intent_ids: Array.isArray(trace.intent_ids) ? trace.intent_ids : [],
     request_ids: Array.isArray(trace.request_ids) ? trace.request_ids : [],
     internal_order_ids: Array.isArray(trace.internal_order_ids) ? trace.internal_order_ids : [],
+    symbol: findTraceSymbol(trace, steps),
     steps,
     step_count: steps.length,
     issue_count: issueSteps.length,
     first_issue: issueSteps[0] || null,
     total_duration_ms: totalDurationMs,
     total_duration_label: totalDurationMs === null ? '-' : formatDurationMs(totalDurationMs),
+    last_status: toText(lastStep?.status) || 'info',
+    last_node: toText(lastStep?.node) || '-',
+    last_ts: toText(lastStep?.ts) || '',
   }
 }
 
@@ -322,7 +409,7 @@ export const buildRawRecordSummary = (record = {}) => {
 }
 
 export const buildTraceListSummary = (traces = []) => {
-  const normalized = Array.isArray(traces) ? traces : []
+  const normalized = normalizeTraces(traces)
   const issueComponents = new Map()
   let issueTraceCount = 0
   let issueStepCount = 0
@@ -361,5 +448,109 @@ export const buildTraceListSummary = (traces = []) => {
       if (traceDiff !== 0) return traceDiff
       return left.component.localeCompare(right.component)
     }),
+  }
+}
+
+export const buildIssuePriorityCards = (traces = [], options = {}) => {
+  const limit = Math.max(Number(options?.limit || 6), 0)
+  return normalizeTraces(traces)
+    .map((trace) => {
+      const detail = buildTraceDetail(trace)
+      const meta = buildTraceSummaryMeta(detail)
+      const summary = buildIssueSummary(detail)
+      return {
+        trace_key: detail.trace_key,
+        trace_id: detail.trace_id,
+        symbol: detail.symbol,
+        status: summarizeIssueStatus(detail),
+        headline: findTraceNode(detail.steps, 'first-issue'),
+        subline: findTraceNode(detail.steps, 'last'),
+        issue_count: detail.issue_count,
+        total_duration_ms: detail.total_duration_ms || 0,
+        total_duration_label: detail.total_duration_label,
+        last_ts: detail.last_ts,
+        request_ids: detail.request_ids,
+        internal_order_ids: detail.internal_order_ids,
+        issue_summary: summary.headline,
+      }
+    })
+    .filter((card) => card.issue_count > 0)
+    .sort(compareIssueCards)
+    .slice(0, limit)
+}
+
+export const buildRecentTraceFeed = (traces = [], options = {}) => {
+  const limit = Math.max(Number(options?.limit || 20), 0)
+  return normalizeTraces(traces)
+    .map((trace) => summarizeTrace(trace))
+    .sort((left, right) => toText(right?.last_ts).localeCompare(toText(left?.last_ts)))
+    .slice(0, limit)
+    .map((row) => ({
+      ...row,
+      spotlight_nodes: Array.isArray(row?.path_nodes) ? row.path_nodes.slice(0, 3) : [],
+    }))
+}
+
+export const applyBoardFilter = (traces = [], filter = {}) => {
+  const component = toText(filter?.component)
+  if (!component) return normalizeTraces(traces)
+  return normalizeTraces(traces).filter((trace) =>
+    Array.isArray(trace?.steps) && trace.steps.some((step) => toText(step?.component) === component),
+  )
+}
+
+export const buildComponentBoard = (traces = [], components = []) => {
+  const normalizedTraces = normalizeTraces(traces)
+  const cards = []
+  const componentCards = Array.isArray(components) ? components : []
+
+  for (const component of CORE_COMPONENTS) {
+    const matchingTraces = applyBoardFilter(normalizedTraces, { component })
+    const componentDetails = matchingTraces.map((trace) => {
+      const detail = buildTraceDetail(trace)
+      const componentIssueSteps = detail.steps.filter(
+        (step) => step?.is_issue && toText(step?.component) === component,
+      )
+      return {
+        detail,
+        component_issue_steps: componentIssueSteps,
+      }
+    })
+    const issueTraceCount = componentDetails.filter((item) => item.component_issue_steps.length > 0).length
+    const issueStepCount = componentDetails.reduce(
+      (total, item) => total + item.component_issue_steps.length,
+      0,
+    )
+    const lastIssueTrace =
+      componentDetails
+        .filter((item) => item.component_issue_steps.length > 0)
+        .map((item) => item.detail)
+        .sort((left, right) => toText(right?.last_ts).localeCompare(toText(left?.last_ts)))[0] || null
+    const healthCard = componentCards.find((item) => toText(item?.component) === component) || null
+
+    if (!healthCard && matchingTraces.length === 0) continue
+
+    cards.push({
+      component,
+      runtime_node: toText(healthCard?.runtime_node) || '-',
+      status: toText(healthCard?.status) || (issueTraceCount > 0 ? 'warning' : 'unknown'),
+      heartbeat_age_s: healthCard?.heartbeat_age_s ?? null,
+      issue_trace_count: issueTraceCount,
+      issue_step_count: issueStepCount,
+      last_issue_ts: toText(lastIssueTrace?.last_ts) || '',
+      trace_count: matchingTraces.length,
+      highlights: Array.isArray(healthCard?.highlights) ? healthCard.highlights : [],
+    })
+  }
+
+  return {
+    cards: cards.sort((left, right) => {
+      const issueTraceDiff = Number(right?.issue_trace_count || 0) - Number(left?.issue_trace_count || 0)
+      if (issueTraceDiff !== 0) return issueTraceDiff
+      const issueStepDiff = Number(right?.issue_step_count || 0) - Number(left?.issue_step_count || 0)
+      if (issueStepDiff !== 0) return issueStepDiff
+      return toText(left?.component).localeCompare(toText(right?.component))
+    }),
+    distribution: buildTraceListSummary(normalizedTraces).components.filter((item) => CORE_COMPONENTS.includes(toText(item?.component))),
   }
 }
