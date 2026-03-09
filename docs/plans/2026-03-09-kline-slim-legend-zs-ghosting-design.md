@@ -31,7 +31,7 @@
 
 - `notMerge: false`
 
-这与 `kline-slim.js` 中“切换主周期/标的时将 `keepState` 设为 false”的意图不一致。  
+这与 `kline-slim.js` 中“切换主周期/标的时将 `keepState` 设为 false”的意图不一致。
 结果是主周期切换时，ECharts 仍按 merge 模式处理 `markArea`，旧中枢图形没有被完整替换。
 
 此外，当前跨周期中枢 remap 逻辑也比旧仓更弱：
