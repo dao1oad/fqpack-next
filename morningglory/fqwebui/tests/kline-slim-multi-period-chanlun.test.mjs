@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import {
   SUPPORTED_CHANLUN_PERIODS,
@@ -11,6 +14,88 @@ import {
   buildLegendSelectionState,
   getRealtimeRefreshPeriods
 } from '../src/views/js/kline-slim-chanlun-periods.mjs'
+
+function createStubChart(previousOption = null) {
+  return {
+    clearCount: 0,
+    option: previousOption,
+    setOptionCalls: [],
+    clear() {
+      this.clearCount += 1
+      this.option = null
+    },
+    getOption() {
+      return this.option
+    },
+    setOption(option, opts) {
+      this.option = option
+      this.setOptionCalls.push({ option, opts })
+    },
+    hideLoading() {}
+  }
+}
+
+let drawSlimPromise = null
+
+async function loadDrawSlim() {
+  if (!drawSlimPromise) {
+    drawSlimPromise = (async () => {
+      const sourcePath = new URL('../src/views/js/draw-slim.js', import.meta.url)
+      const echartsConfigUrl = pathToFileURL(
+        path.resolve('src/views/js/echartsConfig.js')
+      ).href
+      const periodHelperUrl = pathToFileURL(
+        path.resolve('src/views/js/kline-slim-chanlun-periods.mjs')
+      ).href
+      let source = await readFile(sourcePath, 'utf8')
+      source = source.replace("'./echartsConfig'", `'${echartsConfigUrl}'`)
+      source = source.replace("'./kline-slim-chanlun-periods.mjs'", `'${periodHelperUrl}'`)
+      const tempDir = await mkdtemp(path.join(os.tmpdir(), 'draw-slim-test-'))
+      const tempFile = path.join(tempDir, 'draw-slim.mjs')
+      await writeFile(tempFile, source, 'utf8')
+      const module = await import(pathToFileURL(tempFile).href)
+      return module.default
+    })()
+  }
+
+  return drawSlimPromise
+}
+
+function createSamplePayload(overrides = {}) {
+  return {
+    symbol: 'sz002262',
+    name: '恩华药业',
+    date: [
+      '2026-03-09 09:30',
+      '2026-03-09 09:35',
+      '2026-03-09 09:40',
+      '2026-03-09 09:45'
+    ],
+    open: [10, 11, 12, 13],
+    close: [11, 12, 13, 12],
+    low: [9, 10, 11, 11],
+    high: [12, 13, 14, 14],
+    bidata: {
+      date: ['2026-03-09 09:30', '2026-03-09 09:45'],
+      data: [10, 12]
+    },
+    duandata: {
+      date: ['2026-03-09 09:30', '2026-03-09 09:45'],
+      data: [10, 12]
+    },
+    higherDuanData: {
+      date: ['2026-03-09 09:30', '2026-03-09 09:45'],
+      data: [10, 12]
+    },
+    zsdata: [],
+    zsflag: [],
+    duan_zsdata: [],
+    duan_zsflag: [],
+    higher_duan_zsdata: [],
+    higher_duan_zsflag: [],
+    ...overrides
+  }
+}
 
 test('supported periods stay within redis producer periods and default to 5m', () => {
   assert.deepEqual(SUPPORTED_CHANLUN_PERIODS, ['1m', '5m', '15m', '30m'])
@@ -74,6 +159,71 @@ test('draw-slim consumes all multi-period chanlun layer fields and global zhongs
   assert.match(content, /'段中枢'/)
   assert.match(content, /markArea/)
   assert.match(content, /renderVersion = ''/)
+})
+
+test('draw-slim materializes visible period legend groups as placeholder series', async () => {
+  const drawSlim = await loadDrawSlim()
+  const chart = createStubChart()
+  const payload = createSamplePayload()
+
+  drawSlim(chart, payload, '5m', {
+    keepState: true,
+    renderVersion: 'render-main'
+  })
+
+  const [{ option }] = chart.setOptionCalls
+  assert.ok(option.legend.data.includes('5m'))
+  assert.ok(option.series.some((series) => series.name === '5m'))
+})
+
+test('draw-slim uses full replace when keepState is false', async () => {
+  const drawSlim = await loadDrawSlim()
+  const chart = createStubChart({
+    legend: [{ selected: { '5m': true, '中枢': true, '段中枢': true } }],
+    dataZoom: [{ start: 40, end: 100 }]
+  })
+  const payload = createSamplePayload()
+
+  drawSlim(chart, payload, '5m', {
+    keepState: false,
+    renderVersion: 'render-main'
+  })
+
+  const [{ opts }] = chart.setOptionCalls
+  assert.equal(chart.clearCount, 1)
+  assert.equal(opts.notMerge, true)
+  assert.ok(opts.replaceMerge.includes('grid'))
+  assert.ok(opts.replaceMerge.includes('dataZoom'))
+})
+
+test('draw-slim remaps zhongshu markArea with axis coordinates and filters out-of-range boxes', async () => {
+  const drawSlim = await loadDrawSlim()
+  const chart = createStubChart()
+  const payload = createSamplePayload({
+    zsdata: [
+      [
+        ['2026-03-09 08:00', 9],
+        ['2026-03-09 08:05', 8]
+      ],
+      [
+        ['2026-03-09 09:30', 12],
+        ['2026-03-09 09:45', 10]
+      ]
+    ],
+    zsflag: [1, 1]
+  })
+
+  drawSlim(chart, payload, '5m', {
+    keepState: true,
+    renderVersion: 'render-main'
+  })
+
+  const [{ option }] = chart.setOptionCalls
+  const zhongshuSeries = option.series.find((series) => series.name === '5m 中枢')
+  assert.ok(zhongshuSeries)
+  assert.equal(zhongshuSeries.markArea.data.length, 1)
+  assert.equal(typeof zhongshuSeries.markArea.data[0][0].xAxis, 'number')
+  assert.equal(typeof zhongshuSeries.markArea.data[0][0].yAxis, 'number')
 })
 
 test('KlineSlim removes fixed overlay status copy and hints legend-driven extra periods', async () => {
