@@ -9,9 +9,9 @@ from freshquant.data.gantt_readmodel import (
     persist_shouban30_for_date,
     persist_stock_hot_reason_daily_for_date,
 )
-from freshquant.data.quality_stock_universe import refresh_quality_stock_universe
 from freshquant.data.gantt_source_jygs import sync_jygs_action_for_date
 from freshquant.data.gantt_source_xgb import sync_xgb_history_for_date
+from freshquant.data.quality_stock_universe import refresh_quality_stock_universe
 from freshquant.data.trade_date_hist import (
     get_trade_dates_between,
     tool_trade_date_hist_sina,

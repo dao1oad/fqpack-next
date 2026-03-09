@@ -96,7 +96,9 @@ def test_refresh_quality_stock_universe_writes_empty_snapshot_when_no_matches():
     target_collection = FakeTargetCollection()
 
     result = refresh_quality_stock_universe(
-        block_collection=FakeBlockCollection([{"blockname": "无关板块", "code": "000002"}]),
+        block_collection=FakeBlockCollection(
+            [{"blockname": "无关板块", "code": "000002"}]
+        ),
         target_collection=target_collection,
         now_provider=lambda: datetime(2026, 3, 9, tzinfo=timezone.utc),
     )

@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from freshquant.db import DBQuantAxis, DBfreshquant
+from freshquant.db import DBfreshquant, DBQuantAxis
 
 COL_QUALITY_STOCK_UNIVERSE = "quality_stock_universe"
 QUALITY_STOCK_SOURCE_VERSION = "xgt_hot_blocks_v1"
@@ -45,7 +45,9 @@ def refresh_quality_stock_universe(
     target_collection.create_index("code6", unique=True, name="uniq_quality_code6")
 
     block_lookup = {}
-    rows = block_collection.find({"blockname": {"$in": list(QUALITY_STOCK_BLOCK_NAMES)}})
+    rows = block_collection.find(
+        {"blockname": {"$in": list(QUALITY_STOCK_BLOCK_NAMES)}}
+    )
     for row in rows or []:
         code6 = _normalize_code6(row.get("code"))
         if not code6:

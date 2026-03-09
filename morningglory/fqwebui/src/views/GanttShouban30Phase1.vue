@@ -53,11 +53,30 @@
               </el-button>
             </el-button-group>
 
+            <div class="extra-filter-buttons">
+              <span class="extra-filter-buttons__label">条件筛选</span>
+              <el-button
+                v-for="option in EXTRA_FILTER_OPTIONS"
+                :key="option.key"
+                size="small"
+                :type="selectedExtraFilterKeys.includes(option.key) ? 'primary' : ''"
+                :plain="!selectedExtraFilterKeys.includes(option.key)"
+                @click="toggleExtraFilterSelection(option.key)"
+              >
+                {{ option.label }}
+              </el-button>
+            </div>
+
             <div class="panel-summary">
               <span>{{ activeViewLabel }}</span>
               <span>{{ currentStats.plate_count }} 个热门板块</span>
               <span>/</span>
               <span>{{ currentStats.stock_count }} 个热门个股</span>
+            </div>
+            <div v-if="activeExtraFilterLabels.length" class="panel-summary panel-summary-filters">
+              <span>交集筛选</span>
+              <span>/</span>
+              <span>{{ activeExtraFilterLabels.join(' / ') }}</span>
             </div>
             <div class="panel-summary panel-summary-chanlun">
               <span>原始候选 {{ currentChanlunStats.candidate_total }}</span>
@@ -83,7 +102,7 @@
               size="small"
               border
               height="100%"
-              empty-text="暂无首板板块"
+              :empty-text="platesEmptyText"
               :row-class-name="plateRowClassName"
               @row-click="handlePlateRowClick"
             >
@@ -94,7 +113,17 @@
                   <span class="mono">{{ row.last_up_date || row.seg_to || '-' }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="reason_text" label="板块理由" min-width="220" show-overflow-tooltip />
+              <el-table-column prop="reason_text" label="板块理由" min-width="220">
+                <template #default="{ row }">
+                  <Shouban30ReasonPopover
+                    :reference-text="row.reason_text"
+                    :content-text="row.reason_text"
+                    :title="row.plate_name"
+                    :subtitle="buildPlateReasonSubtitle(row)"
+                    placement="right-start"
+                  />
+                </template>
+              </el-table-column>
               <el-table-column :label="plateCountLabel" prop="stocks_count" width="92" />
             </el-table>
           </div>
@@ -119,7 +148,7 @@
               size="small"
               border
               height="100%"
-              empty-text="请先选择左侧板块"
+              :empty-text="stocksEmptyText"
               :row-class-name="stockRowClassName"
               @row-click="handleStockRowClick"
             >
@@ -150,7 +179,17 @@
                   <span class="mono">{{ formatChanlunMetric(row.chanlun_bi_gain_percent) }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="latest_reason" label="最近理由" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="latest_reason" label="最近理由" min-width="180">
+                <template #default="{ row }">
+                  <Shouban30ReasonPopover
+                    :reference-text="row.latest_reason"
+                    :content-text="row.latest_reason"
+                    :title="`${row.name || row.code6} ${row.code6 || ''}`.trim()"
+                    :subtitle="buildStockReasonSubtitle(row)"
+                    placement="right-start"
+                  />
+                </template>
+              </el-table-column>
             </el-table>
           </div>
         </section>
@@ -199,10 +238,30 @@
                 </template>
               </el-table-column>
               <el-table-column prop="plate_name" label="板块" width="140" show-overflow-tooltip />
-              <el-table-column label="理由" min-width="240" show-overflow-tooltip>
+              <el-table-column label="理由" min-width="240">
                 <template #default="{ row }">
-                  <div>{{ row.stock_reason || '-' }}</div>
-                  <div class="muted reason-sub">{{ row.plate_reason || '-' }}</div>
+                  <Shouban30ReasonPopover
+                    :reference-text="row.stock_reason || row.plate_reason"
+                    :title="selectedStock ? `${selectedStock.name || selectedStock.code6} ${selectedStock.code6 || ''}`.trim() : '标的理由'"
+                    :subtitle="buildReasonDetailSubtitle(row)"
+                    placement="left-start"
+                    :width="620"
+                  >
+                    <div class="shouban30-reason-grid">
+                      <div class="shouban30-reason-grid__label">板块</div>
+                      <div class="shouban30-reason-grid__value">{{ row.plate_name || '-' }}</div>
+                      <div class="shouban30-reason-grid__label">来源</div>
+                      <div class="shouban30-reason-grid__value">{{ formatProvider(row.provider) }}</div>
+                    </div>
+                    <div class="shouban30-reason-section">
+                      <div class="shouban30-reason-section__label">标的理由</div>
+                      <div class="shouban30-reason-section__body">{{ row.stock_reason || '-' }}</div>
+                    </div>
+                    <div class="shouban30-reason-section">
+                      <div class="shouban30-reason-section__label">板块理由</div>
+                      <div class="shouban30-reason-section__body">{{ row.plate_reason || '-' }}</div>
+                    </div>
+                  </Shouban30ReasonPopover>
                 </template>
               </el-table-column>
             </el-table>
@@ -231,12 +290,18 @@ import {
   aggregateStockRows,
   buildChanlunFilterStats,
   buildViewStats,
-  filterLoadedPlateRows,
   formatProviderLabel,
   loadProvidersIndependently,
   normalizeSourcePlateRefs,
   sortStockRows,
 } from './shouban30Aggregation.mjs'
+import Shouban30ReasonPopover from './components/Shouban30ReasonPopover.vue'
+import {
+  EXTRA_FILTER_OPTIONS,
+  filterStockRowsByPlate,
+  rebuildPlatesFromFilteredStocks,
+  toggleExtraFilter,
+} from './shouban30StockFilters.mjs'
 
 const VIEW_PROVIDER_OPTIONS = [
   { name: 'xgb', label: 'XGB' },
@@ -260,6 +325,7 @@ const sourcePlatesByProvider = ref({ xgb: [], jygs: [] })
 const sourceMetaByProvider = ref({ xgb: {}, jygs: {} })
 const sourceStocksByProvider = ref({ xgb: {}, jygs: {} })
 const stockLoadErrorProviders = ref([])
+const selectedExtraFilterKeys = ref([])
 
 const stockReasons = ref([])
 
@@ -354,19 +420,39 @@ const updateQuery = (patch = {}) => {
   }).catch(() => {})
 }
 
-const xgbPlates = computed(() => filterLoadedPlateRows({
-  plates: sourcePlatesByProvider.value.xgb,
-  hasLoadError: stockLoadErrorProviders.value.includes('xgb'),
-}))
-const jygsPlates = computed(() => filterLoadedPlateRows({
-  plates: sourcePlatesByProvider.value.jygs,
-  hasLoadError: stockLoadErrorProviders.value.includes('jygs'),
-}))
+const filteredSourceStocksByProvider = computed(() => {
+  return Object.fromEntries(
+    SOURCE_PROVIDERS.map((provider) => [
+      provider,
+      filterStockRowsByPlate(
+        sourceStocksByProvider.value?.[provider] || {},
+        selectedExtraFilterKeys.value,
+      ),
+    ]),
+  )
+})
+
+const xgbPlates = computed(() => {
+  if (stockLoadErrorProviders.value.includes('xgb')) return []
+  return rebuildPlatesFromFilteredStocks({
+    plates: sourcePlatesByProvider.value.xgb,
+    stockRowsByPlate: filteredSourceStocksByProvider.value.xgb,
+  })
+})
+
+const jygsPlates = computed(() => {
+  if (stockLoadErrorProviders.value.includes('jygs')) return []
+  return rebuildPlatesFromFilteredStocks({
+    plates: sourcePlatesByProvider.value.jygs,
+    stockRowsByPlate: filteredSourceStocksByProvider.value.jygs,
+  })
+})
+
 const aggPlates = computed(() => {
   return aggregatePlateRows({
     xgbPlates: xgbPlates.value,
     jygsPlates: jygsPlates.value,
-    stockRowsByProvider: sourceStocksByProvider.value,
+    stockRowsByProvider: filteredSourceStocksByProvider.value,
   })
 })
 
@@ -379,7 +465,7 @@ const platesByView = computed(() => {
 })
 
 const getSourceStockRows = (provider, plateKey) => {
-  return normalizeList(sourceStocksByProvider.value?.[provider]?.[plateKey])
+  return normalizeList(filteredSourceStocksByProvider.value?.[provider]?.[plateKey])
 }
 
 const getViewStocksForPlate = (plate) => {
@@ -405,11 +491,11 @@ const statsByView = computed(() => {
   return {
     xgb: buildViewStats({
       plates: xgbPlates.value,
-      stockRowsByPlate: sourceStocksByProvider.value.xgb,
+      stockRowsByPlate: filteredSourceStocksByProvider.value.xgb,
     }),
     jygs: buildViewStats({
       plates: jygsPlates.value,
-      stockRowsByPlate: sourceStocksByProvider.value.jygs,
+      stockRowsByPlate: filteredSourceStocksByProvider.value.jygs,
     }),
     agg: buildViewStats({
       plates: aggPlates.value,
@@ -468,9 +554,25 @@ const windowRangeLabel = computed(() => {
 const activeViewLabel = computed(() => {
   return VIEW_PROVIDER_OPTIONS.find((item) => item.name === activeViewProvider.value)?.label || 'XGB'
 })
+const activeExtraFilterLabels = computed(() => {
+  return EXTRA_FILTER_OPTIONS
+    .filter((item) => selectedExtraFilterKeys.value.includes(item.key))
+    .map((item) => item.label)
+})
 
 const plateCountLabel = computed(() => '通过数')
 const stockHitCountLabel = computed(() => `${stockWindowDays.value}次`)
+const platesEmptyText = computed(() => {
+  return selectedExtraFilterKeys.value.length
+    ? '当前筛选条件下暂无板块'
+    : '暂无首板板块'
+})
+const stocksEmptyText = computed(() => {
+  if (selectedExtraFilterKeys.value.length && !currentPlates.value.length) {
+    return '当前筛选条件下暂无标的'
+  }
+  return currentPlates.value.length ? '请先选择左侧板块' : '暂无热点标的'
+})
 
 const formatTabStats = (stats) => {
   const target = stats || EMPTY_STATS
@@ -478,6 +580,24 @@ const formatTabStats = (stats) => {
 }
 
 const formatProvider = (value) => formatProviderLabel(value)
+
+const buildPlateReasonSubtitle = (row) => {
+  return `${formatProvider(row?.provider)} / 最后上板 ${toText(row?.last_up_date || row?.seg_to) || '-'}`
+}
+
+const buildStockReasonSubtitle = (row) => {
+  return `最近上榜 ${toText(row?.latest_trade_date) || '-'}`
+}
+
+const buildReasonDetailSubtitle = (row) => {
+  const date = toText(row?.date) || '-'
+  const time = toText(row?.time)
+  return `${formatProvider(row?.provider)} / ${time ? `${date} ${time}` : date}`
+}
+
+const toggleExtraFilterSelection = (key) => {
+  selectedExtraFilterKeys.value = toggleExtraFilter(selectedExtraFilterKeys.value, key)
+}
 
 const clearDetailState = () => {
   reasonRequestId += 1
@@ -809,12 +929,29 @@ watch(
   align-self: flex-start;
 }
 
+.extra-filter-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.extra-filter-buttons__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+}
+
 .panel-summary {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
   font-size: 12px;
   color: #606266;
+}
+
+.panel-summary-filters {
+  color: #475569;
 }
 
 .panel-summary-chanlun {

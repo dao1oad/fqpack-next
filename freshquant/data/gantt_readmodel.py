@@ -13,15 +13,15 @@ from freshquant.data.gantt_source_jygs import (
     normalize_board_key,
     normalize_jygs_action_field_row,
 )
-from freshquant.data.quality_stock_universe import (
-    COL_QUALITY_STOCK_UNIVERSE,
-    load_quality_stock_lookup,
-)
 from freshquant.data.gantt_source_xgb import (
     COL_XGB_TOP_GAINER_HISTORY,
     normalize_xgb_history_row,
 )
-from freshquant.db import DBGantt, DBfreshquant
+from freshquant.data.quality_stock_universe import (
+    COL_QUALITY_STOCK_UNIVERSE,
+    load_quality_stock_lookup,
+)
+from freshquant.db import DBfreshquant, DBGantt
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
 from freshquant.order_management.credit_subjects.repository import (
     CreditSubjectRepository,
@@ -830,15 +830,11 @@ def _build_shouban30_chanlun_cache_key(code6: Any, as_of_date: Any) -> str:
 
 
 def _build_shouban30_filter_cache_key(code6: Any, as_of_date: Any) -> str:
-    return (
-        f"{SHOUBAN30_FILTER_CACHE_PREFIX}|{_normalize_code6(code6)}|{_to_str(as_of_date)}"
-    )
+    return f"{SHOUBAN30_FILTER_CACHE_PREFIX}|{_normalize_code6(code6)}|{_to_str(as_of_date)}"
 
 
 def _build_shouban30_long_term_ma_cache_key(code6: Any, as_of_date: Any) -> str:
-    return (
-        f"{SHOUBAN30_LONG_TERM_MA_CACHE_PREFIX}|{_normalize_code6(code6)}|{_to_str(as_of_date)}"
-    )
+    return f"{SHOUBAN30_LONG_TERM_MA_CACHE_PREFIX}|{_normalize_code6(code6)}|{_to_str(as_of_date)}"
 
 
 def _resolve_shouban30_chanlun_symbol(code6: Any) -> str:
@@ -920,7 +916,9 @@ def _resolve_shouban30_chanlun_result(
 
 def _load_shouban30_credit_subject_lookup():
     repository = CreditSubjectRepository()
-    rows = list(repository.collection.find({}, {"_id": 0, "symbol": 1, "instrument_id": 1}))
+    rows = list(
+        repository.collection.find({}, {"_id": 0, "symbol": 1, "instrument_id": 1})
+    )
     if not rows:
         return {}, False
     lookup = {}
@@ -954,7 +952,9 @@ def _compute_simple_moving_average(values: list[float], period: int) -> float | 
     return round(sum(window) / period, 4)
 
 
-def _compute_ma_distance_pct(close_price: float | None, ma_value: float | None) -> float | None:
+def _compute_ma_distance_pct(
+    close_price: float | None, ma_value: float | None
+) -> float | None:
     if close_price is None or ma_value is None or ma_value <= 0:
         return None
     return round(((close_price - ma_value) / ma_value) * 100, 4)
@@ -1025,19 +1025,19 @@ def _resolve_shouban30_long_term_ma_result(
     ma500_distance_pct = _compute_ma_distance_pct(close_price, ma500)
     ma1000_distance_pct = _compute_ma_distance_pct(close_price, ma1000)
 
-    eligible = [
+    distance_candidates = [
         ("ma250", ma250_distance_pct),
         ("ma500", ma500_distance_pct),
         ("ma1000", ma1000_distance_pct),
     ]
-    eligible = [
+    eligible_distances: list[tuple[str, float]] = [
         (basis, distance_pct)
-        for basis, distance_pct in eligible
+        for basis, distance_pct in distance_candidates
         if distance_pct is not None and 0 <= distance_pct <= 3
     ]
     near_long_term_ma_basis = None
-    if eligible:
-        near_long_term_ma_basis = min(eligible, key=lambda item: item[1])[0]
+    if eligible_distances:
+        near_long_term_ma_basis = min(eligible_distances, key=lambda item: item[1])[0]
 
     result = {
         "near_long_term_ma_passed": near_long_term_ma_basis is not None,
