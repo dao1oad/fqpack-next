@@ -48,7 +48,9 @@ def _default_code_loader() -> list[str]:
 
 
 class AdjRefreshRepository:
-    def get_base_anchor(self, kind: str, code: str, base_anchor_date: str) -> dict | None:
+    def get_base_anchor(
+        self, kind: str, code: str, base_anchor_date: str
+    ) -> dict | None:
         coll = "stock_adj" if kind == "stock" else "etf_adj"
         return DBQuantAxis[coll].find_one(
             {
@@ -59,7 +61,9 @@ class AdjRefreshRepository:
             projection={"_id": 0, "date": 1, "adj": 1},
         )
 
-    def upsert_intraday_override(self, kind: str, document: dict[str, Any]) -> dict[str, Any]:
+    def upsert_intraday_override(
+        self, kind: str, document: dict[str, Any]
+    ) -> dict[str, Any]:
         coll = "stock_adj_intraday" if kind == "stock" else "etf_adj_intraday"
         DBQuantAxis[coll].update_one(
             {
@@ -87,7 +91,9 @@ class XtDataAdjRefreshClient:
         self.xtdata.connect(port=self.port)
         self._connected = True
 
-    def _load_close(self, code: str, trade_date: str, *, dividend_type: str) -> float | None:
+    def _load_close(
+        self, code: str, trade_date: str, *, dividend_type: str
+    ) -> float | None:
         self._ensure_connected()
         xt_code = _to_xt_code(code)
         day_str = trade_date.replace("-", "")
@@ -135,7 +141,9 @@ class XtDataAdjRefreshClient:
         except Exception:
             return None
 
-    def get_daily_close_pair(self, code: str, trade_date: str) -> dict[str, float] | None:
+    def get_daily_close_pair(
+        self, code: str, trade_date: str
+    ) -> dict[str, float] | None:
         raw_close = self._load_close(code, trade_date, dividend_type="none")
         front_close = self._load_close(code, trade_date, dividend_type="front")
         if raw_close is None or front_close is None:

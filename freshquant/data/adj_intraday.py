@@ -119,7 +119,9 @@ def apply_qfq_with_intraday_override(
                 .ffill()
                 .fillna(1.0)
             )
-            factor = pd.to_numeric(date_key.map(adj_series), errors="coerce").fillna(1.0)
+            factor = pd.to_numeric(date_key.map(adj_series), errors="coerce").fillna(
+                1.0
+            )
 
     trade_date = _normalize_date_str((override or {}).get("trade_date"))
     anchor_scale = float((override or {}).get("anchor_scale") or 1.0)

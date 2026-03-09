@@ -216,9 +216,7 @@ def start_producer():
         while True:
             try:
                 time.sleep(30)
-                new_list = _load_subscription_codes(
-                    mode=mode, max_symbols=max_symbols
-                )
+                new_list = _load_subscription_codes(mode=mode, max_symbols=max_symbols)
                 new_set = set(new_list)
                 if new_set and new_set != sub_codes:
                     logger.info(

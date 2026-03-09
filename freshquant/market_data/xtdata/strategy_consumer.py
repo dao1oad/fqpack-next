@@ -970,9 +970,7 @@ class StrategyConsumer:
         kind = "etf" if is_index_like else "stock"
         coll = "index_realtime" if is_index_like else "stock_realtime"
         bar_store = bar_raw
-        bar_calc = self._apply_qfq_to_bar(
-            kind=kind, code_prefixed=code, bar=bar_raw
-        )
+        bar_calc = self._apply_qfq_to_bar(kind=kind, code_prefixed=code, bar=bar_raw)
 
         try:
             upsert_realtime_bars(
