@@ -988,6 +988,7 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
         ),
     )
     monkeypatch.setattr(svc, "DBGantt", fake_db)
+
     def get_chanlun_structure_stub(symbol, period, end_date):
         assert period == "30m"
         assert end_date == "2026-03-05"
