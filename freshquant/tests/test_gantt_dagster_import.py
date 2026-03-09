@@ -32,7 +32,7 @@ def _build_dagster_stub():
         dependencies = set()
         for arg in args:
             if isinstance(arg, _FakeValue) and arg.producer_name:
-                dependencies.add(arg.producer_name)
+                dependencies.add(arg.producer_name.removesuffix("__item"))
             elif isinstance(arg, (list, tuple, set)):
                 dependencies.update(_collect_dependencies(arg))
         return dependencies
@@ -114,6 +114,23 @@ def _build_dagster_stub():
             builder.add_node(self, args)
             self._ensure_built()
             builder.extend_graph(self)
+            input_dependency_map = {
+                f"input_{name}": _collect_dependencies([arg])
+                for name, arg in zip(inspect.signature(self._fn).parameters, args)
+            }
+            for node_name, dependencies in self.dependency_map.items():
+                remapped_dependencies = set()
+                for dependency in dependencies:
+                    remapped_dependencies.update(
+                        input_dependency_map.get(dependency, {dependency})
+                    )
+                existing_dependencies = builder.dependency_map.get(node_name, set())
+                builder.dependency_map[node_name] = {
+                    dependency
+                    for dependency in existing_dependencies
+                    if dependency not in input_dependency_map
+                }
+                builder.dependency_map[node_name].update(remapped_dependencies)
             return _FakeValue(self.name)
 
         def to_job(self, name=None):
@@ -175,7 +192,10 @@ def test_gantt_dagster_modules_import(monkeypatch):
     schedules_module = importlib.import_module("fqdagster.defs.schedules.gantt")
 
     assert hasattr(ops_module, "op_sync_xgb_history_daily")
-    assert hasattr(ops_module, "op_run_gantt_postclose_incremental")
+    assert hasattr(ops_module, "op_sync_xgb_history_for_trade_date")
+    assert hasattr(ops_module, "op_resolve_pending_gantt_trade_dates")
     assert hasattr(ops_module, "op_build_stock_hot_reason_daily")
+    assert hasattr(ops_module, "graph_gantt_postclose_for_trade_date")
+    assert hasattr(ops_module, "graph_gantt_postclose")
     assert hasattr(jobs_module, "job_gantt_postclose")
     assert hasattr(schedules_module, "gantt_postclose_schedule")

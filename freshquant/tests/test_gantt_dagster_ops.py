@@ -34,7 +34,7 @@ def _build_dagster_stub():
         dependencies = set()
         for arg in args:
             if isinstance(arg, _FakeValue) and arg.producer_name:
-                dependencies.add(arg.producer_name)
+                dependencies.add(arg.producer_name.removesuffix("__item"))
             elif isinstance(arg, (list, tuple, set)):
                 dependencies.update(_collect_dependencies(arg))
         return dependencies
@@ -116,6 +116,23 @@ def _build_dagster_stub():
             builder.add_node(self, args)
             self._ensure_built()
             builder.extend_graph(self)
+            input_dependency_map = {
+                f"input_{name}": _collect_dependencies([arg])
+                for name, arg in zip(inspect.signature(self._fn).parameters, args)
+            }
+            for node_name, dependencies in self.dependency_map.items():
+                remapped_dependencies = set()
+                for dependency in dependencies:
+                    remapped_dependencies.update(
+                        input_dependency_map.get(dependency, {dependency})
+                    )
+                existing_dependencies = builder.dependency_map.get(node_name, set())
+                builder.dependency_map[node_name] = {
+                    dependency
+                    for dependency in existing_dependencies
+                    if dependency not in input_dependency_map
+                }
+                builder.dependency_map[node_name].update(remapped_dependencies)
             return _FakeValue(self.name)
 
         def to_job(self, name=None):
@@ -466,6 +483,36 @@ def test_build_shouban30_snapshots_for_date_shares_chanlun_result_cache(monkeypa
     assert isinstance(cache_refs[0][2], dict)
 
 
+def test_trade_date_sync_ops_use_explicit_input(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+    calls = []
+
+    def _unexpected_resolve():
+        raise AssertionError("should not resolve latest trade_date")
+
+    monkeypatch.setattr(ops, "_query_latest_trade_date", _unexpected_resolve)
+    monkeypatch.setattr(
+        ops,
+        "sync_xgb_history_for_date",
+        lambda trade_date: calls.append(("xgb", trade_date)) or 1,
+    )
+    monkeypatch.setattr(
+        ops,
+        "sync_jygs_action_for_date",
+        lambda trade_date: calls.append(("jygs", trade_date))
+        or {"trade_date": trade_date},
+    )
+
+    assert ops.op_sync_xgb_history_for_trade_date(context, "2026-03-05") == (
+        "2026-03-05"
+    )
+    assert ops.op_sync_jygs_action_for_trade_date(context, "2026-03-05") == (
+        "2026-03-05"
+    )
+    assert calls == [("xgb", "2026-03-05"), ("jygs", "2026-03-05")]
+
+
 def test_has_legacy_shouban30_snapshot_detects_missing_chanlun_filter_version(
     monkeypatch,
 ):
@@ -556,3 +603,43 @@ def test_job_gantt_postclose_uses_multi_op_graph(monkeypatch):
 
     assert "op_run_gantt_postclose_incremental" not in node_names
     assert "op_resolve_pending_gantt_trade_dates" in node_names
+
+
+def test_op_resolve_pending_gantt_trade_dates_yields_dynamic_outputs(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+
+    monkeypatch.setattr(
+        ops,
+        "resolve_gantt_backfill_trade_dates",
+        lambda: ["2026-03-04", "2026-03-05"],
+    )
+
+    result = list(ops.op_resolve_pending_gantt_trade_dates(context))
+
+    assert [item.value for item in result] == ["2026-03-04", "2026-03-05"]
+    assert [item.mapping_key for item in result] == ["2026_03_04", "2026_03_05"]
+
+
+def test_job_gantt_postclose_daily_pipeline_dependencies(monkeypatch):
+    jobs = _load_jobs_module(monkeypatch)
+
+    dependency_map = jobs.job_gantt_postclose.graph.dependency_map
+
+    assert dependency_map["op_sync_xgb_history_for_trade_date"] == {
+        "op_resolve_pending_gantt_trade_dates"
+    }
+    assert dependency_map["op_sync_jygs_action_for_trade_date"] == {
+        "op_resolve_pending_gantt_trade_dates"
+    }
+    assert dependency_map["op_build_plate_reason_daily"] == {
+        "op_sync_xgb_history_for_trade_date",
+        "op_sync_jygs_action_for_trade_date",
+    }
+    assert dependency_map["op_build_gantt_daily"] == {"op_build_plate_reason_daily"}
+    assert dependency_map["op_build_stock_hot_reason_daily"] == {
+        "op_build_gantt_daily"
+    }
+    assert dependency_map["op_build_shouban30_daily"] == {
+        "op_build_stock_hot_reason_daily"
+    }
