@@ -18,7 +18,11 @@ from loguru import logger
 from freshquant.analysis.fullcalc_wrapper import run_fullcalc
 from freshquant.carnation.param import queryParam
 from freshquant.config import cfg
-from freshquant.data.etf_adj import apply_qfq_to_bars
+from freshquant.data.adj_intraday import (
+    apply_qfq_with_intraday_override,
+    fetch_intraday_override,
+    fetch_qfq_adj_df,
+)
 from freshquant.db import DBfreshquant, DBQuantAxis
 from freshquant.market_data.xtdata.chanlun_payload import build_chanlun_payload
 from freshquant.market_data.xtdata.coalesce import CoalescingScheduler
@@ -196,27 +200,6 @@ def _load_minute_history_from_quantaxis_db(
     return hist_df.reset_index(drop=True)
 
 
-def _load_qfq_adj_df(
-    *,
-    coll_name: str,
-    base_code6: str,
-    start_date: str,
-    end_date: str,
-) -> pd.DataFrame:
-    cursor = (
-        DBQuantAxis[coll_name]
-        .find(
-            {
-                "code": str(base_code6),
-                "date": {"$gte": start_date, "$lte": end_date},
-            },
-            {"_id": 0, "date": 1, "adj": 1},
-        )
-        .sort("date", 1)
-    )
-    return pd.DataFrame(list(cursor))
-
-
 def _worker_fullcalc(df: pd.DataFrame, model_ids: list[int]) -> dict[str, Any]:
     return run_fullcalc(df, model_ids=model_ids)
 
@@ -248,8 +231,6 @@ class StrategyConsumer:
         self._futures: dict[tuple[str, str], Any] = {}
         self._last_bar_ts: dict[tuple[str, str], int] = {}
         self._known_codes: set[str] = set()
-
-        self._adj_factor_cache: dict[tuple[str, str], tuple[str, float]] = {}
 
         self._backfill_executor = ThreadPoolExecutor(max_workers=2)
         self._backfill_lock = threading.Lock()
@@ -352,12 +333,20 @@ class StrategyConsumer:
         """
         kind: "stock" | "etf"
         """
-        k = (kind, base_code6)
-        cached = self._adj_factor_cache.get(k)
-        if cached is not None and cached[0] == date_str:
-            return float(cached[1])
-
         coll = "stock_adj" if kind == "stock" else "etf_adj"
+        override_coll = "stock_adj_intraday" if kind == "stock" else "etf_adj_intraday"
+        try:
+            override = fetch_intraday_override(
+                coll_name=override_coll,
+                code=base_code6,
+                trade_date=date_str,
+                db=DBQuantAxis,
+            )
+            if override is not None:
+                return 1.0
+        except Exception:
+            pass
+
         factor = 1.0
         try:
             doc = DBQuantAxis[coll].find_one(
@@ -370,7 +359,6 @@ class StrategyConsumer:
         except Exception:
             factor = 1.0
 
-        self._adj_factor_cache[k] = (date_str, float(factor))
         return float(factor)
 
     def _apply_qfq_to_bar(
@@ -466,14 +454,20 @@ class StrategyConsumer:
         start_date = start_dt.strftime("%Y-%m-%d")
         end_date = end_dt.strftime("%Y-%m-%d")
         adj_coll = "etf_adj" if is_index_like else "stock_adj"
-        adj_df = _load_qfq_adj_df(
+        override_coll = "etf_adj_intraday" if is_index_like else "stock_adj_intraday"
+        adj_df = fetch_qfq_adj_df(
             coll_name=adj_coll,
-            base_code6=base6,
+            code=base6,
             start_date=start_date,
             end_date=end_date,
+            db=DBQuantAxis,
         )
-        if (not is_index_like) and (not adj_df.empty):
-            hist_df = apply_qfq_to_bars(hist_df, adj_df, datetime_col="datetime")
+        override = fetch_intraday_override(
+            coll_name=override_coll,
+            code=base6,
+            trade_date=end_date,
+            db=DBQuantAxis,
+        )
 
         merged = _normalize_bar_window_df(
             pd.concat([hist_df, rt_df], ignore_index=True)
@@ -483,10 +477,12 @@ class StrategyConsumer:
 
         merged = merged.drop_duplicates(subset=["datetime"], keep="last")
         merged = merged.sort_values("datetime")
-
-        # index_realtime stores raw bars, so qfq still applies on the merged frame.
-        if is_index_like and (not adj_df.empty):
-            merged = apply_qfq_to_bars(merged, adj_df, datetime_col="datetime")
+        merged = apply_qfq_with_intraday_override(
+            merged,
+            adj_df,
+            override=override,
+            datetime_col="datetime",
+        )
 
         if len(merged) > self.max_bars:
             merged = merged.iloc[-self.max_bars :]
@@ -937,10 +933,6 @@ class StrategyConsumer:
                     "amount": float(row.get("amount") or 0.0),
                     "source": "xtdata_backfill",
                 }
-                if not is_index_like:
-                    rec = self._apply_qfq_to_bar(
-                        kind="stock", code_prefixed=code, bar=rec
-                    )
                 rows.append(rec)
             if not rows:
                 continue
@@ -975,18 +967,12 @@ class StrategyConsumer:
         }
 
         is_index_like = self._is_index_like(code)
-        if is_index_like:
-            bar_store = bar_raw
-            bar_calc = self._apply_qfq_to_bar(
-                kind="etf", code_prefixed=code, bar=bar_raw
-            )
-            coll = "index_realtime"
-        else:
-            bar_store = self._apply_qfq_to_bar(
-                kind="stock", code_prefixed=code, bar=bar_raw
-            )
-            bar_calc = bar_store
-            coll = "stock_realtime"
+        kind = "etf" if is_index_like else "stock"
+        coll = "index_realtime" if is_index_like else "stock_realtime"
+        bar_store = bar_raw
+        bar_calc = self._apply_qfq_to_bar(
+            kind=kind, code_prefixed=code, bar=bar_raw
+        )
 
         try:
             upsert_realtime_bars(

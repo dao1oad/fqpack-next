@@ -10,9 +10,13 @@ from QUANTAXIS.QAData.data_resample import QA_data_day_resample
 from QUANTAXIS.QAUtil.QADate import QA_util_datetime_to_strdatetime, QA_util_time_stamp
 
 from freshquant.carnation.config import TIME_DELTA, TZ
-from freshquant.data.etf_adj import apply_qfq_to_bars
+from freshquant.data.adj_intraday import (
+    apply_qfq_with_intraday_override,
+    fetch_intraday_override,
+    fetch_qfq_adj_df,
+)
 from freshquant.database.cache import in_memory_cache, redis_cache
-from freshquant.db import DBfreshquant, DBQuantAxis
+from freshquant.db import DBfreshquant
 from freshquant.quote.general import resample3min, resampleStockOrIndex120min
 from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 
@@ -22,18 +26,15 @@ def _fetch_etf_adj(
 ) -> pd.DataFrame | None:
     if start is None or end is None:
         return None
-    code6 = normalize_to_base_code(code)
-    start_date = start.strftime("%Y-%m-%d")
-    end_date = end.strftime("%Y-%m-%d")
-    docs = list(
-        DBQuantAxis.etf_adj.find(
-            {"code": code6, "date": {"$gte": start_date, "$lte": end_date}},
-            {"_id": 0, "date": 1, "adj": 1},
-        ).sort("date", pymongo.ASCENDING)
+    docs = fetch_qfq_adj_df(
+        coll_name="etf_adj",
+        code=normalize_to_base_code(code),
+        start_date=start.strftime("%Y-%m-%d"),
+        end_date=end.strftime("%Y-%m-%d"),
     )
     if len(docs) == 0:
         return None
-    return pd.DataFrame(docs)
+    return docs
 
 
 @in_memory_cache.memoize(expiration=3)
@@ -152,7 +153,17 @@ def queryEtfCandleSticksDay(code, start=None, end=None):
             f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]"
         )
     else:
-        data = apply_qfq_to_bars(data, adj, datetime_col="datetime")
+        override = fetch_intraday_override(
+            coll_name="etf_adj_intraday",
+            code=code,
+            trade_date=end_dt.strftime("%Y-%m-%d"),
+        )
+        data = apply_qfq_with_intraday_override(
+            data,
+            adj,
+            override=override,
+            datetime_col="datetime",
+        )
 
     data = data.round(
         {"open": 3, "high": 3, "low": 3, "close": 3, "volume": 2, "amount": 2}
@@ -233,7 +244,17 @@ def queryEtfCandleSticksMin(code, frequence, start=None, end=None):
             f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]"
         )
     else:
-        data = apply_qfq_to_bars(data, adj, datetime_col="datetime")
+        override = fetch_intraday_override(
+            coll_name="etf_adj_intraday",
+            code=code,
+            trade_date=end.strftime("%Y-%m-%d") if end else None,
+        )
+        data = apply_qfq_with_intraday_override(
+            data,
+            adj,
+            override=override,
+            datetime_col="datetime",
+        )
 
     data = data.round(
         {"open": 3, "high": 3, "low": 3, "close": 3, "volume": 2, "amount": 2}
