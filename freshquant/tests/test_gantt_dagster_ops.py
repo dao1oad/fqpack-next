@@ -333,13 +333,7 @@ def test_has_legacy_shouban30_snapshot_detects_missing_chanlun_filter_version(
             return len(self.find(query))
 
         def distinct(self, field, query):
-            return list(
-                {
-                    doc[field]
-                    for doc in self.find(query)
-                    if field in doc
-                }
-            )
+            return list({doc[field] for doc in self.find(query) if field in doc})
 
         def find(self, query, projection=None):
             return [
@@ -377,13 +371,7 @@ def test_has_legacy_shouban30_snapshot_detects_mixed_legacy_and_new_rows(monkeyp
             return len(self.find(query))
 
         def distinct(self, field, query):
-            return list(
-                {
-                    doc[field]
-                    for doc in self.find(query)
-                    if field in doc
-                }
-            )
+            return list({doc[field] for doc in self.find(query) if field in doc})
 
         def find(self, query, projection=None):
             return [
