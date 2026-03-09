@@ -1,0 +1,47 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+
+import {
+  SUPPORTED_CHANLUN_PERIODS,
+  DEFAULT_MAIN_PERIOD,
+  DEFAULT_VISIBLE_CHANLUN_PERIODS,
+  PERIOD_STYLE_MAP,
+  PERIOD_WIDTH_FACTOR,
+  buildLegendSelectionState,
+  getRealtimeRefreshPeriods
+} from '../src/views/js/kline-slim-chanlun-periods.mjs'
+
+test('supported periods stay within redis producer periods and default to 5m', () => {
+  assert.deepEqual(SUPPORTED_CHANLUN_PERIODS, ['1m', '5m', '15m', '30m'])
+  assert.equal(DEFAULT_MAIN_PERIOD, '5m')
+  assert.deepEqual(DEFAULT_VISIBLE_CHANLUN_PERIODS, ['5m'])
+})
+
+test('period style map matches legacy color families and width factors', () => {
+  assert.equal(PERIOD_STYLE_MAP['1m'].bi, '#ffffff')
+  assert.equal(PERIOD_STYLE_MAP['5m'].duan, '#3b82f6')
+  assert.equal(PERIOD_STYLE_MAP['15m'].higherDuan, '#ef4444')
+  assert.equal(PERIOD_STYLE_MAP['30m'].duanZhongshu, '#ef4444')
+  assert.deepEqual(PERIOD_WIDTH_FACTOR, { '1m': 1, '5m': 3, '15m': 4, '30m': 5 })
+})
+
+test('legend selection defaults to only 5m plus enabled zhongshu groups', () => {
+  assert.deepEqual(buildLegendSelectionState(), {
+    '1m': false,
+    '5m': true,
+    '15m': false,
+    '30m': false,
+    '中枢': true,
+    '段中枢': true
+  })
+})
+
+test('realtime refresh periods keep current period first and visible extras unique', () => {
+  assert.deepEqual(
+    getRealtimeRefreshPeriods({
+      currentPeriod: '5m',
+      visiblePeriods: ['30m', '1m', '5m', '30m']
+    }),
+    ['5m', '1m', '30m']
+  )
+})
