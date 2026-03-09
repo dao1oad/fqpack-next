@@ -194,6 +194,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { getChanlunStructure } from '@/api/futureApi'
 import { getGanttStockReasons } from '@/api/ganttApi'
 import {
   SHOUBAN30_STOCK_WINDOW_OPTIONS,
@@ -213,6 +214,7 @@ import {
   sortPlateRows,
   sortStockRows,
 } from './shouban30Aggregation.mjs'
+import { passesDefaultChanlunFilter } from './shouban30ChanlunFilter.mjs'
 
 const VIEW_PROVIDER_OPTIONS = [
   { name: 'xgb', label: 'XGB' },
@@ -221,6 +223,13 @@ const VIEW_PROVIDER_OPTIONS = [
 ]
 const SOURCE_PROVIDERS = ['xgb', 'jygs']
 const EMPTY_STATS = Object.freeze({ plate_count: 0, stock_count: 0 })
+const EMPTY_CHANLUN_STATS = Object.freeze({
+  candidate_total: 0,
+  passed_total: 0,
+  failed_total: 0,
+})
+const CHANLUN_PERIOD = '30m'
+const CHANLUN_REQUEST_CONCURRENCY = 4
 
 const route = useRoute()
 const router = useRouter()
@@ -228,6 +237,9 @@ const router = useRouter()
 const sourcePlatesByProvider = ref({ xgb: [], jygs: [] })
 const sourceMetaByProvider = ref({ xgb: {}, jygs: {} })
 const sourceStocksByProvider = ref({ xgb: {}, jygs: {} })
+const chanlunStructureCache = ref({})
+const chanlunStats = ref(EMPTY_CHANLUN_STATS)
+const chanlunLoading = ref(false)
 
 const stockReasons = ref([])
 
@@ -244,6 +256,7 @@ const selectedStockCode6 = ref('')
 
 let viewRequestId = 0
 let reasonRequestId = 0
+let chanlunRequestId = 0
 
 const toText = (value) => String(value || '').trim()
 
@@ -263,6 +276,127 @@ const unwrapApiData = (response) => {
 
 const getErrorMessage = (error, fallback) => {
   return String(error?.response?.data?.message || error?.message || fallback)
+}
+
+const buildChanlunCacheKey = (code6, asOfDate) => {
+  return `${toText(code6)}|${toText(asOfDate)}|${CHANLUN_PERIOD}`
+}
+
+const collectChanlunCandidates = ({ stockRowsByProvider, metaByProvider }) => {
+  const candidates = []
+  const seen = new Set()
+
+  for (const provider of SOURCE_PROVIDERS) {
+    const providerStocks = stockRowsByProvider?.[provider] || {}
+    const asOfDate = toText(metaByProvider?.[provider]?.as_of_date || requestedAsOfDate.value)
+    for (const rows of Object.values(providerStocks)) {
+      for (const row of normalizeList(rows)) {
+        const code6 = toText(row?.code6)
+        if (!code6) continue
+        const cacheKey = buildChanlunCacheKey(code6, asOfDate)
+        if (seen.has(cacheKey)) continue
+        seen.add(cacheKey)
+        candidates.push({ code6, asOfDate, cacheKey })
+      }
+    }
+  }
+
+  return candidates
+}
+
+const annotateStocksWithChanlun = ({ stockRowsByProvider, metaByProvider, cache }) => {
+  return Object.fromEntries(
+    SOURCE_PROVIDERS.map((provider) => {
+      const asOfDate = toText(metaByProvider?.[provider]?.as_of_date || requestedAsOfDate.value)
+      const providerStocks = stockRowsByProvider?.[provider] || {}
+      const nextStocks = Object.fromEntries(
+        Object.entries(providerStocks).map(([plateKey, rows]) => [
+          plateKey,
+          normalizeList(rows).map((row) => {
+            const code6 = toText(row?.code6)
+            const chanlun = cache?.[buildChanlunCacheKey(code6, asOfDate)] || null
+            return {
+              ...row,
+              chanlun_passed: !!chanlun?.passed,
+              chanlun_reason: chanlun?.reason || 'structure_unavailable',
+              chanlun_higher_multiple: chanlun?.higher_multiple ?? null,
+              chanlun_segment_multiple: chanlun?.segment_multiple ?? null,
+              chanlun_bi_gain_percent: chanlun?.bi_gain_percent ?? null,
+            }
+          }),
+        ]),
+      )
+      return [provider, nextStocks]
+    }),
+  )
+}
+
+const loadChanlunStructures = async ({ stockRowsByProvider, metaByProvider }) => {
+  const requestId = ++chanlunRequestId
+  const candidates = collectChanlunCandidates({ stockRowsByProvider, metaByProvider })
+  const nextCache = { ...(chanlunStructureCache.value || {}) }
+  const pendingCandidates = candidates.filter((item) => !nextCache[item.cacheKey])
+
+  chanlunLoading.value = true
+
+  const runCandidate = async (candidate) => {
+    try {
+      const response = await getChanlunStructure({
+        symbol: candidate.code6,
+        period: '30m',
+        endDate: candidate.asOfDate || undefined,
+      })
+      nextCache[candidate.cacheKey] = passesDefaultChanlunFilter(response?.data || {})
+    } catch (error) {
+      nextCache[candidate.cacheKey] = passesDefaultChanlunFilter({ ok: false, structure: {} })
+    }
+  }
+
+  const queue = [...pendingCandidates]
+  const workers = Array.from(
+    { length: Math.min(CHANLUN_REQUEST_CONCURRENCY, Math.max(queue.length, 1)) },
+    () => (async () => {
+      while (queue.length) {
+        const candidate = queue.shift()
+        if (!candidate) return
+        await runCandidate(candidate)
+      }
+    })(),
+  )
+
+  await Promise.all(workers)
+
+  const stats = candidates.reduce((accumulator, candidate) => {
+    const result = nextCache[candidate.cacheKey]
+    accumulator.candidate_total += 1
+    if (result?.passed) accumulator.passed_total += 1
+    else accumulator.failed_total += 1
+    return accumulator
+  }, {
+    candidate_total: 0,
+    passed_total: 0,
+    failed_total: 0,
+  })
+
+  if (requestId !== chanlunRequestId) {
+    return {
+      annotatedStockRowsByProvider: stockRowsByProvider,
+      stats,
+    }
+  }
+
+  chanlunStructureCache.value = nextCache
+  chanlunStats.value = stats
+  chanlunLoading.value = false
+
+  return {
+    annotatedStockRowsByProvider: annotateStocksWithChanlun({
+      stockRowsByProvider,
+      metaByProvider,
+      cache: nextCache,
+    }),
+    stats,
+  }
 }
 
 const activeViewProvider = computed(() => normalizeViewProvider(route.query.p))
@@ -465,6 +599,7 @@ const loadViewData = async () => {
   sourcePlatesByProvider.value = { xgb: [], jygs: [] }
   sourceMetaByProvider.value = { xgb: {}, jygs: {} }
   sourceStocksByProvider.value = { xgb: {}, jygs: {} }
+  chanlunStats.value = EMPTY_CHANLUN_STATS
 
   try {
     const plateLoad = await loadProvidersIndependently({
@@ -500,14 +635,21 @@ const loadViewData = async () => {
     })
     if (requestId !== viewRequestId) return
 
-    sourcePlatesByProvider.value = nextPlates
-    sourceMetaByProvider.value = nextMeta
-    sourceStocksByProvider.value = Object.fromEntries(
+    const rawStocksByProvider = Object.fromEntries(
       SOURCE_PROVIDERS.map((provider) => [
         provider,
         stockLoad.valuesByProvider?.[provider] || {},
       ]),
     )
+    const chanlunLoad = await loadChanlunStructures({
+      stockRowsByProvider: rawStocksByProvider,
+      metaByProvider: nextMeta,
+    })
+    if (requestId !== viewRequestId) return
+
+    sourcePlatesByProvider.value = nextPlates
+    sourceMetaByProvider.value = nextMeta
+    sourceStocksByProvider.value = chanlunLoad.annotatedStockRowsByProvider
     platesError.value = formatProviderLoadErrors({
       errors: plateLoad.errors,
       targetLabel: '首板板块',
@@ -525,6 +667,7 @@ const loadViewData = async () => {
     if (requestId === viewRequestId) {
       platesLoading.value = false
       stocksLoading.value = false
+      chanlunLoading.value = false
     }
   }
 }

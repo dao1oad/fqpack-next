@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 
 import {
   CHANLUN_EXCLUDED_PLATE_NAMES,
@@ -104,4 +105,23 @@ test('treats missing structure or failed response as not passed', () => {
     }).passed,
     false
   )
+})
+
+test('page uses chanlun cache and existing futureApi helper for 30m structure requests', async () => {
+  const viewContent = await readFile(
+    new URL('./GanttShouban30Phase1.vue', import.meta.url),
+    'utf8'
+  )
+  const apiContent = await readFile(
+    new URL('../api/futureApi.js', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(apiContent, /export const getChanlunStructure\s*=/)
+  assert.match(viewContent, /getChanlunStructure/)
+  assert.match(viewContent, /chanlunStructureCache/)
+  assert.match(viewContent, /chanlunStats/)
+  assert.match(viewContent, /chanlunRequestId/)
+  assert.match(viewContent, /loadChanlunStructures/)
+  assert.match(viewContent, /period:\s*'30m'/)
 })
