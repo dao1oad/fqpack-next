@@ -854,7 +854,6 @@ export default {
         return
       }
       this.chartDataZoomState = nextState
-      this.scheduleRender(true)
     },
     handleSlimDataZoomPointerUp() {
       if (this.dataZoomSyncFrameId) {
@@ -874,7 +873,6 @@ export default {
           return
         }
         this.chartDataZoomState = nextState
-        this.scheduleRender(true)
       })
     },
     scheduleRender(force = false) {
