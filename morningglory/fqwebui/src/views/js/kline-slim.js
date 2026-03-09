@@ -21,12 +21,18 @@ import {
   normalizeReasonItems,
   toggleSidebarExpandedKey
 } from './kline-slim-sidebar.mjs'
+import {
+  SUPPORTED_CHANLUN_PERIODS,
+  DEFAULT_MAIN_PERIOD,
+  DEFAULT_VISIBLE_CHANLUN_PERIODS,
+  buildLegendSelectionState,
+  getRealtimeRefreshPeriods,
+  normalizeChanlunPeriod
+} from './kline-slim-chanlun-periods.mjs'
 
-const MAIN_PERIODS = ['1m', '5m', '15m', '30m']
-const DEFAULT_PERIOD = '5m'
-const OVERLAY_PERIOD = '30m'
-const MAIN_POLL_MS = 5000
-const OVERLAY_POLL_MS = 15000
+const MAIN_PERIODS = SUPPORTED_CHANLUN_PERIODS
+const DEFAULT_PERIOD = DEFAULT_MAIN_PERIOD
+const CHANLUN_POLL_MS = 15000
 const CHANLUN_SOURCE_LABELS = {
   realtime_cache_fullcalc: '实时 fullcalc',
   history_fullcalc: '历史 fullcalc',
@@ -44,8 +50,7 @@ function buildVersion(data) {
 }
 
 function getRoutePeriod(route) {
-  const period = route?.query?.period || DEFAULT_PERIOD
-  return MAIN_PERIODS.includes(period) ? period : DEFAULT_PERIOD
+  return normalizeChanlunPeriod(route?.query?.period || DEFAULT_PERIOD)
 }
 
 function formatDirectionLabel(value) {
@@ -82,25 +87,25 @@ export default {
       symbolInput: '',
       endDateModel: '',
       currentPeriod: DEFAULT_PERIOD,
-      overlayPeriod: OVERLAY_PERIOD,
       mainData: null,
-      overlayData: null,
-      mainTimer: null,
-      overlayTimer: null,
+      chanlunRefreshTimer: null,
       renderFrameId: 0,
       routeToken: 0,
       mainLoading: false,
-      overlayLoading: false,
       mainVersion: '',
-      overlayVersion: '',
+      chanlunVersionMap: {},
       lastRenderedVersion: '',
       lastMainBarLabel: '--',
-      lastOverlayBarLabel: '--',
       lastError: '',
       resolvingDefaultSymbol: false,
       defaultSymbolResolveError: '',
       resetChartStateOnNextRender: true,
       periodList: MAIN_PERIODS,
+      chanlunMultiData: {},
+      visibleChanlunPeriods: [...DEFAULT_VISIBLE_CHANLUN_PERIODS],
+      loadedChanlunPeriods: [],
+      chanlunPeriodLoading: {},
+      chanlunLegendSelected: buildLegendSelectionState(),
       holdings: [],
       mustPools: [],
       stockPools: [],
@@ -321,6 +326,20 @@ export default {
       }
       this.stopPolling()
     },
+    resetSlimDataState() {
+      this.lastError = ''
+      this.lastRenderedVersion = ''
+      this.mainVersion = ''
+      this.chanlunVersionMap = {}
+      this.mainData = null
+      this.chanlunMultiData = {}
+      this.loadedChanlunPeriods = []
+      this.chanlunPeriodLoading = {}
+      this.visibleChanlunPeriods = [...DEFAULT_VISIBLE_CHANLUN_PERIODS]
+      this.chanlunLegendSelected = buildLegendSelectionState()
+      this.lastMainBarLabel = '--'
+      this.resetChartStateOnNextRender = true
+    },
     handleRouteChange() {
       this.currentPeriod = getRoutePeriod(this.$route)
       this.symbolInput = this.routeSymbol
@@ -329,16 +348,8 @@ export default {
 
       if (!this.routeSymbol && shouldResolveDefaultSymbol(this.$route.query)) {
         this.routeToken += 1
-        this.lastError = ''
         this.defaultSymbolResolveError = ''
-        this.lastRenderedVersion = ''
-        this.mainVersion = ''
-        this.overlayVersion = ''
-        this.mainData = null
-        this.overlayData = null
-        this.lastMainBarLabel = '--'
-        this.lastOverlayBarLabel = '--'
-        this.resetChartStateOnNextRender = true
+        this.resetSlimDataState()
         this.stopPolling()
         this.resolvingDefaultSymbol = true
 
@@ -366,15 +377,7 @@ export default {
       }
 
       this.routeToken += 1
-      this.lastError = ''
-      this.lastRenderedVersion = ''
-      this.mainVersion = ''
-      this.overlayVersion = ''
-      this.mainData = null
-      this.overlayData = null
-      this.lastMainBarLabel = '--'
-      this.lastOverlayBarLabel = '--'
-      this.resetChartStateOnNextRender = true
+      this.resetSlimDataState()
       this.stopPolling()
 
       if (this.chart && this.routeSymbol) {
@@ -389,16 +392,11 @@ export default {
         return
       }
 
-      this.fetchMainData(this.routeToken)
-      this.fetchOverlayData(this.routeToken)
+      this.refreshVisibleChanlunPeriods(this.routeToken)
       if (this.isRealtimeMode && document.visibilityState === 'visible') {
-        this.mainTimer = window.setInterval(
-          () => this.fetchMainData(this.routeToken),
-          MAIN_POLL_MS
-        )
-        this.overlayTimer = window.setInterval(
-          () => this.fetchOverlayData(this.routeToken),
-          OVERLAY_POLL_MS
+        this.chanlunRefreshTimer = window.setInterval(
+          () => this.refreshVisibleChanlunPeriods(this.routeToken),
+          CHANLUN_POLL_MS
         )
       }
     },
@@ -642,14 +640,29 @@ export default {
       return formatPercentValue(value)
     },
     stopPolling() {
-      if (this.mainTimer) {
-        window.clearInterval(this.mainTimer)
-        this.mainTimer = null
+      if (this.chanlunRefreshTimer) {
+        window.clearInterval(this.chanlunRefreshTimer)
+        this.chanlunRefreshTimer = null
       }
-      if (this.overlayTimer) {
-        window.clearInterval(this.overlayTimer)
-        this.overlayTimer = null
+    },
+    cacheChanlunPeriodPayload(period, payload) {
+      const nextVersion = buildVersion(payload)
+      if (!nextVersion) {
+        return ''
       }
+
+      this.chanlunMultiData = {
+        ...this.chanlunMultiData,
+        [period]: payload
+      }
+      this.chanlunVersionMap = {
+        ...this.chanlunVersionMap,
+        [period]: nextVersion
+      }
+      if (!this.loadedChanlunPeriods.includes(period)) {
+        this.loadedChanlunPeriods = [...this.loadedChanlunPeriods, period]
+      }
+      return nextVersion
     },
     async fetchMainData(token) {
       if (this.mainLoading || !this.routeSymbol) {
@@ -666,7 +679,7 @@ export default {
         if (token !== this.routeToken || !payload) {
           return
         }
-        const nextVersion = buildVersion(payload)
+        const nextVersion = this.cacheChanlunPeriodPayload(this.currentPeriod, payload)
         if (!nextVersion) {
           return
         }
@@ -682,46 +695,77 @@ export default {
         this.mainLoading = false
       }
     },
-    async fetchOverlayData(token) {
-      if (
-        this.overlayLoading ||
-        !this.routeSymbol ||
-        this.currentPeriod === this.overlayPeriod
-      ) {
-        if (this.currentPeriod === this.overlayPeriod) {
-          this.overlayData = null
-          this.overlayVersion = ''
-          this.lastOverlayBarLabel = '--'
-          this.scheduleRender()
+    async ensureChanlunPeriodLoaded(period, token = this.routeToken, options = {}) {
+      const resolvedPeriod = normalizeChanlunPeriod(period)
+      const { force = false } = options
+
+      if (!this.routeSymbol) {
+        return
+      }
+      if (resolvedPeriod === this.currentPeriod) {
+        if (force || !this.mainData) {
+          await this.fetchMainData(token)
         }
         return
       }
-      this.overlayLoading = true
+      if (this.chanlunPeriodLoading[resolvedPeriod]) {
+        return
+      }
+      if (!force && this.chanlunMultiData[resolvedPeriod]) {
+        return
+      }
+
+      this.chanlunPeriodLoading = {
+        ...this.chanlunPeriodLoading,
+        [resolvedPeriod]: true
+      }
       try {
         const payload = await futureApi.stockData({
           symbol: this.routeSymbol,
-          period: this.overlayPeriod,
+          period: resolvedPeriod,
           endDate: this.endDateModel || undefined,
           realtimeCache: this.isRealtimeMode
         })
         if (token !== this.routeToken || !payload) {
           return
         }
-        const nextVersion = buildVersion(payload)
+        const nextVersion = this.cacheChanlunPeriodPayload(resolvedPeriod, payload)
         if (!nextVersion) {
           return
         }
-        this.overlayData = payload
-        this.overlayVersion = nextVersion
-        this.lastOverlayBarLabel = payload.date[payload.date.length - 1]
         this.scheduleRender()
       } catch (error) {
         if (token === this.routeToken) {
           this.lastError = '叠加结构刷新失败'
         }
       } finally {
-        this.overlayLoading = false
+        this.chanlunPeriodLoading = {
+          ...this.chanlunPeriodLoading,
+          [resolvedPeriod]: false
+        }
       }
+    },
+    async refreshVisibleChanlunPeriods(token = this.routeToken) {
+      const refreshPeriods = getRealtimeRefreshPeriods({
+        currentPeriod: this.currentPeriod,
+        visiblePeriods: this.visibleChanlunPeriods
+      })
+
+      await Promise.allSettled(
+        refreshPeriods.map((period) =>
+          this.ensureChanlunPeriodLoaded(period, token, {
+            force: this.isRealtimeMode
+          })
+        )
+      )
+    },
+    handleSlimLegendSelectChanged(event) {
+      const selected = event?.selected || {}
+      this.chanlunLegendSelected = buildLegendSelectionState(selected)
+      this.visibleChanlunPeriods = Object.keys(this.chanlunLegendSelected).filter(
+        (name) => MAIN_PERIODS.includes(name) && this.chanlunLegendSelected[name]
+      )
+      this.refreshVisibleChanlunPeriods(this.routeToken)
     },
     scheduleRender() {
       if (!this.chart || !this.mainData) {
@@ -733,7 +777,10 @@ export default {
 
       this.renderFrameId = window.requestAnimationFrame(() => {
         this.renderFrameId = 0
-        const combinedVersion = `${this.mainVersion}__${this.overlayVersion}`
+        const extraPeriods = this.visibleChanlunPeriods.filter((period) => period !== this.currentPeriod)
+        const combinedVersion = [this.mainVersion]
+          .concat(extraPeriods.map((period) => this.chanlunVersionMap[period] || ''))
+          .join('__')
         if (
           combinedVersion === this.lastRenderedVersion &&
           !this.resetChartStateOnNextRender
@@ -742,10 +789,11 @@ export default {
         }
 
         const nextVersion = drawSlim(this.chart, this.mainData, this.currentPeriod, {
-          overlayPeriod: this.overlayPeriod,
-          extraChanlunMap: this.overlayData
-            ? { [this.overlayPeriod]: this.overlayData }
-            : {},
+          extraChanlunMap: Object.fromEntries(
+            extraPeriods
+              .map((period) => [period, this.chanlunMultiData[period]])
+              .filter(([, payload]) => !!payload)
+          ),
           keepState: !this.resetChartStateOnNextRender
         })
         this.lastRenderedVersion = nextVersion || combinedVersion
@@ -800,7 +848,7 @@ export default {
         return
       }
       this.fetchMainData(this.routeToken)
-      this.fetchOverlayData(this.routeToken)
+      this.refreshVisibleChanlunPeriods(this.routeToken)
     },
     jumpToControl() {
       this.$router.replace('/stock-control')

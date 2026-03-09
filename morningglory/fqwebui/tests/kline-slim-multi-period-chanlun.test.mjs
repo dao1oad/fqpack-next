@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 
 import {
   SUPPORTED_CHANLUN_PERIODS,
@@ -44,4 +45,19 @@ test('realtime refresh periods keep current period first and visible extras uniq
     }),
     ['5m', '1m', '30m']
   )
+})
+
+test('kline-slim controller uses multi-period chanlun state instead of fixed overlay', async () => {
+  const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(content, /chanlunMultiData/)
+  assert.match(content, /visibleChanlunPeriods/)
+  assert.match(content, /loadedChanlunPeriods/)
+  assert.match(content, /chanlunPeriodLoading/)
+  assert.match(content, /ensureChanlunPeriodLoaded/)
+  assert.match(content, /handleSlimLegendSelectChanged/)
+  assert.match(content, /refreshVisibleChanlunPeriods/)
+  assert.doesNotMatch(content, /overlayData/)
+  assert.doesNotMatch(content, /overlayTimer/)
+  assert.doesNotMatch(content, /OVERLAY_PERIOD/)
 })
