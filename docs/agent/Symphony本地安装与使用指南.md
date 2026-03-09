@@ -84,7 +84,7 @@ mise exec -- mix build
 
 ### 3.3 Windows 注意事项
 
-`mix build` 期间会看到一条 `Phoenix.LiveView.ColocatedJS` 的 symlink warning；当前机器上该 warning **不阻塞构建成功**。  
+`mix build` 期间会看到一条 `Phoenix.LiveView.ColocatedJS` 的 symlink warning；当前机器上该 warning **不阻塞构建成功**。
 如果后续要消除此 warning，按上游提示，用管理员权限启动一次终端即可。
 
 ## 4. 本机最小验证（不接 Linear）
