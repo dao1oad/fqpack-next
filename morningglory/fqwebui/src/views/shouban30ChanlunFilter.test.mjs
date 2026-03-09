@@ -125,3 +125,16 @@ test('page uses chanlun cache and existing futureApi helper for 30m structure re
   assert.match(viewContent, /loadChanlunStructures/)
   assert.match(viewContent, /period:\s*'30m'/)
 })
+
+test('page binds left count column and stock table to chanlun-passed presentation', async () => {
+  const viewContent = await readFile(
+    new URL('./GanttShouban30Phase1.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(viewContent, /filterExcludedPlates/)
+  assert.match(viewContent, /const plateCountLabel = computed\(\(\) => '通过数'\)/)
+  assert.match(viewContent, /label="高级段倍数"/)
+  assert.match(viewContent, /label="段倍数"/)
+  assert.match(viewContent, /label="笔涨幅%"/)
+})

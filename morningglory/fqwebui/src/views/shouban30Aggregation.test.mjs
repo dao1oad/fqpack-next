@@ -6,6 +6,7 @@ import {
   aggregateStockRows,
   buildViewStats,
   formatProviderLoadErrors,
+  hydratePlateRowsWithPassedStocks,
   loadProvidersIndependently,
   normalizeSourcePlateRefs,
   sortStockRows,
@@ -149,6 +150,49 @@ test('aggregatePlateRows uses only chanlun-passed stocks and drops zero-count pl
   assert.equal(rows[0].stocks_count, 1)
 })
 
+test('hydratePlateRowsWithPassedStocks rewrites single-provider counts and drops zero-count plates', () => {
+  const rows = hydratePlateRowsWithPassedStocks({
+    plates: [
+      {
+        provider: 'xgb',
+        plate_key: '11',
+        plate_name: 'robotics',
+        seg_to: '2026-03-05',
+        appear_days_30: 2,
+      },
+      {
+        provider: 'xgb',
+        plate_key: '22',
+        plate_name: 'chips',
+        seg_to: '2026-03-04',
+        appear_days_30: 1,
+      },
+    ],
+    stockRowsByPlate: {
+      '11': [
+        { code6: '000001', chanlun_passed: true },
+        { code6: '000002', chanlun_passed: false },
+      ],
+      '22': [
+        { code6: '000003', chanlun_passed: false },
+      ],
+    },
+  })
+
+  assert.deepEqual(rows, [
+    {
+      provider: 'xgb',
+      plate_key: '11',
+      plate_name: 'robotics',
+      seg_to: '2026-03-05',
+      appear_days_30: 2,
+      stocks_count: 1,
+      last_up_date: '2026-03-05',
+      view_key: 'xgb|11',
+    },
+  ])
+})
+
 test('aggregatePlateRows keeps all source plate refs for same provider and same name', () => {
   const rows = aggregatePlateRows({
     xgbPlates: [
@@ -228,6 +272,11 @@ test('aggregateStockRows merges same code6 and keeps latest reason', () => {
       hit_count_window: 3,
       latest_trade_date: '2026-03-06',
       latest_reason: 'jygs latest',
+      chanlun_passed: true,
+      chanlun_reason: 'passed',
+      chanlun_higher_multiple: null,
+      chanlun_segment_multiple: null,
+      chanlun_bi_gain_percent: null,
       providers: ['xgb', 'jygs'],
       hit_trade_dates_window: ['2026-03-04', '2026-03-05', '2026-03-06'],
     },
@@ -237,6 +286,11 @@ test('aggregateStockRows merges same code6 and keeps latest reason', () => {
       hit_count_window: 1,
       latest_trade_date: '2026-03-06',
       latest_reason: 'beta latest',
+      chanlun_passed: true,
+      chanlun_reason: 'passed',
+      chanlun_higher_multiple: null,
+      chanlun_segment_multiple: null,
+      chanlun_bi_gain_percent: null,
       providers: ['xgb'],
       hit_trade_dates_window: ['2026-03-06'],
     },
@@ -274,6 +328,11 @@ test('aggregateStockRows drops chanlun-failed rows before dedupe', () => {
       hit_count_window: 1,
       latest_trade_date: '2026-03-06',
       latest_reason: 'jygs latest',
+      chanlun_passed: true,
+      chanlun_reason: 'passed',
+      chanlun_higher_multiple: null,
+      chanlun_segment_multiple: null,
+      chanlun_bi_gain_percent: null,
       providers: ['jygs'],
       hit_trade_dates_window: ['2026-03-06'],
     },
@@ -303,6 +362,25 @@ test('sortStockRows sorts by latest trade date desc then hit count desc then cod
     rows.map((item) => item.code6),
     ['000002', '000001', '000003'],
   )
+})
+
+test('sortStockRows drops chanlun-failed rows before sorting', () => {
+  const rows = sortStockRows([
+    {
+      code6: '000003',
+      latest_trade_date: '2026-03-05',
+      hit_count_window: 1,
+      chanlun_passed: false,
+    },
+    {
+      code6: '000001',
+      latest_trade_date: '2026-03-06',
+      hit_count_window: 1,
+      chanlun_passed: true,
+    },
+  ])
+
+  assert.deepEqual(rows.map((item) => item.code6), ['000001'])
 })
 
 test('buildViewStats counts unique stocks by code6', () => {

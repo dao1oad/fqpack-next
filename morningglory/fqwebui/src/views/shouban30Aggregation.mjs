@@ -139,6 +139,22 @@ export const sortPlateRows = (rows) => {
     })
 }
 
+export const hydratePlateRowsWithPassedStocks = ({
+  plates = [],
+  stockRowsByPlate = {},
+} = {}) => {
+  const hydrated = (plates || []).flatMap((row) => {
+    const plateKey = toText(row?.plate_key)
+    const stocksCount = uniqueCodeCount(stockRowsByPlate?.[plateKey] || [])
+    if (stocksCount <= 0) return []
+    return [{
+      ...row,
+      stocks_count: stocksCount,
+    }]
+  })
+  return sortPlateRows(hydrated)
+}
+
 export const aggregatePlateRows = ({
   xgbPlates = [],
   jygsPlates = [],
@@ -209,6 +225,11 @@ export const aggregateStockRows = (rows = []) => {
       hit_count_window: hitDates.length || Math.max(...items.map((item) => Number(item?.hit_count_window || 0)), 0),
       latest_trade_date: toText(latest?.latest_trade_date) || null,
       latest_reason: toText(latest?.latest_reason) || null,
+      chanlun_passed: true,
+      chanlun_reason: toText(latest?.chanlun_reason) || 'passed',
+      chanlun_higher_multiple: latest?.chanlun_higher_multiple ?? null,
+      chanlun_segment_multiple: latest?.chanlun_segment_multiple ?? null,
+      chanlun_bi_gain_percent: latest?.chanlun_bi_gain_percent ?? null,
       providers: uniqueSortedProviders(items.map((item) => item?.provider)),
       hit_trade_dates_window: hitDates,
     })
@@ -218,7 +239,7 @@ export const aggregateStockRows = (rows = []) => {
 }
 
 export const sortStockRows = (rows = []) => {
-  return [...rows].sort((left, right) => {
+  return [...rows].filter(isChanlunPassed).sort((left, right) => {
     const dateCompare = sortByDateDesc(left?.latest_trade_date, right?.latest_trade_date)
     if (dateCompare !== 0) return dateCompare
     const hitCompare = Number(right?.hit_count_window || 0) - Number(left?.hit_count_window || 0)

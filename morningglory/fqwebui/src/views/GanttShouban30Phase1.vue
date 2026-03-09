@@ -128,6 +128,21 @@
                   <span class="mono">{{ row.latest_trade_date || '-' }}</span>
                 </template>
               </el-table-column>
+              <el-table-column label="高级段倍数" min-width="102">
+                <template #default="{ row }">
+                  <span class="mono">{{ formatChanlunMetric(row.chanlun_higher_multiple) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="段倍数" min-width="92">
+                <template #default="{ row }">
+                  <span class="mono">{{ formatChanlunMetric(row.chanlun_segment_multiple) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="笔涨幅%" min-width="92">
+                <template #default="{ row }">
+                  <span class="mono">{{ formatChanlunMetric(row.chanlun_bi_gain_percent) }}</span>
+                </template>
+              </el-table-column>
               <el-table-column prop="latest_reason" label="最近理由" min-width="180" show-overflow-tooltip />
             </el-table>
           </div>
@@ -209,12 +224,15 @@ import {
   buildViewStats,
   formatProviderLabel,
   formatProviderLoadErrors,
+  hydratePlateRowsWithPassedStocks,
   loadProvidersIndependently,
   normalizeSourcePlateRefs,
-  sortPlateRows,
   sortStockRows,
 } from './shouban30Aggregation.mjs'
-import { passesDefaultChanlunFilter } from './shouban30ChanlunFilter.mjs'
+import {
+  filterExcludedPlates,
+  passesDefaultChanlunFilter,
+} from './shouban30ChanlunFilter.mjs'
 
 const VIEW_PROVIDER_OPTIONS = [
   { name: 'xgb', label: 'XGB' },
@@ -276,6 +294,13 @@ const unwrapApiData = (response) => {
 
 const getErrorMessage = (error, fallback) => {
   return String(error?.response?.data?.message || error?.message || fallback)
+}
+
+const formatChanlunMetric = (value) => {
+  if (value == null || value === '') return '-'
+  const number = Number(value)
+  if (!Number.isFinite(number)) return '-'
+  return number.toFixed(2)
 }
 
 const buildChanlunCacheKey = (code6, asOfDate) => {
@@ -422,8 +447,14 @@ const updateQuery = (patch = {}) => {
   }).catch(() => {})
 }
 
-const xgbPlates = computed(() => sortPlateRows(normalizeList(sourcePlatesByProvider.value.xgb)))
-const jygsPlates = computed(() => sortPlateRows(normalizeList(sourcePlatesByProvider.value.jygs)))
+const xgbPlates = computed(() => hydratePlateRowsWithPassedStocks({
+  plates: normalizeList(sourcePlatesByProvider.value.xgb),
+  stockRowsByPlate: sourceStocksByProvider.value.xgb,
+}))
+const jygsPlates = computed(() => hydratePlateRowsWithPassedStocks({
+  plates: normalizeList(sourcePlatesByProvider.value.jygs),
+  stockRowsByPlate: sourceStocksByProvider.value.jygs,
+}))
 const aggPlates = computed(() => aggregatePlateRows({
   xgbPlates: xgbPlates.value,
   jygsPlates: jygsPlates.value,
@@ -514,7 +545,7 @@ const activeViewLabel = computed(() => {
   return VIEW_PROVIDER_OPTIONS.find((item) => item.name === activeViewProvider.value)?.label || 'XGB'
 })
 
-const plateCountLabel = computed(() => `${stockWindowDays.value}标的`)
+const plateCountLabel = computed(() => '通过数')
 const stockHitCountLabel = computed(() => `${stockWindowDays.value}次`)
 
 const formatTabStats = (stats) => {
@@ -612,7 +643,7 @@ const loadViewData = async () => {
     const nextPlates = Object.fromEntries(
       SOURCE_PROVIDERS.map((provider) => [
         provider,
-        normalizeList(plateLoad.valuesByProvider?.[provider]?.items),
+        filterExcludedPlates(normalizeList(plateLoad.valuesByProvider?.[provider]?.items)),
       ]),
     )
     const nextMeta = Object.fromEntries(
