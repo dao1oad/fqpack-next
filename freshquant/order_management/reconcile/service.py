@@ -17,6 +17,7 @@ from freshquant.order_management.ingest.xt_reports import (
 from freshquant.order_management.reconcile.matcher import match_candidate_to_trade
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.tracking.service import OrderTrackingService
+from freshquant.runtime_observability.logger import RuntimeEventLogger
 
 
 class ExternalOrderReconcileService:
@@ -26,6 +27,7 @@ class ExternalOrderReconcileService:
         tracking_service=None,
         ingest_service=None,
         external_confirm_seconds=120,
+        runtime_logger=None,
     ):
         self.repository = repository or OrderManagementRepository()
         self.tracking_service = tracking_service or OrderTrackingService(
@@ -36,6 +38,7 @@ class ExternalOrderReconcileService:
             tracking_service=self.tracking_service,
         )
         self.external_confirm_seconds = external_confirm_seconds
+        self.runtime_logger = runtime_logger or _get_runtime_logger()
 
     def detect_external_candidates(self, positions, detected_at):
         positions_by_symbol = _build_positions_by_symbol(positions)
@@ -97,6 +100,17 @@ class ExternalOrderReconcileService:
                 normalized
             )
             if match_status == "matched":
+                self._emit_runtime(
+                    "internal_match",
+                    {
+                        "trace_id": matched_order.get("trace_id"),
+                        "intent_id": matched_order.get("intent_id"),
+                        "request_id": matched_order.get("request_id"),
+                        "internal_order_id": matched_order["internal_order_id"],
+                        "symbol": normalized["symbol"],
+                    },
+                    payload={"broker_order_id": normalized.get("broker_order_id")},
+                )
                 normalized["internal_order_id"] = matched_order["internal_order_id"]
                 if normalized.get("broker_order_id") and not matched_order.get(
                     "broker_order_id"
@@ -112,6 +126,17 @@ class ExternalOrderReconcileService:
                     normalized,
                     lot_amount=_safe_resolve_lot_amount(normalized["symbol"]),
                     grid_interval_lookup=_safe_grid_interval_lookup,
+                )
+                self._emit_runtime(
+                    "projection_update",
+                    {
+                        "trace_id": matched_order.get("trace_id"),
+                        "intent_id": matched_order.get("intent_id"),
+                        "request_id": matched_order.get("request_id"),
+                        "internal_order_id": matched_order["internal_order_id"],
+                        "symbol": normalized["symbol"],
+                    },
+                    payload={"source": "internal_match"},
                 )
                 results.append(result)
                 continue
@@ -135,6 +160,15 @@ class ExternalOrderReconcileService:
                 state="FILLED",
                 broker_order_id=normalized.get("broker_order_id"),
             )
+            self._emit_runtime(
+                "externalize",
+                {
+                    "request_id": order["request_id"],
+                    "internal_order_id": order["internal_order_id"],
+                    "symbol": normalized["symbol"],
+                },
+                payload={"source_type": "external_reported"},
+            )
             normalized["internal_order_id"] = order["internal_order_id"]
             normalized["source"] = "external_reported"
             result = self.ingest_service.ingest_trade_report(
@@ -151,6 +185,15 @@ class ExternalOrderReconcileService:
                         "matched_trade_fact_id": result["trade_fact"]["trade_fact_id"],
                     },
                 )
+            self._emit_runtime(
+                "projection_update",
+                {
+                    "request_id": order["request_id"],
+                    "internal_order_id": order["internal_order_id"],
+                    "symbol": normalized["symbol"],
+                },
+                payload={"source": "external_reported"},
+            )
             results.append(result)
         return results
 
@@ -199,6 +242,15 @@ class ExternalOrderReconcileService:
                 state="INFERRED_CONFIRMED",
                 broker_order_id=None,
             )
+            self._emit_runtime(
+                "externalize",
+                {
+                    "request_id": order["request_id"],
+                    "internal_order_id": order["internal_order_id"],
+                    "symbol": candidate["symbol"],
+                },
+                payload={"source_type": "external_inferred"},
+            )
             trade_report = _build_inferred_trade_report(
                 candidate, order["internal_order_id"]
             )
@@ -215,6 +267,15 @@ class ExternalOrderReconcileService:
                     "matched_trade_fact_id": result["trade_fact"]["trade_fact_id"],
                     "confirmed_at": int(now),
                 },
+            )
+            self._emit_runtime(
+                "projection_update",
+                {
+                    "request_id": order["request_id"],
+                    "internal_order_id": order["internal_order_id"],
+                    "symbol": candidate["symbol"],
+                },
+                payload={"source": "external_inferred"},
             )
             confirmed.append(updated_candidate)
         return confirmed
@@ -294,6 +355,22 @@ class ExternalOrderReconcileService:
         )
         return order
 
+    def _emit_runtime(self, node, ids, *, payload=None):
+        event = {
+            "component": "order_reconcile",
+            "node": node,
+            "trace_id": ids.get("trace_id"),
+            "intent_id": ids.get("intent_id"),
+            "request_id": ids.get("request_id"),
+            "internal_order_id": ids.get("internal_order_id"),
+            "symbol": ids.get("symbol"),
+            "payload": dict(payload or {}),
+        }
+        try:
+            self.runtime_logger.emit(event)
+        except Exception:
+            return
+
 
 def _build_positions_by_symbol(positions):
     result = {}
@@ -355,3 +432,13 @@ def _safe_grid_interval_lookup(symbol, trade_fact):
         return _default_grid_interval_lookup(symbol, trade_fact)
     except Exception:
         return 1.03
+
+
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        _runtime_logger = RuntimeEventLogger("order_reconcile")
+    return _runtime_logger

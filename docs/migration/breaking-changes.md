@@ -14,10 +14,10 @@
 ## 变更记录
 
 - **日期**：2026-03-09
-- **RFC**：0026-gantt-shouban30-filters-and-reason-popovers
+- **RFC**：0027-gantt-shouban30-filters-and-reason-popovers
 - **变更**：`/api/gantt/shouban30/stocks` 已新增 `is_credit_subject / near_long_term_ma_passed / is_quality_subject` 及其辅助字段；`/gantt/shouban30` 页面已新增 `融资标的 / 均线附近 / 优质标的` 三个交集筛选按钮，并将理由展示从默认 `show-overflow-tooltip` 切换为卡片式 `el-popover`。盘后构建链现已新增 `quality_stock_universe` 基础集合，用于固化旧分支固定优质 `block_names` 名单对应的股票集合。
 - **影响面**：直接消费 `/api/gantt/shouban30/stocks` 的调用方、`/gantt/shouban30` 页面用户、Dagster 盘后任务耗时与数据链路、以及依赖旧 tooltip 展示与无额外筛选页面行为的截图/文档都会受到影响。
-- **迁移步骤**：1) 部署包含 RFC 0026 的后端、Dagster 和前端代码；2) 运行或等待 `job_gantt_postclose` 更新优质基础集合并重建目标交易日 `shouban30`；3) 调用方按新字段读取三类筛选标记；4) 页面用户改用按钮交集过滤，不再假设列表只受默认缠论筛选控制；5) 如需验证展示效果，应重点检查理由 popover 样式和交集筛选后的板块计数是否同步变化。
+- **迁移步骤**：1) 部署包含 RFC 0027 的后端、Dagster 和前端代码；2) 运行或等待 `job_gantt_postclose` 更新优质基础集合并重建目标交易日 `shouban30`；3) 调用方按新字段读取三类筛选标记；4) 页面用户改用按钮交集过滤，不再假设列表只受默认缠论筛选控制；5) 如需验证展示效果，应重点检查理由 popover 样式和交集筛选后的板块计数是否同步变化。
 - **回滚方案**：回退 `quality_stock_universe`、`gantt_readmodel.py`、Dagster `gantt.py`、`GanttShouban30Phase1.vue` 与 popover 组件改动，重新构建不带新增筛选字段的 `shouban30` 快照。
 
 - **日期**：2026-03-09
@@ -26,6 +26,13 @@
 - **影响面**：`/gantt/shouban30` 页面、`/api/gantt/shouban30/plates|stocks` 调用方、依赖旧候选统计的截图/说明文档，以及任何仍假设北交所标的会出现在 `shouban30` 快照中的脚本都会受到影响。统计值会下降，部分仅由北交所标的构成的板块会直接消失。
 - **迁移步骤**：1) 部署包含 RFC 0025 的后端与 Dagster 代码；2) 重建或等待 `job_gantt_postclose` 重建目标交易日 `30/45/60/90` 四档 `shouban30` 快照；3) 调用 `/api/gantt/shouban30/plates|stocks` 时，不再假设会返回北交所 `43/83/87/92` 标的或纯北交所板块；4) 若有历史报表需要与旧口径对齐，应显式注明“旧口径包含北交所候选”。
 - **回滚方案**：回退 `freshquant/data/gantt_readmodel.py` 与相关测试/文档，重新构建受影响交易日的 `shouban30` 快照，恢复旧的“北交所标的也进入候选集”语义。
+
+- **日期**：2026-03-09
+- **RFC**：0026-runtime-observability-and-log-visualization
+- **变更**：新增 `freshquant/runtime_observability/`、后端只读接口 `/api/runtime/components`、`/api/runtime/health/summary`、`/api/runtime/traces`、`/api/runtime/traces/<trace_id>`、`/api/runtime/events`、`/api/runtime/raw-files/*`，以及前端页面 `/runtime-observability`。运行观测主入口不再沿用旧仓 `SystemLogs` 的前端聚合语义，而是改为“后端 trace 聚合 + 健康看板 + raw JSONL tail”的组合。`Guardian` 也不再被视为完整交易链容器，跨组件链路统一按 `trace_id -> intent_id -> request_id -> internal_order_id` 关联。
+- **影响面**：FreshQuant Web UI、Flask API、策略/订单/执行链日志排障手册，以及任何仍假设旧 `/api/system_logs/*` 或旧 `SystemLogs.vue` 聚合模型的迁移脚本都会受到影响。`XTData Producer/Consumer`、`Guardian`、`TPSL`、`Position Management`、`Order Management`、`Broker/Puppet`、`XT ingest`、`Reconcile` 现已统一接入新的运行观测事件模型。
+- **迁移步骤**：1) 部署包含 RFC 0026 的后端、宿主机 broker/puppet 与前端代码；2) 如需覆盖运行节点标识，可配置 `runtime_observability.runtime_node` 或对应环境变量；3) 使用 `/runtime-observability` 查看健康卡片、trace 列表、trace 详情和 raw tail；4) 旧排障流程若依赖 `SystemLogs`，请改用 `/api/runtime/*` 或页面内 raw tail。运行观测日志只允许旁路写入，不得接入任何会阻塞下单链路的同步外部依赖。
+- **回滚方案**：回退 `freshquant/runtime_observability/`、`freshquant/rear/runtime/routes.py`、`freshquant/rear/api_server.py`、相关业务埋点，以及 `morningglory/fqwebui/src/views/RuntimeObservability.vue` 与路由/导航改动；业务链路本身不依赖运行观测模块，回滚后仅失去新观测能力。
 
 - **日期**：2026-03-09
 - **RFC**：0023-gantt-shouban30-postclose-chanlun-snapshot

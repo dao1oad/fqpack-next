@@ -13,7 +13,7 @@
 ### Task 1: 写 RFC 并同步迁移记录
 
 **Files:**
-- Create: `docs/rfcs/0026-gantt-shouban30-filters-and-reason-popovers.md`
+- Create: `docs/rfcs/0027-gantt-shouban30-filters-and-reason-popovers.md`
 - Modify: `docs/migration/progress.md`
 - Modify: `docs/migration/breaking-changes.md`
 - Reference: `docs/rfcs/0000-template.md`
@@ -32,7 +32,7 @@
 
 **Step 2: 更新迁移进度为 `Review`**
 
-在 `docs/migration/progress.md` 新增 RFC 0026 行，并注明：
+在 `docs/migration/progress.md` 新增 RFC 0027 行，并注明：
 
 - 当前状态：`Review`
 - 旧分支来源：`run_xgt_plate_screener_loop.py` 的固定 `block_names`
@@ -40,7 +40,7 @@
 
 **Step 3: 预登记 breaking change**
 
-在 `docs/migration/breaking-changes.md` 追加 RFC 0026 的预期影响：
+在 `docs/migration/breaking-changes.md` 追加 RFC 0027 的预期影响：
 
 - `/api/gantt/shouban30/stocks` 返回新增筛选字段
 - 页面筛选语义改变
@@ -54,7 +54,7 @@ Expected: 无空白错误
 **Step 5: Commit**
 
 ```bash
-git add docs/rfcs/0026-gantt-shouban30-filters-and-reason-popovers.md docs/migration/progress.md docs/migration/breaking-changes.md
+git add docs/rfcs/0027-gantt-shouban30-filters-and-reason-popovers.md docs/migration/progress.md docs/migration/breaking-changes.md
 git commit -m "docs: 增补 shouban30 筛选与悬浮框 RFC"
 ```
 
@@ -167,7 +167,7 @@ Expected: PASS
 
 **Step 5: 同步进度到 `Implementing`**
 
-在 `docs/migration/progress.md` 中将 RFC 0026 更新为 `Implementing`，并注明：
+在 `docs/migration/progress.md` 中将 RFC 0027 更新为 `Implementing`，并注明：
 
 - 优质标的基础集合与 Dagster 链路已接通
 - 下一步进入 `shouban30` 快照扩展与前端消费
@@ -393,7 +393,7 @@ Expected: PASS
 Run:
 
 ```bash
-py -3.12 -m pre_commit run --show-diff-on-failure --color=always --files docs/rfcs/0026-gantt-shouban30-filters-and-reason-popovers.md docs/migration/progress.md docs/migration/breaking-changes.md freshquant/data/quality_stock_universe.py freshquant/data/gantt_readmodel.py freshquant/rear/gantt/routes.py morningglory/fqdagster/src/fqdagster/defs/ops/gantt.py morningglory/fqwebui/src/views/GanttShouban30Phase1.vue morningglory/fqwebui/src/views/components/Shouban30ReasonPopover.vue
+py -3.12 -m pre_commit run --show-diff-on-failure --color=always --files docs/rfcs/0027-gantt-shouban30-filters-and-reason-popovers.md docs/migration/progress.md docs/migration/breaking-changes.md freshquant/data/quality_stock_universe.py freshquant/data/gantt_readmodel.py freshquant/rear/gantt/routes.py morningglory/fqdagster/src/fqdagster/defs/ops/gantt.py morningglory/fqwebui/src/views/GanttShouban30Phase1.vue morningglory/fqwebui/src/views/components/Shouban30ReasonPopover.vue
 ```
 
 Expected: PASS
@@ -402,7 +402,7 @@ Expected: PASS
 
 在 `docs/migration/progress.md` 与 `docs/migration/breaking-changes.md` 中补齐：
 
-- RFC 0026 状态改为 `Done`
+- RFC 0027 状态改为 `Done`
 - 本轮新增字段、页面行为变化与迁移步骤
 
 **Step 5: 最终 Commit**

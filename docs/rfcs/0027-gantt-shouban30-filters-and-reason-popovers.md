@@ -1,4 +1,4 @@
-# RFC 0026: Gantt Shouban30 筛选按钮与理由悬浮框
+# RFC 0027: Gantt Shouban30 筛选按钮与理由悬浮框
 
 - **状态**：Approved
 - **负责人**：Codex
@@ -241,7 +241,7 @@
 
 **迁移步骤**
 
-1. 部署包含 RFC 0026 的后端、Dagster 和前端代码
+1. 部署包含 RFC 0027 的后端、Dagster 和前端代码
 2. 运行或等待 `job_gantt_postclose` 更新优质标的基础集合并重建目标交易日 `shouban30`
 3. 调用方按新字段读取 `is_credit_subject / near_long_term_ma_passed / is_quality_subject`
 4. 页面用户改用按钮交集过滤，而不是依赖旧的纯缠论列表
@@ -291,7 +291,7 @@
 
 ## 12. 里程碑与拆分（Milestones）
 
-- M1：RFC 0026 通过
+- M1：RFC 0027 通过
 - M2：`quality_stock_universe` 与 Dagster 链路打通
 - M3：`shouban30_stocks` 扩展三类筛选字段
 - M4：前端筛选按钮与理由 popover 完成

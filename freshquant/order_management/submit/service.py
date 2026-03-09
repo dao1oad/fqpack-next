@@ -13,6 +13,7 @@ from freshquant.order_management.submit.credit_order_resolver import (
 )
 from freshquant.order_management.tracking.service import OrderTrackingService
 from freshquant.position_management.errors import PositionManagementRejectedError
+from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.util.code import normalize_to_base_code
 
 
@@ -27,6 +28,7 @@ class OrderSubmitService:
         credit_subject_lookup=None,
         credit_subjects_available=None,
         credit_order_resolver=None,
+        runtime_logger=None,
     ):
         self.repository = repository or OrderManagementRepository()
         self.tracking_service = tracking_service or OrderTrackingService(
@@ -34,7 +36,8 @@ class OrderSubmitService:
         )
         self.queue_client = queue_client or _load_queue_client()
         self.position_management_service = (
-            position_management_service or _load_position_management_service()
+            position_management_service
+            or _load_position_management_service(runtime_logger=runtime_logger)
         )
         self.account_type_loader = account_type_loader or get_configured_account_type
         self.credit_subject_lookup = (
@@ -46,6 +49,7 @@ class OrderSubmitService:
         self.credit_order_resolver = (
             credit_order_resolver or resolve_submit_credit_order
         )
+        self.runtime_logger = runtime_logger or _get_runtime_logger()
 
     def submit_order(self, payload):
         action = payload["action"].lower()
@@ -62,6 +66,12 @@ class OrderSubmitService:
         )
         credit_trade_mode = _normalize_mode(payload.get("credit_trade_mode"))
         price_mode = _normalize_mode(payload.get("price_mode"))
+        self._emit_runtime(
+            "intent_normalize",
+            payload=payload,
+            action=action,
+            symbol=symbol,
+        )
         credit_resolution = self.credit_order_resolver(
             account_type=account_type,
             action=action,
@@ -69,6 +79,20 @@ class OrderSubmitService:
             requested_mode=credit_trade_mode,
             credit_subject_lookup=self.credit_subject_lookup,
             credit_subjects_available=self.credit_subjects_available,
+        )
+        self._emit_runtime(
+            "credit_mode_resolve",
+            payload=payload,
+            action=action,
+            symbol=symbol,
+            extra_payload={
+                "account_type": account_type,
+                "credit_trade_mode": credit_trade_mode,
+                "credit_trade_mode_resolved": credit_resolution[
+                    "credit_trade_mode_resolved"
+                ],
+                "broker_order_type": credit_resolution["broker_order_type"],
+            },
         )
 
         position_decision = None
@@ -106,6 +130,19 @@ class OrderSubmitService:
             }
         )
         order = self.repository.find_order_by_request_id(request_id)
+        self._emit_runtime(
+            "tracking_create",
+            payload=payload,
+            action=action,
+            symbol=symbol,
+            request_id=request_id,
+            internal_order_id=(order or {}).get("internal_order_id"),
+            extra_payload={
+                "account_type": account_type,
+                "credit_trade_mode": credit_trade_mode,
+                "price_mode": price_mode,
+            },
+        )
         self.tracking_service.mark_order_queued(order["internal_order_id"])
 
         queue_payload = {
@@ -120,6 +157,8 @@ class OrderSubmitService:
             "force": bool(payload.get("force", False)),
             "internal_order_id": order["internal_order_id"],
             "request_id": request_id,
+            "trace_id": payload.get("trace_id"),
+            "intent_id": payload.get("intent_id"),
             "source": payload.get("source", "unknown"),
             "scope_type": payload.get("scope_type"),
             "scope_ref_id": payload.get("scope_ref_id"),
@@ -145,6 +184,15 @@ class OrderSubmitService:
                 queue_payload["position_management_profit_reduce_mode"] = (
                     position_decision.meta.get("profit_reduce_mode")
                 )
+        self._emit_runtime(
+            "queue_payload_build",
+            payload=payload,
+            action=action,
+            symbol=symbol,
+            request_id=request_id,
+            internal_order_id=order["internal_order_id"],
+            extra_payload={"queue_payload": queue_payload},
+        )
         self.queue_client.lpush(
             STOCK_ORDER_QUEUE,
             json.dumps(queue_payload, ensure_ascii=False),
@@ -194,6 +242,35 @@ class OrderSubmitService:
             "queue_payload": queue_payload,
         }
 
+    def _emit_runtime(
+        self,
+        node,
+        *,
+        payload,
+        action=None,
+        symbol=None,
+        request_id=None,
+        internal_order_id=None,
+        extra_payload=None,
+    ):
+        event = {
+            "component": "order_submit",
+            "node": node,
+            "trace_id": payload.get("trace_id"),
+            "intent_id": payload.get("intent_id"),
+            "request_id": request_id,
+            "internal_order_id": internal_order_id,
+            "action": action or payload.get("action"),
+            "symbol": symbol or payload.get("symbol"),
+            "strategy_name": payload.get("strategy_name"),
+            "source": payload.get("source"),
+            "payload": dict(extra_payload or {}),
+        }
+        try:
+            self.runtime_logger.emit(event)
+        except Exception:
+            return
+
 
 def _normalize_symbol(symbol):
     normalized = normalize_to_base_code(symbol)
@@ -206,10 +283,20 @@ def _load_queue_client():
     return redis_db
 
 
-def _load_position_management_service():
+def _load_position_management_service(runtime_logger=None):
     from freshquant.position_management.service import PositionManagementService
 
-    return PositionManagementService()
+    return PositionManagementService(runtime_logger=runtime_logger)
+
+
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        _runtime_logger = RuntimeEventLogger("order_submit")
+    return _runtime_logger
 
 
 def _now_local_string():
