@@ -36,6 +36,7 @@ from freshquant.market_data.xtdata.pools import (
 )
 from freshquant.market_data.xtdata.realtime_store import upsert_realtime_bars
 from freshquant.market_data.xtdata.schema import BarCloseEvent
+from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.util.period import (
     PUBSUB_CHANNEL,
     get_redis_cache_key,
@@ -213,6 +214,7 @@ class StrategyConsumer:
         fullcalc_max_inflight: int | None = None,
         cache_ttl_seconds: int = 3600 * 24,
         queue_backlog_threshold: int | None = None,
+        runtime_logger=None,
     ):
         if redis_db is None:  # pragma: no cover
             raise RuntimeError(f"redis client unavailable: {_REDIS_IMPORT_ERR}")
@@ -243,6 +245,8 @@ class StrategyConsumer:
             or queryParam("monitor.xtdata.queue_backlog_threshold", 200)
             or 200
         )
+        self.runtime_logger = runtime_logger or _get_runtime_logger()
+        self._last_runtime_heartbeat_at = 0.0
 
         self._executor = ProcessPoolExecutor(max_workers=self.fullcalc_workers)
         self._scheduler = CoalescingScheduler(
@@ -257,6 +261,30 @@ class StrategyConsumer:
             f"[Consumer] init mode={self.mode} max_bars={self.max_bars} "
             f"workers={self.fullcalc_workers} max_inflight={self.fullcalc_max_inflight} "
             f"queue_backlog_threshold={self.queue_backlog_threshold}"
+        )
+        self._emit_runtime(
+            {
+                "component": "xt_consumer",
+                "node": "bootstrap",
+                "payload": {
+                    "mode": self.mode,
+                    "max_bars": self.max_bars,
+                    "workers": self.fullcalc_workers,
+                    "max_inflight": self.fullcalc_max_inflight,
+                },
+            }
+        )
+
+    def emit_runtime_heartbeat(self, **metrics) -> bool:
+        return self._emit_runtime(
+            {
+                "component": "xt_consumer",
+                "node": "heartbeat",
+                "event_type": "heartbeat",
+                "status": "info",
+                "metrics": dict(metrics),
+                "payload": {},
+            }
         )
 
     def _queue_depth(self, queue_keys: list[str]) -> int:
@@ -1058,6 +1086,13 @@ class StrategyConsumer:
                 if (now_ts - last_depth_check_at) >= 1.0:
                     last_depth_check_at = now_ts
                     depth = self._queue_depth(queue_keys)
+                    if (now_ts - float(self._last_runtime_heartbeat_at or 0.0)) >= 15.0:
+                        self._last_runtime_heartbeat_at = now_ts
+                        self.emit_runtime_heartbeat(
+                            backlog_sum=depth,
+                            batches=self._scheduler.snapshot().get("pending", 0),
+                            max_lag_s=0.0,
+                        )
                     if (
                         not self._catchup_mode
                     ) and depth >= self.queue_backlog_threshold:
@@ -1084,6 +1119,12 @@ class StrategyConsumer:
                 logger.error(f"[Consumer] loop error: {e}")
                 logger.debug(traceback.format_exc())
 
+    def _emit_runtime(self, event) -> bool:
+        try:
+            return bool(self.runtime_logger.emit(event))
+        except Exception:
+            return False
+
 
 @click.command()
 @click.option("--max-bars", default=20000, type=int)
@@ -1105,3 +1146,13 @@ def main(max_bars: int, workers: int | None, max_inflight: int | None, prewarm: 
 
 if __name__ == "__main__":
     main()
+
+
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        _runtime_logger = RuntimeEventLogger("xt_consumer")
+    return _runtime_logger

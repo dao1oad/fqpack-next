@@ -35,6 +35,7 @@ docker/tradingagents/.env
 .xmake/
 /report/
 /output/
+/logs/
 /nul
 /ticket/
 /.claude/ralph-loop.local.md

@@ -19,6 +19,7 @@ from freshquant.market_data.xtdata.pools import (
     normalize_xtdata_mode,
 )
 from freshquant.market_data.xtdata.schema import TickQuoteEvent, normalize_prefixed_code
+from freshquant.runtime_observability.logger import RuntimeEventLogger
 
 try:
     from freshquant.database.redis import redis_db  # type: ignore
@@ -155,6 +156,20 @@ def _push_tick_quote_events(datas: dict[str, dict], *, redis_client=redis_db) ->
         traceback.print_exc()
 
 
+def emit_producer_heartbeat(*, runtime_logger=None, **metrics) -> bool:
+    return _emit_runtime(
+        runtime_logger or _get_runtime_logger(),
+        {
+            "component": "xt_producer",
+            "node": "heartbeat",
+            "event_type": "heartbeat",
+            "status": "info",
+            "metrics": dict(metrics),
+            "payload": {},
+        },
+    )
+
+
 def start_producer():
     try:
         from xtquant import xtdata  # type: ignore
@@ -162,12 +177,28 @@ def start_producer():
         raise RuntimeError(f"xtquant/xtdata not installed: {e}")
 
     port = int(os.environ.get("XTQUANT_PORT", "58610"))
+    _emit_runtime(
+        _get_runtime_logger(),
+        {
+            "component": "xt_producer",
+            "node": "bootstrap",
+            "payload": {"port": port},
+        },
+    )
     xtdata.connect(port=port)
 
     mode = normalize_xtdata_mode(queryParam("monitor.xtdata.mode", None))
     max_symbols = int(queryParam("monitor.xtdata.max_symbols", 50) or 50)
     if max_symbols <= 0:
         max_symbols = 50
+    _emit_runtime(
+        _get_runtime_logger(),
+        {
+            "component": "xt_producer",
+            "node": "config_resolve",
+            "payload": {"mode": mode, "max_symbols": max_symbols},
+        },
+    )
 
     generator = OneMinuteBarGenerator(
         enable_synthetic=True,
@@ -206,6 +237,14 @@ def start_producer():
                 pass
         sub_seq = xtdata.subscribe_whole_quote(xt_codes, callback=on_data)
         sub_codes = set(codes_prefixed)
+        _emit_runtime(
+            _get_runtime_logger(),
+            {
+                "component": "xt_producer",
+                "node": "subscription_load",
+                "payload": {"mode": mode, "codes": len(sub_codes), "seq": sub_seq},
+            },
+        )
         logger.info(
             f"[Producer] subscribed: mode={mode} codes={len(sub_codes)} seq={sub_seq}"
         )
@@ -252,3 +291,20 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def _emit_runtime(runtime_logger, event) -> bool:
+    try:
+        return bool(runtime_logger.emit(event))
+    except Exception:
+        return False
+
+
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        _runtime_logger = RuntimeEventLogger("xt_producer")
+    return _runtime_logger

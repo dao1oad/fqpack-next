@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from flask import Flask
+
+
+def test_runtime_components_route(monkeypatch, tmp_path):
+    _write_events(
+        tmp_path,
+        runtime_node_path="host_guardian",
+        component="guardian_strategy",
+        date="2026-03-09",
+        file_name="guardian_strategy_2026-03-09_1.jsonl",
+        records=[
+            {
+                "event_type": "heartbeat",
+                "component": "guardian_strategy",
+                "runtime_node": "host:guardian",
+                "node": "summary",
+                "ts": "2026-03-09T10:00:00+08:00",
+            }
+        ],
+    )
+    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+    client = _make_runtime_client()
+
+    resp = client.get("/api/runtime/components")
+
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["components"] == ["guardian_strategy"]
+
+
+def test_runtime_traces_and_detail_routes(monkeypatch, tmp_path):
+    _write_events(
+        tmp_path,
+        runtime_node_path="host_guardian",
+        component="guardian_strategy",
+        date="2026-03-09",
+        file_name="guardian_strategy_2026-03-09_1.jsonl",
+        records=[
+            {
+                "event_type": "trace_step",
+                "trace_id": "trc_1",
+                "component": "guardian_strategy",
+                "runtime_node": "host:guardian",
+                "node": "receive_signal",
+                "ts": "2026-03-09T10:00:00+08:00",
+            },
+            {
+                "event_type": "trace_step",
+                "trace_id": "trc_1",
+                "request_id": "req_1",
+                "component": "order_submit",
+                "runtime_node": "host:rear",
+                "node": "tracking_create",
+                "ts": "2026-03-09T10:00:01+08:00",
+            },
+        ],
+    )
+    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+    client = _make_runtime_client()
+
+    traces_resp = client.get("/api/runtime/traces")
+    detail_resp = client.get("/api/runtime/traces/trc_1")
+
+    traces_body = traces_resp.get_json()
+    detail_body = detail_resp.get_json()
+    assert traces_resp.status_code == 200
+    assert traces_body["traces"][0]["trace_id"] == "trc_1"
+    assert detail_resp.status_code == 200
+    assert [step["node"] for step in detail_body["trace"]["steps"]] == [
+        "receive_signal",
+        "tracking_create",
+    ]
+
+
+def test_runtime_raw_file_tail_route(monkeypatch, tmp_path):
+    _write_events(
+        tmp_path,
+        runtime_node_path="host_guardian",
+        component="guardian_strategy",
+        date="2026-03-09",
+        file_name="guardian_strategy_2026-03-09_1.jsonl",
+        records=[
+            {
+                "event_type": "trace_step",
+                "trace_id": "trc_1",
+                "component": "guardian_strategy",
+                "runtime_node": "host:guardian",
+                "node": "receive_signal",
+                "ts": "2026-03-09T10:00:00+08:00",
+            }
+        ],
+    )
+    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+    client = _make_runtime_client()
+
+    resp = client.get(
+        "/api/runtime/raw-files/tail?runtime_node=host_guardian"
+        "&component=guardian_strategy&date=2026-03-09"
+        "&file=guardian_strategy_2026-03-09_1.jsonl"
+    )
+
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["records"][0]["trace_id"] == "trc_1"
+
+
+def _write_events(
+    root: Path,
+    *,
+    runtime_node_path: str,
+    component: str,
+    date: str,
+    file_name: str,
+    records: list[dict],
+) -> None:
+    path = root / runtime_node_path / component / date / file_name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _make_runtime_client():
+    from freshquant.rear.runtime.routes import runtime_bp
+
+    app = Flask("test_runtime_routes")
+    app.register_blueprint(runtime_bp)
+    return app.test_client()

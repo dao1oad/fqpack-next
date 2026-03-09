@@ -16,6 +16,8 @@ def submit_guardian_order(
     remark=None,
     is_profitable=None,
     strategy_context=None,
+    trace_id=None,
+    intent_id=None,
 ):
     normalized_symbol = normalize_to_base_code(symbol)
     strategy_name = _resolve_guardian_strategy_name()
@@ -28,6 +30,8 @@ def submit_guardian_order(
         "strategy_name": strategy_name,
         "remark": remark,
         "strategy_context": strategy_context,
+        "trace_id": trace_id,
+        "intent_id": intent_id,
     }
     if is_profitable is not None:
         payload["position_management_is_profitable"] = bool(is_profitable)

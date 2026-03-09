@@ -1,4 +1,5 @@
 import json
+import inspect
 from datetime import datetime, timedelta
 
 import pendulum
@@ -15,6 +16,8 @@ from freshquant.database.redis import redis_db
 from freshquant.order_management.submit.guardian import submit_guardian_order
 from freshquant.pool.general import queryMustPoolCodes
 from freshquant.position_management.errors import PositionManagementRejectedError
+from freshquant.runtime_observability.ids import new_intent_id, new_trace_id
+from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
 from freshquant.strategy.toolkit.threshold import eval_stock_threshold_price
 from freshquant.util.code import fq_util_code_append_market_code_suffix
@@ -24,7 +27,14 @@ order_alert = signal("order_alert")
 
 
 class StrategyGuardian(metaclass=SingletonType):
+    def __init__(self, runtime_logger=None):
+        if runtime_logger is not None:
+            self.runtime_logger = runtime_logger
+        elif not hasattr(self, "runtime_logger"):
+            self.runtime_logger = _get_runtime_logger()
+
     def on_signal(self, signal):
+        trace_id = self._ensure_trace_id(signal)
         code = signal["code"]
         name = signal["name"]
         fire_time = signal["fire_time"]
@@ -54,10 +64,30 @@ class StrategyGuardian(metaclass=SingletonType):
             "title": f'{"买点通知" if position == "BUY_LONG" else "卖点通知"} {code} {name}',
         }
         logger.info(json.dumps(log_data, ensure_ascii=False))
+        self._emit_runtime(
+            signal,
+            "receive_signal",
+            action="buy" if position == "BUY_LONG" else "sell",
+            payload={"period": period, "price": price, "remark": remark},
+        )
 
         if (in_holding or in_must_pool) and fire_time < pendulum.now().add(minutes=-30):
+            self._emit_runtime(
+                signal,
+                "timing_check",
+                action="buy" if position == "BUY_LONG" else "sell",
+                status="skipped",
+                reason_code="signal_too_old",
+            )
             logger.info("{code} {name} 超过30分钟，跳过下单指令", code=code, name=name)
             return
+
+        self._emit_runtime(
+            signal,
+            "holding_scope_resolve",
+            action="buy" if position == "BUY_LONG" else "sell",
+            payload={"in_holding": in_holding, "in_must_pool": in_must_pool},
+        )
 
         if position == "BUY_LONG":
             if in_holding:
@@ -190,6 +220,13 @@ class StrategyGuardian(metaclass=SingletonType):
             return
 
         if redis_db.get(f"buy:{code}") is not None:
+            self._emit_runtime(
+                signal,
+                "cooldown_check",
+                action="buy",
+                status="skipped",
+                reason_code="buy_cooldown",
+            )
             logger.info("{code} 买入冷却中，跳过下单", code=code)
             return
 
@@ -208,15 +245,23 @@ class StrategyGuardian(metaclass=SingletonType):
         }
 
         signal["quantity"] = quantity
+        signal.setdefault("intent_id", new_intent_id())
+        self._emit_runtime(
+            signal,
+            "submit_intent",
+            action="buy",
+            payload={"quantity": quantity, "grid_path": decision.get("path")},
+        )
 
         try:
-            submit_guardian_order(
-                "buy",
-                code,
-                price,
-                quantity,
+            self._submit_guardian_order(
+                action="buy",
+                code=code,
+                price=price,
+                quantity=quantity,
                 remark=remark,
                 strategy_context=strategy_context,
+                signal=signal,
             )
         except PositionManagementRejectedError as exc:
             logger.info(
@@ -267,18 +312,33 @@ class StrategyGuardian(metaclass=SingletonType):
             return
 
         if redis_db.get(f"sell:{code}") is not None:
+            self._emit_runtime(
+                signal,
+                "cooldown_check",
+                action="sell",
+                status="skipped",
+                reason_code="sell_cooldown",
+            )
             logger.info("{code} 卖出冷却中，跳过下单", code=code)
             return
 
         signal["quantity"] = quantity
+        signal.setdefault("intent_id", new_intent_id())
+        self._emit_runtime(
+            signal,
+            "submit_intent",
+            action="sell",
+            payload={"quantity": quantity, "is_profitable": True},
+        )
         try:
-            submit_result = submit_guardian_order(
-                "sell",
-                code,
-                price,
-                quantity,
+            submit_result = self._submit_guardian_order(
+                action="sell",
+                code=code,
+                price=price,
+                quantity=quantity,
                 remark=remark,
                 is_profitable=True,
+                signal=signal,
             )
         except PositionManagementRejectedError as exc:
             logger.info(
@@ -324,6 +384,74 @@ class StrategyGuardian(metaclass=SingletonType):
         logger.info("{code} {name} 无相隔中枢，跳过下单指令", code=code, name=name)
         return False
 
+    def _ensure_trace_id(self, signal):
+        trace_id = str(signal.get("trace_id") or "").strip()
+        if not trace_id:
+            trace_id = new_trace_id()
+            signal["trace_id"] = trace_id
+        return trace_id
+
+    def _emit_runtime(
+        self,
+        signal,
+        node,
+        *,
+        action=None,
+        status="info",
+        reason_code="",
+        payload=None,
+    ):
+        event = {
+            "component": "guardian_strategy",
+            "node": node,
+            "trace_id": signal.get("trace_id"),
+            "intent_id": signal.get("intent_id"),
+            "action": action,
+            "symbol": signal.get("code"),
+            "strategy_name": "Guardian",
+            "source": "strategy",
+            "status": status,
+            "reason_code": reason_code,
+            "payload": dict(payload or {}),
+        }
+        try:
+            self.runtime_logger.emit(event)
+        except Exception:
+            return
+
+    def _submit_guardian_order(
+        self,
+        *,
+        action,
+        code,
+        price,
+        quantity,
+        signal,
+        remark=None,
+        is_profitable=None,
+        strategy_context=None,
+    ):
+        submit_kwargs = {
+            "remark": remark,
+            "is_profitable": is_profitable,
+            "strategy_context": strategy_context,
+        }
+        try:
+            parameters = inspect.signature(submit_guardian_order).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        if "trace_id" in parameters:
+            submit_kwargs["trace_id"] = signal.get("trace_id")
+        if "intent_id" in parameters:
+            submit_kwargs["intent_id"] = signal.get("intent_id")
+        return submit_guardian_order(
+            action,
+            code,
+            price,
+            quantity,
+            **submit_kwargs,
+        )
+
 
 def test_order_alert_signal():
     test_signal = {
@@ -344,3 +472,13 @@ def test_order_alert_signal():
 
 if __name__ == "__main__":
     test_order_alert_signal()
+
+
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        _runtime_logger = RuntimeEventLogger("guardian_strategy")
+    return _runtime_logger
