@@ -219,12 +219,20 @@ def test_get_shouban30_plates_reads_as_of_date(monkeypatch):
                 "as_of_date": "2026-03-05",
                 "stock_window_days": 30,
                 "plate_key": "11",
+                "stocks_count": 2,
+                "candidate_stocks_count": 3,
+                "failed_stocks_count": 1,
+                "chanlun_filter_version": "30m_v1",
             },
             {
                 "provider": "xgb",
                 "as_of_date": "2026-03-05",
                 "stock_window_days": 60,
                 "plate_key": "22",
+                "stocks_count": 1,
+                "candidate_stocks_count": 2,
+                "failed_stocks_count": 1,
+                "chanlun_filter_version": "30m_v1",
             },
         ]
     )
@@ -245,11 +253,16 @@ def test_get_shouban30_plates_reads_as_of_date(monkeypatch):
             "as_of_date": "2026-03-05",
             "stock_window_days": 60,
             "plate_key": "22",
+            "stocks_count": 1,
+            "candidate_stocks_count": 2,
+            "failed_stocks_count": 1,
+            "chanlun_filter_version": "30m_v1",
         }
     ]
     assert payload["data"]["meta"] == {
         "as_of_date": "2026-03-05",
         "stock_window_days": 60,
+        "chanlun_filter_version": "30m_v1",
     }
 
 
@@ -273,6 +286,83 @@ def test_get_shouban30_stocks_returns_empty_when_missing(monkeypatch):
         "as_of_date": "2026-03-05",
         "stock_window_days": 90,
     }
+
+
+def test_get_shouban30_stocks_returns_chanlun_snapshot_fields(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    fake_db = _fake_db(
+        shouban30_stocks=[
+            {
+                "provider": "xgb",
+                "plate_key": "11",
+                "code6": "000001",
+                "as_of_date": "2026-03-05",
+                "stock_window_days": 60,
+                "chanlun_passed": True,
+                "chanlun_reason": "passed",
+                "chanlun_higher_multiple": 2.0,
+                "chanlun_segment_multiple": 2.5,
+                "chanlun_bi_gain_percent": 20.0,
+                "chanlun_filter_version": "30m_v1",
+            }
+        ]
+    )
+    monkeypatch.setattr(gantt_routes.svc, "DBGantt", fake_db)
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.get(
+        "/api/gantt/shouban30/stocks?provider=xgb&plate_key=11&as_of_date=2026-03-05&stock_window_days=60"
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["data"]["items"] == [
+        {
+            "provider": "xgb",
+            "plate_key": "11",
+            "code6": "000001",
+            "as_of_date": "2026-03-05",
+            "stock_window_days": 60,
+            "chanlun_passed": True,
+            "chanlun_reason": "passed",
+            "chanlun_higher_multiple": 2.0,
+            "chanlun_segment_multiple": 2.5,
+            "chanlun_bi_gain_percent": 20.0,
+            "chanlun_filter_version": "30m_v1",
+        }
+    ]
+    assert payload["data"]["meta"] == {
+        "as_of_date": "2026-03-05",
+        "stock_window_days": 60,
+        "chanlun_filter_version": "30m_v1",
+    }
+
+
+def test_get_shouban30_plates_returns_409_when_chanlun_snapshot_not_ready(
+    monkeypatch,
+):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes.svc,
+        "query_shouban30_plate_rows",
+        lambda **kwargs: (_ for _ in ()).throw(
+            ValueError("shouban30 chanlun snapshot not ready")
+        ),
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.get(
+        "/api/gantt/shouban30/plates?provider=xgb&as_of_date=2026-03-05&stock_window_days=60"
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["message"] == "shouban30 chanlun snapshot not ready"
 
 
 def test_get_shouban30_plates_rejects_invalid_stock_window_days():
