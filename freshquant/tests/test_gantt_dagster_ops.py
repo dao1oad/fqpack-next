@@ -513,6 +513,20 @@ def test_trade_date_sync_ops_use_explicit_input(monkeypatch):
     assert calls == [("xgb", "2026-03-05"), ("jygs", "2026-03-05")]
 
 
+def test_op_sync_jygs_action_for_trade_date_requires_result_trade_date(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+
+    monkeypatch.setattr(
+        ops,
+        "sync_jygs_action_for_date",
+        lambda trade_date: {},
+    )
+
+    with pytest.raises(RuntimeError, match="missing trade_date"):
+        ops.op_sync_jygs_action_for_trade_date(context, "2026-03-05")
+
+
 def test_has_legacy_shouban30_snapshot_detects_missing_chanlun_filter_version(
     monkeypatch,
 ):

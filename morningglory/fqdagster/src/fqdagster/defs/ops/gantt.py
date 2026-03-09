@@ -105,6 +105,13 @@ def _resolve_trade_date(trade_date: str | None = None) -> str:
     return _query_latest_trade_date()
 
 
+def _require_result_trade_date(result: dict[str, Any] | None, source_name: str) -> str:
+    trade_date = _to_str((result or {}).get("trade_date"))
+    if not trade_date:
+        raise RuntimeError(f"missing trade_date in {source_name} result")
+    return trade_date
+
+
 def _build_trade_date_mapping_key(trade_date: str) -> str:
     return _to_str(trade_date).replace("-", "_")
 
@@ -248,7 +255,7 @@ def op_sync_jygs_action_daily(context) -> str:
     trade_date = _resolve_trade_date()
     result = sync_jygs_action_for_date(trade_date)
     context.log.info("synced jygs action=%s", result)
-    return result["trade_date"]
+    return _require_result_trade_date(result, "jygs action")
 
 
 @op
@@ -262,7 +269,7 @@ def op_sync_xgb_history_for_trade_date(context, trade_date: str) -> str:
 def op_sync_jygs_action_for_trade_date(context, trade_date: str) -> str:
     result = sync_jygs_action_for_date(_to_str(trade_date))
     context.log.info("synced jygs action=%s", result)
-    return _to_str((result or {}).get("trade_date")) or _to_str(trade_date)
+    return _require_result_trade_date(result, "jygs action")
 
 
 @op
