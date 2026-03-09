@@ -1,10 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as runtimeObservability from './runtimeObservability.mjs'
 
 import {
+  applyBoardFilter,
+  buildComponentBoard,
   buildTraceListSummary,
+  buildIssuePriorityCards,
   buildIssueSummary,
   buildRawRecordSummary,
+  buildRecentTraceFeed,
   buildTraceSummaryMeta,
   buildTraceDetail,
   buildHealthCards,
@@ -20,6 +25,70 @@ import {
   summarizeTrace,
 } from './runtimeObservability.mjs'
 
+const makeTrace = ({
+  traceId,
+  symbol = 'sh510050',
+  status = 'success',
+  component = 'order_submit',
+  issueComponent = component,
+  node = 'submit_result',
+  issueNode = node,
+  stepCount = 3,
+  durationMs = 500,
+  issueCount = status === 'success' ? 0 : 1,
+  lastTs,
+}) => {
+  const baseTs = Date.parse(lastTs) - durationMs
+  const steps = [
+    {
+      component: 'guardian_strategy',
+      node: 'receive_signal',
+      status: 'info',
+      ts: new Date(baseTs).toISOString(),
+      symbol,
+      trace_id: traceId,
+      request_id: `req_${traceId}`,
+      internal_order_id: `ord_${traceId}`,
+    },
+  ]
+
+  for (let index = 0; index < Math.max(stepCount - 2, 0); index += 1) {
+    steps.push({
+      component,
+      node: index === 0 ? 'queue_write' : `${node}_${index}`,
+      status: issueCount > 0 && index < issueCount ? status : 'success',
+      ts: new Date(baseTs + 100 + index * 100).toISOString(),
+      symbol,
+      trace_id: traceId,
+      request_id: `req_${traceId}`,
+      internal_order_id: `ord_${traceId}`,
+      reason_code: issueCount > 0 && index < issueCount ? `${status}_reason` : '',
+    })
+  }
+
+  steps.push({
+    component: issueComponent,
+    node: issueNode,
+    status,
+    ts: new Date(Date.parse(lastTs)).toISOString(),
+    symbol,
+    trace_id: traceId,
+    request_id: `req_${traceId}`,
+    internal_order_id: `ord_${traceId}`,
+    reason_code: status === 'success' ? '' : `${status}_reason`,
+  })
+
+  return {
+    trace_id: traceId,
+    trace_key: `trace:${traceId}`,
+    request_ids: [`req_${traceId}`],
+    internal_order_ids: [`ord_${traceId}`],
+    intent_ids: [`intent_${traceId}`],
+    symbol,
+    steps,
+  }
+}
+
 test('buildTraceQuery trims empty fields', () => {
   assert.deepEqual(
     buildTraceQuery({
@@ -33,6 +102,185 @@ test('buildTraceQuery trims empty fields', () => {
       symbol: '000001',
     },
   )
+})
+
+test('stopPollingTimer clears current timer without arming a new one', () => {
+  assert.equal(typeof runtimeObservability.stopPollingTimer, 'function')
+
+  const cleared = []
+  const timerHandle = { id: 'overview-1' }
+  const nextHandle = runtimeObservability.stopPollingTimer(timerHandle, {
+    clearInterval: (handle) => {
+      cleared.push(handle)
+    },
+  })
+
+  assert.deepEqual(cleared, [timerHandle])
+  assert.equal(nextHandle, null)
+})
+
+test('buildIssuePriorityCards prioritizes failed traces before warnings', () => {
+  const cards = buildIssuePriorityCards([
+    makeTrace({
+      traceId: 'trc_warn',
+      status: 'warning',
+      issueComponent: 'position_gate',
+      issueNode: 'guard_reject',
+      issueCount: 0,
+      durationMs: 800,
+      lastTs: '2026-03-09T10:00:02+08:00',
+    }),
+    makeTrace({
+      traceId: 'trc_fail',
+      status: 'failed',
+      issueComponent: 'broker_gateway',
+      issueNode: 'submit_result',
+      issueCount: 0,
+      durationMs: 1200,
+      lastTs: '2026-03-09T10:00:03+08:00',
+    }),
+  ])
+
+  assert.equal(cards.length, 2)
+  assert.equal(cards[0].trace_id, 'trc_fail')
+  assert.equal(cards[0].status, 'failed')
+  assert.match(cards[0].headline, /broker_gateway\.submit_result/)
+})
+
+test('buildRecentTraceFeed returns latest 20 rows by default', () => {
+  const traces = Array.from({ length: 25 }, (_, index) =>
+    makeTrace({
+      traceId: `trc_${index + 1}`,
+      lastTs: `2026-03-09T10:${String(index).padStart(2, '0')}:20+08:00`,
+      durationMs: 200 + index * 10,
+    }),
+  )
+
+  const feed = buildRecentTraceFeed(traces)
+
+  assert.equal(feed.length, 20)
+  assert.equal(feed[0].trace_id, 'trc_25')
+  assert.equal(feed[19].trace_id, 'trc_6')
+})
+
+test('buildRecentTraceFeed accepts a higher limit for expanded recent view', () => {
+  const traces = Array.from({ length: 25 }, (_, index) =>
+    makeTrace({
+      traceId: `trc_expand_${index + 1}`,
+      lastTs: `2026-03-09T11:${String(index).padStart(2, '0')}:10+08:00`,
+      durationMs: 150 + index * 10,
+    }),
+  )
+
+  const feed = buildRecentTraceFeed(traces, { limit: 50 })
+
+  assert.equal(feed.length, 25)
+  assert.equal(feed[0].trace_id, 'trc_expand_25')
+  assert.equal(feed[24].trace_id, 'trc_expand_1')
+})
+
+test('buildComponentBoard summarizes core component issue counts', () => {
+  const board = buildComponentBoard(
+    [
+      makeTrace({
+        traceId: 'trc_order_submit_1',
+        component: 'order_submit',
+        issueComponent: 'order_submit',
+        status: 'failed',
+        issueCount: 0,
+        lastTs: '2026-03-09T10:00:10+08:00',
+      }),
+      makeTrace({
+        traceId: 'trc_order_submit_2',
+        component: 'order_submit',
+        issueComponent: 'order_submit',
+        status: 'warning',
+        issueCount: 0,
+        lastTs: '2026-03-09T10:00:12+08:00',
+      }),
+      makeTrace({
+        traceId: 'trc_position_gate',
+        component: 'position_gate',
+        issueComponent: 'position_gate',
+        status: 'warning',
+        issueCount: 0,
+        lastTs: '2026-03-09T10:00:14+08:00',
+      }),
+    ],
+    buildHealthCards([
+      {
+        component: 'order_submit',
+        runtime_node: 'host:order_submit',
+        status: 'warning',
+        heartbeat_age_s: 3,
+        metrics: { queue_len: 2 },
+      },
+      {
+        component: 'position_gate',
+        runtime_node: 'host:position_gate',
+        status: 'info',
+        heartbeat_age_s: 1,
+        metrics: { queue_len: 0 },
+      },
+    ]),
+  )
+
+  assert.equal(board.cards[0].component, 'order_submit')
+  assert.equal(board.cards[0].issue_trace_count, 2)
+  assert.equal(board.distribution[0].component, 'order_submit')
+})
+
+test('applyBoardFilter narrows traces by selected component', () => {
+  const traces = [
+    makeTrace({
+      traceId: 'trc_order_submit',
+      component: 'order_submit',
+      issueComponent: 'order_submit',
+      status: 'warning',
+      issueCount: 0,
+      lastTs: '2026-03-09T10:00:10+08:00',
+    }),
+    makeTrace({
+      traceId: 'trc_broker',
+      component: 'broker_gateway',
+      issueComponent: 'broker_gateway',
+      status: 'failed',
+      issueCount: 0,
+      lastTs: '2026-03-09T10:00:12+08:00',
+    }),
+  ]
+
+  const filtered = applyBoardFilter(traces, { component: 'order_submit' })
+
+  assert.deepEqual(filtered.map((trace) => trace.trace_id), ['trc_order_submit'])
+})
+
+test('component filter narrows issue cards and recent feed together', () => {
+  const traces = [
+    makeTrace({
+      traceId: 'trc_order_submit',
+      component: 'order_submit',
+      issueComponent: 'order_submit',
+      status: 'warning',
+      issueCount: 0,
+      lastTs: '2026-03-09T10:00:10+08:00',
+    }),
+    makeTrace({
+      traceId: 'trc_broker',
+      component: 'broker_gateway',
+      issueComponent: 'broker_gateway',
+      status: 'failed',
+      issueCount: 0,
+      lastTs: '2026-03-09T10:00:12+08:00',
+    }),
+  ]
+
+  const filtered = applyBoardFilter(traces, { component: 'order_submit' })
+  const cards = buildIssuePriorityCards(filtered)
+  const feed = buildRecentTraceFeed(filtered)
+
+  assert.deepEqual(cards.map((card) => card.trace_id), ['trc_order_submit'])
+  assert.deepEqual(feed.map((item) => item.trace_id), ['trc_order_submit'])
 })
 
 test('summarizeTrace and sortTraceSummaries prioritize traces with issues before latest timestamp', () => {

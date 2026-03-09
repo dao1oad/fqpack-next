@@ -6,36 +6,34 @@
         <div class="runtime-title-row">
           <div>
             <h1>运行观测</h1>
-            <p>链路追踪优先，健康看板同步提供。</p>
+            <p>异常优先，其次查看最近链路流，再用组件看板定位链路段。</p>
           </div>
-          <el-button type="primary" :loading="loading.overview" @click="loadOverview">刷新</el-button>
+          <div class="runtime-title-actions">
+            <el-switch
+              v-model="autoRefresh"
+              inline-prompt
+              active-text="自动刷新"
+              inactive-text="手动"
+            />
+            <el-switch
+              v-model="onlyIssues"
+              inline-prompt
+              active-text="仅异常"
+              inactive-text="全部"
+            />
+            <el-button @click="openAdvancedFilter">高级筛选</el-button>
+            <el-button type="primary" :loading="loading.overview" @click="loadOverview">刷新</el-button>
+          </div>
         </div>
-        <div class="health-grid">
-          <article v-for="card in healthCards" :key="`${card.runtime_node}-${card.component}`" class="health-card">
-            <div class="health-card-head">
-              <strong>{{ card.component }}</strong>
-              <span>{{ card.runtime_node }}</span>
-            </div>
-            <div class="health-card-body">
-              <p>状态: {{ card.status }}</p>
-              <p>心跳年龄: {{ card.heartbeat_age_s ?? '-' }}s</p>
-              <ul>
-                <li v-for="item in card.highlights" :key="item.key">{{ item.key }}: {{ item.value }}</li>
-              </ul>
-            </div>
-          </article>
-        </div>
-      </section>
 
-      <section class="runtime-section">
-        <div class="trace-toolbar">
-          <el-input v-model="query.trace_id" clearable placeholder="trace_id" />
-          <el-input v-model="query.request_id" clearable placeholder="request_id" />
-          <el-input v-model="query.internal_order_id" clearable placeholder="internal_order_id" />
-          <el-input v-model="query.symbol" clearable placeholder="symbol" />
-          <el-input v-model="query.component" clearable placeholder="component" />
-          <el-button type="primary" :loading="loading.traces" @click="loadTraces">查询</el-button>
-        </div>
+        <el-alert
+          v-if="pageError"
+          class="runtime-error-banner"
+          type="error"
+          :title="pageError"
+          show-icon
+          :closable="false"
+        />
 
         <div class="trace-list-summary">
           <article class="trace-list-summary-card">
@@ -51,61 +49,176 @@
             <strong>{{ traceListSummary.issue_step_count }}</strong>
           </article>
           <article class="trace-list-summary-card trace-list-summary-card--wide">
-            <span>组件异常分布<span v-if="activeComponentFilter"> · filter {{ activeComponentFilter }}</span></span>
-            <div class="trace-list-summary-components">
-              <span
-                v-for="item in traceListSummary.components"
-                :key="`${item.component}-${item.issue_count}-${item.trace_count}`"
+            <span>当前筛选</span>
+            <div class="runtime-filter-chips">
+              <button
+                v-for="chip in filterChips"
+                :key="chip.key"
+                type="button"
+                class="runtime-filter-chip"
+                @click="clearFilterChip(chip)"
               >
-                {{ item.component }} · {{ item.issue_count }}/{{ item.trace_count }}
-              </span>
-              <span v-if="traceListSummary.components.length === 0">-</span>
+                {{ chip.label }}
+              </button>
+              <span v-if="filterChips.length === 0" class="runtime-filter-empty">当前无筛选</span>
             </div>
           </article>
         </div>
 
-        <div class="trace-layout">
-          <div class="trace-list">
-            <el-table :data="traceRows" stripe height="460" :row-class-name="traceRowClassName" @row-click="handleTraceClick">
-              <el-table-column prop="trace_id" label="Trace" min-width="180" />
-              <el-table-column prop="request_ids" label="Request" min-width="160">
-                <template #default="{ row }">{{ row.request_ids.join(', ') || '-' }}</template>
-              </el-table-column>
-              <el-table-column prop="internal_order_ids" label="Order" min-width="160">
-                <template #default="{ row }">{{ row.internal_order_ids.join(', ') || '-' }}</template>
-              </el-table-column>
-              <el-table-column prop="step_count" label="Steps" width="80" />
-              <el-table-column prop="issue_count" label="Issues" width="84" />
-              <el-table-column prop="total_duration_label" label="Duration" width="96" />
-              <el-table-column prop="last_node" label="Last Node" min-width="140" />
-              <el-table-column prop="last_status" label="Status" width="100" />
-              <el-table-column prop="last_ts" label="Latest" min-width="180" />
-            </el-table>
+        <section class="runtime-home-section">
+          <div class="runtime-home-head">
+            <div>
+              <h2>异常优先</h2>
+              <p>优先展示最近最值得先点开的异常链路。</p>
+            </div>
+            <span class="runtime-home-meta">最近 {{ issuePriorityCards.length }} 条</span>
           </div>
+          <div v-if="issuePriorityCards.length" class="issue-card-grid">
+            <button
+              v-for="card in issuePriorityCards"
+              :key="card.trace_key || card.trace_id"
+              type="button"
+              class="issue-card"
+              :class="statusClass(card.status)"
+              @click="handleIssueCardClick(card)"
+            >
+              <div class="issue-card-top">
+                <span class="trace-step-status">{{ card.status || 'info' }}</span>
+                <span>{{ card.last_ts || '-' }}</span>
+              </div>
+              <strong>{{ card.symbol || '-' }}</strong>
+              <p class="issue-card-headline">{{ card.headline }}</p>
+              <p class="issue-card-subline">{{ card.subline }}</p>
+              <div class="issue-card-metrics">
+                <span>issues {{ card.issue_count }}</span>
+                <span>duration {{ card.total_duration_label }}</span>
+              </div>
+              <div class="issue-card-identities">
+                <span v-if="card.trace_id">trace {{ card.trace_id }}</span>
+                <span v-if="card.request_ids?.length">request {{ card.request_ids[0] }}</span>
+                <span v-if="card.internal_order_ids?.length">order {{ card.internal_order_ids[0] }}</span>
+              </div>
+              <p class="issue-card-summary">{{ card.issue_summary }}</p>
+            </button>
+          </div>
+          <div v-else class="runtime-empty-panel">
+            <strong>当前无异常链路</strong>
+            <el-button text @click="scrollToRecentFeed">查看最近链路</el-button>
+          </div>
+        </section>
 
-          <div class="trace-detail">
-            <div class="trace-detail-head">
+        <section ref="recentFeedRef" class="runtime-home-section">
+          <div class="runtime-home-head">
+            <div>
+              <h2>最近链路流</h2>
+              <p>默认展示最近 20 条链路，先看系统刚刚发生了什么。</p>
+            </div>
+            <div class="runtime-home-actions">
+              <span class="runtime-home-meta">当前显示 {{ recentTraceFeed.length }} 条</span>
+              <el-button v-if="recentTraceLimit < 50" text @click="showMoreRecentTraces">查看更多</el-button>
+            </div>
+          </div>
+          <div v-if="recentTraceFeed.length" class="recent-feed-list">
+            <button
+              v-for="item in recentTraceFeed"
+              :key="item.trace_key || item.trace_id"
+              type="button"
+              class="recent-feed-item"
+              @click="handleRecentTraceClick(item)"
+            >
+              <div class="recent-feed-status" :class="statusClass(item.last_status || (item.issue_count > 0 ? 'warning' : 'success'))">
+                {{ item.last_status || (item.issue_count > 0 ? 'warning' : 'success') }}
+              </div>
               <div>
-                <strong>{{ selectedTraceDetail.trace_id || selectedTrace?.trace_key || '选择一条 Trace' }}</strong>
-                <div v-if="selectedTrace" class="trace-summary-chips">
-                  <span class="trace-summary-chip">steps {{ selectedTraceDetail.step_count }}</span>
-                  <span class="trace-summary-chip" :class="{ 'is-issue': selectedTraceDetail.issue_count > 0 }">
-                    issues {{ selectedTraceDetail.issue_count }}
-                  </span>
-                  <span class="trace-summary-chip">duration {{ selectedTraceDetail.total_duration_label }}</span>
+                <strong>{{ item.symbol || '-' }}</strong>
+                <p class="recent-feed-path">{{ item.path_summary }}</p>
+                <div class="recent-feed-tags">
+                  <span v-for="node in item.spotlight_nodes" :key="`${item.trace_id}-${node}`">{{ node }}</span>
+                  <span v-if="item.spotlight_nodes.length === 0">-</span>
                 </div>
               </div>
-              <div class="trace-detail-actions">
-                <el-switch
-                  v-model="onlyIssues"
-                  :disabled="!selectedTrace"
-                  inline-prompt
-                  active-text="异常"
-                  inactive-text="全部"
-                />
-                <el-button :disabled="!selectedStep" @click="openRawBrowser">Raw</el-button>
+              <div class="recent-feed-meta">
+                <span>{{ item.last_ts || '-' }}</span>
+                <span>steps {{ item.step_count }}</span>
+                <span>issues {{ item.issue_count }}</span>
+                <span>duration {{ item.total_duration_label }}</span>
+              </div>
+            </button>
+          </div>
+          <div v-else class="runtime-empty-panel">
+            <strong>暂无最近链路</strong>
+          </div>
+        </section>
+
+        <section class="runtime-home-section">
+          <div class="runtime-home-head">
+            <div>
+              <h2>组件看板</h2>
+              <p>点组件直接联动上面的异常卡片和最近链路流。</p>
+            </div>
+            <span class="runtime-home-meta">核心组件 {{ componentBoard.cards.length }} 个</span>
+          </div>
+          <div v-if="componentBoard.cards.length" class="component-board-grid">
+            <button
+              v-for="card in componentBoard.cards"
+              :key="`${card.component}-${card.runtime_node}`"
+              type="button"
+              class="component-board-card"
+              :class="[statusClass(card.status), { active: boardFilter.component === card.component }]"
+              @click="handleComponentFilter(card.component)"
+            >
+              <div class="component-board-head">
+                <strong>{{ card.component }}</strong>
+                <span>{{ card.runtime_node }}</span>
+              </div>
+              <div class="component-board-stats">
+                <span>状态 {{ card.status }}</span>
+                <span>心跳 {{ card.heartbeat_age_s ?? '-' }}s</span>
+                <span>异常链路 {{ card.issue_trace_count }}</span>
+                <span>异常节点 {{ card.issue_step_count }}</span>
+              </div>
+              <div class="component-board-footer">
+                <span>最近异常 {{ card.last_issue_ts || '-' }}</span>
+              </div>
+            </button>
+          </div>
+          <div v-else class="runtime-empty-panel">
+            <strong>暂无组件健康数据</strong>
+          </div>
+
+          <div class="component-distribution">
+            <button
+              v-for="item in componentBoard.distribution"
+              :key="`${item.component}-${item.issue_count}-${item.trace_count}`"
+              type="button"
+              class="component-distribution-chip"
+              :class="{ active: boardFilter.component === item.component }"
+              @click="handleComponentFilter(item.component)"
+            >
+              {{ item.component }} · {{ item.issue_count }}/{{ item.trace_count }}
+            </button>
+            <span v-if="componentBoard.distribution.length === 0" class="runtime-filter-empty">暂无异常分布</span>
+          </div>
+        </section>
+      </section>
+
+      <section class="runtime-section">
+        <div class="trace-detail">
+          <div class="trace-detail-head">
+            <div>
+              <strong>{{ selectedTraceDetail.trace_id || selectedTrace?.trace_key || '选择一条 Trace' }}</strong>
+              <div v-if="selectedTrace" class="trace-summary-chips">
+                <span class="trace-summary-chip">steps {{ selectedTraceDetail.step_count }}</span>
+                <span class="trace-summary-chip" :class="{ 'is-issue': selectedTraceDetail.issue_count > 0 }">
+                  issues {{ selectedTraceDetail.issue_count }}
+                </span>
+                <span class="trace-summary-chip">duration {{ selectedTraceDetail.total_duration_label }}</span>
               </div>
             </div>
+            <div class="trace-detail-actions">
+              <el-button :disabled="!selectedStep" @click="openRawBrowser">Raw</el-button>
+            </div>
+          </div>
             <div v-if="selectedTrace" class="trace-detail-body">
               <div class="trace-timeline-panel">
                 <div class="trace-summary-grid">
@@ -275,9 +388,22 @@
             </div>
             <div v-else class="trace-empty">暂无选中链路</div>
           </div>
-        </div>
       </section>
     </div>
+
+    <el-drawer v-model="advancedFilterVisible" size="420px" title="高级筛选">
+      <div class="advanced-filter-grid">
+        <el-input v-model="draftQuery.trace_id" clearable placeholder="trace_id" />
+        <el-input v-model="draftQuery.request_id" clearable placeholder="request_id" />
+        <el-input v-model="draftQuery.internal_order_id" clearable placeholder="internal_order_id" />
+        <el-input v-model="draftQuery.symbol" clearable placeholder="symbol" />
+        <el-input v-model="draftQuery.component" clearable placeholder="component" />
+      </div>
+      <div class="advanced-filter-actions">
+        <el-button @click="resetAdvancedFilter">清空</el-button>
+        <el-button type="primary" :loading="loading.traces" @click="applyAdvancedFilter">应用</el-button>
+      </div>
+    </el-drawer>
 
     <el-drawer v-model="rawDrawerVisible" size="55%" title="Raw Records">
       <div class="raw-toolbar">
@@ -317,11 +443,15 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
 import MyHeader from './MyHeader.vue'
 import {
+  applyBoardFilter,
+  buildComponentBoard,
+  buildIssuePriorityCards,
+  buildRecentTraceFeed,
   buildTraceListSummary,
   buildIssueSummary,
   buildRawRecordSummary,
@@ -335,8 +465,7 @@ import {
   filterTraceSteps,
   groupStepsByComponent,
   pickDefaultTraceStep,
-  sortTraceSummaries,
-  summarizeTrace,
+  stopPollingTimer,
 } from './runtimeObservability.mjs'
 
 const loading = reactive({
@@ -344,8 +473,16 @@ const loading = reactive({
   traces: false,
   raw: false,
 })
+const QUERY_FIELDS = ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component']
 
 const query = reactive({
+  trace_id: '',
+  request_id: '',
+  internal_order_id: '',
+  symbol: '',
+  component: '',
+})
+const draftQuery = reactive({
   trace_id: '',
   request_id: '',
   internal_order_id: '',
@@ -358,24 +495,74 @@ const traces = ref([])
 const selectedTrace = ref(null)
 const selectedStep = ref(null)
 const onlyIssues = ref(false)
+const autoRefresh = ref(false)
+const advancedFilterVisible = ref(false)
+const recentTraceLimit = ref(20)
 const collapsedComponents = ref({})
 const rawDrawerVisible = ref(false)
 const rawFiles = ref([])
 const rawRecords = ref([])
 const rawFocusedIndex = ref(-1)
 const rawRecordRefs = ref({})
+const recentFeedRef = ref(null)
+const pageError = ref('')
+const boardFilter = reactive({
+  component: '',
+})
 const rawQuery = reactive({
   runtime_node: '',
   component: '',
   date: '',
   file: '',
 })
+let overviewTimer = null
 
-const traceRows = computed(() => {
-  return sortTraceSummaries(traces.value.map((item) => summarizeTrace(item)))
+const boardFilteredTraces = computed(() => {
+  return applyBoardFilter(traces.value, boardFilter)
 })
-const traceListSummary = computed(() => buildTraceListSummary(traces.value))
-const activeComponentFilter = computed(() => String(query.component || '').trim())
+const visibleTraces = computed(() => {
+  if (!onlyIssues.value) return boardFilteredTraces.value
+  return boardFilteredTraces.value.filter((trace) => buildTraceDetail(trace).issue_count > 0)
+})
+const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
+const issuePriorityCards = computed(() => buildIssuePriorityCards(visibleTraces.value))
+const recentTraceFeed = computed(() => buildRecentTraceFeed(visibleTraces.value, { limit: recentTraceLimit.value }))
+const componentBoard = computed(() => buildComponentBoard(traces.value, healthCards.value))
+const filterChips = computed(() => {
+  const chips = []
+  if (boardFilter.component) {
+    chips.push({
+      key: 'board-component',
+      label: `组件: ${boardFilter.component}`,
+      kind: 'board',
+      field: 'component',
+    })
+  }
+  if (onlyIssues.value) {
+    chips.push({
+      key: 'only-issues',
+      label: '仅异常',
+      kind: 'toggle',
+    })
+  }
+  for (const [field, label] of [
+    ['trace_id', 'Trace'],
+    ['request_id', 'Request'],
+    ['internal_order_id', 'Order'],
+    ['symbol', 'Symbol'],
+    ['component', '组件'],
+  ]) {
+    const value = String(query[field] || '').trim()
+    if (!value) continue
+    chips.push({
+      key: `query-${field}`,
+      label: `${label}: ${value}`,
+      kind: 'query',
+      field,
+    })
+  }
+  return chips
+})
 
 const selectedTraceDetail = computed(() => buildTraceDetail(selectedTrace.value || {}))
 const traceSummaryMeta = computed(() => buildTraceSummaryMeta(selectedTraceDetail.value))
@@ -394,22 +581,50 @@ const traceIdentityGroups = computed(() => {
 })
 const rawRecordCards = computed(() => rawRecords.value.map((record) => buildRawRecordSummary(record)))
 
+const syncQueryState = (target, source = {}) => {
+  for (const field of QUERY_FIELDS) {
+    target[field] = String(source?.[field] || '').trim()
+  }
+}
+
+const summarizeRequestError = (fallback, error) => {
+  const detail = String(
+    error?.response?.data?.detail ||
+      error?.response?.data?.message ||
+      error?.message ||
+      '',
+  ).trim()
+  return detail ? `${fallback}：${detail}` : fallback
+}
+
 const loadOverview = async () => {
   loading.overview = true
   try {
-    const [healthResp] = await Promise.all([
+    pageError.value = ''
+    const [healthResult, traceResult] = await Promise.allSettled([
       runtimeObservabilityApi.getHealthSummary(),
-      loadTraces(),
+      loadTraces({ suppressError: true }),
     ])
-    healthCards.value = buildHealthCards(healthResp?.data?.components || [])
+    const errors = []
+    if (healthResult.status === 'fulfilled') {
+      healthCards.value = buildHealthCards(healthResult.value?.data?.components || [])
+    } else {
+      errors.push(summarizeRequestError('健康摘要加载失败', healthResult.reason))
+    }
+    if (traceResult.status === 'rejected') {
+      errors.push(summarizeRequestError('Trace 列表加载失败', traceResult.reason))
+    }
+    pageError.value = errors.join('；')
   } finally {
     loading.overview = false
   }
 }
 
-const loadTraces = async () => {
+const loadTraces = async (options = {}) => {
+  const suppressError = Boolean(options?.suppressError)
   loading.traces = true
   try {
+    if (!suppressError) pageError.value = ''
     const response = await runtimeObservabilityApi.listTraces(buildTraceQuery(query))
     traces.value = response?.data?.traces || []
     const currentTraceRow = {
@@ -417,9 +632,30 @@ const loadTraces = async () => {
       trace_id: selectedTrace.value?.trace_id,
     }
     selectedTrace.value = findTraceByRow(traces.value, currentTraceRow) || traces.value[0] || null
+  } catch (error) {
+    if (!suppressError) {
+      pageError.value = summarizeRequestError('Trace 列表加载失败', error)
+    }
+    throw error
   } finally {
     loading.traces = false
   }
+}
+
+const openAdvancedFilter = () => {
+  syncQueryState(draftQuery, query)
+  advancedFilterVisible.value = true
+}
+
+const applyAdvancedFilter = async () => {
+  syncQueryState(query, draftQuery)
+  recentTraceLimit.value = 20
+  await loadTraces()
+  advancedFilterVisible.value = false
+}
+
+const resetAdvancedFilter = () => {
+  syncQueryState(draftQuery)
 }
 
 const handleTraceClick = async (row) => {
@@ -432,6 +668,49 @@ const handleTraceClick = async (row) => {
     selectedTrace.value = selected
   }
   collapsedComponents.value = {}
+}
+
+const handleIssueCardClick = async (card) => {
+  await handleTraceClick(card)
+}
+
+const handleRecentTraceClick = async (row) => {
+  await handleTraceClick(row)
+}
+
+const handleComponentFilter = (component) => {
+  const normalized = String(component || '').trim()
+  boardFilter.component = boardFilter.component === normalized ? '' : normalized
+  recentTraceLimit.value = 20
+}
+
+const clearFilterChip = async (chip) => {
+  if (!chip) return
+  if (chip.kind === 'board') {
+    boardFilter.component = ''
+    return
+  }
+  if (chip.kind === 'toggle') {
+    onlyIssues.value = false
+    return
+  }
+  if (chip.kind === 'query' && chip.field) {
+    query[chip.field] = ''
+    draftQuery[chip.field] = ''
+    await loadTraces()
+  }
+}
+
+const showMoreRecentTraces = () => {
+  recentTraceLimit.value = 50
+}
+
+const scrollToRecentFeed = async () => {
+  await nextTick()
+  recentFeedRef.value?.scrollIntoView({
+    block: 'start',
+    behavior: 'smooth',
+  })
 }
 
 const handleStepSelect = (step) => {
@@ -548,6 +827,14 @@ const copyText = async (value) => {
   }
 }
 
+const resetOverviewTimer = () => {
+  overviewTimer = stopPollingTimer(overviewTimer, { clearInterval: window.clearInterval.bind(window) })
+  if (!autoRefresh.value) return
+  overviewTimer = window.setInterval(() => {
+    loadOverview()
+  }, 15000)
+}
+
 const syncSelectedStep = () => {
   const steps = filteredSteps.value
   if (!steps.length) {
@@ -595,6 +882,14 @@ watch([selectedTraceDetail, onlyIssues], () => {
   syncSelectedStep()
 })
 
+watch(visibleTraces, (items) => {
+  const currentRow = {
+    trace_key: selectedTrace.value?.trace_key,
+    trace_id: selectedTrace.value?.trace_id,
+  }
+  selectedTrace.value = findTraceByRow(items, currentRow) || items[0] || null
+}, { immediate: true })
+
 watch(() => selectedTrace.value?.trace_id || selectedTrace.value?.trace_key || '', () => {
   collapsedComponents.value = {}
 })
@@ -603,8 +898,16 @@ watch(rawRecords, () => {
   rawRecordRefs.value = {}
 })
 
+watch(autoRefresh, () => {
+  resetOverviewTimer()
+})
+
 onMounted(() => {
   loadOverview()
+})
+
+onBeforeUnmount(() => {
+  overviewTimer = stopPollingTimer(overviewTimer, { clearInterval: window.clearInterval.bind(window) })
 })
 </script>
 
@@ -638,6 +941,13 @@ onMounted(() => {
   margin-bottom: 14px;
 }
 
+.runtime-title-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
 .runtime-title-row h1 {
   margin: 0;
   font-size: 26px;
@@ -647,6 +957,318 @@ onMounted(() => {
 .runtime-title-row p {
   margin: 6px 0 0;
   color: #56718d;
+}
+
+.runtime-error-banner {
+  margin-bottom: 14px;
+}
+
+.runtime-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.runtime-filter-chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #edf4fb;
+  color: #35506c;
+  cursor: pointer;
+  font: inherit;
+}
+
+.runtime-filter-chip:hover {
+  background: #dbe9f7;
+}
+
+.runtime-filter-empty {
+  color: #69829b;
+  font-size: 12px;
+}
+
+.runtime-home-section {
+  border: 1px solid #d8e2ee;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  padding: 16px;
+}
+
+.runtime-home-section + .runtime-home-section {
+  margin-top: 14px;
+}
+
+.runtime-home-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.runtime-home-head h2 {
+  margin: 0;
+  color: #17324d;
+  font-size: 20px;
+}
+
+.runtime-home-head p {
+  margin: 6px 0 0;
+  color: #69829b;
+  font-size: 13px;
+}
+
+.runtime-home-meta {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #35506c;
+  font-size: 12px;
+}
+
+.runtime-home-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.runtime-empty-panel {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  color: #69829b;
+  text-align: center;
+}
+
+.runtime-empty-panel strong {
+  color: #21405e;
+}
+
+.issue-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.issue-card {
+  border: 1px solid #d8e2ee;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.issue-card:hover {
+  transform: translateY(-1px);
+  border-color: #5d8fbd;
+  box-shadow: 0 10px 24px rgba(35, 73, 115, 0.1);
+}
+
+.issue-card-top,
+.issue-card-metrics,
+.issue-card-identities,
+.recent-feed-meta,
+.component-board-stats,
+.component-board-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #69829b;
+  font-size: 12px;
+}
+
+.issue-card-top {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.issue-card strong,
+.recent-feed-item strong,
+.component-board-card strong {
+  display: block;
+  color: #21405e;
+}
+
+.issue-card-headline,
+.issue-card-subline,
+.issue-card-summary,
+.recent-feed-path {
+  margin: 8px 0 0;
+  color: #35506c;
+}
+
+.issue-card-subline,
+.issue-card-summary,
+.recent-feed-path {
+  font-size: 13px;
+}
+
+.issue-card-metrics,
+.issue-card-identities {
+  margin-top: 10px;
+}
+
+.issue-card.is-failed {
+  background: linear-gradient(180deg, #ffffff 0%, #fff1f0 100%);
+}
+
+.issue-card.is-warning {
+  background: linear-gradient(180deg, #ffffff 0%, #fff8ec 100%);
+}
+
+.issue-card.is-skipped {
+  background: linear-gradient(180deg, #ffffff 0%, #f5f2ff 100%);
+}
+
+.recent-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recent-feed-item {
+  width: 100%;
+  border: 1px solid #d8e2ee;
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recent-feed-item:hover {
+  border-color: #5d8fbd;
+  box-shadow: 0 8px 20px rgba(35, 73, 115, 0.08);
+}
+
+.recent-feed-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #35506c;
+  font-size: 12px;
+  text-transform: lowercase;
+}
+
+.recent-feed-status.is-success {
+  background: #1e9b61;
+  color: #fff;
+}
+
+.recent-feed-status.is-warning {
+  background: #de8f1f;
+  color: #fff;
+}
+
+.recent-feed-status.is-failed {
+  background: #cf4a3c;
+  color: #fff;
+}
+
+.recent-feed-status.is-skipped {
+  background: #7d74b6;
+  color: #fff;
+}
+
+.recent-feed-tags,
+.component-distribution {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recent-feed-tags span,
+.component-distribution-chip {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #35506c;
+  font-size: 12px;
+}
+
+.component-distribution {
+  margin-top: 14px;
+}
+
+.component-distribution-chip {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.component-distribution-chip.active {
+  background: #21405e;
+  color: #fff;
+}
+
+.component-board-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.component-board-card {
+  border: 1px solid #d8e2ee;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.component-board-card.active {
+  border-color: #21405e;
+  box-shadow: 0 10px 24px rgba(35, 73, 115, 0.1);
+}
+
+.component-board-card.is-warning {
+  background: linear-gradient(180deg, #ffffff 0%, #fff8ec 100%);
+}
+
+.component-board-card.is-failed {
+  background: linear-gradient(180deg, #ffffff 0%, #fff1f0 100%);
+}
+
+.component-board-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.component-board-head span {
+  color: #69829b;
+  font-size: 12px;
+}
+
+.component-board-stats {
+  margin-bottom: 8px;
+}
+
+.advanced-filter-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.advanced-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
 }
 
 .health-grid {
@@ -1320,6 +1942,11 @@ onMounted(() => {
 }
 
 @media (max-width: 1080px) {
+  .runtime-title-row,
+  .runtime-home-head,
+  .runtime-home-actions,
+  .recent-feed-item,
+  .component-board-head,
   .trace-toolbar,
   .trace-list-summary,
   .raw-toolbar,
@@ -1334,7 +1961,8 @@ onMounted(() => {
   .step-inspector-actions,
   .trace-timeline-hint,
   .trace-affected-row,
-  .raw-record-card header {
+  .raw-record-card header,
+  .issue-card-top {
     flex-direction: column;
     align-items: stretch;
   }
