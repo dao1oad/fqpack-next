@@ -354,6 +354,9 @@ test('kline-slim controller derives datazoom state from event payload instead of
   const handleSlimDataZoomBody = content.match(
     /handleSlimDataZoom\((?:event|params)\)\s*\{([\s\S]*?)\r?\n\s*\},\r?\n\s*handleSlimDataZoomPointerUp/
   )?.[1]
+  const handleSlimDataZoomPointerUpBody = content.match(
+    /handleSlimDataZoomPointerUp\(\)\s*\{([\s\S]*?)\r?\n\s*\},\r?\n\s*scheduleRender/
+  )?.[1]
 
   assert.match(content, /handleSlimDataZoom\((event|params)\)/)
   assert.match(content, /(event|params)\?\.(batch|start|end|startValue|endValue)/)
@@ -362,5 +365,8 @@ test('kline-slim controller derives datazoom state from event payload instead of
   assert.match(content, /getZr\(\)\.on\('mouseup',\s*this\.handleSlimDataZoomPointerUp\)/)
   assert.match(content, /handleSlimDataZoomPointerUp\(\)\s*\{[\s\S]*getOption\(\)/m)
   assert.ok(handleSlimDataZoomBody)
+  assert.ok(handleSlimDataZoomPointerUpBody)
   assert.doesNotMatch(handleSlimDataZoomBody, /getOption\(/)
+  assert.match(handleSlimDataZoomBody, /scheduleRender\(true\)/)
+  assert.match(handleSlimDataZoomPointerUpBody, /scheduleRender\(true\)/)
 })
