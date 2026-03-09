@@ -6,6 +6,7 @@ import {
   aggregateStockRows,
   buildChanlunFilterStats,
   buildViewStats,
+  filterLoadedPlateRows,
   formatProviderLoadErrors,
   hydratePlateRowsWithPassedStocks,
   loadProvidersIndependently,
@@ -192,6 +193,25 @@ test('hydratePlateRowsWithPassedStocks rewrites single-provider counts and drops
       view_key: 'xgb|11',
     },
   ])
+})
+
+test('filterLoadedPlateRows hides provider plates when stock rows failed to load', () => {
+  assert.deepEqual(
+    filterLoadedPlateRows({
+      plates: [
+        {
+          provider: 'xgb',
+          plate_key: '11',
+          plate_name: 'robotics',
+          seg_to: '2026-03-05',
+          appear_days_30: 2,
+          stocks_count: 3,
+        },
+      ],
+      hasLoadError: true,
+    }),
+    [],
+  )
 })
 
 test('aggregatePlateRows keeps all source plate refs for same provider and same name', () => {

@@ -155,6 +155,16 @@ export const hydratePlateRowsWithPassedStocks = ({
   return sortPlateRows(hydrated)
 }
 
+export const filterLoadedPlateRows = ({
+  plates = [],
+  hasLoadError = false,
+} = {}) => {
+  if (hasLoadError) return []
+  return sortPlateRows(
+    (plates || []).filter((row) => Number(row?.stocks_count || 0) > 0),
+  )
+}
+
 export const aggregatePlateRows = ({
   xgbPlates = [],
   jygsPlates = [],

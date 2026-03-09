@@ -231,10 +231,10 @@ import {
   aggregateStockRows,
   buildChanlunFilterStats,
   buildViewStats,
+  filterLoadedPlateRows,
   formatProviderLabel,
   loadProvidersIndependently,
   normalizeSourcePlateRefs,
-  sortPlateRows,
   sortStockRows,
 } from './shouban30Aggregation.mjs'
 
@@ -259,6 +259,7 @@ const router = useRouter()
 const sourcePlatesByProvider = ref({ xgb: [], jygs: [] })
 const sourceMetaByProvider = ref({ xgb: {}, jygs: {} })
 const sourceStocksByProvider = ref({ xgb: {}, jygs: {} })
+const stockLoadErrorProviders = ref([])
 
 const stockReasons = ref([])
 
@@ -330,12 +331,6 @@ const formatChanlunMetric = (value) => {
   return number.toFixed(2)
 }
 
-const filterVisiblePlates = (rows = []) => {
-  return sortPlateRows(
-    normalizeList(rows).filter((row) => Number(row?.stocks_count || 0) > 0),
-  )
-}
-
 const activeViewProvider = computed(() => normalizeViewProvider(route.query.p))
 const stockWindowDays = computed(() => {
   return normalizeShouban30StockWindowDays(route.query.stock_window_days)
@@ -359,8 +354,14 @@ const updateQuery = (patch = {}) => {
   }).catch(() => {})
 }
 
-const xgbPlates = computed(() => filterVisiblePlates(sourcePlatesByProvider.value.xgb))
-const jygsPlates = computed(() => filterVisiblePlates(sourcePlatesByProvider.value.jygs))
+const xgbPlates = computed(() => filterLoadedPlateRows({
+  plates: sourcePlatesByProvider.value.xgb,
+  hasLoadError: stockLoadErrorProviders.value.includes('xgb'),
+}))
+const jygsPlates = computed(() => filterLoadedPlateRows({
+  plates: sourcePlatesByProvider.value.jygs,
+  hasLoadError: stockLoadErrorProviders.value.includes('jygs'),
+}))
 const aggPlates = computed(() => {
   return aggregatePlateRows({
     xgbPlates: xgbPlates.value,
@@ -555,6 +556,7 @@ const loadViewData = async () => {
   sourcePlatesByProvider.value = { xgb: [], jygs: [] }
   sourceMetaByProvider.value = { xgb: {}, jygs: {} }
   sourceStocksByProvider.value = { xgb: {}, jygs: {} }
+  stockLoadErrorProviders.value = []
 
   try {
     const plateLoad = await loadProvidersIndependently({
@@ -598,6 +600,7 @@ const loadViewData = async () => {
         stockLoad.valuesByProvider?.[provider] || {},
       ]),
     )
+    stockLoadErrorProviders.value = normalizeList(stockLoad.errors).map(({ provider }) => toText(provider))
     platesError.value = formatLoadErrors({
       errors: plateLoad.errors,
       targetLabel: '首板板块',
