@@ -326,20 +326,90 @@ def test_has_legacy_shouban30_snapshot_detects_missing_chanlun_filter_version(
     ops = _load_ops_module(monkeypatch)
 
     class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
         def count_documents(self, query):
-            return 4
+            return len(self.find(query))
 
         def distinct(self, field, query):
-            if field == "stock_window_days":
-                return [30, 45, 60, 90]
-            if field == "chanlun_filter_version":
-                return []
-            raise AssertionError(field)
+            return list(
+                {
+                    doc[field]
+                    for doc in self.find(query)
+                    if field in doc
+                }
+            )
+
+        def find(self, query, projection=None):
+            return [
+                doc
+                for doc in self.docs
+                if all(doc.get(key) == value for key, value in query.items())
+            ]
 
     monkeypatch.setattr(
         ops,
         "DBGantt",
-        {ops.COL_SHOUBAN30_PLATES: FakeCollection()},
+        {
+            ops.COL_SHOUBAN30_PLATES: FakeCollection(
+                [
+                    {"as_of_date": "2026-03-05", "stock_window_days": 30},
+                    {"as_of_date": "2026-03-05", "stock_window_days": 45},
+                    {"as_of_date": "2026-03-05", "stock_window_days": 60},
+                    {"as_of_date": "2026-03-05", "stock_window_days": 90},
+                ]
+            )
+        },
+    )
+
+    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True
+
+
+def test_has_legacy_shouban30_snapshot_detects_mixed_legacy_and_new_rows(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+
+    class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
+        def count_documents(self, query):
+            return len(self.find(query))
+
+        def distinct(self, field, query):
+            return list(
+                {
+                    doc[field]
+                    for doc in self.find(query)
+                    if field in doc
+                }
+            )
+
+        def find(self, query, projection=None):
+            return [
+                doc
+                for doc in self.docs
+                if all(doc.get(key) == value for key, value in query.items())
+            ]
+
+    monkeypatch.setattr(
+        ops,
+        "DBGantt",
+        {
+            ops.COL_SHOUBAN30_PLATES: FakeCollection(
+                [
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 30,
+                        "chanlun_filter_version": "30m_v1",
+                    },
+                    {
+                        "as_of_date": "2026-03-05",
+                        "plate_key": "legacy-missing-fields",
+                    },
+                ]
+            )
+        },
     )
 
     assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True

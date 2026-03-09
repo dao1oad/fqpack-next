@@ -1088,6 +1088,81 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
     ]
 
 
+def test_persist_shouban30_for_date_skips_stock_rows_when_all_plates_are_blacklisted(
+    monkeypatch,
+):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        plate_reason_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "99",
+                    "plate_name": "ST股",
+                    "reason_text": "st reason",
+                    "reason_source": "xgb_top_gainer_history.description",
+                    "source_ref": {"trade_date": "2026-03-05", "plate_id": 99},
+                }
+            ]
+        ),
+        gantt_plate_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "99",
+                    "plate_name": "ST股",
+                    "rank": 1,
+                    "hot_stock_count": 1,
+                    "limit_up_count": 1,
+                    "stock_codes": ["000099"],
+                }
+            ]
+        ),
+        gantt_stock_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "99",
+                    "plate_name": "ST股",
+                    "code6": "000099",
+                    "name": "st alpha",
+                    "is_limit_up": 1,
+                    "stock_reason": "st stock reason",
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+    monkeypatch.setattr(
+        svc,
+        "get_chanlun_structure",
+        lambda symbol, period, end_date: {
+            "ok": True,
+            "structure": {
+                "higher_segment": {"start_price": 10, "end_price": 20},
+                "segment": {"start_price": 10, "end_price": 20},
+                "bi": {"price_change_pct": 10},
+            },
+        },
+        raising=False,
+    )
+
+    result = svc.persist_shouban30_for_date("2026-03-05", stock_window_days=30)
+
+    assert result == {
+        "as_of_date": "2026-03-05",
+        "plates": 0,
+        "stocks": 0,
+        "stock_window_days": 30,
+    }
+    assert fake_db[svc.COL_SHOUBAN30_PLATES].docs == []
+    assert fake_db[svc.COL_SHOUBAN30_STOCKS].docs == []
+
+
 def test_persist_shouban30_for_date_reuses_chanlun_result_cache_across_windows(
     monkeypatch,
 ):

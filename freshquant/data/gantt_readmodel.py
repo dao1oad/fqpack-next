@@ -902,7 +902,10 @@ def _build_shouban30_stock_rows(
         code6 = _to_str(row.get("code6"))
         if not provider or not plate_key or not code6:
             continue
-        if allowed_plate_keys and (provider, plate_key) not in allowed_plate_keys:
+        if (
+            allowed_plate_keys is not None
+            and (provider, plate_key) not in allowed_plate_keys
+        ):
             continue
         grouped[(provider, plate_key, code6)].append(row)
 

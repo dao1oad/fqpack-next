@@ -71,25 +71,23 @@ def _has_legacy_shouban30_snapshot(trade_date: str) -> bool:
         return False
 
     collection = DBGantt[COL_SHOUBAN30_PLATES]
-    if collection.count_documents({"as_of_date": date_str}) <= 0:
+    docs = list(collection.find({"as_of_date": date_str}))
+    if not docs:
         return False
 
-    windows = {
-        int(value)
-        for value in collection.distinct("stock_window_days", {"as_of_date": date_str})
-        if isinstance(value, int) and value in SHOUBAN30_STOCK_WINDOWS
-    }
-    if not windows:
-        return True
+    windows = set()
+    for doc in docs:
+        stock_window_days = doc.get("stock_window_days")
+        if (
+            not isinstance(stock_window_days, int)
+            or stock_window_days not in SHOUBAN30_STOCK_WINDOWS
+        ):
+            return True
+        if not _to_str(doc.get("chanlun_filter_version")):
+            return True
+        windows.add(stock_window_days)
 
-    versions = {
-        _to_str(value)
-        for value in collection.distinct(
-            "chanlun_filter_version", {"as_of_date": date_str}
-        )
-        if _to_str(value)
-    }
-    return not versions
+    return windows != set(SHOUBAN30_STOCK_WINDOWS)
 
 
 def _query_trade_dates_between(start_date: str, end_date: str) -> list[str]:
