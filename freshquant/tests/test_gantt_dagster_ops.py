@@ -637,9 +637,7 @@ def test_job_gantt_postclose_daily_pipeline_dependencies(monkeypatch):
         "op_sync_jygs_action_for_trade_date",
     }
     assert dependency_map["op_build_gantt_daily"] == {"op_build_plate_reason_daily"}
-    assert dependency_map["op_build_stock_hot_reason_daily"] == {
-        "op_build_gantt_daily"
-    }
+    assert dependency_map["op_build_stock_hot_reason_daily"] == {"op_build_gantt_daily"}
     assert dependency_map["op_build_shouban30_daily"] == {
         "op_build_stock_hot_reason_daily"
     }
