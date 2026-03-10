@@ -11,6 +11,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Test-IsElevatedSession {
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
+    return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 function Resolve-NssmPath {
     param([string]$ExplicitPath)
 
@@ -56,13 +62,23 @@ if (-not $ServicePassword) {
     throw "ServicePassword is required when installing a Windows service under the current account ($ServiceUser)."
 }
 
+if (-not (Test-IsElevatedSession)) {
+    throw 'Installing or updating the Symphony Windows service requires an elevated PowerShell session (Run as Administrator).'
+}
+
 & $syncScript -ServiceRoot $ServiceRoot
 
 $powershellExe = Join-Path $PSHOME 'powershell.exe'
 $appParameters = "-ExecutionPolicy Bypass -File `"$startScript`" -ServiceRoot `"$ServiceRoot`" -OpenAISymphonyRoot `"$OpenAISymphonyRoot`" -Port $Port"
+$serviceExists = $null -ne (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)
 
 if ($PSCmdlet.ShouldProcess($ServiceName, 'Install or update NSSM service')) {
-    & $nssm install $ServiceName $powershellExe $appParameters | Out-Null
+    if (-not $serviceExists) {
+        & $nssm install $ServiceName $powershellExe $appParameters | Out-Null
+    }
+
+    & $nssm set $ServiceName Application $powershellExe | Out-Null
+    & $nssm set $ServiceName AppParameters $appParameters | Out-Null
     & $nssm set $ServiceName AppDirectory $OpenAISymphonyRoot | Out-Null
     & $nssm set $ServiceName Start SERVICE_DELAYED_AUTO_START | Out-Null
     & $nssm set $ServiceName AppStdout $stdoutLog | Out-Null

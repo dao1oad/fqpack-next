@@ -86,6 +86,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/sync_freshquan
 - 已安装 `NSSM`
 - 当前账号具备可用的 `codex` / Git / SSH / 代理上下文
 - 当前账号密码可用于服务安装
+- 必须在 **提升权限的 PowerShell（Run as Administrator）** 中执行安装脚本
 
 默认会优先尝试这些 `NSSM` 路径：
 
@@ -105,6 +106,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/install_freshq
 
 - 本方案明确不用专用服务账号
 - 但 Windows Service 仍然需要当前账号密码来把服务绑定到该账号
+- 如果不是在提升权限 PowerShell 中执行，安装脚本会直接失败，不再尝试半途注册服务
 - 如果 `NSSM` 不在 `PATH` 中，也可以显式传入：
 
 ```powershell
@@ -112,6 +114,14 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/install_freshq
   -NssmPath 'D:\fqpack\tools\nssm\nssm.exe' `
   -ServicePassword '<你的当前账号密码>'
 ```
+
+如果之前已经在非提升权限终端下留下了错误的 `LocalSystem` 服务，可以在提升权限 PowerShell 中直接重跑安装脚本，脚本会按现有服务做更新；必要时也可以先执行：
+
+```powershell
+sc.exe delete fq-symphony-orchestrator
+```
+
+然后重新运行安装脚本。
 
 ## 8. 启动与重启
 
