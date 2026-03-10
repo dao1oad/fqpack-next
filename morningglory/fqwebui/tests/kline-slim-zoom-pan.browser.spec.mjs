@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test'
 import { spawn, spawnSync } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 
+import { runLockedBuild } from './vite-build-lock.mjs'
+
 const DEV_SERVER_PORT = 18086
 const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
 const TARGET_URL = `${DEV_SERVER_URL}/kline-slim?symbol=sz002262&period=5m`
@@ -195,16 +197,8 @@ function getBuildCommand() {
   }
 }
 
-function runBuild() {
-  const { command, args } = getBuildCommand()
-  const result = spawnSync(command, args, {
-    cwd: process.cwd(),
-    encoding: 'utf8'
-  })
-
-  if (result.status !== 0) {
-    throw new Error(result.stderr || result.stdout || 'pnpm build failed')
-  }
+async function runBuild() {
+  await runLockedBuild(getBuildCommand, process.cwd())
 }
 
 function cleanupServerPort() {
@@ -300,7 +294,7 @@ async function readViewport(page) {
 
 test.beforeAll(async () => {
   cleanupServerPort()
-  runBuild()
+  await runBuild()
   const { command, args } = getDevServerCommand()
   devServerProcess = spawn(
     command,
