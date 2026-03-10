@@ -77,3 +77,13 @@ test('GanttHistory aligns the plate sidebar with chart grid padding', async () =
   assert.match(content, /paddingBottom: `\$\{GRID_BOTTOM\}px`/)
   assert.doesNotMatch(content, /class="sidebar-head"/)
 })
+
+test('GanttHistory keeps plate sidebar vertically scrollable when rows overflow', async () => {
+  const content = await readFile(
+    new URL('../src/views/components/GanttHistory.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(content, /\.sidebar-list\s*\{[\s\S]*overflow-y:\s*auto;/)
+  assert.match(content, /\.sidebar-list\s*\{[\s\S]*overflow-x:\s*hidden;/)
+})

@@ -1066,9 +1066,11 @@ onBeforeUnmount(() => {
 
 .sidebar-list {
   flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .sidebar-link {
