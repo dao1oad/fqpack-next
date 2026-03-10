@@ -1,4 +1,9 @@
 import freshquant.order_management.ingest.xt_reports as xt_reports_module
+import freshquant.order_management.reconcile.service as reconcile_service_module
+from freshquant.order_management.guardian.arranger import (
+    arrange_buy_lot,
+    build_buy_lot_from_trade_fact,
+)
 from freshquant.order_management.reconcile.service import ExternalOrderReconcileService
 from freshquant.order_management.tracking.service import OrderTrackingService
 
@@ -144,7 +149,42 @@ class InMemoryRepository:
         return None
 
 
-def _build_service():
+def _stub_ingest_side_effects(monkeypatch, *, marks=None, mark_label="updated"):
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_tpsl_service",
+        lambda: type(
+            "FakeTpslService",
+            (),
+            {"on_new_buy_trade": lambda self, symbol, buy_price: None},
+        )(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_guardian_buy_grid_service",
+        lambda: type(
+            "FakeGuardianBuyGridService",
+            (),
+            {"reset_after_sell_trade": lambda self, _symbol: None},
+        )(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "mark_stock_holdings_projection_updated",
+        (lambda: None) if marks is None else (lambda: marks.append(mark_label)),
+        raising=False,
+    )
+
+
+def _build_service(monkeypatch=None, *, marks=None, mark_label="updated"):
+    if monkeypatch is not None:
+        _stub_ingest_side_effects(
+            monkeypatch,
+            marks=marks,
+            mark_label=mark_label,
+        )
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)
     service = ExternalOrderReconcileService(
@@ -198,13 +238,11 @@ def test_detect_external_candidates_from_position_delta():
 
 
 def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypatch):
-    repository, service = _build_service()
     marks = []
-    monkeypatch.setattr(
-        xt_reports_module,
-        "mark_stock_holdings_projection_updated",
-        lambda: marks.append("matched"),
-        raising=False,
+    repository, service = _build_service(
+        monkeypatch,
+        marks=marks,
+        mark_label="matched",
     )
     candidate = service.detect_external_candidates(
         positions=[
@@ -238,8 +276,10 @@ def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypat
     assert marks == ["matched"]
 
 
-def test_reconcile_matches_inflight_internal_order_before_creating_external_order():
-    repository, service = _build_service()
+def test_reconcile_matches_inflight_internal_order_before_creating_external_order(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
     tracking_service = OrderTrackingService(repository=repository)
     tracking_service.submit_order(
         {
@@ -284,13 +324,11 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
 
 
 def test_inferred_pending_auto_confirms_after_120_seconds(monkeypatch):
-    repository, service = _build_service()
     marks = []
-    monkeypatch.setattr(
-        xt_reports_module,
-        "mark_stock_holdings_projection_updated",
-        lambda: marks.append("confirmed"),
-        raising=False,
+    repository, service = _build_service(
+        monkeypatch,
+        marks=marks,
+        mark_label="confirmed",
     )
     candidate = service.detect_external_candidates(
         positions=[
@@ -308,3 +346,76 @@ def test_inferred_pending_auto_confirms_after_120_seconds(monkeypatch):
     assert repository.trade_facts[0]["provisional"] is True
     assert len(repository.buy_lots) == 1
     assert marks == ["confirmed"]
+
+
+def test_partial_trade_shrinks_pending_candidate_before_confirm(monkeypatch):
+    marks = []
+    repository, service = _build_service(
+        monkeypatch,
+        marks=marks,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_resolve_lot_amount",
+        lambda _symbol: 3000,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_grid_interval_lookup",
+        lambda _symbol, _trade_fact: 1.03,
+        raising=False,
+    )
+    buy_lot = build_buy_lot_from_trade_fact(
+        {
+            "trade_fact_id": "trade_seed_buy_1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 900,
+            "price": 10.0,
+            "trade_time": 1_000,
+            "date": 20240102,
+            "time": "09:31:00",
+        }
+    )
+    repository.insert_buy_lot(buy_lot)
+    repository.replace_lot_slices_for_lot(
+        buy_lot["buy_lot_id"],
+        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
+    )
+    candidate = service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
+        detected_at=1_000,
+    )[0]
+
+    results = service.reconcile_trade_reports(
+        [
+            {
+                "order_id": 90003,
+                "traded_id": "T90003",
+                "stock_code": "000001.SZ",
+                "order_type": 24,
+                "traded_volume": 200,
+                "traded_price": 10.5,
+                "traded_time": 1_030,
+            }
+        ]
+    )
+    confirmed = service.confirm_expired_candidates(now=1_121)
+
+    assert len(results) == 1
+    assert (
+        repository.external_candidates[0]["candidate_id"] == candidate["candidate_id"]
+    )
+    assert repository.external_candidates[0]["state"] == "INFERRED_CONFIRMED"
+    assert repository.external_candidates[0]["quantity_delta"] == 300
+    assert len(confirmed) == 1
+    assert confirmed[0]["quantity_delta"] == 300
+    sell_trade_facts = [
+        item for item in repository.trade_facts if item["side"] == "sell"
+    ]
+    assert [item["quantity"] for item in sell_trade_facts] == [200, 300]
+    assert [item["source"] for item in sell_trade_facts] == [
+        "external_reported",
+        "external_inferred",
+    ]

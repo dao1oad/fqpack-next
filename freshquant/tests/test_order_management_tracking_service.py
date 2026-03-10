@@ -126,6 +126,41 @@ def test_ingest_trade_report_is_idempotent_by_broker_trade_id():
     assert len(repository.trade_facts) == 1
 
 
+def test_ingest_order_report_is_idempotent_when_state_is_unchanged():
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "000001",
+            "price": 12.34,
+            "quantity": 100,
+            "source": "strategy",
+            "internal_order_id": "ord_same_state_1",
+        }
+    )
+    repository.update_order(
+        "ord_same_state_1",
+        {
+            "state": "FILLED",
+            "broker_order_id": "B-001",
+        },
+    )
+    existing_event_count = len(repository.order_events)
+
+    current_order = service.ingest_order_report(
+        {
+            "internal_order_id": "ord_same_state_1",
+            "broker_order_id": "B-001",
+            "state": "FILLED",
+            "event_type": "xt_order_reported",
+        }
+    )
+
+    assert current_order["state"] == "FILLED"
+    assert len(repository.order_events) == existing_event_count
+
+
 def test_order_state_machine_rejects_invalid_transition():
     state_machine = OrderStateMachine()
 
