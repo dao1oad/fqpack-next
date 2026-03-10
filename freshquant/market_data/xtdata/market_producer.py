@@ -289,10 +289,6 @@ def main():
     start_producer()
 
 
-if __name__ == "__main__":
-    main()
-
-
 def _emit_runtime(runtime_logger, event) -> bool:
     try:
         return bool(runtime_logger.emit(event))
@@ -308,3 +304,7 @@ def _get_runtime_logger():
     if _runtime_logger is None:
         _runtime_logger = RuntimeEventLogger("xt_producer")
     return _runtime_logger
+
+
+if __name__ == "__main__":
+    main()
