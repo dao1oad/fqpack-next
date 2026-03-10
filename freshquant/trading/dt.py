@@ -6,8 +6,9 @@ from datetime import date, datetime
 from typing import Callable, Iterator, Optional, TypeVar
 
 import akshare as ak
-import pydash
 import pandas as pd
+import pydash
+
 from freshquant.carnation.config import DT_FORMAT_DAY
 from freshquant.database.cache import redis_cache
 
@@ -17,22 +18,28 @@ _PROXY_ENV_KEYS = ("ALL_PROXY", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY")
 
 @contextmanager
 def _without_proxy_env(keys: tuple[str, ...] = _PROXY_ENV_KEYS) -> Iterator[None]:
-    original: dict[str, tuple[str, str] | None] = {}
-    for key in keys:
-        normalized = key.upper()
-        if normalized not in original:
-            original[normalized] = (key, os.environ.get(key))
+    original = [(key, os.environ.get(key)) for key in keys]
+    for key, _ in original:
         os.environ.pop(key, None)
     try:
         yield
     finally:
-        for normalized, original_entry in original.items():
-            original_key = normalized
-            value = None if original_entry is None else original_entry[1]
+        if os.name == "nt":
+            restored: dict[str, str] = {}
+            for key, value in original:
+                if value is not None:
+                    restored[key.upper()] = value
+            for key, _ in original:
+                os.environ.pop(key, None)
+            for key, value in restored.items():
+                os.environ[key] = value
+            return
+
+        for key, value in original:
             if value is None:
-                os.environ.pop(original_key, None)
+                os.environ.pop(key, None)
             else:
-                os.environ[original_key] = value
+                os.environ[key] = value
 
 
 def _call_without_proxy_env(func: Callable[[], T]) -> T:
