@@ -171,3 +171,55 @@ def test_order_state_machine_rejects_invalid_transition():
         assert "FILLED" in str(error)
     else:
         raise AssertionError("Expected InvalidOrderTransition")
+
+
+def test_ingest_order_report_allows_broker_bypassed_transition():
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 12.34,
+            "quantity": 100,
+            "source": "strategy",
+            "internal_order_id": "ord_bypass_state_1",
+        }
+    )
+    repository.update_order("ord_bypass_state_1", {"state": "SUBMITTING"})
+
+    service.ingest_order_report(
+        {
+            "internal_order_id": "ord_bypass_state_1",
+            "state": "BROKER_BYPASSED",
+            "event_type": "broker_submit_bypassed",
+        }
+    )
+
+    assert repository.find_order("ord_bypass_state_1")["state"] == "BROKER_BYPASSED"
+    assert repository.order_events[-1]["event_type"] == "broker_submit_bypassed"
+
+
+def test_cancel_order_allows_transition_from_broker_bypassed():
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 12.34,
+            "quantity": 100,
+            "source": "strategy",
+            "internal_order_id": "ord_bypass_cancel_1",
+        }
+    )
+    repository.update_order("ord_bypass_cancel_1", {"state": "BROKER_BYPASSED"})
+
+    service.cancel_order(
+        {
+            "internal_order_id": "ord_bypass_cancel_1",
+            "source": "api",
+        }
+    )
+
+    assert repository.find_order("ord_bypass_cancel_1")["state"] == "CANCEL_REQUESTED"

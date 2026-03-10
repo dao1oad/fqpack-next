@@ -1,4 +1,7 @@
-from fqxtrade.xtquant.account import resolve_stock_account
+from fqxtrade.xtquant.account import (
+    resolve_broker_submit_mode,
+    resolve_stock_account,
+)
 
 
 def test_resolve_stock_account_uses_configured_account_type():
@@ -56,3 +59,33 @@ def test_resolve_stock_account_defaults_to_stock():
         "account_id": "068000076370",
         "account_type": "STOCK",
     }
+
+
+def test_resolve_broker_submit_mode_defaults_to_normal():
+    def fake_query_param(key, default=None):
+        values = {
+            "xtquant.account": "068000076370",
+        }
+        return values.get(key, default)
+
+    assert resolve_broker_submit_mode(query_param=fake_query_param) == "normal"
+
+
+def test_resolve_broker_submit_mode_accepts_observe_only():
+    def fake_query_param(key, default=None):
+        values = {
+            "xtquant.broker_submit_mode": "observe_only",
+        }
+        return values.get(key, default)
+
+    assert resolve_broker_submit_mode(query_param=fake_query_param) == "observe_only"
+
+
+def test_resolve_broker_submit_mode_normalizes_invalid_value_to_normal():
+    def fake_query_param(key, default=None):
+        values = {
+            "xtquant.broker_submit_mode": "paper_trade",
+        }
+        return values.get(key, default)
+
+    assert resolve_broker_submit_mode(query_param=fake_query_param) == "normal"

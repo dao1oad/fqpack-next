@@ -6,7 +6,7 @@ description: 旧仓库 D:\fqpack\freshquant 的代码结构与运行逻辑调研
 # 旧仓库 freshquant：重点迁移模块调研
 
 - **调研日期**：2026-03-05
-- **现状追加**：2026-03-10
+- **现状追加**：2026-03-11
 - **旧仓库**：`D:\fqpack\freshquant`（待迁移/参考实现）
 - **目标仓库**：`D:\fqpack\freshquant-2026.2.23`（目标架构，本期迁移承载）
 
@@ -22,7 +22,7 @@ description: 旧仓库 D:\fqpack\freshquant 的代码结构与运行逻辑调研
 | 2. Guardian | 已持续收敛，仍沿用现有策略模块 | `freshquant/strategy/guardian.py`；运行链已接入 RFC `0003`、`0007`、`0013`、`0014`、`0019`、`0026` |
 | 3. 止盈止损 | 已独立模块化 | `freshquant/tpsl/*`，RFC `0014` |
 | 4. 仓位管理 | 已独立模块化 | `freshquant/position_management/*`，RFC `0013` |
-| 5. 订单管理 | 已独立模块化 | `freshquant/order_management/*`，RFC `0007`、`0020` |
+| 5. 订单管理 | 已独立模块化；`observe_only` broker 演练模式已落地 | `freshquant/order_management/*`，RFC `0007`、`0020`、`0030` |
 | 6. 结构化日志 / SystemLogs | 未按旧仓形态迁入，已被新运行观测替代 | `freshquant/runtime_observability/*`、`/api/runtime/*`、`/runtime-observability`，RFC `0026` |
 | 7. KlineSlim | 已落地并持续迭代 | `morningglory/fqwebui/src/views/KlineSlim.vue`、`/api/stock_data_chanlun_structure`，RFC `0005`、`0015`、`0018`、`0022` |
 | 8. XGB / JYGS 数据同步 | 已落地到读模型链路 | `freshquant/data/gantt_readmodel.py` + Dagster，RFC `0006`、`0012` |
@@ -294,6 +294,27 @@ description: 旧仓库 D:\fqpack\freshquant 的代码结构与运行逻辑调研
     - 委托：`xt_orders`
     - 成交：`xt_trades`
     - 持仓：`xt_positions`（由 `sync_positions` 写入）
+
+### 6.4.1 截至 2026-03-11 的目标仓补充说明
+
+下面三点是旧仓实现与目标仓当前治理最容易混淆的地方：
+
+- 目标仓 `order_management` 虽然已独立成域模块，但它本身不是独立 Supervisor worker
+  - 订单受理入口仍然是：
+    - `Guardian`
+    - `freshquant.rear.order.routes`
+    - CLI `om-order`
+  - 独立常驻的订单域 worker 当前只有 `freshquant.order_management.credit_subjects.worker`
+- 目标仓若要跑完整交易链，宿主机需要额外常驻：
+  - `freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event`
+  - `freshquant.position_management.worker`
+  - `freshquant.tpsl.tick_listener`
+- RFC `0030` 已落地的 `xtquant.value.broker_submit_mode=observe_only` 语义是：
+  - broker 仍消费订单队列并产出运行观测
+  - `buy / sell / cancel` 全部不与券商交互
+  - 不生成 synthetic XT 回报
+  - 不改真实持仓、真实仓位、真实 TPSL 事实
+  - 订单状态将进入显式状态 `BROKER_BYPASSED`
 
 ### 6.5 订单追踪（remark 生命周期 + per-strategy collection）
 

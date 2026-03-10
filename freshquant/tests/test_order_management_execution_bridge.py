@@ -105,6 +105,35 @@ def test_finalize_submit_execution_marks_order_submitted_with_broker_order_id():
     assert order["broker_order_id"] == "123456"
 
 
+def test_finalize_submit_execution_marks_order_broker_bypassed_in_observe_only_mode():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "strategy",
+            "internal_order_id": "ord_submit_bypass_1",
+        }
+    )
+    repository.update_order("ord_submit_bypass_1", {"state": "SUBMITTING"})
+
+    result = finalize_submit_execution(
+        {"internal_order_id": "ord_submit_bypass_1"},
+        broker_order_id=None,
+        repository=repository,
+        tracking_service=tracking_service,
+        broker_submit_mode="observe_only",
+    )
+
+    order = repository.find_order("ord_submit_bypass_1")
+    assert result["status"] == "broker_bypassed"
+    assert order["state"] == "BROKER_BYPASSED"
+    assert order["broker_order_id"] is None
+
+
 def test_dispatch_cancel_execution_cancels_locally_when_broker_order_missing():
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)
@@ -155,6 +184,48 @@ def test_dispatch_cancel_execution_is_idempotent_for_already_canceled_order():
 
     assert result["status"] == "already_canceled"
     assert repository.find_order("ord_cancel_2")["state"] == "CANCELED"
+
+
+def test_dispatch_cancel_execution_bypasses_broker_in_observe_only_mode():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "api",
+            "internal_order_id": "ord_cancel_bypass_1",
+        }
+    )
+    repository.update_order(
+        "ord_cancel_bypass_1",
+        {
+            "state": "CANCEL_REQUESTED",
+            "broker_order_id": None,
+        },
+    )
+
+    executor_called = {"value": False}
+
+    result = dispatch_cancel_execution(
+        {
+            "internal_order_id": "ord_cancel_bypass_1",
+            "action": "cancel",
+            "broker_order_id": None,
+        },
+        cancel_executor=lambda broker_order_id: executor_called.__setitem__(
+            "value", True
+        ),
+        repository=repository,
+        tracking_service=tracking_service,
+        broker_submit_mode="observe_only",
+    )
+
+    assert result["status"] == "cancel_bypassed"
+    assert executor_called["value"] is False
+    assert repository.find_order("ord_cancel_bypass_1")["state"] == "CANCELED"
 
 
 def test_prepare_submit_execution_resolves_credit_sell_order_before_submit():

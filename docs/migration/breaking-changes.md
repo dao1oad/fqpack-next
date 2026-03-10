@@ -213,3 +213,10 @@
 - **影响面**：宿主机 `broker`、`puppet`、信用账户下单路径、XT 回报 ingest、兼容 `stock_fills/stock_orders` 投影，以及宿主机 supervisor 托管进程都会受影响。未启动 `credit_subjects.worker` 的环境，信用买单可能因缺少融资标的列表而被拒绝。
 - **迁移步骤**：1) 部署包含 RFC 0020 的代码；2) 在 Windows 宿主机 supervisor 中新增并启动 `python -m freshquant.order_management.credit_subjects.worker`；3) 确认 `freshquant_order_management.om_credit_subjects` 已同步到融资标的列表；4) 保持 `xtquant.account_type=CREDIT`、`xtquant.account`、`xtquant.path` 配置正确；5) 如使用 Docker 并行模式，确保宿主机 worker/broker 连接 `127.0.0.1:27027` 与 `127.0.0.1:6380`。
 - **回滚方案**：停止 `credit_subjects.worker`，回退 `freshquant/order_management/credit_subjects/*`、`freshquant/order_management/submit/*`、`freshquant/order_management/ingest/xt_reports.py`、`morningglory/fqxtrade/fqxtrade/xtquant/broker.py`、`morningglory/fqxtrade/fqxtrade/xtquant/puppet.py` 及相关测试，恢复当前普通股票语义与旧兼容投影行为。
+
+- **日期**：2026-03-11
+- **RFC**：0030-xtquant-observe-only-broker-mode
+- **变更**：新增 `freshquant.params(code=xtquant).value.broker_submit_mode` 配置项，合法值为 `normal | observe_only`；缺失/非法值默认 `normal`。当显式设置为 `observe_only` 时，`fqxtrade.xtquant.broker` 启动后不再建立 XT 券商连接，不再执行 `buy / sell / cancel` 或 `sync_positions / sync_orders / sync_trades / sync_summary`，而是仅消费订单队列、写运行观测 `broker_gateway.execution_bypassed`，并把订单状态推进到 `BROKER_BYPASSED`。宿主机 Supervisor 模板同步补齐 `guardian --mode event`、`position_management.worker`、`tpsl.tick_listener`。
+- **影响面**：`broker`、订单状态机、订单查询/排障语义、宿主机 Supervisor 托管进程与 Mongo 运行时参数都会受影响；`observe_only` 下不再产生真实 XT 回报，因此依赖 `xt_report_ingest / order_reconcile` 的后半段链路不会继续推进。
+- **迁移步骤**：1) 部署包含 RFC 0030 的代码；2) 在 Mongo `freshquant.params(code=monitor).value.xtdata.mode` 显式设置 `guardian_1m`；3) 在 Mongo `freshquant.params(code=xtquant).value` 下增加 `broker_submit_mode=observe_only`，字段与 `total_position` 同级；4) 在宿主机 Supervisor 中新增并启用 `guardian --mode event`、`position_management.worker`、`tpsl.tick_listener`；5) 重启 `fqnext_xtquant_broker` 使新执行模式生效；6) 如需回切真实提交流程，删除该字段或改回 `normal` 后再次重启 broker。
+- **回滚方案**：删除 `broker_submit_mode` 或改回 `normal`，重启 `fqnext_xtquant_broker`；如需代码回滚，再撤回 `BROKER_BYPASSED` 状态机扩展、broker `observe_only` 分支与相关运行观测埋点。
