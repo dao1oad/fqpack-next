@@ -37,11 +37,13 @@ Core governance rules:
 - Design phase does not open a PR.
 - In Progress opens and updates a Draft PR on the issue branch.
 - Default implementation mode is subagent-driven-development + TDD.
-- Do not modify secrets or run high-risk deployment / trading operations automatically.
+- Do not modify secrets.
+- Do not run production or other high-risk deployment / trading operations automatically.
+- Only controlled local or parallel-environment deployments are allowed, and only in Merging.
 
 State contract:
 
 - Todo: follow `runtime/symphony/prompts/todo.md`
 - In Progress: follow `runtime/symphony/prompts/in_progress.md`
 - Rework: follow `runtime/symphony/prompts/in_progress.md`
-- Merging: finalize verification, CI, merge preparation, and completion bookkeeping
+- Merging: follow `runtime/symphony/prompts/merging.md` for merge, deploy, health checks, retries, and Rework handoff

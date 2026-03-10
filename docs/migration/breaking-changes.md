@@ -21,6 +21,13 @@
 - **回滚方案**：回退 `AGENTS.md`、`docs/agent`、`docs/migration` 与 `runtime/symphony/*` 的相关改动，停用 Linear 正式状态机与 Symphony workflow 模板，恢复旧的 `git worktree + feature branch` 人工主导开发模式。
 
 - **日期**：2026-03-10
+- **RFC**：0028-symphony-first-governance
+- **变更**：`Done` 的治理语义从“代码已合并”进一步收敛为“代码已合并且自动部署成功”。`Merging` 现在必须完成 PR 合并、按变更矩阵执行 Docker 并行环境和/或 Symphony 宿主机运行面的自动部署，并通过部署后健康检查；部署失败会先在 `Merging` 自动重试，必要时回到 `Rework`。第一阶段仍明确禁止自动回滚和生产环境自动部署。
+- **影响面**：所有正式开发 issue 的完成判定、`AGENTS.md`、`docs/agent/Symphony正式接入治理说明.md`、`docs/agent/Symphony宿主机服务部署说明.md`、`runtime/symphony/*` workflow 模板，以及任何仍把 `Done` 理解成“merge 完成即可”的自动化或培训材料都会受到影响。
+- **迁移步骤**：1) 更新对 `Merging` 与 `Done` 的理解，不再把 merge 当作完成真值；2) 对 Docker 运行模块变更，执行 `docker compose -f docker/compose.parallel.yaml up -d --build`；3) 对 `runtime/symphony/**` 变更，执行 `sync_freshquant_symphony_service.ps1`、`Restart-Service fq-symphony-orchestrator` 与 `/api/v1/state` 健康检查；4) 若部署失败且稳定复现，按治理要求把 issue 转回 `Rework` 修复，而不是直接标 `Done`。
+- **回滚方案**：回退本次对 `AGENTS.md`、RFC 0028、`docs/agent` 与 `runtime/symphony/*` 的 CD 语义改动，恢复“`Merging` 只负责 merge 收尾、`Done` 不绑定部署成功”的旧治理定义。
+
+- **日期**：2026-03-10
 - **RFC**：0011-gantt-page-migration
 - **变更**：`/gantt` 与 `/gantt/stocks/:plateKey` 的共享图表组件 `GanttHistory.vue` 已按甘特图审计结果恢复 legacy 连板语义配色与 legend，补齐 tooltip 限位、hover 行高亮、板块侧栏随 y 轴 viewport 同步、stock 视图标签区拖拽平移兜底，以及 reset 后窗口同步。API 路径与父组件协议不变，但页面默认可见语义已从“按 rank/hotCount 单日着色”收敛为“按第几次连板与当前第几天着色”。
 - **影响面**：`/gantt` 与 `/gantt/stocks/:plateKey` 页面用户、截图/培训材料、浏览器自动化与依赖旧颜色语义或旧 hover/viewport 行为的说明文档都会受到影响；后端 `/api/gantt/*` 接口与数据结构不受影响。

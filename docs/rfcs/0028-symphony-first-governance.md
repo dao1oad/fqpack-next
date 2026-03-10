@@ -43,7 +43,8 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - 本 RFC 不要求第一阶段改成 webhook 驱动；继续使用当前 30 秒轮询即可。
 - 本 RFC 不把同一 issue 内的 checklist/comment 条目升级为独立任务单元。
 - 本 RFC 不允许自动修改 `.env` 或其他 secrets 文件。
-- 本 RFC 不允许第一阶段自动执行部署、停服、删库、强杀等高风险运行操作。
+- 本 RFC 不允许第一阶段自动执行生产环境部署、停服、删库、强杀等高风险运行操作。
+- 本 RFC 不实现自动回滚。
 - 本 RFC 不允许第一阶段自动执行实盘/券商/交易直连高风险动作。
 
 ## 4. 范围（Scope）
@@ -54,6 +55,7 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - `Symphony-managed workspace/repo copy` 作为合法工作区
 - 设计阶段审批包：RFC、implementation plan、task checklist、Linear 结构化评论
 - 远端 `feature branch`、`Draft PR`、CI 与 merge 的正式策略
+- `Merging` 阶段的自动部署、部署后健康检查与失败回路
 - `subagent-driven-development + TDD` 的默认实现期方法论
 - `AGENTS.md`、`docs/agent/*`、`docs/migration/*` 与 repo-versioned `runtime/symphony/*` 模板改写
 - 宿主机正式运行目录、正式 runner、启动脚本与 `NSSM` 服务安装脚本
@@ -61,6 +63,7 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 **Out of Scope**
 
 - 生产环境自动部署
+- 自动回滚
 - secrets 自动修改
 - webhook 接入实现
 - 对 `Symphony` 上游 Elixir 代码做产品级功能扩展
@@ -108,9 +111,9 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - `Rework`
   - 自动返工态
 - `Merging`
-  - 自动收尾与合并态
+  - 自动收尾、合并、部署与部署后健康检查
 - `Done`
-  - 终态
+  - 仅在部署成功后进入的终态
 
 ### 6.2 批准真值
 
@@ -121,7 +124,16 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 
 - 设计阶段不开 PR
 - 进入 `In Progress` 后创建并持续更新同一个 `Draft PR`
-- Merge 仍要求 CI 全绿和 review discussion 已解决
+- `Merging` 先完成 PR 合并，再根据变更矩阵执行自动部署
+- `Done` 仍要求 CI 全绿、review discussion 已解决且部署后健康检查通过
+
+### 6.4 CD 语义
+
+- Docker 并行运行面代码或构建链变更，触发 `docker compose -f docker/compose.parallel.yaml up -d --build`
+- `runtime/symphony/**` 变更，触发 `sync_freshquant_symphony_service.ps1 + Restart-Service fq-symphony-orchestrator + /api/v1/state`
+- 部署失败先停留在 `Merging` 做有限次自动重试
+- 若失败稳定复现且需要改代码或配置，转入 `Rework`
+- 第一阶段不允许自动回滚
 
 ## 7. 数据与配置（Data / Config）
 
@@ -137,6 +149,7 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - 分阶段 prompt：
   - `runtime/symphony/prompts/todo.md`
   - `runtime/symphony/prompts/in_progress.md`
+  - `runtime/symphony/prompts/merging.md`
 - 审批评论模板：
   - `runtime/symphony/templates/human_review_comment.md`
 - secrets 只允许通过环境变量或外部安全注入，不入仓：
@@ -147,7 +160,7 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 
 - 废止“全仓强制 `git worktree + feature branch`”作为唯一合法工作区模型。
 - 废止“GitHub reviewer approve 是主要人工门”的治理语义。
-- 正式切换到 `Linear issue -> Symphony workspace -> feature branch -> PR -> merge` 的开发路径。
+- 正式切换到 `Linear issue -> Symphony workspace -> feature branch -> PR -> merge -> deploy` 的开发路径。
 
 **影响面**
 
@@ -192,6 +205,8 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - [ ] Linear 状态机已能表达 `Todo -> Human Review -> In Progress -> Rework -> Merging -> Done`。
 - [ ] 设计批准前不会进入编码。
 - [ ] 设计批准后默认使用 `subagent-driven-development + TDD`。
+- [ ] `Done` 以“PR 合并 + 自动部署成功 + 健康检查通过”为前提。
+- [ ] Docker 并行运行面与 Symphony 宿主机运行面的自动部署矩阵已被文档和 workflow 模板明确约束。
 - [ ] 高风险目录与操作边界在治理文档中被明确约束。
 
 ## 11. 风险与回滚（Risks / Rollback）

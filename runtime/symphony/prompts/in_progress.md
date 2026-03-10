@@ -15,7 +15,8 @@ Hard rules:
 - Do not skip TDD.
 - Do not go to Merging without RED and GREEN evidence.
 - Do not modify secrets.
-- Do not auto-execute deployment, shutdown, database destructive operations, or high-risk live trading actions.
+- Do not auto-execute deployment in this phase; deployment belongs only to Merging.
+- Do not auto-execute shutdown, database destructive operations, or high-risk live trading actions.
 
 Required evidence:
 

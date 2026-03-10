@@ -71,9 +71,9 @@
 - `Rework`
   - 处理 review/CI/验证失败返工
 - `Merging`
-  - 自动收尾、合并
+  - 自动收尾、合并、部署与部署后健康检查
 - `Done`
-  - 终态
+  - 仅在合并与部署都成功后进入的终态
 
 审批真值只有一个：
 
@@ -106,7 +106,7 @@
 1) 新建/领取 `Linear issue`
 2) `Todo` 阶段写 RFC 与 implementation plan
 3) 人工把 issue 从 `Human Review` 改到 `In Progress`
-4) `Symphony` 自动编码、TDD、PR、CI、merge
+4) `Symphony` 自动编码、TDD、PR、CI、merge、deploy
 5) 更新进度与破坏性变更记录（`docs/migration/`）
 
 ## 4. RFC（需求/边界）规范
@@ -159,6 +159,7 @@ PR 合并策略（项目强制约束）：
 - **默认使用 `Symphony-managed workspace/repo copy` 开展修改**：正式开发由 `Symphony` 根据 `Linear issue` 创建工作区、远端 `feature branch` 与后续 `Draft PR`。若需要人工介入，只能在该 issue 对应的 feature 分支/PR 上修改。
 - **合并顺序固定**：仅允许“`Linear issue` -> `Symphony workspace` -> `feature branch` -> `Draft PR` -> 合并到远程 `main` -> 本地 `main` fast-forward 同步远程 `main`”这一条路径。
 - **设计阶段不开 PR**：只有 issue 进入 `In Progress` 后才创建 `Draft PR`。
+- **`Done` 必须包含部署成功**：`Merging` 阶段必须完成合并、按变更矩阵执行自动部署，并通过部署后健康检查；部署失败先在 `Merging` 自动重试，必要时回到 `Rework`。
 - PR 必须满足：
   - CI 全绿（`CI / governance`、`CI / pre-commit`、`CI / pytest`）
   - 解决所有 review discussion 后再合并
@@ -167,10 +168,13 @@ PR 合并策略（项目强制约束）：
 
 - 默认可自动修改：业务代码、前端、测试、普通文档
 - 需要 RFC 明确列入范围后才可自动修改：`docker/`、`.github/`、`morningglory/fqdagsterconfig/`、`script/`、`third_party/`、根目录构建/安装/部署脚本
+- `Merging` 阶段允许自动执行：
+  - Docker 并行环境 `docker compose -f docker/compose.parallel.yaml up -d --build`
+  - `runtime/symphony/` 相关变更的宿主机同步、`fq-symphony-orchestrator` 重启与健康检查
 - 第一阶段默认禁止自动执行：
   - `.env` / secrets 修改
   - 直接改线上或并行环境数据库
-  - 部署、停服、删库、强杀
+  - 生产环境自动部署、自动回滚、停服、删库、强杀
   - 实盘/券商/交易直连高风险操作
 
 ## 7. Skills（可选）
