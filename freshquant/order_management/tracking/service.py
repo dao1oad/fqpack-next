@@ -145,6 +145,18 @@ class OrderTrackingService:
         internal_order_id = report["internal_order_id"]
         current_order = self.repository.find_order(internal_order_id)
         current_state = current_order["state"]
+        if current_state == report["state"]:
+            updates = {}
+            if report.get("broker_order_id") and not current_order.get(
+                "broker_order_id"
+            ):
+                updates["broker_order_id"] = report.get("broker_order_id")
+            if report.get("submitted_at") and not current_order.get("submitted_at"):
+                updates["submitted_at"] = report.get("submitted_at")
+            if updates:
+                updates["updated_at"] = _utc_now_iso()
+                return self.repository.update_order(internal_order_id, updates)
+            return current_order
         next_state = self.state_machine.transition(current_state, report["state"])
         now = _utc_now_iso()
 
