@@ -1,6 +1,6 @@
 # RFC 0028: Symphony First 全仓治理切换
 
-- **状态**：Draft
+- **状态**：Approved
 - **负责人**：Codex
 - **评审人**：TBD
 - **创建日期**：2026-03-10
