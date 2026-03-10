@@ -4,7 +4,7 @@ import { futureApi } from '@/api/futureApi'
 import { getGanttStockReasons } from '@/api/ganttApi'
 import { stockApi } from '@/api/stockApi'
 
-import drawSlim, { buildSlimViewportDataZoomState } from './draw-slim'
+import drawSlim from './draw-slim'
 import echartsConfig from './echartsConfig'
 import {
   buildResolvedKlineSlimQuery,
@@ -75,8 +75,31 @@ function extractDataZoomWindow(event) {
   return null
 }
 
-function buildDataZoomWindowSignature(dataZoomState) {
-  return JSON.stringify(dataZoomState || null)
+function areDataZoomWindowsEquivalent(currentWindow, nextWindow) {
+  if (!currentWindow || !nextWindow) {
+    return false
+  }
+
+  for (const key of ['start', 'end', 'startValue', 'endValue']) {
+    if (!(key in nextWindow)) {
+      continue
+    }
+
+    const currentValue = currentWindow[key]
+    const nextValue = nextWindow[key]
+    if (typeof currentValue === 'number' && typeof nextValue === 'number') {
+      if (Math.abs(currentValue - nextValue) > 0.01) {
+        return false
+      }
+      continue
+    }
+
+    if (currentValue !== nextValue) {
+      return false
+    }
+  }
+
+  return true
 }
 
 function getRoutePeriod(route) {
@@ -145,8 +168,7 @@ export default {
       mainData: null,
       chanlunRefreshTimer: null,
       renderFrameId: 0,
-      dataZoomSyncFrameId: 0,
-      isApplyingViewportWindow: false,
+      dataZoomReplayFrameId: 0,
       routeToken: 0,
       mainLoading: false,
       mainVersion: '',
@@ -163,7 +185,7 @@ export default {
       loadedChanlunPeriods: [],
       chanlunPeriodLoading: {},
       chanlunLegendSelected: buildLegendSelectionState(),
-      chartDataZoomState: null,
+      replayingDataZoom: false,
       holdings: [],
       mustPools: [],
       stockPools: [],
@@ -327,14 +349,14 @@ export default {
     if (this.chart) {
       this.chart.off('legendselectchanged', this.handleSlimLegendSelectChanged)
       this.chart.off('datazoom', this.handleSlimDataZoom)
-      this.chart.getZr().off('mouseup', this.handleSlimDataZoomPointerUp)
       this.chart.dispose()
       this.chart = null
     }
-    if (this.dataZoomSyncFrameId) {
-      window.cancelAnimationFrame(this.dataZoomSyncFrameId)
-      this.dataZoomSyncFrameId = 0
+    if (this.dataZoomReplayFrameId) {
+      window.cancelAnimationFrame(this.dataZoomReplayFrameId)
+      this.dataZoomReplayFrameId = 0
     }
+    this.replayingDataZoom = false
   },
   methods: {
     async loadSidebarData() {
@@ -406,7 +428,6 @@ export default {
       this.chart.showLoading(echartsConfig.loadingOption)
       this.chart.on('legendselectchanged', this.handleSlimLegendSelectChanged)
       this.chart.on('datazoom', this.handleSlimDataZoom)
-      this.chart.getZr().on('mouseup', this.handleSlimDataZoomPointerUp)
     },
     handleResize() {
       if (this.chart) {
@@ -431,9 +452,13 @@ export default {
       this.chanlunPeriodLoading = {}
       this.visibleChanlunPeriods = [...DEFAULT_VISIBLE_CHANLUN_PERIODS]
       this.chanlunLegendSelected = buildLegendSelectionState()
-      this.chartDataZoomState = null
       this.lastMainBarLabel = '--'
       this.resetChartStateOnNextRender = true
+      this.replayingDataZoom = false
+      if (this.dataZoomReplayFrameId) {
+        window.cancelAnimationFrame(this.dataZoomReplayFrameId)
+        this.dataZoomReplayFrameId = 0
+      }
     },
     handleRouteChange() {
       this.currentPeriod = getRoutePeriod(this.$route)
@@ -845,69 +870,52 @@ export default {
       this.refreshVisibleChanlunPeriods(this.routeToken)
       this.scheduleRender()
     },
-    applySlimViewportWindow(nextState) {
-      if (!this.chart || typeof this.chart.setOption !== 'function') {
-        return
-      }
-
-      const previousOption = typeof this.chart.getOption === 'function' ? this.chart.getOption() : null
-      const previousDataZoom = Array.isArray(previousOption?.dataZoom) ? previousOption.dataZoom : null
-      const dataZoom = buildSlimViewportDataZoomState(nextState, previousDataZoom)
-
-      this.isApplyingViewportWindow = true
-      try {
-        this.chart.setOption(
-          {
-            dataZoom
-          },
-          {
-            notMerge: false,
-            lazyUpdate: true
-          }
-        )
-      } finally {
-        window.requestAnimationFrame(() => {
-          this.isApplyingViewportWindow = false
-        })
-      }
-    },
     handleSlimDataZoom(event) {
-      if (this.isApplyingViewportWindow) {
-        return
-      }
       const windowState = extractDataZoomWindow(event)
-      const nextState = windowState || null
       if (
-        buildDataZoomWindowSignature(nextState) ===
-        buildDataZoomWindowSignature(this.chartDataZoomState)
+        !windowState ||
+        !this.chart ||
+        typeof this.chart.getOption !== 'function' ||
+        typeof this.chart.clear !== 'function' ||
+        typeof this.chart.setOption !== 'function' ||
+        this.replayingDataZoom
       ) {
         return
       }
-      this.chartDataZoomState = nextState
-      this.applySlimViewportWindow(nextState)
-    },
-    handleSlimDataZoomPointerUp() {
-      if (this.dataZoomSyncFrameId) {
-        window.cancelAnimationFrame(this.dataZoomSyncFrameId)
+
+      const currentOption = this.chart.getOption()
+      const currentWindow = pickDataZoomWindow(currentOption?.dataZoom?.[0])
+      if (areDataZoomWindowsEquivalent(currentWindow, windowState)) {
+        return
       }
-      this.dataZoomSyncFrameId = window.requestAnimationFrame(() => {
-        this.dataZoomSyncFrameId = 0
-        if (!this.chart || typeof this.chart.getOption !== 'function') {
-          return
+
+      currentOption.dataZoom = [
+        {
+          ...(currentOption?.dataZoom?.[0] || {}),
+          ...windowState
+        },
+        {
+          ...(currentOption?.dataZoom?.[1] || {}),
+          ...windowState
         }
-        const option = this.chart.getOption()
-        const nextState = pickDataZoomWindow(option?.dataZoom?.[0]) || null
-        if (
-          buildDataZoomWindowSignature(nextState) ===
-          buildDataZoomWindowSignature(this.chartDataZoomState)
-        ) {
-          return
-        }
-        this.chartDataZoomState = nextState
-        this.applySlimViewportWindow(nextState)
+      ]
+
+      this.replayingDataZoom = true
+      this.chart.clear()
+      this.chart.setOption(currentOption, {
+        notMerge: true,
+        lazyUpdate: false,
+        silent: true
+      })
+      if (this.dataZoomReplayFrameId) {
+        window.cancelAnimationFrame(this.dataZoomReplayFrameId)
+      }
+      this.dataZoomReplayFrameId = window.requestAnimationFrame(() => {
+        this.replayingDataZoom = false
+        this.dataZoomReplayFrameId = 0
       })
     },
-    scheduleRender(force = false) {
+    scheduleRender() {
       if (!this.chart || !this.mainData) {
         return
       }
@@ -924,7 +932,6 @@ export default {
           .concat(JSON.stringify(this.chanlunLegendSelected))
           .join('__')
         if (
-          !force &&
           renderVersion === this.lastRenderedVersion &&
           !this.resetChartStateOnNextRender
         ) {
@@ -938,7 +945,6 @@ export default {
               .filter(([, payload]) => !!payload)
           ),
           legendSelected: this.chanlunLegendSelected,
-          dataZoomState: this.chartDataZoomState,
           renderVersion,
           keepState: !this.resetChartStateOnNextRender
         })

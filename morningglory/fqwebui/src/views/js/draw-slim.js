@@ -234,82 +234,6 @@ function buildLegendPlaceholderSeries(name, color, z = 1) {
   }
 }
 
-function cloneDataZoomState(dataZoomState = []) {
-  return dataZoomState.map((item) => ({
-    ...item,
-    ...(item?.handleStyle ? { handleStyle: { ...item.handleStyle } } : {}),
-    ...(item?.textStyle ? { textStyle: { ...item.textStyle } } : {})
-  }))
-}
-
-function pickDataZoomWindow(source) {
-  if (!source || typeof source !== 'object' || Array.isArray(source)) {
-    return null
-  }
-
-  const windowState = {}
-  for (const key of ['start', 'end', 'startValue', 'endValue']) {
-    if (source[key] !== undefined && source[key] !== null) {
-      windowState[key] = source[key]
-    }
-  }
-
-  return Object.keys(windowState).length ? windowState : null
-}
-
-function buildDefaultDataZoom() {
-  return [
-    {
-      type: 'inside',
-      start: 70,
-      end: 100
-    },
-    {
-      type: 'slider',
-      start: 70,
-      end: 100,
-      bottom: 20,
-      borderColor: 'rgba(255,255,255,0.12)',
-      fillerColor: 'rgba(96,165,250,0.18)',
-      handleStyle: {
-        color: '#93c5fd'
-      },
-      textStyle: {
-        color: '#d1d5db'
-      }
-    }
-  ]
-}
-
-function resolveDataZoomState({ keepState, dataZoomState, previousDataZoom }) {
-  if (Array.isArray(dataZoomState) && dataZoomState.length) {
-    return cloneDataZoomState(dataZoomState)
-  }
-
-  const windowState = pickDataZoomWindow(dataZoomState)
-  const baseState =
-    keepState && Array.isArray(previousDataZoom) && previousDataZoom.length
-      ? cloneDataZoomState(previousDataZoom)
-      : buildDefaultDataZoom()
-
-  if (!windowState) {
-    return baseState
-  }
-
-  return baseState.map((item) => ({
-    ...item,
-    ...windowState
-  }))
-}
-
-export function buildSlimViewportDataZoomState(dataZoomState, previousDataZoom = null) {
-  return resolveDataZoomState({
-    keepState: true,
-    dataZoomState,
-    previousDataZoom
-  })
-}
-
 function buildPeriodSeries(period, payload, axisDates, axisTimestamps, options = {}) {
   const {
     showZhongshu = true,
@@ -450,8 +374,7 @@ export default function drawSlim(chart, klineData, period, options = {}) {
     extraChanlunMap = {},
     keepState = true,
     renderVersion = '',
-    legendSelected = null,
-    dataZoomState = null
+    legendSelected = null
   } = options
 
   const dates = klineData.date
@@ -470,7 +393,7 @@ export default function drawSlim(chart, klineData, period, options = {}) {
     ? previousOption.legend[0]?.selected
     : previousOption?.legend?.selected
   const previousDataZoom = Array.isArray(previousOption?.dataZoom)
-    ? cloneDataZoomState(previousOption.dataZoom)
+    ? previousOption.dataZoom.map((item) => ({ ...item }))
     : null
 
   const selected = buildLegendSelectionState(legendSelected || previousLegend)
@@ -588,11 +511,27 @@ export default function drawSlim(chart, klineData, period, options = {}) {
         }
       }
     },
-    dataZoom: resolveDataZoomState({
-      keepState,
-      dataZoomState,
-      previousDataZoom
-    }),
+    dataZoom: previousDataZoom || [
+      {
+        type: 'inside',
+        start: 70,
+        end: 100
+      },
+      {
+        type: 'slider',
+        start: 70,
+        end: 100,
+        bottom: 20,
+        borderColor: 'rgba(255,255,255,0.12)',
+        fillerColor: 'rgba(96,165,250,0.18)',
+        handleStyle: {
+          color: '#93c5fd'
+        },
+        textStyle: {
+          color: '#d1d5db'
+        }
+      }
+    ],
     series
   }
 
@@ -601,7 +540,7 @@ export default function drawSlim(chart, klineData, period, options = {}) {
   }
   chart.setOption(option, {
     notMerge: !keepState,
-    replaceMerge: ['series', 'legend', 'xAxis', 'yAxis', 'grid']
+    replaceMerge: ['series', 'legend', 'xAxis', 'yAxis', 'grid', 'dataZoom']
   })
   chart.hideLoading()
 
