@@ -1144,10 +1144,6 @@ def main(max_bars: int, workers: int | None, max_inflight: int | None, prewarm: 
     consumer.run_forever()
 
 
-if __name__ == "__main__":
-    main()
-
-
 _runtime_logger = None
 
 
@@ -1156,3 +1152,7 @@ def _get_runtime_logger():
     if _runtime_logger is None:
         _runtime_logger = RuntimeEventLogger("xt_consumer")
     return _runtime_logger
+
+
+if __name__ == "__main__":
+    main()
