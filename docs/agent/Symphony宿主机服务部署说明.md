@@ -52,6 +52,8 @@ description: FreshQuant 在 Windows 宿主机上以正式服务形态运行 Symp
   - 正式 runner
 - `runtime/symphony/scripts/install_freshquant_symphony_service.ps1`
   - 用 `NSSM` 安装/更新 Windows 服务
+- `runtime/symphony/scripts/reinstall_freshquant_symphony_service.ps1`
+  - 删除错误残留服务、重新安装并启动、最后做健康检查
 
 ## 5. 环境变量
 
@@ -122,6 +124,23 @@ sc.exe delete fq-symphony-orchestrator
 ```
 
 然后重新运行安装脚本。
+
+如果只是想“一键修复并启动”，推荐直接运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/reinstall_freshquant_symphony_service.ps1
+```
+
+说明：
+
+- 仍然必须在提升权限 PowerShell 中运行
+- 默认会交互式提示输入当前 Windows 账号密码，不会把密码写死到脚本文件里
+- 会自动执行：
+  - 删除旧 `fq-symphony-orchestrator`
+  - 调用正式安装脚本
+  - 启动服务
+  - 访问 `http://127.0.0.1:40123/api/v1/state`
+  - 如果健康检查失败，自动输出 `stdout.log` / `stderr.log` 尾部
 
 ## 8. 启动与重启
 
