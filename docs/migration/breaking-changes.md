@@ -13,6 +13,13 @@
 
 ## 变更记录
 
+- **日期**：2026-03-10
+- **RFC**：0011-gantt-page-migration
+- **变更**：`/gantt` 与 `/gantt/stocks/:plateKey` 的共享图表组件 `GanttHistory.vue` 已按甘特图审计结果恢复 legacy 连板语义配色与 legend，补齐 tooltip 限位、hover 行高亮、板块侧栏随 y 轴 viewport 同步、stock 视图标签区拖拽平移兜底，以及 reset 后窗口同步。API 路径与父组件协议不变，但页面默认可见语义已从“按 rank/hotCount 单日着色”收敛为“按第几次连板与当前第几天着色”。
+- **影响面**：`/gantt` 与 `/gantt/stocks/:plateKey` 页面用户、截图/培训材料、浏览器自动化与依赖旧颜色语义或旧 hover/viewport 行为的说明文档都会受到影响；后端 `/api/gantt/*` 接口与数据结构不受影响。
+- **迁移步骤**：1) 部署包含 `GanttHistory.vue`、`views/js/gantt-history-chart.mjs` 和 `web/` 构建产物的前端代码；2) 使用新版页面时，按 legend 理解颜色语义，不再将颜色解释为 rank/hotCount 单日指标；3) 若有截图、培训说明或自动化断言依赖旧配色/旧侧栏行为，需同步更新；4) 若需验证升级结果，重点检查 hover 行高亮、右侧缩放窗口变化后侧栏同步，以及 stock 视图标签区拖拽平移是否生效。
+- **回滚方案**：回退 `morningglory/fqwebui/src/views/components/GanttHistory.vue`、`morningglory/fqwebui/src/views/js/gantt-history-chart.mjs`、对应测试与 `web/` 构建产物，重新构建前端静态资源，恢复旧的图表颜色与交互语义。
+
 - **日期**：2026-03-09
 - **RFC**：0027-gantt-shouban30-filters-and-reason-popovers
 - **变更**：`/api/gantt/shouban30/stocks` 已新增 `is_credit_subject / near_long_term_ma_passed / is_quality_subject` 及其辅助字段；`/gantt/shouban30` 页面已新增 `融资标的 / 均线附近 / 优质标的` 三个交集筛选按钮，并将理由展示从默认 `show-overflow-tooltip` 切换为卡片式 `el-popover`。盘后构建链现已新增 `quality_stock_universe` 基础集合，用于固化旧分支固定优质 `block_names` 名单对应的股票集合。

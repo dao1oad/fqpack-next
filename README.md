@@ -71,6 +71,8 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 ## 其他
 
+- 文档索引：`docs/agent/index.md`
+- 当前代码现状：`docs/agent/项目目标与代码现状调研.md`
 - Docker 并行部署说明：`docs/agent/Docker并行部署指南.md`
 - 迁移进度：`docs/migration/progress.md`
 - 破坏性变更：`docs/migration/breaking-changes.md`
