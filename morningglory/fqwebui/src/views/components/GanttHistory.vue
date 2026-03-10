@@ -27,6 +27,16 @@
             {{ day }}日
           </button>
         </div>
+        <div class="color-legend">
+          <div
+            v-for="legend in legendItems"
+            :key="legend.key"
+            class="legend-item"
+          >
+            <span class="legend-dot" :style="{ background: legend.color }"></span>
+            <span class="legend-label">{{ legend.label }}</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -39,6 +49,7 @@
             :key="String(item.id)"
             class="sidebar-link"
             :class="{ active: isHoveredPlate(item.id) }"
+            :style="{ height: `${sidebarRowHeight}px` }"
             :href="getPlateUrl(item.id)"
             target="_blank"
             rel="noopener noreferrer"
@@ -64,10 +75,26 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { getGanttPlates, getGanttStocks } from '@/api/ganttApi'
+import {
+  getResetViewportWindow,
+  processSeriesWithStreaks,
+  streakPalettes
+} from '@/views/js/gantt-history-chart.mjs'
 
 const dayOptions = [7, 15, 30, 45, 60, 90]
-const platePalette = ['#6d1f1f', '#8b2727', '#b43434', '#cf5c3f', '#df8b3a']
-const stockPalette = ['#d9d9d9', '#91d5ff', '#409eff', '#fa8c16', '#f5222d']
+const legendItems = [
+  { key: 'first', label: '首次连板', color: streakPalettes[1][4] },
+  { key: 'second', label: '第二次连板', color: streakPalettes[2][4] },
+  { key: 'third', label: '第三次连板', color: streakPalettes[3][4] },
+  { key: 'fourth', label: '第四次连板+', color: streakPalettes[4][4] }
+]
+const GRID_TOP = 16
+const GRID_RIGHT = 36
+const GRID_BOTTOM = 36
+const GRID_LEFT_PLATE = 24
+const GRID_LEFT_STOCK = 180
+const ZOOM_SLIDER_SIZE = 18
+const DEFAULT_SIDEBAR_ROW_HEIGHT = 40
 
 const props = defineProps({
   provider: {
@@ -107,16 +134,18 @@ const seriesData = ref([])
 const plateReasonMap = ref({})
 const hoveredPlateKey = ref('')
 const hoveredDate = ref('')
+const sidebarItems = ref([])
+const sidebarRowHeight = ref(DEFAULT_SIDEBAR_ROW_HEIGHT)
 
 let chartInstance = null
 let resizeObserver = null
 let latestRequestId = 0
+let sidebarSyncFrameId = 0
+let stockPanState = null
+let stockPanFrameId = 0
 
 const isStocksMode = computed(() => props.mode === 'stocks')
 const showSidebar = computed(() => props.mode === 'plates')
-const sidebarItems = computed(() => {
-  return showSidebar.value ? yAxisItems.value : []
-})
 const showEmpty = computed(() => {
   return !loading.value && (!dates.value.length || !yAxisItems.value.length)
 })
@@ -161,10 +190,13 @@ const attachResizeObserver = () => {
   if (!resizeObserver) {
     resizeObserver = new ResizeObserver(() => {
       chartInstance?.resize()
+      scheduleSidebarSync()
     })
   }
   resizeObserver.disconnect()
   resizeObserver.observe(chartRef.value)
+  chartRef.value.removeEventListener('mousedown', handleStockPanMouseDown, true)
+  chartRef.value.addEventListener('mousedown', handleStockPanMouseDown, true)
 }
 
 const disposeChart = () => {
@@ -177,6 +209,11 @@ const disposeChart = () => {
 const clearHoverState = () => {
   hoveredPlateKey.value = ''
   hoveredDate.value = ''
+}
+
+const clearSidebarViewport = () => {
+  sidebarItems.value = []
+  sidebarRowHeight.value = DEFAULT_SIDEBAR_ROW_HEIGHT
 }
 
 const changeWindowDays = (value) => {
@@ -211,35 +248,24 @@ const getPlateUrl = (plateKey) => {
   return `https://xuangutong.com.cn/theme/${normalizedPlateKey}`
 }
 
-const buildPlateColor = (point) => {
-  const rank = Number(point[2] || 0)
-  const hotCount = Number(point[3] || 0)
-  if (rank <= 1) return platePalette[0]
-  if (rank <= 3) return platePalette[1]
-  if (hotCount >= 8) return platePalette[2]
-  if (hotCount >= 4) return platePalette[3]
-  return platePalette[4]
-}
-
-const buildStockColor = (point) => {
-  const streak = Number(point[2] || 0)
-  const isLimit = Number(point[3] || 0) === 1
-  if (isLimit && streak >= 3) return stockPalette[4]
-  if (isLimit) return stockPalette[3]
-  if (streak >= 3) return stockPalette[2]
-  if (streak >= 2) return stockPalette[1]
-  return stockPalette[0]
-}
-
-const extendSeriesForRender = (series) => {
-  return (series || []).map((point) => {
-    const color = showSidebar.value ? buildPlateColor(point) : buildStockColor(point)
-    return [...point, color]
-  })
-}
-
 const getColorValueIndex = () => {
   return showSidebar.value ? 6 : 5
+}
+
+const getStreakIndexes = () => {
+  const colorIndex = getColorValueIndex()
+  return {
+    streakOrderIndex: colorIndex + 1,
+    streakDayIndex: colorIndex + 2
+  }
+}
+
+const getStreakText = (item) => {
+  const { streakOrderIndex, streakDayIndex } = getStreakIndexes()
+  const streakOrder = Number(item?.[streakOrderIndex] || 0)
+  const streakDay = Number(item?.[streakDayIndex] || 0)
+  if (!streakOrder || !streakDay) return '连板信息缺失'
+  return `第${streakOrder}次连板 · 第${streakDay}天`
 }
 
 const resolvePlateReasonText = (dateIndex, yIndex) => {
@@ -249,15 +275,34 @@ const resolvePlateReasonText = (dateIndex, yIndex) => {
   return plateReasonMap.value?.[`${dateStr}|${item.id}`]?.reason_text || ''
 }
 
+const formatHotStockList = (values) => {
+  const items = Array.isArray(values) ? values : []
+  const visible = items
+    .slice(0, 10)
+    .map((item) => {
+      if (typeof item === 'string') return item
+      const name = String(item?.name || '').trim()
+      const symbol = String(item?.symbol || '').trim()
+      if (name && symbol) return `${name}(${symbol})`
+      return name || symbol
+    })
+    .filter(Boolean)
+  if (!visible.length) return '暂无热门标的'
+  return items.length > visible.length
+    ? `${visible.join('、')} 等${items.length}只`
+    : visible.join('、')
+}
+
 const plateTooltipFormatter = (item) => {
   const dateStr = dates.value[item[0]]
   const plate = yAxisItems.value[item[1]]
   if (!dateStr || !plate) return ''
   const stockCodes = Array.isArray(item[5]) ? item[5] : []
   const reasonText = resolvePlateReasonText(item[0], item[1]) || '暂无板块理由'
-  const stockLine = stockCodes.length ? stockCodes.join('、') : '暂无热门标的'
+  const stockLine = formatHotStockList(stockCodes)
   return [
     `<div style="font-weight:600;margin-bottom:6px;">${dateStr} ${plate.name}</div>`,
+    `<div>${getStreakText(item)}</div>`,
     `<div>排名：${item[2]}</div>`,
     `<div>热门标的数：${item[3]}</div>`,
     `<div>涨停数：${item[4]}</div>`,
@@ -273,10 +318,21 @@ const stockTooltipFormatter = (item) => {
   const name = stock.name && stock.symbol ? `${stock.name}(${stock.symbol})` : (stock.name || stock.symbol)
   return [
     `<div style="font-weight:600;margin-bottom:6px;">${dateStr} ${name}</div>`,
+    `<div>${getStreakText(item)}</div>`,
     `<div>连续活跃天数：${item[2]}</div>`,
     `<div>${Number(item[3] || 0) === 1 ? '涨停/连板' : '活跃'}</div>`,
     `<div style="margin-top:6px;white-space:normal;line-height:1.5;">标的理由：${item[4] || '暂无标的理由'}</div>`
   ].join('')
+}
+
+const getTooltipPosition = (point, params, dom, rect, size) => {
+  const viewWidth = size?.viewSize?.[0] || 0
+  const viewHeight = size?.viewSize?.[1] || 0
+  const contentWidth = size?.contentSize?.[0] || 0
+  const contentHeight = size?.contentSize?.[1] || 0
+  const x = Math.min(point[0], viewWidth - contentWidth - 10)
+  const y = Math.min(point[1] + 12, viewHeight - contentHeight - 10)
+  return [Math.max(10, x), Math.max(10, y)]
 }
 
 const renderItem = (params, api) => {
@@ -301,15 +357,292 @@ const renderItem = (params, api) => {
       fill: color,
       stroke: '#f5f7fa',
       lineWidth: 1
+    },
+    styleEmphasis: {
+      stroke: '#1f2d3d',
+      lineWidth: 1
     }
   }
+}
+
+const resolvePlateIdFromAxisPointerValue = (value) => {
+  if (value == null || !showSidebar.value) return ''
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const item = yAxisItems.value[Math.round(value)]
+    return String(item?.id || '')
+  }
+  const normalizedValue = String(value).trim()
+  if (!normalizedValue) return ''
+  const item = yAxisItems.value.find((candidate) => {
+    return (
+      String(candidate?.id || '') === normalizedValue ||
+      String(candidate?.name || '') === normalizedValue
+    )
+  })
+  return String(item?.id || normalizedValue)
+}
+
+const updateHoveredDateFromAxisPointer = (value) => {
+  if (value == null) return
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const dateStr = dates.value[Math.round(value)]
+    if (dateStr) hoveredDate.value = dateStr
+    return
+  }
+  const dateStr = String(value).trim()
+  if (dateStr) hoveredDate.value = dateStr
+}
+
+const isChartAlive = () => {
+  return Boolean(chartInstance && !chartInstance.isDisposed?.())
+}
+
+const syncPlateSidebarFromChart = () => {
+  if (!showSidebar.value) {
+    clearSidebarViewport()
+    return
+  }
+
+  const allItems = yAxisItems.value || []
+  if (!allItems.length) {
+    clearSidebarViewport()
+    return
+  }
+
+  let startPct = 0
+  let endPct = 100
+  try {
+    const option = chartInstance?.getOption?.()
+    const zoomItems = Array.isArray(option?.dataZoom) ? option.dataZoom : []
+    const yZoom = zoomItems.find((item) => item?.yAxisIndex === 0 && Number.isFinite(item?.start) && Number.isFinite(item?.end))
+    if (yZoom) {
+      startPct = Number(yZoom.start)
+      endPct = Number(yZoom.end)
+    }
+  } catch (error) {
+    // ignore transient dispose/race errors
+  }
+
+  if (!Number.isFinite(startPct)) startPct = 0
+  if (!Number.isFinite(endPct)) endPct = 100
+  if (endPct < startPct) [startPct, endPct] = [endPct, startPct]
+  startPct = Math.max(0, Math.min(100, startPct))
+  endPct = Math.max(0, Math.min(100, endPct))
+
+  const total = allItems.length
+  const startIdx = Math.max(0, Math.floor((startPct / 100) * total))
+  const endIdx = Math.min(total - 1, Math.max(startIdx, Math.ceil((endPct / 100) * total) - 1))
+  const visibleItems = allItems.slice(startIdx, endIdx + 1)
+
+  sidebarItems.value = visibleItems
+
+  const chartHeight = chartRef.value?.clientHeight || 0
+  const usableHeight = Math.max(0, chartHeight - GRID_TOP - GRID_BOTTOM)
+  const visibleCount = visibleItems.length || 1
+  sidebarRowHeight.value = usableHeight > 0
+    ? Math.max(24, usableHeight / visibleCount)
+    : DEFAULT_SIDEBAR_ROW_HEIGHT
+}
+
+const scheduleSidebarSync = () => {
+  if (!showSidebar.value) {
+    clearSidebarViewport()
+    return
+  }
+  if (sidebarSyncFrameId) {
+    window.cancelAnimationFrame(sidebarSyncFrameId)
+  }
+  sidebarSyncFrameId = window.requestAnimationFrame(() => {
+    sidebarSyncFrameId = 0
+    syncPlateSidebarFromChart()
+  })
+}
+
+const getGridRect = () => {
+  if (!isChartAlive()) return null
+  try {
+    const gridModel = chartInstance.getModel?.().getComponent?.('grid', 0)
+    const rect = gridModel?.coordinateSystem?.getRect?.()
+    const x = rect?.x
+    const y = rect?.y
+    const width = rect?.width
+    const height = rect?.height
+    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+      return { x, y, width, height }
+    }
+  } catch (error) {
+    // ignore transient chart lifecycle errors
+  }
+  return null
+}
+
+const getGridPixelSize = () => {
+  const gridRect = getGridRect()
+  if (gridRect) return { width: gridRect.width, height: gridRect.height }
+
+  const chartWidth = chartRef.value?.clientWidth || 0
+  const chartHeight = chartRef.value?.clientHeight || 0
+  return {
+    width: Math.max(1, chartWidth - GRID_LEFT_STOCK - GRID_RIGHT),
+    height: Math.max(1, chartHeight - GRID_TOP - GRID_BOTTOM)
+  }
+}
+
+const getChartZoomRanges = () => {
+  if (!isChartAlive()) return null
+  try {
+    const option = chartInstance.getOption()
+    const zoomItems = Array.isArray(option?.dataZoom) ? option.dataZoom : []
+    const xZoom = zoomItems.find((item) => item?.xAxisIndex === 0) || {}
+    const yZoom = zoomItems.find((item) => item?.yAxisIndex === 0) || {}
+    return {
+      xStart: Number.isFinite(xZoom.start) ? xZoom.start : 0,
+      xEnd: Number.isFinite(xZoom.end) ? xZoom.end : 100,
+      yStart: Number.isFinite(yZoom.start) ? yZoom.start : 0,
+      yEnd: Number.isFinite(yZoom.end) ? yZoom.end : 100
+    }
+  } catch (error) {
+    return null
+  }
+}
+
+const shiftZoomRange = (start, end, delta) => {
+  const span = end - start
+  if (!Number.isFinite(span) || span <= 0) {
+    return { start, end }
+  }
+
+  let nextStart = start + delta
+  let nextEnd = end + delta
+  if (nextStart < 0) {
+    nextStart = 0
+    nextEnd = span
+  } else if (nextEnd > 100) {
+    nextEnd = 100
+    nextStart = 100 - span
+  }
+
+  return {
+    start: Math.max(0, Math.min(100, nextStart)),
+    end: Math.max(0, Math.min(100, nextEnd))
+  }
+}
+
+const isInZoomSliderArea = (localX, localY, width, height) => {
+  return localY >= height - ZOOM_SLIDER_SIZE - 4 || localX >= width - ZOOM_SLIDER_SIZE - 4
+}
+
+const handleStockPanMouseMove = (evt) => {
+  if (!stockPanState) return
+  stockPanState.lastX = evt.clientX
+  stockPanState.lastY = evt.clientY
+  if (stockPanFrameId) return
+
+  stockPanFrameId = window.requestAnimationFrame(() => {
+    stockPanFrameId = 0
+    if (!stockPanState || !isChartAlive()) return
+
+    const dx = stockPanState.lastX - stockPanState.startX
+    const dy = stockPanState.lastY - stockPanState.startY
+    const xSpan = stockPanState.xEnd - stockPanState.xStart
+    const ySpan = stockPanState.yEnd - stockPanState.yStart
+    const deltaX = -((dx / Math.max(1, stockPanState.gridWidth)) * xSpan)
+    const deltaY = ((dy / Math.max(1, stockPanState.gridHeight)) * ySpan)
+    const xRange = shiftZoomRange(stockPanState.xStart, stockPanState.xEnd, deltaX)
+    const yRange = shiftZoomRange(stockPanState.yStart, stockPanState.yEnd, deltaY)
+
+    try {
+      chartInstance.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: xRange.start, end: xRange.end })
+      chartInstance.dispatchAction({ type: 'dataZoom', dataZoomIndex: 2, start: yRange.start, end: yRange.end })
+      chartInstance.dispatchAction({ type: 'hideTip' })
+    } catch (error) {
+      // ignore transient dispose/race errors
+    }
+  })
+
+  evt.preventDefault()
+}
+
+const handleStockPanMouseUp = () => {
+  if (stockPanFrameId) {
+    window.cancelAnimationFrame(stockPanFrameId)
+    stockPanFrameId = 0
+  }
+  if (chartRef.value) {
+    chartRef.value.style.cursor = ''
+  }
+  stockPanState = null
+  window.removeEventListener('mousemove', handleStockPanMouseMove, true)
+  window.removeEventListener('mouseup', handleStockPanMouseUp, true)
+}
+
+const handleStockPanMouseDown = (evt) => {
+  if (!isStocksMode.value || !isChartAlive()) return
+  if (evt.button !== 0) return
+
+  const chartEl = chartRef.value
+  if (!chartEl) return
+
+  const rect = chartEl.getBoundingClientRect()
+  const localX = evt.clientX - rect.left
+  const localY = evt.clientY - rect.top
+  if (isInZoomSliderArea(localX, localY, rect.width, rect.height)) return
+
+  const gridRect = getGridRect()
+  if (gridRect) {
+    const inGridX = localX >= gridRect.x && localX <= gridRect.x + gridRect.width
+    const inGridY = localY >= gridRect.y && localY <= gridRect.y + gridRect.height
+    if (inGridX && inGridY) return
+  } else {
+    const guessInGridX = localX >= GRID_LEFT_STOCK && localX <= rect.width - GRID_RIGHT
+    const guessInGridY = localY >= GRID_TOP && localY <= rect.height - GRID_BOTTOM
+    if (guessInGridX && guessInGridY) return
+  }
+
+  const zoomRanges = getChartZoomRanges()
+  if (!zoomRanges) return
+  const gridSize = getGridPixelSize()
+  stockPanState = {
+    startX: evt.clientX,
+    startY: evt.clientY,
+    lastX: evt.clientX,
+    lastY: evt.clientY,
+    xStart: zoomRanges.xStart,
+    xEnd: zoomRanges.xEnd,
+    yStart: zoomRanges.yStart,
+    yEnd: zoomRanges.yEnd,
+    gridWidth: gridSize.width,
+    gridHeight: gridSize.height
+  }
+
+  chartEl.style.cursor = 'grabbing'
+  try {
+    chartInstance.dispatchAction({ type: 'hideTip' })
+  } catch (error) {
+    // ignore transient chart lifecycle errors
+  }
+
+  window.addEventListener('mousemove', handleStockPanMouseMove, true)
+  window.addEventListener('mouseup', handleStockPanMouseUp, true)
+  evt.preventDefault()
 }
 
 const bindChartEvents = () => {
   if (!chartInstance) return
   chartInstance.off('click')
+  chartInstance.off('dataZoom')
+  chartInstance.off('updateAxisPointer')
   chartInstance.off('mouseover')
   chartInstance.off('globalout')
+
+  chartInstance.on('updateAxisPointer', (event) => {
+    if (!showSidebar.value) return
+    const axesInfo = Array.isArray(event?.axesInfo) ? event.axesInfo : []
+    const yInfo = axesInfo.find((item) => item?.axisDim === 'y')
+    const xInfo = axesInfo.find((item) => item?.axisDim === 'x')
+    hoveredPlateKey.value = resolvePlateIdFromAxisPointerValue(yInfo?.value)
+    updateHoveredDateFromAxisPointer(xInfo?.value)
+  })
 
   chartInstance.on('mouseover', (params) => {
     if (!Array.isArray(params?.data)) return
@@ -322,6 +655,10 @@ const bindChartEvents = () => {
 
   chartInstance.on('globalout', () => {
     clearHoverState()
+  })
+
+  chartInstance.on('dataZoom', () => {
+    scheduleSidebarSync()
   })
 
   if (!showSidebar.value) return
@@ -342,6 +679,7 @@ const renderChart = () => {
   if (!ensureChartInstance()) return
   if (!dates.value.length || !yAxisItems.value.length) {
     chartInstance.clear()
+    clearSidebarViewport()
     return
   }
 
@@ -356,16 +694,22 @@ const renderChart = () => {
   const visiblePercent = Math.min(100, Math.max(35, (12 / Math.max(yAxisItems.value.length, 1)) * 100))
   const option = {
     animation: false,
+    axisPointer: {
+      link: [{ xAxisIndex: 'all' }],
+      label: { show: false },
+      snap: false
+    },
     grid: {
-      top: 16,
-      right: 36,
-      bottom: 36,
-      left: isPlateMode ? 24 : 180,
+      top: GRID_TOP,
+      right: GRID_RIGHT,
+      bottom: GRID_BOTTOM,
+      left: isPlateMode ? GRID_LEFT_PLATE : GRID_LEFT_STOCK,
       containLabel: !isPlateMode
     },
     tooltip: {
       trigger: 'item',
       confine: true,
+      position: (point, params, dom, rect, size) => getTooltipPosition(point, params, dom, rect, size),
       formatter: (params) => {
         const point = params?.data
         if (!Array.isArray(point)) return ''
@@ -376,6 +720,10 @@ const renderChart = () => {
       {
         type: 'inside',
         xAxisIndex: 0,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: true,
+        preventDefaultMouseMove: true,
         start: 0,
         end: 100,
         filterMode: 'filter'
@@ -384,13 +732,19 @@ const renderChart = () => {
         type: 'slider',
         xAxisIndex: 0,
         bottom: 6,
-        height: 18,
+        height: ZOOM_SLIDER_SIZE,
+        borderColor: '#dcdfe6',
+        fillerColor: 'rgba(64, 158, 255, 0.2)',
         handleSize: 0,
         moveHandleSize: 0
       },
       {
         type: 'inside',
         yAxisIndex: 0,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: true,
+        preventDefaultMouseMove: true,
         start: 0,
         end: visiblePercent,
         filterMode: 'empty'
@@ -399,7 +753,9 @@ const renderChart = () => {
         type: 'slider',
         yAxisIndex: 0,
         right: 6,
-        width: 18,
+        width: ZOOM_SLIDER_SIZE,
+        borderColor: '#dcdfe6',
+        fillerColor: 'rgba(64, 158, 255, 0.2)',
         handleSize: 0,
         moveHandleSize: 0
       }
@@ -419,6 +775,14 @@ const renderChart = () => {
         show: true,
         areaStyle: { color: ['#ffffff', '#fafafa'] }
       },
+      axisPointer: {
+        show: showSidebar.value,
+        type: 'shadow',
+        shadowStyle: {
+          color: 'rgba(64, 158, 255, 0.18)'
+        },
+        label: { show: false }
+      },
       axisLabel: {
         show: !isPlateMode,
         width: 150,
@@ -433,13 +797,15 @@ const renderChart = () => {
         encode: {
           x: 0,
           y: 1
-        }
+        },
+        emphasis: { focus: 'self' }
       }
     ]
   }
 
   chartInstance.setOption(option, true)
   bindChartEvents()
+  scheduleSidebarSync()
 }
 
 const loadPlateData = async (requestId) => {
@@ -451,8 +817,14 @@ const loadPlateData = async (requestId) => {
   const payload = normalizeApiPayload(response)
   const chartPayload = payload.data || {}
   dates.value = Array.isArray(chartPayload.dates) ? chartPayload.dates : []
-  yAxisItems.value = Array.isArray(chartPayload.y_axis) ? chartPayload.y_axis : []
-  seriesData.value = extendSeriesForRender(chartPayload.series || [])
+  const processed = processSeriesWithStreaks({
+    dates: dates.value,
+    yAxisRaw: Array.isArray(chartPayload.y_axis) ? chartPayload.y_axis : [],
+    seriesData: chartPayload.series || [],
+    level: 'plate'
+  })
+  yAxisItems.value = processed.yAxisRaw
+  seriesData.value = processed.seriesData
   plateReasonMap.value = payload.meta?.reason_map || {}
   clearHoverState()
   await nextTick()
@@ -470,10 +842,17 @@ const loadStockData = async (requestId) => {
   const payload = normalizeApiPayload(response)
   const chartPayload = payload.data || {}
   dates.value = Array.isArray(chartPayload.dates) ? chartPayload.dates : []
-  yAxisItems.value = Array.isArray(chartPayload.y_axis) ? chartPayload.y_axis : []
-  seriesData.value = extendSeriesForRender(chartPayload.series || [])
+  const processed = processSeriesWithStreaks({
+    dates: dates.value,
+    yAxisRaw: Array.isArray(chartPayload.y_axis) ? chartPayload.y_axis : [],
+    seriesData: chartPayload.series || [],
+    level: 'stock'
+  })
+  yAxisItems.value = processed.yAxisRaw
+  seriesData.value = processed.seriesData
   plateReasonMap.value = {}
   clearHoverState()
+  clearSidebarViewport()
   await nextTick()
   attachResizeObserver()
   renderChart()
@@ -493,6 +872,8 @@ const loadData = async () => {
       yAxisItems.value = []
       seriesData.value = []
       plateReasonMap.value = {}
+      clearHoverState()
+      clearSidebarViewport()
       renderChart()
     }
   } catch (error) {
@@ -506,25 +887,29 @@ const loadData = async () => {
 }
 
 const restoreViewport = () => {
-  if (!chartInstance) return
-  const option = chartInstance.getOption()
-  const zoomItems = Array.isArray(option?.dataZoom) ? option.dataZoom : []
-  const xZoom = zoomItems.find((item) => item?.xAxisIndex === 0) || {}
-  const yZoom = zoomItems.find((item) => item?.yAxisIndex === 0) || {}
-  const xSpan = Math.min(100, Math.max(10, Number(xZoom.end) - Number(xZoom.start) || 100))
-  const ySpan = Math.min(100, Math.max(20, Number(yZoom.end) - Number(yZoom.start) || 100))
-  chartInstance.dispatchAction({
-    type: 'dataZoom',
-    dataZoomIndex: 0,
-    start: Math.max(0, 100 - xSpan),
-    end: 100
-  })
-  chartInstance.dispatchAction({
-    type: 'dataZoom',
-    dataZoomIndex: 2,
-    start: 0,
-    end: ySpan
-  })
+  if (!isChartAlive()) return
+  try {
+    const option = chartInstance.getOption()
+    const zoomItems = Array.isArray(option?.dataZoom) ? option.dataZoom : []
+    const xZoom = zoomItems.find((item) => item?.xAxisIndex === 0) || {}
+    const yZoom = zoomItems.find((item) => item?.yAxisIndex === 0) || {}
+    const resetWindow = getResetViewportWindow(xZoom, yZoom)
+    chartInstance.dispatchAction({
+      type: 'dataZoom',
+      dataZoomIndex: 0,
+      start: resetWindow.xStart,
+      end: resetWindow.xEnd
+    })
+    chartInstance.dispatchAction({
+      type: 'dataZoom',
+      dataZoomIndex: 2,
+      start: resetWindow.yStart,
+      end: resetWindow.yEnd
+    })
+  } catch (error) {
+    // ignore transient dispose/race errors
+  }
+  scheduleSidebarSync()
 }
 
 watch(
@@ -553,6 +938,12 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (sidebarSyncFrameId) {
+    window.cancelAnimationFrame(sidebarSyncFrameId)
+    sidebarSyncFrameId = 0
+  }
+  handleStockPanMouseUp()
+  chartRef.value?.removeEventListener('mousedown', handleStockPanMouseDown, true)
   resizeObserver?.disconnect()
   resizeObserver = null
   disposeChart()
@@ -627,6 +1018,33 @@ onBeforeUnmount(() => {
   color: #409eff;
 }
 
+.color-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #606266;
+}
+
+.legend-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.legend-label {
+  white-space: nowrap;
+}
+
 .gantt-layout {
   display: flex;
   flex: 1 1 auto;
@@ -655,8 +1073,11 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-link {
-  display: block;
-  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  min-height: 24px;
+  box-sizing: border-box;
   color: #409eff;
   text-decoration: none;
   border-bottom: 1px solid rgba(0, 0, 0, 0.04);
