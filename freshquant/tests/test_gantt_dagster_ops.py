@@ -623,6 +623,135 @@ def test_has_legacy_shouban30_snapshot_detects_mixed_legacy_and_new_rows(monkeyp
     assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True
 
 
+def test_has_legacy_shouban30_snapshot_detects_missing_extra_filter_stock_fields(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+
+    class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
+        def find(self, query, projection=None):
+            return [
+                doc
+                for doc in self.docs
+                if all(doc.get(key) == value for key, value in query.items())
+            ]
+
+    monkeypatch.setattr(
+        ops,
+        "DBGantt",
+        {
+            ops.COL_SHOUBAN30_PLATES: FakeCollection(
+                [
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 30,
+                        "chanlun_filter_version": "30m_v1",
+                    },
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 45,
+                        "chanlun_filter_version": "30m_v1",
+                    },
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 60,
+                        "chanlun_filter_version": "30m_v1",
+                    },
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 90,
+                        "chanlun_filter_version": "30m_v1",
+                    },
+                ]
+            ),
+            ops.COL_SHOUBAN30_PLATES.replace("plates", "stocks"): FakeCollection(
+                [
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 30,
+                        "provider": "xgb",
+                        "plate_key": "11",
+                        "code6": "000001",
+                        "chanlun_filter_version": "30m_v1",
+                    }
+                ]
+            ),
+        },
+    )
+
+    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True
+
+
+def test_has_legacy_shouban30_snapshot_accepts_stock_rows_with_extra_filter_fields(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+
+    class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
+        def find(self, query, projection=None):
+            return [
+                doc
+                for doc in self.docs
+                if all(doc.get(key) == value for key, value in query.items())
+            ]
+
+    monkeypatch.setattr(
+        ops,
+        "DBGantt",
+        {
+            ops.COL_SHOUBAN30_PLATES: FakeCollection(
+                [
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 30,
+                        "chanlun_filter_version": "30m_v1",
+                    },
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 45,
+                        "chanlun_filter_version": "30m_v1",
+                    },
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 60,
+                        "chanlun_filter_version": "30m_v1",
+                    },
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 90,
+                        "chanlun_filter_version": "30m_v1",
+                    },
+                ]
+            ),
+            ops.COL_SHOUBAN30_PLATES.replace("plates", "stocks"): FakeCollection(
+                [
+                    {
+                        "as_of_date": "2026-03-05",
+                        "stock_window_days": 30,
+                        "provider": "xgb",
+                        "plate_key": "11",
+                        "code6": "000001",
+                        "chanlun_filter_version": "30m_v1",
+                        "is_credit_subject": False,
+                        "credit_subject_snapshot_ready": True,
+                        "near_long_term_ma_passed": False,
+                        "is_quality_subject": False,
+                        "quality_subject_snapshot_ready": False,
+                    }
+                ]
+            ),
+        },
+    )
+
+    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is False
+
+
 def test_job_gantt_postclose_uses_multi_op_graph(monkeypatch):
     jobs = _load_jobs_module(monkeypatch)
 

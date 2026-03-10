@@ -4,6 +4,9 @@ This module replaces the traditional op/job pattern with assets that have clear 
 Each data type (stock, future, etf, bond, index) has its own set of assets with proper dependencies.
 """
 
+import os
+from pathlib import Path
+
 import pendulum
 from blinker import signal
 from dagster import AssetExecutionContext, asset
@@ -20,16 +23,252 @@ from QUANTAXIS.QASU.main import (
     QA_SU_save_index_day,
     QA_SU_save_index_list,
     QA_SU_save_index_min,
-    QA_SU_save_stock_block,
     QA_SU_save_stock_day,
     QA_SU_save_stock_list,
     QA_SU_save_stock_min,
     QA_SU_save_stock_xdxr,
 )
+from QUANTAXIS.QAUtil import QA_util_to_json_from_pandas
 
 from freshquant.data.etf_adj_sync import sync_etf_adj_all, sync_etf_xdxr_all
+from freshquant.db import DBQuantAxis
 
 market_data_alert = signal("market_data_alert")
+LOCAL_TDX_INFOHARBOR_SOURCE = "tdx_infoharbor"
+STOCK_BLOCK_SOURCES = ("tdx", "tushare")
+LOCAL_TDX_ROOT_CANDIDATES = (
+    "/run/host-tdx",
+    "/mnt/d/new_tdx",
+    "/run/desktop/mnt/host/d/new_tdx",
+    "/host_mnt/d/new_tdx",
+    r"D:\new_tdx",
+    r"D:\tdx_biduan",
+    r"D:\tdx",
+    r"C:\tdx",
+    r"C:\new_tdx",
+    r"D:\通达信",
+    r"C:\通达信",
+)
+
+
+def _normalize_stock_block_docs(documents, source: str):
+    normalized = []
+    for item in documents or []:
+        if not isinstance(item, dict):
+            continue
+        doc = dict(item)
+        doc.setdefault("source", source)
+        normalized.append(doc)
+    return normalized
+
+
+def _resolve_local_tdx_root():
+    candidates = []
+    for env_name in ("FRESHQUANT_TDX_ROOT", "TDX_HOME", "TDX_PATH"):
+        value = os.environ.get(env_name)
+        if value:
+            candidates.append(value)
+    candidates.extend(LOCAL_TDX_ROOT_CANDIDATES)
+
+    for candidate in candidates:
+        root = Path(candidate).expanduser()
+        if (root / "T0002" / "hq_cache").exists():
+            return root
+    return None
+
+
+def _iter_tdx_infoharbor_codes(line: str):
+    for raw_item in str(line or "").split(","):
+        item = raw_item.strip()
+        if "#" not in item:
+            continue
+        market, code = item.split("#", 1)
+        digits = "".join(ch for ch in str(code) if ch.isdigit())
+        if market not in {"0", "1"} or len(digits) != 6:
+            continue
+        yield digits
+
+
+def _parse_tdx_infoharbor_block_text(
+    text: str,
+    *,
+    source: str = LOCAL_TDX_INFOHARBOR_SOURCE,
+):
+    documents = []
+    current_block_name = None
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            current_block_name = None
+            header = line[1:]
+            if "_" not in header:
+                continue
+            current_block_name = header.split("_", 1)[1].split(",", 1)[0].strip()
+            continue
+        if not current_block_name:
+            continue
+        for code in _iter_tdx_infoharbor_codes(line):
+            documents.append(
+                {
+                    "code": code,
+                    "blockname": current_block_name,
+                    "source": source,
+                }
+            )
+    return documents
+
+
+def _load_local_tdx_infoharbor_docs(log):
+    tdx_root = _resolve_local_tdx_root()
+    if not tdx_root:
+        if log:
+            log.warning("local tdx root not found; skip infoharbor fallback")
+        return []
+
+    infoharbor_path = tdx_root / "T0002" / "hq_cache" / "infoharbor_block.dat"
+    if not infoharbor_path.exists():
+        if log:
+            log.warning("infoharbor block file missing: %s", infoharbor_path)
+        return []
+
+    try:
+        text = infoharbor_path.read_bytes().decode("gbk", errors="ignore")
+    except Exception as exc:  # noqa: BLE001
+        if log:
+            log.warning("read infoharbor block file failed: %s", exc)
+        return []
+
+    documents = _parse_tdx_infoharbor_block_text(text)
+    if log and documents:
+        log.info(
+            "loaded local infoharbor block docs=%s path=%s",
+            len(documents),
+            infoharbor_path,
+        )
+    return documents
+
+
+def _load_stock_block_docs_by_source(
+    *,
+    fetch_block_dataframe,
+    to_json,
+    log,
+    sources=STOCK_BLOCK_SOURCES,
+):
+    docs_by_source = {}
+    local_docs = _load_local_tdx_infoharbor_docs(log)
+    if local_docs:
+        docs_by_source[LOCAL_TDX_INFOHARBOR_SOURCE] = local_docs
+
+    for source in sources:
+        try:
+            dataframe = fetch_block_dataframe(source)
+        except Exception as exc:  # noqa: BLE001
+            if log:
+                log.warning("QA_fetch_get_stock_block(%s) failed: %s", source, exc)
+            continue
+
+        if dataframe is None or getattr(dataframe, "empty", False):
+            if log:
+                log.warning("QA_fetch_get_stock_block(%s) returned empty", source)
+            continue
+
+        try:
+            documents = to_json(dataframe)
+        except Exception as exc:  # noqa: BLE001
+            if log:
+                log.warning(
+                    "QA_fetch_get_stock_block(%s) to json failed: %s", source, exc
+                )
+            continue
+
+        normalized = _normalize_stock_block_docs(documents, source)
+        if not normalized:
+            if log:
+                log.warning(
+                    "QA_fetch_get_stock_block(%s) produced empty json list", source
+                )
+            continue
+
+        docs_by_source[source] = normalized
+
+    return docs_by_source
+
+
+def _refresh_stock_block_collection(
+    *,
+    collection,
+    fetch_block_dataframe,
+    to_json,
+    log,
+    sources=STOCK_BLOCK_SOURCES,
+    batch_size: int = 5000,
+):
+    collection.create_index("code")
+    docs_by_source = _load_stock_block_docs_by_source(
+        fetch_block_dataframe=fetch_block_dataframe,
+        to_json=to_json,
+        log=log,
+        sources=sources,
+    )
+    if not docs_by_source:
+        if log:
+            log.warning(
+                "stock_block refresh skipped: all sources empty/failed; keeping existing collection unchanged"
+            )
+        return {"refreshed_sources": [], "total_docs": 0}
+
+    refreshed_sources = []
+    total_docs = 0
+    for source, documents in docs_by_source.items():
+        try:
+            collection.delete_many({"source": source})
+        except Exception as exc:  # noqa: BLE001
+            if log:
+                log.warning("stock_block delete source=%s failed: %s", source, exc)
+            continue
+
+        inserted = 0
+        for start in range(0, len(documents), batch_size):
+            batch = documents[start : start + batch_size]
+            if not batch:
+                continue
+            try:
+                collection.insert_many(batch, ordered=False)
+                inserted += len(batch)
+            except Exception as exc:  # noqa: BLE001
+                if log:
+                    log.warning(
+                        "stock_block insert source=%s batch=%s failed: %s",
+                        source,
+                        len(batch),
+                        exc,
+                    )
+        refreshed_sources.append(source)
+        total_docs += inserted
+        if log:
+            log.info("stock_block source=%s refreshed docs=%s", source, inserted)
+
+    if log:
+        log.info(
+            "stock_block refresh done: sources=%s total_docs=%s",
+            refreshed_sources,
+            total_docs,
+        )
+    return {"refreshed_sources": refreshed_sources, "total_docs": total_docs}
+
+
+def _save_stock_block_safe(context) -> dict:
+    from QUANTAXIS.QAFetch import QA_fetch_get_stock_block
+
+    return _refresh_stock_block_collection(
+        collection=DBQuantAxis["stock_block"],
+        fetch_block_dataframe=QA_fetch_get_stock_block,
+        to_json=QA_util_to_json_from_pandas,
+        log=context.log,
+    )
 
 
 # Stock Assets
@@ -54,7 +293,8 @@ def stock_block(context: AssetExecutionContext, stock_list: str) -> str:
     context.log.info(
         f"Saving stock block data, triggered after stock_list at {stock_list}"
     )
-    QA_SU_save_stock_block("tdx")
+    result = _save_stock_block_safe(context)
+    context.log.info("stock block safe refresh result=%s", result)
     market_data_alert.send(
         "dagster-asset",
         payload={

@@ -29,6 +29,9 @@ QUALITY_STOCK_BLOCK_NAMES = (
     "绩优股",
     "行业龙头",
 )
+QUALITY_STOCK_BLOCK_NAME_ALIASES = {
+    "“中证央企”": ("“中证央企”", "中证央企"),
+}
 
 
 def refresh_quality_stock_universe(
@@ -46,14 +49,16 @@ def refresh_quality_stock_universe(
 
     block_lookup = {}
     rows = block_collection.find(
-        {"blockname": {"$in": list(QUALITY_STOCK_BLOCK_NAMES)}}
+        {"blockname": {"$in": _quality_stock_query_block_names()}}
     )
     for row in rows or []:
         code6 = _normalize_code6(row.get("code"))
         if not code6:
             continue
-        block_name = str(row.get("blockname") or "").strip()
+        block_name = _canonicalize_quality_block_name(row.get("blockname"))
         if not block_name:
+            continue
+        if block_name not in QUALITY_STOCK_BLOCK_NAMES:
             continue
         block_lookup.setdefault(code6, set()).add(block_name)
 
@@ -85,12 +90,30 @@ def refresh_quality_stock_universe(
 
 
 def load_quality_stock_lookup(*, target_collection=None):
-    target_collection = target_collection or DBfreshquant[COL_QUALITY_STOCK_UNIVERSE]
+    if target_collection is None:
+        target_collection = DBfreshquant[COL_QUALITY_STOCK_UNIVERSE]
     return {
         _normalize_code6(item.get("code6")): dict(item)
         for item in (target_collection.find({}) or [])
         if _normalize_code6(item.get("code6"))
     }
+
+
+def _quality_stock_query_block_names():
+    names = set(QUALITY_STOCK_BLOCK_NAMES)
+    for aliases in QUALITY_STOCK_BLOCK_NAME_ALIASES.values():
+        names.update(str(item).strip() for item in aliases if str(item).strip())
+    return sorted(names)
+
+
+def _canonicalize_quality_block_name(value):
+    name = str(value or "").strip()
+    if not name:
+        return None
+    for canonical_name, aliases in QUALITY_STOCK_BLOCK_NAME_ALIASES.items():
+        if name == canonical_name or name in aliases:
+            return canonical_name
+    return name
 
 
 def _normalize_code6(value):
