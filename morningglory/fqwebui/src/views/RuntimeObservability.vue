@@ -164,8 +164,8 @@
               :key="`${card.component}-${card.runtime_node}`"
               type="button"
               class="component-board-card"
-              :class="[statusClass(card.status), { active: boardFilter.component === card.component }]"
-              @click="handleComponentFilter(card.component)"
+              :class="[statusClass(card.status), { active: boardFilter.component === card.component && boardFilter.runtime_node === card.runtime_node }]"
+              @click="handleComponentFilter(card)"
             >
               <div class="component-board-head">
                 <strong>{{ card.component }}</strong>
@@ -192,7 +192,7 @@
               :key="`${item.component}-${item.issue_count}-${item.trace_count}`"
               type="button"
               class="component-distribution-chip"
-              :class="{ active: boardFilter.component === item.component }"
+              :class="{ active: boardFilter.component === item.component && !boardFilter.runtime_node }"
               @click="handleComponentFilter(item.component)"
             >
               {{ item.component }} · {{ item.issue_count }}/{{ item.trace_count }}
@@ -398,6 +398,7 @@
         <el-input v-model="draftQuery.internal_order_id" clearable placeholder="internal_order_id" />
         <el-input v-model="draftQuery.symbol" clearable placeholder="symbol" />
         <el-input v-model="draftQuery.component" clearable placeholder="component" />
+        <el-input v-model="draftQuery.runtime_node" clearable placeholder="runtime_node" />
       </div>
       <div class="advanced-filter-actions">
         <el-button @click="resetAdvancedFilter">清空</el-button>
@@ -473,7 +474,7 @@ const loading = reactive({
   traces: false,
   raw: false,
 })
-const QUERY_FIELDS = ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component']
+const QUERY_FIELDS = ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component', 'runtime_node']
 
 const query = reactive({
   trace_id: '',
@@ -481,6 +482,7 @@ const query = reactive({
   internal_order_id: '',
   symbol: '',
   component: '',
+  runtime_node: '',
 })
 const draftQuery = reactive({
   trace_id: '',
@@ -488,6 +490,7 @@ const draftQuery = reactive({
   internal_order_id: '',
   symbol: '',
   component: '',
+  runtime_node: '',
 })
 
 const healthCards = ref([])
@@ -508,6 +511,7 @@ const recentFeedRef = ref(null)
 const pageError = ref('')
 const boardFilter = reactive({
   component: '',
+  runtime_node: '',
 })
 const rawQuery = reactive({
   runtime_node: '',
@@ -533,7 +537,9 @@ const filterChips = computed(() => {
   if (boardFilter.component) {
     chips.push({
       key: 'board-component',
-      label: `组件: ${boardFilter.component}`,
+      label: boardFilter.runtime_node
+        ? `节点: ${boardFilter.runtime_node} · ${boardFilter.component}`
+        : `组件: ${boardFilter.component}`,
       kind: 'board',
       field: 'component',
     })
@@ -551,6 +557,7 @@ const filterChips = computed(() => {
     ['internal_order_id', 'Order'],
     ['symbol', 'Symbol'],
     ['component', '组件'],
+    ['runtime_node', '节点'],
   ]) {
     const value = String(query[field] || '').trim()
     if (!value) continue
@@ -678,9 +685,23 @@ const handleRecentTraceClick = async (row) => {
   await handleTraceClick(row)
 }
 
-const handleComponentFilter = (component) => {
-  const normalized = String(component || '').trim()
-  boardFilter.component = boardFilter.component === normalized ? '' : normalized
+const handleComponentFilter = (target) => {
+  if (typeof target === 'string') {
+    const normalized = String(target || '').trim()
+    const isActive = boardFilter.component === normalized && !boardFilter.runtime_node
+    boardFilter.component = isActive ? '' : normalized
+    boardFilter.runtime_node = ''
+    recentTraceLimit.value = 20
+    return
+  }
+
+  const normalizedComponent = String(target?.component || '').trim()
+  const normalizedRuntimeNode = String(target?.runtime_node || '').trim()
+  const isActive =
+    boardFilter.component === normalizedComponent &&
+    boardFilter.runtime_node === normalizedRuntimeNode
+  boardFilter.component = isActive ? '' : normalizedComponent
+  boardFilter.runtime_node = isActive ? '' : normalizedRuntimeNode
   recentTraceLimit.value = 20
 }
 
@@ -688,6 +709,7 @@ const clearFilterChip = async (chip) => {
   if (!chip) return
   if (chip.kind === 'board') {
     boardFilter.component = ''
+    boardFilter.runtime_node = ''
     return
   }
   if (chip.kind === 'toggle') {

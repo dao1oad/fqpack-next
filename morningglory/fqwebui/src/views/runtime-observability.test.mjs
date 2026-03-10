@@ -96,10 +96,12 @@ test('buildTraceQuery trims empty fields', () => {
       request_id: '',
       internal_order_id: '   ',
       symbol: '000001',
+      runtime_node: ' host:broker ',
     }),
     {
       trace_id: 'trc_1',
       symbol: '000001',
+      runtime_node: 'host:broker',
     },
   )
 })
@@ -230,6 +232,103 @@ test('buildComponentBoard summarizes core component issue counts', () => {
   assert.equal(board.distribution[0].component, 'order_submit')
 })
 
+test('buildComponentBoard splits host and docker cards for the same component and keeps xt producer visible', () => {
+  const traces = [
+    {
+      trace_id: 'trc_host_order_submit',
+      request_ids: ['req_host_order_submit'],
+      internal_order_ids: ['ord_host_order_submit'],
+      steps: [
+        {
+          component: 'guardian_strategy',
+          runtime_node: 'host:guardian',
+          node: 'receive_signal',
+          status: 'info',
+          ts: '2026-03-09T10:00:00+08:00',
+        },
+        {
+          component: 'order_submit',
+          runtime_node: 'host:order_submit',
+          node: 'tracking_create',
+          status: 'warning',
+          ts: '2026-03-09T10:00:02+08:00',
+          reason_code: 'host_warning',
+        },
+      ],
+    },
+    {
+      trace_id: 'trc_docker_order_submit',
+      request_ids: ['req_docker_order_submit'],
+      internal_order_ids: ['ord_docker_order_submit'],
+      steps: [
+        {
+          component: 'guardian_strategy',
+          runtime_node: 'docker:guardian',
+          node: 'receive_signal',
+          status: 'info',
+          ts: '2026-03-09T10:01:00+08:00',
+        },
+        {
+          component: 'order_submit',
+          runtime_node: 'docker:order_submit',
+          node: 'tracking_create',
+          status: 'failed',
+          ts: '2026-03-09T10:01:03+08:00',
+          reason_code: 'docker_failed',
+        },
+      ],
+    },
+  ]
+
+  const board = buildComponentBoard(
+    traces,
+    buildHealthCards([
+      {
+        component: 'order_submit',
+        runtime_node: 'host:order_submit',
+        status: 'warning',
+        heartbeat_age_s: 4,
+        metrics: { queue_len: 1 },
+      },
+      {
+        component: 'order_submit',
+        runtime_node: 'docker:order_submit',
+        status: 'failed',
+        heartbeat_age_s: 9,
+        metrics: { queue_len: 5 },
+      },
+      {
+        component: 'xt_producer',
+        runtime_node: 'host:xt_producer',
+        status: 'info',
+        heartbeat_age_s: 2,
+        metrics: { connected: 1 },
+      },
+    ]),
+  )
+
+  assert.deepEqual(
+    board.cards
+      .filter((card) => card.component === 'order_submit')
+      .map((card) => ({
+        runtime_node: card.runtime_node,
+        issue_trace_count: card.issue_trace_count,
+      }))
+      .sort((left, right) => left.runtime_node.localeCompare(right.runtime_node)),
+    [
+      {
+        runtime_node: 'docker:order_submit',
+        issue_trace_count: 1,
+      },
+      {
+        runtime_node: 'host:order_submit',
+        issue_trace_count: 1,
+      },
+    ],
+  )
+  assert.ok(board.cards.some((card) => card.component === 'xt_producer'))
+})
+
 test('applyBoardFilter narrows traces by selected component', () => {
   const traces = [
     makeTrace({
@@ -253,6 +352,42 @@ test('applyBoardFilter narrows traces by selected component', () => {
   const filtered = applyBoardFilter(traces, { component: 'order_submit' })
 
   assert.deepEqual(filtered.map((trace) => trace.trace_id), ['trc_order_submit'])
+})
+
+test('applyBoardFilter narrows traces by selected runtime node and component', () => {
+  const traces = [
+    {
+      trace_id: 'trc_host_order_submit',
+      steps: [
+        {
+          component: 'order_submit',
+          runtime_node: 'host:order_submit',
+          node: 'tracking_create',
+          status: 'warning',
+          ts: '2026-03-09T10:00:10+08:00',
+        },
+      ],
+    },
+    {
+      trace_id: 'trc_docker_order_submit',
+      steps: [
+        {
+          component: 'order_submit',
+          runtime_node: 'docker:order_submit',
+          node: 'tracking_create',
+          status: 'failed',
+          ts: '2026-03-09T10:00:12+08:00',
+        },
+      ],
+    },
+  ]
+
+  const filtered = applyBoardFilter(traces, {
+    component: 'order_submit',
+    runtime_node: 'host:order_submit',
+  })
+
+  assert.deepEqual(filtered.map((trace) => trace.trace_id), ['trc_host_order_submit'])
 })
 
 test('component filter narrows issue cards and recent feed together', () => {
