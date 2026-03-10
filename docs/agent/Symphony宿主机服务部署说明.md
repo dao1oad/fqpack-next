@@ -90,6 +90,11 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/sync_freshquan
 - 当前账号密码可用于服务安装
 - 必须在 **提升权限的 PowerShell（Run as Administrator）** 中执行安装脚本
 
+如果当前账号本身没有密码，也可以使用空密码，但前提是：
+
+- 本机 `LimitBlankPasswordUse = 0`
+- 即已经关闭 “Accounts: Limit local account use of blank passwords to console logon only”
+
 默认会优先尝试这些 `NSSM` 路径：
 
 - `nssm`（已在 `PATH` 中）
@@ -109,6 +114,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/install_freshq
 - 本方案明确不用专用服务账号
 - 但 Windows Service 仍然需要当前账号密码来把服务绑定到该账号
 - 如果不是在提升权限 PowerShell 中执行，安装脚本会直接失败，不再尝试半途注册服务
+- 当 `LimitBlankPasswordUse = 0` 时，安装脚本允许空密码账号继续安装服务
 - 如果 `NSSM` 不在 `PATH` 中，也可以显式传入：
 
 ```powershell
@@ -135,6 +141,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/reinstall_fres
 
 - 仍然必须在提升权限 PowerShell 中运行
 - 默认会交互式提示输入当前 Windows 账号密码，不会把密码写死到脚本文件里
+- 如果账号无密码，直接回车即可
 - 会自动执行：
   - 删除旧 `fq-symphony-orchestrator`
   - 调用正式安装脚本

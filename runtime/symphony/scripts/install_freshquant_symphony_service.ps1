@@ -17,6 +17,11 @@ function Test-IsElevatedSession {
     return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Get-LimitBlankPasswordUse {
+    $lsa = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    return [int]$lsa.LimitBlankPasswordUse
+}
+
 function Resolve-NssmPath {
     param([string]$ExplicitPath)
 
@@ -58,8 +63,21 @@ $startScript = Join-Path (Join-Path $ServiceRoot 'scripts') 'start_freshquant_sy
 $stdoutLog = Join-Path (Join-Path $ServiceRoot 'logs') 'stdout.log'
 $stderrLog = Join-Path (Join-Path $ServiceRoot 'logs') 'stderr.log'
 
-if (-not $ServicePassword) {
-    throw "ServicePassword is required when installing a Windows service under the current account ($ServiceUser)."
+$blankPasswordAllowed = (Get-LimitBlankPasswordUse) -eq 0
+
+if ($null -eq $ServicePassword) {
+    if (-not $blankPasswordAllowed) {
+        throw "ServicePassword is required when installing a Windows service under the current account ($ServiceUser)."
+    }
+
+    $ServicePassword = ''
+}
+elseif ([string]::IsNullOrWhiteSpace($ServicePassword)) {
+    if (-not $blankPasswordAllowed) {
+        throw "Blank passwords are blocked by the current LimitBlankPasswordUse policy for account $ServiceUser."
+    }
+
+    $ServicePassword = ''
 }
 
 if (-not (Test-IsElevatedSession)) {

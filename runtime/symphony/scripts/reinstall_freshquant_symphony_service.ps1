@@ -16,8 +16,13 @@ function Test-IsElevatedSession {
     return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Get-LimitBlankPasswordUse {
+    $lsa = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    return [int]$lsa.LimitBlankPasswordUse
+}
+
 function Read-PlaintextPassword {
-    $secure = Read-Host -Prompt 'Enter current Windows account password' -AsSecureString
+    $secure = Read-Host -Prompt 'Enter current Windows account password (press Enter for blank password)' -AsSecureString
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 
     try {
@@ -42,12 +47,18 @@ if (-not (Test-Path $InstallScriptPath)) {
     throw "Install script not found: $InstallScriptPath"
 }
 
+$blankPasswordAllowed = (Get-LimitBlankPasswordUse) -eq 0
+
 if ([string]::IsNullOrWhiteSpace($ServicePassword)) {
     $ServicePassword = Read-PlaintextPassword
 }
 
 if ([string]::IsNullOrWhiteSpace($ServicePassword)) {
-    throw 'ServicePassword cannot be empty.'
+    if (-not $blankPasswordAllowed) {
+        throw 'ServicePassword cannot be empty unless LimitBlankPasswordUse is set to 0.'
+    }
+
+    $ServicePassword = ''
 }
 
 $userLinearKey = [Environment]::GetEnvironmentVariable('LINEAR_API_KEY', 'User')
