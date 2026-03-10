@@ -7,6 +7,14 @@
 
 迁移过程中 **允许破坏性变更（Breaking Changes）**，但必须先写清需求与边界，经评审后才能编码。
 
+当前仓库的正式治理已切换为 **`Linear-first + Symphony-first + design-approval-first`**：
+
+- 正式开发需求的唯一入口是 `Linear issue`
+- 默认执行编排器是 `Symphony`
+- 唯一人工门是设计批准
+- 默认合法工作区是 `Symphony-managed workspace/repo copy`
+- 远端 `feature branch` 与 `PR` 仍是代码交付真相源
+
 ## 0.1 必读入口（给后续 agent）
 
 - 文档索引：`docs/agent/index.md`
@@ -45,7 +53,33 @@
 - 所有新增模块/子系统：先写 RFC（需求+边界），评审通过后再写代码。
 - 项目文档优先中文；需要时在括号中保留关键英文术语。
 
-## 3. 强制流程（先定需求边界，再编码）
+## 3. 强制流程（Linear issue -> Symphony -> PR）
+
+所有正式开发需求必须先落到 `Linear issue`，并遵守“一需求一 issue”。
+
+正式工作流状态机如下：
+
+- `Todo`
+  - `Symphony` 自动领取
+  - 只允许调研、设计、RFC、implementation plan
+  - **禁止编码**
+- `Human Review`
+  - 唯一人工门
+  - 流程暂停，等待人类审阅设计
+- `In Progress`
+  - 只有当 issue 从 `Human Review` 进入 `In Progress`，才允许编码
+- `Rework`
+  - 处理 review/CI/验证失败返工
+- `Merging`
+  - 自动收尾、合并
+- `Done`
+  - 终态
+
+审批真值只有一个：
+
+- **`Human Review -> In Progress` 的状态迁移**
+
+`Linear comment` 只承载意见，不承载批准真值。
 
 以下任一情况 **必须** 先写 RFC 并通过评审：
 - 新增顶级模块（例如新增 `freshquant/<module>/` 目录，或新增稳定公共 API 面）。
@@ -60,11 +94,20 @@
 - 对外接口与数据/配置明确（输入输出、错误语义、兼容/迁移策略）。
 - 验收标准明确（如何验证“做对了”）。
 
+进入 `Human Review` 前必须至少产出：
+
+- 对应 RFC
+- implementation plan
+- implementation plan 内的 `task checklist`
+- `docs/migration/progress.md` 更新
+- 一条结构化 `Linear comment`
+
 落地顺序（严格执行）：
-1) 写 RFC（`docs/rfcs/`，按模板）
-2) 评审/修订 → 通过（Approved）
-3) 编码与测试
-4) 更新进度与破坏性变更记录（`docs/migration/`）
+1) 新建/领取 `Linear issue`
+2) `Todo` 阶段写 RFC 与 implementation plan
+3) 人工把 issue 从 `Human Review` 改到 `In Progress`
+4) `Symphony` 自动编码、TDD、PR、CI、merge
+5) 更新进度与破坏性变更记录（`docs/migration/`）
 
 ## 4. RFC（需求/边界）规范
 
@@ -94,6 +137,7 @@ RFC 必含内容（至少）：
 规则：
 - 每个迁移单元必须关联一个 RFC（在进度表里写 RFC 编号/链接）。
 - 任何破坏性变更落地时，必须在 `breaking-changes.md` 追加记录，并引用对应 RFC。
+- 正式工作流下，这些文件默认由 `Symphony` 在对应 issue 分支上自动更新；人工介入时也必须在同一分支/同一 PR 中保持同步。
 
 强制更新频率（必须遵守）：
 - **RFC 状态变更即更新**：RFC 从 Draft/Review/Approved/Implementing/Done/Blocked 任意变更时，必须在**同一提交**更新 `docs/migration/progress.md`。
@@ -111,13 +155,23 @@ RFC 必含内容（至少）：
 
 PR 合并策略（项目强制约束）：
 - **禁止直推 `main`**：所有改动在 feature 分支完成后提交 PR。
-- **禁止在本地 `main` 分支直接开发或提交**：本地 `main` 只能用于同步远程 `origin/main`，不能承载任何需求开发、修复、实验性改动或临时提交。
-- **强制使用 git worktree + feature 分支开展修改**：每次开始开发前，必须从最新 `origin/main` 拉出独立 worktree 和 feature 分支；开发、提交、验证、PR 都在该 worktree 内完成。
-- **合并顺序固定**：仅允许“feature worktree 开发 -> 提交 PR -> 合并到远程 `main` -> 本地 `main` fast-forward 同步远程 `main`”这一条路径；禁止把本地 `main` 作为中间集成分支或预提交分支。
+- **禁止在任何本地 `main` 分支直接开发或提交**：`main` 只能用于同步远程 `origin/main`，不能承载需求开发、修复、实验性改动或临时提交。
+- **默认使用 `Symphony-managed workspace/repo copy` 开展修改**：正式开发由 `Symphony` 根据 `Linear issue` 创建工作区、远端 `feature branch` 与后续 `Draft PR`。若需要人工介入，只能在该 issue 对应的 feature 分支/PR 上修改。
+- **合并顺序固定**：仅允许“`Linear issue` -> `Symphony workspace` -> `feature branch` -> `Draft PR` -> 合并到远程 `main` -> 本地 `main` fast-forward 同步远程 `main`”这一条路径。
+- **设计阶段不开 PR**：只有 issue 进入 `In Progress` 后才创建 `Draft PR`。
 - PR 必须满足：
   - CI 全绿（`CI / governance`、`CI / pre-commit`、`CI / pytest`）
-  - reviewer Approve：GitHub 不允许 PR 作者自我 Approve；单账号仓库暂不强制（0），引入第二账号/团队后改回 ≥1
   - 解决所有 review discussion 后再合并
+
+### 6.1 自动化权限边界
+
+- 默认可自动修改：业务代码、前端、测试、普通文档
+- 需要 RFC 明确列入范围后才可自动修改：`docker/`、`.github/`、`morningglory/fqdagsterconfig/`、`script/`、`third_party/`、根目录构建/安装/部署脚本
+- 第一阶段默认禁止自动执行：
+  - `.env` / secrets 修改
+  - 直接改线上或并行环境数据库
+  - 部署、停服、删库、强杀
+  - 实盘/券商/交易直连高风险操作
 
 ## 7. Skills（可选）
 
