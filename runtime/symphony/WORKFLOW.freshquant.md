@@ -18,6 +18,9 @@ agent:
   max_turns: 60
 codex:
   command: codex --config shell_environment_policy.inherit=all app-server
+  thread_sandbox: danger-full-access
+  turn_sandbox_policy:
+    type: dangerFullAccess
 server:
   port: 40123
 ---
