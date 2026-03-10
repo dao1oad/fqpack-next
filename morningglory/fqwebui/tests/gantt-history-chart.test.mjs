@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import {
@@ -33,4 +34,27 @@ test('getResetViewportWindow keeps latest x-span and top y-span', () => {
     getResetViewportWindow({ start: 30, end: 90 }, { start: 20, end: 60 }),
     { xStart: 40, xEnd: 100, yStart: 0, yEnd: 40 }
   )
+})
+
+test('GanttHistory restores legend and legacy hover config', async () => {
+  const content = await readFile(
+    new URL('../src/views/components/GanttHistory.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(content, /class="color-legend"/)
+  assert.match(content, /axisPointer:/)
+  assert.match(content, /updateAxisPointer/)
+  assert.match(content, /position: \(point, params, dom, rect, size\) =>/)
+})
+
+test('GanttHistory keeps stock drag-pan fallback and viewport-synced sidebar', async () => {
+  const content = await readFile(
+    new URL('../src/views/components/GanttHistory.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(content, /const syncPlateSidebarFromChart = \(\) =>/)
+  assert.match(content, /chartInstance\.on\('dataZoom'/)
+  assert.match(content, /const handleStockPanMouseDown = \(evt\) =>/)
 })
