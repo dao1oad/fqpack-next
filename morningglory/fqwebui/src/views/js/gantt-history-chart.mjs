@@ -12,12 +12,12 @@ const getYKey = (item, level, fallbackKey) => {
   return item?.symbol ?? item?.name ?? fallbackKey
 }
 
-const getZoomSpan = (zoom, fallbackSpan, minSpan) => {
+const getZoomSpan = (zoom, fallbackSpan) => {
   const start = Number(zoom?.start)
   const end = Number(zoom?.end)
   const span = end - start
   if (!Number.isFinite(span) || span <= 0) return fallbackSpan
-  return Math.min(100, Math.max(minSpan, span))
+  return Math.min(100, span)
 }
 
 export const getStreakColor = (order, day) => {
@@ -88,8 +88,8 @@ export const processSeriesWithStreaks = ({
 }
 
 export const getResetViewportWindow = (xZoom = {}, yZoom = {}) => {
-  const xSpan = getZoomSpan(xZoom, 100, 10)
-  const ySpan = getZoomSpan(yZoom, 100, 20)
+  const xSpan = getZoomSpan(xZoom, 100)
+  const ySpan = getZoomSpan(yZoom, 100)
   return {
     xStart: Math.max(0, 100 - xSpan),
     xEnd: 100,
