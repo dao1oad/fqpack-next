@@ -147,7 +147,9 @@ class OrderTrackingService:
         current_state = current_order["state"]
         if current_state == report["state"]:
             updates = {}
-            if report.get("broker_order_id") and not current_order.get("broker_order_id"):
+            if report.get("broker_order_id") and not current_order.get(
+                "broker_order_id"
+            ):
                 updates["broker_order_id"] = report.get("broker_order_id")
             if report.get("submitted_at") and not current_order.get("submitted_at"):
                 updates["submitted_at"] = report.get("submitted_at")

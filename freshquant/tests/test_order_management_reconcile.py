@@ -173,9 +173,7 @@ def _stub_ingest_side_effects(monkeypatch, *, marks=None, mark_label="updated"):
     monkeypatch.setattr(
         xt_reports_module,
         "mark_stock_holdings_projection_updated",
-        (lambda: None)
-        if marks is None
-        else (lambda: marks.append(mark_label)),
+        (lambda: None) if marks is None else (lambda: marks.append(mark_label)),
         raising=False,
     )
 
@@ -406,7 +404,9 @@ def test_partial_trade_shrinks_pending_candidate_before_confirm(monkeypatch):
     confirmed = service.confirm_expired_candidates(now=1_121)
 
     assert len(results) == 1
-    assert repository.external_candidates[0]["candidate_id"] == candidate["candidate_id"]
+    assert (
+        repository.external_candidates[0]["candidate_id"] == candidate["candidate_id"]
+    )
     assert repository.external_candidates[0]["state"] == "INFERRED_CONFIRMED"
     assert repository.external_candidates[0]["quantity_delta"] == 300
     assert len(confirmed) == 1
