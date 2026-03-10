@@ -143,14 +143,7 @@ class ExternalOrderReconcileService:
             if match_status == "defer":
                 continue
 
-            candidate = next(
-                (
-                    item
-                    for item in pending_candidates
-                    if match_candidate_to_trade(item, normalized)
-                ),
-                None,
-            )
+            candidate = _find_trade_candidate(pending_candidates, normalized)
             order = self._create_external_order(
                 symbol=normalized["symbol"],
                 side=normalized["side"],
@@ -177,13 +170,16 @@ class ExternalOrderReconcileService:
                 grid_interval_lookup=_safe_grid_interval_lookup,
             )
             if candidate is not None:
+                candidate_updates = _build_candidate_trade_updates(
+                    candidate,
+                    normalized_trade=normalized,
+                    order=order,
+                    trade_fact=result["trade_fact"],
+                )
+                candidate.update(candidate_updates)
                 self.repository.update_external_candidate(
                     candidate["candidate_id"],
-                    {
-                        "state": "MATCHED",
-                        "matched_order_id": order["internal_order_id"],
-                        "matched_trade_fact_id": result["trade_fact"]["trade_fact_id"],
-                    },
+                    candidate_updates,
                 )
             self._emit_runtime(
                 "projection_update",
@@ -399,6 +395,45 @@ def _find_pending_candidate(candidates, symbol, side, quantity_delta):
         ):
             return item
     return None
+
+
+def _find_trade_candidate(candidates, normalized_trade):
+    exact_matches = [
+        item
+        for item in candidates
+        if item.get("state") == "INFERRED_PENDING"
+        and match_candidate_to_trade(item, normalized_trade)
+    ]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if len(exact_matches) > 1:
+        return None
+
+    partial_matches = [
+        item
+        for item in candidates
+        if item.get("state") == "INFERRED_PENDING"
+        and match_candidate_to_trade(item, normalized_trade, allow_partial=True)
+    ]
+    if len(partial_matches) == 1:
+        return partial_matches[0]
+    return None
+
+
+def _build_candidate_trade_updates(candidate, *, normalized_trade, order, trade_fact):
+    remaining_quantity = int(candidate.get("quantity_delta") or 0) - int(
+        normalized_trade["quantity"]
+    )
+    if remaining_quantity <= 0:
+        return {
+            "state": "MATCHED",
+            "quantity_delta": 0,
+            "matched_order_id": order["internal_order_id"],
+            "matched_trade_fact_id": trade_fact["trade_fact_id"],
+        }
+    return {
+        "quantity_delta": remaining_quantity,
+    }
 
 
 def _build_inferred_trade_report(candidate, internal_order_id):
