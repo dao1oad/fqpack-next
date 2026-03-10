@@ -84,6 +84,10 @@ $copyMap = @(
         Destination = (Join-Path $configRoot 'prompts\in_progress.md')
     },
     @{
+        Source = (Join-Path $sourceConfigRoot 'prompts\merging.md')
+        Destination = (Join-Path $configRoot 'prompts\merging.md')
+    },
+    @{
         Source = (Join-Path $sourceConfigRoot 'templates\human_review_comment.md')
         Destination = (Join-Path $configRoot 'templates\human_review_comment.md')
     },
