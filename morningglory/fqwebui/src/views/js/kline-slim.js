@@ -49,59 +49,6 @@ function buildVersion(data) {
   return `${dateList.length}_${lastDate}_${updatedAt}`
 }
 
-function pickDataZoomWindow(source) {
-  if (!source || typeof source !== 'object') {
-    return null
-  }
-
-  const windowState = {}
-  for (const key of ['start', 'end', 'startValue', 'endValue']) {
-    if (source[key] !== undefined && source[key] !== null) {
-      windowState[key] = source[key]
-    }
-  }
-
-  return Object.keys(windowState).length ? windowState : null
-}
-
-function extractDataZoomWindow(event) {
-  const batch = Array.isArray(event?.batch) && event.batch.length ? event.batch : [event]
-  for (const candidate of batch) {
-    const windowState = pickDataZoomWindow(candidate)
-    if (windowState) {
-      return windowState
-    }
-  }
-  return null
-}
-
-function areDataZoomWindowsEquivalent(currentWindow, nextWindow) {
-  if (!currentWindow || !nextWindow) {
-    return false
-  }
-
-  for (const key of ['start', 'end', 'startValue', 'endValue']) {
-    if (!(key in nextWindow)) {
-      continue
-    }
-
-    const currentValue = currentWindow[key]
-    const nextValue = nextWindow[key]
-    if (typeof currentValue === 'number' && typeof nextValue === 'number') {
-      if (Math.abs(currentValue - nextValue) > 0.01) {
-        return false
-      }
-      continue
-    }
-
-    if (currentValue !== nextValue) {
-      return false
-    }
-  }
-
-  return true
-}
-
 function getRoutePeriod(route) {
   return normalizeChanlunPeriod(route?.query?.period || DEFAULT_PERIOD)
 }
@@ -168,7 +115,6 @@ export default {
       mainData: null,
       chanlunRefreshTimer: null,
       renderFrameId: 0,
-      dataZoomReplayFrameId: 0,
       routeToken: 0,
       mainLoading: false,
       mainVersion: '',
@@ -185,7 +131,6 @@ export default {
       loadedChanlunPeriods: [],
       chanlunPeriodLoading: {},
       chanlunLegendSelected: buildLegendSelectionState(),
-      replayingDataZoom: false,
       holdings: [],
       mustPools: [],
       stockPools: [],
@@ -332,6 +277,7 @@ export default {
   },
   mounted() {
     this.initChart()
+    this.publishBrowserTestHooks()
     this.scheduleRender()
     document.addEventListener('visibilitychange', this.handleVisibilityChange)
     window.addEventListener('resize', this.handleResize)
@@ -348,15 +294,11 @@ export default {
     }
     if (this.chart) {
       this.chart.off('legendselectchanged', this.handleSlimLegendSelectChanged)
-      this.chart.off('datazoom', this.handleSlimDataZoom)
+      this.clearBrowserTestHooks()
       this.chart.dispose()
       this.chart = null
     }
-    if (this.dataZoomReplayFrameId) {
-      window.cancelAnimationFrame(this.dataZoomReplayFrameId)
-      this.dataZoomReplayFrameId = 0
-    }
-    this.replayingDataZoom = false
+    this.clearBrowserTestHooks()
   },
   methods: {
     async loadSidebarData() {
@@ -425,9 +367,27 @@ export default {
         return
       }
       this.chart = echarts.init(chartDom, 'dark')
+      this.publishBrowserTestHooks()
       this.chart.showLoading(echartsConfig.loadingOption)
       this.chart.on('legendselectchanged', this.handleSlimLegendSelectChanged)
-      this.chart.on('datazoom', this.handleSlimDataZoom)
+    },
+    publishBrowserTestHooks() {
+      if (!window.navigator?.webdriver) {
+        return
+      }
+      window.__klineSlimVm = this
+      window.__klineSlimChart = this.chart || null
+    },
+    clearBrowserTestHooks() {
+      if (!window.navigator?.webdriver) {
+        return
+      }
+      if (window.__klineSlimVm === this) {
+        window.__klineSlimVm = null
+      }
+      if (window.__klineSlimChart === this.chart || window.__klineSlimVm === null) {
+        window.__klineSlimChart = null
+      }
     },
     handleResize() {
       if (this.chart) {
@@ -454,11 +414,6 @@ export default {
       this.chanlunLegendSelected = buildLegendSelectionState()
       this.lastMainBarLabel = '--'
       this.resetChartStateOnNextRender = true
-      this.replayingDataZoom = false
-      if (this.dataZoomReplayFrameId) {
-        window.cancelAnimationFrame(this.dataZoomReplayFrameId)
-        this.dataZoomReplayFrameId = 0
-      }
     },
     handleRouteChange() {
       this.currentPeriod = getRoutePeriod(this.$route)
@@ -869,51 +824,6 @@ export default {
       )
       this.refreshVisibleChanlunPeriods(this.routeToken)
       this.scheduleRender()
-    },
-    handleSlimDataZoom(event) {
-      const windowState = extractDataZoomWindow(event)
-      if (
-        !windowState ||
-        !this.chart ||
-        typeof this.chart.getOption !== 'function' ||
-        typeof this.chart.clear !== 'function' ||
-        typeof this.chart.setOption !== 'function' ||
-        this.replayingDataZoom
-      ) {
-        return
-      }
-
-      const currentOption = this.chart.getOption()
-      const currentWindow = pickDataZoomWindow(currentOption?.dataZoom?.[0])
-      if (areDataZoomWindowsEquivalent(currentWindow, windowState)) {
-        return
-      }
-
-      currentOption.dataZoom = [
-        {
-          ...(currentOption?.dataZoom?.[0] || {}),
-          ...windowState
-        },
-        {
-          ...(currentOption?.dataZoom?.[1] || {}),
-          ...windowState
-        }
-      ]
-
-      this.replayingDataZoom = true
-      this.chart.clear()
-      this.chart.setOption(currentOption, {
-        notMerge: true,
-        lazyUpdate: false,
-        silent: true
-      })
-      if (this.dataZoomReplayFrameId) {
-        window.cancelAnimationFrame(this.dataZoomReplayFrameId)
-      }
-      this.dataZoomReplayFrameId = window.requestAnimationFrame(() => {
-        this.replayingDataZoom = false
-        this.dataZoomReplayFrameId = 0
-      })
     },
     scheduleRender() {
       if (!this.chart || !this.mainData) {

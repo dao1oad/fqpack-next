@@ -513,12 +513,22 @@ export default function drawSlim(chart, klineData, period, options = {}) {
     },
     dataZoom: previousDataZoom || [
       {
+        id: 'kline-slim-inside-zoom',
         type: 'inside',
+        xAxisIndex: [0],
+        filterMode: 'none',
         start: 70,
-        end: 100
+        end: 100,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: false,
+        preventDefaultMouseMove: true
       },
       {
+        id: 'kline-slim-slider-zoom',
         type: 'slider',
+        xAxisIndex: [0],
+        filterMode: 'none',
         start: 70,
         end: 100,
         bottom: 20,
@@ -535,13 +545,23 @@ export default function drawSlim(chart, klineData, period, options = {}) {
     series
   }
 
-  if (!keepState && typeof chart.clear === 'function') {
-    chart.clear()
-  }
   chart.setOption(option, {
-    notMerge: !keepState,
-    replaceMerge: ['series', 'legend', 'xAxis', 'yAxis', 'grid', 'dataZoom']
+    notMerge: false,
+    replaceMerge: ['series', 'legend', 'xAxis', 'yAxis']
   })
+  if (typeof chart.getZr === 'function' && Array.isArray(option.dataZoom) && option.dataZoom.length) {
+    chart.setOption(
+      {
+        dataZoom: option.dataZoom.map((item) => ({
+          ...item
+        }))
+      },
+      {
+        notMerge: false,
+        replaceMerge: ['dataZoom']
+      }
+    )
+  }
   chart.hideLoading()
 
   return (renderVersion
