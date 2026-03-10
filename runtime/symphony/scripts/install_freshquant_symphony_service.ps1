@@ -53,6 +53,20 @@ function Resolve-NssmPath {
     return $null
 }
 
+function Set-ServiceLogonAccount {
+    param(
+        [string]$ServiceName,
+        [string]$ServiceUser,
+        [string]$ServicePassword
+    )
+
+    $output = & sc.exe config $ServiceName obj= $ServiceUser password= $ServicePassword 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $message = ($output | Out-String).Trim()
+        throw "Failed to configure service logon account: $message"
+    }
+}
+
 $nssm = Resolve-NssmPath -ExplicitPath $NssmPath
 if (-not $nssm) {
     throw 'nssm not found. Install NSSM first or pass -NssmPath.'
@@ -103,7 +117,7 @@ if ($PSCmdlet.ShouldProcess($ServiceName, 'Install or update NSSM service')) {
     & $nssm set $ServiceName AppStderr $stderrLog | Out-Null
     & $nssm set $ServiceName AppExit Default Restart | Out-Null
     & $nssm set $ServiceName AppRestartDelay 5000 | Out-Null
-    & $nssm set $ServiceName ObjectName $ServiceUser $ServicePassword | Out-Null
+    Set-ServiceLogonAccount -ServiceName $ServiceName -ServiceUser $ServiceUser -ServicePassword $ServicePassword
 }
 
 Write-Host "[freshquant] installed service $ServiceName"
