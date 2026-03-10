@@ -7,6 +7,7 @@
 - 固化正式 `Linear` 状态机
 - 固化设计批准门
 - 固化默认 `subagent + TDD` 方法论
+- 固化 `Merging` 自动部署与 `Done` 判定
 - 让仓库治理与 `Symphony` 运行模板保持一致
 
 ## 当前约束
@@ -18,6 +19,7 @@
 - 阶段 prompt：
   - `prompts/todo.md`
   - `prompts/in_progress.md`
+  - `prompts/merging.md`
 - 审批评论模板：
   - `templates/human_review_comment.md`
 - 正式宿主机脚本：
@@ -31,4 +33,5 @@
 - 本目录中的文件是 **版本化模板**
 - 真实运行时的 `LINEAR_API_KEY`、project slug、GitHub/Codex 凭据通过环境变量或外部安全注入提供
 - 当前不强制先接 webhook，继续使用 30 秒轮询
+- `Merging` 阶段负责 merge、按变更矩阵执行部署和部署后健康检查；只有部署成功才能进入 `Done`
 - 宿主机正式运行说明见：`docs/agent/Symphony宿主机服务部署说明.md`

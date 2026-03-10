@@ -36,9 +36,9 @@ Linear 正式状态机如下：
 - `Rework`
   - 返工态
 - `Merging`
-  - 自动收尾与合并
+  - 自动收尾、合并、部署与部署后健康检查
 - `Done`
-  - 终态
+  - 仅在部署成功后进入的终态
 
 运行时状态如 `Retrying / Waiting approval / Waiting input / Blocked / Network error` 仍属于 Symphony 运行态，不进入 Linear 工作流状态。
 
@@ -72,6 +72,28 @@ Linear 正式状态机如下：
   - review discussion 已解决
 
 GitHub reviewer approve 不再是仓内强制人工门。
+
+## 4.1 自动部署与 Done 语义
+
+- `Merging` 不是单纯的 merge 收尾，而是：
+  - PR 合并
+  - 自动部署
+  - 部署后健康检查
+- `Done` 的真值是：
+  - PR 已合并
+  - 所需部署动作全部成功
+  - 部署后健康检查全部通过
+
+部署矩阵如下：
+
+- Docker 并行运行面变更：
+  - `docker compose -f docker/compose.parallel.yaml up -d --build`
+- `runtime/symphony/**` 变更：
+  - `sync_freshquant_symphony_service.ps1`
+  - `Restart-Service fq-symphony-orchestrator`
+  - `Invoke-WebRequest http://127.0.0.1:40123/api/v1/state`
+
+部署失败默认留在 `Merging` 自动重试；若失败稳定复现且需要改代码或配置，才回到 `Rework`。
 
 ## 5. 默认执行模式
 
@@ -108,11 +130,16 @@ GitHub reviewer approve 不再是仓内强制人工门。
 - `third_party/`
 - 根目录构建/安装/部署脚本
 
-### 6.3 第一阶段默认禁止自动执行
+### 6.3 `Merging` 阶段允许自动执行
+
+- Docker 并行环境的 `docker compose -f docker/compose.parallel.yaml up -d --build`
+- Symphony 宿主机运行面的同步、服务重启与健康检查
+
+### 6.4 第一阶段默认禁止自动执行
 
 - `.env` 与其他 secrets 文件修改
 - 直接改线上或并行环境 MongoDB / Redis 数据
-- 自动执行部署、停服、删库、强杀等高风险运行操作
+- 生产环境自动部署、自动回滚、停服、删库、强杀等高风险运行操作
 - 实盘/券商/交易直连高风险动作
 
 ## 7. 轮询与任务感知
@@ -134,6 +161,7 @@ Symphony 就会在下一个轮询周期内感知并调度它。
 - 设计批准前：不编码
 - 设计批准：靠 `Human Review -> In Progress`
 - 正式开发：默认由 Symphony 自动执行
+- 正式完成：必须是 merge + deploy + health check 全部成功
 - 高风险路径：必须在 RFC 里明确列入范围
 
 宿主机服务部署与 `NSSM` 安装方式见：

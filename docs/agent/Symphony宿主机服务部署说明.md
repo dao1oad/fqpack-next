@@ -185,9 +185,12 @@ Invoke-WebRequest http://127.0.0.1:40123/api/v1/state
 
 1. 在仓库里更新 `runtime/symphony/*`
 2. 合并到 `main`
-3. 重新运行 `sync_freshquant_symphony_service.ps1`
-4. `Restart-Service fq-symphony-orchestrator`
-5. 通过 `/api/v1/state` 与日志确认新版本生效
+3. `Merging` 阶段自动或人工补跑：
+   - `sync_freshquant_symphony_service.ps1`
+   - `Restart-Service fq-symphony-orchestrator`
+   - `Invoke-WebRequest http://127.0.0.1:40123/api/v1/state`
+4. 通过 `/api/v1/state` 与日志确认新版本生效
+5. 只有部署成功后，对应 issue 才能进入 `Done`
 
 ## 11. 回滚流程
 
