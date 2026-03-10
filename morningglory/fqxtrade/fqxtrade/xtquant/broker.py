@@ -462,14 +462,6 @@ def _emit_broker_bypass(order, *, action=None):
 
 
 def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode):
-    execution = prepare_submit_execution(
-        order,
-        repository=order_management_repository,
-        tracking_service=order_tracking_service,
-    )
-    if execution.get("status") == "skipped":
-        return execution
-    resolved_order = execution.get("order_message", order)
     if _is_observe_only_mode(broker_submit_mode):
         result = finalize_submit_execution(
             order,
@@ -478,8 +470,17 @@ def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode)
             tracking_service=order_tracking_service,
             broker_submit_mode=broker_submit_mode,
         )
-        _emit_broker_bypass(resolved_order, action=action)
+        _emit_broker_bypass(order, action=action)
         return result
+
+    execution = prepare_submit_execution(
+        order,
+        repository=order_management_repository,
+        tracking_service=order_tracking_service,
+    )
+    if execution.get("status") == "skipped":
+        return execution
+    resolved_order = execution.get("order_message", order)
 
     broker_order_id = submit_executor(resolved_order)
     logger.info(broker_order_id)
@@ -506,6 +507,18 @@ def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode)
 
 
 def _handle_cancel_action(order, *, broker_submit_mode):
+    if _is_observe_only_mode(broker_submit_mode):
+        dispatch_result = dispatch_cancel_execution(
+            order,
+            cancel_executor=lambda broker_order_id: -1,
+            repository=order_management_repository,
+            tracking_service=order_tracking_service,
+            broker_submit_mode=broker_submit_mode,
+        )
+        logger.info(dispatch_result)
+        _emit_broker_bypass(order, action="cancel")
+        return dispatch_result
+
     xt_trader, acc, _ = trading_manager.get_connection()
     dispatch_result = dispatch_cancel_execution(
         order,
@@ -521,9 +534,6 @@ def _handle_cancel_action(order, *, broker_submit_mode):
         broker_submit_mode=broker_submit_mode,
     )
     logger.info(dispatch_result)
-    if _is_observe_only_mode(broker_submit_mode):
-        _emit_broker_bypass(order, action="cancel")
-        return dispatch_result
     _emit_broker_event(
         "submit_result",
         context=_runtime_context_from_order_message(order),

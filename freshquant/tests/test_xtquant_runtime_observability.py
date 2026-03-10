@@ -494,10 +494,9 @@ def test_broker_observe_only_submit_emits_bypass_event_without_calling_executor(
     broker._runtime_logger = collector
 
     observed = {}
-    broker.prepare_submit_execution = lambda order, **kwargs: {
-        "status": "ready",
-        "order_message": dict(order),
-    }
+    broker.prepare_submit_execution = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("prepare_submit_execution should not run in observe_only")
+    )
     broker.finalize_submit_execution = lambda *args, **kwargs: observed.update(
         {
             "broker_submit_mode": kwargs.get("broker_submit_mode"),

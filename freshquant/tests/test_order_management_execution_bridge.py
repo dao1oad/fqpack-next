@@ -203,7 +203,7 @@ def test_dispatch_cancel_execution_bypasses_broker_in_observe_only_mode():
         "ord_cancel_bypass_1",
         {
             "state": "CANCEL_REQUESTED",
-            "broker_order_id": "900001",
+            "broker_order_id": None,
         },
     )
 
@@ -213,7 +213,7 @@ def test_dispatch_cancel_execution_bypasses_broker_in_observe_only_mode():
         {
             "internal_order_id": "ord_cancel_bypass_1",
             "action": "cancel",
-            "broker_order_id": "900001",
+            "broker_order_id": None,
         },
         cancel_executor=lambda broker_order_id: executor_called.__setitem__(
             "value", True

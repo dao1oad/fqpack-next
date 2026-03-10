@@ -146,6 +146,27 @@ def dispatch_cancel_execution(
     if broker_order_id is None and order is not None:
         broker_order_id = order.get("broker_order_id")
 
+    if _normalize_broker_submit_mode(broker_submit_mode) == "observe_only":
+        if internal_order_id:
+            tracking_service.ingest_order_report(
+                {
+                    "internal_order_id": internal_order_id,
+                    "state": "CANCELED",
+                    "event_type": "broker_cancel_bypassed",
+                    "broker_order_id": (
+                        None
+                        if broker_order_id in (None, "", "None")
+                        else str(broker_order_id)
+                    ),
+                }
+            )
+        return {
+            "status": "cancel_bypassed",
+            "broker_order_id": (
+                None if broker_order_id in (None, "", "None") else str(broker_order_id)
+            ),
+        }
+
     if broker_order_id in (None, "", "None"):
         if internal_order_id:
             tracking_service.ingest_order_report(
@@ -157,18 +178,6 @@ def dispatch_cancel_execution(
                 }
             )
         return {"status": "canceled_before_submit"}
-
-    if _normalize_broker_submit_mode(broker_submit_mode) == "observe_only":
-        if internal_order_id:
-            tracking_service.ingest_order_report(
-                {
-                    "internal_order_id": internal_order_id,
-                    "state": "CANCELED",
-                    "event_type": "broker_cancel_bypassed",
-                    "broker_order_id": str(broker_order_id),
-                }
-            )
-        return {"status": "cancel_bypassed", "broker_order_id": str(broker_order_id)}
 
     cancel_result = cancel_executor(int(broker_order_id))
     if cancel_result == 0:
