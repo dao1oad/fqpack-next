@@ -36,6 +36,13 @@ test('getResetViewportWindow keeps latest x-span and top y-span', () => {
   )
 })
 
+test('getResetViewportWindow preserves exact small spans from the current viewport', () => {
+  assert.deepEqual(
+    getResetViewportWindow({ start: 94, end: 99 }, { start: 10, end: 18 }),
+    { xStart: 95, xEnd: 100, yStart: 0, yEnd: 8 }
+  )
+})
+
 test('GanttHistory restores legend and legacy hover config', async () => {
   const content = await readFile(
     new URL('../src/views/components/GanttHistory.vue', import.meta.url),
@@ -57,4 +64,16 @@ test('GanttHistory keeps stock drag-pan fallback and viewport-synced sidebar', a
   assert.match(content, /const syncPlateSidebarFromChart = \(\) =>/)
   assert.match(content, /chartInstance\.on\('dataZoom'/)
   assert.match(content, /const handleStockPanMouseDown = \(evt\) =>/)
+})
+
+test('GanttHistory aligns the plate sidebar with chart grid padding', async () => {
+  const content = await readFile(
+    new URL('../src/views/components/GanttHistory.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(content, /class="gantt-sidebar"/)
+  assert.match(content, /paddingTop: `\$\{GRID_TOP\}px`/)
+  assert.match(content, /paddingBottom: `\$\{GRID_BOTTOM\}px`/)
+  assert.doesNotMatch(content, /class="sidebar-head"/)
 })

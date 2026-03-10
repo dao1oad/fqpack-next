@@ -41,8 +41,11 @@
     </div>
 
     <div class="gantt-layout">
-      <aside v-if="showSidebar" class="gantt-sidebar">
-        <div class="sidebar-head">板块</div>
+      <aside
+        v-if="showSidebar"
+        class="gantt-sidebar"
+        :style="{ paddingTop: `${GRID_TOP}px`, paddingBottom: `${GRID_BOTTOM}px` }"
+      >
         <div class="sidebar-list">
           <a
             v-for="item in sidebarItems"
@@ -1055,25 +1058,22 @@ onBeforeUnmount(() => {
   width: 220px;
   border-right: 1px solid #ebeef5;
   background: #fafafa;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-}
-
-.sidebar-head {
-  padding: 12px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #606266;
-  border-bottom: 1px solid #ebeef5;
+  overflow: hidden;
 }
 
 .sidebar-list {
   flex: 1 1 auto;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .sidebar-link {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   padding: 0 14px;
   min-height: 24px;
