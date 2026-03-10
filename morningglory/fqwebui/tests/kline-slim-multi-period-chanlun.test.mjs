@@ -149,6 +149,32 @@ test('kline-slim controller uses multi-period chanlun state instead of fixed ove
   assert.doesNotMatch(content, /OVERLAY_PERIOD/)
 })
 
+test('kline-slim controller keeps route switches on loading path and reserves chart.clear for empty/default-symbol branches', async () => {
+  const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+  const handleRouteChangeSection = content
+    .split('handleRouteChange() {')[1]
+    ?.split('async resolveDefaultSymbol(token) {')[0]
+  const fetchMainDataSection = content
+    .split('async fetchMainData(token) {')[1]
+    ?.split('async ensureChanlunPeriodLoaded(period, token = this.routeToken, options = {}) {')[0]
+
+  assert.ok(handleRouteChangeSection, 'expected handleRouteChange section in controller')
+  assert.ok(fetchMainDataSection, 'expected fetchMainData section in controller')
+  assert.match(
+    handleRouteChangeSection,
+    /if \(!this\.routeSymbol && shouldResolveDefaultSymbol\(this\.\$route\.query\)\) \{[\s\S]*if \(this\.chart\) \{\s*this\.chart\.clear\(\)\s*this\.chart\.hideLoading\(\)/s
+  )
+  assert.match(
+    handleRouteChangeSection,
+    /if \(this\.chart && this\.routeSymbol\) \{\s*this\.chart\.showLoading\(echartsConfig\.loadingOption\)/s
+  )
+  assert.match(
+    handleRouteChangeSection,
+    /if \(!this\.routeSymbol\) \{\s*if \(this\.chart\) \{\s*this\.chart\.clear\(\)\s*this\.chart\.hideLoading\(\)\s*\}\s*return/s
+  )
+  assert.doesNotMatch(fetchMainDataSection, /chart\.clear\(/)
+})
+
 test('draw-slim consumes all multi-period chanlun layer fields and global zhongshu legends', async () => {
   const content = await readFile(new URL('../src/views/js/draw-slim.js', import.meta.url), 'utf8')
 

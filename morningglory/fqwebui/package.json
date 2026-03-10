@@ -25,6 +25,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@babel/plugin-transform-private-methods": "^7.28.6",
+    "@playwright/test": "^1.58.2",
     "@vitejs/plugin-vue": "^6.0.4",
     "stylus": "^0.64.0",
     "stylus-loader": "^8.1.3",
