@@ -11,7 +11,7 @@ import tornado.web
 from fqxtrade import ORDER_QUEUE
 from fqxtrade.database.redis import redis_db
 from fqxtrade.util.trade_date_hist import tool_trade_date_seconds_to_start
-from fqxtrade.xtquant.account import resolve_stock_account
+from fqxtrade.xtquant.account import resolve_broker_submit_mode, resolve_stock_account
 from fqxtrade.xtquant.connection_manager import ConnectionManager
 from fqxtrade.xtquant.fqtype import (
     FqXtAccountStatus,
@@ -52,6 +52,8 @@ trading_manager = TradingManager()
 connection_manager = ConnectionManager()
 order_management_repository = OrderManagementRepository()
 order_tracking_service = OrderTrackingService(repository=order_management_repository)
+BROKER_SUBMIT_MODE_NORMAL = "normal"
+BROKER_SUBMIT_MODE_OBSERVE_ONLY = "observe_only"
 
 
 class MyXtQuantTraderCallback(XtQuantTraderCallback):
@@ -245,12 +247,20 @@ def connect(session_id: int = 100):
 
 
 def trading_main_loop():
+    broker_submit_mode = resolve_broker_submit_mode(queryParam)
+    if _is_observe_only_mode(broker_submit_mode):
+        logger.info(
+            "broker submit mode is observe_only; skip xtquant connect and broker sync"
+        )
     while True:
         session_ids = [i for i in range(100, 200)]
         random.shuffle(session_ids)
         for session_id in session_ids:
             try:
-                if not connection_manager.connected:
+                if (
+                    not connection_manager.connected
+                    and not _is_observe_only_mode(broker_submit_mode)
+                ):
                     xt_trader, acc, success = connect(session_id)
                     if not success:
                         delay = connection_manager.get_retry_delay()
@@ -311,142 +321,85 @@ def trading_main_loop():
                             payload={"next_action": order.get("action")},
                         )
                         if order["action"] == "buy":
-                            execution = prepare_submit_execution(
+                            _handle_submit_action(
                                 order,
-                                repository=order_management_repository,
-                                tracking_service=order_tracking_service,
-                            )
-                            if execution.get("status") == "skipped":
-                                continue
-                            resolved_order = execution.get("order_message", order)
-                            r = puppet.buy(
-                                resolved_order["symbol"],
-                                resolved_order["price"],
-                                resolved_order["quantity"],
-                                pydash.get(resolved_order, "strategy_name", "N/A"),
-                                pydash.get(resolved_order, "remark", "N/A"),
-                                pydash.get(resolved_order, "retry_count", 0),
-                                order_type=pydash.get(
-                                    resolved_order, "broker_order_type"
-                                ),
-                                price_type=pydash.get(
-                                    resolved_order, "broker_price_type"
-                                ),
-                                trace_id=pydash.get(resolved_order, "trace_id"),
-                                intent_id=pydash.get(resolved_order, "intent_id"),
-                                request_id=pydash.get(resolved_order, "request_id"),
-                                internal_order_id=pydash.get(
-                                    resolved_order, "internal_order_id"
-                                ),
-                            )
-                            logger.info(r)
-                            finalize_submit_execution(
-                                order,
-                                broker_order_id=r,
-                                repository=order_management_repository,
-                                tracking_service=order_tracking_service,
-                            )
-                            _emit_broker_event(
-                                "submit_result",
-                                context=_runtime_context_from_order_message(
-                                    resolved_order
-                                ),
                                 action="buy",
-                                symbol=resolved_order.get("symbol"),
-                                status="success" if r and int(r) > 0 else "failed",
-                                payload={"broker_order_id": r},
+                                submit_executor=lambda resolved_order: puppet.buy(
+                                    resolved_order["symbol"],
+                                    resolved_order["price"],
+                                    resolved_order["quantity"],
+                                    pydash.get(
+                                        resolved_order, "strategy_name", "N/A"
+                                    ),
+                                    pydash.get(resolved_order, "remark", "N/A"),
+                                    pydash.get(resolved_order, "retry_count", 0),
+                                    order_type=pydash.get(
+                                        resolved_order, "broker_order_type"
+                                    ),
+                                    price_type=pydash.get(
+                                        resolved_order, "broker_price_type"
+                                    ),
+                                    trace_id=pydash.get(resolved_order, "trace_id"),
+                                    intent_id=pydash.get(resolved_order, "intent_id"),
+                                    request_id=pydash.get(
+                                        resolved_order, "request_id"
+                                    ),
+                                    internal_order_id=pydash.get(
+                                        resolved_order, "internal_order_id"
+                                    ),
+                                ),
+                                broker_submit_mode=broker_submit_mode,
                             )
                         elif order["action"] == "sell":
-                            execution = prepare_submit_execution(
+                            _handle_submit_action(
                                 order,
-                                repository=order_management_repository,
-                                tracking_service=order_tracking_service,
-                            )
-                            if execution.get("status") == "skipped":
-                                continue
-                            resolved_order = execution.get("order_message", order)
-                            r = puppet.sell(
-                                resolved_order["symbol"],
-                                resolve_sell_price_type_compat(resolved_order),
-                                resolved_order["price"],
-                                resolved_order["quantity"],
-                                pydash.get(resolved_order, "strategy_name", "N/A"),
-                                pydash.get(resolved_order, "remark", "N/A"),
-                                pydash.get(resolved_order, "retry_count", 0),
-                                order_type=pydash.get(
-                                    resolved_order, "broker_order_type"
-                                ),
-                                trace_id=pydash.get(resolved_order, "trace_id"),
-                                intent_id=pydash.get(resolved_order, "intent_id"),
-                                request_id=pydash.get(resolved_order, "request_id"),
-                                internal_order_id=pydash.get(
-                                    resolved_order, "internal_order_id"
-                                ),
-                            )
-                            logger.info(r)
-                            finalize_submit_execution(
-                                order,
-                                broker_order_id=r,
-                                repository=order_management_repository,
-                                tracking_service=order_tracking_service,
-                            )
-                            _emit_broker_event(
-                                "submit_result",
-                                context=_runtime_context_from_order_message(
-                                    resolved_order
-                                ),
                                 action="sell",
-                                symbol=resolved_order.get("symbol"),
-                                status="success" if r and int(r) > 0 else "failed",
-                                payload={"broker_order_id": r},
+                                submit_executor=lambda resolved_order: puppet.sell(
+                                    resolved_order["symbol"],
+                                    resolve_sell_price_type_compat(resolved_order),
+                                    resolved_order["price"],
+                                    resolved_order["quantity"],
+                                    pydash.get(
+                                        resolved_order, "strategy_name", "N/A"
+                                    ),
+                                    pydash.get(resolved_order, "remark", "N/A"),
+                                    pydash.get(resolved_order, "retry_count", 0),
+                                    order_type=pydash.get(
+                                        resolved_order, "broker_order_type"
+                                    ),
+                                    trace_id=pydash.get(resolved_order, "trace_id"),
+                                    intent_id=pydash.get(resolved_order, "intent_id"),
+                                    request_id=pydash.get(
+                                        resolved_order, "request_id"
+                                    ),
+                                    internal_order_id=pydash.get(
+                                        resolved_order, "internal_order_id"
+                                    ),
+                                ),
+                                broker_submit_mode=broker_submit_mode,
                             )
                         elif order["action"] == "cancel":
-                            xt_trader, acc, _ = trading_manager.get_connection()
-                            dispatch_result = dispatch_cancel_execution(
+                            _handle_cancel_action(
                                 order,
-                                cancel_executor=(
-                                    lambda broker_order_id: (
-                                        xt_trader.cancel_order_stock(
-                                            acc, broker_order_id
-                                        )
-                                        if xt_trader is not None and acc is not None
-                                        else -1
-                                    )
-                                ),
-                                repository=order_management_repository,
-                                tracking_service=order_tracking_service,
+                                broker_submit_mode=broker_submit_mode,
                             )
-                            logger.info(dispatch_result)
-                            _emit_broker_event(
-                                "submit_result",
-                                context=_runtime_context_from_order_message(order),
-                                action="cancel",
-                                symbol=order.get("symbol"),
-                                status=(
-                                    "success"
-                                    if dispatch_result.get("status")
-                                    == "cancel_submitted"
-                                    else "failed"
-                                ),
-                                payload=dispatch_result,
+                        elif order["action"] in {
+                            "sync-trades",
+                            "sync-orders",
+                            "sync-summary",
+                            "sync-positions",
+                            "sync-all",
+                        }:
+                            _handle_maintenance_action(
+                                order,
+                                broker_submit_mode=broker_submit_mode,
                             )
-                        elif order["action"] == "sync-trades":
-                            puppet.sync_trades()
-                        elif order["action"] == "sync-orders":
-                            puppet.sync_orders()
-                        elif order["action"] == "sync-summary":
-                            puppet.sync_summary()
-                        elif order["action"] == "sync-positions":
-                            puppet.sync_positions()
-                        elif order["action"] == "sync-all":
-                            puppet.sync_positions()
-                            puppet.sync_orders()
-                            puppet.sync_trades()
-                            puppet.sync_summary()
                     else:
                         logger.info("非交易时间，不执行交易下单")
                 else:
-                    if nextStart <= 0:
+                    if nextStart <= 0 and not _is_observe_only_mode(
+                        broker_submit_mode
+                    ):
                         # 开市期间查询账户状态
                         # 查询持仓情况
                         puppet.sync_positions()
@@ -500,6 +453,122 @@ def _runtime_context_from_order_message(order):
         "symbol": payload.get("symbol"),
         "action": payload.get("action"),
     }
+
+
+def _is_observe_only_mode(broker_submit_mode):
+    return broker_submit_mode == BROKER_SUBMIT_MODE_OBSERVE_ONLY
+
+
+def _emit_broker_bypass(order, *, action=None):
+    _emit_broker_event(
+        "execution_bypassed",
+        context=_runtime_context_from_order_message(order),
+        action=action or order.get("action"),
+        symbol=order.get("symbol"),
+        payload={
+            "reason": "observe_only",
+            "broker_submit_mode": BROKER_SUBMIT_MODE_OBSERVE_ONLY,
+        },
+    )
+
+
+def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode):
+    execution = prepare_submit_execution(
+        order,
+        repository=order_management_repository,
+        tracking_service=order_tracking_service,
+    )
+    if execution.get("status") == "skipped":
+        return execution
+    resolved_order = execution.get("order_message", order)
+    if _is_observe_only_mode(broker_submit_mode):
+        result = finalize_submit_execution(
+            order,
+            broker_order_id=None,
+            repository=order_management_repository,
+            tracking_service=order_tracking_service,
+            broker_submit_mode=broker_submit_mode,
+        )
+        _emit_broker_bypass(resolved_order, action=action)
+        return result
+
+    broker_order_id = submit_executor(resolved_order)
+    logger.info(broker_order_id)
+    finalize_submit_execution(
+        order,
+        broker_order_id=broker_order_id,
+        repository=order_management_repository,
+        tracking_service=order_tracking_service,
+        broker_submit_mode=broker_submit_mode,
+    )
+    _emit_broker_event(
+        "submit_result",
+        context=_runtime_context_from_order_message(resolved_order),
+        action=action,
+        symbol=resolved_order.get("symbol"),
+        status=(
+            "success"
+            if broker_order_id not in (None, "", "None") and int(broker_order_id) > 0
+            else "failed"
+        ),
+        payload={"broker_order_id": broker_order_id},
+    )
+    return {"status": "submitted", "broker_order_id": broker_order_id}
+
+
+def _handle_cancel_action(order, *, broker_submit_mode):
+    xt_trader, acc, _ = trading_manager.get_connection()
+    dispatch_result = dispatch_cancel_execution(
+        order,
+        cancel_executor=(
+            lambda broker_order_id: (
+                xt_trader.cancel_order_stock(acc, broker_order_id)
+                if xt_trader is not None and acc is not None
+                else -1
+            )
+        ),
+        repository=order_management_repository,
+        tracking_service=order_tracking_service,
+        broker_submit_mode=broker_submit_mode,
+    )
+    logger.info(dispatch_result)
+    if _is_observe_only_mode(broker_submit_mode):
+        _emit_broker_bypass(order, action="cancel")
+        return dispatch_result
+    _emit_broker_event(
+        "submit_result",
+        context=_runtime_context_from_order_message(order),
+        action="cancel",
+        symbol=order.get("symbol"),
+        status=(
+            "success"
+            if dispatch_result.get("status") == "cancel_submitted"
+            else "failed"
+        ),
+        payload=dispatch_result,
+    )
+    return dispatch_result
+
+
+def _handle_maintenance_action(order, *, broker_submit_mode):
+    action = order.get("action")
+    if _is_observe_only_mode(broker_submit_mode):
+        _emit_broker_bypass(order, action=action)
+        return {"status": "broker_bypassed"}
+    if action == "sync-trades":
+        puppet.sync_trades()
+    elif action == "sync-orders":
+        puppet.sync_orders()
+    elif action == "sync-summary":
+        puppet.sync_summary()
+    elif action == "sync-positions":
+        puppet.sync_positions()
+    elif action == "sync-all":
+        puppet.sync_positions()
+        puppet.sync_orders()
+        puppet.sync_trades()
+        puppet.sync_summary()
+    return {"status": "executed", "action": action}
 
 
 def _resolve_runtime_context_by_broker_order_id(broker_order_id):

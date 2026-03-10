@@ -87,12 +87,24 @@ def finalize_submit_execution(
     broker_order_id,
     repository=None,
     tracking_service=None,
+    broker_submit_mode="normal",
 ):
     repository = repository or OrderManagementRepository()
     tracking_service = tracking_service or OrderTrackingService(repository=repository)
     internal_order_id = order_message.get("internal_order_id")
     if not internal_order_id:
         return None
+
+    if _normalize_broker_submit_mode(broker_submit_mode) == "observe_only":
+        tracking_service.ingest_order_report(
+            {
+                "internal_order_id": internal_order_id,
+                "state": "BROKER_BYPASSED",
+                "event_type": "broker_submit_bypassed",
+                "broker_order_id": None,
+            }
+        )
+        return {"status": "broker_bypassed"}
 
     if broker_order_id is None or int(broker_order_id) <= 0:
         tracking_service.ingest_order_report(
@@ -122,6 +134,7 @@ def dispatch_cancel_execution(
     cancel_executor,
     repository=None,
     tracking_service=None,
+    broker_submit_mode="normal",
 ):
     repository = repository or OrderManagementRepository()
     tracking_service = tracking_service or OrderTrackingService(repository=repository)
@@ -144,6 +157,18 @@ def dispatch_cancel_execution(
                 }
             )
         return {"status": "canceled_before_submit"}
+
+    if _normalize_broker_submit_mode(broker_submit_mode) == "observe_only":
+        if internal_order_id:
+            tracking_service.ingest_order_report(
+                {
+                    "internal_order_id": internal_order_id,
+                    "state": "CANCELED",
+                    "event_type": "broker_cancel_bypassed",
+                    "broker_order_id": str(broker_order_id),
+                }
+            )
+        return {"status": "cancel_bypassed", "broker_order_id": str(broker_order_id)}
 
     cancel_result = cancel_executor(int(broker_order_id))
     if cancel_result == 0:
@@ -453,6 +478,13 @@ def _safe_float(value):
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _normalize_broker_submit_mode(value):
+    normalized = str(value or "normal").strip().lower() or "normal"
+    if normalized not in {"normal", "observe_only"}:
+        return "normal"
+    return normalized
 
 
 def _utc_now_iso():

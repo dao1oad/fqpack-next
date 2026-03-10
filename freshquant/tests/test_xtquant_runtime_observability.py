@@ -265,6 +265,7 @@ def _install_broker_stubs(monkeypatch):
         "acct-1",
         "STOCK",
     )
+    account_module.resolve_broker_submit_mode = lambda query_param=None: "normal"
     monkeypatch.setitem(sys.modules, "fqxtrade.xtquant.account", account_module)
 
     class FakeConnectionManager:
@@ -482,3 +483,52 @@ def test_broker_trade_callback_emits_resolved_runtime_context(monkeypatch):
     assert collector.events[0]["action"] == "buy"
     assert collector.events[0]["payload"]["broker_order_id"] == "90001"
     assert collector.events[0]["payload"]["broker_trade_id"] == "T-90001"
+
+
+def test_broker_observe_only_submit_emits_bypass_event_without_calling_executor(
+    monkeypatch,
+):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_observe_only", BROKER_PATH)
+    collector = EventCollector()
+    broker._runtime_logger = collector
+
+    observed = {}
+    broker.prepare_submit_execution = lambda order, **kwargs: {
+        "status": "ready",
+        "order_message": dict(order),
+    }
+    broker.finalize_submit_execution = lambda *args, **kwargs: observed.update(
+        {
+            "broker_submit_mode": kwargs.get("broker_submit_mode"),
+            "broker_order_id": kwargs.get("broker_order_id"),
+        }
+    ) or {"status": "broker_bypassed"}
+
+    def fail_submit_executor(resolved_order):
+        raise AssertionError("submit executor should not be called in observe_only")
+
+    result = broker._handle_submit_action(
+        {
+            "action": "buy",
+            "symbol": "600000",
+            "price": 10.0,
+            "quantity": 100,
+            "internal_order_id": "ord-observe-1",
+            "request_id": "req-observe-1",
+            "trace_id": "trace-observe-1",
+            "intent_id": "intent-observe-1",
+        },
+        action="buy",
+        submit_executor=fail_submit_executor,
+        broker_submit_mode="observe_only",
+    )
+
+    assert result["status"] == "broker_bypassed"
+    assert observed == {
+        "broker_submit_mode": "observe_only",
+        "broker_order_id": None,
+    }
+    assert collector.events[-1]["node"] == "execution_bypassed"
+    assert collector.events[-1]["action"] == "buy"
+    assert collector.events[-1]["payload"]["reason"] == "observe_only"

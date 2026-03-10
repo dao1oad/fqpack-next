@@ -7,9 +7,22 @@ class InvalidOrderTransition(ValueError):
 
 class OrderStateMachine:
     _allowed_transitions = {
-        "ACCEPTED": {"QUEUED", "SUBMITTING", "SUBMITTED", "CANCEL_REQUESTED", "FAILED"},
-        "QUEUED": {"SUBMITTING", "SUBMITTED", "CANCEL_REQUESTED", "FAILED"},
-        "SUBMITTING": {"SUBMITTED", "FAILED", "CANCEL_REQUESTED"},
+        "ACCEPTED": {
+            "QUEUED",
+            "SUBMITTING",
+            "SUBMITTED",
+            "BROKER_BYPASSED",
+            "CANCEL_REQUESTED",
+            "FAILED",
+        },
+        "QUEUED": {
+            "SUBMITTING",
+            "SUBMITTED",
+            "BROKER_BYPASSED",
+            "CANCEL_REQUESTED",
+            "FAILED",
+        },
+        "SUBMITTING": {"SUBMITTED", "BROKER_BYPASSED", "FAILED", "CANCEL_REQUESTED"},
         "SUBMITTED": {
             "PARTIAL_FILLED",
             "FILLED",
@@ -17,6 +30,7 @@ class OrderStateMachine:
             "CANCELED",
             "FAILED",
         },
+        "BROKER_BYPASSED": {"CANCEL_REQUESTED", "FAILED"},
         "PARTIAL_FILLED": {"FILLED", "CANCEL_REQUESTED", "CANCELED", "FAILED"},
         "CANCEL_REQUESTED": {"CANCELED", "PARTIAL_FILLED", "FAILED"},
         "INFERRED_PENDING": {"INFERRED_CONFIRMED", "SUBMITTED", "FILLED", "FAILED"},
