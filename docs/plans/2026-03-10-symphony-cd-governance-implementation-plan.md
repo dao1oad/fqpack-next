@@ -158,7 +158,7 @@ git commit -m "docs: 更新 symphony workflow 的 cd 语义"
 
 **Step 1: 运行最小基线验证**
 
-Run: `py -3 -m pytest test_enum_serialization.py -q`  
+Run: `py -3 -m pytest test_enum_serialization.py -q`
 Expected: `1 passed`
 
 **Step 2: 做一致性检查**
