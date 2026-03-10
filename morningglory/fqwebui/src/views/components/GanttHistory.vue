@@ -64,10 +64,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { getGanttPlates, getGanttStocks } from '@/api/ganttApi'
+import { getResetViewportWindow, processSeriesWithStreaks } from '@/views/js/gantt-history-chart.mjs'
 
 const dayOptions = [7, 15, 30, 45, 60, 90]
-const platePalette = ['#6d1f1f', '#8b2727', '#b43434', '#cf5c3f', '#df8b3a']
-const stockPalette = ['#d9d9d9', '#91d5ff', '#409eff', '#fa8c16', '#f5222d']
 
 const props = defineProps({
   provider: {
@@ -209,33 +208,6 @@ const getPlateUrl = (plateKey) => {
     return `https://www.jiuyangongshe.com/action/${dateStr}`
   }
   return `https://xuangutong.com.cn/theme/${normalizedPlateKey}`
-}
-
-const buildPlateColor = (point) => {
-  const rank = Number(point[2] || 0)
-  const hotCount = Number(point[3] || 0)
-  if (rank <= 1) return platePalette[0]
-  if (rank <= 3) return platePalette[1]
-  if (hotCount >= 8) return platePalette[2]
-  if (hotCount >= 4) return platePalette[3]
-  return platePalette[4]
-}
-
-const buildStockColor = (point) => {
-  const streak = Number(point[2] || 0)
-  const isLimit = Number(point[3] || 0) === 1
-  if (isLimit && streak >= 3) return stockPalette[4]
-  if (isLimit) return stockPalette[3]
-  if (streak >= 3) return stockPalette[2]
-  if (streak >= 2) return stockPalette[1]
-  return stockPalette[0]
-}
-
-const extendSeriesForRender = (series) => {
-  return (series || []).map((point) => {
-    const color = showSidebar.value ? buildPlateColor(point) : buildStockColor(point)
-    return [...point, color]
-  })
 }
 
 const getColorValueIndex = () => {
@@ -451,8 +423,14 @@ const loadPlateData = async (requestId) => {
   const payload = normalizeApiPayload(response)
   const chartPayload = payload.data || {}
   dates.value = Array.isArray(chartPayload.dates) ? chartPayload.dates : []
-  yAxisItems.value = Array.isArray(chartPayload.y_axis) ? chartPayload.y_axis : []
-  seriesData.value = extendSeriesForRender(chartPayload.series || [])
+  const processed = processSeriesWithStreaks({
+    dates: dates.value,
+    yAxisRaw: Array.isArray(chartPayload.y_axis) ? chartPayload.y_axis : [],
+    seriesData: chartPayload.series || [],
+    level: 'plate'
+  })
+  yAxisItems.value = processed.yAxisRaw
+  seriesData.value = processed.seriesData
   plateReasonMap.value = payload.meta?.reason_map || {}
   clearHoverState()
   await nextTick()
@@ -470,8 +448,14 @@ const loadStockData = async (requestId) => {
   const payload = normalizeApiPayload(response)
   const chartPayload = payload.data || {}
   dates.value = Array.isArray(chartPayload.dates) ? chartPayload.dates : []
-  yAxisItems.value = Array.isArray(chartPayload.y_axis) ? chartPayload.y_axis : []
-  seriesData.value = extendSeriesForRender(chartPayload.series || [])
+  const processed = processSeriesWithStreaks({
+    dates: dates.value,
+    yAxisRaw: Array.isArray(chartPayload.y_axis) ? chartPayload.y_axis : [],
+    seriesData: chartPayload.series || [],
+    level: 'stock'
+  })
+  yAxisItems.value = processed.yAxisRaw
+  seriesData.value = processed.seriesData
   plateReasonMap.value = {}
   clearHoverState()
   await nextTick()
@@ -511,19 +495,18 @@ const restoreViewport = () => {
   const zoomItems = Array.isArray(option?.dataZoom) ? option.dataZoom : []
   const xZoom = zoomItems.find((item) => item?.xAxisIndex === 0) || {}
   const yZoom = zoomItems.find((item) => item?.yAxisIndex === 0) || {}
-  const xSpan = Math.min(100, Math.max(10, Number(xZoom.end) - Number(xZoom.start) || 100))
-  const ySpan = Math.min(100, Math.max(20, Number(yZoom.end) - Number(yZoom.start) || 100))
+  const resetWindow = getResetViewportWindow(xZoom, yZoom)
   chartInstance.dispatchAction({
     type: 'dataZoom',
     dataZoomIndex: 0,
-    start: Math.max(0, 100 - xSpan),
-    end: 100
+    start: resetWindow.xStart,
+    end: resetWindow.xEnd
   })
   chartInstance.dispatchAction({
     type: 'dataZoom',
     dataZoomIndex: 2,
-    start: 0,
-    end: ySpan
+    start: resetWindow.yStart,
+    end: resetWindow.yEnd
   })
 }
 
