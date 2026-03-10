@@ -78,7 +78,7 @@ def fq_data_stock_fetch_min(code, frequence, start=None, end=None):
     data.set_index("datetime", inplace=True, drop=False)
     if data is None or len(data) == 0:
         return None
-    last_datetime = data["datetime"][-1]
+    last_datetime = data["datetime"].iloc[-1]
     realtime_data_list = (
         DBfreshquant["stock_realtime"]
         .find(
@@ -165,7 +165,7 @@ def fq_data_stock_fetch_day(code, start=None, end=None):
     data = data[
         ["datetime", "open", "close", "high", "low", "volume", "amount", "time_stamp"]
     ]
-    last_datetime = data["datetime"][-1]
+    last_datetime = data["datetime"].iloc[-1]
     realtime_data_list = (
         DBfreshquant["stock_realtime"]
         .find(
