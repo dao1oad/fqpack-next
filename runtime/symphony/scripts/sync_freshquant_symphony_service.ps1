@@ -52,6 +52,10 @@ $copyMap = @(
     @{
         Source = (Join-Path $PSScriptRoot 'start_freshquant_symphony.ps1')
         Destination = (Join-Path $scriptsRoot 'start_freshquant_symphony.ps1')
+    },
+    @{
+        Source = (Join-Path $PSScriptRoot 'install_freshquant_symphony_service.ps1')
+        Destination = (Join-Path $scriptsRoot 'install_freshquant_symphony_service.ps1')
     }
 )
 

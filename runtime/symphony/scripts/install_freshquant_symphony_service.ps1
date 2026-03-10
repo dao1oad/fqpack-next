@@ -27,6 +27,18 @@ function Resolve-NssmPath {
         return $command.Source
     }
 
+    $fallbacks = @(
+        'D:\fqpack\tools\nssm\nssm.exe',
+        (Join-Path $env:ProgramFiles 'nssm\nssm.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'nssm\nssm.exe')
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    foreach ($candidate in $fallbacks) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
     return $null
 }
 

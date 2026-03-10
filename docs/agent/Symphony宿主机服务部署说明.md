@@ -87,6 +87,13 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/sync_freshquan
 - 当前账号具备可用的 `codex` / Git / SSH / 代理上下文
 - 当前账号密码可用于服务安装
 
+默认会优先尝试这些 `NSSM` 路径：
+
+- `nssm`（已在 `PATH` 中）
+- `D:\fqpack\tools\nssm\nssm.exe`
+- `C:\Program Files\nssm\nssm.exe`
+- `C:\Program Files (x86)\nssm\nssm.exe`
+
 示例：
 
 ```powershell
@@ -98,6 +105,13 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/install_freshq
 
 - 本方案明确不用专用服务账号
 - 但 Windows Service 仍然需要当前账号密码来把服务绑定到该账号
+- 如果 `NSSM` 不在 `PATH` 中，也可以显式传入：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/install_freshquant_symphony_service.ps1 `
+  -NssmPath 'D:\fqpack\tools\nssm\nssm.exe' `
+  -ServicePassword '<你的当前账号密码>'
+```
 
 ## 8. 启动与重启
 
