@@ -128,25 +128,37 @@ async function stopDevServer() {
 
   const child = devServerProcess
   devServerProcess = null
+  const waitForExit = () =>
+    new Promise((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        resolve(true)
+        return
+      }
+      child.once('exit', () => resolve(true))
+    })
 
   if (process.platform === 'win32') {
     spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
       stdio: 'ignore'
     })
     await Promise.race([
-      new Promise((resolve) => child.once('exit', resolve)),
+      waitForExit(),
       delay(5000)
     ])
     return
   }
 
   child.kill('SIGTERM')
-  await Promise.race([
-    new Promise((resolve) => child.once('exit', resolve)),
-    delay(5000)
+  const exitedGracefully = await Promise.race([
+    waitForExit(),
+    delay(5000, false)
   ])
-  if (!child.killed) {
+  if (!exitedGracefully) {
     child.kill('SIGKILL')
+    await Promise.race([
+      waitForExit(),
+      delay(5000)
+    ])
   }
 }
 
