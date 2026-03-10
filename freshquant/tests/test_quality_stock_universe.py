@@ -45,6 +45,13 @@ class FakeTargetCollection:
         return [dict(item) for item in self.documents]
 
 
+class BoolExplodingTargetCollection(FakeTargetCollection):
+    def __bool__(self):
+        raise NotImplementedError(
+            "Collection objects do not implement truth value testing"
+        )
+
+
 def test_quality_stock_block_names_contains_expected_seed_values():
     assert "沪深300" in QUALITY_STOCK_BLOCK_NAMES
     assert "券商金股" in QUALITY_STOCK_BLOCK_NAMES
@@ -139,3 +146,47 @@ def test_load_quality_stock_lookup_returns_code_map():
             "updated_at": "2026-03-09T00:00:00+00:00",
         },
     }
+
+
+def test_load_quality_stock_lookup_accepts_explicit_collection_without_bool_check():
+    target_collection = BoolExplodingTargetCollection()
+    target_collection.documents = [
+        {
+            "code6": "000001",
+            "block_names": ["沪深300"],
+            "source_version": QUALITY_STOCK_SOURCE_VERSION,
+            "updated_at": "2026-03-09T00:00:00+00:00",
+        }
+    ]
+
+    assert load_quality_stock_lookup(target_collection=target_collection) == {
+        "000001": {
+            "code6": "000001",
+            "block_names": ["沪深300"],
+            "source_version": QUALITY_STOCK_SOURCE_VERSION,
+            "updated_at": "2026-03-09T00:00:00+00:00",
+        }
+    }
+
+
+def test_refresh_quality_stock_universe_normalizes_infoharbor_aliases():
+    block_collection = FakeBlockCollection(
+        [{"blockname": "中证央企", "code": "000001"}]
+    )
+    target_collection = FakeTargetCollection()
+
+    result = refresh_quality_stock_universe(
+        block_collection=block_collection,
+        target_collection=target_collection,
+        now_provider=lambda: datetime(2026, 3, 9, tzinfo=timezone.utc),
+    )
+
+    assert result["count"] == 1
+    assert target_collection.documents == [
+        {
+            "code6": "000001",
+            "block_names": ["“中证央企”"],
+            "source_version": QUALITY_STOCK_SOURCE_VERSION,
+            "updated_at": "2026-03-09T00:00:00+00:00",
+        }
+    ]

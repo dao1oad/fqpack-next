@@ -20,9 +20,17 @@ from freshquant.db import DBGantt
 
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
 COL_SHOUBAN30_PLATES = "shouban30_plates"
+COL_SHOUBAN30_STOCKS = "shouban30_stocks"
 POSTCLOSE_CUTOFF_HOUR = 15
 POSTCLOSE_CUTOFF_MINUTE = 5
 SHOUBAN30_STOCK_WINDOWS = (30, 45, 60, 90)
+SHOUBAN30_EXTRA_FILTER_FIELDS = (
+    "is_credit_subject",
+    "credit_subject_snapshot_ready",
+    "near_long_term_ma_passed",
+    "is_quality_subject",
+    "quality_subject_snapshot_ready",
+)
 
 
 def _to_str(value: Any) -> str:
@@ -88,7 +96,20 @@ def _has_legacy_shouban30_snapshot(trade_date: str) -> bool:
             return True
         windows.add(stock_window_days)
 
-    return windows != set(SHOUBAN30_STOCK_WINDOWS)
+    if windows != set(SHOUBAN30_STOCK_WINDOWS):
+        return True
+
+    stock_docs = list(DBGantt[COL_SHOUBAN30_STOCKS].find({"as_of_date": date_str}))
+    if not stock_docs:
+        return True
+
+    for doc in stock_docs:
+        if not _to_str(doc.get("chanlun_filter_version")):
+            return True
+        if any(field not in doc for field in SHOUBAN30_EXTRA_FILTER_FIELDS):
+            return True
+
+    return False
 
 
 def _query_trade_dates_between(start_date: str, end_date: str) -> list[str]:
