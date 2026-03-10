@@ -5,6 +5,7 @@ Each data type (stock, future, etf, bond, index) has its own set of assets with 
 """
 
 import os
+import uuid
 from pathlib import Path
 
 import pendulum
@@ -197,6 +198,38 @@ def _load_stock_block_docs_by_source(
     return docs_by_source
 
 
+def _stock_block_staging_collection_name(collection_name: str) -> str:
+    return f"{collection_name}__refresh__{uuid.uuid4().hex}"
+
+
+def _insert_stock_block_documents(
+    *,
+    collection,
+    documents,
+    batch_size: int,
+    log,
+    source_label: str,
+):
+    inserted = 0
+    for start in range(0, len(documents), batch_size):
+        batch = documents[start : start + batch_size]
+        if not batch:
+            continue
+        try:
+            collection.insert_many(batch, ordered=False)
+            inserted += len(batch)
+        except Exception as exc:  # noqa: BLE001
+            if log:
+                log.warning(
+                    "stock_block staging insert source=%s batch=%s failed: %s",
+                    source_label,
+                    len(batch),
+                    exc,
+                )
+            return None
+    return inserted
+
+
 def _refresh_stock_block_collection(
     *,
     collection,
@@ -206,7 +239,6 @@ def _refresh_stock_block_collection(
     sources=STOCK_BLOCK_SOURCES,
     batch_size: int = 5000,
 ):
-    collection.create_index("code")
     docs_by_source = _load_stock_block_docs_by_source(
         fetch_block_dataframe=fetch_block_dataframe,
         to_json=to_json,
@@ -220,42 +252,71 @@ def _refresh_stock_block_collection(
             )
         return {"refreshed_sources": [], "total_docs": 0}
 
+    refreshed_source_names = list(docs_by_source)
+    preserved_query = {"source": {"$nin": refreshed_source_names}}
+    preserved_docs = list(collection.find(preserved_query))
+    staging_name = _stock_block_staging_collection_name(collection.name)
+    collection.database.drop_collection(staging_name)
+    staging_collection = collection.database[staging_name]
+    staging_collection.create_index("code")
+
+    preserved_inserted = _insert_stock_block_documents(
+        collection=staging_collection,
+        documents=preserved_docs,
+        batch_size=batch_size,
+        log=log,
+        source_label="preserved",
+    )
+    if preserved_inserted is None:
+        collection.database.drop_collection(staging_name)
+        if log:
+            log.warning(
+                "stock_block refresh aborted: preserved docs staging failed; keeping existing collection unchanged"
+            )
+        return {"refreshed_sources": [], "total_docs": 0}
+
     refreshed_sources = []
     total_docs = 0
     for source, documents in docs_by_source.items():
-        try:
-            collection.delete_many({"source": source})
-        except Exception as exc:  # noqa: BLE001
+        inserted = _insert_stock_block_documents(
+            collection=staging_collection,
+            documents=documents,
+            batch_size=batch_size,
+            log=log,
+            source_label=source,
+        )
+        if inserted is None:
+            collection.database.drop_collection(staging_name)
             if log:
-                log.warning("stock_block delete source=%s failed: %s", source, exc)
-            continue
-
-        inserted = 0
-        for start in range(0, len(documents), batch_size):
-            batch = documents[start : start + batch_size]
-            if not batch:
-                continue
-            try:
-                collection.insert_many(batch, ordered=False)
-                inserted += len(batch)
-            except Exception as exc:  # noqa: BLE001
-                if log:
-                    log.warning(
-                        "stock_block insert source=%s batch=%s failed: %s",
-                        source,
-                        len(batch),
-                        exc,
-                    )
+                log.warning(
+                    "stock_block refresh aborted: source=%s staging failed; keeping existing collection unchanged",
+                    source,
+                )
+            return {"refreshed_sources": [], "total_docs": 0}
         refreshed_sources.append(source)
         total_docs += inserted
         if log:
             log.info("stock_block source=%s refreshed docs=%s", source, inserted)
 
+    try:
+        staging_collection.rename(collection.name, dropTarget=True)
+    except Exception as exc:  # noqa: BLE001
+        collection.database.drop_collection(staging_name)
+        if log:
+            log.warning(
+                "stock_block rename staging=%s -> %s failed: %s; keeping existing collection unchanged",
+                staging_name,
+                collection.name,
+                exc,
+            )
+        return {"refreshed_sources": [], "total_docs": 0}
+
     if log:
         log.info(
-            "stock_block refresh done: sources=%s total_docs=%s",
+            "stock_block refresh done: sources=%s total_docs=%s preserved_docs=%s",
             refreshed_sources,
             total_docs,
+            len(preserved_docs),
         )
     return {"refreshed_sources": refreshed_sources, "total_docs": total_docs}
 
