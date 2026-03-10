@@ -135,3 +135,7 @@ Symphony 就会在下一个轮询周期内感知并调度它。
 - 设计批准：靠 `Human Review -> In Progress`
 - 正式开发：默认由 Symphony 自动执行
 - 高风险路径：必须在 RFC 里明确列入范围
+
+宿主机服务部署与 `NSSM` 安装方式见：
+
+- `docs/agent/Symphony宿主机服务部署说明.md`

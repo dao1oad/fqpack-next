@@ -20,9 +20,15 @@
   - `prompts/in_progress.md`
 - 审批评论模板：
   - `templates/human_review_comment.md`
+- 正式宿主机脚本：
+  - `scripts/freshquant_runner.exs`
+  - `scripts/start_freshquant_symphony.ps1`
+  - `scripts/sync_freshquant_symphony_service.ps1`
+  - `scripts/install_freshquant_symphony_service.ps1`
 
 ## 使用说明
 
 - 本目录中的文件是 **版本化模板**
 - 真实运行时的 `LINEAR_API_KEY`、project slug、GitHub/Codex 凭据通过环境变量或外部安全注入提供
 - 当前不强制先接 webhook，继续使用 30 秒轮询
+- 宿主机正式运行说明见：`docs/agent/Symphony宿主机服务部署说明.md`

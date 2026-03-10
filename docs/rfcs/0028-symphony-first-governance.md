@@ -56,6 +56,7 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - 远端 `feature branch`、`Draft PR`、CI 与 merge 的正式策略
 - `subagent-driven-development + TDD` 的默认实现期方法论
 - `AGENTS.md`、`docs/agent/*`、`docs/migration/*` 与 repo-versioned `runtime/symphony/*` 模板改写
+- 宿主机正式运行目录、正式 runner、启动脚本与 `NSSM` 服务安装脚本
 
 **Out of Scope**
 
@@ -128,6 +129,11 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - 轮询模式：默认 30 秒
 - repo-versioned workflow 模板目录：`runtime/symphony/`
 - 正式工作流文件：`runtime/symphony/WORKFLOW.freshquant.md`
+- 宿主机运行根目录：`D:\fqpack\runtime\symphony-service\`
+- 正式 runner：`runtime/symphony/scripts/freshquant_runner.exs`
+- 正式启动脚本：`runtime/symphony/scripts/start_freshquant_symphony.ps1`
+- 正式安装脚本：`runtime/symphony/scripts/install_freshquant_symphony_service.ps1`
+- 正式部署同步脚本：`runtime/symphony/scripts/sync_freshquant_symphony_service.ps1`
 - 分阶段 prompt：
   - `runtime/symphony/prompts/todo.md`
   - `runtime/symphony/prompts/in_progress.md`
@@ -182,6 +188,7 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - [ ] `AGENTS.md` 已改写为 `Linear-first + Symphony-first + design-approval-first`。
 - [ ] `docs/agent` 已补充正式接入治理说明，并更新原本“当前不做”的结论。
 - [ ] `runtime/symphony/WORKFLOW.freshquant.md` 与阶段 prompt 模板已入仓。
+- [ ] 宿主机正式 runner、启动脚本、同步脚本与 `NSSM` 安装脚本已入仓。
 - [ ] Linear 状态机已能表达 `Todo -> Human Review -> In Progress -> Rework -> Merging -> Done`。
 - [ ] 设计批准前不会进入编码。
 - [ ] 设计批准后默认使用 `subagent-driven-development + TDD`。

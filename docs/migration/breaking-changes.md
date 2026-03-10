@@ -15,7 +15,7 @@
 
 - **日期**：2026-03-10
 - **RFC**：0028-symphony-first-governance
-- **变更**：FreshQuant 的正式开发治理从“`AGENTS.md` 主导的 `worktree-first + reviewer-first`”切换为“`Linear-first + Symphony-first + design-approval-first`”。正式开发的唯一入口改为 `Linear issue`；默认合法工作区改为 `Symphony-managed workspace/repo copy`；唯一人工门收敛为 `Human Review -> In Progress`；设计阶段不开 PR，进入 `In Progress` 后再创建 `Draft PR`。GitHub reviewer approve 不再是仓内强制人工门，但 `feature branch -> PR -> merge`、CI 全绿与 review discussion 清零仍保留。
+- **变更**：FreshQuant 的正式开发治理从“`AGENTS.md` 主导的 `worktree-first + reviewer-first`”切换为“`Linear-first + Symphony-first + design-approval-first`”。正式开发的唯一入口改为 `Linear issue`；默认合法工作区改为 `Symphony-managed workspace/repo copy`；唯一人工门收敛为 `Human Review -> In Progress`；设计阶段不开 PR，进入 `In Progress` 后再创建 `Draft PR`。GitHub reviewer approve 不再是仓内强制人工门，但 `feature branch -> PR -> merge`、CI 全绿与 review discussion 清零仍保留。仓库同时新增 repo-versioned `runtime/symphony/*` 模板与宿主机正式 runner/启动/同步/安装脚本，用于把 Symphony 作为 Windows 常驻编排器运行。
 - **影响面**：所有开发者/agent 的日常工作流、`AGENTS.md`、`docs/agent`、`docs/migration`、repo-versioned `runtime/symphony/*` 模板，以及任何依赖旧 `git worktree + feature branch` 强制说明或 reviewer-first 培训口径的脚本、文档和自动化都会受到影响。
 - **迁移步骤**：1) 使用 RFC 0028 与 `docs/agent/Symphony正式接入治理说明.md` 理解新治理；2) 在 Linear 中为 FreshQuant 配置正式状态机 `Todo / Human Review / In Progress / Rework / Merging / Done`；3) 正式开发从“人工本地开 worktree”切换为“新建 Linear issue，由 Symphony 创建 workspace、分支与后续 Draft PR”；4) 设计批准前只生成 RFC、implementation plan、task checklist 与 Human Review 评论包；5) 设计批准后，由 Symphony 自动执行 `subagent + TDD + PR + merge`，并持续维护 `docs/migration/progress.md` 与 `docs/migration/breaking-changes.md`。
 - **回滚方案**：回退 `AGENTS.md`、`docs/agent`、`docs/migration` 与 `runtime/symphony/*` 的相关改动，停用 Linear 正式状态机与 Symphony workflow 模板，恢复旧的 `git worktree + feature branch` 人工主导开发模式。

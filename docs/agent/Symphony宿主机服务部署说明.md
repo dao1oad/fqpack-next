@@ -1,0 +1,140 @@
+---
+name: symphony-host-service-deployment-guide
+description: FreshQuant 在 Windows 宿主机上以正式服务形态运行 Symphony 的目录结构、脚本、NSSM 安装方式与运维说明。
+---
+
+# Symphony 宿主机服务部署说明
+
+- 更新日期：2026-03-10
+- 适用仓库：`D:\fqpack\freshquant-2026.2.23`
+- 对应 RFC：`docs/rfcs/0028-symphony-first-governance.md`
+
+## 1. 目标
+
+本说明只覆盖 **宿主机正式运行面**：
+
+- 让 `Symphony` 不再依赖手工终端启动
+- 让它以 Windows 常驻服务形态运行
+- 继续使用当前账号，而不是专用服务账号
+
+## 2. 正式运行形态
+
+- 运行时：宿主机原生 `Elixir/OTP + Phoenix`
+- 服务包装：`NSSM`
+- 服务名：`fq-symphony-orchestrator`
+- 登录账号：当前 Windows 账号
+- 调度方式：`Linear` 30 秒轮询
+
+## 3. 目录结构
+
+仓库内保存版本化模板：
+
+- `runtime/symphony/WORKFLOW.freshquant.md`
+- `runtime/symphony/prompts/*`
+- `runtime/symphony/templates/*`
+- `runtime/symphony/scripts/*`
+
+宿主机实际运行目录：
+
+- `D:\fqpack\runtime\symphony-service\config\`
+- `D:\fqpack\runtime\symphony-service\scripts\`
+- `D:\fqpack\runtime\symphony-service\logs\`
+- `D:\fqpack\runtime\symphony-service\workspaces\`
+- `D:\fqpack\runtime\symphony-service\artifacts\`
+
+## 4. 关键脚本
+
+- `runtime/symphony/scripts/sync_freshquant_symphony_service.ps1`
+  - 把仓库内版本化模板同步到宿主机运行目录
+- `runtime/symphony/scripts/start_freshquant_symphony.ps1`
+  - 正式启动脚本
+- `runtime/symphony/scripts/freshquant_runner.exs`
+  - 正式 runner
+- `runtime/symphony/scripts/install_freshquant_symphony_service.ps1`
+  - 用 `NSSM` 安装/更新 Windows 服务
+
+## 5. 环境变量
+
+正式运行至少需要：
+
+- `LINEAR_API_KEY`
+- 必要时：
+  - `HTTP_PROXY`
+  - `HTTPS_PROXY`
+  - `ALL_PROXY`
+
+建议把这些值配置成当前账号的 **用户环境变量**，而不是只在某个临时 PowerShell 会话里设置。
+
+## 6. 同步模板到运行目录
+
+```powershell
+powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/sync_freshquant_symphony_service.ps1
+```
+
+这一步会创建并更新：
+
+- `D:\fqpack\runtime\symphony-service\config\`
+- `D:\fqpack\runtime\symphony-service\scripts\`
+- `D:\fqpack\runtime\symphony-service\logs\`
+- `D:\fqpack\runtime\symphony-service\workspaces\`
+- `D:\fqpack\runtime\symphony-service\artifacts\`
+
+## 7. 安装 Windows 服务
+
+前提：
+
+- 已安装 `NSSM`
+- 当前账号具备可用的 `codex` / Git / SSH / 代理上下文
+- 当前账号密码可用于服务安装
+
+示例：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/install_freshquant_symphony_service.ps1 `
+  -ServicePassword '<你的当前账号密码>'
+```
+
+说明：
+
+- 本方案明确不用专用服务账号
+- 但 Windows Service 仍然需要当前账号密码来把服务绑定到该账号
+
+## 8. 启动与重启
+
+安装完成后：
+
+```powershell
+Start-Service fq-symphony-orchestrator
+Restart-Service fq-symphony-orchestrator
+Get-Service fq-symphony-orchestrator
+```
+
+健康检查：
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:40123/api/v1/state
+```
+
+## 9. 日志
+
+宿主机日志目录：
+
+- `D:\fqpack\runtime\symphony-service\logs\stdout.log`
+- `D:\fqpack\runtime\symphony-service\logs\stderr.log`
+- `D:\fqpack\runtime\symphony-service\logs\app-server.trace.log`
+
+## 10. 升级流程
+
+1. 在仓库里更新 `runtime/symphony/*`
+2. 合并到 `main`
+3. 重新运行 `sync_freshquant_symphony_service.ps1`
+4. `Restart-Service fq-symphony-orchestrator`
+5. 通过 `/api/v1/state` 与日志确认新版本生效
+
+## 11. 回滚流程
+
+1. 回退仓库版本到旧 commit/tag
+2. 重新运行 `sync_freshquant_symphony_service.ps1`
+3. `Restart-Service fq-symphony-orchestrator`
+
+不要直接在宿主机 `symphony-service` 目录中手工热改文件，否则无法审计。
