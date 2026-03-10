@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import os
+from contextlib import contextmanager
 from datetime import date, datetime
-from typing import Optional
+from typing import Callable, Iterator, Optional, TypeVar
 
 import akshare as ak
 import pydash
@@ -9,12 +11,40 @@ import pandas as pd
 from freshquant.carnation.config import DT_FORMAT_DAY
 from freshquant.database.cache import redis_cache
 
+T = TypeVar("T")
+_PROXY_ENV_KEYS = ("ALL_PROXY", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY")
+
+
+@contextmanager
+def _without_proxy_env(keys: tuple[str, ...] = _PROXY_ENV_KEYS) -> Iterator[None]:
+    original: dict[str, tuple[str, str] | None] = {}
+    for key in keys:
+        normalized = key.upper()
+        if normalized not in original:
+            original[normalized] = (key, os.environ.get(key))
+        os.environ.pop(key, None)
+    try:
+        yield
+    finally:
+        for normalized, original_entry in original.items():
+            original_key = normalized
+            value = None if original_entry is None else original_entry[1]
+            if value is None:
+                os.environ.pop(original_key, None)
+            else:
+                os.environ[original_key] = value
+
+
+def _call_without_proxy_env(func: Callable[[], T]) -> T:
+    with _without_proxy_env():
+        return func()
+
 
 @redis_cache.memoize(expiration=86400)
 def fq_trading_fetch_trade_dates(source="sina") -> pd.DataFrame:
     if source == "sina":
-        return ak.tool_trade_date_hist_sina()
-    return ak.tool_trade_date_hist_sina()
+        return _call_without_proxy_env(ak.tool_trade_date_hist_sina)
+    return _call_without_proxy_env(ak.tool_trade_date_hist_sina)
 
 
 def query_current_trade_date() -> Optional[date]:
