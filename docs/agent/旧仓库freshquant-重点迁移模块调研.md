@@ -6,7 +6,7 @@ description: 旧仓库 D:\fqpack\freshquant 的代码结构与运行逻辑调研
 # 旧仓库 freshquant：重点迁移模块调研
 
 - **调研日期**：2026-03-05
-- **现状追加**：2026-03-07
+- **现状追加**：2026-03-10
 - **旧仓库**：`D:\fqpack\freshquant`（待迁移/参考实现）
 - **目标仓库**：`D:\fqpack\freshquant-2026.2.23`（目标架构，本期迁移承载）
 
@@ -14,20 +14,20 @@ description: 旧仓库 D:\fqpack\freshquant 的代码结构与运行逻辑调研
 
 > 重要：本文主体描述的是**旧仓实现**。如需判断目标仓当前状态，请先读 `docs/agent/项目目标与代码现状调研.md` 与 `docs/migration/progress.md`。旧仓路径、模块名和接口形态不应直接当作目标仓当前事实引用。
 
-## 0.1 截至 2026-03-07 的目标仓迁移落点
+## 0.1 截至 2026-03-10 的目标仓迁移落点
 
 | 模块 | 目标仓当前状态 | 目标仓落点 / RFC |
 |------|----------------|------------------|
 | 1. XTData producer / consumer | 已落地 | `freshquant/market_data/xtdata/*`，RFC `0003` |
-| 2. Guardian | 部分收敛，仍沿用现有策略模块 | `freshquant/strategy/guardian.py`；运行链已接入 RFC `0003`、`0007`、`0013`、`0014` |
+| 2. Guardian | 已持续收敛，仍沿用现有策略模块 | `freshquant/strategy/guardian.py`；运行链已接入 RFC `0003`、`0007`、`0013`、`0014`、`0019`、`0026` |
 | 3. 止盈止损 | 已独立模块化 | `freshquant/tpsl/*`，RFC `0014` |
 | 4. 仓位管理 | 已独立模块化 | `freshquant/position_management/*`，RFC `0013` |
-| 5. 订单管理 | 已独立模块化 | `freshquant/order_management/*`，RFC `0007` |
-| 6. 结构化日志 / SystemLogs | 未按旧仓形态迁入 | 旧仓 `freshquant/logging/*`、`SystemLogs.vue` 当前不在目标仓代码树中 |
-| 7. KlineSlim | 已落地并迭代 | `morningglory/fqwebui/src/views/KlineSlim.vue`，RFC `0005`、`0015` |
+| 5. 订单管理 | 已独立模块化 | `freshquant/order_management/*`，RFC `0007`、`0020` |
+| 6. 结构化日志 / SystemLogs | 未按旧仓形态迁入，已被新运行观测替代 | `freshquant/runtime_observability/*`、`/api/runtime/*`、`/runtime-observability`，RFC `0026` |
+| 7. KlineSlim | 已落地并持续迭代 | `morningglory/fqwebui/src/views/KlineSlim.vue`、`/api/stock_data_chanlun_structure`，RFC `0005`、`0015`、`0018`、`0022` |
 | 8. XGB / JYGS 数据同步 | 已落地到读模型链路 | `freshquant/data/gantt_readmodel.py` + Dagster，RFC `0006`、`0012` |
-| 9. 甘特图 | 已落地统一页面与接口 | `freshquant/rear/gantt/routes.py`、`GanttUnified.vue`，RFC `0006`、`0011`、`0012` |
-| 10. Shouban30 / 缠论筛选 | 已纳入 Gantt 读模型与接口 | `/api/gantt/shouban30/*`、`freshquant/data/gantt_readmodel.py`，主要由 RFC `0006`、`0012` 承载 |
+| 9. 甘特图 | 已落地统一页面、共享图表组件与接口 | `freshquant/rear/gantt/routes.py`、`GanttUnified.vue`、`GanttHistory.vue`，RFC `0006`、`0011`、`0012` |
+| 10. Shouban30 / 缠论筛选 | 已纳入 Gantt 读模型、盘后快照与页面 | `/api/gantt/shouban30/*`、`freshquant/data/gantt_readmodel.py`、`GanttShouban30Phase1.vue`，RFC `0006`、`0012`、`0017`、`0023`、`0025`、`0027` |
 
 ---
 
