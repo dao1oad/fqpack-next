@@ -76,6 +76,7 @@ services:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
       JYGS_ENV_FILE: /run/host-config/envs.conf
+      FRESHQUANT_TDX_ROOT: /run/host-tdx
     command:
       [
         "sh",
@@ -89,6 +90,10 @@ services:
       - type: bind
         source: ${FQPACK_CONFIG_DIR:-D:/fqpack/config}
         target: /run/host-config
+        read_only: true
+      - type: bind
+        source: ${FQPACK_TDX_DIR:-D:/new_tdx}
+        target: /run/host-tdx
         read_only: true
     depends_on:
       fq_mongodb:
@@ -105,6 +110,7 @@ services:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
       JYGS_ENV_FILE: /run/host-config/envs.conf
+      FRESHQUANT_TDX_ROOT: /run/host-tdx
     command:
       [
         "sh",
@@ -116,6 +122,10 @@ services:
       - type: bind
         source: ${FQPACK_CONFIG_DIR:-D:/fqpack/config}
         target: /run/host-config
+        read_only: true
+      - type: bind
+        source: ${FQPACK_TDX_DIR:-D:/new_tdx}
+        target: /run/host-tdx
         read_only: true
     depends_on:
       fq_mongodb:
