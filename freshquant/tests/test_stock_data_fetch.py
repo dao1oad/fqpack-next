@@ -43,8 +43,8 @@ def _load_stock_module(monkeypatch):
 
     qa_util_module = ModuleType("QUANTAXIS.QAUtil")
     qa_date_module = ModuleType("QUANTAXIS.QAUtil.QADate")
-    qa_date_module.QA_util_datetime_to_strdatetime = (
-        lambda value: value.isoformat(sep=" ")
+    qa_date_module.QA_util_datetime_to_strdatetime = lambda value: value.isoformat(
+        sep=" "
     )
     qa_date_module.QA_util_time_stamp = lambda _: 0
 

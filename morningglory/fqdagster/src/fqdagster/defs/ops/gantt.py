@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Generator
 
 from dagster import DynamicOut, DynamicOutput, Output, graph, op
 from dagster._core.events import DagsterEvent, EngineEventData
@@ -316,7 +316,7 @@ def op_resolve_pending_gantt_trade_dates(context):
 
 
 @op
-def op_sync_xgb_history_daily(context) -> str:
+def op_sync_xgb_history_daily(context) -> Generator[object, None, None]:
     trade_date = _resolve_trade_date()
     yield _log_postclose_event(
         context,
@@ -337,7 +337,7 @@ def op_sync_xgb_history_daily(context) -> str:
 
 
 @op
-def op_sync_jygs_action_daily(context) -> str:
+def op_sync_jygs_action_daily(context) -> Generator[object, None, None]:
     trade_date = _resolve_trade_date()
     yield _log_postclose_event(
         context,
@@ -359,7 +359,9 @@ def op_sync_jygs_action_daily(context) -> str:
 
 
 @op
-def op_sync_xgb_history_for_trade_date(context, trade_date: str) -> str:
+def op_sync_xgb_history_for_trade_date(
+    context, trade_date: str
+) -> Generator[object, None, None]:
     resolved_trade_date = _to_str(trade_date)
     yield _log_postclose_event(
         context,
@@ -380,7 +382,9 @@ def op_sync_xgb_history_for_trade_date(context, trade_date: str) -> str:
 
 
 @op
-def op_sync_jygs_action_for_trade_date(context, trade_date: str) -> str:
+def op_sync_jygs_action_for_trade_date(
+    context, trade_date: str
+) -> Generator[object, None, None]:
     resolved_trade_date = _to_str(trade_date)
     yield _log_postclose_event(
         context,
@@ -404,7 +408,7 @@ def op_sync_jygs_action_for_trade_date(context, trade_date: str) -> str:
 @op
 def op_build_plate_reason_daily(
     context, xgb_trade_date: str, jygs_trade_date: str
-) -> str:
+) -> Generator[object, None, None]:
     yield _log_postclose_event(
         context,
         event="start",
@@ -431,7 +435,7 @@ def op_build_plate_reason_daily(
 
 
 @op
-def op_build_gantt_daily(context, trade_date: str) -> str:
+def op_build_gantt_daily(context, trade_date: str) -> Generator[object, None, None]:
     yield _log_postclose_event(
         context,
         event="start",
@@ -451,7 +455,9 @@ def op_build_gantt_daily(context, trade_date: str) -> str:
 
 
 @op
-def op_build_stock_hot_reason_daily(context, trade_date: str) -> str:
+def op_build_stock_hot_reason_daily(
+    context, trade_date: str
+) -> Generator[object, None, None]:
     yield _log_postclose_event(
         context,
         event="start",
@@ -473,7 +479,9 @@ def op_build_stock_hot_reason_daily(context, trade_date: str) -> str:
 
 
 @op
-def op_refresh_quality_stock_universe_daily(context, trade_date: str) -> str:
+def op_refresh_quality_stock_universe_daily(
+    context, trade_date: str
+) -> Generator[object, None, None]:
     yield _log_postclose_event(
         context,
         event="start",
@@ -498,7 +506,7 @@ def op_refresh_quality_stock_universe_daily(context, trade_date: str) -> str:
 
 
 @op
-def op_build_shouban30_daily(context, trade_date: str) -> dict:
+def op_build_shouban30_daily(context, trade_date: str) -> Generator[object, None, None]:
     yield _log_postclose_event(
         context,
         event="start",
