@@ -7,6 +7,7 @@ from types import ModuleType, SimpleNamespace
 
 def _build_dagster_stub():
     module = ModuleType("dagster")
+    module.__path__ = []
     builder_stack = []
 
     class DynamicOut:
@@ -17,6 +18,24 @@ def _build_dagster_stub():
         def __init__(self, value, mapping_key):
             self.value = value
             self.mapping_key = mapping_key
+
+    class DagsterEvent:
+        def __init__(self, message):
+            self.message = message
+
+        @staticmethod
+        def engine_event(step_context, message, event_specific_data=None):
+            return DagsterEvent(message)
+
+    class EngineEventData:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class Output:
+        def __init__(self, value, output_name="result", metadata=None):
+            self.value = value
+            self.output_name = output_name
+            self.metadata = metadata or {}
 
     class _FakeValue:
         def __init__(self, producer_name=None, is_dynamic=False):
@@ -175,6 +194,9 @@ def _build_dagster_stub():
     module.job = job
     module.DynamicOut = DynamicOut
     module.DynamicOutput = DynamicOutput
+    module.DagsterEvent = DagsterEvent
+    module.EngineEventData = EngineEventData
+    module.Output = Output
     module.ScheduleDefinition = ScheduleDefinition
     module.DefaultScheduleStatus = SimpleNamespace(RUNNING="RUNNING")
     return module
@@ -185,7 +207,15 @@ def test_gantt_dagster_modules_import(monkeypatch):
         Path(__file__).resolve().parents[2] / "morningglory" / "fqdagster" / "src"
     )
     monkeypatch.syspath_prepend(str(project_src))
-    monkeypatch.setitem(sys.modules, "dagster", _build_dagster_stub())
+    dagster_module = _build_dagster_stub()
+    dagster_core_module = ModuleType("dagster._core")
+    dagster_core_events_module = ModuleType("dagster._core.events")
+    dagster_core_events_module.DagsterEvent = dagster_module.DagsterEvent
+    dagster_core_events_module.EngineEventData = dagster_module.EngineEventData
+    dagster_core_module.events = dagster_core_events_module
+    monkeypatch.setitem(sys.modules, "dagster", dagster_module)
+    monkeypatch.setitem(sys.modules, "dagster._core", dagster_core_module)
+    monkeypatch.setitem(sys.modules, "dagster._core.events", dagster_core_events_module)
 
     ops_module = importlib.import_module("fqdagster.defs.ops.gantt")
     jobs_module = importlib.import_module("fqdagster.defs.jobs.gantt")

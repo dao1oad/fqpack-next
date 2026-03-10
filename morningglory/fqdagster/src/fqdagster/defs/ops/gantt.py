@@ -1,7 +1,8 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Generator
 
-from dagster import DynamicOut, DynamicOutput, graph, op
+from dagster import DynamicOut, DynamicOutput, Output, graph, op
+from dagster._core.events import DagsterEvent, EngineEventData
 
 from freshquant.data.gantt_readmodel import (
     persist_gantt_daily_for_date,
@@ -138,6 +139,37 @@ def _build_trade_date_mapping_key(trade_date: str) -> str:
     return _to_str(trade_date).replace("-", "_")
 
 
+def _format_log_value(value: Any) -> str:
+    if isinstance(value, (list, tuple, set)):
+        return ",".join(_to_str(item) for item in value if _to_str(item))
+    return _to_str(value)
+
+
+def _log_postclose_event(
+    context,
+    *,
+    event: str,
+    stage: str,
+    trade_date: str | None = None,
+    **fields: Any,
+) -> DagsterEvent:
+    parts = [f"gantt postclose event={_to_str(event)}", f"stage={_to_str(stage)}"]
+    if _to_str(trade_date):
+        rendered_trade_date = _to_str(trade_date)
+        parts.append(f"trade_date={rendered_trade_date}")
+    for key, value in fields.items():
+        formatted = _format_log_value(value)
+        if not formatted:
+            continue
+        parts.append(f"{key}={formatted}")
+    message = " ".join(parts)
+    return DagsterEvent.engine_event(
+        context.get_step_execution_context(),
+        message,
+        EngineEventData(),
+    )
+
+
 def _build_shouban30_snapshots_for_date(context, trade_date: str) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     chanlun_result_cache: dict[str, dict[str, Any]] = {}
@@ -263,8 +295,20 @@ def run_gantt_backfill(context) -> list[str]:
 
 @op(out=DynamicOut(str))
 def op_resolve_pending_gantt_trade_dates(context):
+    yield _log_postclose_event(
+        context,
+        event="start",
+        stage="resolve_pending_trade_dates",
+    )
     trade_dates = resolve_gantt_backfill_trade_dates()
     context.log.info("resolved gantt pending trade_dates=%s", trade_dates)
+    yield _log_postclose_event(
+        context,
+        event="done",
+        stage="resolve_pending_trade_dates",
+        pending_count=len(trade_dates),
+        trade_dates=trade_dates,
+    )
     for trade_date in trade_dates:
         yield DynamicOutput(
             trade_date, mapping_key=_build_trade_date_mapping_key(trade_date)
@@ -272,39 +316,106 @@ def op_resolve_pending_gantt_trade_dates(context):
 
 
 @op
-def op_sync_xgb_history_daily(context) -> str:
+def op_sync_xgb_history_daily(context) -> Generator[object, None, None]:
     trade_date = _resolve_trade_date()
+    yield _log_postclose_event(
+        context,
+        event="start",
+        stage="sync_xgb_history",
+        trade_date=trade_date,
+    )
     rows = sync_xgb_history_for_date(trade_date)
     context.log.info("synced xgb history rows=%s trade_date=%s", rows, trade_date)
-    return trade_date
+    yield _log_postclose_event(
+        context,
+        event="done",
+        stage="sync_xgb_history",
+        trade_date=trade_date,
+        rows=rows,
+    )
+    yield Output(trade_date)
 
 
 @op
-def op_sync_jygs_action_daily(context) -> str:
+def op_sync_jygs_action_daily(context) -> Generator[object, None, None]:
     trade_date = _resolve_trade_date()
+    yield _log_postclose_event(
+        context,
+        event="start",
+        stage="sync_jygs_action",
+        trade_date=trade_date,
+    )
     result = sync_jygs_action_for_date(trade_date)
     context.log.info("synced jygs action=%s", result)
-    return _require_result_trade_date(result, "jygs action")
+    resolved_trade_date = _require_result_trade_date(result, "jygs action")
+    yield _log_postclose_event(
+        context,
+        event="done",
+        stage="sync_jygs_action",
+        trade_date=resolved_trade_date,
+        result=result,
+    )
+    yield Output(resolved_trade_date)
 
 
 @op
-def op_sync_xgb_history_for_trade_date(context, trade_date: str) -> str:
-    rows = sync_xgb_history_for_date(_to_str(trade_date))
+def op_sync_xgb_history_for_trade_date(
+    context, trade_date: str
+) -> Generator[object, None, None]:
+    resolved_trade_date = _to_str(trade_date)
+    yield _log_postclose_event(
+        context,
+        event="start",
+        stage="sync_xgb_history",
+        trade_date=resolved_trade_date,
+    )
+    rows = sync_xgb_history_for_date(resolved_trade_date)
     context.log.info("synced xgb history rows=%s trade_date=%s", rows, trade_date)
-    return _to_str(trade_date)
+    yield _log_postclose_event(
+        context,
+        event="done",
+        stage="sync_xgb_history",
+        trade_date=resolved_trade_date,
+        rows=rows,
+    )
+    yield Output(resolved_trade_date)
 
 
 @op
-def op_sync_jygs_action_for_trade_date(context, trade_date: str) -> str:
-    result = sync_jygs_action_for_date(_to_str(trade_date))
+def op_sync_jygs_action_for_trade_date(
+    context, trade_date: str
+) -> Generator[object, None, None]:
+    resolved_trade_date = _to_str(trade_date)
+    yield _log_postclose_event(
+        context,
+        event="start",
+        stage="sync_jygs_action",
+        trade_date=resolved_trade_date,
+    )
+    result = sync_jygs_action_for_date(resolved_trade_date)
     context.log.info("synced jygs action=%s", result)
-    return _require_result_trade_date(result, "jygs action")
+    result_trade_date = _require_result_trade_date(result, "jygs action")
+    yield _log_postclose_event(
+        context,
+        event="done",
+        stage="sync_jygs_action",
+        trade_date=result_trade_date,
+        result=result,
+    )
+    yield Output(result_trade_date)
 
 
 @op
 def op_build_plate_reason_daily(
     context, xgb_trade_date: str, jygs_trade_date: str
-) -> str:
+) -> Generator[object, None, None]:
+    yield _log_postclose_event(
+        context,
+        event="start",
+        stage="build_plate_reason_daily",
+        trade_date=xgb_trade_date,
+        jygs_trade_date=jygs_trade_date,
+    )
     if xgb_trade_date != jygs_trade_date:
         raise RuntimeError(
             f"trade_date mismatch xgb={xgb_trade_date} jygs={jygs_trade_date}"
@@ -313,39 +424,141 @@ def op_build_plate_reason_daily(
     context.log.info(
         "built plate_reason_daily rows=%s trade_date=%s", count, xgb_trade_date
     )
-    return xgb_trade_date
+    yield _log_postclose_event(
+        context,
+        event="done",
+        stage="build_plate_reason_daily",
+        trade_date=xgb_trade_date,
+        rows=count,
+    )
+    yield Output(xgb_trade_date)
 
 
 @op
-def op_build_gantt_daily(context, trade_date: str) -> str:
+def op_build_gantt_daily(context, trade_date: str) -> Generator[object, None, None]:
+    yield _log_postclose_event(
+        context,
+        event="start",
+        stage="build_gantt_daily",
+        trade_date=trade_date,
+    )
     result = persist_gantt_daily_for_date(trade_date)
     context.log.info("built gantt daily=%s", result)
-    return trade_date
+    yield _log_postclose_event(
+        context,
+        event="done",
+        stage="build_gantt_daily",
+        trade_date=trade_date,
+        result=result,
+    )
+    yield Output(trade_date)
 
 
 @op
-def op_build_stock_hot_reason_daily(context, trade_date: str) -> str:
+def op_build_stock_hot_reason_daily(
+    context, trade_date: str
+) -> Generator[object, None, None]:
+    yield _log_postclose_event(
+        context,
+        event="start",
+        stage="build_stock_hot_reason_daily",
+        trade_date=trade_date,
+    )
     count = persist_stock_hot_reason_daily_for_date(trade_date)
     context.log.info(
         "built stock_hot_reason_daily rows=%s trade_date=%s", count, trade_date
     )
-    return trade_date
+    yield _log_postclose_event(
+        context,
+        event="done",
+        stage="build_stock_hot_reason_daily",
+        trade_date=trade_date,
+        rows=count,
+    )
+    yield Output(trade_date)
 
 
 @op
-def op_refresh_quality_stock_universe_daily(context, trade_date: str) -> str:
+def op_refresh_quality_stock_universe_daily(
+    context, trade_date: str
+) -> Generator[object, None, None]:
+    yield _log_postclose_event(
+        context,
+        event="start",
+        stage="refresh_quality_stock_universe",
+        trade_date=trade_date,
+    )
     result = refresh_quality_stock_universe()
     context.log.info(
         "refreshed quality_stock_universe trade_date=%s result=%s",
         trade_date,
         result,
     )
-    return trade_date
+    yield _log_postclose_event(
+        context,
+        event="done",
+        stage="refresh_quality_stock_universe",
+        trade_date=trade_date,
+        count=(result or {}).get("count"),
+        source_version=(result or {}).get("source_version"),
+    )
+    yield Output(trade_date)
 
 
 @op
-def op_build_shouban30_daily(context, trade_date: str) -> dict:
-    return _build_shouban30_snapshots_for_date(context, trade_date)
+def op_build_shouban30_daily(context, trade_date: str) -> Generator[object, None, None]:
+    yield _log_postclose_event(
+        context,
+        event="start",
+        stage="build_shouban30",
+        trade_date=trade_date,
+    )
+    results: list[dict[str, Any]] = []
+    chanlun_result_cache: dict[str, dict[str, Any]] = {}
+    for stock_window_days in SHOUBAN30_STOCK_WINDOWS:
+        yield _log_postclose_event(
+            context,
+            event="progress",
+            stage="build_shouban30",
+            trade_date=trade_date,
+            stock_window_days=stock_window_days,
+            status="start",
+        )
+        result = persist_shouban30_for_date(
+            trade_date,
+            stock_window_days=stock_window_days,
+            chanlun_result_cache=chanlun_result_cache,
+        )
+        results.append(result)
+        context.log.info(
+            "built shouban30 trade_date=%s stock_window_days=%s result=%s",
+            trade_date,
+            stock_window_days,
+            result,
+        )
+        yield _log_postclose_event(
+            context,
+            event="progress",
+            stage="build_shouban30",
+            trade_date=trade_date,
+            stock_window_days=stock_window_days,
+            status="done",
+            plates=(result or {}).get("plates"),
+            stocks=(result or {}).get("stocks"),
+        )
+    payload = {
+        "trade_date": trade_date,
+        "windows": list(SHOUBAN30_STOCK_WINDOWS),
+        "results": results,
+    }
+    yield _log_postclose_event(
+        context,
+        event="done",
+        stage="build_shouban30",
+        trade_date=trade_date,
+        windows=payload.get("windows"),
+    )
+    yield Output(payload)
 
 
 @op

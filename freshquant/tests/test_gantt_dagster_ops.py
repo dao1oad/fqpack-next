@@ -9,6 +9,7 @@ import pytest
 
 def _build_dagster_stub():
     module = ModuleType("dagster")
+    module.__path__ = []  # mark as package for submodule imports
     builder_stack = []
 
     class DynamicOut:
@@ -19,6 +20,24 @@ def _build_dagster_stub():
         def __init__(self, value, mapping_key):
             self.value = value
             self.mapping_key = mapping_key
+
+    class DagsterEvent:
+        def __init__(self, message):
+            self.message = message
+
+        @staticmethod
+        def engine_event(step_context, message, event_specific_data=None):
+            return DagsterEvent(message)
+
+    class EngineEventData:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class Output:
+        def __init__(self, value, output_name="result", metadata=None):
+            self.value = value
+            self.output_name = output_name
+            self.metadata = metadata or {}
 
     class _FakeValue:
         def __init__(self, producer_name=None, is_dynamic=False):
@@ -177,9 +196,25 @@ def _build_dagster_stub():
     module.job = job
     module.DynamicOut = DynamicOut
     module.DynamicOutput = DynamicOutput
+    module.DagsterEvent = DagsterEvent
+    module.EngineEventData = EngineEventData
+    module.Output = Output
     module.ScheduleDefinition = ScheduleDefinition
     module.DefaultScheduleStatus = SimpleNamespace(RUNNING="RUNNING")
     return module
+
+
+def _install_dagster_stub(monkeypatch):
+    dagster_module = _build_dagster_stub()
+    dagster_core_module = ModuleType("dagster._core")
+    dagster_core_events_module = ModuleType("dagster._core.events")
+    dagster_core_events_module.DagsterEvent = dagster_module.DagsterEvent
+    dagster_core_events_module.EngineEventData = dagster_module.EngineEventData
+    dagster_core_module.events = dagster_core_events_module
+
+    monkeypatch.setitem(sys.modules, "dagster", dagster_module)
+    monkeypatch.setitem(sys.modules, "dagster._core", dagster_core_module)
+    monkeypatch.setitem(sys.modules, "dagster._core.events", dagster_core_events_module)
 
 
 def _load_ops_module(monkeypatch):
@@ -187,7 +222,7 @@ def _load_ops_module(monkeypatch):
         Path(__file__).resolve().parents[2] / "morningglory" / "fqdagster" / "src"
     )
     monkeypatch.syspath_prepend(str(project_src))
-    monkeypatch.setitem(sys.modules, "dagster", _build_dagster_stub())
+    _install_dagster_stub(monkeypatch)
     sys.modules.pop("fqdagster.defs.ops.gantt", None)
     return importlib.import_module("fqdagster.defs.ops.gantt")
 
@@ -197,14 +232,56 @@ def _load_jobs_module(monkeypatch):
         Path(__file__).resolve().parents[2] / "morningglory" / "fqdagster" / "src"
     )
     monkeypatch.syspath_prepend(str(project_src))
-    monkeypatch.setitem(sys.modules, "dagster", _build_dagster_stub())
+    _install_dagster_stub(monkeypatch)
     sys.modules.pop("fqdagster.defs.jobs.gantt", None)
     sys.modules.pop("fqdagster.defs.ops.gantt", None)
     return importlib.import_module("fqdagster.defs.jobs.gantt")
 
 
+class _LogCollector:
+    def __init__(self):
+        self.messages = []
+
+    def info(self, message, *args, **kwargs):
+        if args:
+            message = message % args
+        self.messages.append(str(message))
+
+    def warning(self, message, *args, **kwargs):
+        if args:
+            message = message % args
+        self.messages.append(str(message))
+
+
 def _build_context():
-    return SimpleNamespace(log=SimpleNamespace(info=lambda *args, **kwargs: None))
+    events = []
+
+    def log_event(event):
+        events.append(event)
+
+    def get_step_execution_context():
+        return SimpleNamespace()
+
+    return SimpleNamespace(
+        log=_LogCollector(),
+        log_event=log_event,
+        get_step_execution_context=get_step_execution_context,
+        events=events,
+    )
+
+
+def _collect_output_value(items):
+    outputs = [item.value for item in items if hasattr(item, "output_name")]
+    assert len(outputs) == 1
+    return outputs[0]
+
+
+def _collect_messages(items):
+    return [
+        item.message
+        for item in items
+        if hasattr(item, "message") and item.message is not None
+    ]
 
 
 def test_resolve_gantt_backfill_trade_dates_returns_latest_day_when_no_progress(
@@ -456,7 +533,8 @@ def test_op_build_shouban30_daily_builds_all_stock_window_days(monkeypatch):
         or {"as_of_date": trade_date, "stock_window_days": stock_window_days},
     )
 
-    result = ops.op_build_shouban30_daily(context, "2026-03-05")
+    result = list(ops.op_build_shouban30_daily(context, "2026-03-05"))
+    payload = _collect_output_value(result)
 
     assert calls == [
         ("2026-03-05", 30),
@@ -464,8 +542,8 @@ def test_op_build_shouban30_daily_builds_all_stock_window_days(monkeypatch):
         ("2026-03-05", 60),
         ("2026-03-05", 90),
     ]
-    assert result["trade_date"] == "2026-03-05"
-    assert result["windows"] == [30, 45, 60, 90]
+    assert payload["trade_date"] == "2026-03-05"
+    assert payload["windows"] == [30, 45, 60, 90]
 
 
 def test_build_shouban30_snapshots_for_date_shares_chanlun_result_cache(monkeypatch):
@@ -517,11 +595,17 @@ def test_trade_date_sync_ops_use_explicit_input(monkeypatch):
         or {"trade_date": trade_date},
     )
 
-    assert ops.op_sync_xgb_history_for_trade_date(context, "2026-03-05") == (
-        "2026-03-05"
+    assert (
+        _collect_output_value(
+            list(ops.op_sync_xgb_history_for_trade_date(context, "2026-03-05"))
+        )
+        == "2026-03-05"
     )
-    assert ops.op_sync_jygs_action_for_trade_date(context, "2026-03-05") == (
-        "2026-03-05"
+    assert (
+        _collect_output_value(
+            list(ops.op_sync_jygs_action_for_trade_date(context, "2026-03-05"))
+        )
+        == "2026-03-05"
     )
     assert calls == [("xgb", "2026-03-05"), ("jygs", "2026-03-05")]
 
@@ -537,7 +621,7 @@ def test_op_sync_jygs_action_for_trade_date_requires_result_trade_date(monkeypat
     )
 
     with pytest.raises(RuntimeError, match="missing trade_date"):
-        ops.op_sync_jygs_action_for_trade_date(context, "2026-03-05")
+        list(ops.op_sync_jygs_action_for_trade_date(context, "2026-03-05"))
 
 
 def test_has_legacy_shouban30_snapshot_detects_missing_chanlun_filter_version(
@@ -773,9 +857,10 @@ def test_op_resolve_pending_gantt_trade_dates_yields_dynamic_outputs(monkeypatch
     )
 
     result = list(ops.op_resolve_pending_gantt_trade_dates(context))
+    outputs = [item for item in result if hasattr(item, "mapping_key")]
 
-    assert [item.value for item in result] == ["2026-03-04", "2026-03-05"]
-    assert [item.mapping_key for item in result] == ["2026_03_04", "2026_03_05"]
+    assert [item.value for item in outputs] == ["2026-03-04", "2026-03-05"]
+    assert [item.mapping_key for item in outputs] == ["2026_03_04", "2026_03_05"]
 
 
 def test_job_gantt_postclose_daily_pipeline_dependencies(monkeypatch):
@@ -814,7 +899,93 @@ def test_op_refresh_quality_stock_universe_daily_calls_refresh_once(monkeypatch)
 
     monkeypatch.setattr(ops, "refresh_quality_stock_universe", refresh_stub)
 
-    result = ops.op_refresh_quality_stock_universe_daily(context, "2026-03-09")
+    result = list(ops.op_refresh_quality_stock_universe_daily(context, "2026-03-09"))
 
-    assert result == "2026-03-09"
+    assert _collect_output_value(result) == "2026-03-09"
     assert calls == ["called"]
+
+
+def test_op_resolve_pending_gantt_trade_dates_logs_pending_summary(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+
+    monkeypatch.setattr(
+        ops,
+        "resolve_gantt_backfill_trade_dates",
+        lambda: ["2026-03-04", "2026-03-05"],
+    )
+
+    result = list(ops.op_resolve_pending_gantt_trade_dates(context))
+    outputs = [item for item in result if hasattr(item, "mapping_key")]
+    messages = _collect_messages(result)
+
+    assert [item.value for item in outputs] == ["2026-03-04", "2026-03-05"]
+    assert any(
+        "gantt postclose event=done stage=resolve_pending_trade_dates pending_count=2 trade_dates=2026-03-04,2026-03-05"
+        in message
+        for message in messages
+    )
+
+
+def test_op_sync_xgb_history_for_trade_date_logs_stage_start_and_done(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+
+    monkeypatch.setattr(ops, "sync_xgb_history_for_date", lambda trade_date: 12)
+
+    result = list(ops.op_sync_xgb_history_for_trade_date(context, "2026-03-05"))
+    messages = _collect_messages(result)
+
+    assert _collect_output_value(result) == "2026-03-05"
+    assert any(
+        "gantt postclose event=start stage=sync_xgb_history trade_date=2026-03-05"
+        in message
+        for message in messages
+    )
+    assert any(
+        "gantt postclose event=done stage=sync_xgb_history trade_date=2026-03-05 rows=12"
+        in message
+        for message in messages
+    )
+
+
+def test_op_build_shouban30_daily_logs_window_progress_and_summary(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+
+    monkeypatch.setattr(
+        ops,
+        "persist_shouban30_for_date",
+        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: {
+            "as_of_date": trade_date,
+            "plates": stock_window_days // 15,
+            "stocks": stock_window_days,
+            "stock_window_days": stock_window_days,
+        },
+    )
+
+    result = list(ops.op_build_shouban30_daily(context, "2026-03-05"))
+    messages = _collect_messages(result)
+    payload = _collect_output_value(result)
+
+    assert payload["trade_date"] == "2026-03-05"
+    assert any(
+        "gantt postclose event=start stage=build_shouban30 trade_date=2026-03-05"
+        in message
+        for message in messages
+    )
+    assert any(
+        "gantt postclose event=progress stage=build_shouban30 trade_date=2026-03-05 stock_window_days=30 status=start"
+        in message
+        for message in messages
+    )
+    assert any(
+        "gantt postclose event=progress stage=build_shouban30 trade_date=2026-03-05 stock_window_days=90 status=done plates=6 stocks=90"
+        in message
+        for message in messages
+    )
+    assert any(
+        "gantt postclose event=done stage=build_shouban30 trade_date=2026-03-05 windows=30,45,60,90"
+        in message
+        for message in messages
+    )
