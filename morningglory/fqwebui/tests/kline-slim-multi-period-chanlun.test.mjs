@@ -214,7 +214,7 @@ test('draw-slim honors explicit legend selection state for current period layers
   assert.ok(!option.series.some((series) => series.id === '5m-duan'))
 })
 
-test('draw-slim reuses previous chart datazoom state and replaces the component on keepState refresh', async () => {
+test('draw-slim reuses previous chart datazoom state without rebuilding datazoom on keepState refresh', async () => {
   const drawSlim = await loadDrawSlim()
   const chart = createStubChart({
     dataZoom: [
@@ -231,10 +231,11 @@ test('draw-slim reuses previous chart datazoom state and replaces the component 
 
   const [{ option, opts }] = chart.setOptionCalls
   assert.deepEqual(option.dataZoom, chart.getOption().dataZoom)
-  assert.ok(opts.replaceMerge.includes('dataZoom'))
+  assert.equal(opts.notMerge, false)
+  assert.ok(!opts.replaceMerge.includes('dataZoom'))
 })
 
-test('draw-slim uses full replace when keepState is false', async () => {
+test('draw-slim resets viewport to defaults when keepState is false', async () => {
   const drawSlim = await loadDrawSlim()
   const chart = createStubChart({
     legend: [
@@ -255,11 +256,11 @@ test('draw-slim uses full replace when keepState is false', async () => {
     renderVersion: 'render-main'
   })
 
-  const [{ opts }] = chart.setOptionCalls
-  assert.equal(chart.clearCount, 1)
-  assert.equal(opts.notMerge, true)
-  assert.ok(opts.replaceMerge.includes('grid'))
-  assert.ok(opts.replaceMerge.includes('dataZoom'))
+  const [{ option, opts }] = chart.setOptionCalls
+  assert.equal(chart.clearCount, 0)
+  assert.equal(opts.notMerge, false)
+  assert.equal(option.dataZoom[0].start, 70)
+  assert.equal(option.dataZoom[0].end, 100)
 })
 
 test('draw-slim remaps zhongshu markArea with axis coordinates and filters out-of-range boxes', async () => {
@@ -314,31 +315,20 @@ test('kline-slim controller keeps legend state in render key without local dataz
 
   assert.match(content, /JSON\.stringify\(this\.chanlunLegendSelected\)/)
   assert.doesNotMatch(content, /chartDataZoomState/)
-  assert.match(content, /handleSlimDataZoom/)
-  assert.match(content, /chart\.on\('datazoom',\s*this\.handleSlimDataZoom\)/)
-  assert.match(content, /dataZoomReplayFrameId/)
-  assert.match(content, /replayingDataZoom/)
+  assert.doesNotMatch(content, /handleSlimDataZoom/)
+  assert.doesNotMatch(content, /chart\.on\('datazoom',\s*this\.handleSlimDataZoom\)/)
+  assert.doesNotMatch(content, /dataZoomReplayFrameId/)
+  assert.doesNotMatch(content, /replayingDataZoom/)
 })
 
-test('kline-slim controller rebuilds chart option from current datazoom window without scheduleRender', async () => {
+test('kline-slim controller lets ECharts own viewport interaction without manual datazoom replay', async () => {
   const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
-  const handleSlimDataZoomBody = content.match(
-    /handleSlimDataZoom\((?:event|params)\)\s*\{([\s\S]*?)\r?\n\s*\},\r?\n\s*scheduleRender/
-  )?.[1]
-
-  assert.ok(handleSlimDataZoomBody)
   assert.doesNotMatch(content, /chartDataZoomState/)
   assert.doesNotMatch(content, /handleSlimDataZoomPointerUp\(/)
   assert.doesNotMatch(content, /getZr\(\)\.on\('mouseup'/)
-  assert.match(content, /replayingDataZoom/)
-  assert.match(content, /areDataZoomWindowsEquivalent/)
-  assert.match(handleSlimDataZoomBody, /extractDataZoomWindow\((event|params)\)/)
-  assert.match(handleSlimDataZoomBody, /const currentOption = this\.chart\.getOption\(\)/)
-  assert.match(handleSlimDataZoomBody, /pickDataZoomWindow\(currentOption\?\.\s*dataZoom\?\.\[0\]\)/)
-  assert.match(handleSlimDataZoomBody, /areDataZoomWindowsEquivalent\(currentWindow,\s*windowState\)/)
-  assert.match(handleSlimDataZoomBody, /currentOption\.dataZoom = \[/)
-  assert.match(handleSlimDataZoomBody, /this\.chart\.clear\(\)/)
-  assert.match(handleSlimDataZoomBody, /this\.chart\.setOption\(currentOption,\s*\{/)
-  assert.match(handleSlimDataZoomBody, /silent:\s*true/)
-  assert.doesNotMatch(handleSlimDataZoomBody, /scheduleRender\(/)
+  assert.doesNotMatch(content, /extractDataZoomWindow\(/)
+  assert.doesNotMatch(content, /pickDataZoomWindow\(/)
+  assert.doesNotMatch(content, /areDataZoomWindowsEquivalent\(/)
+  assert.doesNotMatch(content, /currentOption\.dataZoom = \[/)
+  assert.doesNotMatch(content, /this\.replayingDataZoom = true/)
 })
