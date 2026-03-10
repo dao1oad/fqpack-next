@@ -73,6 +73,8 @@ $runnerPath = Join-Path $scriptsRoot 'freshquant_runner.exs'
 $stdoutLog = Join-Path $logsRoot 'stdout.log'
 $stderrLog = Join-Path $logsRoot 'stderr.log'
 $traceLog = Join-Path $logsRoot 'app-server.trace.log'
+$gitBashBin = Join-Path ${env:ProgramFiles} 'Git\bin'
+$codexShimBin = Join-Path $env:APPDATA 'npm'
 $mixPath = Resolve-CommandPath @(
     (Join-Path $env:USERPROFILE 'AppData\Local\mise\installs\elixir\1.19.5-otp-28\bin\mix.bat'),
     'C:\Users\Administrator\AppData\Local\mise\installs\elixir\1.19.5-otp-28\bin\mix.bat'
@@ -122,7 +124,7 @@ New-Item -ItemType Directory -Force -Path $logsRoot | Out-Null
 
 $elixirBin = Split-Path -Parent $mixPath
 $erlangBin = Split-Path -Parent $erlPath
-Add-PathPrefix -Directories @($elixirBin, $erlangBin)
+Add-PathPrefix -Directories @($gitBashBin, $codexShimBin, $elixirBin, $erlangBin)
 
 $proxyVars = @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'LINEAR_API_KEY')
 foreach ($name in $proxyVars) {
