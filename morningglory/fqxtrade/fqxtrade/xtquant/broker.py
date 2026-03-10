@@ -257,9 +257,8 @@ def trading_main_loop():
         random.shuffle(session_ids)
         for session_id in session_ids:
             try:
-                if (
-                    not connection_manager.connected
-                    and not _is_observe_only_mode(broker_submit_mode)
+                if not connection_manager.connected and not _is_observe_only_mode(
+                    broker_submit_mode
                 ):
                     xt_trader, acc, success = connect(session_id)
                     if not success:
@@ -328,9 +327,7 @@ def trading_main_loop():
                                     resolved_order["symbol"],
                                     resolved_order["price"],
                                     resolved_order["quantity"],
-                                    pydash.get(
-                                        resolved_order, "strategy_name", "N/A"
-                                    ),
+                                    pydash.get(resolved_order, "strategy_name", "N/A"),
                                     pydash.get(resolved_order, "remark", "N/A"),
                                     pydash.get(resolved_order, "retry_count", 0),
                                     order_type=pydash.get(
@@ -341,9 +338,7 @@ def trading_main_loop():
                                     ),
                                     trace_id=pydash.get(resolved_order, "trace_id"),
                                     intent_id=pydash.get(resolved_order, "intent_id"),
-                                    request_id=pydash.get(
-                                        resolved_order, "request_id"
-                                    ),
+                                    request_id=pydash.get(resolved_order, "request_id"),
                                     internal_order_id=pydash.get(
                                         resolved_order, "internal_order_id"
                                     ),
@@ -359,9 +354,7 @@ def trading_main_loop():
                                     resolve_sell_price_type_compat(resolved_order),
                                     resolved_order["price"],
                                     resolved_order["quantity"],
-                                    pydash.get(
-                                        resolved_order, "strategy_name", "N/A"
-                                    ),
+                                    pydash.get(resolved_order, "strategy_name", "N/A"),
                                     pydash.get(resolved_order, "remark", "N/A"),
                                     pydash.get(resolved_order, "retry_count", 0),
                                     order_type=pydash.get(
@@ -369,9 +362,7 @@ def trading_main_loop():
                                     ),
                                     trace_id=pydash.get(resolved_order, "trace_id"),
                                     intent_id=pydash.get(resolved_order, "intent_id"),
-                                    request_id=pydash.get(
-                                        resolved_order, "request_id"
-                                    ),
+                                    request_id=pydash.get(resolved_order, "request_id"),
                                     internal_order_id=pydash.get(
                                         resolved_order, "internal_order_id"
                                     ),
@@ -397,9 +388,7 @@ def trading_main_loop():
                     else:
                         logger.info("非交易时间，不执行交易下单")
                 else:
-                    if nextStart <= 0 and not _is_observe_only_mode(
-                        broker_submit_mode
-                    ):
+                    if nextStart <= 0 and not _is_observe_only_mode(broker_submit_mode):
                         # 开市期间查询账户状态
                         # 查询持仓情况
                         puppet.sync_positions()
