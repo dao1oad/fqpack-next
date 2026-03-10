@@ -60,7 +60,14 @@ function Set-ServiceLogonAccount {
         [string]$ServicePassword
     )
 
-    $output = & sc.exe config $ServiceName obj= $ServiceUser password= $ServicePassword 2>&1
+    if ($ServicePassword -eq '') {
+        $commandLine = "sc.exe config `"$ServiceName`" obj= `"$ServiceUser`" password= `"`""
+        $output = & cmd.exe /c $commandLine 2>&1
+    }
+    else {
+        $output = & sc.exe config $ServiceName obj= $ServiceUser password= $ServicePassword 2>&1
+    }
+
     if ($LASTEXITCODE -ne 0) {
         $message = ($output | Out-String).Trim()
         throw "Failed to configure service logon account: $message"
