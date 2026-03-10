@@ -42,6 +42,14 @@ description: FreshQuant 在 Windows 宿主机上以正式服务形态运行 Symp
 - `D:\fqpack\runtime\symphony-service\workspaces\`
 - `D:\fqpack\runtime\symphony-service\artifacts\`
 
+正式 workflow 的 `workspace.root` 也应与此保持一致，即：
+
+- `D:\fqpack\runtime\symphony-service\workspaces\`
+
+每个 issue 的实际工作目录位于：
+
+- `D:\fqpack\runtime\symphony-service\workspaces\<ISSUE_IDENTIFIER>\`
+
 ## 4. 关键脚本
 
 - `runtime/symphony/scripts/sync_freshquant_symphony_service.ps1`

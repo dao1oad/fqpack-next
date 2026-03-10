@@ -9,7 +9,7 @@ tracker:
     - Rework
     - Merging
 workspace:
-  root: D:/fqpack/runtime/symphony-workspaces/freshquant
+  root: D:/fqpack/runtime/symphony-service/workspaces
 hooks:
   after_create: |
     git clone --depth 1 ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git .
