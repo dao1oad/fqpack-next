@@ -40,9 +40,12 @@ services:
     environment:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
+      FQ_RUNTIME_LOG_DIR: /freshquant/logs/runtime
     command: ["/freshquant/.venv/bin/python", "-m", "freshquant.rear.api_server", "--port", "5000"]
     ports:
       - "15000:5000"
+    volumes:
+      - ${FQ_RUNTIME_LOG_HOST_DIR:-../logs/runtime}:/freshquant/logs/runtime
     depends_on:
       fq_mongodb:
         condition: service_healthy

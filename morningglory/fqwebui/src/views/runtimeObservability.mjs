@@ -2,8 +2,8 @@ const toText = (value) => String(value || '').trim()
 const ISSUE_STATUSES = new Set(['warning', 'failed', 'error', 'skipped'])
 const DETAIL_FIELDS = ['trace_id', 'intent_id', 'request_id', 'internal_order_id', 'symbol', 'action']
 const CORE_COMPONENTS = [
-  'xtdata_producer',
-  'xtdata_consumer',
+  'xt_producer',
+  'xt_consumer',
   'guardian_strategy',
   'position_gate',
   'order_submit',
@@ -156,7 +156,7 @@ const compareIssueCards = (left = {}, right = {}) => {
 
 export const buildTraceQuery = (form = {}) => {
   const query = {}
-  for (const key of ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component']) {
+  for (const key of ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component', 'runtime_node']) {
     const value = toText(form[key])
     if (value) query[key] = value
   }
@@ -499,11 +499,22 @@ export const buildRecentTraceFeed = (traces = [], options = {}) => {
     }))
 }
 
+const normalizeRuntimeNode = (value, fallback = '-') => toText(value) || fallback
+
+const stepMatchesBoardFilter = (step = {}, filter = {}) => {
+  const component = toText(filter?.component)
+  const runtimeNode = toText(filter?.runtime_node)
+  if (component && toText(step?.component) !== component) return false
+  if (runtimeNode && normalizeRuntimeNode(step?.runtime_node) !== normalizeRuntimeNode(runtimeNode)) return false
+  return true
+}
+
 export const applyBoardFilter = (traces = [], filter = {}) => {
   const component = toText(filter?.component)
-  if (!component) return normalizeTraces(traces)
+  const runtimeNode = toText(filter?.runtime_node)
+  if (!component && !runtimeNode) return normalizeTraces(traces)
   return normalizeTraces(traces).filter((trace) =>
-    Array.isArray(trace?.steps) && trace.steps.some((step) => toText(step?.component) === component),
+    Array.isArray(trace?.steps) && trace.steps.some((step) => stepMatchesBoardFilter(step, filter)),
   )
 }
 
@@ -513,42 +524,66 @@ export const buildComponentBoard = (traces = [], components = []) => {
   const componentCards = Array.isArray(components) ? components : []
 
   for (const component of CORE_COMPONENTS) {
-    const matchingTraces = applyBoardFilter(normalizedTraces, { component })
-    const componentDetails = matchingTraces.map((trace) => {
-      const detail = buildTraceDetail(trace)
-      const componentIssueSteps = detail.steps.filter(
-        (step) => step?.is_issue && toText(step?.component) === component,
-      )
-      return {
-        detail,
-        component_issue_steps: componentIssueSteps,
+    const runtimeNodes = new Set()
+    for (const item of componentCards) {
+      if (toText(item?.component) !== component) continue
+      runtimeNodes.add(normalizeRuntimeNode(item?.runtime_node))
+    }
+    for (const trace of normalizedTraces) {
+      for (const step of Array.isArray(trace?.steps) ? trace.steps : []) {
+        if (toText(step?.component) !== component) continue
+        runtimeNodes.add(normalizeRuntimeNode(step?.runtime_node))
       }
-    })
-    const issueTraceCount = componentDetails.filter((item) => item.component_issue_steps.length > 0).length
-    const issueStepCount = componentDetails.reduce(
-      (total, item) => total + item.component_issue_steps.length,
-      0,
-    )
-    const lastIssueTrace =
-      componentDetails
-        .filter((item) => item.component_issue_steps.length > 0)
-        .map((item) => item.detail)
-        .sort((left, right) => toText(right?.last_ts).localeCompare(toText(left?.last_ts)))[0] || null
-    const healthCard = componentCards.find((item) => toText(item?.component) === component) || null
+    }
 
-    if (!healthCard && matchingTraces.length === 0) continue
+    for (const runtimeNode of runtimeNodes) {
+      const matchingTraces = applyBoardFilter(normalizedTraces, {
+        component,
+        runtime_node: runtimeNode,
+      })
+      const componentDetails = matchingTraces.map((trace) => {
+        const detail = buildTraceDetail(trace)
+        const componentIssueSteps = detail.steps.filter(
+          (step) =>
+            step?.is_issue &&
+            toText(step?.component) === component &&
+            normalizeRuntimeNode(step?.runtime_node) === runtimeNode,
+        )
+        return {
+          detail,
+          component_issue_steps: componentIssueSteps,
+        }
+      })
+      const issueTraceCount = componentDetails.filter((item) => item.component_issue_steps.length > 0).length
+      const issueStepCount = componentDetails.reduce(
+        (total, item) => total + item.component_issue_steps.length,
+        0,
+      )
+      const lastIssueTrace =
+        componentDetails
+          .filter((item) => item.component_issue_steps.length > 0)
+          .map((item) => item.detail)
+          .sort((left, right) => toText(right?.last_ts).localeCompare(toText(left?.last_ts)))[0] || null
+      const healthCard =
+        componentCards.find((item) =>
+          toText(item?.component) === component &&
+          normalizeRuntimeNode(item?.runtime_node) === runtimeNode,
+        ) || null
 
-    cards.push({
-      component,
-      runtime_node: toText(healthCard?.runtime_node) || '-',
-      status: toText(healthCard?.status) || (issueTraceCount > 0 ? 'warning' : 'unknown'),
-      heartbeat_age_s: healthCard?.heartbeat_age_s ?? null,
-      issue_trace_count: issueTraceCount,
-      issue_step_count: issueStepCount,
-      last_issue_ts: toText(lastIssueTrace?.last_ts) || '',
-      trace_count: matchingTraces.length,
-      highlights: Array.isArray(healthCard?.highlights) ? healthCard.highlights : [],
-    })
+      if (!healthCard && matchingTraces.length === 0) continue
+
+      cards.push({
+        component,
+        runtime_node: runtimeNode,
+        status: toText(healthCard?.status) || (issueTraceCount > 0 ? 'warning' : 'unknown'),
+        heartbeat_age_s: healthCard?.heartbeat_age_s ?? null,
+        issue_trace_count: issueTraceCount,
+        issue_step_count: issueStepCount,
+        last_issue_ts: toText(lastIssueTrace?.last_ts) || '',
+        trace_count: matchingTraces.length,
+        highlights: Array.isArray(healthCard?.highlights) ? healthCard.highlights : [],
+      })
+    }
   }
 
   return {
@@ -557,7 +592,9 @@ export const buildComponentBoard = (traces = [], components = []) => {
       if (issueTraceDiff !== 0) return issueTraceDiff
       const issueStepDiff = Number(right?.issue_step_count || 0) - Number(left?.issue_step_count || 0)
       if (issueStepDiff !== 0) return issueStepDiff
-      return toText(left?.component).localeCompare(toText(right?.component))
+      const componentDiff = toText(left?.component).localeCompare(toText(right?.component))
+      if (componentDiff !== 0) return componentDiff
+      return toText(left?.runtime_node).localeCompare(toText(right?.runtime_node))
     }),
     distribution: buildTraceListSummary(normalizedTraces).components.filter((item) => CORE_COMPONENTS.includes(toText(item?.component))),
   }

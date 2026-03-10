@@ -72,6 +72,25 @@ docker compose -f docker/compose.parallel.yaml up -d --build fq_mongodb fq_redis
 docker compose -f docker/compose.parallel.yaml ps
 ```
 
+运行观测目录约定：
+
+- `fq_apiserver` 会把宿主机 `${FQ_RUNTIME_LOG_HOST_DIR:-../logs/runtime}` 挂载到容器 `/freshquant/logs/runtime`
+- 容器内显式使用 `FQ_RUNTIME_LOG_DIR=/freshquant/logs/runtime`
+- 宿主机 `broker / puppet / xtdata producer / consumer / guardian / tpsl` 若也写运行观测，建议显式统一到同一目录：
+
+```powershell
+$env:FQ_RUNTIME_LOG_DIR="D:\fqpack\freshquant-2026.2.23\logs\runtime"
+```
+
+若未统一到同一目录，可能出现“宿主机已经写出 JSONL，但 Docker API 页面 `/runtime-observability` 无内容”的现象。
+
+如果你是在 `git worktree` 目录里启动并行 Compose，必须额外显式指定宿主机真实日志目录，否则 `../logs/runtime` 会解析到 worktree 自己的空目录：
+
+```powershell
+$env:FQ_RUNTIME_LOG_HOST_DIR="D:\fqpack\freshquant-2026.2.23\logs\runtime"
+docker compose -f docker/compose.parallel.yaml up -d --build
+```
+
 ## 访问入口
 
 - FreshQuant Web UI：`http://127.0.0.1:18080/`
@@ -198,6 +217,12 @@ for doc in src.find({}, {"_id": 0}):
 
 - MiniQMT / XTData 仍必须运行在 Windows 宿主机，不建议尝试将 `broker` 放入 Linux 容器。
 - Docker 并行模式下，如需让宿主机 `broker / producer / consumer` 与容器内 API 共用同一队列，Redis 应连接宿主机映射端口 `6380`，而不是旧宿主机 Redis `6379`。
+- 若需要让宿主机运行观测也进入 Docker API `/api/runtime/*` 与页面 `/runtime-observability`，请同时显式设置：
+
+```text
+FQ_RUNTIME_LOG_DIR=D:\fqpack\freshquant-2026.2.23\logs\runtime
+```
+
 - 推荐直接使用仓库内模板：
   - `docs/配置文件模板/envs.fqnext.example`
   - `docs/配置文件模板/supervisord.fqnext.example.conf`
