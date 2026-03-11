@@ -65,6 +65,15 @@
               >
                 {{ option.label }}
               </el-button>
+              <el-button
+                size="small"
+                type="success"
+                :disabled="!currentFilterReplacePayload.items.length || platesLoading || stocksLoading"
+                :loading="isWorkspaceActionRunning('workspace:save-current-filter')"
+                @click="handleSaveCurrentFilter"
+              >
+                筛选
+              </el-button>
             </div>
 
             <div class="panel-summary">
@@ -125,6 +134,19 @@
                 </template>
               </el-table-column>
               <el-table-column :label="plateCountLabel" prop="stocks_count" width="92" />
+              <el-table-column label="操作" width="144" fixed="right">
+                <template #default="{ row }">
+                  <el-button
+                    size="small"
+                    type="primary"
+                    link
+                    :loading="isWorkspaceActionRunning(`workspace:save-plate:${toText(row?.plate_key)}`)"
+                    @click.stop="handleSavePlateToPrePool(row)"
+                  >
+                    保存到 pre_pools
+                  </el-button>
+                </template>
+              </el-table-column>
             </el-table>
           </div>
         </section>
@@ -267,21 +289,141 @@
             </el-table>
           </div>
         </section>
+
+        <section class="panel-card panel-card-workspace">
+          <div class="panel-card-header">
+            <span>工作区</span>
+            <span class="muted">{{ prePoolItems.length }} / {{ stockPoolItems.length }}</span>
+          </div>
+          <div class="panel-summary">
+            <span>pre_pool {{ prePoolItems.length }}</span>
+            <span>/</span>
+            <span>stockpools {{ stockPoolItems.length }}</span>
+            <template v-if="workspaceBlkFilename">
+              <span>/</span>
+              <span>blk {{ workspaceBlkFilename }}</span>
+            </template>
+          </div>
+          <div v-if="workspaceBlkSyncLabel" class="panel-summary panel-summary-filters">
+            <span>{{ workspaceBlkSyncLabel }}</span>
+          </div>
+          <el-alert
+            v-if="workspaceError"
+            class="panel-alert"
+            type="error"
+            :closable="false"
+            :title="workspaceError"
+          />
+          <div class="workspace-tabs-wrap">
+            <el-tabs v-model="activeWorkspaceTab" class="workspace-tabs">
+              <el-tab-pane
+                v-for="tab in workspaceTabs"
+                :key="tab.key"
+                :name="tab.key"
+              >
+                <template #label>
+                  <div class="workspace-tab-label">
+                    <span>{{ tab.label }}</span>
+                    <span class="tab-meta">{{ tab.rows.length }}</span>
+                  </div>
+                </template>
+                <div class="panel-table">
+                  <el-table
+                    v-loading="workspaceLoading"
+                    :data="tab.rows"
+                    size="small"
+                    border
+                    height="100%"
+                    :empty-text="workspaceEmptyText"
+                  >
+                    <el-table-column prop="code6" label="代码" width="92">
+                      <template #default="{ row }">
+                        <span class="mono">{{ row.code6 }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
+                    <el-table-column prop="provider" label="来源" width="84">
+                      <template #default="{ row }">
+                        {{ formatProvider(row.provider) }}
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="plate_name" label="板块" min-width="140" show-overflow-tooltip />
+                    <el-table-column prop="category" label="分类" min-width="140" show-overflow-tooltip />
+                    <el-table-column label="操作" min-width="188" fixed="right">
+                      <template #default="{ row }">
+                        <div class="workspace-row-actions">
+                          <el-button
+                            v-if="tab.key === 'pre_pool'"
+                            size="small"
+                            type="primary"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:pre:add:${row.code6}`)"
+                            @click="handleAddPrePoolToStockPools(row)"
+                          >
+                            {{ row.primary_action_label }}
+                          </el-button>
+                          <el-button
+                            v-if="tab.key === 'stockpools'"
+                            size="small"
+                            type="primary"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:stock:must:${row.code6}`)"
+                            @click="handleAddStockPoolToMustPool(row)"
+                          >
+                            {{ row.primary_action_label }}
+                          </el-button>
+                          <el-button
+                            v-if="tab.key === 'pre_pool'"
+                            size="small"
+                            type="danger"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:pre:delete:${row.code6}`)"
+                            @click="handleDeletePrePoolRow(row)"
+                          >
+                            {{ row.secondary_action_label }}
+                          </el-button>
+                          <el-button
+                            v-if="tab.key === 'stockpools'"
+                            size="small"
+                            type="danger"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:stock:delete:${row.code6}`)"
+                            @click="handleDeleteStockPoolRow(row)"
+                          >
+                            {{ row.secondary_action_label }}
+                          </el-button>
+                        </div>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+              </el-tab-pane>
+            </el-tabs>
+          </div>
+        </section>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 
 import { getGanttStockReasons } from '@/api/ganttApi'
 import {
   SHOUBAN30_STOCK_WINDOW_OPTIONS,
+  addShouban30PrePoolToStockPool,
+  addShouban30StockPoolToMustPool,
+  deleteShouban30PrePoolItem,
+  deleteShouban30StockPoolItem,
+  getShouban30PrePool,
   getShouban30Plates,
+  getShouban30StockPool,
   getShouban30Stocks,
   normalizeShouban30StockWindowDays,
+  replaceShouban30PrePool,
 } from '@/api/ganttShouban30'
 
 import MyHeader from './MyHeader.vue'
@@ -302,6 +444,11 @@ import {
   rebuildPlatesFromFilteredStocks,
   toggleExtraFilter,
 } from './shouban30StockFilters.mjs'
+import {
+  buildCurrentFilterReplacePrePoolPayload,
+  buildSinglePlateReplacePrePoolPayload,
+  buildWorkspaceTabs,
+} from './shouban30PoolWorkspace.mjs'
 
 const VIEW_PROVIDER_OPTIONS = [
   { name: 'xgb', label: 'XGB' },
@@ -326,19 +473,31 @@ const sourceMetaByProvider = ref({ xgb: {}, jygs: {} })
 const sourceStocksByProvider = ref({ xgb: {}, jygs: {} })
 const stockLoadErrorProviders = ref([])
 const selectedExtraFilterKeys = ref([])
+const prePoolItems = ref([])
+const stockPoolItems = ref([])
+const activeWorkspaceTab = ref('pre_pool')
 
 const stockReasons = ref([])
 
 const platesLoading = ref(false)
 const stocksLoading = ref(false)
 const stockReasonsLoading = ref(false)
+const workspaceLoading = ref(false)
 
 const platesError = ref('')
 const stocksError = ref('')
 const stockReasonsError = ref('')
+const workspaceError = ref('')
 
 const selectedPlateViewKey = ref('')
 const selectedStockCode6 = ref('')
+const workspaceActionKey = ref('')
+const workspaceBlkSync = ref(null)
+const workspaceCategories = ref({
+  pre_pool: '',
+  stockpools: '',
+})
+const workspaceBlkFilename = ref('')
 
 let viewRequestId = 0
 let reasonRequestId = 0
@@ -487,6 +646,19 @@ const aggregateStockRowsByPlate = computed(() => {
   )
 })
 
+const currentViewStockRowsByPlate = computed(() => {
+  if (activeViewProvider.value === 'agg') {
+    return aggregateStockRowsByPlate.value
+  }
+  const providerRows = filteredSourceStocksByProvider.value?.[activeViewProvider.value] || {}
+  return Object.fromEntries(
+    currentPlates.value.map((plate) => [
+      toText(plate?.view_key),
+      normalizeList(providerRows[toText(plate?.plate_key)]),
+    ]),
+  )
+})
+
 const statsByView = computed(() => {
   return {
     xgb: buildViewStats({
@@ -559,6 +731,31 @@ const activeExtraFilterLabels = computed(() => {
     .filter((item) => selectedExtraFilterKeys.value.includes(item.key))
     .map((item) => item.label)
 })
+const currentFilterReplacePayload = computed(() => {
+  return buildCurrentFilterReplacePrePoolPayload({
+    plates: currentPlates.value,
+    stockRowsByPlate: currentViewStockRowsByPlate.value,
+    stockWindowDays: stockWindowDays.value,
+    asOfDate: resolvedAsOfDate.value || requestedAsOfDate.value,
+    selectedExtraFilterKeys: selectedExtraFilterKeys.value,
+  })
+})
+const workspaceTabs = computed(() => {
+  return buildWorkspaceTabs({
+    prePoolItems: prePoolItems.value,
+    stockPoolItems: stockPoolItems.value,
+  })
+})
+const workspaceEmptyText = computed(() => {
+  return workspaceLoading.value ? '工作区加载中' : '暂无工作区记录'
+})
+const workspaceBlkSyncLabel = computed(() => {
+  const sync = workspaceBlkSync.value
+  if (!sync?.success) return ''
+  const filePath = toText(sync.file_path)
+  const fileName = filePath.split(/[\\/]/).filter(Boolean).at(-1) || workspaceBlkFilename.value || '-'
+  return `最近 blk 同步 ${sync.count ?? 0} 条 -> ${fileName}`
+})
 
 const plateCountLabel = computed(() => '通过数')
 const stockHitCountLabel = computed(() => `${stockWindowDays.value}次`)
@@ -595,8 +792,139 @@ const buildReasonDetailSubtitle = (row) => {
   return `${formatProvider(row?.provider)} / ${time ? `${date} ${time}` : date}`
 }
 
+const isWorkspaceActionRunning = (key) => workspaceActionKey.value === key
+
+const updateWorkspaceMeta = ({ prePoolResponse, stockPoolResponse } = {}) => {
+  workspaceCategories.value = {
+    pre_pool: toText(prePoolResponse?.meta?.category) || workspaceCategories.value.pre_pool,
+    stockpools: toText(stockPoolResponse?.meta?.category) || workspaceCategories.value.stockpools,
+  }
+  workspaceBlkFilename.value = toText(prePoolResponse?.meta?.blk_filename) || workspaceBlkFilename.value
+}
+
+const updateWorkspaceBlkSync = (response) => {
+  const blkSync = response?.meta?.blk_sync || response?.data?.blk_sync || null
+  if (blkSync) {
+    workspaceBlkSync.value = blkSync
+  }
+}
+
+const loadWorkspace = async () => {
+  workspaceLoading.value = true
+  workspaceError.value = ''
+  try {
+    const [prePoolResponse, stockPoolResponse] = await Promise.all([
+      getShouban30PrePool(),
+      getShouban30StockPool(),
+    ])
+    prePoolItems.value = normalizeList(prePoolResponse?.data?.items)
+    stockPoolItems.value = normalizeList(stockPoolResponse?.data?.items)
+    updateWorkspaceMeta({ prePoolResponse, stockPoolResponse })
+  } catch (error) {
+    workspaceError.value = getErrorMessage(error, '加载工作区失败')
+  } finally {
+    workspaceLoading.value = false
+  }
+}
+
+const runWorkspaceAction = async ({
+  actionKey,
+  action,
+  successMessage,
+  refreshWorkspace = true,
+} = {}) => {
+  workspaceActionKey.value = actionKey
+  workspaceError.value = ''
+  try {
+    const response = await action()
+    updateWorkspaceBlkSync(response)
+    if (refreshWorkspace) {
+      await loadWorkspace()
+    }
+    if (successMessage) {
+      ElMessage.success(successMessage)
+    }
+    return response
+  } catch (error) {
+    const message = getErrorMessage(error, '工作区操作失败')
+    workspaceError.value = message
+    ElMessage.error(message)
+    return null
+  } finally {
+    workspaceActionKey.value = ''
+  }
+}
+
+const buildSinglePlateReplacePayload = (plate) => {
+  return buildSinglePlateReplacePrePoolPayload({
+    plate,
+    stockRowsByPlate: currentViewStockRowsByPlate.value,
+    stockWindowDays: stockWindowDays.value,
+    asOfDate: resolvedAsOfDate.value || requestedAsOfDate.value,
+    selectedExtraFilterKeys: selectedExtraFilterKeys.value,
+  })
+}
+
 const toggleExtraFilterSelection = (key) => {
   selectedExtraFilterKeys.value = toggleExtraFilter(selectedExtraFilterKeys.value, key)
+}
+
+const handleSaveCurrentFilter = async () => {
+  if (!currentFilterReplacePayload.value.items.length) {
+    ElMessage.warning('当前筛选结果为空，无法保存')
+    return
+  }
+  await runWorkspaceAction({
+    actionKey: 'workspace:save-current-filter',
+    action: () => replaceShouban30PrePool(currentFilterReplacePayload.value),
+    successMessage: `已保存 ${currentFilterReplacePayload.value.items.length} 条到 pre_pools`,
+  })
+}
+
+const handleSavePlateToPrePool = async (plate) => {
+  const payload = buildSinglePlateReplacePayload(plate)
+  if (!payload.items.length) {
+    ElMessage.warning('当前板块没有可保存的标的')
+    return
+  }
+  await runWorkspaceAction({
+    actionKey: `workspace:save-plate:${toText(plate?.plate_key)}`,
+    action: () => replaceShouban30PrePool(payload),
+    successMessage: `${toText(plate?.plate_name) || '当前板块'} 已保存到 pre_pools`,
+  })
+}
+
+const handleAddPrePoolToStockPools = async (row) => {
+  await runWorkspaceAction({
+    actionKey: `workspace:pre:add:${toText(row?.code6)}`,
+    action: () => addShouban30PrePoolToStockPool({ code6: row?.code6 }),
+    successMessage: `${toText(row?.code6)} 已加入 stockpools`,
+  })
+}
+
+const handleDeletePrePoolRow = async (row) => {
+  await runWorkspaceAction({
+    actionKey: `workspace:pre:delete:${toText(row?.code6)}`,
+    action: () => deleteShouban30PrePoolItem({ code6: row?.code6 }),
+    successMessage: `${toText(row?.code6)} 已从 pre_pool 删除`,
+  })
+}
+
+const handleAddStockPoolToMustPool = async (row) => {
+  await runWorkspaceAction({
+    actionKey: `workspace:stock:must:${toText(row?.code6)}`,
+    action: () => addShouban30StockPoolToMustPool({ code6: row?.code6 }),
+    successMessage: `${toText(row?.code6)} 已加入 must_pools`,
+    refreshWorkspace: false,
+  })
+}
+
+const handleDeleteStockPoolRow = async (row) => {
+  await runWorkspaceAction({
+    actionKey: `workspace:stock:delete:${toText(row?.code6)}`,
+    action: () => deleteShouban30StockPoolItem({ code6: row?.code6 }),
+    successMessage: `${toText(row?.code6)} 已从 stockpools 删除`,
+  })
 }
 
 const clearDetailState = () => {
@@ -827,6 +1155,10 @@ watch(
     loadStockReasons(normalized)
   },
 )
+
+onMounted(() => {
+  loadWorkspace()
+})
 </script>
 
 <style scoped>
@@ -892,6 +1224,11 @@ watch(
   border-radius: 8px;
 }
 
+.panel-card-workspace {
+  grid-column: 1 / -1;
+  min-height: 320px;
+}
+
 .panel-card-header {
   display: flex;
   justify-content: space-between;
@@ -918,6 +1255,12 @@ watch(
   flex-direction: column;
   align-items: flex-start;
   line-height: 1.15;
+}
+
+.workspace-tab-label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 
 .tab-meta {
@@ -966,6 +1309,18 @@ watch(
 .panel-table {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.workspace-tabs-wrap,
+.workspace-tabs {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.workspace-row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .mono {
