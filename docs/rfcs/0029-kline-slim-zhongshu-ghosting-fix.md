@@ -8,38 +8,40 @@
 
 ## 1. 背景与问题（Background）
 
-`FRE-6` 反馈 `KlineSlim` 页面残影问题仍然存在，但已经明显收敛：
+`FRE-6` 在第一次实现后被重新打开。新的用户补充信息不是“单纯切标的就残影”，而是：
 
-- 残影只局限在 `中枢 / 段中枢 / 高级段中枢` 相关图层；
-- 随着标的切换次数增加，残影会越来越多；
-- 如果关闭 `中枢` 和 `段中枢` 开关，残影会消失。
+- 先切到别的 `symbol`
+- 再进行鼠标缩放 / 平移
+- 然后继续切换 `symbol`
+- 此时残影会留在后续标的上
 
-这说明本轮问题不再是主 K 线、`笔 / 段` 折线或者通用缩放交互，而是更窄的 `markArea` 类图层清理问题。
+这把问题从“普通切标的残影”收敛成了更具体的组合路径问题：`zoom/pan` 交互会把某种图表内部状态带进下一次结构性切换，而残影仍然只集中在 `中枢 / 段中枢 / 高级段中枢` 相关图层。
 
-设计阶段曾给出“结构性切换前缺少 `chart.clear()`”这一主假设，但 2026-03-11 进入实现阶段后补做了两类核验：
+本轮重新进入 `Todo` 后，已经补做了三组调查证据：
 
-1. 直接对当前并行环境 `http://127.0.0.1:18080/kline-slim` 做真实浏览器探测，在 `5m / 15m` 主周期、额外打开 `15m / 30m` legend 的情况下连续多轮切换 `sz002262 -> sh510050 -> sz000001 -> sz002262`，截图哈希保持一致。
-2. 新增并加压的 Playwright 回归在 stub `/api/stock_data` 下同样保持稳定，说明当前目标仓代码上已无法复现“切得越多残影越多”的现象。
+1. 现有自动化存在盲区：`tests/kline-slim-ghosting.browser.spec.mjs` 只覆盖“切标的 + legend”，`tests/kline-slim-zoom-pan.browser.spec.mjs` 只覆盖“缩放后同标的刷新”，没有把“缩放后再切标的”串起来。
+2. 在 deterministic stub `/api/stock_data` 下，按 `sz002262 -> sh510050(缩放/平移) -> sz000001 -> sz002262` 的一次性 Playwright 探针可以稳定复现：回到 `sz002262` 时 `dataZoom.start/end` 已恢复默认 `70/100`，但截图哈希仍然改变。
+3. 用同一条探针在浏览器里临时 monkeypatch “切 `symbol` 前先 `chart.clear()`” 后，基线哈希与回放哈希恢复一致。
 
-因此，本 RFC 在 Approved 后的实际落地范围收敛为：
+因此，本 RFC 的修复方向重新收敛为：
 
-- 把当前“重复切标的后图形稳定、不残留旧中枢图层”的行为固化为自动化回归；
-- 修正浏览器测试基础设施，使 ghosting 与 zoom/pan 规格可合并运行；
-- 暂不对 `kline-slim.js` / `draw-slim.js` 做新的生产逻辑修改，除非出现新的稳定复现样本。
+- 在结构性切换前显式清空 chart 实例；
+- 把“缩放/平移后再切标的”的组合路径固化为浏览器自动化回归；
+- 不扩大到 `draw-slim.js` 绘图模型重写，除非新回归仍然失败。
 
 ## 2. 目标（Goals）
 
-- 修复 `KlineSlim` 在重复切换标的后累积的 `中枢 / 段中枢` 残影。
-- 把浏览器自动化主验收路径收敛到“重复切换 `symbol` 后回到原标的，截图保持一致”。
-- 保持同标的实时轮询刷新不走全量清图。
-- 保持 `FRE-5` 已修好的缩放、平移和视口保持语义不回退。
-- 不改变现有 `/api/stock_data` 契约和图例语义。
+- 修复 `KlineSlim` 在“切标的 -> 缩放/平移 -> 再切标的”路径上的 `中枢 / 段中枢 / 高级段中枢` 残影。
+- 把浏览器自动化主验收路径改成覆盖组合交互，而不是只覆盖普通切标的。
+- 保持同 identity 的实时刷新仍然不做全量清图。
+- 保持 `FRE-5` 已修好的缩放、平移和刷新后视口保持语义不回退。
+- 不改变现有 `/api/stock_data` 契约和 legend 语义。
 
 ## 3. 非目标（Non-Goals）
 
 - 不重写 `draw-slim.js`，不把 `markArea` 改成自绘矩形或自定义 series。
 - 不修改后端接口、Redis payload 或 fullcalc 字段。
-- 不把本票扩展为“所有 period/legend 组合都要重构”。
+- 不把本票扩展为“所有 period / legend 组合的全面重构”。
 - 不新增 WebSocket/SSE 或其它刷新链路。
 - 不做布局改版或 `KlineSlim` 页面功能扩展。
 
@@ -47,10 +49,10 @@
 
 **In Scope**
 
-- `morningglory/fqwebui/tests/kline-slim-multi-period-chanlun.test.mjs` 的文件级回归断言。
-- `morningglory/fqwebui/tests/kline-slim-ghosting.browser.spec.mjs` 的浏览器自动化回归。
-- `morningglory/fqwebui/tests/kline-slim-zoom-pan.browser.spec.mjs` 的合并运行稳定性。
-- `morningglory/fqwebui/package.json` / `pnpm-lock.yaml` 的 Playwright 测试依赖。
+- `morningglory/fqwebui/src/views/js/kline-slim.js` 的结构性切换生命周期。
+- `morningglory/fqwebui/tests/kline-slim-multi-period-chanlun.test.mjs` 的文件级 controller 断言。
+- `morningglory/fqwebui/tests/kline-slim-ghosting.browser.spec.mjs` 的组合路径浏览器回归。
+- `morningglory/fqwebui/tests/kline-slim-zoom-pan.browser.spec.mjs` 的回归保护。
 
 **Out of Scope**
 
@@ -62,15 +64,15 @@
 
 **负责（Must）**
 
-- 验证并固化当前“重复切标的后图形稳定”的现状。
-- 保留当前 steady-state 的 `setOption + dataZoom` 语义，不凭猜测修改生产生命周期。
-- 提供可重复执行的浏览器自动化验收。
+- 修复结构性切换前 chart 未彻底清空导致的前端残影。
+- 保留当前 steady-state 的 `setOption + dataZoom` 语义，不在普通刷新路径清图。
+- 提供可重复执行的浏览器自动化验收，覆盖“缩放后再切标的”。
 
 **不负责（Must Not）**
 
-- 不在未拿到新复现证据前强行引入 `chart.clear()` 一类生产改动。
-- 不把现有图层协议改成新的内部 DSL。
-- 不用截图人工观察替代自动化回归。
+- 不把本票升级成 renderer 层重构。
+- 不新增测试专用生产分支逻辑或后端接口。
+- 不用人工截图观察替代自动化回归。
 
 **依赖（Depends On）**
 
@@ -102,55 +104,55 @@
 - 不新增 Mongo/Redis collection。
 - 不新增环境变量。
 - 不新增 Dynaconf 配置项。
-- 浏览器回归继续使用前端测试中的 stub `/api/stock_data` 数据，按 `symbol` 产出稳定、可区分的 deterministic payload。
+- 浏览器回归继续使用 stub `/api/stock_data`，按 `symbol` 生成稳定、可区分的 deterministic payload。
 
 ## 8. 破坏性变更（Breaking Changes）
 
-无破坏性变更。
+无接口级破坏性变更。
 
-本次修改只调整结构性切换时的前端图表生命周期，不改变接口参数、返回 schema、默认 legend 选中状态和持久配置。
+行为级变化只有一条：
+
+- 切 `symbol / period / endDate` 时会显式清图，因此结构性切换后的视口会回到默认窗口，而不是继承上一个标的的缩放状态。
 
 ## 9. 迁移映射（From `D:\fqpack\freshquant`）
 
 - `D:\fqpack\freshquant\morningglory\fqwebui\src\views\js\kline-slim.js`
   -> `morningglory/fqwebui/src/views/js/kline-slim.js`
-- `D:\fqpack\freshquant\morningglory\fqwebui\src\views\js\draw-slim.js`
-  -> `morningglory/fqwebui/src/views/js/draw-slim.js`
 - `D:\fqpack\freshquant\morningglory\fqwebui\tests\*`
   -> `morningglory/fqwebui/tests/*`
 
 迁移策略：
 
 - 不整页回迁旧仓；
-- 只迁移“结构性切换时强制丢弃旧图实例残留”的语义；
+- 只迁移“结构性切换前显式清图”的生命周期语义；
 - 继续沿用目标仓现有 `FRE-5` 之后收敛出的缩放/平移实现。
 
 ## 10. 测试与验收（Acceptance Criteria）
 
-- [ ] `node --test tests/kline-slim-multi-period-chanlun.test.mjs` 能锁定当前 controller 生命周期语义：route switch 走 loading 路径，`chart.clear()` 仅留在空 symbol / 默认 symbol 分支。
-- [ ] 新增 Playwright 回归：重复切换多个 `symbol`，额外打开 `15m / 30m` legend，保持 `中枢 / 段中枢` 打开，切回初始标的后截图或哈希与初始基线一致。
-- [ ] 同一轮浏览器回归中，关闭 `中枢 / 段中枢` legend 后页面不会留下旧残影。
+- [ ] `node --test tests/kline-slim-multi-period-chanlun.test.mjs` 能锁定 controller 语义：结构性切换前存在显式 `chart.clear()` 路径，普通 `fetchMainData()` 刷新路径不清图。
+- [ ] Playwright 新增组合路径回归：`sz002262 -> sh510050(缩放/平移) -> sz000001 -> sz002262` 后，回到 `sz002262` 的截图或哈希与初始基线一致。
+- [ ] 同一轮组合路径里，关闭 `中枢 / 段中枢` legend 后页面不会留下旧残影。
 - [ ] 现有 `tests/kline-slim-zoom-pan.browser.spec.mjs` 继续通过，证明 `FRE-5` 修复未被回退。
 - [ ] `pnpm build` 通过。
 
 ## 11. 风险与回滚（Risks / Rollback）
 
-- 风险：issue 原始截图可能来自旧部署或更窄的现场条件，当前目标仓已无法直接复现。
-  - 缓解：先把当前稳定行为锁成自动化回归；若用户后续提供新的稳定复现路径，再单开后续修复而不是继续猜测性改代码。
-- 风险：截图型浏览器回归对 stub 数据稳定性敏感。
-  - 缓解：测试中按 `symbol` 固定生成 deterministic payload，并扩大到“多轮切标的 + 额外周期 legend”的压力路径。
-- 风险：ghosting 与 zoom/pan 浏览器规格并发运行时会同时写 `web/`，导致 `EBUSY`。
-  - 缓解：新增共享 build lock，串行化 `vite build`。
+- 风险：结构性切换时视口会被重置，用户可能感觉与缩放后的当前窗口不一致。
+  - 缓解：把这一点作为 Human Review 的明确审批点；同 identity 刷新仍保持视口。
+- 风险：如果真正问题不止于结构性切换清图，浏览器回归仍可能失败。
+  - 缓解：本票先把 controller 生命周期修正为最小闭环；若回归仍红，再单开 renderer follow-up。
+- 风险：浏览器回归对 stub 数据稳定性敏感。
+  - 缓解：测试中按 `symbol` 固定生成 deterministic payload，并把缩放/切标的顺序写死。
 
 回滚：
 
-- 回退 `morningglory/fqwebui/src/views/js/kline-slim.js` 和新增测试文件即可；
+- 回退 `morningglory/fqwebui/src/views/js/kline-slim.js` 和新增测试断言即可；
 - 不涉及后端、部署和数据库变更，回滚成本低。
 
 ## 12. 里程碑与拆分（Milestones）
 
-- M1：RFC / 设计稿 / implementation plan 完成并进入 Human Review
-- M2：核验当前目标仓与并行环境，确认 issue 现象在现代码上是否仍可复现
-- M3：新增 ghosting 浏览器回归并固化当前稳定行为
-- M4：ghosting 与 zoom/pan 回归可合并通过
-- M5：进入 `Merging` 前完成 RED/GREEN 证据整理
+- M1：更新 RFC / 设计稿 / implementation plan，并重新进入 Human Review
+- M2：在自动化里补上“缩放后再切标的”的 RED 证据
+- M3：controller 增加结构性切换显式清图
+- M4：ghosting + zoom/pan 回归同时通过
+- M5：整理 RED/GREEN 证据并重新进入 `In Progress`
