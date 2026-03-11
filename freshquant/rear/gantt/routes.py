@@ -3,6 +3,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 
 import freshquant.data.gantt_readmodel as svc
+import freshquant.shouban30_pool_service as shouban30_pool_service
 
 gantt_bp = Blueprint("gantt", __name__, url_prefix="/api/gantt")
 SHOUBAN30_STOCK_WINDOWS = {30, 45, 60, 90}
@@ -14,6 +15,10 @@ def _bad_request(message: str):
 
 def _conflict(message: str):
     return jsonify({"message": message}), 409
+
+
+def _server_error(message: str):
+    return jsonify({"message": message}), 500
 
 
 def _required_arg(name: str) -> str | None:
@@ -80,6 +85,28 @@ def _resolve_shouban30_chanlun_filter_version(items: list[dict]) -> str | None:
     if not versions:
         return None
     return max(versions)
+
+
+def _request_json_body() -> dict:
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _required_json_str(payload: dict, name: str) -> str:
+    value = str(payload.get(name) or "").strip()
+    if not value:
+        raise ValueError(f"{name} required")
+    return value
+
+
+def _build_shouban30_replace_context(payload: dict) -> dict:
+    return {
+        "replace_scope": str(payload.get("replace_scope") or "").strip(),
+        "stock_window_days": payload.get("stock_window_days"),
+        "as_of_date": str(payload.get("as_of_date") or "").strip(),
+        "selected_extra_filters": list(payload.get("selected_extra_filters") or []),
+        "plate_key": str(payload.get("plate_key") or "").strip(),
+    }
 
 
 @gantt_bp.route("/plates")
@@ -220,3 +247,103 @@ def get_shouban30_stocks():
             }
         }
     )
+
+
+@gantt_bp.route("/shouban30/pre-pool/replace", methods=["POST"])
+def replace_shouban30_pre_pool():
+    payload = _request_json_body()
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        return _bad_request("items required")
+    try:
+        result = shouban30_pool_service.replace_pre_pool(
+            items,
+            _build_shouban30_replace_context(payload),
+        )
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "saved_count": result.get("saved_count", 0),
+                "deleted_count": result.get("deleted_count", 0),
+                "category": result.get("category"),
+            },
+            "meta": {"blk_sync": result.get("blk_sync")},
+        }
+    )
+
+
+@gantt_bp.route("/shouban30/pre-pool")
+def list_shouban30_pre_pool():
+    return jsonify(
+        {
+            "data": {"items": shouban30_pool_service.list_pre_pool()},
+            "meta": {
+                "category": shouban30_pool_service.SHOUBAN30_PRE_POOL_CATEGORY,
+                "blk_filename": shouban30_pool_service.SHOUBAN30_BLK_FILENAME,
+            },
+        }
+    )
+
+
+@gantt_bp.route("/shouban30/pre-pool/add-to-stock-pools", methods=["POST"])
+def add_shouban30_pre_pool_to_stock_pool():
+    try:
+        code6 = _required_json_str(_request_json_body(), "code6")
+        status = shouban30_pool_service.add_pre_pool_item_to_stock_pool(code6)
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify({"data": {"status": status}})
+
+
+@gantt_bp.route("/shouban30/pre-pool/delete", methods=["POST"])
+def delete_shouban30_pre_pool_item():
+    try:
+        code6 = _required_json_str(_request_json_body(), "code6")
+        result = shouban30_pool_service.delete_pre_pool_item(code6)
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify({"data": result})
+
+
+@gantt_bp.route("/shouban30/stock-pool")
+def list_shouban30_stock_pool():
+    return jsonify(
+        {
+            "data": {"items": shouban30_pool_service.list_stock_pool()},
+            "meta": {
+                "category": shouban30_pool_service.SHOUBAN30_STOCK_POOL_CATEGORY,
+            },
+        }
+    )
+
+
+@gantt_bp.route("/shouban30/stock-pool/add-to-must-pool", methods=["POST"])
+def add_shouban30_stock_pool_to_must_pool():
+    try:
+        code6 = _required_json_str(_request_json_body(), "code6")
+        status = shouban30_pool_service.add_stock_pool_item_to_must_pool(code6)
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify({"data": {"status": status}})
+
+
+@gantt_bp.route("/shouban30/stock-pool/delete", methods=["POST"])
+def delete_shouban30_stock_pool_item():
+    try:
+        code6 = _required_json_str(_request_json_body(), "code6")
+        result = shouban30_pool_service.delete_stock_pool_item(code6)
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify({"data": result})

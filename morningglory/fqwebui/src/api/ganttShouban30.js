@@ -54,3 +54,65 @@ export const getShouban30Stocks = ({
     }
   })
 }
+
+export const replaceShouban30PrePool = (payload = {}) => {
+  return http({
+    url: '/api/gantt/shouban30/pre-pool/replace',
+    method: 'post',
+    data: payload
+  })
+}
+
+export const getShouban30PrePool = () => {
+  return http({
+    url: '/api/gantt/shouban30/pre-pool',
+    method: 'get'
+  })
+}
+
+export const addShouban30PrePoolToStockPool = ({ code6 } = {}) => {
+  return http({
+    url: '/api/gantt/shouban30/pre-pool/add-to-stock-pools',
+    method: 'post',
+    data: {
+      code6: String(code6 || '').trim()
+    }
+  })
+}
+
+export const deleteShouban30PrePoolItem = ({ code6 } = {}) => {
+  return http({
+    url: '/api/gantt/shouban30/pre-pool/delete',
+    method: 'post',
+    data: {
+      code6: String(code6 || '').trim()
+    }
+  })
+}
+
+export const getShouban30StockPool = () => {
+  return http({
+    url: '/api/gantt/shouban30/stock-pool',
+    method: 'get'
+  })
+}
+
+export const addShouban30StockPoolToMustPool = ({ code6 } = {}) => {
+  return http({
+    url: '/api/gantt/shouban30/stock-pool/add-to-must-pool',
+    method: 'post',
+    data: {
+      code6: String(code6 || '').trim()
+    }
+  })
+}
+
+export const deleteShouban30StockPoolItem = ({ code6 } = {}) => {
+  return http({
+    url: '/api/gantt/shouban30/stock-pool/delete',
+    method: 'post',
+    data: {
+      code6: String(code6 || '').trim()
+    }
+  })
+}

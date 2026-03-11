@@ -13,6 +13,13 @@
 
 ## 变更记录
 
+- **日期**：2026-03-11
+- **RFC**：0031-gantt-shouban30-pool-persistence-and-blk-sync
+- **变更**：`/gantt/shouban30` 从“纯只读盘后快照页”扩展为“读快照 + 写工作区”页面。前端新增 `筛选`、板块级 `保存到 pre_pools`、`pre_pool / stockpools` 标签页，以及 `加入 stockpools / 加入 must_pools / 删除` 行级动作；后端新增 `POST/GET /api/gantt/shouban30/pre-pool*` 与 `stock-pool*` 页面专用接口。当前仓正式接管 `30RYZT.blk`，其内容只镜像 `stock_pre_pools.category = "三十涨停Pro预选"` 的当前工作区顺序，而不再沿用人工维护或整表镜像语义。同时 `stock_pre_pools / stock_pools` 新增 `三十涨停Pro预选 / 三十涨停Pro自选` 两个专用分类，`加入 must_pools` 固定沿用旧页默认参数 `0.1 / 50000 / 50000 / forever=true / category=三十涨停Pro`。
+- **影响面**：`/gantt/shouban30` 页面用户、依赖旧“只读页面”假设的脚本/文档、手工维护 `30RYZT.blk` 的操作习惯，以及直接查看 `stock_pre_pools / stock_pools` 的调用方都会受到影响；这些调用方现在会看到新增分类，并且 `30RYZT.blk` 的覆盖写时机由页面工作区动作驱动。
+- **迁移步骤**：1) 部署包含 RFC 0031 的前后端代码；2) 确保运行环境设置 `TDX_HOME`，使 `30RYZT.blk` 可写到 `%TDX_HOME%/T0002/blocknew/30RYZT.blk`；3) 在 `/gantt/shouban30` 页面使用 `筛选` 或板块级 `保存到 pre_pools` 生成 `三十涨停Pro预选` 工作区；4) 通过 `pre_pool / stockpools` 标签页继续执行 `加入 stockpools / 加入 must_pools / 删除`；5) 如有依赖旧只读语义或旧 blk 手工维护流程的说明文档/自动化，需同步更新。
+- **回滚方案**：回退 `freshquant/shouban30_pool_service.py`、`freshquant/rear/gantt/routes.py`、`morningglory/fqwebui/src/api/ganttShouban30.js`、`morningglory/fqwebui/src/views/GanttShouban30Phase1.vue` 与相关 helper/test/build 产物；必要时删除 `三十涨停Pro预选 / 三十涨停Pro自选` 分类记录，并恢复人工维护 `30RYZT.blk`。
+
 - **日期**：2026-03-10
 - **RFC**：0028-symphony-first-governance
 - **变更**：FreshQuant 的正式开发治理从“`AGENTS.md` 主导的 `worktree-first + reviewer-first`”切换为“`Linear-first + Symphony-first + design-approval-first`”。正式开发的唯一入口改为 `Linear issue`；默认合法工作区改为 `Symphony-managed workspace/repo copy`；唯一人工门收敛为 `Human Review -> In Progress`；设计阶段不开 PR，进入 `In Progress` 后再创建 `Draft PR`。GitHub reviewer approve 不再是仓内强制人工门，但 `feature branch -> PR -> merge`、CI 全绿与 review discussion 清零仍保留。仓库同时新增 repo-versioned `runtime/symphony/*` 模板与宿主机正式 runner/启动/同步/安装脚本，用于把 Symphony 作为 Windows 常驻编排器运行。

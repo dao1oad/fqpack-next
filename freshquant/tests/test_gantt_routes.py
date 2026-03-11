@@ -1,3 +1,5 @@
+import types
+
 from flask import Flask
 
 
@@ -408,3 +410,174 @@ def test_get_shouban30_plates_rejects_invalid_stock_window_days():
     assert (
         response.get_json()["message"] == "stock_window_days must be one of 30|45|60|90"
     )
+
+
+def test_replace_shouban30_pre_pool_requires_items(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post("/api/gantt/shouban30/pre-pool/replace", json={})
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "items required"
+
+
+def test_replace_shouban30_pre_pool_returns_blk_sync_meta(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    def fake_replace(items, context):
+        assert items == [{"code6": "600001", "name": "alpha"}]
+        assert context == {
+            "replace_scope": "current_filter",
+            "stock_window_days": 30,
+            "as_of_date": "2026-03-06",
+            "selected_extra_filters": ["chanlun_passed"],
+            "plate_key": "",
+        }
+        return {
+            "saved_count": 1,
+            "deleted_count": 2,
+            "category": "三十涨停Pro预选",
+            "blk_sync": {
+                "success": True,
+                "file_path": "D:/tdx/T0002/blocknew/30RYZT.blk",
+                "count": 1,
+            },
+        }
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(replace_pre_pool=fake_replace),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post(
+        "/api/gantt/shouban30/pre-pool/replace",
+        json={
+            "items": [{"code6": "600001", "name": "alpha"}],
+            "replace_scope": "current_filter",
+            "stock_window_days": 30,
+            "as_of_date": "2026-03-06",
+            "selected_extra_filters": ["chanlun_passed"],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["data"] == {
+        "saved_count": 1,
+        "deleted_count": 2,
+        "category": "三十涨停Pro预选",
+    }
+    assert payload["meta"] == {
+        "blk_sync": {
+            "success": True,
+            "file_path": "D:/tdx/T0002/blocknew/30RYZT.blk",
+            "count": 1,
+        }
+    }
+
+
+def test_list_shouban30_pre_pool_reads_workspace_items(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(
+            SHOUBAN30_PRE_POOL_CATEGORY="三十涨停Pro预选",
+            SHOUBAN30_BLK_FILENAME="30RYZT.blk",
+            list_pre_pool=lambda: [
+                {
+                    "code6": "600001",
+                    "name": "alpha",
+                    "category": "三十涨停Pro预选",
+                }
+            ],
+        ),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.get("/api/gantt/shouban30/pre-pool")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["data"]["items"] == [
+        {
+            "code6": "600001",
+            "name": "alpha",
+            "category": "三十涨停Pro预选",
+        }
+    ]
+    assert payload["meta"] == {
+        "category": "三十涨停Pro预选",
+        "blk_filename": "30RYZT.blk",
+    }
+
+
+def test_add_shouban30_pre_pool_item_to_stock_pool(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(
+            add_pre_pool_item_to_stock_pool=lambda code6: (
+                "created" if code6 == "600001" else "unexpected"
+            )
+        ),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post(
+        "/api/gantt/shouban30/pre-pool/add-to-stock-pools",
+        json={"code6": "600001"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {"status": "created"}
+
+
+def test_add_shouban30_stock_pool_item_to_must_pool(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(
+            add_stock_pool_item_to_must_pool=lambda code6: (
+                "created" if code6 == "600001" else "unexpected"
+            )
+        ),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post(
+        "/api/gantt/shouban30/stock-pool/add-to-must-pool",
+        json={"code6": "600001"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {"status": "created"}
