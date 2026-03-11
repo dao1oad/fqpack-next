@@ -37,6 +37,12 @@
 - 本目录中的文件是 **版本化模板**
 - 真实运行时的 `LINEAR_API_KEY`、project slug、GitHub/Codex 凭据通过环境变量或外部安全注入提供
 - 当前不强制先接 webhook，继续使用 30 秒轮询
+- 正式运行继续使用**单实例 orchestrator + 按状态并发**：
+  - `Todo=1`
+  - `In Progress=2`
+  - `Rework=1`
+  - `Merging=1`
+- 只有实现阶段允许双并发；设计、返工和部署阶段保持保守串行
 - `Merging` 阶段负责 merge、按变更矩阵执行部署和部署后健康检查；只有部署成功才能进入 `Done`
 - `Human Review` 评论必须一次性列出全部待决策项、推荐方案与理由；未决项未清零前，不得进入 `In Progress`
 - 进入 `Merging` 前必须在 Linear 留下 PR 结果评论

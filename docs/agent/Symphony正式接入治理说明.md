@@ -177,6 +177,19 @@ GitHub reviewer approve 不再是仓内强制人工门。
 
 第一阶段继续使用当前 `30s` Linear 轮询，不强制先接 webhook。
 
+正式运行面当前采用单实例 orchestrator，并按 issue 状态限流：
+
+- `Todo = 1`
+- `In Progress = 2`
+- `Rework = 1`
+- `Merging = 1`
+
+这意味着：
+
+- 设计阶段保持串行，避免多个设计票同时读取大量仓库上下文
+- 实现阶段最多允许两个 issue 同时运行
+- 返工与部署阶段保持单槽，避免 review、部署和宿主机服务操作互相抢占
+
 只要 issue 进入 active states：
 
 - `Todo`
@@ -192,6 +205,7 @@ Symphony 就会在下一个轮询周期内感知并调度它。
 - 设计批准前：不编码
 - 设计批准：靠 `Human Review -> In Progress`
 - 正式开发：默认由 Symphony 自动执行
+- 正式并发：最多同时处理 2 个 issue，且只有 `In Progress` 允许双并发
 - 正式完成：必须是 merge + deploy + health check 全部成功
 - 高风险路径：必须在 RFC 里明确列入范围
 
