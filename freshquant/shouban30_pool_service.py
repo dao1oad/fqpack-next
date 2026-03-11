@@ -59,7 +59,9 @@ def _sorted_pre_pool_docs():
 
 
 def _sorted_stock_pool_docs():
-    docs = list(DBfreshquant["stock_pools"].find({"category": SHOUBAN30_STOCK_POOL_CATEGORY}))
+    docs = list(
+        DBfreshquant["stock_pools"].find({"category": SHOUBAN30_STOCK_POOL_CATEGORY})
+    )
     return sorted(
         docs,
         key=lambda item: (item.get("datetime") or datetime.min, item.get("code", "")),
@@ -174,7 +176,10 @@ def add_pre_pool_item_to_stock_pool(code6):
     if existing is None:
         DBfreshquant["stock_pools"].insert_one(target_doc)
         return "created"
-    if existing.get("name") == target_doc["name"] and existing.get("extra") == target_doc["extra"]:
+    if (
+        existing.get("name") == target_doc["name"]
+        and existing.get("extra") == target_doc["extra"]
+    ):
         return "already_exists"
     DBfreshquant["stock_pools"].update_one(
         {"code": code6, "category": SHOUBAN30_STOCK_POOL_CATEGORY},

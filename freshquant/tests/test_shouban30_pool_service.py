@@ -33,9 +33,7 @@ class FakeCollection:
 
     def find(self, query=None):
         query = query or {}
-        return FakeCursor(
-            [dict(doc) for doc in self.docs if _matches(doc, query)]
-        )
+        return FakeCursor([dict(doc) for doc in self.docs if _matches(doc, query)])
 
     def find_one(self, query=None):
         query = query or {}
@@ -135,7 +133,9 @@ def _import_service_with_stubs(monkeypatch):
     return service, called
 
 
-def test_replace_pre_pool_only_replaces_shouban30_workspace_category(monkeypatch, tmp_path):
+def test_replace_pre_pool_only_replaces_shouban30_workspace_category(
+    monkeypatch, tmp_path
+):
     service, _ = _import_service_with_stubs(monkeypatch)
     fake_db = FakeDB(
         stock_pre_pools=FakeCollection(
@@ -321,6 +321,4 @@ def test_add_stock_pool_item_to_must_pool_uses_default_arguments(monkeypatch):
     result = service.add_stock_pool_item_to_must_pool("600001")
 
     assert result == "created"
-    assert called["must_pool"] == [
-        ("600001", "三十涨停Pro", 0.1, 50000, 50000, True)
-    ]
+    assert called["must_pool"] == [("600001", "三十涨停Pro", 0.1, 50000, 50000, True)]
