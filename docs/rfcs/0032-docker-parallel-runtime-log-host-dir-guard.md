@@ -89,7 +89,7 @@
 - 在脚本进程内导出正确的 `FQ_COMPOSE_ENV_FILE`
 
 错误语义：
-- 如果无法解析主工作区路径、宿主机运行观测目录不存在或主工作区 `.env` 不存在，脚本直接退出非零
+- 如果无法解析主工作区路径、无法创建宿主机运行观测目录或主工作区 `.env` 不存在，脚本直接退出非零
 - 如果直接运行 `docker compose` 且未设置 `FQ_RUNTIME_LOG_HOST_DIR` 或 `FQ_COMPOSE_ENV_FILE`，Compose 在变量展开阶段直接失败
 
 兼容性策略：
@@ -103,6 +103,7 @@
 - 新增强制环境变量：`FQ_COMPOSE_ENV_FILE`
 - 标准值：`<主工作区>\logs\runtime`
 - 标准值：`<主工作区>\.env`
+- 标准脚本会在首次启动时自动创建缺失的 `logs/runtime`
 - `docker/compose.parallel.yaml` 中不再使用 `../logs/runtime` 作为默认回退
 - `docker/compose.parallel.yaml` 中所有 `env_file` 统一改为显式读取 `FQ_COMPOSE_ENV_FILE`
 - 启动脚本通过 Git worktree 信息解析主工作区，再拼出 `logs/runtime` 与 `.env`

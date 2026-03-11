@@ -65,7 +65,7 @@ Expected: PASS
 - 否则调用 `script/docker_parallel_runtime.py`
 - 若已显式设置 `FQ_COMPOSE_ENV_FILE`，直接使用
 - 否则调用 `script/docker_parallel_runtime.py`
-- 校验目录与 `.env` 都存在
+- 若 runtime 目录不存在则先创建，再校验 `.env` 存在
 - 执行 `docker compose -f docker/compose.parallel.yaml ...`
 
 **Step 2: `up` 脚本参数**

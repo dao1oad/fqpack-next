@@ -68,6 +68,7 @@
 - `docker_parallel_compose.ps1`
   - 统一解析或读取 `FQ_RUNTIME_LOG_HOST_DIR`
   - 统一解析或读取 `FQ_COMPOSE_ENV_FILE`
+  - 若 `logs/runtime` 不存在则自动创建
   - 透传任意 `docker compose` 子命令
 - `docker_parallel_up.ps1`
   - 作为 `up -d --build` 的薄包装

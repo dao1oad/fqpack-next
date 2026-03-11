@@ -100,6 +100,7 @@ powershell -ExecutionPolicy Bypass -File script/docker_parallel_up.ps1
 
 - `FQ_RUNTIME_LOG_HOST_DIR` 指向主工作区的 `logs/runtime`
 - `FQ_COMPOSE_ENV_FILE` 指向主工作区的 `.env`
+- 若主工作区 `logs/runtime` 不存在，则先自动创建再启动
 
 其他 compose 子命令统一用：
 

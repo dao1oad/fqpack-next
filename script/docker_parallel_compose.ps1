@@ -24,7 +24,7 @@ if (-not $env:FQ_COMPOSE_ENV_FILE) {
 }
 
 if (-not (Test-Path $env:FQ_RUNTIME_LOG_HOST_DIR)) {
-    throw "FQ_RUNTIME_LOG_HOST_DIR does not exist: $($env:FQ_RUNTIME_LOG_HOST_DIR)"
+    New-Item -ItemType Directory -Path $env:FQ_RUNTIME_LOG_HOST_DIR -Force | Out-Null
 }
 
 if (-not (Test-Path $env:FQ_COMPOSE_ENV_FILE)) {
