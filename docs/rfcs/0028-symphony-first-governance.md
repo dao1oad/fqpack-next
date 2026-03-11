@@ -57,6 +57,7 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - 远端 `feature branch`、`Draft PR`、CI 与 merge 的正式策略
 - `Merging` 阶段的自动部署、部署后健康检查与失败回路
 - `subagent-driven-development + TDD` 的默认实现期方法论
+- 单实例 orchestrator 下的按状态 issue 级并发策略
 - `AGENTS.md`、`docs/agent/*`、`docs/migration/*` 与 repo-versioned `runtime/symphony/*` 模板改写
 - 宿主机正式运行目录、正式 runner、启动脚本与 `NSSM` 服务安装脚本
 
@@ -138,10 +139,23 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - 若失败稳定复现且需要改代码或配置，转入 `Rework`
 - 第一阶段不允许自动回滚
 
+### 6.5 并发语义
+
+- 第一阶段继续保持单实例 `Symphony` orchestrator
+- issue 级并发采用按状态配置，而不是一刀切的全局并发
+- 正式默认值：
+  - `Todo = 1`
+  - `In Progress = 2`
+  - `Rework = 1`
+  - `Merging = 1`
+- 设计阶段与部署阶段保持保守串行
+- 只有实现阶段允许最多两个 issue 并行执行
+
 ## 7. 数据与配置（Data / Config）
 
 - 任务源：`Linear`
 - 轮询模式：默认 30 秒
+- 正式并发模式：单实例 orchestrator + issue 级按状态限流
 - repo-versioned workflow 模板目录：`runtime/symphony/`
 - 正式工作流文件：`runtime/symphony/WORKFLOW.freshquant.md`
 - 宿主机运行根目录：`D:\fqpack\runtime\symphony-service\`
@@ -216,6 +230,7 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - [ ] 进入 `Merging` 前会在 `Linear` 留下结构化 PR 结果评论。
 - [ ] `Done` 以“PR 合并 + 自动部署成功 + 健康检查通过”为前提。
 - [ ] `Done` 前会在 `Linear` 留下结构化部署评论。
+- [ ] 正式 workflow 已将 issue 级并发收口为 `Todo=1 / In Progress=2 / Rework=1 / Merging=1`。
 - [ ] Docker 并行运行面与 Symphony 宿主机运行面的自动部署矩阵已被文档和 workflow 模板明确约束。
 - [ ] 高风险目录与操作边界在治理文档中被明确约束。
 

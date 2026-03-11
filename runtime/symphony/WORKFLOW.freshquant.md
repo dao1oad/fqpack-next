@@ -14,7 +14,12 @@ hooks:
   after_create: |
     git clone --depth 1 ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git .
 agent:
-  max_concurrent_agents: 1
+  max_concurrent_agents: 2
+  max_concurrent_agents_by_state:
+    Todo: 1
+    In Progress: 2
+    Rework: 1
+    Merging: 1
   max_turns: 60
 codex:
   command: codex --config shell_environment_policy.inherit=all app-server
