@@ -38,6 +38,39 @@ function Resolve-CommandPath {
     return $null
 }
 
+function Resolve-OpenAISymphonyRoot {
+    param(
+        [string]$RequestedPath
+    )
+
+    $candidates = @()
+
+    foreach ($name in 'FRESHQUANT_OPENAI_SYMPHONY_ROOT', 'OPENAI_SYMPHONY_ROOT') {
+        $value = Get-EnvValue -Name $name
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            $candidates += $value
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
+        $candidates += $RequestedPath
+    }
+
+    $candidates += @(
+        'D:\fqpack\tools\dao1oad-symphony\elixir',
+        'D:\fqpack\tools\openai-symphony\elixir'
+    )
+
+    foreach ($candidate in $candidates) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
+            return [System.IO.Path]::GetFullPath($candidate).TrimEnd('\')
+        }
+    }
+
+    $message = ($candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique) -join ', '
+    throw "OpenAI Symphony elixir root not found. Checked: $message"
+}
+
 function Add-PathPrefix {
     param(
         [Parameter(Mandatory = $true)]
@@ -94,9 +127,7 @@ if (-not (Test-Path $runnerPath)) {
     throw "Runner file not found: $runnerPath"
 }
 
-if (-not (Test-Path $OpenAISymphonyRoot)) {
-    throw "OpenAI Symphony elixir root not found: $OpenAISymphonyRoot"
-}
+$OpenAISymphonyRoot = Resolve-OpenAISymphonyRoot -RequestedPath $OpenAISymphonyRoot
 
 if (-not $mixPath) {
     $mixCommand = Get-Command mix.bat -ErrorAction SilentlyContinue

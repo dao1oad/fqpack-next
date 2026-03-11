@@ -22,6 +22,10 @@
   - `prompts/merging.md`
 - 审批评论模板：
   - `templates/human_review_comment.md`
+- PR 结果评论模板：
+  - `templates/pr_completion_comment.md`
+- 部署评论模板：
+  - `templates/deployment_comment.md`
 - 正式宿主机脚本：
   - `scripts/freshquant_runner.exs`
   - `scripts/start_freshquant_symphony.ps1`
@@ -34,4 +38,7 @@
 - 真实运行时的 `LINEAR_API_KEY`、project slug、GitHub/Codex 凭据通过环境变量或外部安全注入提供
 - 当前不强制先接 webhook，继续使用 30 秒轮询
 - `Merging` 阶段负责 merge、按变更矩阵执行部署和部署后健康检查；只有部署成功才能进入 `Done`
+- `Human Review` 评论必须一次性列出全部待决策项、推荐方案与理由；未决项未清零前，不得进入 `In Progress`
+- 进入 `Merging` 前必须在 Linear 留下 PR 结果评论
+- 进入 `Done` 前必须在 Linear 留下部署评论
 - 宿主机正式运行说明见：`docs/agent/Symphony宿主机服务部署说明.md`
