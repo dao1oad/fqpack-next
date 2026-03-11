@@ -120,6 +120,7 @@ export default {
       mainVersion: '',
       chanlunVersionMap: {},
       lastRenderedVersion: '',
+      lastStructuralRouteKey: '',
       lastMainBarLabel: '--',
       lastError: '',
       resolvingDefaultSymbol: false,
@@ -424,6 +425,7 @@ export default {
       if (!this.routeSymbol && shouldResolveDefaultSymbol(this.$route.query)) {
         this.routeToken += 1
         this.defaultSymbolResolveError = ''
+        this.lastStructuralRouteKey = ''
         this.resetSlimDataState()
         this.stopPolling()
         this.resolvingDefaultSymbol = true
@@ -452,14 +454,30 @@ export default {
       }
 
       this.routeToken += 1
+      const nextStructuralRouteKey = JSON.stringify({
+        symbol: this.routeSymbol || '',
+        period: this.currentPeriod,
+        endDate: this.endDateModel || ''
+      })
+      const previousStructuralRouteKey = this.lastStructuralRouteKey
+      const shouldHardResetChart =
+        !!this.chart &&
+        !!this.routeSymbol &&
+        !!previousStructuralRouteKey &&
+        previousStructuralRouteKey !== nextStructuralRouteKey
+      this.lastStructuralRouteKey = nextStructuralRouteKey
       this.resetSlimDataState()
       this.stopPolling()
 
+      if (shouldHardResetChart) {
+        this.chart.clear()
+      }
       if (this.chart && this.routeSymbol) {
         this.chart.showLoading(echartsConfig.loadingOption)
       }
 
       if (!this.routeSymbol) {
+        this.lastStructuralRouteKey = ''
         if (this.chart) {
           this.chart.clear()
           this.chart.hideLoading()
