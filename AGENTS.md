@@ -65,7 +65,7 @@
   - **禁止编码**
 - `Human Review`
   - 唯一人工门
-  - 流程暂停，等待人类审阅设计
+  - 流程暂停，等待人类审阅设计并关闭全部待决策项
 - `In Progress`
   - 只有当 issue 从 `Human Review` 进入 `In Progress`，才允许编码
 - `Rework`
@@ -80,6 +80,17 @@
 - **`Human Review -> In Progress` 的状态迁移**
 
 `Linear comment` 只承载意见，不承载批准真值。
+
+`Human Review` 的补充硬规则：
+
+- 进入 `Human Review` 前，结构化 `Linear comment` 必须一次性列出全部待决策项。
+- 每个待决策项必须包含：
+  - 决策问题
+  - 推荐方案
+  - 推荐理由
+  - 需要人类明确给出的最终结论
+- 如果没有待决策项，也必须明确写出“无待决策项”。
+- **只要还有待决策项未明确结论，就不允许进入 `In Progress`**。
 
 以下任一情况 **必须** 先写 RFC 并通过评审：
 - 新增顶级模块（例如新增 `freshquant/<module>/` 目录，或新增稳定公共 API 面）。
@@ -101,6 +112,23 @@
 - implementation plan 内的 `task checklist`
 - `docs/migration/progress.md` 更新
 - 一条结构化 `Linear comment`
+
+进入 `Merging` 前必须补充一条结构化 `Linear comment`，至少包含：
+
+- 解决的问题
+- 解决方案及理由
+- 修改的文件
+- 测试与验证结果
+- 经验积累 / 后续注意事项
+- PR 链接
+
+进入 `Done` 前必须补充一条结构化部署 `Linear comment`，至少包含：
+
+- 部署范围
+- 执行的部署动作
+- 健康检查结果
+- 重试 / 失败情况
+- 最终部署结果
 
 落地顺序（严格执行）：
 1) 新建/领取 `Linear issue`
@@ -160,6 +188,7 @@ PR 合并策略（项目强制约束）：
 - **合并顺序固定**：仅允许“`Linear issue` -> `Symphony workspace` -> `feature branch` -> `Draft PR` -> 合并到远程 `main` -> 本地 `main` fast-forward 同步远程 `main`”这一条路径。
 - **设计阶段不开 PR**：只有 issue 进入 `In Progress` 后才创建 `Draft PR`。
 - **`Done` 必须包含部署成功**：`Merging` 阶段必须完成合并、按变更矩阵执行自动部署，并通过部署后健康检查；部署失败先在 `Merging` 自动重试，必要时回到 `Rework`。
+- **`Done` 必须包含 Linear 部署留痕**：`Merging -> Done` 前必须把部署动作、健康检查和最终结果写回对应 `Linear issue`，没有留痕视为未完成。
 - PR 必须满足：
   - CI 全绿（`CI / governance`、`CI / pre-commit`、`CI / pytest`）
   - 解决所有 review discussion 后再合并

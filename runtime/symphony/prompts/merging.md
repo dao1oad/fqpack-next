@@ -8,7 +8,8 @@ Required behavior:
 - Merge the PR to the remote `main` branch.
 - Deploy every required runtime surface based on changed paths.
 - Run post-deploy health checks.
-- Only move the issue to `Done` after merge and deploy succeed.
+- Post a structured deployment comment to Linear.
+- Only move the issue to `Done` after merge, deploy, health checks, and deployment trace succeed.
 
 Deployment matrix:
 
@@ -29,6 +30,7 @@ Hard rules:
 
 - Do not mark `Done` after merge alone.
 - Do not skip post-deploy health checks.
+- Do not mark `Done` without a deployment comment in Linear.
 - Do not auto-rollback.
 - Do not modify secrets.
 - Do not run high-risk production or live trading operations.
