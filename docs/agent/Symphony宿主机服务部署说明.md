@@ -68,12 +68,20 @@ description: FreshQuant 在 Windows 宿主机上以正式服务形态运行 Symp
 正式运行至少需要：
 
 - `LINEAR_API_KEY`
+- 可选但推荐：
+  - `FRESHQUANT_OPENAI_SYMPHONY_ROOT`
 - 必要时：
   - `HTTP_PROXY`
   - `HTTPS_PROXY`
   - `ALL_PROXY`
 
 建议把这些值配置成当前账号的 **用户环境变量**，而不是只在某个临时 PowerShell 会话里设置。
+
+如果要启用项目维护的 Symphony UI 扩展（如 `Observe / Plan tasks / Subagent tasks` 面板），建议把：
+
+- `FRESHQUANT_OPENAI_SYMPHONY_ROOT=D:\fqpack\tools\dao1oad-symphony\elixir`
+
+写入当前账号的用户环境变量。服务脚本会优先读取这个值；未设置时才继续使用默认的 `D:\fqpack\tools\openai-symphony\elixir`。
 
 ## 6. 同步模板到运行目录
 
@@ -123,6 +131,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/install_freshq
 - 但 Windows Service 仍然需要当前账号密码来把服务绑定到该账号
 - 如果不是在提升权限 PowerShell 中执行，安装脚本会直接失败，不再尝试半途注册服务
 - 当 `LimitBlankPasswordUse = 0` 时，安装脚本允许空密码账号继续安装服务
+- 服务脚本会优先使用用户环境变量 `FRESHQUANT_OPENAI_SYMPHONY_ROOT` 指向的 Symphony 运行根目录
 - 如果 `NSSM` 不在 `PATH` 中，也可以显式传入：
 
 ```powershell
@@ -191,6 +200,14 @@ Invoke-WebRequest http://127.0.0.1:40123/api/v1/state
    - `Invoke-WebRequest http://127.0.0.1:40123/api/v1/state`
 4. 通过 `/api/v1/state` 与日志确认新版本生效
 5. 只有部署成功后，对应 issue 才能进入 `Done`
+
+如果这次升级还包含 Symphony UI 扩展代码本身，而这些代码暂时位于项目维护的 fork 中，则升级顺序应为：
+
+1. 更新 `D:\fqpack\tools\dao1oad-symphony`
+2. 确认 `FRESHQUANT_OPENAI_SYMPHONY_ROOT` 指向 `D:\fqpack\tools\dao1oad-symphony\elixir`
+3. 再执行 `sync_freshquant_symphony_service.ps1`
+4. 重启 `fq-symphony-orchestrator`
+5. 访问 `http://127.0.0.1:40123/` 验证新的观察面板是否生效
 
 ## 11. 回滚流程
 

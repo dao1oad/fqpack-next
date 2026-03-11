@@ -30,6 +30,7 @@ Linear 正式状态机如下：
 - `Human Review`
   - 唯一人工门
   - 设计审批暂停态
+  - 负责关闭全部待决策项
 - `In Progress`
   - 设计已批准
   - 允许编码、测试、PR、CI 跟踪
@@ -50,6 +51,13 @@ Linear 正式状态机如下：
 
 `Linear comment` 只承载意见，不承载批准真值。
 
+补充规则：
+
+- `Human Review` 评论必须一次性列出全部待决策项
+- 每个待决策项都必须带推荐方案和推荐理由
+- 如果没有待决策项，也必须明确写出 `No open decision items`
+- 只要仍有待决策项未明确结论，就不允许进入 `In Progress`
+
 进入 `Human Review` 前，必须先产出：
 
 - RFC
@@ -57,6 +65,23 @@ Linear 正式状态机如下：
 - implementation plan 内的 `task checklist`
 - `docs/migration/progress.md` 更新
 - 一条结构化 `Linear comment`
+
+进入 `Merging` 前，还必须在 `Linear` 留一条结构化 PR 结果评论，至少包含：
+
+- 解决的问题
+- 解决方案及理由
+- 修改的文件
+- 测试与验证结果
+- 经验积累 / 后续注意事项
+- PR 链接
+
+进入 `Done` 前，还必须在 `Linear` 留一条结构化部署评论，至少包含：
+
+- 部署范围
+- 执行的部署动作
+- 健康检查结果
+- 重试 / 失败情况
+- 最终部署结果
 
 设计阶段不开 PR，避免形成第二审批面。
 
@@ -83,6 +108,7 @@ GitHub reviewer approve 不再是仓内强制人工门。
   - PR 已合并
   - 所需部署动作全部成功
   - 部署后健康检查全部通过
+  - 部署留痕已写回 `Linear`
 
 部署矩阵如下：
 
@@ -94,6 +120,11 @@ GitHub reviewer approve 不再是仓内强制人工门。
   - `Invoke-WebRequest http://127.0.0.1:40123/api/v1/state`
 
 部署失败默认留在 `Merging` 自动重试；若失败稳定复现且需要改代码或配置，才回到 `Rework`。
+
+`Merging -> Done` 的额外硬门禁：
+
+- 没有结构化部署评论，不允许 `Done`
+- 这条评论必须足够让人类从 `Linear` 直接复盘部署动作与结果
 
 ## 5. 默认执行模式
 

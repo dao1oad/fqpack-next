@@ -92,6 +92,14 @@ $copyMap = @(
         Destination = (Join-Path $configRoot 'templates\human_review_comment.md')
     },
     @{
+        Source = (Join-Path $sourceConfigRoot 'templates\pr_completion_comment.md')
+        Destination = (Join-Path $configRoot 'templates\pr_completion_comment.md')
+    },
+    @{
+        Source = (Join-Path $sourceConfigRoot 'templates\deployment_comment.md')
+        Destination = (Join-Path $configRoot 'templates\deployment_comment.md')
+    },
+    @{
         Source = (Join-Path $sourceScriptsRoot 'freshquant_runner.exs')
         Destination = (Join-Path $scriptsRoot 'freshquant_runner.exs')
     },

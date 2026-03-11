@@ -53,7 +53,7 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 
 - `Linear` 状态机：`Todo / Human Review / In Progress / Rework / Merging / Done`
 - `Symphony-managed workspace/repo copy` 作为合法工作区
-- 设计阶段审批包：RFC、implementation plan、task checklist、Linear 结构化评论
+- 设计阶段审批包：RFC、implementation plan、task checklist、含待决策项的 Linear 结构化评论
 - 远端 `feature branch`、`Draft PR`、CI 与 merge 的正式策略
 - `Merging` 阶段的自动部署、部署后健康检查与失败回路
 - `subagent-driven-development + TDD` 的默认实现期方法论
@@ -119,13 +119,16 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 
 - 唯一批准真值：`Human Review -> In Progress`
 - `Linear comment` 只承载意见，不承载批准真值
+- `Human Review` 评论必须一次性列出全部待决策项、推荐方案和推荐理由；如无待决策项，也必须显式声明
+- 只要仍有待决策项未明确结论，不允许进入 `In Progress`
 
 ### 6.3 PR 语义
 
 - 设计阶段不开 PR
 - 进入 `In Progress` 后创建并持续更新同一个 `Draft PR`
+- 进入 `Merging` 前，必须在 `Linear` 留一条结构化 PR 结果评论，记录问题、方案、理由、修改文件、验证结果、经验积累和 PR 链接
 - `Merging` 先完成 PR 合并，再根据变更矩阵执行自动部署
-- `Done` 仍要求 CI 全绿、review discussion 已解决且部署后健康检查通过
+- `Done` 仍要求 CI 全绿、review discussion 已解决、部署后健康检查通过，且部署留痕已写入 `Linear`
 
 ### 6.4 CD 语义
 
@@ -152,6 +155,10 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
   - `runtime/symphony/prompts/merging.md`
 - 审批评论模板：
   - `runtime/symphony/templates/human_review_comment.md`
+- PR 结果评论模板：
+  - `runtime/symphony/templates/pr_completion_comment.md`
+- 部署评论模板：
+  - `runtime/symphony/templates/deployment_comment.md`
 - secrets 只允许通过环境变量或外部安全注入，不入仓：
   - `LINEAR_API_KEY`
   - 其他 Codex / GitHub 凭据
@@ -204,8 +211,11 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - [ ] 宿主机正式 runner、启动脚本、同步脚本与 `NSSM` 安装脚本已入仓。
 - [ ] Linear 状态机已能表达 `Todo -> Human Review -> In Progress -> Rework -> Merging -> Done`。
 - [ ] 设计批准前不会进入编码。
+- [ ] `Human Review` 阶段的待决策项会在同一条结构化评论中被一次性列出并关闭。
 - [ ] 设计批准后默认使用 `subagent-driven-development + TDD`。
+- [ ] 进入 `Merging` 前会在 `Linear` 留下结构化 PR 结果评论。
 - [ ] `Done` 以“PR 合并 + 自动部署成功 + 健康检查通过”为前提。
+- [ ] `Done` 前会在 `Linear` 留下结构化部署评论。
 - [ ] Docker 并行运行面与 Symphony 宿主机运行面的自动部署矩阵已被文档和 workflow 模板明确约束。
 - [ ] 高风险目录与操作边界在治理文档中被明确约束。
 
