@@ -53,6 +53,50 @@ function Resolve-NssmPath {
     return $null
 }
 
+function Get-EnvValue {
+    param([string]$Name)
+
+    foreach ($scope in 'Process', 'User', 'Machine') {
+        $value = [Environment]::GetEnvironmentVariable($Name, $scope)
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            return $value
+        }
+    }
+
+    return $null
+}
+
+function Resolve-OpenAISymphonyRoot {
+    param([string]$RequestedPath)
+
+    $candidates = @()
+
+    foreach ($name in 'FRESHQUANT_OPENAI_SYMPHONY_ROOT', 'OPENAI_SYMPHONY_ROOT') {
+        $value = Get-EnvValue -Name $name
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            $candidates += $value
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
+        $candidates += $RequestedPath
+    }
+
+    $candidates += @(
+        'D:\fqpack\tools\dao1oad-symphony\elixir',
+        'D:\fqpack\tools\openai-symphony\elixir'
+    )
+
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
+            return [System.IO.Path]::GetFullPath($candidate).TrimEnd('\')
+        }
+    }
+
+    $message = ($candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique) -join ', '
+    throw "OpenAI Symphony elixir root not found. Checked: $message"
+}
+
 function Set-ServiceLogonAccount {
     param(
         [string]$ServiceName,
@@ -83,6 +127,8 @@ $syncScript = Join-Path $PSScriptRoot 'sync_freshquant_symphony_service.ps1'
 $startScript = Join-Path (Join-Path $ServiceRoot 'scripts') 'start_freshquant_symphony.ps1'
 $stdoutLog = Join-Path (Join-Path $ServiceRoot 'logs') 'stdout.log'
 $stderrLog = Join-Path (Join-Path $ServiceRoot 'logs') 'stderr.log'
+
+$OpenAISymphonyRoot = Resolve-OpenAISymphonyRoot -RequestedPath $OpenAISymphonyRoot
 
 $blankPasswordAllowed = (Get-LimitBlankPasswordUse) -eq 0
 
