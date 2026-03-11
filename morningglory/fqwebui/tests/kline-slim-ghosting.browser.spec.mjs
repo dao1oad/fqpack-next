@@ -11,7 +11,7 @@ const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
 const TARGET_URL = `${DEV_SERVER_URL}/kline-slim?symbol=sz002262&period=5m`
 const DAY = '2026-03-11'
 const EXTRA_PERIOD_LEGENDS = ['15m', '30m']
-const STRESS_SWITCH_SEQUENCE = ['sh510050', 'sz000001', 'sz002262', 'sh510050', 'sz002262']
+const ZOOM_SWITCH_SEQUENCE = ['sh510050', 'sz000001', 'sz002262']
 
 const SYMBOL_VARIANTS = {
   sz002262: {
@@ -448,8 +448,75 @@ async function enableExtraPeriodLegends(page) {
   }
 }
 
-async function runStressSwitchSequence(page) {
-  for (const symbol of STRESS_SWITCH_SEQUENCE) {
+async function zoomAndPan(page) {
+  const chart = page.locator('.kline-slim-chart')
+  await expect(chart).toBeVisible()
+  const chartBox = await chart.boundingBox()
+  expect(chartBox).toBeTruthy()
+
+  await page.mouse.move(
+    chartBox.x + chartBox.width * 0.55,
+    chartBox.y + chartBox.height * 0.42
+  )
+  await page.mouse.wheel(0, -900)
+
+  await page.waitForFunction(() => {
+    const chartVm = window.__klineSlimVm || window.__findKlineSlimVm?.()
+    const chartInstance = window.__klineSlimChart || chartVm?.chart
+    if (!chartInstance || typeof chartInstance.getOption !== 'function') {
+      return false
+    }
+    const option = chartInstance.getOption()
+    const insideZoom = Array.isArray(option?.dataZoom) ? option.dataZoom[0] || {} : {}
+    return Math.abs(Number(insideZoom.end) - Number(insideZoom.start) - 30) > 0.2
+  })
+
+  const afterZoom = await page.evaluate(() => {
+    const chartVm = window.__klineSlimVm || window.__findKlineSlimVm?.()
+    const chartInstance = window.__klineSlimChart || chartVm?.chart
+    const option = chartInstance?.getOption?.()
+    const insideZoom = Array.isArray(option?.dataZoom) ? option.dataZoom[0] || {} : {}
+    return {
+      start: Number(insideZoom.start),
+      end: Number(insideZoom.end)
+    }
+  })
+
+  const sliderY = chartBox.y + chartBox.height - 28
+  const sliderCenterX =
+    chartBox.x + (chartBox.width * (afterZoom.start + afterZoom.end)) / 200
+  await page.mouse.move(sliderCenterX, sliderY)
+  await page.mouse.down()
+  await page.mouse.move(sliderCenterX - chartBox.width * 0.12, sliderY, {
+    steps: 18
+  })
+  await page.mouse.up()
+
+  await page.waitForFunction(
+    ({ start, end }) => {
+      const chartVm = window.__klineSlimVm || window.__findKlineSlimVm?.()
+      const chartInstance = window.__klineSlimChart || chartVm?.chart
+      if (!chartInstance || typeof chartInstance.getOption !== 'function') {
+        return false
+      }
+      const option = chartInstance.getOption()
+      const insideZoom = Array.isArray(option?.dataZoom) ? option.dataZoom[0] || {} : {}
+      return (
+        Math.abs(Number(insideZoom.start) - start) > 0.2 ||
+        Math.abs(Number(insideZoom.end) - end) > 0.2
+      )
+    },
+    afterZoom
+  )
+}
+
+async function runZoomSwitchSequence(page) {
+  const [zoomSymbol, ...remainingSymbols] = ZOOM_SWITCH_SEQUENCE
+  await switchSymbol(page, zoomSymbol)
+  await enableExtraPeriodLegends(page)
+  await zoomAndPan(page)
+
+  for (const symbol of remainingSymbols) {
     await switchSymbol(page, symbol)
     await enableExtraPeriodLegends(page)
   }
@@ -494,7 +561,7 @@ test.afterAll(async () => {
   await stopDevServer()
 })
 
-test('repeated symbol switches return to the same chart hash with zhongshu layers enabled', async ({
+test('switching symbols after zoom and pan returns to the same chart hash with zhongshu layers enabled', async ({
   page
 }) => {
   const pageErrors = []
@@ -518,14 +585,14 @@ test('repeated symbol switches return to the same chart hash with zhongshu layer
 
   const baselineHash = await captureChartHash(page)
 
-  await runStressSwitchSequence(page)
+  await runZoomSwitchSequence(page)
 
   const replayHash = await captureChartHash(page)
   expect(replayHash).toBe(baselineHash)
   expect(pageErrors).toEqual([])
 })
 
-test('disabling zhongshu legends removes residual layers after repeated symbol switches', async ({
+test('disabling zhongshu legends removes residual layers after zoomed symbol switches', async ({
   page
 }) => {
   await page.setViewportSize({ width: 1680, height: 960 })
@@ -543,7 +610,7 @@ test('disabling zhongshu legends removes residual layers after repeated symbol s
   await setLegendSelected(page, '中枢', true)
   await setLegendSelected(page, '段中枢', true)
 
-  await runStressSwitchSequence(page)
+  await runZoomSwitchSequence(page)
 
   await setLegendSelected(page, '中枢', false)
   await setLegendSelected(page, '段中枢', false)

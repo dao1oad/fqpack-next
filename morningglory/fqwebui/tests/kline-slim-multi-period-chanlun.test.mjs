@@ -149,7 +149,7 @@ test('kline-slim controller uses multi-period chanlun state instead of fixed ove
   assert.doesNotMatch(content, /OVERLAY_PERIOD/)
 })
 
-test('kline-slim controller keeps route switches on loading path and reserves chart.clear for empty/default-symbol branches', async () => {
+test('kline-slim controller clears chart on structural route switches while refresh path avoids clear', async () => {
   const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
   const handleRouteChangeSection = content
     .split('handleRouteChange() {')[1]
@@ -160,9 +160,19 @@ test('kline-slim controller keeps route switches on loading path and reserves ch
 
   assert.ok(handleRouteChangeSection, 'expected handleRouteChange section in controller')
   assert.ok(fetchMainDataSection, 'expected fetchMainData section in controller')
+  assert.match(handleRouteChangeSection, /lastStructuralRouteKey/)
+  assert.match(handleRouteChangeSection, /previousStructuralRouteKey/)
   assert.match(
     handleRouteChangeSection,
     /if \(!this\.routeSymbol && shouldResolveDefaultSymbol\(this\.\$route\.query\)\) \{[\s\S]*if \(this\.chart\) \{\s*this\.chart\.clear\(\)\s*this\.chart\.hideLoading\(\)/s
+  )
+  assert.match(
+    handleRouteChangeSection,
+    /const shouldHardResetChart =[\s\S]*previousStructuralRouteKey !== nextStructuralRouteKey/s
+  )
+  assert.match(
+    handleRouteChangeSection,
+    /if \(shouldHardResetChart\) \{\s*this\.chart\.clear\(\)\s*\}/s
   )
   assert.match(
     handleRouteChangeSection,
@@ -170,7 +180,7 @@ test('kline-slim controller keeps route switches on loading path and reserves ch
   )
   assert.match(
     handleRouteChangeSection,
-    /if \(!this\.routeSymbol\) \{\s*if \(this\.chart\) \{\s*this\.chart\.clear\(\)\s*this\.chart\.hideLoading\(\)\s*\}\s*return/s
+    /if \(!this\.routeSymbol\) \{\s*(this\.lastStructuralRouteKey = ''\s*)?if \(this\.chart\) \{\s*this\.chart\.clear\(\)\s*this\.chart\.hideLoading\(\)\s*\}\s*return/s
   )
   assert.doesNotMatch(fetchMainDataSection, /chart\.clear\(/)
 })
