@@ -227,3 +227,10 @@
 - **影响面**：`broker`、订单状态机、订单查询/排障语义、宿主机 Supervisor 托管进程与 Mongo 运行时参数都会受影响；`observe_only` 下不再产生真实 XT 回报，因此依赖 `xt_report_ingest / order_reconcile` 的后半段链路不会继续推进。
 - **迁移步骤**：1) 部署包含 RFC 0030 的代码；2) 在 Mongo `freshquant.params(code=monitor).value.xtdata.mode` 显式设置 `guardian_1m`；3) 在 Mongo `freshquant.params(code=xtquant).value` 下增加 `broker_submit_mode=observe_only`，字段与 `total_position` 同级；4) 在宿主机 Supervisor 中新增并启用 `guardian --mode event`、`position_management.worker`、`tpsl.tick_listener`；5) 重启 `fqnext_xtquant_broker` 使新执行模式生效；6) 如需回切真实提交流程，删除该字段或改回 `normal` 后再次重启 broker。
 - **回滚方案**：删除 `broker_submit_mode` 或改回 `normal`，重启 `fqnext_xtquant_broker`；如需代码回滚，再撤回 `BROKER_BYPASSED` 状态机扩展、broker `observe_only` 分支与相关运行观测埋点。
+
+- **日期**：2026-03-11
+- **RFC**：0032-docker-parallel-runtime-log-host-dir-guard
+- **变更**：`docker/compose.parallel.yaml` 不再对 `FQ_RUNTIME_LOG_HOST_DIR` 使用相对路径默认值，所有 `env_file` 也不再使用 worktree 相对路径；现在必须显式提供 `FQ_RUNTIME_LOG_HOST_DIR` 与 `FQ_COMPOSE_ENV_FILE`，否则 Compose 会直接失败。仓库新增标准脚本 `script/docker_parallel_compose.ps1` 与 `script/docker_parallel_up.ps1`，默认会解析主工作区并自动设置 `FQ_RUNTIME_LOG_HOST_DIR=<主工作区>\\logs\\runtime`、`FQ_COMPOSE_ENV_FILE=<主工作区>\\.env`。
+- **影响面**：所有并行 Docker 部署入口，尤其是此前习惯在 `git worktree` 内直接执行 `docker compose -f docker/compose.parallel.yaml up -d --build` 的用法。
+- **迁移步骤**：1) 优先改用 `powershell -ExecutionPolicy Bypass -File script/docker_parallel_up.ps1` 启动，或用 `powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 <subcommand>` 执行 `ps/logs/down` 等其他操作；2) 若仍需直接执行 `docker compose`，先显式设置 `FQ_RUNTIME_LOG_HOST_DIR` 与 `FQ_COMPOSE_ENV_FILE`；3) 重建 `fq_apiserver/fq_webui` 使运行观测目录挂载切换到正确路径。
+- **回滚方案**：回退 `docker/compose.parallel.yaml` 的 fail-fast 校验与 `script/docker_parallel_compose.ps1` / `script/docker_parallel_up.ps1` / `script/docker_parallel_runtime.py`，恢复旧的相对路径默认值。
