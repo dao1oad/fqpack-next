@@ -456,7 +456,9 @@ def resolve_gantt_backfill_trade_dates() -> list[str]:
     return _resolve_gantt_backfill_trade_dates_result().trade_dates
 
 
-def _log_trade_calendar_degraded(context, *, stage: str, resolution: GanttBackfillResolution):
+def _log_trade_calendar_degraded(
+    context, *, stage: str, resolution: GanttBackfillResolution
+):
     context.log.warning(
         "gantt postclose trade calendar unavailable stage=%s reason=%s error=%s",
         stage,
