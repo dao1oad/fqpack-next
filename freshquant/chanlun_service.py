@@ -35,6 +35,25 @@ from freshquant.signal.break_pivot import (
     rise_break_pivot_zg,
     rise_break_pivot_zm,
 )
+from freshquant.util.code import infer_cn_security_prefixed_code
+
+ETF_CODE_PREFIXES = ("15", "16", "18", "50", "51", "56", "58")
+
+
+def _resolve_security_symbol_and_type(symbol):
+    normalized_symbol = infer_cn_security_prefixed_code(symbol)
+    if not normalized_symbol:
+        return symbol, None
+
+    instrument_type = query_instrument_type(normalized_symbol.lower())
+    if instrument_type is None:
+        base_code = normalized_symbol[2:]
+        if base_code.startswith(ETF_CODE_PREFIXES):
+            instrument_type = InstrumentType.ETF_CN
+        else:
+            instrument_type = InstrumentType.STOCK_CN
+
+    return normalized_symbol, instrument_type
 
 
 def get_data_v2(symbol, period, end_date=None):
@@ -42,11 +61,14 @@ def get_data_v2(symbol, period, end_date=None):
     future_fills = None
     digitalcoin_fills = None
     name = None
-    instrumentType = query_instrument_type(symbol.lower())
+    query_symbol, instrumentType = _resolve_security_symbol_and_type(symbol)
+    if instrumentType is None:
+        instrumentType = query_instrument_type((symbol or "").lower())
+        query_symbol = symbol
     if instrumentType == InstrumentType.STOCK_CN:
-        name = pydash.get(query_stock_map(), f'{symbol.lower()}.name')
+        name = pydash.get(query_stock_map(), f'{query_symbol.lower()}.name')
         get_instrument_data = get_stock_data
-        stock_fills = get_stock_fills(symbol[2:])
+        stock_fills = get_stock_fills(query_symbol[2:])
         if stock_fills is not None and len(stock_fills) > 0:
             desired_columns = [
                 "date",
@@ -63,9 +85,9 @@ def get_data_v2(symbol, period, end_date=None):
         else:
             stock_fills = None
     elif instrumentType == InstrumentType.ETF_CN:
-        name = pydash.get(query_etf_map(), f'{symbol.lower()}.name')
+        name = pydash.get(query_etf_map(), f'{query_symbol.lower()}.name')
         get_instrument_data = queryEtfCandleSticks
-        stock_fills = get_stock_fills(symbol[2:])
+        stock_fills = get_stock_fills(query_symbol[2:])
         if stock_fills is not None and len(stock_fills) > 0:
             desired_columns = [
                 "date",
@@ -88,7 +110,7 @@ def get_data_v2(symbol, period, end_date=None):
         get_instrument_data = get_future_data_v2
         future_fills = queryArrangedCnFutureFillList(symbol)
 
-    kline_data = get_instrument_data(symbol, period, end_date)
+    kline_data = get_instrument_data(query_symbol, period, end_date)
     kline_data["time_str"] = kline_data["datetime"].apply(
         lambda dt: dt.strftime("%Y-%m-%d %H:%M")
     )
