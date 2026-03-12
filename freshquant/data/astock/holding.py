@@ -38,8 +38,6 @@ def _get_legacy_stock_fills_collection():
 
 def _resolve_position_name(position: Dict) -> str:
     raw_name = str(position.get("name") or "").strip()
-    if raw_name:
-        return raw_name
 
     symbol = str(position.get("symbol") or "").strip().lower()
     stock_code = str(position.get("stock_code") or "").strip().lower()
