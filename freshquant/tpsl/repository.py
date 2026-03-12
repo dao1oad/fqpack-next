@@ -24,6 +24,9 @@ class TpslRepository:
     def find_takeprofit_profile(self, symbol):
         return self.takeprofit_profiles.find_one({"symbol": symbol})
 
+    def list_takeprofit_profiles(self):
+        return list(self.takeprofit_profiles.find({}))
+
     def upsert_takeprofit_profile(self, document):
         self.takeprofit_profiles.replace_one(
             {"symbol": document["symbol"]},

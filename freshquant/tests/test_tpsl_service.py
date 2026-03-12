@@ -26,6 +26,15 @@ class InMemoryTpslRepository:
         self.events.append(document)
         return document
 
+    def list_exit_trigger_events(self, *, symbol=None, batch_id=None, limit=50):
+        rows = list(self.events)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if batch_id is not None:
+            rows = [item for item in rows if item.get("batch_id") == batch_id]
+        rows.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        return rows[:limit]
+
 
 class FakeOrderSubmitService:
     def __init__(self):
@@ -109,6 +118,76 @@ def test_submit_stoploss_batch_calls_order_submit_service_with_batch_scope():
     assert submit_service.calls[0]["scope_type"] == "stoploss_batch"
     assert submit_service.calls[0]["scope_ref_id"] == "sl_batch_1"
     assert submit_service.calls[0]["action"] == "sell"
+
+
+def test_submit_takeprofit_batch_persists_buy_lot_rich_trigger_event():
+    submit_service = FakeOrderSubmitService()
+    repo = InMemoryTpslRepository()
+    tp_service = TakeprofitService(repository=repo)
+    tp_service.save_profile(
+        "000001",
+        tiers=[
+            {"level": 1, "price": 10.0, "manual_enabled": True},
+            {"level": 2, "price": 10.8, "manual_enabled": True},
+        ],
+        updated_by="api",
+    )
+    service = TpslService(
+        takeprofit_service=tp_service,
+        order_submit_service=submit_service,
+    )
+
+    service.submit_takeprofit_batch(
+        {
+            "batch_id": "tp_batch_2",
+            "symbol": "000001",
+            "price": 10.8,
+            "tier_price": 10.8,
+            "quantity": 300,
+            "level": 2,
+            "buy_lot_quantities": {"lot_1": 200, "lot_2": 100},
+        }
+    )
+
+    assert repo.events[-1]["event_type"] == "takeprofit_hit"
+    assert repo.events[-1]["kind"] == "takeprofit"
+    assert repo.events[-1]["trigger_price"] == 10.8
+    assert repo.events[-1]["buy_lot_ids"] == ["lot_1", "lot_2"]
+    assert repo.events[-1]["buy_lot_details"] == [
+        {"buy_lot_id": "lot_1", "quantity": 200},
+        {"buy_lot_id": "lot_2", "quantity": 100},
+    ]
+
+
+def test_submit_stoploss_batch_persists_stoploss_trigger_event():
+    submit_service = FakeOrderSubmitService()
+    repo = InMemoryTpslRepository()
+    service = TpslService(
+        takeprofit_service=TakeprofitService(repository=repo),
+        order_submit_service=submit_service,
+    )
+
+    service.submit_stoploss_batch(
+        {
+            "batch_id": "sl_batch_2",
+            "symbol": "000001",
+            "price": 9.1,
+            "bid1": 9.1,
+            "quantity": 200,
+            "buy_lot_quantities": {"lot_1": 200},
+            "triggered_bindings": [
+                {"buy_lot_id": "lot_1", "stop_price": 9.2, "enabled": True}
+            ],
+        }
+    )
+
+    assert repo.events[-1]["event_type"] == "stoploss_hit"
+    assert repo.events[-1]["kind"] == "stoploss"
+    assert repo.events[-1]["trigger_price"] == 9.1
+    assert repo.events[-1]["buy_lot_ids"] == ["lot_1"]
+    assert repo.events[-1]["buy_lot_details"] == [
+        {"buy_lot_id": "lot_1", "stop_price": 9.2, "quantity": 200}
+    ]
 
 
 def test_evaluate_takeprofit_blocks_when_sellable_volume_is_zero():
