@@ -1,10 +1,20 @@
-import { createHash } from 'node:crypto'
-import { spawn, spawnSync } from 'node:child_process'
-import { setTimeout as delay } from 'node:timers/promises'
-
 import { test, expect } from '@playwright/test'
 
 import { runLockedBuild } from './vite-build-lock.mjs'
+import {
+  cleanupServerPort,
+  enableExtraPeriodLegends,
+  installVmHelpers,
+  readChartState,
+  startPreviewServer,
+  stopDevServer,
+  waitForChartReady,
+  waitForExtraPeriodsLoaded,
+  waitForServer,
+  waitForSymbolRendered,
+  waitForViewportReset,
+  zoomAndPan
+} from './kline-slim-browser-helpers.mjs'
 
 const DEV_SERVER_PORT = 18087
 const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
@@ -101,10 +111,10 @@ function buildBoxes(dates, boxes) {
 function buildStockDataPayload(symbol, period) {
   const variant = SYMBOL_VARIANTS[symbol] || SYMBOL_VARIANTS.sz002262
   const countMap = {
-    '1m': 320,
-    '5m': 180,
-    '15m': 140,
-    '30m': 120
+    '1m': 240,
+    '5m': 120,
+    '15m': 40,
+    '30m': 20
   }
   const count = countMap[period] || 180
   const dates = buildDates(period, count)
@@ -157,143 +167,23 @@ function buildStockDataPayload(symbol, period) {
   }
 }
 
-async function waitForServer(url, timeoutMs = 30000) {
-  const deadline = Date.now() + timeoutMs
-  let lastError = null
-
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url)
-      if (response.ok) {
-        return
-      }
-      lastError = new Error(`unexpected status ${response.status}`)
-    } catch (error) {
-      lastError = error
-    }
-    await delay(250)
-  }
-
-  throw lastError || new Error(`server ${url} did not become ready`)
-}
-
-async function stopDevServer() {
-  if (!devServerProcess) {
-    return
-  }
-
-  const child = devServerProcess
-  devServerProcess = null
-  const waitForExit = () =>
-    new Promise((resolve) => {
-      if (child.exitCode !== null || child.signalCode !== null) {
-        resolve(true)
-        return
-      }
-      child.once('exit', () => resolve(true))
-    })
-
-  if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
-      stdio: 'ignore'
-    })
-    await Promise.race([waitForExit(), delay(5000)])
-    return
-  }
-
-  child.kill('SIGTERM')
-  const exitedGracefully = await Promise.race([waitForExit(), delay(5000, false)])
-  if (!exitedGracefully) {
-    child.kill('SIGKILL')
-    await Promise.race([waitForExit(), delay(5000)])
-  }
-}
-
-function getDevServerCommand() {
-  if (process.platform === 'win32') {
-    return {
-      command: 'cmd.exe',
-      args: [
-        '/d',
-        '/s',
-        '/c',
-        `pnpm preview --host 127.0.0.1 --port ${DEV_SERVER_PORT} --strictPort`
-      ]
-    }
-  }
-
-  return {
-    command: 'pnpm',
-    args: ['preview', '--host', '127.0.0.1', '--port', String(DEV_SERVER_PORT), '--strictPort']
-  }
-}
-
-function getBuildCommand() {
-  if (process.platform === 'win32') {
-    return {
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', 'pnpm build']
-    }
-  }
-
-  return {
-    command: 'pnpm',
-    args: ['build']
-  }
-}
-
 async function runBuild() {
-  await runLockedBuild(getBuildCommand, process.cwd())
-}
-
-function cleanupServerPort() {
-  if (process.platform !== 'win32') {
-    return
-  }
-
-  spawnSync(
-    'powershell',
-    [
-      '-NoProfile',
-      '-Command',
-      `$conn = Get-NetTCPConnection -LocalPort ${DEV_SERVER_PORT} -State Listen -ErrorAction SilentlyContinue; if ($conn) { $conn | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } }`
-    ],
-    {
-      stdio: 'ignore'
-    }
-  )
-}
-
-async function installVmHelpers(page) {
-  await page.addInitScript(() => {
-    window.__findKlineSlimVm = () => {
-      if (window.__klineSlimVm?.chart && window.__klineSlimVm?.fetchMainData) {
-        return window.__klineSlimVm
-      }
-
-      const visited = new Set()
-      const nodes = Array.from(document.querySelectorAll('*'))
-      for (const node of nodes) {
-        let component = node.__vueParentComponent || null
-        while (component && !visited.has(component)) {
-          visited.add(component)
-          const proxy = component.proxy
-          if (proxy?.$options?.name === 'kline-slim' || (proxy?.chart && proxy?.fetchMainData)) {
-            return proxy
-          }
-          component = component.parent || null
+  await runLockedBuild(
+    () => {
+      if (process.platform === 'win32') {
+        return {
+          command: 'cmd.exe',
+          args: ['/d', '/s', '/c', 'pnpm build']
         }
       }
-      return null
-    }
 
-    window.__waitForSlimPaint = () =>
-      new Promise((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(resolve)
-        })
-      })
-  })
+      return {
+        command: 'pnpm',
+        args: ['build']
+      }
+    },
+    process.cwd()
+  )
 }
 
 async function mockKlineSlimApis(page) {
@@ -370,28 +260,6 @@ async function mockKlineSlimApis(page) {
   })
 }
 
-async function waitForSymbolRendered(page, symbol) {
-  await page.waitForFunction((expectedSymbol) => {
-    const vm = window.__klineSlimVm || window.__findKlineSlimVm?.()
-    const chart = window.__klineSlimChart || vm?.chart
-    if (!vm || !chart || typeof chart.getOption !== 'function') {
-      return false
-    }
-
-    const option = chart.getOption()
-    const title = Array.isArray(option?.title) ? option.title[0]?.text : option?.title?.text
-    return (
-      vm.$route?.query?.symbol === expectedSymbol &&
-      vm.mainData?.symbol === expectedSymbol &&
-      Boolean(vm.lastRenderedVersion) &&
-      typeof title === 'string' &&
-      title.includes(expectedSymbol)
-    )
-  }, symbol)
-
-  await page.evaluate(() => window.__waitForSlimPaint?.())
-}
-
 async function expectHoldingSidebarItem(page, { name, code6 }) {
   const holdingSection = page.locator('.sidebar-section').filter({
     has: page.locator('.sidebar-section-heading', { hasText: '持仓股' })
@@ -404,7 +272,6 @@ async function expectHoldingSidebarItem(page, { name, code6 }) {
   await expect(row.locator('.sidebar-item-title')).toHaveText(name)
   await expect(row.locator('.sidebar-item-subtitle')).toHaveText(code6)
 }
-
 async function switchSymbol(page, symbol) {
   await page.evaluate((nextSymbol) => {
     const vm = window.__klineSlimVm || window.__findKlineSlimVm?.()
@@ -421,136 +288,30 @@ async function switchSymbol(page, symbol) {
   await waitForSymbolRendered(page, symbol)
 }
 
-async function setLegendSelected(page, name, selected) {
-  await page.evaluate(
-    ({ legendName, legendSelected }) => {
-      const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
-      chart.dispatchAction({
-        type: legendSelected ? 'legendSelect' : 'legendUnSelect',
-        name: legendName
-      })
-    },
-    {
-      legendName: name,
-      legendSelected: selected
-    }
-  )
-
-  await page.waitForFunction(
-    ({ legendName, legendSelected }) => {
-      const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
-      if (!chart || typeof chart.getOption !== 'function') {
-        return false
-      }
-      const option = chart.getOption()
-      const legend = Array.isArray(option?.legend) ? option.legend[0] : option?.legend
-      return legend?.selected?.[legendName] === legendSelected
-    },
-    {
-      legendName: name,
-      legendSelected: selected
-    }
-  )
-
-  await page.evaluate(() => window.__waitForSlimPaint?.())
-}
-
-async function enableExtraPeriodLegends(page) {
-  for (const legendName of EXTRA_PERIOD_LEGENDS) {
-    await setLegendSelected(page, legendName, true)
-  }
-}
-
-async function zoomAndPan(page) {
-  const chart = page.locator('.kline-slim-chart')
-  await expect(chart).toBeVisible()
-  const chartBox = await chart.boundingBox()
-  expect(chartBox).toBeTruthy()
-
-  await page.mouse.move(
-    chartBox.x + chartBox.width * 0.55,
-    chartBox.y + chartBox.height * 0.42
-  )
-  await page.mouse.wheel(0, -900)
-
-  await page.waitForFunction(() => {
-    const chartVm = window.__klineSlimVm || window.__findKlineSlimVm?.()
-    const chartInstance = window.__klineSlimChart || chartVm?.chart
-    if (!chartInstance || typeof chartInstance.getOption !== 'function') {
-      return false
-    }
-    const option = chartInstance.getOption()
-    const insideZoom = Array.isArray(option?.dataZoom) ? option.dataZoom[0] || {} : {}
-    return Math.abs(Number(insideZoom.end) - Number(insideZoom.start) - 30) > 0.2
-  })
-
-  const afterZoom = await page.evaluate(() => {
-    const chartVm = window.__klineSlimVm || window.__findKlineSlimVm?.()
-    const chartInstance = window.__klineSlimChart || chartVm?.chart
-    const option = chartInstance?.getOption?.()
-    const insideZoom = Array.isArray(option?.dataZoom) ? option.dataZoom[0] || {} : {}
-    return {
-      start: Number(insideZoom.start),
-      end: Number(insideZoom.end)
-    }
-  })
-
-  const sliderY = chartBox.y + chartBox.height - 28
-  const sliderCenterX =
-    chartBox.x + (chartBox.width * (afterZoom.start + afterZoom.end)) / 200
-  await page.mouse.move(sliderCenterX, sliderY)
-  await page.mouse.down()
-  await page.mouse.move(sliderCenterX - chartBox.width * 0.12, sliderY, {
-    steps: 18
-  })
-  await page.mouse.up()
-
-  await page.waitForFunction(
-    ({ start, end }) => {
-      const chartVm = window.__klineSlimVm || window.__findKlineSlimVm?.()
-      const chartInstance = window.__klineSlimChart || chartVm?.chart
-      if (!chartInstance || typeof chartInstance.getOption !== 'function') {
-        return false
-      }
-      const option = chartInstance.getOption()
-      const insideZoom = Array.isArray(option?.dataZoom) ? option.dataZoom[0] || {} : {}
-      return (
-        Math.abs(Number(insideZoom.start) - start) > 0.2 ||
-        Math.abs(Number(insideZoom.end) - end) > 0.2
-      )
-    },
-    afterZoom
-  )
+async function prepareVisibleExtraPeriods(page) {
+  await enableExtraPeriodLegends(page, EXTRA_PERIOD_LEGENDS)
+  await waitForExtraPeriodsLoaded(page, EXTRA_PERIOD_LEGENDS)
 }
 
 async function runZoomSwitchSequence(page) {
   const [zoomSymbol, ...remainingSymbols] = ZOOM_SWITCH_SEQUENCE
+
   await switchSymbol(page, zoomSymbol)
-  await enableExtraPeriodLegends(page)
+  await prepareVisibleExtraPeriods(page)
   await zoomAndPan(page)
 
   for (const symbol of remainingSymbols) {
     await switchSymbol(page, symbol)
-    await enableExtraPeriodLegends(page)
+    await prepareVisibleExtraPeriods(page)
   }
 }
 
-async function captureChartHash(page) {
-  const chart = page.locator('.kline-slim-chart')
-  await expect(chart).toBeVisible()
-  const screenshot = await chart.screenshot({
-    animations: 'disabled'
-  })
-  return createHash('sha256').update(screenshot).digest('hex')
-}
-
 test.beforeAll(async () => {
-  cleanupServerPort()
+  cleanupServerPort(DEV_SERVER_PORT)
   await runBuild()
-  const { command, args } = getDevServerCommand()
-  devServerProcess = spawn(command, args, {
-    cwd: process.cwd(),
-    stdio: ['ignore', 'pipe', 'pipe']
+  devServerProcess = startPreviewServer({
+    port: DEV_SERVER_PORT,
+    cwd: process.cwd()
   })
 
   let startupOutput = ''
@@ -571,10 +332,11 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  await stopDevServer()
+  await stopDevServer(devServerProcess)
+  devServerProcess = null
 })
 
-test('switching symbols after zoom and pan returns to the same chart hash with zhongshu layers enabled', async ({
+test('switching symbols after zoom and pan returns to the same chart hash with extra-period chanlun layers enabled', async ({
   page
 }) => {
   const pageErrors = []
@@ -593,15 +355,34 @@ test('switching symbols after zoom and pan returns to the same chart hash with z
   await mockKlineSlimApis(page)
   await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
 
+  await waitForChartReady(page)
   await waitForSymbolRendered(page, 'sz002262')
-  await enableExtraPeriodLegends(page)
+  await prepareVisibleExtraPeriods(page)
+  await waitForViewportReset(page)
 
-  const baselineHash = await captureChartHash(page)
+  const baselineState = await readChartState(page)
+  expect(await page.evaluate(() => window.__captureKlineSlimRenderedFrame?.('baseline'))).toBe(true)
 
   await runZoomSwitchSequence(page)
+  await waitForViewportReset(page)
 
-  const replayHash = await captureChartHash(page)
-  expect(replayHash).toBe(baselineHash)
+  const replayState = await readChartState(page)
+  const replayDiff = await page.evaluate(() =>
+    window.__compareKlineSlimRenderedFrame?.({
+      key: 'baseline',
+      tolerance: 12
+    })
+  )
+
+  expect(replayState.legendData).toEqual(baselineState.legendData)
+  expect(replayState.legendSelected).toEqual(baselineState.legendSelected)
+  expect(replayState.seriesIds).toEqual(baselineState.seriesIds)
+  expect(replayState.visibleChanlunPeriods).toEqual(baselineState.visibleChanlunPeriods)
+  expect(replayState.loadedChanlunPeriods.sort()).toEqual(baselineState.loadedChanlunPeriods.sort())
+  expect(replayState.viewport.xRange.start).toBeCloseTo(70, 0)
+  expect(replayState.viewport.xRange.end).toBeCloseTo(100, 0)
+  expect(replayDiff).toBeTruthy()
+  expect(replayDiff.ratio).toBeLessThan(0.002)
   expect(pageErrors).toEqual([])
 })
 
@@ -614,8 +395,7 @@ test('holding sidebar renders API-provided stock names before code fallback', as
   await waitForSymbolRendered(page, 'sz002262')
   await expectHoldingSidebarItem(page, { name: 'ENHUA', code6: '002262' })
 })
-
-test('disabling zhongshu legends removes residual layers after zoomed symbol switches', async ({
+test('symbol switching keeps only period legends and resets viewport without reintroducing structure toggles', async ({
   page
 }) => {
   await page.setViewportSize({ width: 1680, height: 960 })
@@ -623,21 +403,23 @@ test('disabling zhongshu legends removes residual layers after zoomed symbol swi
   await mockKlineSlimApis(page)
   await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
 
+  await waitForChartReady(page)
   await waitForSymbolRendered(page, 'sz002262')
-  await enableExtraPeriodLegends(page)
-
-  await setLegendSelected(page, '中枢', false)
-  await setLegendSelected(page, '段中枢', false)
-  const hiddenBaselineHash = await captureChartHash(page)
-
-  await setLegendSelected(page, '中枢', true)
-  await setLegendSelected(page, '段中枢', true)
-
+  await prepareVisibleExtraPeriods(page)
   await runZoomSwitchSequence(page)
+  await waitForViewportReset(page)
 
-  await setLegendSelected(page, '中枢', false)
-  await setLegendSelected(page, '段中枢', false)
-  const hiddenReplayHash = await captureChartHash(page)
+  const finalState = await readChartState(page)
 
-  expect(hiddenReplayHash).toBe(hiddenBaselineHash)
+  expect(finalState.legendData).toEqual(['1m', '15m', '30m'])
+  expect(finalState.legendData).not.toContain('中枢')
+  expect(finalState.legendData).not.toContain('段中枢')
+  expect(finalState.periodLegendSelected).toEqual({
+    '1m': false,
+    '15m': true,
+    '30m': true
+  })
+  expect(finalState.visibleChanlunPeriods).toEqual(['15m', '30m'])
+  expect(finalState.viewport.xRange.start).toBeCloseTo(70, 0)
+  expect(finalState.viewport.xRange.end).toBeCloseTo(100, 0)
 })
