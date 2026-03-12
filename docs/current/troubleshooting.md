@@ -141,11 +141,19 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `as_of_date` 对应快照还没生成。
 - `stock_window_days` 不在 `30|45|60|90`。
 - 交易日日历源瞬时失败；当前实现会在移除代理环境变量后自动重试 3 次，但连续失败时仍拿不到最新完成交易日。
+- `jygs` 最近历史存在缺口，最近 `90` 个交易日 hole scan 还没补齐。
+- 上游 `jygs` 某个交易日确实没有热点；此时原始集合会保留 `is_empty_result=true` marker，但 gantt `series` 不会有点位。
+- 上游返回了别的 `trade_date`；此时会落 `empty_reason=upstream_trade_date_mismatch` marker，但该日期仍应继续进入 hole scan 重试。
+- 上游 `jygs action_field` 可能夹带单条缺 `reason` 的历史主题行；当前实现会跳过坏行并继续同步当天其余主题。若整天过滤后没有可用主题，则会落 `empty_reason=invalid_theme_fields` marker，而不是把整条 Dagster 作业打断。
 
 处理：
 - 重跑 Dagster 作业
 - 确认读模型索引与快照日期
 - 在任务运行环境检查 `ALL_PROXY`、`all_proxy`、`HTTP_PROXY`、`HTTPS_PROXY` 是否被错误注入，再确认 AkShare 到 Sina 可访问
+- 若 `/api/gantt/plates?provider=jygs&days=15/30/45/60/90` 的 `dates` 轴完整但 `series` 很少，先看 `jygs_action_fields` / `jygs_yidong`
+- 若 marker 是 `empty_reason=upstream_trade_date_mismatch`，不要当成已补完；继续补跑 Dagster，等待上游返回目标交易日
+- 若日志里出现 `skipping invalid jygs theme rows`，说明是上游单条主题缺 `reason`；先核对该 trade_date 其他主题是否已正常落库，再确认是否需要人工补录该主题说明
+- 若目标交易日既没有真实 `jygs` 数据，也没有 `is_empty_result=true` marker，说明 recent hole scan 还没覆盖到；继续补跑 Dagster
 
 ## Runtime Observability 无 trace
 
@@ -162,11 +170,13 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 路径被环境变量指到别的目录。
 - 页面筛选条件过严。
 - 原始事件只有 `heartbeat`，或缺少 `trace_id` / `request_id` / `internal_order_id`，因此不会进入 trace 列表。
+- `/api/runtime/traces` 与 `/api/runtime/health/summary` 已有数据，但 `fq_webui` 仍在跑旧静态资源，或页面代码仍按 `response.data.*` 读取而不是读取顶层 `traces/components/trace/files/records`。
 
 处理：
 - 直接 tail 原始文件，而不是只看页面
 - 先看 `/api/runtime/events` 或 raw browser，确认最近事件是否带关联键
 - 清空筛选后刷新页面
+- 如果 API 有数据但页面统计卡、recent feed、component board 全空，优先重建并重新部署 `fq_webui`，然后强刷浏览器缓存
 
 ## Symphony 任务卡住
 
@@ -180,9 +190,25 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 常见根因：
 - Draft PR 还没完成 `Design Review`
+- 低风险任务被错误送进 `Design Review` / `brainstorming` 闭环
+- 低风险任务在 `Todo` 成功跑完一轮后，没有被自动切到 `In Progress`
+- 高风险任务被直接贴上 `design-review`，但 Draft PR 引导创建失败
+- 新建 issue 时手工预贴了 `design-review`，导致任务跳过 `Todo` 风险判定并直接进入高风险路径
+- 正式服务加载了一份过度简化的 `WORKFLOW.freshquant.md`，prompt 中没有 issue 标识/标题/描述，导致 agent 只会做泛化上下文扫描
+- `Design Review` 任务在 Codex 会话里再次触发 `brainstorming`，硬门要求新的人工批准，结果因为会话内没有人工输入面而反复空转
+- workspace 只保留了本地路径 `origin`，没有 GitHub remote，导致 `gh pr ...` / `gh issue ...` 在 workspace 内直接失败
 - GitHub token 失效
 - 正式服务没加载最新 workflow
 
 处理：
 - 看 Draft PR 评论与 `APPROVED`
+- 新建 GitHub issue 时默认只打 `symphony` 与 `todo`，不要在创建时预贴 `design-review`
+- 如果任务是普通 bugfix 或小范围现有模块修复，但没有 Draft PR，优先按低风险路径排查，不要继续等待人工审批
+- 如果任务命中高风险条件且已经在 `Design Review`，但没有 linked Draft PR，先看 orchestrator 日志是否已触发一次引导执行；若仍没有 Draft PR，优先排查 GitHub token、`gh`/push 权限、branch/PR 创建失败，而不是继续等待审批
+- 如果日志里反复只有通用 repo 扫描而没有 issue 标识、标题、描述，先检查 `WORKFLOW.freshquant.md` 是否仍包含 issue placeholders；`sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 现在会对这份 prompt 做合约校验
+- 如果日志里明确读入了 issue body，但随后又加载 `brainstorming` 并停在“等待批准”，说明 workflow 仍把 `Design Review` 错当成会话内交互设计阶段；应改成“issue body -> Draft PR packet -> GitHub approval”的单向流程
+- 如果 `gh` 在 workspace 内报 “none of the git remotes configured for this repository point to a known GitHub host”，先看当前 workspace 是否只有本地 `origin`；正式 workflow 现在会在 `after_create` / `before_run` 自动补齐 `github` remote
+- 如果 PR 标题、PR 正文、Issue / PR 评论仍然出现英文说明，先检查 `WORKFLOW.freshquant.md` 与 `runtime/symphony/templates/*.md` 是否已经同步到正式服务
+- 检查正式服务是否已加载最新 `runtime/symphony/WORKFLOW.freshquant.md`
+- 看 issue 当前标签与状态是否仍停在 `todo`，以及 orchestrator 日志里是否出现 `Todo -> In Progress` 自动推进记录
 - 重装正式服务或重启 `fq-symphony-orchestrator`

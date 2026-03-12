@@ -1,17 +1,32 @@
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Generator
 
 from dagster import DynamicOut, DynamicOutput, Output, graph, op
 from dagster._core.events import DagsterEvent, EngineEventData
+from requests.exceptions import RequestException  # type: ignore[import-untyped]
 
 from freshquant.data.gantt_readmodel import (
+    COL_GANTT_STOCK_DAILY,
+    COL_PLATE_REASON_DAILY,
+    COL_STOCK_HOT_REASON_DAILY,
     persist_gantt_daily_for_date,
     persist_plate_reason_daily_for_date,
     persist_shouban30_for_date,
     persist_stock_hot_reason_daily_for_date,
 )
-from freshquant.data.gantt_source_jygs import sync_jygs_action_for_date
-from freshquant.data.gantt_source_xgb import sync_xgb_history_for_date
+from freshquant.data.gantt_source_jygs import (
+    COL_JYGS_ACTION_FIELDS,
+    COL_JYGS_YIDONG,
+    EMPTY_RESULT_FLAG,
+    EMPTY_RESULT_REASON_FIELD,
+    EMPTY_RESULT_REASON_UPSTREAM_TRADE_DATE_MISMATCH,
+    sync_jygs_action_for_date,
+)
+from freshquant.data.gantt_source_xgb import (
+    COL_XGB_TOP_GAINER_HISTORY,
+    sync_xgb_history_for_date,
+)
 from freshquant.data.quality_stock_universe import refresh_quality_stock_universe
 from freshquant.data.trade_date_hist import (
     get_trade_dates_between,
@@ -32,6 +47,40 @@ SHOUBAN30_EXTRA_FILTER_FIELDS = (
     "is_quality_subject",
     "quality_subject_snapshot_ready",
 )
+GANTT_BACKFILL_HOLE_SCAN_DAYS = 90
+BACKFILL_DATE_FIELD_BY_COLLECTION = {
+    COL_XGB_TOP_GAINER_HISTORY: "trade_date",
+    COL_JYGS_ACTION_FIELDS: "date",
+    COL_JYGS_YIDONG: "date",
+    COL_PLATE_REASON_DAILY: "trade_date",
+    COL_GANTT_PLATE_DAILY: "trade_date",
+    COL_GANTT_STOCK_DAILY: "trade_date",
+    COL_STOCK_HOT_REASON_DAILY: "trade_date",
+}
+GANTT_BACKFILL_DOWNSTREAM_COLLECTIONS = (
+    COL_PLATE_REASON_DAILY,
+    COL_GANTT_PLATE_DAILY,
+    COL_GANTT_STOCK_DAILY,
+    COL_STOCK_HOT_REASON_DAILY,
+)
+RETRYABLE_JYGS_EMPTY_REASONS = {EMPTY_RESULT_REASON_UPSTREAM_TRADE_DATE_MISMATCH}
+TRADE_CALENDAR_UNAVAILABLE_REASON = "trade_calendar_unavailable"
+
+
+@dataclass(frozen=True)
+class GanttBackfillResolution:
+    trade_dates: list[str]
+    latest_trade_date: str | None
+    latest_completed_trade_date: str | None
+    degraded_reason: str | None = None
+    error: str | None = None
+
+    @property
+    def is_degraded(self) -> bool:
+        return bool(_to_str(self.degraded_reason))
+
+
+_LAST_GANTT_BACKFILL_RESOLUTION: GanttBackfillResolution | None = None
 
 
 def _to_str(value: Any) -> str:
@@ -122,6 +171,126 @@ def _query_trade_dates_between(start_date: str, end_date: str) -> list[str]:
     ]
 
 
+def _query_recent_trade_dates(end_date: str, days: int) -> list[str]:
+    target_end_date = _to_str(end_date)
+    target_days = max(int(days or 0), 0)
+    if not target_end_date or target_days <= 0:
+        return []
+    trade_dates = [
+        trade_date.strftime("%Y-%m-%d")
+        for trade_date in tool_trade_date_hist_sina()["trade_date"]
+        if trade_date.strftime("%Y-%m-%d") <= target_end_date
+    ]
+    return trade_dates[-target_days:]
+
+
+def _query_collection_trade_dates(
+    collection_name: str,
+    start_date: str,
+    end_date: str,
+) -> set[str]:
+    field_name = BACKFILL_DATE_FIELD_BY_COLLECTION[collection_name]
+    docs = list(
+        DBGantt[collection_name].find(
+            {field_name: {"$gte": start_date, "$lte": end_date}},
+            {field_name: 1, EMPTY_RESULT_FLAG: 1},
+        )
+    )
+    return {
+        _to_str(doc.get(field_name))
+        for doc in docs
+        if _to_str(doc.get(field_name))
+        and not (
+            collection_name in {COL_JYGS_ACTION_FIELDS, COL_JYGS_YIDONG}
+            and doc.get(EMPTY_RESULT_FLAG)
+            and _to_str(doc.get(EMPTY_RESULT_REASON_FIELD))
+            in RETRYABLE_JYGS_EMPTY_REASONS
+        )
+    }
+
+
+def _query_non_empty_collection_trade_dates(
+    collection_name: str,
+    start_date: str,
+    end_date: str,
+) -> set[str]:
+    field_name = BACKFILL_DATE_FIELD_BY_COLLECTION[collection_name]
+    docs = list(
+        DBGantt[collection_name].find(
+            {field_name: {"$gte": start_date, "$lte": end_date}},
+            {field_name: 1, EMPTY_RESULT_FLAG: 1},
+        )
+    )
+    return {
+        _to_str(doc.get(field_name))
+        for doc in docs
+        if _to_str(doc.get(field_name)) and not doc.get(EMPTY_RESULT_FLAG)
+    }
+
+
+def _resolve_recent_gantt_backfill_holes(latest_trade_date: str) -> list[str]:
+    recent_trade_dates = _query_recent_trade_dates(
+        latest_trade_date,
+        GANTT_BACKFILL_HOLE_SCAN_DAYS,
+    )
+    if not recent_trade_dates:
+        return []
+
+    start_date = recent_trade_dates[0]
+    jygs_action_dates = _query_collection_trade_dates(
+        COL_JYGS_ACTION_FIELDS,
+        start_date,
+        latest_trade_date,
+    )
+    jygs_yidong_dates = _query_collection_trade_dates(
+        COL_JYGS_YIDONG,
+        start_date,
+        latest_trade_date,
+    )
+    raw_gap_dates = {
+        trade_date
+        for trade_date in recent_trade_dates
+        if trade_date not in jygs_action_dates or trade_date not in jygs_yidong_dates
+    }
+
+    downstream_expected_dates = _query_collection_trade_dates(
+        COL_XGB_TOP_GAINER_HISTORY,
+        start_date,
+        latest_trade_date,
+    )
+    downstream_expected_dates.update(
+        _query_non_empty_collection_trade_dates(
+            COL_JYGS_ACTION_FIELDS,
+            start_date,
+            latest_trade_date,
+        )
+    )
+    downstream_expected_dates.update(
+        _query_non_empty_collection_trade_dates(
+            COL_JYGS_YIDONG,
+            start_date,
+            latest_trade_date,
+        )
+    )
+    downstream_collection_dates = [
+        _query_collection_trade_dates(collection_name, start_date, latest_trade_date)
+        for collection_name in GANTT_BACKFILL_DOWNSTREAM_COLLECTIONS
+    ]
+    downstream_gap_dates = {
+        trade_date
+        for trade_date in recent_trade_dates
+        if trade_date in downstream_expected_dates
+        and any(
+            trade_date not in collection_dates
+            for collection_dates in downstream_collection_dates
+        )
+    }
+    pending_dates = raw_gap_dates | downstream_gap_dates
+    return [
+        trade_date for trade_date in recent_trade_dates if trade_date in pending_dates
+    ]
+
+
 def _resolve_trade_date(trade_date: str | None = None) -> str:
     if trade_date:
         return str(trade_date).strip()
@@ -193,27 +362,107 @@ def _build_shouban30_snapshots_for_date(context, trade_date: str) -> dict[str, A
     }
 
 
-def resolve_gantt_backfill_trade_dates() -> list[str]:
-    latest_trade_date = _query_latest_trade_date()
-    latest_completed_trade_date = _query_latest_completed_gantt_trade_date()
+def _remember_gantt_backfill_resolution(
+    resolution: GanttBackfillResolution,
+) -> GanttBackfillResolution:
+    global _LAST_GANTT_BACKFILL_RESOLUTION
+    _LAST_GANTT_BACKFILL_RESOLUTION = resolution
+    return resolution
 
-    if latest_completed_trade_date is None:
-        return [latest_trade_date]
 
-    if latest_completed_trade_date >= latest_trade_date:
+def _consume_gantt_backfill_resolution(
+    trade_dates: list[str],
+) -> GanttBackfillResolution:
+    global _LAST_GANTT_BACKFILL_RESOLUTION
+    resolution = _LAST_GANTT_BACKFILL_RESOLUTION
+    _LAST_GANTT_BACKFILL_RESOLUTION = None
+    if resolution is None:
+        return GanttBackfillResolution(
+            trade_dates=list(trade_dates),
+            latest_trade_date=None,
+            latest_completed_trade_date=None,
+        )
+    return resolution
+
+
+def _resolve_gantt_backfill_trade_dates_result() -> GanttBackfillResolution:
+    try:
+        latest_trade_date = _query_latest_trade_date()
+        latest_completed_trade_date = _query_latest_completed_gantt_trade_date()
+
+        if latest_completed_trade_date is None:
+            return _remember_gantt_backfill_resolution(
+                GanttBackfillResolution(
+                    trade_dates=[latest_trade_date],
+                    latest_trade_date=latest_trade_date,
+                    latest_completed_trade_date=None,
+                )
+            )
+
+        if latest_completed_trade_date < latest_trade_date:
+            trade_dates = _query_trade_dates_between(
+                latest_completed_trade_date,
+                latest_trade_date,
+            )
+            return _remember_gantt_backfill_resolution(
+                GanttBackfillResolution(
+                    trade_dates=[
+                        trade_date
+                        for trade_date in trade_dates
+                        if trade_date > latest_completed_trade_date
+                    ],
+                    latest_trade_date=latest_trade_date,
+                    latest_completed_trade_date=latest_completed_trade_date,
+                )
+            )
+
+        hole_trade_dates = _resolve_recent_gantt_backfill_holes(latest_trade_date)
+        if hole_trade_dates:
+            return _remember_gantt_backfill_resolution(
+                GanttBackfillResolution(
+                    trade_dates=hole_trade_dates,
+                    latest_trade_date=latest_trade_date,
+                    latest_completed_trade_date=latest_completed_trade_date,
+                )
+            )
         if _has_legacy_shouban30_snapshot(latest_trade_date):
-            return [latest_trade_date]
-        return []
+            return _remember_gantt_backfill_resolution(
+                GanttBackfillResolution(
+                    trade_dates=[latest_trade_date],
+                    latest_trade_date=latest_trade_date,
+                    latest_completed_trade_date=latest_completed_trade_date,
+                )
+            )
+        return _remember_gantt_backfill_resolution(
+            GanttBackfillResolution(
+                trade_dates=[],
+                latest_trade_date=latest_trade_date,
+                latest_completed_trade_date=latest_completed_trade_date,
+            )
+        )
+    except RequestException as exc:
+        return _remember_gantt_backfill_resolution(
+            GanttBackfillResolution(
+                trade_dates=[],
+                latest_trade_date=None,
+                latest_completed_trade_date=None,
+                degraded_reason=TRADE_CALENDAR_UNAVAILABLE_REASON,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        )
 
-    trade_dates = _query_trade_dates_between(
-        latest_completed_trade_date,
-        latest_trade_date,
+
+def resolve_gantt_backfill_trade_dates() -> list[str]:
+    return _resolve_gantt_backfill_trade_dates_result().trade_dates
+
+
+def _log_trade_calendar_degraded(context, *, stage: str, resolution: GanttBackfillResolution):
+    context.log.warning(
+        "gantt postclose trade calendar unavailable stage=%s reason=%s error=%s",
+        stage,
+        _to_str(resolution.degraded_reason) or TRADE_CALENDAR_UNAVAILABLE_REASON,
+        _to_str(resolution.error) or "unknown",
     )
-    return [
-        trade_date
-        for trade_date in trade_dates
-        if trade_date > latest_completed_trade_date
-    ]
 
 
 def run_gantt_pipeline_for_date(context, trade_date: str) -> dict[str, Any]:
@@ -265,9 +514,10 @@ def run_gantt_pipeline_for_date(context, trade_date: str) -> dict[str, Any]:
 
 
 def run_gantt_backfill(context) -> list[str]:
-    latest_trade_date = _query_latest_trade_date()
-    latest_completed_trade_date = _query_latest_completed_gantt_trade_date()
     trade_dates = resolve_gantt_backfill_trade_dates()
+    resolution = _consume_gantt_backfill_resolution(trade_dates)
+    latest_trade_date = resolution.latest_trade_date
+    latest_completed_trade_date = resolution.latest_completed_trade_date
 
     context.log.info(
         "gantt postclose incremental latest_trade_date=%s latest_completed_trade_date=%s pending_days=%s",
@@ -275,6 +525,13 @@ def run_gantt_backfill(context) -> list[str]:
         latest_completed_trade_date,
         len(trade_dates),
     )
+    if resolution.is_degraded:
+        _log_trade_calendar_degraded(
+            context,
+            stage="run_backfill",
+            resolution=resolution,
+        )
+        return []
     if not trade_dates:
         return []
 
@@ -301,13 +558,28 @@ def op_resolve_pending_gantt_trade_dates(context):
         stage="resolve_pending_trade_dates",
     )
     trade_dates = resolve_gantt_backfill_trade_dates()
+    resolution = _consume_gantt_backfill_resolution(trade_dates)
+    if resolution.is_degraded:
+        _log_trade_calendar_degraded(
+            context,
+            stage="resolve_pending_trade_dates",
+            resolution=resolution,
+        )
     context.log.info("resolved gantt pending trade_dates=%s", trade_dates)
+    done_fields: dict[str, Any] = {
+        "pending_count": len(trade_dates),
+        "trade_dates": trade_dates,
+    }
+    if resolution.is_degraded:
+        done_fields["status"] = "degraded"
+        done_fields["reason"] = (
+            _to_str(resolution.degraded_reason) or TRADE_CALENDAR_UNAVAILABLE_REASON
+        )
     yield _log_postclose_event(
         context,
         event="done",
         stage="resolve_pending_trade_dates",
-        pending_count=len(trade_dates),
-        trade_dates=trade_dates,
+        **done_fields,
     )
     for trade_date in trade_dates:
         yield DynamicOutput(
