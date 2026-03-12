@@ -10,8 +10,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  governance:
-    name: governance
+  docs-current-guard:
+    name: docs-current-guard
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -34,8 +34,8 @@ jobs:
       - name: Sync locked environment
         run: uv sync --frozen
 
-      - name: Governance checks (docs/migration + RFC)
-        run: uv run python script/ci/check_governance.py --base-ref origin/${{ github.base_ref || 'main' }} --head-ref HEAD
+      - name: Current docs guard
+        run: uv run python script/ci/check_current_docs.py --base-ref origin/${{ github.base_ref || 'main' }} --head-ref HEAD
 
   pre-commit:
     name: pre-commit

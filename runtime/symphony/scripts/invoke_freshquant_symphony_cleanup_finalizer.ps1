@@ -7,7 +7,8 @@ param(
     [string]$WorkspacePath,
     [string[]]$ActiveIssueIdentifiers,
     [switch]$SkipRemoteBranchDelete,
-    [switch]$SkipLinearUpdate
+    [switch]$SkipLinearUpdate,
+    [switch]$SkipGitHubUpdate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,12 +45,11 @@ function Get-NormalizedPath {
 function Assert-IssueIdentifier {
     param([Parameter(Mandatory = $true)][string]$Value)
 
-    if ($Value -notmatch '^(?<team>[A-Z]+)-(?<number>\d+)$') {
-        throw "Issue identifier must match TEAM-NUMBER: $Value"
+    if ($Value -notmatch '^GH-(?<number>\d+)$') {
+        throw "Issue identifier must match GH-NUMBER: $Value"
     }
 
     return @{
-        TeamKey = $Matches.team
         IssueNumber = [double]$Matches.number
     }
 }
@@ -373,7 +373,7 @@ function Get-PrunableArtifactEntries {
         if ($systemNames -contains $entry.Name) {
             continue
         }
-        if ($entry.Name -notmatch '^[A-Z]+-\d+$') {
+        if ($entry.Name -notmatch '^GH-\d+$') {
             continue
         }
         if ($activeSet.Contains($entry.Name)) {
@@ -403,6 +403,8 @@ $result = [ordered]@{
     workspaceDeleted = $false
     prunedArtifacts = @()
     artifactsRetentionDays = $null
+    githubUpdated = $false
+    issueClosed = $false
     linearCommentPosted = $false
     doneTransitioned = $false
     executedAt = (Get-Date).ToString('o')
@@ -427,6 +429,10 @@ try {
     $request = Get-Content -Path $requestPath -Raw | ConvertFrom-Json
     $result.artifactsRetentionDays = [int]$request.artifactsRetentionDays
     $issueContext = $null
+
+    if ($SkipGitHubUpdate) {
+        $SkipLinearUpdate = $true
+    }
 
     if (-not $SkipLinearUpdate) {
         $issueContext = Get-LinearIssueContext -IssueIdentifier $IssueIdentifier
@@ -462,14 +468,18 @@ try {
     }
 
     if ($SkipLinearUpdate) {
+        $result.githubUpdated = 'skipped'
+        $result.issueClosed = 'skipped'
         $result.linearCommentPosted = 'skipped'
         $result.doneTransitioned = 'skipped'
     }
     else {
         $commentBody = "$($request.deploymentCommentBody)$([string](Get-CleanupResultsSection -Result $result))"
         Post-LinearDeploymentComment -IssueId $issueContext.IssueId -Body $commentBody
+        $result.githubUpdated = $true
         $result.linearCommentPosted = $true
         Move-LinearIssueToDone -IssueId $issueContext.IssueId -DoneStateId $issueContext.DoneStateId
+        $result.issueClosed = $true
         $result.doneTransitioned = $true
     }
 

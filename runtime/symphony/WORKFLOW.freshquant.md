@@ -1,13 +1,23 @@
 ---
 tracker:
-  kind: linear
-  api_key: $LINEAR_API_KEY
-  project_slug: fce206e3a355
+  kind: github
+  repo: dao1oad/fqpack-next
+  auth_token: $GITHUB_TOKEN
+  managed_label: symphony
+  review_required_label: design-review
+  blocked_label: blocked
+  rework_label: rework
   active_states:
-    - Todo
-    - In Progress
-    - Rework
-    - Merging
+    - queued
+    - design_review
+    - in_progress
+    - rework
+    - deploying
+  terminal_states:
+    - done
+    - closed
+polling:
+  interval_ms: 30000
 workspace:
   root: D:/fqpack/runtime/symphony-service/workspaces
 hooks:
@@ -16,10 +26,10 @@ hooks:
 agent:
   max_concurrent_agents: 2
   max_concurrent_agents_by_state:
-    Todo: 1
-    In Progress: 2
-    Rework: 1
-    Merging: 1
+    queued: 1
+    in_progress: 2
+    rework: 1
+    deploying: 1
   max_turns: 60
 codex:
   command: powershell -ExecutionPolicy Bypass -File D:/fqpack/runtime/symphony-service/scripts/run_freshquant_codex_session.ps1
@@ -30,25 +40,23 @@ server:
   port: 40123
 ---
 
-You are working in FreshQuant's formal Symphony workflow.
+You are working in FreshQuant's GitHub-first Symphony workflow.
 
 Core governance rules:
 
-- Linear issue is the only task entry.
-- One development requirement maps to one Linear issue.
-- Human Review is the only human approval gate.
-- Human Review -> In Progress is the only approval truth.
-- Human Review is not an active dispatch state.
-- Design phase does not open a PR.
-- In Progress opens and updates a Draft PR on the issue branch.
-- Default implementation mode is subagent-driven-development + TDD.
-- Do not modify secrets.
-- Do not run production or other high-risk deployment / trading operations automatically.
-- Only controlled local or parallel-environment deployments are allowed, and only in Merging.
+- GitHub Issue is the formal task entry.
+- GitHub Draft PR is the only Design Review surface.
+- Design Review is the only human approval gate.
+- `docs/current/**` is the only formal documentation set.
+- If current system facts change, update `docs/current/**` in the same PR.
+- Code changes must redeploy affected modules before Done.
+- Done means: merge + ci + docs sync + deploy + health check + cleanup.
+- Cleanup deletes only task-level temporary resources, never shared runtime resources.
 
 State contract:
 
-- Todo: follow `runtime/symphony/prompts/todo.md`
-- In Progress: follow `runtime/symphony/prompts/in_progress.md`
-- Rework: follow `runtime/symphony/prompts/in_progress.md`
-- Merging: follow `runtime/symphony/prompts/merging.md` for merge, deploy, health checks, retries, and Rework handoff
+- queued: prepare context and decide whether Design Review is required
+- design_review: create or update the Draft PR Design Review Packet and wait for approval
+- in_progress: implement, test, and sync `docs/current/**`
+- rework: fix review, CI, deploy, or cleanup failures
+- deploying: merge, deploy, run health checks, and complete cleanup

@@ -2,6 +2,17 @@
 
 > Windows PowerShell 5.1 中文显示异常时，先执行：`. .\script\pwsh_utf8.ps1`
 
+## 当前定位
+
+本仓库已进入第二阶段：模块基本齐全，重点转向潜在 bug 修复、当前系统事实收敛、部署可重复、排障可维护。
+
+正式治理已切换为：
+
+- GitHub Issue：任务入口
+- GitHub Draft PR：唯一 `Design Review`
+- `docs/current/**`：唯一正式文档
+- `Done = merge + ci + docs sync + deploy + health check + cleanup`
+
 ## 运行环境
 
 - 宿主机统一使用项目根目录 `.venv`
@@ -25,27 +36,23 @@ uv run pytest freshquant/tests -q
 uv run python -m freshquant.rear.api_server --port 5000
 ```
 
-## 扩展构建
-
-`fullcalc` 统一由项目内 Python 3.12 驱动：
-
-```powershell
-uv run python script/build_extensions.py --target fullcalc
-```
-
-产物位置：
-
-- `morningglory/fqcopilot/python/fullcalc.pyd`
-
-## Docker
-
-FreshQuant 并行部署：
+## Docker 并行部署
 
 ```powershell
 docker compose -f docker/compose.parallel.yaml up -d --build
 ```
 
-若需要在多个 worktree / 分支间隔离镜像标签，可先覆盖：
+常用并行端口：
+
+- Web UI：`18080`
+- API Server：`15000`
+- TDXHQ：`15001`
+- Dagster UI：`11003`
+- Redis：`6380`
+- MongoDB：`27027`
+
+若需要在多个分支间隔离镜像标签，可先覆盖：
+
 ```powershell
 $env:FQNEXT_REAR_IMAGE="fqnext_rear:<tag>"
 $env:FQNEXT_WEBUI_IMAGE="fqnext_webui:<tag>"
@@ -53,11 +60,6 @@ $env:FQNEXT_TA_BACKEND_IMAGE="fqnext_ta_backend:<tag>"
 $env:FQNEXT_TA_FRONTEND_IMAGE="fqnext_ta_frontend:<tag>"
 docker compose -f docker/compose.parallel.yaml up -d --build
 ```
-
-当前镜像约定：
-
-- `docker/Dockerfile.rear` 通过 `uv sync --frozen` 构建 `/freshquant/.venv`
-- `third_party/tradingagents-cn/Dockerfile.backend` 通过 `uv sync --frozen` 构建 `/app/.venv`
 
 ## Supervisor
 
@@ -69,10 +71,11 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 - `D:\fqpack\config\supervisord.fqnext.conf`
 
-## 其他
+## 文档入口
 
-- 文档索引：`docs/agent/index.md`
-- 当前代码现状：`docs/agent/项目目标与代码现状调研.md`
-- Docker 并行部署说明：`docs/agent/Docker并行部署指南.md`
-- 迁移进度：`docs/migration/progress.md`
-- 破坏性变更：`docs/migration/breaking-changes.md`
+- [文档索引](./docs/index.md)
+- [当前总览](./docs/current/overview.md)
+- [当前架构](./docs/current/architecture.md)
+- [当前运行面](./docs/current/runtime.md)
+- [当前部署](./docs/current/deployment.md)
+- [当前排障](./docs/current/troubleshooting.md)

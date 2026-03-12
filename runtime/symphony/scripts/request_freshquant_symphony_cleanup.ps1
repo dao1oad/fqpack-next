@@ -10,6 +10,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DeploymentCommentBody,
     [string]$OriginUrl,
+    [string]$IssueUrl,
+    [int]$PullRequestNumber,
+    [string]$PullRequestUrl,
     [int]$ArtifactsRetentionDays = 14
 )
 
@@ -34,8 +37,8 @@ function Get-NormalizedPath {
 function Assert-IssueIdentifier {
     param([Parameter(Mandatory = $true)][string]$Value)
 
-    if ($Value -notmatch '^[A-Z]+-\d+$') {
-        throw "Issue identifier must match TEAM-NUMBER: $Value"
+    if ($Value -notmatch '^GH-\d+$') {
+        throw "Issue identifier must match GH-NUMBER: $Value"
     }
 }
 
@@ -134,6 +137,9 @@ $payload = [ordered]@{
     artifactsRoot = $normalizedArtifactsRoot
     artifactsRetentionDays = $ArtifactsRetentionDays
     deploymentCommentBody = $DeploymentCommentBody
+    issueUrl = $IssueUrl
+    pullRequestNumber = $PullRequestNumber
+    pullRequestUrl = $PullRequestUrl
     requestedAt = (Get-Date).ToString('o')
 }
 

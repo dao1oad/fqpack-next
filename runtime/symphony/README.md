@@ -4,51 +4,134 @@
 
 ## 目标
 
-- 固化正式 `Linear` 状态机
-- 固化设计批准门
-- 固化默认 `subagent + TDD` 方法论
-- 固化 `Merging` 自动部署、cleanup 与 `Done` 判定
+- 固化 `GitHub-first` 轻量治理
+- 固化 `Design Review` 为唯一人工评审点
+- 固化 `Symphony + superpowers` 执行链
+- 固化 deploy、health check、cleanup 与 `Done` 判定
 - 让仓库治理与 `Symphony` 运行模板保持一致
 
-## 当前约束
+## 正式真值
 
-- tracker：`Linear`
-- 感知方式：默认 `30s` 轮询
-- secrets：**不入仓**
+- GitHub Issue：正式任务入口
+- GitHub Draft PR：唯一 `Design Review` 评审面
+- GitHub PR + CI：代码交付真值
+
+`Linear` 不再作为正式任务入口、评审面或批准真值来源。
+
+## 当前工作流
+
+正式工作流固定为：
+
+`Issue -> Draft PR -> Design Review(仅高风险) -> In Progress -> CI -> Deploy -> Health Check -> Cleanup -> Done`
+
+低风险任务可跳过 `Design Review`，直接进入实现。
+
+## 唯一人工评审点
+
+唯一人工评审点是：
+
+- `Design Review`
+
+规则：
+
+- 高风险任务必须先创建 Draft PR
+- `brainstorming` 必须产出一份完整 `Design Review Packet`
+- `Design Review Packet` 必须一次性列出全部待评审点、推荐方案和理由
+- 不允许零碎多轮提审
+- 人工在 Draft PR 中回复 `APPROVED`，或给出 PR review `Approve`
+- 设计批准后，不再设置第二个人工评审点
+
+## superpowers 执行链
+
+- 普通 bugfix：
+  - `using-superpowers`
+  - `systematic-debugging`
+  - `test-driven-development`
+  - `verification-before-completion`
+
+- 现有模块增强：
+  - `using-superpowers`
+  - `brainstorming`
+  - `test-driven-development`
+  - `verification-before-completion`
+
+- 跨模块或高风险改动：
+  - `using-superpowers`
+  - `brainstorming`
+  - `writing-plans`（必要时）
+  - `test-driven-development`
+  - `verification-before-completion`
+
+## 正式文档
+
+仓库正式文档只保留：
+
+- `docs/index.md`
+- `docs/current/**`
+
+如果当前系统事实发生变化，必须在同一 PR 同步更新 `docs/current/**`。
+
+## 部署与 Done
+
+硬规则：
+
+- 代码更新后，受影响模块必须重新部署
+- 未部署完成，不算 `Done`
+
+`Done` 的定义是：
+
+- PR 已合并
+- CI 通过
+- `docs/current/**` 已同步
+- 受影响模块已重新部署
+- 健康检查通过
+- cleanup 完成
+
+即：
+
+`Done = merge + ci + docs sync + deploy + health check + cleanup`
+
+## Cleanup
+
+Cleanup 只清理任务级资源：
+
+- 删除已合并远端 `feature branch`
+- 删除当前任务 workspace / repo copy
+- 删除当前任务临时脚本、截图、scratch 文件、临时 artifacts
+
+不清理共享运行资源：
+
+- `.venv`
+- Mongo / Redis 正式数据
+- 正式日志目录
+- 在线服务
+- `docs/current/**`
+
+## 运行方式
+
+- tracker：GitHub Issue + Draft PR
+- 感知方式：第一阶段默认 `30s` 轮询
+- secrets：不入仓
 - 正式工作流文件：`WORKFLOW.freshquant.md`
-- 阶段 prompt：
-  - `prompts/todo.md`
-  - `prompts/in_progress.md`
-  - `prompts/merging.md`
-- 审批评论模板：
-  - `templates/human_review_comment.md`
-- PR 结果评论模板：
-  - `templates/pr_completion_comment.md`
-- 部署评论模板：
-  - `templates/deployment_comment.md`
 - 正式宿主机脚本：
   - `scripts/run_freshquant_codex_session.ps1`
-  - `scripts/freshquant_runner.exs`
   - `scripts/request_freshquant_symphony_cleanup.ps1`
   - `scripts/invoke_freshquant_symphony_cleanup_finalizer.ps1`
   - `scripts/start_freshquant_symphony.ps1`
   - `scripts/sync_freshquant_symphony_service.ps1`
-  - `scripts/install_freshquant_symphony_service.ps1`
 
-## 使用说明
+## 任务标签建议
 
-- 本目录中的文件是 **版本化模板**
-- 真实运行时的 `LINEAR_API_KEY`、project slug、GitHub/Codex 凭据通过环境变量或外部安全注入提供
-- 当前不强制先接 webhook，继续使用 30 秒轮询
-- 正式运行继续使用**单实例 orchestrator + 按状态并发**：
-  - `Todo=1`
-  - `In Progress=2`
-  - `Rework=1`
-  - `Merging=1`
-- 只有实现阶段允许双并发；设计、返工和部署阶段保持保守串行
-- `Merging` 阶段负责 merge、按变更矩阵执行部署、部署后健康检查和 cleanup；只有 cleanup 成功才能进入 `Done`
-- `Human Review` 评论必须一次性列出全部待决策项、推荐方案与理由；未决项未清零前，不得进入 `In Progress`
-- 进入 `Merging` 前必须在 Linear 留下 PR 结果评论
-- 进入 `Merging` 后由 agent 先生成 cleanup request；宿主机 finalizer 会在 Codex 子进程退出后删除远端分支、删除 workspace、清理旧 artifacts，并写入最终 deployment comment
-- 进入 `Done` 前必须在 Linear 留下包含 `Cleanup Results` 的最终部署评论
-- 宿主机正式运行说明见：`docs/agent/Symphony宿主机服务部署说明.md`
+Issue labels：
+
+- `symphony`
+- `design-review`
+- `blocked`
+- `rework`
+
+PR 信号：
+
+- 评论 `APPROVED`
+- 评论 `REVISE: ...`
+- 评论 `REJECTED: ...`
+- PR review `Approve`
