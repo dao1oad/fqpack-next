@@ -426,6 +426,14 @@ try {
 
     $request = Get-Content -Path $requestPath -Raw | ConvertFrom-Json
     $result.artifactsRetentionDays = [int]$request.artifactsRetentionDays
+    $issueContext = $null
+
+    if (-not $SkipLinearUpdate) {
+        $issueContext = Get-LinearIssueContext -IssueIdentifier $IssueIdentifier
+        if ($issueContext.CurrentStateName -ne 'Merging') {
+            throw "Refusing cleanup finalizer for $IssueIdentifier while issue is in state '$($issueContext.CurrentStateName)'."
+        }
+    }
 
     if ($SkipRemoteBranchDelete) {
         $result.remoteBranchDeleted = 'skipped'
@@ -458,7 +466,6 @@ try {
         $result.doneTransitioned = 'skipped'
     }
     else {
-        $issueContext = Get-LinearIssueContext -IssueIdentifier $IssueIdentifier
         $commentBody = "$($request.deploymentCommentBody)$([string](Get-CleanupResultsSection -Result $result))"
         Post-LinearDeploymentComment -IssueId $issueContext.IssueId -Body $commentBody
         $result.linearCommentPosted = $true
