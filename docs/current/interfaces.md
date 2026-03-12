@@ -58,6 +58,12 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/runtime/raw-files/files`
 - `/api/runtime/raw-files/tail`
 
+其中：
+
+- `/api/runtime/health/summary` 固定返回核心组件全集；没有最新 health 数据时返回 `status=unknown`、`heartbeat_age_s=null`、`is_placeholder=true`
+- `xt_producer` heartbeat 指标包括 `rx_age_s`、`tick_count_5m`、`tick_batches_5m`、`subscribed_codes`、`connected`
+- `xt_consumer` heartbeat 指标包括 `last_bar_age_s`、`processed_bars_5m`、`backlog_sum`、`scheduler_pending`、`catchup_mode`
+
 ## CLI
 
 统一入口：

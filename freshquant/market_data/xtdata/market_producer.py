@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import traceback
+from collections import deque
 
 import click
 from loguru import logger
@@ -170,6 +171,52 @@ def emit_producer_heartbeat(*, runtime_logger=None, **metrics) -> bool:
     )
 
 
+class ProducerHeartbeatState:
+    def __init__(self, *, window_s: float = 300.0):
+        self.window_s = max(float(window_s or 300.0), 1.0)
+        self._lock = threading.Lock()
+        self._batches: deque[tuple[float, int]] = deque()
+        self._last_tick_ts: float | None = None
+
+    def record_tick_batch(self, *, tick_count: int, now_ts: float | None = None) -> None:
+        count = max(int(tick_count or 0), 0)
+        if count <= 0:
+            return
+        current_ts = float(now_ts if now_ts is not None else time.time())
+        with self._lock:
+            self._batches.append((current_ts, count))
+            self._last_tick_ts = current_ts
+            self._prune_locked(current_ts)
+
+    def snapshot(
+        self,
+        *,
+        now_ts: float | None = None,
+        subscribed_codes: int = 0,
+        connected: bool = True,
+    ) -> dict:
+        current_ts = float(now_ts if now_ts is not None else time.time())
+        with self._lock:
+            self._prune_locked(current_ts)
+            tick_batches = len(self._batches)
+            tick_count = sum(count for _, count in self._batches)
+            last_tick_ts = self._last_tick_ts
+        return {
+            "connected": 1 if connected else 0,
+            "subscribed_codes": max(int(subscribed_codes or 0), 0),
+            "tick_batches_5m": tick_batches,
+            "tick_count_5m": tick_count,
+            "rx_age_s": None
+            if last_tick_ts is None
+            else round(max(current_ts - last_tick_ts, 0.0), 3),
+        }
+
+    def _prune_locked(self, now_ts: float) -> None:
+        cutoff = float(now_ts) - self.window_s
+        while self._batches and self._batches[0][0] < cutoff:
+            self._batches.popleft()
+
+
 def start_producer():
     try:
         from xtquant import xtdata  # type: ignore
@@ -210,12 +257,14 @@ def start_producer():
         generator.on_tick(datas)
 
     pump = TickPump(_tick_handler, flush_interval_s=0.05).start()
+    heartbeat_state = ProducerHeartbeatState(window_s=300.0)
 
     sub_seq = None
     sub_codes: set[str] = set()
+    subscribed_codes = 0
 
     def _subscribe(codes_prefixed: list[str]):
-        nonlocal sub_seq, sub_codes
+        nonlocal sub_seq, sub_codes, subscribed_codes
         if not codes_prefixed:
             logger.warning("[Producer] empty pool; waiting ...")
             return
@@ -227,6 +276,7 @@ def start_producer():
                 for k, v in (datas or {}).items()
                 if k and v
             }
+            heartbeat_state.record_tick_batch(tick_count=len(norm))
             _push_tick_quote_events(norm)
             pump.submit(norm)
 
@@ -237,6 +287,7 @@ def start_producer():
                 pass
         sub_seq = xtdata.subscribe_whole_quote(xt_codes, callback=on_data)
         sub_codes = set(codes_prefixed)
+        subscribed_codes = len(sub_codes)
         _emit_runtime(
             _get_runtime_logger(),
             {
@@ -250,6 +301,35 @@ def start_producer():
         )
 
     _subscribe(_load_subscription_codes(mode=mode, max_symbols=max_symbols))
+
+    heartbeat_stop = threading.Event()
+
+    def _emit_current_heartbeat(now_ts: float | None = None):
+        emit_producer_heartbeat(
+            runtime_logger=_get_runtime_logger(),
+            **heartbeat_state.snapshot(
+                now_ts=now_ts,
+                subscribed_codes=subscribed_codes,
+                connected=True,
+            ),
+        )
+
+    def _heartbeat_loop():
+        last_emit_at = time.time()
+        while not heartbeat_stop.wait(timeout=1.0):
+            now_ts = time.time()
+            if (now_ts - last_emit_at) < 300.0:
+                continue
+            _emit_current_heartbeat(now_ts)
+            last_emit_at = now_ts
+
+    _emit_current_heartbeat()
+    heartbeat_thread = threading.Thread(
+        target=_heartbeat_loop,
+        daemon=True,
+        name="ProducerHeartbeat",
+    )
+    heartbeat_thread.start()
 
     def _pool_monitor_loop():
         while True:
@@ -275,6 +355,11 @@ def start_producer():
     except KeyboardInterrupt:
         logger.info("[Producer] stopping ...")
     finally:
+        heartbeat_stop.set()
+        try:
+            heartbeat_thread.join(timeout=2)
+        except Exception:
+            pass
         pump.stop()
         generator.stop()
         if sub_seq is not None:

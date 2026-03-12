@@ -329,6 +329,66 @@ test('buildComponentBoard splits host and docker cards for the same component an
   assert.ok(board.cards.some((card) => card.component === 'xt_producer'))
 })
 
+test('buildComponentBoard keeps placeholder core cards visible and prefers trace runtime nodes over placeholder nodes', () => {
+  const board = buildComponentBoard(
+    [
+      {
+        trace_id: 'trc_guardian_only_trace',
+        steps: [
+          {
+            component: 'guardian_strategy',
+            runtime_node: 'host:guardian',
+            node: 'receive_signal',
+            status: 'info',
+            ts: '2026-03-09T10:00:00+08:00',
+          },
+        ],
+      },
+    ],
+    buildHealthCards([
+      {
+        component: 'guardian_strategy',
+        runtime_node: 'docker:guardian',
+        status: 'unknown',
+        heartbeat_age_s: null,
+        metrics: {},
+        is_placeholder: true,
+      },
+      {
+        component: 'xt_consumer',
+        runtime_node: 'host:xt_consumer',
+        status: 'unknown',
+        heartbeat_age_s: null,
+        metrics: {},
+        is_placeholder: true,
+      },
+    ]),
+  )
+
+  assert.deepEqual(
+    board.cards
+      .filter((card) => ['guardian_strategy', 'xt_consumer'].includes(card.component))
+      .map((card) => ({
+        component: card.component,
+        runtime_node: card.runtime_node,
+        status: card.status,
+      }))
+      .sort((left, right) => left.component.localeCompare(right.component)),
+    [
+      {
+        component: 'guardian_strategy',
+        runtime_node: 'host:guardian',
+        status: 'unknown',
+      },
+      {
+        component: 'xt_consumer',
+        runtime_node: 'host:xt_consumer',
+        status: 'unknown',
+      },
+    ],
+  )
+})
+
 test('applyBoardFilter narrows traces by selected component', () => {
   const traces = [
     makeTrace({
@@ -479,7 +539,13 @@ test('buildHealthCards and buildRawLookupFromStep normalize view data', () => {
         runtime_node: 'host:xt_producer',
         status: 'info',
         heartbeat_age_s: 12,
-        metrics: { rx_age_s: 1.2, connected: 1, ignored: 3 },
+        metrics: {
+          rx_age_s: 1.2,
+          tick_count_5m: 48,
+          subscribed_codes: 20,
+          connected: 1,
+          ignored: 3,
+        },
       },
     ]),
     [
@@ -488,9 +554,13 @@ test('buildHealthCards and buildRawLookupFromStep normalize view data', () => {
         runtime_node: 'host:xt_producer',
         status: 'info',
         heartbeat_age_s: 12,
+        heartbeat_label: '12s',
+        is_placeholder: false,
         highlights: [
-          { key: 'rx_age_s', value: 1.2 },
-          { key: 'connected', value: 1 },
+          { key: 'rx_age_s', label: '收 tick', value: 1.2, display: '1.2s' },
+          { key: 'tick_count_5m', label: '5m ticks', value: 48, display: '48' },
+          { key: 'subscribed_codes', label: '订阅', value: 20, display: '20' },
+          { key: 'connected', label: '连接', value: 1, display: 'yes' },
         ],
       },
     ],

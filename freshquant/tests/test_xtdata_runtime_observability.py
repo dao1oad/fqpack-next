@@ -4,8 +4,14 @@ import sys
 import textwrap
 from pathlib import Path
 
-from freshquant.market_data.xtdata.market_producer import emit_producer_heartbeat
-from freshquant.market_data.xtdata.strategy_consumer import StrategyConsumer
+from freshquant.market_data.xtdata.market_producer import (
+    ProducerHeartbeatState,
+    emit_producer_heartbeat,
+)
+from freshquant.market_data.xtdata.strategy_consumer import (
+    ConsumerHeartbeatState,
+    StrategyConsumer,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -53,6 +59,41 @@ def test_consumer_heartbeat_emits_runtime_event():
             "payload": {},
         }
     ]
+
+
+def test_producer_heartbeat_state_tracks_recent_tick_activity_over_five_minutes():
+    state = ProducerHeartbeatState(window_s=300)
+
+    state.record_tick_batch(tick_count=4, now_ts=100.0)
+    state.record_tick_batch(tick_count=6, now_ts=250.0)
+
+    assert state.snapshot(now_ts=400.0, subscribed_codes=12, connected=True) == {
+        "connected": 1,
+        "subscribed_codes": 12,
+        "tick_batches_5m": 2,
+        "tick_count_5m": 10,
+        "rx_age_s": 150.0,
+    }
+
+
+def test_consumer_heartbeat_state_tracks_recent_processing_activity_over_five_minutes():
+    state = ConsumerHeartbeatState(window_s=300)
+
+    state.record_processed_bar(now_ts=100.0)
+    state.record_processed_bar(now_ts=260.0)
+
+    assert state.snapshot(
+        now_ts=400.0,
+        backlog_sum=8,
+        scheduler_pending=3,
+        catchup_mode=True,
+    ) == {
+        "backlog_sum": 8,
+        "scheduler_pending": 3,
+        "processed_bars_5m": 2,
+        "last_bar_age_s": 140.0,
+        "catchup_mode": 1,
+    }
 
 
 def _run_entrypoint(script: str) -> subprocess.CompletedProcess[str]:

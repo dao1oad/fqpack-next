@@ -173,9 +173,18 @@
               </div>
               <div class="component-board-stats">
                 <span>状态 {{ card.status }}</span>
-                <span>心跳 {{ card.heartbeat_age_s ?? '-' }}s</span>
+                <span>心跳 {{ card.heartbeat_label }}</span>
                 <span>异常链路 {{ card.issue_trace_count }}</span>
                 <span>异常节点 {{ card.issue_step_count }}</span>
+              </div>
+              <div class="component-board-highlights">
+                <span
+                  v-for="highlight in card.highlights"
+                  :key="`${card.component}-${card.runtime_node}-${highlight.key}`"
+                >
+                  {{ highlight.label }} {{ highlight.display }}
+                </span>
+                <span v-if="card.highlights.length === 0">no data</span>
               </div>
               <div class="component-board-footer">
                 <span>最近异常 {{ card.last_issue_ts || '-' }}</span>
@@ -1102,6 +1111,21 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 10px;
   color: #69829b;
+  font-size: 12px;
+}
+
+.component-board-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.component-board-highlights span {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #edf4fb;
+  color: #45627f;
   font-size: 12px;
 }
 
