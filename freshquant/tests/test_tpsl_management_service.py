@@ -51,6 +51,22 @@ class InMemoryTpslRepository:
             return rows
         return rows[: int(limit)]
 
+    def list_latest_exit_trigger_events_by_symbol(self, *, symbols=None):
+        allowed = None if symbols is None else set(symbols)
+        latest = {}
+        rows = list(self.events)
+        rows.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        for item in rows:
+            symbol = item.get("symbol")
+            if not symbol:
+                continue
+            if allowed is not None and symbol not in allowed:
+                continue
+            if symbol in latest:
+                continue
+            latest[symbol] = item
+        return list(latest.values())
+
 
 class InMemoryOrderManagementRepository:
     def __init__(self):
@@ -228,6 +244,119 @@ def test_management_overview_unions_holdings_and_configured_symbols():
     assert rows_by_symbol["000001"]["position_quantity"] == 0
     assert rows_by_symbol["000001"]["takeprofit_configured"] is True
     assert rows_by_symbol["000001"]["has_active_stoploss"] is False
+
+
+def test_management_overview_uses_latest_event_query_instead_of_full_scan():
+    class OverviewAwareTpslRepository(InMemoryTpslRepository):
+        def __init__(self):
+            super().__init__()
+            self.latest_query_symbols = []
+
+        def list_exit_trigger_events(
+            self,
+            *,
+            symbol=None,
+            batch_id=None,
+            kind=None,
+            buy_lot_id=None,
+            limit=50,
+        ):
+            if (
+                symbol is None
+                and batch_id is None
+                and kind is None
+                and buy_lot_id is None
+                and limit is None
+            ):
+                raise AssertionError("overview should not scan the full event stream")
+            return super().list_exit_trigger_events(
+                symbol=symbol,
+                batch_id=batch_id,
+                kind=kind,
+                buy_lot_id=buy_lot_id,
+                limit=limit,
+            )
+
+        def list_latest_exit_trigger_events_by_symbol(self, *, symbols=None):
+            self.latest_query_symbols.append(set(symbols or []))
+            return super().list_latest_exit_trigger_events_by_symbol(symbols=symbols)
+
+    tpsl_repository = OverviewAwareTpslRepository()
+    tpsl_repository.profiles["600000"] = {
+        "symbol": "600000",
+        "tiers": [{"level": 1, "price": 10.8, "manual_enabled": True}],
+    }
+    tpsl_repository.events.extend(
+        [
+            {
+                "event_id": "evt_hist_only",
+                "event_type": "stoploss_hit",
+                "kind": "stoploss",
+                "symbol": "300001",
+                "batch_id": "sl_batch_hist",
+                "created_at": "2026-03-13T11:00:00+00:00",
+            },
+            {
+                "event_id": "evt_live",
+                "event_type": "takeprofit_hit",
+                "kind": "takeprofit",
+                "symbol": "600000",
+                "batch_id": "tp_batch_1",
+                "created_at": "2026-03-13T10:00:00+00:00",
+            },
+        ]
+    )
+
+    service = TpslManagementService(
+        tpsl_repository=tpsl_repository,
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "sh600000",
+                "stock_code": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 500,
+                "amount_adjusted": -5300.0,
+            }
+        ],
+    )
+
+    rows = service.get_overview()
+
+    assert [item["symbol"] for item in rows] == ["600000"]
+    assert rows[0]["last_trigger"]["event_id"] == "evt_live"
+    assert tpsl_repository.latest_query_symbols == [{"600000"}]
+
+
+def test_management_history_ignores_blank_optional_filters():
+    tpsl_repository = InMemoryTpslRepository()
+    tpsl_repository.events.append(
+        {
+            "event_id": "evt_tp_1",
+            "event_type": "takeprofit_hit",
+            "kind": "takeprofit",
+            "symbol": "600000",
+            "batch_id": "tp_batch_1",
+            "buy_lot_ids": ["lot_open_1"],
+            "created_at": "2026-03-13T09:59:00+00:00",
+        }
+    )
+
+    service = TpslManagementService(
+        tpsl_repository=tpsl_repository,
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+    )
+
+    rows = service.list_history(
+        symbol="600000",
+        kind=" ",
+        buy_lot_id="",
+        batch_id="",
+        limit=20,
+    )
+
+    assert [item["event_id"] for item in rows] == ["evt_tp_1"]
 
 
 def test_management_detail_assembles_buy_lots_and_order_timeline():

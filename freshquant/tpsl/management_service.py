@@ -39,15 +39,25 @@ class TpslManagementService:
                 continue
             active_stoploss_counts[symbol] = active_stoploss_counts.get(symbol, 0) + 1
 
-        latest_events = {}
-        for item in self.tpsl_repository.list_exit_trigger_events(limit=None):
-            symbol = _normalize_symbol(item.get("symbol"))
-            if not symbol or symbol in latest_events:
-                continue
-            latest_events[symbol] = _build_event_summary(item)
-
         symbols = set(positions) | set(profile_map) | set(active_stoploss_counts)
-        symbols.update(latest_events)
+        latest_events = {}
+        if symbols:
+            if hasattr(
+                self.tpsl_repository, "list_latest_exit_trigger_events_by_symbol"
+            ):
+                event_rows = (
+                    self.tpsl_repository.list_latest_exit_trigger_events_by_symbol(
+                        symbols=symbols
+                    )
+                )
+            else:
+                event_rows = self.tpsl_repository.list_exit_trigger_events(limit=None)
+            for item in event_rows:
+                symbol = _normalize_symbol(item.get("symbol"))
+                if not symbol or symbol not in symbols or symbol in latest_events:
+                    continue
+                latest_events[symbol] = _build_event_summary(item)
+
         rows = []
         for symbol in symbols:
             position = positions.get(symbol) or {}
@@ -144,18 +154,23 @@ class TpslManagementService:
         batch_id=None,
         limit=50,
     ):
-        normalized_symbol = _normalize_symbol(symbol) if symbol is not None else None
+        normalized_symbol = _clean_optional_symbol(symbol)
+        normalized_kind = _clean_optional_text(kind)
+        normalized_buy_lot_id = _clean_optional_text(buy_lot_id)
+        normalized_batch_id = _clean_optional_text(batch_id)
         rows = self.tpsl_repository.list_exit_trigger_events(
             symbol=normalized_symbol,
-            batch_id=batch_id,
+            batch_id=normalized_batch_id,
             limit=None,
         )
         history = []
         for row in rows:
             normalized = _normalize_event(row)
-            if kind and normalized["kind"] != str(kind).strip():
+            if normalized_kind and normalized["kind"] != normalized_kind:
                 continue
-            if buy_lot_id and not _event_matches_buy_lot(normalized, buy_lot_id):
+            if normalized_buy_lot_id and not _event_matches_buy_lot(
+                normalized, normalized_buy_lot_id
+            ):
                 continue
             history.append(normalized)
         history.sort(key=lambda item: item.get("created_at") or "", reverse=True)
@@ -288,6 +303,16 @@ class TpslManagementService:
 
 def _normalize_symbol(value):
     return normalize_to_base_code(str(value or ""))
+
+
+def _clean_optional_symbol(value):
+    normalized = _normalize_symbol(value)
+    return normalized or None
+
+
+def _clean_optional_text(value):
+    normalized = str(value or "").strip()
+    return normalized or None
 
 
 def _load_stock_positions():

@@ -60,3 +60,20 @@ class TpslRepository:
         if limit is not None:
             cursor = cursor.limit(int(limit))
         return list(cursor)
+
+    def list_latest_exit_trigger_events_by_symbol(self, *, symbols=None):
+        pipeline = []
+        normalized_symbols = [
+            str(item).strip() for item in list(symbols or []) if str(item).strip()
+        ]
+        if normalized_symbols:
+            pipeline.append({"$match": {"symbol": {"$in": normalized_symbols}}})
+        pipeline.extend(
+            [
+                {"$sort": {"symbol": 1, "created_at": -1}},
+                {"$group": {"_id": "$symbol", "document": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$document"}},
+                {"$sort": {"created_at": -1}},
+            ]
+        )
+        return list(self.exit_trigger_events.aggregate(pipeline))
