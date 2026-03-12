@@ -311,6 +311,96 @@ def test_sync_jygs_action_for_date_writes_action_fields_and_yidong(monkeypatch):
     ]
 
 
+def test_sync_jygs_action_for_date_skips_invalid_theme_rows_with_missing_reason(
+    monkeypatch, caplog
+):
+    from freshquant.data import gantt_source_jygs as svc
+
+    fake_db = FakeDB()
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+    monkeypatch.setattr(
+        svc,
+        "fetch_action_count",
+        lambda trade_date: {"data": {"date": trade_date}},
+    )
+    monkeypatch.setattr(
+        svc,
+        "fetch_action_field",
+        lambda trade_date: {
+            "data": [
+                {
+                    "action_field_id": "field-bad",
+                    "name": "化工/周期",
+                    "count": 9,
+                    "reason": "",
+                },
+                {
+                    "action_field_id": "field-good",
+                    "name": "robotics*12",
+                    "count": 12,
+                    "reason": "plate reason",
+                },
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        svc,
+        "fetch_action_list",
+        lambda params: {
+            "data": [
+                {
+                    "code": "000001",
+                    "name": "alpha",
+                    "article": {
+                        "title": "article title",
+                        "action_info": {
+                            "reason": "stock reason",
+                        },
+                    },
+                }
+            ]
+        },
+    )
+
+    with caplog.at_level("WARNING"):
+        result = svc.sync_jygs_action_for_date("2026-03-05")
+
+    assert result == {
+        "trade_date": "2026-03-05",
+        "action_fields": 1,
+        "yidong": 1,
+        "skipped_action_fields": 1,
+    }
+    assert fake_db[svc.COL_JYGS_ACTION_FIELDS].docs == [
+        {
+            "date": "2026-03-05",
+            "board_key": "robotics",
+            "action_field_id": "field-good",
+            "name": "robotics*12",
+            "count": 12,
+            "reason": "plate reason",
+        }
+    ]
+    assert fake_db[svc.COL_JYGS_YIDONG].docs == [
+        {
+            "date": "2026-03-05",
+            "stock_code": "000001",
+            "stock_name": "alpha",
+            "analysis": "stock reason",
+            "boards": [
+                {
+                    "field_id": "field-good",
+                    "name": "robotics*12",
+                    "board_key": "robotics",
+                    "count": 12,
+                }
+            ],
+        }
+    ]
+    assert "skipping invalid jygs theme rows" in caplog.text
+    assert "field-bad" in caplog.text
+
+
 def test_sync_jygs_action_for_date_zero_fills_when_upstream_trade_date_mismatches(
     monkeypatch,
 ):
@@ -342,6 +432,60 @@ def test_sync_jygs_action_for_date_zero_fills_when_upstream_trade_date_mismatche
     assert action_doc["is_empty_result"] is True
     assert yidong_doc["date"] == "2026-03-05"
     assert yidong_doc["is_empty_result"] is True
+
+
+def test_sync_jygs_action_for_date_zero_fills_when_all_theme_rows_are_invalid(
+    monkeypatch, caplog
+):
+    from freshquant.data import gantt_source_jygs as svc
+
+    fake_db = FakeDB()
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+    monkeypatch.setattr(
+        svc,
+        "fetch_action_count",
+        lambda trade_date: {"data": {"date": trade_date}},
+    )
+    monkeypatch.setattr(
+        svc,
+        "fetch_action_field",
+        lambda trade_date: {
+            "data": [
+                {
+                    "action_field_id": "field-bad",
+                    "name": "化工/周期",
+                    "count": 9,
+                    "reason": "",
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        svc,
+        "fetch_action_list",
+        lambda params: (_ for _ in ()).throw(
+            AssertionError("should not fetch stock list for invalid theme rows")
+        ),
+    )
+
+    with caplog.at_level("WARNING"):
+        result = svc.sync_jygs_action_for_date("2026-03-05")
+
+    assert result == {
+        "trade_date": "2026-03-05",
+        "action_fields": 0,
+        "yidong": 0,
+        "skipped_action_fields": 1,
+    }
+    action_doc = fake_db[svc.COL_JYGS_ACTION_FIELDS].docs[0]
+    yidong_doc = fake_db[svc.COL_JYGS_YIDONG].docs[0]
+    assert action_doc["date"] == "2026-03-05"
+    assert action_doc["is_empty_result"] is True
+    assert action_doc["empty_reason"] == "invalid_theme_fields"
+    assert yidong_doc["date"] == "2026-03-05"
+    assert yidong_doc["is_empty_result"] is True
+    assert yidong_doc["empty_reason"] == "invalid_theme_fields"
+    assert "skipping invalid jygs theme rows" in caplog.text
 
 
 def test_sync_jygs_action_for_date_zero_fills_when_no_theme_fields(monkeypatch):

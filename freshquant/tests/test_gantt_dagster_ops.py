@@ -1,10 +1,13 @@
 import importlib
 import inspect
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import pandas as pd
 import pytest
+from requests.exceptions import SSLError  # type: ignore[import-untyped]
 
 
 def _build_dagster_stub():
@@ -397,6 +400,68 @@ def test_resolve_gantt_backfill_trade_dates_returns_incremental_window(monkeypat
     ]
 
 
+def test_resolve_gantt_backfill_trade_dates_retries_transient_ssl_error(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+    from freshquant.trading import dt as trading_dt
+
+    attempts = []
+
+    class FakeDateTime(datetime):
+        @classmethod
+        def now(cls):
+            return cls(2026, 3, 6, 15, 10)
+
+    def fake_fetch():
+        attempts.append(len(attempts) + 1)
+        if len(attempts) == 1:
+            raise SSLError("temporary ssl failure")
+        return pd.DataFrame(
+            {
+                "trade_date": [
+                    datetime(2026, 3, 5).date(),
+                    datetime(2026, 3, 6).date(),
+                ]
+            }
+        )
+
+    monkeypatch.setattr(
+        ops,
+        "tool_trade_date_hist_sina",
+        lambda: trading_dt._fetch_trade_dates_from_source(
+            trading_dt.ak.tool_trade_date_hist_sina
+        ),
+    )
+    monkeypatch.setattr(trading_dt.ak, "tool_trade_date_hist_sina", fake_fetch)
+    monkeypatch.setattr(ops, "datetime", FakeDateTime)
+    monkeypatch.setattr(
+        ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-05"
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_trade_dates_between",
+        lambda start_date, end_date: ["2026-03-05", "2026-03-06"],
+    )
+
+    assert ops.resolve_gantt_backfill_trade_dates() == ["2026-03-06"]
+    assert attempts == [1, 2]
+
+
+def test_resolve_gantt_backfill_trade_dates_returns_empty_when_trade_calendar_unavailable(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+
+    monkeypatch.setattr(
+        ops,
+        "tool_trade_date_hist_sina",
+        lambda: (_ for _ in ()).throw(SSLError("temporary ssl failure")),
+    )
+
+    assert ops.resolve_gantt_backfill_trade_dates() == []
+
+
 def test_resolve_gantt_backfill_trade_dates_rechecks_recent_jygs_holes(monkeypatch):
     ops = _load_ops_module(monkeypatch)
 
@@ -540,6 +605,53 @@ def test_resolve_gantt_backfill_trade_dates_retries_upstream_mismatch_markers(
     )
 
     assert ops.resolve_gantt_backfill_trade_dates() == ["2026-03-05"]
+
+
+def test_op_resolve_pending_gantt_trade_dates_degrades_when_trade_calendar_unavailable(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+
+    monkeypatch.setattr(
+        ops,
+        "tool_trade_date_hist_sina",
+        lambda: (_ for _ in ()).throw(SSLError("temporary ssl failure")),
+    )
+
+    result = list(ops.op_resolve_pending_gantt_trade_dates(context))
+    outputs = [item for item in result if hasattr(item, "mapping_key")]
+    messages = _collect_messages(result)
+
+    assert outputs == []
+    assert any(
+        "gantt postclose event=done stage=resolve_pending_trade_dates pending_count=0 status=degraded reason=trade_calendar_unavailable"
+        in message
+        for message in messages
+    )
+    assert any(
+        "gantt postclose trade calendar unavailable" in message
+        for message in context.log.messages
+    )
+
+
+def test_run_gantt_backfill_returns_empty_when_trade_calendar_unavailable(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+
+    monkeypatch.setattr(
+        ops,
+        "tool_trade_date_hist_sina",
+        lambda: (_ for _ in ()).throw(SSLError("temporary ssl failure")),
+    )
+
+    assert ops.run_gantt_backfill(context) == []
+    assert any(
+        "gantt postclose trade calendar unavailable" in message
+        for message in context.log.messages
+    )
 
 
 def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
