@@ -224,6 +224,7 @@ const changeWindowDays = (value) => {
   if (next === internalWindowDays.value) return
   internalWindowDays.value = next
   emit('update:windowDays', next)
+  loadData()
 }
 
 const emitBack = () => {
