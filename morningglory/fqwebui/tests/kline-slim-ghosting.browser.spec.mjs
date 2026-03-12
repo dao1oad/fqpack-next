@@ -392,6 +392,19 @@ async function waitForSymbolRendered(page, symbol) {
   await page.evaluate(() => window.__waitForSlimPaint?.())
 }
 
+async function expectHoldingSidebarItem(page, { name, code6 }) {
+  const holdingSection = page.locator('.sidebar-section').filter({
+    has: page.locator('.sidebar-section-heading', { hasText: '持仓股' })
+  })
+  await expect(holdingSection).toBeVisible()
+
+  const row = holdingSection.locator('.sidebar-item-row').filter({
+    has: page.locator('.sidebar-item-title', { hasText: name })
+  })
+  await expect(row.locator('.sidebar-item-title')).toHaveText(name)
+  await expect(row.locator('.sidebar-item-subtitle')).toHaveText(code6)
+}
+
 async function switchSymbol(page, symbol) {
   await page.evaluate((nextSymbol) => {
     const vm = window.__klineSlimVm || window.__findKlineSlimVm?.()
@@ -590,6 +603,16 @@ test('switching symbols after zoom and pan returns to the same chart hash with z
   const replayHash = await captureChartHash(page)
   expect(replayHash).toBe(baselineHash)
   expect(pageErrors).toEqual([])
+})
+
+test('holding sidebar renders API-provided stock names before code fallback', async ({ page }) => {
+  await page.setViewportSize({ width: 1680, height: 960 })
+  await installVmHelpers(page)
+  await mockKlineSlimApis(page)
+  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+
+  await waitForSymbolRendered(page, 'sz002262')
+  await expectHoldingSidebarItem(page, { name: 'ENHUA', code6: '002262' })
 })
 
 test('disabling zhongshu legends removes residual layers after zoomed symbol switches', async ({
