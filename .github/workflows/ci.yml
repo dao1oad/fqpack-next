@@ -10,8 +10,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  docs-current-guard:
-    name: docs-current-guard
+  governance:
+    name: governance
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
