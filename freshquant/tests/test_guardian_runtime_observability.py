@@ -257,14 +257,18 @@ def test_guardian_holding_buy_price_threshold_emits_structured_skip_finish(
     guardian.on_signal(signal)
 
     price_event = next(
-        event for event in runtime_logger.events if event["node"] == "price_threshold_check"
+        event
+        for event in runtime_logger.events
+        if event["node"] == "price_threshold_check"
     )
     finish_event = next(
         event for event in runtime_logger.events if event["node"] == "finish"
     )
 
     assert price_event["signal_summary"]["code"] == signal["code"]
-    assert price_event["decision_context"]["threshold"]["current_price"] == signal["price"]
+    assert (
+        price_event["decision_context"]["threshold"]["current_price"] == signal["price"]
+    )
     assert price_event["decision_context"]["threshold"]["bot_river_price"] == 9.5
     assert price_event["decision_outcome"]["outcome"] == "skip"
     assert price_event["reason_code"] == "price_threshold_not_met"
@@ -320,7 +324,10 @@ def test_guardian_new_open_buy_cooldown_emits_structured_skip_finish(monkeypatch
     )
 
     assert cooldown_event["signal_summary"]["code"] == signal["code"]
-    assert cooldown_event["decision_context"]["cooldown"]["key"] == "fq:xtrade:last_new_order_time"
+    assert (
+        cooldown_event["decision_context"]["cooldown"]["key"]
+        == "fq:xtrade:last_new_order_time"
+    )
     assert cooldown_event["decision_context"]["cooldown"]["active"] is True
     assert cooldown_event["decision_outcome"]["outcome"] == "skip"
     assert cooldown_event["reason_code"] == "new_open_cooldown_active"

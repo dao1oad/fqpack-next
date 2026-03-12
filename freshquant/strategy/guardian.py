@@ -167,7 +167,9 @@ class StrategyGuardian(metaclass=SingletonType):
                     decision_expr="fire_time >= cutoff_time",
                     decision_context=timing_context,
                 )
-                logger.info("{code} {name} 超过30分钟，跳过下单指令", code=code, name=name)
+                logger.info(
+                    "{code} {name} 超过30分钟，跳过下单指令", code=code, name=name
+                )
                 return
 
             self._emit_runtime(
