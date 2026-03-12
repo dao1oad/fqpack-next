@@ -1,10 +1,13 @@
 import importlib
 import inspect
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import pandas as pd
 import pytest
+from requests.exceptions import SSLError  # type: ignore[import-untyped]
 
 
 def _build_dagster_stub():
@@ -359,6 +362,54 @@ def test_resolve_gantt_backfill_trade_dates_returns_incremental_window(monkeypat
         "2026-03-05",
         "2026-03-06",
     ]
+
+
+def test_resolve_gantt_backfill_trade_dates_retries_transient_ssl_error(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+    from freshquant.trading import dt as trading_dt
+
+    attempts = []
+
+    class FakeDateTime(datetime):
+        @classmethod
+        def now(cls):
+            return cls(2026, 3, 6, 15, 10)
+
+    def fake_fetch():
+        attempts.append(len(attempts) + 1)
+        if len(attempts) == 1:
+            raise SSLError("temporary ssl failure")
+        return pd.DataFrame(
+            {
+                "trade_date": [
+                    datetime(2026, 3, 5).date(),
+                    datetime(2026, 3, 6).date(),
+                ]
+            }
+        )
+
+    monkeypatch.setattr(
+        ops,
+        "tool_trade_date_hist_sina",
+        lambda: trading_dt._fetch_trade_dates_from_source(
+            trading_dt.ak.tool_trade_date_hist_sina
+        ),
+    )
+    monkeypatch.setattr(trading_dt.ak, "tool_trade_date_hist_sina", fake_fetch)
+    monkeypatch.setattr(ops, "datetime", FakeDateTime)
+    monkeypatch.setattr(
+        ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-05"
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_trade_dates_between",
+        lambda start_date, end_date: ["2026-03-05", "2026-03-06"],
+    )
+
+    assert ops.resolve_gantt_backfill_trade_dates() == ["2026-03-06"]
+    assert attempts == [1, 2]
 
 
 def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):

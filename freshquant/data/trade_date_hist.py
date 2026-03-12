@@ -1,15 +1,15 @@
 from datetime import datetime
 
-import akshare as ak
 import pydash
 
 from freshquant.config import cfg
 from freshquant.database.cache import redis_cache
+from freshquant.trading.dt import fq_trading_fetch_trade_dates
 
 
 @redis_cache.memoize(expiration=86400)
 def tool_trade_date_hist_sina():
-    return ak.tool_trade_date_hist_sina()
+    return fq_trading_fetch_trade_dates(source="sina")
 
 
 @redis_cache.memoize(expiration=15)

@@ -140,10 +140,12 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - Dagster 任务未跑。
 - `as_of_date` 对应快照还没生成。
 - `stock_window_days` 不在 `30|45|60|90`。
+- 交易日日历源瞬时失败；当前实现会在移除代理环境变量后自动重试 3 次，但连续失败时仍拿不到最新完成交易日。
 
 处理：
 - 重跑 Dagster 作业
 - 确认读模型索引与快照日期
+- 在任务运行环境检查 `ALL_PROXY`、`all_proxy`、`HTTP_PROXY`、`HTTPS_PROXY` 是否被错误注入，再确认 AkShare 到 Sina 可访问
 
 ## Runtime Observability 无 trace
 
