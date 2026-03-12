@@ -19,6 +19,35 @@ const ISSUE_STATUS_RANK = {
   warning: 2,
   skipped: 1,
 }
+const GUARDIAN_COMPONENT = 'guardian_strategy'
+const GUARDIAN_NODE_LABELS = {
+  receive_signal: '信号接收',
+  holding_scope_resolve: '持仓范围判断',
+  timing_check: '时效判断',
+  price_threshold_check: '价格阈值判断',
+  signal_structure_check: '中枢/分离判断',
+  cooldown_check: '冷却判断',
+  quantity_check: '数量有效性判断',
+  position_management_check: '仓位管理判断',
+  submit_intent: '提交意图',
+  finish: '结束结论',
+}
+const GUARDIAN_OUTCOME_LABELS = {
+  continue: '继续',
+  pass: '通过',
+  skip: '跳过',
+  reject: '阻断',
+  submit: '提交',
+}
+const GUARDIAN_CONTEXT_LABELS = {
+  scope: '范围上下文',
+  timing: '时效上下文',
+  threshold: '阈值上下文',
+  signal_structure: '结构上下文',
+  cooldown: '冷却上下文',
+  quantity: '数量上下文',
+  position_management: '仓位管理',
+}
 
 const parseTimestampMs = (value) => {
   const text = toText(value)
@@ -96,6 +125,133 @@ const summarizeReasonLabel = (step = {}) => {
 }
 
 const normalizeTraces = (traces = []) => (Array.isArray(traces) ? traces : [])
+const normalizeTags = (value) => (Array.isArray(value) ? value.map((item) => toText(item)).filter(Boolean) : [])
+
+const formatValueText = (value) => {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return value.map((item) => formatValueText(item)).filter(Boolean).join(', ')
+  return buildJsonBlock(value)
+}
+
+const flattenGuardianContextItems = (value, prefix = '') => {
+  if (value === null || value === undefined) return []
+  if (Array.isArray(value)) {
+    const text = formatValueText(value)
+    return text ? [{ key: prefix || 'value', value: text }] : []
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, item]) =>
+      flattenGuardianContextItems(item, prefix ? `${prefix}.${key}` : key),
+    )
+  }
+  const text = formatValueText(value)
+  return text ? [{ key: prefix || 'value', value: text }] : []
+}
+
+const buildGuardianSignalSummary = (signalSummary = {}) => {
+  const code = toText(signalSummary?.code)
+  const name = toText(signalSummary?.name)
+  const title = [code, name].filter(Boolean).join(' ')
+  const subtitle = [
+    toText(signalSummary?.position),
+    toText(signalSummary?.period),
+    formatValueText(signalSummary?.price),
+  ].filter(Boolean).join(' · ')
+  const tags = normalizeTags(signalSummary?.tags)
+  const items = [
+    ['position', '方向'],
+    ['period', '周期'],
+    ['price', '价格'],
+    ['fire_time', '触发时间'],
+    ['discover_time', '发现时间'],
+    ['remark', '备注'],
+  ]
+    .map(([key, label]) => ({
+      key,
+      label,
+      value: formatValueText(signalSummary?.[key]),
+    }))
+    .filter((item) => item.value)
+  if (!title && !subtitle && items.length === 0 && tags.length === 0) return null
+  return {
+    code,
+    name,
+    title: title || code || name || '-',
+    subtitle,
+    tags,
+    items,
+  }
+}
+
+const inferGuardianOutcomeCode = (step = {}) => {
+  const explicit = toText(step?.decision_outcome?.outcome).toLowerCase()
+  if (explicit) return explicit
+  const status = toText(step?.status).toLowerCase()
+  if (status === 'skipped') return 'skip'
+  if (status === 'failed' || status === 'error') return 'reject'
+  if (status === 'success') return 'pass'
+  if (status === 'info') return 'continue'
+  return ''
+}
+
+const buildGuardianOutcomeSummary = (step = {}) => {
+  const outcomeCode = inferGuardianOutcomeCode(step)
+  const node = toText(step?.node)
+  return {
+    code: outcomeCode,
+    label: GUARDIAN_OUTCOME_LABELS[outcomeCode] || outcomeCode || '-',
+    status: toText(step?.status) || 'info',
+    node,
+    node_label: GUARDIAN_NODE_LABELS[node] || node || '-',
+    reason_code:
+      toText(step?.reason_code) ||
+      toText(step?.decision_outcome?.reason_code),
+    branch: toText(step?.decision_branch),
+    expr: toText(step?.decision_expr),
+  }
+}
+
+const buildGuardianContextBlocks = (decisionContext = {}) => {
+  if (!decisionContext || typeof decisionContext !== 'object') return []
+  return Object.entries(decisionContext)
+    .map(([key, value]) => ({
+      key,
+      label: GUARDIAN_CONTEXT_LABELS[key] || key,
+      items: flattenGuardianContextItems(value),
+    }))
+    .filter((block) => block.items.length > 0)
+}
+
+export const buildGuardianStepInsight = (step = {}) => {
+  if (toText(step?.component) !== GUARDIAN_COMPONENT) return null
+  return {
+    node: toText(step?.node),
+    node_label: GUARDIAN_NODE_LABELS[toText(step?.node)] || toText(step?.node) || '-',
+    signal: buildGuardianSignalSummary(step?.signal_summary),
+    outcome: buildGuardianOutcomeSummary(step),
+    context_blocks: buildGuardianContextBlocks(step?.decision_context),
+  }
+}
+
+export const buildGuardianTraceSummary = (detail = {}) => {
+  const steps = Array.isArray(detail?.steps) ? detail.steps : []
+  const guardianSteps = steps.filter((step) => toText(step?.component) === GUARDIAN_COMPONENT)
+  if (guardianSteps.length === 0) return null
+  const signalStep =
+    guardianSteps.find((step) => buildGuardianSignalSummary(step?.signal_summary)) ||
+    guardianSteps[0]
+  const conclusionStep =
+    [...guardianSteps].reverse().find((step) => inferGuardianOutcomeCode(step)) ||
+    guardianSteps[guardianSteps.length - 1]
+  return {
+    step_count: guardianSteps.length,
+    signal: buildGuardianSignalSummary(signalStep?.signal_summary),
+    conclusion: buildGuardianOutcomeSummary(conclusionStep),
+    latest_decision: buildGuardianStepInsight(conclusionStep),
+  }
+}
 
 const findTraceSymbol = (trace = {}, steps = []) => {
   if (toText(trace?.symbol)) return toText(trace.symbol)
@@ -166,6 +322,7 @@ export const buildTraceQuery = (form = {}) => {
 export const summarizeTrace = (trace = {}) => {
   const detail = buildTraceDetail(trace)
   const summaryMeta = buildTraceSummaryMeta(detail)
+  const guardianTrace = buildGuardianTraceSummary(detail)
   const lastStep = detail.steps[detail.steps.length - 1] || {}
   return {
     trace_key: toText(trace?.trace_key) || null,
@@ -185,6 +342,8 @@ export const summarizeTrace = (trace = {}) => {
     last_ts: toText(lastStep.ts) || '',
     path_nodes: buildTracePathNodes(detail.steps),
     path_summary: buildTracePathSummary(detail.steps),
+    guardian_signal: guardianTrace?.signal || null,
+    guardian_outcome: guardianTrace?.conclusion || null,
   }
 }
 
@@ -267,6 +426,7 @@ export const buildTraceDetail = (trace = {}) => {
       payload_text: buildJsonBlock(step?.payload),
       metrics_text: buildJsonBlock(step?.metrics),
       detail_fields: detailFields,
+      guardian_step: buildGuardianStepInsight(step),
     }
   })
   const firstTsMs = steps.find((item) => item.ts_ms !== null)?.ts_ms ?? null
@@ -290,6 +450,7 @@ export const buildTraceDetail = (trace = {}) => {
     last_status: toText(lastStep?.status) || 'info',
     last_node: toText(lastStep?.node) || '-',
     last_ts: toText(lastStep?.ts) || '',
+    guardian_trace: buildGuardianTraceSummary({ steps }),
   }
 }
 
