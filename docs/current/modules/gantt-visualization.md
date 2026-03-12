@@ -36,6 +36,8 @@
   - `jygs`
 - plate 视图与 stock 视图
 - `days` 窗口切换
+  - 点击 `7/15/30/45/60/90` 后会立即重新请求当前视图数据，并同步当前路由 query
+  - 从板块页 drill-down 到个股页时继承当前 `days`；个股页返回板块页时保持当前 `days`
 - 热门理由弹窗
 
 ## 存储
@@ -75,6 +77,12 @@
 
 - 检查 `plate_key` 是否在读模型中存在
 - 检查 `/api/gantt/stocks` 返回
+
+### 窗口按钮高亮变化但图不刷新
+
+- 检查页面是否已部署最新 `fq_webui`
+- 检查当前路由 query 中的 `days` 是否和按钮选择一致
+- 检查 `/api/gantt/plates` 或 `/api/gantt/stocks` 是否按新的 `days` 返回窗口数据
 
 ### 热门理由弹窗为空
 
