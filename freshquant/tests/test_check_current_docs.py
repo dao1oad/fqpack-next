@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "script" / "ci" / "check_current_docs.py"
-PYTHON = Path(r"D:\fqpack\freshquant-2026.2.23\.venv\Scripts\python.exe")
+PYTHON = Path(sys.executable)
 
 
 def _run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -19,7 +19,9 @@ def _run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _run_guard(repo: Path, base_ref: str, head_ref: str) -> subprocess.CompletedProcess[str]:
+def _run_guard(
+    repo: Path, base_ref: str, head_ref: str
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(PYTHON), str(SCRIPT_PATH), "--base-ref", base_ref, "--head-ref", head_ref],
         cwd=repo,

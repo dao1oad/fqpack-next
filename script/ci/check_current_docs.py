@@ -5,7 +5,6 @@ import argparse
 import subprocess
 import sys
 
-
 DOCS_PREFIX = "docs/current/"
 
 DOC_REQUIRED_PREFIXES = (

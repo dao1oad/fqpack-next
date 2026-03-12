@@ -92,7 +92,9 @@ def test_request_cleanup_writes_manifest(tmp_path: Path) -> None:
     assert payload["deploymentCommentBody"] == "deployment body"
     assert payload["issueUrl"] == "https://github.com/dao1oad/fqpack-next/issues/999"
     assert payload["pullRequestNumber"] == 123
-    assert payload["pullRequestUrl"] == "https://github.com/dao1oad/fqpack-next/pull/123"
+    assert (
+        payload["pullRequestUrl"] == "https://github.com/dao1oad/fqpack-next/pull/123"
+    )
     assert payload["repository"] == "dao1oad/fqpack-next"
     assert payload["artifactsRetentionDays"] == 14
 
