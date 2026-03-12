@@ -87,3 +87,29 @@ test('GanttHistory keeps plate sidebar vertically scrollable when rows overflow'
   assert.match(content, /\.sidebar-list\s*\{[\s\S]*overflow-y:\s*auto;/)
   assert.match(content, /\.sidebar-list\s*\{[\s\S]*overflow-x:\s*hidden;/)
 })
+
+test('Gantt pages use a viewport shell instead of stacking document-level 100vh blocks', async () => {
+  const [platesPage, stocksPage] = await Promise.all([
+    readFile(new URL('../src/views/GanttUnified.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/GanttUnifiedStocks.vue', import.meta.url), 'utf8')
+  ])
+
+  assert.doesNotMatch(platesPage, /\.gantt-page\s*\{[\s\S]*min-height:\s*100vh;/)
+  assert.match(platesPage, /\.gantt-page\s*\{[\s\S]*overflow:\s*hidden;/)
+  assert.match(platesPage, /\.gantt-page-body\s*\{[\s\S]*min-height:\s*0;/)
+
+  assert.doesNotMatch(stocksPage, /\.gantt-page\s*\{[\s\S]*min-height:\s*100vh;/)
+  assert.match(stocksPage, /\.gantt-page\s*\{[\s\S]*overflow:\s*hidden;/)
+  assert.match(stocksPage, /\.gantt-page-body\s*\{[\s\S]*min-height:\s*0;/)
+})
+
+test('GanttHistory consumes parent height instead of recalculating viewport height', async () => {
+  const content = await readFile(
+    new URL('../src/views/components/GanttHistory.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.doesNotMatch(content, /calc\(100vh - /)
+  assert.match(content, /\.gantt-history\s*\{[\s\S]*min-height:\s*0;/)
+  assert.match(content, /\.gantt-chart\s*\{[\s\S]*min-height:\s*0;/)
+})
