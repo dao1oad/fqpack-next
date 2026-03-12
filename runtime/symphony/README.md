@@ -128,6 +128,9 @@ Issue labels：
 - `design-review`
 - `blocked`
 - `rework`
+- `todo`
+- `in-progress`
+- `merging`
 
 PR 信号：
 

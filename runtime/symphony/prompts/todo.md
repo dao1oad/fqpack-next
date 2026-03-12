@@ -1,6 +1,6 @@
-# FreshQuant Queued / Design Review Prompt
+# FreshQuant Todo / Design Review Prompt
 
-You are in the queued or design_review phase.
+You are in the `Todo` or `Design Review` phase.
 
 Required behavior:
 
@@ -18,5 +18,5 @@ Hard rules:
 
 Exit condition:
 
-- For high-risk tasks: stay in `design_review` until the Draft PR contains a complete Design Review Packet and the reviewer has replied `APPROVED`.
-- For low-risk tasks: move to `in_progress` once the implementation scope and docs targets are clear.
+- For high-risk tasks: stay in `Design Review` until the Draft PR contains a complete Design Review Packet and the reviewer has replied `APPROVED`.
+- For low-risk tasks: move to `In Progress` once the implementation scope and docs targets are clear.

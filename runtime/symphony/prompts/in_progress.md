@@ -1,6 +1,6 @@
 # FreshQuant In Progress Prompt
 
-You are in the in_progress or rework phase.
+You are in the `In Progress` or `Rework` phase.
 
 Required behavior:
 
@@ -15,7 +15,7 @@ Hard rules:
 
 - Do not skip TDD for code changes.
 - Do not modify secrets.
-- Do not auto-execute deployment in this phase; deployment belongs only to `deploying`.
+- Do not auto-execute deployment in this phase; deployment belongs only to `Merging`.
 - Do not run destructive database or high-risk live trading actions.
 - Do not leave `docs/current/**` stale when interfaces, config, runtime, or behavior changed.
 

@@ -6,30 +6,35 @@ tracker:
   managed_label: symphony
   review_required_label: design-review
   blocked_label: blocked
-  rework_label: rework
+  state_labels:
+    todo: todo
+    in_progress: in-progress
+    rework: rework
+    merging: merging
   active_states:
-    - queued
-    - design_review
-    - in_progress
-    - rework
-    - deploying
+    - Todo
+    - Design Review
+    - In Progress
+    - Rework
+    - Merging
+    - Blocked
   terminal_states:
-    - done
-    - closed
+    - Done
+    - Closed
 polling:
   interval_ms: 30000
 workspace:
   root: D:/fqpack/runtime/symphony-service/workspaces
 hooks:
   after_create: |
-    git clone --depth 1 ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git .
+    git clone --depth 1 D:/fqpack/freshquant-2026.2.23 .
 agent:
   max_concurrent_agents: 2
   max_concurrent_agents_by_state:
-    queued: 1
+    todo: 1
     in_progress: 2
     rework: 1
-    deploying: 1
+    merging: 1
   max_turns: 60
 codex:
   command: powershell -ExecutionPolicy Bypass -File D:/fqpack/runtime/symphony-service/scripts/run_freshquant_codex_session.ps1
@@ -55,8 +60,8 @@ Core governance rules:
 
 State contract:
 
-- queued: prepare context and decide whether Design Review is required
-- design_review: create or update the Draft PR Design Review Packet and wait for approval
-- in_progress: implement, test, and sync `docs/current/**`
-- rework: fix review, CI, deploy, or cleanup failures
-- deploying: merge, deploy, run health checks, and complete cleanup
+- Todo: prepare context, decide whether Design Review is required, and only enter implementation when allowed
+- Design Review: create or update the Draft PR Design Review Packet and wait for approval
+- In Progress: implement, test, and sync `docs/current/**`
+- Rework: fix review, CI, deploy, or cleanup failures
+- Merging: merge, deploy, run health checks, and complete cleanup

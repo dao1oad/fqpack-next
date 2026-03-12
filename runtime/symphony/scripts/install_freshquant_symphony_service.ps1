@@ -2,7 +2,7 @@
 param(
     [string]$ServiceName = 'fq-symphony-orchestrator',
     [string]$ServiceRoot = 'D:\fqpack\runtime\symphony-service',
-    [string]$OpenAISymphonyRoot = 'D:\fqpack\tools\openai-symphony\elixir',
+    [string]$OpenAISymphonyRoot = 'D:\fqpack\tools\dao1oad-symphony\elixir',
     [string]$ServiceUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
     [string]$ServicePassword,
     [int]$Port = 40123,
