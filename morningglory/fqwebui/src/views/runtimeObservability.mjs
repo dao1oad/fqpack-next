@@ -50,6 +50,16 @@ export const stopPollingTimer = (timerHandle, options = {}) => {
   return null
 }
 
+export const readApiPayload = (response, key, fallback = null) => {
+  if (response && typeof response === 'object') {
+    if (response[key] !== undefined) return response[key]
+    if (response.data && typeof response.data === 'object' && response.data[key] !== undefined) {
+      return response.data[key]
+    }
+  }
+  return fallback
+}
+
 const buildStepTags = (step = {}) => {
   const tags = []
   for (const [key, label] of [
