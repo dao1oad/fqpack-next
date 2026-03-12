@@ -189,3 +189,30 @@ def test_get_data_v2_uses_stock_fetcher_for_bare_stock_code_when_maps_missing(
     assert payload["name"] == "比亚迪"
     assert payload["instrumentType"] == InstrumentType.STOCK_CN
     assert payload["future_fills"] is None
+
+
+def test_resolve_security_symbol_and_type_uses_normalized_symbol_for_suffix_codes(
+    monkeypatch, chanlun_service
+):
+    observed_codes = []
+
+    def fake_query_instrument_type(code):
+        observed_codes.append(code)
+        if code == "sh204001":
+            return InstrumentType.BOND_CN
+        return None
+
+    monkeypatch.setattr(
+        chanlun_service,
+        "query_instrument_type",
+        fake_query_instrument_type,
+        raising=False,
+    )
+
+    resolved_symbol, instrument_type = (
+        chanlun_service._resolve_security_symbol_and_type("204001.SH")
+    )
+
+    assert observed_codes == ["sh204001"]
+    assert resolved_symbol == "sh204001"
+    assert instrument_type == InstrumentType.BOND_CN

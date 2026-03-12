@@ -45,7 +45,7 @@ def _resolve_security_symbol_and_type(symbol):
     if not normalized_symbol:
         return symbol, None
 
-    instrument_type = query_instrument_type((symbol or "").lower())
+    instrument_type = query_instrument_type(normalized_symbol.lower())
     if instrument_type is None:
         base_code = normalized_symbol[2:]
         if base_code.startswith(ETF_CODE_PREFIXES):
