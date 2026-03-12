@@ -261,3 +261,35 @@ def test_get_stock_positions_prefers_current_instrument_name_over_stale_position
     result = holding_module.get_stock_positions()
 
     assert result[0]["name"] == "比亚迪"
+
+
+def test_get_stock_positions_keeps_projection_name_when_instrument_lookup_errors(
+    monkeypatch,
+):
+    _, holding_module, _ = _reload_modules(monkeypatch)
+
+    monkeypatch.setattr(
+        holding_module,
+        "list_stock_positions",
+        lambda: [
+            {
+                "symbol": "sz002594",
+                "stock_code": "002594.SZ",
+                "name": "比亚迪旧名",
+                "quantity": 100,
+                "amount": -1000.0,
+                "amount_adjusted": -1000.0,
+                "date": 20260115,
+                "time": "10:01:00",
+            }
+        ],
+    )
+
+    def broken_lookup(code):
+        raise RuntimeError(f"instrument lookup unavailable for {code}")
+
+    monkeypatch.setattr(holding_module, "query_instrument_info", broken_lookup)
+
+    result = holding_module.get_stock_positions()
+
+    assert result[0]["name"] == "比亚迪旧名"

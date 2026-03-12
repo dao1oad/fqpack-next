@@ -65,7 +65,15 @@ def _resolve_position_name(position: Dict) -> str:
             candidates.append(candidate)
 
     for candidate in candidates:
-        instrument = query_instrument_info(candidate)
+        try:
+            instrument = query_instrument_info(candidate)
+        except Exception as exc:
+            logger.warning(
+                "instrument lookup failed while resolving position name for {}: {}",
+                candidate,
+                exc,
+            )
+            break
         name = str((instrument or {}).get("name") or "").strip()
         if name:
             return name
