@@ -56,6 +56,7 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - 设计阶段审批包：RFC、implementation plan、task checklist、含待决策项的 Linear 结构化评论
 - 远端 `feature branch`、`Draft PR`、CI 与 merge 的正式策略
 - `Merging` 阶段的自动部署、部署后健康检查与失败回路
+- `Merging` 阶段的 cleanup 硬门禁与宿主机 finalizer
 - `subagent-driven-development + TDD` 的默认实现期方法论
 - 单实例 orchestrator 下的按状态 issue 级并发策略
 - `AGENTS.md`、`docs/agent/*`、`docs/migration/*` 与 repo-versioned `runtime/symphony/*` 模板改写
@@ -112,9 +113,9 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - `Rework`
   - 自动返工态
 - `Merging`
-  - 自动收尾、合并、部署与部署后健康检查
+  - 自动收尾、合并、部署、部署后健康检查与 cleanup
 - `Done`
-  - 仅在部署成功后进入的终态
+  - 仅在部署与 cleanup 都成功后进入的终态
 
 ### 6.2 批准真值
 
@@ -129,13 +130,15 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - 进入 `In Progress` 后创建并持续更新同一个 `Draft PR`
 - 进入 `Merging` 前，必须在 `Linear` 留一条结构化 PR 结果评论，记录问题、方案、理由、修改文件、验证结果、经验积累和 PR 链接
 - `Merging` 先完成 PR 合并，再根据变更矩阵执行自动部署
-- `Done` 仍要求 CI 全绿、review discussion 已解决、部署后健康检查通过，且部署留痕已写入 `Linear`
+- `Merging` 在部署和健康检查完成后，必须注册 cleanup request；宿主机 finalizer 会在 Codex 子进程退出后删除远端分支、删除当前 issue workspace、清理旧 artifacts，并写入最终 deployment comment
+- `Done` 仍要求 CI 全绿、review discussion 已解决、部署后健康检查通过、cleanup 成功，且最终部署/cleanup 留痕已写入 `Linear`
 
 ### 6.4 CD 语义
 
 - Docker 并行运行面代码或构建链变更，触发 `docker compose -f docker/compose.parallel.yaml up -d --build`
 - `runtime/symphony/**` 变更，触发 `sync_freshquant_symphony_service.ps1 + Restart-Service fq-symphony-orchestrator + /api/v1/state`
 - 部署失败先停留在 `Merging` 做有限次自动重试
+- cleanup 失败先停留在 `Merging` 做有限次自动重试
 - 若失败稳定复现且需要改代码或配置，转入 `Rework`
 - 第一阶段不允许自动回滚
 
@@ -163,6 +166,9 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - 正式启动脚本：`runtime/symphony/scripts/start_freshquant_symphony.ps1`
 - 正式安装脚本：`runtime/symphony/scripts/install_freshquant_symphony_service.ps1`
 - 正式部署同步脚本：`runtime/symphony/scripts/sync_freshquant_symphony_service.ps1`
+- 正式 Codex wrapper：`runtime/symphony/scripts/run_freshquant_codex_session.ps1`
+- cleanup request 脚本：`runtime/symphony/scripts/request_freshquant_symphony_cleanup.ps1`
+- cleanup finalizer 脚本：`runtime/symphony/scripts/invoke_freshquant_symphony_cleanup_finalizer.ps1`
 - 分阶段 prompt：
   - `runtime/symphony/prompts/todo.md`
   - `runtime/symphony/prompts/in_progress.md`
@@ -229,7 +235,8 @@ FreshQuant 当前仓库治理以根 [`AGENTS.md`](D:/fqpack/freshquant-2026.2.23
 - [ ] 设计批准后默认使用 `subagent-driven-development + TDD`。
 - [ ] 进入 `Merging` 前会在 `Linear` 留下结构化 PR 结果评论。
 - [ ] `Done` 以“PR 合并 + 自动部署成功 + 健康检查通过”为前提。
-- [ ] `Done` 前会在 `Linear` 留下结构化部署评论。
+- [ ] `Done` 以“PR 合并 + 自动部署成功 + 健康检查通过 + cleanup 成功”为前提。
+- [ ] `Done` 前会在 `Linear` 留下包含 cleanup 结果的结构化部署评论。
 - [ ] 正式 workflow 已将 issue 级并发收口为 `Todo=1 / In Progress=2 / Rework=1 / Merging=1`。
 - [ ] Docker 并行运行面与 Symphony 宿主机运行面的自动部署矩阵已被文档和 workflow 模板明确约束。
 - [ ] 高风险目录与操作边界在治理文档中被明确约束。

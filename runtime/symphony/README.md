@@ -7,7 +7,7 @@
 - 固化正式 `Linear` 状态机
 - 固化设计批准门
 - 固化默认 `subagent + TDD` 方法论
-- 固化 `Merging` 自动部署与 `Done` 判定
+- 固化 `Merging` 自动部署、cleanup 与 `Done` 判定
 - 让仓库治理与 `Symphony` 运行模板保持一致
 
 ## 当前约束
@@ -27,7 +27,10 @@
 - 部署评论模板：
   - `templates/deployment_comment.md`
 - 正式宿主机脚本：
+  - `scripts/run_freshquant_codex_session.ps1`
   - `scripts/freshquant_runner.exs`
+  - `scripts/request_freshquant_symphony_cleanup.ps1`
+  - `scripts/invoke_freshquant_symphony_cleanup_finalizer.ps1`
   - `scripts/start_freshquant_symphony.ps1`
   - `scripts/sync_freshquant_symphony_service.ps1`
   - `scripts/install_freshquant_symphony_service.ps1`
@@ -43,8 +46,9 @@
   - `Rework=1`
   - `Merging=1`
 - 只有实现阶段允许双并发；设计、返工和部署阶段保持保守串行
-- `Merging` 阶段负责 merge、按变更矩阵执行部署和部署后健康检查；只有部署成功才能进入 `Done`
+- `Merging` 阶段负责 merge、按变更矩阵执行部署、部署后健康检查和 cleanup；只有 cleanup 成功才能进入 `Done`
 - `Human Review` 评论必须一次性列出全部待决策项、推荐方案与理由；未决项未清零前，不得进入 `In Progress`
 - 进入 `Merging` 前必须在 Linear 留下 PR 结果评论
-- 进入 `Done` 前必须在 Linear 留下部署评论
+- 进入 `Merging` 后由 agent 先生成 cleanup request；宿主机 finalizer 会在 Codex 子进程退出后删除远端分支、删除 workspace、清理旧 artifacts，并写入最终 deployment comment
+- 进入 `Done` 前必须在 Linear 留下包含 `Cleanup Results` 的最终部署评论
 - 宿主机正式运行说明见：`docs/agent/Symphony宿主机服务部署说明.md`

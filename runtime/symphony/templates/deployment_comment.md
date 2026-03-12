@@ -1,6 +1,6 @@
 # Deployment Comment Template
 
-Issue is ready for Done after merge and deployment.
+Issue is ready for final cleanup and Done transition after merge, deployment, and health checks.
 
 ## Deployment Scope
 
@@ -26,3 +26,9 @@ Issue is ready for Done after merge and deployment.
 
 - `<success criteria met>`
 - `<remaining caveats or none>`
+
+## Cleanup Results
+
+- `<remote branch cleanup result>`
+- `<workspace cleanup result>`
+- `<artifacts cleanup result>`
