@@ -54,6 +54,12 @@ description: FreshQuant 在 Windows 宿主机上以正式服务形态运行 Symp
 
 - `runtime/symphony/scripts/sync_freshquant_symphony_service.ps1`
   - 把仓库内版本化模板同步到宿主机运行目录
+- `runtime/symphony/scripts/run_freshquant_codex_session.ps1`
+  - Codex wrapper；负责在子进程退出后触发 cleanup finalizer
+- `runtime/symphony/scripts/request_freshquant_symphony_cleanup.ps1`
+  - 由 Merging session 注册 cleanup request
+- `runtime/symphony/scripts/invoke_freshquant_symphony_cleanup_finalizer.ps1`
+  - 在 Codex 子进程退出后执行远端分支、workspace 和旧 artifacts 清理，并在成功后推进 `Done`
 - `runtime/symphony/scripts/start_freshquant_symphony.ps1`
   - 正式启动脚本
 - `runtime/symphony/scripts/freshquant_runner.exs`
@@ -198,8 +204,13 @@ Invoke-WebRequest http://127.0.0.1:40123/api/v1/state
    - `sync_freshquant_symphony_service.ps1`
    - `Restart-Service fq-symphony-orchestrator`
    - `Invoke-WebRequest http://127.0.0.1:40123/api/v1/state`
-4. 通过 `/api/v1/state` 与日志确认新版本生效
-5. 只有部署成功后，对应 issue 才能进入 `Done`
+4. Merging session 生成 cleanup request，交由宿主机 wrapper/finalizer 在 Codex 子进程退出后执行：
+   - 删除已合并 PR 的远端 `feature branch`
+   - 删除当前 issue workspace
+   - 清理超过保留期的旧 issue artifacts
+   - 将最终 deployment/cleanup comment 写回 Linear
+5. 通过 `/api/v1/state`、cleanup result 与日志确认新版本生效
+6. 只有部署与 cleanup 都成功后，对应 issue 才能进入 `Done`
 
 如果这次升级还包含 Symphony UI 扩展代码本身，而这些代码暂时位于项目维护的 fork 中，则升级顺序应为：
 

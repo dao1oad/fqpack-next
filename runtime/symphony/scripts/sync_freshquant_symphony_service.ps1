@@ -104,6 +104,10 @@ $copyMap = @(
         Destination = (Join-Path $scriptsRoot 'freshquant_runner.exs')
     },
     @{
+        Source = (Join-Path $sourceScriptsRoot 'run_freshquant_codex_session.ps1')
+        Destination = (Join-Path $scriptsRoot 'run_freshquant_codex_session.ps1')
+    },
+    @{
         Source = (Join-Path $sourceScriptsRoot 'start_freshquant_symphony.ps1')
         Destination = (Join-Path $scriptsRoot 'start_freshquant_symphony.ps1')
     },
@@ -114,6 +118,14 @@ $copyMap = @(
     @{
         Source = (Join-Path $sourceScriptsRoot 'sync_freshquant_symphony_service.ps1')
         Destination = (Join-Path $scriptsRoot 'sync_freshquant_symphony_service.ps1')
+    },
+    @{
+        Source = (Join-Path $sourceScriptsRoot 'request_freshquant_symphony_cleanup.ps1')
+        Destination = (Join-Path $scriptsRoot 'request_freshquant_symphony_cleanup.ps1')
+    },
+    @{
+        Source = (Join-Path $sourceScriptsRoot 'invoke_freshquant_symphony_cleanup_finalizer.ps1')
+        Destination = (Join-Path $scriptsRoot 'invoke_freshquant_symphony_cleanup_finalizer.ps1')
     },
     @{
         Source = (Join-Path $sourceScriptsRoot 'reinstall_freshquant_symphony_service.ps1')

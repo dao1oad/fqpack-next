@@ -22,7 +22,7 @@ agent:
     Merging: 1
   max_turns: 60
 codex:
-  command: codex --config shell_environment_policy.inherit=all app-server
+  command: powershell -ExecutionPolicy Bypass -File D:/fqpack/runtime/symphony-service/scripts/run_freshquant_codex_session.ps1
   thread_sandbox: danger-full-access
   turn_sandbox_policy:
     type: dangerFullAccess

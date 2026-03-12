@@ -37,9 +37,9 @@ Linear 正式状态机如下：
 - `Rework`
   - 返工态
 - `Merging`
-  - 自动收尾、合并、部署与部署后健康检查
+  - 自动收尾、合并、部署、部署后健康检查与 cleanup
 - `Done`
-  - 仅在部署成功后进入的终态
+  - 仅在部署与 cleanup 都成功后进入的终态
 
 运行时状态如 `Retrying / Waiting approval / Waiting input / Blocked / Network error` 仍属于 Symphony 运行态，不进入 Linear 工作流状态。
 
@@ -80,6 +80,7 @@ Linear 正式状态机如下：
 - 部署范围
 - 执行的部署动作
 - 健康检查结果
+- Cleanup 结果
 - 重试 / 失败情况
 - 最终部署结果
 
@@ -104,11 +105,13 @@ GitHub reviewer approve 不再是仓内强制人工门。
   - PR 合并
   - 自动部署
   - 部署后健康检查
+  - cleanup
 - `Done` 的真值是：
   - PR 已合并
   - 所需部署动作全部成功
   - 部署后健康检查全部通过
-  - 部署留痕已写回 `Linear`
+  - cleanup 全部成功
+  - 部署/cleanup 留痕已写回 `Linear`
 
 部署矩阵如下：
 
@@ -119,11 +122,22 @@ GitHub reviewer approve 不再是仓内强制人工门。
   - `Restart-Service fq-symphony-orchestrator`
   - `Invoke-WebRequest http://127.0.0.1:40123/api/v1/state`
 
-部署失败默认留在 `Merging` 自动重试；若失败稳定复现且需要改代码或配置，才回到 `Rework`。
+cleanup 由宿主机 wrapper/finalizer 承接：
+
+- Merging session 负责生成 cleanup request
+- Codex 子进程退出后，由宿主机 finalizer：
+  - 删除已合并 PR 的远端 `feature branch`
+  - 删除当前 issue 的 workspace
+  - 清理超过保留期的旧 artifacts
+  - 把包含 `Cleanup Results` 的最终 deployment comment 写回 `Linear`
+  - 在全部成功后推进 `Done`
+
+部署或 cleanup 失败默认留在 `Merging` 自动重试；若失败稳定复现且需要改代码或配置，才回到 `Rework`。
 
 `Merging -> Done` 的额外硬门禁：
 
 - 没有结构化部署评论，不允许 `Done`
+- 没有 cleanup 成功，不允许 `Done`
 - 这条评论必须足够让人类从 `Linear` 直接复盘部署动作与结果
 
 ## 5. 默认执行模式

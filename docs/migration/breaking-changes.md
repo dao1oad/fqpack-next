@@ -13,6 +13,13 @@
 
 ## 变更记录
 
+- **日期**：2026-03-12
+- **RFC**：0033-symphony-merging-cleanup-gate
+- **变更**：`Done` 的治理语义从“代码已合并且自动部署成功”进一步收紧为“代码已合并、自动部署成功、健康检查通过且 cleanup 成功”。`Merging` 现在必须完成三类 cleanup：删除已合并 PR 的远端 `feature branch`、删除当前 issue 的 `Symphony-managed workspace/repo copy`、清理 `artifacts/` 下超过 14 天且不属于 active issues 的旧条目。为此，正式运行面新增 `run_freshquant_codex_session.ps1` wrapper、cleanup request/finalizer 脚本，以及 deployment comment 中的 `Cleanup Results` 段。
+- **影响面**：所有正式开发 issue 的完成判定、`runtime/symphony/*` workflow 模板与宿主机脚本、Linear `Merging -> Done` 审计留痕，以及任何依赖“远端 feature branch / workspace 会默认保留”的人工排障习惯都会受到影响。
+- **迁移步骤**：1) 部署包含 RFC 0033 的 `runtime/symphony/*` 模板与脚本；2) 对 `runtime/symphony/**` 变更执行 `powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/sync_freshquant_symphony_service.ps1`；3) 重启 `fq-symphony-orchestrator` 并检查 `http://127.0.0.1:40123/api/v1/state`；4) 确认宿主机环境存在 `LINEAR_API_KEY`、Git SSH 可用，且 wrapper/finalizer 能写入 `artifacts/cleanup-requests` 与 `artifacts/cleanup-results`；5) 更新运维认知，不再把 merge/deploy 成功视为 `Done` 充分条件。
+- **回滚方案**：回退 `AGENTS.md`、RFC 0028、RFC 0033、`docs/agent` 与 `runtime/symphony/*` 的 cleanup hard gate 改动，恢复“cleanup 不作为 `Done` 硬门禁”的旧治理，并停用 wrapper/finalizer 自动清理流程。
+
 - **日期**：2026-03-11
 - **RFC**：0031-gantt-shouban30-pool-persistence-and-blk-sync
 - **变更**：`/gantt/shouban30` 从“纯只读盘后快照页”扩展为“读快照 + 写工作区”页面。前端新增 `筛选`、板块级 `保存到 pre_pools`、`pre_pool / stockpools` 标签页，以及 `加入 stockpools / 加入 must_pools / 删除` 行级动作；后端新增 `POST/GET /api/gantt/shouban30/pre-pool*` 与 `stock-pool*` 页面专用接口。当前仓正式接管 `30RYZT.blk`，其内容只镜像 `stock_pre_pools.category = "三十涨停Pro预选"` 的当前工作区顺序，而不再沿用人工维护或整表镜像语义。同时 `stock_pre_pools / stock_pools` 新增 `三十涨停Pro预选 / 三十涨停Pro自选` 两个专用分类，`加入 must_pools` 固定沿用旧页默认参数 `0.1 / 50000 / 50000 / forever=true / category=三十涨停Pro`。
