@@ -2,20 +2,36 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-REQUEST_SCRIPT = REPO_ROOT / "runtime" / "symphony" / "scripts" / "request_freshquant_symphony_cleanup.ps1"
+REQUEST_SCRIPT = (
+    REPO_ROOT
+    / "runtime"
+    / "symphony"
+    / "scripts"
+    / "request_freshquant_symphony_cleanup.ps1"
+)
 FINALIZER_SCRIPT = (
-    REPO_ROOT / "runtime" / "symphony" / "scripts" / "invoke_freshquant_symphony_cleanup_finalizer.ps1"
+    REPO_ROOT
+    / "runtime"
+    / "symphony"
+    / "scripts"
+    / "invoke_freshquant_symphony_cleanup_finalizer.ps1"
 )
 
 
 def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    executable = shutil.which("powershell") or shutil.which("pwsh")
+    if executable is None:
+        pytest.skip("PowerShell is not available in PATH")
+
     command = [
-        "powershell",
+        executable,
         "-NoProfile",
         "-NonInteractive",
         "-ExecutionPolicy",
@@ -24,7 +40,9 @@ def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str
         str(script),
         *args,
     ]
-    return subprocess.run(command, capture_output=True, text=True, check=False, cwd=REPO_ROOT)
+    return subprocess.run(
+        command, capture_output=True, text=True, check=False, cwd=REPO_ROOT
+    )
 
 
 def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -60,13 +78,17 @@ def test_request_cleanup_writes_manifest(tmp_path: Path) -> None:
     payload = json.loads(request_path.read_text(encoding="utf-8"))
     assert payload["issueIdentifier"] == "FRE-999"
     assert payload["branchName"] == "feature/fre-999"
-    assert payload["originUrl"] == "ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git"
+    assert (
+        payload["originUrl"] == "ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git"
+    )
     assert payload["workspacePath"] == str(workspace_path)
     assert payload["deploymentCommentBody"] == "deployment body"
     assert payload["artifactsRetentionDays"] == 14
 
 
-def test_request_cleanup_rejects_workspace_outside_workspace_root(tmp_path: Path) -> None:
+def test_request_cleanup_rejects_workspace_outside_workspace_root(
+    tmp_path: Path,
+) -> None:
     service_root = tmp_path / "service"
     outside_workspace = tmp_path / "outside" / "FRE-999"
     outside_workspace.mkdir(parents=True)
@@ -171,7 +193,10 @@ def test_finalizer_deletes_remote_branch_without_workspace(tmp_path: Path) -> No
     clone_remote = _run_git("clone", str(remote_path), str(seed_path), cwd=tmp_path)
     assert clone_remote.returncode == 0, clone_remote.stderr
 
-    assert _run_git("config", "user.email", "test@example.com", cwd=seed_path).returncode == 0
+    assert (
+        _run_git("config", "user.email", "test@example.com", cwd=seed_path).returncode
+        == 0
+    )
     assert _run_git("config", "user.name", "Test User", cwd=seed_path).returncode == 0
     (seed_path / "tracked.txt").write_text("ok", encoding="utf-8")
     assert _run_git("add", "tracked.txt", cwd=seed_path).returncode == 0
@@ -222,4 +247,6 @@ def test_finalizer_deletes_remote_branch_without_workspace(tmp_path: Path) -> No
         "feature/fre-999",
         cwd=tmp_path,
     )
-    assert remote_branch_check.returncode == 2, remote_branch_check.stdout + remote_branch_check.stderr
+    assert remote_branch_check.returncode == 2, (
+        remote_branch_check.stdout + remote_branch_check.stderr
+    )
