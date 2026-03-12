@@ -54,6 +54,28 @@ class OrderManagementRepository:
     def find_order_request(self, request_id):
         return self.order_requests.find_one({"request_id": request_id})
 
+    def list_order_requests(
+        self,
+        *,
+        symbol=None,
+        scope_type=None,
+        scope_ref_id=None,
+        scope_ref_ids=None,
+        request_ids=None,
+    ):
+        query = {}
+        if symbol is not None:
+            query["symbol"] = symbol
+        if scope_type is not None:
+            query["scope_type"] = scope_type
+        if scope_ref_id is not None:
+            query["scope_ref_id"] = scope_ref_id
+        elif scope_ref_ids is not None:
+            query["scope_ref_id"] = {"$in": list(scope_ref_ids)}
+        if request_ids is not None:
+            query["request_id"] = {"$in": list(request_ids)}
+        return list(self.order_requests.find(query))
+
     def insert_order(self, document):
         self.orders.insert_one(document)
         return document
@@ -131,7 +153,14 @@ class OrderManagementRepository:
             query["buy_lot_id"] = {"$in": list(buy_lot_ids)}
         return list(self.buy_lots.find(query))
 
-    def list_orders(self, symbol=None, states=None, missing_broker_only=False):
+    def list_orders(
+        self,
+        symbol=None,
+        states=None,
+        missing_broker_only=False,
+        request_ids=None,
+        internal_order_ids=None,
+    ):
         query = {}
         if symbol is not None:
             query["symbol"] = symbol
@@ -142,12 +171,24 @@ class OrderManagementRepository:
                 {"broker_order_id": None},
                 {"broker_order_id": ""},
             ]
+        if request_ids is not None:
+            query["request_id"] = {"$in": list(request_ids)}
+        if internal_order_ids is not None:
+            query["internal_order_id"] = {"$in": list(internal_order_ids)}
         return list(self.orders.find(query))
 
-    def list_trade_facts(self, symbol=None):
+    def list_order_events(self, *, internal_order_ids=None):
+        query = {}
+        if internal_order_ids is not None:
+            query["internal_order_id"] = {"$in": list(internal_order_ids)}
+        return list(self.order_events.find(query))
+
+    def list_trade_facts(self, symbol=None, internal_order_ids=None):
         query = {}
         if symbol is not None:
             query["symbol"] = symbol
+        if internal_order_ids is not None:
+            query["internal_order_id"] = {"$in": list(internal_order_ids)}
         return list(self.trade_facts.find(query))
 
     def list_open_slices(self, symbol=None, buy_lot_ids=None):

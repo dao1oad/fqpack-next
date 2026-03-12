@@ -31,8 +31,26 @@ class FakeTakeprofitService:
             "state": {"armed_levels": {2: True}},
         }
 
-    def mark_level_triggered(self, symbol, *, level, batch_id, updated_by):
-        self.mark_calls.append((symbol, level, batch_id, updated_by))
+    def mark_level_triggered(
+        self,
+        symbol,
+        *,
+        level,
+        batch_id,
+        updated_by,
+        trigger_price=None,
+        buy_lot_details=None,
+    ):
+        self.mark_calls.append(
+            {
+                "symbol": symbol,
+                "level": level,
+                "batch_id": batch_id,
+                "updated_by": updated_by,
+                "trigger_price": trigger_price,
+                "buy_lot_details": list(buy_lot_details or []),
+            }
+        )
         return {"symbol": symbol, "level": level, "batch_id": batch_id}
 
 
@@ -60,8 +78,9 @@ class FixedPositionReader:
 
 def test_tpsl_submit_intent_emits_trace_step():
     runtime_logger = FakeRuntimeLogger()
+    takeprofit_service = FakeTakeprofitService()
     service = TpslService(
-        takeprofit_service=FakeTakeprofitService(),
+        takeprofit_service=takeprofit_service,
         order_submit_service=FakeOrderSubmitService(),
         order_repository=FakeOrderRepository(),
         position_reader=FixedPositionReader(),
@@ -86,6 +105,16 @@ def test_tpsl_submit_intent_emits_trace_step():
     ]
     assert runtime_logger.events[-1]["trace_id"].startswith("trc_")
     assert runtime_logger.events[-1]["intent_id"].startswith("int_")
+    assert takeprofit_service.mark_calls == [
+        {
+            "symbol": "000001",
+            "level": 2,
+            "batch_id": batch["batch_id"],
+            "updated_by": "tpsl_submit",
+            "trigger_price": 10.8,
+            "buy_lot_details": [{"buy_lot_id": "lot1", "quantity": 300}],
+        }
+    ]
 
 
 def test_tpsl_tick_consumer_emits_tick_match_before_service_submit():
