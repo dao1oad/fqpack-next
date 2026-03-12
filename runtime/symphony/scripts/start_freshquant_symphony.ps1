@@ -102,6 +102,7 @@ $configRoot = Join-Path $ServiceRoot 'config'
 $scriptsRoot = Join-Path $ServiceRoot 'scripts'
 $logsRoot = Join-Path $ServiceRoot 'logs'
 $workflowPath = Join-Path $configRoot 'WORKFLOW.freshquant.md'
+$workflowValidator = Join-Path $scriptsRoot 'assert_freshquant_workflow_prompt.ps1'
 $runnerPath = Join-Path $scriptsRoot 'freshquant_runner.exs'
 $stdoutLog = Join-Path $logsRoot 'stdout.log'
 $stderrLog = Join-Path $logsRoot 'stderr.log'
@@ -123,9 +124,15 @@ if (-not (Test-Path $workflowPath)) {
     throw "Workflow file not found: $workflowPath"
 }
 
+if (-not (Test-Path $workflowValidator)) {
+    throw "Workflow validator not found: $workflowValidator"
+}
+
 if (-not (Test-Path $runnerPath)) {
     throw "Runner file not found: $runnerPath"
 }
+
+& $workflowValidator -WorkflowPath $workflowPath
 
 $OpenAISymphonyRoot = Resolve-OpenAISymphonyRoot -RequestedPath $OpenAISymphonyRoot
 

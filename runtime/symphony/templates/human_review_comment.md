@@ -1,22 +1,22 @@
-# Legacy Human Review Template
+# 历史兼容评审模板
 
-This template is retained only as a compatibility alias during the GitHub-first cutover.
+这个模板只作为 GitHub-first 切换期的兼容别名保留。
 
-Use `design_review_packet.md` as the canonical review packet.
+正式评审包请使用 `design_review_packet.md`。
 
-## Compatibility Note
+## 兼容说明
 
-- Review happens on the GitHub Draft PR.
-- Approval truth is `APPROVED` or PR review `Approve`.
-- Do not require RFC, progress, or breaking-changes files.
+- 人工评审发生在 GitHub Draft PR。
+- 审批真值是 `APPROVED` 或 PR review `Approve`。
+- 不再要求 RFC、progress、breaking-changes 文件。
 
-## Minimum Content
+## 最小内容
 
-- Scope Summary
-- Recommended Design
-- Decision Items
-- Explicit human answer required for each open decision
+- 范围摘要
+- 推荐设计
+- 待决策项
+- 每个待决策点都要明确写出需要人工给出的结论
 
-If there are no remaining decisions, write:
+如果没有待评审点，请明确写出：
 
 - `无待评审点，按推荐方案执行`

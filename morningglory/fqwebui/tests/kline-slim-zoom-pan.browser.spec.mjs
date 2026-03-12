@@ -1,13 +1,21 @@
 import { test, expect } from '@playwright/test'
-import { spawn, spawnSync } from 'node:child_process'
-import { setTimeout as delay } from 'node:timers/promises'
 
 import { runLockedBuild } from './vite-build-lock.mjs'
+import {
+  cleanupServerPort,
+  installVmHelpers,
+  readChartState,
+  startPreviewServer,
+  stopDevServer,
+  waitForChartReady,
+  waitForServer,
+  zoomAndPan
+} from './kline-slim-browser-helpers.mjs'
 
 const DEV_SERVER_PORT = 18086
 const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
-const TARGET_URL = `${DEV_SERVER_URL}/kline-slim?symbol=sz002262&period=5m`
 const DAY = '2026-03-10'
+const TARGET_URL = `${DEV_SERVER_URL}/kline-slim?symbol=sz002262&period=5m&endDate=${DAY}`
 
 let devServerProcess = null
 
@@ -53,10 +61,10 @@ function buildSeriesPairs(dates, values, stride) {
 
 function buildStockDataPayload(period, revision = 0) {
   const countMap = {
-    '1m': 320,
-    '5m': 240,
-    '15m': 160,
-    '30m': 120
+    '1m': 240,
+    '5m': 120,
+    '15m': 40,
+    '30m': 20
   }
   const count = countMap[period] || 240
   const dates = buildDates(period, count)
@@ -67,10 +75,23 @@ function buildStockDataPayload(period, revision = 0) {
 
   for (let index = 0; index < count; index += 1) {
     const base = 20 + revision * 0.08 + index * 0.018
-    const closeValue = base + Math.sin(index / 9) * 0.72
-    const openValue = closeValue - Math.cos(index / 7) * 0.24
-    const highValue = Math.max(openValue, closeValue) + 0.32
-    const lowValue = Math.min(openValue, closeValue) - 0.31
+    let closeValue = base + Math.sin(index / 9) * 0.72
+    let openValue = closeValue - Math.cos(index / 7) * 0.24
+    let highValue = Math.max(openValue, closeValue) + 0.32
+    let lowValue = Math.min(openValue, closeValue) - 0.31
+
+    // Keep explicit extremes near the default viewport edges so zoom/pan must
+    // recompute a different Y window when those bars enter or leave the range.
+    if (index === Math.floor(count * 0.7)) {
+      lowValue -= 3.8
+      openValue -= 1.2
+      closeValue -= 1.5
+    }
+    if (index >= count - 2) {
+      highValue += 4.5
+      openValue += 1.4
+      closeValue += 1.8
+    }
 
     open.push(Number(openValue.toFixed(4)))
     close.push(Number(closeValue.toFixed(4)))
@@ -78,7 +99,7 @@ function buildStockDataPayload(period, revision = 0) {
     low.push(Number(lowValue.toFixed(4)))
   }
 
-  const payload = {
+  return {
     symbol: 'sz002262',
     name: 'ENHUA',
     date: dates,
@@ -99,211 +120,34 @@ function buildStockDataPayload(period, revision = 0) {
     updated_at: `${dates[dates.length - 1]}:${pad(revision)}`,
     dt: `${dates[dates.length - 1]}:${pad(revision)}`
   }
-
-  return payload
-}
-
-async function waitForServer(url, timeoutMs = 30000) {
-  const deadline = Date.now() + timeoutMs
-  let lastError = null
-
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url)
-      if (response.ok) {
-        return
-      }
-      lastError = new Error(`unexpected status ${response.status}`)
-    } catch (error) {
-      lastError = error
-    }
-    await delay(250)
-  }
-
-  throw lastError || new Error(`server ${url} did not become ready`)
-}
-
-async function stopDevServer() {
-  if (!devServerProcess) {
-    return
-  }
-
-  const child = devServerProcess
-  devServerProcess = null
-  const waitForExit = () =>
-    new Promise((resolve) => {
-      if (child.exitCode !== null || child.signalCode !== null) {
-        resolve(true)
-        return
-      }
-      child.once('exit', () => resolve(true))
-    })
-
-  if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
-      stdio: 'ignore'
-    })
-    await Promise.race([
-      waitForExit(),
-      delay(5000)
-    ])
-    return
-  }
-
-  child.kill('SIGTERM')
-  const exitedGracefully = await Promise.race([
-    waitForExit(),
-    delay(5000, false)
-  ])
-  if (!exitedGracefully) {
-    child.kill('SIGKILL')
-    await Promise.race([
-      waitForExit(),
-      delay(5000)
-    ])
-  }
-}
-
-function getDevServerCommand() {
-  if (process.platform === 'win32') {
-    return {
-      command: 'cmd.exe',
-      args: [
-        '/d',
-        '/s',
-        '/c',
-        `pnpm preview --host 127.0.0.1 --port ${DEV_SERVER_PORT} --strictPort`
-      ]
-    }
-  }
-
-  return {
-    command: 'pnpm',
-    args: ['preview', '--host', '127.0.0.1', '--port', String(DEV_SERVER_PORT), '--strictPort']
-  }
-}
-
-function getBuildCommand() {
-  if (process.platform === 'win32') {
-    return {
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', 'pnpm build']
-    }
-  }
-
-  return {
-    command: 'pnpm',
-    args: ['build']
-  }
 }
 
 async function runBuild() {
-  await runLockedBuild(getBuildCommand, process.cwd())
-}
-
-function cleanupServerPort() {
-  if (process.platform !== 'win32') {
-    return
-  }
-
-  spawnSync(
-    'powershell',
-    [
-      '-NoProfile',
-      '-Command',
-      `$conn = Get-NetTCPConnection -LocalPort ${DEV_SERVER_PORT} -State Listen -ErrorAction SilentlyContinue; if ($conn) { $conn | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } }`
-    ],
-    {
-      stdio: 'ignore'
-    }
-  )
-}
-
-async function installVmHelpers(page) {
-  await page.addInitScript(() => {
-    window.__findKlineSlimVm = () => {
-      if (window.__klineSlimVm?.chart && window.__klineSlimVm?.fetchMainData) {
-        return window.__klineSlimVm
-      }
-
-      const visited = new Set()
-      const nodes = Array.from(document.querySelectorAll('*'))
-      for (const node of nodes) {
-        let component = node.__vueParentComponent || null
-        while (component && !visited.has(component)) {
-          visited.add(component)
-          const proxy = component.proxy
-          if (proxy?.$options?.name === 'kline-slim' || (proxy?.chart && proxy?.fetchMainData)) {
-            return proxy
-          }
-          component = component.parent || null
+  await runLockedBuild(
+    () => {
+      if (process.platform === 'win32') {
+        return {
+          command: 'cmd.exe',
+          args: ['/d', '/s', '/c', 'pnpm build']
         }
       }
-      return null
-    }
 
-    window.__readKlineSlimViewport = () => {
-      const vm = window.__findKlineSlimVm?.()
-      const chart = window.__klineSlimChart || vm?.chart
-      if (!chart || typeof chart.getOption !== 'function') {
-        return null
-      }
-      const option = chart.getOption()
-      const inside = Array.isArray(option?.dataZoom) ? option.dataZoom[0] || {} : {}
-      const setOptionCalls =
-        typeof chart.__getSlimSetOptionCount === 'function'
-          ? chart.__getSlimSetOptionCount()
-          : -1
       return {
-        start: Number(inside.start),
-        end: Number(inside.end),
-        setOptionCalls,
-        mainVersion: vm.mainVersion || '',
-        renderVersion: vm.lastRenderedVersion || ''
+        command: 'pnpm',
+        args: ['build']
       }
-    }
-
-    window.__installKlineSlimChartProbe = () => {
-      const vm = window.__findKlineSlimVm?.()
-      const chart = window.__klineSlimChart || vm?.chart
-      if (!chart || chart.__slimSetOptionProbeInstalled) {
-        return Boolean(chart)
-      }
-
-      let calls = 0
-      const originalSetOption = chart.setOption.bind(chart)
-      chart.setOption = (...args) => {
-        calls += 1
-        return originalSetOption(...args)
-      }
-      chart.__slimSetOptionProbeInstalled = true
-      chart.__getSlimSetOptionCount = () => calls
-      chart.__resetSlimSetOptionCount = () => {
-        calls = 0
-      }
-      return true
-    }
-  })
-}
-
-async function readViewport(page) {
-  const viewport = await page.evaluate(() => window.__readKlineSlimViewport?.())
-  expect(viewport).toBeTruthy()
-  return viewport
+    },
+    process.cwd()
+  )
 }
 
 test.beforeAll(async () => {
-  cleanupServerPort()
+  cleanupServerPort(DEV_SERVER_PORT)
   await runBuild()
-  const { command, args } = getDevServerCommand()
-  devServerProcess = spawn(
-    command,
-    args,
-    {
-      cwd: process.cwd(),
-      stdio: ['ignore', 'pipe', 'pipe']
-    }
-  )
+  devServerProcess = startPreviewServer({
+    port: DEV_SERVER_PORT,
+    cwd: process.cwd()
+  })
 
   let startupOutput = ''
   devServerProcess.stdout.on('data', (chunk) => {
@@ -323,10 +167,11 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  await stopDevServer()
+  await stopDevServer(devServerProcess)
+  devServerProcess = null
 })
 
-test('KlineSlim zoom and pan stay responsive and preserve viewport across refresh', async ({ page }) => {
+test('KlineSlim zoom and pan keep scene version stable while x/y viewport move together', async ({ page }) => {
   const pageErrors = []
   const stockDataRevisionByPeriod = new Map()
 
@@ -415,115 +260,113 @@ test('KlineSlim zoom and pan stay responsive and preserve viewport across refres
   })
 
   await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+  await waitForChartReady(page)
 
-  await page.waitForFunction(() => {
-    const vm = window.__klineSlimVm || window.__findKlineSlimVm?.()
-    return Boolean(vm?.chart && vm?.mainData?.date?.length)
-  })
+  const initialState = await readChartState(page)
+  expect(initialState.viewport?.xRange?.start).toBeCloseTo(70, 0)
+  expect(initialState.viewport?.xRange?.end).toBeCloseTo(100, 0)
+  expect(initialState.yAxis.min).toBeLessThan(initialState.yAxis.max)
+  expect(initialState.viewport?.yRange?.min).toBeCloseTo(initialState.yAxis.min, 6)
+  expect(initialState.viewport?.yRange?.max).toBeCloseTo(initialState.yAxis.max, 6)
 
-  await page.waitForFunction(() => window.__installKlineSlimChartProbe?.())
-  await page.evaluate(() => {
-    const chart = window.__klineSlimChart || window.__findKlineSlimVm()?.chart
-    chart.__resetSlimSetOptionCount()
-  })
+  const { afterZoom, afterPan } = await zoomAndPan(page)
 
-  const chart = page.locator('.kline-slim-chart')
-  await expect(chart).toBeVisible()
-  const chartBox = await chart.boundingBox()
-  expect(chartBox).toBeTruthy()
-
-  const initialViewport = await readViewport(page)
-  expect(initialViewport.start).toBeCloseTo(70, 0)
-  expect(initialViewport.end).toBeCloseTo(100, 0)
-
-  await page.mouse.move(
-    chartBox.x + chartBox.width * 0.55,
-    chartBox.y + chartBox.height * 0.42
-  )
-  await page.mouse.wheel(0, -900)
-
-  await page.waitForFunction(
-    ({ start, end }) => {
-      const current = window.__readKlineSlimViewport?.()
-      if (!current) {
-        return false
-      }
-      return Math.abs(current.start - start) > 0.2 || Math.abs(current.end - end) > 0.2
-    },
-    {
-      start: initialViewport.start,
-      end: initialViewport.end
-    }
-  )
-
-  const afterZoom = await readViewport(page)
-  expect(afterZoom.setOptionCalls).toBe(0)
-  expect(Math.abs((afterZoom.end - afterZoom.start) - (initialViewport.end - initialViewport.start))).toBeGreaterThan(0.2)
-
-  await page.evaluate(() => {
-    const chart = window.__klineSlimChart || window.__findKlineSlimVm()?.chart
-    chart.__resetSlimSetOptionCount()
-  })
-
-  const sliderY = chartBox.y + chartBox.height - 28
-  const sliderCenterX =
-    chartBox.x + (chartBox.width * (afterZoom.start + afterZoom.end)) / 200
-  await page.mouse.move(sliderCenterX, sliderY)
-  await page.mouse.down()
-  await page.mouse.move(sliderCenterX - chartBox.width * 0.12, sliderY, {
-    steps: 18
-  })
-  await page.mouse.up()
-
-  await page.waitForFunction(
-    ({ start, end }) => {
-      const current = window.__readKlineSlimViewport?.()
-      if (!current) {
-        return false
-      }
-      return Math.abs(current.start - start) > 0.2 || Math.abs(current.end - end) > 0.2
-    },
-    {
-      start: afterZoom.start,
-      end: afterZoom.end
-    }
-  )
-
-  const afterPan = await readViewport(page)
-  expect(afterPan.setOptionCalls).toBe(0)
+  expect(afterZoom.renderVersion).toBe(initialState.renderVersion)
+  expect(afterZoom.mainVersion).toBe(initialState.mainVersion)
   expect(
-    Math.abs(afterPan.start - afterZoom.start) + Math.abs(afterPan.end - afterZoom.end)
+    Math.abs(afterZoom.viewport.xRange.start - initialState.viewport.xRange.start) +
+      Math.abs(afterZoom.viewport.xRange.end - initialState.viewport.xRange.end)
   ).toBeGreaterThan(0.4)
+  expect(afterZoom.viewport.yRange.min).toBeCloseTo(afterZoom.yAxis.min, 6)
+  expect(afterZoom.viewport.yRange.max).toBeCloseTo(afterZoom.yAxis.max, 6)
+
+  expect(afterPan.renderVersion).toBe(initialState.renderVersion)
+  expect(afterPan.mainVersion).toBe(initialState.mainVersion)
+  expect(
+    Math.abs(afterPan.viewport.xRange.start - afterZoom.viewport.xRange.start) +
+      Math.abs(afterPan.viewport.xRange.end - afterZoom.viewport.xRange.end)
+  ).toBeGreaterThan(0.4)
+  expect(afterPan.viewport.xRange.start).toBeGreaterThanOrEqual(0)
+  expect(afterPan.viewport.xRange.end).toBeLessThanOrEqual(100)
+  expect(afterPan.viewport.xRange.end).toBeGreaterThan(afterPan.viewport.xRange.start)
+  expect(afterPan.viewport.yRange.min).toBeCloseTo(afterPan.yAxis.min, 6)
+  expect(afterPan.viewport.yRange.max).toBeCloseTo(afterPan.yAxis.max, 6)
+
+  await page.evaluate(() => {
+    const chart = window.__klineSlimChart || window.__findKlineSlimVm()?.chart
+    chart.dispatchAction({
+      type: 'dataZoom',
+      dataZoomId: 'kline-slim-inside-zoom',
+      start: 82,
+      end: 92
+    })
+  })
+
+  await page.waitForFunction(
+    ({ min, max }) => {
+      const state = window.__readKlineSlimChartState?.()
+      if (!state?.viewport?.xRange || !state?.viewport?.yRange) {
+        return false
+      }
+
+      return (
+        Math.abs(state.viewport.xRange.start - 82) < 0.25 &&
+        Math.abs(state.viewport.xRange.end - 92) < 0.25 &&
+        (Math.abs(state.viewport.yRange.min - min) > 0.01 ||
+          Math.abs(state.viewport.yRange.max - max) > 0.01)
+      )
+    },
+    {
+      min: afterPan.viewport.yRange.min,
+      max: afterPan.viewport.yRange.max
+    }
+  )
+
+  const afterExplicitZoom = await readChartState(page)
+  expect(afterExplicitZoom.renderVersion).toBe(initialState.renderVersion)
+  expect(afterExplicitZoom.mainVersion).toBe(initialState.mainVersion)
+  expect(afterExplicitZoom.viewport.xRange.start).toBeCloseTo(82, 0)
+  expect(afterExplicitZoom.viewport.xRange.end).toBeCloseTo(92, 0)
+  expect(
+    Math.abs(afterExplicitZoom.viewport.yRange.min - afterPan.viewport.yRange.min) +
+      Math.abs(afterExplicitZoom.viewport.yRange.max - afterPan.viewport.yRange.max)
+  ).toBeGreaterThan(0.01)
+  expect(afterExplicitZoom.viewport.yRange.min).toBeCloseTo(afterExplicitZoom.yAxis.min, 6)
+  expect(afterExplicitZoom.viewport.yRange.max).toBeCloseTo(afterExplicitZoom.yAxis.max, 6)
 
   await page.evaluate(async () => {
     const vm = window.__klineSlimVm || window.__findKlineSlimVm()
-    const chart = window.__klineSlimChart || vm.chart
-    chart.__resetSlimSetOptionCount()
     await vm.fetchMainData(vm.routeToken)
   })
 
   await page.waitForFunction(
-    ({ start, end }) => {
-      const current = window.__readKlineSlimViewport?.()
-      if (!current) {
+    ({ start, end, renderVersion }) => {
+      const state = window.__readKlineSlimChartState?.()
+      if (!state?.viewport?.xRange) {
         return false
       }
+
       return (
-        current.setOptionCalls > 0 &&
-        Math.abs(current.start - start) < 0.25 &&
-        Math.abs(current.end - end) < 0.25
+        state.renderVersion !== renderVersion &&
+        Math.abs(state.viewport.xRange.start - start) < 0.25 &&
+        Math.abs(state.viewport.xRange.end - end) < 0.25
       )
     },
     {
-      start: afterPan.start,
-      end: afterPan.end
+      start: afterExplicitZoom.viewport.xRange.start,
+      end: afterExplicitZoom.viewport.xRange.end,
+      renderVersion: afterExplicitZoom.renderVersion
     }
   )
 
-  const afterRefresh = await readViewport(page)
-  expect(afterRefresh.setOptionCalls).toBeGreaterThan(0)
-  expect(Math.abs(afterRefresh.start - afterPan.start)).toBeLessThan(0.25)
-  expect(Math.abs(afterRefresh.end - afterPan.end)).toBeLessThan(0.25)
+  const afterRefresh = await readChartState(page)
+  expect(afterRefresh.renderVersion).not.toBe(afterExplicitZoom.renderVersion)
+  expect(afterRefresh.mainVersion).not.toBe(afterExplicitZoom.mainVersion)
+  expect(Math.abs(afterRefresh.viewport.xRange.start - afterExplicitZoom.viewport.xRange.start)).toBeLessThan(0.25)
+  expect(Math.abs(afterRefresh.viewport.xRange.end - afterExplicitZoom.viewport.xRange.end)).toBeLessThan(0.25)
+  expect(afterRefresh.viewport.yRange.min).toBeCloseTo(afterRefresh.yAxis.min, 6)
+  expect(afterRefresh.viewport.yRange.max).toBeCloseTo(afterRefresh.yAxis.max, 6)
+  expect(afterRefresh.yAxis.min).toBeLessThan(afterRefresh.yAxis.max)
 
   expect(pageErrors).toEqual([])
 })

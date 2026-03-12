@@ -19,7 +19,7 @@ def test_runtime_components_route(monkeypatch, tmp_path):
                 "event_type": "heartbeat",
                 "component": "guardian_strategy",
                 "runtime_node": "host:guardian",
-                "node": "summary",
+                "node": "heartbeat",
                 "ts": "2026-03-09T10:00:00+08:00",
             }
         ],

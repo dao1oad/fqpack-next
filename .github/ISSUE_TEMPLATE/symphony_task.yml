@@ -1,0 +1,45 @@
+name: Symphony 任务
+description: 创建 FreshQuant 正式 Symphony 任务。默认只打 `symphony` 与 `todo`，不要在创建时预贴 `design-review`。
+title: "[任务] "
+labels:
+  - symphony
+  - todo
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请使用这个模板创建新的 FreshQuant 正式任务。
+
+        固定规则：
+        - 新 Issue 创建时默认只带 `symphony` 与 `todo`
+        - 不要在创建时预贴 `design-review`
+        - 是否需要 `Design Review` 由 Symphony 在首轮 `Todo` 风险判定后再决定
+        - 所有提交到 GitHub 的正式说明默认使用简体中文
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景与目标
+      description: 说明当前问题、目标结果或要修复的现象。
+      placeholder: 描述当前问题、目标结果或用户可见影响。
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 预期范围
+      description: 说明你当前已知会影响的模块、页面、脚本或运行面。
+      placeholder: 例如：`morningglory/fqwebui/**`、`runtime/symphony/**`、API 页面、部署脚本。
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 已知约束
+      description: 写清楚必须遵守的限制、已有方案、外部依赖或不能动的部分。
+      placeholder: 例如：不要改交易语义、不要动 schema、必须兼容现有页面。
+  - type: textarea
+    id: verification
+    attributes:
+      label: 验收方式
+      description: 说明你希望如何验证完成。
+      placeholder: 例如：页面不再白屏、接口返回正常、某命令通过、某部署健康检查通过。

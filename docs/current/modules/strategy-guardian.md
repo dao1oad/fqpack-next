@@ -64,6 +64,38 @@ Guardian 自身不维护订单账本，但依赖以下状态：
 
 Guardian 对旧信号有 30 分钟时间窗限制；信号太旧会直接跳过。
 
+## Runtime Observability 口径
+
+Guardian 会把关键判断路径写入 `guardian_strategy` runtime event，不只依赖普通日志。当前结构化字段口径：
+
+- 信号摘要：`signal_summary`
+  - `code`
+  - `name`
+  - `position`
+  - `period`
+  - `price`
+  - `fire_time`
+  - `discover_time`
+  - `remark`
+  - `tags`
+- 判断依据：`decision_branch`、`decision_expr`、`decision_context`
+- 判断结果：`decision_outcome`、`reason_code`、`status`
+
+当前关键节点：
+
+- `receive_signal`
+- `holding_scope_resolve`
+- `timing_check`
+- `price_threshold_check`
+- `signal_structure_check`
+- `cooldown_check`
+- `quantity_check`
+- `position_management_check`
+- `submit_intent`
+- `finish`
+
+`finish` 用于表达 Guardian 自身未继续提交策略单时的终止结论；成功进入下单链时，以 `submit_intent` 作为 Guardian 侧最终节点。
+
 ## 部署/运行
 
 - 正式运行在宿主机。
@@ -85,6 +117,8 @@ python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
 - 检查目标 code 是否在 `must_pool` 或 `xt_positions`
 - 检查 `buy:<code>` 冷却键
 - 检查 Position Management 是否拒绝
+- 在 `/runtime-observability` 选中 `guardian_strategy` 看板，直接看 recent trace 的信号摘要与最终结论
+- 打开对应节点详情，优先看 `decision_expr`、`decision_context`、`decision_outcome`
 
 ### 新开仓长期不生效
 

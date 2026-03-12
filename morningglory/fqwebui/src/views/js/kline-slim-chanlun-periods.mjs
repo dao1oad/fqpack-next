@@ -2,10 +2,7 @@ export const SUPPORTED_CHANLUN_PERIODS = ['1m', '5m', '15m', '30m']
 
 export const DEFAULT_MAIN_PERIOD = '5m'
 
-export const DEFAULT_VISIBLE_CHANLUN_PERIODS = ['5m']
-
-export const ZHONGSHU_LEGEND_NAME = '中枢'
-export const DUAN_ZHONGSHU_LEGEND_NAME = '段中枢'
+export const DEFAULT_VISIBLE_CHANLUN_PERIODS = []
 
 export const PERIOD_STYLE_MAP = {
   '1m': {
@@ -49,40 +46,58 @@ export const PERIOD_WIDTH_FACTOR = {
   '30m': 5
 }
 
-function getDefaultLegendSelection() {
-  return {
-    '1m': false,
-    '5m': true,
-    '15m': false,
-    '30m': false,
-    [ZHONGSHU_LEGEND_NAME]: true,
-    [DUAN_ZHONGSHU_LEGEND_NAME]: true
-  }
+export const PERIOD_DURATION_MS = {
+  '1m': 60 * 1000,
+  '5m': 5 * 60 * 1000,
+  '15m': 15 * 60 * 1000,
+  '30m': 30 * 60 * 1000
+}
+
+function buildDefaultLegendSelection(currentPeriod) {
+  return Object.fromEntries(
+    SUPPORTED_CHANLUN_PERIODS
+      .filter((period) => period !== currentPeriod)
+      .map((period) => [period, DEFAULT_VISIBLE_CHANLUN_PERIODS.includes(period)])
+  )
 }
 
 export function normalizeChanlunPeriod(period) {
   return SUPPORTED_CHANLUN_PERIODS.includes(period) ? period : DEFAULT_MAIN_PERIOD
 }
 
-export function buildLegendSelectionState(previousSelected = null) {
-  const defaults = getDefaultLegendSelection()
+export function buildPeriodLegendSelectionState({ currentPeriod, previousSelected = null } = {}) {
+  const normalizedCurrent = normalizeChanlunPeriod(currentPeriod)
+  const defaults = buildDefaultLegendSelection(normalizedCurrent)
   if (!previousSelected || typeof previousSelected !== 'object') {
     return defaults
   }
 
   return Object.fromEntries(
-    Object.keys(defaults).map((name) => [
-      name,
-      Object.prototype.hasOwnProperty.call(previousSelected, name)
-        ? !!previousSelected[name]
-        : defaults[name]
+    Object.keys(defaults).map((period) => [
+      period,
+      Object.prototype.hasOwnProperty.call(previousSelected, period)
+        ? !!previousSelected[period]
+        : defaults[period]
     ])
   )
 }
 
-export function getVisibleChanlunPeriods(selected = null) {
-  const resolvedSelected = buildLegendSelectionState(selected)
-  return SUPPORTED_CHANLUN_PERIODS.filter((period) => resolvedSelected[period])
+export function buildLegendSelectionState(previousSelected = null) {
+  return buildPeriodLegendSelectionState({
+    currentPeriod: DEFAULT_MAIN_PERIOD,
+    previousSelected
+  })
+}
+
+export function getVisibleChanlunPeriods({ currentPeriod, selected = null } = {}) {
+  const normalizedCurrent = normalizeChanlunPeriod(currentPeriod)
+  const resolvedSelected = buildPeriodLegendSelectionState({
+    currentPeriod: normalizedCurrent,
+    previousSelected: selected
+  })
+  return SUPPORTED_CHANLUN_PERIODS.filter(
+    (period) => period !== normalizedCurrent && resolvedSelected[period]
+  )
 }
 
 export function getRealtimeRefreshPeriods({ currentPeriod, visiblePeriods = [] } = {}) {

@@ -1,10 +1,13 @@
 import importlib
 import inspect
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import pandas as pd
 import pytest
+from requests.exceptions import SSLError  # type: ignore[import-untyped]
 
 
 def _build_dagster_stub():
@@ -309,6 +312,24 @@ def test_resolve_gantt_backfill_trade_dates_returns_empty_when_no_gap(monkeypatc
     )
     monkeypatch.setattr(
         ops,
+        "_query_recent_trade_dates",
+        lambda end_date, days: ["2026-03-06"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {"2026-03-06"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_non_empty_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {"2026-03-06"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
         "_has_legacy_shouban30_snapshot",
         lambda trade_date: False,
         raising=False,
@@ -325,6 +346,24 @@ def test_resolve_gantt_backfill_trade_dates_returns_latest_day_when_no_gap_but_s
     monkeypatch.setattr(ops, "_query_latest_trade_date", lambda: "2026-03-06")
     monkeypatch.setattr(
         ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-06"
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_recent_trade_dates",
+        lambda end_date, days: ["2026-03-06"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {"2026-03-06"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_non_empty_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {"2026-03-06"},
+        raising=False,
     )
     monkeypatch.setattr(
         ops,
@@ -359,6 +398,260 @@ def test_resolve_gantt_backfill_trade_dates_returns_incremental_window(monkeypat
         "2026-03-05",
         "2026-03-06",
     ]
+
+
+def test_resolve_gantt_backfill_trade_dates_retries_transient_ssl_error(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+    from freshquant.trading import dt as trading_dt
+
+    attempts = []
+
+    class FakeDateTime(datetime):
+        @classmethod
+        def now(cls):
+            return cls(2026, 3, 6, 15, 10)
+
+    def fake_fetch():
+        attempts.append(len(attempts) + 1)
+        if len(attempts) == 1:
+            raise SSLError("temporary ssl failure")
+        return pd.DataFrame(
+            {
+                "trade_date": [
+                    datetime(2026, 3, 5).date(),
+                    datetime(2026, 3, 6).date(),
+                ]
+            }
+        )
+
+    monkeypatch.setattr(
+        ops,
+        "tool_trade_date_hist_sina",
+        lambda: trading_dt._fetch_trade_dates_from_source(
+            trading_dt.ak.tool_trade_date_hist_sina
+        ),
+    )
+    monkeypatch.setattr(trading_dt.ak, "tool_trade_date_hist_sina", fake_fetch)
+    monkeypatch.setattr(ops, "datetime", FakeDateTime)
+    monkeypatch.setattr(
+        ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-05"
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_trade_dates_between",
+        lambda start_date, end_date: ["2026-03-05", "2026-03-06"],
+    )
+
+    assert ops.resolve_gantt_backfill_trade_dates() == ["2026-03-06"]
+    assert attempts == [1, 2]
+
+
+def test_resolve_gantt_backfill_trade_dates_returns_empty_when_trade_calendar_unavailable(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+
+    monkeypatch.setattr(
+        ops,
+        "tool_trade_date_hist_sina",
+        lambda: (_ for _ in ()).throw(SSLError("temporary ssl failure")),
+    )
+
+    assert ops.resolve_gantt_backfill_trade_dates() == []
+
+
+def test_resolve_gantt_backfill_trade_dates_rechecks_recent_jygs_holes(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+
+    monkeypatch.setattr(ops, "_query_latest_trade_date", lambda: "2026-03-06")
+    monkeypatch.setattr(
+        ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-06"
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_recent_trade_dates",
+        lambda end_date, days: ["2026-03-04", "2026-03-05", "2026-03-06"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {
+            "xgb_top_gainer_history": {"2026-03-04", "2026-03-05", "2026-03-06"},
+            "jygs_action_fields": {"2026-03-05"},
+            "jygs_yidong": {"2026-03-05"},
+            "plate_reason_daily": {"2026-03-04", "2026-03-05", "2026-03-06"},
+            "gantt_plate_daily": {"2026-03-04", "2026-03-05", "2026-03-06"},
+            "gantt_stock_daily": {"2026-03-04", "2026-03-05", "2026-03-06"},
+            "stock_hot_reason_daily": {"2026-03-04", "2026-03-05", "2026-03-06"},
+        }[collection_name],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_non_empty_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {
+            "jygs_action_fields": {"2026-03-05"},
+            "jygs_yidong": {"2026-03-05"},
+        }.get(collection_name, set()),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_has_legacy_shouban30_snapshot",
+        lambda trade_date: False,
+        raising=False,
+    )
+
+    assert ops.resolve_gantt_backfill_trade_dates() == [
+        "2026-03-04",
+        "2026-03-06",
+    ]
+
+
+def test_resolve_gantt_backfill_trade_dates_retries_upstream_mismatch_markers(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+
+    class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
+        def find(self, query=None, projection=None):
+            query = query or {}
+            results = []
+            for doc in self.docs:
+                matched = True
+                for key, expected in query.items():
+                    actual = doc.get(key)
+                    if isinstance(expected, dict):
+                        if "$gte" in expected and actual < expected["$gte"]:
+                            matched = False
+                            break
+                        if "$lte" in expected and actual > expected["$lte"]:
+                            matched = False
+                            break
+                        continue
+                    if actual != expected:
+                        matched = False
+                        break
+                if matched:
+                    results.append(doc)
+            return results
+
+    class FakeDB(dict):
+        def __getitem__(self, name):
+            return dict.__getitem__(self, name)
+
+    monkeypatch.setattr(
+        ops,
+        "DBGantt",
+        FakeDB(
+            {
+                ops.COL_JYGS_ACTION_FIELDS: FakeCollection(
+                    [
+                        {
+                            "date": "2026-03-05",
+                            "is_empty_result": True,
+                            "empty_reason": "upstream_trade_date_mismatch",
+                        }
+                    ]
+                ),
+                ops.COL_JYGS_YIDONG: FakeCollection(
+                    [
+                        {
+                            "date": "2026-03-05",
+                            "is_empty_result": True,
+                            "empty_reason": "upstream_trade_date_mismatch",
+                        }
+                    ]
+                ),
+                ops.COL_XGB_TOP_GAINER_HISTORY: FakeCollection(
+                    [{"trade_date": "2026-03-05"}]
+                ),
+                ops.COL_PLATE_REASON_DAILY: FakeCollection(
+                    [{"trade_date": "2026-03-05"}]
+                ),
+                ops.COL_GANTT_PLATE_DAILY: FakeCollection(
+                    [{"trade_date": "2026-03-05"}]
+                ),
+                ops.COL_GANTT_STOCK_DAILY: FakeCollection(
+                    [{"trade_date": "2026-03-05"}]
+                ),
+                ops.COL_STOCK_HOT_REASON_DAILY: FakeCollection(
+                    [{"trade_date": "2026-03-05"}]
+                ),
+            }
+        ),
+    )
+    monkeypatch.setattr(ops, "_query_latest_trade_date", lambda: "2026-03-05")
+    monkeypatch.setattr(
+        ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-05"
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_recent_trade_dates",
+        lambda end_date, days: ["2026-03-05"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_has_legacy_shouban30_snapshot",
+        lambda trade_date: False,
+        raising=False,
+    )
+
+    assert ops.resolve_gantt_backfill_trade_dates() == ["2026-03-05"]
+
+
+def test_op_resolve_pending_gantt_trade_dates_degrades_when_trade_calendar_unavailable(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+
+    monkeypatch.setattr(
+        ops,
+        "tool_trade_date_hist_sina",
+        lambda: (_ for _ in ()).throw(SSLError("temporary ssl failure")),
+    )
+
+    result = list(ops.op_resolve_pending_gantt_trade_dates(context))
+    outputs = [item for item in result if hasattr(item, "mapping_key")]
+    messages = _collect_messages(result)
+
+    assert outputs == []
+    assert any(
+        "gantt postclose event=done stage=resolve_pending_trade_dates pending_count=0 status=degraded reason=trade_calendar_unavailable"
+        in message
+        for message in messages
+    )
+    assert any(
+        "gantt postclose trade calendar unavailable" in message
+        for message in context.log.messages
+    )
+
+
+def test_run_gantt_backfill_returns_empty_when_trade_calendar_unavailable(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+
+    monkeypatch.setattr(
+        ops,
+        "tool_trade_date_hist_sina",
+        lambda: (_ for _ in ()).throw(SSLError("temporary ssl failure")),
+    )
+
+    assert ops.run_gantt_backfill(context) == []
+    assert any(
+        "gantt postclose trade calendar unavailable" in message
+        for message in context.log.messages
+    )
 
 
 def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):

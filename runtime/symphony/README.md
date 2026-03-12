@@ -26,6 +26,21 @@
 
 低风险任务可跳过 `Design Review`，直接进入实现。
 
+低风险任务规则：
+
+- 不创建 `Design Review Packet`
+- 不进入 `brainstorming` 审批闭环
+- 不等待 `APPROVED`
+- 在 `Todo` 完成一轮有效上下文梳理后，由 orchestrator 自动切到 `In Progress`
+- 新建 GitHub Issue 默认只打 `symphony` 与 `todo`
+- 不要在创建时预贴 `design-review`
+
+GitHub 文本规则：
+
+- 所有提交到 GitHub 的正式说明默认使用简体中文
+- 包括 Issue 描述、Draft PR 标题与正文、PR / Issue 评论、部署说明、Done 总结
+- 仅审批控制词保留英文：`APPROVED`、`REVISE:`、`REJECTED:`
+
 ## 唯一人工评审点
 
 唯一人工评审点是：
@@ -48,6 +63,7 @@
   - `systematic-debugging`
   - `test-driven-development`
   - `verification-before-completion`
+  - 不进入 `brainstorming`
 
 - 现有模块增强：
   - `using-superpowers`
@@ -125,12 +141,17 @@ Cleanup 只清理任务级资源：
 Issue labels：
 
 - `symphony`
-- `design-review`
 - `blocked`
 - `rework`
 - `todo`
 - `in-progress`
 - `merging`
+
+标签使用规则：
+
+- 新建 Issue 默认只打 `symphony` 与 `todo`
+- `design-review` 只在确认高风险后追加
+- 不要把 `design-review` 当成新任务默认标签
 
 PR 信号：
 

@@ -224,6 +224,7 @@ const changeWindowDays = (value) => {
   if (next === internalWindowDays.value) return
   internalWindowDays.value = next
   emit('update:windowDays', next)
+  loadData()
 }
 
 const emitBack = () => {
@@ -956,9 +957,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .gantt-history {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  height: 100%;
-  min-height: calc(100vh - 124px);
+  min-height: 0;
+  overflow: hidden;
   background: #fff;
 }
 
@@ -1052,6 +1054,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .gantt-sidebar {
@@ -1107,7 +1110,7 @@ onBeforeUnmount(() => {
 .gantt-chart {
   width: 100%;
   height: 100%;
-  min-height: calc(100vh - 190px);
+  min-height: 0;
 }
 
 .empty-wrap {
@@ -1116,7 +1119,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   width: 100%;
   height: 100%;
-  min-height: 320px;
+  min-height: 0;
 }
 
 @media (max-width: 900px) {
@@ -1140,7 +1143,7 @@ onBeforeUnmount(() => {
   }
 
   .gantt-chart {
-    min-height: 420px;
+    min-height: 0;
   }
 }
 </style>

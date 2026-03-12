@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 
 from freshquant.data.gantt_readmodel import (
@@ -788,6 +790,238 @@ def test_persist_gantt_daily_for_date_fails_when_plate_reason_is_missing(monkeyp
 
     with pytest.raises(ValueError, match="missing plate reason"):
         svc.persist_gantt_daily_for_date("2026-03-05")
+
+
+def test_persist_plate_reason_daily_for_date_ignores_empty_jygs_sync_markers(
+    monkeypatch,
+):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        xgb_top_gainer_history=FakeCollection(
+            [
+                {
+                    "trade_date": "2026-03-05",
+                    "plate_id": 11,
+                    "plate_name": "robotics",
+                    "description": "xgb reason",
+                }
+            ]
+        ),
+        jygs_action_fields=FakeCollection(
+            [
+                {
+                    "date": "2026-03-05",
+                    "board_key": "__empty__",
+                    "action_field_id": "__empty__",
+                    "is_empty_result": True,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+
+    count = svc.persist_plate_reason_daily_for_date("2026-03-05")
+
+    assert count == 1
+    assert fake_db[svc.COL_PLATE_REASON_DAILY].docs == [
+        {
+            "provider": "xgb",
+            "trade_date": "2026-03-05",
+            "plate_key": "11",
+            "plate_name": "robotics",
+            "reason_text": "xgb reason",
+            "reason_source": "xgb_top_gainer_history.description",
+            "source_ref": {"trade_date": "2026-03-05", "plate_id": 11},
+        }
+    ]
+
+
+def test_persist_gantt_daily_for_date_ignores_empty_jygs_sync_markers(monkeypatch):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        plate_reason_daily=FakeCollection(
+            [
+                {
+                    "provider": "xgb",
+                    "trade_date": "2026-03-05",
+                    "plate_key": "11",
+                    "plate_name": "robotics",
+                    "reason_text": "xgb plate reason",
+                    "reason_source": "xgb_top_gainer_history.description",
+                    "source_ref": {"trade_date": "2026-03-05", "plate_id": 11},
+                }
+            ]
+        ),
+        xgb_top_gainer_history=FakeCollection(
+            [
+                {
+                    "trade_date": "2026-03-05",
+                    "plate_id": 11,
+                    "plate_name": "robotics",
+                    "rank": 1,
+                    "limit_up_count": 1,
+                    "hot_stocks": [
+                        {
+                            "symbol": "000001",
+                            "stock_name": "alpha",
+                            "description": "stock reason",
+                            "up_limit": 1,
+                            "enter_time": "09:31:15",
+                        }
+                    ],
+                }
+            ]
+        ),
+        jygs_yidong=FakeCollection(
+            [
+                {
+                    "date": "2026-03-05",
+                    "stock_code": "__empty__",
+                    "is_empty_result": True,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+
+    result = svc.persist_gantt_daily_for_date("2026-03-05")
+
+    assert result == {"trade_date": "2026-03-05", "plates": 1, "stocks": 1}
+    assert fake_db[svc.COL_GANTT_PLATE_DAILY].docs == [
+        {
+            "provider": "xgb",
+            "trade_date": "2026-03-05",
+            "plate_key": "11",
+            "plate_name": "robotics",
+            "rank": 1,
+            "hot_stock_count": 1,
+            "limit_up_count": 1,
+            "stock_codes": ["000001"],
+            "reason_text": "xgb plate reason",
+            "reason_ref": {"trade_date": "2026-03-05", "plate_id": 11},
+        }
+    ]
+    assert fake_db[svc.COL_GANTT_STOCK_DAILY].docs == [
+        {
+            "provider": "xgb",
+            "trade_date": "2026-03-05",
+            "plate_key": "11",
+            "plate_name": "robotics",
+            "code6": "000001",
+            "name": "alpha",
+            "is_limit_up": 1,
+            "stock_reason": "stock reason",
+            "time": "09:31",
+        }
+    ]
+
+
+def test_query_gantt_plate_matrix_retains_trade_date_axis_for_empty_days(monkeypatch):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        gantt_plate_daily=FakeCollection(
+            [
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-04",
+                    "plate_key": "robotics",
+                    "plate_name": "robotics",
+                    "rank": 2,
+                    "hot_stock_count": 1,
+                    "limit_up_count": 0,
+                    "stock_codes": ["000001"],
+                },
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-06",
+                    "plate_key": "robotics",
+                    "plate_name": "robotics",
+                    "rank": 1,
+                    "hot_stock_count": 2,
+                    "limit_up_count": 0,
+                    "stock_codes": ["000001", "000002"],
+                },
+            ]
+        )
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+    monkeypatch.setattr(
+        svc,
+        "get_trade_dates_between",
+        lambda start_date, end_date: [
+            datetime.strptime("2026-03-04", "%Y-%m-%d").date(),
+            datetime.strptime("2026-03-05", "%Y-%m-%d").date(),
+            datetime.strptime("2026-03-06", "%Y-%m-%d").date(),
+        ],
+        raising=False,
+    )
+
+    result = svc.query_gantt_plate_matrix(
+        provider="jygs",
+        days=3,
+        end_date="2026-03-06",
+    )
+
+    assert result["dates"] == ["2026-03-04", "2026-03-05", "2026-03-06"]
+    assert [item[0] for item in result["series"]] == [0, 2]
+
+
+def test_query_gantt_stock_matrix_retains_trade_date_axis_for_empty_days(monkeypatch):
+    from freshquant.data import gantt_readmodel as svc
+
+    fake_db = FakeDB(
+        gantt_stock_daily=FakeCollection(
+            [
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-04",
+                    "plate_key": "robotics",
+                    "plate_name": "robotics",
+                    "code6": "000001",
+                    "name": "alpha",
+                    "is_limit_up": 0,
+                    "stock_reason": "day1 reason",
+                },
+                {
+                    "provider": "jygs",
+                    "trade_date": "2026-03-06",
+                    "plate_key": "robotics",
+                    "plate_name": "robotics",
+                    "code6": "000001",
+                    "name": "alpha",
+                    "is_limit_up": 0,
+                    "stock_reason": "day3 reason",
+                },
+            ]
+        )
+    )
+    monkeypatch.setattr(svc, "DBGantt", fake_db)
+    monkeypatch.setattr(
+        svc,
+        "get_trade_dates_between",
+        lambda start_date, end_date: [
+            datetime.strptime("2026-03-04", "%Y-%m-%d").date(),
+            datetime.strptime("2026-03-05", "%Y-%m-%d").date(),
+            datetime.strptime("2026-03-06", "%Y-%m-%d").date(),
+        ],
+        raising=False,
+    )
+
+    result = svc.query_gantt_stock_matrix(
+        provider="jygs",
+        plate_key="robotics",
+        days=3,
+        end_date="2026-03-06",
+    )
+
+    assert result["dates"] == ["2026-03-04", "2026-03-05", "2026-03-06"]
+    assert result["series"] == [
+        [0, 0, 1, 0, "day1 reason"],
+        [2, 0, 1, 0, "day3 reason"],
+    ]
 
 
 def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
