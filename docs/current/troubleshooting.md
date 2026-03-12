@@ -159,9 +159,11 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 业务进程没启用或没走到 runtime logger。
 - 路径被环境变量指到别的目录。
 - 页面筛选条件过严。
+- 原始事件只有 `heartbeat`，或缺少 `trace_id` / `request_id` / `internal_order_id`，因此不会进入 trace 列表。
 
 处理：
 - 直接 tail 原始文件，而不是只看页面
+- 先看 `/api/runtime/events` 或 raw browser，确认最近事件是否带关联键
 - 清空筛选后刷新页面
 
 ## Symphony 任务卡住
