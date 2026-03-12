@@ -130,8 +130,25 @@
                 {{ item.last_status || (item.issue_count > 0 ? 'warning' : 'success') }}
               </div>
               <div>
-                <strong>{{ item.symbol || '-' }}</strong>
+                <strong>{{ item.guardian_signal?.title || item.symbol || '-' }}</strong>
+                <p v-if="item.guardian_signal?.subtitle" class="recent-feed-guardian-subtitle">
+                  {{ item.guardian_signal.subtitle }}
+                </p>
                 <p class="recent-feed-path">{{ item.path_summary }}</p>
+                <div v-if="item.guardian_outcome || item.guardian_signal?.tags?.length" class="guardian-chip-list recent-feed-guardian-list">
+                  <span v-if="item.guardian_outcome">
+                    结论 {{ item.guardian_outcome.label }}
+                  </span>
+                  <span v-if="item.guardian_outcome?.reason_code">
+                    原因 {{ item.guardian_outcome.reason_code }}
+                  </span>
+                  <span v-if="item.guardian_outcome?.node_label">
+                    节点 {{ item.guardian_outcome.node_label }}
+                  </span>
+                  <span v-for="tag in item.guardian_signal?.tags || []" :key="`${item.trace_id}-${tag}`">
+                    {{ tag }}
+                  </span>
+                </div>
                 <div class="recent-feed-tags">
                   <span v-for="node in item.spotlight_nodes" :key="`${item.trace_id}-${node}`">{{ node }}</span>
                   <span v-if="item.spotlight_nodes.length === 0">-</span>
@@ -221,6 +238,46 @@
           </div>
             <div v-if="selectedTrace" class="trace-detail-body">
               <div class="trace-timeline-panel">
+                <section v-if="guardianTrace" class="guardian-trace-panel">
+                  <div class="guardian-trace-head">
+                    <div>
+                      <h3>Guardian 视角</h3>
+                      <p>直接展示当前信号、最终结论和关键原因。</p>
+                    </div>
+                    <span class="guardian-status-badge" :class="statusClass(guardianTrace.conclusion?.status)">
+                      {{ guardianTrace.conclusion?.label || '-' }}
+                    </span>
+                  </div>
+                  <div class="guardian-trace-grid">
+                    <article class="guardian-trace-card">
+                      <span>信号摘要</span>
+                      <strong>{{ guardianTrace.signal?.title || '-' }}</strong>
+                      <p>{{ guardianTrace.signal?.subtitle || '无结构化信号摘要' }}</p>
+                      <div class="guardian-chip-list">
+                        <span v-for="tag in guardianTrace.signal?.tags || []" :key="`guardian-trace-tag-${tag}`">
+                          {{ tag }}
+                        </span>
+                      </div>
+                    </article>
+                    <article class="guardian-trace-card">
+                      <span>最终结论</span>
+                      <strong>{{ guardianTrace.conclusion?.label || '-' }}</strong>
+                      <p>{{ guardianTrace.conclusion?.node_label || '-' }}</p>
+                      <div class="guardian-chip-list">
+                        <span v-if="guardianTrace.conclusion?.reason_code">
+                          原因 {{ guardianTrace.conclusion.reason_code }}
+                        </span>
+                        <span v-if="guardianTrace.conclusion?.branch">
+                          分支 {{ guardianTrace.conclusion.branch }}
+                        </span>
+                        <span v-if="guardianTrace.conclusion?.expr">
+                          条件 {{ guardianTrace.conclusion.expr }}
+                        </span>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
                 <div class="trace-summary-grid">
                   <article class="trace-summary-card">
                     <span>首个异常</span>
@@ -349,6 +406,58 @@
                     <span v-if="isFirstIssueStep(selectedStep)" class="inspector-tag">首个异常</span>
                     <span v-if="isSlowestStep(selectedStep)" class="inspector-tag">最长耗时节点</span>
                   </div>
+
+                  <section v-if="selectedStep.guardian_step?.signal" class="step-inspector-section">
+                    <h4>Guardian 信号</h4>
+                    <div class="guardian-signal-card">
+                      <strong>{{ selectedStep.guardian_step.signal.title }}</strong>
+                      <p>{{ selectedStep.guardian_step.signal.subtitle || '无附加摘要' }}</p>
+                      <div class="guardian-chip-list">
+                        <span v-for="tag in selectedStep.guardian_step.signal.tags" :key="`${stepKey(selectedStep)}-signal-tag-${tag}`">
+                          {{ tag }}
+                        </span>
+                      </div>
+                    </div>
+                    <div
+                      v-for="item in selectedStep.guardian_step.signal.items"
+                      :key="`${stepKey(selectedStep)}-signal-${item.key}`"
+                      class="inspector-field-row"
+                    >
+                      <span>{{ item.label }}</span>
+                      <code>{{ item.value }}</code>
+                      <button type="button" class="trace-copy-link" @click.stop="copyText(item.value)">复制</button>
+                    </div>
+                  </section>
+
+                  <section v-if="selectedStep.guardian_step" class="step-inspector-section">
+                    <h4>Guardian 判断</h4>
+                    <div class="guardian-chip-list">
+                      <span>节点 {{ selectedStep.guardian_step.node_label }}</span>
+                      <span>结果 {{ selectedStep.guardian_step.outcome.label }}</span>
+                      <span v-if="selectedStep.guardian_step.outcome.branch">
+                        分支 {{ selectedStep.guardian_step.outcome.branch }}
+                      </span>
+                      <span v-if="selectedStep.guardian_step.outcome.reason_code">
+                        原因 {{ selectedStep.guardian_step.outcome.reason_code }}
+                      </span>
+                    </div>
+                    <p v-if="selectedStep.guardian_step.outcome.expr" class="guardian-step-expr">
+                      条件：{{ selectedStep.guardian_step.outcome.expr }}
+                    </p>
+                  </section>
+
+                  <section v-if="selectedStep.guardian_step?.context_blocks?.length" class="step-inspector-section">
+                    <h4>Guardian 上下文</h4>
+                    <div v-for="block in selectedStep.guardian_step.context_blocks" :key="`${stepKey(selectedStep)}-${block.key}`" class="guardian-context-block">
+                      <strong>{{ block.label }}</strong>
+                      <div class="guardian-context-grid">
+                        <div v-for="item in block.items" :key="`${stepKey(selectedStep)}-${block.key}-${item.key}`" class="guardian-context-item">
+                          <span>{{ item.key }}</span>
+                          <code>{{ item.value }}</code>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
 
                   <section class="step-inspector-section">
                     <h4>关联字段</h4>
@@ -573,6 +682,7 @@ const filterChips = computed(() => {
 })
 
 const selectedTraceDetail = computed(() => buildTraceDetail(selectedTrace.value || {}))
+const guardianTrace = computed(() => selectedTraceDetail.value.guardian_trace || null)
 const traceSummaryMeta = computed(() => buildTraceSummaryMeta(selectedTraceDetail.value))
 const issueSummary = computed(() => buildIssueSummary(selectedTraceDetail.value))
 const filteredSteps = computed(() => {
@@ -1128,6 +1238,16 @@ onBeforeUnmount(() => {
   color: #35506c;
 }
 
+.recent-feed-guardian-subtitle,
+.guardian-step-expr,
+.guardian-trace-head p,
+.guardian-trace-card p,
+.guardian-signal-card p {
+  margin: 8px 0 0;
+  color: #56718d;
+  font-size: 13px;
+}
+
 .issue-card-subline,
 .issue-card-summary,
 .recent-feed-path {
@@ -1216,8 +1336,16 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.guardian-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .recent-feed-tags span,
-.component-distribution-chip {
+.component-distribution-chip,
+.guardian-chip-list span {
   padding: 4px 8px;
   border-radius: 999px;
   background: #edf4fb;
@@ -1526,6 +1654,84 @@ onBeforeUnmount(() => {
 .trace-timeline-panel,
 .step-inspector {
   min-width: 0;
+}
+
+.guardian-trace-panel {
+  border: 1px solid #d8e2ee;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f4f8fc 100%);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.guardian-trace-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.guardian-trace-head h3,
+.guardian-signal-card strong,
+.guardian-trace-card strong {
+  margin: 0;
+  color: #21405e;
+}
+
+.guardian-trace-grid,
+.guardian-context-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.guardian-trace-card,
+.guardian-signal-card,
+.guardian-context-block {
+  border: 1px solid #d8e2ee;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+}
+
+.guardian-trace-card > span,
+.guardian-context-block > strong {
+  display: block;
+  color: #68829b;
+  font-size: 12px;
+}
+
+.guardian-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #35506c;
+  font-size: 12px;
+}
+
+.guardian-status-badge.is-success {
+  background: #1e9b61;
+  color: #fff;
+}
+
+.guardian-status-badge.is-warning {
+  background: #de8f1f;
+  color: #fff;
+}
+
+.guardian-status-badge.is-failed {
+  background: #cf4a3c;
+  color: #fff;
+}
+
+.guardian-status-badge.is-skipped {
+  background: #7d74b6;
+  color: #fff;
 }
 
 .trace-identity-grid {
@@ -1857,6 +2063,28 @@ onBeforeUnmount(() => {
   color: #2e4d69;
 }
 
+.guardian-context-item {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid #edf2f7;
+}
+
+.guardian-context-item:first-child {
+  border-top: 0;
+}
+
+.guardian-context-item span {
+  color: #68829b;
+  font-size: 12px;
+}
+
+.guardian-context-item code {
+  color: #2e4d69;
+  white-space: normal;
+  word-break: break-word;
+}
+
 .step-inspector pre {
   margin: 0;
   padding: 12px;
@@ -1978,7 +2206,9 @@ onBeforeUnmount(() => {
   .trace-layout,
   .trace-detail-body,
   .trace-identity-grid,
-  .trace-summary-grid {
+  .trace-summary-grid,
+  .guardian-trace-grid,
+  .guardian-context-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1987,7 +2217,8 @@ onBeforeUnmount(() => {
   .trace-timeline-hint,
   .trace-affected-row,
   .raw-record-card header,
-  .issue-card-top {
+  .issue-card-top,
+  .guardian-trace-head {
     flex-direction: column;
     align-items: stretch;
   }
