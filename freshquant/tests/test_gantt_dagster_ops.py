@@ -446,6 +446,102 @@ def test_resolve_gantt_backfill_trade_dates_rechecks_recent_jygs_holes(monkeypat
     ]
 
 
+def test_resolve_gantt_backfill_trade_dates_retries_upstream_mismatch_markers(
+    monkeypatch,
+):
+    ops = _load_ops_module(monkeypatch)
+
+    class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
+        def find(self, query=None, projection=None):
+            query = query or {}
+            results = []
+            for doc in self.docs:
+                matched = True
+                for key, expected in query.items():
+                    actual = doc.get(key)
+                    if isinstance(expected, dict):
+                        if "$gte" in expected and actual < expected["$gte"]:
+                            matched = False
+                            break
+                        if "$lte" in expected and actual > expected["$lte"]:
+                            matched = False
+                            break
+                        continue
+                    if actual != expected:
+                        matched = False
+                        break
+                if matched:
+                    results.append(doc)
+            return results
+
+    class FakeDB(dict):
+        def __getitem__(self, name):
+            return dict.__getitem__(self, name)
+
+    monkeypatch.setattr(
+        ops,
+        "DBGantt",
+        FakeDB(
+            {
+                ops.COL_JYGS_ACTION_FIELDS: FakeCollection(
+                    [
+                        {
+                            "date": "2026-03-05",
+                            "is_empty_result": True,
+                            "empty_reason": "upstream_trade_date_mismatch",
+                        }
+                    ]
+                ),
+                ops.COL_JYGS_YIDONG: FakeCollection(
+                    [
+                        {
+                            "date": "2026-03-05",
+                            "is_empty_result": True,
+                            "empty_reason": "upstream_trade_date_mismatch",
+                        }
+                    ]
+                ),
+                ops.COL_XGB_TOP_GAINER_HISTORY: FakeCollection(
+                    [{"trade_date": "2026-03-05"}]
+                ),
+                ops.COL_PLATE_REASON_DAILY: FakeCollection(
+                    [{"trade_date": "2026-03-05"}]
+                ),
+                ops.COL_GANTT_PLATE_DAILY: FakeCollection(
+                    [{"trade_date": "2026-03-05"}]
+                ),
+                ops.COL_GANTT_STOCK_DAILY: FakeCollection(
+                    [{"trade_date": "2026-03-05"}]
+                ),
+                ops.COL_STOCK_HOT_REASON_DAILY: FakeCollection(
+                    [{"trade_date": "2026-03-05"}]
+                ),
+            }
+        ),
+    )
+    monkeypatch.setattr(ops, "_query_latest_trade_date", lambda: "2026-03-05")
+    monkeypatch.setattr(
+        ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-05"
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_recent_trade_dates",
+        lambda end_date, days: ["2026-03-05"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_has_legacy_shouban30_snapshot",
+        lambda trade_date: False,
+        raising=False,
+    )
+
+    assert ops.resolve_gantt_backfill_trade_dates() == ["2026-03-05"]
+
+
 def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
     ops = _load_ops_module(monkeypatch)
     context = _build_context()

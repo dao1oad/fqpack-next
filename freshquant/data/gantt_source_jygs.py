@@ -20,6 +20,9 @@ ACTION_FIELD_PATH = "/api/v1/action/field"
 ACTION_LIST_PATH = "/api/v1/action/list"
 JYGS_EXCLUDE_PLATE_NAMES = {"公告", "其他", "新股", "ST板块"}
 EMPTY_RESULT_FLAG = "is_empty_result"
+EMPTY_RESULT_REASON_FIELD = "empty_reason"
+EMPTY_RESULT_REASON_UPSTREAM_TRADE_DATE_MISMATCH = "upstream_trade_date_mismatch"
+EMPTY_RESULT_REASON_NO_THEME_FIELDS = "no_theme_fields"
 EMPTY_RESULT_BOARD_KEY = "__empty__"
 EMPTY_RESULT_STOCK_CODE = "__empty__"
 
@@ -271,7 +274,7 @@ def _write_empty_sync_result(
                 "name": EMPTY_RESULT_BOARD_KEY,
                 "count": 0,
                 EMPTY_RESULT_FLAG: True,
-                "empty_reason": reason,
+                EMPTY_RESULT_REASON_FIELD: reason,
             }
         },
         upsert=True,
@@ -285,7 +288,7 @@ def _write_empty_sync_result(
                 "stock_name": EMPTY_RESULT_STOCK_CODE,
                 "boards": [],
                 EMPTY_RESULT_FLAG: True,
-                "empty_reason": reason,
+                EMPTY_RESULT_REASON_FIELD: reason,
             }
         },
         upsert=True,
@@ -326,7 +329,7 @@ def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
             action_collection,
             yidong_collection,
             date_str,
-            reason="upstream_trade_date_mismatch",
+            reason=EMPTY_RESULT_REASON_UPSTREAM_TRADE_DATE_MISMATCH,
         )
 
     fields_payload = fetch_action_field(date_str)
@@ -340,7 +343,7 @@ def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
             action_collection,
             yidong_collection,
             date_str,
-            reason="no_theme_fields",
+            reason=EMPTY_RESULT_REASON_NO_THEME_FIELDS,
         )
 
     action_collection.delete_many({"date": date_str})

@@ -65,6 +65,7 @@ Gantt 读模型当前还依赖以下盘后事实：
 
 - Dagster 在最新交易日追平后，会额外扫描最近 `90` 个交易日的 `jygs` 原始集合与 gantt 读模型，发现旧缺口就重新补跑
 - `jygs_action_fields` / `jygs_yidong` 在目标交易日无上游热点时，会写入 `is_empty_result=true` 的 zero-fill marker，保持请求的 `trade_date`，不再漂移到别的交易日
+- 如果 zero-fill marker 的 `empty_reason=upstream_trade_date_mismatch`，该日期仍会被 recent hole scan 继续重试，不算“已补完”
 
 ## 配置
 
@@ -93,6 +94,7 @@ Gantt 读模型当前还依赖以下盘后事实：
 
 - 检查 `jygs_action_fields` / `jygs_yidong` 是否覆盖目标窗口内交易日
 - 若某天只有 `is_empty_result=true` marker，表示上游该交易日无可回补热点，当前系统会保留交易日轴但不生成 `jygs` 点位
+- 若 marker 的 `empty_reason=upstream_trade_date_mismatch`，说明当次请求拿到的是别的交易日；Dagster 后续 hole scan 仍会继续补这一天
 - 若目标交易日既无 marker 也无真实数据，重跑 Dagster；当前 backfill 会扫描最近 `90` 个交易日并补最近历史洞
 
 ### drill-down 进入标的页后为空

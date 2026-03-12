@@ -17,6 +17,8 @@ from freshquant.data.gantt_source_jygs import (
     COL_JYGS_ACTION_FIELDS,
     COL_JYGS_YIDONG,
     EMPTY_RESULT_FLAG,
+    EMPTY_RESULT_REASON_FIELD,
+    EMPTY_RESULT_REASON_UPSTREAM_TRADE_DATE_MISMATCH,
     sync_jygs_action_for_date,
 )
 from freshquant.data.gantt_source_xgb import (
@@ -59,6 +61,7 @@ GANTT_BACKFILL_DOWNSTREAM_COLLECTIONS = (
     COL_GANTT_STOCK_DAILY,
     COL_STOCK_HOT_REASON_DAILY,
 )
+RETRYABLE_JYGS_EMPTY_REASONS = {EMPTY_RESULT_REASON_UPSTREAM_TRADE_DATE_MISMATCH}
 
 
 def _to_str(value: Any) -> str:
@@ -175,7 +178,15 @@ def _query_collection_trade_dates(
         )
     )
     return {
-        _to_str(doc.get(field_name)) for doc in docs if _to_str(doc.get(field_name))
+        _to_str(doc.get(field_name))
+        for doc in docs
+        if _to_str(doc.get(field_name))
+        and not (
+            collection_name in {COL_JYGS_ACTION_FIELDS, COL_JYGS_YIDONG}
+            and doc.get(EMPTY_RESULT_FLAG)
+            and _to_str(doc.get(EMPTY_RESULT_REASON_FIELD))
+            in RETRYABLE_JYGS_EMPTY_REASONS
+        )
     }
 
 

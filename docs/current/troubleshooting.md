@@ -142,11 +142,13 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `stock_window_days` 不在 `30|45|60|90`。
 - `jygs` 最近历史存在缺口，最近 `90` 个交易日 hole scan 还没补齐。
 - 上游 `jygs` 某个交易日确实没有热点；此时原始集合会保留 `is_empty_result=true` marker，但 gantt `series` 不会有点位。
+- 上游返回了别的 `trade_date`；此时会落 `empty_reason=upstream_trade_date_mismatch` marker，但该日期仍应继续进入 hole scan 重试。
 
 处理：
 - 重跑 Dagster 作业
 - 确认读模型索引与快照日期
 - 若 `/api/gantt/plates?provider=jygs&days=15/30/45/60/90` 的 `dates` 轴完整但 `series` 很少，先看 `jygs_action_fields` / `jygs_yidong`
+- 若 marker 是 `empty_reason=upstream_trade_date_mismatch`，不要当成已补完；继续补跑 Dagster，等待上游返回目标交易日
 - 若目标交易日既没有真实 `jygs` 数据，也没有 `is_empty_result=true` marker，说明 recent hole scan 还没覆盖到；继续补跑 Dagster
 
 ## Runtime Observability 无 trace
