@@ -19,6 +19,9 @@ ACTION_COUNT_PATH = "/api/v1/action/count-pc"
 ACTION_FIELD_PATH = "/api/v1/action/field"
 ACTION_LIST_PATH = "/api/v1/action/list"
 JYGS_EXCLUDE_PLATE_NAMES = {"公告", "其他", "新股", "ST板块"}
+EMPTY_RESULT_FLAG = "is_empty_result"
+EMPTY_RESULT_BOARD_KEY = "__empty__"
+EMPTY_RESULT_STOCK_CODE = "__empty__"
 
 _BOARD_SUFFIX_PATTERNS = (
     re.compile(r"[\*xX]\s*\d+\s*$"),
@@ -249,6 +252,47 @@ def ensure_jygs_indexes() -> None:
     DBGantt[COL_JYGS_YIDONG].create_index([("date", 1), ("stock_code", 1)], unique=True)
 
 
+def _write_empty_sync_result(
+    action_collection,
+    yidong_collection,
+    trade_date: str,
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    action_collection.delete_many({"date": trade_date})
+    yidong_collection.delete_many({"date": trade_date})
+    action_collection.update_one(
+        {"date": trade_date, "board_key": EMPTY_RESULT_BOARD_KEY},
+        {
+            "$set": {
+                "date": trade_date,
+                "board_key": EMPTY_RESULT_BOARD_KEY,
+                "action_field_id": EMPTY_RESULT_BOARD_KEY,
+                "name": EMPTY_RESULT_BOARD_KEY,
+                "count": 0,
+                EMPTY_RESULT_FLAG: True,
+                "empty_reason": reason,
+            }
+        },
+        upsert=True,
+    )
+    yidong_collection.update_one(
+        {"date": trade_date, "stock_code": EMPTY_RESULT_STOCK_CODE},
+        {
+            "$set": {
+                "date": trade_date,
+                "stock_code": EMPTY_RESULT_STOCK_CODE,
+                "stock_name": EMPTY_RESULT_STOCK_CODE,
+                "boards": [],
+                EMPTY_RESULT_FLAG: True,
+                "empty_reason": reason,
+            }
+        },
+        upsert=True,
+    )
+    return {"trade_date": trade_date, "action_fields": 0, "yidong": 0}
+
+
 def _extract_stock_code(value: Any) -> str:
     text = _to_str(value)
     match = re.search(r"(?<!\d)(\d{6})(?!\d)", text)
@@ -272,28 +316,43 @@ def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
         raise ValueError("trade_date is required")
 
     ensure_jygs_indexes()
+    action_collection = DBGantt[COL_JYGS_ACTION_FIELDS]
+    yidong_collection = DBGantt[COL_JYGS_YIDONG]
 
     action_count = fetch_action_count(date_str)
     resolved_date = _to_str((action_count.get("data") or {}).get("date")) or date_str
-    fields_payload = fetch_action_field(resolved_date)
+    if resolved_date != date_str:
+        return _write_empty_sync_result(
+            action_collection,
+            yidong_collection,
+            date_str,
+            reason="upstream_trade_date_mismatch",
+        )
+
+    fields_payload = fetch_action_field(date_str)
     fields = [
         field
         for field in list(fields_payload.get("data") or [])
         if should_sync_action_field(field)
     ]
+    if not fields:
+        return _write_empty_sync_result(
+            action_collection,
+            yidong_collection,
+            date_str,
+            reason="no_theme_fields",
+        )
 
-    action_collection = DBGantt[COL_JYGS_ACTION_FIELDS]
-    yidong_collection = DBGantt[COL_JYGS_YIDONG]
-    action_collection.delete_many({"date": resolved_date})
-    yidong_collection.delete_many({"date": resolved_date})
+    action_collection.delete_many({"date": date_str})
+    yidong_collection.delete_many({"date": date_str})
 
     yidong_records: dict[str, dict[str, Any]] = {}
     action_field_count = 0
 
     for field in fields:
-        normalized = normalize_jygs_action_field_row(resolved_date, field)
+        normalized = normalize_jygs_action_field_row(date_str, field)
         action_document = {
-            "date": resolved_date,
+            "date": date_str,
             "board_key": normalized["plate_key"],
             "action_field_id": normalized["action_field_id"],
             "name": _to_str(field.get("name")),
@@ -301,7 +360,7 @@ def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
             "reason": normalized["reason_text"],
         }
         action_collection.update_one(
-            {"date": resolved_date, "board_key": normalized["plate_key"]},
+            {"date": date_str, "board_key": normalized["plate_key"]},
             {"$set": action_document},
             upsert=True,
         )
@@ -332,7 +391,7 @@ def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
             existing = yidong_records.get(stock_code)
             if existing is None:
                 existing = {
-                    "date": resolved_date,
+                    "date": date_str,
                     "stock_code": stock_code,
                     "stock_name": _to_str(item.get("name")),
                     "analysis": _extract_analysis(item),
@@ -353,13 +412,13 @@ def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
 
     for stock_code, record in yidong_records.items():
         yidong_collection.update_one(
-            {"date": resolved_date, "stock_code": stock_code},
+            {"date": date_str, "stock_code": stock_code},
             {"$set": record},
             upsert=True,
         )
 
     return {
-        "trade_date": resolved_date,
+        "trade_date": date_str,
         "action_fields": action_field_count,
         "yidong": len(yidong_records),
     }

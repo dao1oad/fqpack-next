@@ -309,6 +309,24 @@ def test_resolve_gantt_backfill_trade_dates_returns_empty_when_no_gap(monkeypatc
     )
     monkeypatch.setattr(
         ops,
+        "_query_recent_trade_dates",
+        lambda end_date, days: ["2026-03-06"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {"2026-03-06"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_non_empty_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {"2026-03-06"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
         "_has_legacy_shouban30_snapshot",
         lambda trade_date: False,
         raising=False,
@@ -325,6 +343,24 @@ def test_resolve_gantt_backfill_trade_dates_returns_latest_day_when_no_gap_but_s
     monkeypatch.setattr(ops, "_query_latest_trade_date", lambda: "2026-03-06")
     monkeypatch.setattr(
         ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-06"
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_recent_trade_dates",
+        lambda end_date, days: ["2026-03-06"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {"2026-03-06"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_non_empty_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {"2026-03-06"},
+        raising=False,
     )
     monkeypatch.setattr(
         ops,
@@ -357,6 +393,55 @@ def test_resolve_gantt_backfill_trade_dates_returns_incremental_window(monkeypat
     assert ops.resolve_gantt_backfill_trade_dates() == [
         "2026-03-04",
         "2026-03-05",
+        "2026-03-06",
+    ]
+
+
+def test_resolve_gantt_backfill_trade_dates_rechecks_recent_jygs_holes(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+
+    monkeypatch.setattr(ops, "_query_latest_trade_date", lambda: "2026-03-06")
+    monkeypatch.setattr(
+        ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-06"
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_recent_trade_dates",
+        lambda end_date, days: ["2026-03-04", "2026-03-05", "2026-03-06"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {
+            "xgb_top_gainer_history": {"2026-03-04", "2026-03-05", "2026-03-06"},
+            "jygs_action_fields": {"2026-03-05"},
+            "jygs_yidong": {"2026-03-05"},
+            "plate_reason_daily": {"2026-03-04", "2026-03-05", "2026-03-06"},
+            "gantt_plate_daily": {"2026-03-04", "2026-03-05", "2026-03-06"},
+            "gantt_stock_daily": {"2026-03-04", "2026-03-05", "2026-03-06"},
+            "stock_hot_reason_daily": {"2026-03-04", "2026-03-05", "2026-03-06"},
+        }[collection_name],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_query_non_empty_collection_trade_dates",
+        lambda collection_name, start_date, end_date: {
+            "jygs_action_fields": {"2026-03-05"},
+            "jygs_yidong": {"2026-03-05"},
+        }.get(collection_name, set()),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        ops,
+        "_has_legacy_shouban30_snapshot",
+        lambda trade_date: False,
+        raising=False,
+    )
+
+    assert ops.resolve_gantt_backfill_trade_dates() == [
+        "2026-03-04",
         "2026-03-06",
     ]
 

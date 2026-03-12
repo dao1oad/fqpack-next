@@ -38,6 +38,13 @@
 - `days` 窗口切换
 - 热门理由弹窗
 
+当前窗口语义：
+
+- `days` 先按自然日窗口截取 `start_date ~ end_date`
+- `dates` 轴按交易日历展开该窗口内全部交易日
+- 某个交易日没有热点时，该日期仍保留在 `dates` 轴上，只是 `series` 不产生点位
+- `/api/gantt/plates` 与 `/api/gantt/stocks` 对 `xgb` / `jygs` 使用同一套窗口语义
+
 ## 存储
 
 通用 Gantt 只读下列集合：
@@ -48,6 +55,11 @@
 - `plate_reason_daily`
 
 不写工作区集合。
+
+Gantt 读模型当前还依赖以下盘后事实：
+
+- Dagster 在最新交易日追平后，会额外扫描最近 `90` 个交易日的 `jygs` 原始集合与 gantt 读模型，发现旧缺口就重新补跑
+- `jygs_action_fields` / `jygs_yidong` 在目标交易日无上游热点时，会写入 `is_empty_result=true` 的 zero-fill marker，保持请求的 `trade_date`，不再漂移到别的交易日
 
 ## 配置
 
@@ -70,6 +82,13 @@
 
 - 检查 `/api/gantt/plates?provider=xgb`
 - 检查 `gantt_plate_daily` 是否有窗口内数据
+- 检查返回里的 `dates` 是否完整；如果日期轴完整但 `series=[]`，说明窗口内没有热点，而不是窗口参数失效
+
+### `jygs` 大窗口仍收敛到同一小段日期
+
+- 检查 `jygs_action_fields` / `jygs_yidong` 是否覆盖目标窗口内交易日
+- 若某天只有 `is_empty_result=true` marker，表示上游该交易日无可回补热点，当前系统会保留交易日轴但不生成 `jygs` 点位
+- 若目标交易日既无 marker 也无真实数据，重跑 Dagster；当前 backfill 会扫描最近 `90` 个交易日并补最近历史洞
 
 ### drill-down 进入标的页后为空
 

@@ -140,10 +140,14 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - Dagster 任务未跑。
 - `as_of_date` 对应快照还没生成。
 - `stock_window_days` 不在 `30|45|60|90`。
+- `jygs` 最近历史存在缺口，最近 `90` 个交易日 hole scan 还没补齐。
+- 上游 `jygs` 某个交易日确实没有热点；此时原始集合会保留 `is_empty_result=true` marker，但 gantt `series` 不会有点位。
 
 处理：
 - 重跑 Dagster 作业
 - 确认读模型索引与快照日期
+- 若 `/api/gantt/plates?provider=jygs&days=15/30/45/60/90` 的 `dates` 轴完整但 `series` 很少，先看 `jygs_action_fields` / `jygs_yidong`
+- 若目标交易日既没有真实 `jygs` 数据，也没有 `is_empty_result=true` marker，说明 recent hole scan 还没覆盖到；继续补跑 Dagster
 
 ## Runtime Observability 无 trace
 
