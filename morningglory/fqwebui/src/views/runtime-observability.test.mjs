@@ -13,6 +13,7 @@ import {
   buildTraceSummaryMeta,
   buildTraceDetail,
   buildHealthCards,
+  readApiPayload,
   buildRawLookupFromStep,
   buildTraceQuery,
   findRawRecordIndex,
@@ -119,6 +120,20 @@ test('stopPollingTimer clears current timer without arming a new one', () => {
 
   assert.deepEqual(cleared, [timerHandle])
   assert.equal(nextHandle, null)
+})
+
+test('readApiPayload supports interceptor-unwrapped axios payloads', () => {
+  assert.equal(typeof readApiPayload, 'function')
+
+  assert.deepEqual(
+    readApiPayload(
+      {
+        traces: [{ trace_id: 'trc_1' }],
+      },
+      'traces',
+    ),
+    [{ trace_id: 'trc_1' }],
+  )
 })
 
 test('buildIssuePriorityCards prioritizes failed traces before warnings', () => {
