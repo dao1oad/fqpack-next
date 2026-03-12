@@ -186,9 +186,25 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 常见根因：
 - Draft PR 还没完成 `Design Review`
+- 低风险任务被错误送进 `Design Review` / `brainstorming` 闭环
+- 低风险任务在 `Todo` 成功跑完一轮后，没有被自动切到 `In Progress`
+- 高风险任务被直接贴上 `design-review`，但 Draft PR 引导创建失败
+- 新建 issue 时手工预贴了 `design-review`，导致任务跳过 `Todo` 风险判定并直接进入高风险路径
+- 正式服务加载了一份过度简化的 `WORKFLOW.freshquant.md`，prompt 中没有 issue 标识/标题/描述，导致 agent 只会做泛化上下文扫描
+- `Design Review` 任务在 Codex 会话里再次触发 `brainstorming`，硬门要求新的人工批准，结果因为会话内没有人工输入面而反复空转
+- workspace 只保留了本地路径 `origin`，没有 GitHub remote，导致 `gh pr ...` / `gh issue ...` 在 workspace 内直接失败
 - GitHub token 失效
 - 正式服务没加载最新 workflow
 
 处理：
 - 看 Draft PR 评论与 `APPROVED`
+- 新建 GitHub issue 时默认只打 `symphony` 与 `todo`，不要在创建时预贴 `design-review`
+- 如果任务是普通 bugfix 或小范围现有模块修复，但没有 Draft PR，优先按低风险路径排查，不要继续等待人工审批
+- 如果任务命中高风险条件且已经在 `Design Review`，但没有 linked Draft PR，先看 orchestrator 日志是否已触发一次引导执行；若仍没有 Draft PR，优先排查 GitHub token、`gh`/push 权限、branch/PR 创建失败，而不是继续等待审批
+- 如果日志里反复只有通用 repo 扫描而没有 issue 标识、标题、描述，先检查 `WORKFLOW.freshquant.md` 是否仍包含 issue placeholders；`sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 现在会对这份 prompt 做合约校验
+- 如果日志里明确读入了 issue body，但随后又加载 `brainstorming` 并停在“等待批准”，说明 workflow 仍把 `Design Review` 错当成会话内交互设计阶段；应改成“issue body -> Draft PR packet -> GitHub approval”的单向流程
+- 如果 `gh` 在 workspace 内报 “none of the git remotes configured for this repository point to a known GitHub host”，先看当前 workspace 是否只有本地 `origin`；正式 workflow 现在会在 `after_create` / `before_run` 自动补齐 `github` remote
+- 如果 PR 标题、PR 正文、Issue / PR 评论仍然出现英文说明，先检查 `WORKFLOW.freshquant.md` 与 `runtime/symphony/templates/*.md` 是否已经同步到正式服务
+- 检查正式服务是否已加载最新 `runtime/symphony/WORKFLOW.freshquant.md`
+- 看 issue 当前标签与状态是否仍停在 `todo`，以及 orchestrator 日志里是否出现 `Todo -> In Progress` 自动推进记录
 - 重装正式服务或重启 `fq-symphony-orchestrator`
