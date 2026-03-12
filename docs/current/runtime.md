@@ -31,6 +31,10 @@
 - Symphony 状态接口：`http://127.0.0.1:40123/api/v1/state`
 - Symphony 工作区根目录：`D:/fqpack/runtime/symphony-service/workspaces`
 - Symphony 运行模板：`runtime/symphony/WORKFLOW.freshquant.md`
+- GitHub 新任务默认通过 issue template 创建，初始标签应为 `symphony + todo`；不要在创建时预贴 `design-review`
+- Symphony workspace 默认从本地工作树 clone，但 `after_create` / `before_run` 会补齐 `github` remote 并把 `remote.pushDefault` 设为 `github`
+- Symphony `sync/start` 会校验 workflow prompt 合约，至少要求保留 issue 标识、标题、状态、描述、URL、Design Review 禁止二次 `brainstorming`、以及 Draft PR bootstrap 规则
+- Symphony 写入 GitHub 的正式文本默认使用简体中文；仅审批信号 `APPROVED` / `REVISE:` / `REJECTED:` 保留英文控制词
 - 运行日志根目录：`logs/runtime`，可被 `FQ_RUNTIME_LOG_DIR` 覆盖
 
 ## 最小可用运行面

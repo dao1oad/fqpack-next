@@ -1,19 +1,19 @@
-# Done Summary
+# Done 总结
 
-## Change Summary
+## 变更摘要
 
-- Solved Problems: `<summary>`
-- Modules Changed: `<paths>`
-- Behavior Change: `<behavior summary>`
+- 已解决问题：`<summary>`
+- 改动模块：`<paths>`
+- 行为变化：`<behavior summary>`
 
-## Verification
+## 验证情况
 
-- Tests: `<tests>`
-- CI: `<status>`
-- Docs Updated: `<docs/current paths>`
+- 测试：`<tests>`
+- CI：`<status>`
+- 已更新文档：`<docs/current paths>`
 
-## Deploy
+## 部署结果
 
-- Deploy Scope: `<scope>`
-- Health Checks: `<health checks>`
-- Cleanup Results: `<cleanup results>`
+- 部署范围：`<scope>`
+- 健康检查：`<health checks>`
+- Cleanup 结果：`<cleanup results>`

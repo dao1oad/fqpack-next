@@ -61,6 +61,10 @@ Expected behavior:
 - this issue will be closed after verification
 '@
 
+# New issues must start on the default low-risk path: `symphony` + `todo`.
+# Do not pre-apply `design-review` here; the first Todo pass decides whether
+# the task later needs to enter the Design Review path.
+
 $issueUrl = (& gh issue create --repo $Repository --title $title --body $body --label symphony --label todo).Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($issueUrl)) {
     throw 'Failed to create smoke issue.'
