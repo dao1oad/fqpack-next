@@ -7,7 +7,8 @@ param(
     [string]$WorkspacePath,
     [string[]]$ActiveIssueIdentifiers,
     [switch]$SkipRemoteBranchDelete,
-    [switch]$SkipLinearUpdate
+    [switch]$SkipLinearUpdate,
+    [switch]$SkipGitHubUpdate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,12 +45,11 @@ function Get-NormalizedPath {
 function Assert-IssueIdentifier {
     param([Parameter(Mandatory = $true)][string]$Value)
 
-    if ($Value -notmatch '^(?<team>[A-Z]+)-(?<number>\d+)$') {
-        throw "Issue identifier must match TEAM-NUMBER: $Value"
+    if ($Value -notmatch '^GH-(?<number>\d+)$') {
+        throw "Issue identifier must match GH-NUMBER: $Value"
     }
 
     return @{
-        TeamKey = $Matches.team
         IssueNumber = [double]$Matches.number
     }
 }
@@ -107,97 +107,211 @@ function Resolve-OriginUrl {
     return $resolvedOriginUrl.Trim()
 }
 
-function Invoke-LinearGraphQL {
+function Get-GitHubAuthToken {
+    foreach ($name in 'GITHUB_TOKEN', 'GH_TOKEN') {
+        $token = Get-EnvValue -Name $name
+        if (-not [string]::IsNullOrWhiteSpace($token)) {
+            return $token
+        }
+    }
+
+    throw 'GITHUB_TOKEN or GH_TOKEN is not configured.'
+}
+
+function Resolve-GitHubRepository {
     param(
-        [Parameter(Mandatory = $true)][string]$Query,
-        [hashtable]$Variables
+        [string]$Repository,
+        [string]$IssueUrl,
+        [string]$PullRequestUrl,
+        [string]$OriginUrl
     )
 
-    $apiKey = Get-EnvValue -Name 'LINEAR_API_KEY'
-    if ([string]::IsNullOrWhiteSpace($apiKey)) {
-        throw 'LINEAR_API_KEY is not configured.'
+    $candidates = @(
+        $Repository,
+        $IssueUrl,
+        $PullRequestUrl,
+        $OriginUrl,
+        (Get-EnvValue -Name 'FRESHQUANT_GITHUB_REPO'),
+        (Get-EnvValue -Name 'GITHUB_REPOSITORY'),
+        'dao1oad/fqpack-next'
+    )
+
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+
+        $trimmed = $candidate.Trim()
+
+        if ($trimmed -match '^(?<owner>[A-Za-z0-9_.-]+)/(?<repo>[A-Za-z0-9_.-]+)$') {
+            return "$($Matches.owner)/$($Matches.repo)"
+        }
+
+        if ($trimmed -match '^https://github\.com/(?<owner>[^/]+)/(?<repo>[^/]+?)(?:\.git)?(?:/|$)') {
+            return "$($Matches.owner)/$($Matches.repo)"
+        }
+
+        if ($trimmed -match '^ssh://git@ssh\.github\.com:443/(?<owner>[^/]+)/(?<repo>[^/]+?)(?:\.git)?$') {
+            return "$($Matches.owner)/$($Matches.repo)"
+        }
+
+        if ($trimmed -match '^git@github\.com:(?<owner>[^/]+)/(?<repo>[^/]+?)(?:\.git)?$') {
+            return "$($Matches.owner)/$($Matches.repo)"
+        }
     }
 
-    $headers = @{
-        Authorization = $apiKey
-        'Content-Type' = 'application/json'
-    }
-    $body = @{
-        query = $Query
-        variables = $Variables
-    } | ConvertTo-Json -Depth 10 -Compress
-
-    $response = Invoke-RestMethod -Uri 'https://api.linear.app/graphql' -Method Post -Headers $headers -Body $body
-    if ($response.errors) {
-        $messages = ($response.errors | ForEach-Object { $_.message }) -join '; '
-        throw "Linear GraphQL error: $messages"
-    }
-
-    return $response.data
+    throw 'Unable to resolve GitHub repository for cleanup finalizer.'
 }
 
-function Get-LinearIssueContext {
-    param([Parameter(Mandatory = $true)][string]$IssueIdentifier)
+function Get-GitHubApiBaseUri {
+    $baseUri = Get-EnvValue -Name 'FRESHQUANT_GITHUB_API_BASE_URL'
+    if ([string]::IsNullOrWhiteSpace($baseUri)) {
+        $baseUri = Get-EnvValue -Name 'GITHUB_API_BASE_URL'
+    }
+    if ([string]::IsNullOrWhiteSpace($baseUri)) {
+        $baseUri = 'https://api.github.com'
+    }
+
+    return $baseUri.TrimEnd('/')
+}
+
+function Invoke-GitHubApi {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('GET', 'POST', 'PATCH')][string]$Method,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [hashtable]$Query,
+        [object]$Body
+    )
+
+    $token = Get-GitHubAuthToken
+    $headers = @{
+        Authorization = "Bearer $token"
+        Accept = 'application/vnd.github+json'
+        'X-GitHub-Api-Version' = '2022-11-28'
+    }
+
+    $baseUri = [System.Uri]::new("$(Get-GitHubApiBaseUri)/")
+    $uriBuilder = [System.UriBuilder]::new([System.Uri]::new($baseUri, $Path.TrimStart('/')))
+    if ($Query) {
+        $pairs = @()
+        foreach ($entry in $Query.GetEnumerator()) {
+            if ($null -eq $entry.Value -or [string]::IsNullOrWhiteSpace([string]$entry.Value)) {
+                continue
+            }
+
+            $pairs += ('{0}={1}' -f [uri]::EscapeDataString([string]$entry.Key), [uri]::EscapeDataString([string]$entry.Value))
+        }
+
+        if ($pairs.Count -gt 0) {
+            $uriBuilder.Query = ($pairs -join '&')
+        }
+    }
+
+    $invokeParams = @{
+        Uri = $uriBuilder.Uri.AbsoluteUri
+        Method = $Method
+        Headers = $headers
+    }
+
+    if ($null -ne $Body) {
+        $invokeParams['ContentType'] = 'application/json'
+        $invokeParams['Body'] = ($Body | ConvertTo-Json -Depth 10 -Compress)
+    }
+
+    return Invoke-RestMethod @invokeParams
+}
+
+function Get-GitHubIssueStateName {
+    param([Parameter(Mandatory = $true)]$Issue)
+
+    if ($Issue.state -eq 'closed') {
+        return 'Done'
+    }
+
+    $labels = @($Issue.labels | ForEach-Object { $_.name.ToString().ToLowerInvariant() })
+
+    if ($labels -contains 'blocked') {
+        return 'Blocked'
+    }
+    if ($labels -contains 'design-review') {
+        return 'Design Review'
+    }
+    if ($labels -contains 'merging') {
+        return 'Merging'
+    }
+    if ($labels -contains 'rework') {
+        return 'Rework'
+    }
+    if ($labels -contains 'in-progress') {
+        return 'In Progress'
+    }
+
+    return 'Todo'
+}
+
+function Get-GitHubIssueContext {
+    param(
+        [Parameter(Mandatory = $true)][string]$IssueIdentifier,
+        [Parameter(Mandatory = $true)][string]$Repository
+    )
 
     $parts = Assert-IssueIdentifier -Value $IssueIdentifier
-    $query = @'
-query($teamKey: String!, $issueNumber: Float!, $doneState: String!) {
-  issues(filter: { team: { key: { eq: $teamKey } }, number: { eq: $issueNumber } }, first: 1) {
-    nodes {
-      id
-      identifier
-      state {
-        id
-        name
-      }
-    }
-  }
-  workflowStates(filter: { team: { key: { eq: $teamKey } }, name: { eq: $doneState } }, first: 1) {
-    nodes {
-      id
-      name
-    }
-  }
-}
-'@
-    $data = Invoke-LinearGraphQL -Query $query -Variables @{
-        teamKey = $parts.TeamKey
-        issueNumber = $parts.IssueNumber
-        doneState = 'Done'
-    }
+    $issue = Invoke-GitHubApi -Method GET -Path "/repos/$Repository/issues/$($parts.IssueNumber)"
 
-    $issue = $data.issues.nodes | Select-Object -First 1
     if (-not $issue) {
-        throw "Unable to resolve Linear issue for $IssueIdentifier"
-    }
-
-    $doneState = $data.workflowStates.nodes | Select-Object -First 1
-    if (-not $doneState) {
-        throw "Unable to resolve Linear Done state for team $($parts.TeamKey)"
+        throw "Unable to resolve GitHub issue for $IssueIdentifier"
     }
 
     return @{
-        IssueId = $issue.id
-        CurrentStateName = $issue.state.name
-        DoneStateId = $doneState.id
+        IssueNumber = [int]$issue.number
+        CurrentStateName = Get-GitHubIssueStateName -Issue $issue
+        State = $issue.state
     }
 }
 
-function Get-ActiveIssueIdentifiersFromLinear {
-    $query = @'
-query($activeStates: [String!]) {
-  issues(filter: { state: { name: { in: $activeStates } } }, first: 250) {
-    nodes {
-      identifier
-    }
-  }
-}
-'@
-    $data = Invoke-LinearGraphQL -Query $query -Variables @{
-        activeStates = @('Todo', 'In Progress', 'Rework', 'Merging')
+function Get-ActiveIssueIdentifiersFromGitHub {
+    param([Parameter(Mandatory = $true)][string]$Repository)
+
+    $perPage = 100
+    $page = 1
+    $identifiers = @()
+
+    while ($true) {
+        $issuesResponse = Invoke-GitHubApi -Method GET -Path "/repos/$Repository/issues" -Query @{
+            state = 'open'
+            labels = 'symphony'
+            per_page = $perPage
+            page = $page
+        }
+
+        if ($null -eq $issuesResponse) {
+            $issues = @()
+        }
+        elseif ($issuesResponse -is [System.Array]) {
+            $issues = $issuesResponse
+        }
+        else {
+            $issues = @($issuesResponse)
+        }
+
+        if ($issues.Count -eq 0) {
+            break
+        }
+
+        $identifiers += @(
+            $issues |
+                Where-Object { -not $_.pull_request } |
+                ForEach-Object { "GH-$($_.number)" }
+        )
+
+        if ($issues.Count -lt $perPage) {
+            break
+        }
+
+        $page += 1
     }
 
-    return @($data.issues.nodes | ForEach-Object { $_.identifier })
+    return $identifiers
 }
 
 function Remove-RemoteBranch {
@@ -287,63 +401,27 @@ function Get-CleanupResultsSection {
     ) -join "`r`n"
 }
 
-function Post-LinearDeploymentComment {
+function Post-GitHubIssueComment {
     param(
-        [Parameter(Mandatory = $true)][string]$IssueId,
+        [Parameter(Mandatory = $true)][string]$Repository,
+        [Parameter(Mandatory = $true)][int]$IssueNumber,
         [Parameter(Mandatory = $true)][string]$Body
     )
 
-    $mutation = @'
-mutation($input: CommentCreateInput!) {
-  commentCreate(input: $input) {
-    success
-    comment {
-      id
-    }
-  }
-}
-'@
-    $data = Invoke-LinearGraphQL -Query $mutation -Variables @{
-        input = @{
-            issueId = $IssueId
-            body = $Body
-        }
-    }
-
-    if (-not $data.commentCreate.success) {
-        throw 'Linear commentCreate returned success=false'
-    }
+    [void](Invoke-GitHubApi -Method POST -Path "/repos/$Repository/issues/$IssueNumber/comments" -Body @{
+        body = $Body
+    })
 }
 
-function Move-LinearIssueToDone {
+function Close-GitHubIssue {
     param(
-        [Parameter(Mandatory = $true)][string]$IssueId,
-        [Parameter(Mandatory = $true)][string]$DoneStateId
+        [Parameter(Mandatory = $true)][string]$Repository,
+        [Parameter(Mandatory = $true)][int]$IssueNumber
     )
 
-    $mutation = @'
-mutation($id: String!, $input: IssueUpdateInput!) {
-  issueUpdate(id: $id, input: $input) {
-    success
-    issue {
-      id
-      state {
-        name
-      }
-    }
-  }
-}
-'@
-    $data = Invoke-LinearGraphQL -Query $mutation -Variables @{
-        id = $IssueId
-        input = @{
-            stateId = $DoneStateId
-        }
-    }
-
-    if (-not $data.issueUpdate.success) {
-        throw 'Linear issueUpdate returned success=false'
-    }
+    [void](Invoke-GitHubApi -Method PATCH -Path "/repos/$Repository/issues/$IssueNumber" -Body @{
+        state = 'closed'
+    })
 }
 
 function Get-PrunableArtifactEntries {
@@ -373,7 +451,7 @@ function Get-PrunableArtifactEntries {
         if ($systemNames -contains $entry.Name) {
             continue
         }
-        if ($entry.Name -notmatch '^[A-Z]+-\d+$') {
+        if ($entry.Name -notmatch '^GH-\d+$') {
             continue
         }
         if ($activeSet.Contains($entry.Name)) {
@@ -403,7 +481,9 @@ $result = [ordered]@{
     workspaceDeleted = $false
     prunedArtifacts = @()
     artifactsRetentionDays = $null
-    linearCommentPosted = $false
+    githubUpdated = $false
+    issueClosed = $false
+    issueCommentPosted = $false
     doneTransitioned = $false
     executedAt = (Get-Date).ToString('o')
     errors = @()
@@ -417,7 +497,7 @@ try {
         $result.success = $true
         $result.remoteBranchDeleted = 'skipped'
         $result.workspaceDeleted = 'skipped'
-        $result.linearCommentPosted = 'skipped'
+        $result.issueCommentPosted = 'skipped'
         $result.doneTransitioned = 'skipped'
         Write-Utf8NoBomFile -Path $resultPath -Content ($result | ConvertTo-Json -Depth 8)
         Write-Host "[freshquant] no cleanup request found for $IssueIdentifier"
@@ -427,9 +507,12 @@ try {
     $request = Get-Content -Path $requestPath -Raw | ConvertFrom-Json
     $result.artifactsRetentionDays = [int]$request.artifactsRetentionDays
     $issueContext = $null
+    $repository = Resolve-GitHubRepository -Repository $request.repository -IssueUrl $request.issueUrl -PullRequestUrl $request.pullRequestUrl -OriginUrl $request.originUrl
 
-    if (-not $SkipLinearUpdate) {
-        $issueContext = Get-LinearIssueContext -IssueIdentifier $IssueIdentifier
+    $skipIssueUpdate = $SkipGitHubUpdate -or $SkipLinearUpdate
+
+    if (-not $skipIssueUpdate) {
+        $issueContext = Get-GitHubIssueContext -IssueIdentifier $IssueIdentifier -Repository $repository
         if ($issueContext.CurrentStateName -ne 'Merging') {
             throw "Refusing cleanup finalizer for $IssueIdentifier while issue is in state '$($issueContext.CurrentStateName)'."
         }
@@ -449,8 +532,8 @@ try {
     if ($PSBoundParameters.ContainsKey('ActiveIssueIdentifiers')) {
         $activeIdentifiers = @($ActiveIssueIdentifiers)
     }
-    elseif (-not $SkipLinearUpdate) {
-        $activeIdentifiers = @(Get-ActiveIssueIdentifiersFromLinear)
+    elseif (-not $skipIssueUpdate) {
+        $activeIdentifiers = @(Get-ActiveIssueIdentifiersFromGitHub -Repository $repository)
     }
 
     $prunableEntries = Get-PrunableArtifactEntries -ArtifactsRoot $artifactsRoot -RetentionDays ([int]$request.artifactsRetentionDays) -ActiveIssueIdentifiers $activeIdentifiers
@@ -461,15 +544,19 @@ try {
         $result.prunedArtifacts += $entry.Name
     }
 
-    if ($SkipLinearUpdate) {
-        $result.linearCommentPosted = 'skipped'
+    if ($skipIssueUpdate) {
+        $result.githubUpdated = 'skipped'
+        $result.issueClosed = 'skipped'
+        $result.issueCommentPosted = 'skipped'
         $result.doneTransitioned = 'skipped'
     }
     else {
         $commentBody = "$($request.deploymentCommentBody)$([string](Get-CleanupResultsSection -Result $result))"
-        Post-LinearDeploymentComment -IssueId $issueContext.IssueId -Body $commentBody
-        $result.linearCommentPosted = $true
-        Move-LinearIssueToDone -IssueId $issueContext.IssueId -DoneStateId $issueContext.DoneStateId
+        Post-GitHubIssueComment -Repository $repository -IssueNumber $issueContext.IssueNumber -Body $commentBody
+        $result.githubUpdated = $true
+        $result.issueCommentPosted = $true
+        Close-GitHubIssue -Repository $repository -IssueNumber $issueContext.IssueNumber
+        $result.issueClosed = $true
         $result.doneTransitioned = $true
     }
 

@@ -10,6 +10,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DeploymentCommentBody,
     [string]$OriginUrl,
+    [string]$IssueUrl,
+    [int]$PullRequestNumber,
+    [string]$PullRequestUrl,
+    [string]$Repository,
     [int]$ArtifactsRetentionDays = 14
 )
 
@@ -34,8 +38,8 @@ function Get-NormalizedPath {
 function Assert-IssueIdentifier {
     param([Parameter(Mandatory = $true)][string]$Value)
 
-    if ($Value -notmatch '^[A-Z]+-\d+$') {
-        throw "Issue identifier must match TEAM-NUMBER: $Value"
+    if ($Value -notmatch '^GH-\d+$') {
+        throw "Issue identifier must match GH-NUMBER: $Value"
     }
 }
 
@@ -110,6 +114,57 @@ function Resolve-OriginUrl {
     return $resolvedOriginUrl.Trim()
 }
 
+function Resolve-GitHubRepository {
+    param(
+        [string]$Repository,
+        [string]$IssueUrl,
+        [string]$PullRequestUrl,
+        [string]$OriginUrl
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($Repository)) {
+        return $Repository.Trim()
+    }
+
+    $candidates = @(
+        $IssueUrl,
+        $PullRequestUrl,
+        $OriginUrl,
+        [Environment]::GetEnvironmentVariable('FRESHQUANT_GITHUB_REPO', 'Process'),
+        [Environment]::GetEnvironmentVariable('FRESHQUANT_GITHUB_REPO', 'User'),
+        [Environment]::GetEnvironmentVariable('FRESHQUANT_GITHUB_REPO', 'Machine'),
+        [Environment]::GetEnvironmentVariable('GITHUB_REPOSITORY', 'Process'),
+        [Environment]::GetEnvironmentVariable('GITHUB_REPOSITORY', 'User'),
+        [Environment]::GetEnvironmentVariable('GITHUB_REPOSITORY', 'Machine'),
+        'dao1oad/fqpack-next'
+    )
+
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+
+        $trimmed = $candidate.Trim()
+        if ($trimmed -match '^(?<owner>[A-Za-z0-9_.-]+)/(?<repo>[A-Za-z0-9_.-]+)$') {
+            return "$($Matches.owner)/$($Matches.repo)"
+        }
+
+        if ($trimmed -match '^https://github\.com/(?<owner>[^/]+)/(?<repo>[^/]+?)(?:\.git)?(?:/|$)') {
+            return "$($Matches.owner)/$($Matches.repo)"
+        }
+
+        if ($trimmed -match '^ssh://git@ssh\.github\.com:443/(?<owner>[^/]+)/(?<repo>[^/]+?)(?:\.git)?$') {
+            return "$($Matches.owner)/$($Matches.repo)"
+        }
+
+        if ($trimmed -match '^git@github\.com:(?<owner>[^/]+)/(?<repo>[^/]+?)(?:\.git)?$') {
+            return "$($Matches.owner)/$($Matches.repo)"
+        }
+    }
+
+    throw 'Unable to resolve GitHub repository. Pass -Repository or provide IssueUrl/PullRequestUrl/OriginUrl.'
+}
+
 Assert-IssueIdentifier -Value $IssueIdentifier
 Assert-BranchName -Value $BranchName
 Assert-NonEmptyText -Value $DeploymentCommentBody -FieldName 'DeploymentCommentBody'
@@ -121,6 +176,7 @@ $normalizedWorkspacePath = Assert-WorkspacePathSafe -WorkspacePath $WorkspacePat
 $normalizedWorkspaceRoot = Get-NormalizedPath -Path $workspaceRoot
 $normalizedArtifactsRoot = Get-NormalizedPath -Path $artifactsRoot
 $resolvedOriginUrl = Resolve-OriginUrl -WorkspacePath $normalizedWorkspacePath -OriginUrl $OriginUrl
+$resolvedRepository = Resolve-GitHubRepository -Repository $Repository -IssueUrl $IssueUrl -PullRequestUrl $PullRequestUrl -OriginUrl $resolvedOriginUrl
 
 New-Item -ItemType Directory -Force -Path $requestRoot | Out-Null
 
@@ -129,11 +185,15 @@ $payload = [ordered]@{
     issueIdentifier = $IssueIdentifier
     branchName = $BranchName
     originUrl = $resolvedOriginUrl
+    repository = $resolvedRepository
     workspacePath = $normalizedWorkspacePath
     workspaceRoot = $normalizedWorkspaceRoot
     artifactsRoot = $normalizedArtifactsRoot
     artifactsRetentionDays = $ArtifactsRetentionDays
     deploymentCommentBody = $DeploymentCommentBody
+    issueUrl = $IssueUrl
+    pullRequestNumber = $PullRequestNumber
+    pullRequestUrl = $PullRequestUrl
     requestedAt = (Get-Date).ToString('o')
 }
 

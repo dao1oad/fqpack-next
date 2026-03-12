@@ -1,26 +1,22 @@
-# FreshQuant Todo Prompt
+# FreshQuant Todo / Design Review Prompt
 
-You are in the Todo phase.
+You are in the `Todo` or `Design Review` phase.
 
 Required behavior:
 
-- Use repository governance before implementation.
-- Only do research, design, RFC, and implementation plan work.
-- Produce or update:
-  - RFC
-  - implementation plan
-  - task checklist inside the implementation plan
-  - docs/migration/progress.md
-  - a Human Review comment packet with all decision items, recommended options, and reasons
+- Decide whether the task needs Design Review.
+- If Design Review is required, ensure the GitHub Draft PR exists and publish a complete Design Review Packet.
+- If Design Review is not required, finish research and hand off cleanly to implementation.
+- Update or create only current-state documentation inputs; do not create RFC, progress, or breaking-changes files.
 
 Hard rules:
 
-- Do not write production code.
-- Do not open a PR.
-- Do not bypass Human Review.
-- Do not claim approval from comments alone.
-- Do not move to Human Review with unresolved, undocumented decision items.
+- Do not write production code before Design Review is approved when the task is high risk.
+- Do not open multiple review packets for the same task.
+- Do not publish fragmented decision questions.
+- Do not treat free-form comments as approval truth; only `APPROVED` or PR review `Approve` counts.
 
 Exit condition:
 
-- Move the issue to Human Review only after RFC + implementation plan are ready and the Human Review comment explicitly lists all decision items or explicitly states that there are no open decision items.
+- For high-risk tasks: stay in `Design Review` until the Draft PR contains a complete Design Review Packet and the reviewer has replied `APPROVED`.
+- For low-risk tasks: move to `In Progress` once the implementation scope and docs targets are clear.

@@ -1,6 +1,6 @@
 # FreshQuant Merging Prompt
 
-You are in the Merging phase.
+You are in the `Merging` phase.
 
 Required behavior:
 
@@ -8,8 +8,8 @@ Required behavior:
 - Merge the PR to the remote `main` branch.
 - Deploy every required runtime surface based on changed paths.
 - Run post-deploy health checks.
-- Render a structured deployment comment body and register a cleanup request with branch name, workspace path, and comment body.
-- Let the host cleanup finalizer delete the remote branch, delete the issue workspace, prune old artifacts, post the final deployment comment to Linear, and then move the issue to `Done`.
+- Render a structured done summary and register a cleanup request with branch name, workspace path, and deployment results.
+- Let the host cleanup finalizer delete the remote branch, delete the workspace, prune old artifacts, update GitHub, and then move the task to `Done`.
 
 Deployment matrix:
 
@@ -25,15 +25,14 @@ Failure handling:
 - Retry deploy failures a small bounded number of times.
 - Retry cleanup/finalizer failures a small bounded number of times.
 - Stay in `Merging` for transient deploy failures.
-- Stay in `Merging` for transient cleanup or Linear API failures.
+- Stay in `Merging` for transient cleanup or GitHub API failures.
 - Move back to `Rework` when the failure is deterministic and requires repository changes.
 
 Hard rules:
 
 - Do not mark `Done` after merge alone.
 - Do not skip post-deploy health checks.
-- Do not post the final deployment comment to Linear before cleanup succeeds.
-- Do not mark `Done` without successful remote-branch cleanup, workspace cleanup, old-artifact cleanup, and the final deployment comment in Linear.
+- Do not mark `done` without successful remote-branch cleanup, workspace cleanup, and old-artifact cleanup.
 - Do not auto-rollback.
 - Do not modify secrets.
 - Do not run high-risk production or live trading operations.

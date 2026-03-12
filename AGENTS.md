@@ -1,230 +1,206 @@
 # Codex 全局指令（AGENTS.md）
 
-## 0. 项目目标（迁移与重构）
+## 0. 项目目标
 
-本仓库（`D:\fqpack\freshquant-2026.2.23` / GitHub: `dao1oad/fqpack-next`）是 **目标架构**。
-需要在“重构与去冗余”的前提下，逐步迁移并整合旧分支仓库 `D:\fqpack\freshquant` 的功能。
+本仓库（`D:\fqpack\freshquant-2026.2.23` / GitHub: `dao1oad/fqpack-next`）是 FreshQuant 的目标架构仓库。当前阶段不再以迁移过程治理为主，而是以“当前系统事实收敛、潜在 bug 修复、部署与排障可维护”为主。
 
-迁移过程中 **允许破坏性变更（Breaking Changes）**，但必须先写清需求与边界，经评审后才能编码。
+允许破坏性变更，但破坏性变更必须先通过唯一人工门 `Design Review`，再进入编码。
 
-当前仓库的正式治理已切换为 **`Linear-first + Symphony-first + design-approval-first`**：
+## 0.1 正式真值
 
-- 正式开发需求的唯一入口是 `Linear issue`
-- 默认执行编排器是 `Symphony`
-- 唯一人工门是设计批准
-- 默认合法工作区是 `Symphony-managed workspace/repo copy`
-- 远端 `feature branch` 与 `PR` 仍是代码交付真相源
-- 正式运行面默认采用**单实例 orchestrator + 按状态并发**
+- GitHub Issue：正式任务入口
+- GitHub Draft PR：唯一 `Design Review` 评审面
+- GitHub PR + CI：代码交付真值
+- Deploy + Health Check + Cleanup：运行交付真值
 
-## 0.1 必读入口（给后续 agent）
+`Linear` 不再作为正式任务入口、评审面或批准真值来源。
 
-- 文档索引：`docs/agent/index.md`
-- 本次代码调研结果（目标 + 现状 + 关键入口/依赖/CI 门禁）：`docs/agent/项目目标与代码现状调研.md`
-- 旧仓库重点迁移模块调研（模块 1-10：入口/数据流/存储/接口，含订单管理）：`docs/agent/旧仓库freshquant-重点迁移模块调研.md`
+## 0.2 必读入口
 
-## 0.2 运行与部署（Docker 并行）
+- 文档索引：`docs/index.md`
+- 当前总览：`docs/current/overview.md`
+- 当前架构：`docs/current/architecture.md`
+- 当前运行面：`docs/current/runtime.md`
+- 当前部署：`docs/current/deployment.md`
+- 当前排障：`docs/current/troubleshooting.md`
 
-当宿主机 `D:\\fqpack\\freshquant` 已运行并占用端口（80/5000/5001/6379/27017/10003 等）时，本仓库可用 Docker **并行启动**（端口隔离），入口文档：
+## 0.3 部署硬规则
 
-- `docs/agent/Docker并行部署指南.md`
+- 代码更新后，受影响模块必须重新部署。
+- 未完成部署与健康检查，不算 `Done`。
+- Docker 并行部署入口：
+  - `docker compose -f docker/compose.parallel.yaml up -d --build`
 
-默认并行端口（本机 localhost）：
+默认并行端口：
 
 - Web UI：`18080`
 - API Server：`15000`
 - TDXHQ：`15001`
 - Dagster UI：`11003`
-- Dagster daemon（自动调度）：默认启用（无端口）
 - Redis：`6380`
 - MongoDB：`27027`
-
-合并后部署规则：
-
-- 模块代码合并到 `main` 后，必须重新构建新代码并部署该模块（Docker 并行模式示例：`docker compose -f docker/compose.parallel.yaml up -d --build`）。
 
 ## 1. 语言与风格
 
 - 默认使用简体中文回复（除非用户明确要求英文）。
-- 代码、命令、文件路径、标识符保持原样（通常为英文）。
-- 表达直接、简洁、可执行；避免空话。
+- 代码、命令、文件路径、标识符保持原样。
+- 表达直接、简洁、可执行。
 
-## 2. 文档优先级
+## 2. 正式文档
 
-- “需求/边界/RFC” > “实现细节”。
-- 所有新增模块/子系统：先写 RFC（需求+边界），评审通过后再写代码。
-- 项目文档优先中文；需要时在括号中保留关键英文术语。
+正式文档只保留：
 
-## 3. 强制流程（Linear issue -> Symphony -> PR）
+- `docs/index.md`
+- `docs/current/**`
 
-所有正式开发需求必须先落到 `Linear issue`，并遵守“一需求一 issue”。
+文档规则：
 
-正式工作流状态机如下：
+- 只记录当前设计、当前实现、当前运行方式、当前排障方式。
+- 不记录 RFC、实施计划、迁移进度、破坏性变更清单、复盘过程。
+- 当前系统事实变化时，必须在同一 PR 同步更新 `docs/current/**`。
 
-- `Todo`
-  - `Symphony` 自动领取
-  - 只允许调研、设计、RFC、implementation plan
-  - **禁止编码**
-- `Human Review`
-  - 唯一人工门
-  - 流程暂停，等待人类审阅设计并关闭全部待决策项
-- `In Progress`
-  - 只有当 issue 从 `Human Review` 进入 `In Progress`，才允许编码
-- `Rework`
-  - 处理 review/CI/验证失败返工
-- `Merging`
-  - 自动收尾、合并、部署、部署后健康检查与 cleanup
-- `Done`
-  - 仅在合并、部署、健康检查与 cleanup 都成功后进入的终态
+## 3. 正式工作流（GitHub-first）
 
-正式运行并发策略如下：
+正式工作流固定为：
 
-- `Todo = 1`
-- `In Progress = 2`
-- `Rework = 1`
-- `Merging = 1`
+`Issue -> Draft PR -> Design Review(仅高风险) -> In Progress -> CI -> Deploy -> Health Check -> Cleanup -> Done`
 
-解释：
+低风险任务可跳过 `Design Review`：
 
-- 设计阶段保持串行
-- 实现阶段最多允许两个 issue 并发
-- 返工与部署阶段保持单槽，避免 review、部署和宿主机服务操作互相抢占
+`Issue -> In Progress -> CI -> Deploy -> Health Check -> Cleanup -> Done`
 
-审批真值只有一个：
+### 3.1 唯一人工门
 
-- **`Human Review -> In Progress` 的状态迁移**
+唯一人工评审点是：
 
-`Linear comment` 只承载意见，不承载批准真值。
+- `Design Review`
 
-`Human Review` 的补充硬规则：
+人工评审唯一地点：
 
-- 进入 `Human Review` 前，结构化 `Linear comment` 必须一次性列出全部待决策项。
-- 每个待决策项必须包含：
-  - 决策问题
-  - 推荐方案
-  - 推荐理由
-  - 需要人类明确给出的最终结论
-- 如果没有待决策项，也必须明确写出“无待决策项”。
-- **只要还有待决策项未明确结论，就不允许进入 `In Progress`**。
+- GitHub Draft PR
 
-以下任一情况 **必须** 先写 RFC 并通过评审：
-- 新增顶级模块（例如新增 `freshquant/<module>/` 目录，或新增稳定公共 API 面）。
-- 新增对外入口（CLI/API/worker/service/scheduler）。
-- 需要跨多个目录的大重构/重命名/拆分合并。
-- 引入新的外部依赖（服务、存储、消息系统、第三方 API）。
-- 任何破坏性变更（接口、配置、数据结构、行为语义）。
+批准真值：
 
-评审通过的最低标准：
-- 目标/非目标明确（不做什么要写清楚）。
-- 范围与边界明确（职责/不负责什么/依赖什么/禁止依赖什么）。
-- 对外接口与数据/配置明确（输入输出、错误语义、兼容/迁移策略）。
-- 验收标准明确（如何验证“做对了”）。
+- PR review `Approve`
+- 或 PR 评论中明确回复 `APPROVED`
 
-进入 `Human Review` 前必须至少产出：
+### 3.2 哪些任务必须先做 Design Review
 
-- 对应 RFC
-- implementation plan
-- implementation plan 内的 `task checklist`
-- `docs/migration/progress.md` 更新
-- 一条结构化 `Linear comment`
+命中以下任一条件时，必须先进行 `Design Review`，批准前不得编码：
 
-进入 `Merging` 前必须补充一条结构化 `Linear comment`，至少包含：
+- public API / CLI 变化
+- 配置语义变化
+- 存储/schema/读写边界变化
+- 部署/运行面变化
+- 跨模块且改变用户可见行为
 
-- 解决的问题
-- 解决方案及理由
-- 修改的文件
-- 测试与验证结果
-- 经验积累 / 后续注意事项
-- PR 链接
+普通 bugfix、现有模块内的小范围修复和局部优化，不需要人工评审。
 
-进入 `Done` 前必须补充一条结构化部署 `Linear comment`，至少包含：
+### 3.3 Design Review Packet 硬规则
 
-- 部署范围
-- 执行的部署动作
-- 健康检查结果
-- Cleanup 结果
-- 重试 / 失败情况
-- 最终部署结果
+`brainstorming` 进入评审时，必须一次性提交完整 `Design Review Packet`。
 
-落地顺序（严格执行）：
-1) 新建/领取 `Linear issue`
-2) `Todo` 阶段写 RFC 与 implementation plan
-3) 人工把 issue 从 `Human Review` 改到 `In Progress`
-4) `Symphony` 自动编码、TDD、PR、CI、merge、deploy、cleanup
-5) 更新进度与破坏性变更记录（`docs/migration/`）
+每个待评审点必须包含：
 
-## 4. RFC（需求/边界）规范
+- 决策问题
+- 推荐方案
+- 推荐理由
+- 备选方案
+- 影响面
+- 需要人工明确给出的结论
 
-- 目录：`docs/rfcs/`
-- 模板：`docs/rfcs/0000-template.md`
-- 命名：`docs/rfcs/NNNN-<topic>.md`（NNNN 为 4 位递增编号；topic 用短横线）
-- 状态：Draft / Review / Approved / Rejected / Superseded
+如果没有待评审点，也必须明确写出：
 
-RFC 必含内容（至少）：
-- 背景与问题
-- 目标 / 非目标
-- 范围（In/Out）
-- 模块边界（负责/不负责）
-- 依赖与集成点（Dependencies）
-- Public API（对外接口、错误语义）
-- 数据与配置（Data/Config）
-- 破坏性变更（影响面、迁移步骤、回滚）
-- 测试与验收（Acceptance Criteria）
-- 迁移映射（从 `D:\fqpack\freshquant` 的哪些路径/能力迁到哪里）
+- `无待评审点，按推荐方案执行`
 
-## 5. 迁移进度记录（文件化，不依赖插件）
+除非后续出现新的真实约束，否则不允许零碎多轮提审。
 
-本仓库以文件方式记录迁移进度（等价于 “planning-with-files” 的效果）：
-- 进度总表：`docs/migration/progress.md`
-- 破坏性变更清单：`docs/migration/breaking-changes.md`
+## 4. Symphony 与 superpowers
 
-规则：
-- 每个迁移单元必须关联一个 RFC（在进度表里写 RFC 编号/链接）。
-- 任何破坏性变更落地时，必须在 `breaking-changes.md` 追加记录，并引用对应 RFC。
-- 正式工作流下，这些文件默认由 `Symphony` 在对应 issue 分支上自动更新；人工介入时也必须在同一分支/同一 PR 中保持同步。
+- 正式开发默认由 `Symphony` 编排。
+- `Codex CLI` 会话可以触发 `Symphony` 管理流程，但 CLI 会话不是真值源。
+- `Symphony` 负责：
+  - 接管 GitHub Issue
+  - 创建/绑定 branch、workspace、Draft PR
+  - 选择 skill chain
+  - 在 `Design Review` 处暂停与恢复
+  - 执行 deploy、health check、cleanup
 
-强制更新频率（必须遵守）：
-- **RFC 状态变更即更新**：RFC 从 Draft/Review/Approved/Implementing/Done/Blocked 任意变更时，必须在**同一提交**更新 `docs/migration/progress.md`。
-- **迁移代码合并即更新**：任何涉及迁移/重构/删改功能的合并到 `main`，必须在**同一提交**更新 `docs/migration/progress.md`（含“做了什么/下一步/风险”简述）。
-- **Implementing 每日更新**：处于 Implementing 的 RFC，按 Asia/Shanghai 自然日 **每天至少更新一次**进度（哪怕只是“无进展 + 原因”）。
-- **破坏性变更同提交登记**：任何破坏性变更（接口/配置/数据/行为语义）落地时，必须在**同一提交**更新 `docs/migration/breaking-changes.md` 并引用 RFC。
-- **未更新视为未完成**：未按上述规则更新进度/变更记录的工作，视为未完成，不应合并。
+推荐 skill chain：
 
-## 6. Git/GitHub
+- 普通 bugfix：
+  - `using-superpowers`
+  - `systematic-debugging`
+  - `test-driven-development`
+  - `verification-before-completion`
 
-- 默认使用 SSH 远端（本项目）：`ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git`
-- 如必须走 HTTPS 且需要代理，可按命令级别注入（示例）：`git -c http.proxy=http://127.0.0.1:10809 -c https.proxy=http://127.0.0.1:10809 <cmd>`
-- 不要提交密钥/Token；`.env` 等敏感文件保持在 `.gitignore` 中。
-- Git commit message、PR 标题、PR 描述、merge 说明默认使用简体中文编写（除非用户明确要求英文）。
+- 现有模块增强：
+  - `using-superpowers`
+  - `brainstorming`
+  - `test-driven-development`
+  - `verification-before-completion`
 
-PR 合并策略（项目强制约束）：
-- **禁止直推 `main`**：所有改动在 feature 分支完成后提交 PR。
-- **禁止在任何本地 `main` 分支直接开发或提交**：`main` 只能用于同步远程 `origin/main`，不能承载需求开发、修复、实验性改动或临时提交。
-- **默认使用 `Symphony-managed workspace/repo copy` 开展修改**：正式开发由 `Symphony` 根据 `Linear issue` 创建工作区、远端 `feature branch` 与后续 `Draft PR`。若需要人工介入，只能在该 issue 对应的 feature 分支/PR 上修改。
-- **合并顺序固定**：仅允许“`Linear issue` -> `Symphony workspace` -> `feature branch` -> `Draft PR` -> 合并到远程 `main` -> 本地 `main` fast-forward 同步远程 `main`”这一条路径。
-- **设计阶段不开 PR**：只有 issue 进入 `In Progress` 后才创建 `Draft PR`。
-- **`Done` 必须包含部署与 cleanup 成功**：`Merging` 阶段必须完成合并、按变更矩阵执行自动部署、通过部署后健康检查，并完成 cleanup；失败先在 `Merging` 自动重试，必要时回到 `Rework`。
-- **`Done` 必须包含 Linear 部署/cleanup 留痕**：`Merging -> Done` 前必须把部署动作、健康检查、cleanup 结果和最终结果写回对应 `Linear issue`，没有留痕视为未完成。
+- 跨模块或高风险改动：
+  - `using-superpowers`
+  - `brainstorming`
+  - `writing-plans`（必要时）
+  - `test-driven-development`
+  - `verification-before-completion`
+
+## 5. Git / PR 规则
+
+- 禁止直推 `main`
+- 禁止在任何本地 `main` 上开发或提交
+- 正式开发必须走 `feature branch + Draft PR`
+- 正式任务优先从 GitHub Issue 启动
+- 小型明确修复允许从 CLI 触发，但应绑定到对应 GitHub Issue / PR
 - PR 必须满足：
-  - CI 全绿（`CI / governance`、`CI / pre-commit`、`CI / pytest`）
-  - 解决所有 review discussion 后再合并
+  - CI 全绿（`docs-current-guard`、`pre-commit`、`pytest`）
+  - 所有 review discussion 已处理
 
-### 6.1 自动化权限边界
+## 6. 部署矩阵
 
-- 默认可自动修改：业务代码、前端、测试、普通文档
-- 需要 RFC 明确列入范围后才可自动修改：`docker/`、`.github/`、`morningglory/fqdagsterconfig/`、`script/`、`third_party/`、根目录构建/安装/部署脚本
-- `Merging` 阶段允许自动执行：
-  - Docker 并行环境 `docker compose -f docker/compose.parallel.yaml up -d --build`
-  - `runtime/symphony/` 相关变更的宿主机同步、`fq-symphony-orchestrator` 重启与健康检查
-  - 已合并 PR 的远端 `feature branch` 删除
-  - 当前 issue 的 `Symphony-managed workspace/repo copy` 删除
-  - `runtime/symphony-service/artifacts/` 下超过保留期的旧 issue 条目清理
-- 第一阶段默认禁止自动执行：
-  - `.env` / secrets 修改
-  - 直接改线上或并行环境数据库
-  - 生产环境自动部署、自动回滚、停服、删库、强杀
-  - 实盘/券商/交易直连高风险操作
+- `freshquant/rear/**`：重部署 API server
+- `freshquant/order_management/**`：重部署后端/API，必要时重启相关 worker
+- `freshquant/position_management/**`：重部署后端并重启 `position_management.worker`
+- `freshquant/tpsl/**`：重部署后端并重启 `tpsl.tick_listener`
+- `freshquant/market_data/**`：重启 producer / consumer / reference-data worker
+- `freshquant/data/**` 中影响 Gantt / Shouban30 的改动：重部署 API / Dagster
+- `morningglory/fqwebui/**`：重新构建并部署 Web UI
+- `morningglory/fqdagster/**`：重部署 Dagster
+- `third_party/tradingagents-cn/**`：重部署 `ta_backend` / `ta_frontend`
+- `runtime/symphony/**`：同步宿主机并重启 `fq-symphony-orchestrator`
 
-## 7. Skills（可选）
+## 7. Cleanup
 
-- 本环境支持在本机 Codex skills 目录下按需加载 `SKILL.md`，并遵循其中工作流。
-- 若用户点名技能，或任务明显匹配技能描述，则优先使用该技能。
+Cleanup 是 `Done` 的组成部分。
+
+必须清理：
+
+- 已合并远端 `feature branch`
+- 当前任务 workspace / repo copy
+- 当前任务临时脚本、截图、scratch 文件、临时 artifacts
+- 临时 compose override、临时镜像标签
+
+明确不清理：
+
+- `.venv`
+- Mongo / Redis 正式数据
+- 正式日志目录
+- 在线正式服务
+- `docs/current/**`
+
+## 8. Done 定义
+
+只有同时满足以下条件，任务才算 `Done`：
+
+- PR 已合并
+- CI 通过
+- `docs/current/**` 已同步
+- 受影响模块已重新部署
+- 健康检查通过
+- cleanup 完成
+
+即：
+
+`Done = merge + ci + docs sync + deploy + health check + cleanup`

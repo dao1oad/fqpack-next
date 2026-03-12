@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$ServiceRoot = 'D:\fqpack\runtime\symphony-service',
-    [string]$OpenAISymphonyRoot = 'D:\fqpack\tools\openai-symphony\elixir',
+    [string]$OpenAISymphonyRoot = 'D:\fqpack\tools\dao1oad-symphony\elixir',
     [int]$Port = 40123
 )
 
@@ -157,7 +157,7 @@ $elixirBin = Split-Path -Parent $mixPath
 $erlangBin = Split-Path -Parent $erlPath
 Add-PathPrefix -Directories @($gitBashBin, $codexShimBin, $elixirBin, $erlangBin)
 
-$proxyVars = @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'LINEAR_API_KEY')
+$proxyVars = @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'GITHUB_TOKEN', 'GH_TOKEN', 'FRESHQUANT_GITHUB_REPO', 'GITHUB_REPOSITORY')
 foreach ($name in $proxyVars) {
     $value = Get-EnvValue -Name $name
     if ($value) {

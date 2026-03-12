@@ -2,7 +2,7 @@
 param(
     [string]$ServiceName = 'fq-symphony-orchestrator',
     [string]$ServiceRoot = 'D:\fqpack\runtime\symphony-service',
-    [string]$OpenAISymphonyRoot = 'D:\fqpack\tools\openai-symphony\elixir',
+    [string]$OpenAISymphonyRoot = 'D:\fqpack\tools\dao1oad-symphony\elixir',
     [string]$InstallScriptPath,
     [int]$Port = 40123,
     [string]$ServicePassword
@@ -107,10 +107,17 @@ if ([string]::IsNullOrWhiteSpace($ServicePassword)) {
     $ServicePassword = ''
 }
 
-$userLinearKey = [Environment]::GetEnvironmentVariable('LINEAR_API_KEY', 'User')
-$machineLinearKey = [Environment]::GetEnvironmentVariable('LINEAR_API_KEY', 'Machine')
-if ([string]::IsNullOrWhiteSpace($userLinearKey) -and [string]::IsNullOrWhiteSpace($machineLinearKey)) {
-    throw 'LINEAR_API_KEY is not configured in the User or Machine environment.'
+$userGitHubToken = [Environment]::GetEnvironmentVariable('GITHUB_TOKEN', 'User')
+$machineGitHubToken = [Environment]::GetEnvironmentVariable('GITHUB_TOKEN', 'Machine')
+$userGhToken = [Environment]::GetEnvironmentVariable('GH_TOKEN', 'User')
+$machineGhToken = [Environment]::GetEnvironmentVariable('GH_TOKEN', 'Machine')
+if (
+    [string]::IsNullOrWhiteSpace($userGitHubToken) -and
+    [string]::IsNullOrWhiteSpace($machineGitHubToken) -and
+    [string]::IsNullOrWhiteSpace($userGhToken) -and
+    [string]::IsNullOrWhiteSpace($machineGhToken)
+) {
+    throw 'GITHUB_TOKEN or GH_TOKEN is not configured in the User or Machine environment.'
 }
 
 $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue

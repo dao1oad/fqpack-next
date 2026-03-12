@@ -100,6 +100,14 @@ $copyMap = @(
         Destination = (Join-Path $configRoot 'templates\deployment_comment.md')
     },
     @{
+        Source = (Join-Path $sourceConfigRoot 'templates\design_review_packet.md')
+        Destination = (Join-Path $configRoot 'templates\design_review_packet.md')
+    },
+    @{
+        Source = (Join-Path $sourceConfigRoot 'templates\done_summary.md')
+        Destination = (Join-Path $configRoot 'templates\done_summary.md')
+    },
+    @{
         Source = (Join-Path $sourceScriptsRoot 'freshquant_runner.exs')
         Destination = (Join-Path $scriptsRoot 'freshquant_runner.exs')
     },

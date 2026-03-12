@@ -1,37 +1,22 @@
-# Human Review Comment Template
+# Legacy Human Review Template
 
-Issue is ready for Human Review.
+This template is retained only as a compatibility alias during the GitHub-first cutover.
 
-## Deliverables
+Use `design_review_packet.md` as the canonical review packet.
 
-- RFC: `<path>`
-- Implementation plan: `<path>`
-- Task checklist: `<path or section>`
-- Progress update: `docs/migration/progress.md`
+## Compatibility Note
 
-## Scope Summary
+- Review happens on the GitHub Draft PR.
+- Approval truth is `APPROVED` or PR review `Approve`.
+- Do not require RFC, progress, or breaking-changes files.
 
-- In scope: `<summary>`
-- Out of scope: `<summary>`
+## Minimum Content
 
-## Key Risks
-
-- `<risk 1>`
-- `<risk 2>`
-
-## Decision Items
-
-- Decision: `<question>`
-  - Recommended option: `<recommended option>`
-  - Reason: `<why this option is recommended>`
-  - Required human answer: `<what must be explicitly decided>`
+- Scope Summary
+- Recommended Design
+- Decision Items
+- Explicit human answer required for each open decision
 
 If there are no remaining decisions, write:
 
-- `No open decision items`
-
-## Approval Instruction
-
-- If approved, move the Linear issue from `Human Review` to `In Progress`.
-- If changes are required, reply in Linear comments with specific design feedback.
-- Do not move the issue to `In Progress` while any decision item is unresolved.
+- `无待评审点，按推荐方案执行`
