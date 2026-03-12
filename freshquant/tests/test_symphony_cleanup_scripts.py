@@ -4,7 +4,10 @@ import json
 import os
 import shutil
 import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -49,6 +52,95 @@ def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str
 def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     command = ["git", *args]
     return subprocess.run(command, capture_output=True, text=True, check=False, cwd=cwd)
+
+
+class _GitHubApiStub:
+    def __init__(self) -> None:
+        self.list_pages: list[int] = []
+        self.comment_bodies: list[str] = []
+        self.patch_paths: list[str] = []
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._build_handler())
+        self.base_url = f"http://127.0.0.1:{self._server.server_address[1]}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def _build_handler(self) -> type[BaseHTTPRequestHandler]:
+        owner = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, format: str, *args: object) -> None:
+                return None
+
+            def _send_json(self, payload: object, status: int = 200) -> None:
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self) -> None:  # noqa: N802
+                parsed = urlparse(self.path)
+                if parsed.path == "/repos/dao1oad/fqpack-next/issues/999":
+                    self._send_json(
+                        {
+                            "number": 999,
+                            "state": "open",
+                            "labels": [{"name": "merging"}],
+                        }
+                    )
+                    return
+
+                if parsed.path == "/repos/dao1oad/fqpack-next/issues":
+                    query = parse_qs(parsed.query)
+                    page = int(query.get("page", ["1"])[0])
+                    owner.list_pages.append(page)
+
+                    if page == 1:
+                        issues = [{"number": index} for index in range(1, 101)]
+                    elif page == 2:
+                        issues = [{"number": 150}]
+                    else:
+                        issues = []
+
+                    self._send_json(issues)
+                    return
+
+                self._send_json({"message": f"Unhandled GET {parsed.path}"}, status=404)
+
+            def do_POST(self) -> None:  # noqa: N802
+                parsed = urlparse(self.path)
+                if parsed.path == "/repos/dao1oad/fqpack-next/issues/999/comments":
+                    content_length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(content_length) or b"{}")
+                    owner.comment_bodies.append(payload.get("body", ""))
+                    self._send_json({"id": 1}, status=201)
+                    return
+
+                self._send_json(
+                    {"message": f"Unhandled POST {parsed.path}"}, status=404
+                )
+
+            def do_PATCH(self) -> None:  # noqa: N802
+                parsed = urlparse(self.path)
+                if parsed.path == "/repos/dao1oad/fqpack-next/issues/999":
+                    owner.patch_paths.append(parsed.path)
+                    self._send_json({"state": "closed"})
+                    return
+
+                self._send_json(
+                    {"message": f"Unhandled PATCH {parsed.path}"}, status=404
+                )
+
+        return Handler
+
+    def __enter__(self) -> "_GitHubApiStub":
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # type: ignore[override]
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=5)
 
 
 def test_request_cleanup_writes_manifest(tmp_path: Path) -> None:
@@ -264,3 +356,72 @@ def test_finalizer_deletes_remote_branch_without_workspace(tmp_path: Path) -> No
     assert remote_branch_check.returncode == 2, (
         remote_branch_check.stdout + remote_branch_check.stderr
     )
+
+
+def test_finalizer_keeps_active_artifacts_from_paginated_github_issue_listing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service_root = tmp_path / "service"
+    workspaces_root = service_root / "workspaces"
+    artifacts_root = service_root / "artifacts"
+    workspace_path = workspaces_root / "GH-999"
+    workspace_path.mkdir(parents=True)
+    (workspace_path / "tracked.txt").write_text("ok", encoding="utf-8")
+
+    active_artifact = artifacts_root / "GH-150"
+    active_artifact.mkdir(parents=True)
+    stale_artifact = artifacts_root / "GH-151"
+    stale_artifact.mkdir(parents=True)
+
+    stale_time = 1_700_000_000
+    os.utime(active_artifact, (stale_time, stale_time))
+    os.utime(stale_artifact, (stale_time, stale_time))
+
+    request_result = _run_powershell(
+        REQUEST_SCRIPT,
+        "-ServiceRoot",
+        str(service_root),
+        "-IssueIdentifier",
+        "GH-999",
+        "-BranchName",
+        "feature/gh-999",
+        "-WorkspacePath",
+        str(workspace_path),
+        "-DeploymentCommentBody",
+        "deployment body",
+        "-OriginUrl",
+        "ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git",
+        "-Repository",
+        "dao1oad/fqpack-next",
+    )
+    assert request_result.returncode == 0, request_result.stderr
+
+    with _GitHubApiStub() as stub:
+        monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+        monkeypatch.setenv("FRESHQUANT_GITHUB_API_BASE_URL", stub.base_url)
+        monkeypatch.setenv("GITHUB_API_BASE_URL", stub.base_url)
+
+        finalizer_result = _run_powershell(
+            FINALIZER_SCRIPT,
+            "-ServiceRoot",
+            str(service_root),
+            "-IssueIdentifier",
+            "GH-999",
+            "-WorkspacePath",
+            str(workspace_path),
+            "-SkipRemoteBranchDelete",
+        )
+
+    assert finalizer_result.returncode == 0, finalizer_result.stderr
+    assert not workspace_path.exists()
+    assert active_artifact.exists()
+    assert not stale_artifact.exists()
+    assert stub.list_pages == [1, 2]
+    assert len(stub.comment_bodies) == 1
+    assert stub.patch_paths == ["/repos/dao1oad/fqpack-next/issues/999"]
+
+    result_path = artifacts_root / "cleanup-results" / "GH-999.json"
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    assert payload["success"] is True
+    assert payload["issueClosed"] is True
+    assert payload["githubUpdated"] is True

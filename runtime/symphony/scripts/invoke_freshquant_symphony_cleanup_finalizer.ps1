@@ -163,6 +163,18 @@ function Resolve-GitHubRepository {
     throw 'Unable to resolve GitHub repository for cleanup finalizer.'
 }
 
+function Get-GitHubApiBaseUri {
+    $baseUri = Get-EnvValue -Name 'FRESHQUANT_GITHUB_API_BASE_URL'
+    if ([string]::IsNullOrWhiteSpace($baseUri)) {
+        $baseUri = Get-EnvValue -Name 'GITHUB_API_BASE_URL'
+    }
+    if ([string]::IsNullOrWhiteSpace($baseUri)) {
+        $baseUri = 'https://api.github.com'
+    }
+
+    return $baseUri.TrimEnd('/')
+}
+
 function Invoke-GitHubApi {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('GET', 'POST', 'PATCH')][string]$Method,
@@ -178,7 +190,8 @@ function Invoke-GitHubApi {
         'X-GitHub-Api-Version' = '2022-11-28'
     }
 
-    $uri = "https://api.github.com$Path"
+    $baseUri = [System.Uri]::new("$(Get-GitHubApiBaseUri)/")
+    $uriBuilder = [System.UriBuilder]::new([System.Uri]::new($baseUri, $Path.TrimStart('/')))
     if ($Query) {
         $pairs = @()
         foreach ($entry in $Query.GetEnumerator()) {
@@ -190,12 +203,12 @@ function Invoke-GitHubApi {
         }
 
         if ($pairs.Count -gt 0) {
-            $uri = "$uri?$(($pairs -join '&'))"
+            $uriBuilder.Query = ($pairs -join '&')
         }
     }
 
     $invokeParams = @{
-        Uri = $uri
+        Uri = $uriBuilder.Uri.AbsoluteUri
         Method = $Method
         Headers = $headers
     }
@@ -259,17 +272,46 @@ function Get-GitHubIssueContext {
 function Get-ActiveIssueIdentifiersFromGitHub {
     param([Parameter(Mandatory = $true)][string]$Repository)
 
-    $issues = Invoke-GitHubApi -Method GET -Path "/repos/$Repository/issues" -Query @{
-        state = 'open'
-        labels = 'symphony'
-        per_page = 100
+    $perPage = 100
+    $page = 1
+    $identifiers = @()
+
+    while ($true) {
+        $issuesResponse = Invoke-GitHubApi -Method GET -Path "/repos/$Repository/issues" -Query @{
+            state = 'open'
+            labels = 'symphony'
+            per_page = $perPage
+            page = $page
+        }
+
+        if ($null -eq $issuesResponse) {
+            $issues = @()
+        }
+        elseif ($issuesResponse -is [System.Array]) {
+            $issues = $issuesResponse
+        }
+        else {
+            $issues = @($issuesResponse)
+        }
+
+        if ($issues.Count -eq 0) {
+            break
+        }
+
+        $identifiers += @(
+            $issues |
+                Where-Object { -not $_.pull_request } |
+                ForEach-Object { "GH-$($_.number)" }
+        )
+
+        if ($issues.Count -lt $perPage) {
+            break
+        }
+
+        $page += 1
     }
 
-    return @(
-        $issues |
-            Where-Object { -not $_.pull_request } |
-            ForEach-Object { "GH-$($_.number)" }
-    )
+    return $identifiers
 }
 
 function Remove-RemoteBranch {
