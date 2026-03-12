@@ -1,43 +1,43 @@
 <!-- symphony-design-review -->
 
-# Design Review Packet
+# 设计评审包
 
-## 1. Task Summary
+## 1. 任务摘要
 
-- Task: `<task summary>`
-- Goal: `<goal>`
-- Non-Goals: `<non-goals>`
+- 任务：`<task summary>`
+- 目标：`<goal>`
+- 非目标：`<non-goals>`
 
-## 2. Scope
+## 2. 范围
 
-- Affected Modules: `<modules>`
-- Behavior Change: `<behavior change>`
-- Deploy Scope: `<deploy scope>`
-- Docs To Update: `<docs/current paths>`
+- 影响模块：`<modules>`
+- 行为变化：`<behavior change>`
+- 部署范围：`<deploy scope>`
+- 需同步文档：`<docs/current paths>`
 
-## 3. Recommended Design
+## 3. 推荐设计
 
-- Recommended Approach: `<recommended approach>`
-- Why: `<why this approach>`
-- Main Risks: `<risks>`
-- Test Plan: `<tests>`
-- Rollback Note: `<rollback>`
+- 推荐方案：`<recommended approach>`
+- 推荐理由：`<why this approach>`
+- 主要风险：`<risks>`
+- 测试计划：`<tests>`
+- 回滚说明：`<rollback>`
 
-## 4. Decision Points
+## 4. 待决策点
 
-- Decision: `<question>`
-  - Recommended option: `<option>`
-  - Reason: `<reason>`
-  - Alternative: `<alternative>`
-  - Impact: `<impact>`
-  - Required human answer: `<explicit conclusion>`
+- 决策问题：`<question>`
+  - 推荐选项：`<option>`
+  - 推荐理由：`<reason>`
+  - 备选方案：`<alternative>`
+  - 影响面：`<impact>`
+  - 需要人工明确给出的结论：`<explicit conclusion>`
 
-If there are no open decision points, write:
+如果没有待决策点，请明确写出：
 
 - `无待评审点，按推荐方案执行`
 
-## 5. Approval Request
+## 5. 审批方式
 
-- Reply `APPROVED`
-- Or `REVISE: ...`
-- Or `REJECTED: ...`
+- 回复 `APPROVED`
+- 或回复 `REVISE: ...`
+- 或回复 `REJECTED: ...`

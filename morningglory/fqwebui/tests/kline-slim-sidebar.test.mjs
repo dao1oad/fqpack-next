@@ -72,6 +72,27 @@ test('normalizeSidebarItem fills symbol and code6 from code', () => {
   assert.equal(getSidebarCode6({ symbol: 'sh600000' }), '600000')
 })
 
+test('buildSidebarSections keeps holding names from API payload and only falls back to code6 when missing', () => {
+  const [holdingSection] = buildSidebarSections({
+    holdings: [
+      { symbol: 'sz002594', code: '002594', name: '比亚迪' },
+      { symbol: 'sh600000', code: '600000', name: '' }
+    ]
+  })
+
+  assert.deepEqual(
+    holdingSection.items.map((item) => ({
+      symbol: item.symbol,
+      name: item.name,
+      code6: item.code6
+    })),
+    [
+      { symbol: 'sz002594', name: '比亚迪', code6: '002594' },
+      { symbol: 'sh600000', name: '600000', code6: '600000' }
+    ]
+  )
+})
+
 test('normalizeReasonItems unwraps api payload and keeps required fields', () => {
   const items = normalizeReasonItems({
     data: {
@@ -139,4 +160,14 @@ test('KlineSlim renders accordion toggle, stacked name/code, and delete affordan
   assert.match(content, /class="sidebar-item-subtitle"/)
   assert.match(content, /v-if="section.deletable"/)
   assert.match(content, /@confirm="deleteSidebarItem\(section.key, item\)"/)
+})
+
+test('KlineSlim loads holding API data and renders item.name before code fallback', async () => {
+  const scriptContent = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+  const viewContent = await readFile(new URL('../src/views/KlineSlim.vue', import.meta.url), 'utf8')
+
+  assert.match(scriptContent, /const items = await stockApi\.getHoldingPositionList\(\)/)
+  assert.match(scriptContent, /this\.holdings = Array\.isArray\(items\) \? items : \[\]/)
+  assert.match(viewContent, /class="sidebar-item-title">{{ item\.name \|\| item\.code6 }}/)
+  assert.match(viewContent, /<span>{{ item\.name \|\| item\.code6 }}<\/span>/)
 })

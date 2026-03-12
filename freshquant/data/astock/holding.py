@@ -38,8 +38,6 @@ def _get_legacy_stock_fills_collection():
 
 def _resolve_position_name(position: Dict) -> str:
     raw_name = str(position.get("name") or "").strip()
-    if raw_name:
-        return raw_name
 
     symbol = str(position.get("symbol") or "").strip().lower()
     stock_code = str(position.get("stock_code") or "").strip().lower()
@@ -67,7 +65,15 @@ def _resolve_position_name(position: Dict) -> str:
             candidates.append(candidate)
 
     for candidate in candidates:
-        instrument = query_instrument_info(candidate)
+        try:
+            instrument = query_instrument_info(candidate)
+        except Exception as exc:
+            logger.warning(
+                "instrument lookup failed while resolving position name for {}: {}",
+                candidate,
+                exc,
+            )
+            break
         name = str((instrument or {}).get("name") or "").strip()
         if name:
             return name

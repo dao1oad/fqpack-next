@@ -11,6 +11,7 @@ from freshquant.chanlun_structure_service import get_chanlun_structure
 from freshquant.data.gantt_source_jygs import (
     COL_JYGS_ACTION_FIELDS,
     COL_JYGS_YIDONG,
+    EMPTY_RESULT_FLAG,
     normalize_board_key,
     normalize_jygs_action_field_row,
 )
@@ -22,6 +23,7 @@ from freshquant.data.quality_stock_universe import (
     COL_QUALITY_STOCK_UNIVERSE,
     load_quality_stock_lookup,
 )
+from freshquant.data.trade_date_hist import get_trade_dates_between
 from freshquant.db import DBfreshquant, DBGantt
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
 from freshquant.order_management.credit_subjects.repository import (
@@ -234,6 +236,35 @@ def _resolve_recent_trade_dates(
     return all_dates[-target_days:]
 
 
+def _query_trade_dates_between(start_date: str, end_date: str) -> list[str]:
+    if not start_date or not end_date or start_date > end_date:
+        return []
+    return [
+        (
+            trade_date.strftime("%Y-%m-%d")
+            if hasattr(trade_date, "strftime")
+            else _to_str(trade_date)
+        )
+        for trade_date in get_trade_dates_between(start_date, end_date)
+        if (
+            trade_date.strftime("%Y-%m-%d")
+            if hasattr(trade_date, "strftime")
+            else _to_str(trade_date)
+        )
+    ]
+
+
+def _resolve_gantt_trade_dates_axis(
+    start_date: str,
+    end_date: str,
+    observed_dates: list[str],
+) -> list[str]:
+    calendar_dates = _query_trade_dates_between(start_date, end_date)
+    if calendar_dates:
+        return calendar_dates
+    return sorted({_to_str(item) for item in observed_dates if _to_str(item)})
+
+
 def _filter_rows_by_window(
     rows: list[dict[str, Any]],
     *,
@@ -370,14 +401,33 @@ def query_gantt_plate_matrix(
     days: int = 30,
     end_date: str | None = None,
 ) -> dict[str, list[Any]]:
-    filtered = _query_gantt_plate_rows(
-        provider=provider,
+    provider_key = _to_str(provider)
+    rows = _find_rows(COL_GANTT_PLATE_DAILY, {"provider": provider_key})
+    window = _resolve_trade_window(
+        rows,
         days=days,
         end_date=end_date,
+        field_name="trade_date",
     )
+    if not window:
+        return {"dates": [], "y_axis": [], "series": []}
+
+    start_date, resolved_end_date = window
+    filtered = [
+        item
+        for item in rows
+        if start_date <= _to_str(item.get("trade_date")) <= resolved_end_date
+    ]
     if not filtered:
         return {"dates": [], "y_axis": [], "series": []}
-    return build_gantt_plate_matrix(filtered)
+    return build_gantt_plate_matrix(
+        filtered,
+        dates=_resolve_gantt_trade_dates_axis(
+            start_date,
+            resolved_end_date,
+            [_to_str(item.get("trade_date")) for item in filtered],
+        ),
+    )
 
 
 def query_gantt_plate_reason_map(
@@ -422,7 +472,17 @@ def query_gantt_stock_matrix(
         for item in rows
         if start_date <= _to_str(item.get("trade_date")) <= resolved_end_date
     ]
-    return build_gantt_stock_matrix(filtered, plate_key=target_plate_key)
+    if not filtered:
+        return {"dates": [], "y_axis": [], "series": []}
+    return build_gantt_stock_matrix(
+        filtered,
+        plate_key=target_plate_key,
+        dates=_resolve_gantt_trade_dates_axis(
+            start_date,
+            resolved_end_date,
+            [_to_str(item.get("trade_date")) for item in filtered],
+        ),
+    )
 
 
 def query_shouban30_plate_rows(
@@ -500,6 +560,8 @@ def build_plate_reason_daily(
 
     date_str = _to_str(trade_date)
     for raw in jygs_action_rows or []:
+        if raw.get(EMPTY_RESULT_FLAG):
+            continue
         normalized = normalize_jygs_action_field_row(date_str, raw)
         rows.append(
             {
@@ -604,6 +666,8 @@ def _build_jygs_gantt_rows(
     stock_rows: list[dict[str, Any]] = []
 
     for row in rows:
+        if row.get(EMPTY_RESULT_FLAG):
+            continue
         code6 = _to_str(row.get("stock_code"))
         if not code6:
             continue
@@ -1440,18 +1504,22 @@ def build_gantt_plate_reason_map(
 
 def build_gantt_plate_matrix(
     rows: list[dict[str, Any]],
+    *,
+    dates: list[str] | None = None,
 ) -> dict[str, list[Any]]:
     if not rows:
         return {"dates": [], "y_axis": [], "series": []}
 
-    dates = sorted(
-        {
-            _to_str(item.get("trade_date"))
-            for item in rows
-            if _to_str(item.get("trade_date"))
-        }
-    )
-    date_map = {date_str: idx for idx, date_str in enumerate(dates)}
+    target_dates = list(dates or [])
+    if not target_dates:
+        target_dates = sorted(
+            {
+                _to_str(item.get("trade_date"))
+                for item in rows
+                if _to_str(item.get("trade_date"))
+            }
+        )
+    date_map = {date_str: idx for idx, date_str in enumerate(target_dates)}
 
     plate_stats: dict[str, dict[str, Any]] = {}
     points: list[dict[str, Any]] = []
@@ -1516,7 +1584,7 @@ def build_gantt_plate_matrix(
 
     series.sort(key=lambda item: (item[0], item[1]))
     return {
-        "dates": dates,
+        "dates": target_dates,
         "y_axis": [{"id": item["id"], "name": item["name"]} for item in sorted_plates],
         "series": series,
     }
@@ -1526,6 +1594,7 @@ def build_gantt_stock_matrix(
     rows: list[dict[str, Any]],
     *,
     plate_key: str,
+    dates: list[str] | None = None,
 ) -> dict[str, list[Any]]:
     target_plate_key = _to_str(plate_key)
     filtered = [
@@ -1534,16 +1603,20 @@ def build_gantt_stock_matrix(
     if not filtered:
         return {"dates": [], "y_axis": [], "series": []}
 
-    dates = sorted(
-        {
-            _to_str(item.get("trade_date"))
-            for item in filtered
-            if _to_str(item.get("trade_date"))
-        }
-    )
-    date_map = {date_str: idx for idx, date_str in enumerate(dates)}
+    target_dates = list(dates or [])
+    if not target_dates:
+        target_dates = sorted(
+            {
+                _to_str(item.get("trade_date"))
+                for item in filtered
+                if _to_str(item.get("trade_date"))
+            }
+        )
+    date_map = {date_str: idx for idx, date_str in enumerate(target_dates)}
 
-    rows_by_date: dict[str, list[dict[str, Any]]] = {date_str: [] for date_str in dates}
+    rows_by_date: dict[str, list[dict[str, Any]]] = {
+        date_str: [] for date_str in target_dates
+    }
     for item in filtered:
         date_str = _to_str(item.get("trade_date"))
         if date_str in rows_by_date:
@@ -1553,7 +1626,7 @@ def build_gantt_stock_matrix(
     current_streaks: dict[str, int] = {}
     points: list[dict[str, Any]] = []
 
-    for date_str in dates:
+    for date_str in target_dates:
         d_idx = date_map[date_str]
         today_codes: set[str] = set()
         for item in rows_by_date[date_str]:
@@ -1613,7 +1686,7 @@ def build_gantt_stock_matrix(
 
     series.sort(key=lambda item: (item[0], item[1]))
     return {
-        "dates": dates,
+        "dates": target_dates,
         "y_axis": [
             {"symbol": item["symbol"], "name": item["name"]} for item in sorted_stocks
         ],

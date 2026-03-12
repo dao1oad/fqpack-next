@@ -575,6 +575,7 @@ import {
   filterTraceSteps,
   groupStepsByComponent,
   pickDefaultTraceStep,
+  readApiPayload,
   stopPollingTimer,
 } from './runtimeObservability.mjs'
 
@@ -724,7 +725,9 @@ const loadOverview = async () => {
     ])
     const errors = []
     if (healthResult.status === 'fulfilled') {
-      healthCards.value = buildHealthCards(healthResult.value?.data?.components || [])
+      healthCards.value = buildHealthCards(
+        readApiPayload(healthResult.value, 'components', []),
+      )
     } else {
       errors.push(summarizeRequestError('健康摘要加载失败', healthResult.reason))
     }
@@ -743,7 +746,7 @@ const loadTraces = async (options = {}) => {
   try {
     if (!suppressError) pageError.value = ''
     const response = await runtimeObservabilityApi.listTraces(buildTraceQuery(query))
-    traces.value = response?.data?.traces || []
+    traces.value = readApiPayload(response, 'traces', [])
     const currentTraceRow = {
       trace_key: selectedTrace.value?.trace_key,
       trace_id: selectedTrace.value?.trace_id,
@@ -780,7 +783,7 @@ const handleTraceClick = async (row) => {
   if (!selected) return
   if (selected.trace_id) {
     const response = await runtimeObservabilityApi.getTraceDetail(selected.trace_id)
-    selectedTrace.value = response?.data?.trace || selected
+    selectedTrace.value = readApiPayload(response, 'trace', selected)
   } else {
     selectedTrace.value = selected
   }
@@ -880,7 +883,7 @@ const loadRawFiles = async () => {
       component: rawQuery.component,
       date: rawQuery.date,
     })
-    rawFiles.value = response?.data?.files || []
+    rawFiles.value = readApiPayload(response, 'files', [])
   } finally {
     loading.raw = false
   }
@@ -897,7 +900,7 @@ const loadRawTail = async (targetStep = selectedStep.value) => {
       file: rawQuery.file,
       lines: 120,
     })
-    rawRecords.value = response?.data?.records || []
+    rawRecords.value = readApiPayload(response, 'records', [])
     rawFocusedIndex.value = findRawRecordIndex(rawRecords.value, targetStep)
     await scrollToFocusedRawRecord()
   } finally {
