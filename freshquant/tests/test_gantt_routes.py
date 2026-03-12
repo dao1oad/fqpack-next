@@ -1,4 +1,5 @@
 import types
+from datetime import datetime
 
 from flask import Flask
 
@@ -64,6 +65,15 @@ def test_get_gantt_plates_reads_readmodel_collection(monkeypatch):
         ]
     )
     monkeypatch.setattr(gantt_routes.svc, "DBGantt", fake_db)
+    monkeypatch.setattr(
+        gantt_routes.svc,
+        "get_trade_dates_between",
+        lambda start_date, end_date: [
+            datetime.strptime("2026-03-04", "%Y-%m-%d").date(),
+            datetime.strptime("2026-03-05", "%Y-%m-%d").date(),
+        ],
+        raising=False,
+    )
 
     app = Flask(__name__)
     app.register_blueprint(gantt_routes.gantt_bp)
@@ -84,6 +94,60 @@ def test_get_gantt_plates_reads_readmodel_collection(monkeypatch):
             "reason_ref": {"trade_date": "2026-03-05", "plate_id": 11},
         },
     }
+
+
+def test_get_gantt_plates_keeps_trade_date_axis_for_calendar_window(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    fake_db = _fake_db(
+        gantt_plate_daily=[
+            {
+                "provider": "jygs",
+                "trade_date": "2026-03-04",
+                "plate_key": "robotics",
+                "plate_name": "robotics",
+                "rank": 2,
+                "hot_stock_count": 1,
+                "limit_up_count": 0,
+                "stock_codes": ["000001"],
+                "reason_text": "day1 reason",
+                "reason_ref": {"trade_date": "2026-03-04", "board_key": "robotics"},
+            },
+            {
+                "provider": "jygs",
+                "trade_date": "2026-03-06",
+                "plate_key": "robotics",
+                "plate_name": "robotics",
+                "rank": 1,
+                "hot_stock_count": 2,
+                "limit_up_count": 0,
+                "stock_codes": ["000001", "000002"],
+                "reason_text": "day3 reason",
+                "reason_ref": {"trade_date": "2026-03-06", "board_key": "robotics"},
+            },
+        ]
+    )
+    monkeypatch.setattr(gantt_routes.svc, "DBGantt", fake_db)
+    monkeypatch.setattr(
+        gantt_routes.svc,
+        "get_trade_dates_between",
+        lambda start_date, end_date: [
+            datetime.strptime("2026-03-04", "%Y-%m-%d").date(),
+            datetime.strptime("2026-03-05", "%Y-%m-%d").date(),
+            datetime.strptime("2026-03-06", "%Y-%m-%d").date(),
+        ],
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.get("/api/gantt/plates?provider=jygs&days=3&end_date=2026-03-06")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["data"]["dates"] == ["2026-03-04", "2026-03-05", "2026-03-06"]
+    assert [item[0] for item in payload["data"]["series"]] == [0, 2]
 
 
 def test_get_gantt_stocks_requires_plate_key():

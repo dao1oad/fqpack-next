@@ -1,36 +1,36 @@
-# PR Completion Comment Template
+# PR 完成说明模板
 
-Issue implementation is ready for Merging.
+当前 Issue 的实现已经完成，可以进入 `Merging`。
 
-## Problems Solved
+## 已解决问题
 
 - `<problem 1>`
 - `<problem 2>`
 
-## Chosen Solution
+## 采用方案
 
 - `<solution summary>`
 
-## Why This Solution
+## 采用原因
 
 - `<reason 1>`
 - `<reason 2>`
 
-## Files Changed
+## 主要改动文件
 
 - `<path 1>`
 - `<path 2>`
 
-## Verification
+## 验证结果
 
 - `<test command and result>`
 - `<build or regression result>`
 
-## Lessons Learned
+## 补充说明
 
 - `<lesson 1>`
 - `<follow-up note>`
 
-## PR
+## PR 地址
 
 - `<draft or ready PR url>`

@@ -5,6 +5,8 @@ import * as runtimeObservability from './runtimeObservability.mjs'
 import {
   applyBoardFilter,
   buildComponentBoard,
+  buildGuardianStepInsight,
+  buildGuardianTraceSummary,
   buildTraceListSummary,
   buildIssuePriorityCards,
   buildIssueSummary,
@@ -13,6 +15,7 @@ import {
   buildTraceSummaryMeta,
   buildTraceDetail,
   buildHealthCards,
+  readApiPayload,
   buildRawLookupFromStep,
   buildTraceQuery,
   findRawRecordIndex,
@@ -89,6 +92,84 @@ const makeTrace = ({
   }
 }
 
+const makeGuardianTrace = ({
+  traceId = 'trc_guardian',
+  finalNode = 'finish',
+  finalStatus = 'skipped',
+  finalOutcome = 'skip',
+  reasonCode = 'price_threshold_not_met',
+} = {}) => {
+  const signalSummary = {
+    code: '000001',
+    name: 'Ping An Bank',
+    position: 'BUY_LONG',
+    period: '1m',
+    price: 9.8,
+    fire_time: '2026-03-09T10:00:00+08:00',
+    discover_time: '2026-03-09T10:00:05+08:00',
+    remark: 'runtime-test',
+    tags: ['must_pool', 'breakout'],
+  }
+  const thresholdContext = {
+    threshold: {
+      current_price: 9.8,
+      last_fill_price: 10,
+      bot_river_price: 9.5,
+      top_river_price: 12,
+    },
+  }
+  const steps = [
+    {
+      component: 'guardian_strategy',
+      node: 'receive_signal',
+      status: 'info',
+      ts: '2026-03-09T10:00:00+08:00',
+      symbol: '000001',
+      trace_id: traceId,
+      signal_summary: signalSummary,
+      decision_branch: 'signal_received',
+      decision_outcome: { outcome: 'continue' },
+    },
+    {
+      component: 'guardian_strategy',
+      node: 'price_threshold_check',
+      status: 'skipped',
+      ts: '2026-03-09T10:00:01+08:00',
+      symbol: '000001',
+      trace_id: traceId,
+      signal_summary: signalSummary,
+      decision_branch: 'holding_add_threshold',
+      decision_expr: 'current_price <= bot_river_price',
+      reason_code: 'price_threshold_not_met',
+      decision_context: thresholdContext,
+      decision_outcome: { outcome: 'skip' },
+    },
+  ]
+  steps.push({
+    component: 'guardian_strategy',
+    node: finalNode,
+    status: finalStatus,
+    ts: '2026-03-09T10:00:02+08:00',
+    symbol: '000001',
+    trace_id: traceId,
+    signal_summary: signalSummary,
+    decision_branch: 'holding_add_threshold',
+    decision_expr: 'current_price <= bot_river_price',
+    reason_code: reasonCode,
+    decision_context: thresholdContext,
+    decision_outcome: { outcome: finalOutcome, reason_code: reasonCode },
+  })
+  return {
+    trace_id: traceId,
+    trace_key: `trace:${traceId}`,
+    request_ids: [`req_${traceId}`],
+    internal_order_ids: [],
+    intent_ids: [],
+    symbol: '000001',
+    steps,
+  }
+}
+
 test('buildTraceQuery trims empty fields', () => {
   assert.deepEqual(
     buildTraceQuery({
@@ -119,6 +200,20 @@ test('stopPollingTimer clears current timer without arming a new one', () => {
 
   assert.deepEqual(cleared, [timerHandle])
   assert.equal(nextHandle, null)
+})
+
+test('readApiPayload supports interceptor-unwrapped axios payloads', () => {
+  assert.equal(typeof readApiPayload, 'function')
+
+  assert.deepEqual(
+    readApiPayload(
+      {
+        traces: [{ trace_id: 'trc_1' }],
+      },
+      'traces',
+    ),
+    [{ trace_id: 'trc_1' }],
+  )
 })
 
 test('buildIssuePriorityCards prioritizes failed traces before warnings', () => {
@@ -179,6 +274,40 @@ test('buildRecentTraceFeed accepts a higher limit for expanded recent view', () 
   assert.equal(feed.length, 25)
   assert.equal(feed[0].trace_id, 'trc_expand_25')
   assert.equal(feed[24].trace_id, 'trc_expand_1')
+})
+
+test('buildRecentTraceFeed carries guardian signal summary and conclusion', () => {
+  const feed = buildRecentTraceFeed([makeGuardianTrace()])
+
+  assert.equal(feed.length, 1)
+  assert.equal(feed[0].guardian_signal.title, '000001 Ping An Bank')
+  assert.equal(feed[0].guardian_signal.subtitle, 'BUY_LONG · 1m · 9.8')
+  assert.deepEqual(feed[0].guardian_signal.tags, ['must_pool', 'breakout'])
+  assert.equal(feed[0].guardian_outcome.label, '跳过')
+  assert.equal(feed[0].guardian_outcome.reason_code, 'price_threshold_not_met')
+  assert.equal(feed[0].guardian_outcome.node, 'finish')
+})
+
+test('buildGuardianTraceSummary and buildGuardianStepInsight expose structured guardian detail blocks', () => {
+  const detail = buildTraceDetail(makeGuardianTrace())
+  const summary = buildGuardianTraceSummary(detail)
+  const stepInsight = buildGuardianStepInsight(detail.steps[1])
+
+  assert.equal(summary.signal.title, '000001 Ping An Bank')
+  assert.equal(summary.conclusion.node_label, '结束结论')
+  assert.equal(summary.conclusion.label, '跳过')
+  assert.equal(summary.conclusion.reason_code, 'price_threshold_not_met')
+
+  assert.equal(stepInsight.node_label, '价格阈值判断')
+  assert.equal(stepInsight.outcome.label, '跳过')
+  assert.equal(stepInsight.outcome.branch, 'holding_add_threshold')
+  assert.equal(stepInsight.outcome.expr, 'current_price <= bot_river_price')
+  assert.equal(stepInsight.context_blocks[0].label, '阈值上下文')
+  assert.ok(
+    stepInsight.context_blocks[0].items.some(
+      (item) => item.key === 'current_price' && item.value === '9.8',
+    ),
+  )
 })
 
 test('buildComponentBoard summarizes core component issue counts', () => {

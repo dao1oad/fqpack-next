@@ -4,8 +4,9 @@ import { futureApi } from '@/api/futureApi'
 import { getGanttStockReasons } from '@/api/ganttApi'
 import { stockApi } from '@/api/stockApi'
 
-import drawSlim from './draw-slim'
 import echartsConfig from './echartsConfig'
+import { createKlineSlimChartController, createKlineSlimViewportState } from './kline-slim-chart-controller.mjs'
+import { buildKlineSlimChartScene } from './kline-slim-chart-renderer.mjs'
 import {
   buildResolvedKlineSlimQuery,
   canApplyResolvedKlineSlimRoute,
@@ -25,7 +26,8 @@ import {
   SUPPORTED_CHANLUN_PERIODS,
   DEFAULT_MAIN_PERIOD,
   DEFAULT_VISIBLE_CHANLUN_PERIODS,
-  buildLegendSelectionState,
+  buildPeriodLegendSelectionState,
+  getVisibleChanlunPeriods,
   getRealtimeRefreshPeriods,
   normalizeChanlunPeriod
 } from './kline-slim-chanlun-periods.mjs'
@@ -109,6 +111,8 @@ export default {
   data() {
     return {
       chart: null,
+      chartController: null,
+      chartViewport: createKlineSlimViewportState(),
       symbolInput: '',
       endDateModel: '',
       currentPeriod: DEFAULT_PERIOD,
@@ -120,18 +124,19 @@ export default {
       mainVersion: '',
       chanlunVersionMap: {},
       lastRenderedVersion: '',
-      lastStructuralRouteKey: '',
       lastMainBarLabel: '--',
       lastError: '',
       resolvingDefaultSymbol: false,
       defaultSymbolResolveError: '',
-      resetChartStateOnNextRender: true,
+      resetViewportOnNextRender: true,
       periodList: MAIN_PERIODS,
       chanlunMultiData: {},
       visibleChanlunPeriods: [...DEFAULT_VISIBLE_CHANLUN_PERIODS],
       loadedChanlunPeriods: [],
       chanlunPeriodLoading: {},
-      chanlunLegendSelected: buildLegendSelectionState(),
+      periodLegendSelected: buildPeriodLegendSelectionState({
+        currentPeriod: DEFAULT_PERIOD
+      }),
       holdings: [],
       mustPools: [],
       stockPools: [],
@@ -293,8 +298,11 @@ export default {
       window.cancelAnimationFrame(this.renderFrameId)
       this.renderFrameId = 0
     }
+    if (this.chartController) {
+      this.chartController.dispose()
+      this.chartController = null
+    }
     if (this.chart) {
-      this.chart.off('legendselectchanged', this.handleSlimLegendSelectChanged)
       this.clearBrowserTestHooks()
       this.chart.dispose()
       this.chart = null
@@ -368,9 +376,13 @@ export default {
         return
       }
       this.chart = echarts.init(chartDom, 'dark')
+      this.chartController = createKlineSlimChartController({
+        chart: this.chart,
+        onLegendChange: this.handleSlimLegendSelectionChange,
+        onViewportChange: this.handleSlimViewportChange
+      })
       this.publishBrowserTestHooks()
       this.chart.showLoading(echartsConfig.loadingOption)
-      this.chart.on('legendselectchanged', this.handleSlimLegendSelectChanged)
     },
     publishBrowserTestHooks() {
       if (!window.navigator?.webdriver) {
@@ -378,6 +390,7 @@ export default {
       }
       window.__klineSlimVm = this
       window.__klineSlimChart = this.chart || null
+      window.__klineSlimChartController = this.chartController || null
     },
     clearBrowserTestHooks() {
       if (!window.navigator?.webdriver) {
@@ -388,6 +401,9 @@ export default {
       }
       if (window.__klineSlimChart === this.chart || window.__klineSlimVm === null) {
         window.__klineSlimChart = null
+      }
+      if (window.__klineSlimChartController === this.chartController || window.__klineSlimVm === null) {
+        window.__klineSlimChartController = null
       }
     },
     handleResize() {
@@ -411,13 +427,24 @@ export default {
       this.chanlunMultiData = {}
       this.loadedChanlunPeriods = []
       this.chanlunPeriodLoading = {}
-      this.visibleChanlunPeriods = [...DEFAULT_VISIBLE_CHANLUN_PERIODS]
-      this.chanlunLegendSelected = buildLegendSelectionState()
+      this.visibleChanlunPeriods = getVisibleChanlunPeriods({
+        currentPeriod: this.currentPeriod,
+        selected: this.periodLegendSelected
+      })
       this.lastMainBarLabel = '--'
-      this.resetChartStateOnNextRender = true
+      this.chartViewport = createKlineSlimViewportState()
+      this.resetViewportOnNextRender = true
     },
     handleRouteChange() {
       this.currentPeriod = getRoutePeriod(this.$route)
+      this.periodLegendSelected = buildPeriodLegendSelectionState({
+        currentPeriod: this.currentPeriod,
+        previousSelected: this.periodLegendSelected
+      })
+      this.visibleChanlunPeriods = getVisibleChanlunPeriods({
+        currentPeriod: this.currentPeriod,
+        selected: this.periodLegendSelected
+      })
       this.symbolInput = this.routeSymbol
       this.endDateModel = this.$route.query.endDate || ''
       this.resetChanlunStructureState()
@@ -425,12 +452,13 @@ export default {
       if (!this.routeSymbol && shouldResolveDefaultSymbol(this.$route.query)) {
         this.routeToken += 1
         this.defaultSymbolResolveError = ''
-        this.lastStructuralRouteKey = ''
         this.resetSlimDataState()
         this.stopPolling()
         this.resolvingDefaultSymbol = true
 
-        if (this.chart) {
+        if (this.chartController) {
+          this.chartController.clear()
+        } else if (this.chart) {
           this.chart.clear()
           this.chart.hideLoading()
         }
@@ -454,31 +482,17 @@ export default {
       }
 
       this.routeToken += 1
-      const nextStructuralRouteKey = JSON.stringify({
-        symbol: this.routeSymbol || '',
-        period: this.currentPeriod,
-        endDate: this.endDateModel || ''
-      })
-      const previousStructuralRouteKey = this.lastStructuralRouteKey
-      const shouldHardResetChart =
-        !!this.chart &&
-        !!this.routeSymbol &&
-        !!previousStructuralRouteKey &&
-        previousStructuralRouteKey !== nextStructuralRouteKey
-      this.lastStructuralRouteKey = nextStructuralRouteKey
       this.resetSlimDataState()
       this.stopPolling()
 
-      if (shouldHardResetChart) {
-        this.chart.clear()
-      }
       if (this.chart && this.routeSymbol) {
         this.chart.showLoading(echartsConfig.loadingOption)
       }
 
       if (!this.routeSymbol) {
-        this.lastStructuralRouteKey = ''
-        if (this.chart) {
+        if (this.chartController) {
+          this.chartController.clear()
+        } else if (this.chart) {
           this.chart.clear()
           this.chart.hideLoading()
         }
@@ -720,6 +734,22 @@ export default {
         this.chanlunRefreshTimer = null
       }
     },
+    handleSlimViewportChange(viewport) {
+      this.chartViewport = viewport
+      this.publishBrowserTestHooks()
+    },
+    handleSlimLegendSelectionChange(selected) {
+      this.periodLegendSelected = buildPeriodLegendSelectionState({
+        currentPeriod: this.currentPeriod,
+        previousSelected: selected
+      })
+      this.visibleChanlunPeriods = getVisibleChanlunPeriods({
+        currentPeriod: this.currentPeriod,
+        selected: this.periodLegendSelected
+      })
+      this.refreshVisibleChanlunPeriods(this.routeToken)
+      this.scheduleRender()
+    },
     cacheChanlunPeriodPayload(period, payload) {
       const nextVersion = buildVersion(payload)
       if (!nextVersion) {
@@ -834,17 +864,8 @@ export default {
         )
       )
     },
-    handleSlimLegendSelectChanged(event) {
-      const selected = event?.selected || {}
-      this.chanlunLegendSelected = buildLegendSelectionState(selected)
-      this.visibleChanlunPeriods = Object.keys(this.chanlunLegendSelected).filter(
-        (name) => MAIN_PERIODS.includes(name) && this.chanlunLegendSelected[name]
-      )
-      this.refreshVisibleChanlunPeriods(this.routeToken)
-      this.scheduleRender()
-    },
     scheduleRender() {
-      if (!this.chart || !this.mainData) {
+      if (!this.chart || !this.chartController || !this.mainData) {
         return
       }
       if (this.renderFrameId) {
@@ -853,31 +874,41 @@ export default {
 
       this.renderFrameId = window.requestAnimationFrame(() => {
         this.renderFrameId = 0
-        const extraPeriods = this.visibleChanlunPeriods.filter((period) => period !== this.currentPeriod)
+        const extraPeriods = this.visibleChanlunPeriods
         const renderVersion = [this.currentPeriod]
           .concat(extraPeriods)
           .map((period) => this.chanlunVersionMap[period] || '')
-          .concat(JSON.stringify(this.chanlunLegendSelected))
+          .concat(JSON.stringify(this.periodLegendSelected))
           .join('__')
         if (
           renderVersion === this.lastRenderedVersion &&
-          !this.resetChartStateOnNextRender
+          !this.resetViewportOnNextRender
         ) {
           return
         }
 
-        const nextVersion = drawSlim(this.chart, this.mainData, this.currentPeriod, {
+        const scene = buildKlineSlimChartScene({
+          mainData: this.mainData,
+          currentPeriod: this.currentPeriod,
+          sceneId: [this.routeSymbol || 'unknown', this.currentPeriod, this.endDateModel || 'realtime'].join('__'),
           extraChanlunMap: Object.fromEntries(
             extraPeriods
               .map((period) => [period, this.chanlunMultiData[period]])
               .filter(([, payload]) => !!payload)
           ),
-          legendSelected: this.chanlunLegendSelected,
-          renderVersion,
-          keepState: !this.resetChartStateOnNextRender
+          visiblePeriods: extraPeriods
         })
-        this.lastRenderedVersion = nextVersion || renderVersion
-        this.resetChartStateOnNextRender = false
+        if (!scene) {
+          return
+        }
+
+        this.chartController.applyScene(scene, {
+          resetViewport: this.resetViewportOnNextRender
+        })
+        this.chartViewport = this.chartController.getViewport()
+        this.publishBrowserTestHooks()
+        this.lastRenderedVersion = renderVersion
+        this.resetViewportOnNextRender = false
       })
     },
     applySymbol() {

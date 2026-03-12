@@ -105,6 +105,18 @@ class FakeGuardianBuyGridService:
             "buy_active_before": [True],
         }
 
+    def build_new_open_decision(self, code, price):
+        return {
+            "path": "new_open",
+            "quantity": 300,
+            "grid_level": "BUY-0",
+            "hit_levels": ["BUY-0"],
+            "multiplier": 1,
+            "source_price": price,
+            "buy_prices_snapshot": {"BUY-0": price},
+            "buy_active_before": [],
+        }
+
 
 def test_guardian_submit_intent_emits_trace_step(monkeypatch):
     captured = {}
@@ -187,8 +199,142 @@ def test_guardian_submit_intent_emits_trace_step(monkeypatch):
     )
     assert submit_event["trace_id"].startswith("trc_")
     assert submit_event["intent_id"].startswith("int_")
+    assert submit_event["signal_summary"]["code"] == signal["code"]
+    assert submit_event["signal_summary"]["position"] == signal["position"]
+    assert submit_event["decision_context"]["quantity"]["quantity"] == 300
+    assert submit_event["decision_outcome"]["outcome"] == "submit"
     assert captured["trace_id"] == submit_event["trace_id"]
     assert captured["intent_id"] == submit_event["intent_id"]
+
+
+def test_guardian_holding_buy_price_threshold_emits_structured_skip_finish(
+    monkeypatch,
+):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+    fire_time = signal["fire_time"]
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_guardian_buy_grid_service",
+        lambda: FakeGuardianBuyGridService(),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
+        lambda _code: [
+            {
+                "date": int(fire_time.subtract(minutes=1).format("YYYYMMDD")),
+                "time": fire_time.subtract(minutes=1).format("HH:mm:ss"),
+                "price": 10.0,
+                "quantity": 100,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.eval_stock_threshold_price",
+        lambda _code, _price: {"bot_river_price": 9.5, "top_river_price": 12.0},
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order",
+        lambda *args, **kwargs: None,
+    )
+
+    guardian.on_signal(signal)
+
+    price_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "price_threshold_check"
+    )
+    finish_event = next(
+        event for event in runtime_logger.events if event["node"] == "finish"
+    )
+
+    assert price_event["signal_summary"]["code"] == signal["code"]
+    assert (
+        price_event["decision_context"]["threshold"]["current_price"] == signal["price"]
+    )
+    assert price_event["decision_context"]["threshold"]["bot_river_price"] == 9.5
+    assert price_event["decision_outcome"]["outcome"] == "skip"
+    assert price_event["reason_code"] == "price_threshold_not_met"
+
+    assert finish_event["signal_summary"]["code"] == signal["code"]
+    assert finish_event["decision_outcome"]["outcome"] == "skip"
+    assert finish_event["reason_code"] == "price_threshold_not_met"
+    assert finish_event["status"] == "skipped"
+
+
+def test_guardian_new_open_buy_cooldown_emits_structured_skip_finish(monkeypatch):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+
+    fake_redis = FakeRedis()
+    fake_redis.data["fq:xtrade:last_new_order_time"] = "2026-03-09 10:00:00"
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_guardian_buy_grid_service",
+        lambda: FakeGuardianBuyGridService(),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.queryMustPoolCodes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", fake_redis)
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order",
+        lambda *args, **kwargs: None,
+    )
+
+    guardian.on_signal(signal)
+
+    cooldown_event = next(
+        event for event in runtime_logger.events if event["node"] == "cooldown_check"
+    )
+    finish_event = next(
+        event for event in runtime_logger.events if event["node"] == "finish"
+    )
+
+    assert cooldown_event["signal_summary"]["code"] == signal["code"]
+    assert (
+        cooldown_event["decision_context"]["cooldown"]["key"]
+        == "fq:xtrade:last_new_order_time"
+    )
+    assert cooldown_event["decision_context"]["cooldown"]["active"] is True
+    assert cooldown_event["decision_outcome"]["outcome"] == "skip"
+    assert cooldown_event["reason_code"] == "new_open_cooldown_active"
+
+    assert finish_event["decision_outcome"]["outcome"] == "skip"
+    assert finish_event["reason_code"] == "new_open_cooldown_active"
+    assert finish_event["status"] == "skipped"
 
 
 def _make_signal():
