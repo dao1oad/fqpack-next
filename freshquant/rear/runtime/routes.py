@@ -41,6 +41,7 @@ def list_traces():
     events = load_runtime_events(
         limit=_limit_arg(default=2000, cap=10000),
         filters=_request_filters(),
+        require_trace_key=True,
     )
     return jsonify({"traces": assemble_traces(events)})
 
@@ -50,6 +51,7 @@ def get_trace(trace_id: str):
     events = load_runtime_events(
         limit=_limit_arg(default=2000, cap=10000),
         filters={"trace_id": str(trace_id or "").strip()},
+        require_trace_key=True,
     )
     traces = assemble_traces(events)
     if not traces:
@@ -184,11 +186,16 @@ def get_raw_tail_payload(
 
 
 def load_runtime_events(
-    *, limit: int = 2000, filters: dict | None = None
+    *,
+    limit: int = 2000,
+    filters: dict | None = None,
+    require_trace_key: bool = False,
 ) -> list[dict]:
     matched = []
     for path in _iter_jsonl_files():
         for event in _iter_jsonl_records(path):
+            if require_trace_key and not _has_trace_key(event):
+                continue
             if _event_matches(event, filters or {}):
                 matched.append(event)
     matched.sort(key=_event_sort_key)
@@ -221,6 +228,13 @@ def _event_matches(event: dict, filters: dict) -> bool:
         if actual != str(expected):
             return False
     return True
+
+
+def _has_trace_key(event: dict) -> bool:
+    for field in ("trace_id", "request_id", "internal_order_id"):
+        if str(event.get(field) or "").strip():
+            return True
+    return False
 
 
 def _iter_jsonl_files():
