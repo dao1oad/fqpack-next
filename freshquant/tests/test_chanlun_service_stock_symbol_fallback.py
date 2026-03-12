@@ -79,18 +79,14 @@ def _install_chanlun_stubs(monkeypatch):
     macd_divergence_module.locate_macd_divergence = lambda *args, **kwargs: None
 
     position_future_module = types.ModuleType("freshquant.position.cn_future")
-    position_future_module.queryArrangedCnFutureFillList = (
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("future fills should not be queried for stock-like code")
-        )
-    )
+    position_future_module.queryArrangedCnFutureFillList = lambda *args, **kwargs: (
+        _ for _ in ()
+    ).throw(AssertionError("future fills should not be queried for stock-like code"))
 
     quote_etf_module = types.ModuleType("freshquant.quote.etf")
-    quote_etf_module.queryEtfCandleSticks = (
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("ETF fetcher should not be used in this stock test")
-        )
-    )
+    quote_etf_module.queryEtfCandleSticks = lambda *args, **kwargs: (
+        _ for _ in ()
+    ).throw(AssertionError("ETF fetcher should not be used in this stock test"))
 
     bei_chi_module = types.ModuleType("freshquant.signal.bei_chi")
     bei_chi_module.huang_bai_xian_di_bei_chi = lambda *args, **kwargs: None
@@ -108,15 +104,11 @@ def _install_chanlun_stubs(monkeypatch):
         sys.modules, "freshquant.analysis.chanlun_analysis", analysis_module
     )
     monkeypatch.setitem(sys.modules, "freshquant.config", config_module)
-    monkeypatch.setitem(
-        sys.modules, "freshquant.data.astock.holding", holding_module
-    )
+    monkeypatch.setitem(sys.modules, "freshquant.data.astock.holding", holding_module)
     monkeypatch.setitem(
         sys.modules, "freshquant.data.future.basic", future_basic_module
     )
-    monkeypatch.setitem(
-        sys.modules, "freshquant.instrument.etf", instrument_etf_module
-    )
+    monkeypatch.setitem(sys.modules, "freshquant.instrument.etf", instrument_etf_module)
     monkeypatch.setitem(
         sys.modules, "freshquant.instrument.general", instrument_general_module
     )

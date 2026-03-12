@@ -37,7 +37,6 @@ from freshquant.signal.break_pivot import (
 )
 from freshquant.util.code import infer_cn_security_prefixed_code
 
-
 ETF_CODE_PREFIXES = ("15", "16", "18", "50", "51", "56", "58")
 
 
