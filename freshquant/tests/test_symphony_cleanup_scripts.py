@@ -29,6 +29,7 @@ def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str
     executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:
         pytest.skip("PowerShell is not available in PATH")
+    assert executable is not None
 
     command = [
         executable,

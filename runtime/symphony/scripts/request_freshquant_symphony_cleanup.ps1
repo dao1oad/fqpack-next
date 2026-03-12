@@ -70,9 +70,18 @@ function Assert-WorkspacePathSafe {
 
     $normalizedWorkspacePath = Get-NormalizedPath -Path $WorkspacePath
     $normalizedWorkspaceRoot = Get-NormalizedPath -Path $WorkspaceRoot
-    $expectedPrefix = "$normalizedWorkspaceRoot\"
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    $expectedPrefix = if ($normalizedWorkspaceRoot.EndsWith([string]$separator, [System.StringComparison]::Ordinal)) {
+        $normalizedWorkspaceRoot
+    }
+    else {
+        "$normalizedWorkspaceRoot$separator"
+    }
 
-    if ($normalizedWorkspacePath -ne $normalizedWorkspaceRoot -and -not $normalizedWorkspacePath.StartsWith($expectedPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    if (
+        $normalizedWorkspacePath -eq $normalizedWorkspaceRoot -or
+        -not $normalizedWorkspacePath.StartsWith($expectedPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+    ) {
         throw "Workspace path must be inside workspace root. workspace=$normalizedWorkspacePath workspaceRoot=$normalizedWorkspaceRoot"
     }
 
