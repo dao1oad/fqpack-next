@@ -327,6 +327,28 @@
                     <span class="tab-meta">{{ tab.rows.length }}</span>
                   </div>
                 </template>
+                <div class="workspace-tab-actions">
+                  <el-button
+                    v-if="tab.key === 'pre_pool'"
+                    size="small"
+                    type="primary"
+                    plain
+                    :loading="isWorkspaceActionRunning('workspace:pre:sync-tdx')"
+                    @click="handleSyncPrePoolToTdx"
+                  >
+                    {{ tab.sync_action_label }}
+                  </el-button>
+                  <el-button
+                    v-if="tab.key === 'stockpools'"
+                    size="small"
+                    type="primary"
+                    plain
+                    :loading="isWorkspaceActionRunning('workspace:stock:sync-tdx')"
+                    @click="handleSyncStockPoolToTdx"
+                  >
+                    {{ tab.sync_action_label }}
+                  </el-button>
+                </div>
                 <div class="panel-table">
                   <el-table
                     v-loading="workspaceLoading"
@@ -424,6 +446,8 @@ import {
   getShouban30Stocks,
   normalizeShouban30StockWindowDays,
   replaceShouban30PrePool,
+  syncShouban30PrePoolToTdx,
+  syncShouban30StockPoolToTdx,
 } from '@/api/ganttShouban30'
 
 import MyHeader from './MyHeader.vue'
@@ -910,11 +934,29 @@ const handleDeletePrePoolRow = async (row) => {
   })
 }
 
+const handleSyncPrePoolToTdx = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:pre:sync-tdx',
+    action: () => syncShouban30PrePoolToTdx(),
+    successMessage: `已将 pre_pool ${prePoolItems.value.length} 条同步到通达信`,
+    refreshWorkspace: false,
+  })
+}
+
 const handleAddStockPoolToMustPool = async (row) => {
   await runWorkspaceAction({
     actionKey: `workspace:stock:must:${toText(row?.code6)}`,
     action: () => addShouban30StockPoolToMustPool({ code6: row?.code6 }),
     successMessage: `${toText(row?.code6)} 已加入 must_pools`,
+    refreshWorkspace: false,
+  })
+}
+
+const handleSyncStockPoolToTdx = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:stock:sync-tdx',
+    action: () => syncShouban30StockPoolToTdx(),
+    successMessage: `已将 stockpools ${stockPoolItems.value.length} 条同步到通达信`,
     refreshWorkspace: false,
   })
 }
@@ -1315,6 +1357,12 @@ onMounted(() => {
 .workspace-tabs {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.workspace-tab-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 
 .workspace-row-actions {

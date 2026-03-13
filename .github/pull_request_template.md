@@ -2,22 +2,18 @@
 
 - ...
 
-## 关联 RFC
+## 正式文档同步
 
-- RFC：`docs/rfcs/NNNN-<topic>.md`（如不涉及迁移/模块/破坏性变更，请说明原因）
-
-## 迁移进度（强制）
-
-- [ ] 已更新 `docs/migration/progress.md`
-- [ ] 若存在破坏性变更：已更新 `docs/migration/breaking-changes.md`
+- [ ] 若当前系统事实变化，已同步 `docs/current/**`
+- [ ] 如未更新文档，已在 PR 描述说明原因
 
 ## 验收与测试（强制）
 
 - [ ] `pre-commit` 已通过（CI 会校验）
 - [ ] `pytest -q freshquant/tests` 已通过（CI 会校验）
+- [ ] 若影响运行面，已完成部署与健康检查
 
-## 破坏性变更（如有）
+## 风险与回滚（如有）
 
 - 影响面：
-- 迁移步骤：
 - 回滚方案：

@@ -1,11 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   buildCurrentFilterReplacePrePoolPayload,
   buildSinglePlateReplacePrePoolPayload,
   buildWorkspaceTabs,
 } from './shouban30PoolWorkspace.mjs'
+
+const pageSource = readFileSync(new URL('./GanttShouban30Phase1.vue', import.meta.url), 'utf8')
 
 test('buildCurrentFilterReplacePrePoolPayload normalizes visible rows into replace payload', () => {
   const payload = buildCurrentFilterReplacePrePoolPayload({
@@ -188,6 +191,7 @@ test('buildWorkspaceTabs maps pre_pool and stockpools rows with action labels', 
     {
       key: 'pre_pool',
       label: 'pre_pool',
+      sync_action_label: '同步到通达信',
       rows: [
         {
           code6: '600001',
@@ -203,6 +207,7 @@ test('buildWorkspaceTabs maps pre_pool and stockpools rows with action labels', 
     {
       key: 'stockpools',
       label: 'stockpools',
+      sync_action_label: '同步到通达信',
       rows: [
         {
           code6: '000333',
@@ -216,4 +221,12 @@ test('buildWorkspaceTabs maps pre_pool and stockpools rows with action labels', 
       ],
     },
   ])
+})
+
+test('page wires pre_pool and stockpools sync-to-tdx actions', () => {
+  assert.match(pageSource, /syncShouban30PrePoolToTdx/)
+  assert.match(pageSource, /syncShouban30StockPoolToTdx/)
+  assert.match(pageSource, /handleSyncPrePoolToTdx/)
+  assert.match(pageSource, /handleSyncStockPoolToTdx/)
+  assert.match(pageSource, /同步到通达信/)
 })
