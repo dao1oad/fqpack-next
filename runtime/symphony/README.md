@@ -129,8 +129,10 @@ Cleanup 只清理任务级资源：
 - 感知方式：第一阶段默认 `30s` 轮询
 - secrets：不入仓
 - 正式工作流文件：`WORKFLOW.freshquant.md`
+- `sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 会同时校验 `WORKFLOW.freshquant.md` 与 `prompts/merging.md` 的关键 contract，避免正式 prompt 被过度简化
 - 正式宿主机脚本：
   - `scripts/run_freshquant_codex_session.ps1`
+  - `scripts/assert_freshquant_merging_prompt.ps1`
   - `scripts/request_freshquant_symphony_cleanup.ps1`
   - `scripts/invoke_freshquant_symphony_cleanup_finalizer.ps1`
   - `scripts/start_freshquant_symphony.ps1`
