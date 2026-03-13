@@ -7,7 +7,7 @@ from freshquant.carnation.config import TZ
 from freshquant.config import settings
 
 host = get(settings, "mongodb.host", "127.0.0.1")
-port = get(settings, "mongodb.port", 27017)
+port = get(settings, "mongodb.port", 27027)
 db = get(settings, "mongodb.db", "freshquant")
 gantt_db = get(settings, "mongodb.gantt_db", "freshquant_gantt")
 order_management_db = get(

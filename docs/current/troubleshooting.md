@@ -28,6 +28,27 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 处理：
 - 重建 API：`docker compose -f docker/compose.parallel.yaml up -d --build fq_apiserver`
 
+## Docker API 报 `fq_mongodb:27027`
+
+现象：
+- `15000` 或 `18080/api/*` 请求超时
+- `fq_webui` 日志出现 `504 upstream timed out`
+- `fq_apiserver` 日志出现 `ServerSelectionTimeoutError: fq_mongodb:27027`
+
+先检查：
+- `docker exec <fq_apiserver> /freshquant/.venv/bin/python -c "from freshquant.config import settings; print(settings.get('mongodb'))"`
+- `docker exec <fq_apiserver> env | findstr MONGODB`
+- `docker compose -f docker/compose.parallel.yaml config`
+
+常见根因：
+- 容器环境只覆写了 `FRESHQUANT_MONGODB__HOST=fq_mongodb`，没有同时覆写 `FRESHQUANT_MONGODB__PORT=27017`
+- `freshquant/freshquant.yaml` 的宿主机默认 `mongodb.port=27027` 被保留下来，最终拼成 `fq_mongodb:27027`
+
+处理：
+- 在 `docker/compose.parallel.yaml` 为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 同时显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`
+- 如果并行环境还依赖主工作树 `.env`，也同步补齐 `FRESHQUANT_MONGODB__PORT=27017` 与 `MONGODB_PORT=27017`
+- 重建受影响容器后，再检查 `settings.get('mongodb')` 是否解析为 `{'host': 'fq_mongodb', 'port': 27017, ...}`
+
 ## Web 页面空白
 
 现象：
@@ -90,6 +111,52 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 在 `/runtime-observability` 左侧组件侧栏选中 `guardian_strategy`，先看中间 recent trace 的信号摘要、节点 hover 和最终结论
 - 节点详情优先看 `decision_expr`、`decision_context`、`decision_outcome`，Raw Browser 只作为补充
 - 需要时清理冷却键并重启 Guardian
+
+## Guardian 宿主机启动即报 Mongo `27017`
+
+现象：
+- `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min` 或 `fqnext_guardian_event` 启动即报 `ServerSelectionTimeoutError`
+- 栈追到 `freshquant.chanlun_service -> QUANTAXIS -> QAWebServer/qifiserver.py` 一类导入链
+
+先检查：
+- 宿主机环境是否有 `FRESHQUANT_MONGODB__HOST=127.0.0.1`
+- 宿主机环境是否有 `FRESHQUANT_MONGODB__PORT=27027`
+- 异常里目标地址是否仍是 `127.0.0.1:27017`
+
+常见根因：
+- 只修了 FreshQuant Dynaconf，vendored `QUANTAXIS` 仍沿用 `qaenv` 的本地 `27017` 默认值
+- `qifiserver` 在 import 阶段初始化 manager，模块一导入就连库
+- 宿主机进程的 `PYTHONPATH` 没带 `sunflower/QUANTAXIS`，实际导入落到了 `.venv/Lib/site-packages/QUANTAXIS`
+
+处理：
+- 宿主机链路统一改到 `127.0.0.1:27027`
+- Docker 容器内部继续保持 `fq_mongodb:27017`
+- 宿主机 supervisor 模板里的 `PYTHONPATH` 要同时包含仓库根、`morningglory/fqxtrade` 和 `sunflower/QUANTAXIS`
+- 当前 `freshquant` 在源码树运行时会优先插入 vendored `QUANTAXIS`；如果仍然打到 `27017`，优先怀疑正式 checkout 还没更新到包含该 bootstrap 与 lazy-init 修复的最新源码
+- 如果仍失败，说明 Mongo 端口问题已排除，继续看下一层真实依赖
+
+## Guardian / Chanlun 导入时报 `fqchan01` DLL load failed
+
+现象：
+- `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min`
+- 或 `python -c "import freshquant.signal.astock.job.monitor_stock_zh_a_min"`
+- 报 `ImportError: DLL load failed while importing fqchan01: %1 不是有效的 Win32 应用程序。`
+
+先检查：
+- `python -c "import fqchan01; print(fqchan01.__file__)"`
+- `python -c "from pathlib import Path; p=Path(r'D:/fqpack/freshquant-2026.2.23/.venv/Lib/site-packages/fqchan01.cp312-win_amd64.pyd'); data=p.read_bytes(); print(p.stat().st_size, data[:2].hex())"`
+
+常见根因：
+- 宿主机 `.venv` 里安装的是损坏的 `fqchan01.cp312-win_amd64.pyd`
+- `morningglory/fqchan01/python/build` 留下了陈旧坏产物，后续本地目录打包继续把坏 `.pyd` 带进 `.venv`
+- `uv sync --frozen` 复用了坏的本地原生包缓存，导致 `fqchan01` 看起来已安装，但文件本体不是合法 PE
+- 这类问题不等同于 Python 3.12 / Win64 ABI 普遍不兼容；同机其他本地原生包可正常导入时，优先怀疑 `fqchan01` 安装产物本身
+
+处理：
+- 先运行 `.\install.bat --skip-web`
+- 当前安装脚本会先清 `morningglory/fqchan01/python/build`，再对 `fqchan01` 强制执行 `uv` 的 `refresh + reinstall`
+- 重装后先执行 `python -c "import fqchan01; print('IMPORT_OK')"`，再执行 `python -c "import freshquant.signal.astock.job.monitor_stock_zh_a_min; print('IMPORT_OK')"`
+- 如果 `fqchan01` 仍导入失败，再继续检查 `.venv/Lib/site-packages/fqchan01.cp312-win_amd64.pyd` 是否是合法 `MZ` 文件头，而不要先回退到 Mongo / QUANTAXIS 方向
 
 ## 订单已提交但没有成交回流
 

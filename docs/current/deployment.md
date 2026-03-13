@@ -4,6 +4,7 @@
 
 - 代码改动后，受影响模块必须重新部署；只合并不部署不算完成。
 - Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
+- FreshQuant / QUANTAXIS 相关 Docker 服务在 `docker/compose.parallel.yaml` 内部固定使用 `fq_mongodb:27017`；不要只覆写 host 而保留宿主机默认 `27027`
 - `Merging` 只负责 merge 与 handoff；merge 后由单个全局 Codex 自动化统一判断 deploy、health check 和 cleanup。
 - 部署动作结束后必须做健康检查；健康检查通过后才进入 cleanup。
 - 当前 Done 判定固定为：`merge + ci + docs sync + deploy + health check + cleanup`。
@@ -34,6 +35,15 @@ docker compose -f docker/compose.parallel.yaml up -d --build ta_backend ta_front
 powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/activate_github_first_formal_service.ps1
 ```
 
+### 宿主机同步 Python 依赖
+
+```powershell
+.\install.bat --skip-web
+```
+
+- `install.bat` 会先清理 `morningglory/fqchan01/python/build`，再在 `uv sync --frozen` 阶段对本地原生包 `fqchan01` 强制执行 `refresh + reinstall`，避免宿主机继续复用损坏的 `fqchan01` 源码构建产物或缓存。
+- 如果部署目标包含 Guardian / Chanlun 相关宿主机链路，重装后应额外执行 `python -c "import fqchan01; print('IMPORT_OK')"` 做一次本地导入确认。
+
 ## 模块部署矩阵
 
 | 变更路径 | 需要部署的模块 | 最低动作 |
@@ -44,6 +54,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/activate_githu
 | `freshquant/tpsl/**` | TPSL | 重启 `python -m freshquant.tpsl.tick_listener` |
 | `freshquant/market_data/**` | XTData producer / consumer | 重启 producer、consumer；必要时重新 prewarm |
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 重启 `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event` |
+| `sunflower/QUANTAXIS/**` | QAWebServer 与依赖 QUANTAXIS 的宿主机策略链路 | 重建 `fq_qawebserver`；同步重启受影响宿主机 Guardian / strategy 进程 |
 | `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 读模型与 API | 重建 API；必要时重跑 Dagster 任务 |
 | `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |
 | `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |

@@ -149,6 +149,8 @@ def _install_route_import_stubs(monkeypatch):
 def _load_stock_routes(monkeypatch):
     _install_route_import_stubs(monkeypatch)
     _drop_module("freshquant.data.astock.holding")
+    _drop_module("freshquant.data.astock")
+    _drop_module("freshquant.data")
     _drop_module("freshquant.rear.stock.routes")
     import freshquant.rear.stock.routes as routes_module
 

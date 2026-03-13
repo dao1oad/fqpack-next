@@ -4,7 +4,8 @@ import threading
 import pymongo
 from apscheduler.jobstores.mongodb import MongoDBJobStore
 from apscheduler.schedulers.tornado import TornadoScheduler
-from qaenv import mongo_ip, mongo_port
+from qaenv import mongo_ip as qaenv_mongo_ip
+from QUANTAXIS.QAUtil.QAMongoRuntime import QA_util_resolve_mongo_runtime
 from QUANTAXIS.QAWebServer.basehandles import QABaseHandler
 from tornado.ioloop import IOLoop, PeriodicCallback
 from tornado.web import Application, RequestHandler
@@ -20,9 +21,16 @@ job_ids = []
 
 
 def init_scheduler(database='qascheduler', collection='jobs'):
+    mongo_runtime = QA_util_resolve_mongo_runtime(qaenv_mongo_ip)
 
     jobstores = {
-        'default': MongoDBJobStore(database=database, collection=collection, client=pymongo.MongoClient(host=mongo_ip, port=mongo_port))
+        'default': MongoDBJobStore(
+            database=database,
+            collection=collection,
+            client=pymongo.MongoClient(
+                host=mongo_runtime.host, port=mongo_runtime.port
+            ),
+        )
     }
     global scheduler
     scheduler = TornadoScheduler(jobstores=jobstores)
@@ -35,8 +43,11 @@ def init_scheduler(database='qascheduler', collection='jobs'):
 
 
 def task1(options):
-    print('{} [QASchedule][Task]-{}'.format(
-        datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'), options))
+    print(
+        '{} [QASchedule][Task]-{}'.format(
+            datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'), options
+        )
+    )
     # print(threading.enumerate())
 
 
@@ -54,8 +65,9 @@ class QASchedulerHandler(QABaseHandler):
             if 'add' == action:
                 if job_id not in job_ids:
                     job_ids.append(job_id)
-                    scheduler.add_job(task1, 'interval',
-                                      seconds=3, id=job_id, args=(job_id,))
+                    scheduler.add_job(
+                        task1, 'interval', seconds=3, id=job_id, args=(job_id,)
+                    )
                     self.write('[TASK ADDED] - {}'.format(job_id))
                 else:
                     self.write('[TASK EXISTS] - {}'.format(job_id))
@@ -78,7 +90,7 @@ def format_joboutput(job):
         'args': job.args,
         'kwards': job.kwargs,
         'coalesce': job.coalesce,
-        'nextruntime': str(job.next_run_time)
+        'nextruntime': str(job.next_run_time),
     }
 
 

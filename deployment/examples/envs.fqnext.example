@@ -6,6 +6,8 @@
 #
 # 说明：
 # - Docker Redis 通过宿主机 6380 映射到容器内 6379
+# - 宿主机 FreshQuant / FQXTrade / QUANTAXIS 统一走 127.0.0.1:27027
+# - Docker 容器内部仍应直连 fq_mongodb:27017，不要把宿主机映射端口写回容器内配置
 # - 若后续切换到项目内 .venv，只需保留本文件中的 Mongo/Redis 配置，Python 路径改 supervisor 模板
 
 FQ_PACK_DIR=D:/fqpack
@@ -14,6 +16,8 @@ FQ_DATA_DIR=D:/fqdata
 FRESHQUANT_MONGODB__HOST=127.0.0.1
 FRESHQUANT_MONGODB__PORT=27027
 FRESHQUANT_MONGODB__DB=freshquant
+# 可选：显式覆盖 legacy QUANTAXIS Mongo URI
+# MONGOURI=mongodb://127.0.0.1:27027
 
 FRESHQUANT_REDIS__HOST=127.0.0.1
 FRESHQUANT_REDIS__PORT=6380

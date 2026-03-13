@@ -45,15 +45,15 @@ function Resolve-OpenAISymphonyRoot {
 
     $candidates = @()
 
-    if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
-        $candidates += $RequestedPath
-    }
-
     foreach ($name in 'FRESHQUANT_OPENAI_SYMPHONY_ROOT', 'OPENAI_SYMPHONY_ROOT') {
         $value = Get-EnvValue -Name $name
         if (-not [string]::IsNullOrWhiteSpace($value)) {
             $candidates += $value
         }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
+        $candidates += $RequestedPath
     }
 
     $candidates += @(
