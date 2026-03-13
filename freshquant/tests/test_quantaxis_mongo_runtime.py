@@ -6,9 +6,9 @@ from pathlib import Path
 
 def _load_module(module_name: str, file_path: Path):
     spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"failed to load spec for {module_name}")
     module = importlib.util.module_from_spec(spec)
-    assert spec is not None
-    assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 
@@ -78,12 +78,22 @@ def test_qifi_manager_uses_resolved_host_runtime_uri(monkeypatch):
     )
 
     monkeypatch.setitem(sys.modules, "pymongo", pymongo_module)
-    monkeypatch.setitem(sys.modules, "qaenv", types.SimpleNamespace(mongo_ip="mongodb://127.0.0.1:27017"))
-    monkeypatch.setitem(sys.modules, "numpy", types.SimpleNamespace(isnan=lambda value: False))
-    monkeypatch.setitem(sys.modules, "pandas", types.SimpleNamespace(DataFrame=object, Series=object))
+    monkeypatch.setitem(
+        sys.modules,
+        "qaenv",
+        types.SimpleNamespace(mongo_ip="mongodb://127.0.0.1:27017"),
+    )
+    monkeypatch.setitem(
+        sys.modules, "numpy", types.SimpleNamespace(isnan=lambda value: False)
+    )
+    monkeypatch.setitem(
+        sys.modules, "pandas", types.SimpleNamespace(DataFrame=object, Series=object)
+    )
     monkeypatch.setitem(sys.modules, "pyfolio", types.ModuleType("pyfolio"))
     monkeypatch.setitem(sys.modules, "matplotlib", types.ModuleType("matplotlib"))
-    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", types.ModuleType("matplotlib.pyplot"))
+    monkeypatch.setitem(
+        sys.modules, "matplotlib.pyplot", types.ModuleType("matplotlib.pyplot")
+    )
     monkeypatch.setitem(sys.modules, "QUANTAXIS", types.ModuleType("QUANTAXIS"))
     monkeypatch.setitem(sys.modules, "QUANTAXIS.QAUtil.QAMongoRuntime", runtime_module)
 
@@ -124,12 +134,22 @@ def test_qifi_manager_resolves_explicit_local_mongo_uri(monkeypatch):
     )
 
     monkeypatch.setitem(sys.modules, "pymongo", pymongo_module)
-    monkeypatch.setitem(sys.modules, "qaenv", types.SimpleNamespace(mongo_ip="mongodb://127.0.0.1:27017"))
-    monkeypatch.setitem(sys.modules, "numpy", types.SimpleNamespace(isnan=lambda value: False))
-    monkeypatch.setitem(sys.modules, "pandas", types.SimpleNamespace(DataFrame=object, Series=object))
+    monkeypatch.setitem(
+        sys.modules,
+        "qaenv",
+        types.SimpleNamespace(mongo_ip="mongodb://127.0.0.1:27017"),
+    )
+    monkeypatch.setitem(
+        sys.modules, "numpy", types.SimpleNamespace(isnan=lambda value: False)
+    )
+    monkeypatch.setitem(
+        sys.modules, "pandas", types.SimpleNamespace(DataFrame=object, Series=object)
+    )
     monkeypatch.setitem(sys.modules, "pyfolio", types.ModuleType("pyfolio"))
     monkeypatch.setitem(sys.modules, "matplotlib", types.ModuleType("matplotlib"))
-    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", types.ModuleType("matplotlib.pyplot"))
+    monkeypatch.setitem(
+        sys.modules, "matplotlib.pyplot", types.ModuleType("matplotlib.pyplot")
+    )
     monkeypatch.setitem(sys.modules, "QUANTAXIS", types.ModuleType("QUANTAXIS"))
     monkeypatch.setitem(sys.modules, "QUANTAXIS.QAUtil.QAMongoRuntime", runtime_module)
 
@@ -147,7 +167,11 @@ def test_qifiserver_import_does_not_initialize_managers(monkeypatch):
     def _unexpected_manager(*args, **kwargs):
         raise AssertionError("manager should not be initialized at import time")
 
-    monkeypatch.setitem(sys.modules, "qaenv", types.SimpleNamespace(mongo_ip="mongodb://127.0.0.1:27017"))
+    monkeypatch.setitem(
+        sys.modules,
+        "qaenv",
+        types.SimpleNamespace(mongo_ip="mongodb://127.0.0.1:27017"),
+    )
     monkeypatch.setitem(
         sys.modules,
         "QUANTAXIS.QAWebServer.basehandles",
@@ -228,7 +252,9 @@ def test_fetcher_resolves_legacy_local_default_uri(monkeypatch):
         "QUANTAXIS.QAUtil.QAParameter",
         types.SimpleNamespace(
             DATABASE_TABLE=object(),
-            DATASOURCE=types.SimpleNamespace(TDX=object(), MONGO=object(), AUTO=object()),
+            DATASOURCE=types.SimpleNamespace(
+                TDX=object(), MONGO=object(), AUTO=object()
+            ),
             FREQUENCE=types.SimpleNamespace(
                 DAY="day",
                 WEEK="week",
@@ -260,7 +286,9 @@ def test_fetcher_resolves_legacy_local_default_uri(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "QUANTAXIS.QASU",
-        types.SimpleNamespace(save_tdx=types.SimpleNamespace(now_time=lambda: "2024-01-01 15:00:00")),
+        types.SimpleNamespace(
+            save_tdx=types.SimpleNamespace(now_time=lambda: "2024-01-01 15:00:00")
+        ),
     )
     monkeypatch.setitem(sys.modules, "QUANTAXIS.QAUtil.QAMongoRuntime", runtime_module)
 
