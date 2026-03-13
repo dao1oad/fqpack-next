@@ -5,6 +5,7 @@ import * as runtimeObservability from './runtimeObservability.mjs'
 import {
   applyBoardFilter,
   buildComponentBoard,
+  buildComponentSidebarItems,
   buildGuardianStepInsight,
   buildGuardianTraceSummary,
   buildTraceListSummary,
@@ -288,6 +289,56 @@ test('buildRecentTraceFeed carries guardian signal summary and conclusion', () =
   assert.equal(feed[0].guardian_outcome.node, 'finish')
 })
 
+test('buildRecentTraceFeed exposes flow nodes with guardian decision detail and generic fallback summary', () => {
+  const genericTrace = {
+    trace_id: 'trc_generic_flow',
+    trace_key: 'trace:trc_generic_flow',
+    request_ids: ['req_trc_generic_flow'],
+    internal_order_ids: ['ord_trc_generic_flow'],
+    steps: [
+      {
+        component: 'order_submit',
+        runtime_node: 'host:order_submit',
+        node: 'queue_write',
+        status: 'warning',
+        ts: '2026-03-09T10:03:00+08:00',
+        message: 'queue backlog detected',
+        payload: { queue_len: 5 },
+      },
+    ],
+  }
+
+  const feed = buildRecentTraceFeed([makeGuardianTrace(), genericTrace], { limit: 50 })
+
+  const guardianRow = feed.find((item) => item.trace_id === 'trc_guardian')
+  assert.ok(guardianRow)
+  assert.equal(guardianRow.flow_nodes[1].label, '价格阈值判断')
+  assert.equal(
+    guardianRow.flow_nodes[1].hover_items.find((item) => item.label === '条件')?.value,
+    'current_price <= bot_river_price',
+  )
+  assert.equal(
+    guardianRow.flow_nodes[1].hover_items.find((item) => item.label === '结果')?.value,
+    '跳过',
+  )
+  assert.equal(
+    guardianRow.flow_nodes[1].hover_items.find((item) => item.label === '原因')?.value,
+    'price_threshold_not_met',
+  )
+
+  const genericRow = feed.find((item) => item.trace_id === 'trc_generic_flow')
+  assert.ok(genericRow)
+  assert.equal(genericRow.flow_nodes[0].label, 'order_submit.queue_write')
+  assert.equal(
+    genericRow.flow_nodes[0].hover_items.find((item) => item.label === '结果')?.value,
+    'warning',
+  )
+  assert.match(
+    genericRow.flow_nodes[0].hover_items.find((item) => item.label === '摘要')?.value || '',
+    /queue backlog detected/,
+  )
+})
+
 test('buildGuardianTraceSummary and buildGuardianStepInsight expose structured guardian detail blocks', () => {
   const detail = buildTraceDetail(makeGuardianTrace())
   const summary = buildGuardianTraceSummary(detail)
@@ -516,6 +567,80 @@ test('buildComponentBoard keeps placeholder core cards visible and prefers trace
       },
     ],
   )
+})
+
+test('buildComponentSidebarItems keeps fixed core order and preserves placeholder components', () => {
+  const items = buildComponentSidebarItems(
+    [
+      {
+        trace_id: 'trc_guardian_only_trace',
+        trace_key: 'trace:trc_guardian_only_trace',
+        request_ids: ['req_guardian_only_trace'],
+        internal_order_ids: [],
+        steps: [
+          {
+            component: 'guardian_strategy',
+            runtime_node: 'host:guardian',
+            node: 'receive_signal',
+            status: 'info',
+            ts: '2026-03-09T10:00:00+08:00',
+          },
+          {
+            component: 'guardian_strategy',
+            runtime_node: 'host:guardian',
+            node: 'finish',
+            status: 'skipped',
+            ts: '2026-03-09T10:00:02+08:00',
+            reason_code: 'price_threshold_not_met',
+          },
+        ],
+      },
+    ],
+    buildHealthCards([
+      {
+        component: 'xt_producer',
+        runtime_node: 'host:xt_producer',
+        status: 'info',
+        heartbeat_age_s: 2,
+        metrics: { connected: 1 },
+      },
+      {
+        component: 'guardian_strategy',
+        runtime_node: 'docker:guardian',
+        status: 'unknown',
+        heartbeat_age_s: null,
+        metrics: {},
+        is_placeholder: true,
+      },
+      {
+        component: 'xt_consumer',
+        runtime_node: 'host:xt_consumer',
+        status: 'unknown',
+        heartbeat_age_s: null,
+        metrics: {},
+        is_placeholder: true,
+      },
+    ]),
+  )
+
+  assert.equal(items.length, 10)
+  assert.deepEqual(
+    items.slice(0, 5).map((item) => item.component),
+    ['xt_producer', 'xt_consumer', 'guardian_strategy', 'position_gate', 'order_submit'],
+  )
+  assert.equal(items[0].heartbeat_label, '2s')
+  assert.equal(items[0].runtime_details[0].runtime_node, 'host:xt_producer')
+
+  const guardian = items.find((item) => item.component === 'guardian_strategy')
+  assert.ok(guardian)
+  assert.equal(guardian.issue_trace_count, 1)
+  assert.equal(guardian.issue_step_count, 1)
+  assert.equal(guardian.runtime_details[0].runtime_node, 'host:guardian')
+
+  const xtConsumer = items.find((item) => item.component === 'xt_consumer')
+  assert.ok(xtConsumer)
+  assert.equal(xtConsumer.status, 'unknown')
+  assert.equal(xtConsumer.heartbeat_label, 'no data')
 })
 
 test('applyBoardFilter narrows traces by selected component', () => {

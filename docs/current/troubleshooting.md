@@ -87,7 +87,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 处理：
 - 查 runtime 里的 `guardian_strategy`、`position_gate`、`order_submit`
-- 在 `/runtime-observability` 选中 `guardian_strategy` 组件看板，先看 recent trace 的信号摘要和最终结论
+- 在 `/runtime-observability` 左侧组件侧栏选中 `guardian_strategy`，先看中间 recent trace 的信号摘要、节点 hover 和最终结论
 - 节点详情优先看 `decision_expr`、`decision_context`、`decision_outcome`，Raw Browser 只作为补充
 - 需要时清理冷却键并重启 Guardian
 

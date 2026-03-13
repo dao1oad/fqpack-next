@@ -60,7 +60,7 @@
 - Web UI
 - Gantt/Shouban30 对应读模型数据
 - Runtime Observability 原始日志目录
-- Guardian 排障时优先使用 `/runtime-observability` 的 `guardian_strategy` 组件看板；该视图现在直接显示信号摘要、判断上下文和最终结论
+- Guardian 排障时优先使用 `/runtime-observability` 左侧组件侧栏中的 `guardian_strategy`；该视图现在按“组件侧栏 -> 最近链路流 -> 单条链路详情”展开，并直接显示信号摘要、判断上下文和最终结论
 
 ## 并行环境的默认口径
 
