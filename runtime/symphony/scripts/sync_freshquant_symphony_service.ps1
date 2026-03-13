@@ -167,6 +167,18 @@ $copyMap = @(
         Destination = (Join-Path $scriptsRoot 'sync_freshquant_symphony_service.ps1')
     },
     @{
+        Source = (Join-Path $sourceScriptsRoot 'run_freshquant_symphony_restart_task.ps1')
+        Destination = (Join-Path $scriptsRoot 'run_freshquant_symphony_restart_task.ps1')
+    },
+    @{
+        Source = (Join-Path $sourceScriptsRoot 'install_freshquant_symphony_restart_task.ps1')
+        Destination = (Join-Path $scriptsRoot 'install_freshquant_symphony_restart_task.ps1')
+    },
+    @{
+        Source = (Join-Path $sourceScriptsRoot 'invoke_freshquant_symphony_restart_task.ps1')
+        Destination = (Join-Path $scriptsRoot 'invoke_freshquant_symphony_restart_task.ps1')
+    },
+    @{
         Source = (Join-Path $sourceScriptsRoot 'assert_freshquant_workflow_prompt.ps1')
         Destination = (Join-Path $scriptsRoot 'assert_freshquant_workflow_prompt.ps1')
     },
