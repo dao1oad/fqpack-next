@@ -11,7 +11,7 @@
 - GitHub Issue：正式任务入口
 - GitHub Draft PR：唯一 `Design Review` 评审面
 - GitHub PR + CI：代码交付真值
-- Deploy + Health Check + Cleanup：运行交付真值
+- Deploy + Health Check + Cleanup：运行交付真值（由单个全局 Codex 自动化收口）
 
 `Linear` 不再作为正式任务入口、评审面或批准真值来源。
 
@@ -63,11 +63,11 @@
 
 正式工作流固定为：
 
-`Issue -> Draft PR -> Design Review(仅高风险) -> In Progress -> CI -> Deploy -> Health Check -> Cleanup -> Done`
+`Issue -> Draft PR -> Design Review(仅高风险) -> In Progress -> CI -> Merging -> Global Stewardship -> Done`
 
 低风险任务可跳过 `Design Review`：
 
-`Issue -> In Progress -> CI -> Deploy -> Health Check -> Cleanup -> Done`
+`Issue -> In Progress -> CI -> Merging -> Global Stewardship -> Done`
 
 新建 GitHub Issue 默认只打：
 
@@ -139,7 +139,12 @@
   - 创建/绑定 branch、workspace、Draft PR
   - 选择 skill chain
   - 在 `Design Review` 处暂停与恢复
-  - 执行 deploy、health check、cleanup
+  - 执行单任务开发闭环直到 PR merge 到 remote `main`
+
+- 单个全局 Codex 自动化负责：
+  - 接管 `Global Stewardship`
+  - 统一处理 deploy、health check、cleanup
+  - 发现需要代码修复的问题时只创建 follow-up issue，由下一轮 `Symphony` 接手
 
 推荐 skill chain：
 

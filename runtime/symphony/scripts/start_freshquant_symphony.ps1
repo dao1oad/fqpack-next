@@ -105,6 +105,8 @@ $workflowPath = Join-Path $configRoot 'WORKFLOW.freshquant.md'
 $workflowValidator = Join-Path $scriptsRoot 'assert_freshquant_workflow_prompt.ps1'
 $mergingPromptPath = Join-Path $configRoot 'prompts\merging.md'
 $mergingPromptValidator = Join-Path $scriptsRoot 'assert_freshquant_merging_prompt.ps1'
+$globalStewardshipPromptPath = Join-Path $configRoot 'prompts\global_stewardship.md'
+$globalStewardshipPromptValidator = Join-Path $scriptsRoot 'assert_freshquant_global_stewardship_prompt.ps1'
 $runnerPath = Join-Path $scriptsRoot 'freshquant_runner.exs'
 $stdoutLog = Join-Path $logsRoot 'stdout.log'
 $stderrLog = Join-Path $logsRoot 'stderr.log'
@@ -138,12 +140,21 @@ if (-not (Test-Path $mergingPromptValidator)) {
     throw "Merging prompt validator not found: $mergingPromptValidator"
 }
 
+if (-not (Test-Path $globalStewardshipPromptPath)) {
+    throw "Global Stewardship prompt file not found: $globalStewardshipPromptPath"
+}
+
+if (-not (Test-Path $globalStewardshipPromptValidator)) {
+    throw "Global Stewardship prompt validator not found: $globalStewardshipPromptValidator"
+}
+
 if (-not (Test-Path $runnerPath)) {
     throw "Runner file not found: $runnerPath"
 }
 
 & $workflowValidator -WorkflowPath $workflowPath
 & $mergingPromptValidator -PromptPath $mergingPromptPath
+& $globalStewardshipPromptValidator -PromptPath $globalStewardshipPromptPath
 
 $OpenAISymphonyRoot = Resolve-OpenAISymphonyRoot -RequestedPath $OpenAISymphonyRoot
 
@@ -192,6 +203,7 @@ foreach ($name in $proxyVars) {
 [Environment]::SetEnvironmentVariable('ELIXIR_HOME', (Split-Path -Parent $elixirBin), 'Process')
 
 Write-Host "[freshquant] starting symphony"
+Write-Host "[freshquant] source:   $OpenAISymphonyRoot"
 Write-Host "[freshquant] workflow: $workflowPath"
 Write-Host "[freshquant] runner:   $runnerPath"
 Write-Host "[freshquant] port:     $Port"

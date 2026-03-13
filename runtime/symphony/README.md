@@ -7,6 +7,7 @@
 - 固化 `GitHub-first` 轻量治理
 - 固化 `Design Review` 为唯一人工评审点
 - 固化 `Symphony + superpowers` 执行链
+- 固化 `Symphony` 到 merge 为止、`Global Stewardship` 接手 merge 后收口
 - 固化 deploy、health check、cleanup 与 `Done` 判定
 - 让仓库治理与 `Symphony` 运行模板保持一致
 
@@ -15,6 +16,7 @@
 - GitHub Issue：正式任务入口
 - GitHub Draft PR：唯一 `Design Review` 评审面
 - GitHub PR + CI：代码交付真值
+- 单个全局 Codex 自动化完成的 `deploy + health check + cleanup`：运行交付真值
 
 `Linear` 不再作为正式任务入口、评审面或批准真值来源。
 
@@ -22,7 +24,7 @@
 
 正式工作流固定为：
 
-`Issue -> Draft PR -> Design Review(仅高风险) -> In Progress -> CI -> Deploy -> Health Check -> Cleanup -> Done`
+`Issue -> Draft PR -> Design Review(仅高风险) -> In Progress -> CI -> Merging -> Global Stewardship -> Done`
 
 低风险任务可跳过 `Design Review`，直接进入实现。
 
@@ -93,6 +95,7 @@ GitHub 文本规则：
 
 - 代码更新后，受影响模块必须重新部署
 - 未部署完成，不算 `Done`
+- merge 后的 deploy、health check、cleanup 由单个全局 Codex 自动化统一收口
 
 `Done` 的定义是：
 
@@ -123,13 +126,27 @@ Cleanup 只清理任务级资源：
 - 在线服务
 - `docs/current/**`
 
+## Global Stewardship
+
+- `Merging` 只负责 merge 到 remote `main`、写 merge handoff comment，并把 issue 转入 `Global Stewardship`
+- 单个全局 Codex 自动化统一巡检所有 `Global Stewardship` issue
+- 全局自动化允许按当前 `main` 和部署面并集批量 deploy 多个 merged issue
+- 如果发现需要代码修复的问题，全局自动化只创建 follow-up issue，不直接建修复 PR
+- 原 issue 只有在 `deploy + health check + cleanup` 全部完成且无 open follow-up issue 阻塞时，才能 `Done`
+
 ## 运行方式
 
 - tracker：GitHub Issue + Draft PR
 - 感知方式：第一阶段默认 `30s` 轮询
 - secrets：不入仓
 - 正式工作流文件：`WORKFLOW.freshquant.md`
-- `sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 会同时校验 `WORKFLOW.freshquant.md` 与 `prompts/merging.md` 的关键 contract，避免正式 prompt 被过度简化
+- 全局自动化提示词：`prompts/global_stewardship.md`
+- 关键模板：
+  - `templates/merge_handoff_comment.md`
+  - `templates/global_stewardship_progress_comment.md`
+  - `templates/global_stewardship_done_comment.md`
+  - `templates/follow_up_issue.md`
+- `sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 会同时校验 `WORKFLOW.freshquant.md`、`prompts/merging.md` 与 `prompts/global_stewardship.md` 的关键 contract，避免正式 prompt 被过度简化
 - 正式宿主机脚本：
   - `scripts/run_freshquant_codex_session.ps1`
   - `scripts/assert_freshquant_merging_prompt.ps1`
@@ -153,6 +170,7 @@ Issue labels：
 - `todo`
 - `in-progress`
 - `merging`
+- `global-stewardship`
 
 标签使用规则：
 
