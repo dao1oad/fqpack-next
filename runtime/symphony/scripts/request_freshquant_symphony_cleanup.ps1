@@ -7,8 +7,10 @@ param(
     [string]$BranchName,
     [Parameter(Mandatory = $true)]
     [string]$WorkspacePath,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = 'InlineBody')]
     [string]$DeploymentCommentBody,
+    [Parameter(Mandatory = $true, ParameterSetName = 'BodyPath')]
+    [string]$DeploymentCommentBodyPath,
     [string]$OriginUrl,
     [string]$IssueUrl,
     [int]$PullRequestNumber,
@@ -27,6 +29,16 @@ function Write-Utf8NoBomFile {
 
     $encoding = [System.Text.UTF8Encoding]::new($false)
     [System.IO.File]::WriteAllText($Path, $Content, $encoding)
+}
+
+function Read-Utf8TextFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "DeploymentCommentBodyPath does not exist: $Path"
+    }
+
+    return [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
 }
 
 function Get-NormalizedPath {
@@ -63,6 +75,20 @@ function Assert-NonEmptyText {
     if ([string]::IsNullOrWhiteSpace($Value)) {
         throw "$FieldName is required."
     }
+}
+
+function Resolve-DeploymentCommentBody {
+    param(
+        [string]$InlineBody,
+        [string]$BodyPath,
+        [Parameter(Mandatory = $true)][string]$ParameterSetName
+    )
+
+    if ($ParameterSetName -eq 'BodyPath') {
+        return Read-Utf8TextFile -Path $BodyPath
+    }
+
+    return $InlineBody
 }
 
 function Assert-WorkspacePathSafe {
@@ -167,7 +193,8 @@ function Resolve-GitHubRepository {
 
 Assert-IssueIdentifier -Value $IssueIdentifier
 Assert-BranchName -Value $BranchName
-Assert-NonEmptyText -Value $DeploymentCommentBody -FieldName 'DeploymentCommentBody'
+$resolvedDeploymentCommentBody = Resolve-DeploymentCommentBody -InlineBody $DeploymentCommentBody -BodyPath $DeploymentCommentBodyPath -ParameterSetName $PSCmdlet.ParameterSetName
+Assert-NonEmptyText -Value $resolvedDeploymentCommentBody -FieldName 'DeploymentCommentBody'
 
 $workspaceRoot = Join-Path $ServiceRoot 'workspaces'
 $artifactsRoot = Join-Path $ServiceRoot 'artifacts'
@@ -190,7 +217,7 @@ $payload = [ordered]@{
     workspaceRoot = $normalizedWorkspaceRoot
     artifactsRoot = $normalizedArtifactsRoot
     artifactsRetentionDays = $ArtifactsRetentionDays
-    deploymentCommentBody = $DeploymentCommentBody
+    deploymentCommentBody = $resolvedDeploymentCommentBody
     issueUrl = $IssueUrl
     pullRequestNumber = $PullRequestNumber
     pullRequestUrl = $PullRequestUrl
