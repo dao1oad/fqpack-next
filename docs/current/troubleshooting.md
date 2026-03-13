@@ -64,7 +64,9 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 处理：
 - 修正 `monitor.xtdata.mode` 与 `monitor.xtdata.max_symbols`
 - 重启 producer / consumer
-- 通过 runtime 页面看 `xt_producer` / `xt_consumer` 心跳与 backlog
+- 通过 runtime 页面看：
+  - `xt_producer` 的心跳年龄、`收 tick`、`5m ticks`、`订阅`
+  - `xt_consumer` 的心跳年龄、`最近处理`、`5m bars`、`backlog`
 
 ## Guardian 不触发或不下单
 
@@ -172,6 +174,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 路径被环境变量指到别的目录。
 - 页面筛选条件过严。
 - 原始事件只有 `heartbeat`，或缺少 `trace_id` / `request_id` / `internal_order_id`，因此不会进入 trace 列表。
+- 组件卡片是固定核心组件全集；如果显示 `unknown / no data`，说明组件存在但最近没有可聚合的 health 数据。
 - `/api/runtime/traces` 与 `/api/runtime/health/summary` 已有数据，但 `fq_webui` 仍在跑旧静态资源，或页面代码仍按 `response.data.*` 读取而不是读取顶层 `traces/components/trace/files/records`。
 
 处理：

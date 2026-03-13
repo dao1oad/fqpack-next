@@ -13,6 +13,19 @@ const CORE_COMPONENTS = [
   'order_reconcile',
   'tpsl_worker',
 ]
+const HEALTH_METRIC_META = [
+  { key: 'rx_age_s', label: '收 tick', format: 'seconds' },
+  { key: 'tick_count_5m', label: '5m ticks', format: 'number' },
+  { key: 'subscribed_codes', label: '订阅', format: 'number' },
+  { key: 'connected', label: '连接', format: 'yes-no' },
+  { key: 'last_bar_age_s', label: '最近处理', format: 'seconds' },
+  { key: 'processed_bars_5m', label: '5m bars', format: 'number' },
+  { key: 'backlog_sum', label: 'backlog', format: 'number' },
+  { key: 'scheduler_pending', label: '待算', format: 'number' },
+  { key: 'queue_len', label: 'queue', format: 'number' },
+  { key: 'max_lag_s', label: 'lag', format: 'seconds' },
+  { key: 'catchup_mode', label: 'catchup', format: 'on-off' },
+]
 const ISSUE_STATUS_RANK = {
   failed: 4,
   error: 3,
@@ -65,8 +78,9 @@ export const formatDurationMs = (value) => {
     const text = Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1)
     return `${text}s`
   }
-  const minutes = Math.floor(ms / 60_000)
-  const seconds = Math.round((ms % 60_000) / 1000)
+  const totalSeconds = Math.round(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
   if (!seconds) return `${minutes}m`
   return `${minutes}m ${seconds}s`
 }
@@ -378,23 +392,44 @@ export const sortTraceSummaries = (rows = []) => {
   })
 }
 
+const formatHealthMetric = (meta = {}, value) => {
+  if (value === null || value === undefined || value === '') return ''
+  if (meta.format === 'seconds') return formatDurationMs(Number(value) * 1000)
+  if (meta.format === 'yes-no') return Number(value) > 0 ? 'yes' : 'no'
+  if (meta.format === 'on-off') return Number(value) > 0 ? 'on' : 'off'
+  return String(value)
+}
+
+const buildHealthHighlights = (metrics = {}) => {
+  const highlights = []
+  for (const meta of HEALTH_METRIC_META) {
+    const value = metrics?.[meta.key]
+    if (value === undefined || value === null || value === '') continue
+    const display = formatHealthMetric(meta, value)
+    if (!display) continue
+    highlights.push({
+      key: meta.key,
+      label: meta.label,
+      value,
+      display,
+    })
+  }
+  return highlights
+}
+
 export const buildHealthCards = (components = []) => {
   return (components || []).map((item) => {
     const metrics = item?.metrics || {}
-    const highlights = []
-    for (const key of ['rx_age_s', 'backlog_sum', 'max_lag_s', 'queue_len', 'connected']) {
-      if (metrics[key] === undefined) continue
-      highlights.push({
-        key,
-        value: metrics[key],
-      })
-    }
     return {
       component: toText(item?.component) || 'runtime',
       runtime_node: toText(item?.runtime_node) || '-',
       status: toText(item?.status) || 'unknown',
       heartbeat_age_s: item?.heartbeat_age_s ?? null,
-      highlights,
+      heartbeat_label: item?.heartbeat_age_s === null || item?.heartbeat_age_s === undefined
+        ? 'no data'
+        : formatDurationMs(Number(item.heartbeat_age_s) * 1000),
+      is_placeholder: Boolean(item?.is_placeholder),
+      highlights: buildHealthHighlights(metrics),
     }
   })
 }
@@ -695,15 +730,26 @@ export const buildComponentBoard = (traces = [], components = []) => {
   const componentCards = Array.isArray(components) ? components : []
 
   for (const component of CORE_COMPONENTS) {
+    const realHealthCards = componentCards.filter(
+      (item) => toText(item?.component) === component && !item?.is_placeholder,
+    )
+    const placeholderCards = componentCards.filter(
+      (item) => toText(item?.component) === component && item?.is_placeholder,
+    )
     const runtimeNodes = new Set()
-    for (const item of componentCards) {
-      if (toText(item?.component) !== component) continue
+    for (const item of realHealthCards) {
       runtimeNodes.add(normalizeRuntimeNode(item?.runtime_node))
     }
     for (const trace of normalizedTraces) {
       for (const step of Array.isArray(trace?.steps) ? trace.steps : []) {
         if (toText(step?.component) !== component) continue
         runtimeNodes.add(normalizeRuntimeNode(step?.runtime_node))
+      }
+    }
+    const usePlaceholderCards = runtimeNodes.size === 0
+    if (usePlaceholderCards) {
+      for (const item of placeholderCards) {
+        runtimeNodes.add(normalizeRuntimeNode(item?.runtime_node))
       }
     }
 
@@ -736,10 +782,16 @@ export const buildComponentBoard = (traces = [], components = []) => {
           .map((item) => item.detail)
           .sort((left, right) => toText(right?.last_ts).localeCompare(toText(left?.last_ts)))[0] || null
       const healthCard =
-        componentCards.find((item) =>
+        realHealthCards.find((item) =>
           toText(item?.component) === component &&
           normalizeRuntimeNode(item?.runtime_node) === runtimeNode,
-        ) || null
+        ) ||
+        (usePlaceholderCards
+          ? placeholderCards.find((item) =>
+              toText(item?.component) === component &&
+              normalizeRuntimeNode(item?.runtime_node) === runtimeNode,
+            ) || null
+          : null)
 
       if (!healthCard && matchingTraces.length === 0) continue
 
@@ -748,10 +800,12 @@ export const buildComponentBoard = (traces = [], components = []) => {
         runtime_node: runtimeNode,
         status: toText(healthCard?.status) || (issueTraceCount > 0 ? 'warning' : 'unknown'),
         heartbeat_age_s: healthCard?.heartbeat_age_s ?? null,
+        heartbeat_label: healthCard?.heartbeat_label || 'no data',
         issue_trace_count: issueTraceCount,
         issue_step_count: issueStepCount,
         last_issue_ts: toText(lastIssueTrace?.last_ts) || '',
         trace_count: matchingTraces.length,
+        is_placeholder: Boolean(healthCard?.is_placeholder),
         highlights: Array.isArray(healthCard?.highlights) ? healthCard.highlights : [],
       })
     }

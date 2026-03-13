@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from freshquant.runtime_observability.node_catalog import COMPONENTS
+from freshquant.runtime_observability.runtime_node import resolve_runtime_node
+
 
 def build_health_summary(events: list[dict] | tuple[dict, ...], now=None) -> list[dict]:
     now_dt = _resolve_datetime(now)
@@ -26,6 +29,7 @@ def build_health_summary(events: list[dict] | tuple[dict, ...], now=None) -> lis
                 "heartbeat_ts": None,
                 "heartbeat_age_s": None,
                 "metrics": {},
+                "is_placeholder": False,
             },
         )
 
@@ -40,6 +44,23 @@ def build_health_summary(events: list[dict] | tuple[dict, ...], now=None) -> lis
             target["heartbeat_age_s"] = round(
                 max((now_dt - event_ts).total_seconds(), 0.0), 3
             )
+
+    observed_components = {
+        str(item.get("component") or "").strip() for item in grouped.values()
+    }
+    for component in COMPONENTS:
+        if component in observed_components:
+            continue
+        runtime_node = resolve_runtime_node(component)
+        grouped[(runtime_node, component)] = {
+            "runtime_node": runtime_node,
+            "component": component,
+            "status": "unknown",
+            "heartbeat_ts": None,
+            "heartbeat_age_s": None,
+            "metrics": {},
+            "is_placeholder": True,
+        }
 
     items = list(grouped.values())
     items.sort(key=lambda item: (str(item["component"]), str(item["runtime_node"])))
