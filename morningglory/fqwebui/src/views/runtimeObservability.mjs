@@ -49,8 +49,9 @@ export const formatDurationMs = (value) => {
     const text = Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1)
     return `${text}s`
   }
-  const minutes = Math.floor(ms / 60_000)
-  const seconds = Math.round((ms % 60_000) / 1000)
+  const totalSeconds = Math.round(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
   if (!seconds) return `${minutes}m`
   return `${minutes}m ${seconds}s`
 }

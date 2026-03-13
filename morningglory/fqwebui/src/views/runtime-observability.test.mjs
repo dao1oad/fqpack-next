@@ -635,6 +635,10 @@ test('filterTraceSteps keeps only issue steps when requested', () => {
   assert.equal(formatDurationMs(1520), '1.5s')
 })
 
+test('formatDurationMs normalizes rounded minute rollover for heartbeat labels', () => {
+  assert.equal(formatDurationMs(119500), '2m')
+})
+
 test('buildTraceSummaryMeta derives issue summary and slowest step metadata', () => {
   const detail = buildTraceDetail({
     steps: [
