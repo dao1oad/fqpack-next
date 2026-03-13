@@ -17,6 +17,9 @@
   - `/api/order/submit`
   - `/api/order/cancel`
   - `/api/stock_order`
+  - `/api/order-management/orders`
+  - `/api/order-management/orders/<internal_order_id>`
+  - `/api/order-management/stats`
   - `/api/order-management/buy-lots/<buy_lot_id>`
   - `/api/order-management/stoploss/bind`
 - CLI
@@ -26,6 +29,7 @@
   - `freshquant.order_management.submit.guardian.submit_guardian_order`
 - 核心服务
   - `freshquant.order_management.submit.service.OrderSubmitService`
+  - `freshquant.order_management.read_service.OrderManagementReadService`
 
 ## 依赖
 
@@ -53,6 +57,10 @@
 ### 对账
 
 `ExternalOrderReconcileService -> internal_match -> externalize -> projection_update`
+
+### 账本查询
+
+`GET /api/order-management/orders* -> OrderManagementReadService -> om_orders + om_order_requests + om_order_events + om_trade_facts -> /order-management`
 
 ## 存储
 
@@ -83,6 +91,7 @@
 ## 部署/运行
 
 - 路由改动至少重建 `fq_apiserver`
+- `morningglory/fqwebui` 改动后要重建 `fqwebui`
 - submit / ingest / reconcile 逻辑改动时，要同步重启相关宿主机进程
 - 交易链改动后至少验证一次：
   - submit
@@ -114,3 +123,9 @@
 - 检查 `om_sell_allocations`
 - 检查 `om_lot_slices`
 - 检查 ingest 是否识别到正确的买入 lot
+
+### 订单页列表有单但详情缺 request / event / trade
+
+- 检查 `om_order_requests` 是否存在对应 `request_id`
+- 检查 `om_order_events` 是否写入对应 `internal_order_id`
+- 检查 `om_trade_facts` 是否携带对应 `internal_order_id`
