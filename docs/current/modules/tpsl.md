@@ -44,6 +44,8 @@ TPSL 模块负责在独立 tick 链路上评估止盈和止损条件，并在条
 
 `/api/tpsl/history -> TpslManagementService -> om_exit_trigger_events + om_order_requests + om_orders + om_order_events + om_trade_facts`
 
+`/api/tpsl/management/<symbol>` 与 `/api/tpsl/history` 在返回前会把 Mongo `ObjectId`、日期时间对象归一成 JSON-safe 值，避免管理页详情/历史响应因为底层文档原始字段而序列化失败。
+
 ## 存储
 
 TPSL 数据当前仍放在订单管理库，核心集合：
