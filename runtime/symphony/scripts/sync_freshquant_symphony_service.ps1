@@ -54,12 +54,18 @@ $sourceLayout = Get-SourceLayout -RepoRuntimeRoot $repoRuntimeRoot -ServiceRoot 
 $sourceConfigRoot = $sourceLayout.ConfigRoot
 $sourceScriptsRoot = $sourceLayout.ScriptsRoot
 $workflowValidator = Join-Path $sourceScriptsRoot 'assert_freshquant_workflow_prompt.ps1'
+$mergingPromptValidator = Join-Path $sourceScriptsRoot 'assert_freshquant_merging_prompt.ps1'
 
 if (-not (Test-Path $workflowValidator)) {
     throw "Workflow validator script not found: $workflowValidator"
 }
 
+if (-not (Test-Path $mergingPromptValidator)) {
+    throw "Merging prompt validator script not found: $mergingPromptValidator"
+}
+
 & $workflowValidator -WorkflowPath (Join-Path $sourceConfigRoot 'WORKFLOW.freshquant.md')
+& $mergingPromptValidator -PromptPath (Join-Path $sourceConfigRoot 'prompts\merging.md')
 
 $directories = @(
     $configRoot,
@@ -137,6 +143,10 @@ $copyMap = @(
     @{
         Source = (Join-Path $sourceScriptsRoot 'assert_freshquant_workflow_prompt.ps1')
         Destination = (Join-Path $scriptsRoot 'assert_freshquant_workflow_prompt.ps1')
+    },
+    @{
+        Source = (Join-Path $sourceScriptsRoot 'assert_freshquant_merging_prompt.ps1')
+        Destination = (Join-Path $scriptsRoot 'assert_freshquant_merging_prompt.ps1')
     },
     @{
         Source = (Join-Path $sourceScriptsRoot 'request_freshquant_symphony_cleanup.ps1')

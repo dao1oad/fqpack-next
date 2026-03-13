@@ -200,6 +200,8 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 高风险任务被直接贴上 `design-review`，但 Draft PR 引导创建失败
 - 新建 issue 时手工预贴了 `design-review`，导致任务跳过 `Todo` 风险判定并直接进入高风险路径
 - 正式服务加载了一份过度简化的 `WORKFLOW.freshquant.md`，prompt 中没有 issue 标识/标题/描述，导致 agent 只会做泛化上下文扫描
+- `Merging` 会话里直接使用 `gh pr checks --watch`、`gh run watch` 或带 `Start-Sleep` 的长轮询脚本，导致单个 turn 长时间占住 agent，甚至被 stall detector 杀掉后重试
+- merge/deploy 之后没有注册 cleanup request，而是在会话里直接 `Remove-Item` / `git worktree remove` 删除 task workspace，结果 cleanup 没进入 host finalizer，任务停在 `Merging` / `Blocked` 收不了口
 - `Design Review` 任务在 Codex 会话里再次触发 `brainstorming`，硬门要求新的人工批准，结果因为会话内没有人工输入面而反复空转
 - workspace 只保留了本地路径 `origin`，没有 GitHub remote，导致 `gh pr ...` / `gh issue ...` 在 workspace 内直接失败
 - issue 被打到 `blocked`，但没有写明解除条件和应该恢复到哪个状态
@@ -214,6 +216,8 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 如果任务是普通 bugfix 或小范围现有模块修复，但没有 Draft PR，优先按低风险路径排查，不要继续等待人工审批
 - 如果任务命中高风险条件且已经在 `Design Review`，但没有 linked Draft PR，先看 orchestrator 日志是否已触发一次引导执行；若仍没有 Draft PR，优先排查 GitHub token、`gh`/push 权限、branch/PR 创建失败，而不是继续等待审批
 - 如果日志里反复只有通用 repo 扫描而没有 issue 标识、标题、描述，先检查 `WORKFLOW.freshquant.md` 是否仍包含 issue placeholders；`sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 现在会对这份 prompt 做合约校验
+- 如果 `Merging` 很慢，先看 session 里是否出现 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 轮询；正式 prompt 现在要求只做一次性检查后结束当前 turn，让 orchestrator 下一轮继续
+- 如果 merge/deploy 已完成但 cleanup 不收口，先看本轮是否真的写出了 cleanup request；`Merging` 现在要求通过 `request_freshquant_symphony_cleanup.ps1` 交给 host finalizer，而不是在会话里直接删 workspace
 - 如果日志里明确读入了 issue body，但随后又加载 `brainstorming` 并停在“等待批准”，说明 workflow 仍把 `Design Review` 错当成会话内交互设计阶段；应改成“issue body -> Draft PR packet -> GitHub approval”的单向流程
 - 如果 `gh` 在 workspace 内报 “none of the git remotes configured for this repository point to a known GitHub host”，先看当前 workspace 是否只有本地 `origin`；正式 workflow 现在会在 `after_create` / `before_run` 自动补齐 `github` remote
 - 如果 issue 停在 `blocked`，先看最新 GitHub 评论是否写清了 blocker、clear condition、evidence 和 target recovery state；没有的话先补齐，再决定是否解除

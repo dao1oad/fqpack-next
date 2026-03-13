@@ -103,6 +103,8 @@ $scriptsRoot = Join-Path $ServiceRoot 'scripts'
 $logsRoot = Join-Path $ServiceRoot 'logs'
 $workflowPath = Join-Path $configRoot 'WORKFLOW.freshquant.md'
 $workflowValidator = Join-Path $scriptsRoot 'assert_freshquant_workflow_prompt.ps1'
+$mergingPromptPath = Join-Path $configRoot 'prompts\merging.md'
+$mergingPromptValidator = Join-Path $scriptsRoot 'assert_freshquant_merging_prompt.ps1'
 $runnerPath = Join-Path $scriptsRoot 'freshquant_runner.exs'
 $stdoutLog = Join-Path $logsRoot 'stdout.log'
 $stderrLog = Join-Path $logsRoot 'stderr.log'
@@ -128,11 +130,20 @@ if (-not (Test-Path $workflowValidator)) {
     throw "Workflow validator not found: $workflowValidator"
 }
 
+if (-not (Test-Path $mergingPromptPath)) {
+    throw "Merging prompt file not found: $mergingPromptPath"
+}
+
+if (-not (Test-Path $mergingPromptValidator)) {
+    throw "Merging prompt validator not found: $mergingPromptValidator"
+}
+
 if (-not (Test-Path $runnerPath)) {
     throw "Runner file not found: $runnerPath"
 }
 
 & $workflowValidator -WorkflowPath $workflowPath
+& $mergingPromptValidator -PromptPath $mergingPromptPath
 
 $OpenAISymphonyRoot = Resolve-OpenAISymphonyRoot -RequestedPath $OpenAISymphonyRoot
 
