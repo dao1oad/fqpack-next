@@ -15,6 +15,8 @@ Hard rules:
 - Do not open multiple review packets for the same task.
 - Do not publish fragmented decision questions.
 - Do not treat free-form comments as approval truth; only `APPROVED` or PR review `Approve` counts.
+- If you move a task to `Blocked`, you must record the blocker, clear condition, evidence, and target recovery state in GitHub.
+- Once Design Review is approved, later CI/conflict/deploy/cleanup work must not ask for new human approval again; use `Rework` or `Merging` by default, and use `Blocked` only when a new real external blocker appears and the blocker record is complete.
 
 Exit condition:
 
