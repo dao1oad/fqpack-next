@@ -23,6 +23,7 @@ def test_install_restart_task_grants_non_elevated_invoke_access() -> None:
     content = INSTALL_SCRIPT.read_text(encoding="utf-8")
 
     assert "Grant-TaskReadAndExecuteAccess" in content
+    assert "Test-TaskAceGrantsReadAndExecute" in content
     assert "GetSecurityDescriptor" in content
     assert "SetSecurityDescriptor" in content
     assert "FRFX" in content

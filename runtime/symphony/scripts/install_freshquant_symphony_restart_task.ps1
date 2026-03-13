@@ -33,6 +33,42 @@ function Get-CurrentUserSid {
     return $identity.User.Value
 }
 
+function Test-TaskAceGrantsReadAndExecute {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SecurityDescriptor,
+        [Parameter(Mandatory = $true)]
+        [string]$UserSid
+    )
+
+    $aceMatches = [regex]::Matches(
+        $SecurityDescriptor,
+        '\((?<type>[^;]+);(?<flags>[^;]*);(?<rights>[^;]*);(?<object>[^;]*);(?<inherit>[^;]*);(?<sid>[^)]+)\)'
+    )
+
+    foreach ($aceMatch in $aceMatches) {
+        if ($aceMatch.Groups['type'].Value -ne 'A') {
+            continue
+        }
+
+        if ($aceMatch.Groups['sid'].Value -ne $UserSid) {
+            continue
+        }
+
+        $rights = $aceMatch.Groups['rights'].Value
+        if (
+            $rights -match 'FA' -or
+            $rights -match 'GA' -or
+            (($rights -match 'FR') -and ($rights -match 'FX')) -or
+            (($rights -match 'GR') -and ($rights -match 'GX'))
+        ) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Grant-TaskReadAndExecuteAccess {
     param(
         [Parameter(Mandatory = $true)]
@@ -46,10 +82,9 @@ function Grant-TaskReadAndExecuteAccess {
     $rootFolder = $schedule.GetFolder('\')
     $task = $rootFolder.GetTask($TaskName)
     $securityDescriptor = $task.GetSecurityDescriptor(7)
-    $escapedUserSid = [regex]::Escape($UserSid)
     $readAndExecuteAce = "(A;;FRFX;;;$UserSid)"
 
-    if ($securityDescriptor -match "\(A;;[A-Z]+;;;$escapedUserSid\)") {
+    if (Test-TaskAceGrantsReadAndExecute -SecurityDescriptor $securityDescriptor -UserSid $UserSid) {
         return
     }
 
