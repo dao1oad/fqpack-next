@@ -178,7 +178,9 @@ class ProducerHeartbeatState:
         self._batches: deque[tuple[float, int]] = deque()
         self._last_tick_ts: float | None = None
 
-    def record_tick_batch(self, *, tick_count: int, now_ts: float | None = None) -> None:
+    def record_tick_batch(
+        self, *, tick_count: int, now_ts: float | None = None
+    ) -> None:
         count = max(int(tick_count or 0), 0)
         if count <= 0:
             return
@@ -206,9 +208,11 @@ class ProducerHeartbeatState:
             "subscribed_codes": max(int(subscribed_codes or 0), 0),
             "tick_batches_5m": tick_batches,
             "tick_count_5m": tick_count,
-            "rx_age_s": None
-            if last_tick_ts is None
-            else round(max(current_ts - last_tick_ts, 0.0), 3),
+            "rx_age_s": (
+                None
+                if last_tick_ts is None
+                else round(max(current_ts - last_tick_ts, 0.0), 3)
+            ),
         }
 
     def _prune_locked(self, now_ts: float) -> None:

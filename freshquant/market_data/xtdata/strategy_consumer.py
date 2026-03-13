@@ -237,9 +237,11 @@ class ConsumerHeartbeatState:
             "backlog_sum": max(int(backlog_sum or 0), 0),
             "scheduler_pending": max(int(scheduler_pending or 0), 0),
             "processed_bars_5m": processed_bars,
-            "last_bar_age_s": None
-            if last_bar_ts is None
-            else round(max(current_ts - last_bar_ts, 0.0), 3),
+            "last_bar_age_s": (
+                None
+                if last_bar_ts is None
+                else round(max(current_ts - last_bar_ts, 0.0), 3)
+            ),
             "catchup_mode": 1 if catchup_mode else 0,
         }
 
