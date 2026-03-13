@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -23,6 +24,7 @@ EMPTY_RESULT_FLAG = "is_empty_result"
 EMPTY_RESULT_REASON_FIELD = "empty_reason"
 EMPTY_RESULT_REASON_UPSTREAM_TRADE_DATE_MISMATCH = "upstream_trade_date_mismatch"
 EMPTY_RESULT_REASON_NO_THEME_FIELDS = "no_theme_fields"
+EMPTY_RESULT_REASON_INVALID_THEME_FIELDS = "invalid_theme_fields"
 EMPTY_RESULT_BOARD_KEY = "__empty__"
 EMPTY_RESULT_STOCK_CODE = "__empty__"
 
@@ -31,6 +33,7 @@ _BOARD_SUFFIX_PATTERNS = (
     re.compile(r"[\(（]\s*\d+\s*[\)）]\s*$"),
     re.compile(r"\s+\d+\s*$"),
 )
+logger = logging.getLogger(__name__)
 
 
 def _to_str(value: Any) -> str:
@@ -313,6 +316,38 @@ def _extract_analysis(item: dict[str, Any]) -> str:
     )
 
 
+def _normalize_syncable_action_fields(
+    trade_date: str,
+    fields: list[dict[str, Any]],
+) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], list[dict[str, str]]]:
+    normalized_fields: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    skipped_fields: list[dict[str, str]] = []
+
+    for field in fields:
+        try:
+            normalized = normalize_jygs_action_field_row(trade_date, field)
+        except ValueError as exc:
+            if str(exc) != "reason_text is required":
+                raise
+            skipped_fields.append(
+                {
+                    "action_field_id": _to_str(field.get("action_field_id")),
+                    "plate_name": _to_str(field.get("name")),
+                }
+            )
+            continue
+        normalized_fields.append((field, normalized))
+
+    if skipped_fields:
+        logger.warning(
+            "skipping invalid jygs theme rows trade_date=%s skipped=%s fields=%s",
+            trade_date,
+            len(skipped_fields),
+            skipped_fields,
+        )
+    return normalized_fields, skipped_fields
+
+
 def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
     date_str = _to_str(trade_date)
     if not date_str:
@@ -345,6 +380,18 @@ def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
             date_str,
             reason=EMPTY_RESULT_REASON_NO_THEME_FIELDS,
         )
+    normalized_fields, skipped_fields = _normalize_syncable_action_fields(
+        date_str, fields
+    )
+    if not normalized_fields:
+        result = _write_empty_sync_result(
+            action_collection,
+            yidong_collection,
+            date_str,
+            reason=EMPTY_RESULT_REASON_INVALID_THEME_FIELDS,
+        )
+        result["skipped_action_fields"] = len(skipped_fields)
+        return result
 
     action_collection.delete_many({"date": date_str})
     yidong_collection.delete_many({"date": date_str})
@@ -352,8 +399,7 @@ def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
     yidong_records: dict[str, dict[str, Any]] = {}
     action_field_count = 0
 
-    for field in fields:
-        normalized = normalize_jygs_action_field_row(date_str, field)
+    for field, normalized in normalized_fields:
         action_document = {
             "date": date_str,
             "board_key": normalized["plate_key"],
@@ -420,8 +466,11 @@ def sync_jygs_action_for_date(trade_date: str) -> dict[str, Any]:
             upsert=True,
         )
 
-    return {
+    result = {
         "trade_date": date_str,
         "action_fields": action_field_count,
         "yidong": len(yidong_records),
     }
+    if skipped_fields:
+        result["skipped_action_fields"] = len(skipped_fields)
+    return result

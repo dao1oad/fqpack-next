@@ -142,15 +142,19 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - Dagster 任务未跑。
 - `as_of_date` 对应快照还没生成。
 - `stock_window_days` 不在 `30|45|60|90`。
+- 交易日日历源瞬时失败；当前实现会在移除代理环境变量后自动重试 3 次，但连续失败时仍拿不到最新完成交易日。
 - `jygs` 最近历史存在缺口，最近 `90` 个交易日 hole scan 还没补齐。
 - 上游 `jygs` 某个交易日确实没有热点；此时原始集合会保留 `is_empty_result=true` marker，但 gantt `series` 不会有点位。
 - 上游返回了别的 `trade_date`；此时会落 `empty_reason=upstream_trade_date_mismatch` marker，但该日期仍应继续进入 hole scan 重试。
+- 上游 `jygs action_field` 可能夹带单条缺 `reason` 的历史主题行；当前实现会跳过坏行并继续同步当天其余主题。若整天过滤后没有可用主题，则会落 `empty_reason=invalid_theme_fields` marker，而不是把整条 Dagster 作业打断。
 
 处理：
 - 重跑 Dagster 作业
 - 确认读模型索引与快照日期
+- 在任务运行环境检查 `ALL_PROXY`、`all_proxy`、`HTTP_PROXY`、`HTTPS_PROXY` 是否被错误注入，再确认 AkShare 到 Sina 可访问
 - 若 `/api/gantt/plates?provider=jygs&days=15/30/45/60/90` 的 `dates` 轴完整但 `series` 很少，先看 `jygs_action_fields` / `jygs_yidong`
 - 若 marker 是 `empty_reason=upstream_trade_date_mismatch`，不要当成已补完；继续补跑 Dagster，等待上游返回目标交易日
+- 若日志里出现 `skipping invalid jygs theme rows`，说明是上游单条主题缺 `reason`；先核对该 trade_date 其他主题是否已正常落库，再确认是否需要人工补录该主题说明
 - 若目标交易日既没有真实 `jygs` 数据，也没有 `is_empty_result=true` marker，说明 recent hole scan 还没覆盖到；继续补跑 Dagster
 
 ## Runtime Observability 无 trace

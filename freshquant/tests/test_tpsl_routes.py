@@ -52,6 +52,35 @@ class FakeTpslService:
         return [{"event_id": "evt_1", "batch_id": batch_id}]
 
 
+class FakeTpslManagementService:
+    def __init__(self):
+        self.calls = []
+
+    def get_overview(self):
+        self.calls.append(("get_overview",))
+        return [{"symbol": "600000", "name": "浦发银行"}]
+
+    def get_symbol_detail(self, symbol, *, history_limit=20):
+        self.calls.append(("get_symbol_detail", symbol, history_limit))
+        return {
+            "symbol": symbol,
+            "buy_lots": [{"buy_lot_id": "lot_1"}],
+            "history": [{"event_id": "evt_1"}],
+        }
+
+    def list_history(
+        self,
+        *,
+        symbol=None,
+        kind=None,
+        buy_lot_id=None,
+        batch_id=None,
+        limit=50,
+    ):
+        self.calls.append(("list_history", symbol, kind, buy_lot_id, batch_id, limit))
+        return [{"event_id": "evt_history_1", "kind": kind or "takeprofit"}]
+
+
 class RaisingTpslService(FakeTpslService):
     def __init__(self, *, enable_error=None, rearm_error=None):
         super().__init__()
@@ -65,10 +94,14 @@ class RaisingTpslService(FakeTpslService):
         raise self.rearm_error
 
 
-def _build_client(monkeypatch, service):
+def _build_client(monkeypatch, service, management_service=None):
     monkeypatch.setattr(
         "freshquant.rear.tpsl.routes._get_tpsl_service",
         lambda: service,
+    )
+    monkeypatch.setattr(
+        "freshquant.rear.tpsl.routes._get_tpsl_management_service",
+        lambda: management_service or FakeTpslManagementService(),
     )
     app = Flask("tpsl")
     app.register_blueprint(tpsl_bp)
@@ -118,6 +151,41 @@ def test_tpsl_batch_route_returns_batch_events(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json()[0]["batch_id"] == "tp_batch_1"
+
+
+def test_tpsl_management_overview_route_returns_symbol_summary(monkeypatch):
+    service = FakeTpslService()
+    management_service = FakeTpslManagementService()
+    client = _build_client(monkeypatch, service, management_service)
+
+    response = client.get("/api/tpsl/management/overview")
+
+    assert response.status_code == 200
+    assert response.get_json()["rows"][0]["symbol"] == "600000"
+
+
+def test_tpsl_management_detail_route_returns_symbol_detail(monkeypatch):
+    service = FakeTpslService()
+    management_service = FakeTpslManagementService()
+    client = _build_client(monkeypatch, service, management_service)
+
+    response = client.get("/api/tpsl/management/600000?history_limit=15")
+
+    assert response.status_code == 200
+    assert response.get_json()["symbol"] == "600000"
+    assert response.get_json()["buy_lots"][0]["buy_lot_id"] == "lot_1"
+    assert management_service.calls[-1] == ("get_symbol_detail", "600000", 15)
+
+
+def test_tpsl_history_route_reads_filtered_timeline(monkeypatch):
+    service = FakeTpslService()
+    management_service = FakeTpslManagementService()
+    client = _build_client(monkeypatch, service, management_service)
+
+    response = client.get("/api/tpsl/history?symbol=600000&kind=stoploss&limit=10")
+
+    assert response.status_code == 200
+    assert response.get_json()["rows"][0]["kind"] == "stoploss"
 
 
 def test_takeprofit_tier_enable_route_returns_400_for_unknown_tier(monkeypatch):

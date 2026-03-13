@@ -12,6 +12,7 @@ const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
 const GanttShouban30Phase1 = () => import('../views/GanttShouban30Phase1.vue')
 const PositionManagement = () => import('../views/PositionManagement.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
+const TpslManagement = () => import('../views/TpslManagement.vue')
 
 const routes = [
   {
@@ -77,6 +78,11 @@ const routes = [
     path: '/runtime-observability',
     name: 'runtime-observability',
     component: RuntimeObservability
+  },
+  {
+    path: '/tpsl',
+    name: 'tpsl-management',
+    component: TpslManagement
   }
 ]
 
