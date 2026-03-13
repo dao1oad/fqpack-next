@@ -54,6 +54,13 @@ def test_install_bat_cleans_fqchan01_build_artifacts_before_uv_sync() -> None:
     assert clean_index < sync_index
 
 
+def test_install_bat_aborts_when_fqchan01_build_cleanup_fails() -> None:
+    text = Path("install.bat").read_text(encoding="utf-8")
+    assert (
+        'rmdir /s /q "morningglory\\fqchan01\\python\\build" || exit /b 1' in text
+    )
+
+
 def test_create_venv_bat_checks_python_version_without_expanding_errorlevel_early() -> (
     None
 ):
