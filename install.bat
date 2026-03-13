@@ -12,7 +12,8 @@ if not defined UV_BIN (
 )
 
 ".venv\Scripts\python.exe" install.py --skip-env --runtime-prereqs-only || exit /b 1
-"%UV_BIN%" sync --frozen || exit /b 1
+if exist "morningglory\fqchan01\python\build" rmdir /s /q "morningglory\fqchan01\python\build"
+"%UV_BIN%" sync --frozen --refresh-package fqchan01 --reinstall-package fqchan01 || exit /b 1
 ".venv\Scripts\python.exe" install.py %*
 exit /b %errorlevel%
 

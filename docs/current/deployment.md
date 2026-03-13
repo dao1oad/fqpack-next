@@ -33,6 +33,15 @@ docker compose -f docker/compose.parallel.yaml up -d --build ta_backend ta_front
 powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/activate_github_first_formal_service.ps1
 ```
 
+### 宿主机同步 Python 依赖
+
+```powershell
+.\install.bat --skip-web
+```
+
+- `install.bat` 会先清理 `morningglory/fqchan01/python/build`，再在 `uv sync --frozen` 阶段对本地原生包 `fqchan01` 强制执行 `refresh + reinstall`，避免宿主机继续复用损坏的 `fqchan01` 源码构建产物或缓存。
+- 如果部署目标包含 Guardian / Chanlun 相关宿主机链路，重装后应额外执行 `python -c "import fqchan01; print('IMPORT_OK')"` 做一次本地导入确认。
+
 ## 模块部署矩阵
 
 | 变更路径 | 需要部署的模块 | 最低动作 |

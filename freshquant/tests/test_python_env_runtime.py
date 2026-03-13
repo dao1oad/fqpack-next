@@ -37,6 +37,23 @@ def test_install_bat_prepares_runtime_prerequisites_before_uv_sync() -> None:
     assert prereq_index < sync_index
 
 
+def test_install_bat_refreshes_fqchan01_before_runtime_install() -> None:
+    text = Path("install.bat").read_text(encoding="utf-8")
+    sync_line = next(
+        line for line in text.splitlines() if '"%UV_BIN%" sync --frozen' in line
+    )
+
+    assert "--refresh-package fqchan01" in sync_line
+    assert "--reinstall-package fqchan01" in sync_line
+
+
+def test_install_bat_cleans_fqchan01_build_artifacts_before_uv_sync() -> None:
+    text = Path("install.bat").read_text(encoding="utf-8")
+    clean_index = text.index('rmdir /s /q "morningglory\\fqchan01\\python\\build"')
+    sync_index = text.index('"%UV_BIN%" sync --frozen')
+    assert clean_index < sync_index
+
+
 def test_create_venv_bat_checks_python_version_without_expanding_errorlevel_early() -> (
     None
 ):
