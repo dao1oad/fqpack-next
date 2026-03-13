@@ -48,10 +48,23 @@ Docker 并行模式通过 `deployment/examples/envs.fqnext.example` 把端口改
 
 - `order_management.mongo_database`
 - `order_management.projection_database`
-- `position_management.*` 主要通过代码默认值与快照服务参数控制
+- `position_management.thresholds.allow_open_min_bail`
+- `position_management.thresholds.holding_only_min_bail`
 
 订单管理默认单独使用 `freshquant_order_management`，投影仍写回 `freshquant`。
 仓位管理默认单独使用 `freshquant_position_management`。
+当前仓位管理页面只允许编辑 `pm_configs.thresholds` 下的两个保证金阈值。
+
+以下仍是代码默认语义，只读展示，不写入持久化配置：
+
+- `state_stale_after_seconds`
+- `default_state`
+
+以下属于系统级 XT 连接参数，继续以系统设置为真值：
+
+- `xtquant.path`
+- `xtquant.account`
+- `xtquant.account_type`
 
 ### XTData / 监控
 
