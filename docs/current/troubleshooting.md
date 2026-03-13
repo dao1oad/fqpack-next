@@ -105,10 +105,13 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 常见根因：
 - 只修了 FreshQuant Dynaconf，vendored `QUANTAXIS` 仍沿用 `qaenv` 的本地 `27017` 默认值
 - `qifiserver` 在 import 阶段初始化 manager，模块一导入就连库
+- 宿主机进程的 `PYTHONPATH` 没带 `sunflower/QUANTAXIS`，实际导入落到了 `.venv/Lib/site-packages/QUANTAXIS`
 
 处理：
 - 宿主机链路统一改到 `127.0.0.1:27027`
 - Docker 容器内部继续保持 `fq_mongodb:27017`
+- 宿主机 supervisor 模板里的 `PYTHONPATH` 要同时包含仓库根、`morningglory/fqxtrade` 和 `sunflower/QUANTAXIS`
+- 当前 `freshquant` 在源码树运行时会优先插入 vendored `QUANTAXIS`；如果仍然打到 `27017`，优先怀疑正式 checkout 还没更新到包含该 bootstrap 与 lazy-init 修复的最新源码
 - 如果仍失败，说明 Mongo 端口问题已排除，继续看下一层真实依赖
 
 ## 订单已提交但没有成交回流
