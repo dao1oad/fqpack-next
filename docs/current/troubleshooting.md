@@ -28,6 +28,27 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 处理：
 - 重建 API：`docker compose -f docker/compose.parallel.yaml up -d --build fq_apiserver`
 
+## Docker API 报 `fq_mongodb:27027`
+
+现象：
+- `15000` 或 `18080/api/*` 请求超时
+- `fq_webui` 日志出现 `504 upstream timed out`
+- `fq_apiserver` 日志出现 `ServerSelectionTimeoutError: fq_mongodb:27027`
+
+先检查：
+- `docker exec <fq_apiserver> /freshquant/.venv/bin/python -c "from freshquant.config import settings; print(settings.get('mongodb'))"`
+- `docker exec <fq_apiserver> env | findstr MONGODB`
+- `docker compose -f docker/compose.parallel.yaml config`
+
+常见根因：
+- 容器环境只覆写了 `FRESHQUANT_MONGODB__HOST=fq_mongodb`，没有同时覆写 `FRESHQUANT_MONGODB__PORT=27017`
+- `freshquant/freshquant.yaml` 的宿主机默认 `mongodb.port=27027` 被保留下来，最终拼成 `fq_mongodb:27027`
+
+处理：
+- 在 `docker/compose.parallel.yaml` 为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 同时显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`
+- 如果并行环境还依赖主工作树 `.env`，也同步补齐 `FRESHQUANT_MONGODB__PORT=27017` 与 `MONGODB_PORT=27017`
+- 重建受影响容器后，再检查 `settings.get('mongodb')` 是否解析为 `{'host': 'fq_mongodb', 'port': 27017, ...}`
+
 ## Web 页面空白
 
 现象：

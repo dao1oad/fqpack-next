@@ -4,6 +4,7 @@
 
 - 代码改动后，受影响模块必须重新部署；只合并不部署不算完成。
 - Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
+- FreshQuant / QUANTAXIS 相关 Docker 服务在 `docker/compose.parallel.yaml` 内部固定使用 `fq_mongodb:27017`；不要只覆写 host 而保留宿主机默认 `27027`
 - 部署动作结束后必须做健康检查；健康检查通过后才进入 cleanup。
 - 当前 Done 判定固定为：`merge + ci + docs sync + deploy + health check + cleanup`。
 

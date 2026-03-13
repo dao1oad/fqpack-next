@@ -70,6 +70,7 @@
 - Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
+- `docker/compose.parallel.yaml` 会为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`，避免容器误继承宿主机默认 `27027`
 - Web UI 默认访问并行 API `http://127.0.0.1:15000`
 - TradingAgents 使用独立 Mongo 库 `tradingagents_cn` 与 Redis `db=8`
 

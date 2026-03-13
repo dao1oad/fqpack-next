@@ -41,6 +41,10 @@ services:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
       FQ_RUNTIME_LOG_DIR: /freshquant/logs/runtime
+      FRESHQUANT_MONGODB__HOST: fq_mongodb
+      FRESHQUANT_MONGODB__PORT: "27017"
+      MONGODB: fq_mongodb
+      MONGODB_PORT: "27017"
     command: ["/freshquant/.venv/bin/python", "-m", "freshquant.rear.api_server", "--port", "5000"]
     ports:
       - "15000:5000"
@@ -60,6 +64,10 @@ services:
     environment:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
+      FRESHQUANT_MONGODB__HOST: fq_mongodb
+      FRESHQUANT_MONGODB__PORT: "27017"
+      MONGODB: fq_mongodb
+      MONGODB_PORT: "27017"
     command: ["/freshquant/.venv/bin/python", "-m", "freshquant.gateway.tdxhq", "--port", "5001"]
     ports:
       - "15001:5001"
@@ -77,6 +85,10 @@ services:
       PYTHONUNBUFFERED: "1"
       JYGS_ENV_FILE: /run/host-config/envs.conf
       FRESHQUANT_TDX_ROOT: /run/host-tdx
+      FRESHQUANT_MONGODB__HOST: fq_mongodb
+      FRESHQUANT_MONGODB__PORT: "27017"
+      MONGODB: fq_mongodb
+      MONGODB_PORT: "27017"
     command:
       [
         "sh",
@@ -111,6 +123,10 @@ services:
       PYTHONUNBUFFERED: "1"
       JYGS_ENV_FILE: /run/host-config/envs.conf
       FRESHQUANT_TDX_ROOT: /run/host-tdx
+      FRESHQUANT_MONGODB__HOST: fq_mongodb
+      FRESHQUANT_MONGODB__PORT: "27017"
+      MONGODB: fq_mongodb
+      MONGODB_PORT: "27017"
     command:
       [
         "sh",
@@ -141,6 +157,10 @@ services:
     environment:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
+      FRESHQUANT_MONGODB__HOST: fq_mongodb
+      FRESHQUANT_MONGODB__PORT: "27017"
+      MONGODB: fq_mongodb
+      MONGODB_PORT: "27017"
     command: ["/freshquant/.venv/bin/python", "-m", "QUANTAXIS.QAWebServer.server"]
     ports:
       - "18010:8010"
