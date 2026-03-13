@@ -54,6 +54,10 @@ def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, capture_output=True, text=True, check=False, cwd=cwd)
 
 
+def _normalize_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n")
+
+
 class _GitHubApiStub:
     def __init__(self) -> None:
         self.list_pages: list[int] = []
@@ -189,6 +193,47 @@ def test_request_cleanup_writes_manifest(tmp_path: Path) -> None:
     )
     assert payload["repository"] == "dao1oad/fqpack-next"
     assert payload["artifactsRetentionDays"] == 14
+
+
+def test_request_cleanup_reads_deployment_comment_body_from_utf8_file(
+    tmp_path: Path,
+) -> None:
+    service_root = tmp_path / "service"
+    workspaces_root = service_root / "workspaces"
+    workspace_path = workspaces_root / "GH-999"
+    workspace_path.mkdir(parents=True)
+
+    comment_body = (
+        "已核对 PR `#105`\n\n"
+        "- `fq_webui` 当前为 `Up`\n"
+        "- 页面 `/kline-slim` 返回 `200`\n"
+        "- 中文说明保持原样"
+    )
+    comment_path = tmp_path / "deployment-comment.md"
+    comment_path.write_text(comment_body, encoding="utf-8")
+
+    result = _run_powershell(
+        REQUEST_SCRIPT,
+        "-ServiceRoot",
+        str(service_root),
+        "-IssueIdentifier",
+        "GH-999",
+        "-BranchName",
+        "feature/gh-999",
+        "-WorkspacePath",
+        str(workspace_path),
+        "-DeploymentCommentBodyPath",
+        str(comment_path),
+        "-OriginUrl",
+        "ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git",
+        "-IssueUrl",
+        "https://github.com/dao1oad/fqpack-next/issues/999",
+    )
+
+    assert result.returncode == 0, result.stderr
+    request_path = service_root / "artifacts" / "cleanup-requests" / "GH-999.json"
+    payload = json.loads(request_path.read_text(encoding="utf-8"))
+    assert _normalize_newlines(payload["deploymentCommentBody"]) == comment_body
 
 
 def test_request_cleanup_rejects_workspace_outside_workspace_root(
@@ -425,3 +470,70 @@ def test_finalizer_keeps_active_artifacts_from_paginated_github_issue_listing(
     assert payload["success"] is True
     assert payload["issueClosed"] is True
     assert payload["githubUpdated"] is True
+
+
+def test_finalizer_posts_utf8_markdown_comment_body_from_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service_root = tmp_path / "service"
+    workspaces_root = service_root / "workspaces"
+    workspace_path = workspaces_root / "GH-999"
+    workspace_path.mkdir(parents=True)
+    (workspace_path / "tracked.txt").write_text("ok", encoding="utf-8")
+
+    comment_body = (
+        "已核对 PR `#105`、CI 和运行面。\n\n"
+        "- `fq_webui` / `fq_apiserver` 当前均为 `Up`\n"
+        "- `http://127.0.0.1:18080/kline-slim` 返回 `200`\n"
+        "- 中文不应被替换成问号"
+    )
+    comment_path = tmp_path / "deployment-comment.md"
+    comment_path.write_text(comment_body, encoding="utf-8")
+
+    request_result = _run_powershell(
+        REQUEST_SCRIPT,
+        "-ServiceRoot",
+        str(service_root),
+        "-IssueIdentifier",
+        "GH-999",
+        "-BranchName",
+        "feature/gh-999",
+        "-WorkspacePath",
+        str(workspace_path),
+        "-DeploymentCommentBodyPath",
+        str(comment_path),
+        "-OriginUrl",
+        "ssh://git@ssh.github.com:443/dao1oad/fqpack-next.git",
+        "-Repository",
+        "dao1oad/fqpack-next",
+    )
+    assert request_result.returncode == 0, request_result.stderr
+
+    with _GitHubApiStub() as stub:
+        monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+        monkeypatch.setenv("FRESHQUANT_GITHUB_API_BASE_URL", stub.base_url)
+        monkeypatch.setenv("GITHUB_API_BASE_URL", stub.base_url)
+
+        finalizer_result = _run_powershell(
+            FINALIZER_SCRIPT,
+            "-ServiceRoot",
+            str(service_root),
+            "-IssueIdentifier",
+            "GH-999",
+            "-WorkspacePath",
+            str(workspace_path),
+            "-SkipRemoteBranchDelete",
+        )
+
+    assert finalizer_result.returncode == 0, finalizer_result.stderr
+    assert len(stub.comment_bodies) == 1
+    expected_comment_body = (
+        comment_body
+        + "\n## Cleanup Results\n\n"
+        + "- Remote branch cleanup: `skipped`\n"
+        + "- Workspace cleanup: `True`\n"
+        + "- Artifacts retention days: `14`\n\n"
+        + "### Pruned Artifacts\n\n"
+        + "- `none`"
+    )
+    assert _normalize_newlines(stub.comment_bodies[0]) == expected_comment_body
