@@ -3,7 +3,9 @@ param(
     [string]$ServiceName = 'fq-symphony-orchestrator',
     [string]$ServiceRoot = 'D:\fqpack\runtime\symphony-service',
     [int]$Port = 40123,
-    [string]$StatusPath
+    [string]$StatusPath,
+    [int]$HealthTimeoutSeconds = 90,
+    [int]$HealthPollIntervalSeconds = 3
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +59,33 @@ function Wait-ServiceRunning {
     throw "Service '$Name' did not reach Running within $TimeoutSeconds seconds."
 }
 
+function Wait-HealthEndpointReady {
+    param(
+        [int]$Port,
+        [int]$TimeoutSeconds = 90,
+        [int]$PollIntervalSeconds = 3
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastError = $null
+
+    do {
+        try {
+            return Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/api/v1/state"
+        }
+        catch {
+            $lastError = $_.Exception.Message
+            Start-Sleep -Seconds $PollIntervalSeconds
+        }
+    } while ((Get-Date) -lt $deadline)
+
+    if ([string]::IsNullOrWhiteSpace($lastError)) {
+        throw "Health endpoint on port $Port did not become ready within $TimeoutSeconds seconds."
+    }
+
+    throw $lastError
+}
+
 $resolvedServiceRoot = [System.IO.Path]::GetFullPath($ServiceRoot).TrimEnd('\')
 $resolvedStatusPath = Resolve-StatusPath -ExplicitPath $StatusPath -ResolvedServiceRoot $resolvedServiceRoot
 $status = [ordered]@{
@@ -77,7 +106,10 @@ Write-TaskStatus -Status $status -Path $resolvedStatusPath
 try {
     Restart-Service -Name $ServiceName -ErrorAction Stop
     $service = Wait-ServiceRunning -Name $ServiceName
-    $response = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/api/v1/state"
+    $response = Wait-HealthEndpointReady `
+        -Port $Port `
+        -TimeoutSeconds $HealthTimeoutSeconds `
+        -PollIntervalSeconds $HealthPollIntervalSeconds
 
     $status.success = $true
     $status.service_status = $service.Status.ToString()

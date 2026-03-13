@@ -44,6 +44,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/install_freshq
 ```
 
 - 该脚本会先把当前 `runtime/symphony/**` 同步到 `D:\fqpack\runtime\symphony-service`，再注册计划任务
+- 安装时会给执行安装的 Windows 用户追加该任务的读取/执行权限，供后续普通会话调用 `invoke_freshquant_symphony_restart_task.ps1`
 
 后续普通会话更新 `runtime/symphony/**` 时：
 
@@ -54,6 +55,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/invoke_freshqu
 
 - 默认计划任务名：`fq-symphony-orchestrator-restart`
 - 默认状态文件：`D:\fqpack\runtime\symphony-service\artifacts\admin-bridge\restart-status.json`
+- 重载任务会在服务进入 `Running` 后继续轮询 `http://127.0.0.1:40123/api/v1/state`，只有状态文件记录 `success=true` 且 `health_status_code=200` 才算桥接成功
 - 如果计划任务尚未安装，或需要重装正式服务本体，仍使用 `reinstall_freshquant_symphony_service.ps1` / 激活脚本并在提升权限 PowerShell 中执行
 
 ### 宿主机同步 Python 依赖
