@@ -161,9 +161,7 @@ class OrderManagementReadService:
                 if str(row.get("state") or "").upper() == "PARTIAL_FILLED"
             ),
             "canceled_count": sum(
-                1
-                for row in rows
-                if "CANCEL" in str(row.get("state") or "").upper()
+                1 for row in rows if "CANCEL" in str(row.get("state") or "").upper()
             ),
             "failed_count": sum(
                 1
@@ -197,7 +195,9 @@ class OrderManagementReadService:
         sides = _normalize_filter_values(side, transform=str.lower)
         normalized_source = _normalize_optional_text(source)
         normalized_strategy_name = _normalize_optional_text(strategy_name)
-        normalized_account_type = _normalize_optional_text(account_type, transform=str.upper)
+        normalized_account_type = _normalize_optional_text(
+            account_type, transform=str.upper
+        )
         normalized_request_id = _normalize_optional_text(request_id)
         normalized_internal_order_id = _normalize_optional_text(internal_order_id)
         normalized_broker_order_id = _normalize_optional_text(broker_order_id)
@@ -209,7 +209,9 @@ class OrderManagementReadService:
         )
         if normalized_request_id is not None:
             orders = [
-                item for item in orders if item.get("request_id") == normalized_request_id
+                item
+                for item in orders
+                if item.get("request_id") == normalized_request_id
             ]
         if normalized_internal_order_id is not None:
             orders = [
@@ -238,7 +240,9 @@ class OrderManagementReadService:
         }
         request_map = {
             item.get("request_id"): item
-            for item in self.repository.list_order_requests(request_ids=list(request_ids))
+            for item in self.repository.list_order_requests(
+                request_ids=list(request_ids)
+            )
             if item.get("request_id") is not None
         }
 

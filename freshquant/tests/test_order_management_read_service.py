@@ -42,10 +42,14 @@ class InMemoryOrderManagementRepository:
             rows = [item for item in rows if item.get("scope_ref_id") == scope_ref_id]
         if scope_ref_ids is not None:
             allowed_scope_ids = set(scope_ref_ids)
-            rows = [item for item in rows if item.get("scope_ref_id") in allowed_scope_ids]
+            rows = [
+                item for item in rows if item.get("scope_ref_id") in allowed_scope_ids
+            ]
         if request_ids is not None:
             allowed_request_ids = set(request_ids)
-            rows = [item for item in rows if item.get("request_id") in allowed_request_ids]
+            rows = [
+                item for item in rows if item.get("request_id") in allowed_request_ids
+            ]
         return rows
 
     def list_orders(
@@ -70,7 +74,9 @@ class InMemoryOrderManagementRepository:
             rows = [item for item in rows if item.get("broker_order_id") in (None, "")]
         if request_ids is not None:
             allowed_request_ids = set(request_ids)
-            rows = [item for item in rows if item.get("request_id") in allowed_request_ids]
+            rows = [
+                item for item in rows if item.get("request_id") in allowed_request_ids
+            ]
         if internal_order_ids is not None:
             allowed_order_ids = set(internal_order_ids)
             rows = [
