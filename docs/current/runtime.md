@@ -59,6 +59,7 @@
 - Web UI
 - Gantt/Shouban30 对应读模型数据
 - Runtime Observability 原始日志目录
+- Guardian 排障时优先使用 `/runtime-observability` 的 `guardian_strategy` 组件看板；该视图现在直接显示信号摘要、判断上下文和最终结论
 
 ## 并行环境的默认口径
 
@@ -73,6 +74,7 @@
 - XTData producer / consumer / TPSL / Order Management 共享 Redis
 - Guardian、Position worker、Order Management、TPSL 共享 Mongo 基础库与运行时事件日志
 - Shouban30 的 `.blk` 同步依赖宿主机 `TDX_HOME`
+- `xt_producer` / `xt_consumer` 会向 `logs/runtime` 固定每 5 分钟写 1 次 heartbeat，供 `/runtime-observability` 页面聚合
 
 ## 常见运行模式
 
@@ -91,6 +93,11 @@ python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
 python -m freshquant.position_management.worker --interval 3
 python -m freshquant.tpsl.tick_listener
 ```
+
+调这条链路时，`/runtime-observability` 页面至少应看到：
+
+- `xt_producer` 的心跳年龄、`收 tick`、`5m ticks`、`订阅`
+- `xt_consumer` 的心跳年龄、`最近处理`、`5m bars`、`backlog`
 
 ### 调 Symphony 正式服务
 
