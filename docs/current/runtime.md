@@ -68,6 +68,7 @@
 
 - 宿主机 `.env` 示例：`deployment/examples/envs.fqnext.example`
 - Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
+- `docker/compose.parallel.yaml` 会对 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 显式覆盖 `FRESHQUANT_MONGODB__HOST/PORT=fq_mongodb:27017` 与 `FRESHQUANT_REDIS__HOST/PORT=fq_redis:6379`
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - Web UI 默认访问并行 API `http://127.0.0.1:15000`

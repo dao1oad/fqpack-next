@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -27,3 +28,29 @@ def test_compose_builds_rear_image_once() -> None:
 def test_ci_uses_uv_sync() -> None:
     text = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "uv sync --frozen" in text
+
+
+def _compose_service_block(text: str, service_name: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(service_name)}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_]+:|\Z)",
+        text,
+    )
+    assert match is not None, f"missing compose service block: {service_name}"
+    return match.group("body")
+
+
+def test_freshquant_compose_services_override_container_data_plane_addresses() -> None:
+    text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
+
+    for service_name in (
+        "fq_apiserver",
+        "fq_tdxhq",
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+        "fq_qawebserver",
+    ):
+        block = _compose_service_block(text, service_name)
+        assert "FRESHQUANT_MONGODB__HOST: fq_mongodb" in block
+        assert 'FRESHQUANT_MONGODB__PORT: "27017"' in block
+        assert "FRESHQUANT_REDIS__HOST: fq_redis" in block
+        assert 'FRESHQUANT_REDIS__PORT: "6379"' in block

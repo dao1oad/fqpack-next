@@ -45,6 +45,15 @@ Docker 并行模式通过 `deployment/examples/envs.fqnext.example` 把端口改
 - Redis `6380`
 - TDXHQ `15001`
 
+当前 `docker/compose.parallel.yaml` 对 FreshQuant 容器额外显式覆盖：
+
+- `FRESHQUANT_MONGODB__HOST=fq_mongodb`
+- `FRESHQUANT_MONGODB__PORT=27017`
+- `FRESHQUANT_REDIS__HOST=fq_redis`
+- `FRESHQUANT_REDIS__PORT=6379`
+
+也就是说，主工作树 `.env` 继续保留宿主机口径 `127.0.0.1:27027` / `6380`；Docker 容器内部链路不再直接继承这组宿主机地址。
+
 vendored `QUANTAXIS` 当前 Mongo 解析规则：
 
 - 显式 `MONGOURI` 或 `FRESHQUANT_MONGODB__URI` 优先。

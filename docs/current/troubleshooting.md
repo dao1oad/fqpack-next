@@ -19,11 +19,13 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 先检查：
 - `docker compose -f docker/compose.parallel.yaml ps`
 - `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components`
+- `docker compose -f docker/compose.parallel.yaml config | Select-String "FRESHQUANT_MONGODB__HOST|FRESHQUANT_MONGODB__PORT|FRESHQUANT_REDIS__HOST|FRESHQUANT_REDIS__PORT"`
 
 常见根因：
 - `fq_apiserver` 没启动或容器异常退出。
 - Mongo/Redis 依赖没准备好，API 容器循环重启。
 - `.env` 没传给 `FQ_COMPOSE_ENV_FILE`。
+- compose 渲染结果里缺少容器内 `fq_mongodb:27017` / `fq_redis:6379` 覆写，导致宿主机 `.env` 的 `127.0.0.1:27027`、`6380` 或 `fq_mongodb:27027` 误灌进容器。
 
 处理：
 - 重建 API：`docker compose -f docker/compose.parallel.yaml up -d --build fq_apiserver`
