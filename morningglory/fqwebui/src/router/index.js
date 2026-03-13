@@ -11,6 +11,7 @@ const GanttUnified = () => import('../views/GanttUnified.vue')
 const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
 const GanttShouban30Phase1 = () => import('../views/GanttShouban30Phase1.vue')
 const OrderManagement = () => import('../views/OrderManagement.vue')
+const PositionManagement = () => import('../views/PositionManagement.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
 const TpslManagement = () => import('../views/TpslManagement.vue')
 
@@ -73,6 +74,11 @@ const routes = [
     path: '/order-management',
     name: 'order-management',
     component: OrderManagement
+  },
+  {
+    path: '/position-management',
+    name: 'position-management',
+    component: PositionManagement
   },
   {
     path: '/runtime-observability',

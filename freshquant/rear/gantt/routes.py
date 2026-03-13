@@ -301,6 +301,15 @@ def add_shouban30_pre_pool_to_stock_pool():
     return jsonify({"data": {"status": status}})
 
 
+@gantt_bp.route("/shouban30/pre-pool/sync-to-tdx", methods=["POST"])
+def sync_shouban30_pre_pool_to_tdx():
+    try:
+        blk_sync = shouban30_pool_service.sync_pre_pool_to_blk()
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify({"data": {"blk_sync": blk_sync}})
+
+
 @gantt_bp.route("/shouban30/pre-pool/delete", methods=["POST"])
 def delete_shouban30_pre_pool_item():
     try:
@@ -335,6 +344,15 @@ def add_shouban30_stock_pool_to_must_pool():
     except RuntimeError as exc:
         return _server_error(str(exc))
     return jsonify({"data": {"status": status}})
+
+
+@gantt_bp.route("/shouban30/stock-pool/sync-to-tdx", methods=["POST"])
+def sync_shouban30_stock_pool_to_tdx():
+    try:
+        blk_sync = shouban30_pool_service.sync_stock_pool_to_blk()
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify({"data": {"blk_sync": blk_sync}})
 
 
 @gantt_bp.route("/shouban30/stock-pool/delete", methods=["POST"])

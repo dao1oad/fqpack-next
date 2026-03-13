@@ -90,6 +90,13 @@ export const deleteShouban30PrePoolItem = ({ code6 } = {}) => {
   })
 }
 
+export const syncShouban30PrePoolToTdx = () => {
+  return http({
+    url: '/api/gantt/shouban30/pre-pool/sync-to-tdx',
+    method: 'post'
+  })
+}
+
 export const getShouban30StockPool = () => {
   return http({
     url: '/api/gantt/shouban30/stock-pool',
@@ -114,5 +121,12 @@ export const deleteShouban30StockPoolItem = ({ code6 } = {}) => {
     data: {
       code6: String(code6 || '').trim()
     }
+  })
+}
+
+export const syncShouban30StockPoolToTdx = () => {
+  return http({
+    url: '/api/gantt/shouban30/stock-pool/sync-to-tdx',
+    method: 'post'
   })
 }

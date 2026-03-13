@@ -220,6 +220,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 如果 issue 已经有 merged PR、open non-draft PR 或 approved draft PR，但还停在 `blocked`，优先按误标处理；正式 orchestrator 现在会按这些 GitHub 真值自动恢复到 `Merging` / `Rework` / `In Progress`
 - 如果日志里反复出现 `workspace_hook_failed ... not a git repository`，先看 workspace 目录是否缺 `.git`；正式 orchestrator 现在会先自愈重建一次，再决定是否继续报错
 - 如果 PR 标题、PR 正文、Issue / PR 评论仍然出现英文说明，先检查 `WORKFLOW.freshquant.md` 与 `runtime/symphony/templates/*.md` 是否已经同步到正式服务
+- 如果 cleanup 的 GitHub done 评论出现 `?`、`\n`、`\f`、`\b` 这类乱码或控制字符，先检查是否把中文 markdown 直接内联传给了 `request_freshquant_symphony_cleanup.ps1 -DeploymentCommentBody`；当前应改为先写 UTF-8 `.md` 文件，再传 `-DeploymentCommentBodyPath`
 - 检查正式服务是否已加载最新 `runtime/symphony/WORKFLOW.freshquant.md`
 - 看 issue 当前标签与状态是否仍停在 `todo`，以及 orchestrator 日志里是否出现 `Todo -> In Progress` 自动推进记录
 - 重装正式服务或重启 `fq-symphony-orchestrator`

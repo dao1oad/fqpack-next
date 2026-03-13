@@ -1,0 +1,75 @@
+import json
+
+from flask import Flask
+
+
+def _make_client():
+    from freshquant.rear.position_management.routes import position_management_bp
+
+    app = Flask("test_position_management_routes")
+    app.register_blueprint(position_management_bp)
+    return app.test_client()
+
+
+def test_position_management_dashboard_route_returns_service_payload(monkeypatch):
+    class FakeService:
+        def get_dashboard(self):
+            return {
+                "state": {
+                    "raw_state": "ALLOW_OPEN",
+                    "effective_state": "ALLOW_OPEN",
+                    "stale": False,
+                },
+                "rule_matrix": [{"key": "sell", "allowed": True}],
+            }
+
+    monkeypatch.setattr(
+        "freshquant.rear.position_management.routes._get_position_management_dashboard_service",
+        lambda: FakeService(),
+    )
+
+    client = _make_client()
+    response = client.get("/api/position-management/dashboard")
+
+    assert response.status_code == 200
+    assert response.get_json()["state"]["effective_state"] == "ALLOW_OPEN"
+
+
+def test_position_management_config_routes_forward_reads_and_validation_errors(
+    monkeypatch,
+):
+    class FakeService:
+        def get_config(self):
+            return {"thresholds": {"allow_open_min_bail": 800000.0}}
+
+        def update_config(self, payload):
+            raise ValueError(
+                "allow_open_min_bail must be greater than holding_only_min_bail"
+            )
+
+    monkeypatch.setattr(
+        "freshquant.rear.position_management.routes._get_position_management_dashboard_service",
+        lambda: FakeService(),
+    )
+
+    client = _make_client()
+
+    get_response = client.get("/api/position-management/config")
+    post_response = client.post(
+        "/api/position-management/config",
+        data=json.dumps(
+            {
+                "allow_open_min_bail": 100000,
+                "holding_only_min_bail": 200000,
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert get_response.status_code == 200
+    assert get_response.get_json()["thresholds"]["allow_open_min_bail"] == 800000.0
+    assert post_response.status_code == 400
+    assert (
+        post_response.get_json()["error"]
+        == "allow_open_min_bail must be greater than holding_only_min_bail"
+    )

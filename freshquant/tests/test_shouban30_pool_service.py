@@ -1,6 +1,7 @@
 import importlib
 import sys
 import types
+from datetime import datetime
 from pathlib import Path
 
 
@@ -263,6 +264,72 @@ def test_sync_pre_pool_to_blk_keeps_workspace_order(monkeypatch, tmp_path):
     monkeypatch.setenv("TDX_HOME", str(tmp_path))
 
     result = service.sync_pre_pool_to_blk()
+
+    target = Path(tmp_path) / "T0002" / "blocknew" / "30RYZT.blk"
+    assert result["success"] is True
+    assert result["count"] == 2
+    assert result["file_path"] == str(target)
+    assert target.read_text(encoding="gbk").splitlines() == ["1600001", "0000333"]
+
+
+def test_sync_pre_pool_to_blk_falls_back_to_settings_tdx_home(monkeypatch, tmp_path):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "first",
+                    "category": "三十涨停Pro预选",
+                    "extra": {"shouban30_order": 0},
+                }
+            ]
+        ),
+        stock_pools=FakeCollection(),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+    monkeypatch.delenv("TDX_HOME", raising=False)
+    monkeypatch.setattr(
+        service,
+        "settings",
+        types.SimpleNamespace(tdx=types.SimpleNamespace(home=str(tmp_path))),
+        raising=False,
+    )
+
+    result = service.sync_pre_pool_to_blk()
+
+    target = Path(tmp_path) / "T0002" / "blocknew" / "30RYZT.blk"
+    assert result["file_path"] == str(target)
+    assert target.read_text(encoding="gbk").splitlines() == ["1600001"]
+
+
+def test_sync_stock_pool_to_blk_keeps_current_workspace_order(monkeypatch, tmp_path):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "000333",
+                    "name": "second",
+                    "category": "三十涨停Pro自选",
+                    "datetime": datetime(2026, 3, 5, 9, 31),
+                },
+                {
+                    "code": "600001",
+                    "name": "first",
+                    "category": "三十涨停Pro自选",
+                    "datetime": datetime(2026, 3, 6, 9, 31),
+                },
+            ]
+        ),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+    monkeypatch.setenv("TDX_HOME", str(tmp_path))
+
+    result = service.sync_stock_pool_to_blk()
 
     target = Path(tmp_path) / "T0002" / "blocknew" / "30RYZT.blk"
     assert result["success"] is True
