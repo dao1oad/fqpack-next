@@ -4,6 +4,7 @@
 
 - 代码改动后，受影响模块必须重新部署；只合并不部署不算完成。
 - Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
+- `Merging` 只负责 merge 与 handoff；merge 后由单个全局 Codex 自动化统一判断 deploy、health check 和 cleanup。
 - 部署动作结束后必须做健康检查；健康检查通过后才进入 cleanup。
 - 当前 Done 判定固定为：`merge + ci + docs sync + deploy + health check + cleanup`。
 
@@ -91,11 +92,20 @@ docker compose -f docker/compose.parallel.yaml ps
 - XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积。
 - 如果改了运行观测或 XTData runtime 埋点，确认 `/runtime-observability` 页面能看到 `xt_producer` / `xt_consumer` 的 5 分钟 heartbeat 与关键指标，而不是只看到启动事件。
 - TPSL / Position worker 修改后，进程没有“启动即退”。
-- Symphony 修改后，Issue 领取、Design Review、cleanup 闭环仍然可用。
+- Symphony 修改后，`Merging -> Global Stewardship` handoff、批量 deploy 判定和 follow-up issue only 规则仍然可用。
+
+## Global Stewardship 收口规则
+
+- merge 后原 issue 进入 `Global Stewardship`，不直接 `Done`。
+- 单个全局 Codex 自动化按当前 `main` 和部署面并集统一决定是否批量 deploy。
+- 如果发现需要代码修复的问题，只创建 follow-up issue，由下一轮 `Symphony` 接手。
+- 原 issue 只有在其变更已包含在一次成功发布中，且 health check 与 cleanup 完成后，才允许关闭。
 
 ## Cleanup 要求
 
+- cleanup 由 `Global Stewardship` 执行，不再由 `Merging` 会话直接收口。
 - 删除已合并远端 feature branch。
 - 删除当前 issue 的 Symphony workspace 或本次临时 worktree。
 - 清理临时脚本、临时 compose override、过期 artifacts。
+- 如果原 issue 仍被 open follow-up issue 阻塞，则暂不关闭原 issue。
 - 不清理 Mongo、Redis、`.venv`、正式日志目录或在线服务。

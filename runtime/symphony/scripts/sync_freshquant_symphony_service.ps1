@@ -55,6 +55,7 @@ $sourceConfigRoot = $sourceLayout.ConfigRoot
 $sourceScriptsRoot = $sourceLayout.ScriptsRoot
 $workflowValidator = Join-Path $sourceScriptsRoot 'assert_freshquant_workflow_prompt.ps1'
 $mergingPromptValidator = Join-Path $sourceScriptsRoot 'assert_freshquant_merging_prompt.ps1'
+$globalStewardshipPromptValidator = Join-Path $sourceScriptsRoot 'assert_freshquant_global_stewardship_prompt.ps1'
 
 if (-not (Test-Path $workflowValidator)) {
     throw "Workflow validator script not found: $workflowValidator"
@@ -64,8 +65,13 @@ if (-not (Test-Path $mergingPromptValidator)) {
     throw "Merging prompt validator script not found: $mergingPromptValidator"
 }
 
+if (-not (Test-Path $globalStewardshipPromptValidator)) {
+    throw "Global Stewardship prompt validator script not found: $globalStewardshipPromptValidator"
+}
+
 & $workflowValidator -WorkflowPath (Join-Path $sourceConfigRoot 'WORKFLOW.freshquant.md')
 & $mergingPromptValidator -PromptPath (Join-Path $sourceConfigRoot 'prompts\merging.md')
+& $globalStewardshipPromptValidator -PromptPath (Join-Path $sourceConfigRoot 'prompts\global_stewardship.md')
 
 $directories = @(
     $configRoot,
@@ -101,6 +107,10 @@ $copyMap = @(
         Destination = (Join-Path $configRoot 'prompts\merging.md')
     },
     @{
+        Source = (Join-Path $sourceConfigRoot 'prompts\global_stewardship.md')
+        Destination = (Join-Path $configRoot 'prompts\global_stewardship.md')
+    },
+    @{
         Source = (Join-Path $sourceConfigRoot 'templates\human_review_comment.md')
         Destination = (Join-Path $configRoot 'templates\human_review_comment.md')
     },
@@ -119,6 +129,22 @@ $copyMap = @(
     @{
         Source = (Join-Path $sourceConfigRoot 'templates\done_summary.md')
         Destination = (Join-Path $configRoot 'templates\done_summary.md')
+    },
+    @{
+        Source = (Join-Path $sourceConfigRoot 'templates\merge_handoff_comment.md')
+        Destination = (Join-Path $configRoot 'templates\merge_handoff_comment.md')
+    },
+    @{
+        Source = (Join-Path $sourceConfigRoot 'templates\global_stewardship_progress_comment.md')
+        Destination = (Join-Path $configRoot 'templates\global_stewardship_progress_comment.md')
+    },
+    @{
+        Source = (Join-Path $sourceConfigRoot 'templates\global_stewardship_done_comment.md')
+        Destination = (Join-Path $configRoot 'templates\global_stewardship_done_comment.md')
+    },
+    @{
+        Source = (Join-Path $sourceConfigRoot 'templates\follow_up_issue.md')
+        Destination = (Join-Path $configRoot 'templates\follow_up_issue.md')
     },
     @{
         Source = (Join-Path $sourceScriptsRoot 'freshquant_runner.exs')
@@ -147,6 +173,10 @@ $copyMap = @(
     @{
         Source = (Join-Path $sourceScriptsRoot 'assert_freshquant_merging_prompt.ps1')
         Destination = (Join-Path $scriptsRoot 'assert_freshquant_merging_prompt.ps1')
+    },
+    @{
+        Source = (Join-Path $sourceScriptsRoot 'assert_freshquant_global_stewardship_prompt.ps1')
+        Destination = (Join-Path $scriptsRoot 'assert_freshquant_global_stewardship_prompt.ps1')
     },
     @{
         Source = (Join-Path $sourceScriptsRoot 'request_freshquant_symphony_cleanup.ps1')
