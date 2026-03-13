@@ -35,6 +35,27 @@ docker compose -f docker/compose.parallel.yaml up -d --build ta_backend ta_front
 powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/activate_github_first_formal_service.ps1
 ```
 
+### 宿主机仅同步并重载 Symphony
+
+首次安装按需管理员桥接任务：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/install_freshquant_symphony_restart_task.ps1
+```
+
+- 该脚本会先把当前 `runtime/symphony/**` 同步到 `D:\fqpack\runtime\symphony-service`，再注册计划任务
+
+后续普通会话更新 `runtime/symphony/**` 时：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/sync_freshquant_symphony_service.ps1
+powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/invoke_freshquant_symphony_restart_task.ps1
+```
+
+- 默认计划任务名：`fq-symphony-orchestrator-restart`
+- 默认状态文件：`D:\fqpack\runtime\symphony-service\artifacts\admin-bridge\restart-status.json`
+- 如果计划任务尚未安装，或需要重装正式服务本体，仍使用 `reinstall_freshquant_symphony_service.ps1` / 激活脚本并在提升权限 PowerShell 中执行
+
 ### 宿主机同步 Python 依赖
 
 ```powershell
@@ -59,7 +80,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/activate_githu
 | `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |
 | `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |
 | `third_party/tradingagents-cn/**` | TradingAgents-CN | 重建 `ta_backend` 与 `ta_frontend` |
-| `runtime/symphony/**` | 正式 orchestrator | `sync_freshquant_symphony_service.ps1` + `reinstall_freshquant_symphony_service.ps1` 或激活脚本 |
+| `runtime/symphony/**` | 正式 orchestrator | 已预装计划任务时执行 `sync_freshquant_symphony_service.ps1` + `invoke_freshquant_symphony_restart_task.ps1`；否则使用 `reinstall_freshquant_symphony_service.ps1` 或激活脚本 |
 
 ## 健康检查
 
@@ -104,6 +125,7 @@ docker compose -f docker/compose.parallel.yaml ps
 - 如果改了运行观测或 XTData runtime 埋点，确认 `/runtime-observability` 页面能看到 `xt_producer` / `xt_consumer` 的 5 分钟 heartbeat 与关键指标，而不是只看到启动事件。
 - TPSL / Position worker 修改后，进程没有“启动即退”。
 - Symphony 修改后，`Merging -> Global Stewardship` handoff、批量 deploy 判定和 follow-up issue only 规则仍然可用。
+- 如果通过计划任务桥接重载 Symphony，还要确认 `artifacts\admin-bridge\restart-status.json` 记录 `success=true` 且 `health_status_code=200`。
 
 ## Global Stewardship 收口规则
 

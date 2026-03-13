@@ -125,6 +125,8 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - Symphony 正式服务
   - `runtime/symphony/scripts/start_freshquant_symphony.ps1`
   - `runtime/symphony/scripts/activate_github_first_formal_service.ps1`
+  - `runtime/symphony/scripts/install_freshquant_symphony_restart_task.ps1`
+  - `runtime/symphony/scripts/invoke_freshquant_symphony_restart_task.ps1`
 
 ## Web UI 路由
 

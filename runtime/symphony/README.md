@@ -147,6 +147,7 @@ Cleanup 只清理任务级资源：
   - `templates/global_stewardship_done_comment.md`
   - `templates/follow_up_issue.md`
 - `sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 会同时校验 `WORKFLOW.freshquant.md`、`prompts/merging.md` 与 `prompts/global_stewardship.md` 的关键 contract，避免正式 prompt 被过度简化
+- 如果当前 Codex 会话没有管理员权限，可预装一个按需触发的 Windows 计划任务，由它以 `SYSTEM` 身份重启 `fq-symphony-orchestrator` 并写回状态文件；普通会话只负责触发任务和读取结果
 - 正式宿主机脚本：
   - `scripts/run_freshquant_codex_session.ps1`
   - `scripts/assert_freshquant_merging_prompt.ps1`
@@ -154,6 +155,9 @@ Cleanup 只清理任务级资源：
   - `scripts/invoke_freshquant_symphony_cleanup_finalizer.ps1`
   - `scripts/start_freshquant_symphony.ps1`
   - `scripts/sync_freshquant_symphony_service.ps1`
+  - `scripts/install_freshquant_symphony_restart_task.ps1`
+  - `scripts/invoke_freshquant_symphony_restart_task.ps1`
+  - `scripts/run_freshquant_symphony_restart_task.ps1`
 
 `request_freshquant_symphony_cleanup.ps1` 的部署说明正文支持两种入口：
 
