@@ -244,8 +244,7 @@ def test_dashboard_marks_threshold_change_as_pending_refresh_when_state_is_fresh
     assert payload["state"]["effective_state"] == ALLOW_OPEN
     assert payload["state"]["stale"] is False
     assert (
-        payload["state"]["matched_rule"]["code"]
-        == "thresholds_updated_pending_refresh"
+        payload["state"]["matched_rule"]["code"] == "thresholds_updated_pending_refresh"
     )
     assert "下一次 snapshot 刷新" in payload["state"]["matched_rule"]["detail"]
     assert rules["buy_new"]["allowed"] is True
