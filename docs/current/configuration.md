@@ -112,6 +112,12 @@ vendored `QUANTAXIS` 当前 Mongo 解析规则：
 - Windows 启动脚本 `*.bat` / `*.cmd` 使用 `CRLF`。
 - `pre-commit` 与 CI 会运行 `mixed-line-ending` 检查，阻止 mixed line endings 进入仓库。
 
+## 当前 CI 测试命令
+
+- CI 的 pytest job 使用 `pytest-xdist` 以文件粒度并行执行单元测试。
+- 当前命令是 `pytest -q freshquant/tests -n auto --dist loadfile`。
+- 若本地要复现同一模式，优先保证 `PYTHONPATH` 指向仓库源码与 `morningglory/fqxtrade`，避免落到过期的已安装包。
+
 ## 当前宿主机模板
 
 - `deployment/examples/envs.fqnext.example`

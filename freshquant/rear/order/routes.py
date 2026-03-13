@@ -2,6 +2,7 @@
 
 from flask import Blueprint, jsonify, request
 
+from freshquant.order_management.read_service import OrderManagementReadService
 from freshquant.order_management.stoploss.service import BuyLotStoplossService
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.util.code import normalize_to_base_code
@@ -15,6 +16,10 @@ def _get_order_submit_service():
 
 def _get_stoploss_service():
     return BuyLotStoplossService()
+
+
+def _get_order_management_read_service():
+    return OrderManagementReadService()
 
 
 @order_bp.route("/order/submit", methods=["POST"])
@@ -108,6 +113,39 @@ def create_stock_order():
     return jsonify(result)
 
 
+@order_bp.route("/order-management/orders", methods=["GET"])
+def list_order_management_orders():
+    try:
+        payload = _get_order_management_read_service().list_orders(
+            **_read_filters(include_pagination=True)
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    return jsonify(payload)
+
+
+@order_bp.route("/order-management/orders/<internal_order_id>", methods=["GET"])
+def get_order_management_order_detail(internal_order_id):
+    try:
+        detail = _get_order_management_read_service().get_order_detail(
+            internal_order_id
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 404
+    return jsonify(detail)
+
+
+@order_bp.route("/order-management/stats", methods=["GET"])
+def get_order_management_stats():
+    try:
+        payload = _get_order_management_read_service().get_stats(
+            **_read_filters(include_pagination=False)
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    return jsonify(payload)
+
+
 @order_bp.route("/order-management/buy-lots/<buy_lot_id>", methods=["GET"])
 def get_buy_lot_detail(buy_lot_id):
     try:
@@ -134,3 +172,48 @@ def bind_buy_lot_stoploss():
     except ValueError as error:
         return jsonify({"error": str(error)}), 404
     return jsonify(binding)
+
+
+def _read_filters(*, include_pagination):
+    filters = {
+        "symbol": _optional_arg("symbol"),
+        "side": _optional_arg("side"),
+        "state": _optional_arg("state"),
+        "source": _optional_arg("source"),
+        "strategy_name": _optional_arg("strategy_name"),
+        "account_type": _optional_arg("account_type"),
+        "internal_order_id": _optional_arg("internal_order_id"),
+        "request_id": _optional_arg("request_id"),
+        "broker_order_id": _optional_arg("broker_order_id"),
+        "date_from": _optional_arg("date_from"),
+        "date_to": _optional_arg("date_to"),
+        "time_field": _optional_arg("time_field") or "updated_at",
+        "missing_broker_only": _parse_bool_arg("missing_broker_only"),
+    }
+    if include_pagination:
+        filters["page"] = _parse_positive_int("page", default=1)
+        filters["size"] = _parse_positive_int("size", default=20)
+    return filters
+
+
+def _optional_arg(name):
+    value = str(request.args.get(name) or "").strip()
+    return value or None
+
+
+def _parse_positive_int(name, *, default):
+    raw = request.args.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be integer") from error
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
+
+
+def _parse_bool_arg(name):
+    raw = str(request.args.get(name) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}

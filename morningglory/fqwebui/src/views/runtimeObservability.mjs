@@ -32,6 +32,15 @@ const ISSUE_STATUS_RANK = {
   warning: 2,
   skipped: 1,
 }
+const STATUS_SEVERITY = {
+  failed: 6,
+  error: 5,
+  warning: 4,
+  skipped: 3,
+  unknown: 2,
+  info: 1,
+  success: 1,
+}
 const GUARDIAN_COMPONENT = 'guardian_strategy'
 const GUARDIAN_NODE_LABELS = {
   receive_signal: '信号接收',
@@ -334,6 +343,142 @@ const compareIssueCards = (left = {}, right = {}) => {
   return toText(right?.last_ts).localeCompare(toText(left?.last_ts))
 }
 
+const getStatusSeverity = (status) => STATUS_SEVERITY[toText(status).toLowerCase()] || 0
+
+const truncateText = (value, maxLength = 180) => {
+  const text = toText(value)
+  if (!text) return ''
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+}
+
+const summarizeInlineValue = (value, maxLength = 180) => {
+  return truncateText(formatValueText(value).replace(/\s+/g, ' '), maxLength)
+}
+
+const summarizeGuardianContext = (blocks = []) => {
+  const snippets = []
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    for (const item of Array.isArray(block?.items) ? block.items : []) {
+      const value = summarizeInlineValue(item?.value, 72)
+      if (!value) continue
+      snippets.push(`${item.key}=${value}`)
+      if (snippets.length >= 3) return snippets.join('; ')
+    }
+  }
+  return snippets.join('; ')
+}
+
+const buildStepOutcomeLabel = (step = {}) => {
+  const guardianStep = step?.guardian_step || buildGuardianStepInsight(step)
+  if (guardianStep?.outcome?.label) return guardianStep.outcome.label
+  return (
+    toText(step?.decision_outcome?.label) ||
+    toText(step?.decision_outcome?.outcome) ||
+    toText(step?.status) ||
+    'info'
+  )
+}
+
+const buildFlowNodeLabel = (step = {}) => {
+  const guardianStep = step?.guardian_step || buildGuardianStepInsight(step)
+  if (guardianStep?.node_label) return guardianStep.node_label
+  const component = toText(step?.component)
+  const node = toText(step?.node)
+  return [component, node].filter(Boolean).join('.') || 'runtime.event'
+}
+
+const buildFlowNodeHoverItems = (step = {}) => {
+  const guardianStep = step?.guardian_step || buildGuardianStepInsight(step)
+  const items = [
+    {
+      label: '阶段',
+      value: buildFlowNodeLabel(step),
+    },
+    {
+      label: '状态',
+      value: toText(step?.status) || 'info',
+    },
+  ]
+  const condition =
+    guardianStep?.outcome?.expr ||
+    toText(step?.decision_expr) ||
+    ''
+  if (condition) {
+    items.push({
+      label: '条件',
+      value: condition,
+    })
+  }
+  items.push({
+    label: '结果',
+    value: buildStepOutcomeLabel(step),
+  })
+  const reasonCode =
+    guardianStep?.outcome?.reason_code ||
+    toText(step?.reason_code) ||
+    toText(step?.decision_outcome?.reason_code)
+  if (reasonCode) {
+    items.push({
+      label: '原因',
+      value: reasonCode,
+    })
+  }
+  const branch =
+    guardianStep?.outcome?.branch ||
+    toText(step?.decision_branch)
+  if (branch) {
+    items.push({
+      label: '分支',
+      value: branch,
+    })
+  }
+  const contextSummary = summarizeGuardianContext(guardianStep?.context_blocks)
+  if (contextSummary) {
+    items.push({
+      label: '上下文',
+      value: contextSummary,
+    })
+  }
+  const fallbackSummary =
+    toText(step?.message) ||
+    summarizeInlineValue(step?.payload) ||
+    summarizeInlineValue(step?.metrics)
+  if (fallbackSummary) {
+    items.push({
+      label: '摘要',
+      value: fallbackSummary,
+    })
+  }
+  return items.filter((item) => toText(item?.value))
+}
+
+export const buildTraceFlowNodes = (steps = []) => {
+  return (Array.isArray(steps) ? steps : []).map((step, index) => {
+    const guardianStep = step?.guardian_step || buildGuardianStepInsight(step)
+    return {
+      key: [
+        toText(step?.component),
+        toText(step?.node),
+        toText(step?.ts),
+        step?.index ?? index,
+      ].join('|'),
+      index: step?.index ?? index,
+      component: toText(step?.component) || 'runtime',
+      node: toText(step?.node) || 'event',
+      label: buildFlowNodeLabel(step),
+      status: toText(step?.status) || 'info',
+      is_issue: Boolean(step?.is_issue),
+      meta_label:
+        guardianStep?.outcome?.label ||
+        toText(step?.reason_code) ||
+        toText(step?.status) ||
+        'info',
+      hover_items: buildFlowNodeHoverItems(step),
+    }
+  })
+}
+
 export const buildTraceQuery = (form = {}) => {
   const query = {}
   for (const key of ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component', 'runtime_node']) {
@@ -366,6 +511,7 @@ export const summarizeTrace = (trace = {}) => {
     last_ts: toText(lastStep.ts) || '',
     path_nodes: buildTracePathNodes(detail.steps),
     path_summary: buildTracePathSummary(detail.steps),
+    flow_nodes: buildTraceFlowNodes(detail.steps),
     guardian_signal: guardianTrace?.signal || null,
     guardian_outcome: guardianTrace?.conclusion || null,
   }
@@ -823,4 +969,108 @@ export const buildComponentBoard = (traces = [], components = []) => {
     }),
     distribution: buildTraceListSummary(normalizedTraces).components.filter((item) => CORE_COMPONENTS.includes(toText(item?.component))),
   }
+}
+
+const normalizeSidebarRuntimeDetail = (card = {}) => {
+  const fallbackStatus =
+    toText(card?.status) === 'unknown' && Number(card?.issue_trace_count || 0) > 0
+      ? 'warning'
+      : toText(card?.status) || 'unknown'
+  return {
+    component: toText(card?.component),
+    runtime_node: toText(card?.runtime_node) || '-',
+    status: fallbackStatus,
+    heartbeat_age_s: card?.heartbeat_age_s ?? null,
+    heartbeat_label: toText(card?.heartbeat_label) || 'no data',
+    issue_trace_count: Number(card?.issue_trace_count || 0),
+    issue_step_count: Number(card?.issue_step_count || 0),
+    trace_count: Number(card?.trace_count || 0),
+    last_issue_ts: toText(card?.last_issue_ts) || '',
+    is_placeholder: Boolean(card?.is_placeholder),
+    highlights: Array.isArray(card?.highlights) ? card.highlights : [],
+  }
+}
+
+const compareSidebarRuntimeDetails = (left = {}, right = {}) => {
+  const severityDiff = getStatusSeverity(right?.status) - getStatusSeverity(left?.status)
+  if (severityDiff !== 0) return severityDiff
+  const issueTraceDiff = Number(right?.issue_trace_count || 0) - Number(left?.issue_trace_count || 0)
+  if (issueTraceDiff !== 0) return issueTraceDiff
+  const issueStepDiff = Number(right?.issue_step_count || 0) - Number(left?.issue_step_count || 0)
+  if (issueStepDiff !== 0) return issueStepDiff
+  const leftHeartbeat = Number.isFinite(left?.heartbeat_age_s) ? Number(left.heartbeat_age_s) : Number.POSITIVE_INFINITY
+  const rightHeartbeat = Number.isFinite(right?.heartbeat_age_s) ? Number(right.heartbeat_age_s) : Number.POSITIVE_INFINITY
+  const heartbeatDiff = leftHeartbeat - rightHeartbeat
+  if (heartbeatDiff !== 0) return heartbeatDiff
+  return toText(left?.runtime_node).localeCompare(toText(right?.runtime_node))
+}
+
+const buildEmptySidebarItem = (component) => ({
+  component,
+  status: 'unknown',
+  heartbeat_age_s: null,
+  heartbeat_label: 'no data',
+  issue_trace_count: 0,
+  issue_step_count: 0,
+  trace_count: 0,
+  is_placeholder: true,
+  preview_highlights: [],
+  runtime_details: [
+    {
+      component,
+      runtime_node: '-',
+      status: 'unknown',
+      heartbeat_age_s: null,
+      heartbeat_label: 'no data',
+      issue_trace_count: 0,
+      issue_step_count: 0,
+      trace_count: 0,
+      last_issue_ts: '',
+      is_placeholder: true,
+      highlights: [],
+    },
+  ],
+})
+
+export const buildComponentSidebarItems = (traces = [], components = []) => {
+  const board = buildComponentBoard(traces, components)
+  const cards = Array.isArray(board?.cards) ? board.cards : []
+  return CORE_COMPONENTS.map((component) => {
+    const runtimeDetails = cards
+      .filter((card) => toText(card?.component) === component)
+      .map((card) => normalizeSidebarRuntimeDetail(card))
+      .sort(compareSidebarRuntimeDetails)
+    if (runtimeDetails.length === 0) {
+      return buildEmptySidebarItem(component)
+    }
+
+    const primary = runtimeDetails[0]
+    return {
+      component,
+      status: runtimeDetails
+        .map((item) => item.status)
+        .sort((left, right) => getStatusSeverity(right) - getStatusSeverity(left))[0] || 'unknown',
+      heartbeat_age_s: primary.heartbeat_age_s,
+      heartbeat_label: primary.heartbeat_label,
+      issue_trace_count: runtimeDetails.reduce((total, item) => total + Number(item.issue_trace_count || 0), 0),
+      issue_step_count: runtimeDetails.reduce((total, item) => total + Number(item.issue_step_count || 0), 0),
+      trace_count: runtimeDetails.reduce((total, item) => total + Number(item.trace_count || 0), 0),
+      is_placeholder: runtimeDetails.every((item) => item.is_placeholder),
+      preview_highlights: Array.isArray(primary?.highlights) ? primary.highlights.slice(0, 2) : [],
+      runtime_details: runtimeDetails,
+    }
+  })
+}
+
+export const pickDefaultSidebarComponent = (items = [], currentComponent = '') => {
+  const current = toText(currentComponent)
+  const normalizedItems = Array.isArray(items) ? items : []
+  if (current && normalizedItems.some((item) => toText(item?.component) === current)) {
+    return current
+  }
+  return (
+    normalizedItems.find(
+      (item) => Number(item?.trace_count || 0) > 0 || Number(item?.issue_trace_count || 0) > 0,
+    )?.component || ''
+  )
 }

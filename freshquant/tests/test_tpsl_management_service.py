@@ -1,3 +1,7 @@
+import json
+
+from bson import ObjectId
+
 from freshquant.tpsl.management_service import TpslManagementService
 
 
@@ -537,3 +541,120 @@ def test_management_detail_assembles_buy_lots_and_order_timeline():
     assert detail["history"][0]["orders"][0]["internal_order_id"] == "ord_stop_1"
     assert detail["history"][0]["trades"][0]["trade_fact_id"] == "trade_stop_1"
     assert detail["history"][1]["kind"] == "takeprofit"
+
+
+def test_management_detail_is_json_serializable_with_mongo_object_ids():
+    tpsl_repository = InMemoryTpslRepository()
+    tpsl_repository.events.append(
+        {
+            "_id": ObjectId(),
+            "event_id": "evt_stop_1",
+            "event_type": "stoploss_hit",
+            "kind": "stoploss",
+            "symbol": "600000",
+            "batch_id": "sl_batch_1",
+            "buy_lot_ids": ["lot_open_1"],
+            "buy_lot_details": [
+                {
+                    "_id": ObjectId(),
+                    "buy_lot_id": "lot_open_1",
+                    "stop_price": 9.2,
+                    "quantity": 200,
+                }
+            ],
+            "trigger_price": 9.1,
+            "created_at": "2026-03-13T10:01:00+00:00",
+        }
+    )
+
+    order_repository = InMemoryOrderManagementRepository()
+    order_repository.buy_lots.append(
+        {
+            "_id": ObjectId(),
+            "buy_lot_id": "lot_open_1",
+            "symbol": "600000",
+            "name": "浦发银行",
+            "date": 20260313,
+            "time": "09:30:00",
+            "buy_price_real": 10.0,
+            "original_quantity": 300,
+            "remaining_quantity": 200,
+            "sell_history": [{"_id": ObjectId(), "allocated_quantity": 100}],
+            "status": "partial",
+        }
+    )
+    order_repository.stoploss_bindings.append(
+        {
+            "_id": ObjectId(),
+            "binding_id": "bind_1",
+            "buy_lot_id": "lot_open_1",
+            "symbol": "600000",
+            "stop_price": 9.2,
+            "enabled": True,
+            "state": "active",
+        }
+    )
+    order_repository.order_requests.append(
+        {
+            "_id": ObjectId(),
+            "request_id": "req_stop_1",
+            "symbol": "600000",
+            "scope_type": "stoploss_batch",
+            "scope_ref_id": "sl_batch_1",
+            "state": "ACCEPTED",
+            "created_at": "2026-03-13T10:01:01+00:00",
+        }
+    )
+    order_repository.orders.append(
+        {
+            "_id": ObjectId(),
+            "internal_order_id": "ord_stop_1",
+            "request_id": "req_stop_1",
+            "symbol": "600000",
+            "state": "FILLED",
+            "broker_order_id": "BRK-1",
+            "submitted_at": "2026-03-13T10:01:02+00:00",
+        }
+    )
+    order_repository.order_events.append(
+        {
+            "_id": ObjectId(),
+            "event_id": "oe_stop_1",
+            "internal_order_id": "ord_stop_1",
+            "event_type": "accepted",
+            "state": "ACCEPTED",
+            "created_at": "2026-03-13T10:01:03+00:00",
+        }
+    )
+    order_repository.trade_facts.append(
+        {
+            "_id": ObjectId(),
+            "trade_fact_id": "trade_stop_1",
+            "internal_order_id": "ord_stop_1",
+            "symbol": "600000",
+            "quantity": 200,
+            "price": 9.1,
+            "trade_time": 1710000000,
+        }
+    )
+
+    service = TpslManagementService(
+        tpsl_repository=tpsl_repository,
+        order_repository=order_repository,
+        position_loader=lambda: [
+            {
+                "symbol": "sh600000",
+                "stock_code": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 200,
+                "amount_adjusted": -2000.0,
+            }
+        ],
+    )
+
+    detail = service.get_symbol_detail("sh600000", history_limit=10)
+    payload = json.loads(json.dumps(detail))
+
+    assert payload["buy_lots"][0]["buy_lot_id"] == "lot_open_1"
+    assert payload["buy_lots"][0]["stoploss"]["stop_price"] == 9.2
+    assert payload["history"][0]["order_requests"][0]["request_id"] == "req_stop_1"

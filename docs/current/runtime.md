@@ -38,6 +38,7 @@
 - 如果 GitHub 真值已经表明 `Blocked` 只是误标，orchestrator 会自动恢复：merged PR -> `Merging`；open non-draft PR -> `Rework`；approved draft PR -> `In Progress`
 - 如果 workspace 目录存在但缺失 git 元数据，orchestrator 会在下一次执行前自愈重建一次，而不是无限重试 `not a git repository`
 - Symphony `sync/start` 会校验 workflow prompt 合约，至少要求保留 issue 标识、标题、状态、描述、URL、Design Review 禁止二次 `brainstorming`、以及 Draft PR bootstrap 规则
+- Symphony `sync/start` 也会校验 `prompts/merging.md` 的关键 guardrail：`Merging` 只能做一次性检查后结束当前 turn，不应在会话内使用 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 长轮询；task workspace cleanup 必须走 cleanup request + host finalizer，而不是在 Codex 会话里直接删除目录
 - Symphony 写入 GitHub 的正式文本默认使用简体中文；仅审批信号 `APPROVED` / `REVISE:` / `REJECTED:` 保留英文控制词
 - cleanup request 的部署说明正文优先通过 UTF-8 文件传给 `request_freshquant_symphony_cleanup.ps1 -DeploymentCommentBodyPath`；不要把长中文 markdown 直接内联进 PowerShell 命令行
 - 运行日志根目录：`logs/runtime`，可被 `FQ_RUNTIME_LOG_DIR` 覆盖
@@ -61,7 +62,7 @@
 - Web UI
 - Gantt/Shouban30 对应读模型数据
 - Runtime Observability 原始日志目录
-- Guardian 排障时优先使用 `/runtime-observability` 的 `guardian_strategy` 组件看板；该视图现在直接显示信号摘要、判断上下文和最终结论
+- Guardian 排障时优先使用 `/runtime-observability` 左侧组件侧栏中的 `guardian_strategy`；该视图现在按“组件侧栏 -> 最近链路流 -> 单条链路详情”展开，并直接显示信号摘要、判断上下文和最终结论
 
 ## 并行环境的默认口径
 

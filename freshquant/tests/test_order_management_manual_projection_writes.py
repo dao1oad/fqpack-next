@@ -9,6 +9,16 @@ import pandas as pd
 from flask import Flask
 
 
+def _drop_module(module_name):
+    sys.modules.pop(module_name, None)
+    parent_name, _, child_name = module_name.rpartition(".")
+    if not parent_name:
+        return
+    parent_module = sys.modules.get(parent_name)
+    if parent_module is not None and hasattr(parent_module, child_name):
+        delattr(parent_module, child_name)
+
+
 class InMemoryRepository:
     def __init__(self):
         self.trade_facts = []
@@ -138,12 +148,24 @@ def _install_route_import_stubs(monkeypatch):
 
 def _load_stock_routes(monkeypatch):
     _install_route_import_stubs(monkeypatch)
-    sys.modules.pop("freshquant.data.astock.holding", None)
-    sys.modules.pop("freshquant.data.astock", None)
-    sys.modules.pop("freshquant.data", None)
+    _drop_module("freshquant.data.astock.holding")
+    _drop_module("freshquant.data.astock")
+    _drop_module("freshquant.data")
+    _drop_module("freshquant.rear.stock.routes")
     import freshquant.rear.stock.routes as routes_module
 
     return importlib.reload(routes_module)
+
+
+def test_load_stock_routes_clears_stale_holding_stub(monkeypatch):
+    stale = types.ModuleType("freshquant.data.astock.holding")
+    monkeypatch.setitem(sys.modules, "freshquant.data.astock.holding", stale)
+
+    routes_module = _load_stock_routes(monkeypatch)
+
+    assert routes_module.__file__.replace("\\", "/").endswith(
+        "freshquant/rear/stock/routes.py"
+    )
 
 
 def test_manual_write_service_import_fill_creates_trade_fact_and_projection(

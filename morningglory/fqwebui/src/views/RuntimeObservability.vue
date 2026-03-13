@@ -2,11 +2,11 @@
   <div class="runtime-page">
     <MyHeader />
     <div class="runtime-shell">
-      <section class="runtime-section">
+      <section class="runtime-section runtime-section--workbench">
         <div class="runtime-title-row">
           <div>
             <h1>运行观测</h1>
-            <p>异常优先，其次查看最近链路流，再用组件看板定位链路段。</p>
+            <p>按组件侧栏、最近链路流、单条链路详情的三级路径浏览当前运行面。</p>
           </div>
           <div class="runtime-title-actions">
             <el-switch
@@ -65,76 +65,142 @@
           </article>
         </div>
 
-        <section class="runtime-home-section">
-          <div class="runtime-home-head">
-            <div>
-              <h2>异常优先</h2>
-              <p>优先展示最近最值得先点开的异常链路。</p>
-            </div>
-            <span class="runtime-home-meta">最近 {{ issuePriorityCards.length }} 条</span>
-          </div>
-          <div v-if="issuePriorityCards.length" class="issue-card-grid">
-            <button
-              v-for="card in issuePriorityCards"
-              :key="card.trace_key || card.trace_id"
-              type="button"
-              class="issue-card"
-              :class="statusClass(card.status)"
-              @click="handleIssueCardClick(card)"
-            >
-              <div class="issue-card-top">
-                <span class="trace-step-status">{{ card.status || 'info' }}</span>
-                <span>{{ card.last_ts || '-' }}</span>
-              </div>
-              <strong>{{ card.symbol || '-' }}</strong>
-              <p class="issue-card-headline">{{ card.headline }}</p>
-              <p class="issue-card-subline">{{ card.subline }}</p>
-              <div class="issue-card-metrics">
-                <span>issues {{ card.issue_count }}</span>
-                <span>duration {{ card.total_duration_label }}</span>
-              </div>
-              <div class="issue-card-identities">
-                <span v-if="card.trace_id">trace {{ card.trace_id }}</span>
-                <span v-if="card.request_ids?.length">request {{ card.request_ids[0] }}</span>
-                <span v-if="card.internal_order_ids?.length">order {{ card.internal_order_ids[0] }}</span>
-              </div>
-              <p class="issue-card-summary">{{ card.issue_summary }}</p>
-            </button>
-          </div>
-          <div v-else class="runtime-empty-panel">
-            <strong>当前无异常链路</strong>
-            <el-button text @click="scrollToRecentFeed">查看最近链路</el-button>
-          </div>
-        </section>
-
-        <section ref="recentFeedRef" class="runtime-home-section">
-          <div class="runtime-home-head">
-            <div>
-              <h2>最近链路流</h2>
-              <p>默认展示最近 20 条链路，先看系统刚刚发生了什么。</p>
-            </div>
-            <div class="runtime-home-actions">
-              <span class="runtime-home-meta">当前显示 {{ recentTraceFeed.length }} 条</span>
-              <el-button v-if="recentTraceLimit < 50" text @click="showMoreRecentTraces">查看更多</el-button>
-            </div>
-          </div>
-          <div v-if="recentTraceFeed.length" class="recent-feed-list">
-            <button
-              v-for="item in recentTraceFeed"
-              :key="item.trace_key || item.trace_id"
-              type="button"
-              class="recent-feed-item"
-              @click="handleRecentTraceClick(item)"
-            >
-              <div class="recent-feed-status" :class="statusClass(item.last_status || (item.issue_count > 0 ? 'warning' : 'success'))">
-                {{ item.last_status || (item.issue_count > 0 ? 'warning' : 'success') }}
-              </div>
+        <div class="runtime-browse-layout">
+          <aside class="runtime-browser-panel runtime-browser-panel--components">
+            <div class="runtime-home-head">
               <div>
-                <strong>{{ item.guardian_signal?.title || item.symbol || '-' }}</strong>
-                <p v-if="item.guardian_signal?.subtitle" class="recent-feed-guardian-subtitle">
-                  {{ item.guardian_signal.subtitle }}
-                </p>
+                <h2>组件侧栏</h2>
+                <p>固定按核心链路顺序展示，hover 查看健康、异常与 highlights。</p>
+              </div>
+              <span class="runtime-home-meta">核心组件 {{ componentSidebarItems.length }} 个</span>
+            </div>
+
+            <div class="component-sidebar-list">
+              <el-popover
+                v-for="item in componentSidebarItems"
+                :key="item.component"
+                placement="right-start"
+                trigger="hover"
+                :width="360"
+              >
+                <template #reference>
+                  <button
+                    type="button"
+                    class="component-sidebar-item"
+                    :class="[statusClass(item.status), { active: activeComponent === item.component }]"
+                    @click="handleComponentFilter(item.component)"
+                  >
+                    <div class="component-sidebar-main">
+                      <strong>{{ item.component }}</strong>
+                      <span class="component-sidebar-heartbeat">心跳 {{ item.heartbeat_label }}</span>
+                    </div>
+                    <div class="component-sidebar-meta">
+                      <span>异常链路 {{ item.issue_trace_count }}</span>
+                      <span>异常节点 {{ item.issue_step_count }}</span>
+                    </div>
+                    <div class="component-sidebar-highlights">
+                      <span v-for="highlight in item.preview_highlights" :key="`${item.component}-${highlight.key}`">
+                        {{ highlight.label }} {{ highlight.display }}
+                      </span>
+                      <span v-if="item.preview_highlights.length === 0">no data</span>
+                    </div>
+                  </button>
+                </template>
+
+                <div class="component-sidebar-popover">
+                  <strong>{{ item.component }}</strong>
+                  <p>状态 {{ item.status }} · 心跳 {{ item.heartbeat_label }} · Trace {{ item.trace_count }}</p>
+                  <div class="component-sidebar-popover-list">
+                    <article
+                      v-for="detail in item.runtime_details"
+                      :key="`${item.component}-${detail.runtime_node}`"
+                      class="component-sidebar-popover-card"
+                    >
+                      <div class="component-sidebar-popover-head">
+                        <strong>{{ detail.runtime_node }}</strong>
+                        <span class="component-detail-status" :class="statusClass(detail.status)">
+                          {{ detail.status }}
+                        </span>
+                      </div>
+                      <div class="component-sidebar-popover-stats">
+                        <span>心跳 {{ detail.heartbeat_label }}</span>
+                        <span>异常链路 {{ detail.issue_trace_count }}</span>
+                        <span>异常节点 {{ detail.issue_step_count }}</span>
+                        <span>最近异常 {{ detail.last_issue_ts || '-' }}</span>
+                      </div>
+                      <div class="component-sidebar-popover-highlights">
+                        <span
+                          v-for="highlight in detail.highlights"
+                          :key="`${item.component}-${detail.runtime_node}-${highlight.key}`"
+                        >
+                          {{ highlight.label }} {{ highlight.display }}
+                        </span>
+                        <span v-if="detail.highlights.length === 0">no data</span>
+                      </div>
+                    </article>
+                  </div>
+                </div>
+              </el-popover>
+            </div>
+          </aside>
+
+          <section class="runtime-browser-panel runtime-browser-panel--feed">
+            <div class="runtime-home-head">
+              <div>
+                <h2>最近链路流</h2>
+                <p>当前聚焦 {{ activeComponent || '核心组件' }}，列表项内直接展示节点路径与 hover 判断信息。</p>
+              </div>
+              <div class="runtime-home-actions">
+                <span class="runtime-home-meta">当前显示 {{ recentTraceFeed.length }} 条</span>
+                <el-button v-if="recentTraceLimit < 50" text @click="showMoreRecentTraces">查看更多</el-button>
+              </div>
+            </div>
+
+            <article class="runtime-priority-banner" :class="{ 'is-empty': issuePriorityCards.length === 0 }">
+              <span>异常优先</span>
+              <button
+                v-if="issuePriorityCards.length"
+                type="button"
+                class="runtime-priority-link"
+                @click="handleIssueCardClick(issuePriorityCards[0])"
+              >
+                {{ issuePriorityCards[0].headline }} · {{ issuePriorityCards[0].issue_summary }}
+              </button>
+              <span v-else>当前组件暂无异常链路</span>
+            </article>
+
+            <div v-if="recentTraceFeed.length" class="recent-feed-list recent-feed-list--stacked">
+              <button
+                v-for="item in recentTraceFeed"
+                :key="item.trace_key || item.trace_id"
+                type="button"
+                class="recent-feed-item recent-feed-item--stacked"
+                :class="{ active: isActiveTraceRow(item) }"
+                @click="handleRecentTraceClick(item)"
+              >
+                <div class="recent-feed-topline">
+                  <div class="recent-feed-heading">
+                    <div class="recent-feed-status" :class="statusClass(item.last_status || (item.issue_count > 0 ? 'warning' : 'success'))">
+                      {{ item.last_status || (item.issue_count > 0 ? 'warning' : 'success') }}
+                    </div>
+                    <div>
+                      <strong>{{ item.guardian_signal?.title || item.symbol || '-' }}</strong>
+                      <p v-if="item.guardian_signal?.subtitle" class="recent-feed-guardian-subtitle">
+                        {{ item.guardian_signal.subtitle }}
+                      </p>
+                      <p class="recent-feed-identity">{{ buildTraceIdentityLabel(item) }}</p>
+                    </div>
+                  </div>
+                  <div class="recent-feed-meta">
+                    <span>{{ item.last_ts || '-' }}</span>
+                    <span>steps {{ item.step_count }}</span>
+                    <span>issues {{ item.issue_count }}</span>
+                    <span>duration {{ item.total_duration_label }}</span>
+                  </div>
+                </div>
+
                 <p class="recent-feed-path">{{ item.path_summary }}</p>
+
                 <div v-if="item.guardian_outcome || item.guardian_signal?.tags?.length" class="guardian-chip-list recent-feed-guardian-list">
                   <span v-if="item.guardian_outcome">
                     结论 {{ item.guardian_outcome.label }}
@@ -149,87 +215,46 @@
                     {{ tag }}
                   </span>
                 </div>
-                <div class="recent-feed-tags">
-                  <span v-for="node in item.spotlight_nodes" :key="`${item.trace_id}-${node}`">{{ node }}</span>
-                  <span v-if="item.spotlight_nodes.length === 0">-</span>
+
+                <div class="trace-flow-strip">
+                  <el-popover
+                    v-for="node in item.flow_nodes"
+                    :key="node.key"
+                    placement="top-start"
+                    trigger="hover"
+                    :width="320"
+                  >
+                    <template #reference>
+                      <span class="trace-flow-node" :class="[statusClass(node.status), { 'is-issue': node.is_issue }]">
+                        <span class="trace-flow-node-label">{{ node.label }}</span>
+                        <span class="trace-flow-node-meta">{{ node.meta_label }}</span>
+                      </span>
+                    </template>
+
+                    <div class="trace-flow-popover">
+                      <strong>{{ node.label }}</strong>
+                      <div class="trace-flow-popover-list">
+                        <div
+                          v-for="hoverItem in node.hover_items"
+                          :key="`${node.key}-${hoverItem.label}`"
+                          class="trace-flow-popover-item"
+                        >
+                          <span>{{ hoverItem.label }}</span>
+                          <code>{{ hoverItem.value }}</code>
+                        </div>
+                      </div>
+                    </div>
+                  </el-popover>
                 </div>
-              </div>
-              <div class="recent-feed-meta">
-                <span>{{ item.last_ts || '-' }}</span>
-                <span>steps {{ item.step_count }}</span>
-                <span>issues {{ item.issue_count }}</span>
-                <span>duration {{ item.total_duration_label }}</span>
-              </div>
-            </button>
-          </div>
-          <div v-else class="runtime-empty-panel">
-            <strong>暂无最近链路</strong>
-          </div>
-        </section>
-
-        <section class="runtime-home-section">
-          <div class="runtime-home-head">
-            <div>
-              <h2>组件看板</h2>
-              <p>点组件直接联动上面的异常卡片和最近链路流。</p>
+              </button>
             </div>
-            <span class="runtime-home-meta">核心组件 {{ componentBoard.cards.length }} 个</span>
-          </div>
-          <div v-if="componentBoard.cards.length" class="component-board-grid">
-            <button
-              v-for="card in componentBoard.cards"
-              :key="`${card.component}-${card.runtime_node}`"
-              type="button"
-              class="component-board-card"
-              :class="[statusClass(card.status), { active: boardFilter.component === card.component && boardFilter.runtime_node === card.runtime_node }]"
-              @click="handleComponentFilter(card)"
-            >
-              <div class="component-board-head">
-                <strong>{{ card.component }}</strong>
-                <span>{{ card.runtime_node }}</span>
-              </div>
-              <div class="component-board-stats">
-                <span>状态 {{ card.status }}</span>
-                <span>心跳 {{ card.heartbeat_label }}</span>
-                <span>异常链路 {{ card.issue_trace_count }}</span>
-                <span>异常节点 {{ card.issue_step_count }}</span>
-              </div>
-              <div class="component-board-highlights">
-                <span
-                  v-for="highlight in card.highlights"
-                  :key="`${card.component}-${card.runtime_node}-${highlight.key}`"
-                >
-                  {{ highlight.label }} {{ highlight.display }}
-                </span>
-                <span v-if="card.highlights.length === 0">no data</span>
-              </div>
-              <div class="component-board-footer">
-                <span>最近异常 {{ card.last_issue_ts || '-' }}</span>
-              </div>
-            </button>
-          </div>
-          <div v-else class="runtime-empty-panel">
-            <strong>暂无组件健康数据</strong>
-          </div>
+            <div v-else class="runtime-empty-panel">
+              <strong>{{ activeComponent ? `${activeComponent} 暂无最近链路` : '暂无最近链路' }}</strong>
+            </div>
+          </section>
 
-          <div class="component-distribution">
-            <button
-              v-for="item in componentBoard.distribution"
-              :key="`${item.component}-${item.issue_count}-${item.trace_count}`"
-              type="button"
-              class="component-distribution-chip"
-              :class="{ active: boardFilter.component === item.component && !boardFilter.runtime_node }"
-              @click="handleComponentFilter(item.component)"
-            >
-              {{ item.component }} · {{ item.issue_count }}/{{ item.trace_count }}
-            </button>
-            <span v-if="componentBoard.distribution.length === 0" class="runtime-filter-empty">暂无异常分布</span>
-          </div>
-        </section>
-      </section>
-
-      <section class="runtime-section">
-        <div class="trace-detail">
+          <section class="runtime-browser-panel runtime-browser-panel--detail">
+            <div class="trace-detail trace-detail--embedded">
           <div class="trace-detail-head">
             <div>
               <strong>{{ selectedTraceDetail.trace_id || selectedTrace?.trace_key || '选择一条 Trace' }}</strong>
@@ -505,7 +530,9 @@
               </aside>
             </div>
             <div v-else class="trace-empty">暂无选中链路</div>
-          </div>
+            </div>
+          </section>
+        </div>
       </section>
     </div>
 
@@ -568,7 +595,7 @@ import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
 import MyHeader from './MyHeader.vue'
 import {
   applyBoardFilter,
-  buildComponentBoard,
+  buildComponentSidebarItems,
   buildIssuePriorityCards,
   buildRecentTraceFeed,
   buildTraceListSummary,
@@ -583,6 +610,7 @@ import {
   findRawRecordIndex,
   filterTraceSteps,
   groupStepsByComponent,
+  pickDefaultSidebarComponent,
   pickDefaultTraceStep,
   readApiPayload,
   stopPollingTimer,
@@ -626,7 +654,6 @@ const rawFiles = ref([])
 const rawRecords = ref([])
 const rawFocusedIndex = ref(-1)
 const rawRecordRefs = ref({})
-const recentFeedRef = ref(null)
 const pageError = ref('')
 const boardFilter = reactive({
   component: '',
@@ -650,19 +677,10 @@ const visibleTraces = computed(() => {
 const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
 const issuePriorityCards = computed(() => buildIssuePriorityCards(visibleTraces.value))
 const recentTraceFeed = computed(() => buildRecentTraceFeed(visibleTraces.value, { limit: recentTraceLimit.value }))
-const componentBoard = computed(() => buildComponentBoard(traces.value, healthCards.value))
+const componentSidebarItems = computed(() => buildComponentSidebarItems(traces.value, healthCards.value))
+const activeComponent = computed(() => String(boardFilter.component || '').trim())
 const filterChips = computed(() => {
   const chips = []
-  if (boardFilter.component) {
-    chips.push({
-      key: 'board-component',
-      label: boardFilter.runtime_node
-        ? `节点: ${boardFilter.runtime_node} · ${boardFilter.component}`
-        : `组件: ${boardFilter.component}`,
-      kind: 'board',
-      field: 'component',
-    })
-  }
   if (onlyIssues.value) {
     chips.push({
       key: 'only-issues',
@@ -808,32 +826,18 @@ const handleRecentTraceClick = async (row) => {
 }
 
 const handleComponentFilter = (target) => {
-  if (typeof target === 'string') {
-    const normalized = String(target || '').trim()
-    const isActive = boardFilter.component === normalized && !boardFilter.runtime_node
-    boardFilter.component = isActive ? '' : normalized
-    boardFilter.runtime_node = ''
-    recentTraceLimit.value = 20
-    return
-  }
-
-  const normalizedComponent = String(target?.component || '').trim()
-  const normalizedRuntimeNode = String(target?.runtime_node || '').trim()
-  const isActive =
-    boardFilter.component === normalizedComponent &&
-    boardFilter.runtime_node === normalizedRuntimeNode
-  boardFilter.component = isActive ? '' : normalizedComponent
-  boardFilter.runtime_node = isActive ? '' : normalizedRuntimeNode
+  const normalizedComponent =
+    typeof target === 'string'
+      ? String(target || '').trim()
+      : String(target?.component || '').trim()
+  if (!normalizedComponent) return
+  boardFilter.component = normalizedComponent
+  boardFilter.runtime_node = ''
   recentTraceLimit.value = 20
 }
 
 const clearFilterChip = async (chip) => {
   if (!chip) return
-  if (chip.kind === 'board') {
-    boardFilter.component = ''
-    boardFilter.runtime_node = ''
-    return
-  }
   if (chip.kind === 'toggle') {
     onlyIssues.value = false
     return
@@ -847,14 +851,6 @@ const clearFilterChip = async (chip) => {
 
 const showMoreRecentTraces = () => {
   recentTraceLimit.value = 50
-}
-
-const scrollToRecentFeed = async () => {
-  await nextTick()
-  recentFeedRef.value?.scrollIntoView({
-    block: 'start',
-    behavior: 'smooth',
-  })
 }
 
 const handleStepSelect = (step) => {
@@ -959,6 +955,22 @@ const buildStepCopyText = (step) => {
   return lines.join('\n')
 }
 
+const buildTraceIdentityLabel = (trace) => {
+  if (trace?.trace_id) return `trace ${trace.trace_id}`
+  if (trace?.request_ids?.length) return `request ${trace.request_ids[0]}`
+  if (trace?.internal_order_ids?.length) return `order ${trace.internal_order_ids[0]}`
+  return trace?.trace_key || '-'
+}
+
+const isActiveTraceRow = (row) => {
+  const selectedKey = selectedTrace.value?.trace_key || ''
+  const selectedId = selectedTrace.value?.trace_id || ''
+  return (
+    (row?.trace_key && row.trace_key === selectedKey) ||
+    (row?.trace_id && row.trace_id === selectedId)
+  )
+}
+
 const copyText = async (value) => {
   const text = String(value || '').trim()
   if (!text) return
@@ -987,10 +999,6 @@ const syncSelectedStep = () => {
   }
   const currentKey = stepKey(selectedStep.value)
   selectedStep.value = steps.find((step) => stepKey(step) === currentKey) || pickDefaultTraceStep(steps)
-}
-
-const traceRowClassName = ({ row }) => {
-  return row?.issue_count > 0 ? 'runtime-trace-row--issue' : ''
 }
 
 const toggleGroup = (component) => {
@@ -1025,6 +1033,18 @@ const scrollToFocusedRawRecord = async () => {
 watch([selectedTraceDetail, onlyIssues], () => {
   syncSelectedStep()
 })
+
+watch(componentSidebarItems, (items) => {
+  if (items.length === 0) {
+    boardFilter.component = ''
+    boardFilter.runtime_node = ''
+    return
+  }
+  const fallback = pickDefaultSidebarComponent(items, boardFilter.component)
+  if (fallback === boardFilter.component) return
+  boardFilter.component = fallback
+  boardFilter.runtime_node = ''
+}, { immediate: true })
 
 watch(visibleTraces, (items) => {
   const currentRow = {
@@ -1179,6 +1199,211 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.runtime-browse-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(360px, 1.2fr) minmax(420px, 1.1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.runtime-browser-panel {
+  min-width: 0;
+  border: 1px solid #d8e2ee;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  padding: 16px;
+}
+
+.runtime-browser-panel--detail {
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.component-sidebar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.component-sidebar-item {
+  width: 100%;
+  border: 1px solid #d8e2ee;
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.component-sidebar-item:hover,
+.component-sidebar-item.active {
+  border-color: #21405e;
+  box-shadow: 0 12px 28px rgba(35, 73, 115, 0.12);
+  transform: translateX(2px);
+}
+
+.component-sidebar-item.is-warning {
+  background: linear-gradient(180deg, #ffffff 0%, #fff8ec 100%);
+}
+
+.component-sidebar-item.is-failed {
+  background: linear-gradient(180deg, #ffffff 0%, #fff1f0 100%);
+}
+
+.component-sidebar-item.is-skipped {
+  background: linear-gradient(180deg, #ffffff 0%, #f5f2ff 100%);
+}
+
+.component-sidebar-main,
+.component-sidebar-meta,
+.component-sidebar-popover-stats,
+.component-sidebar-popover-highlights,
+.trace-flow-popover-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.component-sidebar-main {
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.component-sidebar-main strong {
+  color: #21405e;
+}
+
+.component-sidebar-heartbeat,
+.component-sidebar-meta,
+.component-sidebar-popover p,
+.component-sidebar-popover-stats,
+.recent-feed-identity {
+  color: #69829b;
+  font-size: 12px;
+}
+
+.component-sidebar-meta {
+  margin-top: 10px;
+}
+
+.component-sidebar-highlights,
+.component-sidebar-popover-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.component-sidebar-highlights span,
+.component-sidebar-popover-highlights span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #35506c;
+  font-size: 12px;
+}
+
+.component-sidebar-popover {
+  display: grid;
+  gap: 10px;
+}
+
+.component-sidebar-popover strong {
+  color: #21405e;
+}
+
+.component-sidebar-popover p {
+  margin: 0;
+}
+
+.component-sidebar-popover-list {
+  display: grid;
+  gap: 10px;
+}
+
+.component-sidebar-popover-card {
+  border: 1px solid #d8e2ee;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+}
+
+.component-sidebar-popover-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.component-detail-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #35506c;
+  font-size: 12px;
+  text-transform: lowercase;
+}
+
+.component-detail-status.is-success {
+  background: #1e9b61;
+  color: #fff;
+}
+
+.component-detail-status.is-warning {
+  background: #de8f1f;
+  color: #fff;
+}
+
+.component-detail-status.is-failed {
+  background: #cf4a3c;
+  color: #fff;
+}
+
+.component-detail-status.is-skipped {
+  background: #7d74b6;
+  color: #fff;
+}
+
+.runtime-priority-banner {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #d8e2ee;
+  background: linear-gradient(180deg, #fffdf7 0%, #fff6e4 100%);
+  display: grid;
+  gap: 8px;
+}
+
+.runtime-priority-banner.is-empty {
+  background: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+}
+
+.runtime-priority-banner > span {
+  color: #5a728c;
+  font-size: 12px;
+}
+
+.runtime-priority-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #21405e;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.runtime-priority-link:hover {
+  color: #0f5ba7;
+}
+
 .runtime-empty-panel {
   min-height: 120px;
   display: grid;
@@ -1301,6 +1526,10 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.recent-feed-list--stacked {
+  gap: 12px;
+}
+
 .recent-feed-item {
   width: 100%;
   border: 1px solid #d8e2ee;
@@ -1318,6 +1547,28 @@ onBeforeUnmount(() => {
 .recent-feed-item:hover {
   border-color: #5d8fbd;
   box-shadow: 0 8px 20px rgba(35, 73, 115, 0.08);
+}
+
+.recent-feed-item--stacked {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
+.recent-feed-item--stacked.active {
+  border-color: #21405e;
+  box-shadow: 0 12px 28px rgba(35, 73, 115, 0.12);
+}
+
+.recent-feed-topline,
+.recent-feed-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.recent-feed-heading {
+  justify-content: flex-start;
 }
 
 .recent-feed-status {
@@ -1351,6 +1602,84 @@ onBeforeUnmount(() => {
 .recent-feed-status.is-skipped {
   background: #7d74b6;
   color: #fff;
+}
+
+.trace-flow-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.trace-flow-node {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 92px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid #d8e2ee;
+  background: #f8fbff;
+  color: #21405e;
+}
+
+.trace-flow-node.is-issue {
+  border-color: #de8f1f;
+}
+
+.trace-flow-node.is-success {
+  background: #eefaf3;
+}
+
+.trace-flow-node.is-warning {
+  background: #fff6e6;
+}
+
+.trace-flow-node.is-failed {
+  background: #fff0ef;
+}
+
+.trace-flow-node.is-skipped {
+  background: #f4f1ff;
+}
+
+.trace-flow-node-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.trace-flow-node-meta {
+  color: #69829b;
+  font-size: 11px;
+}
+
+.trace-flow-popover {
+  display: grid;
+  gap: 10px;
+}
+
+.trace-flow-popover strong {
+  color: #21405e;
+}
+
+.trace-flow-popover-list {
+  display: grid;
+  gap: 8px;
+}
+
+.trace-flow-popover-item {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  color: #56718d;
+  font-size: 12px;
+}
+
+.trace-flow-popover-item code {
+  color: #2e4d69;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .recent-feed-tags,
@@ -1554,6 +1883,10 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   background: linear-gradient(180deg, #fbfdff 0%, #f4f8fc 100%);
   padding: 14px;
+}
+
+.trace-detail--embedded {
+  height: 100%;
 }
 
 .trace-detail-head {
@@ -2220,9 +2553,14 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1080px) {
   .runtime-title-row,
+  .runtime-browse-layout,
   .runtime-home-head,
   .runtime-home-actions,
   .recent-feed-item,
+  .recent-feed-topline,
+  .recent-feed-heading,
+  .component-sidebar-main,
+  .component-sidebar-popover-head,
   .component-board-head,
   .trace-toolbar,
   .trace-list-summary,
@@ -2248,6 +2586,10 @@ onBeforeUnmount(() => {
   }
 
   .inspector-field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .trace-flow-popover-item {
     grid-template-columns: 1fr;
   }
 }
