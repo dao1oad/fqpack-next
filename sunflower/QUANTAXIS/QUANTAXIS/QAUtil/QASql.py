@@ -22,13 +22,15 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import pymongo
-from motor.motor_asyncio import AsyncIOMotorClient
-from motor import MotorClient
 import asyncio
 
+import pymongo
+from motor import MotorClient
+from motor.motor_asyncio import AsyncIOMotorClient
+from QUANTAXIS.QAUtil.QAMongoRuntime import QA_util_resolve_mongo_runtime
 
-def QA_util_sql_mongo_setting(uri='mongodb://localhost:27017/quantaxis'):
+
+def QA_util_sql_mongo_setting(uri=None):
     """
     explanation:
         根据给定的uri返回一个MongoClient实例，采用@几何建议以使用加密
@@ -52,13 +54,15 @@ def QA_util_sql_mongo_setting(uri='mongodb://localhost:27017/quantaxis'):
     # 采用@几何的建议,使用uri代替ip,port的连接方式
     # 这样可以对mongodb进行加密:
     # uri=mongodb://user:passwor@ip:port
-    client = pymongo.MongoClient(uri)
+    mongo_uri = uri or QA_util_resolve_mongo_runtime().uri
+    client = pymongo.MongoClient(mongo_uri)
     return client
+
 
 # async
 
 
-def QA_util_sql_async_mongo_setting(uri='mongodb://localhost:27017/quantaxis'):
+def QA_util_sql_async_mongo_setting(uri=None):
     """
     explanation:
         根据给定的uri返回一个异步AsyncIOMotorClient实例
@@ -87,7 +91,8 @@ def QA_util_sql_async_mongo_setting(uri='mongodb://localhost:27017/quantaxis'):
         asyncio.set_event_loop(loop)
 
     # async def client():
-    return AsyncIOMotorClient(uri, io_loop=loop)
+    mongo_uri = uri or QA_util_resolve_mongo_runtime().uri
+    return AsyncIOMotorClient(mongo_uri, io_loop=loop)
     # yield  client()
 
 

@@ -1,9 +1,9 @@
 import pymongo
+from fqxtrade.config import cfg, settings
 from pydash import get
-from fqxtrade.config import settings, cfg
 
 host = get(settings, "mongodb.host", "127.0.0.1")
-port = get(settings, "mongodb.port", 27017)
+port = get(settings, "mongodb.port", 27027)
 db = get(settings, "mongodb.db", "freshquant")
 
 MongoClient = pymongo.MongoClient(

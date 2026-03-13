@@ -4,6 +4,7 @@ import os
 from multiprocessing import Lock
 
 from QUANTAXIS.QASetting.QALocalize import setting_path
+from QUANTAXIS.QAUtil.QAMongoRuntime import QA_util_resolve_mongo_runtime
 from QUANTAXIS.QAUtil.QASql import (
     QA_util_sql_async_mongo_setting,
     QA_util_sql_mongo_setting,
@@ -15,7 +16,7 @@ from QUANTAXIS.QAUtil.QASql import (
 # 需要与yutian讨论具体配置文件的放置位置 author:Will 2018.5.19
 
 DEFAULT_MONGO = os.getenv('MONGODB', 'localhost')
-DEFAULT_DB_URI = 'mongodb://{}:27017'.format(DEFAULT_MONGO)
+DEFAULT_DB_URI = QA_util_resolve_mongo_runtime(DEFAULT_MONGO).uri
 CONFIGFILE_PATH = '{}{}{}'.format(setting_path, os.sep, 'config.ini')
 INFO_IP_FILE_PATH = '{}{}{}'.format(setting_path, os.sep, 'info_ip.json')
 STOCK_IP_FILE_PATH = '{}{}{}'.format(setting_path, os.sep, 'stock_ip.json')
@@ -26,7 +27,7 @@ class QA_Setting:
     def __init__(self, uri=None):
         self.lock = Lock()
 
-        self.mongo_uri = uri or self.get_mongo()
+        self.mongo_uri = uri or self.env_config() or self.get_mongo()
         self.username = None
         self.password = None
 
@@ -50,7 +51,7 @@ class QA_Setting:
             config.write(f)
             res = DEFAULT_DB_URI
 
-        return res
+        return QA_util_resolve_mongo_runtime(res).uri
 
     def get_config(self, section='MONGODB', option='uri', default_value=DEFAULT_DB_URI):
         """[summary]
@@ -148,7 +149,19 @@ class QA_Setting:
             return val
 
     def env_config(self):
-        return os.environ.get("MONGOURI", None)
+        if any(
+            os.environ.get(key)
+            for key in (
+                "MONGOURI",
+                "FRESHQUANT_MONGODB__URI",
+                "FRESHQUANT_MONGODB__HOST",
+                "FRESHQUANT_MONGODB__PORT",
+                "MONGODB",
+                "MONGODB_PORT",
+            )
+        ):
+            return QA_util_resolve_mongo_runtime().uri
+        return None
 
     @property
     def client(self):

@@ -74,6 +74,7 @@ def _reload_modules(monkeypatch):
     _install_holding_import_stubs(monkeypatch)
     _drop_module("freshquant.data.astock.holding")
     _drop_module("freshquant.data.astock")
+    _drop_module("freshquant.data")
     _drop_module("freshquant.database.cache")
     _drop_module("freshquant.order_management.projection.cache_invalidator")
     import freshquant.data.astock.holding as holding_module

@@ -6,12 +6,11 @@ from typing import Optional
 import bson
 import pandas as pd
 import pymongo
-from qaenv import (
-    mongo_ip,
-)
+from qaenv import mongo_ip as qaenv_mongo_ip
 from QUANTAXIS.QAMarket.market_preset import MARKET_PRESET
 from QUANTAXIS.QAMarket.QAOrder import ORDER_DIRECTION
 from QUANTAXIS.QAMarket.QAPosition import QA_Position
+from QUANTAXIS.QAUtil.QAMongoRuntime import QA_util_resolve_mongo_runtime
 
 
 def parse_orderdirection(od):
@@ -41,7 +40,7 @@ class QIFI_Account:
         model="BACKTEST",
         broker_name="QAPaperTrading",
         portfolioname='QAPaperTrade',
-        trade_host=mongo_ip,
+        trade_host=None,
         init_cash=1000000,
         taskid=str(uuid.uuid4()),
         nodatabase=False,
@@ -80,7 +79,9 @@ class QIFI_Account:
         self.bank_id = "QASIM"
         self.bankname = "QASIMBank"
 
-        self.trade_host = trade_host
+        self.trade_host = QA_util_resolve_mongo_runtime(
+            trade_host or qaenv_mongo_ip
+        ).uri
 
         self.pub_host = ""
         # self.trade_host = ""
