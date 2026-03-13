@@ -193,6 +193,9 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 正式服务加载了一份过度简化的 `WORKFLOW.freshquant.md`，prompt 中没有 issue 标识/标题/描述，导致 agent 只会做泛化上下文扫描
 - `Design Review` 任务在 Codex 会话里再次触发 `brainstorming`，硬门要求新的人工批准，结果因为会话内没有人工输入面而反复空转
 - workspace 只保留了本地路径 `origin`，没有 GitHub remote，导致 `gh pr ...` / `gh issue ...` 在 workspace 内直接失败
+- issue 被打到 `blocked`，但没有写明解除条件和应该恢复到哪个状态
+- `blocked` 只是状态误标：其实 PR 已 merged / 已有 open PR / 已有 APPROVED，只是没有恢复到 `Merging` / `Rework` / `In Progress`
+- workspace 目录还在，但 `.git` 丢失，导致 `before_run` 反复报 `not a git repository`
 - GitHub token 失效
 - 正式服务没加载最新 workflow
 
@@ -204,6 +207,9 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 如果日志里反复只有通用 repo 扫描而没有 issue 标识、标题、描述，先检查 `WORKFLOW.freshquant.md` 是否仍包含 issue placeholders；`sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 现在会对这份 prompt 做合约校验
 - 如果日志里明确读入了 issue body，但随后又加载 `brainstorming` 并停在“等待批准”，说明 workflow 仍把 `Design Review` 错当成会话内交互设计阶段；应改成“issue body -> Draft PR packet -> GitHub approval”的单向流程
 - 如果 `gh` 在 workspace 内报 “none of the git remotes configured for this repository point to a known GitHub host”，先看当前 workspace 是否只有本地 `origin`；正式 workflow 现在会在 `after_create` / `before_run` 自动补齐 `github` remote
+- 如果 issue 停在 `blocked`，先看最新 GitHub 评论是否写清了 blocker、clear condition、evidence 和 target recovery state；没有的话先补齐，再决定是否解除
+- 如果 issue 已经有 merged PR、open non-draft PR 或 approved draft PR，但还停在 `blocked`，优先按误标处理；正式 orchestrator 现在会按这些 GitHub 真值自动恢复到 `Merging` / `Rework` / `In Progress`
+- 如果日志里反复出现 `workspace_hook_failed ... not a git repository`，先看 workspace 目录是否缺 `.git`；正式 orchestrator 现在会先自愈重建一次，再决定是否继续报错
 - 如果 PR 标题、PR 正文、Issue / PR 评论仍然出现英文说明，先检查 `WORKFLOW.freshquant.md` 与 `runtime/symphony/templates/*.md` 是否已经同步到正式服务
 - 检查正式服务是否已加载最新 `runtime/symphony/WORKFLOW.freshquant.md`
 - 看 issue 当前标签与状态是否仍停在 `todo`，以及 orchestrator 日志里是否出现 `Todo -> In Progress` 自动推进记录

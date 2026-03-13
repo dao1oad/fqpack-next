@@ -27,6 +27,7 @@ Failure handling:
 - Stay in `Merging` for transient deploy failures.
 - Stay in `Merging` for transient cleanup or GitHub API failures.
 - Move back to `Rework` when the failure is deterministic and requires repository changes.
+- Do not move a merged issue to `Blocked` only because cleanup or host-side retries still need to finish; keep it in `Merging` unless there is a real external blocker.
 
 Hard rules:
 
