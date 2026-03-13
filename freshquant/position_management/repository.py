@@ -34,9 +34,25 @@ class PositionManagementRepository:
             return document
         return self.configs.find_one({"code": "default"})
 
+    def upsert_config(self, document):
+        payload = dict(document or {})
+        payload.pop("_id", None)
+        code = str(payload.get("code") or "default").strip() or "default"
+        payload["code"] = code
+        self.configs.update_one({"code": code}, {"$set": payload}, upsert=True)
+        return self.get_config() or payload
+
     def insert_snapshot(self, document):
         self.credit_asset_snapshots.insert_one(document)
         return document
+
+    def get_snapshot(self, snapshot_id):
+        if not snapshot_id:
+            return None
+        return self.credit_asset_snapshots.find_one({"snapshot_id": snapshot_id})
+
+    def get_latest_snapshot(self):
+        return self.credit_asset_snapshots.find_one(sort=[("queried_at", -1)])
 
     def upsert_current_state(self, document):
         account_id = document.get("account_id")
@@ -51,3 +67,13 @@ class PositionManagementRepository:
     def insert_decision(self, document):
         self.strategy_decisions.insert_one(document)
         return document
+
+    def list_recent_decisions(self, limit=10):
+        try:
+            resolved_limit = max(int(limit), 0)
+        except (TypeError, ValueError):
+            resolved_limit = 10
+        cursor = self.strategy_decisions.find().sort([("evaluated_at", -1)])
+        if resolved_limit > 0:
+            cursor = cursor.limit(resolved_limit)
+        return list(cursor)
