@@ -116,7 +116,8 @@ vendored `QUANTAXIS` 当前 Mongo 解析规则：
 
 - CI 的 pytest job 使用 `pytest-xdist` 以文件粒度并行执行单元测试。
 - 当前命令是 `pytest -q freshquant/tests -n auto --dist loadfile`。
-- 若本地要复现同一模式，优先保证 `PYTHONPATH` 指向仓库源码与 `morningglory/fqxtrade`，避免落到过期的已安装包。
+- 若本地要复现同一模式，优先保证 `PYTHONPATH` 指向仓库源码、`morningglory/fqxtrade` 与 `sunflower/QUANTAXIS`，避免落到过期的已安装包。
+- 当前 `freshquant/__init__.py` 也会在检测到源码树时把 `sunflower/QUANTAXIS` 提前插入 `sys.path`；但正式宿主机仍应以 supervisor 模板中的显式 `PYTHONPATH` 为部署真值。
 
 ## 当前宿主机模板
 
@@ -125,7 +126,7 @@ vendored `QUANTAXIS` 当前 Mongo 解析规则：
 - `deployment/examples/freshquant.yaml`
   - 宿主机配置样例。
 - `deployment/examples/supervisord.fqnext.example.conf`
-  - 宿主机进程编排样例。
+  - 宿主机进程编排样例；当前 `PYTHONPATH` 口径应同时包含仓库根、`morningglory/fqxtrade` 和 `sunflower/QUANTAXIS`。
 
 ## 配置变更约束
 
