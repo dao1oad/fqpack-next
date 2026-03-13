@@ -136,6 +136,11 @@ Cleanup 只清理任务级资源：
   - `scripts/start_freshquant_symphony.ps1`
   - `scripts/sync_freshquant_symphony_service.ps1`
 
+`request_freshquant_symphony_cleanup.ps1` 的部署说明正文支持两种入口：
+
+- `-DeploymentCommentBody`：兼容旧调用，只适合短 ASCII 文本
+- `-DeploymentCommentBodyPath`：推荐入口，从 UTF-8 markdown 文件读取正文，避免 PowerShell 命令行把中文和反引号 markdown 破坏成 `?` 或控制字符
+
 ## 任务标签建议
 
 Issue labels：

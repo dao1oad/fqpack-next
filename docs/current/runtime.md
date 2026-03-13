@@ -38,6 +38,7 @@
 - 如果 workspace 目录存在但缺失 git 元数据，orchestrator 会在下一次执行前自愈重建一次，而不是无限重试 `not a git repository`
 - Symphony `sync/start` 会校验 workflow prompt 合约，至少要求保留 issue 标识、标题、状态、描述、URL、Design Review 禁止二次 `brainstorming`、以及 Draft PR bootstrap 规则
 - Symphony 写入 GitHub 的正式文本默认使用简体中文；仅审批信号 `APPROVED` / `REVISE:` / `REJECTED:` 保留英文控制词
+- cleanup request 的部署说明正文优先通过 UTF-8 文件传给 `request_freshquant_symphony_cleanup.ps1 -DeploymentCommentBodyPath`；不要把长中文 markdown 直接内联进 PowerShell 命令行
 - 运行日志根目录：`logs/runtime`，可被 `FQ_RUNTIME_LOG_DIR` 覆盖
 
 ## 最小可用运行面
