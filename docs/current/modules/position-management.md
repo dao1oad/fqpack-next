@@ -69,6 +69,7 @@
   - `xtquant.account_type`
 
 阈值写入 `pm_configs.thresholds`，后续快照刷新时直接影响 `state_from_bail()` 的状态判定。
+如果阈值刚更新、`pm_current_state` 还没被下一次 snapshot 刷新重算，Dashboard 会明确标记“阈值已更新，当前状态待下一次快照刷新”；在这段窗口期内，真实门禁仍按当前 `pm_current_state` 生效。
 
 ## 页面读模型
 

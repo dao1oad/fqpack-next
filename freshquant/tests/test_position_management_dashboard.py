@@ -194,3 +194,58 @@ def test_update_config_rejects_invalid_threshold_order():
                 "holding_only_min_bail": 200000,
             }
         )
+
+
+def test_dashboard_marks_threshold_change_as_pending_refresh_when_state_is_fresh():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    repository = FakeRepository()
+    repository.config_doc = {
+        "code": "default",
+        "enabled": True,
+        "thresholds": {
+            "allow_open_min_bail": 900000.0,
+            "holding_only_min_bail": 400000.0,
+        },
+        "updated_at": "2026-03-07T12:00:18+08:00",
+        "updated_by": "pytest",
+    }
+    repository.current_state_doc = {
+        "account_id": "1208970161",
+        "state": ALLOW_OPEN,
+        "available_bail_balance": 865432.12,
+        "snapshot_id": "pms_1",
+        "data_source": "xtquant",
+        "evaluated_at": "2026-03-07T12:00:15+08:00",
+        "last_query_ok": "2026-03-07T12:00:15+08:00",
+    }
+    repository.snapshot_doc = {
+        "snapshot_id": "pms_1",
+        "available_amount": 102345.67,
+        "fetch_balance": 92345.67,
+        "total_asset": 1432100.0,
+        "market_value": 1210000.0,
+        "total_debt": 530000.0,
+        "source": "xtquant",
+    }
+
+    service = PositionManagementDashboardService(
+        repository=repository,
+        holding_codes_provider=lambda: ["000001"],
+        query_param_loader=_query_param,
+        now_provider=_fixed_now,
+    )
+
+    payload = service.get_dashboard()
+    rules = {item["key"]: item for item in payload["rule_matrix"]}
+
+    assert payload["state"]["effective_state"] == ALLOW_OPEN
+    assert payload["state"]["stale"] is False
+    assert (
+        payload["state"]["matched_rule"]["code"]
+        == "thresholds_updated_pending_refresh"
+    )
+    assert "下一次 snapshot 刷新" in payload["state"]["matched_rule"]["detail"]
+    assert rules["buy_new"]["allowed"] is True

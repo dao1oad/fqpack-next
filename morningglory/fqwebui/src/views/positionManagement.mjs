@@ -89,8 +89,14 @@ const formatInventoryValue = (item = {}) => {
 
 export const readDashboardPayload = (response, fallback = {}) => {
   if (response && typeof response === 'object') {
+    if (
+      Object.prototype.hasOwnProperty.call(response, 'data') &&
+      response.data &&
+      typeof response.data === 'object'
+    ) {
+      return response.data
+    }
     if (response.config || response.state) return response
-    if (response.data && typeof response.data === 'object') return response.data
   }
   return fallback
 }

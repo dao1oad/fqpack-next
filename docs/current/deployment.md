@@ -86,8 +86,7 @@ docker compose -f docker/compose.parallel.yaml ps
 ## 部署后必须确认的事实
 
 - API 蓝图能返回，不是只监听端口。
-- Web UI 页面不是空白页，关键页面 `/gantt`、`/gantt/shouban30`、`/runtime-observability` 能打开。
-- Web UI 页面不是空白页，关键页面 `/gantt`、`/gantt/shouban30`、`/tpsl`、`/runtime-observability` 能打开。
+- Web UI 页面不是空白页，关键页面 `/gantt`、`/gantt/shouban30`、`/position-management`、`/tpsl`、`/runtime-observability` 能打开。
 - XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积。
 - TPSL / Position worker 修改后，进程没有“启动即退”。
 - Symphony 修改后，Issue 领取、Design Review、cleanup 闭环仍然可用。

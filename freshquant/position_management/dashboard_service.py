@@ -327,6 +327,14 @@ def _build_matched_rule(*, current_state, effective_state, stale, thresholds, po
                 f"raw_state={raw_state or '-'}，effective_state={effective_state}。"
             ),
         }
+    pending_refresh_rule = _build_threshold_refresh_rule(
+        current_state=current_state,
+        raw_state=raw_state,
+        available_bail_balance=available_bail_balance,
+        policy=policy,
+    )
+    if pending_refresh_rule is not None:
+        return pending_refresh_rule
     if available_bail_balance > thresholds["allow_open_min_bail"]:
         return {
             "code": "allow_open_threshold",
@@ -354,6 +362,29 @@ def _build_matched_rule(*, current_state, effective_state, stale, thresholds, po
             f"available_bail_balance={available_bail_balance} <= "
             f"holding_only_min_bail={thresholds['holding_only_min_bail']}，"
             f"状态为 {FORCE_PROFIT_REDUCE}。"
+        ),
+    }
+
+
+def _build_threshold_refresh_rule(
+    *,
+    current_state,
+    raw_state,
+    available_bail_balance,
+    policy,
+):
+    if current_state is None or not raw_state:
+        return None
+    configured_state = policy.state_from_bail(available_bail_balance)
+    if configured_state == raw_state:
+        return None
+    return {
+        "code": "thresholds_updated_pending_refresh",
+        "title": "阈值已更新，当前状态待下一次快照刷新",
+        "detail": (
+            f"pm_current_state 当前仍为 {raw_state}，但按最新阈值重算将落到 "
+            f"{configured_state}。实际门禁会继续按当前 state 生效，直到下一次 "
+            "snapshot 刷新完成。"
         ),
     }
 

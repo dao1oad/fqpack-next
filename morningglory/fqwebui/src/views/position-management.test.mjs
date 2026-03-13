@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildConfigSections,
+  readDashboardPayload,
   buildRuleMatrix,
   buildStatePanel,
 } from './positionManagement.mjs'
@@ -160,4 +161,18 @@ test('buildRuleMatrix keeps decision order and readable allow status', () => {
       },
     ],
   )
+})
+
+test('readDashboardPayload unwraps axios responses instead of treating request config as dashboard config', () => {
+  const payload = createDashboard()
+  const response = {
+    data: payload,
+    status: 200,
+    config: {
+      url: '/api/position-management/dashboard',
+      method: 'get',
+    },
+  }
+
+  assert.deepEqual(readDashboardPayload(response), payload)
 })

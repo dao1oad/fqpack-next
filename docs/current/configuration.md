@@ -54,6 +54,7 @@ Docker 并行模式通过 `deployment/examples/envs.fqnext.example` 把端口改
 订单管理默认单独使用 `freshquant_order_management`，投影仍写回 `freshquant`。
 仓位管理默认单独使用 `freshquant_position_management`。
 当前仓位管理页面只允许编辑 `pm_configs.thresholds` 下的两个保证金阈值。
+阈值保存后不会直接改写现有 `pm_current_state`；它会在下一次 `PositionSnapshotService.refresh_once()` 刷新时进入状态判定链。
 
 以下仍是代码默认语义，只读展示，不写入持久化配置：
 
