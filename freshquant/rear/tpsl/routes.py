@@ -2,6 +2,7 @@
 
 from flask import Blueprint, jsonify, request
 
+from freshquant.tpsl.management_service import TpslManagementService
 from freshquant.tpsl.service import TpslService
 
 tpsl_bp = Blueprint("tpsl", __name__, url_prefix="/api/tpsl")
@@ -9,6 +10,10 @@ tpsl_bp = Blueprint("tpsl", __name__, url_prefix="/api/tpsl")
 
 def _get_tpsl_service():
     return TpslService()
+
+
+def _get_tpsl_management_service():
+    return TpslManagementService()
 
 
 def _value_error_response(error):
@@ -95,6 +100,40 @@ def list_tpsl_events():
         return jsonify({"error": "limit must be integer"}), 400
     rows = _get_tpsl_service().list_events(symbol=symbol, limit=limit)
     return jsonify(rows)
+
+
+@tpsl_bp.route("/management/overview", methods=["GET"])
+def get_tpsl_management_overview():
+    return jsonify({"rows": _get_tpsl_management_service().get_overview()})
+
+
+@tpsl_bp.route("/management/<symbol>", methods=["GET"])
+def get_tpsl_management_detail(symbol):
+    try:
+        history_limit = int(request.args.get("history_limit", 20))
+    except (TypeError, ValueError):
+        return jsonify({"error": "history_limit must be integer"}), 400
+    detail = _get_tpsl_management_service().get_symbol_detail(
+        symbol,
+        history_limit=history_limit,
+    )
+    return jsonify(detail)
+
+
+@tpsl_bp.route("/history", methods=["GET"])
+def list_tpsl_history():
+    try:
+        limit = int(request.args.get("limit", 50))
+    except (TypeError, ValueError):
+        return jsonify({"error": "limit must be integer"}), 400
+    rows = _get_tpsl_management_service().list_history(
+        symbol=request.args.get("symbol"),
+        kind=request.args.get("kind"),
+        buy_lot_id=request.args.get("buy_lot_id"),
+        batch_id=request.args.get("batch_id"),
+        limit=limit,
+    )
+    return jsonify({"rows": rows})
 
 
 @tpsl_bp.route("/batches/<batch_id>", methods=["GET"])

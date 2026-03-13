@@ -45,6 +45,9 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/tpsl/takeprofit/<symbol>/tiers/<level>/enable`
 - `/api/tpsl/takeprofit/<symbol>/tiers/<level>/disable`
 - `/api/tpsl/takeprofit/<symbol>/rearm`
+- `/api/tpsl/management/overview`
+- `/api/tpsl/management/<symbol>`
+- `/api/tpsl/history`
 - `/api/tpsl/events`
 - `/api/tpsl/batches/<batch_id>`
 
@@ -115,6 +118,7 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - `/gantt`
 - `/gantt/shouban30`
 - `/gantt/stocks/:plateKey`
+- `/tpsl`
 - `/runtime-observability`
 
 ## 当前接口边界
@@ -122,3 +126,4 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - 交易主入口是 `OrderSubmitService`；HTTP 和 CLI 只是它的包装。
 - Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面。
 - Runtime API 只读原始日志与聚合视图，不承担修复动作。
+- TPSL 管理页通过 `/api/tpsl/management/*` 和 `/api/tpsl/history` 读取 symbol 汇总、buy lot 止损和统一触发历史；止盈/止损写操作仍分别复用 `/api/tpsl/takeprofit/*` 与 `/api/order-management/stoploss/bind`。

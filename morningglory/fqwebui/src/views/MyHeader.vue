@@ -14,6 +14,9 @@
         <el-button type="warning" @click="jumpToControl('klineSlim')" size="small">
           行情图表
         </el-button>
+        <el-button type="warning" plain @click="jumpToControl('tpsl')" size="small">
+          TPSL
+        </el-button>
         <el-button type="danger" @click="jumpToControl('runtime')" size="small">
           运行观测
         </el-button>
@@ -60,6 +63,8 @@ export default {
         this.$router.replace('/kline-slim')
       } else if (type === 'runtime') {
         this.$router.replace('/runtime-observability')
+      } else if (type === 'tpsl') {
+        this.$router.replace('/tpsl')
       } else if (type === 'gantt') {
         this.$router.replace('/gantt?p=xgb')
       } else if (type === 'shouban30') {

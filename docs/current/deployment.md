@@ -88,6 +88,7 @@ docker compose -f docker/compose.parallel.yaml ps
 
 - API 蓝图能返回，不是只监听端口。
 - Web UI 页面不是空白页，关键页面 `/gantt`、`/gantt/shouban30`、`/runtime-observability` 能打开。
+- Web UI 页面不是空白页，关键页面 `/gantt`、`/gantt/shouban30`、`/tpsl`、`/runtime-observability` 能打开。
 - XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积。
 - 如果改了运行观测或 XTData runtime 埋点，确认 `/runtime-observability` 页面能看到 `xt_producer` / `xt_consumer` 的 5 分钟 heartbeat 与关键指标，而不是只看到启动事件。
 - TPSL / Position worker 修改后，进程没有“启动即退”。

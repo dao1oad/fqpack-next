@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from freshquant.db import DBfreshquant
+from freshquant.order_management.ids import new_event_id
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.runtime_observability.ids import new_intent_id, new_trace_id
@@ -68,14 +70,61 @@ class TpslService:
         return self.takeprofit_service.get_state(symbol)
 
     def mark_takeprofit_triggered(
-        self, *, symbol, level, batch_id, updated_by="system"
+        self,
+        *,
+        symbol,
+        level,
+        batch_id,
+        updated_by="system",
+        trigger_price=None,
+        buy_lot_details=None,
     ):
         return self.takeprofit_service.mark_level_triggered(
             symbol,
             level=level,
             batch_id=batch_id,
             updated_by=updated_by,
+            trigger_price=trigger_price,
+            buy_lot_details=buy_lot_details,
         )
+
+    def mark_stoploss_triggered(self, *, batch):
+        repository = getattr(self.takeprofit_service, "repository", None)
+        if repository is None or not hasattr(repository, "insert_exit_trigger_event"):
+            return None
+
+        buy_lot_quantities = dict(batch.get("buy_lot_quantities") or {})
+        binding_map = {
+            item.get("buy_lot_id"): item
+            for item in (batch.get("triggered_bindings") or [])
+            if item.get("buy_lot_id")
+        }
+        buy_lot_details = []
+        for buy_lot_id, quantity in buy_lot_quantities.items():
+            detail = {
+                "buy_lot_id": buy_lot_id,
+                "quantity": int(quantity),
+            }
+            binding = binding_map.get(buy_lot_id) or {}
+            if binding.get("stop_price") is not None:
+                detail["stop_price"] = float(binding["stop_price"])
+            if binding.get("ratio") is not None:
+                detail["ratio"] = float(binding["ratio"])
+            buy_lot_details.append(detail)
+
+        event = {
+            "event_id": new_event_id(),
+            "event_type": "stoploss_hit",
+            "kind": "stoploss",
+            "symbol": _normalize_symbol(batch.get("symbol")),
+            "batch_id": batch.get("batch_id"),
+            "trigger_price": float(batch.get("bid1") or batch.get("price") or 0.0),
+            "buy_lot_ids": [item["buy_lot_id"] for item in buy_lot_details],
+            "buy_lot_details": buy_lot_details,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        repository.insert_exit_trigger_event(event)
+        return event
 
     def rearm_takeprofit(self, symbol, *, updated_by="system"):
         return self.takeprofit_service.rearm_all_levels(
@@ -268,6 +317,7 @@ class TpslService:
             batch["tick_time"] = int(tick_time or 0)
             batch["trace_id"] = trace_id_value
             batch["intent_id"] = intent_id_value
+            batch["triggered_bindings"] = list(triggered_bindings)
             self._emit_runtime(
                 "batch_create",
                 symbol=base_symbol,
@@ -350,7 +400,13 @@ class TpslService:
                 level=int(batch["level"]),
                 batch_id=batch_id,
                 updated_by="tpsl_submit",
+                trigger_price=batch.get("tier_price") or batch.get("price"),
+                buy_lot_details=_build_buy_lot_details(
+                    batch.get("buy_lot_quantities") or {}
+                ),
             )
+        if scope_type == "stoploss_batch":
+            self.mark_stoploss_triggered(batch=batch)
         return submit_result
 
     def _get_order_submit_service(self):
@@ -480,6 +536,18 @@ def _cap_takeprofit_breakdown(profit_slices, *, quantity_cap):
         "buy_lot_quantities": buy_lot_quantities,
         "slice_details": slice_details,
     }
+
+
+def _build_buy_lot_details(buy_lot_quantities):
+    details = []
+    for buy_lot_id, quantity in dict(buy_lot_quantities or {}).items():
+        details.append(
+            {
+                "buy_lot_id": buy_lot_id,
+                "quantity": int(quantity),
+            }
+        )
+    return details
 
 
 _runtime_logger = None

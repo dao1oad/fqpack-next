@@ -1,33 +1,33 @@
-# Deployment Comment Template
+# 部署说明模板
 
-Issue is ready for final cleanup and Done transition after merge, deployment, and health checks.
+当前 Issue 在合并、部署和健康检查完成后，可以进入最终 cleanup 与 `Done`。
 
-## Deployment Scope
+## 部署范围
 
 - `<runtime surface>`
 - `<affected module>`
 
-## Executed Actions
+## 已执行动作
 
 - `<command or action summary>`
 - `<command or action summary>`
 
-## Health Checks
+## 健康检查
 
 - `<health check command and result>`
 - `<post-deploy verification result>`
 
-## Retry / Failure Notes
+## 重试 / 失败说明
 
 - `<retry summary or none>`
 - `<failure summary or none>`
 
-## Final Deployment Result
+## 最终部署结果
 
 - `<success criteria met>`
 - `<remaining caveats or none>`
 
-## Cleanup Results
+## Cleanup 结果
 
 - `<remote branch cleanup result>`
 - `<workspace cleanup result>`

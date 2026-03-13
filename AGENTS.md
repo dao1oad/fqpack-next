@@ -69,6 +69,13 @@
 
 `Issue -> In Progress -> CI -> Deploy -> Health Check -> Cleanup -> Done`
 
+新建 GitHub Issue 默认只打：
+
+- `symphony`
+- `todo`
+
+不要在创建时预贴 `design-review`。只有在首轮风险判定后确认命中高风险条件时，才补 `design-review` 并进入 `Design Review` / Draft PR 路径。
+
 ### 3.1 唯一人工门
 
 唯一人工评审点是：
@@ -83,6 +90,14 @@
 
 - PR review `Approve`
 - 或 PR 评论中明确回复 `APPROVED`
+
+除审批信号 `APPROVED` / `REVISE:` / `REJECTED:` 外，所有写入 GitHub 的正式说明默认使用简体中文，包括：
+
+- Issue 描述
+- Draft PR 标题与正文
+- PR / Issue 评论
+- 部署说明
+- Done / cleanup 总结
 
 ### 3.2 哪些任务必须先做 Design Review
 

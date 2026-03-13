@@ -115,24 +115,32 @@ const handleBack = () => {
 
 <style scoped>
 .gantt-page {
-  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: #f5f7fa;
 }
 
 .gantt-page-body {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 64px);
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .gantt-tabs {
+  flex: 0 0 auto;
   padding: 8px 16px 0;
   background: #fff;
   border-bottom: 1px solid #ebeef5;
 }
 
 .gantt-page-content {
+  display: flex;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 </style>

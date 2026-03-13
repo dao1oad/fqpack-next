@@ -66,7 +66,16 @@ class TakeprofitService:
             "state": state,
         }
 
-    def mark_level_triggered(self, symbol, *, level, batch_id, updated_by="system"):
+    def mark_level_triggered(
+        self,
+        symbol,
+        *,
+        level,
+        batch_id,
+        updated_by="system",
+        trigger_price=None,
+        buy_lot_details=None,
+    ):
         normalized_symbol = _normalize_symbol(symbol)
         profile = self.repository.find_takeprofit_profile(normalized_symbol)
         if profile is None:
@@ -95,9 +104,19 @@ class TakeprofitService:
             {
                 "event_id": new_event_id(),
                 "event_type": "takeprofit_hit",
+                "kind": "takeprofit",
                 "symbol": normalized_symbol,
                 "level": int(level),
                 "batch_id": batch_id,
+                "trigger_price": (
+                    float(trigger_price) if trigger_price is not None else None
+                ),
+                "buy_lot_ids": [
+                    item.get("buy_lot_id")
+                    for item in list(buy_lot_details or [])
+                    if item.get("buy_lot_id") is not None
+                ],
+                "buy_lot_details": list(buy_lot_details or []),
                 "created_at": _now(),
             }
         )
