@@ -65,16 +65,28 @@ class OrderManagementReadService:
         order_id = str(internal_order_id or "").strip()
         if not order_id:
             raise ValueError("order not found")
-        order = self.repository.find_order(order_id)
+        order = _sanitize_document(self.repository.find_order(order_id))
         if order is None:
             raise ValueError("order not found")
-        request = self.repository.find_order_request(order.get("request_id"))
+        request = _sanitize_document(
+            self.repository.find_order_request(order.get("request_id"))
+        )
         events = sorted(
-            self.repository.list_order_events(internal_order_ids=[order_id]),
+            [
+                _sanitize_document(item)
+                for item in self.repository.list_order_events(
+                    internal_order_ids=[order_id]
+                )
+            ],
             key=lambda item: item.get("created_at") or "",
         )
         trades = sorted(
-            self.repository.list_trade_facts(internal_order_ids=[order_id]),
+            [
+                _sanitize_document(item)
+                for item in self.repository.list_trade_facts(
+                    internal_order_ids=[order_id]
+                )
+            ],
             key=lambda item: (
                 str(item.get("trade_time") or ""),
                 item.get("trade_fact_id") or "",
@@ -276,8 +288,8 @@ class OrderManagementReadService:
 
 
 def _assemble_order_row(order, request):
-    order_row = dict(order or {})
-    request_row = dict(request or {})
+    order_row = _sanitize_document(order or {})
+    request_row = _sanitize_document(request or {})
     return {
         **order_row,
         "request_id": order_row.get("request_id"),
@@ -385,3 +397,15 @@ def _parse_filter_datetime(value, *, upper_bound):
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _sanitize_document(value):
+    if isinstance(value, dict):
+        return {
+            key: _sanitize_document(item)
+            for key, item in value.items()
+            if key != "_id"
+        }
+    if isinstance(value, list):
+        return [_sanitize_document(item) for item in value]
+    return value

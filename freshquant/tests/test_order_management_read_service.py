@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import pytest
+from bson import ObjectId
 
 from freshquant.order_management.read_service import OrderManagementReadService
 
@@ -346,3 +347,21 @@ def test_list_orders_rejects_unknown_time_field():
 
     with pytest.raises(ValueError, match="invalid time_field"):
         service.list_orders(time_field="trade_time")
+
+
+def test_read_service_removes_mongo_ids_from_list_and_detail_payloads():
+    repository = _build_repository()
+    repository.orders[0]["_id"] = ObjectId()
+    repository.order_requests[0]["_id"] = ObjectId()
+    repository.order_events[0]["_id"] = ObjectId()
+    repository.trade_facts[0]["_id"] = ObjectId()
+    service = OrderManagementReadService(repository=repository)
+
+    orders_payload = service.list_orders(symbol="600000", state="FILLED")
+    detail_payload = service.get_order_detail("ord_fill_1")
+
+    assert "_id" not in orders_payload["rows"][0]
+    assert "_id" not in detail_payload["order"]
+    assert "_id" not in detail_payload["request"]
+    assert "_id" not in detail_payload["events"][0]
+    assert "_id" not in detail_payload["trades"][0]
