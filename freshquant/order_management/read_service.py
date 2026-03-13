@@ -402,9 +402,7 @@ def _parse_filter_datetime(value, *, upper_bound):
 def _sanitize_document(value):
     if isinstance(value, dict):
         return {
-            key: _sanitize_document(item)
-            for key, item in value.items()
-            if key != "_id"
+            key: _sanitize_document(item) for key, item in value.items() if key != "_id"
         }
     if isinstance(value, list):
         return [_sanitize_document(item) for item in value]
