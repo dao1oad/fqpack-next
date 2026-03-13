@@ -3,6 +3,16 @@ import sys
 import types
 
 
+def _drop_module(module_name):
+    sys.modules.pop(module_name, None)
+    parent_name, _, child_name = module_name.rpartition(".")
+    if not parent_name:
+        return
+    parent_module = sys.modules.get(parent_name)
+    if parent_module is not None and hasattr(parent_module, child_name):
+        delattr(parent_module, child_name)
+
+
 def _install_holding_import_stubs(monkeypatch):
     memoizit_module = types.ModuleType("memoizit")
 
@@ -62,6 +72,10 @@ def _install_holding_import_stubs(monkeypatch):
 
 def _reload_modules(monkeypatch):
     _install_holding_import_stubs(monkeypatch)
+    _drop_module("freshquant.data.astock.holding")
+    _drop_module("freshquant.data.astock")
+    _drop_module("freshquant.database.cache")
+    _drop_module("freshquant.order_management.projection.cache_invalidator")
     import freshquant.data.astock.holding as holding_module
     import freshquant.database.cache as cache_module
     import freshquant.order_management.projection.cache_invalidator as invalidator_module
@@ -70,6 +84,18 @@ def _reload_modules(monkeypatch):
     holding_module = importlib.reload(holding_module)
     invalidator_module = importlib.reload(invalidator_module)
     return cache_module, holding_module, invalidator_module
+
+
+def test_reload_modules_clears_stale_holding_stub(monkeypatch):
+    stale = types.ModuleType("freshquant.data.astock.holding")
+    monkeypatch.setitem(sys.modules, "freshquant.data.astock.holding", stale)
+
+    _, holding_module, _ = _reload_modules(monkeypatch)
+
+    assert holding_module is not stale
+    assert holding_module.__file__.replace("\\", "/").endswith(
+        "freshquant/data/astock/holding.py"
+    )
 
 
 def test_get_stock_fill_list_reads_open_buy_projection(monkeypatch):

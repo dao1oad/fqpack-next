@@ -85,5 +85,5 @@ jobs:
       - name: Sync locked environment
         run: uv sync --frozen
 
-      - name: Run pytest (unit tests only)
-        run: uv run pytest -q freshquant/tests
+      - name: Run pytest (unit tests only, xdist loadfile)
+        run: uv run pytest -q freshquant/tests -n auto --dist loadfile

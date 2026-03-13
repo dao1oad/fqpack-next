@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.tpsl.repository import TpslRepository
 from freshquant.tpsl.takeprofit_service import TakeprofitService
 from freshquant.util.code import normalize_to_base_code
+
+try:
+    from bson import ObjectId
+except Exception:  # pragma: no cover - bson ships with pymongo in production/tests
+    ObjectId = None
 
 
 class TpslManagementService:
@@ -131,19 +138,24 @@ class TpslManagementService:
             or (buy_lots[0].get("name") if buy_lots else "")
             or str(((takeprofit or {}).get("name") or "")).strip()
         )
-        return {
-            "symbol": normalized_symbol,
-            "name": name,
-            "position": {
+        return _make_json_safe(
+            {
                 "symbol": normalized_symbol,
-                "quantity": int(position.get("quantity") or 0),
-                "amount": float(position.get("amount") or 0.0),
-                "amount_adjusted": float(position.get("amount_adjusted") or 0.0),
-            },
-            "takeprofit": takeprofit,
-            "buy_lots": buy_lots,
-            "history": self.list_history(symbol=normalized_symbol, limit=history_limit),
-        }
+                "name": name,
+                "position": {
+                    "symbol": normalized_symbol,
+                    "quantity": int(position.get("quantity") or 0),
+                    "amount": float(position.get("amount") or 0.0),
+                    "amount_adjusted": float(position.get("amount_adjusted") or 0.0),
+                },
+                "takeprofit": takeprofit,
+                "buy_lots": buy_lots,
+                "history": self.list_history(
+                    symbol=normalized_symbol,
+                    limit=history_limit,
+                ),
+            }
+        )
 
     def list_history(
         self,
@@ -176,7 +188,7 @@ class TpslManagementService:
         history.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         if limit is not None:
             history = history[: max(int(limit), 0)]
-        return self._attach_order_chain(history)
+        return _make_json_safe(self._attach_order_chain(history))
 
     def _attach_order_chain(self, history):
         batch_ids = [item["batch_id"] for item in history if item.get("batch_id")]
@@ -372,3 +384,17 @@ def _event_matches_buy_lot(row, buy_lot_id):
         if str(item.get("buy_lot_id") or "").strip() == buy_lot_id_text:
             return True
     return False
+
+
+def _make_json_safe(value):
+    if isinstance(value, dict):
+        return {key: _make_json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_make_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_make_json_safe(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if ObjectId is not None and isinstance(value, ObjectId):
+        return str(value)
+    return value
