@@ -24,6 +24,7 @@ import {
   filterTraceSteps,
   formatDurationMs,
   groupStepsByComponent,
+  pickDefaultSidebarComponent,
   pickDefaultTraceStep,
   sortTraceSummaries,
   summarizeTrace,
@@ -641,6 +642,38 @@ test('buildComponentSidebarItems keeps fixed core order and preserves placeholde
   assert.ok(xtConsumer)
   assert.equal(xtConsumer.status, 'unknown')
   assert.equal(xtConsumer.heartbeat_label, 'no data')
+})
+
+test('pickDefaultSidebarComponent waits for traced components before auto-selecting the sidebar', () => {
+  const healthCards = buildHealthCards([
+    {
+      component: 'xt_producer',
+      runtime_node: 'host:xt_producer',
+      status: 'info',
+      heartbeat_age_s: 2,
+      metrics: { connected: 1 },
+    },
+  ])
+
+  const emptyItems = buildComponentSidebarItems([], healthCards)
+  assert.equal(pickDefaultSidebarComponent(emptyItems, ''), '')
+
+  const tracedItems = buildComponentSidebarItems(
+    [
+      makeTrace({
+        traceId: 'trc_sidebar_auto_select',
+        component: 'order_submit',
+        issueComponent: 'order_submit',
+        status: 'warning',
+        issueCount: 0,
+        lastTs: '2026-03-09T10:00:10+08:00',
+      }),
+    ],
+    healthCards,
+  )
+
+  assert.equal(pickDefaultSidebarComponent(tracedItems, ''), 'guardian_strategy')
+  assert.equal(pickDefaultSidebarComponent(tracedItems, 'xt_producer'), 'xt_producer')
 })
 
 test('applyBoardFilter narrows traces by selected component', () => {

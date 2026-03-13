@@ -610,6 +610,7 @@ import {
   findRawRecordIndex,
   filterTraceSteps,
   groupStepsByComponent,
+  pickDefaultSidebarComponent,
   pickDefaultTraceStep,
   readApiPayload,
   stopPollingTimer,
@@ -1039,12 +1040,8 @@ watch(componentSidebarItems, (items) => {
     boardFilter.runtime_node = ''
     return
   }
-  const hasActive = items.some((item) => item.component === boardFilter.component)
-  if (hasActive && boardFilter.component) return
-  const fallback =
-    items.find((item) => item.trace_count > 0 || item.issue_trace_count > 0)?.component ||
-    items[0]?.component ||
-    ''
+  const fallback = pickDefaultSidebarComponent(items, boardFilter.component)
+  if (fallback === boardFilter.component) return
   boardFilter.component = fallback
   boardFilter.runtime_node = ''
 }, { immediate: true })

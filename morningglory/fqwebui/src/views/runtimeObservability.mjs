@@ -1061,3 +1061,16 @@ export const buildComponentSidebarItems = (traces = [], components = []) => {
     }
   })
 }
+
+export const pickDefaultSidebarComponent = (items = [], currentComponent = '') => {
+  const current = toText(currentComponent)
+  const normalizedItems = Array.isArray(items) ? items : []
+  if (current && normalizedItems.some((item) => toText(item?.component) === current)) {
+    return current
+  }
+  return (
+    normalizedItems.find(
+      (item) => Number(item?.trace_count || 0) > 0 || Number(item?.issue_trace_count || 0) > 0,
+    )?.component || ''
+  )
+}
