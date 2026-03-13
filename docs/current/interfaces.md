@@ -28,8 +28,15 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/gantt/stocks/reasons`
 - `/api/gantt/shouban30/plates`
 - `/api/gantt/shouban30/stocks`
-- `/api/gantt/shouban30/pre-pool/*`
-- `/api/gantt/shouban30/stock-pool/*`
+- `/api/gantt/shouban30/pre-pool`
+- `/api/gantt/shouban30/pre-pool/replace`
+- `/api/gantt/shouban30/pre-pool/add-to-stock-pools`
+- `/api/gantt/shouban30/pre-pool/delete`
+- `/api/gantt/shouban30/pre-pool/sync-to-tdx`
+- `/api/gantt/shouban30/stock-pool`
+- `/api/gantt/shouban30/stock-pool/add-to-must-pool`
+- `/api/gantt/shouban30/stock-pool/delete`
+- `/api/gantt/shouban30/stock-pool/sync-to-tdx`
 
 ### `order`
 

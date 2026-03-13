@@ -3,6 +3,7 @@ from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 
+from freshquant.config import settings
 from freshquant.db import DBfreshquant
 
 SHOUBAN30_PRE_POOL_CATEGORY = "三十涨停Pro预选"
@@ -82,8 +83,22 @@ def _serialize_pool_doc(doc):
     }
 
 
+def _settings_get(root, dotted_key):
+    current = root
+    for part in str(dotted_key).split("."):
+        if current is None:
+            return None
+        if isinstance(current, dict):
+            current = current.get(part)
+            continue
+        current = getattr(current, part, None)
+    return current
+
+
 def _require_tdx_home():
-    tdx_home = str(os.environ.get("TDX_HOME") or "").strip()
+    tdx_home = str(
+        _settings_get(settings, "tdx.home") or os.environ.get("TDX_HOME") or ""
+    ).strip()
     if not tdx_home:
         raise RuntimeError("TDX_HOME not configured")
     return Path(tdx_home)
@@ -92,6 +107,16 @@ def _require_tdx_home():
 def _blk_line_from_code(code6):
     prefix = "1" if str(code6).startswith("6") else "0"
     return f"{prefix}{code6}"
+
+
+def _write_blk(docs):
+    target = _require_tdx_home() / "T0002" / "blocknew" / SHOUBAN30_BLK_FILENAME
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        "\n".join(_blk_line_from_code(doc.get("code")) for doc in docs),
+        encoding="gbk",
+    )
+    return {"success": True, "file_path": str(target), "count": len(docs)}
 
 
 def _build_pre_pool_doc(item, context):
@@ -140,14 +165,11 @@ def list_pre_pool():
 
 
 def sync_pre_pool_to_blk():
-    target = _require_tdx_home() / "T0002" / "blocknew" / SHOUBAN30_BLK_FILENAME
-    target.parent.mkdir(parents=True, exist_ok=True)
-    docs = _sorted_pre_pool_docs()
-    target.write_text(
-        "\n".join(_blk_line_from_code(doc.get("code")) for doc in docs),
-        encoding="gbk",
-    )
-    return {"success": True, "file_path": str(target), "count": len(docs)}
+    return _write_blk(_sorted_pre_pool_docs())
+
+
+def sync_stock_pool_to_blk():
+    return _write_blk(_sorted_stock_pool_docs())
 
 
 def add_pre_pool_item_to_stock_pool(code6):
