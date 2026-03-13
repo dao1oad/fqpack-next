@@ -70,6 +70,7 @@
 
 阈值写入 `pm_configs.thresholds`，后续快照刷新时直接影响 `state_from_bail()` 的状态判定。
 如果阈值刚更新、`pm_current_state` 还没被下一次 snapshot 刷新重算，Dashboard 会明确标记“阈值已更新，当前状态待下一次快照刷新”；在这段窗口期内，真实门禁仍按当前 `pm_current_state` 生效。
+`POST /api/position-management/config` 只接受有限数值（finite number）阈值；`nan`、`inf`、`-inf` 会直接返回 400。若历史配置中出现这类脏值，Dashboard 读取时会回退到默认阈值，避免污染门禁判断。
 
 ## 页面读模型
 

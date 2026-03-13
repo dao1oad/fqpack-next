@@ -196,6 +196,62 @@ def test_update_config_rejects_invalid_threshold_order():
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("allow_open_min_bail", "nan"),
+        ("allow_open_min_bail", "inf"),
+        ("holding_only_min_bail", "-inf"),
+    ],
+)
+def test_update_config_rejects_non_finite_threshold_values(field, value):
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    service = PositionManagementDashboardService(
+        repository=FakeRepository(),
+        holding_codes_provider=lambda: [],
+        query_param_loader=_query_param,
+        now_provider=_fixed_now,
+    )
+    payload = {
+        "allow_open_min_bail": 800000,
+        "holding_only_min_bail": 100000,
+    }
+    payload[field] = value
+
+    with pytest.raises(ValueError, match=f"{field} must be a finite number"):
+        service.update_config(payload)
+
+
+def test_get_config_falls_back_to_defaults_for_non_finite_thresholds():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    repository = FakeRepository()
+    repository.config_doc = {
+        "code": "default",
+        "enabled": True,
+        "thresholds": {
+            "allow_open_min_bail": "nan",
+            "holding_only_min_bail": "inf",
+        },
+    }
+    service = PositionManagementDashboardService(
+        repository=repository,
+        holding_codes_provider=lambda: [],
+        query_param_loader=_query_param,
+        now_provider=_fixed_now,
+    )
+
+    payload = service.get_config()
+
+    assert payload["thresholds"]["allow_open_min_bail"] == 800000.0
+    assert payload["thresholds"]["holding_only_min_bail"] == 100000.0
+
+
 def test_dashboard_marks_threshold_change_as_pending_refresh_when_state_is_fresh():
     from freshquant.position_management.dashboard_service import (
         PositionManagementDashboardService,

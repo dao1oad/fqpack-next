@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import math
 from datetime import datetime, timezone
 
 from freshquant.position_management.models import (
@@ -81,13 +82,15 @@ class PositionManagementDashboardService:
         payload = dict(payload or {})
         current_raw = self.repository.get_config() or {}
         current_thresholds = self._resolve_thresholds(current_raw)
-        allow_open_min_bail = _coerce_float(
+        allow_open_min_bail = _require_finite_float(
             payload.get("allow_open_min_bail"),
             current_thresholds["allow_open_min_bail"],
+            field_name="allow_open_min_bail",
         )
-        holding_only_min_bail = _coerce_float(
+        holding_only_min_bail = _require_finite_float(
             payload.get("holding_only_min_bail"),
             current_thresholds["holding_only_min_bail"],
+            field_name="holding_only_min_bail",
         )
         if allow_open_min_bail <= holding_only_min_bail:
             raise ValueError(
@@ -391,11 +394,22 @@ def _build_threshold_refresh_rule(
 
 def _coerce_float(value, default):
     try:
-        if value is None:
-            return float(default)
-        return float(value)
+        candidate = float(default if value is None else value)
     except (TypeError, ValueError):
         return float(default)
+    return candidate if math.isfinite(candidate) else float(default)
+
+
+def _require_finite_float(value, default, *, field_name):
+    if value is None:
+        return float(default)
+    try:
+        candidate = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field_name} must be a finite number") from error
+    if not math.isfinite(candidate):
+        raise ValueError(f"{field_name} must be a finite number")
+    return candidate
 
 
 def _default_now_provider():
