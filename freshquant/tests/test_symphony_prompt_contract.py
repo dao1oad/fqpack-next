@@ -16,7 +16,11 @@ MERGING_VALIDATOR = (
     / "assert_freshquant_merging_prompt.ps1"
 )
 SYNC_SCRIPT = (
-    REPO_ROOT / "runtime" / "symphony" / "scripts" / "sync_freshquant_symphony_service.ps1"
+    REPO_ROOT
+    / "runtime"
+    / "symphony"
+    / "scripts"
+    / "sync_freshquant_symphony_service.ps1"
 )
 START_SCRIPT = (
     REPO_ROOT / "runtime" / "symphony" / "scripts" / "start_freshquant_symphony.ps1"
