@@ -43,6 +43,9 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/order/submit`
 - `/api/order/cancel`
 - `/api/stock_order`
+- `/api/order-management/orders`
+- `/api/order-management/orders/<internal_order_id>`
+- `/api/order-management/stats`
 - `/api/order-management/buy-lots/<buy_lot_id>`
 - `/api/order-management/stoploss/bind`
 
@@ -130,6 +133,7 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - `/gantt`
 - `/gantt/shouban30`
 - `/gantt/stocks/:plateKey`
+- `/order-management`
 - `/position-management`
 - `/tpsl`
 - `/runtime-observability`
@@ -137,6 +141,7 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 ## 当前接口边界
 
 - 交易主入口是 `OrderSubmitService`；HTTP 和 CLI 只是它的包装。
+- 订单管理账本页通过 `/api/order-management/orders*` 与 `/api/order-management/stats` 读取聚合视图；前端不再自己做订单链 N+1 拼装。
 - Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面。
 - Runtime API 只读原始日志与聚合视图，不承担修复动作。
 - 仓位管理页面使用独立 `/api/position-management/*` 读模型接口，因为它需要同时返回配置 inventory、effective state、holding scope 和规则矩阵。
