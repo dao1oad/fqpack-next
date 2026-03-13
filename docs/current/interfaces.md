@@ -68,6 +68,11 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/runtime/raw-files/files`
 - `/api/runtime/raw-files/tail`
 
+### `position-management`
+
+- `/api/position-management/dashboard`
+- `/api/position-management/config`
+
 其中：
 
 - `/api/runtime/health/summary` 固定返回核心组件全集；没有最新 health 数据时返回 `status=unknown`、`heartbeat_age_s=null`、`is_placeholder=true`
@@ -125,6 +130,7 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - `/gantt`
 - `/gantt/shouban30`
 - `/gantt/stocks/:plateKey`
+- `/position-management`
 - `/tpsl`
 - `/runtime-observability`
 
@@ -133,4 +139,5 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - 交易主入口是 `OrderSubmitService`；HTTP 和 CLI 只是它的包装。
 - Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面。
 - Runtime API 只读原始日志与聚合视图，不承担修复动作。
+- 仓位管理页面使用独立 `/api/position-management/*` 读模型接口，因为它需要同时返回配置 inventory、effective state、holding scope 和规则矩阵。
 - TPSL 管理页通过 `/api/tpsl/management/*` 和 `/api/tpsl/history` 读取 symbol 汇总、buy lot 止损和统一触发历史；止盈/止损写操作仍分别复用 `/api/tpsl/takeprofit/*` 与 `/api/order-management/stoploss/bind`。

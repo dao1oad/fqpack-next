@@ -13,6 +13,11 @@ def create_app():
     app.register_blueprint(import_module("freshquant.rear.general.routes").general_bp)
     app.register_blueprint(import_module("freshquant.rear.gantt.routes").gantt_bp)
     app.register_blueprint(import_module("freshquant.rear.order.routes").order_bp)
+    app.register_blueprint(
+        import_module(
+            "freshquant.rear.position_management.routes"
+        ).position_management_bp
+    )
     app.register_blueprint(import_module("freshquant.rear.runtime.routes").runtime_bp)
     app.register_blueprint(import_module("freshquant.rear.tpsl.routes").tpsl_bp)
     return app

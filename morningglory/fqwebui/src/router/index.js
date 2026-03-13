@@ -10,6 +10,7 @@ import StockCjsd from '../components/StockCjsd.vue'
 const GanttUnified = () => import('../views/GanttUnified.vue')
 const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
 const GanttShouban30Phase1 = () => import('../views/GanttShouban30Phase1.vue')
+const PositionManagement = () => import('../views/PositionManagement.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
 const TpslManagement = () => import('../views/TpslManagement.vue')
 
@@ -67,6 +68,11 @@ const routes = [
     path: '/gantt/stocks/:plateKey',
     name: 'gantt-stocks',
     component: GanttUnifiedStocks
+  },
+  {
+    path: '/position-management',
+    name: 'position-management',
+    component: PositionManagement
   },
   {
     path: '/runtime-observability',

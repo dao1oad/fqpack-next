@@ -14,6 +14,9 @@
         <el-button type="warning" @click="jumpToControl('klineSlim')" size="small">
           行情图表
         </el-button>
+        <el-button type="success" @click="jumpToControl('positionManagement')" size="small">
+          仓位管理
+        </el-button>
         <el-button type="warning" plain @click="jumpToControl('tpsl')" size="small">
           TPSL
         </el-button>
@@ -61,6 +64,8 @@ export default {
         this.$router.replace('/futures-control')
       } else if (type === 'klineSlim') {
         this.$router.replace('/kline-slim')
+      } else if (type === 'positionManagement') {
+        this.$router.replace('/position-management')
       } else if (type === 'runtime') {
         this.$router.replace('/runtime-observability')
       } else if (type === 'tpsl') {
