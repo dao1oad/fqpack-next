@@ -9,6 +9,7 @@ Required behavior:
 - Deploy every required runtime surface based on changed paths.
 - Run post-deploy health checks.
 - Render a structured done summary and register a cleanup request with branch name, workspace path, and deployment results.
+- When registering the cleanup request, write the deployment summary to a UTF-8 markdown file and pass `-DeploymentCommentBodyPath` instead of inlining long markdown into the PowerShell command line.
 - Let the host cleanup finalizer delete the remote branch, delete the workspace, prune old artifacts, update GitHub, and then move the task to `Done`.
 
 Deployment matrix:

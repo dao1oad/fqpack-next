@@ -23,6 +23,12 @@ function Write-Utf8NoBomFile {
     [System.IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
+function Read-Utf8TextFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    return [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
+}
+
 function Get-EnvValue {
     param([Parameter(Mandatory = $true)][string]$Name)
 
@@ -214,8 +220,9 @@ function Invoke-GitHubApi {
     }
 
     if ($null -ne $Body) {
-        $invokeParams['ContentType'] = 'application/json'
-        $invokeParams['Body'] = ($Body | ConvertTo-Json -Depth 10 -Compress)
+        $jsonBody = ($Body | ConvertTo-Json -Depth 10 -Compress)
+        $invokeParams['ContentType'] = 'application/json; charset=utf-8'
+        $invokeParams['Body'] = $jsonBody
     }
 
     return Invoke-RestMethod @invokeParams
@@ -504,7 +511,7 @@ try {
         exit 0
     }
 
-    $request = Get-Content -Path $requestPath -Raw | ConvertFrom-Json
+    $request = Read-Utf8TextFile -Path $requestPath | ConvertFrom-Json
     $result.artifactsRetentionDays = [int]$request.artifactsRetentionDays
     $issueContext = $null
     $repository = Resolve-GitHubRepository -Repository $request.repository -IssueUrl $request.issueUrl -PullRequestUrl $request.pullRequestUrl -OriginUrl $request.originUrl
