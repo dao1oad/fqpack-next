@@ -1,1 +1,18 @@
+/.gitattributes text eol=lf
+/.gitignore text eol=lf
+/.editorconfig text eol=lf
+/.dockerignore text eol=lf
+
+*.py text eol=lf
+*.js text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.ps1 text eol=lf
+*.sh text eol=lf
+Dockerfile* text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 morningglory/fqwebui/web/index.html text eol=lf
