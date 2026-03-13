@@ -114,6 +114,29 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 当前 `freshquant` 在源码树运行时会优先插入 vendored `QUANTAXIS`；如果仍然打到 `27017`，优先怀疑正式 checkout 还没更新到包含该 bootstrap 与 lazy-init 修复的最新源码
 - 如果仍失败，说明 Mongo 端口问题已排除，继续看下一层真实依赖
 
+## Guardian / Chanlun 导入时报 `fqchan01` DLL load failed
+
+现象：
+- `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min`
+- 或 `python -c "import freshquant.signal.astock.job.monitor_stock_zh_a_min"`
+- 报 `ImportError: DLL load failed while importing fqchan01: %1 不是有效的 Win32 应用程序。`
+
+先检查：
+- `python -c "import fqchan01; print(fqchan01.__file__)"`
+- `python -c "from pathlib import Path; p=Path(r'D:/fqpack/freshquant-2026.2.23/.venv/Lib/site-packages/fqchan01.cp312-win_amd64.pyd'); data=p.read_bytes(); print(p.stat().st_size, data[:2].hex())"`
+
+常见根因：
+- 宿主机 `.venv` 里安装的是损坏的 `fqchan01.cp312-win_amd64.pyd`
+- `morningglory/fqchan01/python/build` 留下了陈旧坏产物，后续本地目录打包继续把坏 `.pyd` 带进 `.venv`
+- `uv sync --frozen` 复用了坏的本地原生包缓存，导致 `fqchan01` 看起来已安装，但文件本体不是合法 PE
+- 这类问题不等同于 Python 3.12 / Win64 ABI 普遍不兼容；同机其他本地原生包可正常导入时，优先怀疑 `fqchan01` 安装产物本身
+
+处理：
+- 先运行 `.\install.bat --skip-web`
+- 当前安装脚本会先清 `morningglory/fqchan01/python/build`，再对 `fqchan01` 强制执行 `uv` 的 `refresh + reinstall`
+- 重装后先执行 `python -c "import fqchan01; print('IMPORT_OK')"`，再执行 `python -c "import freshquant.signal.astock.job.monitor_stock_zh_a_min; print('IMPORT_OK')"`
+- 如果 `fqchan01` 仍导入失败，再继续检查 `.venv/Lib/site-packages/fqchan01.cp312-win_amd64.pyd` 是否是合法 `MZ` 文件头，而不要先回退到 Mongo / QUANTAXIS 方向
+
 ## 订单已提交但没有成交回流
 
 现象：
