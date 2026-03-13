@@ -1,7 +1,7 @@
-.gitattributes text eol=lf
-.gitignore text eol=lf
-.editorconfig text eol=lf
-.dockerignore text eol=lf
+/.gitattributes text eol=lf
+/.gitignore text eol=lf
+/.editorconfig text eol=lf
+/.dockerignore text eol=lf
 
 *.py text eol=lf
 *.js text eol=lf

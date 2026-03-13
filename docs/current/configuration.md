@@ -84,6 +84,7 @@ Docker 并行模式通过 `deployment/examples/envs.fqnext.example` 把端口改
 ## 仓库文本换行
 
 - `.gitattributes` 是仓库文本文件换行的真值来源。
+- 仓库根目录的 `.gitattributes` / `.gitignore` / `.editorconfig` / `.dockerignore` 使用 `LF`。
 - 源码、文档、YAML、PowerShell、Shell 与 Dockerfile 等正式文本文件默认使用 `LF`。
 - Windows 启动脚本 `*.bat` / `*.cmd` 使用 `CRLF`。
 - `pre-commit` 与 CI 会运行 `mixed-line-ending` 检查，阻止 mixed line endings 进入仓库。
