@@ -111,6 +111,7 @@ def _make_consumer(*, is_index_like: bool) -> sc.StrategyConsumer:
     consumer = cast(Any, object.__new__(sc.StrategyConsumer))
     consumer.max_bars = 32
     consumer._is_index_like = lambda _code: is_index_like
+    consumer._heartbeat_state = sc.ConsumerHeartbeatState(window_s=300.0)
     return cast(sc.StrategyConsumer, consumer)
 
 
@@ -271,6 +272,7 @@ def test_handle_bar_close_stores_stock_realtime_as_raw_bar(monkeypatch):
     consumer._dirty_latest = {}
     consumer._catchup_mode = False
     consumer._adj_factor_cache = {}
+    consumer._heartbeat_state = sc.ConsumerHeartbeatState(window_s=300.0)
     consumer._scheduler = DummyScheduler()
     consumer._model_ids_for = lambda _period: []
     consumer._maybe_trigger_backfill = lambda **_kwargs: False

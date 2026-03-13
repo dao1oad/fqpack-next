@@ -55,6 +55,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/activate_githu
 
 ```powershell
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/health/summary
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/gantt/plates?provider=xgb
 ```
 
@@ -89,6 +90,7 @@ docker compose -f docker/compose.parallel.yaml ps
 - Web UI 页面不是空白页，关键页面 `/gantt`、`/gantt/shouban30`、`/runtime-observability` 能打开。
 - Web UI 页面不是空白页，关键页面 `/gantt`、`/gantt/shouban30`、`/tpsl`、`/runtime-observability` 能打开。
 - XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积。
+- 如果改了运行观测或 XTData runtime 埋点，确认 `/runtime-observability` 页面能看到 `xt_producer` / `xt_consumer` 的 5 分钟 heartbeat 与关键指标，而不是只看到启动事件。
 - TPSL / Position worker 修改后，进程没有“启动即退”。
 - Symphony 修改后，Issue 领取、Design Review、cleanup 闭环仍然可用。
 

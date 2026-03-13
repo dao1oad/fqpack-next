@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import traceback
+from collections import deque
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
@@ -205,6 +206,51 @@ def _worker_fullcalc(df: pd.DataFrame, model_ids: list[int]) -> dict[str, Any]:
     return run_fullcalc(df, model_ids=model_ids)
 
 
+class ConsumerHeartbeatState:
+    def __init__(self, *, window_s: float = 300.0):
+        self.window_s = max(float(window_s or 300.0), 1.0)
+        self._lock = threading.Lock()
+        self._processed_bars: deque[float] = deque()
+        self._last_bar_ts: float | None = None
+
+    def record_processed_bar(self, *, now_ts: float | None = None) -> None:
+        current_ts = float(now_ts if now_ts is not None else time.time())
+        with self._lock:
+            self._processed_bars.append(current_ts)
+            self._last_bar_ts = current_ts
+            self._prune_locked(current_ts)
+
+    def snapshot(
+        self,
+        *,
+        now_ts: float | None = None,
+        backlog_sum: int = 0,
+        scheduler_pending: int = 0,
+        catchup_mode: bool = False,
+    ) -> dict:
+        current_ts = float(now_ts if now_ts is not None else time.time())
+        with self._lock:
+            self._prune_locked(current_ts)
+            processed_bars = len(self._processed_bars)
+            last_bar_ts = self._last_bar_ts
+        return {
+            "backlog_sum": max(int(backlog_sum or 0), 0),
+            "scheduler_pending": max(int(scheduler_pending or 0), 0),
+            "processed_bars_5m": processed_bars,
+            "last_bar_age_s": (
+                None
+                if last_bar_ts is None
+                else round(max(current_ts - last_bar_ts, 0.0), 3)
+            ),
+            "catchup_mode": 1 if catchup_mode else 0,
+        }
+
+    def _prune_locked(self, now_ts: float) -> None:
+        cutoff = float(now_ts) - self.window_s
+        while self._processed_bars and self._processed_bars[0] < cutoff:
+            self._processed_bars.popleft()
+
+
 class StrategyConsumer:
     def __init__(
         self,
@@ -246,7 +292,9 @@ class StrategyConsumer:
             or 200
         )
         self.runtime_logger = runtime_logger or _get_runtime_logger()
+        self._heartbeat_state = ConsumerHeartbeatState(window_s=300.0)
         self._last_runtime_heartbeat_at = 0.0
+        self._runtime_heartbeat_interval_s = 300.0
 
         self._executor = ProcessPoolExecutor(max_workers=self.fullcalc_workers)
         self._scheduler = CoalescingScheduler(
@@ -1073,6 +1121,7 @@ class StrategyConsumer:
                 self._dirty_latest[key] = meta
             else:
                 self._scheduler.update(key, meta)
+        self._heartbeat_state.record_processed_bar()
 
     def run_forever(self) -> None:
         queue_keys = [
@@ -1086,12 +1135,19 @@ class StrategyConsumer:
                 if (now_ts - last_depth_check_at) >= 1.0:
                     last_depth_check_at = now_ts
                     depth = self._queue_depth(queue_keys)
-                    if (now_ts - float(self._last_runtime_heartbeat_at or 0.0)) >= 15.0:
+                    if (
+                        now_ts - float(self._last_runtime_heartbeat_at or 0.0)
+                    ) >= self._runtime_heartbeat_interval_s:
                         self._last_runtime_heartbeat_at = now_ts
                         self.emit_runtime_heartbeat(
-                            backlog_sum=depth,
-                            batches=self._scheduler.snapshot().get("pending", 0),
-                            max_lag_s=0.0,
+                            **self._heartbeat_state.snapshot(
+                                now_ts=now_ts,
+                                backlog_sum=depth,
+                                scheduler_pending=self._scheduler.snapshot().get(
+                                    "pending", 0
+                                ),
+                                catchup_mode=self._catchup_mode,
+                            )
                         )
                     if (
                         not self._catchup_mode
