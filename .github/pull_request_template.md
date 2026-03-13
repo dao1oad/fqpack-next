@@ -15,7 +15,7 @@
 ## 验收与测试（强制）
 
 - [ ] `pre-commit` 已通过（CI 会校验）
-- [ ] `pytest -q freshquant/tests` 已通过（CI 会校验）
+- [ ] `pytest -q freshquant/tests -n auto --dist loadfile` 已通过（CI 会校验）
 - [ ] 已明确受影响模块的部署动作
 - [ ] 已明确健康检查方式
 
