@@ -621,6 +621,37 @@ def test_add_shouban30_pre_pool_item_to_stock_pool(monkeypatch):
     assert response.get_json()["data"] == {"status": "created"}
 
 
+def test_sync_shouban30_pre_pool_to_tdx_returns_blk_sync_meta(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(
+            sync_pre_pool_to_blk=lambda: {
+                "success": True,
+                "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+                "count": 3,
+            }
+        ),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post("/api/gantt/shouban30/pre-pool/sync-to-tdx")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {
+        "blk_sync": {
+            "success": True,
+            "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+            "count": 3,
+        }
+    }
+
+
 def test_add_shouban30_stock_pool_item_to_must_pool(monkeypatch):
     from freshquant.rear.gantt import routes as gantt_routes
 
@@ -645,3 +676,34 @@ def test_add_shouban30_stock_pool_item_to_must_pool(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json()["data"] == {"status": "created"}
+
+
+def test_sync_shouban30_stock_pool_to_tdx_returns_blk_sync_meta(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(
+            sync_stock_pool_to_blk=lambda: {
+                "success": True,
+                "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+                "count": 2,
+            }
+        ),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post("/api/gantt/shouban30/stock-pool/sync-to-tdx")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {
+        "blk_sync": {
+            "success": True,
+            "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+            "count": 2,
+        }
+    }
