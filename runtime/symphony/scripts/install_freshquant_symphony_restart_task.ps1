@@ -28,6 +28,47 @@ function Resolve-StatusPath {
     return Join-Path $ResolvedServiceRoot 'artifacts\admin-bridge\restart-status.json'
 }
 
+function Get-CurrentUserSid {
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    return $identity.User.Value
+}
+
+function Grant-TaskReadAndExecuteAccess {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TaskName,
+        [Parameter(Mandatory = $true)]
+        [string]$UserSid
+    )
+
+    $schedule = New-Object -ComObject 'Schedule.Service'
+    $schedule.Connect()
+    $rootFolder = $schedule.GetFolder('\')
+    $task = $rootFolder.GetTask($TaskName)
+    $securityDescriptor = $task.GetSecurityDescriptor(7)
+    $escapedUserSid = [regex]::Escape($UserSid)
+    $readAndExecuteAce = "(A;;FRFX;;;$UserSid)"
+
+    if ($securityDescriptor -match "\(A;;[A-Z]+;;;$escapedUserSid\)") {
+        return
+    }
+
+    $daclIndex = $securityDescriptor.IndexOf('D:')
+    if ($daclIndex -lt 0) {
+        throw "Task '$TaskName' security descriptor does not contain a DACL: $securityDescriptor"
+    }
+
+    $saclIndex = $securityDescriptor.IndexOf('S:', $daclIndex + 2)
+    if ($saclIndex -ge 0) {
+        $updatedSecurityDescriptor = $securityDescriptor.Insert($saclIndex, $readAndExecuteAce)
+    }
+    else {
+        $updatedSecurityDescriptor = $securityDescriptor + $readAndExecuteAce
+    }
+
+    $task.SetSecurityDescriptor($updatedSecurityDescriptor, 0)
+}
+
 $resolvedServiceRoot = [System.IO.Path]::GetFullPath($ServiceRoot).TrimEnd('\')
 $syncScriptPath = Join-Path $PSScriptRoot 'sync_freshquant_symphony_service.ps1'
 $taskScriptPath = Join-Path $resolvedServiceRoot 'scripts\run_freshquant_symphony_restart_task.ps1'
@@ -85,6 +126,8 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register FreshQuant Symphony restart tas
         -Settings $settings `
         -Description 'Restart FreshQuant Symphony orchestrator and verify its local health endpoint.' `
         -Force | Out-Null
+
+    Grant-TaskReadAndExecuteAccess -TaskName $TaskName -UserSid (Get-CurrentUserSid)
 }
 
 Write-Host "[freshquant] restart task ready: $TaskName"

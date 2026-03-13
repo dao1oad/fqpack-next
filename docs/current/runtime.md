@@ -33,6 +33,7 @@
 - Symphony 工作区根目录：`D:/fqpack/runtime/symphony-service/workspaces`
 - Symphony 按需管理员计划任务：`fq-symphony-orchestrator-restart`
 - Symphony 管理员桥接状态文件：`D:/fqpack/runtime/symphony-service/artifacts/admin-bridge/restart-status.json`
+- 管理员桥接任务以 `SYSTEM` + `Highest` 运行；安装脚本会给执行安装的 Windows 用户追加该任务的读取/执行权限，供普通 Codex 会话调用。
 - Symphony 运行模板：`runtime/symphony/WORKFLOW.freshquant.md`
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
 - GitHub 新任务默认通过 issue template 创建，初始标签应为 `symphony + todo`；不要在创建时预贴 `design-review`
@@ -40,6 +41,7 @@
 - `Merging` 现在只负责 merge 到 remote `main`、写 handoff comment，并把 issue 转入 `Global Stewardship`
 - `Global Stewardship` 由单个全局 Codex 自动化负责；它统一处理 deploy、health check、cleanup 和 follow-up issue 创建
 - 如果当前 Codex 会话没有管理员权限，`runtime/symphony/**` 的重载应走预装的计划任务桥接：普通会话先 `sync_freshquant_symphony_service.ps1`，再调用 `invoke_freshquant_symphony_restart_task.ps1`
+- `run_freshquant_symphony_restart_task.ps1` 在服务进入 `Running` 后仍会继续轮询 `http://127.0.0.1:40123/api/v1/state`，直到健康检查返回 `200` 或超时，避免把端口释放窗口误判为重载失败。
 - `Blocked` 只用于真实外部阻塞；进入 `Blocked` 时必须同时记录阻塞原因、解除条件、当前证据和恢复目标状态（`In Progress` / `Rework` / `Global Stewardship`）
 - 如果 GitHub 真值已经表明 `Blocked` 只是误标，orchestrator 会自动恢复：merged PR, pending ops -> `Global Stewardship`；open non-draft PR -> `Rework`；approved draft PR -> `In Progress`
 - 如果 workspace 目录存在但缺失 git 元数据，orchestrator 会在下一次执行前自愈重建一次，而不是无限重试 `not a git repository`
