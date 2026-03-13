@@ -5,6 +5,7 @@
 ### Windows 宿主机承担
 
 - XTQuant / XTData 连接。
+- Mongo 通过 `127.0.0.1:27027` 接入 Docker `fq_mongodb`；宿主机链路不要再使用 `127.0.0.1:27017`。
 - Guardian monitor。
 - Position management worker。
 - TPSL tick listener。
@@ -13,7 +14,7 @@
 
 ### Docker 并行环境承担
 
-- MongoDB：`27027 -> 27017`
+- MongoDB：宿主机 `27027 ->` 容器内 `27017`
 - Redis：`6380 -> 6379`
 - API Server：`15000 -> 5000`
 - TDXHQ：`15001 -> 5001`
@@ -66,6 +67,8 @@
 
 - 宿主机 `.env` 示例：`deployment/examples/envs.fqnext.example`
 - Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
+- 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
+- Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - Web UI 默认访问并行 API `http://127.0.0.1:15000`
 - TradingAgents 使用独立 Mongo 库 `tradingagents_cn` 与 Redis `db=8`
 
@@ -110,5 +113,6 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state
 ## 当前阶段的运行风险
 
 - Docker 里的 Mongo/Redis 与宿主机 broker/xtdata 之间必须通过宿主机端口对齐，否则交易链会出现“页面正常、worker 无数据”。
+- 如果宿主机进程仍报 `127.0.0.1:27017`，优先检查进程环境是否缺少 `FRESHQUANT_MONGODB__HOST/PORT`，以及是否还在走旧的 `qaenv` 默认值。
 - Guardian event 模式要求 `monitor.xtdata.mode=guardian_1m`；模式不对时进程会启动但不会真正处理 bar 更新。
 - Runtime Observability 采用旁路写盘，日志队列满时允许丢事件；排障时要同时对照业务集合，而不是只看 runtime 页面。

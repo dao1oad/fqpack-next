@@ -26,10 +26,12 @@ import configparser
 import json
 import os
 from multiprocessing import Lock
+
 from QUANTAXIS.QASetting.QALocalize import qa_path, setting_path, strategy_path
+from QUANTAXIS.QAUtil.QAMongoRuntime import QA_util_resolve_mongo_runtime
 from QUANTAXIS.QAUtil.QASql import (
     QA_util_sql_async_mongo_setting,
-    QA_util_sql_mongo_setting
+    QA_util_sql_mongo_setting,
 )
 
 # quantaxis有一个配置目录存放在 ~/.quantaxis
@@ -38,19 +40,19 @@ from QUANTAXIS.QAUtil.QASql import (
 # 需要与yutian讨论具体配置文件的放置位置 author:Will 2018.5.19
 
 DEFAULT_MONGO = os.getenv('MONGODB', 'localhost')
-DEFAULT_DB_URI = 'mongodb://{}:27017'.format(DEFAULT_MONGO)
+DEFAULT_DB_URI = QA_util_resolve_mongo_runtime(DEFAULT_MONGO).uri
 CONFIGFILE_PATH = '{}{}{}'.format(setting_path, os.sep, 'config.ini')
 INFO_IP_FILE_PATH = '{}{}{}'.format(setting_path, os.sep, 'info_ip.json')
 STOCK_IP_FILE_PATH = '{}{}{}'.format(setting_path, os.sep, 'stock_ip.json')
 FUTURE_IP_FILE_PATH = '{}{}{}'.format(setting_path, os.sep, 'future_ip.json')
 
 
-class QA_Setting():
+class QA_Setting:
 
     def __init__(self, uri=None):
         self.lock = Lock()
 
-        self.mongo_uri = uri or self.get_mongo()
+        self.mongo_uri = uri or self.env_config() or self.get_mongo()
         self.username = None
         self.password = None
 
@@ -74,14 +76,9 @@ class QA_Setting():
             config.write(f)
             res = DEFAULT_DB_URI
 
-        return res
+        return QA_util_resolve_mongo_runtime(res).uri
 
-    def get_config(
-            self,
-            section='MONGODB',
-            option='uri',
-            default_value=DEFAULT_DB_URI
-    ):
+    def get_config(self, section='MONGODB', option='uri', default_value=DEFAULT_DB_URI):
         """[summary]
 
         Keyword Arguments:
@@ -98,20 +95,14 @@ class QA_Setting():
             config.read(CONFIGFILE_PATH)
             return config.get(section, option)
         except:
-            res = self.client.quantaxis.usersetting.find_one(
-                {'section': section})
+            res = self.client.quantaxis.usersetting.find_one({'section': section})
             if res:
                 return res.get(option, default_value)
             else:
                 self.set_config(section, option, default_value)
                 return default_value
 
-    def set_config(
-            self,
-            section='MONGODB',
-            option='uri',
-            default_value=DEFAULT_DB_URI
-    ):
+    def set_config(self, section='MONGODB', option='uri', default_value=DEFAULT_DB_URI):
         """[summary]
 
         Keyword Arguments:
@@ -124,7 +115,8 @@ class QA_Setting():
         """
         t = {'section': section, option: default_value}
         self.client.quantaxis.usersetting.update_one(
-            {'section': section}, {'$set': t}, upsert=True)
+            {'section': section}, {'$set': t}, upsert=True
+        )
 
         # if os.path.exists(CONFIGFILE_PATH):
         #     config.read(CONFIGFILE_PATH)
@@ -150,14 +142,7 @@ class QA_Setting():
         #     self.lock.release()
         #     return default_value
 
-    def get_or_set_section(
-            self,
-            config,
-            section,
-            option,
-            DEFAULT_VALUE,
-            method='get'
-    ):
+    def get_or_set_section(self, config, section, option, DEFAULT_VALUE, method='get'):
         """[summary]
 
         Arguments:
@@ -189,7 +174,19 @@ class QA_Setting():
             return val
 
     def env_config(self):
-        return os.environ.get("MONGOURI", None)
+        if any(
+            os.environ.get(key)
+            for key in (
+                "MONGOURI",
+                "FRESHQUANT_MONGODB__URI",
+                "FRESHQUANT_MONGODB__HOST",
+                "FRESHQUANT_MONGODB__PORT",
+                "MONGODB",
+                "MONGODB_PORT",
+            )
+        ):
+            return QA_util_resolve_mongo_runtime().uri
+        return None
 
     @property
     def client(self):
@@ -277,10 +274,8 @@ else:
         {"ip": "120.79.212.229", "port": 7711, "name": "深圳双线资讯主站3"},
         {"ip": "47.107.75.159", "port": 7711, "name": "深圳双线资讯主站4"},
         {"ip": "47.92.127.181", "port": 7711, "name": "北京双线资讯主站"},
-
         {"ip": "113.105.142.162", "port": 7721},
         {"ip": "23.129.245.199", "port": 7721},
-
     ]
     with open(INFO_IP_FILE_PATH, "w") as f:
         json.dump(info_ip_list, f)
@@ -364,7 +359,6 @@ else:
         {"ip": "jstdx.gtjas.com", "port": 7709},
         {"ip": "shtdx.gtjas.com", "port": 7709},
         {"ip": "sztdx.gtjas.com", "port": 7709},
-
         {"ip": "113.105.142.162", "port": 7721},
         {"ip": "23.129.245.199", "port": 7721},
     ]
@@ -379,7 +373,7 @@ else:
         # origin
         {"ip": "106.14.95.149", "port": 7727, "name": "扩展市场上海双线"},
         {"ip": "112.74.214.43", "port": 7727, "name": "扩展市场深圳双线1"},
-        #{"ip": "113.105.142.136", "port": 443, "name": "扩展市场东莞主站"},
+        # {"ip": "113.105.142.136", "port": 443, "name": "扩展市场东莞主站"},
         {"ip": "119.147.86.171", "port": 7727, "name": "扩展市场深圳主站"},
         {"ip": "119.97.185.5", "port": 7727, "name": "扩展市场武汉主站1"},
         {"ip": "120.24.0.77", "port": 7727, "name": "扩展市场深圳双线2"},
@@ -397,8 +391,6 @@ else:
         # added 20190222 from tdx
         {"ip": "119.147.86.171", "port": 7721, "name": "扩展市场深圳主站"},
         {"ip": "47.107.75.159", "port": 7727, "name": "扩展市场深圳双线3"},
-
-
     ]
     with open(FUTURE_IP_FILE_PATH, "w") as f:
         json.dump(future_ip_list, f)

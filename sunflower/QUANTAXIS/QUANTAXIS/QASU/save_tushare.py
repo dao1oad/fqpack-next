@@ -438,7 +438,4 @@ def QA_SU_save_stock_block(client=DATABASE, ui_log=None, ui_progress=None):
 
 
 if __name__ == '__main__':
-    from pymongo import MongoClient
-    client = MongoClient('localhost', 27017)
-    db = client['quantaxis']
-    QA_SU_save_stock_day(client=db)
+    QA_SU_save_stock_day()

@@ -91,6 +91,26 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 节点详情优先看 `decision_expr`、`decision_context`、`decision_outcome`，Raw Browser 只作为补充
 - 需要时清理冷却键并重启 Guardian
 
+## Guardian 宿主机启动即报 Mongo `27017`
+
+现象：
+- `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min` 或 `fqnext_guardian_event` 启动即报 `ServerSelectionTimeoutError`
+- 栈追到 `freshquant.chanlun_service -> QUANTAXIS -> QAWebServer/qifiserver.py` 一类导入链
+
+先检查：
+- 宿主机环境是否有 `FRESHQUANT_MONGODB__HOST=127.0.0.1`
+- 宿主机环境是否有 `FRESHQUANT_MONGODB__PORT=27027`
+- 异常里目标地址是否仍是 `127.0.0.1:27017`
+
+常见根因：
+- 只修了 FreshQuant Dynaconf，vendored `QUANTAXIS` 仍沿用 `qaenv` 的本地 `27017` 默认值
+- `qifiserver` 在 import 阶段初始化 manager，模块一导入就连库
+
+处理：
+- 宿主机链路统一改到 `127.0.0.1:27027`
+- Docker 容器内部继续保持 `fq_mongodb:27017`
+- 如果仍失败，说明 Mongo 端口问题已排除，继续看下一层真实依赖
+
 ## 订单已提交但没有成交回流
 
 现象：

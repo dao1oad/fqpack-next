@@ -63,7 +63,7 @@ class Config:
 class DevelopmentConfig(Config):
     # 局域网2台电脑公用数据库
     MONGODB_SETTINGS = {
-        'url': os.environ.get('freshquant_MONGO_URL', 'mongodb://localhost:27017')
+        'url': os.environ.get('freshquant_MONGO_URL', 'mongodb://localhost:27027')
     }
     TEMPORAL_SETTINGS = {
         'host': os.environ.get('TEMPORAL_HOST', 'localhost'),
@@ -75,7 +75,7 @@ class DevelopmentConfig(Config):
 
 class ProductionConfig(Config):
     MONGODB_SETTINGS = {
-        'url': os.environ.get('freshquant_MONGO_URL', 'mongodb://localhost:27017')
+        'url': os.environ.get('freshquant_MONGO_URL', 'mongodb://localhost:27027')
     }
     TEMPORAL_SETTINGS = {
         'host': os.environ.get('TEMPORAL_HOST', 'temporal'),

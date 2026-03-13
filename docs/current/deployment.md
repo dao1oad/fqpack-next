@@ -43,6 +43,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/activate_githu
 | `freshquant/tpsl/**` | TPSL | 重启 `python -m freshquant.tpsl.tick_listener` |
 | `freshquant/market_data/**` | XTData producer / consumer | 重启 producer、consumer；必要时重新 prewarm |
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 重启 `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event` |
+| `sunflower/QUANTAXIS/**` | QAWebServer 与依赖 QUANTAXIS 的宿主机策略链路 | 重建 `fq_qawebserver`；同步重启受影响宿主机 Guardian / strategy 进程 |
 | `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 读模型与 API | 重建 API；必要时重跑 Dagster 任务 |
 | `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |
 | `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |

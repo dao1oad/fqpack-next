@@ -10,26 +10,53 @@ import uuid
 
 import pandas as pd
 import pymongo
-import requests
-from qaenv import (eventmq_amqp, eventmq_ip, eventmq_password, eventmq_port,
-                   eventmq_username, mongo_ip, mongo_uri)
+import QUANTAXIS as QA
+import requests  # type: ignore[import-untyped]
+from qaenv import (
+    eventmq_amqp,
+    eventmq_ip,
+    eventmq_password,
+    eventmq_port,
+    eventmq_username,
+)
+from qaenv import mongo_ip as qaenv_mongo_ip
+from qaenv import (
+    mongo_uri,
+)
+from QUANTAXIS.QAEngine.QAThreadEngine import QA_Thread
+from QUANTAXIS.QAMarket.market_preset import MARKET_PRESET
 from QUANTAXIS.QAPubSub.consumer import subscriber, subscriber_routing, subscriber_topic
 from QUANTAXIS.QAPubSub.producer import publisher_routing, publisher_topic
-
-import QUANTAXIS as QA
 from QUANTAXIS.QAStrategy.util import QA_data_futuremin_resample
-from QUANTAXIS.QIFI.QifiAccount import ORDER_DIRECTION, QIFI_Account
-from QUANTAXIS.QAMarket.market_preset import MARKET_PRESET
-from QUANTAXIS.QAEngine.QAThreadEngine import QA_Thread
+from QUANTAXIS.QAUtil.QAMongoRuntime import QA_util_resolve_mongo_runtime
 from QUANTAXIS.QAUtil.QAParameter import MARKET_TYPE, RUNNING_ENVIRONMENT
+from QUANTAXIS.QIFI.QifiAccount import ORDER_DIRECTION, QIFI_Account
 
 
-class QAStrategyCtaBase():
-    def __init__(self, code='rb2005', frequence='1min', strategy_id='QA_STRATEGY', risk_check_gap=1, portfolio='default',
-                 start='2020-01-01', end='2020-05-21', init_cash=1000000, send_wx=False,
-                 data_host=eventmq_ip, data_port=eventmq_port, data_user=eventmq_username, data_password=eventmq_password,
-                 trade_host=eventmq_ip, trade_port=eventmq_port, trade_user=eventmq_username, trade_password=eventmq_password,
-                 taskid=None, mongo_ip=mongo_ip, model='py'):
+class QAStrategyCtaBase:
+    def __init__(
+        self,
+        code='rb2005',
+        frequence='1min',
+        strategy_id='QA_STRATEGY',
+        risk_check_gap=1,
+        portfolio='default',
+        start='2020-01-01',
+        end='2020-05-21',
+        init_cash=1000000,
+        send_wx=False,
+        data_host=eventmq_ip,
+        data_port=eventmq_port,
+        data_user=eventmq_username,
+        data_password=eventmq_password,
+        trade_host=eventmq_ip,
+        trade_port=eventmq_port,
+        trade_user=eventmq_username,
+        trade_password=eventmq_password,
+        taskid=None,
+        mongo_ip=None,
+        model='py',
+    ):
         """
         code 可以传入单个标的 也可以传入一组标的(list)
         会自动基于code来判断是什么市场
@@ -60,6 +87,7 @@ class QAStrategyCtaBase():
         self.end = end
         self.init_cash = init_cash
         self.taskid = taskid
+        self.mongo_ip = QA_util_resolve_mongo_runtime(mongo_ip or qaenv_mongo_ip).uri
 
         self.running_time = ''
 
@@ -79,17 +107,28 @@ class QAStrategyCtaBase():
             self.last_order_towards = {self.code: {'BUY': '', 'SELL': ''}}
         else:
             self.last_order_towards = dict(
-                zip(self.code, [{'BUY': '', 'SELL': ''} for i in range(len(self.code))]))
+                zip(self.code, [{'BUY': '', 'SELL': ''} for i in range(len(self.code))])
+            )
         self.dt = ''
         if isinstance(self.code, str):
-            self.market_type = MARKET_TYPE.FUTURE_CN if re.search(
-                r'[a-zA-z]+', self.code) else MARKET_TYPE.STOCK_CN
+            self.market_type = (
+                MARKET_TYPE.FUTURE_CN
+                if re.search(r'[a-zA-z]+', self.code)
+                else MARKET_TYPE.STOCK_CN
+            )
         else:
-            self.market_type = MARKET_TYPE.FUTURE_CN if re.search(
-                r'[a-zA-z]+', self.code[0]) else MARKET_TYPE.STOCK_CN
+            self.market_type = (
+                MARKET_TYPE.FUTURE_CN
+                if re.search(r'[a-zA-z]+', self.code[0])
+                else MARKET_TYPE.STOCK_CN
+            )
 
-        self.bar_order = {'BUY_OPEN': 0, 'SELL_OPEN': 0,
-                          'BUY_CLOSE': 0, 'SELL_CLOSE': 0}
+        self.bar_order = {
+            'BUY_OPEN': 0,
+            'SELL_OPEN': 0,
+            'BUY_CLOSE': 0,
+            'SELL_CLOSE': 0,
+        }
 
         self._num_cached = 120
         self._cached_data = []
@@ -119,8 +158,7 @@ class QAStrategyCtaBase():
 
     def on_sync(self):
         if self.running_mode != 'backtest':
-            self.pubacc.pub(json.dumps(self.acc.message),
-                            routing_key=self.strategy_id)
+            self.pubacc.pub(json.dumps(self.acc.message), routing_key=self.strategy_id)
 
     def _debug_sim(self):
 
@@ -129,45 +167,101 @@ class QAStrategyCtaBase():
         if self.frequence.endswith('min'):
 
             if isinstance(self.code, str):
-                self._old_data = QA.QA_fetch_get_future_min('tdx', self.code.upper(), QA.QA_util_get_last_day(
-                    QA.QA_util_get_real_date(str(datetime.date.today()))), str(datetime.datetime.now()), self.frequence)[:-1].set_index(['datetime', 'code'])
-                self._old_data = self._old_data.assign(volume=self._old_data.trade).loc[:, [
-                    'open', 'high', 'low', 'close', 'volume']]
+                self._old_data = QA.QA_fetch_get_future_min(
+                    'tdx',
+                    self.code.upper(),
+                    QA.QA_util_get_last_day(
+                        QA.QA_util_get_real_date(str(datetime.date.today()))
+                    ),
+                    str(datetime.datetime.now()),
+                    self.frequence,
+                )[:-1].set_index(['datetime', 'code'])
+                self._old_data = self._old_data.assign(volume=self._old_data.trade).loc[
+                    :, ['open', 'high', 'low', 'close', 'volume']
+                ]
             else:
 
-                self._old_data = pd.concat([QA.QA_fetch_get_future_min('tdx', item.upper(), QA.QA_util_get_last_day(
-                    QA.QA_util_get_real_date(str(datetime.date.today()))), str(datetime.datetime.now()), self.frequence)[:-1].set_index(['datetime', 'code']) for item in self.code], sort=False)
-                self._old_data = self._old_data.assign(volume=self._old_data.trade).loc[:, [
-                    'open', 'high', 'low', 'close', 'volume']]
+                self._old_data = pd.concat(
+                    [
+                        QA.QA_fetch_get_future_min(
+                            'tdx',
+                            item.upper(),
+                            QA.QA_util_get_last_day(
+                                QA.QA_util_get_real_date(str(datetime.date.today()))
+                            ),
+                            str(datetime.datetime.now()),
+                            self.frequence,
+                        )[:-1].set_index(['datetime', 'code'])
+                        for item in self.code
+                    ],
+                    sort=False,
+                )
+                self._old_data = self._old_data.assign(volume=self._old_data.trade).loc[
+                    :, ['open', 'high', 'low', 'close', 'volume']
+                ]
         else:
             self._old_data = pd.DataFrame()
 
-        self.database = pymongo.MongoClient(mongo_ip).QAREALTIME
+        self.database = pymongo.MongoClient(self.mongo_ip).QAREALTIME
 
         self.client = self.database.account
         self.subscriber_client = self.database.subscribe
 
         self.acc = QIFI_Account(
-            username=self.strategy_id, password=self.strategy_id, trade_host=mongo_ip, init_cash=self.init_cash)
+            username=self.strategy_id,
+            password=self.strategy_id,
+            trade_host=self.mongo_ip,
+            init_cash=self.init_cash,
+        )
         self.acc.initial()
         self.acc.on_sync = self.on_sync
 
-        self.pub = publisher_routing(exchange='QAORDER_ROUTER', host=self.trade_host,
-                                     port=self.trade_port, user=self.trade_user, password=self.trade_password)
-        self.pubacc = publisher_topic(exchange='QAAccount', host=self.trade_host,
-                                      port=self.trade_port, user=self.trade_user, password=self.trade_password)
+        self.pub = publisher_routing(
+            exchange='QAORDER_ROUTER',
+            host=self.trade_host,
+            port=self.trade_port,
+            user=self.trade_user,
+            password=self.trade_password,
+        )
+        self.pubacc = publisher_topic(
+            exchange='QAAccount',
+            host=self.trade_host,
+            port=self.trade_port,
+            user=self.trade_user,
+            password=self.trade_password,
+        )
 
         if isinstance(self.code, str):
-            self.subscribe_data(self.code.lower(), self.frequence, self.data_host,
-                                self.data_port, self.data_user, self.data_password, self.model)
+            self.subscribe_data(
+                self.code.lower(),
+                self.frequence,
+                self.data_host,
+                self.data_port,
+                self.data_user,
+                self.data_password,
+                self.model,
+            )
         else:
-            self.subscribe_multi(self.code, self.frequence, self.data_host,
-                                 self.data_port, self.data_user, self.data_password, self.model)
+            self.subscribe_multi(
+                self.code,
+                self.frequence,
+                self.data_host,
+                self.data_port,
+                self.data_user,
+                self.data_password,
+                self.model,
+            )
         print('account {} start sim'.format(self.strategy_id))
         self.database.strategy_schedule.job_control.update(
             {'strategy_id': self.strategy_id},
-            {'strategy_id': self.strategy_id, 'taskid': self.taskid,
-             'filepath': os.path.abspath(__file__), 'status': 200}, upsert=True)
+            {
+                'strategy_id': self.strategy_id,
+                'taskid': self.taskid,
+                'filepath': os.path.abspath(__file__),
+                'status': 200,
+            },
+            upsert=True,
+        )
 
     def debug_sim(self):
         self._debug_sim()
@@ -191,6 +285,7 @@ class QAStrategyCtaBase():
             QARank是我们内部用于评价策略ELO的库 此处并不影响正常使用
             """
             from QARank import QA_Rank
+
             QA_Rank(self.acc).send()
         except:
             pass
@@ -203,17 +298,28 @@ class QAStrategyCtaBase():
 
     def debug(self):
         self.running_mode = 'backtest'
-        self.database = pymongo.MongoClient(mongo_ip).QUANTAXIS
+        self.database = pymongo.MongoClient(self.mongo_ip).QUANTAXIS
         user = QA_User(username=self.username, password=self.password)
         port = user.new_portfolio(self.portfolio)
         self.acc = port.new_accountpro(
-            account_cookie=self.strategy_id, init_cash=self.init_cash, market_type=self.market_type, frequence=self.frequence)
+            account_cookie=self.strategy_id,
+            init_cash=self.init_cash,
+            market_type=self.market_type,
+            frequence=self.frequence,
+        )
         self.positions = self.acc.get_position(self.code)
 
         print(self.acc)
         print(self.acc.market_type)
-        data = QA.QA_quotation(self.code.upper(), self.start, self.end, source=QA.DATASOURCE.MONGO,
-                               frequence=self.frequence, market=self.market_type, output=QA.OUTPUT_FORMAT.DATASTRUCT)
+        data = QA.QA_quotation(
+            self.code.upper(),
+            self.start,
+            self.end,
+            source=QA.DATASOURCE.MONGO,
+            frequence=self.frequence,
+            market=self.market_type,
+            output=QA.OUTPUT_FORMAT.DATASTRUCT,
+        )
 
         data.data.apply(self.x1, axis=1)
 
@@ -240,16 +346,22 @@ class QAStrategyCtaBase():
         #         self.code: 100000},
         #     market_type=self.market_type, running_environment=RUNNING_ENVIRONMENT.TZERO)
         # self.positions = self.acc.get_position(self.code)
-        data = QA.QA_quotation(self.code.upper(), self.start, self.end, source=QA.DATASOURCE.MONGO,
-                               frequence=self.frequence, market=self.market_type, output=QA.OUTPUT_FORMAT.DATASTRUCT)
+        data = QA.QA_quotation(
+            self.code.upper(),
+            self.start,
+            self.end,
+            source=QA.DATASOURCE.MONGO,
+            frequence=self.frequence,
+            market=self.market_type,
+            output=QA.OUTPUT_FORMAT.DATASTRUCT,
+        )
 
         def x1(item):
             self.latest_price[item.name[1]] = item['close']
             if str(item.name[0])[0:10] != str(self.running_time)[0:10]:
                 self.on_dailyclose()
                 for order in self.acc.close_positions_order:
-                    order.trade('closebySys', order.price,
-                                order.amount, order.datetime)
+                    order.trade('closebySys', order.price, order.amount, order.datetime)
                 self.on_dailyopen()
                 if self.market_type == QA.MARKET_TYPE.STOCK_CN:
                     print('backtest: Settle!')
@@ -262,19 +374,27 @@ class QAStrategyCtaBase():
         data.data.apply(x1, axis=1)
 
     def debug_currenttick(self, freq):
-        data = QA.QA_fetch_get_future_transaction_realtime(
-            'tdx', self.code.upper())
+        data = QA.QA_fetch_get_future_transaction_realtime('tdx', self.code.upper())
         self.running_mode = 'backtest'
-        self.database = pymongo.MongoClient(mongo_ip).QUANTAXIS
+        self.database = pymongo.MongoClient(self.mongo_ip).QUANTAXIS
         user = QA_User(username=self.username, password=self.password)
         port = user.new_portfolio(self.portfolio)
-        self.strategy_id = self.strategy_id + \
-            'currenttick_{}_{}'.format(str(datetime.date.today()), freq)
+        self.strategy_id = self.strategy_id + 'currenttick_{}_{}'.format(
+            str(datetime.date.today()), freq
+        )
         self.acc = port.new_accountpro(
-            account_cookie=self.strategy_id, init_cash=self.init_cash, market_type=self.market_type)
+            account_cookie=self.strategy_id,
+            init_cash=self.init_cash,
+            market_type=self.market_type,
+        )
         self.positions = self.acc.get_position(self.code)
-        data = data.assign(price=data.price/1000).loc[:, ['code', 'price', 'volume']].resample(
-            freq).apply({'code': 'last', 'price': 'ohlc', 'volume': 'sum'}).dropna()
+        data = (
+            data.assign(price=data.price / 1000)
+            .loc[:, ['code', 'price', 'volume']]
+            .resample(freq)
+            .apply({'code': 'last', 'price': 'ohlc', 'volume': 'sum'})
+            .dropna()
+        )
         data.columns = data.columns.droplevel(0)
         data = data.reset_index().set_index(['datetime', 'code'])
 
@@ -292,18 +412,28 @@ class QAStrategyCtaBase():
 
     def debug_histick(self, freq):
         data = QA.QA_fetch_get_future_transaction(
-            'tdx', self.code.upper(), self.start, self.end)
+            'tdx', self.code.upper(), self.start, self.end
+        )
         self.running_mode = 'backtest'
-        self.database = pymongo.MongoClient(mongo_ip).QUANTAXIS
+        self.database = pymongo.MongoClient(self.mongo_ip).QUANTAXIS
         user = QA_User(username=self.username, password=self.password)
         port = user.new_portfolio(self.portfolio)
-        self.strategy_id = self.strategy_id + \
-            'histick_{}_{}_{}'.format(self.start, self.end, freq)
+        self.strategy_id = self.strategy_id + 'histick_{}_{}_{}'.format(
+            self.start, self.end, freq
+        )
         self.acc = port.new_accountpro(
-            account_cookie=self.strategy_id, init_cash=self.init_cash, market_type=self.market_type)
+            account_cookie=self.strategy_id,
+            init_cash=self.init_cash,
+            market_type=self.market_type,
+        )
         self.positions = self.acc.get_position(self.code)
-        data = data.assign(price=data.price/1000).loc[:, ['code', 'price', 'volume']].resample(
-            freq).apply({'code': 'last', 'price': 'ohlc', 'volume': 'sum'}).dropna()
+        data = (
+            data.assign(price=data.price / 1000)
+            .loc[:, ['code', 'price', 'volume']]
+            .resample(freq)
+            .apply({'code': 'last', 'price': 'ohlc', 'volume': 'sum'})
+            .dropna()
+        )
         data.columns = data.columns.droplevel(0)
         data = data.reset_index().set_index(['datetime', 'code'])
 
@@ -319,7 +449,16 @@ class QAStrategyCtaBase():
 
         data.apply(x1, axis=1)
 
-    def subscribe_data(self, code, frequence, data_host, data_port, data_user, data_password, model='py'):
+    def subscribe_data(
+        self,
+        code,
+        frequence,
+        data_host,
+        data_port,
+        data_user,
+        data_password,
+        model='py',
+    ):
         """[summary]
 
         Arguments:
@@ -329,45 +468,99 @@ class QAStrategyCtaBase():
 
         if frequence.endswith('min'):
             if model == 'py':
-                self.sub = subscriber(exchange='realtime_{}_{}'.format(
-                    frequence, code), host=data_host, port=data_port, user=data_user, password=data_password)
+                self.sub = subscriber(
+                    exchange='realtime_{}_{}'.format(frequence, code),
+                    host=data_host,
+                    port=data_port,
+                    user=data_user,
+                    password=data_password,
+                )
             elif model == 'rust':
-                self.sub = subscriber_routing(exchange='realtime_{}'.format(
-                    code), routing_key=frequence, host=data_host, port=data_port, user=data_user, password=data_password)
+                self.sub = subscriber_routing(
+                    exchange='realtime_{}'.format(code),
+                    routing_key=frequence,
+                    host=data_host,
+                    port=data_port,
+                    user=data_user,
+                    password=data_password,
+                )
             self.sub.callback = self.callback
         elif frequence.endswith('s'):
 
             import re
-            self._num_cached = 2*int(re.findall(r'\d+', self.frequence)[0])
+
+            self._num_cached = 2 * int(re.findall(r'\d+', self.frequence)[0])
             self.sub = subscriber_routing(
-                exchange='CTPX', routing_key=code, host=data_host, port=data_port, user=data_user, password=data_password)
+                exchange='CTPX',
+                routing_key=code,
+                host=data_host,
+                port=data_port,
+                user=data_user,
+                password=data_password,
+            )
             self.sub.callback = self.second_callback
         elif frequence.endswith('tick'):
             self._num_cached = 1
             self.sub = subscriber_routing(
-                exchange='CTPX', routing_key=code, host=data_host, port=data_port, user=data_user, password=data_password)
+                exchange='CTPX',
+                routing_key=code,
+                host=data_host,
+                port=data_port,
+                user=data_user,
+                password=data_password,
+            )
             self.sub.callback = self.tick_callback
 
-    def subscribe_multi(self, codelist, frequence, data_host, data_port, data_user, data_password, model='py'):
+    def subscribe_multi(
+        self,
+        codelist,
+        frequence,
+        data_host,
+        data_port,
+        data_user,
+        data_password,
+        model='py',
+    ):
         if frequence.endswith('min'):
             if model == 'rust':
-                self.sub = subscriber_routing(exchange='realtime_{}'.format(
-                    codelist[0]), routing_key=frequence, host=data_host, port=data_port, user=data_user, password=data_password)
+                self.sub = subscriber_routing(
+                    exchange='realtime_{}'.format(codelist[0]),
+                    routing_key=frequence,
+                    host=data_host,
+                    port=data_port,
+                    user=data_user,
+                    password=data_password,
+                )
                 for item in codelist[1:]:
-                    self.sub.add_sub(exchange='realtime_{}'.format(
-                        item), routing_key=frequence)
+                    self.sub.add_sub(
+                        exchange='realtime_{}'.format(item), routing_key=frequence
+                    )
             elif model == 'py':
-                self.sub = subscriber_routing(exchange='realtime_{}'.format(
-                    codelist[0].lower()), routing_key=frequence, host=data_host, port=data_port, user=data_user, password=data_password)
+                self.sub = subscriber_routing(
+                    exchange='realtime_{}'.format(codelist[0].lower()),
+                    routing_key=frequence,
+                    host=data_host,
+                    port=data_port,
+                    user=data_user,
+                    password=data_password,
+                )
                 for item in codelist[1:]:
-                    self.sub.add_sub(exchange='realtime_{}'.format(
-                        item.lower()), routing_key=frequence)
+                    self.sub.add_sub(
+                        exchange='realtime_{}'.format(item.lower()),
+                        routing_key=frequence,
+                    )
             self.sub.callback = self.callback
         elif frequence.endswith('tick'):
 
             self._num_cached = 1
-            self.sub = subscriber_routing(exchange='CTPX', routing_key=codelist[0].lower(
-            ), host=data_host, port=data_port, user=data_user, password=data_password)
+            self.sub = subscriber_routing(
+                exchange='CTPX',
+                routing_key=codelist[0].lower(),
+                host=data_host,
+                port=data_port,
+                user=data_user,
+                password=data_password,
+            )
             for item in codelist[1:]:
                 self.sub.add_sub(exchange='CTPX', routing_key=item.lower())
 
@@ -404,11 +597,19 @@ class QAStrategyCtaBase():
     def force_close(self):
         # 强平
         if self.positions.volume_long > 0:
-            self.send_order('SELL', 'CLOSE', price=self.positions.last_price,
-                            volume=self.positions.volume_long)
+            self.send_order(
+                'SELL',
+                'CLOSE',
+                price=self.positions.last_price,
+                volume=self.positions.volume_long,
+            )
         if self.positions.volume_short > 0:
-            self.send_order('BUY', 'CLOSE', price=self.positions.last_price,
-                            volume=self.positions.volume_short)
+            self.send_order(
+                'BUY',
+                'CLOSE',
+                price=self.positions.last_price,
+                volume=self.positions.volume_short,
+            )
 
     def upcoming_data(self, new_bar):
         """upcoming_bar :
@@ -427,8 +628,7 @@ class QAStrategyCtaBase():
         """
         code = new_bar.index.levels[1][0]
         if len(self._old_data) > 0:
-            self._market_data = pd.concat(
-                [self._old_data, new_bar], sort=False)
+            self._market_data = pd.concat([self._old_data, new_bar], sort=False)
         else:
             self._market_data = new_bar
         # QA.QA_util_log_info(self._market_data)
@@ -443,13 +643,15 @@ class QAStrategyCtaBase():
         else:
             for item in self.code:
                 self.acc.get_position(item).on_price_change(
-                    float(self.latest_price[code]))
-        self.on_bar(json.loads(
-            new_bar.reset_index().to_json(orient='records'))[0])
+                    float(self.latest_price[code])
+                )
+        self.on_bar(json.loads(new_bar.reset_index().to_json(orient='records'))[0])
 
     def ind2str(self, ind, ind_type):
         z = ind.tail(1).reset_index().to_dict(orient='records')[0]
-        return json.dumps({'topic': ind_type, 'code': self.code, 'type': self.frequence, 'data': z})
+        return json.dumps(
+            {'topic': ind_type, 'code': self.code, 'type': self.frequence, 'data': z}
+        )
 
     def second_callback(self, a, b, c, body):
         """在strategy的callback中,我们需要的是
@@ -467,17 +669,17 @@ class QAStrategyCtaBase():
 
         second ==> 2*second tick
 
-        b'{"ask_price_1": 4145.0, "ask_price_2": 0, "ask_price_3": 0, "ask_price_4": 0, "ask_price_5": 0, 
-        "ask_volume_1": 69, "ask_volume_2": 0, "ask_volume_3": 0, "ask_volume_4": 0, "ask_volume_5": 0, 
-        "average_price": 61958.14258714826, 
-        "bid_price_1": 4143.0, "bid_price_2": 0, "bid_price_3": 0, "bid_price_4": 0, "bid_price_5": 0, 
-        "bid_volume_1": 30, "bid_volume_2": 0, "bid_volume_3": 0, "bid_volume_4": 0, "bid_volume_5": 0, 
-        "datetime": "2019-11-20 01:57:08", "exchange": "SHFE", "gateway_name": "ctp", 
+        b'{"ask_price_1": 4145.0, "ask_price_2": 0, "ask_price_3": 0, "ask_price_4": 0, "ask_price_5": 0,
+        "ask_volume_1": 69, "ask_volume_2": 0, "ask_volume_3": 0, "ask_volume_4": 0, "ask_volume_5": 0,
+        "average_price": 61958.14258714826,
+        "bid_price_1": 4143.0, "bid_price_2": 0, "bid_price_3": 0, "bid_price_4": 0, "bid_price_5": 0,
+        "bid_volume_1": 30, "bid_volume_2": 0, "bid_volume_3": 0, "bid_volume_4": 0, "bid_volume_5": 0,
+        "datetime": "2019-11-20 01:57:08", "exchange": "SHFE", "gateway_name": "ctp",
         "high_price": 4152.0, "last_price": 4144.0, "last_volume": 0,
-        "limit_down": 3872.0, "limit_up": 4367.0, "local_symbol": "ag1912.SHFE", 
-        "low_price": 4105.0, "name": "", "open_interest": 277912.0, "open_price": 4140.0, 
-        "preSettlementPrice": 4120.0, "pre_close": 4155.0, 
-        "symbol": "ag1912", 
+        "limit_down": 3872.0, "limit_up": 4367.0, "local_symbol": "ag1912.SHFE",
+        "low_price": 4105.0, "name": "", "open_interest": 277912.0, "open_price": 4140.0,
+        "preSettlementPrice": 4120.0, "pre_close": 4155.0,
+        "symbol": "ag1912",
         "volume": 114288}'
 
 
@@ -488,28 +690,33 @@ class QAStrategyCtaBase():
         self.new_data = json.loads(str(body, encoding='utf-8'))
 
         self._cached_data.append(self.new_data)
-        self.latest_price[self.new_data['symbol']
-                          ] = self.new_data['last_price']
+        self.latest_price[self.new_data['symbol']] = self.new_data['last_price']
 
         # if len(self._cached_data) == self._num_cached:
         #     self.isupdate = True
 
-        if len(self._cached_data) > 3*self._num_cached:
+        if len(self._cached_data) > 3 * self._num_cached:
             # 控制缓存数据量
-            self._cached_data = self._cached_data[self._num_cached:]
+            self._cached_data = self._cached_data[self._num_cached :]
 
-        data = pd.DataFrame(self._cached_data).loc[:, [
-            'datetime', 'last_price', 'volume']]
-        data = data.assign(datetime=pd.to_datetime(data.datetime)).set_index('datetime').resample(
-            self.frequence).apply({'last_price': 'ohlc', 'volume': 'last'}).dropna()
+        data = pd.DataFrame(self._cached_data).loc[
+            :, ['datetime', 'last_price', 'volume']
+        ]
+        data = (
+            data.assign(datetime=pd.to_datetime(data.datetime))
+            .set_index('datetime')
+            .resample(self.frequence)
+            .apply({'last_price': 'ohlc', 'volume': 'last'})
+            .dropna()
+        )
         data.columns = data.columns.droplevel(0)
 
-        data = data.assign(volume=data.volume.diff(),
-                           code=self.new_data['symbol'])
+        data = data.assign(volume=data.volume.diff(), code=self.new_data['symbol'])
         data = data.reset_index().set_index(['datetime', 'code'])
 
         self.acc.on_price_change(
-            self.new_data['symbol'], self.latest_price[self.new_data['symbol']])
+            self.new_data['symbol'], self.latest_price[self.new_data['symbol']]
+        )
         # .loc[:, ['open', 'high', 'low', 'close', 'volume', 'tradetime']]
         now = datetime.datetime.now()
         if now.hour == 20 and now.minute == 59 and now.second < 10:
@@ -525,8 +732,7 @@ class QAStrategyCtaBase():
 
     def tick_callback(self, a, b, c, body):
         self.new_data = json.loads(str(body, encoding='utf-8'))
-        self.latest_price[self.new_data['symbol']
-                          ] = self.new_data['last_price']
+        self.latest_price[self.new_data['symbol']] = self.new_data['last_price']
         self.running_time = self.new_data['datetime']
         self.on_tick(self.new_data)
 
@@ -584,7 +790,8 @@ class QAStrategyCtaBase():
 
         """
         self.subscriber_client.insert_one(
-            {'strategy_id': self.strategy_id, 'user_id': qaproid})
+            {'strategy_id': self.strategy_id, 'user_id': qaproid}
+        )
 
     @property
     def subscriber_list(self):
@@ -594,7 +801,16 @@ class QAStrategyCtaBase():
             [type] -- [description]
         """
 
-        return list(set([item['user_id'] for item in self.subscriber_client.find({'strategy_id': self.strategy_id})]))
+        return list(
+            set(
+                [
+                    item['user_id']
+                    for item in self.subscriber_client.find(
+                        {'strategy_id': self.strategy_id}
+                    )
+                ]
+            )
+        )
 
     def load_strategy(self):
         raise NotImplementedError
@@ -612,7 +828,7 @@ class QAStrategyCtaBase():
         raise NotImplementedError
 
     def _on_1min_bar(self):
-        #raise NotImplementedError
+        # raise NotImplementedError
         if len(self._systemvar.keys()) > 0:
             self._signal.append(copy.deepcopy(self._systemvar))
         try:
@@ -650,7 +866,7 @@ class QAStrategyCtaBase():
         pass
 
     def plot(self, name, data, format):
-        """ plot是可以存储你的临时信息的接口, 后期会接入可视化
+        """plot是可以存储你的临时信息的接口, 后期会接入可视化
 
 
 
@@ -659,8 +875,11 @@ class QAStrategyCtaBase():
             data {[type]} -- [description]
             format {[type]} -- [description]
         """
-        self._systemvar[name] = {'datetime': copy.deepcopy(str(
-            self.running_time)), 'value': data, 'format': format}
+        self._systemvar[name] = {
+            'datetime': copy.deepcopy(str(self.running_time)),
+            'value': data,
+            'format': format,
+        }
 
     def get_code(self):
         if isinstance(self.code, str):
@@ -690,18 +909,33 @@ class QAStrategyCtaBase():
     def on_ordererror(self, direction, offset, price, volume):
         print('order Error ')
 
-    def receive_simpledeal(self,
-                           code: str,
-                           trade_time,
-                           trade_amount,
-                           direction,
-                           offset,
-                           trade_price,
-                           message='sell_open'):
-        self.send_order(direction=direction, offset=offset,
-                        volume=trade_amount, price=trade_price, order_id=QA.QA_util_random_with_topic(self.strategy_id))
+    def receive_simpledeal(
+        self,
+        code: str,
+        trade_time,
+        trade_amount,
+        direction,
+        offset,
+        trade_price,
+        message='sell_open',
+    ):
+        self.send_order(
+            direction=direction,
+            offset=offset,
+            volume=trade_amount,
+            price=trade_price,
+            order_id=QA.QA_util_random_with_topic(self.strategy_id),
+        )
 
-    def send_order(self,  direction='BUY', offset='OPEN', price=3925, volume=10, order_id='', code=None):
+    def send_order(
+        self,
+        direction='BUY',
+        offset='OPEN',
+        price=3925,
+        volume=10,
+        order_id='',
+        code=None,
+    ):
         if code == None:
             code = self.get_code()
 
@@ -715,34 +949,55 @@ class QAStrategyCtaBase():
 
         if self.running_mode == 'sim':
             # 在此处拦截无法下单的订单
-            if (direction == 'BUY' and self.latest_price[code] <= price) or (direction == 'SELL' and self.latest_price[code] >= price):
+            if (direction == 'BUY' and self.latest_price[code] <= price) or (
+                direction == 'SELL' and self.latest_price[code] >= price
+            ):
                 QA.QA_util_log_info(
-                    '============ {} SEND ORDER =================='.format(order_id))
-                QA.QA_util_log_info('direction{} offset {} price{} volume{}'.format(
-                    direction, offset, price, volume))
+                    '============ {} SEND ORDER =================='.format(order_id)
+                )
+                QA.QA_util_log_info(
+                    'direction{} offset {} price{} volume{}'.format(
+                        direction, offset, price, volume
+                    )
+                )
 
                 if self.check_order(direction, offset, code=code):
-                    #self.last_order_towards = {'BUY': '', 'SELL': ''}
+                    # self.last_order_towards = {'BUY': '', 'SELL': ''}
                     self.last_order_towards[code][direction] = offset
                     now = str(datetime.datetime.now())
 
                     order = self.acc.send_order(
-                        code=code, towards=towards, price=price, amount=volume, order_id=order_id)
+                        code=code,
+                        towards=towards,
+                        price=price,
+                        amount=volume,
+                        order_id=order_id,
+                    )
                     print(order)
                     order['topic'] = 'send_order'
-                    self.pub.pub(
-                        json.dumps(order), routing_key=self.strategy_id)
+                    self.pub.pub(json.dumps(order), routing_key=self.strategy_id)
 
                     self.acc.make_deal(order)
                     self.on_deal(order)
-                    self.bar_order['{}_{}'.format(
-                        direction, offset)] = self.bar_id
+                    self.bar_order['{}_{}'.format(direction, offset)] = self.bar_id
                     if self.send_wx:
                         for user in self.subscriber_list:
                             QA.QA_util_log_info(self.subscriber_list)
                             try:
-                                requests.post('http://www.yutiansut.com/signal?user_id={}&template={}&strategy_id={}&realaccount={}&code={}&order_direction={}&order_offset={}&price={}&volume={}&order_time={}'.format(
-                                    user, "xiadan_report", self.strategy_id, self.acc.user_id, code.lower(), direction, offset, price, volume, now))
+                                requests.post(
+                                    'http://www.yutiansut.com/signal?user_id={}&template={}&strategy_id={}&realaccount={}&code={}&order_direction={}&order_offset={}&price={}&volume={}&order_time={}'.format(
+                                        user,
+                                        "xiadan_report",
+                                        self.strategy_id,
+                                        self.acc.user_id,
+                                        code.lower(),
+                                        direction,
+                                        offset,
+                                        price,
+                                        volume,
+                                        now,
+                                    )
+                                )
                             except Exception as e:
                                 QA.QA_util_log_info(e)
 
@@ -756,30 +1011,45 @@ class QAStrategyCtaBase():
 
             if self.market_type == 'stock_cn':
                 order = self.acc.send_order(
-                    code=code, amount=volume, time=self.running_time, towards=towards, price=price)
-                order.trade(order.order_id, order.price,
-                            order.amount, order.datetime)
+                    code=code,
+                    amount=volume,
+                    time=self.running_time,
+                    towards=towards,
+                    price=price,
+                )
+                order.trade(order.order_id, order.price, order.amount, order.datetime)
                 self.on_deal(order.to_dict())
             else:
                 self.acc.receive_simpledeal(
-                    code=code, trade_time=self.running_time, trade_towards=towards, trade_amount=volume, trade_price=price, order_id=order_id, realorder_id=order_id, trade_id=order_id)
+                    code=code,
+                    trade_time=self.running_time,
+                    trade_towards=towards,
+                    trade_amount=volume,
+                    trade_price=price,
+                    order_id=order_id,
+                    realorder_id=order_id,
+                    trade_id=order_id,
+                )
 
-                self.on_deal({
-                    'code': code,
-                    'trade_time': self.running_time,
-                    'trade_towards': towards,
-                    'trade_amount': volume,
-                    'trade_price': price,
-                    'order_id': order_id,
-                    'realorder_id': order_id,
-                    'trade_id': order_id
-                })
+                self.on_deal(
+                    {
+                        'code': code,
+                        'trade_time': self.running_time,
+                        'trade_towards': towards,
+                        'trade_amount': volume,
+                        'trade_price': price,
+                        'order_id': order_id,
+                        'realorder_id': order_id,
+                        'trade_id': order_id,
+                    }
+                )
             self.positions = self.acc.get_position(code)
 
     def update_account(self):
         if self.running_mode == 'sim':
-            QA.QA_util_log_info('{} UPDATE ACCOUNT'.format(
-                str(datetime.datetime.now())))
+            QA.QA_util_log_info(
+                '{} UPDATE ACCOUNT'.format(str(datetime.datetime.now()))
+            )
 
             self.accounts = self.acc.account_msg
             self.orders = self.acc.orders
@@ -822,4 +1092,4 @@ class QAStrategyCtaBase():
 
 
 if __name__ == '__main__':
-    QAStrategyCTABase(code='rb2005').run()
+    QAStrategyCtaBase(code='rb2005').run()
