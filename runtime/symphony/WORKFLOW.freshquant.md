@@ -117,7 +117,7 @@ Required behavior:
 9. Do not keep looping on generic repository discovery once the issue context and review surface are already known.
 10. If the task is blocked by missing access, missing tooling, or another real external dependency, move it to `Blocked` instead of leaving it in `Todo`.
 11. If the issue enters `Blocked`, record the blocker, clear condition, evidence, and target recovery state in GitHub. Do not leave a blocked task without saying whether it should resume to `In Progress`, `Rework`, or `Merging`.
-12. Once Design Review is approved, do not ask for new human approval to handle CI, merge conflicts, deploy failures, or cleanup failures within the same issue scope. Route that work to `Rework` or `Merging`, not back to `Blocked`.
+12. Once Design Review is approved, do not ask for new human approval to handle CI, merge conflicts, deploy failures, or cleanup failures within the same issue scope. Route that work to `Rework` or `Merging` by default; use `Blocked` only when a new real external blocker appears and record the blocker, clear condition, evidence, and target recovery state.
 13. When GitHub truth proves a blocked task is misclassified, restore it automatically: merged PR -> `Merging`; open non-draft PR -> `Rework`; approved draft PR -> `In Progress`.
 14. If `before_run` fails because the workspace is not a git repository, rebuild the workspace once and retry before surfacing the failure.
 15. Treat newly created GitHub issues as `symphony` + `todo` by default. Do not pre-apply `design-review` at issue creation time; add it only after the task is confirmed to be high risk.
