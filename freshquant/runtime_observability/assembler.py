@@ -265,8 +265,7 @@ def _has_submit_intent(steps: list[dict]) -> bool:
 
 def _has_submit_intent_downstream(steps: list[dict]) -> bool:
     return any(
-        _normalized_text(step.get("component"))
-        in _SUBMIT_INTENT_DOWNSTREAM_COMPONENTS
+        _normalized_text(step.get("component")) in _SUBMIT_INTENT_DOWNSTREAM_COMPONENTS
         for step in steps
     )
 
