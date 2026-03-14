@@ -130,6 +130,20 @@ def _ensure_stock_pool_orders():
     )
 
 
+def _next_workspace_order(docs):
+    return (
+        max(
+            (
+                _workspace_order(doc)
+                for doc in docs
+                if _workspace_order(doc) is not None
+            ),
+            default=-1,
+        )
+        + 1
+    )
+
+
 def _serialize_pool_doc(doc):
     extra = dict(doc.get("extra") or {})
     return {
@@ -257,7 +271,7 @@ def append_pre_pool(items, context=None):
     normalized_items = _normalize_items(items)
     existing_docs = _ensure_pre_pool_orders()
     existing_codes = {doc.get("code") for doc in existing_docs}
-    next_order = len(existing_docs)
+    next_order = _next_workspace_order(existing_docs)
     appended_count = 0
     skipped_count = 0
 
@@ -335,7 +349,7 @@ def add_pre_pool_item_to_stock_pool(code6):
 
     stock_docs = _ensure_stock_pool_orders()
     DBfreshquant["stock_pools"].insert_one(
-        _build_stock_pool_doc(source, len(stock_docs))
+        _build_stock_pool_doc(source, _next_workspace_order(stock_docs))
     )
     return "created"
 
@@ -344,7 +358,7 @@ def sync_pre_pool_to_stock_pool():
     pre_pool_docs = _ensure_pre_pool_orders()
     stock_pool_docs = _ensure_stock_pool_orders()
     existing_codes = {doc.get("code") for doc in stock_pool_docs}
-    next_order = len(stock_pool_docs)
+    next_order = _next_workspace_order(stock_pool_docs)
     appended_count = 0
     skipped_count = 0
 

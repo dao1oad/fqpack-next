@@ -304,6 +304,41 @@ def test_append_pre_pool_appends_only_missing_codes_and_keeps_existing_order(
     assert saved_docs[1]["extra"]["shouban30_plate_name"] == "chip"
 
 
+def test_append_pre_pool_uses_next_order_after_existing_order_gap(monkeypatch):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "first",
+                    "category": "三十涨停Pro预选",
+                    "extra": {"shouban30_order": 0},
+                },
+                {
+                    "code": "600002",
+                    "name": "second",
+                    "category": "三十涨停Pro预选",
+                    "extra": {"shouban30_order": 2},
+                },
+            ]
+        ),
+        stock_pools=FakeCollection(),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    result = service.append_pre_pool(
+        [{"code6": "000333", "name": "third", "provider": "xgb"}],
+        {"replace_scope": "single_plate"},
+    )
+
+    saved_docs = service.list_pre_pool()
+    assert result["appended_count"] == 1
+    assert [doc["code6"] for doc in saved_docs] == ["600001", "600002", "000333"]
+    assert saved_docs[2]["extra"]["shouban30_order"] == 3
+
+
 def test_sync_pre_pool_to_blk_keeps_workspace_order(monkeypatch, tmp_path):
     service, _ = _import_service_with_stubs(monkeypatch)
     fake_db = FakeDB(
@@ -596,6 +631,51 @@ def test_add_pre_pool_item_to_stock_pool_skips_existing_without_overwrite(monkey
     }
 
 
+def test_add_pre_pool_item_to_stock_pool_appends_after_existing_order_gap(monkeypatch):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "000333",
+                    "name": "third",
+                    "category": "三十涨停Pro预选",
+                    "extra": {
+                        "shouban30_provider": "xgb",
+                        "shouban30_plate_key": "11",
+                        "shouban30_plate_name": "robot",
+                    },
+                }
+            ]
+        ),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "first",
+                    "category": "三十涨停Pro自选",
+                    "extra": {"shouban30_order": 0},
+                },
+                {
+                    "code": "600002",
+                    "name": "second",
+                    "category": "三十涨停Pro自选",
+                    "extra": {"shouban30_order": 2},
+                },
+            ]
+        ),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    result = service.add_pre_pool_item_to_stock_pool("000333")
+
+    assert result == "created"
+    saved_docs = service.list_stock_pool()
+    assert [doc["code6"] for doc in saved_docs] == ["600001", "600002", "000333"]
+    assert saved_docs[2]["extra"]["shouban30_order"] == 3
+
+
 def test_sync_pre_pool_to_stock_pool_appends_missing_codes_in_pre_pool_order(
     monkeypatch,
 ):
@@ -669,6 +749,69 @@ def test_sync_pre_pool_to_stock_pool_appends_missing_codes_in_pre_pool_order(
     assert by_code["600001"]["extra"]["shouban30_order"] == 1
     assert by_code["000333"]["extra"]["shouban30_order"] == 2
     assert by_code["000333"]["extra"]["shouban30_plate_name"] == "chip"
+
+
+def test_sync_pre_pool_to_stock_pool_appends_after_existing_order_gap(monkeypatch):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "000333",
+                    "name": "third",
+                    "category": "三十涨停Pro预选",
+                    "extra": {
+                        "shouban30_order": 0,
+                        "shouban30_provider": "xgb",
+                        "shouban30_plate_key": "11",
+                        "shouban30_plate_name": "robot",
+                    },
+                },
+                {
+                    "code": "300001",
+                    "name": "fourth",
+                    "category": "三十涨停Pro预选",
+                    "extra": {
+                        "shouban30_order": 1,
+                        "shouban30_provider": "jygs",
+                        "shouban30_plate_key": "12",
+                        "shouban30_plate_name": "chip",
+                    },
+                },
+            ]
+        ),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "first",
+                    "category": "三十涨停Pro自选",
+                    "extra": {"shouban30_order": 0},
+                },
+                {
+                    "code": "600002",
+                    "name": "second",
+                    "category": "三十涨停Pro自选",
+                    "extra": {"shouban30_order": 2},
+                },
+            ]
+        ),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    result = service.sync_pre_pool_to_stock_pool()
+
+    assert result["appended_count"] == 2
+    saved_docs = service.list_stock_pool()
+    assert [doc["code6"] for doc in saved_docs] == [
+        "600001",
+        "600002",
+        "000333",
+        "300001",
+    ]
+    assert saved_docs[2]["extra"]["shouban30_order"] == 3
+    assert saved_docs[3]["extra"]["shouban30_order"] == 4
 
 
 def test_add_stock_pool_item_to_must_pool_uses_default_arguments(monkeypatch):
