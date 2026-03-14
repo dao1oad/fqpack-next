@@ -1,43 +1,19 @@
 <!-- symphony-design-review -->
 
-# 设计评审包
+# 历史兼容模板（已废弃）
 
-## 1. 任务摘要
+本文件仅保留给历史链接和旧 PR 引用使用。
 
-- 任务：`<task summary>`
-- 目标：`<goal>`
-- 非目标：`<non-goals>`
+当前正式治理不再使用 `Design Review Packet`、`APPROVED` 审批门或 Draft PR 审批面。
 
-## 2. 范围
+正式流程改为：
 
-- 影响模块：`<modules>`
-- 行为变化：`<behavior change>`
-- 部署范围：`<deploy scope>`
-- 需同步文档：`<docs/current paths>`
+- Issue body 先完成方案与执行合同
+- Symphony 负责 `Issue -> In Progress -> Rework -> Merging`
+- 全局自动化负责 `Global Stewardship -> Done`
 
-## 3. 推荐设计
+如果旧流程仍引用本文件，应改为补充：
 
-- 推荐方案：`<recommended approach>`
-- 推荐理由：`<why this approach>`
-- 主要风险：`<risks>`
-- 测试计划：`<tests>`
-- 回滚说明：`<rollback>`
-
-## 4. 待决策点
-
-- 决策问题：`<question>`
-  - 推荐选项：`<option>`
-  - 推荐理由：`<reason>`
-  - 备选方案：`<alternative>`
-  - 影响面：`<impact>`
-  - 需要人工明确给出的结论：`<explicit conclusion>`
-
-如果没有待决策点，请明确写出：
-
-- `无待评审点，按推荐方案执行`
-
-## 5. 审批方式
-
-- 回复 `APPROVED`
-- 或回复 `REVISE: ...`
-- 或回复 `REJECTED: ...`
+- GitHub Issue body 的背景、目标、范围、非目标、验收标准、部署影响
+- PR 中的实现证据与 merge blocker 记录
+- 需要时的 follow-up issue

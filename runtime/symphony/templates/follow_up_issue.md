@@ -26,10 +26,10 @@
 ## 初步判断
 
 - Symptom Class: `<cleanup-failure | deploy-regression | health-check-regression | runtime-ops-regression | runtime-bug | governance-gap>`
-- 疑似命中 Design Review 条件：`<是 | 否 | 待确认>`
+- Issue 合同是否仍需补充：`<否 | 需要补充>`
 
 ## 下一轮 Symphony 接手建议
 
 - `<recommended entry point>`
 - `<first files / docs / runtime surfaces to inspect>`
-- `<whether to treat as low-risk bugfix first or re-check for design-review>`
+- `<recommended initial state: In Progress | Blocked>`

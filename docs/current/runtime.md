@@ -53,11 +53,14 @@
 - FQNext 宿主机 Supervisor 管理员桥接任务：`fqnext-supervisord-restart`
 - FQNext 宿主机 Supervisor 管理员桥接 runner：`D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`
 - 运维面检查脚本固定支持 `-Mode CaptureBaseline` 与 `-Mode Verify`，输出 JSON `baseline/docker_checks/service_checks/process_checks/warnings/failures/passed`
-- GitHub 新任务默认通过 issue template 创建，初始标签应为 `symphony + todo`；不要在创建时预贴 `design-review`
+- GitHub 新任务默认通过 issue template 创建，初始标签应为 `symphony + in-progress`
 - Symphony workspace 默认从本地工作树 clone，但 `after_create` / `before_run` 会补齐 `github` remote 并把 `remote.pushDefault` 设为 `github`
-- `Design Review` 不再 dispatch 普通实现会话；orchestrator 会先根据 issue body 自动 bootstrap Draft PR review surface，失败时把任务转成 `Blocked`
+- GitHub Issue body 即执行合同；Symphony 不再管理 `Design Review` 或人工审批
 - 进入 `In Progress` / `Rework` / `Merging` 前，orchestrator 会把 workspace 切到确定性的 issue branch，而不是继续停在本地 `main`
 - `Merging` 现在只负责 merge 到 remote `main`、写 handoff comment，并把 issue 转入 `Global Stewardship`
+- `Merging` 只认 GitHub PR 真值：required checks、unresolved review threads、mergeability、ruleset policy
+- required checks 仍在 pending 时，issue 保持在 `Merging`，不要提前打回 `Rework`
+- `Rework` 只用于未 merge 前的确定性仓库内问题；进入时必须同时记录 `blocker_class`、`evidence`、`next_action`、`exit_condition`
 - `Global Stewardship` 由单个全局 Codex 自动化负责；它统一处理 deploy、health check、runtime ops check、cleanup 和 follow-up issue 创建
 - `Global Stewardship` 在真正执行 deploy 前，应先调用 `script/freshquant_deploy_plan.py` 生成本轮 Docker / 宿主机计划
 - `Global Stewardship` 只有在本轮实际发生 deploy 时才做 runtime ops check；执行顺序固定为 `deploy -> health check -> runtime ops check -> cleanup`
@@ -66,14 +69,15 @@
 - 如果当前 Codex 会话没有管理员权限，`runtime/symphony/**` 的重载应走预装的计划任务桥接：普通会话先 `sync_freshquant_symphony_service.ps1`，再调用 `invoke_freshquant_symphony_restart_task.ps1`
 - 如果当前 Codex 会话没有管理员权限且 `fqnext-supervisord` service 需要恢复，应走预装的 `fqnext-supervisord-restart` 管理员桥接任务；普通会话不直接承担 service 修复
 - `run_freshquant_symphony_restart_task.ps1` 在服务进入 `Running` 后仍会继续轮询 `http://127.0.0.1:40123/api/v1/state`，直到健康检查返回 `200` 或超时，避免把端口释放窗口误判为重载失败。
-- `Blocked` 只用于真实外部阻塞；进入 `Blocked` 时必须同时记录阻塞原因、解除条件、当前证据和恢复目标状态（`In Progress` / `Rework` / `Global Stewardship`）
-- 如果 GitHub 真值已经表明 `Blocked` 只是误标，orchestrator 会自动恢复：merged PR, pending ops -> `Global Stewardship`；open non-draft PR -> `Rework`；approved draft PR -> `In Progress`
+- merge 后若发现代码问题，只创建 follow-up issue，由下一轮 `Symphony` 接手；不把原 issue 拉回 `Rework`
+- `Blocked` 只用于真实外部阻塞；进入 `Blocked` 时必须同时记录阻塞原因、解除条件、当前证据和恢复目标状态（`In Progress` / `Rework` / `Merging` / `Global Stewardship`）
+- 如果 GitHub 真值已经表明 `Blocked` 只是误标，orchestrator 会自动恢复：merged PR, pending ops -> `Global Stewardship`；open PR 且 checks pending -> `Merging`；open PR 且存在确定性仓库内失败 -> `Rework`；无 open PR -> `In Progress`
 - 如果 workspace 目录存在但缺失 git 元数据，orchestrator 会在下一次执行前自愈重建一次，而不是无限重试 `not a git repository`
-- Symphony `sync/start` 会校验 workflow prompt 合约，至少要求保留 issue 标识、标题、状态、描述、URL、`Design Review` 的 orchestrator-owned bootstrap 规则、以及 issue branch checkout 规则
+- Symphony `sync/start` 会校验 workflow prompt 合约，至少要求保留 issue 标识、标题、状态、描述、URL、Issue 作为执行合同的规则、GitHub PR 真值规则、以及 issue branch checkout 规则
 - Symphony `sync/start` 也会校验 `prompts/merging.md` 的关键 guardrail：`Merging` 只能做一次性检查后结束当前 turn，不应在会话内使用 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 长轮询；`Merging` 不负责 deploy、health check 或 cleanup，只负责 handoff 到 `Global Stewardship`
 - Symphony `sync/start` 还会校验 `prompts/global_stewardship.md` 的关键 guardrail：必须按当前 `main` 统一判断部署、实际 deploy 时先采 runtime baseline 再做 runtime ops check、只创建 follow-up issue、不直接建修复 PR、并在无 open follow-up 阻塞时才允许关闭原 issue
 - memory refresh / compile 的正式脚本入口位于 `runtime/memory/scripts/**`；第一版只做结构化冷/热记忆和角色化 markdown context pack，不引入向量库或 embedding 检索
-- Symphony 写入 GitHub 的正式文本默认使用简体中文；仅审批信号 `APPROVED` / `REVISE:` / `REJECTED:` 保留英文控制词
+- Symphony 写入 GitHub 的正式文本默认使用简体中文
 - 全局 Codex 自动化发现需要代码修复的问题时，只创建 follow-up issue，由下一轮 `Symphony` 接手；不直接建修复 PR
 - 运行日志根目录：`logs/runtime`，可被 `FQ_RUNTIME_LOG_DIR` 覆盖
 

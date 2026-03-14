@@ -9,7 +9,7 @@ Required behavior:
 - Default to subagent-driven-development.
 - Use test-driven-development for each behavior change.
 - Record RED -> GREEN evidence for each implemented task.
-- Keep work on the issue branch and Draft PR.
+- Keep work on the issue branch and PR.
 - Sync `docs/current/**` whenever current system facts change.
 - Run verification before asking to merge.
 
