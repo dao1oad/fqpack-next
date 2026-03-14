@@ -281,7 +281,33 @@ export async function installVmHelpers(page) {
       return (
         (type.includes('text') || type.includes('tspan')) &&
         /^\d+(?:\.\d+)?$/.test(text) &&
-        (fill === 'rgba(203,203,206,1)' || fill === '#cbcbce')
+        (fill === 'rgba(179,180,183,1)' || fill === '#b3b4b7')
+      )
+    }
+
+    const isAxisPointerPriceLabelBackground = (item) => {
+      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
+      const fill = normalizeDisplayColor(item?.style?.fill)
+      const shape = item?.shape || {}
+      return (
+        type.includes('rect') &&
+        (fill === '#536298' || fill === 'rgba(83,98,152,1)') &&
+        Number.isFinite(shape.width) &&
+        Number.isFinite(shape.height) &&
+        shape.width >= 20 &&
+        shape.width <= 64 &&
+        shape.height >= 18
+      )
+    }
+
+    const isAxisPointerDateLabel = (item) => {
+      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
+      const fill = normalizeDisplayColor(item?.style?.fill)
+      const text = String(item?.style?.text || item?.textContent || '').trim()
+      return (
+        (type.includes('text') || type.includes('tspan')) &&
+        /^\d{4}(?:-\d{2}(?:-\d{2})?)?$/.test(text) &&
+        (fill === 'rgba(179,180,183,1)' || fill === '#b3b4b7')
       )
     }
 
@@ -290,6 +316,8 @@ export async function installVmHelpers(page) {
       const displayList = chart?.getZr?.()?.storage?.getDisplayList?.() || []
       const horizontalLines = []
       const priceLabels = []
+      const priceLabelBackgrounds = []
+      const dateLabels = []
 
       displayList.forEach((item) => {
         if (isAxisPointerHorizontalLine(item)) {
@@ -310,14 +338,39 @@ export async function installVmHelpers(page) {
             fill: String(item?.style?.fill || ''),
             text: String(item?.style?.text || item?.textContent || '')
           })
+          return
+        }
+
+        if (isAxisPointerPriceLabelBackground(item)) {
+          priceLabelBackgrounds.push({
+            fill: String(item?.style?.fill || ''),
+            shape: {
+              x: Number(item?.shape?.x),
+              y: Number(item?.shape?.y),
+              width: Number(item?.shape?.width),
+              height: Number(item?.shape?.height)
+            }
+          })
+          return
+        }
+
+        if (isAxisPointerDateLabel(item)) {
+          dateLabels.push({
+            fill: String(item?.style?.fill || ''),
+            text: String(item?.style?.text || item?.textContent || '')
+          })
         }
       })
 
       return {
         horizontalLineCount: horizontalLines.length,
         labelCount: priceLabels.length,
+        priceLabelBackgroundCount: priceLabelBackgrounds.length,
+        dateLabelCount: dateLabels.length,
         horizontalLines,
-        priceLabels
+        priceLabels,
+        priceLabelBackgrounds,
+        dateLabels
       }
     }
     window.__readKlineSlimRenderSurface = () => {

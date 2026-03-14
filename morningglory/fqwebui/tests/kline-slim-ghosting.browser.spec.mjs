@@ -534,7 +534,9 @@ test('symbol switching keeps only period legends and resets viewport without rei
   expect(finalState.viewport.xRange.end).toBeCloseTo(100, 0)
 })
 
-test('wheel zoom followed by mouseout does not leave axisPointer ghost lines', async ({ page }) => {
+test('wheel zoom followed by mouseout does not leave axisPointer ghost lines or price labels', async ({
+  page
+}) => {
   await page.setViewportSize({ width: 1680, height: 960 })
   await installVmHelpers(page)
   await mockKlineSlimApis(page)
@@ -548,6 +550,8 @@ test('wheel zoom followed by mouseout does not leave axisPointer ghost lines', a
   const artifacts = await readAxisPointerArtifacts(page)
 
   expect(artifacts.horizontalLineCount).toBe(0)
+  expect(artifacts.labelCount).toBe(0)
+  expect(artifacts.priceLabelBackgroundCount).toBe(0)
 })
 
 test('hideTip clears the current KlineSlim axisPointer crosshair', async ({ page }) => {
@@ -590,11 +594,15 @@ test('hideTip clears the current KlineSlim axisPointer crosshair', async ({ page
 
   const beforeHideTip = await readAxisPointerArtifacts(page)
   expect(beforeHideTip.horizontalLineCount).toBeGreaterThan(0)
+  expect(beforeHideTip.labelCount).toBeGreaterThan(0)
+  expect(beforeHideTip.priceLabelBackgroundCount).toBeGreaterThan(0)
 
   await hideCurrentChartTip(page)
 
   const afterHideTip = await readAxisPointerArtifacts(page)
   expect(afterHideTip.horizontalLineCount).toBe(0)
+  expect(afterHideTip.labelCount).toBe(0)
+  expect(afterHideTip.priceLabelBackgroundCount).toBe(0)
 })
 
 test('1m on -> zoom -> 1m off -> pan matches a forced full redraw in the same viewport', async ({
