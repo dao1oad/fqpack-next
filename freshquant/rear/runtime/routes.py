@@ -231,7 +231,7 @@ def _event_matches(event: dict, filters: dict) -> bool:
 
 
 def _has_trace_key(event: dict) -> bool:
-    for field in ("trace_id", "request_id", "internal_order_id"):
+    for field in ("trace_id", "intent_id", "request_id", "internal_order_id"):
         if str(event.get(field) or "").strip():
             return True
     return False
