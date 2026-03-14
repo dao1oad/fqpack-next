@@ -246,6 +246,80 @@ export async function installVmHelpers(page) {
         mainVersion: vm.mainVersion || ''
       }
     }
+
+    const normalizeDisplayColor = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '')
+
+    const isAxisPointerHorizontalLine = (item) => {
+      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
+      const shape = item?.shape || {}
+      const stroke = normalizeDisplayColor(item?.style?.stroke)
+      if (!type.includes('line')) {
+        return false
+      }
+      if (
+        !Number.isFinite(shape.x1) ||
+        !Number.isFinite(shape.y1) ||
+        !Number.isFinite(shape.x2) ||
+        !Number.isFinite(shape.y2)
+      ) {
+        return false
+      }
+
+      const isHorizontal = Math.abs(shape.y1 - shape.y2) < 0.5
+      const span = Math.abs(shape.x2 - shape.x1)
+      return (
+        isHorizontal &&
+        span > 200 &&
+        (stroke === '#9ea0a5' || stroke === 'rgba(158,160,165,1)')
+      )
+    }
+
+    const isAxisPointerPriceLabel = (item) => {
+      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
+      const fill = normalizeDisplayColor(item?.style?.fill)
+      const text = String(item?.style?.text || item?.textContent || '').trim()
+      return (
+        (type.includes('text') || type.includes('tspan')) &&
+        /^\d+(?:\.\d+)?$/.test(text) &&
+        (fill === 'rgba(203,203,206,1)' || fill === '#cbcbce')
+      )
+    }
+
+    window.__readKlineSlimAxisPointerArtifacts = () => {
+      const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
+      const displayList = chart?.getZr?.()?.storage?.getDisplayList?.() || []
+      const horizontalLines = []
+      const priceLabels = []
+
+      displayList.forEach((item) => {
+        if (isAxisPointerHorizontalLine(item)) {
+          horizontalLines.push({
+            stroke: String(item?.style?.stroke || ''),
+            shape: {
+              x1: Number(item?.shape?.x1),
+              y1: Number(item?.shape?.y1),
+              x2: Number(item?.shape?.x2),
+              y2: Number(item?.shape?.y2)
+            }
+          })
+          return
+        }
+
+        if (isAxisPointerPriceLabel(item)) {
+          priceLabels.push({
+            fill: String(item?.style?.fill || ''),
+            text: String(item?.style?.text || item?.textContent || '')
+          })
+        }
+      })
+
+      return {
+        horizontalLineCount: horizontalLines.length,
+        labelCount: priceLabels.length,
+        horizontalLines,
+        priceLabels
+      }
+    }
   })
 }
 
@@ -277,6 +351,14 @@ export async function readChartState(page) {
     throw new Error('kline slim chart state is not ready')
   }
   return state
+}
+
+export async function readAxisPointerArtifacts(page) {
+  const artifacts = await page.evaluate(() => window.__readKlineSlimAxisPointerArtifacts?.())
+  if (!artifacts) {
+    throw new Error('kline slim axis pointer artifacts are not ready')
+  }
+  return artifacts
 }
 
 export async function setLegendSelected(page, name, selected) {
@@ -428,6 +510,45 @@ export async function zoomAndPan(page) {
     afterZoom,
     afterPan
   }
+}
+
+export async function reproduceAxisPointerGhost(
+  page,
+  {
+    xRatio = 0.58,
+    yRatios = [0.22, 0.31, 0.4, 0.49, 0.58],
+    wheelDeltaY = -1200,
+    moveOutside = true
+  } = {}
+) {
+  const chart = page.locator('.kline-slim-chart')
+  const chartBox = await chart.boundingBox()
+  if (!chartBox) {
+    throw new Error('chart host not visible')
+  }
+
+  for (const yRatio of yRatios) {
+    await page.mouse.move(chartBox.x + chartBox.width * xRatio, chartBox.y + chartBox.height * yRatio)
+    await page.mouse.wheel(0, wheelDeltaY)
+    await page.waitForTimeout(60)
+  }
+
+  if (moveOutside) {
+    await page.mouse.move(chartBox.x + chartBox.width + 48, chartBox.y + chartBox.height + 48)
+  }
+
+  await page.evaluate(() => window.__waitForSlimPaint?.())
+}
+
+export async function hideCurrentChartTip(page) {
+  await page.evaluate(() => {
+    const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
+    chart.dispatchAction({
+      type: 'hideTip'
+    })
+  })
+
+  await page.evaluate(() => window.__waitForSlimPaint?.())
 }
 
 export async function captureChartHash(page) {

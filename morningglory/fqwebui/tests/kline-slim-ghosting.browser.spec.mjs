@@ -4,8 +4,11 @@ import { runLockedBuild } from './vite-build-lock.mjs'
 import {
   cleanupServerPort,
   enableExtraPeriodLegends,
+  hideCurrentChartTip,
   installVmHelpers,
+  readAxisPointerArtifacts,
   readChartState,
+  reproduceAxisPointerGhost,
   startPreviewServer,
   stopDevServer,
   waitForChartReady,
@@ -422,4 +425,67 @@ test('symbol switching keeps only period legends and resets viewport without rei
   expect(finalState.visibleChanlunPeriods).toEqual(['15m', '30m'])
   expect(finalState.viewport.xRange.start).toBeCloseTo(70, 0)
   expect(finalState.viewport.xRange.end).toBeCloseTo(100, 0)
+})
+
+test('wheel zoom followed by mouseout does not leave axisPointer ghost lines', async ({ page }) => {
+  await page.setViewportSize({ width: 1680, height: 960 })
+  await installVmHelpers(page)
+  await mockKlineSlimApis(page)
+  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+
+  await waitForChartReady(page)
+  await waitForSymbolRendered(page, 'sz002262')
+  await prepareVisibleExtraPeriods(page)
+  await reproduceAxisPointerGhost(page)
+
+  const artifacts = await readAxisPointerArtifacts(page)
+
+  expect(artifacts.horizontalLineCount).toBe(0)
+})
+
+test('hideTip clears the current KlineSlim axisPointer crosshair', async ({ page }) => {
+  await page.setViewportSize({ width: 1680, height: 960 })
+  await installVmHelpers(page)
+  await mockKlineSlimApis(page)
+  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+
+  await waitForChartReady(page)
+  await waitForSymbolRendered(page, 'sz002262')
+  await prepareVisibleExtraPeriods(page)
+
+  const chart = page.locator('.kline-slim-chart')
+  const chartBox = await chart.boundingBox()
+  expect(chartBox).toBeTruthy()
+
+  const activePoint = await page.evaluate(() => {
+    const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
+    const option = chart?.getOption?.()
+    const seriesList = Array.isArray(option?.series) ? option.series : []
+    const candlestickIndex = seriesList.findIndex((series) => series?.type === 'candlestick')
+    if (candlestickIndex < 0) {
+      throw new Error('candlestick series not found')
+    }
+
+    const data = Array.isArray(seriesList[candlestickIndex]?.data) ? seriesList[candlestickIndex].data : []
+    const dataIndex = Math.max(0, data.length - 4)
+    const point = chart.convertToPixel(
+      {
+        xAxisIndex: 0,
+        yAxisIndex: 0
+      },
+      [data[dataIndex]?.[0], data[dataIndex]?.[2]]
+    )
+    return point
+  })
+
+  await page.mouse.move(chartBox.x + activePoint[0], chartBox.y + activePoint[1])
+  await page.evaluate(() => window.__waitForSlimPaint?.())
+
+  const beforeHideTip = await readAxisPointerArtifacts(page)
+  expect(beforeHideTip.horizontalLineCount).toBeGreaterThan(0)
+
+  await hideCurrentChartTip(page)
+
+  const afterHideTip = await readAxisPointerArtifacts(page)
+  expect(afterHideTip.horizontalLineCount).toBe(0)
 })
