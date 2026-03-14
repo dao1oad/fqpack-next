@@ -161,7 +161,7 @@ test('buildSinglePlateReplacePrePoolPayload keeps only selected plate rows', () 
   })
 })
 
-test('buildWorkspaceTabs maps pre_pool and stockpools rows with action labels', () => {
+test('buildWorkspaceTabs maps workspace rows with updated display labels and clear actions', () => {
   const tabs = buildWorkspaceTabs({
     prePoolItems: [
       {
@@ -190,8 +190,9 @@ test('buildWorkspaceTabs maps pre_pool and stockpools rows with action labels', 
   assert.deepEqual(tabs, [
     {
       key: 'pre_pool',
-      label: 'pre_pool',
+      label: 'pre_pools',
       sync_action_label: '同步到通达信',
+      clear_action_label: '清空',
       rows: [
         {
           code6: '600001',
@@ -199,15 +200,16 @@ test('buildWorkspaceTabs maps pre_pool and stockpools rows with action labels', 
           category: '三十涨停Pro预选',
           plate_name: '机器人',
           provider: 'xgb',
-          primary_action_label: '加入 stockpools',
+          primary_action_label: '加入 stock_pools',
           secondary_action_label: '删除',
         },
       ],
     },
     {
       key: 'stockpools',
-      label: 'stockpools',
+      label: 'stock_pools',
       sync_action_label: '同步到通达信',
+      clear_action_label: '清空',
       rows: [
         {
           code6: '000333',
@@ -223,10 +225,24 @@ test('buildWorkspaceTabs maps pre_pool and stockpools rows with action labels', 
   ])
 })
 
-test('page wires pre_pool and stockpools sync-to-tdx actions', () => {
+test('page wires workspace clear actions, updated labels, and left-aligned toolbar', () => {
+  const plateColumnIndex = pageSource.indexOf('<el-table-column prop="plate_name" label="板块"')
+  const actionColumnIndex = pageSource.indexOf('<el-table-column label="操作" width="144"')
+  const daysColumnIndex = pageSource.indexOf('<el-table-column prop="appear_days_30" label="30天"')
+
+  assert.ok(plateColumnIndex >= 0)
+  assert.ok(actionColumnIndex > plateColumnIndex)
+  assert.ok(daysColumnIndex > actionColumnIndex)
+  assert.match(pageSource, /pre_pools/)
+  assert.match(pageSource, /stock_pools/)
   assert.match(pageSource, /syncShouban30PrePoolToTdx/)
   assert.match(pageSource, /syncShouban30StockPoolToTdx/)
+  assert.match(pageSource, /clearShouban30PrePool/)
+  assert.match(pageSource, /clearShouban30StockPool/)
   assert.match(pageSource, /handleSyncPrePoolToTdx/)
   assert.match(pageSource, /handleSyncStockPoolToTdx/)
-  assert.match(pageSource, /同步到通达信/)
+  assert.match(pageSource, /handleClearPrePool/)
+  assert.match(pageSource, /handleClearStockPool/)
+  assert.match(pageSource, /清空/)
+  assert.match(pageSource, /workspace-tab-actions\s*\{[^}]*justify-content:\s*flex-start;/)
 })

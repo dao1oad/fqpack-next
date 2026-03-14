@@ -116,6 +116,19 @@
               @row-click="handlePlateRowClick"
             >
               <el-table-column prop="plate_name" label="板块" min-width="120" show-overflow-tooltip />
+              <el-table-column label="操作" width="144">
+                <template #default="{ row }">
+                  <el-button
+                    size="small"
+                    type="primary"
+                    link
+                    :loading="isWorkspaceActionRunning(`workspace:save-plate:${toText(row?.plate_key)}`)"
+                    @click.stop="handleSavePlateToPrePool(row)"
+                  >
+                    保存到 pre_pools
+                  </el-button>
+                </template>
+              </el-table-column>
               <el-table-column prop="appear_days_30" label="30天" width="70" />
               <el-table-column prop="last_up_date" label="最后上板" width="110">
                 <template #default="{ row }">
@@ -134,19 +147,6 @@
                 </template>
               </el-table-column>
               <el-table-column :label="plateCountLabel" prop="stocks_count" width="92" />
-              <el-table-column label="操作" width="144" fixed="right">
-                <template #default="{ row }">
-                  <el-button
-                    size="small"
-                    type="primary"
-                    link
-                    :loading="isWorkspaceActionRunning(`workspace:save-plate:${toText(row?.plate_key)}`)"
-                    @click.stop="handleSavePlateToPrePool(row)"
-                  >
-                    保存到 pre_pools
-                  </el-button>
-                </template>
-              </el-table-column>
             </el-table>
           </div>
         </section>
@@ -296,9 +296,9 @@
             <span class="muted">{{ prePoolItems.length }} / {{ stockPoolItems.length }}</span>
           </div>
           <div class="panel-summary">
-            <span>pre_pool {{ prePoolItems.length }}</span>
+            <span>pre_pools {{ prePoolItems.length }}</span>
             <span>/</span>
-            <span>stockpools {{ stockPoolItems.length }}</span>
+            <span>stock_pools {{ stockPoolItems.length }}</span>
             <template v-if="workspaceBlkFilename">
               <span>/</span>
               <span>blk {{ workspaceBlkFilename }}</span>
@@ -339,6 +339,16 @@
                     {{ tab.sync_action_label }}
                   </el-button>
                   <el-button
+                    v-if="tab.key === 'pre_pool'"
+                    size="small"
+                    type="danger"
+                    plain
+                    :loading="isWorkspaceActionRunning('workspace:pre:clear')"
+                    @click="handleClearPrePool"
+                  >
+                    {{ tab.clear_action_label }}
+                  </el-button>
+                  <el-button
                     v-if="tab.key === 'stockpools'"
                     size="small"
                     type="primary"
@@ -347,6 +357,16 @@
                     @click="handleSyncStockPoolToTdx"
                   >
                     {{ tab.sync_action_label }}
+                  </el-button>
+                  <el-button
+                    v-if="tab.key === 'stockpools'"
+                    size="small"
+                    type="danger"
+                    plain
+                    :loading="isWorkspaceActionRunning('workspace:stock:clear')"
+                    @click="handleClearStockPool"
+                  >
+                    {{ tab.clear_action_label }}
                   </el-button>
                 </div>
                 <div class="panel-table">
@@ -438,6 +458,8 @@ import {
   SHOUBAN30_STOCK_WINDOW_OPTIONS,
   addShouban30PrePoolToStockPool,
   addShouban30StockPoolToMustPool,
+  clearShouban30PrePool,
+  clearShouban30StockPool,
   deleteShouban30PrePoolItem,
   deleteShouban30StockPoolItem,
   getShouban30PrePool,
@@ -922,7 +944,7 @@ const handleAddPrePoolToStockPools = async (row) => {
   await runWorkspaceAction({
     actionKey: `workspace:pre:add:${toText(row?.code6)}`,
     action: () => addShouban30PrePoolToStockPool({ code6: row?.code6 }),
-    successMessage: `${toText(row?.code6)} 已加入 stockpools`,
+    successMessage: `${toText(row?.code6)} 已加入 stock_pools`,
   })
 }
 
@@ -930,7 +952,7 @@ const handleDeletePrePoolRow = async (row) => {
   await runWorkspaceAction({
     actionKey: `workspace:pre:delete:${toText(row?.code6)}`,
     action: () => deleteShouban30PrePoolItem({ code6: row?.code6 }),
-    successMessage: `${toText(row?.code6)} 已从 pre_pool 删除`,
+    successMessage: `${toText(row?.code6)} 已从 pre_pools 删除`,
   })
 }
 
@@ -938,8 +960,16 @@ const handleSyncPrePoolToTdx = async () => {
   await runWorkspaceAction({
     actionKey: 'workspace:pre:sync-tdx',
     action: () => syncShouban30PrePoolToTdx(),
-    successMessage: `已将 pre_pool ${prePoolItems.value.length} 条同步到通达信`,
+    successMessage: `已将 pre_pools ${prePoolItems.value.length} 条同步到通达信`,
     refreshWorkspace: false,
+  })
+}
+
+const handleClearPrePool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:pre:clear',
+    action: () => clearShouban30PrePool(),
+    successMessage: '已清空 pre_pools',
   })
 }
 
@@ -956,8 +986,16 @@ const handleSyncStockPoolToTdx = async () => {
   await runWorkspaceAction({
     actionKey: 'workspace:stock:sync-tdx',
     action: () => syncShouban30StockPoolToTdx(),
-    successMessage: `已将 stockpools ${stockPoolItems.value.length} 条同步到通达信`,
+    successMessage: `已将 stock_pools ${stockPoolItems.value.length} 条同步到通达信`,
     refreshWorkspace: false,
+  })
+}
+
+const handleClearStockPool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:stock:clear',
+    action: () => clearShouban30StockPool(),
+    successMessage: '已清空 stock_pools',
   })
 }
 
@@ -965,7 +1003,7 @@ const handleDeleteStockPoolRow = async (row) => {
   await runWorkspaceAction({
     actionKey: `workspace:stock:delete:${toText(row?.code6)}`,
     action: () => deleteShouban30StockPoolItem({ code6: row?.code6 }),
-    successMessage: `${toText(row?.code6)} 已从 stockpools 删除`,
+    successMessage: `${toText(row?.code6)} 已从 stock_pools 删除`,
   })
 }
 
@@ -1361,7 +1399,9 @@ onMounted(() => {
 
 .workspace-tab-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 8px;
 }
 

@@ -310,6 +310,23 @@ def sync_shouban30_pre_pool_to_tdx():
     return jsonify({"data": {"blk_sync": blk_sync}})
 
 
+@gantt_bp.route("/shouban30/pre-pool/clear", methods=["POST"])
+def clear_shouban30_pre_pool():
+    try:
+        result = shouban30_pool_service.clear_pre_pool()
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "deleted_count": result.get("deleted_count", 0),
+                "category": result.get("category"),
+            },
+            "meta": {"blk_sync": result.get("blk_sync")},
+        }
+    )
+
+
 @gantt_bp.route("/shouban30/pre-pool/delete", methods=["POST"])
 def delete_shouban30_pre_pool_item():
     try:
@@ -353,6 +370,23 @@ def sync_shouban30_stock_pool_to_tdx():
     except RuntimeError as exc:
         return _server_error(str(exc))
     return jsonify({"data": {"blk_sync": blk_sync}})
+
+
+@gantt_bp.route("/shouban30/stock-pool/clear", methods=["POST"])
+def clear_shouban30_stock_pool():
+    try:
+        result = shouban30_pool_service.clear_stock_pool()
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "deleted_count": result.get("deleted_count", 0),
+                "category": result.get("category"),
+            },
+            "meta": {"blk_sync": result.get("blk_sync")},
+        }
+    )
 
 
 @gantt_bp.route("/shouban30/stock-pool/delete", methods=["POST"])
