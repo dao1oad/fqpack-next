@@ -136,7 +136,12 @@ Required behavior:
     )
 
     assert result.returncode != 0
-    assert "runtime" in result.stderr.lower() or "cleanup" in result.stderr.lower()
+    assert (
+        "runtime" in result.stderr.lower()
+        or "cleanup" in result.stderr.lower()
+        or "deploy plan" in result.stderr.lower()
+        or "host runtime" in result.stderr.lower()
+    )
 
 
 def test_workflow_prompt_contract_rejects_missing_runtime_ops_guardrail(
@@ -196,6 +201,13 @@ def test_sync_script_references_global_runtime_ops_check_script() -> None:
     sync_content = SYNC_SCRIPT.read_text(encoding="utf-8")
 
     assert "check_freshquant_runtime_post_deploy.ps1" in sync_content
+
+
+def test_global_stewardship_prompt_references_shared_deploy_scripts() -> None:
+    prompt_content = GLOBAL_STEWARDSHIP_PROMPT.read_text(encoding="utf-8")
+
+    assert "freshquant_deploy_plan.py" in prompt_content
+    assert "fqnext_host_runtime_ctl.ps1" in prompt_content
 
 
 def test_sync_and_start_scripts_reference_merging_prompt_validator() -> None:
