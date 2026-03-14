@@ -74,7 +74,9 @@ def _workspace_order(doc):
 
 def _sort_docs_by_datetime_desc(docs):
     ordered = sorted(docs, key=lambda item: item.get("code", ""))
-    return sorted(ordered, key=lambda item: item.get("datetime") or datetime.min, reverse=True)
+    return sorted(
+        ordered, key=lambda item: item.get("datetime") or datetime.min, reverse=True
+    )
 
 
 def _sorted_workspace_docs(docs, legacy_sorter):
@@ -223,8 +225,12 @@ def _build_stock_pool_doc(source_doc, order):
             "shouban30_provider": source_extra.get("shouban30_provider"),
             "shouban30_plate_key": source_extra.get("shouban30_plate_key"),
             "shouban30_plate_name": source_extra.get("shouban30_plate_name"),
-            "shouban30_hit_count_window": source_extra.get("shouban30_hit_count_window"),
-            "shouban30_latest_trade_date": source_extra.get("shouban30_latest_trade_date"),
+            "shouban30_hit_count_window": source_extra.get(
+                "shouban30_hit_count_window"
+            ),
+            "shouban30_latest_trade_date": source_extra.get(
+                "shouban30_latest_trade_date"
+            ),
         },
     }
 
@@ -261,7 +267,9 @@ def append_pre_pool(items, context=None):
             continue
         next_item = dict(item)
         next_item["order"] = next_order
-        DBfreshquant["stock_pre_pools"].insert_one(_build_pre_pool_doc(next_item, context))
+        DBfreshquant["stock_pre_pools"].insert_one(
+            _build_pre_pool_doc(next_item, context)
+        )
         existing_codes.add(item["code"])
         next_order += 1
         appended_count += 1
@@ -345,7 +353,9 @@ def sync_pre_pool_to_stock_pool():
         if code in existing_codes:
             skipped_count += 1
             continue
-        DBfreshquant["stock_pools"].insert_one(_build_stock_pool_doc(source_doc, next_order))
+        DBfreshquant["stock_pools"].insert_one(
+            _build_stock_pool_doc(source_doc, next_order)
+        )
         existing_codes.add(code)
         next_order += 1
         appended_count += 1

@@ -596,7 +596,9 @@ def test_add_pre_pool_item_to_stock_pool_skips_existing_without_overwrite(monkey
     }
 
 
-def test_sync_pre_pool_to_stock_pool_appends_missing_codes_in_pre_pool_order(monkeypatch):
+def test_sync_pre_pool_to_stock_pool_appends_missing_codes_in_pre_pool_order(
+    monkeypatch,
+):
     service, _ = _import_service_with_stubs(monkeypatch)
     fake_db = FakeDB(
         stock_pre_pools=FakeCollection(
