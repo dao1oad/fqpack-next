@@ -93,18 +93,6 @@ function buildYRange(values, fallback = null) {
   }
 }
 
-function getFrameApi() {
-  const root = typeof window !== 'undefined' ? window : globalThis
-  return {
-    request: root.requestAnimationFrame
-      ? root.requestAnimationFrame.bind(root)
-      : (callback) => setTimeout(callback, 16),
-    cancel: root.cancelAnimationFrame
-      ? root.cancelAnimationFrame.bind(root)
-      : (handle) => clearTimeout(handle)
-  }
-}
-
 export function createKlineSlimViewportState(overrides = {}) {
   return {
     xRange: normalizeXRange(overrides.xRange),
@@ -145,75 +133,35 @@ export function createKlineSlimChartController({
   onLegendChange,
   onViewportChange
 } = {}) {
-  const frameApi = getFrameApi()
-  const originalDispatchAction =
-    chart && typeof chart.dispatchAction === 'function' ? chart.dispatchAction : null
   let viewport = createKlineSlimViewportState()
   let currentScene = null
-  let viewportFrameId = 0
   let applyingViewport = false
-  let clearingAxisPointer = false
-
-  const cancelViewportFrame = () => {
-    if (!viewportFrameId) {
-      return
-    }
-    frameApi.cancel(viewportFrameId)
-    viewportFrameId = 0
-  }
-
-  const clearAxisPointer = () => {
-    if (!chart || typeof originalDispatchAction !== 'function' || clearingAxisPointer) {
-      return
-    }
-
-    clearingAxisPointer = true
-    try {
-      originalDispatchAction.call(chart, {
-        type: 'updateAxisPointer',
-        currTrigger: 'leave'
-      })
-    } catch (error) {
-      // ignore transient dispose/race errors during render teardown
-    } finally {
-      clearingAxisPointer = false
-    }
-  }
 
   const syncViewport = (event = null) => {
     if (!chart || !currentScene || applyingViewport) {
       return
     }
 
-    const eventXRange = event ? readXRangeFromDataZoomEvent(event, viewport) : null
-    cancelViewportFrame()
-    viewportFrameId = frameApi.request(() => {
-      viewportFrameId = 0
-      const option = typeof chart.getOption === 'function' ? chart.getOption() : null
-      viewport = deriveViewportStateForScene({
-        scene: currentScene,
-        viewport: {
-          xRange: eventXRange || readKlineSlimViewportWindow(option, viewport).xRange,
-          yRange: viewport.yRange
-        }
-      })
+    const option = typeof chart.getOption === 'function' ? chart.getOption() : null
+    const xRange = event
+      ? readXRangeFromDataZoomEvent(event, viewport)
+      : readKlineSlimViewportWindow(option, viewport).xRange
 
-      applyingViewport = true
-      chart.setOption(
-        {
-          yAxis: {
-            min: viewport.yRange?.min,
-            max: viewport.yRange?.max
-          }
-        },
-        {
-          notMerge: false
-        }
-      )
-      clearAxisPointer()
-      applyingViewport = false
-      onViewportChange?.(viewport)
+    viewport = deriveViewportStateForScene({
+      scene: currentScene,
+      viewport: {
+        xRange,
+        yRange: viewport.yRange
+      }
     })
+
+    applyingViewport = true
+    chart.setOption(buildKlineSlimChartOption({ scene: currentScene, viewport }), {
+      notMerge: false,
+      replaceMerge: ['series', 'xAxis', 'yAxis', 'dataZoom']
+    })
+    applyingViewport = false
+    onViewportChange?.(viewport)
   }
 
   const handleLegendSelectChanged = (event) => {
@@ -224,28 +172,11 @@ export function createKlineSlimChartController({
     syncViewport(event)
   }
 
-  const handleGlobalOut = () => {
-    clearAxisPointer()
-  }
-
-  const dispatchActionProxy = (...args) => {
-    const [payload] = args
-    const result = originalDispatchAction?.call(chart, ...args)
-    if (payload?.type === 'hideTip') {
-      clearAxisPointer()
-    }
-    return result
-  }
-
   if (chart) {
-    if (originalDispatchAction) {
-      chart.dispatchAction = dispatchActionProxy
-    }
     chart.on('legendselectchanged', handleLegendSelectChanged)
     chart.on('legendselected', handleLegendSelectChanged)
     chart.on('legendunselected', handleLegendSelectChanged)
     chart.on('datazoom', handleDataZoom)
-    chart.on('globalout', handleGlobalOut)
   }
 
   return {
@@ -264,23 +195,19 @@ export function createKlineSlimChartController({
       chart.setOption(buildKlineSlimChartOption({ scene: currentScene, viewport }), {
         notMerge: true
       })
-      clearAxisPointer()
       applyingViewport = false
       chart.hideLoading?.()
       onViewportChange?.(viewport)
     },
     clear() {
-      cancelViewportFrame()
       currentScene = null
       viewport = createKlineSlimViewportState()
-      clearAxisPointer()
       chart?.clear?.()
     },
     getViewport() {
       return viewport
     },
     dispose() {
-      cancelViewportFrame()
       if (!chart) {
         return
       }
@@ -288,10 +215,6 @@ export function createKlineSlimChartController({
       chart.off('legendselected', handleLegendSelectChanged)
       chart.off('legendunselected', handleLegendSelectChanged)
       chart.off('datazoom', handleDataZoom)
-      chart.off('globalout', handleGlobalOut)
-      if (originalDispatchAction && chart.dispatchAction === dispatchActionProxy) {
-        chart.dispatchAction = originalDispatchAction
-      }
     }
   }
 }

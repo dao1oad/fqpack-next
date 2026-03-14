@@ -896,7 +896,8 @@ export default {
               .map((period) => [period, this.chanlunMultiData[period]])
               .filter(([, payload]) => !!payload)
           ),
-          visiblePeriods: extraPeriods
+          visiblePeriods: extraPeriods,
+          legendSelected: this.periodLegendSelected
         })
         if (!scene) {
           return

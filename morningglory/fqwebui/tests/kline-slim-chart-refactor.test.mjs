@@ -121,6 +121,10 @@ function createExtraPayload(period, overrides = {}) {
 
 function createControllerStubChart() {
   const handlers = {}
+  let option = {
+    dataZoom: [{ start: 70, end: 100 }],
+    yAxis: [{ min: 10, max: 20 }]
+  }
   return {
     handlers,
     setOptionCalls: [],
@@ -130,21 +134,80 @@ function createControllerStubChart() {
     off(name) {
       delete handlers[name]
     },
+    getOption() {
+      return option
+    },
     setOption(option, options) {
       this.setOptionCalls.push({ option, options })
+      if (option?.dataZoom) {
+        const existingZoom = Array.isArray(this.getOption().dataZoom) ? this.getOption().dataZoom : []
+        const nextZoom = option.dataZoom.map((item, index) => ({
+          ...(existingZoom[index] || {}),
+          ...item
+        }))
+        option = {
+          ...option,
+          dataZoom: nextZoom
+        }
+      }
+      if (option?.yAxis) {
+        const existingAxis = Array.isArray(this.getOption().yAxis) ? this.getOption().yAxis : []
+        const nextAxis = Array.isArray(option.yAxis)
+          ? option.yAxis.map((item, index) => ({
+              ...(existingAxis[index] || {}),
+              ...item
+            }))
+          : [{ ...(existingAxis[0] || {}), ...option.yAxis }]
+        option = {
+          ...option,
+          yAxis: nextAxis
+        }
+      }
+      option = {
+        ...this.getOption(),
+        ...option
+      }
     },
     hideLoading() {},
     clear() {}
   }
 }
 
-test('legend selection only tracks extra periods and removes independent zhongshu toggles', () => {
+function createLunchGapMainPayload() {
+  return createMainPayload({
+    date: [
+      '2026-03-09 11:25',
+      '2026-03-09 11:30',
+      '2026-03-09 13:05',
+      '2026-03-09 13:10'
+    ],
+    open: [10, 10.2, 10.5, 10.8],
+    close: [10.1, 10.4, 10.7, 11],
+    low: [9.9, 10.1, 10.4, 10.7],
+    high: [10.3, 10.5, 10.8, 11.1],
+    bidata: {
+      date: ['2026-03-09 11:25', '2026-03-09 13:05', '2026-03-09 13:10'],
+      data: [10, 10.7, 11]
+    },
+    duandata: {
+      date: ['2026-03-09 11:25', '2026-03-09 13:10'],
+      data: [10, 11]
+    },
+    higherDuanData: {
+      date: ['2026-03-09 11:25', '2026-03-09 13:10'],
+      data: [9.95, 11.05]
+    }
+  })
+}
+
+test('legend selection keeps current main period visible and removes independent zhongshu toggles', () => {
   assert.deepEqual(
     buildPeriodLegendSelectionState({
       currentPeriod: '5m'
     }),
     {
       '1m': false,
+      '5m': true,
       '15m': false,
       '30m': false
     }
@@ -156,6 +219,7 @@ test('legend selection only tracks extra periods and removes independent zhongsh
       previousSelected: {
         '1m': true,
         '5m': true,
+        '15m': true,
         '30m': false,
         中枢: true,
         段中枢: true
@@ -164,6 +228,7 @@ test('legend selection only tracks extra periods and removes independent zhongsh
     {
       '1m': true,
       '5m': true,
+      '15m': true,
       '30m': false
     }
   )
@@ -183,14 +248,46 @@ test('scene clips higher-period zhongshu rectangles by real time boundaries inst
   const duanBox = scene.structureBoxes.find((item) => item.id === '15m-duan-zhongshu-0')
 
   assert.ok(zhongshuBox)
-  assert.equal(zhongshuBox.startTs, Date.parse('2026-03-09 09:20'))
-  assert.equal(zhongshuBox.endTs, Date.parse('2026-03-09 10:00'))
-  assert.equal(zhongshuBox.clippedStartTs, Date.parse('2026-03-09 09:30'))
-  assert.equal(zhongshuBox.clippedEndTs, Date.parse('2026-03-09 10:00'))
+  assert.equal(zhongshuBox.rawStartTs, Date.parse('2026-03-09 09:20'))
+  assert.equal(zhongshuBox.rawEndTs, Date.parse('2026-03-09 10:00'))
+  assert.equal(zhongshuBox.rawClippedStartTs, Date.parse('2026-03-09 09:30'))
+  assert.equal(zhongshuBox.rawClippedEndTs, Date.parse('2026-03-09 10:00'))
+  assert.equal(zhongshuBox.clippedStartTs, -0.5)
+  assert.equal(zhongshuBox.clippedEndTs, 5.5)
 
   assert.ok(duanBox)
-  assert.equal(duanBox.startTs, Date.parse('2026-03-09 09:45'))
-  assert.equal(duanBox.endTs, Date.parse('2026-03-09 10:00'))
+  assert.equal(duanBox.rawStartTs, Date.parse('2026-03-09 09:45'))
+  assert.equal(duanBox.rawEndTs, Date.parse('2026-03-09 10:00'))
+})
+
+test('scene compresses lunch gaps into continuous trading slots while keeping raw timestamps for structures', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: createLunchGapMainPayload(),
+    currentPeriod: '5m',
+    extraChanlunMap: {
+      '15m': createExtraPayload('15m', {
+        zsdata: [
+          [
+            ['2026-03-09 11:20', 13.8],
+            ['2026-03-09 13:10', 12.6]
+          ]
+        ],
+        zsflag: [1]
+      })
+    },
+    visiblePeriods: ['15m']
+  })
+
+  assert.equal(scene.mainWindow.startTs, -0.5)
+  assert.equal(scene.mainWindow.endTs, 3.5)
+  assert.equal(scene.mainCandles[0].ts, 0)
+  assert.equal(scene.mainCandles[1].ts, 1)
+  assert.equal(scene.mainCandles[2].ts, 2)
+  assert.equal(scene.mainCandles[3].ts, 3)
+
+  const zhongshuBox = scene.structureBoxes.find((item) => item.id === '15m-zhongshu-0')
+  assert.equal(zhongshuBox.rawClippedStartTs, Date.parse('2026-03-09 11:25'))
+  assert.equal(zhongshuBox.rawClippedEndTs, Date.parse('2026-03-09 13:15'))
 })
 
 test('viewport derivation keeps x window and recomputes y range from visible candles and structures', () => {
@@ -218,7 +315,7 @@ test('viewport derivation keeps x window and recomputes y range from visible can
   assert.ok(viewport.yRange.min < 11)
 })
 
-test('chart option uses time axis and period-only legends while keeping viewport as explicit state', () => {
+test('chart option uses compressed trading-slot axis and period legends while keeping viewport as explicit state', () => {
   const scene = buildKlineSlimChartScene({
     mainData: createMainPayload(),
     currentPeriod: '5m',
@@ -236,14 +333,70 @@ test('chart option uses time axis and period-only legends while keeping viewport
     viewport
   })
 
-  assert.equal(option.xAxis.type, 'time')
+  assert.equal(option.xAxis.type, 'value')
+  assert.equal(option.xAxis.min, -0.5)
+  assert.equal(option.xAxis.max, 5.5)
   assert.ok(option.legend.data.includes('15m'))
+  assert.ok(option.legend.data.includes('5m'))
   assert.ok(!option.legend.data.includes('中枢'))
   assert.ok(!option.legend.data.includes('段中枢'))
   assert.equal(option.dataZoom.length, 2)
   assert.equal(option.dataZoom[0].start, viewport.xRange.start)
   assert.equal(option.yAxis.min, viewport.yRange.min)
   assert.equal(option.yAxis.max, viewport.yRange.max)
+})
+
+test('chart option keeps candlestick while hiding current-period chanlun overlays when current legend is disabled', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: createMainPayload(),
+    currentPeriod: '5m',
+    extraChanlunMap: {
+      '15m': createExtraPayload('15m')
+    },
+    visiblePeriods: ['15m']
+  })
+  scene.legendSelected = {
+    ...scene.legendSelected,
+    '5m': false,
+    '15m': true
+  }
+
+  const option = buildKlineSlimChartOption({
+    scene,
+    viewport: deriveViewportStateForScene({
+      scene,
+      viewport: createKlineSlimViewportState()
+    })
+  })
+  const seriesIds = option.series.map((series) => series.id)
+
+  assert.ok(seriesIds.includes(`5m-${scene.sceneScopeId}-candlestick`))
+  assert.ok(!seriesIds.includes(`5m-${scene.sceneScopeId}-bi`))
+  assert.ok(!seriesIds.includes(`5m-${scene.sceneScopeId}-duan`))
+  assert.ok(!seriesIds.includes(`5m-${scene.sceneScopeId}-higher-duan`))
+  assert.ok(!seriesIds.includes(`5m-${scene.sceneScopeId}-bi-structure`))
+  assert.ok(!seriesIds.includes(`5m-${scene.sceneScopeId}-duan-structure`))
+  assert.ok(seriesIds.includes(`15m-${scene.sceneScopeId}-bi`))
+  assert.ok(seriesIds.includes(`15m-${scene.sceneScopeId}-bi-structure`))
+})
+
+test('chart option disables hover tooltip axisPointer so kline slim does not render full-window crosshair lines', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: createMainPayload(),
+    currentPeriod: '5m'
+  })
+  const viewport = deriveViewportStateForScene({
+    scene,
+    viewport: createKlineSlimViewportState()
+  })
+  const option = buildKlineSlimChartOption({
+    scene,
+    viewport
+  })
+
+  assert.equal(option.tooltip?.show, false)
+  assert.equal(option.tooltip?.triggerOn, 'none')
+  assert.equal(option.tooltip?.axisPointer, undefined)
 })
 
 test('chart option scopes render series ids by scene symbol so symbol switches do not reuse canvas state', () => {
@@ -293,7 +446,7 @@ test('chart option scopes render series ids by scene symbol so symbol switches d
   assert.ok(idsB.some((id) => id?.startsWith('5m-')))
 })
 
-test('chart option keeps semantic structure series names after series ids gain scene scope', () => {
+test('chart option renders structure overlays as custom series without line markArea', () => {
   const scene = buildKlineSlimChartScene({
     mainData: createMainPayload({
       symbol: 'sz002262'
@@ -321,14 +474,56 @@ test('chart option keeps semantic structure series names after series ids gain s
     })
   })
 
-  const structureNames = option.series
-    .filter((series) => series.id?.startsWith('15m-') && series.markArea)
-    .map((series) => series.name)
+  const standaloneZhongshuIds = option.series
+    .filter(
+      (series) =>
+        series.id?.startsWith('15m-') &&
+        (series.id?.endsWith('-zhongshu') ||
+          series.id?.endsWith('-duan-zhongshu') ||
+          series.id?.endsWith('-higher-duan-zhongshu'))
+    )
+    .map((series) => series.id)
+  const biSeries = option.series.find((series) => series.id === `15m-${scene.sceneScopeId}-bi`)
+  const duanSeries = option.series.find((series) => series.id === `15m-${scene.sceneScopeId}-duan`)
+  const higherDuanSeries = option.series.find(
+    (series) => series.id === `15m-${scene.sceneScopeId}-higher-duan`
+  )
+  const structureSeries = option.series.filter(
+    (series) =>
+      series.id?.startsWith('15m-') &&
+      (series.id?.endsWith('-bi-structure') ||
+        series.id?.endsWith('-duan-structure') ||
+        series.id?.endsWith('-higher-duan-structure'))
+  )
 
-  assert.ok(structureNames.includes('15m 中枢'))
-  assert.ok(structureNames.includes('15m 段中枢'))
-  assert.ok(structureNames.includes('15m 高级段中枢'))
-  assert.ok(structureNames.every((name) => !name.includes(scene.sceneScopeId)))
+  assert.deepEqual(standaloneZhongshuIds, [])
+  assert.equal(biSeries?.markArea, undefined)
+  assert.equal(duanSeries?.markArea, undefined)
+  assert.equal(higherDuanSeries?.markArea, undefined)
+  assert.deepEqual(
+    structureSeries.map((series) => ({
+      id: series.id,
+      type: series.type,
+      points: Array.isArray(series.data) ? series.data.length : 0
+    })),
+    [
+      {
+        id: `15m-${scene.sceneScopeId}-bi-structure`,
+        type: 'custom',
+        points: 1
+      },
+      {
+        id: `15m-${scene.sceneScopeId}-duan-structure`,
+        type: 'custom',
+        points: 1
+      },
+      {
+        id: `15m-${scene.sceneScopeId}-higher-duan-structure`,
+        type: 'custom',
+        points: 1
+      }
+    ]
+  )
 })
 
 test('controller viewport reader falls back to previous state when chart option is partial', () => {
@@ -416,4 +611,50 @@ test('controller replaces the full scene option instead of series replaceMerge w
   assert.equal(chart.setOptionCalls.length, 1)
   assert.equal(chart.setOptionCalls[0].options?.notMerge, true)
   assert.equal(chart.setOptionCalls[0].options?.replaceMerge, undefined)
+})
+
+test('controller synchronously writes dataZoom and yAxis during datazoom handling', () => {
+  const chart = createControllerStubChart()
+  const controller = createKlineSlimChartController({
+    chart
+  })
+  const scene = buildKlineSlimChartScene({
+    mainData: createMainPayload(),
+    currentPeriod: '5m',
+    extraChanlunMap: {
+      '15m': createExtraPayload('15m')
+    },
+    visiblePeriods: ['15m']
+  })
+
+  controller.applyScene(scene)
+  chart.setOptionCalls = []
+
+  chart.handlers.datazoom?.({
+    start: 50,
+    end: 100
+  })
+
+  assert.equal(chart.setOptionCalls.length, 1)
+  assert.deepEqual(
+    chart.setOptionCalls[0].option.dataZoom.map((item) => ({
+      id: item.id,
+      start: item.start,
+      end: item.end
+    })),
+    [
+      {
+        id: 'kline-slim-inside-zoom',
+        start: 50,
+        end: 100
+      },
+      {
+        id: 'kline-slim-slider-zoom',
+        start: 50,
+        end: 100
+      }
+    ]
+  )
+  assert.equal(typeof chart.setOptionCalls[0].option.yAxis?.min, 'number')
+  assert.equal(typeof chart.setOptionCalls[0].option.yAxis?.max, 'number')
 })

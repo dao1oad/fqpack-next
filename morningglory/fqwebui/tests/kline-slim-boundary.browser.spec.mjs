@@ -1,7 +1,6 @@
 import { test, expect } from '@playwright/test'
-import path from 'node:path'
 
-import { createIsolatedViteArtifactsContext, runLockedBuild } from './vite-build-lock.mjs'
+import { runLockedBuild } from './vite-build-lock.mjs'
 import {
   cleanupServerPort,
   installVmHelpers,
@@ -17,7 +16,6 @@ const DEV_SERVER_PORT = 18088
 const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
 const TARGET_URL = `${DEV_SERVER_URL}/kline-slim?symbol=sz002262&period=5m`
 const DAY = '2026-03-12'
-const PREVIEW_ARTIFACTS = createIsolatedViteArtifactsContext(import.meta.url)
 
 let devServerProcess = null
 
@@ -112,26 +110,28 @@ function create15mPayload() {
 async function runBuild() {
   await runLockedBuild(
     () => {
+      if (process.platform === 'win32') {
+        return {
+          command: 'cmd.exe',
+          args: ['/d', '/s', '/c', 'pnpm build']
+        }
+      }
+
       return {
-        command: process.execPath,
-        args: [path.join(process.cwd(), 'node_modules', 'vite', 'bin', 'vite.js'), 'build']
+        command: 'pnpm',
+        args: ['build']
       }
     },
-    process.cwd(),
-    {
-      outDir: PREVIEW_ARTIFACTS.outDirRelative
-    }
+    process.cwd()
   )
 }
 
 test.beforeAll(async () => {
-  test.setTimeout(90000)
   cleanupServerPort(DEV_SERVER_PORT)
   await runBuild()
   devServerProcess = startPreviewServer({
     port: DEV_SERVER_PORT,
-    cwd: process.cwd(),
-    outDir: PREVIEW_ARTIFACTS.outDirRelative
+    cwd: process.cwd()
   })
 
   let startupOutput = ''
@@ -156,7 +156,7 @@ test.afterAll(async () => {
   devServerProcess = null
 })
 
-test('higher-period structure boxes are clipped by main-window time boundaries on the rendered chart', async ({
+test('higher-period structure boxes keep raw time clipping while rendering on compressed trading slots', async ({
   page
 }) => {
   test.setTimeout(60000)
@@ -232,15 +232,15 @@ test('higher-period structure boxes are clipped by main-window time boundaries o
       state.loadedChanlunPeriods.includes('15m') &&
       state.seriesIds.some(
         (seriesId) =>
-          String(seriesId).startsWith('15m-') && String(seriesId).endsWith('-zhongshu')
+          String(seriesId).startsWith('15m-') && String(seriesId).endsWith('-bi-structure')
       ) &&
       state.seriesIds.some(
         (seriesId) =>
-          String(seriesId).startsWith('15m-') && String(seriesId).endsWith('-duan-zhongshu')
+          String(seriesId).startsWith('15m-') && String(seriesId).endsWith('-duan-structure')
       ) &&
       state.seriesIds.some(
         (seriesId) =>
-          String(seriesId).startsWith('15m-') && String(seriesId).endsWith('-higher-duan-zhongshu')
+          String(seriesId).startsWith('15m-') && String(seriesId).endsWith('-higher-duan-structure')
       )
     )
   })
@@ -249,6 +249,7 @@ test('higher-period structure boxes are clipped by main-window time boundaries o
     const vm = window.__klineSlimVm || window.__findKlineSlimVm?.()
     const chart = window.__klineSlimChart || vm?.chart
     const option = chart?.getOption?.() || {}
+    const xAxis = Array.isArray(option?.xAxis) ? option.xAxis[0] : option?.xAxis || {}
     const series = Array.isArray(option.series) ? option.series : []
     const findSeries = (suffix) =>
       series.find(
@@ -258,44 +259,52 @@ test('higher-period structure boxes are clipped by main-window time boundaries o
     const mainStartTs = Date.parse(mainDates[0])
     const mainEndTs = Date.parse(mainDates[mainDates.length - 1]) + 5 * 60 * 1000
 
-    const zhongshu = findSeries('-zhongshu')?.markArea?.data?.[0]
-    const duan = findSeries('-duan-zhongshu')?.markArea?.data?.[0]
-    const higherDuan = findSeries('-higher-duan-zhongshu')?.markArea?.data?.[0]
+    const zhongshu = findSeries('-bi-structure')?.data?.[0]
+    const duan = findSeries('-duan-structure')?.data?.[0]
+    const higherDuan = findSeries('-higher-duan-structure')?.data?.[0]
 
     return {
+      xAxisType: xAxis.type,
+      xAxisMin: Number(xAxis.min),
+      xAxisMax: Number(xAxis.max),
       mainStartTs,
       mainEndTs,
       zhongshu: zhongshu
         ? {
-            start: Number(zhongshu[0]?.xAxis),
-            end: Number(zhongshu[1]?.xAxis)
+            axisStart: Number(zhongshu[0]),
+            axisEnd: Number(zhongshu[1]),
+            rawStart: Number(zhongshu[4]),
+            rawEnd: Number(zhongshu[5])
           }
         : null,
       duan: duan
         ? {
-            start: Number(duan[0]?.xAxis),
-            end: Number(duan[1]?.xAxis)
+            axisStart: Number(duan[0]),
+            axisEnd: Number(duan[1]),
+            rawStart: Number(duan[4]),
+            rawEnd: Number(duan[5])
           }
         : null,
       higherDuan: higherDuan
         ? {
-            start: Number(higherDuan[0]?.xAxis),
-            end: Number(higherDuan[1]?.xAxis)
+            axisStart: Number(higherDuan[0]),
+            axisEnd: Number(higherDuan[1]),
+            rawStart: Number(higherDuan[4]),
+            rawEnd: Number(higherDuan[5])
           }
         : null
     }
   })
 
-  expect(clippedBoundaries.zhongshu).toEqual({
-    start: clippedBoundaries.mainStartTs,
-    end: clippedBoundaries.mainEndTs
-  })
-  expect(clippedBoundaries.duan).toEqual({
-    start: Date.parse(`${DAY} 09:50`),
-    end: clippedBoundaries.mainEndTs
-  })
-  expect(clippedBoundaries.higherDuan).toEqual({
-    start: clippedBoundaries.mainStartTs,
-    end: clippedBoundaries.mainEndTs
-  })
+  expect(clippedBoundaries.xAxisType).toBe('value')
+  expect(clippedBoundaries.xAxisMin).toBe(-0.5)
+  expect(clippedBoundaries.xAxisMax).toBe(5.5)
+  expect(clippedBoundaries.zhongshu?.rawStart).toBe(clippedBoundaries.mainStartTs)
+  expect(clippedBoundaries.zhongshu?.rawEnd).toBe(clippedBoundaries.mainEndTs)
+  expect(clippedBoundaries.zhongshu?.axisStart).toBe(-0.5)
+  expect(clippedBoundaries.zhongshu?.axisEnd).toBe(5.5)
+  expect(clippedBoundaries.duan?.rawStart).toBe(Date.parse(`${DAY} 09:50`))
+  expect(clippedBoundaries.duan?.rawEnd).toBe(clippedBoundaries.mainEndTs)
+  expect(clippedBoundaries.higherDuan?.rawStart).toBe(clippedBoundaries.mainStartTs)
+  expect(clippedBoundaries.higherDuan?.rawEnd).toBe(clippedBoundaries.mainEndTs)
 })
