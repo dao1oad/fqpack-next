@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, cast
 
 _STRONG_ID_FIELDS = ("trace_id", "intent_id", "request_id", "internal_order_id")
 _ISSUE_STATUSES = {"warning", "failed", "error", "skipped"}
@@ -34,7 +35,9 @@ def assemble_traces(events: list[dict] | tuple[dict, ...]) -> list[dict]:
         grouped.setdefault(root, []).append(event)
 
     traces = [_build_trace(records) for records in grouped.values()]
-    traces.sort(key=lambda item: _sort_timestamp_value(item.get("last_ts")), reverse=True)
+    traces.sort(
+        key=lambda item: _sort_timestamp_value(item.get("last_ts")), reverse=True
+    )
     return traces
 
 
@@ -120,7 +123,11 @@ def _annotate_steps(
     for raw_step in steps:
         step = dict(raw_step)
         ts_ms = _parse_timestamp_ms(step.get("ts"))
-        offset_ms = None if first_ts_ms is None or ts_ms is None else max(ts_ms - first_ts_ms, 0)
+        offset_ms = (
+            None
+            if first_ts_ms is None or ts_ms is None
+            else max(ts_ms - first_ts_ms, 0)
+        )
         if first_ts_ms is None and ts_ms is not None:
             first_ts_ms = ts_ms
             offset_ms = 0
@@ -132,12 +139,16 @@ def _annotate_steps(
             last_ts_ms = ts_ms
         step["offset_ms"] = offset_ms
         step["delta_prev_ms"] = delta_prev_ms
-        step["is_issue"] = _normalized_text(step.get("status")).lower() in _ISSUE_STATUSES
+        step["is_issue"] = (
+            _normalized_text(step.get("status")).lower() in _ISSUE_STATUSES
+        )
         annotated.append(step)
 
         if delta_prev_ms is None:
             continue
-        if slowest_step is None or delta_prev_ms > int(slowest_step["delta_prev_ms"] or 0):
+        if slowest_step is None or delta_prev_ms > int(
+            slowest_step["delta_prev_ms"] or 0
+        ):
             slowest_step = {
                 "component": _normalized_text(step.get("component")) or None,
                 "node": _normalized_text(step.get("node")) or None,
@@ -168,7 +179,10 @@ def _infer_trace_kind(steps: list[dict]) -> str:
         component = _normalized_text(step.get("component"))
         source = _normalized_text(step.get("source")).lower()
         strategy_name = _normalized_text(step.get("strategy_name")).lower()
-        payload = step.get("payload") if isinstance(step.get("payload"), dict) else {}
+        payload_raw = step.get("payload")
+        payload: dict[str, Any] = (
+            cast(dict[str, Any], payload_raw) if isinstance(payload_raw, dict) else {}
+        )
         scope_type = _normalized_text(payload.get("scope_type")).lower()
         source_type = _normalized_text(payload.get("source_type")).lower()
         kind = _normalized_text(payload.get("kind")).lower()
@@ -205,13 +219,19 @@ def _infer_trace_status(steps: list[dict], trace_kind: str) -> tuple[str, str | 
         return "broken", "missing_downstream_after_submit_intent"
     if _has_order_submit_handoff(steps) and not _has_order_downstream(steps):
         return "broken", "missing_downstream_after_order_submit"
-    if any(_normalized_text(step.get("status")).lower() in {"warning", "failed", "error"} for step in steps):
+    if any(
+        _normalized_text(step.get("status")).lower() in {"warning", "failed", "error"}
+        for step in steps
+    ):
         return "stalled", None
     return "open", None
 
 
 def _is_completed_trace(steps: list[dict], trace_kind: str) -> bool:
-    if any(_normalized_text(step.get("component")) in _TERMINAL_COMPONENTS for step in steps):
+    if any(
+        _normalized_text(step.get("component")) in _TERMINAL_COMPONENTS
+        for step in steps
+    ):
         return True
     if trace_kind != "guardian_signal":
         return False
@@ -246,7 +266,8 @@ def _has_order_submit_handoff(steps: list[dict]) -> bool:
 
 def _has_order_downstream(steps: list[dict]) -> bool:
     return any(
-        _normalized_text(step.get("component")) in _BROKER_COMPONENTS | _TERMINAL_COMPONENTS
+        _normalized_text(step.get("component"))
+        in _BROKER_COMPONENTS | _TERMINAL_COMPONENTS
         for step in steps
     )
 

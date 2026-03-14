@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Generator
 
 import pytest
 
@@ -34,7 +35,9 @@ def _reset_runtime_logger_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
-def isolate_runtime_logs(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def isolate_runtime_logs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> Generator[None, None, None]:
     _reset_runtime_logger_cache()
     monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path / "runtime"))
     yield

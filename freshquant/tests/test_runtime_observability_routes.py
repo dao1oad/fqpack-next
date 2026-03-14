@@ -74,7 +74,10 @@ def test_runtime_traces_and_detail_routes(monkeypatch, tmp_path):
     assert traces_body["traces"][0]["trace_id"] == "trc_1"
     assert traces_body["traces"][0]["trace_kind"] == "guardian_signal"
     assert traces_body["traces"][0]["trace_status"] == "broken"
-    assert traces_body["traces"][0]["break_reason"] == "missing_downstream_after_order_submit"
+    assert (
+        traces_body["traces"][0]["break_reason"]
+        == "missing_downstream_after_order_submit"
+    )
     assert traces_body["traces"][0]["entry_component"] == "guardian_strategy"
     assert traces_body["traces"][0]["exit_component"] == "order_submit"
     assert traces_body["traces"][0]["duration_ms"] == 1000
@@ -172,7 +175,9 @@ def test_runtime_raw_file_tail_route(monkeypatch, tmp_path):
     assert body["records"][0]["trace_id"] == "trc_1"
 
 
-def test_runtime_events_route_keeps_xt_component_heartbeats_visible(monkeypatch, tmp_path):
+def test_runtime_events_route_keeps_xt_component_heartbeats_visible(
+    monkeypatch, tmp_path
+):
     _write_events(
         tmp_path,
         runtime_node_path="host_xt_producer",
