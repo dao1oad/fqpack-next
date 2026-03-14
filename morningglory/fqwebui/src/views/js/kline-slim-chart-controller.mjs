@@ -224,8 +224,7 @@ export function createKlineSlimChartController({
       })
       applyingViewport = true
       chart.setOption(buildKlineSlimChartOption({ scene: currentScene, viewport }), {
-        notMerge: false,
-        replaceMerge: ['series', 'legend', 'xAxis', 'yAxis', 'dataZoom']
+        notMerge: true
       })
       applyingViewport = false
       chart.hideLoading?.()
