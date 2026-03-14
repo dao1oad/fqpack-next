@@ -151,5 +151,5 @@ vendored `QUANTAXIS` 当前 Mongo 解析规则：
 ## 配置变更约束
 
 - 改配置值：属于普通改动，但应同步文档。
-- 改配置语义：属于高风险改动，必须先过 `Design Review`。
+- 改配置语义：属于高影响改动，Issue 中必须先写清新语义、验收标准与部署影响，再进入 `In Progress`。
 - 运行面排障时，不要只看 `freshquant.yaml`；必须同时检查进程环境变量和 Docker `env_file`。

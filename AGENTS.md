@@ -4,13 +4,12 @@
 
 本仓库（`D:\fqpack\freshquant-2026.2.23` / GitHub: `dao1oad/fqpack-next`）是 FreshQuant 的目标架构仓库。当前阶段不再以迁移过程治理为主，而是以“当前系统事实收敛、潜在 bug 修复、部署与排障可维护”为主。
 
-允许破坏性变更，但破坏性变更必须先通过唯一人工门 `Design Review`，再进入编码。
+允许破坏性变更，但破坏性变更必须在 Issue 中先写清影响面、验收标准与部署影响，再进入编码。
 
 ## 0.1 正式真值
 
-- GitHub Issue：正式任务入口
-- GitHub Draft PR：唯一 `Design Review` 评审面
-- GitHub PR + CI：代码交付真值
+- GitHub Issue：正式任务入口，也是需求与方案真值
+- GitHub PR + CI + merge gate：代码交付真值
 - Deploy + Health Check + Cleanup：运行交付真值（由单个全局 Codex 自动化收口）
 
 `Linear` 不再作为正式任务入口、评审面或批准真值来源。
@@ -63,72 +62,76 @@
 
 正式工作流固定为：
 
-`Issue -> Draft PR -> Design Review(仅高风险) -> In Progress -> CI -> Merging -> Global Stewardship -> Done`
+`Issue -> In Progress -> Rework -> Merging -> Global Stewardship -> Done`
 
-低风险任务可跳过 `Design Review`：
+例外状态只保留：
 
-`Issue -> In Progress -> CI -> Merging -> Global Stewardship -> Done`
+`Blocked`
 
 新建 GitHub Issue 默认只打：
 
 - `symphony`
-- `todo`
+- `in-progress`
 
-不要在创建时预贴 `design-review`。只有在首轮风险判定后确认命中高风险条件时，才补 `design-review` 并进入 `Design Review` / Draft PR 路径。
+### 3.1 Issue 即执行合同
 
-### 3.1 唯一人工门
+- GitHub Issue body 即执行合同。
+- 正式任务在进入 `In Progress` 前，方案应已在 Issue 中明确。
+- Symphony 不再承担人工方案审批或 `Design Review` 管理。
 
-唯一人工评审点是：
+Issue body 至少应包含：
 
-- `Design Review`
+- 背景
+- 目标
+- 范围
+- 非目标
+- 验收标准
+- 部署影响
 
-人工评审唯一地点：
-
-- GitHub Draft PR
-
-批准真值：
-
-- PR review `Approve`
-- 或 PR 评论中明确回复 `APPROVED`
-
-除审批信号 `APPROVED` / `REVISE:` / `REJECTED:` 外，所有写入 GitHub 的正式说明默认使用简体中文，包括：
+所有写入 GitHub 的正式说明默认使用简体中文，包括：
 
 - Issue 描述
-- Draft PR 标题与正文
+- PR 标题与正文
 - PR / Issue 评论
 - 部署说明
 - Done / cleanup 总结
 
-### 3.2 哪些任务必须先做 Design Review
+### 3.2 状态职责
 
-命中以下任一条件时，必须先进行 `Design Review`，批准前不得编码：
+- `In Progress`
+  - 实现、测试、同步 `docs/current/**`
+- `Rework`
+  - 仅处理未 merge 前的确定性修复
+- `Merging`
+  - 只负责读取 GitHub merge 真值、merge、handoff 到 `Global Stewardship`
+- `Global Stewardship`
+  - 只负责 deploy、health check、cleanup、follow-up issue
+- `Blocked`
+  - 只用于真实外部阻塞
 
-- public API / CLI 变化
-- 配置语义变化
-- 存储/schema/读写边界变化
-- 部署/运行面变化
-- 跨模块且改变用户可见行为
+### 3.3 Rework 硬规则
 
-普通 bugfix、现有模块内的小范围修复和局部优化，不需要人工评审。
+进入 `Rework` 时必须记录：
 
-### 3.3 Design Review Packet 硬规则
+- `blocker_class`
+- `evidence`
+- `next_action`
+- `exit_condition`
 
-`brainstorming` 进入评审时，必须一次性提交完整 `Design Review Packet`。
+允许进入 `Rework` 的原因仅包括：
 
-每个待评审点必须包含：
+- `checks_failed`
+- `review_threads_unresolved`
+- `merge_conflict`
+- `ruleset_policy_block`
+- `docs_guard_failed`
 
-- 决策问题
-- 推荐方案
-- 推荐理由
-- 备选方案
-- 影响面
-- 需要人工明确给出的结论
+不允许把以下情况记为 `Rework`：
 
-如果没有待评审点，也必须明确写出：
-
-- `无待评审点，按推荐方案执行`
-
-除非后续出现新的真实约束，否则不允许零碎多轮提审。
+- 等待人工审批
+- 等待检查完成
+- merge 后部署问题
+- 外部权限或平台故障
 
 ## 4. Symphony 与 superpowers
 
@@ -136,9 +139,8 @@
 - `Codex CLI` 会话可以触发 `Symphony` 管理流程，但 CLI 会话不是真值源。
 - `Symphony` 负责：
   - 接管 GitHub Issue
-  - 创建/绑定 branch、workspace、Draft PR
+  - 创建/绑定 branch、workspace、PR
   - 选择 skill chain
-  - 在 `Design Review` 处暂停与恢复
   - 执行单任务开发闭环直到 PR merge 到 remote `main`
 
 - 单个全局 Codex 自动化负责：
@@ -156,13 +158,13 @@
 
 - 现有模块增强：
   - `using-superpowers`
-  - `brainstorming`
+  - `brainstorming`（仅用于本地梳理，不形成审批环节）
   - `test-driven-development`
   - `verification-before-completion`
 
-- 跨模块或高风险改动：
+- 跨模块或高影响改动：
   - `using-superpowers`
-  - `brainstorming`
+  - `brainstorming`（仅用于本地梳理，不形成审批环节）
   - `writing-plans`（必要时）
   - `test-driven-development`
   - `verification-before-completion`
@@ -171,7 +173,7 @@
 
 - 禁止直推 `main`
 - 禁止在任何本地 `main` 上开发或提交
-- 正式开发必须走 `feature branch + Draft PR`
+- 正式开发必须走 `feature branch + PR`
 - 正式任务优先从 GitHub Issue 启动
 - 小型明确修复允许从 CLI 触发，但应绑定到对应 GitHub Issue / PR
 - PR 必须满足：

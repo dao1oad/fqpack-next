@@ -43,7 +43,7 @@ FreshQuant 当前已经完成第一阶段的模块收口，现阶段进入第二
 - 运行真相源：`fq-symphony-orchestrator` 正式服务与受影响模块的部署结果。
 - 文档真相源：`docs/current/**`。
 - 任务真相源：GitHub Issue。
-- 唯一人工门：GitHub Draft PR 上的 `Design Review`。
+- GitHub Issue body 即执行合同；不再设置独立人工审批门。
 
 ## 当前维护重点
 
