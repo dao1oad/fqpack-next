@@ -4,11 +4,11 @@
     <div class="shouban30-page-body">
       <div class="shouban30-toolbar">
         <div class="toolbar-title">
-          <div class="page-title">30天首板</div>
+          <div class="page-title">首板筛选</div>
           <div class="page-meta">
-            <span>as_of_date {{ resolvedAsOfDate || '-' }}</span>
+            <span>end_date {{ resolvedEndDate || '-' }}</span>
             <span>/</span>
-            <span>标的窗口 {{ stockWindowDays }} 日</span>
+            <span>自然日窗口 {{ stockWindowDays }} 日</span>
             <span v-if="windowRangeLabel">/ {{ windowRangeLabel }}</span>
           </div>
         </div>
@@ -129,7 +129,7 @@
                   </el-button>
                 </template>
               </el-table-column>
-              <el-table-column prop="appear_days_30" label="30天" width="70" />
+              <el-table-column prop="appear_days_30" :label="windowDaysLabel" width="70" />
               <el-table-column prop="last_up_date" label="最后上板" width="110">
                 <template #default="{ row }">
                   <span class="mono">{{ row.last_up_date || row.seg_to || '-' }}</span>
@@ -604,9 +604,23 @@ const formatChanlunMetric = (value) => {
 
 const activeViewProvider = computed(() => normalizeViewProvider(route.query.p))
 const stockWindowDays = computed(() => {
-  return normalizeShouban30StockWindowDays(route.query.stock_window_days)
+  return normalizeShouban30StockWindowDays(route.query.days || route.query.stock_window_days)
 })
-const requestedAsOfDate = computed(() => toText(route.query.as_of_date))
+const requestedEndDate = computed(() => {
+  return toText(route.query.end_date || route.query.as_of_date)
+})
+
+const padDateNumber = (value) => String(value).padStart(2, '0')
+
+const calcCalendarWindowStart = (endDate, days) => {
+  const targetEndDate = toText(endDate)
+  if (!targetEndDate) return ''
+  const match = targetEndDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return ''
+  const next = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+  next.setUTCDate(next.getUTCDate() - normalizeShouban30StockWindowDays(days) + 1)
+  return `${next.getUTCFullYear()}-${padDateNumber(next.getUTCMonth() + 1)}-${padDateNumber(next.getUTCDate())}`
+}
 
 const updateQuery = (patch = {}) => {
   const nextQuery = {
@@ -748,23 +762,23 @@ const selectedStock = computed(() => {
   return currentStocks.value.find((item) => item.code6 === selectedStockCode6.value) || null
 })
 
-const resolvedAsOfDate = computed(() => {
+const resolvedEndDate = computed(() => {
   if (activeViewProvider.value === 'agg') {
     return SOURCE_PROVIDERS
-      .map((provider) => toText(sourceMetaByProvider.value?.[provider]?.as_of_date))
+      .map((provider) => toText(sourceMetaByProvider.value?.[provider]?.end_date || sourceMetaByProvider.value?.[provider]?.as_of_date))
       .filter(Boolean)
       .sort()
       .at(-1) || ''
   }
-  return toText(sourceMetaByProvider.value?.[activeViewProvider.value]?.as_of_date)
+  return toText(
+    sourceMetaByProvider.value?.[activeViewProvider.value]?.end_date
+      || sourceMetaByProvider.value?.[activeViewProvider.value]?.as_of_date,
+  )
 })
 
 const windowRangeLabel = computed(() => {
-  const samplePlate = currentPlates.value[0]
-    || xgbPlates.value[0]
-    || jygsPlates.value[0]
-  const start = toText(samplePlate?.stock_window_from)
-  const end = toText(samplePlate?.stock_window_to || resolvedAsOfDate.value)
+  const end = resolvedEndDate.value || requestedEndDate.value
+  const start = calcCalendarWindowStart(end, stockWindowDays.value)
   if (!start || !end) return ''
   return `${start} ~ ${end}`
 })
@@ -782,7 +796,7 @@ const currentFilterReplacePayload = computed(() => {
     plates: currentPlates.value,
     stockRowsByPlate: currentViewStockRowsByPlate.value,
     stockWindowDays: stockWindowDays.value,
-    asOfDate: resolvedAsOfDate.value || requestedAsOfDate.value,
+    asOfDate: resolvedEndDate.value || requestedEndDate.value,
     selectedExtraFilterKeys: selectedExtraFilterKeys.value,
   })
 })
@@ -803,6 +817,7 @@ const workspaceBlkSyncLabel = computed(() => {
   return `最近 blk 同步 ${sync.count ?? 0} 条 -> ${fileName}`
 })
 
+const windowDaysLabel = computed(() => `${stockWindowDays.value}天`)
 const plateCountLabel = computed(() => '通过数')
 const stockHitCountLabel = computed(() => `${stockWindowDays.value}次`)
 const platesEmptyText = computed(() => {
@@ -906,7 +921,7 @@ const buildSinglePlateReplacePayload = (plate) => {
     plate,
     stockRowsByPlate: currentViewStockRowsByPlate.value,
     stockWindowDays: stockWindowDays.value,
-    asOfDate: resolvedAsOfDate.value || requestedAsOfDate.value,
+    asOfDate: resolvedEndDate.value || requestedEndDate.value,
     selectedExtraFilterKeys: selectedExtraFilterKeys.value,
   })
 }
@@ -1045,8 +1060,8 @@ const loadStockReasons = async (code6) => {
 const fetchProviderPlates = async (provider) => {
   const response = await getShouban30Plates({
     provider,
-    stockWindowDays: stockWindowDays.value,
-    asOfDate: requestedAsOfDate.value || undefined,
+    days: stockWindowDays.value,
+    endDate: requestedEndDate.value || undefined,
   })
   const payload = unwrapApiData(response)
   return {
@@ -1063,8 +1078,8 @@ const fetchProviderStocksByPlate = async (provider, plates, asOfDate) => {
       const response = await getShouban30Stocks({
         provider,
         plateKey,
-        stockWindowDays: stockWindowDays.value,
-        asOfDate: asOfDate || requestedAsOfDate.value || undefined,
+        days: stockWindowDays.value,
+        endDate: asOfDate || requestedEndDate.value || undefined,
       })
       const payload = unwrapApiData(response)
       return [plateKey, normalizeList(payload.items)]
@@ -1113,7 +1128,7 @@ const loadViewData = async () => {
         return fetchProviderStocksByPlate(
           provider,
           nextPlates[provider],
-          toText(nextMeta[provider]?.as_of_date),
+          toText(nextMeta[provider]?.end_date || nextMeta[provider]?.as_of_date),
         )
       },
       emptyValueFactory: () => ({}),
@@ -1153,16 +1168,20 @@ const loadViewData = async () => {
 const handleProviderChange = (value) => {
   updateQuery({
     p: normalizeViewProvider(value),
-    stock_window_days: String(stockWindowDays.value),
-    as_of_date: requestedAsOfDate.value || undefined,
+    days: String(stockWindowDays.value),
+    end_date: requestedEndDate.value || undefined,
+    stock_window_days: undefined,
+    as_of_date: undefined,
   })
 }
 
 const handleStockWindowChange = (value) => {
   updateQuery({
     p: activeViewProvider.value,
-    stock_window_days: String(normalizeShouban30StockWindowDays(value)),
-    as_of_date: requestedAsOfDate.value || undefined,
+    days: String(normalizeShouban30StockWindowDays(value)),
+    end_date: requestedEndDate.value || undefined,
+    stock_window_days: undefined,
+    as_of_date: undefined,
   })
 }
 
@@ -1187,7 +1206,7 @@ const stockRowClassName = ({ row }) => {
 }
 
 watch(
-  () => [activeViewProvider.value, stockWindowDays.value, requestedAsOfDate.value],
+  () => [activeViewProvider.value, stockWindowDays.value, requestedEndDate.value],
   () => {
     loadViewData()
   },

@@ -55,6 +55,7 @@
 - `dates` 轴按交易日历展开该窗口内全部交易日
 - 某个交易日没有热点时，该日期仍保留在 `dates` 轴上，只是 `series` 不产生点位
 - `/api/gantt/plates` 与 `/api/gantt/stocks` 对 `xgb` / `jygs` 使用同一套窗口语义
+- `/gantt/shouban30` 的 `30/45/60/90` 也对齐到同一套“最近 N 个自然日窗口”语义；筛选页额外兼容旧 `stock_window_days/as_of_date` 链接，但默认路由与 API 已切到 `days/end_date`
 
 ## 存储
 
