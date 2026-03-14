@@ -2,13 +2,19 @@ import { test, expect } from '@playwright/test'
 
 import { runLockedBuild } from './vite-build-lock.mjs'
 import {
+  captureRenderedFrame,
   cleanupServerPort,
+  compareRenderedFrame,
+  dragSliderPan,
   enableExtraPeriodLegends,
+  forceFullRedraw,
   hideCurrentChartTip,
   installVmHelpers,
   readAxisPointerArtifacts,
   readChartState,
   reproduceAxisPointerGhost,
+  readRenderSurface,
+  setLegendSelected,
   startPreviewServer,
   stopDevServer,
   waitForChartReady,
@@ -16,6 +22,7 @@ import {
   waitForServer,
   waitForSymbolRendered,
   waitForViewportReset,
+  wheelZoomChart,
   zoomAndPan
 } from './kline-slim-browser-helpers.mjs'
 
@@ -24,6 +31,7 @@ const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
 const TARGET_URL = `${DEV_SERVER_URL}/kline-slim?symbol=sz002262&period=5m`
 const DAY = '2026-03-11'
 const EXTRA_PERIOD_LEGENDS = ['15m', '30m']
+const ALL_PERIOD_LEGENDS = ['1m', '15m', '30m']
 const ZOOM_SWITCH_SEQUENCE = ['sh510050', 'sz000001', 'sz002262']
 
 const SYMBOL_VARIANTS = {
@@ -111,6 +119,74 @@ function buildBoxes(dates, boxes) {
   ])
 }
 
+function buildDenseBoxes({
+  startIndex,
+  endIndex,
+  step,
+  width,
+  centerBase,
+  centerSwing,
+  heightBase,
+  heightSwing
+}) {
+  const result = []
+  for (let left = startIndex; left + width <= endIndex; left += step) {
+    const phase = (left - startIndex) / Math.max(1, step)
+    const center = centerBase + Math.sin(phase / 1.7) * centerSwing
+    const height = heightBase + (phase % 3) * heightSwing
+    result.push([
+      left,
+      left + width,
+      Number((center + height).toFixed(4)),
+      Number((center - height).toFixed(4))
+    ])
+  }
+  return result
+}
+
+function buildPeriodStructureBoxes(period, variant) {
+  if (period !== '1m') {
+    return {
+      zhongshu: variant.zhongshu,
+      duanZhongshu: variant.duanZhongshu,
+      higherDuanZhongshu: variant.higherDuanZhongshu
+    }
+  }
+
+  return {
+    zhongshu: buildDenseBoxes({
+      startIndex: 150,
+      endIndex: 228,
+      step: 6,
+      width: 4,
+      centerBase: variant.basePrice + 3.65,
+      centerSwing: 0.58,
+      heightBase: 0.18,
+      heightSwing: 0.04
+    }),
+    duanZhongshu: buildDenseBoxes({
+      startIndex: 156,
+      endIndex: 226,
+      step: 12,
+      width: 7,
+      centerBase: variant.basePrice + 3.95,
+      centerSwing: 0.42,
+      heightBase: 0.28,
+      heightSwing: 0.05
+    }),
+    higherDuanZhongshu: buildDenseBoxes({
+      startIndex: 164,
+      endIndex: 224,
+      step: 18,
+      width: 10,
+      centerBase: variant.basePrice + 4.18,
+      centerSwing: 0.34,
+      heightBase: 0.34,
+      heightSwing: 0.06
+    })
+  }
+}
+
 function buildStockDataPayload(symbol, period) {
   const variant = SYMBOL_VARIANTS[symbol] || SYMBOL_VARIANTS.sz002262
   const countMap = {
@@ -139,6 +215,8 @@ function buildStockDataPayload(symbol, period) {
     low.push(Number(lowValue.toFixed(4)))
   }
 
+  const structureBoxes = buildPeriodStructureBoxes(period, variant)
+
   return {
     symbol,
     name: variant.name,
@@ -158,12 +236,12 @@ function buildStockDataPayload(symbol, period) {
       close.map((value, index) => value + Math.cos(index / 17) * 0.26),
       36
     ),
-    zsdata: buildBoxes(dates, variant.zhongshu),
-    zsflag: variant.zhongshu.map(() => 1),
-    duan_zsdata: buildBoxes(dates, variant.duanZhongshu),
-    duan_zsflag: variant.duanZhongshu.map(() => 1),
-    higher_duan_zsdata: buildBoxes(dates, variant.higherDuanZhongshu),
-    higher_duan_zsflag: variant.higherDuanZhongshu.map(() => 1),
+    zsdata: buildBoxes(dates, structureBoxes.zhongshu),
+    zsflag: structureBoxes.zhongshu.map(() => 1),
+    duan_zsdata: buildBoxes(dates, structureBoxes.duanZhongshu),
+    duan_zsflag: structureBoxes.duanZhongshu.map(() => 1),
+    higher_duan_zsdata: buildBoxes(dates, structureBoxes.higherDuanZhongshu),
+    higher_duan_zsflag: structureBoxes.higherDuanZhongshu.map(() => 1),
     _bar_time: `${dates[dates.length - 1]}:${symbol}`,
     updated_at: `${dates[dates.length - 1]}:${symbol}`,
     dt: `${dates[dates.length - 1]}:${symbol}`
@@ -294,6 +372,35 @@ async function switchSymbol(page, symbol) {
 async function prepareVisibleExtraPeriods(page) {
   await enableExtraPeriodLegends(page, EXTRA_PERIOD_LEGENDS)
   await waitForExtraPeriodsLoaded(page, EXTRA_PERIOD_LEGENDS)
+}
+
+async function prepareAllVisiblePeriods(page) {
+  await enableExtraPeriodLegends(page, ALL_PERIOD_LEGENDS)
+  await waitForExtraPeriodsLoaded(page, ALL_PERIOD_LEGENDS)
+}
+
+function expectGhostingFinalState(state) {
+  expect(state.periodLegendSelected).toEqual({
+    '1m': false,
+    '15m': true,
+    '30m': true
+  })
+  expect(state.visibleChanlunPeriods).toEqual(['15m', '30m'])
+  expect(state.viewport.xRange.start).toBeGreaterThanOrEqual(0)
+  expect(state.viewport.xRange.end).toBeLessThanOrEqual(100)
+  expect(state.viewport.xRange.end).toBeGreaterThan(state.viewport.xRange.start)
+}
+
+async function run1mGhostingPath(page) {
+  await prepareAllVisiblePeriods(page)
+  const afterZoom = await wheelZoomChart(page)
+  expect(afterZoom.periodLegendSelected).toEqual({
+    '1m': true,
+    '15m': true,
+    '30m': true
+  })
+  await setLegendSelected(page, '1m', false)
+  return dragSliderPan(page)
 }
 
 async function runZoomSwitchSequence(page) {
@@ -488,4 +595,88 @@ test('hideTip clears the current KlineSlim axisPointer crosshair', async ({ page
 
   const afterHideTip = await readAxisPointerArtifacts(page)
   expect(afterHideTip.horizontalLineCount).toBe(0)
+})
+
+test('1m on -> zoom -> 1m off -> pan matches a forced full redraw in the same viewport', async ({
+  page
+}) => {
+  const pageErrors = []
+
+  page.on('pageerror', (error) => {
+    pageErrors.push(`pageerror:${error.message}`)
+  })
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      pageErrors.push(`console:${message.text()}`)
+    }
+  })
+
+  await page.setViewportSize({ width: 1680, height: 960 })
+  await installVmHelpers(page)
+  await mockKlineSlimApis(page)
+  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+
+  await waitForChartReady(page)
+  await waitForSymbolRendered(page, 'sz002262')
+  const historyState = await run1mGhostingPath(page)
+  expectGhostingFinalState(historyState)
+  await captureRenderedFrame(page, 'ghosting-after-1m-hide-pan')
+
+  const beforeSurface = await readRenderSurface(page)
+  expect(beforeSurface.displayListLength).toBeGreaterThan(0)
+
+  await forceFullRedraw(page)
+
+  const afterSurface = await readRenderSurface(page)
+
+  const diff = await compareRenderedFrame(page, {
+    key: 'ghosting-after-1m-hide-pan',
+    tolerance: 12
+  })
+
+  expect(afterSurface.displayListLength).toBe(beforeSurface.displayListLength)
+  expect(diff.ratio).toBeLessThan(0.002)
+  expect(pageErrors).toEqual([])
+})
+
+test('same viewport after the 1m hide path matches a forced full redraw without extra structure boxes', async ({
+  page
+}) => {
+  const pageErrors = []
+
+  page.on('pageerror', (error) => {
+    pageErrors.push(`pageerror:${error.message}`)
+  })
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      pageErrors.push(`console:${message.text()}`)
+    }
+  })
+
+  await page.setViewportSize({ width: 1680, height: 960 })
+  await installVmHelpers(page)
+  await mockKlineSlimApis(page)
+  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+
+  await waitForChartReady(page)
+  await waitForSymbolRendered(page, 'sz002262')
+  const incrementalState = await run1mGhostingPath(page)
+  expectGhostingFinalState(incrementalState)
+
+  const beforeSurface = await readRenderSurface(page)
+  await captureRenderedFrame(page, 'ghosting-incremental-before-full-redraw')
+
+  await forceFullRedraw(page)
+
+  const afterSurface = await readRenderSurface(page)
+  const redrawnState = await readChartState(page)
+  expectGhostingFinalState(redrawnState)
+  const diff = await compareRenderedFrame(page, {
+    key: 'ghosting-incremental-before-full-redraw',
+    tolerance: 12
+  })
+
+  expect(afterSurface.displayListLength).toBe(beforeSurface.displayListLength)
+  expect(diff.ratio).toBeLessThan(0.002)
+  expect(pageErrors).toEqual([])
 })
