@@ -145,6 +145,13 @@ export const addShouban30StockPoolToMustPool = ({ code6 } = {}) => {
   })
 }
 
+export const syncShouban30StockPoolToMustPool = () => {
+  return http({
+    url: '/api/gantt/shouban30/stock-pool/sync-to-must-pool',
+    method: 'post'
+  })
+}
+
 export const deleteShouban30StockPoolItem = ({ code6 } = {}) => {
   return http({
     url: '/api/gantt/shouban30/stock-pool/delete',

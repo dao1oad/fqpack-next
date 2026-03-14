@@ -835,3 +835,82 @@ def test_add_stock_pool_item_to_must_pool_uses_default_arguments(monkeypatch):
 
     assert result == "created"
     assert called["must_pool"] == [("600001", "三十涨停Pro", 0.1, 50000, 50000, True)]
+
+
+def test_add_stock_pool_item_to_must_pool_returns_updated_when_existing(monkeypatch):
+    service, called = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "alpha",
+                    "category": "三十涨停Pro自选",
+                }
+            ]
+        ),
+        must_pool=FakeCollection([{"code": "600001", "category": "已有分类"}]),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    result = service.add_stock_pool_item_to_must_pool("600001")
+
+    assert result == "updated"
+    assert called["must_pool"] == [("600001", "三十涨停Pro", 0.1, 50000, 50000, True)]
+
+
+def test_sync_stock_pool_to_must_pool_uses_stock_pool_order_and_returns_counts(
+    monkeypatch,
+):
+    service, called = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "000333",
+                    "name": "second",
+                    "category": "三十涨停Pro自选",
+                    "extra": {"shouban30_order": 1},
+                },
+                {
+                    "code": "600001",
+                    "name": "first",
+                    "category": "三十涨停Pro自选",
+                    "extra": {"shouban30_order": 0},
+                },
+                {
+                    "code": "300001",
+                    "name": "third",
+                    "category": "三十涨停Pro自选",
+                    "extra": {"shouban30_order": 2},
+                },
+            ]
+        ),
+        must_pool=FakeCollection(
+            [
+                {"code": "600001", "category": "三十涨停Pro"},
+                {"code": "300001", "category": "三十涨停Pro"},
+            ]
+        ),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    before_codes = [item["code6"] for item in service.list_stock_pool()]
+    result = service.sync_stock_pool_to_must_pool()
+    after_codes = [item["code6"] for item in service.list_stock_pool()]
+
+    assert result == {
+        "created_count": 1,
+        "updated_count": 2,
+        "total_count": 3,
+        "category": "三十涨停Pro",
+    }
+    assert before_codes == ["600001", "000333", "300001"]
+    assert after_codes == before_codes
+    assert called["must_pool"] == [
+        ("600001", "三十涨停Pro", 0.1, 50000, 50000, True),
+        ("000333", "三十涨停Pro", 0.1, 50000, 50000, True),
+        ("300001", "三十涨停Pro", 0.1, 50000, 50000, True),
+    ]

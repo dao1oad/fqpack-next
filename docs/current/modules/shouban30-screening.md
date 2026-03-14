@@ -36,6 +36,8 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 
 `pre_pool -> /api/gantt/shouban30/pre-pool/add-to-stock-pools 或 /sync-to-stock-pool -> stock_pool`
 
+`stock_pool -> /api/gantt/shouban30/stock-pool/add-to-must-pool 或 /sync-to-must-pool -> must_pool`
+
 `pre_pool / stock_pool -> 手动 sync-to-tdx -> full overwrite 30RYZT.blk`
 
 当前快照前提：
@@ -63,7 +65,10 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
   - 该动作不触发 `.blk` 写入
 - `pre_pool` 保留单条“加入 stock_pools”，并新增批量“同步到 stock_pool”
   - 批量同步只把 `pre_pool` 中缺失于 `stock_pool` 的标的按当前 `pre_pool` 顺序追加到末尾
-- `stock_pool` 页面当前只保留“同步到通达信”“清空”“删除”语义，不再在该页暴露 `must_pool` 写入
+- `stock_pool` 恢复单条“加入 must_pools”，并新增批量“同步到 must_pools”
+  - 单条与批量共用同一套 `must_pool` upsert 语义：不存在记为 `created`，已存在记为 `updated`
+  - 批量同步返回 `created_count / updated_count / total_count`
+  - 批量同步按当前 `stock_pool` 页面顺序执行，但不会改变 `stock_pool` 自身顺序，也不会附带通达信同步
 - 工作区标签显示为 `pre_pools` / `stock_pools`，内部 tab key 仍保持 `pre_pool` / `stockpools`
 - `pre_pools` 与 `stock_pools` 标签各自提供“同步到通达信”和“清空”按钮；清空不弹确认框，会直接清空对应池子并立即完整覆盖 `30RYZT.blk`
 - 两个工作区共享同一个 `30RYZT.blk`，所以最终文件内容始终由最后一次 `pre_pools` / `stock_pools` 的同步或清空动作决定
@@ -138,5 +143,6 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 
 ### 加入 must_pool 后策略仍不关注
 
-- `/gantt/shouban30` 页面当前不再承担 `must_pool` 写入
-- 如果仍需兼容调用老接口，先确认是否真的是页面外调用，再检查 `must_pool` 是否落库和 XTData 订阅池刷新
+- 先确认当前动作是单条“加入 must_pools”还是批量“同步到 must_pools”
+- 单条返回 `created`/`updated`，批量返回 `created_count / updated_count / total_count`
+- 再检查 `must_pool` 是否落库，以及 XTData 订阅池是否已经刷新

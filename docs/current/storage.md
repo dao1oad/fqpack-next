@@ -106,7 +106,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - Order submit 写 `om_order_requests`、`om_orders`、`om_order_events`，并把 broker payload 推到 Redis。
 - XT 回报 ingest 写 `om_trade_facts`、`om_buy_lots`、`om_lot_slices`、`om_sell_allocations` 等。
 - TPSL 读 `xt_positions` 与 `om_*`，写 `om_takeprofit_*` / `om_exit_trigger_events`。
-- Gantt/Shouban30 API 读 gantt 库，并在工作区操作时写 `stock_pre_pools`、`stock_pools`；`must_pool` 仍由独立接口或页面外链路维护。
+- Gantt/Shouban30 API 读 gantt 库，并在工作区操作时写 `stock_pre_pools`、`stock_pools`；`stock_pool -> must_pool` 的单条/批量动作会显式写 `must_pool`，但不会改写 `stock_pool` 顺序。
 
 ## 当前排障原则
 
