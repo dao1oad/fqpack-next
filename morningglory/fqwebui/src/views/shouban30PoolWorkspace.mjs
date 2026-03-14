@@ -35,8 +35,8 @@ const buildReplacePayload = ({
   return {
     items: dedupedItems,
     replace_scope: replaceScope,
-    stock_window_days: Number(stockWindowDays) || 30,
-    as_of_date: toText(asOfDate),
+    days: Number(stockWindowDays) || 30,
+    end_date: toText(asOfDate),
     selected_extra_filters: normalizeList(selectedExtraFilterKeys).map((value) => toText(value)).filter(Boolean),
     plate_key: toText(plateKey),
   }

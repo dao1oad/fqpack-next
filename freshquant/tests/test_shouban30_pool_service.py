@@ -225,8 +225,8 @@ def test_replace_pre_pool_persists_workspace_order_in_extra(monkeypatch, tmp_pat
         ],
         {
             "replace_scope": "single_plate",
-            "stock_window_days": 60,
-            "as_of_date": "2026-03-06",
+            "days": 60,
+            "end_date": "2026-03-06",
             "selected_extra_filters": [],
             "plate_key": "11",
         },
@@ -235,7 +235,10 @@ def test_replace_pre_pool_persists_workspace_order_in_extra(monkeypatch, tmp_pat
     saved_docs = list(fake_db["stock_pre_pools"].find({"category": "三十涨停Pro预选"}))
     assert [doc["extra"]["shouban30_order"] for doc in saved_docs] == [0, 1]
     assert saved_docs[0]["extra"]["shouban30_replace_scope"] == "single_plate"
+    assert saved_docs[0]["extra"]["shouban30_days"] == 60
+    assert saved_docs[0]["extra"]["shouban30_end_date"] == "2026-03-06"
     assert saved_docs[0]["extra"]["shouban30_stock_window_days"] == 60
+    assert saved_docs[0]["extra"]["shouban30_as_of_date"] == "2026-03-06"
 
 
 def test_sync_pre_pool_to_blk_keeps_workspace_order(monkeypatch, tmp_path):
