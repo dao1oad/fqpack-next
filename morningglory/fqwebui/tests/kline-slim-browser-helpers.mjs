@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
+import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
+
+import { appendViteOutDirArgs } from './vite-build-lock.mjs'
 
 export async function waitForServer(url, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs
@@ -40,21 +43,16 @@ export function cleanupServerPort(port) {
   )
 }
 
-export function startPreviewServer({ port, cwd }) {
-  if (process.platform === 'win32') {
-    return spawn(
-      'cmd.exe',
-      ['/d', '/s', '/c', `pnpm preview --host 127.0.0.1 --port ${port} --strictPort`],
-      {
-        cwd,
-        stdio: ['ignore', 'pipe', 'pipe']
-      }
-    )
-  }
+export function startPreviewServer({ port, cwd, outDir }) {
+  const viteCliEntry = path.join(cwd, 'node_modules', 'vite', 'bin', 'vite.js')
+  const previewArgs = appendViteOutDirArgs(
+    [viteCliEntry, 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+    outDir
+  )
 
   return spawn(
-    'pnpm',
-    ['preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+    process.execPath,
+    previewArgs,
     {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe']
