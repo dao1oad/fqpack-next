@@ -4,7 +4,7 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
-
+from typing import cast
 
 SURFACE_ORDER = (
     "api",
@@ -225,7 +225,9 @@ def unique_in_order(values: list[str]) -> list[str]:
     return result
 
 
-def resolve_surfaces_from_paths(changed_paths: list[str]) -> tuple[list[str], list[str]]:
+def resolve_surfaces_from_paths(
+    changed_paths: list[str],
+) -> tuple[list[str], list[str]]:
     surfaces: set[str] = set()
     notes: list[str] = []
 
@@ -349,27 +351,34 @@ def build_deploy_plan(
 
 
 def render_summary(plan: dict[str, object]) -> str:
+    deployment_surfaces = cast(list[str], plan["deployment_surfaces"])
+    docker_services = cast(list[str], plan["docker_services"])
+    host_surfaces = cast(list[str], plan["host_surfaces"])
+    host_programs = cast(list[str], plan["host_programs"])
+    runtime_ops_surfaces = cast(list[str], plan["runtime_ops_surfaces"])
+    health_checks = cast(list[str], plan["health_checks"])
+    pre_deploy_steps = cast(list[dict[str, object]], plan["pre_deploy_steps"])
+    notes = cast(list[str], plan["notes"])
+
     lines = [
         "FreshQuant 部署计划",
         f"- deployment_required: {str(plan['deployment_required']).lower()}",
-        "- deployment_surfaces: "
-        + (", ".join(plan["deployment_surfaces"]) or "none"),
-        "- docker_services: " + (", ".join(plan["docker_services"]) or "none"),
-        "- host_surfaces: " + (", ".join(plan["host_surfaces"]) or "none"),
-        "- host_programs: " + (", ".join(plan["host_programs"]) or "none"),
-        "- runtime_ops_surfaces: "
-        + (", ".join(plan["runtime_ops_surfaces"]) or "none"),
+        "- deployment_surfaces: " + (", ".join(deployment_surfaces) or "none"),
+        "- docker_services: " + (", ".join(docker_services) or "none"),
+        "- host_surfaces: " + (", ".join(host_surfaces) or "none"),
+        "- host_programs: " + (", ".join(host_programs) or "none"),
+        "- runtime_ops_surfaces: " + (", ".join(runtime_ops_surfaces) or "none"),
     ]
 
-    if plan["health_checks"]:
+    if health_checks:
         lines.append("- health_checks:")
-        lines.extend(f"  - {item}" for item in plan["health_checks"])
-    if plan["pre_deploy_steps"]:
+        lines.extend(f"  - {item}" for item in health_checks)
+    if pre_deploy_steps:
         lines.append("- pre_deploy_steps:")
-        lines.extend(f"  - {item['summary']}" for item in plan["pre_deploy_steps"])
-    if plan["notes"]:
+        lines.extend(f"  - {item['summary']}" for item in pre_deploy_steps)
+    if notes:
         lines.append("- notes:")
-        lines.extend(f"  - {item}" for item in plan["notes"])
+        lines.extend(f"  - {item}" for item in notes)
 
     return "\n".join(lines)
 

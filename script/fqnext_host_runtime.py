@@ -6,7 +6,7 @@ import json
 import time
 import xmlrpc.client
 from pathlib import Path
-
+from typing import Any, cast
 
 DEFAULT_CONFIG_PATH = Path("D:/fqpack/config/supervisord.fqnext.conf")
 DEFAULT_TIMEOUT_SECONDS = 30.0
@@ -92,7 +92,7 @@ def build_server_proxy(rpc_url: str) -> xmlrpc.client.ServerProxy:
 
 
 def get_process_info(server: xmlrpc.client.ServerProxy, name: str) -> dict[str, object]:
-    return server.supervisor.getProcessInfo(name)
+    return cast(dict[str, object], cast(Any, server.supervisor.getProcessInfo(name)))
 
 
 def wait_for_state(
@@ -148,7 +148,9 @@ def restart_programs(
             server.supervisor.stopProcess(program, True)
             wait_for_state(server, program, "STOPPED", timeout_seconds=timeout_seconds)
         server.supervisor.startProcess(program, True)
-        after = wait_for_state(server, program, "RUNNING", timeout_seconds=timeout_seconds)
+        after = wait_for_state(
+            server, program, "RUNNING", timeout_seconds=timeout_seconds
+        )
         results.append(
             {
                 "name": program,

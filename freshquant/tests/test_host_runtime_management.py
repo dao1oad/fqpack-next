@@ -19,12 +19,12 @@ def test_install_fqnext_supervisord_service_uses_delayed_auto_start() -> None:
 
 
 def test_restart_task_scripts_share_same_task_name() -> None:
-    install_text = Path(
-        "script/install_fqnext_supervisord_restart_task.ps1"
-    ).read_text(encoding="utf-8")
-    invoke_text = Path(
-        "script/invoke_fqnext_supervisord_restart_task.ps1"
-    ).read_text(encoding="utf-8")
+    install_text = Path("script/install_fqnext_supervisord_restart_task.ps1").read_text(
+        encoding="utf-8"
+    )
+    invoke_text = Path("script/invoke_fqnext_supervisord_restart_task.ps1").read_text(
+        encoding="utf-8"
+    )
     run_text = Path("script/run_fqnext_supervisord_restart_task.ps1").read_text(
         encoding="utf-8"
     )

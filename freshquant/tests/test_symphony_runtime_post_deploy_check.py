@@ -207,7 +207,9 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
     assert any("fq-symphony-orchestrator" in failure for failure in payload["failures"])
     assert any("fqnext-supervisord" in failure for failure in payload["failures"])
     assert any("market_data_producer" in failure for failure in payload["failures"])
-    assert any("xtdata_adj_refresh_worker" in failure for failure in payload["failures"])
+    assert any(
+        "xtdata_adj_refresh_worker" in failure for failure in payload["failures"]
+    )
     assert any("market_data_consumer" in failure for failure in payload["failures"])
     assert any(
         "position_management_worker" in failure for failure in payload["failures"]
