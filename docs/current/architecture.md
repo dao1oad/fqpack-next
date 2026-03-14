@@ -48,7 +48,7 @@
   - 产物目录：`D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs/**`
   - 通过 `FQ_MEMORY_CONTEXT_PATH` 注入 `Symphony` / `Global Stewardship` / 自由 Codex 会话
 
-记忆层是旁路摘要，不替代 GitHub Issue / Draft PR / PR+CI / deploy+health+cleanup 真值链。
+记忆层是旁路摘要，不替代 Issue-managed 任务的 GitHub Issue、所有代码更新的 PR+CI、以及 deploy+health+cleanup 真值链。
 
 ## 核心调用链
 

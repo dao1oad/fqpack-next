@@ -22,6 +22,9 @@ def test_current_docs_describe_memory_layer_contract() -> None:
     assert "冷记忆" in architecture_text
     assert "热记忆" in architecture_text
     assert "context pack" in architecture_text
+    assert "Issue-managed 任务的 GitHub Issue" in architecture_text
+    assert "所有代码更新的 PR+CI" in architecture_text
+    assert "Draft PR" not in architecture_text
 
     assert "FQ_MEMORY_CONTEXT_PATH" in configuration_text
     assert "FQ_MEMORY_CONTEXT_ROLE" in configuration_text
@@ -44,6 +47,16 @@ def test_global_governance_allows_direct_pr_without_mandatory_issue() -> None:
 
     assert "轻量更新允许直接走 `feature branch -> PR`" in overview_text
     assert "Issue-managed" in overview_text
+
+
+def test_troubleshooting_scopes_issue_state_machine_to_issue_managed_tasks() -> None:
+    troubleshooting_text = Path("docs/current/troubleshooting.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "本节仅适用于走 `Symphony` / `Global Stewardship` 的 Issue-managed 任务" in troubleshooting_text
+    assert "仓库级 direct `feature branch -> PR` 不进入这条状态机" in troubleshooting_text
+    assert "需要 Symphony 接管的新建 GitHub issue 时默认只打" in troubleshooting_text
 
 
 def test_cold_memory_workflow_rules_match_current_governance() -> None:

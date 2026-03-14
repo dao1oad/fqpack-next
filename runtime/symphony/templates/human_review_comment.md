@@ -4,7 +4,7 @@
 
 当前正式治理不再设置 `Design Review` 或人工审批门。
 
-正式流程以 GitHub Issue body 作为执行合同，并由：
+仓库级轻量更新可直接 `feature branch -> PR`；只有 Issue-managed 任务才以 GitHub Issue body 作为执行合同，并由：
 
 - Symphony 负责 `Issue -> In Progress -> Rework -> Merging`
 - 全局自动化负责 `Global Stewardship -> Done`

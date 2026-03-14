@@ -8,7 +8,8 @@
 
 正式流程改为：
 
-- Issue body 先完成方案与执行合同
+- 仓库级轻量更新可直接 `feature branch -> PR`，不需要先补建 Issue
+- 对 Issue-managed 任务，Issue body 先完成方案与执行合同
 - Symphony 负责 `Issue -> In Progress -> Rework -> Merging`
 - 全局自动化负责 `Global Stewardship -> Done`
 
