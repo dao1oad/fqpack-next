@@ -314,48 +314,47 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `runtime/symphony-service/artifacts/`
 
 常见根因：
-- Draft PR 还没完成 `Design Review`
-- 低风险任务被错误送进 `Design Review` / `brainstorming` 闭环
-- 低风险任务在 `Todo` 成功跑完一轮后，没有被自动切到 `In Progress`
-- 高风险任务被直接贴上 `design-review`，但 Draft PR 引导创建失败
-- 新建 issue 时手工预贴了 `design-review`，导致任务跳过 `Todo` 风险判定并直接进入高风险路径
-- `Design Review` 缺少 review surface，但 orchestrator 没有自动补出 Draft PR / issue branch
+- Issue body 不完整，导致 agent 只能反复做泛化上下文扫描
 - 正式服务加载了一份过度简化的 `WORKFLOW.freshquant.md`，prompt 中没有 issue 标识/标题/描述，导致 agent 只会做泛化上下文扫描
 - `Merging` 会话里直接使用 `gh pr checks --watch`、`gh run watch` 或带 `Start-Sleep` 的长轮询脚本，导致单个 turn 长时间占住 agent，甚至被 stall detector 杀掉后重试
+- `Merging` 没有按 GitHub PR 真值判断，而是错误把评论或主观推断当成 merge 条件
+- `pending checks` 被错误打回 `Rework`
+- `Rework` 没有写清 `blocker_class / evidence / next_action / exit_condition`
+- 在 GitHub 真值没有变化时重复尝试 merge，导致 `Merging <-> Rework` 空转
 - `Merging` 没有写 handoff comment，或 merge 后没有把原 issue 转到 `Global Stewardship`
 - 全局 Codex 自动化没有运行，或没有读取最新 `runtime/symphony/prompts/global_stewardship.md`
 - 全局 Codex 自动化把需要代码修复的问题当成纯收口问题，导致原 issue 一直停在 `Global Stewardship`
 - 全局 Codex 自动化没有做 follow-up issue 去重，重复创建了多个同源修复任务
 - 本轮实际发生 deploy，但自动化没有先采 baseline 或没有执行 runtime ops check，导致收口条件一直不满足
 - runtime ops check 已经失败，但被误以为是 cleanup 卡住；实际上这是设计上的阻断，不应继续 close 原 issue
-- `Design Review` 任务仍被当成普通实现会话 dispatch，结果在 Codex 会话里再次触发 `brainstorming` 或 generic repo 扫描
 - workspace 只保留了本地路径 `origin`，没有 GitHub remote，导致 `gh pr ...` / `gh issue ...` 在 workspace 内直接失败
 - issue 被打到 `blocked`，但没有写明解除条件和应该恢复到哪个状态
-- `blocked` 只是状态误标：其实 PR 已 merged / 已有 open PR / 已有 APPROVED，只是没有恢复到 `Global Stewardship` / `Rework` / `In Progress`
+- `blocked` 只是状态误标：其实 PR 已 merged、PR checks 仍在 pending，或 open PR 已有确定性仓库内失败，但没有恢复到 `Global Stewardship` / `Merging` / `Rework`
 - workspace 目录还在，但 `.git` 丢失，导致 `before_run` 反复报 `not a git repository`
 - GitHub token 失效
 - 正式服务没加载最新 workflow
 
 处理：
-- 看 Draft PR 评论与 `APPROVED`
-- 新建 GitHub issue 时默认只打 `symphony` 与 `todo`，不要在创建时预贴 `design-review`
-- 如果任务是普通 bugfix 或小范围现有模块修复，但没有 Draft PR，优先按低风险路径排查，不要继续等待人工审批
-- 如果任务命中高风险条件且已经在 `Design Review`，但没有 linked Draft PR，先看 orchestrator 日志里是否已经出现自动 bootstrap 记录；若仍没有 Draft PR，优先排查 GitHub token、`gh`/push 权限、issue branch 创建失败，而不是继续等待审批
+- 先看 Issue body 是否已经写清背景、目标、范围、非目标、验收标准、部署影响
+- 新建 GitHub issue 时默认只打 `symphony` 与 `in-progress`
 - 如果日志里反复只有通用 repo 扫描而没有 issue 标识、标题、描述，先检查 `WORKFLOW.freshquant.md` 是否仍包含 issue placeholders；`sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 现在会对这份 prompt 做合约校验
 - 如果 `Merging` 很慢，先看 session 里是否出现 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 轮询；正式 prompt 现在要求只做一次性检查后结束当前 turn，让 orchestrator 下一轮继续
+- 如果 PR 无法 merge，先看 required checks、unresolved review threads、`mergeStateStatus` 和 ruleset，不要先看评论里的 `APPROVED`
+- 如果 required checks 还在 pending，保持在 `Merging`，不要提前打回 `Rework`
+- 如果已经进入 `Rework`，先检查 issue / PR 评论里是否已经写清 `blocker_class / evidence / next_action / exit_condition`
+- 如果没有新 commit、新 checks 结果、新 review-thread 变化或新 mergeability 变化，不要重复尝试 merge
 - 如果 merge 后原 issue 没进入 `Global Stewardship`，先看 `Merging` 会话是否真的写出了 handoff comment，并检查状态标签是否已切换
 - 如果原 issue 长时间停在 `Global Stewardship`，先看全局 Codex 自动化最近一轮是否真的读取了 merged PR、当前 `main` 和已有 follow-up issue
 - 如果本轮评论里 health check 已通过但没有 runtime ops check 结果，先检查 `check_freshquant_runtime_post_deploy.ps1` 是否已同步到正式服务，以及 prompt 是否已要求 `CaptureBaseline -> Verify`
 - 如果 runtime ops check 结果里 `failures` 非空，不要继续排 cleanup；先按失败项判断是 follow-up issue 还是外部 blocker
 - 如果同一个源 issue 被开出多个 follow-up issue，先按 `Source Issue + Symptom Class` 检查去重逻辑，收敛到一个 open 修复任务
 - 如果全局自动化把代码问题当成运维问题处理，先核对原 issue 评论里是否已经明确写出“等待 GH-xxx 修复后继续收口”
-- 如果日志里明确读入了 issue body，但随后又启动普通 Codex repo 扫描或再次触发 `brainstorming`，说明 `Design Review` 仍被错误 dispatch；应改成“orchestrator bootstrap Draft PR -> GitHub approval -> In Progress”的单向流程
 - 如果 `gh` 在 workspace 内报 “none of the git remotes configured for this repository point to a known GitHub host”，先看当前 workspace 是否只有本地 `origin`；正式 workflow 现在会在 `after_create` / `before_run` 自动补齐 `github` remote
 - 如果 issue 已进入 `In Progress` / `Rework`，但 workspace 仍在本地 `main`，先看 issue 是否缺失确定性 `branch_name`，以及 orchestrator 日志里是否出现 issue branch checkout 失败
 - 如果 issue 停在 `blocked`，先看最新 GitHub 评论是否写清了 blocker、clear condition、evidence 和 target recovery state；没有的话先补齐，再决定是否解除
-- 如果 issue 已经有 merged PR、open non-draft PR 或 approved draft PR，但还停在 `blocked`，优先按误标处理；正式 orchestrator 现在会按这些 GitHub 真值自动恢复到 `Global Stewardship` / `Rework` / `In Progress`
+- 如果 issue 已经有 merged PR、open PR + pending checks、或 open PR + 确定性仓库内失败，但还停在 `blocked`，优先按误标处理；正式 orchestrator 现在会按这些 GitHub 真值自动恢复到 `Global Stewardship` / `Merging` / `Rework` / `In Progress`
 - 如果日志里反复出现 `workspace_hook_failed ... not a git repository`，先看 workspace 目录是否缺 `.git`；正式 orchestrator 现在会先自愈重建一次，再决定是否继续报错
 - 如果 PR 标题、PR 正文、Issue / PR 评论仍然出现英文说明，先检查 `WORKFLOW.freshquant.md` 与 `runtime/symphony/templates/*.md` 是否已经同步到正式服务
 - 检查正式服务是否已加载最新 `runtime/symphony/WORKFLOW.freshquant.md`
-- 看 issue 当前标签与状态是否仍停在 `todo`，以及 orchestrator 日志里是否出现 `Todo -> In Progress` 自动推进记录
+- 看 issue 当前标签是否仍是 `in-progress / rework / merging / blocked / global-stewardship` 之一，以及 orchestrator 日志里是否按新状态机推进
 - 重装正式服务或重启 `fq-symphony-orchestrator`
