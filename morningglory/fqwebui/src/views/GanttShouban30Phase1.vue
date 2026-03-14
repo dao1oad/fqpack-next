@@ -59,8 +59,8 @@
                 v-for="option in EXTRA_FILTER_OPTIONS"
                 :key="option.key"
                 size="small"
-                :type="selectedExtraFilterKeys.includes(option.key) ? 'primary' : ''"
-                :plain="!selectedExtraFilterKeys.includes(option.key)"
+                :type="draftExtraFilterKeys.includes(option.key) ? 'primary' : ''"
+                :plain="!draftExtraFilterKeys.includes(option.key)"
                 @click="toggleExtraFilterSelection(option.key)"
               >
                 {{ option.label }}
@@ -68,9 +68,8 @@
               <el-button
                 size="small"
                 type="success"
-                :disabled="!currentFilterReplacePayload.items.length || platesLoading || stocksLoading"
-                :loading="isWorkspaceActionRunning('workspace:save-current-filter')"
-                @click="handleSaveCurrentFilter"
+                :disabled="platesLoading || stocksLoading || !isFilterSelectionDirty"
+                @click="handleApplyExtraFilters"
               >
                 筛选
               </el-button>
@@ -125,7 +124,7 @@
                     :loading="isWorkspaceActionRunning(`workspace:save-plate:${toText(row?.plate_key)}`)"
                     @click.stop="handleSavePlateToPrePool(row)"
                   >
-                    保存到 pre_pools
+                    添加到 pre_pools
                   </el-button>
                 </template>
               </el-table-column>
@@ -135,6 +134,7 @@
                   <span class="mono">{{ row.last_up_date || row.seg_to || '-' }}</span>
                 </template>
               </el-table-column>
+              <el-table-column :label="plateCountLabel" prop="stocks_count" width="92" />
               <el-table-column prop="reason_text" label="板块理由" min-width="220">
                 <template #default="{ row }">
                   <Shouban30ReasonPopover
@@ -146,7 +146,6 @@
                   />
                 </template>
               </el-table-column>
-              <el-table-column :label="plateCountLabel" prop="stocks_count" width="92" />
             </el-table>
           </div>
         </section>
@@ -333,6 +332,16 @@
                     size="small"
                     type="primary"
                     plain
+                    :loading="isWorkspaceActionRunning('workspace:pre:sync-stock')"
+                    @click="handleSyncPrePoolToStockPool"
+                  >
+                    {{ tab.batch_action_label }}
+                  </el-button>
+                  <el-button
+                    v-if="tab.key === 'pre_pool'"
+                    size="small"
+                    type="primary"
+                    plain
                     :loading="isWorkspaceActionRunning('workspace:pre:sync-tdx')"
                     @click="handleSyncPrePoolToTdx"
                   >
@@ -405,16 +414,6 @@
                             {{ row.primary_action_label }}
                           </el-button>
                           <el-button
-                            v-if="tab.key === 'stockpools'"
-                            size="small"
-                            type="primary"
-                            link
-                            :loading="isWorkspaceActionRunning(`workspace:stock:must:${row.code6}`)"
-                            @click="handleAddStockPoolToMustPool(row)"
-                          >
-                            {{ row.primary_action_label }}
-                          </el-button>
-                          <el-button
                             v-if="tab.key === 'pre_pool'"
                             size="small"
                             type="danger"
@@ -456,8 +455,8 @@ import { ElMessage } from 'element-plus'
 import { getGanttStockReasons } from '@/api/ganttApi'
 import {
   SHOUBAN30_STOCK_WINDOW_OPTIONS,
+  appendShouban30PrePool,
   addShouban30PrePoolToStockPool,
-  addShouban30StockPoolToMustPool,
   clearShouban30PrePool,
   clearShouban30StockPool,
   deleteShouban30PrePoolItem,
@@ -467,7 +466,7 @@ import {
   getShouban30StockPool,
   getShouban30Stocks,
   normalizeShouban30StockWindowDays,
-  replaceShouban30PrePool,
+  syncShouban30PrePoolToStockPool,
   syncShouban30PrePoolToTdx,
   syncShouban30StockPoolToTdx,
 } from '@/api/ganttShouban30'
@@ -491,8 +490,7 @@ import {
   toggleExtraFilter,
 } from './shouban30StockFilters.mjs'
 import {
-  buildCurrentFilterReplacePrePoolPayload,
-  buildSinglePlateReplacePrePoolPayload,
+  buildSinglePlateAppendPrePoolPayload,
   buildWorkspaceTabs,
 } from './shouban30PoolWorkspace.mjs'
 
@@ -518,6 +516,7 @@ const sourcePlatesByProvider = ref({ xgb: [], jygs: [] })
 const sourceMetaByProvider = ref({ xgb: {}, jygs: {} })
 const sourceStocksByProvider = ref({ xgb: {}, jygs: {} })
 const stockLoadErrorProviders = ref([])
+const draftExtraFilterKeys = ref([])
 const selectedExtraFilterKeys = ref([])
 const prePoolItems = ref([])
 const stockPoolItems = ref([])
@@ -552,6 +551,10 @@ const toText = (value) => String(value || '').trim()
 
 const normalizeList = (value) => {
   return Array.isArray(value) ? value : []
+}
+
+const normalizeFilterKeyList = (value) => {
+  return normalizeList(value).map((item) => toText(item)).filter(Boolean).sort()
 }
 
 const flattenStockRowsByPlate = (stockRowsByPlate) => {
@@ -791,14 +794,9 @@ const activeExtraFilterLabels = computed(() => {
     .filter((item) => selectedExtraFilterKeys.value.includes(item.key))
     .map((item) => item.label)
 })
-const currentFilterReplacePayload = computed(() => {
-  return buildCurrentFilterReplacePrePoolPayload({
-    plates: currentPlates.value,
-    stockRowsByPlate: currentViewStockRowsByPlate.value,
-    stockWindowDays: stockWindowDays.value,
-    asOfDate: resolvedEndDate.value || requestedEndDate.value,
-    selectedExtraFilterKeys: selectedExtraFilterKeys.value,
-  })
+const isFilterSelectionDirty = computed(() => {
+  return normalizeFilterKeyList(draftExtraFilterKeys.value).join('|')
+    !== normalizeFilterKeyList(selectedExtraFilterKeys.value).join('|')
 })
 const workspaceTabs = computed(() => {
   return buildWorkspaceTabs({
@@ -917,7 +915,7 @@ const runWorkspaceAction = async ({
 }
 
 const buildSinglePlateReplacePayload = (plate) => {
-  return buildSinglePlateReplacePrePoolPayload({
+  return buildSinglePlateAppendPrePoolPayload({
     plate,
     stockRowsByPlate: currentViewStockRowsByPlate.value,
     stockWindowDays: stockWindowDays.value,
@@ -927,31 +925,24 @@ const buildSinglePlateReplacePayload = (plate) => {
 }
 
 const toggleExtraFilterSelection = (key) => {
-  selectedExtraFilterKeys.value = toggleExtraFilter(selectedExtraFilterKeys.value, key)
+  draftExtraFilterKeys.value = toggleExtraFilter(draftExtraFilterKeys.value, key)
 }
 
-const handleSaveCurrentFilter = async () => {
-  if (!currentFilterReplacePayload.value.items.length) {
-    ElMessage.warning('当前筛选结果为空，无法保存')
-    return
-  }
-  await runWorkspaceAction({
-    actionKey: 'workspace:save-current-filter',
-    action: () => replaceShouban30PrePool(currentFilterReplacePayload.value),
-    successMessage: `已保存 ${currentFilterReplacePayload.value.items.length} 条到 pre_pools`,
-  })
+const handleApplyExtraFilters = () => {
+  selectedExtraFilterKeys.value = normalizeFilterKeyList(draftExtraFilterKeys.value)
+  ElMessage.success('已更新当前页面筛选结果')
 }
 
 const handleSavePlateToPrePool = async (plate) => {
   const payload = buildSinglePlateReplacePayload(plate)
   if (!payload.items.length) {
-    ElMessage.warning('当前板块没有可保存的标的')
+    ElMessage.warning('当前板块没有可添加的标的')
     return
   }
   await runWorkspaceAction({
     actionKey: `workspace:save-plate:${toText(plate?.plate_key)}`,
-    action: () => replaceShouban30PrePool(payload),
-    successMessage: `${toText(plate?.plate_name) || '当前板块'} 已保存到 pre_pools`,
+    action: () => appendShouban30PrePool(payload),
+    successMessage: `${toText(plate?.plate_name) || '当前板块'} 已添加到 pre_pools`,
   })
 }
 
@@ -971,6 +962,14 @@ const handleDeletePrePoolRow = async (row) => {
   })
 }
 
+const handleSyncPrePoolToStockPool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:pre:sync-stock',
+    action: () => syncShouban30PrePoolToStockPool(),
+    successMessage: '已将 pre_pools 同步到 stock_pool',
+  })
+}
+
 const handleSyncPrePoolToTdx = async () => {
   await runWorkspaceAction({
     actionKey: 'workspace:pre:sync-tdx',
@@ -985,15 +984,6 @@ const handleClearPrePool = async () => {
     actionKey: 'workspace:pre:clear',
     action: () => clearShouban30PrePool(),
     successMessage: '已清空 pre_pools',
-  })
-}
-
-const handleAddStockPoolToMustPool = async (row) => {
-  await runWorkspaceAction({
-    actionKey: `workspace:stock:must:${toText(row?.code6)}`,
-    action: () => addShouban30StockPoolToMustPool({ code6: row?.code6 }),
-    successMessage: `${toText(row?.code6)} 已加入 must_pools`,
-    refreshWorkspace: false,
   })
 }
 
@@ -1257,6 +1247,7 @@ watch(
 
 onMounted(() => {
   loadWorkspace()
+  draftExtraFilterKeys.value = normalizeFilterKeyList(selectedExtraFilterKeys.value)
 })
 </script>
 

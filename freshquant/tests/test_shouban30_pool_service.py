@@ -241,6 +241,69 @@ def test_replace_pre_pool_persists_workspace_order_in_extra(monkeypatch, tmp_pat
     assert saved_docs[0]["extra"]["shouban30_as_of_date"] == "2026-03-06"
 
 
+def test_append_pre_pool_appends_only_missing_codes_and_keeps_existing_order(
+    monkeypatch,
+):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "first",
+                    "category": "三十涨停Pro预选",
+                    "extra": {
+                        "shouban30_order": 0,
+                        "shouban30_provider": "xgb",
+                        "shouban30_plate_key": "11",
+                        "shouban30_plate_name": "robot",
+                    },
+                }
+            ]
+        ),
+        stock_pools=FakeCollection(),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    result = service.append_pre_pool(
+        [
+            {
+                "code6": "600001",
+                "name": "first-updated",
+                "plate_key": "11",
+                "plate_name": "robot",
+                "provider": "xgb",
+            },
+            {
+                "code6": "000333",
+                "name": "second",
+                "plate_key": "22",
+                "plate_name": "chip",
+                "provider": "jygs",
+            },
+        ],
+        {
+            "replace_scope": "single_plate",
+            "days": 30,
+            "end_date": "2026-03-06",
+            "selected_extra_filters": [],
+            "plate_key": "22",
+        },
+    )
+
+    saved_docs = service.list_pre_pool()
+    assert result == {
+        "appended_count": 1,
+        "skipped_count": 1,
+        "category": "三十涨停Pro预选",
+    }
+    assert [doc["code6"] for doc in saved_docs] == ["600001", "000333"]
+    assert saved_docs[0]["name"] == "first"
+    assert saved_docs[1]["extra"]["shouban30_order"] == 1
+    assert saved_docs[1]["extra"]["shouban30_plate_name"] == "chip"
+
+
 def test_sync_pre_pool_to_blk_keeps_workspace_order(monkeypatch, tmp_path):
     service, _ = _import_service_with_stubs(monkeypatch)
     fake_db = FakeDB(
@@ -307,7 +370,45 @@ def test_sync_pre_pool_to_blk_falls_back_to_settings_tdx_home(monkeypatch, tmp_p
     assert target.read_text(encoding="gbk").splitlines() == ["1600001"]
 
 
-def test_sync_stock_pool_to_blk_keeps_current_workspace_order(monkeypatch, tmp_path):
+def test_sync_stock_pool_to_blk_uses_explicit_workspace_order_when_present(
+    monkeypatch, tmp_path
+):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "000333",
+                    "name": "second",
+                    "category": "三十涨停Pro自选",
+                    "datetime": datetime(2026, 3, 6, 9, 31),
+                    "extra": {"shouban30_order": 1},
+                },
+                {
+                    "code": "600001",
+                    "name": "first",
+                    "category": "三十涨停Pro自选",
+                    "datetime": datetime(2026, 3, 5, 9, 31),
+                    "extra": {"shouban30_order": 0},
+                },
+            ]
+        ),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+    monkeypatch.setenv("TDX_HOME", str(tmp_path))
+
+    result = service.sync_stock_pool_to_blk()
+
+    target = Path(tmp_path) / "T0002" / "blocknew" / "30RYZT.blk"
+    assert result["success"] is True
+    assert result["count"] == 2
+    assert result["file_path"] == str(target)
+    assert target.read_text(encoding="gbk").splitlines() == ["1600001", "0000333"]
+
+
+def test_list_stock_pool_falls_back_to_datetime_desc_when_order_missing(monkeypatch):
     service, _ = _import_service_with_stubs(monkeypatch)
     fake_db = FakeDB(
         stock_pre_pools=FakeCollection(),
@@ -330,15 +431,10 @@ def test_sync_stock_pool_to_blk_keeps_current_workspace_order(monkeypatch, tmp_p
         must_pool=FakeCollection(),
     )
     monkeypatch.setattr(service, "DBfreshquant", fake_db)
-    monkeypatch.setenv("TDX_HOME", str(tmp_path))
 
-    result = service.sync_stock_pool_to_blk()
+    items = service.list_stock_pool()
 
-    target = Path(tmp_path) / "T0002" / "blocknew" / "30RYZT.blk"
-    assert result["success"] is True
-    assert result["count"] == 2
-    assert result["file_path"] == str(target)
-    assert target.read_text(encoding="gbk").splitlines() == ["1600001", "0000333"]
+    assert [item["code6"] for item in items] == ["600001", "000333"]
 
 
 def test_clear_pre_pool_removes_only_shouban30_workspace_category_and_syncs_blk(
@@ -450,6 +546,127 @@ def test_add_pre_pool_item_to_stock_pool_writes_shouban30_stock_category(monkeyp
     assert saved["category"] == "三十涨停Pro自选"
     assert saved["extra"]["shouban30_source"] == "pre_pool"
     assert saved["extra"]["shouban30_from_category"] == "三十涨停Pro预选"
+
+
+def test_add_pre_pool_item_to_stock_pool_skips_existing_without_overwrite(monkeypatch):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "fresh-name",
+                    "category": "三十涨停Pro预选",
+                    "extra": {
+                        "shouban30_provider": "xgb",
+                        "shouban30_plate_key": "11",
+                        "shouban30_plate_name": "robot",
+                    },
+                }
+            ]
+        ),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "legacy-name",
+                    "category": "三十涨停Pro自选",
+                    "extra": {
+                        "shouban30_order": 0,
+                        "shouban30_source": "legacy",
+                    },
+                }
+            ]
+        ),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    result = service.add_pre_pool_item_to_stock_pool("600001")
+
+    assert result == "already_exists"
+    assert fake_db["stock_pools"].find_one({"code": "600001"}) == {
+        "code": "600001",
+        "name": "legacy-name",
+        "category": "三十涨停Pro自选",
+        "extra": {
+            "shouban30_order": 0,
+            "shouban30_source": "legacy",
+        },
+    }
+
+
+def test_sync_pre_pool_to_stock_pool_appends_missing_codes_in_pre_pool_order(monkeypatch):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "first",
+                    "category": "三十涨停Pro预选",
+                    "extra": {
+                        "shouban30_order": 0,
+                        "shouban30_provider": "xgb",
+                        "shouban30_plate_key": "11",
+                        "shouban30_plate_name": "robot",
+                    },
+                },
+                {
+                    "code": "900001",
+                    "name": "exists",
+                    "category": "三十涨停Pro预选",
+                    "extra": {
+                        "shouban30_order": 1,
+                        "shouban30_provider": "xgb",
+                        "shouban30_plate_key": "12",
+                        "shouban30_plate_name": "bank",
+                    },
+                },
+                {
+                    "code": "000333",
+                    "name": "third",
+                    "category": "三十涨停Pro预选",
+                    "extra": {
+                        "shouban30_order": 2,
+                        "shouban30_provider": "jygs",
+                        "shouban30_plate_key": "13",
+                        "shouban30_plate_name": "chip",
+                    },
+                },
+            ]
+        ),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "900001",
+                    "name": "exists",
+                    "category": "三十涨停Pro自选",
+                    "extra": {"shouban30_order": 0},
+                }
+            ]
+        ),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    result = service.sync_pre_pool_to_stock_pool()
+
+    assert result == {
+        "appended_count": 2,
+        "skipped_count": 1,
+        "category": "三十涨停Pro自选",
+    }
+    assert [item["code6"] for item in service.list_stock_pool()] == [
+        "900001",
+        "600001",
+        "000333",
+    ]
+    saved_docs = list(fake_db["stock_pools"].find({"category": "三十涨停Pro自选"}))
+    by_code = {doc["code"]: doc for doc in saved_docs}
+    assert by_code["600001"]["extra"]["shouban30_order"] == 1
+    assert by_code["000333"]["extra"]["shouban30_order"] == 2
+    assert by_code["000333"]["extra"]["shouban30_plate_name"] == "chip"
 
 
 def test_add_stock_pool_item_to_must_pool_uses_default_arguments(monkeypatch):

@@ -16,8 +16,9 @@
 ### `stock_pre_pools`
 
 - 用于暂存筛选结果
-- Shouban30 会把当前筛选集批量替换进这个集合
+- Shouban30 会把单个板块结果 append 进这个集合
 - 允许有 `category` 和 `expire_at`
+- Shouban30 当前使用 `extra.shouban30_order` 作为页面与 `.blk` 输出顺序真值
 
 ### `stock_pools`
 
@@ -46,7 +47,7 @@
 - Guardian 持仓内操作范围
   - `xt_positions`
 - Shouban30 工作区
-  - `stock_pre_pools -> stock_pools -> must_pool`
+  - `stock_pre_pools -> stock_pools`
 
 ## 当前高频操作
 
@@ -56,15 +57,19 @@
   - `/api/add_to_must_pool_by_code`
 - Shouban30 预选池转股票池
   - `/api/gantt/shouban30/pre-pool/add-to-stock-pools`
-- Shouban30 股票池转 must_pool
-  - `/api/gantt/shouban30/stock-pool/add-to-must-pool`
+- Shouban30 预选池批量转股票池
+  - `/api/gantt/shouban30/pre-pool/sync-to-stock-pool`
+- Shouban30 同步到通达信
+  - `/api/gantt/shouban30/pre-pool/sync-to-tdx`
+  - `/api/gantt/shouban30/stock-pool/sync-to-tdx`
 
 ## 当前排查
 
 ### 股票在页面工作区里，但策略不看
 
 - 检查是否只在 `stock_pre_pools`
-- 检查是否真正进入 `must_pool` 或 `stock_pools`
+- 检查是否真正进入 `stock_pools`
+- 如果策略链路需要 Guardian 新开仓，再继续检查是否进入 `must_pool`
 
 ### 股票已在 must_pool，但 XTData 还没订阅
 

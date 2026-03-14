@@ -50,6 +50,9 @@ services:
       - "15000:5000"
     volumes:
       - ${FQ_RUNTIME_LOG_HOST_DIR:?Set FQ_RUNTIME_LOG_HOST_DIR to the host runtime log directory}:/freshquant/logs/runtime
+      - type: bind
+        source: ${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}
+        target: /opt/tdx
     depends_on:
       fq_mongodb:
         condition: service_healthy

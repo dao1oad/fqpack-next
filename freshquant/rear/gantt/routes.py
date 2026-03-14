@@ -318,6 +318,32 @@ def replace_shouban30_pre_pool():
     )
 
 
+@gantt_bp.route("/shouban30/pre-pool/append", methods=["POST"])
+def append_shouban30_pre_pool():
+    payload = _request_json_body()
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        return _bad_request("items required")
+    try:
+        result = shouban30_pool_service.append_pre_pool(
+            items,
+            _build_shouban30_replace_context(payload),
+        )
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "appended_count": result.get("appended_count", 0),
+                "skipped_count": result.get("skipped_count", 0),
+                "category": result.get("category"),
+            }
+        }
+    )
+
+
 @gantt_bp.route("/shouban30/pre-pool")
 def list_shouban30_pre_pool():
     return jsonify(
@@ -341,6 +367,23 @@ def add_shouban30_pre_pool_to_stock_pool():
     except RuntimeError as exc:
         return _server_error(str(exc))
     return jsonify({"data": {"status": status}})
+
+
+@gantt_bp.route("/shouban30/pre-pool/sync-to-stock-pool", methods=["POST"])
+def sync_shouban30_pre_pool_to_stock_pool():
+    try:
+        result = shouban30_pool_service.sync_pre_pool_to_stock_pool()
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "appended_count": result.get("appended_count", 0),
+                "skipped_count": result.get("skipped_count", 0),
+                "category": result.get("category"),
+            }
+        }
+    )
 
 
 @gantt_bp.route("/shouban30/pre-pool/sync-to-tdx", methods=["POST"])

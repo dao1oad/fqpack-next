@@ -95,6 +95,20 @@ vendored `QUANTAXIS` 当前 Mongo 解析规则：
 - `FQ_RUNTIME_LOG_DIR`
   - 覆盖默认 `logs/runtime`
 
+### TDX / Shouban30
+
+- `FRESHQUANT_TDX__HOME`
+  - Docker `fq_apiserver` 内当前应解析为 `/opt/tdx`
+- `TDX_HOME`
+  - 宿主机进程继续使用 Windows 本地通达信根目录
+- `FQPACK_TDX_SYNC_DIR`
+  - Docker 并行环境下给 `fq_apiserver` 提供 Shouban30 `.blk` 写入的宿主机 bind mount 源目录；默认 `D:/tdx_biduan`
+
+当前口径：
+
+- `freshquant.shouban30_pool_service` 写 `.blk` 时先读 `settings.tdx.home`，未配置时回退 `TDX_HOME`
+- Docker 并行环境中，`fq_apiserver` 应通过 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}:/opt/tdx` 挂载宿主机目录，使 `/opt/tdx/T0002/blocknew/30RYZT.blk` 实际落到 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`
+
 ### Symphony
 
 - `GITHUB_TOKEN`

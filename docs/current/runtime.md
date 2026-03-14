@@ -85,6 +85,7 @@
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - `docker/compose.parallel.yaml` 会为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`，避免容器误继承宿主机默认 `27027`
+- `docker/compose.parallel.yaml` 当前会为 `fq_apiserver` 额外挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}` 到容器内 `/opt/tdx`，供 Shouban30 同步 `30RYZT.blk`
 - Web UI 默认访问并行 API `http://127.0.0.1:15000`
 - TradingAgents 使用独立 Mongo 库 `tradingagents_cn` 与 Redis `db=8`
 
@@ -94,6 +95,7 @@
 - XTData producer / consumer / TPSL / Order Management 共享 Redis
 - Guardian、Position worker、Order Management、TPSL 共享 Mongo 基础库与运行时事件日志
 - Shouban30 的 `.blk` 同步依赖宿主机 `settings.tdx.home or TDX_HOME`
+- Docker 并行环境下，Shouban30 的 API 同步链路依赖 `fq_apiserver` 挂载 `/opt/tdx`
 - 当通达信根目录配置为 `D:\tdx_biduan` 时，Shouban30 会写入 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`
 - `xt_producer` / `xt_consumer` 会向 `logs/runtime` 固定每 5 分钟写 1 次 heartbeat，供 `/runtime-observability` 页面聚合
 
