@@ -99,3 +99,12 @@ def test_cold_memory_deploy_surfaces_cover_current_release_matrix() -> None:
         "runtime/symphony/**",
     ):
         assert expected in deploy_text
+
+    assert (
+        "`freshquant/position_management/**` -> redeploy API and restart the `position_management` host surface."
+        in deploy_text
+    )
+    assert (
+        "`freshquant/tpsl/**` -> redeploy API and restart the `tpsl` host surface."
+        in deploy_text
+    )

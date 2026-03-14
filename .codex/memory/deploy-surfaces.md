@@ -2,8 +2,8 @@
 
 - `freshquant/rear/**` -> redeploy API Server.
 - `freshquant/order_management/**` -> redeploy API and restart the `order_management` host surface.
-- `freshquant/position_management/**` -> restart the `position_management` host surface.
-- `freshquant/tpsl/**` -> restart the `tpsl` host surface.
+- `freshquant/position_management/**` -> redeploy API and restart the `position_management` host surface.
+- `freshquant/tpsl/**` -> redeploy API and restart the `tpsl` host surface.
 - `freshquant/market_data/**` -> restart the `market_data` host surface; prewarm again when required.
 - `freshquant/strategy/**` or `freshquant/signal/**` -> restart the `guardian` host surface.
 - `freshquant/data/**` changes that affect Gantt or Shouban30 -> redeploy API and, when needed, rerun Dagster surfaces.
