@@ -373,6 +373,183 @@ def test_compile_context_pack_includes_recent_task_events(tmp_path: Path) -> Non
     assert "Cleanup status: `failed`" in content
 
 
+def test_compile_context_pack_orders_recent_task_events_by_actual_timestamp(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    service_root = tmp_path / "service"
+    cold_root = repo_root / ".codex" / "memory"
+
+    _write(
+        cold_root / "workflow-rules.md", "# Workflow Rules\n\n- Read memory first.\n"
+    )
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=cold_root,
+        artifact_root=service_root / "artifacts" / "memory",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+    store.upsert_many(
+        "task_state",
+        [
+            {
+                "issue_identifier": "GH-166",
+                "issue_state": "Rework",
+                "branch_name": "feature/GH-166-memory-layer",
+                "git_status": "clean",
+            }
+        ],
+        key_fields=("issue_identifier",),
+    )
+    store.upsert_many(
+        "task_events",
+        [
+            {
+                "event_id": "older-local-offset",
+                "issue_identifier": "GH-166",
+                "event_type": "cleanup_result",
+                "summary": "older local-offset event",
+                "generated_at": "2026-03-14T11:00:00+08:00",
+            },
+            {
+                "event_id": "newer-utc",
+                "issue_identifier": "GH-166",
+                "event_type": "deployment_summary",
+                "summary": "newer utc event",
+                "generated_at": "2026-03-14T04:30:00+00:00",
+            },
+        ],
+        key_fields=("event_id",),
+    )
+
+    output_path = compile_context_pack(
+        config,
+        store,
+        issue_identifier="GH-166",
+        role="codex",
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert content.index("newer utc event") < content.index("older local-offset event")
+
+
+def test_compile_context_pack_uses_latest_deploy_run_for_runtime_snapshot(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    service_root = tmp_path / "service"
+    cold_root = repo_root / ".codex" / "memory"
+
+    _write(
+        cold_root / "workflow-rules.md", "# Workflow Rules\n\n- Read memory first.\n"
+    )
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=cold_root,
+        artifact_root=service_root / "artifacts" / "memory",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+    store.upsert_many(
+        "task_state",
+        [
+            {
+                "issue_identifier": "GH-166",
+                "issue_state": "Rework",
+                "branch_name": "feature/GH-166-memory-layer",
+                "git_status": "clean",
+            }
+        ],
+        key_fields=("issue_identifier",),
+    )
+    store.upsert_many(
+        "deploy_runs",
+        [
+            {
+                "deploy_run_id": "deploy-old",
+                "issue_identifier": "GH-166",
+                "status": "failed",
+                "summary": "old deploy summary",
+                "generated_at": "2026-03-14T10:00:00+08:00",
+            },
+            {
+                "deploy_run_id": "deploy-new",
+                "issue_identifier": "GH-166",
+                "status": "documented",
+                "summary": "new deploy summary",
+                "generated_at": "2026-03-14T11:30:00+08:00",
+            },
+        ],
+        key_fields=("deploy_run_id",),
+    )
+
+    output_path = compile_context_pack(
+        config,
+        store,
+        issue_identifier="GH-166",
+        role="codex",
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "Deploy: `documented` - new deploy summary" in content
+
+
+def test_refresh_memory_marks_failed_health_checks_from_deployment_comment(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    service_root = tmp_path / "service"
+    cold_root = repo_root / ".codex" / "memory"
+
+    _write(
+        cold_root / "workflow-rules.md", "# Workflow Rules\n\n- Read memory first.\n"
+    )
+    _write(
+        service_root / "artifacts" / "GH-166" / "deployment-comment.md",
+        """当前 Issue 在合并、部署和健康检查完成后，可以进入最终 cleanup 与 `Done`。
+
+## 健康检查
+
+- `GET http://127.0.0.1:15000/api/runtime/health/summary` 返回 `500`
+""",
+    )
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=cold_root,
+        artifact_root=service_root / "artifacts" / "memory",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+
+    refresh_memory(
+        config,
+        store,
+        issue_identifier="GH-166",
+        issue_state="Global Stewardship",
+        branch_name="main",
+        git_status="clean",
+    )
+
+    health_result = store.find(
+        "health_results", filters={"issue_identifier": "GH-166"}
+    )[0]
+    assert health_result["status"] == "fail"
+    assert "500" in health_result["summary"]
+
+
 def test_compile_context_pack_includes_pr_metadata_from_cleanup_request(
     tmp_path: Path,
 ) -> None:

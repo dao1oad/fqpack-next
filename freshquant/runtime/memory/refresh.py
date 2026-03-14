@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -114,6 +115,59 @@ def _join_summary(parts: list[str], *, fallback: str) -> str:
     return " | ".join(cleaned)
 
 
+def _classify_health_check(check: str) -> str:
+    lowered = check.lower()
+    codes = [int(match) for match in re.findall(r"(?<!\d)([1-5]\d{2})(?!\d)", check)]
+    if any(code >= 400 for code in codes):
+        return "fail"
+    if any(code < 400 for code in codes):
+        return "pass"
+
+    failure_tokens = (
+        "failed",
+        "failure",
+        "error",
+        "timeout",
+        "timed out",
+        "unhealthy",
+        "exception",
+        "refused",
+        "失败",
+        "未通过",
+        "错误",
+        "异常",
+        "超时",
+        "不可用",
+    )
+    if any(token in lowered for token in failure_tokens):
+        return "fail"
+
+    success_tokens = (
+        "passed",
+        "pass",
+        "success",
+        "healthy",
+        "ok",
+        "通过",
+        "成功",
+        "正常",
+    )
+    if any(token in lowered for token in success_tokens):
+        return "pass"
+
+    return "documented"
+
+
+def _derive_health_status(health_checks: list[str]) -> str:
+    statuses = {_classify_health_check(check) for check in health_checks}
+    statuses.discard("documented")
+    if "fail" in statuses:
+        return "fail"
+    if "pass" in statuses:
+        return "pass"
+    return "documented"
+
+
 def _load_issue_deployment_artifacts(
     config: MemoryRuntimeConfig,
     *,
@@ -158,7 +212,7 @@ def _load_issue_deployment_artifacts(
             {
                 "health_result_id": f"{issue_identifier}:deployment-comment",
                 "issue_identifier": issue_identifier,
-                "status": "pass",
+                "status": _derive_health_status(health_checks),
                 "summary": "; ".join(health_checks),
                 "checks": health_checks,
                 "source_path": str(deployment_comment_path),

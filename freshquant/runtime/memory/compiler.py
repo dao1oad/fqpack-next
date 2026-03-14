@@ -58,6 +58,36 @@ def _format_task_snapshot_extras(task_state: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _record_timestamp(
+    item: dict[str, Any],
+    *,
+    fields: tuple[str, ...] = ("executed_at", "generated_at"),
+) -> datetime:
+    for field in fields:
+        parsed = _parse_timestamp(item.get(field))
+        if parsed is not None:
+            return parsed
+    return datetime.min.replace(tzinfo=UTC)
+
+
+def _latest_record(items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not items:
+        return None
+    return max(items, key=_record_timestamp)
+
+
 def _format_task_events(items: list[dict[str, Any]]) -> str:
     if not items:
         return "- No task events were recorded.\n"
@@ -65,7 +95,7 @@ def _format_task_events(items: list[dict[str, Any]]) -> str:
     lines = []
     for item in sorted(
         items,
-        key=lambda current: str(current.get("generated_at", "")),
+        key=_record_timestamp,
         reverse=True,
     )[:5]:
         lines.append(
@@ -101,16 +131,14 @@ def compile_context_pack(
         raise ValueError(f"No task_state found for issue {issue_identifier}")
 
     current_task_state = task_state[0]
-    current_deploy = (
-        deploy_runs[0]
-        if deploy_runs
-        else {"status": "unknown", "summary": "No deploy summary available."}
-    )
-    current_health = (
-        health_results[0]
-        if health_results
-        else {"status": "unknown", "summary": "No health summary available."}
-    )
+    current_deploy = _latest_record(deploy_runs) or {
+        "status": "unknown",
+        "summary": "No deploy summary available.",
+    }
+    current_health = _latest_record(health_results) or {
+        "status": "unknown",
+        "summary": "No health summary available.",
+    }
 
     content = f"""# FreshQuant Memory Context Pack
 
