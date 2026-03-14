@@ -18,6 +18,7 @@ WORKFLOW_VALIDATOR = (
 GLOBAL_STEWARDSHIP_PROMPT = (
     REPO_ROOT / "runtime" / "symphony" / "prompts" / "global_stewardship.md"
 )
+TODO_PROMPT = REPO_ROOT / "runtime" / "symphony" / "prompts" / "todo.md"
 GLOBAL_STEWARDSHIP_VALIDATOR = (
     REPO_ROOT
     / "runtime"
@@ -76,6 +77,36 @@ def test_workflow_prompt_contract_passes_for_repo_prompt() -> None:
     result = _run_powershell(WORKFLOW_VALIDATOR, "-WorkflowPath", str(WORKFLOW_PROMPT))
 
     assert result.returncode == 0, result.stderr
+
+
+def test_workflow_prompt_scopes_issue_contract_to_symphony_managed_tasks() -> None:
+    content = WORKFLOW_PROMPT.read_text(encoding="utf-8")
+    validator_content = WORKFLOW_VALIDATOR.read_text(encoding="utf-8")
+    global_stewardship_content = GLOBAL_STEWARDSHIP_PROMPT.read_text(encoding="utf-8")
+
+    assert (
+        "For Symphony-managed tasks, GitHub Issue is the formal task entry and execution contract."
+        in content
+    )
+    assert (
+        "Repository-level work may also enter through direct `feature branch -> PR` outside Symphony."
+        in content
+    )
+    assert (
+        "For issue-managed work handed off from Symphony, GitHub Issue is the formal task entry and the pre-merge execution contract."
+        in global_stewardship_content
+    )
+    assert "For Symphony-managed tasks" in validator_content
+
+
+def test_todo_prompt_is_scoped_to_issue_managed_intake() -> None:
+    content = TODO_PROMPT.read_text(encoding="utf-8")
+
+    assert "This prompt applies only to issue-managed Symphony intake." in content
+    assert (
+        "Repository-level direct `feature branch -> PR` work does not enter `Todo` or this intake flow."
+        in content
+    )
 
 
 def test_global_stewardship_prompt_contract_passes_for_repo_prompt() -> None:

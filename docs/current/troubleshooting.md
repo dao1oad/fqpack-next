@@ -356,7 +356,9 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 如果 service 已安装但普通会话无权恢复，走 `fqnext-supervisord-restart` 管理员桥接任务
 - 恢复后再执行 `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface <surfaces> -BridgeIfServiceUnavailable`
 
-## Symphony / Global Stewardship 卡住
+## Symphony / Global Stewardship（Issue-managed）卡住
+
+本节仅适用于走 `Symphony` / `Global Stewardship` 的 Issue-managed 任务；仓库级 direct `feature branch -> PR` 不进入这条状态机。
 
 现象：
 - Issue 被领取但不前进，merge 后没有进入 `Global Stewardship`，或原 issue 长时间不收口。
@@ -367,7 +369,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `runtime/symphony-service/artifacts/`
 
 常见根因：
-- Issue body 不完整，导致 agent 只能反复做泛化上下文扫描
+- Issue-managed 任务的 Issue body 不完整，导致 agent 只能反复做泛化上下文扫描
 - 正式服务加载了一份过度简化的 `WORKFLOW.freshquant.md`，prompt 中没有 issue 标识/标题/描述，导致 agent 只会做泛化上下文扫描
 - `Merging` 会话里直接使用 `gh pr checks --watch`、`gh run watch` 或带 `Start-Sleep` 的长轮询脚本，导致单个 turn 长时间占住 agent，甚至被 stall detector 杀掉后重试
 - `Merging` 没有按 GitHub PR 真值判断，而是错误把评论或主观推断当成 merge 条件
@@ -389,8 +391,8 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 正式服务没加载最新 workflow
 
 处理：
-- 先看 Issue body 是否已经写清背景、目标、范围、非目标、验收标准、部署影响
-- 新建 GitHub issue 时默认只打 `symphony` 与 `in-progress`
+- 对 Issue-managed 任务，先看 Issue body 是否已经写清背景、目标、范围、非目标、验收标准、部署影响
+- 需要 Symphony 接管的新建 GitHub issue 时默认只打 `symphony` 与 `in-progress`
 - 如果日志里反复只有通用 repo 扫描而没有 issue 标识、标题、描述，先检查 `WORKFLOW.freshquant.md` 是否仍包含 issue placeholders；`sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 现在会对这份 prompt 做合约校验
 - 如果会话一开始就回到全仓扫描，先看 `FQ_MEMORY_CONTEXT_PATH` 是否存在，以及 `runtime/memory/scripts/refresh_freshquant_memory.py` / `compile_freshquant_context_pack.py` 最近一次是否执行成功
 - 如果 `Merging` 很慢，先看 session 里是否出现 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 轮询；正式 prompt 现在要求只做一次性检查后结束当前 turn，让 orchestrator 下一轮继续

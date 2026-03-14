@@ -2,6 +2,8 @@
 
 You are in the compatibility `Todo` phase. Formal governance no longer uses `Todo`; treat this prompt as issue intake and route the task immediately.
 
+This prompt applies only to issue-managed Symphony intake. Repository-level direct `feature branch -> PR` work does not enter `Todo` or this intake flow.
+
 Required behavior:
 
 - If `FQ_MEMORY_CONTEXT_PATH` is set and the file exists, read the memory context pack first before generic repository discovery.

@@ -5,22 +5,24 @@
 ## 目标
 
 - 固化 `GitHub-first` 轻量治理
-- 固化 `Issue` 作为需求与方案真值
+- 固化 direct `feature branch -> PR` 轻量入口，以及 `Issue-managed` 的 `Symphony` 治理入口
 - 固化 `Symphony` 到 merge 为止、`Global Stewardship` 接手 merge 后收口
 - 固化 deploy、health check、runtime ops check、cleanup 与 `Done` 判定
 - 让仓库治理与 `Symphony` 运行模板保持一致
 
 ## 正式真值
 
-- GitHub Issue：正式任务入口，也是需求与方案真值
-- GitHub PR + CI + merge gate：代码交付真值
+- GitHub Issue：对 `Symphony` 接管的 Issue-managed 任务，是正式任务入口，也是需求与方案真值
+- GitHub PR + CI + merge gate：所有代码更新的代码交付真值；仓库允许 direct `feature branch -> PR`
 - 单个全局 Codex 自动化完成的 `deploy + health check + runtime ops check + cleanup`：运行交付真值
 
 `Linear` 不再作为正式任务入口、评审面或批准真值来源。
 
 ## 当前工作流
 
-正式工作流固定为：
+本目录只定义 `Symphony` 的 Issue-managed 工作流。仓库级轻量更新允许 direct `feature branch -> PR`，不强制先建 Issue。
+
+Issue-managed 正式工作流固定为：
 
 `Issue -> In Progress -> Rework -> Merging -> Global Stewardship -> Done`
 
@@ -35,7 +37,7 @@ GitHub 文本规则：
 
 ## Issue 即执行合同
 
-- 正式任务在进入 `In Progress` 前，方案应已在 Issue body 中明确
+- 对 `Symphony` 接管的任务，正式任务在进入 `In Progress` 前，方案应已在 Issue body 中明确
 - Issue body 至少应包含：背景、目标、范围、非目标、验收标准、部署影响
 - Symphony 不再管理 `Design Review` 或人工审批
 - 如果 Issue 合同仍有事实缺口，Symphony 只补足执行所需事实，不额外创建审批环节

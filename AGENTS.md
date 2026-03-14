@@ -8,8 +8,8 @@
 
 ## 0.1 正式真值
 
-- GitHub Issue：正式任务入口，也是需求与方案真值
-- GitHub PR + CI + merge gate：代码交付真值
+- GitHub Issue：高影响、破坏性变更、需要 `Symphony` / `Global Stewardship` 跟踪的正式任务入口，也是该类任务的需求与方案真值
+- GitHub PR + CI + merge gate：所有代码更新的交付真值；允许直接从 `feature branch` 开 `PR`
 - Deploy + Health Check + Cleanup：运行交付真值（由单个全局 Codex 自动化收口）
 
 `Linear` 不再作为正式任务入口、评审面或批准真值来源。
@@ -60,7 +60,7 @@
 
 ## 3. 正式工作流（GitHub-first）
 
-正式工作流固定为：
+Issue-managed 正式工作流固定为：
 
 `Issue -> In Progress -> Rework -> Merging -> Global Stewardship -> Done`
 
@@ -68,15 +68,17 @@
 
 `Blocked`
 
-新建 GitHub Issue 默认只打：
+轻量更新允许直接走 `feature branch -> PR`，不再强制先建 GitHub Issue。
+
+走 Symphony 的新建 GitHub Issue 默认只打：
 
 - `symphony`
 - `in-progress`
 
-### 3.1 Issue 即执行合同
+### 3.1 Issue 即执行合同（仅适用于 Issue-managed 任务）
 
-- GitHub Issue body 即执行合同。
-- 正式任务在进入 `In Progress` 前，方案应已在 Issue 中明确。
+- 对走 `Symphony` / `Global Stewardship` 的 Issue-managed 任务，GitHub Issue body 即执行合同。
+- 该类任务在进入 `In Progress` 前，方案应已在 Issue 中明确。
 - Symphony 不再承担人工方案审批或 `Design Review` 管理。
 
 Issue body 至少应包含：
@@ -135,7 +137,7 @@ Issue body 至少应包含：
 
 ## 4. Symphony 与 superpowers
 
-- 正式开发默认由 `Symphony` 编排。
+- Issue-managed 正式开发默认由 `Symphony` 编排。
 - `Codex CLI` 会话可以触发 `Symphony` 管理流程，但 CLI 会话不是真值源。
 - `Symphony` 负责：
   - 接管 GitHub Issue
@@ -174,8 +176,10 @@ Issue body 至少应包含：
 - 禁止直推 `main`
 - 禁止在任何本地 `main` 上开发或提交
 - 正式开发必须走 `feature branch + PR`
-- 正式任务优先从 GitHub Issue 启动
-- 小型明确修复允许从 CLI 触发，但应绑定到对应 GitHub Issue / PR
+- 正式开发允许直接从 `feature branch` 开 `PR`，不再强制先建 GitHub Issue。
+- 需要 `Symphony` / `Global Stewardship` 跟踪的任务，应先建 GitHub Issue。
+- 未建 Issue 的 direct PR，PR 正文应写清背景、目标、范围、非目标、验收标准、部署影响。
+- 小型明确修复允许从 CLI 触发并直接开 PR；如已有 Issue / PR，则继续绑定对应治理面。
 - PR 必须满足：
   - CI 全绿（`docs-current-guard`、`pre-commit`、`pytest`）
   - 所有 review discussion 已处理
