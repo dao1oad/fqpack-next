@@ -8,6 +8,9 @@ _ISSUE_STATUSES = {"warning", "failed", "error", "skipped"}
 _TERMINAL_COMPONENTS = {"xt_report_ingest", "order_reconcile"}
 _ORDER_SUBMIT_NODES = {"tracking_create", "queue_payload_build"}
 _BROKER_COMPONENTS = {"broker_gateway", "puppet_gateway"}
+_SUBMIT_INTENT_DOWNSTREAM_COMPONENTS = (
+    {"order_submit"} | _BROKER_COMPONENTS | _TERMINAL_COMPONENTS
+)
 
 
 def assemble_traces(events: list[dict] | tuple[dict, ...]) -> list[dict]:
@@ -215,7 +218,7 @@ def _infer_trace_kind(steps: list[dict]) -> str:
 def _infer_trace_status(steps: list[dict], trace_kind: str) -> tuple[str, str | None]:
     if _is_completed_trace(steps, trace_kind):
         return "completed", None
-    if any(_normalized_text(step.get("node")) == "submit_intent" for step in steps):
+    if _has_submit_intent(steps) and not _has_submit_intent_downstream(steps):
         return "broken", "missing_downstream_after_submit_intent"
     if _has_order_submit_handoff(steps) and not _has_order_downstream(steps):
         return "broken", "missing_downstream_after_order_submit"
@@ -254,6 +257,18 @@ def _guardian_outcome_code(step: dict) -> str:
         if explicit:
             return explicit
     return _normalized_text(step.get("status")).lower()
+
+
+def _has_submit_intent(steps: list[dict]) -> bool:
+    return any(_normalized_text(step.get("node")) == "submit_intent" for step in steps)
+
+
+def _has_submit_intent_downstream(steps: list[dict]) -> bool:
+    return any(
+        _normalized_text(step.get("component"))
+        in _SUBMIT_INTENT_DOWNSTREAM_COMPONENTS
+        for step in steps
+    )
 
 
 def _has_order_submit_handoff(steps: list[dict]) -> bool:

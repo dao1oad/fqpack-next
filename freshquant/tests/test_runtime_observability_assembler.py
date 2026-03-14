@@ -157,21 +157,6 @@ def test_assemble_traces_marks_submit_without_downstream_as_broken():
         {
             "trace_id": "trc_tp_1",
             "intent_id": "int_tp_1",
-            "request_id": "req_tp_1",
-            "internal_order_id": "ord_tp_1",
-            "component": "order_submit",
-            "node": "tracking_create",
-            "status": "info",
-            "source": "tpsl_takeprofit",
-            "strategy_name": "Takeprofit",
-            "symbol": "000001",
-            "ts": "2026-03-09T10:00:01+08:00",
-        },
-        {
-            "trace_id": "trc_tp_1",
-            "intent_id": "int_tp_1",
-            "request_id": "req_tp_1",
-            "internal_order_id": "ord_tp_1",
             "component": "tpsl_worker",
             "node": "submit_intent",
             "status": "info",
@@ -179,7 +164,7 @@ def test_assemble_traces_marks_submit_without_downstream_as_broken():
             "strategy_name": "Takeprofit",
             "symbol": "000001",
             "payload": {"scope_type": "takeprofit_batch", "batch_id": "tp_batch_1"},
-            "ts": "2026-03-09T10:00:02+08:00",
+            "ts": "2026-03-09T10:00:01+08:00",
         },
     ]
 
@@ -189,3 +174,88 @@ def test_assemble_traces_marks_submit_without_downstream_as_broken():
     assert traces[0]["trace_kind"] == "takeprofit"
     assert traces[0]["trace_status"] == "broken"
     assert traces[0]["break_reason"] == "missing_downstream_after_submit_intent"
+
+
+def test_assemble_traces_prefers_order_submit_break_reason_after_submit_handoff():
+    events = [
+        {
+            "trace_id": "trc_guardian_1",
+            "intent_id": "int_guardian_1",
+            "component": "guardian_strategy",
+            "node": "submit_intent",
+            "status": "success",
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "symbol": "000001",
+            "ts": "2026-03-09T10:00:00+08:00",
+        },
+        {
+            "trace_id": "trc_guardian_1",
+            "intent_id": "int_guardian_1",
+            "request_id": "req_guardian_1",
+            "internal_order_id": "ord_guardian_1",
+            "component": "order_submit",
+            "node": "tracking_create",
+            "status": "info",
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "symbol": "000001",
+            "ts": "2026-03-09T10:00:01+08:00",
+        },
+    ]
+
+    traces = assemble_traces(events)
+
+    assert len(traces) == 1
+    assert traces[0]["trace_kind"] == "guardian_signal"
+    assert traces[0]["trace_status"] == "broken"
+    assert traces[0]["break_reason"] == "missing_downstream_after_order_submit"
+
+
+def test_assemble_traces_keeps_downstream_inflight_trace_open_after_submit_handoff():
+    events = [
+        {
+            "trace_id": "trc_guardian_2",
+            "intent_id": "int_guardian_2",
+            "component": "guardian_strategy",
+            "node": "submit_intent",
+            "status": "success",
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "symbol": "000001",
+            "ts": "2026-03-09T10:00:00+08:00",
+        },
+        {
+            "trace_id": "trc_guardian_2",
+            "intent_id": "int_guardian_2",
+            "request_id": "req_guardian_2",
+            "internal_order_id": "ord_guardian_2",
+            "component": "order_submit",
+            "node": "tracking_create",
+            "status": "info",
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "symbol": "000001",
+            "ts": "2026-03-09T10:00:01+08:00",
+        },
+        {
+            "trace_id": "trc_guardian_2",
+            "intent_id": "int_guardian_2",
+            "request_id": "req_guardian_2",
+            "internal_order_id": "ord_guardian_2",
+            "component": "broker_gateway",
+            "node": "queue_consume",
+            "status": "info",
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "symbol": "000001",
+            "ts": "2026-03-09T10:00:02+08:00",
+        },
+    ]
+
+    traces = assemble_traces(events)
+
+    assert len(traces) == 1
+    assert traces[0]["trace_kind"] == "guardian_signal"
+    assert traces[0]["trace_status"] == "open"
+    assert traces[0]["break_reason"] is None
