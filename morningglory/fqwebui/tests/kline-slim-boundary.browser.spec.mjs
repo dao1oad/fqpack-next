@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
+import path from 'node:path'
 
-import { runLockedBuild } from './vite-build-lock.mjs'
+import { createIsolatedViteArtifactsContext, runLockedBuild } from './vite-build-lock.mjs'
 import {
   cleanupServerPort,
   installVmHelpers,
@@ -16,6 +17,7 @@ const DEV_SERVER_PORT = 18088
 const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
 const TARGET_URL = `${DEV_SERVER_URL}/kline-slim?symbol=sz002262&period=5m`
 const DAY = '2026-03-12'
+const PREVIEW_ARTIFACTS = createIsolatedViteArtifactsContext(import.meta.url)
 
 let devServerProcess = null
 
@@ -110,28 +112,26 @@ function create15mPayload() {
 async function runBuild() {
   await runLockedBuild(
     () => {
-      if (process.platform === 'win32') {
-        return {
-          command: 'cmd.exe',
-          args: ['/d', '/s', '/c', 'pnpm build']
-        }
-      }
-
       return {
-        command: 'pnpm',
-        args: ['build']
+        command: process.execPath,
+        args: [path.join(process.cwd(), 'node_modules', 'vite', 'bin', 'vite.js'), 'build']
       }
     },
-    process.cwd()
+    process.cwd(),
+    {
+      outDir: PREVIEW_ARTIFACTS.outDirRelative
+    }
   )
 }
 
 test.beforeAll(async () => {
+  test.setTimeout(90000)
   cleanupServerPort(DEV_SERVER_PORT)
   await runBuild()
   devServerProcess = startPreviewServer({
     port: DEV_SERVER_PORT,
-    cwd: process.cwd()
+    cwd: process.cwd(),
+    outDir: PREVIEW_ARTIFACTS.outDirRelative
   })
 
   let startupOutput = ''
