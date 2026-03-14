@@ -1,9 +1,9 @@
 name: Symphony 任务
-description: 创建 FreshQuant 正式 Symphony 任务。默认只打 `symphony` 与 `todo`，不要在创建时预贴 `design-review`。
+description: 创建 FreshQuant 正式 Symphony 任务。默认只打 `symphony` 与 `in-progress`，Issue body 即执行合同。
 title: "[任务] "
 labels:
   - symphony
-  - todo
+  - in-progress
 body:
   - type: markdown
     attributes:
@@ -11,9 +11,9 @@ body:
         请使用这个模板创建新的 FreshQuant 正式任务。
 
         固定规则：
-        - 新 Issue 创建时默认只带 `symphony` 与 `todo`
-        - 不要在创建时预贴 `design-review`
-        - 是否需要 `Design Review` 由 Symphony 在首轮 `Todo` 风险判定后再决定
+        - 新 Issue 创建时默认只带 `symphony` 与 `in-progress`
+        - Issue body 即执行合同，方案应在创建或更新 Issue 时写清
+        - Symphony 不再等待 `Design Review` 或人工审批后才开始实现
         - 所有提交到 GitHub 的正式说明默认使用简体中文
   - type: textarea
     id: background
