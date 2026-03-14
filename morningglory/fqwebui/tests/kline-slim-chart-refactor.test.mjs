@@ -123,13 +123,16 @@ function createControllerStubChart() {
   const handlers = {}
   return {
     handlers,
+    setOptionCalls: [],
     on(name, handler) {
       handlers[name] = handler
     },
     off(name) {
       delete handlers[name]
     },
-    setOption() {},
+    setOption(option, options) {
+      this.setOptionCalls.push({ option, options })
+    },
     hideLoading() {},
     clear() {}
   }
@@ -392,4 +395,25 @@ test('controller forwards legend action events to the period selection callback'
       '15m': false
     }
   ])
+})
+
+test('controller replaces the full scene option instead of series replaceMerge when applying markArea layers', () => {
+  const chart = createControllerStubChart()
+  const controller = createKlineSlimChartController({
+    chart
+  })
+  const scene = buildKlineSlimChartScene({
+    mainData: createMainPayload(),
+    currentPeriod: '5m',
+    extraChanlunMap: {
+      '15m': createExtraPayload('15m')
+    },
+    visiblePeriods: ['15m']
+  })
+
+  controller.applyScene(scene)
+
+  assert.equal(chart.setOptionCalls.length, 1)
+  assert.equal(chart.setOptionCalls[0].options?.notMerge, true)
+  assert.equal(chart.setOptionCalls[0].options?.replaceMerge, undefined)
 })
