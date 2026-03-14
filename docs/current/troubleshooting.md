@@ -281,21 +281,44 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 先检查：
 - `docker compose -f docker/compose.parallel.yaml ps`
 - `Get-Service fq-symphony-orchestrator`
-- `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*freshquant.market_data.xtdata.market_producer*' -or $_.CommandLine -like '*freshquant.market_data.xtdata.strategy_consumer --prewarm*' -or $_.CommandLine -like '*freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event*' -or $_.CommandLine -like '*freshquant.position_management.worker*' -or $_.CommandLine -like '*freshquant.tpsl.tick_listener*' } | Select-Object ProcessId,CommandLine`
+- `Get-Service fqnext-supervisord`
+- `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status`
 - `powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface <surfaces>`
 
 常见根因：
 - `fq_mongodb` / `fq_redis` / 本轮要求存在的容器进入 `Restarting`、`Exited` 或 `unhealthy`
 - 本轮涉及 `runtime/symphony/**`，但 `fq-symphony-orchestrator` 没恢复到 `Running`
+- 本轮涉及宿主机 deployment surface，但 `fqnext-supervisord` 没恢复到 `Running`
 - deploy 前已在跑的关键进程被这轮 deploy 打掉，deploy 后没有恢复
 - 本轮明确要求恢复的 `market_data` / `guardian` / `position_management` / `tpsl` 进程没有重启成功
+- 本轮明确要求恢复的 `order_management` broker / worker 没重启成功
 - 自动化漏采 baseline，导致无法按“deploy 前已运行 -> deploy 后仍需存在”的规则判断
 
 处理：
 - 先按 `verify.json` 的 `docker_checks` / `service_checks` / `process_checks` 定位失败项，不要直接 cleanup
+- 如果宿主机 service 本身没起来，优先用 `script/invoke_fqnext_supervisord_restart_task.ps1` 恢复底座，再重新执行 host runtime control
 - 如果是代码问题，只创建或复用 follow-up issue，由下一轮 `Symphony` 接手
 - 如果是外部环境问题，在原 issue 记录 blocker / clear condition / evidence / target recovery state
 - 修复后重新执行 deploy、health check 和 runtime ops check，只有全部通过后才允许 cleanup / close
+
+## fqnext-supervisord 底座不可用
+
+现象：
+- `Get-Service fqnext-supervisord` 显示 `Stopped` 或 `Missing`
+- `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status` 无法返回 RPC 状态
+- `Global Stewardship` 在宿主机 deployment surface 上无法继续重启目标 program
+
+先检查：
+- `Get-Service fqnext-supervisord`
+- `powershell -ExecutionPolicy Bypass -File script/invoke_fqnext_supervisord_restart_task.ps1`
+- `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status`
+
+处理：
+- 如果 service 尚未安装，在提升权限会话执行：
+  - `powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_service.ps1`
+  - `powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_restart_task.ps1`
+- 如果 service 已安装但普通会话无权恢复，走 `fqnext-supervisord-restart` 管理员桥接任务
+- 恢复后再执行 `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface <surfaces> -BridgeIfServiceUnavailable`
 
 ## Symphony / Global Stewardship 卡住
 

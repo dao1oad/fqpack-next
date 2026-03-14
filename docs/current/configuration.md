@@ -141,6 +141,12 @@ vendored `QUANTAXIS` 当前 Mongo 解析规则：
   - 宿主机配置样例。
 - `deployment/examples/supervisord.fqnext.example.conf`
   - 宿主机进程编排样例；当前 `PYTHONPATH` 口径应同时包含仓库根、`morningglory/fqxtrade` 和 `sunflower/QUANTAXIS`。
+- 正式宿主机入口当前收敛为：
+  - service：`fqnext-supervisord`
+  - 配置：`D:/fqpack/config/supervisord.fqnext.conf`
+  - RPC：`http://127.0.0.1:10011/RPC2`
+  - 管理员桥接任务：`fqnext-supervisord-restart`
+  - 兼容人工启动器：`D:/fqpack/supervisord/frequant-next.bat`（非正式入口）
 
 ## 配置变更约束
 
