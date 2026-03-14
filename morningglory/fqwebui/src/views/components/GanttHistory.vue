@@ -52,7 +52,7 @@
             :key="String(item.id)"
             class="sidebar-link"
             :class="{ active: isHoveredPlate(item.id) }"
-            :style="{ height: `${sidebarRowHeight}px` }"
+            :style="{ height: `${sidebarRowHeight}px`, minHeight: `${sidebarRowHeight}px` }"
             :href="getPlateUrl(item.id)"
             target="_blank"
             rel="noopener noreferrer"
@@ -444,7 +444,7 @@ const syncPlateSidebarFromChart = () => {
   const usableHeight = Math.max(0, chartHeight - GRID_TOP - GRID_BOTTOM)
   const visibleCount = visibleItems.length || 1
   sidebarRowHeight.value = usableHeight > 0
-    ? Math.max(24, usableHeight / visibleCount)
+    ? Math.max(1, usableHeight / visibleCount)
     : DEFAULT_SIDEBAR_ROW_HEIGHT
 }
 
@@ -1081,7 +1081,7 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   align-items: center;
   padding: 0 14px;
-  min-height: 24px;
+  min-height: 0;
   box-sizing: border-box;
   color: #409eff;
   text-decoration: none;
