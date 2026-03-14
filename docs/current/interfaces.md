@@ -29,8 +29,10 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/gantt/shouban30/plates`
 - `/api/gantt/shouban30/stocks`
 - `/api/gantt/shouban30/pre-pool`
+- `/api/gantt/shouban30/pre-pool/append`
 - `/api/gantt/shouban30/pre-pool/replace`
 - `/api/gantt/shouban30/pre-pool/add-to-stock-pools`
+- `/api/gantt/shouban30/pre-pool/sync-to-stock-pool`
 - `/api/gantt/shouban30/pre-pool/delete`
 - `/api/gantt/shouban30/pre-pool/clear`
 - `/api/gantt/shouban30/pre-pool/sync-to-tdx`
@@ -151,4 +153,7 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - 仓位管理页面使用独立 `/api/position-management/*` 读模型接口，因为它需要同时返回配置 inventory、effective state、holding scope 和规则矩阵。
 - TPSL 管理页通过 `/api/tpsl/management/*` 和 `/api/tpsl/history` 读取 symbol 汇总、buy lot 止损和统一触发历史；止盈/止损写操作仍分别复用 `/api/tpsl/takeprofit/*` 与 `/api/order-management/stoploss/bind`。
 - `/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 当前正式时间参数是 `days` 与 `end_date`；返回 `meta` 会同时携带兼容别名 `stock_window_days` 与 `as_of_date`，其中 `end_date` 是自然日窗口终点，`as_of_date` 是实际命中的快照交易日。
-- `/api/gantt/shouban30/pre-pool/replace` 当前正式时间上下文字段是 `days` 与 `end_date`；后端写入工作区 extra 时会同步保留旧 `stock_window_days/as_of_date` 兼容字段。
+- `/api/gantt/shouban30/pre-pool/append` 用于把单个板块结果追加到 `pre_pool`；它只做 append + 去重，不写 `.blk`。
+- `/api/gantt/shouban30/pre-pool/sync-to-stock-pool` 用于把当前 `pre_pool` 中缺失于 `stock_pool` 的标的按 `pre_pool` 当前顺序追加到 `stock_pool` 末尾。
+- `/api/gantt/shouban30/pre-pool/replace` 仍保留兼容，但 `/gantt/shouban30` 页面不再用“筛选”按钮调用它；当前页面筛选只更新本页结果，不落库。
+- `stock_pool` 页面当前只暴露同步到通达信与删除语义；兼容接口 `/api/gantt/shouban30/stock-pool/add-to-must-pool` 仍保留，但不再是 `/gantt/shouban30` 的正式交互路径。
