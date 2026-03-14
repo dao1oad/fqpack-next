@@ -118,8 +118,10 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 修正 `monitor.xtdata.mode` 与 `monitor.xtdata.max_symbols`
 - 重启 producer / consumer
 - 通过 runtime 页面看：
-  - `xt_producer` 的心跳年龄、`收 tick`、`5m ticks`、`订阅`
-  - `xt_consumer` 的心跳年龄、`最近处理`、`5m bars`、`backlog`
+  - 在组件 Event 视图看 `xt_producer` 的 `bootstrap` / `config_resolve` / `subscription_load` / `heartbeat`
+  - 在组件 Event 视图看 `xt_consumer` 的 `bootstrap` / `heartbeat`
+  - 在 health 卡片上看 `xt_producer` 的心跳年龄、`收 tick`、`5m ticks`、`订阅`
+  - 在 health 卡片上看 `xt_consumer` 的心跳年龄、`最近处理`、`5m bars`、`backlog`
 
 ## Guardian 不触发或不下单
 
@@ -140,7 +142,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 处理：
 - 查 runtime 里的 `guardian_strategy`、`position_gate`、`order_submit`
-- 在 `/runtime-observability` 左侧组件侧栏选中 `guardian_strategy`，先看中间 recent trace 的信号摘要、节点 hover 和最终结论
+- 在 `/runtime-observability` 先切到全局 Trace，优先看 `trace_kind=guardian_signal` 的最近链路
 - 节点详情优先看 `decision_expr`、`decision_context`、`decision_outcome`，Raw Browser 只作为补充
 - 需要时清理冷却键并重启 Guardian
 
@@ -258,6 +260,27 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 若日志里出现 `skipping invalid jygs theme rows`，说明是上游单条主题缺 `reason`；先核对该 trade_date 其他主题是否已正常落库，再确认是否需要人工补录该主题说明
 - 若目标交易日既没有真实 `jygs` 数据，也没有 `is_empty_result=true` marker，说明 recent hole scan 还没覆盖到；继续补跑 Dagster
 
+## Shouban30 `sync-to-tdx` 成功但宿主机 `.blk` 不变
+
+现象：
+- `/api/gantt/shouban30/pre-pool/sync-to-tdx` 或 `/api/gantt/shouban30/stock-pool/sync-to-tdx` 返回 `200`
+- 但 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk` 没变化
+
+先检查：
+- `docker compose -f docker/compose.parallel.yaml config`
+- `docker compose -f docker/compose.parallel.yaml exec fq_apiserver sh -lc "ls -la /opt/tdx/T0002/blocknew"`
+- `docker compose -f docker/compose.parallel.yaml exec fq_apiserver sh -lc "python - <<'PY'\nfrom freshquant.config import settings\nprint(settings.get('tdx'))\nPY"`
+
+常见根因：
+- `fq_apiserver` 没有挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}:/opt/tdx`
+- `FRESHQUANT_TDX__HOME` 没指到 `/opt/tdx`
+- 宿主机目录不是 `D:\tdx_biduan`，但 `FQPACK_TDX_SYNC_DIR` 没同步调整
+
+处理：
+- 在 `docker/compose.parallel.yaml` 确认 `fq_apiserver` 挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}` 到 `/opt/tdx`
+- 确认 Docker env file 中 `FRESHQUANT_TDX__HOME=/opt/tdx`
+- 重建 `fq_apiserver` 后，再核对 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`
+
 ## Runtime Observability 无 trace
 
 现象：
@@ -272,13 +295,15 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 业务进程没启用或没走到 runtime logger。
 - 路径被环境变量指到别的目录。
 - 页面筛选条件过严。
-- 原始事件只有 `heartbeat`，或缺少 `trace_id` / `request_id` / `internal_order_id`，因此不会进入 trace 列表。
+- 原始事件只有 `heartbeat`，或缺少 `trace_id` / `intent_id` / `request_id` / `internal_order_id`，因此不会进入全局 Trace 列表。
 - 组件卡片是固定核心组件全集；如果显示 `unknown / no data`，说明组件存在但最近没有可聚合的 health 数据。
 - `/api/runtime/traces` 与 `/api/runtime/health/summary` 已有数据，但 `fq_webui` 仍在跑旧静态资源，或页面代码仍按 `response.data.*` 读取而不是读取顶层 `traces/components/trace/files/records`。
+- 当前 pytest 默认会把 runtime root 指向临时目录；如果现场页面里仍出现 `remark=pytest`、`ord_test_1`、`tp_batch_1` 一类样本，优先怀疑页面读到的不是正式现场目录。
 
 处理：
 - 直接 tail 原始文件，而不是只看页面
-- 先看 `/api/runtime/events` 或 raw browser，确认最近事件是否带关联键
+- 先看 `/api/runtime/events` 或 raw browser，确认最近事件是否带强关联键
+- 如果目标是确认 `xt_producer` / `xt_consumer` 是否还活着，优先切到组件 Event 视图，不要把 heartbeat 当 Trace 缺失
 - 清空筛选后刷新页面
 - 如果 API 有数据但页面统计卡、recent feed、component board 全空，优先重建并重新部署 `fq_webui`，然后强刷浏览器缓存
 

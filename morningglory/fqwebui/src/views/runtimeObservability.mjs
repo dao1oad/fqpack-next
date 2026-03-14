@@ -1,6 +1,16 @@
 const toText = (value) => String(value || '').trim()
 const ISSUE_STATUSES = new Set(['warning', 'failed', 'error', 'skipped'])
 const DETAIL_FIELDS = ['trace_id', 'intent_id', 'request_id', 'internal_order_id', 'symbol', 'action']
+export const TRACE_QUERY_FIELDS = ['trace_id', 'intent_id', 'request_id', 'internal_order_id', 'symbol', 'component', 'runtime_node']
+export const TRACE_QUERY_LABELS = {
+  trace_id: 'Trace',
+  intent_id: 'Intent',
+  request_id: 'Request',
+  internal_order_id: 'Order',
+  symbol: 'Symbol',
+  component: '组件',
+  runtime_node: '节点',
+}
 const CORE_COMPONENTS = [
   'xt_producer',
   'xt_consumer',
@@ -40,6 +50,21 @@ const STATUS_SEVERITY = {
   unknown: 2,
   info: 1,
   success: 1,
+}
+const TRACE_KIND_LABELS = {
+  guardian_signal: 'Guardian',
+  takeprofit: 'Takeprofit',
+  stoploss: 'Stoploss',
+  external_reported: 'External Reported',
+  external_inferred: 'External Inferred',
+  manual_api_order: 'Manual API',
+  unknown: 'Unknown',
+}
+const TRACE_STATUS_LABELS = {
+  open: 'Open',
+  completed: 'Completed',
+  stalled: 'Stalled',
+  broken: 'Broken',
 }
 const GUARDIAN_COMPONENT = 'guardian_strategy'
 const GUARDIAN_NODE_LABELS = {
@@ -369,6 +394,23 @@ const summarizeGuardianContext = (blocks = []) => {
   return snippets.join('; ')
 }
 
+const normalizeEvents = (events = []) => (Array.isArray(events) ? events : [])
+
+const buildEventBadges = (event = {}) => {
+  const badges = []
+  for (const [key, label] of [
+    ['trace_id', 'trace'],
+    ['request_id', 'request'],
+    ['internal_order_id', 'order'],
+    ['intent_id', 'intent'],
+  ]) {
+    const value = toText(event?.[key])
+    if (!value) continue
+    badges.push(`${label} ${value}`)
+  }
+  return badges
+}
+
 const buildStepOutcomeLabel = (step = {}) => {
   const guardianStep = step?.guardian_step || buildGuardianStepInsight(step)
   if (guardianStep?.outcome?.label) return guardianStep.outcome.label
@@ -481,21 +523,40 @@ export const buildTraceFlowNodes = (steps = []) => {
 
 export const buildTraceQuery = (form = {}) => {
   const query = {}
-  for (const key of ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component', 'runtime_node']) {
+  for (const key of TRACE_QUERY_FIELDS) {
     const value = toText(form[key])
     if (value) query[key] = value
   }
   return query
 }
 
+export const createTraceQueryState = () => Object.fromEntries(
+  TRACE_QUERY_FIELDS.map((field) => [field, '']),
+)
+
 export const summarizeTrace = (trace = {}) => {
   const detail = buildTraceDetail(trace)
   const summaryMeta = buildTraceSummaryMeta(detail)
   const guardianTrace = buildGuardianTraceSummary(detail)
   const lastStep = detail.steps[detail.steps.length - 1] || {}
+  const traceKind = toText(trace?.trace_kind) || 'unknown'
+  const traceStatus = toText(trace?.trace_status) || (detail.issue_count > 0 ? 'broken' : 'open')
   return {
     trace_key: toText(trace?.trace_key) || null,
     trace_id: detail.trace_id,
+    trace_kind: traceKind,
+    trace_kind_label: TRACE_KIND_LABELS[traceKind] || traceKind || 'Unknown',
+    trace_status: traceStatus,
+    trace_status_label: TRACE_STATUS_LABELS[traceStatus] || traceStatus || 'Open',
+    break_reason: toText(trace?.break_reason),
+    first_ts: detail.first_ts,
+    last_ts: detail.last_ts,
+    duration_ms: detail.duration_ms,
+    duration_label: detail.duration_label,
+    entry_component: detail.entry_component,
+    entry_node: detail.entry_node,
+    exit_component: detail.exit_component,
+    exit_node: detail.exit_node,
     request_ids: detail.request_ids,
     internal_order_ids: detail.internal_order_ids,
     step_count: detail.step_count,
@@ -508,13 +569,57 @@ export const summarizeTrace = (trace = {}) => {
     slowest_step_label: summaryMeta.slowest_step?.delta_from_prev_label || '-',
     last_node: toText(lastStep.node) || '-',
     last_status: toText(lastStep.status) || 'info',
-    last_ts: toText(lastStep.ts) || '',
     path_nodes: buildTracePathNodes(detail.steps),
     path_summary: buildTracePathSummary(detail.steps),
     flow_nodes: buildTraceFlowNodes(detail.steps),
     guardian_signal: guardianTrace?.signal || null,
     guardian_outcome: guardianTrace?.conclusion || null,
   }
+}
+
+export const buildTraceIdentityLabel = (trace = {}) => {
+  if (trace?.trace_id) return `trace ${trace.trace_id}`
+  if (trace?.intent_ids?.length) return `intent ${trace.intent_ids[0]}`
+  if (trace?.request_ids?.length) return `request ${trace.request_ids[0]}`
+  if (trace?.internal_order_ids?.length) return `order ${trace.internal_order_ids[0]}`
+  return trace?.trace_key || '-'
+}
+
+export const buildComponentEventFeed = (events = [], options = {}) => {
+  const component = toText(options?.component)
+  const runtimeNode = toText(options?.runtime_node)
+  const onlyIssues = Boolean(options?.onlyIssues)
+  const limit = Math.max(Number(options?.limit || 50), 0)
+  return normalizeEvents(events)
+    .filter((event) => {
+      if (component && toText(event?.component) !== component) return false
+      if (runtimeNode && normalizeRuntimeNode(event?.runtime_node) !== normalizeRuntimeNode(runtimeNode)) return false
+      if (onlyIssues && !ISSUE_STATUSES.has(toText(event?.status))) return false
+      return true
+    })
+    .sort((left, right) => toText(right?.ts).localeCompare(toText(left?.ts)))
+    .slice(0, limit)
+    .map((event, index) => ({
+      ...event,
+      key: [
+        toText(event?.component),
+        toText(event?.runtime_node),
+        toText(event?.node),
+        toText(event?.ts),
+        index,
+      ].join('|'),
+      component: toText(event?.component) || 'runtime',
+      runtime_node: normalizeRuntimeNode(event?.runtime_node),
+      node: toText(event?.node) || 'event',
+      event_type: toText(event?.event_type) || 'trace_step',
+      status: toText(event?.status) || 'info',
+      ts: toText(event?.ts) || '',
+      badges: buildEventBadges(event),
+      summary: toText(event?.message) || summarizeInlineValue(event?.payload) || summarizeInlineValue(event?.metrics),
+      summary_metrics: buildHealthHighlights(event?.metrics || {}),
+      payload_text: buildJsonBlock(event?.payload),
+      metrics_text: buildJsonBlock(event?.metrics),
+    }))
 }
 
 export const findTraceByRow = (traces = [], row = {}) => {
@@ -596,7 +701,10 @@ export const buildTraceDetail = (trace = {}) => {
   let previousTsMs = null
   const steps = sourceSteps.map((step, index) => {
     const tsMs = parseTimestampMs(step?.ts)
-    const deltaFromPrevMs = previousTsMs === null || tsMs === null ? null : Math.max(0, tsMs - previousTsMs)
+    const explicitDeltaFromPrevMs = Number.isFinite(step?.delta_prev_ms) ? Number(step.delta_prev_ms) : null
+    const deltaFromPrevMs = explicitDeltaFromPrevMs === null
+      ? previousTsMs === null || tsMs === null ? null : Math.max(0, tsMs - previousTsMs)
+      : explicitDeltaFromPrevMs
     if (tsMs !== null) previousTsMs = tsMs
     const status = toText(step?.status) || 'info'
     const detailFields = DETAIL_FIELDS
@@ -611,6 +719,7 @@ export const buildTraceDetail = (trace = {}) => {
       status,
       is_issue: ISSUE_STATUSES.has(status),
       ts_ms: tsMs,
+      offset_ms: Number.isFinite(step?.offset_ms) ? Number(step.offset_ms) : null,
       delta_from_prev_ms: deltaFromPrevMs,
       delta_from_prev_label: deltaFromPrevMs === null ? '' : formatDurationMs(deltaFromPrevMs),
       tags: buildStepTags(step),
@@ -622,12 +731,36 @@ export const buildTraceDetail = (trace = {}) => {
   })
   const firstTsMs = steps.find((item) => item.ts_ms !== null)?.ts_ms ?? null
   const lastTsMs = [...steps].reverse().find((item) => item.ts_ms !== null)?.ts_ms ?? null
-  const totalDurationMs = firstTsMs === null || lastTsMs === null ? null : Math.max(0, lastTsMs - firstTsMs)
+  const explicitDurationMs = Number.isFinite(trace?.duration_ms) ? Number(trace.duration_ms) : null
+  const totalDurationMs = explicitDurationMs === null
+    ? firstTsMs === null || lastTsMs === null ? null : Math.max(0, lastTsMs - firstTsMs)
+    : explicitDurationMs
   const issueSteps = steps.filter((item) => item.is_issue)
   const lastStep = steps[steps.length - 1] || null
+  const slowestStep = trace?.slowest_step && typeof trace.slowest_step === 'object'
+    ? {
+        ...trace.slowest_step,
+        delta_from_prev_ms: Number(trace.slowest_step?.delta_prev_ms ?? trace.slowest_step?.delta_from_prev_ms ?? 0),
+        delta_from_prev_label: formatDurationMs(Number(trace.slowest_step?.delta_prev_ms ?? trace.slowest_step?.delta_from_prev_ms ?? 0)),
+      }
+    : [...steps]
+        .filter((item) => Number.isFinite(item?.delta_from_prev_ms))
+        .sort((left, right) => Number(right.delta_from_prev_ms || 0) - Number(left.delta_from_prev_ms || 0))[0] || null
   return {
     trace_key: toText(trace?.trace_key) || null,
     trace_id: toText(trace?.trace_id) || null,
+    trace_kind: toText(trace?.trace_kind) || 'unknown',
+    trace_status: toText(trace?.trace_status) || (issueSteps.length > 0 ? 'broken' : 'open'),
+    break_reason: toText(trace?.break_reason),
+    first_ts: toText(trace?.first_ts) || toText(steps.find((item) => item.ts)?.ts),
+    last_ts: toText(trace?.last_ts) || toText(lastStep?.ts),
+    duration_ms: totalDurationMs,
+    duration_label: totalDurationMs === null ? '-' : formatDurationMs(totalDurationMs),
+    entry_component: toText(trace?.entry_component) || toText(steps[0]?.component) || '-',
+    entry_node: toText(trace?.entry_node) || toText(steps[0]?.node) || '-',
+    exit_component: toText(trace?.exit_component) || toText(lastStep?.component) || '-',
+    exit_node: toText(trace?.exit_node) || toText(lastStep?.node) || '-',
+    slowest_step: slowestStep,
     intent_ids: Array.isArray(trace.intent_ids) ? trace.intent_ids : [],
     request_ids: Array.isArray(trace.request_ids) ? trace.request_ids : [],
     internal_order_ids: Array.isArray(trace.internal_order_ids) ? trace.internal_order_ids : [],
@@ -640,7 +773,7 @@ export const buildTraceDetail = (trace = {}) => {
     total_duration_label: totalDurationMs === null ? '-' : formatDurationMs(totalDurationMs),
     last_status: toText(lastStep?.status) || 'info',
     last_node: toText(lastStep?.node) || '-',
-    last_ts: toText(lastStep?.ts) || '',
+    last_ts: toText(trace?.last_ts) || toText(lastStep?.ts) || '',
     guardian_trace: buildGuardianTraceSummary({ steps }),
   }
 }
@@ -658,7 +791,7 @@ export const pickDefaultTraceStep = (steps = []) => {
 export const buildTraceSummaryMeta = (detail = {}) => {
   const steps = Array.isArray(detail?.steps) ? detail.steps : []
   const issueSteps = steps.filter((step) => step?.is_issue)
-  const slowestStep = [...steps]
+  const slowestStep = detail?.slowest_step || [...steps]
     .filter((step) => Number.isFinite(step?.delta_from_prev_ms))
     .sort((left, right) => Number(right.delta_from_prev_ms || 0) - Number(left.delta_from_prev_ms || 0))[0] || null
   const affectedComponents = [...new Set(

@@ -78,6 +78,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - `stock_pre_pools / stock_pools / must_pool` 是策略与页面共享的工作区/订阅范围集合。
 - Gantt/Shouban30 集合是只读视图与筛选结果，不参与订单账本。
 - `fq_memory` 是 agent 旁路上下文库，不参与交易链、订单账本或正式运行真值。
+- Shouban30 当前把 `stock_pre_pools.extra.shouban30_order` 与 `stock_pools.extra.shouban30_order` 作为页面列表顺序和 `.blk` 输出顺序真值；历史 `stock_pools` 记录缺失该字段时，读取顺序兼容回退到旧 `datetime desc`。
 
 ## Redis 当前角色
 
@@ -105,7 +106,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - Order submit 写 `om_order_requests`、`om_orders`、`om_order_events`，并把 broker payload 推到 Redis。
 - XT 回报 ingest 写 `om_trade_facts`、`om_buy_lots`、`om_lot_slices`、`om_sell_allocations` 等。
 - TPSL 读 `xt_positions` 与 `om_*`，写 `om_takeprofit_*` / `om_exit_trigger_events`。
-- Gantt/Shouban30 API 读 gantt 库，并在工作区操作时写 `stock_pre_pools`、`stock_pools`、`must_pool`。
+- Gantt/Shouban30 API 读 gantt 库，并在工作区操作时写 `stock_pre_pools`、`stock_pools`；`must_pool` 仍由独立接口或页面外链路维护。
 
 ## 当前排障原则
 

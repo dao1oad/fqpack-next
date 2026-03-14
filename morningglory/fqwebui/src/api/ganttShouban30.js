@@ -72,6 +72,14 @@ export const replaceShouban30PrePool = (payload = {}) => {
   })
 }
 
+export const appendShouban30PrePool = (payload = {}) => {
+  return http({
+    url: '/api/gantt/shouban30/pre-pool/append',
+    method: 'post',
+    data: payload
+  })
+}
+
 export const getShouban30PrePool = () => {
   return http({
     url: '/api/gantt/shouban30/pre-pool',
@@ -86,6 +94,13 @@ export const addShouban30PrePoolToStockPool = ({ code6 } = {}) => {
     data: {
       code6: String(code6 || '').trim()
     }
+  })
+}
+
+export const syncShouban30PrePoolToStockPool = () => {
+  return http({
+    url: '/api/gantt/shouban30/pre-pool/sync-to-stock-pool',
+    method: 'post'
   })
 }
 

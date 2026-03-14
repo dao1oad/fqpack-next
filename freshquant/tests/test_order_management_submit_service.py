@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import freshquant.order_management.submit.service as submit_service_module
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.position_management.models import PositionDecision
 
@@ -175,3 +178,35 @@ def test_credit_buy_persists_resolved_credit_metadata_and_queue_payload():
     assert result["queue_payload"]["credit_trade_mode"] == "auto"
     assert result["queue_payload"]["credit_trade_mode_resolved"] == "finance_buy"
     assert result["queue_payload"]["broker_order_type"] == 27
+
+
+def test_submit_service_default_runtime_logger_uses_isolated_test_runtime_root():
+    repository = InMemoryRepository()
+    queue_client = FakeQueueClient()
+    service = OrderSubmitService(
+        repository=repository,
+        queue_client=queue_client,
+        position_management_service=AllowingPositionService(),
+        account_type_loader=lambda: "STOCK",
+    )
+
+    service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.12,
+            "quantity": 500,
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "remark": "pytest",
+        }
+    )
+
+    logger = submit_service_module._get_runtime_logger()
+    logger.close()
+    snapshot = logger.snapshot()
+    emitted_path = Path(snapshot["path"]).resolve()
+    formal_root = Path("logs/runtime").resolve()
+
+    assert snapshot["written"] >= 1
+    assert not emitted_path.is_relative_to(formal_root)

@@ -3,9 +3,12 @@ import assert from 'node:assert/strict'
 import * as runtimeObservability from './runtimeObservability.mjs'
 
 import {
+  buildTraceIdentityLabel,
   applyBoardFilter,
   buildComponentBoard,
+  buildComponentEventFeed,
   buildComponentSidebarItems,
+  createTraceQueryState,
   buildGuardianStepInsight,
   buildGuardianTraceSummary,
   buildTraceListSummary,
@@ -28,6 +31,7 @@ import {
   pickDefaultTraceStep,
   sortTraceSummaries,
   summarizeTrace,
+  TRACE_QUERY_FIELDS,
 } from './runtimeObservability.mjs'
 
 const makeTrace = ({
@@ -176,6 +180,7 @@ test('buildTraceQuery trims empty fields', () => {
   assert.deepEqual(
     buildTraceQuery({
       trace_id: ' trc_1 ',
+      intent_id: ' int_1 ',
       request_id: '',
       internal_order_id: '   ',
       symbol: '000001',
@@ -183,9 +188,35 @@ test('buildTraceQuery trims empty fields', () => {
     }),
     {
       trace_id: 'trc_1',
+      intent_id: 'int_1',
       symbol: '000001',
       runtime_node: 'host:broker',
     },
+  )
+})
+
+test('trace query state includes intent_id for strong-key filtering', () => {
+  assert.equal(TRACE_QUERY_FIELDS.includes('intent_id'), true)
+  assert.deepEqual(createTraceQueryState(), {
+    trace_id: '',
+    intent_id: '',
+    request_id: '',
+    internal_order_id: '',
+    symbol: '',
+    component: '',
+    runtime_node: '',
+  })
+})
+
+test('buildTraceIdentityLabel falls back to intent before request and order', () => {
+  assert.equal(
+    buildTraceIdentityLabel({
+      trace_key: 'intent:int_1',
+      intent_ids: ['int_1'],
+      request_ids: ['req_1'],
+      internal_order_ids: ['ord_1'],
+    }),
+    'intent int_1',
   )
 })
 
@@ -288,6 +319,119 @@ test('buildRecentTraceFeed carries guardian signal summary and conclusion', () =
   assert.equal(feed[0].guardian_outcome.label, '跳过')
   assert.equal(feed[0].guardian_outcome.reason_code, 'price_threshold_not_met')
   assert.equal(feed[0].guardian_outcome.node, 'finish')
+})
+
+test('buildRecentTraceFeed preserves backend trace metadata for global trace view', () => {
+  const feed = buildRecentTraceFeed([
+    {
+      trace_id: 'trc_trace_meta',
+      trace_key: 'trace:trc_trace_meta',
+      trace_kind: 'takeprofit',
+      trace_status: 'broken',
+      break_reason: 'missing_downstream_after_submit_intent',
+      first_ts: '2026-03-09T10:00:00+08:00',
+      last_ts: '2026-03-09T10:00:03+08:00',
+      duration_ms: 3000,
+      entry_component: 'tpsl_worker',
+      entry_node: 'batch_create',
+      exit_component: 'tpsl_worker',
+      exit_node: 'submit_intent',
+      request_ids: ['req_trace_meta'],
+      internal_order_ids: ['ord_trace_meta'],
+      steps: [
+        {
+          component: 'tpsl_worker',
+          node: 'batch_create',
+          status: 'info',
+          ts: '2026-03-09T10:00:00+08:00',
+          trace_id: 'trc_trace_meta',
+          request_id: 'req_trace_meta',
+          internal_order_id: 'ord_trace_meta',
+        },
+        {
+          component: 'tpsl_worker',
+          node: 'submit_intent',
+          status: 'info',
+          ts: '2026-03-09T10:00:03+08:00',
+          trace_id: 'trc_trace_meta',
+          request_id: 'req_trace_meta',
+          internal_order_id: 'ord_trace_meta',
+        },
+      ],
+    },
+  ])
+
+  assert.equal(feed[0].trace_kind, 'takeprofit')
+  assert.equal(feed[0].trace_status, 'broken')
+  assert.equal(feed[0].break_reason, 'missing_downstream_after_submit_intent')
+  assert.equal(feed[0].first_ts, '2026-03-09T10:00:00+08:00')
+  assert.equal(feed[0].last_ts, '2026-03-09T10:00:03+08:00')
+  assert.equal(feed[0].entry_component, 'tpsl_worker')
+  assert.equal(feed[0].exit_node, 'submit_intent')
+})
+
+test('buildComponentEventFeed keeps heartbeat and bootstrap events for component event view', () => {
+  const feed = buildComponentEventFeed(
+    [
+      {
+        component: 'xt_producer',
+        runtime_node: 'host:xt_producer',
+        node: 'bootstrap',
+        event_type: 'bootstrap',
+        status: 'info',
+        ts: '2026-03-09T10:00:00+08:00',
+      },
+      {
+        component: 'xt_producer',
+        runtime_node: 'host:xt_producer',
+        node: 'heartbeat',
+        event_type: 'heartbeat',
+        status: 'info',
+        metrics: { connected: 1, subscribed_codes: 20 },
+        ts: '2026-03-09T10:05:00+08:00',
+      },
+      {
+        component: 'order_submit',
+        runtime_node: 'host:rear',
+        node: 'tracking_create',
+        event_type: 'trace_step',
+        status: 'info',
+        ts: '2026-03-09T10:04:00+08:00',
+      },
+    ],
+    {
+      component: 'xt_producer',
+    },
+  )
+
+  assert.deepEqual(
+    feed.map((item) => ({
+      node: item.node,
+      event_type: item.event_type,
+      runtime_node: item.runtime_node,
+    })),
+    [
+      {
+        node: 'heartbeat',
+        event_type: 'heartbeat',
+        runtime_node: 'host:xt_producer',
+      },
+      {
+        node: 'bootstrap',
+        event_type: 'bootstrap',
+        runtime_node: 'host:xt_producer',
+      },
+    ],
+  )
+  assert.deepEqual(
+    feed[0].summary_metrics.find((item) => item.label === '连接'),
+    {
+      key: 'connected',
+      label: '连接',
+      value: 1,
+      display: 'yes',
+    },
+  )
 })
 
 test('buildRecentTraceFeed exposes flow nodes with guardian decision detail and generic fallback summary', () => {
