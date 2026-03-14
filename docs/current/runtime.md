@@ -109,7 +109,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build fq_mongodb fq_redis
 python -m freshquant.market_data.xtdata.market_producer
 python -m freshquant.market_data.xtdata.strategy_consumer --prewarm
 python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
-python -m freshquant.position_management.worker --interval 3
+python -m freshquant.position_management.worker
 python -m freshquant.tpsl.tick_listener
 ```
 

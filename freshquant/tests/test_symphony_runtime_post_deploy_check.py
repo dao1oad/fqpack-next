@@ -288,3 +288,123 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
         check["id"] == "market_data_consumer" and check["passed"] is True
         for check in payload["process_checks"]
     )
+
+
+def test_verify_rejects_unknown_deployment_surface(tmp_path: Path) -> None:
+    baseline_path = _write_json(
+        tmp_path / "baseline.json",
+        {
+            "baseline": {
+                "docker": [],
+                "services": [],
+                "processes": [],
+            }
+        },
+    )
+    docker_path = _write_json(
+        tmp_path / "docker.json",
+        [
+            {
+                "Name": "fq_mongodb",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+            {
+                "Name": "fq_redis",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+        ],
+    )
+    service_path = _write_json(tmp_path / "services.json", [])
+    process_path = _write_json(tmp_path / "processes.json", [])
+    output_path = tmp_path / "verify.json"
+
+    result = _run_powershell(
+        SCRIPT,
+        "-Mode",
+        "Verify",
+        "-BaselinePath",
+        str(baseline_path),
+        "-OutputPath",
+        str(output_path),
+        "-DeploymentSurface",
+        "api,order_management",
+        "-DockerSnapshotPath",
+        str(docker_path),
+        "-ServiceSnapshotPath",
+        str(service_path),
+        "-ProcessSnapshotPath",
+        str(process_path),
+    )
+
+    assert result.returncode != 0
+    error_text = result.stderr + result.stdout
+    assert "order_management" in error_text
+    assert "unknown deployment surface" in error_text.lower()
+
+
+def test_verify_matches_position_worker_without_explicit_interval_flag(
+    tmp_path: Path,
+) -> None:
+    baseline_path = _write_json(
+        tmp_path / "baseline.json",
+        {
+            "baseline": {
+                "docker": [],
+                "services": [],
+                "processes": [
+                    {"id": "position_management_worker", "running": False},
+                ],
+            }
+        },
+    )
+    docker_path = _write_json(
+        tmp_path / "docker.json",
+        [
+            {
+                "Name": "fq_mongodb",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+            {
+                "Name": "fq_redis",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+        ],
+    )
+    service_path = _write_json(tmp_path / "services.json", [])
+    process_path = _write_json(
+        tmp_path / "processes.json",
+        [
+            {
+                "ProcessId": 501,
+                "Name": "python.exe",
+                "CommandLine": "python -m freshquant.position_management.worker",
+            }
+        ],
+    )
+    output_path = tmp_path / "verify.json"
+
+    result = _run_powershell(
+        SCRIPT,
+        "-Mode",
+        "Verify",
+        "-BaselinePath",
+        str(baseline_path),
+        "-OutputPath",
+        str(output_path),
+        "-DeploymentSurface",
+        "position_management",
+        "-DockerSnapshotPath",
+        str(docker_path),
+        "-ServiceSnapshotPath",
+        str(service_path),
+        "-ProcessSnapshotPath",
+        str(process_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["passed"] is True
+    assert any(
+        check["id"] == "position_management_worker" and check["passed"] is True
+        for check in payload["process_checks"]
+    )

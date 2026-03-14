@@ -75,7 +75,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/invoke_freshqu
 | --- | --- | --- |
 | `freshquant/rear/**` | API Server | 重建 `fq_apiserver` 容器或重启 API 进程 |
 | `freshquant/order_management/**` | 订单管理、API、broker/ingest 相关宿主机进程 | 重建 API；若涉及 submit/ingest/gateway，同步重启宿主机交易链进程 |
-| `freshquant/position_management/**` | 仓位管理 | 重启 `python -m freshquant.position_management.worker --interval 3` |
+| `freshquant/position_management/**` | 仓位管理 | 重启 `python -m freshquant.position_management.worker`（默认 `interval=3`，也可显式传 `--interval 3`） |
 | `freshquant/tpsl/**` | TPSL | 重启 `python -m freshquant.tpsl.tick_listener` |
 | `freshquant/market_data/**` | XTData producer / consumer | 重启 producer、consumer；必要时重新 prewarm |
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 重启 `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event` |
@@ -124,7 +124,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshqua
 powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface api,market_data
 ```
 
-- `DeploymentSurface` 取值固定为：`api`、`web`、`dagster`、`qa`、`tradingagents`、`symphony`、`market_data`、`guardian`、`position_management`、`tpsl`
+- `DeploymentSurface` 取值固定为：`api`、`web`、`dagster`、`qa`、`tradingagents`、`symphony`、`market_data`、`guardian`、`position_management`、`tpsl`；未知值会直接报错，不会静默跳过检查
 - 输出 JSON 至少包含：`baseline`、`docker_checks`、`service_checks`、`process_checks`、`warnings`、`failures`、`passed`
 - 固定检查基础容器：`fq_mongodb`、`fq_redis`
 - 按本轮部署面追加检查容器：`fq_apiserver`、`fq_webui`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver`、`ta_backend`、`ta_frontend`
@@ -137,7 +137,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshqua
 ```powershell
 docker compose -f docker/compose.parallel.yaml ps
 Get-Service fq-symphony-orchestrator
-Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*freshquant.market_data.xtdata.market_producer*' -or $_.CommandLine -like '*freshquant.market_data.xtdata.strategy_consumer --prewarm*' -or $_.CommandLine -like '*freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event*' -or $_.CommandLine -like '*freshquant.position_management.worker --interval 3*' -or $_.CommandLine -like '*freshquant.tpsl.tick_listener*' } | Select-Object ProcessId,Name,CommandLine
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*freshquant.market_data.xtdata.market_producer*' -or $_.CommandLine -like '*freshquant.market_data.xtdata.strategy_consumer --prewarm*' -or $_.CommandLine -like '*freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event*' -or $_.CommandLine -like '*freshquant.position_management.worker*' -or $_.CommandLine -like '*freshquant.tpsl.tick_listener*' } | Select-Object ProcessId,Name,CommandLine
 ```
 
 ## 部署后必须确认的事实

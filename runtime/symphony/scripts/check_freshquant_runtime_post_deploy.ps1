@@ -116,6 +116,19 @@ $surfaceAliasMap = @{
     tpsl = 'tpsl'
 }
 
+$knownDeploymentSurfaces = @(
+    'api',
+    'web',
+    'dagster',
+    'qa',
+    'tradingagents',
+    'symphony',
+    'market_data',
+    'guardian',
+    'position_management',
+    'tpsl'
+)
+
 $dockerSurfaceMap = @{
     api = @('fq_apiserver')
     web = @('fq_webui')
@@ -150,7 +163,7 @@ $processSpecs = @(
     [pscustomobject]@{
         Id = 'position_management_worker'
         Surface = 'position_management'
-        Pattern = 'python -m freshquant.position_management.worker --interval 3'
+        Pattern = 'python -m freshquant.position_management.worker'
     },
     [pscustomobject]@{
         Id = 'tpsl_tick_listener'
@@ -175,6 +188,11 @@ function Resolve-DeploymentSurfaces {
             $normalized = $trimmed.ToLowerInvariant()
             if ($surfaceAliasMap.ContainsKey($normalized)) {
                 $normalized = $surfaceAliasMap[$normalized]
+            }
+
+            if ($knownDeploymentSurfaces -notcontains $normalized) {
+                $supported = $knownDeploymentSurfaces -join ', '
+                throw "Unknown deployment surface: $trimmed. Supported surfaces: $supported"
             }
 
             if ($seen.Add($normalized)) {

@@ -260,7 +260,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 先检查：
 - `docker compose -f docker/compose.parallel.yaml ps`
 - `Get-Service fq-symphony-orchestrator`
-- `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*freshquant.market_data.xtdata.market_producer*' -or $_.CommandLine -like '*freshquant.market_data.xtdata.strategy_consumer --prewarm*' -or $_.CommandLine -like '*freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event*' -or $_.CommandLine -like '*freshquant.position_management.worker --interval 3*' -or $_.CommandLine -like '*freshquant.tpsl.tick_listener*' } | Select-Object ProcessId,CommandLine`
+- `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*freshquant.market_data.xtdata.market_producer*' -or $_.CommandLine -like '*freshquant.market_data.xtdata.strategy_consumer --prewarm*' -or $_.CommandLine -like '*freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event*' -or $_.CommandLine -like '*freshquant.position_management.worker*' -or $_.CommandLine -like '*freshquant.tpsl.tick_listener*' } | Select-Object ProcessId,CommandLine`
 - `powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface <surfaces>`
 
 常见根因：
