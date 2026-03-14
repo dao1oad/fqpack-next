@@ -6,6 +6,7 @@
 
 - XTQuant / XTData 连接。
 - Mongo 通过 `127.0.0.1:27027` 接入 Docker `fq_mongodb`；宿主机链路不要再使用 `127.0.0.1:27017`。
+- `fqnext-supervisord` 宿主机底座与其托管的交易/运行链 Python 进程。
 - Guardian monitor。
 - Position management worker。
 - TPSL tick listener。
@@ -37,6 +38,13 @@
 - Symphony 运行模板：`runtime/symphony/WORKFLOW.freshquant.md`
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
 - Deploy 后运维面检查脚本：`runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1`
+- 共享部署计划脚本：`script/freshquant_deploy_plan.py`
+- 宿主机运行时控制脚本：`script/fqnext_host_runtime_ctl.ps1`
+- FQNext 宿主机 Supervisor service：`fqnext-supervisord`
+- FQNext 宿主机 Supervisor RPC：`http://127.0.0.1:10011/RPC2`
+- FQNext 宿主机 Supervisor 配置：`D:/fqpack/config/supervisord.fqnext.conf`
+- FQNext 宿主机 Supervisor 管理员桥接任务：`fqnext-supervisord-restart`
+- FQNext 宿主机 Supervisor 管理员桥接 runner：`D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`
 - 运维面检查脚本固定支持 `-Mode CaptureBaseline` 与 `-Mode Verify`，输出 JSON `baseline/docker_checks/service_checks/process_checks/warnings/failures/passed`
 - GitHub 新任务默认通过 issue template 创建，初始标签应为 `symphony + todo`；不要在创建时预贴 `design-review`
 - Symphony workspace 默认从本地工作树 clone，但 `after_create` / `before_run` 会补齐 `github` remote 并把 `remote.pushDefault` 设为 `github`
@@ -44,8 +52,11 @@
 - 进入 `In Progress` / `Rework` / `Merging` 前，orchestrator 会把 workspace 切到确定性的 issue branch，而不是继续停在本地 `main`
 - `Merging` 现在只负责 merge 到 remote `main`、写 handoff comment，并把 issue 转入 `Global Stewardship`
 - `Global Stewardship` 由单个全局 Codex 自动化负责；它统一处理 deploy、health check、runtime ops check、cleanup 和 follow-up issue 创建
+- `Global Stewardship` 在真正执行 deploy 前，应先调用 `script/freshquant_deploy_plan.py` 生成本轮 Docker / 宿主机计划
 - `Global Stewardship` 只有在本轮实际发生 deploy 时才做 runtime ops check；执行顺序固定为 `deploy -> health check -> runtime ops check -> cleanup`
+- 命中宿主机 deployment surface 时，正式入口固定为 `script/fqnext_host_runtime_ctl.ps1`；`D:\fqpack\supervisord\frequant-next.bat` 仅保留为兼容人工入口
 - 如果当前 Codex 会话没有管理员权限，`runtime/symphony/**` 的重载应走预装的计划任务桥接：普通会话先 `sync_freshquant_symphony_service.ps1`，再调用 `invoke_freshquant_symphony_restart_task.ps1`
+- 如果当前 Codex 会话没有管理员权限且 `fqnext-supervisord` service 需要恢复，应走预装的 `fqnext-supervisord-restart` 管理员桥接任务；普通会话不直接承担 service 修复
 - `run_freshquant_symphony_restart_task.ps1` 在服务进入 `Running` 后仍会继续轮询 `http://127.0.0.1:40123/api/v1/state`，直到健康检查返回 `200` 或超时，避免把端口释放窗口误判为重载失败。
 - `Blocked` 只用于真实外部阻塞；进入 `Blocked` 时必须同时记录阻塞原因、解除条件、当前证据和恢复目标状态（`In Progress` / `Rework` / `Global Stewardship`）
 - 如果 GitHub 真值已经表明 `Blocked` 只是误标，orchestrator 会自动恢复：merged PR, pending ops -> `Global Stewardship`；open non-draft PR -> `Rework`；approved draft PR -> `In Progress`
@@ -98,6 +109,7 @@
 - 当通达信根目录配置为 `D:\tdx_biduan` 时，Shouban30 会写入 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`
 - `xt_producer` / `xt_consumer` 会向 `logs/runtime` 固定每 5 分钟写 1 次 heartbeat，供 `/runtime-observability` 的组件 Event / health 视图聚合；这些 heartbeat 不进入业务 Trace
 - pytest 默认通过临时 `FQ_RUNTIME_LOG_DIR` 与 logger cache reset 隔离测试运行日志，避免污染正式 `logs/runtime`
+- FQNext 宿主机 Supervisor 仍托管 `fqnext_realtime_xtdata_producer`、`fqnext_realtime_xtdata_consumer`、`fqnext_guardian_event`、`fqnext_position_management_worker`、`fqnext_tpsl_worker`、`fqnext_xtquant_broker`、`fqnext_credit_subjects_worker`、`fqnext_xtdata_adj_refresh_worker`
 
 ## 常见运行模式
 
@@ -130,9 +142,16 @@ python -m freshquant.tpsl.tick_listener
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state
 ```
 
+### 调宿主机 Supervisor 正式底座
+
+```powershell
+powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status
+```
+
 ## 当前阶段的运行风险
 
 - Docker 里的 Mongo/Redis 与宿主机 broker/xtdata 之间必须通过宿主机端口对齐，否则交易链会出现“页面正常、worker 无数据”。
+- 如果宿主机仍靠 `frequant-next.bat` 手工拉起，而不是 `fqnext-supervisord` service 开机自启，`Global Stewardship` 会失去稳定的正式入口与权限边界。
 - 如果宿主机进程仍报 `127.0.0.1:27017`，优先检查进程环境是否缺少 `FRESHQUANT_MONGODB__HOST/PORT`，以及是否还在走旧的 `qaenv` 默认值。
 - Guardian event 模式要求 `monitor.xtdata.mode=guardian_1m`；模式不对时进程会启动但不会真正处理 bar 更新。
 - Runtime Observability 采用旁路写盘，日志队列满时允许丢事件；排障时要同时对照业务集合，而不是只看 runtime 页面。

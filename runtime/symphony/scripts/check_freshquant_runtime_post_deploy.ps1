@@ -126,7 +126,8 @@ $knownDeploymentSurfaces = @(
     'market_data',
     'guardian',
     'position_management',
-    'tpsl'
+    'tpsl',
+    'order_management'
 )
 
 $dockerSurfaceMap = @{
@@ -141,7 +142,11 @@ $baseContainerNames = @('fq_mongodb', 'fq_redis')
 $serviceSpecs = @(
     [pscustomobject]@{
         Name = 'fq-symphony-orchestrator'
-        Surface = 'symphony'
+        Surfaces = @('symphony')
+    },
+    [pscustomobject]@{
+        Name = 'fqnext-supervisord'
+        Surfaces = @('market_data', 'guardian', 'position_management', 'tpsl', 'order_management')
     }
 )
 $processSpecs = @(
@@ -161,6 +166,11 @@ $processSpecs = @(
         Pattern = 'python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event'
     },
     [pscustomobject]@{
+        Id = 'xtdata_adj_refresh_worker'
+        Surface = 'market_data'
+        Pattern = 'python -m freshquant.market_data.xtdata.adj_refresh_worker'
+    },
+    [pscustomobject]@{
         Id = 'position_management_worker'
         Surface = 'position_management'
         Pattern = 'python -m freshquant.position_management.worker'
@@ -169,8 +179,41 @@ $processSpecs = @(
         Id = 'tpsl_tick_listener'
         Surface = 'tpsl'
         Pattern = 'python -m freshquant.tpsl.tick_listener'
+    },
+    [pscustomobject]@{
+        Id = 'xtquant_broker'
+        Surface = 'order_management'
+        Pattern = 'python -m fqxtrade.xtquant.broker'
+    },
+    [pscustomobject]@{
+        Id = 'credit_subjects_worker'
+        Surface = 'order_management'
+        Pattern = 'python -m freshquant.order_management.credit_subjects.worker'
     }
 )
+
+function Test-SpecTargetsDeploymentSurfaces {
+    param(
+        [Parameter(Mandatory = $true)]$Spec,
+        [string[]]$DeploymentSurfaces
+    )
+
+    $surfaces = @()
+    if ($null -ne $Spec.PSObject.Properties['Surfaces']) {
+        $surfaces = @(Convert-ToObjectArray $Spec.Surfaces)
+    }
+    elseif ($null -ne $Spec.PSObject.Properties['Surface']) {
+        $surfaces = @([string]$Spec.Surface)
+    }
+
+    foreach ($surface in $surfaces) {
+        if ($DeploymentSurfaces -contains [string]$surface) {
+            return $true
+        }
+    }
+
+    return $false
+}
 
 function Resolve-DeploymentSurfaces {
     param([string[]]$Values)
@@ -375,7 +418,7 @@ function Normalize-ServiceBaseline {
 
         [pscustomobject]@{
             name = $serviceSpec.Name
-            surface = $serviceSpec.Surface
+            surfaces = if ($null -ne $serviceSpec.PSObject.Properties['Surfaces']) { @($serviceSpec.Surfaces) } else { @([string]$serviceSpec.Surface) }
             exists = $exists
             status = $status
         }
@@ -513,7 +556,7 @@ function Get-ServiceChecks {
     foreach ($serviceSpec in $serviceSpecs) {
         $current = $currentLookup[$serviceSpec.Name]
         $baselineEntry = $baselineLookup[$serviceSpec.Name]
-        $required = $DeploymentSurfaces -contains $serviceSpec.Surface
+        $required = Test-SpecTargetsDeploymentSurfaces -Spec $serviceSpec -DeploymentSurfaces $DeploymentSurfaces
         $status = if ($null -ne $current) { [string]$current.status } else { 'Missing' }
         $baselineStatus = if ($null -ne $baselineEntry) { [string]$baselineEntry.status } else { 'Missing' }
         $reasons = [System.Collections.Generic.List[string]]::new()
@@ -534,7 +577,7 @@ function Get-ServiceChecks {
 
         $checks += [pscustomobject]@{
             name = $serviceSpec.Name
-            surface = $serviceSpec.Surface
+            surfaces = if ($null -ne $serviceSpec.PSObject.Properties['Surfaces']) { @($serviceSpec.Surfaces) } else { @([string]$serviceSpec.Surface) }
             required = $required
             baseline_status = $baselineStatus
             status = $status
