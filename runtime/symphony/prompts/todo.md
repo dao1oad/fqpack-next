@@ -4,6 +4,8 @@ You are in the `Todo` phase. `Design Review` review-surface bootstrap is handled
 
 Required behavior:
 
+- If `FQ_MEMORY_CONTEXT_PATH` is set and the file exists, read the memory context pack first before generic repository discovery.
+- Treat memory context as derived input only; it does not replace GitHub, `docs/current/**`, or deploy/health truth.
 - Decide whether the task needs Design Review.
 - If Design Review is required, finish the risk judgment and make sure the issue body is ready to serve as the Design Review Packet source for the orchestrator-owned Draft PR bootstrap.
 - If Design Review is not required, finish research and hand off cleanly to implementation.

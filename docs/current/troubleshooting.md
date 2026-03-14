@@ -11,6 +11,38 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state
 Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime -Descending | Select-Object -First 20 FullName,LastWriteTime
 ```
 
+## Memory context 缺失或过期
+
+现象：
+- `Symphony` / `Global Stewardship` / 自由 Codex 会话启动后仍重复全量扫描仓库。
+- 会话环境里没有 `FQ_MEMORY_CONTEXT_PATH`，或指向的 markdown 不存在。
+- `.codex/memory/**` 已更新，但 context pack 仍反映旧事实。
+
+先检查：
+- `Get-ChildItem Env:FQ_MEMORY_CONTEXT_PATH`
+- `Get-ChildItem Env:FQ_MEMORY_CONTEXT_ROLE`
+- `Get-Content $env:FQ_MEMORY_CONTEXT_PATH`
+- `Get-Content D:/fqpack/runtime/symphony-service/artifacts/cleanup-requests/<issue>.json`
+- `py -3.12 runtime/memory/scripts/refresh_freshquant_memory.py --issue-identifier GH-166 --issue-state "In Progress" --branch-name <branch> --git-status clean`
+- `py -3.12 runtime/memory/scripts/compile_freshquant_context_pack.py --issue-identifier GH-166 --role codex`
+- `Get-Content D:/fqpack/runtime/symphony-service/artifacts/<issue>/deployment-comment.md`
+- `Get-Content D:/fqpack/runtime/symphony-service/artifacts/cleanup-results/<issue>.json`
+
+常见根因：
+- `run_freshquant_codex_session.ps1` 启动前没有成功执行 memory refresh / compile。
+- `run_freshquant_codex_session.ps1` 为当前 issue state 解析错了 role，导致 `Global Stewardship` 仍拿到普通 `codex` context pack。
+- `fq_memory` 不可写，导致热记忆集合为空。
+- `cleanup-requests/<issue>.json` 缺失或字段不全，导致 context pack 无法显示 PR / branch / repository 元数据。
+- `deployment-comment.md` 或 `cleanup-results/<issue>.json` 缺失，导致 deploy / health / cleanup 摘要只能回退为 `unavailable`
+- `.codex/memory/**` 缺少种子文件，或 context pack 产物目录不可写。
+- agent 读取了旧的 memory context，但没有回到 GitHub / `docs/current/**` / deploy 结果确认正式真值。
+
+处理：
+- 先手动重跑 `refresh_freshquant_memory.py` 和 `compile_freshquant_context_pack.py`
+- 确认 `D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs/<issue>/<role>.md` 已更新
+- 确认 Mongo `fq_memory` 中至少有 `task_state`、`knowledge_items`、`context_packs`
+- 如果 memory context 和正式真值冲突，优先修正式真值或刷新 memory，不要反向手改 context pack
+
 ## API 无响应
 
 现象：
@@ -320,6 +352,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `Merging` 会话里直接使用 `gh pr checks --watch`、`gh run watch` 或带 `Start-Sleep` 的长轮询脚本，导致单个 turn 长时间占住 agent，甚至被 stall detector 杀掉后重试
 - `Merging` 没有写 handoff comment，或 merge 后没有把原 issue 转到 `Global Stewardship`
 - 全局 Codex 自动化没有运行，或没有读取最新 `runtime/symphony/prompts/global_stewardship.md`
+- 会话启动前的 memory refresh / compile 已失败，但 wrapper 没有留下可读的 `FQ_MEMORY_CONTEXT_PATH`
 - 全局 Codex 自动化把需要代码修复的问题当成纯收口问题，导致原 issue 一直停在 `Global Stewardship`
 - 全局 Codex 自动化没有做 follow-up issue 去重，重复创建了多个同源修复任务
 - 本轮实际发生 deploy，但自动化没有先采 baseline 或没有执行 runtime ops check，导致收口条件一直不满足
@@ -338,6 +371,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 如果任务是普通 bugfix 或小范围现有模块修复，但没有 Draft PR，优先按低风险路径排查，不要继续等待人工审批
 - 如果任务命中高风险条件且已经在 `Design Review`，但没有 linked Draft PR，先看 orchestrator 日志里是否已经出现自动 bootstrap 记录；若仍没有 Draft PR，优先排查 GitHub token、`gh`/push 权限、issue branch 创建失败，而不是继续等待审批
 - 如果日志里反复只有通用 repo 扫描而没有 issue 标识、标题、描述，先检查 `WORKFLOW.freshquant.md` 是否仍包含 issue placeholders；`sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 现在会对这份 prompt 做合约校验
+- 如果会话一开始就回到全仓扫描，先看 `FQ_MEMORY_CONTEXT_PATH` 是否存在，以及 `runtime/memory/scripts/refresh_freshquant_memory.py` / `compile_freshquant_context_pack.py` 最近一次是否执行成功
 - 如果 `Merging` 很慢，先看 session 里是否出现 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 轮询；正式 prompt 现在要求只做一次性检查后结束当前 turn，让 orchestrator 下一轮继续
 - 如果 merge 后原 issue 没进入 `Global Stewardship`，先看 `Merging` 会话是否真的写出了 handoff comment，并检查状态标签是否已切换
 - 如果原 issue 长时间停在 `Global Stewardship`，先看全局 Codex 自动化最近一轮是否真的读取了 merged PR、当前 `main` 和已有 follow-up issue

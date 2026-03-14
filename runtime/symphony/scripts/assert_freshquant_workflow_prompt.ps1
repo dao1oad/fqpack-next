@@ -20,6 +20,8 @@ $requiredPatterns = @(
     @{ Name = 'issue description placeholder'; Pattern = 'issue\.description' },
     @{ Name = 'issue state placeholder'; Pattern = 'Current state:\s*\{\{\s*issue\.state\s*\}\}' },
     @{ Name = 'issue url placeholder'; Pattern = 'URL:\s*\{\{\s*issue\.url\s*\}\}' },
+    @{ Name = 'memory context env rule'; Pattern = 'FQ_MEMORY_CONTEXT_PATH' },
+    @{ Name = 'memory context derived rule'; Pattern = 'does not replace GitHub,\s*`docs/current/\*\*`,\s*or deploy/health results' },
     @{ Name = 'design review orchestrator rule'; Pattern = '`Design Review`\s+is orchestrator-owned\.' },
     @{ Name = 'design review no-brainstorming rule'; Pattern = '`Design Review`.*Do not invoke `brainstorming` and do not ask for new human clarification inside the Codex session' },
     @{ Name = 'draft PR bootstrap rule'; Pattern = 'orchestrator must first create or switch to the deterministic issue branch,\s*create the Draft PR,\s*and publish the complete Design Review Packet in the PR body' },

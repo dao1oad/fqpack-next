@@ -21,6 +21,8 @@ Scope:
 
 Required behavior:
 
+- If `FQ_MEMORY_CONTEXT_PATH` is set and the file exists, read the memory context pack first before deciding a deployment batch.
+- Treat memory context as derived input only; it does not replace GitHub, `docs/current/**`, or real deploy/health evidence.
 - Read the current `main` state before deciding any deployment batch.
 - Prefer handling issues in groups when they share compatible deployment surfaces.
 - Use `py -3.12 script/freshquant_deploy_plan.py` to resolve deployment surfaces, Docker services, host surfaces, runtime ops surfaces, fixed ports, and health checks before deploying.
