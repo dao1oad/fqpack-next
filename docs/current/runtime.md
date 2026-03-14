@@ -39,6 +39,8 @@
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
 - Deploy 后运维面检查脚本：`runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1`
 - 共享部署计划脚本：`script/freshquant_deploy_plan.py`
+- Proxyless 健康检查脚本：`script/freshquant_health_check.ps1`
+- Frontend release probe：`script/freshquant_frontend_release_probe.py`
 - 宿主机运行时控制脚本：`script/fqnext_host_runtime_ctl.ps1`
 - FQNext 宿主机 Supervisor service：`fqnext-supervisord`
 - FQNext 宿主机 Supervisor RPC：`http://127.0.0.1:10011/RPC2`
@@ -56,7 +58,9 @@
 - `Rework` 只用于未 merge 前的确定性仓库内问题；进入时必须同时记录 `blocker_class`、`evidence`、`next_action`、`exit_condition`
 - `Global Stewardship` 由单个全局 Codex 自动化负责；它统一处理 deploy、health check、runtime ops check、cleanup 和 follow-up issue 创建
 - `Global Stewardship` 在真正执行 deploy 前，应先调用 `script/freshquant_deploy_plan.py` 生成本轮 Docker / 宿主机计划
+- `Global Stewardship` 处理完并关闭一张票后，必须重新 fetch 最新 `origin/main`，再判断下一批 deploy
 - `Global Stewardship` 只有在本轮实际发生 deploy 时才做 runtime ops check；执行顺序固定为 `deploy -> health check -> runtime ops check -> cleanup`
+- `Global Stewardship` 的 localhost 健康检查固定走 `script/freshquant_health_check.ps1`；代理污染不能直接当服务故障
 - 命中宿主机 deployment surface 时，正式入口固定为 `script/fqnext_host_runtime_ctl.ps1`；`D:\fqpack\supervisord\frequant-next.bat` 仅保留为兼容人工入口
 - 如果当前 Codex 会话没有管理员权限，`runtime/symphony/**` 的重载应走预装的计划任务桥接：普通会话先 `sync_freshquant_symphony_service.ps1`，再调用 `invoke_freshquant_symphony_restart_task.ps1`
 - 如果当前 Codex 会话没有管理员权限且 `fqnext-supervisord` service 需要恢复，应走预装的 `fqnext-supervisord-restart` 管理员桥接任务；普通会话不直接承担 service 修复
@@ -93,15 +97,19 @@
 - Runtime Observability 原始日志目录
 - `/runtime-observability` 当前固定是 `全局 Trace + 组件 Event` 双视图
 - Guardian 排障时优先看全局 Trace 中的 `guardian_signal` 链路；组件侧栏主要用于切到对应组件的 Event 视图
+- `web` 面正式发布验证固定增加 bundle probe；不能只凭容器重建时间证明静态资源已更新
 
 ## 并行环境的默认口径
 
 - 宿主机 `.env` 示例：`deployment/examples/envs.fqnext.example`
 - Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
+- 正式 deploy 可以在干净 worktree 上构建，但 `FQ_COMPOSE_ENV_FILE` 与 `FQ_RUNTIME_LOG_HOST_DIR` 默认继续指向 primary worktree；统一通过 `script/docker_parallel_runtime.py` / `script/docker_parallel_compose.ps1` 解析
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - `docker/compose.parallel.yaml` 会为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`，避免容器误继承宿主机默认 `27027`
 - `docker/compose.parallel.yaml` 当前会为 `fq_apiserver` 额外挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}` 到容器内 `/opt/tdx`，供 Shouban30 同步 `30RYZT.blk`
+- `script/docker_parallel_compose.ps1` 支持显式 `-PrimaryWorktree`、`-ComposeEnvFile`、`-RuntimeLogDir`、`-EmitMetadataPath`、`-NoProxyLocalhost`、`-BuildTimeoutSec`
+- `script/docker_parallel_compose.ps1` 的 metadata 至少记录 `compose_file`、`compose_args`、`compose_env_file`、`runtime_log_dir`、`docker_exit_code`、`timed_out`、`review_required`
 - Web UI 默认访问并行 API `http://127.0.0.1:15000`
 - TradingAgents 使用独立 Mongo 库 `tradingagents_cn` 与 Redis `db=8`
 
@@ -161,3 +169,4 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 - 如果宿主机进程仍报 `127.0.0.1:27017`，优先检查进程环境是否缺少 `FRESHQUANT_MONGODB__HOST/PORT`，以及是否还在走旧的 `qaenv` 默认值。
 - Guardian event 模式要求 `monitor.xtdata.mode=guardian_1m`；模式不对时进程会启动但不会真正处理 bar 更新。
 - Runtime Observability 采用旁路写盘，日志队列满时允许丢事件；排障时要同时对照业务集合，而不是只看 runtime 页面。
+- 如果 `docker compose up -d --build ...` 超时，不要立刻视为失败；先看 `docker_parallel_compose.ps1` 产出的 metadata，再决定是否进入结果复核。

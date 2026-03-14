@@ -21,14 +21,19 @@ Scope:
 Required behavior:
 
 - Read the current `main` state before deciding any deployment batch.
+- Fetch latest `origin/main` before the round starts and fetch latest `origin/main` again after closing any covered issue before deciding the next batch.
 - Prefer handling issues in groups when they share compatible deployment surfaces.
 - Use `py -3.12 script/freshquant_deploy_plan.py` to resolve deployment surfaces, Docker services, host surfaces, runtime ops surfaces, fixed ports, and health checks before deploying.
+- Treat the merge handoff packet as candidate input only; recompute the effective deploy batch against current `main` for every round.
 - Use the current deployment matrix and health check commands from the repository docs and runtime prompts as the supporting contract behind that deploy plan.
 - If the deploy plan includes host runtime surfaces, use `script/fqnext_host_runtime_ctl.ps1` as the formal host-runtime control entry instead of ad hoc `.bat` or raw process commands.
 - If the deploy plan includes `runtime/symphony/**`, sync `runtime/symphony/**` to the formal service root and restart `fq-symphony-orchestrator` before other deploy actions in the batch.
+- Use proxyless localhost health checks for `127.0.0.1` and `localhost`; do not trust ambient `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY` when checking fixed ports.
 - If the current round performs a real deploy, capture a runtime baseline before deploy and run `runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1` in `Verify` mode after health checks and before cleanup.
 - If the current round does not perform a deploy, do not run the runtime ops check.
 - The runtime ops check must cover Docker container state, host service state, and host critical process state.
+- If a deploy command or runtime-control command times out, enter a result-review branch and inspect compose metadata, container state, image identity, logs, and health evidence before marking the batch failed.
+- Subagents may collect GitHub, deploy, runtime, health, frontend, and cleanup evidence, but only the parent steward may decide deploy, follow-up issue creation, cleanup completion, or issue closure.
 - Record runtime ops check results in the progress comment and closeout evidence.
 - If the runtime ops check fails, do not cleanup or close the original issue.
 - If the runtime ops check fails because code repair is needed, only create or reuse a follow-up issue for the next Symphony round.
@@ -42,8 +47,10 @@ Required behavior:
 Hard rules:
 
 - Do not write repository code directly.
+- Do not let subagents directly deploy, cleanup, or close issues.
 - Do not create a repair PR directly from the global automation.
 - Do not treat merge alone as `Done`.
+- Do not treat a command timeout as deploy failure without result review.
 - Do not rewrite the issue contract during post-merge stewardship.
 - Do not mark an issue `Blocked` unless there is a real external blocker.
 - Do not run high-risk production or live trading operations.

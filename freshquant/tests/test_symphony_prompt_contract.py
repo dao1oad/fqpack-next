@@ -110,6 +110,31 @@ Required behavior:
     assert "watch" in result.stderr.lower() or "workspace" in result.stderr.lower()
 
 
+def test_merging_prompt_contract_rejects_missing_structured_handoff_packet(
+    tmp_path: Path,
+) -> None:
+    prompt_path = tmp_path / "merging.md"
+    prompt_path.write_text(
+        """# FreshQuant Merging Prompt
+
+You are in the `Merging` phase.
+
+Required behavior:
+
+- Confirm the PR is ready to merge.
+- Merge the PR to the remote `main` branch.
+- Write the merge handoff comment.
+- Move the issue to `Global Stewardship`.
+""",
+        encoding="utf-8",
+    )
+
+    result = _run_powershell(MERGING_VALIDATOR, "-PromptPath", str(prompt_path))
+
+    assert result.returncode != 0
+    assert "handoff" in result.stderr.lower() or "source issue" in result.stderr.lower()
+
+
 def test_global_stewardship_prompt_contract_rejects_missing_runtime_ops_guardrails(
     tmp_path: Path,
 ) -> None:
@@ -141,6 +166,40 @@ Required behavior:
         or "cleanup" in result.stderr.lower()
         or "deploy plan" in result.stderr.lower()
         or "host runtime" in result.stderr.lower()
+    )
+
+
+def test_global_stewardship_prompt_contract_rejects_missing_refetch_proxyless_and_subagent_guards(
+    tmp_path: Path,
+) -> None:
+    prompt_path = tmp_path / "global_stewardship.md"
+    prompt_path.write_text(
+        """# FreshQuant Global Stewardship Prompt
+
+You are the single global Codex automation for FreshQuant `Global Stewardship`.
+
+Required behavior:
+
+- Read the current `main` state before deciding any deployment batch.
+- Use `py -3.12 script/freshquant_deploy_plan.py` before deploying.
+- Run post-deploy health checks.
+- Update the original issue with a concise progress comment after every meaningful decision.
+""",
+        encoding="utf-8",
+    )
+
+    result = _run_powershell(
+        GLOBAL_STEWARDSHIP_VALIDATOR,
+        "-PromptPath",
+        str(prompt_path),
+    )
+
+    assert result.returncode != 0
+    assert (
+        "proxyless" in result.stderr.lower()
+        or "subagent" in result.stderr.lower()
+        or "fetch" in result.stderr.lower()
+        or "timeout" in result.stderr.lower()
     )
 
 
@@ -208,6 +267,63 @@ def test_global_stewardship_prompt_references_shared_deploy_scripts() -> None:
 
     assert "freshquant_deploy_plan.py" in prompt_content
     assert "fqnext_host_runtime_ctl.ps1" in prompt_content
+
+
+def test_merge_handoff_template_exposes_structured_contract_fields() -> None:
+    template_content = (
+        REPO_ROOT / "runtime" / "symphony" / "templates" / "merge_handoff_comment.md"
+    ).read_text(encoding="utf-8")
+
+    required_fields = (
+        "Source Issue",
+        "Source PR",
+        "PR Head SHA",
+        "Base SHA",
+        "Suggested Docker Services",
+        "Suggested Host Surfaces",
+        "Cleanup Targets",
+        "Verification Hints",
+        "Contract Version",
+    )
+
+    for field in required_fields:
+        assert field in template_content
+
+
+def test_global_stewardship_templates_expose_runtime_probe_and_blocker_fields() -> None:
+    progress_template = (
+        REPO_ROOT
+        / "runtime"
+        / "symphony"
+        / "templates"
+        / "global_stewardship_progress_comment.md"
+    ).read_text(encoding="utf-8")
+    done_template = (
+        REPO_ROOT
+        / "runtime"
+        / "symphony"
+        / "templates"
+        / "global_stewardship_done_comment.md"
+    ).read_text(encoding="utf-8")
+
+    progress_fields = (
+        "frontend probe",
+        "blocker",
+        "clear condition",
+        "evidence",
+        "target recovery state",
+        "contract version",
+    )
+    done_fields = (
+        "frontend probe",
+        "runtime ops",
+        "contract version",
+    )
+
+    for field in progress_fields:
+        assert field in progress_template.lower()
+    for field in done_fields:
+        assert field in done_template.lower()
 
 
 def test_sync_and_start_scripts_reference_merging_prompt_validator() -> None:

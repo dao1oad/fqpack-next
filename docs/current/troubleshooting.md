@@ -6,10 +6,27 @@
 
 ```powershell
 docker compose -f docker/compose.parallel.yaml ps
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state
+powershell -ExecutionPolicy Bypass -File script/freshquant_health_check.ps1 -Url http://127.0.0.1:15000/api/runtime/components -ExpectedStatus 200
+powershell -ExecutionPolicy Bypass -File script/freshquant_health_check.ps1 -Url http://127.0.0.1:40123/api/v1/state -ExpectedStatus 200
 Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime -Descending | Select-Object -First 20 FullName,LastWriteTime
 ```
+
+## localhost 健康检查误报 `503`
+
+现象：
+- `Invoke-WebRequest http://127.0.0.1:...` 返回 `503`
+- 但容器、服务和日志看起来都正常
+
+先检查：
+- `Get-ChildItem env:HTTP_PROXY,env:HTTPS_PROXY,env:ALL_PROXY`
+- `powershell -ExecutionPolicy Bypass -File script/freshquant_health_check.ps1 -Url http://127.0.0.1:15000/api/runtime/health/summary -ExpectedStatus 200`
+
+常见根因：
+- 当前会话继承了代理环境变量，导致 localhost 请求被错误送进代理
+
+处理：
+- 正式结果只认 `script/freshquant_health_check.ps1`
+- 如果 proxyless 检查通过，记录“代理污染”而不是 blocker
 
 ## API 无响应
 
@@ -65,6 +82,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 处理：
 - 重建前端：`docker compose -f docker/compose.parallel.yaml up -d --build fq_webui`
+- 重建后再执行 `py -3.12 script/freshquant_frontend_release_probe.py --base-url http://127.0.0.1:18080 --marker "全局 Trace" --marker "组件 Event"`，确认实际 bundle 已更新
 
 ## XTData 链路不更新
 
@@ -291,6 +309,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 常见根因：
 - `fq_mongodb` / `fq_redis` / 本轮要求存在的容器进入 `Restarting`、`Exited` 或 `unhealthy`
+- 实际容器名带 compose 前缀，如 `fqnext_20260223-fq_apiserver-1`，但旧检查仍按短名 `fq_apiserver` 解析
 - 本轮涉及 `runtime/symphony/**`，但 `fq-symphony-orchestrator` 没恢复到 `Running`
 - 本轮涉及宿主机 deployment surface，但 `fqnext-supervisord` 没恢复到 `Running`
 - deploy 前已在跑的关键进程被这轮 deploy 打掉，deploy 后没有恢复
@@ -300,6 +319,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 处理：
 - 先按 `verify.json` 的 `docker_checks` / `service_checks` / `process_checks` 定位失败项，不要直接 cleanup
+- 先看失败项里的 `compose_service`、`resolved_container_name`、`check_source`，确认是 compose label 解析失败、短名 fallback 失败，还是 snapshot 回放结果
 - 如果宿主机 service 本身没起来，优先用 `script/invoke_fqnext_supervisord_restart_task.ps1` 恢复底座，再重新执行 host runtime control
 - 如果是代码问题，只创建或复用 follow-up issue，由下一轮 `Symphony` 接手
 - 如果是外部环境问题，在原 issue 记录 blocker / clear condition / evidence / target recovery state
@@ -370,6 +390,8 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 如果 runtime ops check 结果里 `failures` 非空，不要继续排 cleanup；先按失败项判断是 follow-up issue 还是外部 blocker
 - 如果同一个源 issue 被开出多个 follow-up issue，先按 `Source Issue + Symptom Class` 检查去重逻辑，收敛到一个 open 修复任务
 - 如果全局自动化把代码问题当成运维问题处理，先核对原 issue 评论里是否已经明确写出“等待 GH-xxx 修复后继续收口”
+- 如果 `docker_parallel_compose.ps1` 返回超时，先看 metadata 里的 `timed_out`、`review_required`、`docker_exit_code`、`stdout/stderr`，不要直接把 timeout 当 deploy 失败
+- 如果 `web` 面 health check 已通过但页面仍像旧版本，优先跑 `freshquant_frontend_release_probe.py` 检查实际 bundle markers，而不是只看镜像 tag 或容器启动时间
 - 如果 `gh` 在 workspace 内报 “none of the git remotes configured for this repository point to a known GitHub host”，先看当前 workspace 是否只有本地 `origin`；正式 workflow 现在会在 `after_create` / `before_run` 自动补齐 `github` remote
 - 如果 issue 已进入 `In Progress` / `Rework`，但 workspace 仍在本地 `main`，先看 issue 是否缺失确定性 `branch_name`，以及 orchestrator 日志里是否出现 issue branch checkout 失败
 - 如果 issue 停在 `blocked`，先看最新 GitHub 评论是否写清了 blocker、clear condition、evidence 和 target recovery state；没有的话先补齐，再决定是否解除

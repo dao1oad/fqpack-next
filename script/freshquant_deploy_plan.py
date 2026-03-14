@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -86,6 +87,20 @@ HEALTH_CHECK_MAP = {
     "symphony": [
         "http://127.0.0.1:40123/api/v1/state",
     ],
+}
+
+VERIFICATION_MARKER_MAP = {
+    "api": ["runtime-components", "health-summary"],
+    "web": ["runtime-observability"],
+    "dagster": ["dagster-ui"],
+    "qa": ["qa-health"],
+    "tradingagents": ["api-health", "frontend-health"],
+    "symphony": ["http://127.0.0.1:40123/api/v1/state"],
+    "market_data": ["xt-producer-heartbeat"],
+    "guardian": ["guardian-event-worker"],
+    "position_management": ["position-management-worker"],
+    "tpsl": ["tpsl-tick-listener"],
+    "order_management": ["xtquant-broker", "credit-subjects-worker"],
 }
 
 
@@ -225,6 +240,29 @@ def unique_in_order(values: list[str]) -> list[str]:
     return result
 
 
+def load_changed_paths_from_git(
+    repo_root: Path,
+    base_sha: str | None,
+    head_sha: str | None,
+) -> list[str]:
+    if not base_sha or not head_sha:
+        return []
+
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "diff", "--name-only", base_sha, head_sha],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return unique_in_order(
+        [
+            normalize_path(line)
+            for line in result.stdout.splitlines()
+            if normalize_path(line)
+        ]
+    )
+
+
 def resolve_surfaces_from_paths(
     changed_paths: list[str],
 ) -> tuple[list[str], list[str]]:
@@ -244,11 +282,33 @@ def resolve_surfaces_from_paths(
 def build_deploy_plan(
     changed_paths: list[str] | None = None,
     explicit_surfaces: list[str] | None = None,
+    *,
+    repo_root: Path | None = None,
+    base_sha: str | None = None,
+    head_sha: str | None = None,
+    issue_number: str | None = None,
+    merge_commit: str | None = None,
 ) -> dict[str, object]:
     changed_paths = changed_paths or []
     explicit_surfaces = explicit_surfaces or []
+    repo_root = (repo_root or Path(__file__).resolve().parent.parent).resolve()
 
-    surfaces_from_paths, notes = resolve_surfaces_from_paths(changed_paths)
+    try:
+        git_changed_paths = load_changed_paths_from_git(
+            repo_root=repo_root,
+            base_sha=base_sha,
+            head_sha=head_sha,
+        )
+    except subprocess.CalledProcessError:
+        if changed_paths:
+            git_changed_paths = []
+        else:
+            raise
+    normalized_changed_paths = unique_in_order(
+        [normalize_path(path) for path in changed_paths] + git_changed_paths
+    )
+
+    surfaces_from_paths, notes = resolve_surfaces_from_paths(normalized_changed_paths)
     surfaces = set(surfaces_from_paths)
     for value in explicit_surfaces:
         surfaces.add(normalize_surface(value))
@@ -272,6 +332,11 @@ def build_deploy_plan(
     health_checks = unique_in_order(
         [url for surface in ordered for url in HEALTH_CHECK_MAP.get(surface, [])]
     )
+    verification_markers = {
+        surface: VERIFICATION_MARKER_MAP.get(surface, [])
+        for surface in ordered
+        if VERIFICATION_MARKER_MAP.get(surface)
+    }
 
     pre_deploy_steps: list[dict[str, object]] = []
     if ordered:
@@ -333,16 +398,49 @@ def build_deploy_plan(
         if host_surfaces
         else []
     )
+    cleanup_targets = {
+        "issue_number": issue_number,
+        "merge_commit": merge_commit,
+        "remote_branch_hints": unique_in_order(
+            [item for item in (f"issue-{issue_number}", f"gh-{issue_number}") if issue_number]
+        ),
+        "workspace_hints": unique_in_order(
+            [item for item in (f"issue-{issue_number}", f"gh-{issue_number}") if issue_number]
+        ),
+        "artifact_prefixes": unique_in_order(
+            [
+                item
+                for item in (
+                    f"freshquant-stewardship-{issue_number}" if issue_number else None,
+                    (
+                        f"freshquant-merge-{merge_commit[:7]}"
+                        if merge_commit
+                        else None
+                    ),
+                )
+                if item
+            ]
+        ),
+    }
 
     return {
-        "changed_paths": [normalize_path(path) for path in changed_paths],
+        "repo_root": str(repo_root),
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+        "issue_number": issue_number,
+        "merge_commit": merge_commit,
+        "changed_paths": normalized_changed_paths,
         "deployment_required": bool(ordered),
         "deployment_surfaces": ordered,
+        "effective_release_scope": ordered,
         "docker_services": docker_services,
         "host_surfaces": host_surfaces,
         "host_programs": host_programs,
         "runtime_ops_surfaces": ordered,
+        "health_check_mode": "proxyless",
         "health_checks": health_checks,
+        "verification_markers": verification_markers,
+        "cleanup_targets": cleanup_targets,
         "pre_deploy_steps": pre_deploy_steps,
         "docker_command": docker_command,
         "host_command": host_command,
@@ -357,22 +455,47 @@ def render_summary(plan: dict[str, object]) -> str:
     host_programs = cast(list[str], plan["host_programs"])
     runtime_ops_surfaces = cast(list[str], plan["runtime_ops_surfaces"])
     health_checks = cast(list[str], plan["health_checks"])
+    verification_markers = cast(dict[str, list[str]], plan["verification_markers"])
+    cleanup_targets = cast(dict[str, object], plan["cleanup_targets"])
     pre_deploy_steps = cast(list[dict[str, object]], plan["pre_deploy_steps"])
     notes = cast(list[str], plan["notes"])
 
     lines = [
         "FreshQuant 部署计划",
+        f"- base_sha: {plan['base_sha'] or 'none'}",
+        f"- head_sha: {plan['head_sha'] or 'none'}",
+        f"- issue_number: {plan['issue_number'] or 'none'}",
+        f"- merge_commit: {plan['merge_commit'] or 'none'}",
         f"- deployment_required: {str(plan['deployment_required']).lower()}",
         "- deployment_surfaces: " + (", ".join(deployment_surfaces) or "none"),
+        "- effective_release_scope: " + (", ".join(deployment_surfaces) or "none"),
         "- docker_services: " + (", ".join(docker_services) or "none"),
         "- host_surfaces: " + (", ".join(host_surfaces) or "none"),
         "- host_programs: " + (", ".join(host_programs) or "none"),
         "- runtime_ops_surfaces: " + (", ".join(runtime_ops_surfaces) or "none"),
+        f"- health_check_mode: {plan['health_check_mode']}",
     ]
 
     if health_checks:
         lines.append("- health_checks:")
         lines.extend(f"  - {item}" for item in health_checks)
+    if verification_markers:
+        lines.append("- verification_markers:")
+        for surface, markers in verification_markers.items():
+            lines.append(f"  - {surface}: {', '.join(markers)}")
+    lines.append("- cleanup_targets:")
+    lines.extend(
+        [
+            "  - issue_number: " + str(cleanup_targets["issue_number"] or "none"),
+            "  - merge_commit: " + str(cleanup_targets["merge_commit"] or "none"),
+            "  - remote_branch_hints: "
+            + (", ".join(cast(list[str], cleanup_targets["remote_branch_hints"])) or "none"),
+            "  - workspace_hints: "
+            + (", ".join(cast(list[str], cleanup_targets["workspace_hints"])) or "none"),
+            "  - artifact_prefixes: "
+            + (", ".join(cast(list[str], cleanup_targets["artifact_prefixes"])) or "none"),
+        ]
+    )
     if pre_deploy_steps:
         lines.append("- pre_deploy_steps:")
         lines.extend(f"  - {item['summary']}" for item in pre_deploy_steps)
@@ -397,6 +520,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Explicit deployment surface; repeat for multiple surfaces.",
     )
+    parser.add_argument("--base-sha", help="Optional git diff base SHA.")
+    parser.add_argument("--head-sha", help="Optional git diff head SHA.")
+    parser.add_argument("--issue-number", help="Source issue number.")
+    parser.add_argument("--merge-commit", help="Merge commit SHA.")
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path(__file__).resolve().parent.parent,
+        help="Repository root used for git diff resolution.",
+    )
     parser.add_argument(
         "--format",
         choices=("json", "summary"),
@@ -411,6 +544,11 @@ def main() -> int:
     plan = build_deploy_plan(
         changed_paths=args.changed_path,
         explicit_surfaces=args.deployment_surface,
+        repo_root=args.repo_root,
+        base_sha=args.base_sha,
+        head_sha=args.head_sha,
+        issue_number=args.issue_number,
+        merge_commit=args.merge_commit,
     )
     if args.format == "summary":
         print(render_summary(plan))

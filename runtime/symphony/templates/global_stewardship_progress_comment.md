@@ -5,15 +5,25 @@
 ## 本轮判断
 
 - 当前 `main`: `<main sha>`
+- Contract Version: `<stewardship-handoff/v1 or none>`
+- 真值刷新（truth refresh）：`<origin/main fetched | not needed>`
 - 本轮动作：`<batch deploy | cleanup | create follow-up issue | defer>`
 - 覆盖 issue：`<issue list>`
 
 ## 处理结果
 
 - 部署范围：`<runtime surfaces or none>`
-- 健康检查：`<pass/fail/deferred summary>`
-- 运维面检查：`<pass/fail/deferred summary>`
+- proxyless health check：`<pass/fail/deferred summary>`
+- runtime ops 检查：`<pass/fail/deferred summary>`
+- frontend probe：`<pass/fail/not-applicable summary>`
 - cleanup：`<completed/deferred summary>`
+
+## blocker / defer
+
+- blocker：`<none or summary>`
+- clear condition：`<condition or none>`
+- evidence：`<key evidence or none>`
+- target recovery state：`<Global Stewardship | Rework | Blocked | Done>`
 
 ## follow-up 状态
 

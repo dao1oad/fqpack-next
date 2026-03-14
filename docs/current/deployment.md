@@ -4,13 +4,16 @@
 
 - 代码改动后，受影响模块必须重新部署；只合并不部署不算完成。
 - Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
+- 正式构建允许在干净 worktree 上完成，但 Docker `.env` 与 `logs/runtime` 默认继续复用 primary worktree；统一通过 `py -3.12 script/docker_parallel_runtime.py --kind runtime-policy` / `script/docker_parallel_compose.ps1` 解析，不要手工猜路径。
 - FreshQuant / QUANTAXIS 相关 Docker 服务在 `docker/compose.parallel.yaml` 内部固定使用 `fq_mongodb:27017`；不要只覆写 host 而保留宿主机默认 `27027`
 - `Merging` 只负责 merge 与 handoff；merge 后由单个全局 Codex 自动化统一判断 deploy、health check、runtime ops check 和 cleanup。
 - 部署动作结束后必须先做接口层健康检查，再做 deploy 后运维面检查；两者都通过后才进入 cleanup。
+- localhost / `127.0.0.1` 的正式健康检查必须走 proxyless 入口 `script/freshquant_health_check.ps1`，不要再把带代理的 `Invoke-WebRequest` 当正式结果。
 - `Global Stewardship` 的实际收口链路固定为：`deploy -> health check -> runtime ops check -> cleanup`。
 - 当前 Done 判定固定为：`merge + ci + docs sync + deploy + health check + cleanup`。
 - 当前 `health check` 的执行口径包含接口层检查；如果本轮实际发生 deploy，还必须追加一轮 deploy 后 `runtime ops check`。
 - 正式收口前先用 `py -3.12 script/freshquant_deploy_plan.py` 生成部署计划；不要在会话内临场重新推理 Docker / 宿主机边界。
+- `docker compose up -d --build ...` 超时不等于发布失败；正式入口 `script/docker_parallel_compose.ps1` 超时时会写 review-oriented metadata，主流程必须先复核再裁决。
 
 ## 常用部署命令
 
@@ -29,13 +32,26 @@ py -3.12 script/freshquant_deploy_plan.py --changed-path freshquant/rear/api_ser
 ### 只重建 API / Web
 
 ```powershell
-docker compose -f docker/compose.parallel.yaml up -d --build fq_apiserver fq_webui
+powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 up -d --build fq_apiserver fq_webui
 ```
 
 ### 只重建 TradingAgents
 
 ```powershell
-docker compose -f docker/compose.parallel.yaml up -d --build ta_backend ta_frontend
+powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 up -d --build ta_backend ta_frontend
+```
+
+### 显式指定 primary worktree / metadata 的并行部署
+
+```powershell
+powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 `
+  -PrimaryWorktree D:\fqpack\freshquant-2026.2.23 `
+  -ComposeEnvFile D:\fqpack\freshquant-2026.2.23\.env `
+  -RuntimeLogDir D:\fqpack\freshquant-2026.2.23\logs\runtime `
+  -EmitMetadataPath .\artifacts\deploy-metadata.json `
+  -NoProxyLocalhost `
+  -BuildTimeoutSec 1800 `
+  up -d --build fq_apiserver fq_webui
 ```
 
 ### 宿主机重装正式 Symphony
@@ -110,28 +126,28 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 ### API
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/health/summary
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/gantt/plates?provider=xgb
+powershell -ExecutionPolicy Bypass -File script/freshquant_health_check.ps1 -Url http://127.0.0.1:15000/api/runtime/components -ExpectedStatus 200
+powershell -ExecutionPolicy Bypass -File script/freshquant_health_check.ps1 -Url http://127.0.0.1:15000/api/runtime/health/summary -ExpectedStatus 200
+powershell -ExecutionPolicy Bypass -File script/freshquant_health_check.ps1 -Url http://127.0.0.1:15000/api/gantt/plates?provider=xgb -ExpectedStatus 200
 ```
 
 ### Web UI
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/
+powershell -ExecutionPolicy Bypass -File script/freshquant_health_check.ps1 -Url http://127.0.0.1:18080/ -ExpectedStatus 200
 ```
 
 ### TradingAgents
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:13000/api/health
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:13080/health
+powershell -ExecutionPolicy Bypass -File script/freshquant_health_check.ps1 -Url http://127.0.0.1:13000/api/health -ExpectedStatus 200
+powershell -ExecutionPolicy Bypass -File script/freshquant_health_check.ps1 -Url http://127.0.0.1:13080/health -ExpectedStatus 200
 ```
 
 ### Symphony
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state
+powershell -ExecutionPolicy Bypass -File script/freshquant_health_check.ps1 -Url http://127.0.0.1:40123/api/v1/state -ExpectedStatus 200
 ```
 
 ### Deploy 后运维面检查
@@ -147,9 +163,22 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshqua
 - 输出 JSON 至少包含：`baseline`、`docker_checks`、`service_checks`、`process_checks`、`warnings`、`failures`、`passed`
 - 固定检查基础容器：`fq_mongodb`、`fq_redis`
 - 按本轮部署面追加检查容器：`fq_apiserver`、`fq_webui`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver`、`ta_backend`、`ta_frontend`
+- live mode 会优先按 compose service label 解析前缀容器名，再 fallback 到短名 inspect；输出里的 `compose_service`、`resolved_container_name`、`check_source` 可直接用于定位是否命中了 `fqnext_20260223-*` 这类并行容器
 - 固定记录宿主机服务：`fq-symphony-orchestrator`、`fqnext-supervisord`；只有命中对应宿主机部署面时，`Running` 才是 deploy 通过前提
 - 关键进程语义固定为：deploy 前已运行的不能在 deploy 后消失；本轮明确要求恢复的必须恢复；deploy 前本来就没运行且本轮未涉及的只记 warning
 - 脚本支持 `-DockerSnapshotPath`、`-ServiceSnapshotPath`、`-ProcessSnapshotPath`，供手工回放或测试复现使用
+
+### Web 静态资源发布探针
+
+命中 `web` 面时，正式验证不能只看容器重建时间或镜像 tag，还要确认当前服务的实际 bundle 已包含本次 marker：
+
+```powershell
+py -3.12 script/freshquant_frontend_release_probe.py --base-url http://127.0.0.1:18080 --marker "全局 Trace" --marker "组件 Event"
+```
+
+- probe 会优先抓 `/runtime-observability`，失败时 fallback 到 `/`
+- 输出 JSON 至少包含：`bundle_path`、`bundle_paths`、`markers`、`passed`
+- `passed=false` 时，不要因为容器是最新启动时间就直接 close 原 issue
 
 ### 运维面辅助命令
 
@@ -164,6 +193,7 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 
 - API 蓝图能返回，不是只监听端口。
 - Web UI 页面不是空白页，关键页面 `/gantt`、`/gantt/shouban30`、`/position-management`、`/tpsl`、`/runtime-observability` 能打开。
+- `web` 面发布后，`script/freshquant_frontend_release_probe.py` 必须能在当前实际 bundle 中命中本轮 marker，而不是只证明镜像 tag 没变。
 - 如果本轮改了 Shouban30 工作区或 `sync-to-tdx` 语义，确认 `fq_apiserver` 已挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}`，并实测 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk` 被更新。
 - XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积。
 - 如果改了运行观测或 XTData runtime 埋点，确认 `/runtime-observability` 页面能看到 `xt_producer` / `xt_consumer` 的 5 分钟 heartbeat 与关键指标，而不是只看到启动事件。
@@ -177,10 +207,13 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 
 - merge 后原 issue 进入 `Global Stewardship`，不直接 `Done`。
 - 单个全局 Codex 自动化按当前 `main` 和部署面并集统一决定是否批量 deploy，并先用 `script/freshquant_deploy_plan.py` 计算本轮 Docker / 宿主机动作。
+- 每处理完并关闭一张票后，都要重新 fetch 最新 `origin/main` 再决定下一批，避免同轮 merge 漏发。
 - 本轮没有实际 deploy 时，不执行 runtime ops check。
 - 本轮有实际 deploy 时，必须先 `CaptureBaseline`，再在 health check 后执行 `Verify`。
+- 命中 `web` 面时，health check 后还要执行 frontend release probe。
 - 命中宿主机 deployment surface 时，统一通过 `script/fqnext_host_runtime_ctl.ps1` 控制 `fqnext-supervisord`，不要再直接依赖 `.bat` 或手工找进程。
 - 只有 health check 与 runtime ops check 都通过，才允许 cleanup / close 原 issue。
+- `docker_parallel_compose.ps1` 若返回 timeout/review metadata，先复核 metadata、容器状态、镜像与健康结果，再决定是否记 deploy 失败。
 - runtime ops check 失败时，不做 cleanup，不关闭原 issue；代码问题只创建或复用 follow-up issue，外部环境问题则记录 blocker / clear condition / evidence / target recovery state。
 - 如果发现需要代码修复的问题，只创建 follow-up issue，由下一轮 `Symphony` 接手。
 - 原 issue 只有在其变更已包含在一次成功发布中，且 health check、runtime ops check 与 cleanup 完成后，才允许关闭。

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,11 +18,19 @@ SCRIPT = (
 )
 
 
-def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run_powershell(
+    script: Path,
+    *args: str,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:
         pytest.skip("PowerShell is not available in PATH")
     assert executable is not None
+
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
 
     command = [
         executable,
@@ -34,7 +43,12 @@ def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str
         *args,
     ]
     return subprocess.run(
-        command, capture_output=True, text=True, check=False, cwd=REPO_ROOT
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPO_ROOT,
+        env=env,
     )
 
 
@@ -538,3 +552,92 @@ def test_verify_requires_fqnext_supervisord_for_host_managed_surfaces(
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["passed"] is False
     assert any("fqnext-supervisord" in failure for failure in payload["failures"])
+
+
+def test_verify_resolves_prefixed_container_names_by_compose_service_label(
+    tmp_path: Path,
+) -> None:
+    baseline_path = _write_json(
+        tmp_path / "baseline.json",
+        {
+            "baseline": {
+                "docker": [],
+                "services": [],
+                "processes": [],
+            }
+        },
+    )
+    service_path = _write_json(tmp_path / "services.json", [])
+    process_path = _write_json(tmp_path / "processes.json", [])
+    output_path = tmp_path / "verify.json"
+    docker_dir = tmp_path / "bin"
+    docker_dir.mkdir()
+    docker_ps1 = docker_dir / "docker_stub.ps1"
+    docker_stub = docker_dir / "docker.cmd"
+    docker_ps1.write_text(
+        """param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+
+if ($Args[0] -eq "ps") {
+    $argText = $Args -join " "
+    if ($argText -match "fq_mongodb") { Write-Output "fqnext_20260223-fq_mongodb-1" }
+    if ($argText -match "fq_redis") { Write-Output "fqnext_20260223-fq_redis-1" }
+    if ($argText -match "fq_apiserver") { Write-Output "fqnext_20260223-fq_apiserver-1" }
+    exit 0
+}
+
+if ($Args[0] -eq "inspect") {
+    switch ($Args[1]) {
+        "fqnext_20260223-fq_mongodb-1" {
+            Write-Output '[{"Name":"/fqnext_20260223-fq_mongodb-1","Config":{"Labels":{"com.docker.compose.service":"fq_mongodb"}},"State":{"Status":"running","Health":{"Status":"healthy"}}}]'
+            exit 0
+        }
+        "fqnext_20260223-fq_redis-1" {
+            Write-Output '[{"Name":"/fqnext_20260223-fq_redis-1","Config":{"Labels":{"com.docker.compose.service":"fq_redis"}},"State":{"Status":"running","Health":{"Status":"healthy"}}}]'
+            exit 0
+        }
+        "fqnext_20260223-fq_apiserver-1" {
+            Write-Output '[{"Name":"/fqnext_20260223-fq_apiserver-1","Config":{"Labels":{"com.docker.compose.service":"fq_apiserver"}},"State":{"Status":"running","Health":{"Status":"healthy"}}}]'
+            exit 0
+        }
+    }
+}
+
+exit 1
+""",
+        encoding="utf-8",
+    )
+    docker_stub.write_text(
+        """@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0docker_stub.ps1" %*
+exit /b %ERRORLEVEL%
+""",
+        encoding="utf-8",
+    )
+    env = {"PATH": f"{docker_dir};{os.environ['PATH']}"}
+
+    result = _run_powershell(
+        SCRIPT,
+        "-Mode",
+        "Verify",
+        "-BaselinePath",
+        str(baseline_path),
+        "-OutputPath",
+        str(output_path),
+        "-DeploymentSurface",
+        "api",
+        "-ServiceSnapshotPath",
+        str(service_path),
+        "-ProcessSnapshotPath",
+        str(process_path),
+        extra_env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    docker_checks = {entry["name"]: entry for entry in payload["docker_checks"]}
+
+    assert docker_checks["fq_mongodb"]["compose_service"] == "fq_mongodb"
+    assert docker_checks["fq_mongodb"]["resolved_container_name"] == "fqnext_20260223-fq_mongodb-1"
+    assert docker_checks["fq_mongodb"]["check_source"] == "live_compose_service"
+    assert docker_checks["fq_apiserver"]["compose_service"] == "fq_apiserver"
+    assert docker_checks["fq_apiserver"]["resolved_container_name"] == "fqnext_20260223-fq_apiserver-1"

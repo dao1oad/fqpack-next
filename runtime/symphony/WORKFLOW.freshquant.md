@@ -95,7 +95,7 @@ State contract:
 
 - `In Progress`: implement, test, sync `docs/current/**`, and prepare the PR for merge.
 - `Rework`: fix deterministic repository-side failures before merge.
-- `Merging`: perform one-shot GitHub truth check, merge the PR, write the merge handoff comment, and move the issue to `Global Stewardship`.
+- `Merging`: perform one-shot GitHub truth check, merge the PR, write the structured merge handoff packet, and move the issue to `Global Stewardship`.
 - `Global Stewardship`: global Codex automation handles deploy, health check, runtime ops check, cleanup, and follow-up issue creation.
 - `Blocked`: use only for a real external blocker.
 
@@ -117,3 +117,4 @@ Required behavior:
 14. If `before_run` fails because the workspace is not a git repository, rebuild the workspace once and retry before surfacing the failure.
 15. All GitHub-facing text that you write must use Simplified Chinese by default, including PR titles, PR bodies, issue comments, PR comments, deployment notes, and done summaries.
 16. If code repair is needed after merge, only create a follow-up issue for the next Symphony round; do not create a repair PR directly from the global automation.
+17. The `Merging` handoff packet is candidate input only; do not claim runtime delivery or cleanup success from it.

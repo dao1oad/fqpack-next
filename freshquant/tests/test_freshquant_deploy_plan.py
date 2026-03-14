@@ -68,3 +68,56 @@ def test_summary_render_includes_host_and_docker_sections() -> None:
     assert "deployment_surfaces: api, web, order_management" in summary
     assert "docker_services: fq_apiserver, fq_webui" in summary
     assert "host_surfaces: order_management" in summary
+
+
+def test_parser_accepts_release_context_arguments() -> None:
+    module = load_module()
+
+    args = module.build_parser().parse_args(
+        [
+            "--base-sha",
+            "abc123",
+            "--head-sha",
+            "def456",
+            "--issue-number",
+            "157",
+            "--merge-commit",
+            "fb4907f",
+        ]
+    )
+
+    assert args.base_sha == "abc123"
+    assert args.head_sha == "def456"
+    assert args.issue_number == "157"
+    assert args.merge_commit == "fb4907f"
+
+
+def test_deploy_plan_emits_release_scope_proxyless_mode_and_cleanup_hints() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=[
+            "morningglory/fqwebui/src/views/runtime-observability/index.ts",
+            "runtime/symphony/prompts/global_stewardship.md",
+            "morningglory/fqwebui/src/views/runtime-observability/panel.ts",
+        ],
+        explicit_surfaces=["api", "web"],
+        base_sha="abc123",
+        head_sha="def456",
+        issue_number="157",
+        merge_commit="fb4907f",
+    )
+
+    assert plan["base_sha"] == "abc123"
+    assert plan["head_sha"] == "def456"
+    assert plan["issue_number"] == "157"
+    assert plan["merge_commit"] == "fb4907f"
+    assert plan["effective_release_scope"] == ["api", "web", "symphony"]
+    assert plan["health_check_mode"] == "proxyless"
+    assert plan["verification_markers"]["web"] == ["runtime-observability"]
+    assert plan["verification_markers"]["symphony"] == [
+        "http://127.0.0.1:40123/api/v1/state"
+    ]
+    assert plan["cleanup_targets"]["issue_number"] == "157"
+    assert plan["cleanup_targets"]["merge_commit"] == "fb4907f"
+    assert any("157" in item for item in plan["cleanup_targets"]["workspace_hints"])

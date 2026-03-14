@@ -284,6 +284,98 @@ function Resolve-ContainerName {
     return $normalized
 }
 
+function Resolve-ComposeServiceName {
+    param(
+        $Entry,
+        [string]$DefaultName
+    )
+
+    $composeService = Get-StringProperty -Object $Entry -PropertyNames @(
+        'compose_service',
+        'ComposeService'
+    )
+    if (-not [string]::IsNullOrWhiteSpace($composeService)) {
+        return $composeService
+    }
+
+    if (
+        $null -ne $Entry.PSObject.Properties['Config'] -and
+        $null -ne $Entry.Config -and
+        $null -ne $Entry.Config.PSObject.Properties['Labels'] -and
+        $null -ne $Entry.Config.Labels
+    ) {
+        $labelValue = $Entry.Config.Labels.'com.docker.compose.service'
+        if (-not [string]::IsNullOrWhiteSpace([string]$labelValue)) {
+            return [string]$labelValue
+        }
+    }
+
+    return $DefaultName
+}
+
+function Resolve-CheckSource {
+    param($Entry)
+
+    $checkSource = Get-StringProperty -Object $Entry -PropertyNames @(
+        'check_source',
+        'CheckSource'
+    )
+    if (-not [string]::IsNullOrWhiteSpace($checkSource)) {
+        return $checkSource
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($DockerSnapshotPath)) {
+        return 'snapshot'
+    }
+
+    return 'live_direct'
+}
+
+function Resolve-LiveContainerNameByComposeService {
+    param([Parameter(Mandatory = $true)][string]$ComposeService)
+
+    $containerNames = & docker ps --filter "label=com.docker.compose.service=$ComposeService" --format '{{.Names}}' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return $null
+    }
+
+    foreach ($rawName in @($containerNames -split "`r?`n")) {
+        $trimmed = $rawName.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+            return $trimmed
+        }
+    }
+
+    return $null
+}
+
+function Get-DockerInspectEntries {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetName,
+        [Parameter(Mandatory = $true)][string]$ComposeService,
+        [Parameter(Mandatory = $true)][string]$CheckSource
+    )
+
+    $inspectJson = & docker inspect $TargetName 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($inspectJson | Out-String))) {
+        return @()
+    }
+
+    $entries = @(Convert-ToObjectArray ($inspectJson | ConvertFrom-Json))
+    foreach ($entry in $entries) {
+        $resolvedContainerName = Resolve-ContainerName -Entry $entry
+        if ([string]::IsNullOrWhiteSpace($resolvedContainerName)) {
+            $resolvedContainerName = $TargetName
+        }
+
+        Add-Member -InputObject $entry -MemberType NoteProperty -Name ComposeService -Value $ComposeService -Force
+        Add-Member -InputObject $entry -MemberType NoteProperty -Name ResolvedContainerName -Value $resolvedContainerName -Force
+        Add-Member -InputObject $entry -MemberType NoteProperty -Name CheckSource -Value $CheckSource -Force
+    }
+
+    return @($entries)
+}
+
 function Get-DockerSnapshot {
     param([string[]]$ContainerNames)
 
@@ -293,16 +385,28 @@ function Get-DockerSnapshot {
 
     $snapshot = @()
     foreach ($name in $ContainerNames) {
-        $inspectJson = & docker inspect $name 2>$null
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($inspectJson | Out-String))) {
-            $snapshot += [pscustomobject]@{
-                Name = $name
-                Missing = $true
+        $resolvedContainerName = Resolve-LiveContainerNameByComposeService -ComposeService $name
+        if (-not [string]::IsNullOrWhiteSpace($resolvedContainerName)) {
+            $composeEntries = @(Get-DockerInspectEntries -TargetName $resolvedContainerName -ComposeService $name -CheckSource 'live_compose_service')
+            if ($composeEntries.Count -gt 0) {
+                $snapshot += $composeEntries
+                continue
             }
+        }
+
+        $directEntries = @(Get-DockerInspectEntries -TargetName $name -ComposeService $name -CheckSource 'live_direct')
+        if ($directEntries.Count -gt 0) {
+            $snapshot += $directEntries
             continue
         }
 
-        $snapshot += @(Convert-ToObjectArray ($inspectJson | ConvertFrom-Json))
+        $snapshot += [pscustomobject]@{
+            Name = $name
+            Missing = $true
+            ComposeService = $name
+            ResolvedContainerName = if ([string]::IsNullOrWhiteSpace($resolvedContainerName)) { $name } else { $resolvedContainerName }
+            CheckSource = if ([string]::IsNullOrWhiteSpace($resolvedContainerName)) { 'live_missing' } else { 'live_compose_service_missing' }
+        }
     }
 
     return $snapshot
@@ -344,11 +448,15 @@ function Normalize-DockerBaseline {
     $lookup = @{}
     foreach ($entry in @($Snapshot)) {
         $name = Resolve-ContainerName -Entry $entry
+        $composeServiceName = Resolve-ComposeServiceName -Entry $entry -DefaultName $name
         if ([string]::IsNullOrWhiteSpace($name)) {
             continue
         }
 
         $lookup[$name] = $entry
+        if (-not [string]::IsNullOrWhiteSpace($composeServiceName)) {
+            $lookup[$composeServiceName] = $entry
+        }
     }
 
     $normalized = foreach ($name in $ContainerNames) {
@@ -357,10 +465,28 @@ function Normalize-DockerBaseline {
         $stateStatus = 'missing'
         $healthStatus = $null
         $statusText = $null
+        $composeService = $name
+        $resolvedContainerName = $name
+        $checkSource = if (-not [string]::IsNullOrWhiteSpace($DockerSnapshotPath)) { 'snapshot' } else { 'live_direct' }
 
         $isMissing = $false
         if ($null -ne $entry -and $null -ne $entry.PSObject.Properties['Missing']) {
             $isMissing = [bool]$entry.PSObject.Properties['Missing'].Value
+        }
+
+        if ($null -ne $entry) {
+            $composeService = Resolve-ComposeServiceName -Entry $entry -DefaultName $name
+            $resolvedContainerName = Get-StringProperty -Object $entry -PropertyNames @(
+                'resolved_container_name',
+                'ResolvedContainerName'
+            )
+            if ([string]::IsNullOrWhiteSpace($resolvedContainerName)) {
+                $resolvedContainerName = Resolve-ContainerName -Entry $entry
+            }
+            if ([string]::IsNullOrWhiteSpace($resolvedContainerName)) {
+                $resolvedContainerName = $name
+            }
+            $checkSource = Resolve-CheckSource -Entry $entry
         }
 
         if ($null -ne $entry -and -not $isMissing) {
@@ -383,6 +509,9 @@ function Normalize-DockerBaseline {
 
         [pscustomobject]@{
             name = $name
+            compose_service = $composeService
+            resolved_container_name = $resolvedContainerName
+            check_source = $checkSource
             exists = $exists
             state_status = $stateStatus
             health_status = $healthStatus
@@ -517,6 +646,9 @@ function Get-DockerChecks {
 
         $checks += [pscustomobject]@{
             name = $name
+            compose_service = if ($null -ne $entry) { [string]$entry.compose_service } else { $name }
+            resolved_container_name = if ($null -ne $entry) { [string]$entry.resolved_container_name } else { $name }
+            check_source = if ($null -ne $entry) { [string]$entry.check_source } else { 'missing' }
             required = $true
             exists = $exists
             state_status = $stateStatus

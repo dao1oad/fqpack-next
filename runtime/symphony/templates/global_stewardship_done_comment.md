@@ -9,12 +9,14 @@
 - 已发布 `main`: `<sha>`
 - 覆盖的 Source PR: `<#xxx>`
 - 覆盖的 Merge Commit: `<sha>`
+- Contract Version: `<stewardship-handoff/v1>`
 
 ## 运行交付结果
 
 - 部署范围：`<runtime surfaces>`
-- 健康检查：`<health summary>`
-- 运维面检查：`<runtime ops summary>`
+- proxyless health check：`<health summary>`
+- runtime ops：`<runtime ops summary>`
+- frontend probe：`<frontend probe summary>`
 - Cleanup：`<cleanup summary>`
 
 ## follow-up 状态
