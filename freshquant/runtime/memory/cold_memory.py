@@ -11,7 +11,9 @@ def _extract_title(content: str, fallback: str) -> str:
     return fallback
 
 
-def load_cold_memory_items(cold_memory_root: Path, *, generated_at: str) -> list[dict[str, str]]:
+def load_cold_memory_items(
+    cold_memory_root: Path, *, generated_at: str
+) -> list[dict[str, str]]:
     if not cold_memory_root.exists():
         return []
 
