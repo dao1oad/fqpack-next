@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
+import path from 'node:path'
 
-import { runLockedBuild } from './vite-build-lock.mjs'
+import { createIsolatedViteArtifactsContext, runLockedBuild } from './vite-build-lock.mjs'
 import {
   captureRenderedFrame,
   cleanupServerPort,
@@ -33,6 +34,7 @@ const DAY = '2026-03-11'
 const EXTRA_PERIOD_LEGENDS = ['15m', '30m']
 const ALL_PERIOD_LEGENDS = ['1m', '15m', '30m']
 const ZOOM_SWITCH_SEQUENCE = ['sh510050', 'sz000001', 'sz002262']
+const PREVIEW_ARTIFACTS = createIsolatedViteArtifactsContext(import.meta.url)
 
 const SYMBOL_VARIANTS = {
   sz002262: {
@@ -251,19 +253,15 @@ function buildStockDataPayload(symbol, period) {
 async function runBuild() {
   await runLockedBuild(
     () => {
-      if (process.platform === 'win32') {
-        return {
-          command: 'cmd.exe',
-          args: ['/d', '/s', '/c', 'pnpm build']
-        }
-      }
-
       return {
-        command: 'pnpm',
-        args: ['build']
+        command: process.execPath,
+        args: [path.join(process.cwd(), 'node_modules', 'vite', 'bin', 'vite.js'), 'build']
       }
     },
-    process.cwd()
+    process.cwd(),
+    {
+      outDir: PREVIEW_ARTIFACTS.outDirRelative
+    }
   )
 }
 
@@ -417,11 +415,13 @@ async function runZoomSwitchSequence(page) {
 }
 
 test.beforeAll(async () => {
+  test.setTimeout(90000)
   cleanupServerPort(DEV_SERVER_PORT)
   await runBuild()
   devServerProcess = startPreviewServer({
     port: DEV_SERVER_PORT,
-    cwd: process.cwd()
+    cwd: process.cwd(),
+    outDir: PREVIEW_ARTIFACTS.outDirRelative
   })
 
   let startupOutput = ''
