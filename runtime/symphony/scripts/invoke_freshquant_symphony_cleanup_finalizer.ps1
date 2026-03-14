@@ -240,9 +240,6 @@ function Get-GitHubIssueStateName {
     if ($labels -contains 'blocked') {
         return 'Blocked'
     }
-    if ($labels -contains 'design-review') {
-        return 'Design Review'
-    }
     if ($labels -contains 'merging') {
         return 'Merging'
     }
@@ -253,7 +250,7 @@ function Get-GitHubIssueStateName {
         return 'In Progress'
     }
 
-    return 'Todo'
+    return 'In Progress'
 }
 
 function Get-GitHubIssueContext {
