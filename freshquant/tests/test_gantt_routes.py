@@ -652,6 +652,47 @@ def test_sync_shouban30_pre_pool_to_tdx_returns_blk_sync_meta(monkeypatch):
     }
 
 
+def test_clear_shouban30_pre_pool_returns_blk_sync_meta(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(
+            clear_pre_pool=lambda: {
+                "deleted_count": 2,
+                "category": "三十涨停Pro预选",
+                "blk_sync": {
+                    "success": True,
+                    "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+                    "count": 0,
+                },
+            }
+        ),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post("/api/gantt/shouban30/pre-pool/clear")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "data": {
+            "deleted_count": 2,
+            "category": "三十涨停Pro预选",
+        },
+        "meta": {
+            "blk_sync": {
+                "success": True,
+                "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+                "count": 0,
+            }
+        },
+    }
+
+
 def test_add_shouban30_stock_pool_item_to_must_pool(monkeypatch):
     from freshquant.rear.gantt import routes as gantt_routes
 
@@ -706,4 +747,45 @@ def test_sync_shouban30_stock_pool_to_tdx_returns_blk_sync_meta(monkeypatch):
             "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
             "count": 2,
         }
+    }
+
+
+def test_clear_shouban30_stock_pool_returns_blk_sync_meta(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(
+            clear_stock_pool=lambda: {
+                "deleted_count": 0,
+                "category": "三十涨停Pro自选",
+                "blk_sync": {
+                    "success": True,
+                    "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+                    "count": 0,
+                },
+            }
+        ),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post("/api/gantt/shouban30/stock-pool/clear")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "data": {
+            "deleted_count": 0,
+            "category": "三十涨停Pro自选",
+        },
+        "meta": {
+            "blk_sync": {
+                "success": True,
+                "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+                "count": 0,
+            }
+        },
     }

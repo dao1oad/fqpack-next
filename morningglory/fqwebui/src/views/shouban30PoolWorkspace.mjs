@@ -100,14 +100,16 @@ export const buildWorkspaceTabs = ({
   return [
     {
       key: 'pre_pool',
-      label: 'pre_pool',
+      label: 'pre_pools',
       sync_action_label: '同步到通达信',
-      rows: normalizeList(prePoolItems).map((item) => mapWorkspaceRow(item, '加入 stockpools')),
+      clear_action_label: '清空',
+      rows: normalizeList(prePoolItems).map((item) => mapWorkspaceRow(item, '加入 stock_pools')),
     },
     {
       key: 'stockpools',
-      label: 'stockpools',
+      label: 'stock_pools',
       sync_action_label: '同步到通达信',
+      clear_action_label: '清空',
       rows: normalizeList(stockPoolItems).map((item) => mapWorkspaceRow(item, '加入 must_pools')),
     },
   ]
