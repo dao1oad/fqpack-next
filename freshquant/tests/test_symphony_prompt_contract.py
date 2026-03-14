@@ -186,7 +186,10 @@ Required behavior:
     result = _run_powershell(WORKFLOW_VALIDATOR, "-WorkflowPath", str(workflow_path))
 
     assert result.returncode != 0
-    assert "runtime ops" in result.stderr.lower() or "global stewardship" in result.stderr.lower()
+    assert (
+        "runtime ops" in result.stderr.lower()
+        or "global stewardship" in result.stderr.lower()
+    )
 
 
 def test_sync_script_references_global_runtime_ops_check_script() -> None:

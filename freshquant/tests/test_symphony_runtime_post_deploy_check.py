@@ -124,9 +124,7 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
                     {"name": "fq_redis", "exists": True},
                     {"name": "fq_apiserver", "exists": True},
                 ],
-                "services": [
-                    {"name": "fq-symphony-orchestrator", "status": "Running"}
-                ],
+                "services": [{"name": "fq-symphony-orchestrator", "status": "Running"}],
                 "processes": [
                     {"id": "market_data_producer", "running": True},
                     {"id": "market_data_consumer", "running": False},
@@ -188,9 +186,7 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
     assert payload["mode"] == "Verify"
     assert payload["passed"] is False
     assert any("fq_apiserver" in failure for failure in payload["failures"])
-    assert any(
-        "fq-symphony-orchestrator" in failure for failure in payload["failures"]
-    )
+    assert any("fq-symphony-orchestrator" in failure for failure in payload["failures"])
     assert any("market_data_producer" in failure for failure in payload["failures"])
     assert any("market_data_consumer" in failure for failure in payload["failures"])
     assert any(
@@ -205,9 +201,7 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
         {
             "baseline": {
                 "docker": [],
-                "services": [
-                    {"name": "fq-symphony-orchestrator", "status": "Running"}
-                ],
+                "services": [{"name": "fq-symphony-orchestrator", "status": "Running"}],
                 "processes": [
                     {"id": "market_data_producer", "running": True},
                     {"id": "market_data_consumer", "running": False},
