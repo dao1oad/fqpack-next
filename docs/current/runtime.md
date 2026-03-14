@@ -91,7 +91,8 @@
 - Web UI
 - Gantt/Shouban30 对应读模型数据
 - Runtime Observability 原始日志目录
-- Guardian 排障时优先使用 `/runtime-observability` 左侧组件侧栏中的 `guardian_strategy`；该视图现在按“组件侧栏 -> 最近链路流 -> 单条链路详情”展开，并直接显示信号摘要、判断上下文和最终结论
+- `/runtime-observability` 当前固定是 `全局 Trace + 组件 Event` 双视图
+- Guardian 排障时优先看全局 Trace 中的 `guardian_signal` 链路；组件侧栏主要用于切到对应组件的 Event 视图
 
 ## 并行环境的默认口径
 
@@ -112,7 +113,8 @@
 - Shouban30 的 `.blk` 同步依赖宿主机 `settings.tdx.home or TDX_HOME`
 - Docker 并行环境下，Shouban30 的 API 同步链路依赖 `fq_apiserver` 挂载 `/opt/tdx`
 - 当通达信根目录配置为 `D:\tdx_biduan` 时，Shouban30 会写入 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`
-- `xt_producer` / `xt_consumer` 会向 `logs/runtime` 固定每 5 分钟写 1 次 heartbeat，供 `/runtime-observability` 页面聚合
+- `xt_producer` / `xt_consumer` 会向 `logs/runtime` 固定每 5 分钟写 1 次 heartbeat，供 `/runtime-observability` 的组件 Event / health 视图聚合；这些 heartbeat 不进入业务 Trace
+- pytest 默认通过临时 `FQ_RUNTIME_LOG_DIR` 与 logger cache reset 隔离测试运行日志，避免污染正式 `logs/runtime`
 - FQNext 宿主机 Supervisor 仍托管 `fqnext_realtime_xtdata_producer`、`fqnext_realtime_xtdata_consumer`、`fqnext_guardian_event`、`fqnext_position_management_worker`、`fqnext_tpsl_worker`、`fqnext_xtquant_broker`、`fqnext_credit_subjects_worker`、`fqnext_xtdata_adj_refresh_worker`
 
 ## 常见运行模式
@@ -135,8 +137,10 @@ python -m freshquant.tpsl.tick_listener
 
 调这条链路时，`/runtime-observability` 页面至少应看到：
 
-- `xt_producer` 的心跳年龄、`收 tick`、`5m ticks`、`订阅`
-- `xt_consumer` 的心跳年龄、`最近处理`、`5m bars`、`backlog`
+- 在组件 Event 视图看到 `xt_producer` 的 `bootstrap` / `config_resolve` / `subscription_load` / `heartbeat`
+- 在组件 Event 视图看到 `xt_consumer` 的 `bootstrap` / `heartbeat`
+- 在 health 卡片上看到 `xt_producer` 的心跳年龄、`收 tick`、`5m ticks`、`订阅`
+- 在 health 卡片上看到 `xt_consumer` 的心跳年龄、`最近处理`、`5m bars`、`backlog`
 
 ### 调 Symphony 正式服务
 

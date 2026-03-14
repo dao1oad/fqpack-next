@@ -86,8 +86,10 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 修正 `monitor.xtdata.mode` 与 `monitor.xtdata.max_symbols`
 - 重启 producer / consumer
 - 通过 runtime 页面看：
-  - `xt_producer` 的心跳年龄、`收 tick`、`5m ticks`、`订阅`
-  - `xt_consumer` 的心跳年龄、`最近处理`、`5m bars`、`backlog`
+  - 在组件 Event 视图看 `xt_producer` 的 `bootstrap` / `config_resolve` / `subscription_load` / `heartbeat`
+  - 在组件 Event 视图看 `xt_consumer` 的 `bootstrap` / `heartbeat`
+  - 在 health 卡片上看 `xt_producer` 的心跳年龄、`收 tick`、`5m ticks`、`订阅`
+  - 在 health 卡片上看 `xt_consumer` 的心跳年龄、`最近处理`、`5m bars`、`backlog`
 
 ## Guardian 不触发或不下单
 
@@ -108,7 +110,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 处理：
 - 查 runtime 里的 `guardian_strategy`、`position_gate`、`order_submit`
-- 在 `/runtime-observability` 左侧组件侧栏选中 `guardian_strategy`，先看中间 recent trace 的信号摘要、节点 hover 和最终结论
+- 在 `/runtime-observability` 先切到全局 Trace，优先看 `trace_kind=guardian_signal` 的最近链路
 - 节点详情优先看 `decision_expr`、`decision_context`、`decision_outcome`，Raw Browser 只作为补充
 - 需要时清理冷却键并重启 Guardian
 
@@ -261,13 +263,15 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 业务进程没启用或没走到 runtime logger。
 - 路径被环境变量指到别的目录。
 - 页面筛选条件过严。
-- 原始事件只有 `heartbeat`，或缺少 `trace_id` / `request_id` / `internal_order_id`，因此不会进入 trace 列表。
+- 原始事件只有 `heartbeat`，或缺少 `trace_id` / `intent_id` / `request_id` / `internal_order_id`，因此不会进入全局 Trace 列表。
 - 组件卡片是固定核心组件全集；如果显示 `unknown / no data`，说明组件存在但最近没有可聚合的 health 数据。
 - `/api/runtime/traces` 与 `/api/runtime/health/summary` 已有数据，但 `fq_webui` 仍在跑旧静态资源，或页面代码仍按 `response.data.*` 读取而不是读取顶层 `traces/components/trace/files/records`。
+- 当前 pytest 默认会把 runtime root 指向临时目录；如果现场页面里仍出现 `remark=pytest`、`ord_test_1`、`tp_batch_1` 一类样本，优先怀疑页面读到的不是正式现场目录。
 
 处理：
 - 直接 tail 原始文件，而不是只看页面
-- 先看 `/api/runtime/events` 或 raw browser，确认最近事件是否带关联键
+- 先看 `/api/runtime/events` 或 raw browser，确认最近事件是否带强关联键
+- 如果目标是确认 `xt_producer` / `xt_consumer` 是否还活着，优先切到组件 Event 视图，不要把 heartbeat 当 Trace 缺失
 - 清空筛选后刷新页面
 - 如果 API 有数据但页面统计卡、recent feed、component board 全空，优先重建并重新部署 `fq_webui`，然后强刷浏览器缓存
 

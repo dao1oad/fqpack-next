@@ -6,9 +6,13 @@
         <div class="runtime-title-row">
           <div>
             <h1>运行观测</h1>
-            <p>按组件侧栏、最近链路流、单条链路详情的三级路径浏览当前运行面。</p>
+            <p>主视图拆为全局 Trace 与组件 Event，分别回答“链路发生了什么”和“组件最近有没有工作”。</p>
           </div>
           <div class="runtime-title-actions">
+            <el-radio-group v-model="activeView" size="small" class="runtime-view-switch">
+              <el-radio-button label="traces">全局 Trace</el-radio-button>
+              <el-radio-button label="events">组件 Event</el-radio-button>
+            </el-radio-group>
             <el-switch
               v-model="autoRefresh"
               inline-prompt
@@ -69,8 +73,8 @@
           <aside class="runtime-browser-panel runtime-browser-panel--components">
             <div class="runtime-home-head">
               <div>
-                <h2>组件侧栏</h2>
-                <p>固定按核心链路顺序展示，hover 查看健康、异常与 highlights。</p>
+                <h2>组件导航</h2>
+                <p>固定按核心组件顺序展示，hover 查看健康、异常与 highlights，Event 视图按这里选组件。</p>
               </div>
               <span class="runtime-home-meta">核心组件 {{ componentSidebarItems.length }} 个</span>
             </div>
@@ -145,125 +149,193 @@
           </aside>
 
           <section class="runtime-browser-panel runtime-browser-panel--feed">
-            <div class="runtime-home-head">
-              <div>
-                <h2>最近链路流</h2>
-                <p>当前聚焦 {{ activeComponent || '核心组件' }}，列表项内直接展示节点路径与 hover 判断信息。</p>
-              </div>
-              <div class="runtime-home-actions">
-                <span class="runtime-home-meta">当前显示 {{ recentTraceFeed.length }} 条</span>
-                <el-button v-if="recentTraceLimit < 50" text @click="showMoreRecentTraces">查看更多</el-button>
-              </div>
-            </div>
-
-            <article class="runtime-priority-banner" :class="{ 'is-empty': issuePriorityCards.length === 0 }">
-              <span>异常优先</span>
-              <button
-                v-if="issuePriorityCards.length"
-                type="button"
-                class="runtime-priority-link"
-                @click="handleIssueCardClick(issuePriorityCards[0])"
-              >
-                {{ issuePriorityCards[0].headline }} · {{ issuePriorityCards[0].issue_summary }}
-              </button>
-              <span v-else>当前组件暂无异常链路</span>
-            </article>
-
-            <div v-if="recentTraceFeed.length" class="recent-feed-list recent-feed-list--stacked">
-              <button
-                v-for="item in recentTraceFeed"
-                :key="item.trace_key || item.trace_id"
-                type="button"
-                class="recent-feed-item recent-feed-item--stacked"
-                :class="{ active: isActiveTraceRow(item) }"
-                @click="handleRecentTraceClick(item)"
-              >
-                <div class="recent-feed-topline">
-                  <div class="recent-feed-heading">
-                    <div class="recent-feed-status" :class="statusClass(item.last_status || (item.issue_count > 0 ? 'warning' : 'success'))">
-                      {{ item.last_status || (item.issue_count > 0 ? 'warning' : 'success') }}
-                    </div>
-                    <div>
-                      <strong>{{ item.guardian_signal?.title || item.symbol || '-' }}</strong>
-                      <p v-if="item.guardian_signal?.subtitle" class="recent-feed-guardian-subtitle">
-                        {{ item.guardian_signal.subtitle }}
-                      </p>
-                      <p class="recent-feed-identity">{{ buildTraceIdentityLabel(item) }}</p>
-                    </div>
-                  </div>
-                  <div class="recent-feed-meta">
-                    <span>{{ item.last_ts || '-' }}</span>
-                    <span>steps {{ item.step_count }}</span>
-                    <span>issues {{ item.issue_count }}</span>
-                    <span>duration {{ item.total_duration_label }}</span>
-                  </div>
+            <template v-if="activeView === 'traces'">
+              <div class="runtime-home-head">
+                <div>
+                  <h2>全局 Trace</h2>
+                  <p>按最近全局链路浏览，不再因为左侧组件选择而裁剪主 Trace 列表。</p>
                 </div>
-
-                <p class="recent-feed-path">{{ item.path_summary }}</p>
-
-                <div v-if="item.guardian_outcome || item.guardian_signal?.tags?.length" class="guardian-chip-list recent-feed-guardian-list">
-                  <span v-if="item.guardian_outcome">
-                    结论 {{ item.guardian_outcome.label }}
-                  </span>
-                  <span v-if="item.guardian_outcome?.reason_code">
-                    原因 {{ item.guardian_outcome.reason_code }}
-                  </span>
-                  <span v-if="item.guardian_outcome?.node_label">
-                    节点 {{ item.guardian_outcome.node_label }}
-                  </span>
-                  <span v-for="tag in item.guardian_signal?.tags || []" :key="`${item.trace_id}-${tag}`">
-                    {{ tag }}
-                  </span>
+                <div class="runtime-home-actions">
+                  <span class="runtime-home-meta">当前显示 {{ recentTraceFeed.length }} 条</span>
+                  <el-button v-if="recentTraceLimit < 50" text @click="showMoreRecentTraces">查看更多</el-button>
                 </div>
+              </div>
 
-                <div class="trace-flow-strip">
-                  <el-popover
-                    v-for="node in item.flow_nodes"
-                    :key="node.key"
-                    placement="top-start"
-                    trigger="hover"
-                    :width="320"
-                  >
-                    <template #reference>
-                      <span class="trace-flow-node" :class="[statusClass(node.status), { 'is-issue': node.is_issue }]">
-                        <span class="trace-flow-node-label">{{ node.label }}</span>
-                        <span class="trace-flow-node-meta">{{ node.meta_label }}</span>
-                      </span>
-                    </template>
+              <article class="runtime-priority-banner" :class="{ 'is-empty': issuePriorityCards.length === 0 }">
+                <span>异常优先</span>
+                <button
+                  v-if="issuePriorityCards.length"
+                  type="button"
+                  class="runtime-priority-link"
+                  @click="handleIssueCardClick(issuePriorityCards[0])"
+                >
+                  {{ issuePriorityCards[0].headline }} · {{ issuePriorityCards[0].issue_summary }}
+                </button>
+                <span v-else>当前暂无异常 Trace</span>
+              </article>
 
-                    <div class="trace-flow-popover">
-                      <strong>{{ node.label }}</strong>
-                      <div class="trace-flow-popover-list">
-                        <div
-                          v-for="hoverItem in node.hover_items"
-                          :key="`${node.key}-${hoverItem.label}`"
-                          class="trace-flow-popover-item"
-                        >
-                          <span>{{ hoverItem.label }}</span>
-                          <code>{{ hoverItem.value }}</code>
-                        </div>
+              <div v-if="recentTraceFeed.length" class="recent-feed-list recent-feed-list--stacked">
+                <button
+                  v-for="item in recentTraceFeed"
+                  :key="item.trace_key || item.trace_id"
+                  type="button"
+                  class="recent-feed-item recent-feed-item--stacked"
+                  :class="{ active: isActiveTraceRow(item) }"
+                  @click="handleRecentTraceClick(item)"
+                >
+                  <div class="recent-feed-topline">
+                    <div class="recent-feed-heading">
+                      <div class="recent-feed-status" :class="statusClass(item.trace_status || item.last_status || (item.issue_count > 0 ? 'warning' : 'success'))">
+                        {{ item.trace_status_label || item.trace_status || item.last_status || 'open' }}
+                      </div>
+                      <div>
+                        <strong>{{ item.guardian_signal?.title || item.symbol || '-' }}</strong>
+                        <p v-if="item.guardian_signal?.subtitle" class="recent-feed-guardian-subtitle">
+                          {{ item.guardian_signal.subtitle }}
+                        </p>
+                        <p class="recent-feed-identity">{{ buildTraceIdentityLabel(item) }}</p>
                       </div>
                     </div>
-                  </el-popover>
+                    <div class="recent-feed-meta">
+                      <span>{{ item.last_ts || '-' }}</span>
+                      <span>{{ item.trace_kind_label || item.trace_kind || 'unknown' }}</span>
+                      <span>steps {{ item.step_count }}</span>
+                      <span>duration {{ item.duration_label || item.total_duration_label }}</span>
+                    </div>
+                  </div>
+
+                  <p class="recent-feed-path">{{ item.path_summary }}</p>
+
+                  <div class="guardian-chip-list recent-feed-guardian-list">
+                    <span>状态 {{ item.trace_status_label || item.trace_status || 'open' }}</span>
+                    <span>类型 {{ item.trace_kind_label || item.trace_kind || 'unknown' }}</span>
+                    <span v-if="item.entry_component && item.exit_component">
+                      路径 {{ item.entry_component }}.{{ item.entry_node || '-' }} -> {{ item.exit_component }}.{{ item.exit_node || '-' }}
+                    </span>
+                    <span v-if="item.break_reason">
+                      断裂 {{ item.break_reason }}
+                    </span>
+                    <span v-if="item.guardian_outcome">
+                      结论 {{ item.guardian_outcome.label }}
+                    </span>
+                    <span v-if="item.guardian_outcome?.reason_code">
+                      原因 {{ item.guardian_outcome.reason_code }}
+                    </span>
+                    <span v-for="tag in item.guardian_signal?.tags || []" :key="`${item.trace_id}-${tag}`">
+                      {{ tag }}
+                    </span>
+                  </div>
+
+                  <div class="trace-flow-strip">
+                    <el-popover
+                      v-for="node in item.flow_nodes"
+                      :key="node.key"
+                      placement="top-start"
+                      trigger="hover"
+                      :width="320"
+                    >
+                      <template #reference>
+                        <span class="trace-flow-node" :class="[statusClass(node.status), { 'is-issue': node.is_issue }]">
+                          <span class="trace-flow-node-label">{{ node.label }}</span>
+                          <span class="trace-flow-node-meta">{{ node.meta_label }}</span>
+                        </span>
+                      </template>
+
+                      <div class="trace-flow-popover">
+                        <strong>{{ node.label }}</strong>
+                        <div class="trace-flow-popover-list">
+                          <div
+                            v-for="hoverItem in node.hover_items"
+                            :key="`${node.key}-${hoverItem.label}`"
+                            class="trace-flow-popover-item"
+                          >
+                            <span>{{ hoverItem.label }}</span>
+                            <code>{{ hoverItem.value }}</code>
+                          </div>
+                        </div>
+                      </div>
+                    </el-popover>
                 </div>
               </button>
             </div>
             <div v-else class="runtime-empty-panel">
-              <strong>{{ activeComponent ? `${activeComponent} 暂无最近链路` : '暂无最近链路' }}</strong>
+              <strong>暂无最近 Trace</strong>
             </div>
+          </template>
+
+          <template v-else>
+            <div class="runtime-home-head">
+              <div>
+                <h2>组件 Event</h2>
+                <p>{{ activeComponent ? `${activeComponent} 最近运行事件与心跳` : '先从左侧选择一个组件查看 Event' }}</p>
+              </div>
+              <div class="runtime-home-actions">
+                <span class="runtime-home-meta">当前显示 {{ componentEventFeed.length }} 条</span>
+              </div>
+            </div>
+
+            <div v-if="componentEventFeed.length" class="recent-feed-list recent-feed-list--stacked">
+              <button
+                v-for="item in componentEventFeed"
+                :key="item.key"
+                type="button"
+                class="recent-feed-item recent-feed-item--stacked"
+                :class="{ active: isActiveEventRow(item) }"
+                @click="handleEventClick(item)"
+              >
+                <div class="recent-feed-topline">
+                  <div class="recent-feed-heading">
+                    <div class="recent-feed-status" :class="statusClass(item.status)">
+                      {{ item.event_type }}
+                    </div>
+                    <div>
+                      <strong>{{ item.component }}.{{ item.node }}</strong>
+                      <p class="recent-feed-identity">{{ item.runtime_node }}</p>
+                    </div>
+                  </div>
+                  <div class="recent-feed-meta">
+                    <span>{{ item.ts || '-' }}</span>
+                    <span>{{ item.status || 'info' }}</span>
+                  </div>
+                </div>
+
+                <div v-if="item.badges.length" class="guardian-chip-list">
+                  <span v-for="badge in item.badges" :key="`${item.key}-${badge}`">
+                    {{ badge }}
+                  </span>
+                </div>
+
+                <div v-if="item.summary_metrics.length" class="guardian-chip-list">
+                  <span v-for="metric in item.summary_metrics" :key="`${item.key}-${metric.key}`">
+                    {{ metric.label }} {{ metric.display }}
+                  </span>
+                </div>
+
+                <p v-if="item.summary" class="recent-feed-path">{{ item.summary }}</p>
+              </button>
+            </div>
+            <div v-else class="runtime-empty-panel">
+              <strong>{{ activeComponent ? `${activeComponent} 暂无最近事件` : '先选择组件查看 Event' }}</strong>
+            </div>
+          </template>
           </section>
 
           <section class="runtime-browser-panel runtime-browser-panel--detail">
-            <div class="trace-detail trace-detail--embedded">
+            <div v-if="activeView === 'traces'" class="trace-detail trace-detail--embedded">
           <div class="trace-detail-head">
             <div>
               <strong>{{ selectedTraceDetail.trace_id || selectedTrace?.trace_key || '选择一条 Trace' }}</strong>
               <div v-if="selectedTrace" class="trace-summary-chips">
+                <span class="trace-summary-chip">{{ selectedTraceDetail.trace_kind || 'unknown' }}</span>
+                <span class="trace-summary-chip">{{ selectedTraceDetail.trace_status || 'open' }}</span>
                 <span class="trace-summary-chip">steps {{ selectedTraceDetail.step_count }}</span>
                 <span class="trace-summary-chip" :class="{ 'is-issue': selectedTraceDetail.issue_count > 0 }">
                   issues {{ selectedTraceDetail.issue_count }}
                 </span>
-                <span class="trace-summary-chip">duration {{ selectedTraceDetail.total_duration_label }}</span>
+                <span class="trace-summary-chip">duration {{ selectedTraceDetail.duration_label || selectedTraceDetail.total_duration_label }}</span>
+                <span v-if="selectedTraceDetail.break_reason" class="trace-summary-chip is-issue">
+                  {{ selectedTraceDetail.break_reason }}
+                </span>
               </div>
             </div>
             <div class="trace-detail-actions">
@@ -314,12 +386,17 @@
 
                 <div class="trace-summary-grid">
                   <article class="trace-summary-card">
-                    <span>首个异常</span>
-                    <strong>{{ traceSummaryMeta.first_issue ? `${traceSummaryMeta.first_issue.component}.${traceSummaryMeta.first_issue.node}` : '-' }}</strong>
+                    <span>开始时间</span>
+                    <strong>{{ selectedTraceDetail.first_ts || '-' }}</strong>
                   </article>
                   <article class="trace-summary-card">
-                    <span>最后异常</span>
-                    <strong>{{ traceSummaryMeta.last_issue ? `${traceSummaryMeta.last_issue.component}.${traceSummaryMeta.last_issue.node}` : '-' }}</strong>
+                    <span>结束时间</span>
+                    <strong>{{ selectedTraceDetail.last_ts || '-' }}</strong>
+                  </article>
+                  <article class="trace-summary-card">
+                    <span>入口 -> 出口</span>
+                    <strong>{{ `${selectedTraceDetail.entry_component}.${selectedTraceDetail.entry_node}` }}</strong>
+                    <em>{{ `${selectedTraceDetail.exit_component}.${selectedTraceDetail.exit_node}` }}</em>
                   </article>
                   <article class="trace-summary-card">
                     <span>最长耗时</span>
@@ -410,6 +487,7 @@
                         <div class="trace-step-meta">
                           <span v-if="step.request_id">request {{ step.request_id }}</span>
                           <span v-if="step.internal_order_id">order {{ step.internal_order_id }}</span>
+                          <span v-if="step.offset_ms !== null && step.offset_ms !== undefined">offset {{ step.offset_ms }}ms</span>
                         </div>
                       </article>
                     </div>
@@ -432,6 +510,9 @@
                     <span>step #{{ selectedStep.index + 1 }}</span>
                     <span v-if="selectedStep.delta_from_prev_label">
                       delta {{ selectedStep.delta_from_prev_label }}
+                    </span>
+                    <span v-if="selectedStep.offset_ms !== null && selectedStep.offset_ms !== undefined">
+                      offset {{ selectedStep.offset_ms }}ms
                     </span>
                     <span v-if="selectedStep.event_type">{{ selectedStep.event_type }}</span>
                   </div>
@@ -531,6 +612,71 @@
             </div>
             <div v-else class="trace-empty">暂无选中链路</div>
             </div>
+            <div v-else class="trace-detail trace-detail--embedded">
+              <div class="trace-detail-head">
+                <div>
+                  <strong>{{ selectedEvent ? `${selectedEvent.component}.${selectedEvent.node}` : '选择一个组件 Event' }}</strong>
+                  <div v-if="selectedEvent" class="trace-summary-chips">
+                    <span class="trace-summary-chip">{{ selectedEvent.event_type || 'trace_step' }}</span>
+                    <span class="trace-summary-chip">{{ selectedEvent.status || 'info' }}</span>
+                    <span class="trace-summary-chip">{{ selectedEvent.runtime_node || '-' }}</span>
+                  </div>
+                </div>
+                <div class="trace-detail-actions">
+                  <el-button :disabled="!selectedEvent" @click="openRawBrowser">Raw</el-button>
+                </div>
+              </div>
+              <div v-if="selectedEvent" class="step-inspector">
+                <div class="step-inspector-head" :class="statusClass(selectedEvent.status)">
+                  <div>
+                    <strong>{{ selectedEvent.component }}.{{ selectedEvent.node }}</strong>
+                    <p>{{ selectedEvent.ts || '-' }}</p>
+                  </div>
+                  <span class="trace-step-status">{{ selectedEvent.status || 'info' }}</span>
+                </div>
+
+                <div class="step-inspector-summary">
+                  <span>{{ selectedEvent.event_type || 'trace_step' }}</span>
+                  <span>{{ selectedEvent.runtime_node || '-' }}</span>
+                </div>
+
+                <div v-if="selectedEvent.badges.length" class="inspector-tag-list">
+                  <span v-for="badge in selectedEvent.badges" :key="`${selectedEvent.key}-${badge}`" class="inspector-tag">
+                    {{ badge }}
+                  </span>
+                </div>
+
+                <section v-if="selectedEvent.summary_metrics.length" class="step-inspector-section">
+                  <h4>Metrics 摘要</h4>
+                  <div class="guardian-chip-list">
+                    <span v-for="metric in selectedEvent.summary_metrics" :key="`${selectedEvent.key}-${metric.key}`">
+                      {{ metric.label }} {{ metric.display }}
+                    </span>
+                  </div>
+                </section>
+
+                <section v-if="selectedEvent.summary" class="step-inspector-section">
+                  <h4>摘要</h4>
+                  <p class="recent-feed-path">{{ selectedEvent.summary }}</p>
+                </section>
+
+                <section v-if="selectedEvent.payload_text" class="step-inspector-section">
+                  <h4>Payload</h4>
+                  <pre>{{ selectedEvent.payload_text }}</pre>
+                </section>
+
+                <section v-if="selectedEvent.metrics_text" class="step-inspector-section">
+                  <h4>Metrics</h4>
+                  <pre>{{ selectedEvent.metrics_text }}</pre>
+                </section>
+
+                <div class="step-inspector-actions">
+                  <el-button type="primary" plain @click="openRawFromStep(selectedEvent)">查看 Raw</el-button>
+                  <el-button text @click="copyText(buildEventCopyText(selectedEvent))">复制事件摘要</el-button>
+                </div>
+              </div>
+              <div v-else class="trace-empty">先从左侧选择组件，再从中间选择一个 Event</div>
+            </div>
           </section>
         </div>
       </section>
@@ -539,6 +685,7 @@
     <el-drawer v-model="advancedFilterVisible" size="420px" title="高级筛选">
       <div class="advanced-filter-grid">
         <el-input v-model="draftQuery.trace_id" clearable placeholder="trace_id" />
+        <el-input v-model="draftQuery.intent_id" clearable placeholder="intent_id" />
         <el-input v-model="draftQuery.request_id" clearable placeholder="request_id" />
         <el-input v-model="draftQuery.internal_order_id" clearable placeholder="internal_order_id" />
         <el-input v-model="draftQuery.symbol" clearable placeholder="symbol" />
@@ -594,7 +741,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
 import MyHeader from './MyHeader.vue'
 import {
-  applyBoardFilter,
+  buildComponentEventFeed,
   buildComponentSidebarItems,
   buildIssuePriorityCards,
   buildRecentTraceFeed,
@@ -604,8 +751,10 @@ import {
   buildTraceSummaryMeta,
   buildTraceDetail,
   buildHealthCards,
+  buildTraceIdentityLabel,
   buildRawLookupFromStep,
   buildTraceQuery,
+  createTraceQueryState,
   findTraceByRow,
   findRawRecordIndex,
   filterTraceSteps,
@@ -614,6 +763,8 @@ import {
   pickDefaultTraceStep,
   readApiPayload,
   stopPollingTimer,
+  TRACE_QUERY_FIELDS,
+  TRACE_QUERY_LABELS,
 } from './runtimeObservability.mjs'
 
 const loading = reactive({
@@ -621,29 +772,17 @@ const loading = reactive({
   traces: false,
   raw: false,
 })
-const QUERY_FIELDS = ['trace_id', 'request_id', 'internal_order_id', 'symbol', 'component', 'runtime_node']
 
-const query = reactive({
-  trace_id: '',
-  request_id: '',
-  internal_order_id: '',
-  symbol: '',
-  component: '',
-  runtime_node: '',
-})
-const draftQuery = reactive({
-  trace_id: '',
-  request_id: '',
-  internal_order_id: '',
-  symbol: '',
-  component: '',
-  runtime_node: '',
-})
+const query = reactive(createTraceQueryState())
+const draftQuery = reactive(createTraceQueryState())
 
 const healthCards = ref([])
 const traces = ref([])
+const events = ref([])
 const selectedTrace = ref(null)
 const selectedStep = ref(null)
+const selectedEvent = ref(null)
+const activeView = ref('traces')
 const onlyIssues = ref(false)
 const autoRefresh = ref(false)
 const advancedFilterVisible = ref(false)
@@ -667,18 +806,23 @@ const rawQuery = reactive({
 })
 let overviewTimer = null
 
-const boardFilteredTraces = computed(() => {
-  return applyBoardFilter(traces.value, boardFilter)
-})
 const visibleTraces = computed(() => {
-  if (!onlyIssues.value) return boardFilteredTraces.value
-  return boardFilteredTraces.value.filter((trace) => buildTraceDetail(trace).issue_count > 0)
+  if (!onlyIssues.value) return traces.value
+  return traces.value.filter((trace) => buildTraceDetail(trace).issue_count > 0)
 })
 const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
 const issuePriorityCards = computed(() => buildIssuePriorityCards(visibleTraces.value))
 const recentTraceFeed = computed(() => buildRecentTraceFeed(visibleTraces.value, { limit: recentTraceLimit.value }))
 const componentSidebarItems = computed(() => buildComponentSidebarItems(traces.value, healthCards.value))
 const activeComponent = computed(() => String(boardFilter.component || '').trim())
+const componentEventFeed = computed(() => {
+  if (!activeComponent.value) return []
+  return buildComponentEventFeed(events.value, {
+    component: activeComponent.value,
+    runtime_node: boardFilter.runtime_node,
+    onlyIssues: onlyIssues.value,
+  })
+})
 const filterChips = computed(() => {
   const chips = []
   if (onlyIssues.value) {
@@ -688,14 +832,7 @@ const filterChips = computed(() => {
       kind: 'toggle',
     })
   }
-  for (const [field, label] of [
-    ['trace_id', 'Trace'],
-    ['request_id', 'Request'],
-    ['internal_order_id', 'Order'],
-    ['symbol', 'Symbol'],
-    ['component', '组件'],
-    ['runtime_node', '节点'],
-  ]) {
+  for (const [field, label] of Object.entries(TRACE_QUERY_LABELS)) {
     const value = String(query[field] || '').trim()
     if (!value) continue
     chips.push({
@@ -727,7 +864,7 @@ const traceIdentityGroups = computed(() => {
 const rawRecordCards = computed(() => rawRecords.value.map((record) => buildRawRecordSummary(record)))
 
 const syncQueryState = (target, source = {}) => {
-  for (const field of QUERY_FIELDS) {
+  for (const field of TRACE_QUERY_FIELDS) {
     target[field] = String(source?.[field] || '').trim()
   }
 }
@@ -746,9 +883,10 @@ const loadOverview = async () => {
   loading.overview = true
   try {
     pageError.value = ''
-    const [healthResult, traceResult] = await Promise.allSettled([
+    const [healthResult, traceResult, eventResult] = await Promise.allSettled([
       runtimeObservabilityApi.getHealthSummary(),
       loadTraces({ suppressError: true }),
+      loadEvents({ suppressError: true }),
     ])
     const errors = []
     if (healthResult.status === 'fulfilled') {
@@ -760,6 +898,9 @@ const loadOverview = async () => {
     }
     if (traceResult.status === 'rejected') {
       errors.push(summarizeRequestError('Trace 列表加载失败', traceResult.reason))
+    }
+    if (eventResult.status === 'rejected') {
+      errors.push(summarizeRequestError('Event 列表加载失败', eventResult.reason))
     }
     pageError.value = errors.join('；')
   } finally {
@@ -789,6 +930,20 @@ const loadTraces = async (options = {}) => {
   }
 }
 
+const loadEvents = async (options = {}) => {
+  const suppressError = Boolean(options?.suppressError)
+  try {
+    if (!suppressError) pageError.value = ''
+    const response = await runtimeObservabilityApi.listEvents(buildTraceQuery(query))
+    events.value = readApiPayload(response, 'events', [])
+  } catch (error) {
+    if (!suppressError) {
+      pageError.value = summarizeRequestError('Event 列表加载失败', error)
+    }
+    throw error
+  }
+}
+
 const openAdvancedFilter = () => {
   syncQueryState(draftQuery, query)
   advancedFilterVisible.value = true
@@ -797,7 +952,7 @@ const openAdvancedFilter = () => {
 const applyAdvancedFilter = async () => {
   syncQueryState(query, draftQuery)
   recentTraceLimit.value = 20
-  await loadTraces()
+  await Promise.all([loadTraces(), loadEvents()])
   advancedFilterVisible.value = false
 }
 
@@ -823,6 +978,10 @@ const handleIssueCardClick = async (card) => {
 
 const handleRecentTraceClick = async (row) => {
   await handleTraceClick(row)
+}
+
+const handleEventClick = (event) => {
+  selectedEvent.value = event || null
 }
 
 const handleComponentFilter = (target) => {
@@ -858,6 +1017,11 @@ const handleStepSelect = (step) => {
 }
 
 const openRawBrowser = async () => {
+  const target = activeView.value === 'events' ? selectedEvent.value : selectedStep.value
+  if (target) {
+    await openRawFromStep(target)
+    return
+  }
   if (selectedStep.value) {
     await openRawFromStep(selectedStep.value)
     return
@@ -894,7 +1058,7 @@ const loadRawFiles = async () => {
   }
 }
 
-const loadRawTail = async (targetStep = selectedStep.value) => {
+const loadRawTail = async (targetStep = activeView.value === 'events' ? selectedEvent.value : selectedStep.value) => {
   if (!rawQuery.file) return
   loading.raw = true
   try {
@@ -955,13 +1119,6 @@ const buildStepCopyText = (step) => {
   return lines.join('\n')
 }
 
-const buildTraceIdentityLabel = (trace) => {
-  if (trace?.trace_id) return `trace ${trace.trace_id}`
-  if (trace?.request_ids?.length) return `request ${trace.request_ids[0]}`
-  if (trace?.internal_order_ids?.length) return `order ${trace.internal_order_ids[0]}`
-  return trace?.trace_key || '-'
-}
-
 const isActiveTraceRow = (row) => {
   const selectedKey = selectedTrace.value?.trace_key || ''
   const selectedId = selectedTrace.value?.trace_id || ''
@@ -969,6 +1126,22 @@ const isActiveTraceRow = (row) => {
     (row?.trace_key && row.trace_key === selectedKey) ||
     (row?.trace_id && row.trace_id === selectedId)
   )
+}
+
+const isActiveEventRow = (row) => {
+  return [
+    row?.key || '',
+    row?.component || '',
+    row?.runtime_node || '',
+    row?.node || '',
+    row?.ts || '',
+  ].join('|') === [
+    selectedEvent.value?.key || '',
+    selectedEvent.value?.component || '',
+    selectedEvent.value?.runtime_node || '',
+    selectedEvent.value?.node || '',
+    selectedEvent.value?.ts || '',
+  ].join('|')
 }
 
 const copyText = async (value) => {
@@ -981,6 +1154,18 @@ const copyText = async (value) => {
   } catch {
     return
   }
+}
+
+const buildEventCopyText = (event) => {
+  if (!event) return ''
+  return [
+    `${event.component}.${event.node}`,
+    `event_type: ${event.event_type || 'trace_step'}`,
+    `status: ${event.status || 'info'}`,
+    event.runtime_node ? `runtime_node: ${event.runtime_node}` : '',
+    event.ts ? `ts: ${event.ts}` : '',
+    ...(event.badges || []),
+  ].filter(Boolean).join('\n')
 }
 
 const resetOverviewTimer = () => {
@@ -1033,6 +1218,11 @@ const scrollToFocusedRawRecord = async () => {
 watch([selectedTraceDetail, onlyIssues], () => {
   syncSelectedStep()
 })
+
+watch(componentEventFeed, (items) => {
+  const currentKey = selectedEvent.value?.key || ''
+  selectedEvent.value = items.find((item) => item.key === currentKey) || items[0] || null
+}, { immediate: true })
 
 watch(componentSidebarItems, (items) => {
   if (items.length === 0) {
@@ -1110,6 +1300,10 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+}
+
+.runtime-view-switch {
+  margin-right: 4px;
 }
 
 .runtime-title-row h1 {
