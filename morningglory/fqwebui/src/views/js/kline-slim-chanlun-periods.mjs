@@ -55,9 +55,10 @@ export const PERIOD_DURATION_MS = {
 
 function buildDefaultLegendSelection(currentPeriod) {
   return Object.fromEntries(
-    SUPPORTED_CHANLUN_PERIODS
-      .filter((period) => period !== currentPeriod)
-      .map((period) => [period, DEFAULT_VISIBLE_CHANLUN_PERIODS.includes(period)])
+    SUPPORTED_CHANLUN_PERIODS.map((period) => [
+      period,
+      period === currentPeriod ? true : DEFAULT_VISIBLE_CHANLUN_PERIODS.includes(period)
+    ])
   )
 }
 

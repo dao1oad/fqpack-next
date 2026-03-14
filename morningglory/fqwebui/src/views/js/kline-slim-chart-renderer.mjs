@@ -42,6 +42,22 @@ function intersectsWindow(startTs, endTs, windowStartTs, windowEndTs) {
   return startTs < windowEndTs && endTs > windowStartTs
 }
 
+function pickViewportWindow(scene, viewport) {
+  const startTs = scene?.mainWindow?.startTs
+  const endTs = scene?.mainWindow?.endTs
+  const start = Number(viewport?.xRange?.start)
+  const end = Number(viewport?.xRange?.end)
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || !Number.isFinite(start) || !Number.isFinite(end)) {
+    return scene?.mainWindow || null
+  }
+
+  const span = Math.max(1, endTs - startTs)
+  return {
+    startTs: startTs + (span * start) / 100,
+    endTs: startTs + (span * end) / 100
+  }
+}
+
 function sanitizeSceneScopePart(value, fallback) {
   const normalized = String(value || '')
     .trim()
@@ -61,7 +77,7 @@ function buildSceneScopeId({ sceneId, symbol, currentPeriod } = {}) {
   ].join('__')
 }
 
-function buildWindowBounds(dates, period) {
+function buildRealWindowBounds(dates, period) {
   const periodMs = PERIOD_DURATION_MS[period] || PERIOD_DURATION_MS['5m']
   const startTs = toTimestamp(dates[0])
   const lastTs = toTimestamp(dates[dates.length - 1])
@@ -71,29 +87,133 @@ function buildWindowBounds(dates, period) {
   }
 }
 
-function buildCandleItems(mainData, period) {
+function formatTradingAxisLabel(label) {
+  const text = String(label || '')
+  if (!text.includes(' ')) {
+    return text
+  }
+
+  const [date, time] = text.split(' ')
+  if (!date || !time) {
+    return text
+  }
+
+  return `${date.slice(5)}\n${time}`
+}
+
+function locateAxisBoundarySegment(boundaryTimestamps, targetTs) {
+  let left = 0
+  let right = boundaryTimestamps.length - 2
+
+  while (left <= right) {
+    const middle = Math.floor((left + right) / 2)
+    const startTs = boundaryTimestamps[middle]
+    const endTs = boundaryTimestamps[middle + 1]
+    if (targetTs < startTs) {
+      right = middle - 1
+      continue
+    }
+    if (targetTs >= endTs) {
+      left = middle + 1
+      continue
+    }
+    return middle
+  }
+
+  return Math.max(0, Math.min(boundaryTimestamps.length - 2, left))
+}
+
+function buildTradingSlotAxis(dates, period) {
+  const periodMs = PERIOD_DURATION_MS[period] || PERIOD_DURATION_MS['5m']
+  const candleOpenTimestamps = (Array.isArray(dates) ? dates : [])
+    .map((value) => toTimestamp(value))
+    .filter(Number.isFinite)
+
+  if (!candleOpenTimestamps.length) {
+    return null
+  }
+
+  const lastOpenTs = candleOpenTimestamps[candleOpenTimestamps.length - 1]
+  const boundaryTimestamps = candleOpenTimestamps.concat(lastOpenTs + periodMs)
+  const startTs = -0.5
+  const endTs = candleOpenTimestamps.length - 0.5
+
+  const mapBoundaryTsToSlot = (targetTs) => {
+    if (!Number.isFinite(targetTs)) {
+      return NaN
+    }
+    if (targetTs <= boundaryTimestamps[0]) {
+      return startTs
+    }
+    if (targetTs >= boundaryTimestamps[boundaryTimestamps.length - 1]) {
+      return endTs
+    }
+
+    const segmentIndex = locateAxisBoundarySegment(boundaryTimestamps, targetTs)
+    const segmentStartTs = boundaryTimestamps[segmentIndex]
+    const segmentEndTs = boundaryTimestamps[segmentIndex + 1]
+    const segmentSpan = Math.max(1, segmentEndTs - segmentStartTs)
+    return segmentIndex - 0.5 + (targetTs - segmentStartTs) / segmentSpan
+  }
+
+  return {
+    startTs,
+    endTs,
+    boundaryTimestamps,
+    labels: dates,
+    rawStartTs: boundaryTimestamps[0],
+    rawEndTs: boundaryTimestamps[boundaryTimestamps.length - 1],
+    mapBoundaryTsToSlot,
+    mapPointTsToSlot(targetTs) {
+      return mapBoundaryTsToSlot(targetTs) + 0.5
+    },
+    formatLabel(value) {
+      const numericValue = Number(value)
+      if (!Number.isFinite(numericValue)) {
+        return ''
+      }
+
+      const rounded = Math.round(numericValue)
+      if (Math.abs(numericValue - rounded) > 0.001) {
+        return ''
+      }
+      if (rounded < 0 || rounded >= dates.length) {
+        return ''
+      }
+
+      return formatTradingAxisLabel(dates[rounded])
+    }
+  }
+}
+
+function buildCandleItems(mainData, period, tradingAxis) {
   const periodMs = PERIOD_DURATION_MS[period] || PERIOD_DURATION_MS['5m']
   return (mainData.date || [])
     .map((date, index) => {
-      const ts = toTimestamp(date)
+      const rawTs = toTimestamp(date)
       const open = Number(mainData.open?.[index])
       const close = Number(mainData.close?.[index])
       const low = Number(mainData.low?.[index])
       const high = Number(mainData.high?.[index])
       if (
-        !Number.isFinite(ts) ||
+        !Number.isFinite(rawTs) ||
         !Number.isFinite(open) ||
         !Number.isFinite(close) ||
         !Number.isFinite(low) ||
-        !Number.isFinite(high)
+        !Number.isFinite(high) ||
+        !tradingAxis
       ) {
         return null
       }
 
+      const ts = tradingAxis.mapPointTsToSlot(rawTs)
       return {
         ts,
-        startTs: ts,
-        endTs: ts + periodMs,
+        startTs: ts - 0.5,
+        endTs: ts + 0.5,
+        rawTs,
+        rawStartTs: rawTs,
+        rawEndTs: rawTs + periodMs,
         open,
         close,
         low,
@@ -103,31 +223,32 @@ function buildCandleItems(mainData, period) {
     .filter(Boolean)
 }
 
-function buildLinePointItems(source, period) {
+function buildLinePointItems(source, period, tradingAxis) {
   if (!source || !Array.isArray(source.date) || !Array.isArray(source.data)) {
     return []
   }
 
-  const periodMs = PERIOD_DURATION_MS[period] || PERIOD_DURATION_MS['5m']
   return source.date
     .map((date, index) => {
-      const ts = toTimestamp(date)
+      const rawTs = toTimestamp(date)
       const value = Number(source.data[index])
-      if (!Number.isFinite(ts) || !Number.isFinite(value)) {
+      if (!Number.isFinite(rawTs) || !Number.isFinite(value) || !tradingAxis) {
         return null
       }
 
+      const ts = tradingAxis.mapPointTsToSlot(rawTs)
       return {
         ts,
-        startTs: ts,
-        endTs: ts + periodMs,
+        startTs: ts - 0.5,
+        endTs: ts + 0.5,
+        rawTs,
         value
       }
     })
     .filter(Boolean)
 }
 
-function clipStructureBoxes(values, period, mainWindow, color, borderWidth, layerId, sceneScopeId) {
+function clipStructureBoxes(values, period, realMainWindow, tradingAxis, color, borderWidth, layerId, sceneScopeId) {
   const periodMs = PERIOD_DURATION_MS[period] || PERIOD_DURATION_MS['5m']
   return (Array.isArray(values) ? values : [])
     .map((item, index) => {
@@ -153,19 +274,23 @@ function clipStructureBoxes(values, period, mainWindow, color, borderWidth, laye
         return null
       }
 
-      const clippedStartTs = Math.max(startTs, mainWindow.startTs)
-      const clippedEndTs = Math.min(endTs, mainWindow.endTs)
-      if (!intersectsWindow(startTs, endTs, mainWindow.startTs, mainWindow.endTs)) {
+      const rawClippedStartTs = Math.max(startTs, realMainWindow.startTs)
+      const rawClippedEndTs = Math.min(endTs, realMainWindow.endTs)
+      if (!intersectsWindow(startTs, endTs, realMainWindow.startTs, realMainWindow.endTs)) {
         return null
       }
 
       return {
         id: `${period}-${layerId}-${index}`,
         seriesId: `${period}-${sceneScopeId}-${layerId}`,
-        startTs,
-        endTs,
-        clippedStartTs,
-        clippedEndTs,
+        startTs: tradingAxis.mapBoundaryTsToSlot(startTs),
+        endTs: tradingAxis.mapBoundaryTsToSlot(endTs),
+        clippedStartTs: tradingAxis.mapBoundaryTsToSlot(rawClippedStartTs),
+        clippedEndTs: tradingAxis.mapBoundaryTsToSlot(rawClippedEndTs),
+        rawStartTs: startTs,
+        rawEndTs: endTs,
+        rawClippedStartTs,
+        rawClippedEndTs,
         top,
         bottom,
         color,
@@ -173,6 +298,32 @@ function clipStructureBoxes(values, period, mainWindow, color, borderWidth, laye
       }
     })
     .filter(Boolean)
+}
+
+function clipRectToCoordSys(rect, coordSys) {
+  if (!rect || !coordSys) {
+    return null
+  }
+
+  const x1 = Math.max(rect.x, coordSys.x)
+  const y1 = Math.max(rect.y, coordSys.y)
+  const x2 = Math.min(rect.x + rect.width, coordSys.x + coordSys.width)
+  const y2 = Math.min(rect.y + rect.height, coordSys.y + coordSys.height)
+
+  if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) {
+    return null
+  }
+
+  if (x2 <= x1 || y2 <= y1) {
+    return null
+  }
+
+  return {
+    x: x1,
+    y: y1,
+    width: x2 - x1,
+    height: y2 - y1
+  }
 }
 
 function buildLineSeries({ id, name, color, width, z, points }) {
@@ -192,42 +343,6 @@ function buildLineSeries({ id, name, color, width, z, points }) {
     },
     itemStyle: {
       color
-    }
-  }
-}
-
-function buildBoxSeries({ id, name, boxes, z }) {
-  return {
-    id,
-    name,
-    type: 'line',
-    data: [],
-    animation: false,
-    z,
-    lineStyle: {
-      opacity: 0
-    },
-    emphasis: {
-      disabled: true
-    },
-    markArea: {
-      silent: true,
-      data: boxes.map((box) => [
-        {
-          xAxis: box.clippedStartTs,
-          yAxis: box.top,
-          itemStyle: {
-            color: withAlpha(box.color, 0.12),
-            borderColor: box.color,
-            borderWidth: box.borderWidth,
-            opacity: 0.22
-          }
-        },
-        {
-          xAxis: box.clippedEndTs,
-          yAxis: box.bottom
-        }
-      ])
     }
   }
 }
@@ -258,9 +373,104 @@ function buildLegendPlaceholderSeries(name, color, sceneScopeId, z = 1) {
   }
 }
 
-function buildPeriodScene(period, payload, mainWindow, sceneScopeId) {
+function isPeriodOverlayVisible(scene, period) {
+  if (!scene?.legendSelected || !Object.prototype.hasOwnProperty.call(scene.legendSelected, period)) {
+    return true
+  }
+  return !!scene.legendSelected[period]
+}
+
+function buildStructureOverlaySeries({ id, name, boxes, z, color, borderWidth }) {
+  const fillColor = withAlpha(color, 0.12)
+
+  return {
+    id,
+    name,
+    type: 'custom',
+    coordinateSystem: 'cartesian2d',
+    silent: true,
+    animation: false,
+    tooltip: {
+      show: false
+    },
+    z,
+    data: boxes.map((box) => [
+      box.clippedStartTs,
+      box.clippedEndTs,
+      box.top,
+      box.bottom,
+      box.rawClippedStartTs,
+      box.rawClippedEndTs
+    ]),
+    encode: {
+      x: [0, 1],
+      y: [2, 3]
+    },
+    renderItem(params, api) {
+      const startTop = api.coord([api.value(0), api.value(2)])
+      const endBottom = api.coord([api.value(1), api.value(3)])
+      const rectShape = clipRectToCoordSys(
+        {
+          x: Math.min(startTop[0], endBottom[0]),
+          y: Math.min(startTop[1], endBottom[1]),
+          width: Math.abs(endBottom[0] - startTop[0]),
+          height: Math.abs(endBottom[1] - startTop[1])
+        },
+        params.coordSys
+      )
+      if (!rectShape) {
+        return null
+      }
+
+      return {
+        type: 'rect',
+        shape: rectShape,
+        silent: true,
+        style: {
+          fill: fillColor,
+          stroke: color,
+          lineWidth: borderWidth,
+          opacity: 0.22
+        }
+      }
+    }
+  }
+}
+
+function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneScopeId) {
   const palette = PERIOD_STYLE_MAP[period]
   const factor = PERIOD_WIDTH_FACTOR[period] || 1
+  const biBoxes = clipStructureBoxes(
+    payload?.zsdata,
+    period,
+    realMainWindow,
+    tradingAxis,
+    palette.zhongshu,
+    2 * factor,
+    'zhongshu',
+    sceneScopeId
+  )
+  const duanBoxes = clipStructureBoxes(
+    payload?.duan_zsdata,
+    period,
+    realMainWindow,
+    tradingAxis,
+    palette.duanZhongshu,
+    2 * factor,
+    'duan-zhongshu',
+    sceneScopeId
+  )
+  const higherDuanBoxes = clipStructureBoxes(
+    payload?.higher_duan_zsdata,
+    period,
+    realMainWindow,
+    tradingAxis,
+    palette.higherDuanZhongshu,
+    2 * factor,
+    'higher-duan-zhongshu',
+    sceneScopeId
+  )
+
   const lineSeries = [
     {
       id: `${period}-${sceneScopeId}-bi`,
@@ -268,7 +478,7 @@ function buildPeriodScene(period, payload, mainWindow, sceneScopeId) {
       color: palette.bi,
       width: 1.2 * factor,
       z: 5 + factor,
-      points: buildLinePointItems(payload?.bidata, period)
+      points: buildLinePointItems(payload?.bidata, period, tradingAxis)
     },
     {
       id: `${period}-${sceneScopeId}-duan`,
@@ -276,7 +486,7 @@ function buildPeriodScene(period, payload, mainWindow, sceneScopeId) {
       color: palette.duan,
       width: 1.5 * factor,
       z: 6 + factor,
-      points: buildLinePointItems(payload?.duandata, period)
+      points: buildLinePointItems(payload?.duandata, period, tradingAxis)
     },
     {
       id: `${period}-${sceneScopeId}-higher-duan`,
@@ -284,49 +494,48 @@ function buildPeriodScene(period, payload, mainWindow, sceneScopeId) {
       color: palette.higherDuan,
       width: 1.6 * factor,
       z: 7 + factor,
-      points: buildLinePointItems(payload?.higherDuanData, period)
+      points: buildLinePointItems(payload?.higherDuanData, period, tradingAxis)
     }
   ].filter((series) => series.points.length)
 
-  const structureBoxes = [
-    ...clipStructureBoxes(
-      payload?.zsdata,
-      period,
-      mainWindow,
-      palette.zhongshu,
-      2 * factor,
-      'zhongshu',
-      sceneScopeId
-    ),
-    ...clipStructureBoxes(
-      payload?.duan_zsdata,
-      period,
-      mainWindow,
-      palette.duanZhongshu,
-      2 * factor,
-      'duan-zhongshu',
-      sceneScopeId
-    ),
-    ...clipStructureBoxes(
-      payload?.higher_duan_zsdata,
-      period,
-      mainWindow,
-      palette.higherDuanZhongshu,
-      2 * factor,
-      'higher-duan-zhongshu',
-      sceneScopeId
-    )
-  ]
+  const structureSeries = [
+    {
+      id: `${period}-${sceneScopeId}-bi-structure`,
+      name: `${period} 笔结构`,
+      boxes: biBoxes,
+      color: palette.zhongshu,
+      borderWidth: 2 * factor,
+      z: 4 + factor
+    },
+    {
+      id: `${period}-${sceneScopeId}-duan-structure`,
+      name: `${period} 段结构`,
+      boxes: duanBoxes,
+      color: palette.duanZhongshu,
+      borderWidth: 2 * factor,
+      z: 5 + factor
+    },
+    {
+      id: `${period}-${sceneScopeId}-higher-duan-structure`,
+      name: `${period} 高级段结构`,
+      boxes: higherDuanBoxes,
+      color: palette.higherDuanZhongshu,
+      borderWidth: 2 * factor,
+      z: 6 + factor
+    }
+  ].filter((series) => series.boxes.length)
 
   return {
     period,
     palette,
     lineSeries,
-    structureBoxes
+    structureSeries,
+    structureBoxes: structureSeries.flatMap((series) => series.boxes || [])
   }
 }
 
-function buildSceneRenderSeries(scene) {
+function buildSceneRenderSeries(scene, viewport) {
+  const windowBounds = pickViewportWindow(scene, viewport) || scene.mainWindow
   const series = scene.legendNames.map((name) =>
     buildLegendPlaceholderSeries(name, PERIOD_STYLE_MAP[name].bi, scene.sceneScopeId)
   )
@@ -335,7 +544,11 @@ function buildSceneRenderSeries(scene) {
     id: `${scene.currentPeriod}-${scene.sceneScopeId}-candlestick`,
     name: `${scene.currentPeriod} K线`,
     type: 'candlestick',
-    data: scene.mainCandles.map((item) => [item.ts, item.open, item.close, item.low, item.high]),
+    data: scene.mainCandles
+      .filter((item) =>
+        intersectsWindow(item.startTs, item.endTs, windowBounds.startTs, windowBounds.endTs)
+      )
+      .map((item) => [item.ts, item.open, item.close, item.low, item.high]),
     animation: false,
     itemStyle: {
       color: echartsConfig.upColor,
@@ -346,34 +559,37 @@ function buildSceneRenderSeries(scene) {
   })
 
   scene.periodScenes.forEach((periodScene) => {
+    if (!isPeriodOverlayVisible(scene, periodScene.period)) {
+      return
+    }
+
     periodScene.lineSeries.forEach((lineSeries) => {
-      series.push(buildLineSeries(lineSeries))
+      series.push(
+        buildLineSeries({
+          ...lineSeries,
+          points: lineSeries.points.filter((point) =>
+            intersectsWindow(point.startTs, point.endTs, windowBounds.startTs, windowBounds.endTs)
+          )
+        })
+      )
     })
 
-    const groupedBoxes = periodScene.structureBoxes.reduce((result, box) => {
-      const list = result[box.seriesId] || []
-      list.push(box)
-      result[box.seriesId] = list
-      return result
-    }, {})
-
-    Object.entries(groupedBoxes).forEach(([seriesId, boxes]) => {
-      const first = boxes[0]
-      if (!first) {
-        return
-      }
-      const labelMap = {
-        zhongshu: '中枢',
-        'duan-zhongshu': '段中枢',
-        'higher-duan-zhongshu': '高级段中枢'
-      }
-      const layerKey = first.id.slice(`${periodScene.period}-`.length).replace(/-\d+$/, '')
+    periodScene.structureSeries.forEach((structureSeries) => {
       series.push(
-        buildBoxSeries({
-          id: seriesId,
-          name: `${periodScene.period} ${labelMap[layerKey] || layerKey}`,
-          boxes,
-          z: 2 + (PERIOD_WIDTH_FACTOR[periodScene.period] || 1)
+        buildStructureOverlaySeries({
+          id: structureSeries.id,
+          name: structureSeries.name,
+          boxes: structureSeries.boxes.filter((box) =>
+            intersectsWindow(
+              box.clippedStartTs,
+              box.clippedEndTs,
+              windowBounds.startTs,
+              windowBounds.endTs
+            )
+          ),
+          z: structureSeries.z,
+          color: structureSeries.color,
+          borderWidth: structureSeries.borderWidth
         })
       )
     })
@@ -387,7 +603,8 @@ export function buildKlineSlimChartScene({
   currentPeriod,
   sceneId,
   extraChanlunMap = {},
-  visiblePeriods = []
+  visiblePeriods = [],
+  legendSelected = null
 } = {}) {
   const normalizedCurrent = normalizeChanlunPeriod(currentPeriod)
   const dates = Array.isArray(mainData?.date) ? mainData.date : []
@@ -395,14 +612,26 @@ export function buildKlineSlimChartScene({
     return null
   }
 
-  const mainWindow = buildWindowBounds(dates, normalizedCurrent)
+  const realMainWindow = buildRealWindowBounds(dates, normalizedCurrent)
+  const tradingAxis = buildTradingSlotAxis(dates, normalizedCurrent)
+  if (!tradingAxis) {
+    return null
+  }
   const sceneScopeId = buildSceneScopeId({
     sceneId,
     symbol: mainData.symbol,
     currentPeriod: normalizedCurrent
   })
-  const legendNames = SUPPORTED_CHANLUN_PERIODS.filter((period) => period !== normalizedCurrent)
+  const legendNames = [...SUPPORTED_CHANLUN_PERIODS]
   const extras = visiblePeriods.filter((period) => period !== normalizedCurrent && legendNames.includes(period))
+  const resolvedLegendSelected = buildPeriodLegendSelectionState({
+    currentPeriod: normalizedCurrent,
+    previousSelected:
+      legendSelected ||
+      Object.fromEntries(
+        legendNames.map((period) => [period, period === normalizedCurrent || extras.includes(period)])
+      )
+  })
   const periodScenes = [normalizedCurrent]
     .concat(extras)
     .map((period) => {
@@ -410,7 +639,7 @@ export function buildKlineSlimChartScene({
       if (!payload) {
         return null
       }
-      return buildPeriodScene(period, payload, mainWindow, sceneScopeId)
+      return buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneScopeId)
     })
     .filter(Boolean)
 
@@ -420,12 +649,14 @@ export function buildKlineSlimChartScene({
     currentPeriod: normalizedCurrent,
     sceneScopeId,
     legendNames,
-    legendSelected: buildPeriodLegendSelectionState({
-      currentPeriod: normalizedCurrent,
-      previousSelected: Object.fromEntries(legendNames.map((period) => [period, extras.includes(period)]))
-    }),
-    mainWindow,
-    mainCandles: buildCandleItems(mainData, normalizedCurrent),
+    legendSelected: resolvedLegendSelected,
+    mainWindow: {
+      startTs: tradingAxis.startTs,
+      endTs: tradingAxis.endTs
+    },
+    realMainWindow,
+    tradingAxis,
+    mainCandles: buildCandleItems(mainData, normalizedCurrent, tradingAxis),
     periodScenes,
     structureBoxes: periodScenes.flatMap((periodScene) => periodScene.structureBoxes)
   }
@@ -465,10 +696,8 @@ export function buildKlineSlimChartOption({ scene, viewport } = {}) {
       data: scene.legendNames
     },
     tooltip: {
-      trigger: 'axis',
-      axisPointer: {
-        type: 'cross'
-      }
+      show: false,
+      triggerOn: 'none'
     },
     grid: {
       left: '4%',
@@ -477,7 +706,14 @@ export function buildKlineSlimChartOption({ scene, viewport } = {}) {
       bottom: 64
     },
     xAxis: {
-      type: 'time',
+      type: 'value',
+      min: scene.mainWindow.startTs,
+      max: scene.mainWindow.endTs,
+      minInterval: 1,
+      axisLabel: {
+        color: '#9ca3af',
+        formatter: (value) => scene.tradingAxis?.formatLabel?.(value) || ''
+      },
       axisLine: {
         lineStyle: {
           color: '#4b5563'
@@ -504,9 +740,10 @@ export function buildKlineSlimChartOption({ scene, viewport } = {}) {
         id: 'kline-slim-inside-zoom',
         type: 'inside',
         xAxisIndex: [0],
-        filterMode: 'none',
+        filterMode: 'filter',
         start: viewport?.xRange?.start,
         end: viewport?.xRange?.end,
+        throttle: 0,
         zoomOnMouseWheel: true,
         moveOnMouseMove: true,
         moveOnMouseWheel: false,
@@ -516,9 +753,10 @@ export function buildKlineSlimChartOption({ scene, viewport } = {}) {
         id: 'kline-slim-slider-zoom',
         type: 'slider',
         xAxisIndex: [0],
-        filterMode: 'none',
+        filterMode: 'filter',
         start: viewport?.xRange?.start,
         end: viewport?.xRange?.end,
+        throttle: 0,
         bottom: 20,
         borderColor: 'rgba(255,255,255,0.12)',
         fillerColor: 'rgba(96,165,250,0.18)',
@@ -530,7 +768,7 @@ export function buildKlineSlimChartOption({ scene, viewport } = {}) {
         }
       }
     ],
-    series: buildSceneRenderSeries(scene)
+    series: buildSceneRenderSeries(scene, viewport)
   }
 }
 

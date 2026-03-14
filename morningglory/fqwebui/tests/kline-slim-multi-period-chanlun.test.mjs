@@ -34,13 +34,14 @@ test('period style map and duration map stay aligned with current multi-period r
   })
 })
 
-test('legend selection only tracks extra periods and follows current main period', () => {
+test('legend selection includes current main period while visible extras still exclude it', () => {
   assert.deepEqual(
     buildPeriodLegendSelectionState({
       currentPeriod: '5m'
     }),
     {
       '1m': false,
+      '5m': true,
       '15m': false,
       '30m': false
     }
@@ -61,6 +62,7 @@ test('legend selection only tracks extra periods and follows current main period
     {
       '1m': true,
       '5m': false,
+      '15m': true,
       '30m': true
     }
   )
@@ -71,6 +73,7 @@ test('legend selection only tracks extra periods and follows current main period
       selected: {
         '1m': true,
         '5m': false,
+        '15m': true,
         '30m': true
       }
     }),
@@ -126,6 +129,6 @@ test('initChart creates chart controller and browser hooks publish the controlle
 test('KlineSlim keeps extra-period legend guidance and removes fixed overlay copy', async () => {
   const content = await readFile(new URL('../src/views/KlineSlim.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /图例控制额外周期缠论层/)
+  assert.match(content, /图例控制主图缠论层与额外周期叠加/)
   assert.doesNotMatch(content, /固定叠加/)
 })

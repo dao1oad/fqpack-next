@@ -38,7 +38,7 @@
       </div>
       <div class="toolbar-right">
         <span class="status-chip">主图 {{ currentPeriod }}</span>
-        <span class="status-chip">图例控制额外周期缠论层</span>
+        <span class="status-chip">图例控制主图缠论层与额外周期叠加</span>
         <span class="status-chip">主图末 bar {{ lastMainBarLabel }}</span>
         <span class="status-chip" :class="{ error: lastError }">{{ statusText }}</span>
       </div>
