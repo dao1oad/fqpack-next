@@ -121,6 +121,12 @@ def _write_blk(docs):
 
 def _build_pre_pool_doc(item, context):
     now = datetime.now()
+    resolved_days = context.get("days")
+    if resolved_days is None:
+        resolved_days = context.get("stock_window_days")
+    resolved_end_date = str(
+        context.get("end_date") or context.get("as_of_date") or ""
+    ).strip()
     return {
         "code": item["code"],
         "name": item["name"],
@@ -132,8 +138,10 @@ def _build_pre_pool_doc(item, context):
             "shouban30_plate_key": item["plate_key"],
             "shouban30_plate_name": item["plate_name"],
             "shouban30_replace_scope": str(context.get("replace_scope") or "").strip(),
-            "shouban30_stock_window_days": context.get("stock_window_days"),
-            "shouban30_as_of_date": str(context.get("as_of_date") or "").strip(),
+            "shouban30_days": resolved_days,
+            "shouban30_end_date": resolved_end_date,
+            "shouban30_stock_window_days": resolved_days,
+            "shouban30_as_of_date": resolved_end_date,
             "shouban30_selected_filters": list(
                 context.get("selected_extra_filters") or []
             ),

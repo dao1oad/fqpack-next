@@ -114,3 +114,47 @@ def test_select_shouban30_stock_rows_filters_by_plate_key():
             "code6": "000001",
         }
     ]
+
+
+def test_select_shouban30_plate_rows_falls_back_to_latest_snapshot_on_or_before_end_date():
+    rows = select_shouban30_plate_rows(
+        [
+            {"provider": "xgb", "as_of_date": "2026-03-05", "plate_key": "11"},
+            {"provider": "xgb", "as_of_date": "2026-03-07", "plate_key": "22"},
+        ],
+        provider="xgb",
+        as_of_date="2026-03-08",
+    )
+
+    assert rows == [{"provider": "xgb", "as_of_date": "2026-03-07", "plate_key": "22"}]
+
+
+def test_select_shouban30_stock_rows_falls_back_to_latest_snapshot_on_or_before_end_date():
+    rows = select_shouban30_stock_rows(
+        [
+            {
+                "provider": "xgb",
+                "as_of_date": "2026-03-05",
+                "plate_key": "11",
+                "code6": "000001",
+            },
+            {
+                "provider": "xgb",
+                "as_of_date": "2026-03-07",
+                "plate_key": "11",
+                "code6": "000002",
+            },
+        ],
+        provider="xgb",
+        plate_key="11",
+        as_of_date="2026-03-08",
+    )
+
+    assert rows == [
+        {
+            "provider": "xgb",
+            "as_of_date": "2026-03-07",
+            "plate_key": "11",
+            "code6": "000002",
+        }
+    ]

@@ -61,8 +61,8 @@ test('buildCurrentFilterReplacePrePoolPayload normalizes visible rows into repla
       },
     ],
     replace_scope: 'current_filter',
-    stock_window_days: 30,
-    as_of_date: '2026-03-06',
+    days: 30,
+    end_date: '2026-03-06',
     selected_extra_filters: ['credit', 'quality'],
     plate_key: '',
   })
@@ -154,8 +154,8 @@ test('buildSinglePlateReplacePrePoolPayload keeps only selected plate rows', () 
       },
     ],
     replace_scope: 'single_plate',
-    stock_window_days: 60,
-    as_of_date: '2026-03-06',
+    days: 60,
+    end_date: '2026-03-06',
     selected_extra_filters: ['credit'],
     plate_key: 'agg|robotics',
   })

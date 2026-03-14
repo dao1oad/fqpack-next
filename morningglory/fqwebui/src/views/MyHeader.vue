@@ -82,7 +82,7 @@ export default {
       } else if (type === 'gantt') {
         this.$router.replace('/gantt?p=xgb')
       } else if (type === 'shouban30') {
-        this.$router.replace('/gantt/shouban30?p=xgb&stock_window_days=30')
+        this.$router.replace('/gantt/shouban30?p=xgb&days=30')
       } else if (type === 'stock') {
         this.$router.replace('/stock-control')
       } else if (type === 'pool') {
