@@ -78,6 +78,26 @@ def test_workflow_prompt_contract_passes_for_repo_prompt() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_workflow_prompt_scopes_issue_contract_to_symphony_managed_tasks() -> None:
+    content = WORKFLOW_PROMPT.read_text(encoding="utf-8")
+    validator_content = WORKFLOW_VALIDATOR.read_text(encoding="utf-8")
+    global_stewardship_content = GLOBAL_STEWARDSHIP_PROMPT.read_text(encoding="utf-8")
+
+    assert (
+        "For Symphony-managed tasks, GitHub Issue is the formal task entry and execution contract."
+        in content
+    )
+    assert (
+        "Repository-level work may also enter through direct `feature branch -> PR` outside Symphony."
+        in content
+    )
+    assert (
+        "For issue-managed work handed off from Symphony, GitHub Issue is the formal task entry and the pre-merge execution contract."
+        in global_stewardship_content
+    )
+    assert "For Symphony-managed tasks" in validator_content
+
+
 def test_global_stewardship_prompt_contract_passes_for_repo_prompt() -> None:
     result = _run_powershell(
         GLOBAL_STEWARDSHIP_VALIDATOR,

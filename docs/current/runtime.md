@@ -53,10 +53,11 @@
 - FQNext 宿主机 Supervisor 管理员桥接任务：`fqnext-supervisord-restart`
 - FQNext 宿主机 Supervisor 管理员桥接 runner：`D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`
 - 运维面检查脚本固定支持 `-Mode CaptureBaseline` 与 `-Mode Verify`，输出 JSON `baseline/docker_checks/service_checks/process_checks/warnings/failures/passed`
-- GitHub 新任务默认通过 issue template 创建，初始标签应为 `symphony + in-progress`
+- 仓库层面的轻量更新允许直接走 `feature branch -> PR`；只有需要 Symphony 编排的任务才进入 issue 状态机
+- Symphony-managed 新任务默认通过 issue template 创建，初始标签应为 `symphony + in-progress`
 - Symphony workspace 默认从本地工作树 clone，但 `after_create` / `before_run` 会补齐 `github` remote 并把 `remote.pushDefault` 设为 `github`
-- GitHub Issue body 即执行合同；Symphony 不再管理 `Design Review` 或人工审批
-- 进入 `In Progress` / `Rework` / `Merging` 前，orchestrator 会把 workspace 切到确定性的 issue branch，而不是继续停在本地 `main`
+- 对 Symphony 管理的任务，GitHub Issue body 即执行合同；Symphony 不再管理 `Design Review` 或人工审批
+- 对 Symphony 管理的任务，进入 `In Progress` / `Rework` / `Merging` 前，orchestrator 会把 workspace 切到确定性的 issue branch，而不是继续停在本地 `main`
 - `Merging` 现在只负责 merge 到 remote `main`、写 handoff comment，并把 issue 转入 `Global Stewardship`
 - `Merging` 只认 GitHub PR 真值：required checks、unresolved review threads、mergeability、ruleset policy
 - required checks 仍在 pending 时，issue 保持在 `Merging`，不要提前打回 `Rework`
@@ -73,7 +74,7 @@
 - `Blocked` 只用于真实外部阻塞；进入 `Blocked` 时必须同时记录阻塞原因、解除条件、当前证据和恢复目标状态（`In Progress` / `Rework` / `Merging` / `Global Stewardship`）
 - 如果 GitHub 真值已经表明 `Blocked` 只是误标，orchestrator 会自动恢复：merged PR, pending ops -> `Global Stewardship`；open PR 且 checks pending -> `Merging`；open PR 且存在确定性仓库内失败 -> `Rework`；无 open PR -> `In Progress`
 - 如果 workspace 目录存在但缺失 git 元数据，orchestrator 会在下一次执行前自愈重建一次，而不是无限重试 `not a git repository`
-- Symphony `sync/start` 会校验 workflow prompt 合约，至少要求保留 issue 标识、标题、状态、描述、URL、Issue 作为执行合同的规则、GitHub PR 真值规则、以及 issue branch checkout 规则
+- Symphony `sync/start` 会校验 workflow prompt 合约，至少要求保留 issue-managed 任务的 issue 标识、标题、状态、描述、URL、Issue 作为执行合同的规则、GitHub PR 真值规则、以及 issue branch checkout 规则
 - Symphony `sync/start` 也会校验 `prompts/merging.md` 的关键 guardrail：`Merging` 只能做一次性检查后结束当前 turn，不应在会话内使用 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 长轮询；`Merging` 不负责 deploy、health check 或 cleanup，只负责 handoff 到 `Global Stewardship`
 - Symphony `sync/start` 还会校验 `prompts/global_stewardship.md` 的关键 guardrail：必须按当前 `main` 统一判断部署、实际 deploy 时先采 runtime baseline 再做 runtime ops check、只创建 follow-up issue、不直接建修复 PR、并在无 open follow-up 阻塞时才允许关闭原 issue
 - memory refresh / compile 的正式脚本入口位于 `runtime/memory/scripts/**`；第一版只做结构化冷/热记忆和角色化 markdown context pack，不引入向量库或 embedding 检索

@@ -87,7 +87,8 @@ Memory context:
 
 Core governance rules:
 
-- GitHub Issue is the formal task entry and execution contract.
+- For Symphony-managed tasks, GitHub Issue is the formal task entry and execution contract.
+- Repository-level work may also enter through direct `feature branch -> PR` outside Symphony.
 - GitHub PR + CI + merge gate is the code-delivery truth.
 - `docs/current/**` is the only formal documentation set.
 - If current system facts change, update `docs/current/**` in the same PR.
@@ -108,7 +109,7 @@ State contract:
 Required behavior:
 
 1. Start from the issue's current tracker state and follow the matching path.
-2. The GitHub Issue body is the execution contract. Do not wait for a separate human approval step.
+2. For this Symphony-managed task, the GitHub Issue body is the execution contract. Do not wait for a separate human approval step.
 3. If `FQ_MEMORY_CONTEXT_PATH` is available, read the memory context pack first before generic repository discovery.
 4. Treat newly created GitHub issues as `symphony` + `in-progress` by default.
 5. Do not treat comment-based approval as a merge condition.

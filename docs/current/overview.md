@@ -42,8 +42,8 @@ FreshQuant 当前已经完成第一阶段的模块收口，现阶段进入第二
 - 代码真相源：远程 `origin/main`。
 - 运行真相源：`fq-symphony-orchestrator` 正式服务与受影响模块的部署结果。
 - 文档真相源：`docs/current/**`。
-- 任务真相源：GitHub Issue。
-- GitHub Issue body 即执行合同；不再设置独立人工审批门。
+- 任务真相源：Issue-managed 任务使用 GitHub Issue；轻量更新允许直接走 `feature branch -> PR`。
+- 对 `Symphony` 接管的任务，GitHub Issue body 即执行合同；direct PR 应在 PR body 写清范围与部署影响。
 
 ## 当前维护重点
 
