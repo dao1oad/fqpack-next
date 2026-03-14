@@ -4,6 +4,8 @@ You are in the compatibility `Todo` phase. Formal governance no longer uses `Tod
 
 Required behavior:
 
+- If `FQ_MEMORY_CONTEXT_PATH` is set and the file exists, read the memory context pack first before generic repository discovery.
+- Treat memory context as derived input only; it does not replace GitHub, `docs/current/**`, or deploy/health truth.
 - Verify that the GitHub Issue body is sufficient as the execution contract.
 - If the execution contract is sufficient, move directly to `In Progress`.
 - If the task cannot proceed because of a real external blocker, move it to `Blocked`.

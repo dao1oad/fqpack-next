@@ -28,6 +28,27 @@
 - 观测层
   - `freshquant.runtime_observability.*`
   - 负责 runtime 事件写盘、聚合与可视化。
+- 记忆层
+  - `freshquant.runtime.memory.*`
+  - 负责把冷记忆、热记忆和角色化 context pack 汇总成 agent 可复用的启动上下文。
+
+## 全局记忆层
+
+- 冷记忆
+  - 目录：`.codex/memory/**`
+  - 进入 git，保存长期有效的模块边界、deploy surfaces、workflow rules、pitfalls。
+- 热记忆
+  - 代码入口：`freshquant/runtime/memory/**`
+  - 存储：Mongo `fq_memory`
+  - 第一版写入 `task_state`、`task_events`、`deploy_runs`、`health_results`、`knowledge_items`、`module_status`、`context_packs`
+  - 当前 refresh 会从 `artifacts/cleanup-requests/<issue>.json` 提取 branch / issue / PR 元数据
+  - 当前 refresh 会从 `artifacts/<issue>/deployment-comment.md` 提取 deploy / health 摘要，并从 `artifacts/cleanup-results/<issue>.json` 提取 cleanup / done 状态
+- context pack
+  - 编译入口：`runtime/memory/scripts/compile_freshquant_context_pack.py`
+  - 产物目录：`D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs/**`
+  - 通过 `FQ_MEMORY_CONTEXT_PATH` 注入 `Symphony` / `Global Stewardship` / 自由 Codex 会话
+
+记忆层是旁路摘要，不替代 GitHub Issue / Draft PR / PR+CI / deploy+health+cleanup 真值链。
 
 ## 核心调用链
 
@@ -46,6 +67,10 @@
 ### 运行观测链
 
 `各模块 RuntimeEventLogger -> logs/runtime/<runtime_node>/<component>/<date>/*.jsonl -> runtime assembler -> /api/runtime/* -> RuntimeObservability.vue`
+
+### 记忆编译链
+
+`.codex/memory/** + docs/current/modules/*.md + artifacts/cleanup-requests/<issue>.json + artifacts/<issue>/deployment-comment.md + artifacts/cleanup-results/<issue>.json -> freshquant.runtime.memory.refresh -> Mongo fq_memory -> freshquant.runtime.memory.compiler -> context pack markdown -> FQ_MEMORY_CONTEXT_PATH`
 
 ## 进程边界
 
@@ -78,6 +103,7 @@
 - TPSL 是独立退出策略，依赖订单事实和持仓，不跟 Guardian 共用状态机。
 - Gantt 与 Shouban30 只消费读模型与工作区集合，不参与交易链。
 - Runtime Observability 是旁路系统，允许丢日志，不允许卡住主交易链。
+- 全局记忆层也是旁路系统，只负责减少 agent 重复探索，不允许覆盖正式真值。
 - TradingAgents-CN 与主交易链完全解耦，只共享 Mongo/Redis 基础设施和宿主机配置。
 
 ## 关键耦合点

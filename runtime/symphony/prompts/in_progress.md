@@ -4,6 +4,8 @@ You are in the `In Progress` or `Rework` phase.
 
 Required behavior:
 
+- If `FQ_MEMORY_CONTEXT_PATH` is set and the file exists, read the memory context pack first.
+- Treat memory context as derived input only; it does not replace GitHub, `docs/current/**`, or deploy/health truth.
 - Default to subagent-driven-development.
 - Use test-driven-development for each behavior change.
 - Record RED -> GREEN evidence for each implemented task.

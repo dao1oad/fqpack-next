@@ -55,6 +55,18 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - `pm_current_state`
 - `pm_strategy_decisions`
 
+### `fq_memory`
+
+全局记忆热库，面向 `Symphony` / `Global Stewardship` / 自由 Codex 会话保存旁路摘要，当前主要集合：
+
+- `task_state`
+- `task_events`
+- `deploy_runs`
+- `health_results`
+- `knowledge_items`
+- `module_status`
+- `context_packs`
+
 ### `quantaxis`
 
 由 `DBQuantAxis` / `DBQA` 访问的历史行情库，供 XTData consumer 与 Kline 视图读取分钟/日线历史。
@@ -65,6 +77,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - `xt_orders / xt_trades / xt_positions / xt_assets` 是外部回报与当前账户视角事实，不是内部订单请求事实。
 - `stock_pre_pools / stock_pools / must_pool` 是策略与页面共享的工作区/订阅范围集合。
 - Gantt/Shouban30 集合是只读视图与筛选结果，不参与订单账本。
+- `fq_memory` 是 agent 旁路上下文库，不参与交易链、订单账本或正式运行真值。
 - Shouban30 当前把 `stock_pre_pools.extra.shouban30_order` 与 `stock_pools.extra.shouban30_order` 作为页面列表顺序和 `.blk` 输出顺序真值；历史 `stock_pools` 记录缺失该字段时，读取顺序兼容回退到旧 `datetime desc`。
 
 ## Redis 当前角色

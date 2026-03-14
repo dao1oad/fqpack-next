@@ -20,6 +20,8 @@ $requiredPatterns = @(
     @{ Name = 'issue description placeholder'; Pattern = 'issue\.description' },
     @{ Name = 'issue state placeholder'; Pattern = 'Current state:\s*\{\{\s*issue\.state\s*\}\}' },
     @{ Name = 'issue url placeholder'; Pattern = 'URL:\s*\{\{\s*issue\.url\s*\}\}' },
+    @{ Name = 'memory context env rule'; Pattern = 'FQ_MEMORY_CONTEXT_PATH' },
+    @{ Name = 'memory context derived rule'; Pattern = 'does not replace GitHub,\s*`docs/current/\*\*`,\s*or deploy/health results' },
     @{ Name = 'issue execution contract rule'; Pattern = 'GitHub Issue is the formal task entry and execution contract\.' },
     @{ Name = 'rework state rule'; Pattern = '-\s+`Rework`:\s+fix deterministic repository-side failures before merge\.' },
     @{ Name = 'merge truth rule'; Pattern = 'Use GitHub PR truth as the only merge truth:\s*required checks,\s*unresolved review threads,\s*mergeability,\s*and ruleset policy\.' },

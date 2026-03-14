@@ -79,6 +79,12 @@ Description:
 No description provided.
 {% endif %}
 
+Memory context:
+
+- If `FQ_MEMORY_CONTEXT_PATH` is set and the file exists, read the memory context pack first.
+- The memory context pack is derived input for faster startup. It does not replace GitHub, `docs/current/**`, or deploy/health results.
+- If memory context conflicts with formal truth, trust the formal source and refresh your understanding from there.
+
 Core governance rules:
 
 - GitHub Issue is the formal task entry and execution contract.
@@ -103,17 +109,18 @@ Required behavior:
 
 1. Start from the issue's current tracker state and follow the matching path.
 2. The GitHub Issue body is the execution contract. Do not wait for a separate human approval step.
-3. Treat newly created GitHub issues as `symphony` + `in-progress` by default.
-4. Do not treat comment-based approval as a merge condition.
-5. Before any non-`Blocked` implementation turn starts, switch the workspace to the deterministic issue branch instead of local `main`. Reuse the remote issue branch when it already exists.
-6. Use GitHub PR truth as the only merge truth: required checks, unresolved review threads, mergeability, and ruleset policy.
-7. Keep the issue in `Merging` while required checks are pending.
-8. Move to `Rework` only when the failure is deterministic and repository-side, such as `checks_failed`, `review_threads_unresolved`, `merge_conflict`, `ruleset_policy_block`, or `docs_guard_failed`.
-9. If the issue enters `Rework`, record `blocker_class`, `evidence`, `next_action`, and `exit_condition` in GitHub.
-10. Do not retry merge when GitHub truth has not changed.
-11. If the task is blocked by missing access, missing tooling, or another real external dependency, move it to `Blocked`.
-12. If the issue enters `Blocked`, record the blocker, clear condition, evidence, and target recovery state in GitHub. Do not leave a blocked task without saying whether it should resume to `In Progress`, `Rework`, `Merging`, or `Global Stewardship`.
-13. When GitHub truth proves a blocked task is misclassified, restore it automatically: merged PR, pending ops -> `Global Stewardship`; open PR with pending checks -> `Merging`; open PR with deterministic repository-side failure -> `Rework`; no open PR -> `In Progress`.
-14. If `before_run` fails because the workspace is not a git repository, rebuild the workspace once and retry before surfacing the failure.
-15. All GitHub-facing text that you write must use Simplified Chinese by default, including PR titles, PR bodies, issue comments, PR comments, deployment notes, and done summaries.
-16. If code repair is needed after merge, only create a follow-up issue for the next Symphony round; do not create a repair PR directly from the global automation.
+3. If `FQ_MEMORY_CONTEXT_PATH` is available, read the memory context pack first before generic repository discovery.
+4. Treat newly created GitHub issues as `symphony` + `in-progress` by default.
+5. Do not treat comment-based approval as a merge condition.
+6. Before any non-`Blocked` implementation turn starts, switch the workspace to the deterministic issue branch instead of local `main`. Reuse the remote issue branch when it already exists.
+7. Use GitHub PR truth as the only merge truth: required checks, unresolved review threads, mergeability, and ruleset policy.
+8. Keep the issue in `Merging` while required checks are pending.
+9. Move to `Rework` only when the failure is deterministic and repository-side, such as `checks_failed`, `review_threads_unresolved`, `merge_conflict`, `ruleset_policy_block`, or `docs_guard_failed`.
+10. If the issue enters `Rework`, record `blocker_class`, `evidence`, `next_action`, and `exit_condition` in GitHub.
+11. Do not retry merge when GitHub truth has not changed.
+12. If the task is blocked by missing access, missing tooling, or another real external dependency, move it to `Blocked`.
+13. If the issue enters `Blocked`, record the blocker, clear condition, evidence, and target recovery state in GitHub. Do not leave a blocked task without saying whether it should resume to `In Progress`, `Rework`, `Merging`, or `Global Stewardship`.
+14. When GitHub truth proves a blocked task is misclassified, restore it automatically: merged PR, pending ops -> `Global Stewardship`; open PR with pending checks -> `Merging`; open PR with deterministic repository-side failure -> `Rework`; no open PR -> `In Progress`.
+15. If `before_run` fails because the workspace is not a git repository, rebuild the workspace once and retry before surfacing the failure.
+16. All GitHub-facing text that you write must use Simplified Chinese by default, including PR titles, PR bodies, issue comments, PR comments, deployment notes, and done summaries.
+17. If code repair is needed after merge, only create a follow-up issue for the next Symphony round; do not create a repair PR directly from the global automation.

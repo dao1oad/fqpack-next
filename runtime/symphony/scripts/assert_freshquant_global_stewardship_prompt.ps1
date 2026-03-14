@@ -14,6 +14,8 @@ $content = Get-Content -Path $PromptPath -Raw
 $requiredPatterns = @(
     @{ Name = 'global stewardship scope rule'; Pattern = 'Inspect all open issues that are in `Global Stewardship`' },
     @{ Name = 'batch deploy rule'; Pattern = 'Batch deploy when safe and useful' },
+    @{ Name = 'memory context env rule'; Pattern = 'FQ_MEMORY_CONTEXT_PATH' },
+    @{ Name = 'memory context derived rule'; Pattern = 'memory context as derived input only' },
     @{ Name = 'current main rule'; Pattern = 'Read the current `main` state before deciding any deployment batch' },
     @{ Name = 'deploy plan script rule'; Pattern = 'freshquant_deploy_plan\.py' },
     @{ Name = 'host runtime control rule'; Pattern = 'fqnext_host_runtime_ctl\.ps1' },

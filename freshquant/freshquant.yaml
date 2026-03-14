@@ -4,6 +4,14 @@ mongodb:
   db: freshquant
   gantt_db: freshquant_gantt
 
+memory:
+  cold_root: .codex/memory
+  artifact_root: D:/fqpack/runtime/symphony-service/artifacts/memory
+  mongodb:
+    host: 127.0.0.1
+    port: 27027
+    db: fq_memory
+
 order_management:
   mongo_database: freshquant_order_management
   projection_database: freshquant
