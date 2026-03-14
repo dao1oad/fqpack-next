@@ -21,6 +21,7 @@ $requiredPatterns = @(
     @{ Name = 'issue state placeholder'; Pattern = 'Current state:\s*\{\{\s*issue\.state\s*\}\}' },
     @{ Name = 'issue url placeholder'; Pattern = 'URL:\s*\{\{\s*issue\.url\s*\}\}' },
     @{ Name = 'design review orchestrator rule'; Pattern = '`Design Review`\s+is orchestrator-owned\.' },
+    @{ Name = 'design review no-brainstorming rule'; Pattern = '`Design Review`.*Do not invoke `brainstorming` and do not ask for new human clarification inside the Codex session' },
     @{ Name = 'draft PR bootstrap rule'; Pattern = 'orchestrator must first create or switch to the deterministic issue branch,\s*create the Draft PR,\s*and publish the complete Design Review Packet in the PR body' },
     @{ Name = 'blocked structured recovery rule'; Pattern = 'If the issue enters `Blocked`, record the blocker, clear condition, evidence, and target recovery state in GitHub' },
     @{ Name = 'global stewardship state rule'; Pattern = 'Global Stewardship' },
