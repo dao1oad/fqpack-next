@@ -5,17 +5,15 @@
 ## 目标
 
 - 固化 `GitHub-first` 轻量治理
-- 固化 `Design Review` 为唯一人工评审点
-- 固化 `Symphony + superpowers` 执行链
+- 固化 `Issue` 作为需求与方案真值
 - 固化 `Symphony` 到 merge 为止、`Global Stewardship` 接手 merge 后收口
 - 固化 deploy、health check、runtime ops check、cleanup 与 `Done` 判定
 - 让仓库治理与 `Symphony` 运行模板保持一致
 
 ## 正式真值
 
-- GitHub Issue：正式任务入口
-- GitHub Draft PR：唯一 `Design Review` 评审面
-- GitHub PR + CI：代码交付真值
+- GitHub Issue：正式任务入口，也是需求与方案真值
+- GitHub PR + CI + merge gate：代码交付真值
 - 单个全局 Codex 自动化完成的 `deploy + health check + runtime ops check + cleanup`：运行交付真值
 
 `Linear` 不再作为正式任务入口、评审面或批准真值来源。
@@ -24,40 +22,58 @@
 
 正式工作流固定为：
 
-`Issue -> Draft PR -> Design Review(仅高风险) -> In Progress -> CI -> Merging -> Global Stewardship -> Done`
+`Issue -> In Progress -> Rework -> Merging -> Global Stewardship -> Done`
 
-低风险任务可跳过 `Design Review`，直接进入实现。
+例外状态仅保留：
 
-低风险任务规则：
-
-- 不创建 `Design Review Packet`
-- 不进入 `brainstorming` 审批闭环
-- 不等待 `APPROVED`
-- 在 `Todo` 完成一轮有效上下文梳理后，由 orchestrator 自动切到 `In Progress`
-- 新建 GitHub Issue 默认只打 `symphony` 与 `todo`
-- 不要在创建时预贴 `design-review`
+`Blocked`
 
 GitHub 文本规则：
 
 - 所有提交到 GitHub 的正式说明默认使用简体中文
-- 包括 Issue 描述、Draft PR 标题与正文、PR / Issue 评论、部署说明、Done 总结
-- 仅审批控制词保留英文：`APPROVED`、`REVISE:`、`REJECTED:`
+- 包括 Issue 描述、PR 标题与正文、PR / Issue 评论、部署说明、Done 总结
 
-## 唯一人工评审点
+## Issue 即执行合同
 
-唯一人工评审点是：
+- 正式任务在进入 `In Progress` 前，方案应已在 Issue body 中明确
+- Issue body 至少应包含：背景、目标、范围、非目标、验收标准、部署影响
+- Symphony 不再管理 `Design Review` 或人工审批
+- 如果 Issue 合同仍有事实缺口，Symphony 只补足执行所需事实，不额外创建审批环节
 
-- `Design Review`
+## 状态职责
 
-规则：
+- `In Progress`
+  - 实现、测试、同步 `docs/current/**`
+- `Rework`
+  - 仅处理未 merge 前的确定性仓库内修复
+- `Merging`
+  - 一次性检查 GitHub PR 真值、merge、写 handoff comment、转入 `Global Stewardship`
+- `Global Stewardship`
+  - 统一处理 deploy、health check、runtime ops check、cleanup、follow-up issue
+- `Blocked`
+  - 仅用于真实外部阻塞
 
-- 高风险任务必须先创建 Draft PR
-- `Design Review` 的 Draft PR bootstrap 由 orchestrator 自动完成，而不是由实现态 Codex 会话临场创建
-- `brainstorming` 必须产出一份完整 `Design Review Packet`
-- `Design Review Packet` 必须一次性列出全部待评审点、推荐方案和理由
-- 不允许零碎多轮提审
-- 人工在 Draft PR 中回复 `APPROVED`，或给出 PR review `Approve`
-- 设计批准后，不再设置第二个人工评审点
+`Rework` 进入时必须记录：
+
+- `blocker_class`
+- `evidence`
+- `next_action`
+- `exit_condition`
+
+允许进入 `Rework` 的原因仅包括：
+
+- `checks_failed`
+- `review_threads_unresolved`
+- `merge_conflict`
+- `ruleset_policy_block`
+- `docs_guard_failed`
+
+不允许把以下情况记为 `Rework`：
+
+- 等待人工审批
+- 等待检查完成
+- merge 后部署问题
+- 外部权限或平台故障
 
 ## superpowers 执行链
 
@@ -66,17 +82,16 @@ GitHub 文本规则：
   - `systematic-debugging`
   - `test-driven-development`
   - `verification-before-completion`
-  - 不进入 `brainstorming`
 
 - 现有模块增强：
   - `using-superpowers`
-  - `brainstorming`
+  - `brainstorming`（仅用于本地梳理，不形成审批环节）
   - `test-driven-development`
   - `verification-before-completion`
 
-- 跨模块或高风险改动：
+- 跨模块或高影响改动：
   - `using-superpowers`
-  - `brainstorming`
+  - `brainstorming`（仅用于本地梳理，不形成审批环节）
   - `writing-plans`（必要时）
   - `test-driven-development`
   - `verification-before-completion`
@@ -137,12 +152,11 @@ Cleanup 只清理任务级资源：
 
 ## 运行方式
 
-- tracker：GitHub Issue + Draft PR
+- tracker：GitHub Issue + PR
 - 感知方式：第一阶段默认 `30s` 轮询
 - secrets：不入仓
 - 正式工作流文件：`WORKFLOW.freshquant.md`
 - 全局自动化提示词：`prompts/global_stewardship.md`
-- 高风险 issue 进入 `Design Review` 后，orchestrator 会先 bootstrap issue branch 和 Draft PR；实现态工作区则会自动 checkout 到对应 issue branch
 - 关键模板：
   - `templates/merge_handoff_comment.md`
   - `templates/global_stewardship_progress_comment.md`
@@ -175,22 +189,19 @@ Cleanup 只清理任务级资源：
 Issue labels：
 
 - `symphony`
-- `blocked`
-- `rework`
-- `todo`
 - `in-progress`
+- `rework`
 - `merging`
+- `blocked`
 - `global-stewardship`
 
 标签使用规则：
 
-- 新建 Issue 默认只打 `symphony` 与 `todo`
-- `design-review` 只在确认高风险后追加
-- 不要把 `design-review` 当成新任务默认标签
+- 新建 Issue 默认只打 `symphony` 与 `in-progress`
+- `rework` 只在确定性仓库内失败时使用
+- `blocked` 只在真实外部阻塞时使用
 
 PR 信号：
 
-- 评论 `APPROVED`
-- 评论 `REVISE: ...`
-- 评论 `REJECTED: ...`
-- PR review `Approve`
+- comments 不是 merge 真值
+- `Merging` 只认 GitHub PR 的 required checks、review threads、mergeability 与 ruleset

@@ -4,7 +4,8 @@ You are in the `Merging` phase.
 
 Required behavior:
 
-- Confirm the Draft PR is ready to merge.
+- Confirm the PR is ready to merge.
+- Use GitHub PR truth as the merge truth: required checks, unresolved review threads, mergeability, and ruleset policy.
 - Merge the PR to the remote `main` branch.
 - Write the merge handoff comment.
 - Move the issue to `Global Stewardship`.
@@ -14,8 +15,8 @@ Required behavior:
 
 Failure handling:
 
-- Stay in `Merging` for transient merge or GitHub API failures.
-- Move back to `Rework` when the failure is deterministic and requires repository changes.
+- Stay in `Merging` while required checks are pending or when the failure is transient.
+- Move back to `Rework` when the failure is deterministic, repository-side, and requires a new commit or review-thread resolution.
 - Move to `Blocked` only when there is a real external blocker.
 
 Hard rules:
@@ -24,5 +25,7 @@ Hard rules:
 - Do not register cleanup requests or call the host cleanup finalizer from the `Merging` session.
 - Do not delete the task workspace or remote branch from the `Merging` session.
 - Do not auto-rollback.
+- Do not treat comments or ad hoc approval text as merge truth.
+- Do not retry merge when GitHub truth has not changed.
 - Do not modify secrets.
 - Do not run high-risk production or live trading operations.
