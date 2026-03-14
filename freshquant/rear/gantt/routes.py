@@ -448,6 +448,23 @@ def add_shouban30_stock_pool_to_must_pool():
     return jsonify({"data": {"status": status}})
 
 
+@gantt_bp.route("/shouban30/stock-pool/sync-to-must-pool", methods=["POST"])
+def sync_shouban30_stock_pool_to_must_pool():
+    try:
+        result = shouban30_pool_service.sync_stock_pool_to_must_pool()
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "created_count": result.get("created_count", 0),
+                "updated_count": result.get("updated_count", 0),
+                "total_count": result.get("total_count", 0),
+            }
+        }
+    )
+
+
 @gantt_bp.route("/shouban30/stock-pool/sync-to-tdx", methods=["POST"])
 def sync_shouban30_stock_pool_to_tdx():
     try:

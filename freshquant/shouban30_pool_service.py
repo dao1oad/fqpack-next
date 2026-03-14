@@ -394,13 +394,8 @@ def list_stock_pool():
     return [_serialize_pool_doc(doc) for doc in _sorted_stock_pool_docs()]
 
 
-def add_stock_pool_item_to_must_pool(code6):
+def _upsert_must_pool_item(code6):
     code6 = _normalize_code6(code6)
-    record = DBfreshquant["stock_pools"].find_one(
-        {"code": code6, "category": SHOUBAN30_STOCK_POOL_CATEGORY}
-    )
-    if record is None:
-        raise ValueError("stock_pool item not found")
     existing = DBfreshquant["must_pool"].find_one({"code": code6})
     import_module("freshquant.data.astock.must_pool").import_pool(
         code6,
@@ -411,6 +406,36 @@ def add_stock_pool_item_to_must_pool(code6):
         DEFAULT_FOREVER,
     )
     return "created" if existing is None else "updated"
+
+
+def add_stock_pool_item_to_must_pool(code6):
+    code6 = _normalize_code6(code6)
+    record = DBfreshquant["stock_pools"].find_one(
+        {"code": code6, "category": SHOUBAN30_STOCK_POOL_CATEGORY}
+    )
+    if record is None:
+        raise ValueError("stock_pool item not found")
+    return _upsert_must_pool_item(code6)
+
+
+def sync_stock_pool_to_must_pool():
+    stock_pool_docs = _sorted_stock_pool_docs()
+    created_count = 0
+    updated_count = 0
+
+    for record in stock_pool_docs:
+        status = _upsert_must_pool_item(record.get("code"))
+        if status == "created":
+            created_count += 1
+        else:
+            updated_count += 1
+
+    return {
+        "created_count": created_count,
+        "updated_count": updated_count,
+        "total_count": len(stock_pool_docs),
+        "category": SHOUBAN30_MUST_POOL_CATEGORY,
+    }
 
 
 def delete_stock_pool_item(code6):

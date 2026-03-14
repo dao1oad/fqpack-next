@@ -55,7 +55,7 @@ test('buildSinglePlateAppendPrePoolPayload keeps plate order and de-duplicates c
   })
 })
 
-test('buildWorkspaceTabs keeps stock pool as sync-only workspace', () => {
+test('buildWorkspaceTabs exposes must_pool actions for stock pool workspace', () => {
   const [prePoolTab, stockPoolTab] = buildWorkspaceTabs({
     prePoolItems: [
       {
@@ -83,7 +83,7 @@ test('buildWorkspaceTabs keeps stock pool as sync-only workspace', () => {
 
   assert.equal(prePoolTab.batch_action_label, '同步到 stock_pool')
   assert.equal(prePoolTab.rows[0].primary_action_label, '加入 stock_pools')
-  assert.equal(stockPoolTab.batch_action_label, '')
-  assert.equal(stockPoolTab.rows[0].primary_action_label, '')
+  assert.equal(stockPoolTab.batch_action_label, '同步到 must_pools')
+  assert.equal(stockPoolTab.rows[0].primary_action_label, '加入 must_pools')
   assert.equal(stockPoolTab.rows[0].secondary_action_label, '删除')
 })

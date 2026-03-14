@@ -111,4 +111,4 @@
 - `must_pool` 与 `xt_positions` 同时影响 XTData 订阅池和 Guardian 买入范围。
 - 订单管理 ingest 会在买入成交后回写 buy lot，并为 TPSL 准备退出上下文。
 - 卖出成交后会重置 Guardian buy grid 状态，避免旧层级持续生效。
-- Shouban30 当前只把页面结果同步到 `stock_pre_pools` / `stock_pools`，并单独负责 `30RYZT.blk` 输出；它不再把 `/gantt/shouban30` 页面动作直接写进 `must_pool`。
+- Shouban30 当前把页面结果同步到 `stock_pre_pools` / `stock_pools`，并在 `stock_pool` 工作区提供显式 `must_pool` upsert；`30RYZT.blk` 输出仍只由手动 sync-to-tdx/clear 控制。

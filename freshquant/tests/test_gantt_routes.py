@@ -883,6 +883,36 @@ def test_add_shouban30_stock_pool_item_to_must_pool(monkeypatch):
     assert response.get_json()["data"] == {"status": "created"}
 
 
+def test_sync_shouban30_stock_pool_to_must_pool_returns_counts(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(
+            sync_stock_pool_to_must_pool=lambda: {
+                "created_count": 1,
+                "updated_count": 2,
+                "total_count": 3,
+                "category": "三十涨停Pro",
+            }
+        ),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post("/api/gantt/shouban30/stock-pool/sync-to-must-pool")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {
+        "created_count": 1,
+        "updated_count": 2,
+        "total_count": 3,
+    }
+
+
 def test_sync_shouban30_stock_pool_to_tdx_returns_blk_sync_meta(monkeypatch):
     from freshquant.rear.gantt import routes as gantt_routes
 

@@ -38,6 +38,7 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/gantt/shouban30/pre-pool/sync-to-tdx`
 - `/api/gantt/shouban30/stock-pool`
 - `/api/gantt/shouban30/stock-pool/add-to-must-pool`
+- `/api/gantt/shouban30/stock-pool/sync-to-must-pool`
 - `/api/gantt/shouban30/stock-pool/delete`
 - `/api/gantt/shouban30/stock-pool/clear`
 - `/api/gantt/shouban30/stock-pool/sync-to-tdx`
@@ -156,4 +157,6 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - `/api/gantt/shouban30/pre-pool/append` 用于把单个板块结果追加到 `pre_pool`；它只做 append + 去重，不写 `.blk`。
 - `/api/gantt/shouban30/pre-pool/sync-to-stock-pool` 用于把当前 `pre_pool` 中缺失于 `stock_pool` 的标的按 `pre_pool` 当前顺序追加到 `stock_pool` 末尾。
 - `/api/gantt/shouban30/pre-pool/replace` 仍保留兼容，但 `/gantt/shouban30` 页面不再用“筛选”按钮调用它；当前页面筛选只更新本页结果，不落库。
-- `stock_pool` 页面当前只暴露同步到通达信与删除语义；兼容接口 `/api/gantt/shouban30/stock-pool/add-to-must-pool` 仍保留，但不再是 `/gantt/shouban30` 的正式交互路径。
+- `stock_pool` 页面当前恢复单条 `/api/gantt/shouban30/stock-pool/add-to-must-pool`，并新增批量 `/api/gantt/shouban30/stock-pool/sync-to-must-pool`。
+- `stock_pool -> must_pool` 的单条与批量都复用同一套 upsert 语义：不存在记为 `created`，已存在记为 `updated`。
+- `/api/gantt/shouban30/stock-pool/sync-to-must-pool` 返回 `created_count / updated_count / total_count`，执行顺序与当前 `stock_pool` 列表顺序一致。

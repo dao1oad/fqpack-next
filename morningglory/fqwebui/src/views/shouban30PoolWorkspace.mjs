@@ -136,10 +136,12 @@ export const buildWorkspaceTabs = ({
     {
       key: 'stockpools',
       label: 'stock_pools',
-      batch_action_label: '',
+      batch_action_label: '同步到 must_pools',
       sync_action_label: '同步到通达信',
       clear_action_label: '清空',
-      rows: normalizeList(stockPoolItems).map((item) => mapWorkspaceRow(item)),
+      rows: normalizeList(stockPoolItems).map((item) => mapWorkspaceRow(item, {
+        primaryActionLabel: '加入 must_pools',
+      })),
     },
   ]
 }

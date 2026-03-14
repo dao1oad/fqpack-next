@@ -362,6 +362,16 @@
                     size="small"
                     type="primary"
                     plain
+                    :loading="isWorkspaceActionRunning('workspace:stock:sync-must')"
+                    @click="handleSyncStockPoolToMustPool"
+                  >
+                    {{ tab.batch_action_label }}
+                  </el-button>
+                  <el-button
+                    v-if="tab.key === 'stockpools'"
+                    size="small"
+                    type="primary"
+                    plain
                     :loading="isWorkspaceActionRunning('workspace:stock:sync-tdx')"
                     @click="handleSyncStockPoolToTdx"
                   >
@@ -426,6 +436,16 @@
                           <el-button
                             v-if="tab.key === 'stockpools'"
                             size="small"
+                            type="primary"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:stock:add-must:${row.code6}`)"
+                            @click="handleAddStockPoolToMustPools(row)"
+                          >
+                            {{ row.primary_action_label }}
+                          </el-button>
+                          <el-button
+                            v-if="tab.key === 'stockpools'"
+                            size="small"
                             type="danger"
                             link
                             :loading="isWorkspaceActionRunning(`workspace:stock:delete:${row.code6}`)"
@@ -457,6 +477,7 @@ import {
   SHOUBAN30_STOCK_WINDOW_OPTIONS,
   appendShouban30PrePool,
   addShouban30PrePoolToStockPool,
+  addShouban30StockPoolToMustPool,
   clearShouban30PrePool,
   clearShouban30StockPool,
   deleteShouban30PrePoolItem,
@@ -468,6 +489,7 @@ import {
   normalizeShouban30StockWindowDays,
   syncShouban30PrePoolToStockPool,
   syncShouban30PrePoolToTdx,
+  syncShouban30StockPoolToMustPool,
   syncShouban30StockPoolToTdx,
 } from '@/api/ganttShouban30'
 
@@ -900,8 +922,11 @@ const runWorkspaceAction = async ({
     if (refreshWorkspace) {
       await loadWorkspace()
     }
-    if (successMessage) {
-      ElMessage.success(successMessage)
+    const resolvedSuccessMessage = typeof successMessage === 'function'
+      ? successMessage(response)
+      : successMessage
+    if (resolvedSuccessMessage) {
+      ElMessage.success(resolvedSuccessMessage)
     }
     return response
   } catch (error) {
@@ -992,6 +1017,32 @@ const handleSyncStockPoolToTdx = async () => {
     actionKey: 'workspace:stock:sync-tdx',
     action: () => syncShouban30StockPoolToTdx(),
     successMessage: `已将 stock_pools ${stockPoolItems.value.length} 条同步到通达信`,
+    refreshWorkspace: false,
+  })
+}
+
+const handleAddStockPoolToMustPools = async (row) => {
+  await runWorkspaceAction({
+    actionKey: `workspace:stock:add-must:${toText(row?.code6)}`,
+    action: () => addShouban30StockPoolToMustPool({ code6: row?.code6 }),
+    successMessage: (response) => {
+      const payload = unwrapApiData(response)
+      const status = toText(payload.status)
+      const suffix = status === 'updated' ? '已更新 must_pools' : '已加入 must_pools'
+      return `${toText(row?.code6)} ${suffix}`
+    },
+    refreshWorkspace: false,
+  })
+}
+
+const handleSyncStockPoolToMustPool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:stock:sync-must',
+    action: () => syncShouban30StockPoolToMustPool(),
+    successMessage: (response) => {
+      const payload = unwrapApiData(response)
+      return `已同步 ${payload.total_count ?? 0} 条到 must_pools（created ${payload.created_count ?? 0} / updated ${payload.updated_count ?? 0}）`
+    },
     refreshWorkspace: false,
   })
 }

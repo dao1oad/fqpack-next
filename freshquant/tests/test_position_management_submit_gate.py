@@ -186,6 +186,7 @@ def test_strategy_order_persists_strategy_context_to_tracking_and_queue():
         repository=repository,
         queue_client=queue_client,
         position_management_service=position_management_service,
+        account_type_loader=lambda: "STOCK",
     )
     strategy_context = {
         "guardian_buy_grid": {
