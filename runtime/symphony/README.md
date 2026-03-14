@@ -52,6 +52,7 @@ GitHub 文本规则：
 规则：
 
 - 高风险任务必须先创建 Draft PR
+- `Design Review` 的 Draft PR bootstrap 由 orchestrator 自动完成，而不是由实现态 Codex 会话临场创建
 - `brainstorming` 必须产出一份完整 `Design Review Packet`
 - `Design Review Packet` 必须一次性列出全部待评审点、推荐方案和理由
 - 不允许零碎多轮提审
@@ -141,6 +142,7 @@ Cleanup 只清理任务级资源：
 - secrets：不入仓
 - 正式工作流文件：`WORKFLOW.freshquant.md`
 - 全局自动化提示词：`prompts/global_stewardship.md`
+- 高风险 issue 进入 `Design Review` 后，orchestrator 会先 bootstrap issue branch 和 Draft PR；实现态工作区则会自动 checkout 到对应 issue branch
 - 关键模板：
   - `templates/merge_handoff_comment.md`
   - `templates/global_stewardship_progress_comment.md`

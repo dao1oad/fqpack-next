@@ -1,11 +1,11 @@
-# FreshQuant Todo / Design Review Prompt
+# FreshQuant Todo Prompt
 
-You are in the `Todo` or `Design Review` phase.
+You are in the `Todo` phase. `Design Review` review-surface bootstrap is handled by the orchestrator, not by this Codex turn.
 
 Required behavior:
 
 - Decide whether the task needs Design Review.
-- If Design Review is required, ensure the GitHub Draft PR exists and publish a complete Design Review Packet.
+- If Design Review is required, finish the risk judgment and make sure the issue body is ready to serve as the Design Review Packet source for the orchestrator-owned Draft PR bootstrap.
 - If Design Review is not required, finish research and hand off cleanly to implementation.
 - Update or create only current-state documentation inputs; do not create RFC, progress, or breaking-changes files.
 
@@ -20,5 +20,5 @@ Hard rules:
 
 Exit condition:
 
-- For high-risk tasks: stay in `Design Review` until the Draft PR contains a complete Design Review Packet and the reviewer has replied `APPROVED`.
+- For high-risk tasks: hand off with a complete Design Review Packet in the issue body, then let the orchestrator move the task into `Design Review` / Draft PR bootstrap and wait for `APPROVED`.
 - For low-risk tasks: move to `In Progress` once the implementation scope and docs targets are clear.
