@@ -15,10 +15,15 @@ $requiredPatterns = @(
     @{ Name = 'global stewardship scope rule'; Pattern = 'Inspect all open issues that are in `Global Stewardship`' },
     @{ Name = 'batch deploy rule'; Pattern = 'Batch deploy when safe and useful' },
     @{ Name = 'current main rule'; Pattern = 'Read the current `main` state before deciding any deployment batch' },
+    @{ Name = 'runtime ops baseline rule'; Pattern = 'If the current round performs a real deploy,\s*capture a runtime baseline before deploy' },
+    @{ Name = 'runtime ops skip rule'; Pattern = 'If the current round does not perform a deploy,\s*do not run the runtime ops check' },
+    @{ Name = 'runtime ops coverage rule'; Pattern = 'The runtime ops check must cover Docker container state,\s*host service state,\s*and host critical process state' },
+    @{ Name = 'runtime ops failure guardrail'; Pattern = 'If the runtime ops check fails,\s*do not cleanup or close the original issue' },
+    @{ Name = 'runtime ops script rule'; Pattern = 'check_freshquant_runtime_post_deploy\.ps1' },
     @{ Name = 'follow-up issue only rule'; Pattern = 'When code repair is needed,\s*only create a follow-up issue for the next Symphony round' },
     @{ Name = 'no repair PR rule'; Pattern = 'Do not create a repair PR directly from the global automation' },
     @{ Name = 'dedupe rule'; Pattern = 'Deduplicate follow-up issues by `Source Issue \+ Symptom Class` before creating a new one' },
-    @{ Name = 'done guardrail'; Pattern = 'Close the original issue only after `deploy \+ health check \+ cleanup` are complete and no open follow-up issue still blocks `Done`' }
+    @{ Name = 'done guardrail'; Pattern = 'Close the original issue only after `deploy \+ health check \+ runtime ops check \+ cleanup` are complete and no open follow-up issue still blocks `Done`' }
 )
 
 $missing = @()

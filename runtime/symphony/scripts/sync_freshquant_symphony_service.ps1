@@ -191,6 +191,10 @@ $copyMap = @(
         Destination = (Join-Path $scriptsRoot 'assert_freshquant_global_stewardship_prompt.ps1')
     },
     @{
+        Source = (Join-Path $sourceScriptsRoot 'check_freshquant_runtime_post_deploy.ps1')
+        Destination = (Join-Path $scriptsRoot 'check_freshquant_runtime_post_deploy.ps1')
+    },
+    @{
         Source = (Join-Path $sourceScriptsRoot 'request_freshquant_symphony_cleanup.ps1')
         Destination = (Join-Path $scriptsRoot 'request_freshquant_symphony_cleanup.ps1')
     },

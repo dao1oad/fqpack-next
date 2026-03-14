@@ -14,6 +14,7 @@
 
 - 部署范围：`<runtime surfaces>`
 - 健康检查：`<health summary>`
+- 运维面检查：`<runtime ops summary>`
 - Cleanup：`<cleanup summary>`
 
 ## follow-up 状态

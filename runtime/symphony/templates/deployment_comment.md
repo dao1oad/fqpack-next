@@ -1,6 +1,6 @@
 # 部署说明模板
 
-当前 Issue 在合并、部署和健康检查完成后，可以进入最终 cleanup 与 `Done`。
+当前 Issue 在合并、部署、健康检查和运维面检查完成后，可以进入最终 cleanup 与 `Done`。
 
 ## 部署范围
 
@@ -16,6 +16,11 @@
 
 - `<health check command and result>`
 - `<post-deploy verification result>`
+
+## 运维面检查
+
+- `<runtime ops baseline and verify result>`
+- `<docker / service / process evidence>`
 
 ## 重试 / 失败说明
 

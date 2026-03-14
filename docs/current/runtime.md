@@ -36,10 +36,13 @@
 - 管理员桥接任务以 `SYSTEM` + `Highest` 运行；安装脚本会给执行安装的 Windows 用户追加该任务的读取/执行权限，供普通 Codex 会话调用。
 - Symphony 运行模板：`runtime/symphony/WORKFLOW.freshquant.md`
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
+- Deploy 后运维面检查脚本：`runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1`
+- 运维面检查脚本固定支持 `-Mode CaptureBaseline` 与 `-Mode Verify`，输出 JSON `baseline/docker_checks/service_checks/process_checks/warnings/failures/passed`
 - GitHub 新任务默认通过 issue template 创建，初始标签应为 `symphony + todo`；不要在创建时预贴 `design-review`
 - Symphony workspace 默认从本地工作树 clone，但 `after_create` / `before_run` 会补齐 `github` remote 并把 `remote.pushDefault` 设为 `github`
 - `Merging` 现在只负责 merge 到 remote `main`、写 handoff comment，并把 issue 转入 `Global Stewardship`
-- `Global Stewardship` 由单个全局 Codex 自动化负责；它统一处理 deploy、health check、cleanup 和 follow-up issue 创建
+- `Global Stewardship` 由单个全局 Codex 自动化负责；它统一处理 deploy、health check、runtime ops check、cleanup 和 follow-up issue 创建
+- `Global Stewardship` 只有在本轮实际发生 deploy 时才做 runtime ops check；执行顺序固定为 `deploy -> health check -> runtime ops check -> cleanup`
 - 如果当前 Codex 会话没有管理员权限，`runtime/symphony/**` 的重载应走预装的计划任务桥接：普通会话先 `sync_freshquant_symphony_service.ps1`，再调用 `invoke_freshquant_symphony_restart_task.ps1`
 - `run_freshquant_symphony_restart_task.ps1` 在服务进入 `Running` 后仍会继续轮询 `http://127.0.0.1:40123/api/v1/state`，直到健康检查返回 `200` 或超时，避免把端口释放窗口误判为重载失败。
 - `Blocked` 只用于真实外部阻塞；进入 `Blocked` 时必须同时记录阻塞原因、解除条件、当前证据和恢复目标状态（`In Progress` / `Rework` / `Global Stewardship`）
@@ -47,7 +50,7 @@
 - 如果 workspace 目录存在但缺失 git 元数据，orchestrator 会在下一次执行前自愈重建一次，而不是无限重试 `not a git repository`
 - Symphony `sync/start` 会校验 workflow prompt 合约，至少要求保留 issue 标识、标题、状态、描述、URL、Design Review 禁止二次 `brainstorming`、以及 Draft PR bootstrap 规则
 - Symphony `sync/start` 也会校验 `prompts/merging.md` 的关键 guardrail：`Merging` 只能做一次性检查后结束当前 turn，不应在会话内使用 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 长轮询；`Merging` 不负责 deploy、health check 或 cleanup，只负责 handoff 到 `Global Stewardship`
-- Symphony `sync/start` 还会校验 `prompts/global_stewardship.md` 的关键 guardrail：必须按当前 `main` 统一判断部署、只创建 follow-up issue、不直接建修复 PR、并在无 open follow-up 阻塞时才允许关闭原 issue
+- Symphony `sync/start` 还会校验 `prompts/global_stewardship.md` 的关键 guardrail：必须按当前 `main` 统一判断部署、实际 deploy 时先采 runtime baseline 再做 runtime ops check、只创建 follow-up issue、不直接建修复 PR、并在无 open follow-up 阻塞时才允许关闭原 issue
 - Symphony 写入 GitHub 的正式文本默认使用简体中文；仅审批信号 `APPROVED` / `REVISE:` / `REJECTED:` 保留英文控制词
 - 全局 Codex 自动化发现需要代码修复的问题时，只创建 follow-up issue，由下一轮 `Symphony` 接手；不直接建修复 PR
 - 运行日志根目录：`logs/runtime`，可被 `FQ_RUNTIME_LOG_DIR` 覆盖
@@ -106,7 +109,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build fq_mongodb fq_redis
 python -m freshquant.market_data.xtdata.market_producer
 python -m freshquant.market_data.xtdata.strategy_consumer --prewarm
 python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
-python -m freshquant.position_management.worker --interval 3
+python -m freshquant.position_management.worker
 python -m freshquant.tpsl.tick_listener
 ```
 

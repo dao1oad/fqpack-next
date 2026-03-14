@@ -5,9 +5,11 @@
 - 代码改动后，受影响模块必须重新部署；只合并不部署不算完成。
 - Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
 - FreshQuant / QUANTAXIS 相关 Docker 服务在 `docker/compose.parallel.yaml` 内部固定使用 `fq_mongodb:27017`；不要只覆写 host 而保留宿主机默认 `27027`
-- `Merging` 只负责 merge 与 handoff；merge 后由单个全局 Codex 自动化统一判断 deploy、health check 和 cleanup。
-- 部署动作结束后必须做健康检查；健康检查通过后才进入 cleanup。
+- `Merging` 只负责 merge 与 handoff；merge 后由单个全局 Codex 自动化统一判断 deploy、health check、runtime ops check 和 cleanup。
+- 部署动作结束后必须先做接口层健康检查，再做 deploy 后运维面检查；两者都通过后才进入 cleanup。
+- `Global Stewardship` 的实际收口链路固定为：`deploy -> health check -> runtime ops check -> cleanup`。
 - 当前 Done 判定固定为：`merge + ci + docs sync + deploy + health check + cleanup`。
+- 当前 `health check` 的执行口径包含接口层检查；如果本轮实际发生 deploy，还必须追加一轮 deploy 后 `runtime ops check`。
 
 ## 常用部署命令
 
@@ -73,7 +75,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/invoke_freshqu
 | --- | --- | --- |
 | `freshquant/rear/**` | API Server | 重建 `fq_apiserver` 容器或重启 API 进程 |
 | `freshquant/order_management/**` | 订单管理、API、broker/ingest 相关宿主机进程 | 重建 API；若涉及 submit/ingest/gateway，同步重启宿主机交易链进程 |
-| `freshquant/position_management/**` | 仓位管理 | 重启 `python -m freshquant.position_management.worker --interval 3` |
+| `freshquant/position_management/**` | 仓位管理 | 重启 `python -m freshquant.position_management.worker`（默认 `interval=3`，也可显式传 `--interval 3`） |
 | `freshquant/tpsl/**` | TPSL | 重启 `python -m freshquant.tpsl.tick_listener` |
 | `freshquant/market_data/**` | XTData producer / consumer | 重启 producer、consumer；必要时重新 prewarm |
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 重启 `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event` |
@@ -113,10 +115,29 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:13080/health
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state
 ```
 
-### Docker 组件状态
+### Deploy 后运维面检查
+
+本轮有实际 deploy 时，必须先采 baseline，再在接口健康检查通过后执行 verify：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1 -Mode CaptureBaseline -OutputPath <baseline.json>
+powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface api,market_data
+```
+
+- `DeploymentSurface` 取值固定为：`api`、`web`、`dagster`、`qa`、`tradingagents`、`symphony`、`market_data`、`guardian`、`position_management`、`tpsl`；未知值会直接报错，不会静默跳过检查
+- 输出 JSON 至少包含：`baseline`、`docker_checks`、`service_checks`、`process_checks`、`warnings`、`failures`、`passed`
+- 固定检查基础容器：`fq_mongodb`、`fq_redis`
+- 按本轮部署面追加检查容器：`fq_apiserver`、`fq_webui`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver`、`ta_backend`、`ta_frontend`
+- 固定记录宿主机服务：`fq-symphony-orchestrator`；只有本轮涉及 `runtime/symphony/**` 时，`Running` 才是 deploy 通过前提
+- 关键进程语义固定为：deploy 前已运行的不能在 deploy 后消失；本轮明确要求恢复的必须恢复；deploy 前本来就没运行且本轮未涉及的只记 warning
+- 脚本支持 `-DockerSnapshotPath`、`-ServiceSnapshotPath`、`-ProcessSnapshotPath`，供手工回放或测试复现使用
+
+### 运维面辅助命令
 
 ```powershell
 docker compose -f docker/compose.parallel.yaml ps
+Get-Service fq-symphony-orchestrator
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*freshquant.market_data.xtdata.market_producer*' -or $_.CommandLine -like '*freshquant.market_data.xtdata.strategy_consumer --prewarm*' -or $_.CommandLine -like '*freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event*' -or $_.CommandLine -like '*freshquant.position_management.worker*' -or $_.CommandLine -like '*freshquant.tpsl.tick_listener*' } | Select-Object ProcessId,Name,CommandLine
 ```
 
 ## 部署后必须确认的事实
@@ -127,14 +148,19 @@ docker compose -f docker/compose.parallel.yaml ps
 - 如果改了运行观测或 XTData runtime 埋点，确认 `/runtime-observability` 页面能看到 `xt_producer` / `xt_consumer` 的 5 分钟 heartbeat 与关键指标，而不是只看到启动事件。
 - TPSL / Position worker 修改后，进程没有“启动即退”。
 - Symphony 修改后，`Merging -> Global Stewardship` handoff、批量 deploy 判定和 follow-up issue only 规则仍然可用。
+- 如果本轮有实际 deploy，`check_freshquant_runtime_post_deploy.ps1` 的 verify 结果必须 `passed=true`，且 `failures` 为空。
 - 如果通过计划任务桥接重载 Symphony，还要确认 `artifacts\admin-bridge\restart-status.json` 记录 `success=true` 且 `health_status_code=200`。
 
 ## Global Stewardship 收口规则
 
 - merge 后原 issue 进入 `Global Stewardship`，不直接 `Done`。
 - 单个全局 Codex 自动化按当前 `main` 和部署面并集统一决定是否批量 deploy。
+- 本轮没有实际 deploy 时，不执行 runtime ops check。
+- 本轮有实际 deploy 时，必须先 `CaptureBaseline`，再在 health check 后执行 `Verify`。
+- 只有 health check 与 runtime ops check 都通过，才允许 cleanup / close 原 issue。
+- runtime ops check 失败时，不做 cleanup，不关闭原 issue；代码问题只创建或复用 follow-up issue，外部环境问题则记录 blocker / clear condition / evidence / target recovery state。
 - 如果发现需要代码修复的问题，只创建 follow-up issue，由下一轮 `Symphony` 接手。
-- 原 issue 只有在其变更已包含在一次成功发布中，且 health check 与 cleanup 完成后，才允许关闭。
+- 原 issue 只有在其变更已包含在一次成功发布中，且 health check、runtime ops check 与 cleanup 完成后，才允许关闭。
 
 ## Cleanup 要求
 

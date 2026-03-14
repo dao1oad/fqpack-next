@@ -18,6 +18,6 @@
 
 ## 交接说明
 
-- 后续 `deploy + health check + cleanup` 由单个全局 Codex 自动化统一处理
+- 后续 `deploy + health check + runtime ops check + cleanup` 由单个全局 Codex 自动化统一处理
 - 如果 merge 后发现需要代码修复的问题，只创建 follow-up issue，由下一轮 `Symphony` 接手
 - 当前 issue 在运行交付完成前不算 `Done`

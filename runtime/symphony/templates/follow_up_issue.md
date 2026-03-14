@@ -25,7 +25,7 @@
 
 ## 初步判断
 
-- Symptom Class: `<cleanup-failure | deploy-regression | health-check-regression | runtime-bug | governance-gap>`
+- Symptom Class: `<cleanup-failure | deploy-regression | health-check-regression | runtime-ops-regression | runtime-bug | governance-gap>`
 - 疑似命中 Design Review 条件：`<是 | 否 | 待确认>`
 
 ## 下一轮 Symphony 接手建议
