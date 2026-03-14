@@ -78,7 +78,7 @@ test('GanttHistory aligns the plate sidebar with chart grid padding', async () =
   assert.doesNotMatch(content, /class="sidebar-head"/)
 })
 
-test('GanttHistory keeps plate sidebar vertically scrollable when rows overflow', async () => {
+test('GanttHistory fits sidebar rows to the visible chart window instead of clamping them to 24px', async () => {
   const content = await readFile(
     new URL('../src/views/components/GanttHistory.vue', import.meta.url),
     'utf8'
@@ -86,6 +86,10 @@ test('GanttHistory keeps plate sidebar vertically scrollable when rows overflow'
 
   assert.match(content, /\.sidebar-list\s*\{[\s\S]*overflow-y:\s*auto;/)
   assert.match(content, /\.sidebar-list\s*\{[\s\S]*overflow-x:\s*hidden;/)
+  assert.match(content, /minHeight: `\$\{sidebarRowHeight\}px`/)
+  assert.match(content, /Math\.max\(1, usableHeight \/ visibleCount\)/)
+  assert.doesNotMatch(content, /Math\.max\(24, usableHeight \/ visibleCount\)/)
+  assert.doesNotMatch(content, /min-height:\s*24px;/)
 })
 
 test('Gantt pages use a viewport shell instead of stacking document-level 100vh blocks', async () => {
