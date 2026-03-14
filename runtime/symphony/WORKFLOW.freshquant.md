@@ -100,7 +100,7 @@ Core governance rules:
 State contract:
 
 - `Todo`: prepare context, decide whether Design Review is required, and only enter implementation when allowed.
-- `Design Review`: create or update the Draft PR Design Review Packet and wait for approval.
+- `Design Review`: orchestrator bootstraps or refreshes the Draft PR review surface from the issue body, then waits for approval.
 - `In Progress`: implement, test, and sync `docs/current/**`.
 - `Rework`: fix review, CI, deploy, or cleanup failures.
 - `Merging`: merge the PR, write the merge handoff comment, and move the issue to `Global Stewardship`.
@@ -113,16 +113,17 @@ Required behavior:
 2. Do not write production code while the issue is in `Todo`, `Design Review`, or `Blocked`.
 3. If a task is low risk and does not require Design Review, do not invoke `brainstorming` and do not ask for human approval.
 4. Low-risk `Todo` work should finish one solid research turn, then let the orchestrator move the issue to `In Progress` automatically.
-5. When the issue is already in `Design Review`, treat the issue body as the current design context and the source material for the Draft PR packet.
-6. In `Design Review`, do not invoke `brainstorming` and do not ask for new human clarification inside the Codex session. This phase is operational: create or refresh the Draft PR review surface from the issue body and then wait for approval on GitHub.
-7. If a task is high risk, the first priority is to make sure the GitHub review surface exists. If there is no linked Draft PR yet, first create or switch to the issue branch, create the Draft PR, and publish the complete Design Review Packet in the PR body before more repo exploration.
+5. When the issue is already in `Design Review`, treat the issue body as the current design context and the source material for the Draft PR packet; do not start repo implementation work from that state.
+6. `Design Review` is orchestrator-owned. Do not invoke `brainstorming` and do not ask for new human clarification inside the Codex session. The orchestrator must create or refresh the Draft PR review surface from the issue body before any implementation resumes.
+7. If a high-risk task has no linked Draft PR yet, the orchestrator must first create or switch to the deterministic issue branch, create the Draft PR, and publish the complete Design Review Packet in the PR body. If bootstrap fails because of missing GitHub / `gh` / push capability, move the issue to `Blocked` with blocker, clear condition, evidence, and target recovery state `Design Review`.
 8. Once the Draft PR exists for a high-risk task, keep the issue in `Design Review` and wait for explicit approval. Only `APPROVED` or PR review `Approve` counts.
 9. Do not keep looping on generic repository discovery once the issue context and review surface are already known.
 10. If the task is blocked by missing access, missing tooling, or another real external dependency, move it to `Blocked` instead of leaving it in `Todo`.
 11. If the issue enters `Blocked`, record the blocker, clear condition, evidence, and target recovery state in GitHub. Do not leave a blocked task without saying whether it should resume to `In Progress`, `Rework`, or `Global Stewardship`.
 12. Once Design Review is approved, do not ask for new human approval to handle CI, merge conflicts, deploy failures, or cleanup failures within the same issue scope. Route that work to `Rework` or `Global Stewardship` by default; use `Blocked` only when a new real external blocker appears and record the blocker, clear condition, evidence, and target recovery state.
 13. When GitHub truth proves a blocked task is misclassified, restore it automatically: merged PR, pending ops -> `Global Stewardship`; open non-draft PR -> `Rework`; approved draft PR -> `In Progress`.
-14. If `before_run` fails because the workspace is not a git repository, rebuild the workspace once and retry before surfacing the failure.
-15. Treat newly created GitHub issues as `symphony` + `todo` by default. Do not pre-apply `design-review` at issue creation time; add it only after the task is confirmed to be high risk.
-16. All GitHub-facing text that you write must use Simplified Chinese by default, including Draft PR titles, PR bodies, issue comments, PR comments, deployment notes, and done summaries. Preserve the control tokens `APPROVED`, `REVISE:`, and `REJECTED:` exactly when they are required.
-17. If code repair is needed after merge, only create a follow-up issue for the next Symphony round; do not create a repair PR directly from the global automation.
+14. Before any non-`Todo` implementation turn starts, switch the workspace to the deterministic issue branch instead of local `main`. Reuse the remote issue branch when it already exists.
+15. If `before_run` fails because the workspace is not a git repository, rebuild the workspace once and retry before surfacing the failure.
+16. Treat newly created GitHub issues as `symphony` + `todo` by default. Do not pre-apply `design-review` at issue creation time; add it only after the task is confirmed to be high risk.
+17. All GitHub-facing text that you write must use Simplified Chinese by default, including Draft PR titles, PR bodies, issue comments, PR comments, deployment notes, and done summaries. Preserve the control tokens `APPROVED`, `REVISE:`, and `REJECTED:` exactly when they are required.
+18. If code repair is needed after merge, only create a follow-up issue for the next Symphony round; do not create a repair PR directly from the global automation.
