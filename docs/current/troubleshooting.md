@@ -228,6 +228,27 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 若日志里出现 `skipping invalid jygs theme rows`，说明是上游单条主题缺 `reason`；先核对该 trade_date 其他主题是否已正常落库，再确认是否需要人工补录该主题说明
 - 若目标交易日既没有真实 `jygs` 数据，也没有 `is_empty_result=true` marker，说明 recent hole scan 还没覆盖到；继续补跑 Dagster
 
+## Shouban30 `sync-to-tdx` 成功但宿主机 `.blk` 不变
+
+现象：
+- `/api/gantt/shouban30/pre-pool/sync-to-tdx` 或 `/api/gantt/shouban30/stock-pool/sync-to-tdx` 返回 `200`
+- 但 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk` 没变化
+
+先检查：
+- `docker compose -f docker/compose.parallel.yaml config`
+- `docker compose -f docker/compose.parallel.yaml exec fq_apiserver sh -lc "ls -la /opt/tdx/T0002/blocknew"`
+- `docker compose -f docker/compose.parallel.yaml exec fq_apiserver sh -lc "python - <<'PY'\nfrom freshquant.config import settings\nprint(settings.get('tdx'))\nPY"`
+
+常见根因：
+- `fq_apiserver` 没有挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}:/opt/tdx`
+- `FRESHQUANT_TDX__HOME` 没指到 `/opt/tdx`
+- 宿主机目录不是 `D:\tdx_biduan`，但 `FQPACK_TDX_SYNC_DIR` 没同步调整
+
+处理：
+- 在 `docker/compose.parallel.yaml` 确认 `fq_apiserver` 挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}` 到 `/opt/tdx`
+- 确认 Docker env file 中 `FRESHQUANT_TDX__HOME=/opt/tdx`
+- 重建 `fq_apiserver` 后，再核对 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`
+
 ## Runtime Observability 无 trace
 
 现象：
