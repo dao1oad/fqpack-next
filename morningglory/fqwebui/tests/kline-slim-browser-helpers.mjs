@@ -239,12 +239,43 @@ export async function installVmHelpers(page) {
           max: Number(yAxis.max)
         },
         seriesIds: Array.isArray(option?.series)
-          ? option.series.map((item) => item.id || item.name || '')
+          ? option.series.map((item) => item?.id || item?.name || '')
           : [],
         titleText: title.text || '',
         renderVersion: vm.lastRenderedVersion || '',
         mainVersion: vm.mainVersion || ''
       }
+    }
+
+    window.__readKlineSlimRenderSurface = () => {
+      const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
+      const displayList = chart?.getZr?.()?.storage?.getDisplayList?.() || []
+      const displayTypeCounts = displayList.reduce((result, item) => {
+        const type = String(item?.type || item?.constructor?.name || 'unknown')
+        result[type] = (result[type] || 0) + 1
+        return result
+      }, {})
+
+      return {
+        displayListLength: displayList.length,
+        displayTypeCounts
+      }
+    }
+
+    window.__forceKlineSlimFullRedraw = () => {
+      const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
+      if (!chart || typeof chart.getOption !== 'function' || typeof chart.setOption !== 'function') {
+        return false
+      }
+
+      const option = chart.getOption()
+      chart.clear()
+      chart.setOption(option, {
+        notMerge: true,
+        lazyUpdate: false,
+        silent: true
+      })
+      return true
     }
   })
 }
@@ -277,6 +308,39 @@ export async function readChartState(page) {
     throw new Error('kline slim chart state is not ready')
   }
   return state
+}
+
+export async function readRenderSurface(page) {
+  const state = await page.evaluate(() => window.__readKlineSlimRenderSurface?.())
+  if (!state) {
+    throw new Error('kline slim render surface state is not ready')
+  }
+  return state
+}
+
+export async function captureRenderedFrame(page, key = 'default') {
+  const captured = await page.evaluate((frameKey) => window.__captureKlineSlimRenderedFrame?.(frameKey), key)
+  if (!captured) {
+    throw new Error(`failed to capture rendered frame: ${key}`)
+  }
+}
+
+export async function compareRenderedFrame(page, { key = 'default', tolerance = 12 } = {}) {
+  const diff = await page.evaluate(
+    ({ frameKey, frameTolerance }) =>
+      window.__compareKlineSlimRenderedFrame?.({
+        key: frameKey,
+        tolerance: frameTolerance
+      }),
+    {
+      frameKey: key,
+      frameTolerance: tolerance
+    }
+  )
+  if (!diff) {
+    throw new Error(`failed to compare rendered frame: ${key}`)
+  }
+  return diff
 }
 
 export async function setLegendSelected(page, name, selected) {
@@ -355,21 +419,25 @@ export async function waitForViewportReset(page, { start = 70, end = 100 } = {})
   await page.evaluate(() => window.__waitForSlimPaint?.())
 }
 
-export async function zoomAndPan(page) {
+async function moveToChartViewport(page) {
   const chart = page.locator('.kline-slim-chart')
   const chartBox = await chart.boundingBox()
   if (!chartBox) {
     throw new Error('chart host not visible')
   }
+  return chartBox
+}
 
+export async function wheelZoomChart(page, { wheelDeltaY = -1200, steps = 3 } = {}) {
+  const chartBox = await moveToChartViewport(page)
   const beforeZoom = await readChartState(page)
 
   await page.mouse.move(
     chartBox.x + chartBox.width * 0.55,
     chartBox.y + chartBox.height * 0.42
   )
-  for (let index = 0; index < 3; index += 1) {
-    await page.mouse.wheel(0, -1200)
+  for (let index = 0; index < steps; index += 1) {
+    await page.mouse.wheel(0, wheelDeltaY)
     await page.waitForTimeout(50)
   }
 
@@ -391,14 +459,19 @@ export async function zoomAndPan(page) {
   )
 
   await page.evaluate(() => window.__waitForSlimPaint?.())
-  const afterZoom = await readChartState(page)
+  return readChartState(page)
+}
 
+export async function dragSliderPan(page, { deltaRatio = -0.12 } = {}) {
+  const chartBox = await moveToChartViewport(page)
+  const beforePan = await readChartState(page)
   const sliderY = chartBox.y + chartBox.height - 28
   const sliderCenterX =
-    chartBox.x + (chartBox.width * (afterZoom.viewport.xRange.start + afterZoom.viewport.xRange.end)) / 200
+    chartBox.x + (chartBox.width * (beforePan.viewport.xRange.start + beforePan.viewport.xRange.end)) / 200
+
   await page.mouse.move(sliderCenterX, sliderY)
   await page.mouse.down()
-  await page.mouse.move(sliderCenterX - chartBox.width * 0.12, sliderY, {
+  await page.mouse.move(sliderCenterX + chartBox.width * deltaRatio, sliderY, {
     steps: 18
   })
   await page.mouse.up()
@@ -415,13 +488,27 @@ export async function zoomAndPan(page) {
       )
     },
     {
-      start: afterZoom.viewport.xRange.start,
-      end: afterZoom.viewport.xRange.end
+      start: beforePan.viewport.xRange.start,
+      end: beforePan.viewport.xRange.end
     }
   )
 
   await page.evaluate(() => window.__waitForSlimPaint?.())
-  const afterPan = await readChartState(page)
+  return readChartState(page)
+}
+
+export async function forceFullRedraw(page) {
+  const redrawn = await page.evaluate(() => window.__forceKlineSlimFullRedraw?.())
+  if (!redrawn) {
+    throw new Error('failed to force kline slim full redraw')
+  }
+  await page.evaluate(() => window.__waitForSlimPaint?.())
+}
+
+export async function zoomAndPan(page) {
+  const beforeZoom = await readChartState(page)
+  const afterZoom = await wheelZoomChart(page)
+  const afterPan = await dragSliderPan(page)
 
   return {
     beforeZoom,
