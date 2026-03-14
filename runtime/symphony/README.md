@@ -8,7 +8,7 @@
 - 固化 `Design Review` 为唯一人工评审点
 - 固化 `Symphony + superpowers` 执行链
 - 固化 `Symphony` 到 merge 为止、`Global Stewardship` 接手 merge 后收口
-- 固化 deploy、health check、cleanup 与 `Done` 判定
+- 固化 deploy、health check、runtime ops check、cleanup 与 `Done` 判定
 - 让仓库治理与 `Symphony` 运行模板保持一致
 
 ## 正式真值
@@ -16,7 +16,7 @@
 - GitHub Issue：正式任务入口
 - GitHub Draft PR：唯一 `Design Review` 评审面
 - GitHub PR + CI：代码交付真值
-- 单个全局 Codex 自动化完成的 `deploy + health check + cleanup`：运行交付真值
+- 单个全局 Codex 自动化完成的 `deploy + health check + runtime ops check + cleanup`：运行交付真值
 
 `Linear` 不再作为正式任务入口、评审面或批准真值来源。
 
@@ -52,6 +52,7 @@ GitHub 文本规则：
 规则：
 
 - 高风险任务必须先创建 Draft PR
+- `Design Review` 的 Draft PR bootstrap 由 orchestrator 自动完成，而不是由实现态 Codex 会话临场创建
 - `brainstorming` 必须产出一份完整 `Design Review Packet`
 - `Design Review Packet` 必须一次性列出全部待评审点、推荐方案和理由
 - 不允许零碎多轮提审
@@ -95,7 +96,7 @@ GitHub 文本规则：
 
 - 代码更新后，受影响模块必须重新部署
 - 未部署完成，不算 `Done`
-- merge 后的 deploy、health check、cleanup 由单个全局 Codex 自动化统一收口
+- merge 后的 deploy、health check、runtime ops check、cleanup 由单个全局 Codex 自动化统一收口
 
 `Done` 的定义是：
 
@@ -132,7 +133,7 @@ Cleanup 只清理任务级资源：
 - 单个全局 Codex 自动化统一巡检所有 `Global Stewardship` issue
 - 全局自动化允许按当前 `main` 和部署面并集批量 deploy 多个 merged issue
 - 如果发现需要代码修复的问题，全局自动化只创建 follow-up issue，不直接建修复 PR
-- 原 issue 只有在 `deploy + health check + cleanup` 全部完成且无 open follow-up issue 阻塞时，才能 `Done`
+- 原 issue 只有在 `deploy + health check + runtime ops check + cleanup` 全部完成且无 open follow-up issue 阻塞时，才能 `Done`
 
 ## 运行方式
 
@@ -141,6 +142,7 @@ Cleanup 只清理任务级资源：
 - secrets：不入仓
 - 正式工作流文件：`WORKFLOW.freshquant.md`
 - 全局自动化提示词：`prompts/global_stewardship.md`
+- 高风险 issue 进入 `Design Review` 后，orchestrator 会先 bootstrap issue branch 和 Draft PR；实现态工作区则会自动 checkout 到对应 issue branch
 - 关键模板：
   - `templates/merge_handoff_comment.md`
   - `templates/global_stewardship_progress_comment.md`
@@ -151,6 +153,7 @@ Cleanup 只清理任务级资源：
 - 正式宿主机脚本：
   - `scripts/run_freshquant_codex_session.ps1`
   - `scripts/assert_freshquant_merging_prompt.ps1`
+  - `scripts/check_freshquant_runtime_post_deploy.ps1`
   - `scripts/request_freshquant_symphony_cleanup.ps1`
   - `scripts/invoke_freshquant_symphony_cleanup_finalizer.ps1`
   - `scripts/start_freshquant_symphony.ps1`

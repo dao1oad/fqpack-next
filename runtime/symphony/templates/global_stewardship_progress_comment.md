@@ -12,6 +12,7 @@
 
 - 部署范围：`<runtime surfaces or none>`
 - 健康检查：`<pass/fail/deferred summary>`
+- 运维面检查：`<pass/fail/deferred summary>`
 - cleanup：`<completed/deferred summary>`
 
 ## follow-up 状态
