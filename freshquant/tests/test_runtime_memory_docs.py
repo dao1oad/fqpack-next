@@ -42,7 +42,10 @@ def test_global_governance_allows_direct_pr_without_mandatory_issue() -> None:
 
     assert "允许直接从 `feature branch` 开 `PR`" in agents_text
     assert "不再强制先建 GitHub Issue" in agents_text
-    assert "需要 `Symphony` / `Global Stewardship` 跟踪的任务，应先建 GitHub Issue" in agents_text
+    assert (
+        "需要 `Symphony` / `Global Stewardship` 跟踪的任务，应先建 GitHub Issue"
+        in agents_text
+    )
     assert "正式任务优先从 GitHub Issue 启动" not in agents_text
 
     assert "轻量更新允许直接走 `feature branch -> PR`" in overview_text
@@ -54,15 +57,18 @@ def test_troubleshooting_scopes_issue_state_machine_to_issue_managed_tasks() -> 
         encoding="utf-8"
     )
 
-    assert "本节仅适用于走 `Symphony` / `Global Stewardship` 的 Issue-managed 任务" in troubleshooting_text
-    assert "仓库级 direct `feature branch -> PR` 不进入这条状态机" in troubleshooting_text
+    assert (
+        "本节仅适用于走 `Symphony` / `Global Stewardship` 的 Issue-managed 任务"
+        in troubleshooting_text
+    )
+    assert (
+        "仓库级 direct `feature branch -> PR` 不进入这条状态机" in troubleshooting_text
+    )
     assert "需要 Symphony 接管的新建 GitHub issue 时默认只打" in troubleshooting_text
 
 
 def test_cold_memory_workflow_rules_match_current_governance() -> None:
-    workflow_text = Path(".codex/memory/workflow-rules.md").read_text(
-        encoding="utf-8"
-    )
+    workflow_text = Path(".codex/memory/workflow-rules.md").read_text(encoding="utf-8")
 
     assert "GitHub Issue" in workflow_text
     assert "GitHub PR + CI + merge gate" in workflow_text
