@@ -250,6 +250,32 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 清空筛选后刷新页面
 - 如果 API 有数据但页面统计卡、recent feed、component board 全空，优先重建并重新部署 `fq_webui`，然后强刷浏览器缓存
 
+## Deploy 后运维面检查失败
+
+现象：
+- API / Web health check 已通过，但 `Global Stewardship` 仍不做 cleanup / close。
+- Issue 评论或部署说明里出现 runtime ops check `passed=false`。
+- `runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1 -Mode Verify` 的 `failures` 非空。
+
+先检查：
+- `docker compose -f docker/compose.parallel.yaml ps`
+- `Get-Service fq-symphony-orchestrator`
+- `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*freshquant.market_data.xtdata.market_producer*' -or $_.CommandLine -like '*freshquant.market_data.xtdata.strategy_consumer --prewarm*' -or $_.CommandLine -like '*freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event*' -or $_.CommandLine -like '*freshquant.position_management.worker --interval 3*' -or $_.CommandLine -like '*freshquant.tpsl.tick_listener*' } | Select-Object ProcessId,CommandLine`
+- `powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface <surfaces>`
+
+常见根因：
+- `fq_mongodb` / `fq_redis` / 本轮要求存在的容器进入 `Restarting`、`Exited` 或 `unhealthy`
+- 本轮涉及 `runtime/symphony/**`，但 `fq-symphony-orchestrator` 没恢复到 `Running`
+- deploy 前已在跑的关键进程被这轮 deploy 打掉，deploy 后没有恢复
+- 本轮明确要求恢复的 `market_data` / `guardian` / `position_management` / `tpsl` 进程没有重启成功
+- 自动化漏采 baseline，导致无法按“deploy 前已运行 -> deploy 后仍需存在”的规则判断
+
+处理：
+- 先按 `verify.json` 的 `docker_checks` / `service_checks` / `process_checks` 定位失败项，不要直接 cleanup
+- 如果是代码问题，只创建或复用 follow-up issue，由下一轮 `Symphony` 接手
+- 如果是外部环境问题，在原 issue 记录 blocker / clear condition / evidence / target recovery state
+- 修复后重新执行 deploy、health check 和 runtime ops check，只有全部通过后才允许 cleanup / close
+
 ## Symphony / Global Stewardship 卡住
 
 现象：
@@ -272,6 +298,8 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 全局 Codex 自动化没有运行，或没有读取最新 `runtime/symphony/prompts/global_stewardship.md`
 - 全局 Codex 自动化把需要代码修复的问题当成纯收口问题，导致原 issue 一直停在 `Global Stewardship`
 - 全局 Codex 自动化没有做 follow-up issue 去重，重复创建了多个同源修复任务
+- 本轮实际发生 deploy，但自动化没有先采 baseline 或没有执行 runtime ops check，导致收口条件一直不满足
+- runtime ops check 已经失败，但被误以为是 cleanup 卡住；实际上这是设计上的阻断，不应继续 close 原 issue
 - `Design Review` 任务在 Codex 会话里再次触发 `brainstorming`，硬门要求新的人工批准，结果因为会话内没有人工输入面而反复空转
 - workspace 只保留了本地路径 `origin`，没有 GitHub remote，导致 `gh pr ...` / `gh issue ...` 在 workspace 内直接失败
 - issue 被打到 `blocked`，但没有写明解除条件和应该恢复到哪个状态
@@ -289,6 +317,8 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 如果 `Merging` 很慢，先看 session 里是否出现 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 轮询；正式 prompt 现在要求只做一次性检查后结束当前 turn，让 orchestrator 下一轮继续
 - 如果 merge 后原 issue 没进入 `Global Stewardship`，先看 `Merging` 会话是否真的写出了 handoff comment，并检查状态标签是否已切换
 - 如果原 issue 长时间停在 `Global Stewardship`，先看全局 Codex 自动化最近一轮是否真的读取了 merged PR、当前 `main` 和已有 follow-up issue
+- 如果本轮评论里 health check 已通过但没有 runtime ops check 结果，先检查 `check_freshquant_runtime_post_deploy.ps1` 是否已同步到正式服务，以及 prompt 是否已要求 `CaptureBaseline -> Verify`
+- 如果 runtime ops check 结果里 `failures` 非空，不要继续排 cleanup；先按失败项判断是 follow-up issue 还是外部 blocker
 - 如果同一个源 issue 被开出多个 follow-up issue，先按 `Source Issue + Symptom Class` 检查去重逻辑，收敛到一个 open 修复任务
 - 如果全局自动化把代码问题当成运维问题处理，先核对原 issue 评论里是否已经明确写出“等待 GH-xxx 修复后继续收口”
 - 如果日志里明确读入了 issue body，但随后又加载 `brainstorming` 并停在“等待批准”，说明 workflow 仍把 `Design Review` 错当成会话内交互设计阶段；应改成“issue body -> Draft PR packet -> GitHub approval”的单向流程

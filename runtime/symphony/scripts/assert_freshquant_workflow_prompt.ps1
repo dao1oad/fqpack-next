@@ -25,7 +25,7 @@ $requiredPatterns = @(
     @{ Name = 'blocked structured recovery rule'; Pattern = 'If the issue enters `Blocked`, record the blocker, clear condition, evidence, and target recovery state in GitHub' },
     @{ Name = 'global stewardship state rule'; Pattern = 'Global Stewardship' },
     @{ Name = 'merge handoff state rule'; Pattern = '-\s+`Merging`:\s+merge the PR,\s+write the merge handoff comment,\s+and move the issue to `Global Stewardship`\.' },
-    @{ Name = 'global stewardship ownership rule'; Pattern = '-\s+`Global Stewardship`:\s+global Codex automation handles deploy,\s+health check,\s+cleanup,\s+and follow-up issue creation\.' },
+    @{ Name = 'global stewardship ownership rule'; Pattern = '-\s+`Global Stewardship`:\s+global Codex automation handles deploy,\s+health check,\s+runtime ops check,\s+cleanup,\s+and follow-up issue creation\.' },
     @{ Name = 'global stewardship state label config'; Pattern = 'state_labels:\s*(?:\r?\n\s*[a-z_]+:\s*[^\r\n]+)+\r?\n\s*global_stewardship:\s*global-stewardship' },
     @{ Name = 'post-approval no reapproval rule'; Pattern = 'Once Design Review is approved, do not ask for new human approval to handle CI, merge conflicts, deploy failures, or cleanup failures within the same issue scope\.\s*Route that work to `Rework` or `Global Stewardship` by default;\s*use `Blocked` only when a new real external blocker appears' },
     @{ Name = 'blocked auto recovery truth rule'; Pattern = 'merged PR,\s*pending ops -> `Global Stewardship`;\s*open non-draft PR -> `Rework`;\s*approved draft PR -> `In Progress`' },

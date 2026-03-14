@@ -104,7 +104,7 @@ State contract:
 - `In Progress`: implement, test, and sync `docs/current/**`.
 - `Rework`: fix review, CI, deploy, or cleanup failures.
 - `Merging`: merge the PR, write the merge handoff comment, and move the issue to `Global Stewardship`.
-- `Global Stewardship`: global Codex automation handles deploy, health check, cleanup, and follow-up issue creation.
+- `Global Stewardship`: global Codex automation handles deploy, health check, runtime ops check, cleanup, and follow-up issue creation.
 - `Blocked`: use only for a real external blocker, stop active work, and record the blocker, clear condition, evidence, and target recovery state clearly.
 
 Required behavior:

@@ -16,4 +16,5 @@
 
 - 部署范围：`<scope>`
 - 健康检查：`<health checks>`
+- 运维面检查：`<runtime ops checks or not-needed>`
 - Cleanup 结果：`<cleanup results>`
