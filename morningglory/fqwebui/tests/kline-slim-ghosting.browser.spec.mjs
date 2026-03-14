@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
+import path from 'node:path'
 
-import { runLockedBuild } from './vite-build-lock.mjs'
+import { createIsolatedViteArtifactsContext, runLockedBuild } from './vite-build-lock.mjs'
 import {
   captureRenderedFrame,
   cleanupServerPort,
@@ -8,8 +9,11 @@ import {
   dragSliderPan,
   enableExtraPeriodLegends,
   forceFullRedraw,
+  hideCurrentChartTip,
   installVmHelpers,
+  readAxisPointerArtifacts,
   readChartState,
+  reproduceAxisPointerGhost,
   readRenderSurface,
   setLegendSelected,
   startPreviewServer,
@@ -30,6 +34,7 @@ const DAY = '2026-03-11'
 const EXTRA_PERIOD_LEGENDS = ['15m', '30m']
 const ALL_PERIOD_LEGENDS = ['1m', '15m', '30m']
 const ZOOM_SWITCH_SEQUENCE = ['sh510050', 'sz000001', 'sz002262']
+const PREVIEW_ARTIFACTS = createIsolatedViteArtifactsContext(import.meta.url)
 
 const SYMBOL_VARIANTS = {
   sz002262: {
@@ -248,19 +253,15 @@ function buildStockDataPayload(symbol, period) {
 async function runBuild() {
   await runLockedBuild(
     () => {
-      if (process.platform === 'win32') {
-        return {
-          command: 'cmd.exe',
-          args: ['/d', '/s', '/c', 'pnpm build']
-        }
-      }
-
       return {
-        command: 'pnpm',
-        args: ['build']
+        command: process.execPath,
+        args: [path.join(process.cwd(), 'node_modules', 'vite', 'bin', 'vite.js'), 'build']
       }
     },
-    process.cwd()
+    process.cwd(),
+    {
+      outDir: PREVIEW_ARTIFACTS.outDirRelative
+    }
   )
 }
 
@@ -414,11 +415,13 @@ async function runZoomSwitchSequence(page) {
 }
 
 test.beforeAll(async () => {
+  test.setTimeout(90000)
   cleanupServerPort(DEV_SERVER_PORT)
   await runBuild()
   devServerProcess = startPreviewServer({
     port: DEV_SERVER_PORT,
-    cwd: process.cwd()
+    cwd: process.cwd(),
+    outDir: PREVIEW_ARTIFACTS.outDirRelative
   })
 
   let startupOutput = ''
@@ -529,6 +532,77 @@ test('symbol switching keeps only period legends and resets viewport without rei
   expect(finalState.visibleChanlunPeriods).toEqual(['15m', '30m'])
   expect(finalState.viewport.xRange.start).toBeCloseTo(70, 0)
   expect(finalState.viewport.xRange.end).toBeCloseTo(100, 0)
+})
+
+test('wheel zoom followed by mouseout does not leave axisPointer ghost lines or price labels', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1680, height: 960 })
+  await installVmHelpers(page)
+  await mockKlineSlimApis(page)
+  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+
+  await waitForChartReady(page)
+  await waitForSymbolRendered(page, 'sz002262')
+  await prepareVisibleExtraPeriods(page)
+  await reproduceAxisPointerGhost(page)
+
+  const artifacts = await readAxisPointerArtifacts(page)
+
+  expect(artifacts.horizontalLineCount).toBe(0)
+  expect(artifacts.labelCount).toBe(0)
+  expect(artifacts.priceLabelBackgroundCount).toBe(0)
+})
+
+test('hideTip clears the current KlineSlim axisPointer crosshair', async ({ page }) => {
+  await page.setViewportSize({ width: 1680, height: 960 })
+  await installVmHelpers(page)
+  await mockKlineSlimApis(page)
+  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+
+  await waitForChartReady(page)
+  await waitForSymbolRendered(page, 'sz002262')
+  await prepareVisibleExtraPeriods(page)
+
+  const chart = page.locator('.kline-slim-chart')
+  const chartBox = await chart.boundingBox()
+  expect(chartBox).toBeTruthy()
+
+  const activePoint = await page.evaluate(() => {
+    const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
+    const option = chart?.getOption?.()
+    const seriesList = Array.isArray(option?.series) ? option.series : []
+    const candlestickIndex = seriesList.findIndex((series) => series?.type === 'candlestick')
+    if (candlestickIndex < 0) {
+      throw new Error('candlestick series not found')
+    }
+
+    const data = Array.isArray(seriesList[candlestickIndex]?.data) ? seriesList[candlestickIndex].data : []
+    const dataIndex = Math.max(0, data.length - 4)
+    const point = chart.convertToPixel(
+      {
+        xAxisIndex: 0,
+        yAxisIndex: 0
+      },
+      [data[dataIndex]?.[0], data[dataIndex]?.[2]]
+    )
+    return point
+  })
+
+  await page.mouse.move(chartBox.x + activePoint[0], chartBox.y + activePoint[1])
+  await page.evaluate(() => window.__waitForSlimPaint?.())
+
+  const beforeHideTip = await readAxisPointerArtifacts(page)
+  expect(beforeHideTip.horizontalLineCount).toBeGreaterThan(0)
+  expect(beforeHideTip.labelCount).toBeGreaterThan(0)
+  expect(beforeHideTip.priceLabelBackgroundCount).toBeGreaterThan(0)
+
+  await hideCurrentChartTip(page)
+
+  const afterHideTip = await readAxisPointerArtifacts(page)
+  expect(afterHideTip.horizontalLineCount).toBe(0)
+  expect(afterHideTip.labelCount).toBe(0)
+  expect(afterHideTip.priceLabelBackgroundCount).toBe(0)
 })
 
 test('1m on -> zoom -> 1m off -> pan matches a forced full redraw in the same viewport', async ({

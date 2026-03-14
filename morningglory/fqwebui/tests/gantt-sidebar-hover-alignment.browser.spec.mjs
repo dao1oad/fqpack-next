@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
+import path from 'node:path'
 
-import { runLockedBuild } from './vite-build-lock.mjs'
+import { createIsolatedViteArtifactsContext, runLockedBuild } from './vite-build-lock.mjs'
 import {
   cleanupServerPort,
   startPreviewServer,
@@ -11,6 +12,7 @@ import {
 const DEV_SERVER_PORT = 18089
 const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
 const TARGET_URL = `${DEV_SERVER_URL}/gantt?p=xgb&days=90`
+const PREVIEW_ARTIFACTS = createIsolatedViteArtifactsContext(import.meta.url)
 
 let devServerProcess = null
 
@@ -54,28 +56,26 @@ function createGanttPayload({ dateCount = 12, plateCount = 100 } = {}) {
 async function runBuild() {
   await runLockedBuild(
     () => {
-      if (process.platform === 'win32') {
-        return {
-          command: 'cmd.exe',
-          args: ['/d', '/s', '/c', 'pnpm build']
-        }
-      }
-
       return {
-        command: 'pnpm',
-        args: ['build']
+        command: process.execPath,
+        args: [path.join(process.cwd(), 'node_modules', 'vite', 'bin', 'vite.js'), 'build']
       }
     },
-    process.cwd()
+    process.cwd(),
+    {
+      outDir: PREVIEW_ARTIFACTS.outDirRelative
+    }
   )
 }
 
 test.beforeAll(async () => {
+  test.setTimeout(90000)
   cleanupServerPort(DEV_SERVER_PORT)
   await runBuild()
   devServerProcess = startPreviewServer({
     port: DEV_SERVER_PORT,
-    cwd: process.cwd()
+    cwd: process.cwd(),
+    outDir: PREVIEW_ARTIFACTS.outDirRelative
   })
 
   await waitForServer(DEV_SERVER_URL)
@@ -89,8 +89,6 @@ test.afterAll(async () => {
 test('gantt sidebar rows fit the visible chart window when dense data would otherwise break hover alignment', async ({
   page
 }) => {
-  test.setTimeout(90000)
-
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     if (!url.pathname.startsWith('/api/')) {

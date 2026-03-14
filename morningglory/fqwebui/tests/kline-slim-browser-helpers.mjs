@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
+import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
+
+import { appendViteOutDirArgs } from './vite-build-lock.mjs'
 
 export async function waitForServer(url, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs
@@ -40,21 +43,16 @@ export function cleanupServerPort(port) {
   )
 }
 
-export function startPreviewServer({ port, cwd }) {
-  if (process.platform === 'win32') {
-    return spawn(
-      'cmd.exe',
-      ['/d', '/s', '/c', `pnpm preview --host 127.0.0.1 --port ${port} --strictPort`],
-      {
-        cwd,
-        stdio: ['ignore', 'pipe', 'pipe']
-      }
-    )
-  }
+export function startPreviewServer({ port, cwd, outDir }) {
+  const viteCliEntry = path.join(cwd, 'node_modules', 'vite', 'bin', 'vite.js')
+  const previewArgs = appendViteOutDirArgs(
+    [viteCliEntry, 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+    outDir
+  )
 
   return spawn(
-    'pnpm',
-    ['preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+    process.execPath,
+    previewArgs,
     {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe']
@@ -247,6 +245,132 @@ export async function installVmHelpers(page) {
       }
     }
 
+    const normalizeDisplayColor = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '')
+
+    const isAxisPointerHorizontalLine = (item) => {
+      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
+      const shape = item?.shape || {}
+      const stroke = normalizeDisplayColor(item?.style?.stroke)
+      if (!type.includes('line')) {
+        return false
+      }
+      if (
+        !Number.isFinite(shape.x1) ||
+        !Number.isFinite(shape.y1) ||
+        !Number.isFinite(shape.x2) ||
+        !Number.isFinite(shape.y2)
+      ) {
+        return false
+      }
+
+      const isHorizontal = Math.abs(shape.y1 - shape.y2) < 0.5
+      const span = Math.abs(shape.x2 - shape.x1)
+      return (
+        isHorizontal &&
+        span > 200 &&
+        (stroke === '#9ea0a5' || stroke === 'rgba(158,160,165,1)')
+      )
+    }
+
+    const isAxisPointerPriceLabel = (item) => {
+      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
+      const fill = normalizeDisplayColor(item?.style?.fill)
+      const text = String(item?.style?.text || item?.textContent || '').trim()
+      return (
+        (type.includes('text') || type.includes('tspan')) &&
+        /^\d+(?:\.\d+)?$/.test(text) &&
+        (fill === 'rgba(179,180,183,1)' || fill === '#b3b4b7')
+      )
+    }
+
+    const isAxisPointerPriceLabelBackground = (item) => {
+      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
+      const fill = normalizeDisplayColor(item?.style?.fill)
+      const shape = item?.shape || {}
+      return (
+        type.includes('rect') &&
+        (fill === '#536298' || fill === 'rgba(83,98,152,1)') &&
+        Number.isFinite(shape.width) &&
+        Number.isFinite(shape.height) &&
+        shape.width >= 20 &&
+        shape.width <= 64 &&
+        shape.height >= 18
+      )
+    }
+
+    const isAxisPointerDateLabel = (item) => {
+      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
+      const fill = normalizeDisplayColor(item?.style?.fill)
+      const text = String(item?.style?.text || item?.textContent || '').trim()
+      return (
+        (type.includes('text') || type.includes('tspan')) &&
+        /^\d{4}(?:-\d{2}(?:-\d{2})?)?$/.test(text) &&
+        (fill === 'rgba(179,180,183,1)' || fill === '#b3b4b7')
+      )
+    }
+
+    window.__readKlineSlimAxisPointerArtifacts = () => {
+      const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
+      const displayList = chart?.getZr?.()?.storage?.getDisplayList?.() || []
+      const horizontalLines = []
+      const priceLabels = []
+      const priceLabelBackgrounds = []
+      const dateLabels = []
+
+      displayList.forEach((item) => {
+        if (isAxisPointerHorizontalLine(item)) {
+          horizontalLines.push({
+            stroke: String(item?.style?.stroke || ''),
+            shape: {
+              x1: Number(item?.shape?.x1),
+              y1: Number(item?.shape?.y1),
+              x2: Number(item?.shape?.x2),
+              y2: Number(item?.shape?.y2)
+            }
+          })
+          return
+        }
+
+        if (isAxisPointerPriceLabel(item)) {
+          priceLabels.push({
+            fill: String(item?.style?.fill || ''),
+            text: String(item?.style?.text || item?.textContent || '')
+          })
+          return
+        }
+
+        if (isAxisPointerPriceLabelBackground(item)) {
+          priceLabelBackgrounds.push({
+            fill: String(item?.style?.fill || ''),
+            shape: {
+              x: Number(item?.shape?.x),
+              y: Number(item?.shape?.y),
+              width: Number(item?.shape?.width),
+              height: Number(item?.shape?.height)
+            }
+          })
+          return
+        }
+
+        if (isAxisPointerDateLabel(item)) {
+          dateLabels.push({
+            fill: String(item?.style?.fill || ''),
+            text: String(item?.style?.text || item?.textContent || '')
+          })
+        }
+      })
+
+      return {
+        horizontalLineCount: horizontalLines.length,
+        labelCount: priceLabels.length,
+        priceLabelBackgroundCount: priceLabelBackgrounds.length,
+        dateLabelCount: dateLabels.length,
+        horizontalLines,
+        priceLabels,
+        priceLabelBackgrounds,
+        dateLabels
+      }
+    }
     window.__readKlineSlimRenderSurface = () => {
       const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
       const displayList = chart?.getZr?.()?.storage?.getDisplayList?.() || []
@@ -308,6 +432,14 @@ export async function readChartState(page) {
     throw new Error('kline slim chart state is not ready')
   }
   return state
+}
+
+export async function readAxisPointerArtifacts(page) {
+  const artifacts = await page.evaluate(() => window.__readKlineSlimAxisPointerArtifacts?.())
+  if (!artifacts) {
+    throw new Error('kline slim axis pointer artifacts are not ready')
+  }
+  return artifacts
 }
 
 export async function readRenderSurface(page) {
@@ -515,6 +647,45 @@ export async function zoomAndPan(page) {
     afterZoom,
     afterPan
   }
+}
+
+export async function reproduceAxisPointerGhost(
+  page,
+  {
+    xRatio = 0.58,
+    yRatios = [0.22, 0.31, 0.4, 0.49, 0.58],
+    wheelDeltaY = -1200,
+    moveOutside = true
+  } = {}
+) {
+  const chart = page.locator('.kline-slim-chart')
+  const chartBox = await chart.boundingBox()
+  if (!chartBox) {
+    throw new Error('chart host not visible')
+  }
+
+  for (const yRatio of yRatios) {
+    await page.mouse.move(chartBox.x + chartBox.width * xRatio, chartBox.y + chartBox.height * yRatio)
+    await page.mouse.wheel(0, wheelDeltaY)
+    await page.waitForTimeout(60)
+  }
+
+  if (moveOutside) {
+    await page.mouse.move(chartBox.x + chartBox.width + 48, chartBox.y + chartBox.height + 48)
+  }
+
+  await page.evaluate(() => window.__waitForSlimPaint?.())
+}
+
+export async function hideCurrentChartTip(page) {
+  await page.evaluate(() => {
+    const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
+    chart.dispatchAction({
+      type: 'hideTip'
+    })
+  })
+
+  await page.evaluate(() => window.__waitForSlimPaint?.())
 }
 
 export async function captureChartHash(page) {

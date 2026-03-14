@@ -4,11 +4,11 @@
     <div class="shouban30-page-body">
       <div class="shouban30-toolbar">
         <div class="toolbar-title">
-          <div class="page-title">30天首板</div>
+          <div class="page-title">首板筛选</div>
           <div class="page-meta">
-            <span>as_of_date {{ resolvedAsOfDate || '-' }}</span>
+            <span>end_date {{ resolvedEndDate || '-' }}</span>
             <span>/</span>
-            <span>标的窗口 {{ stockWindowDays }} 日</span>
+            <span>自然日窗口 {{ stockWindowDays }} 日</span>
             <span v-if="windowRangeLabel">/ {{ windowRangeLabel }}</span>
           </div>
         </div>
@@ -116,7 +116,20 @@
               @row-click="handlePlateRowClick"
             >
               <el-table-column prop="plate_name" label="板块" min-width="120" show-overflow-tooltip />
-              <el-table-column prop="appear_days_30" label="30天" width="70" />
+              <el-table-column label="操作" width="144">
+                <template #default="{ row }">
+                  <el-button
+                    size="small"
+                    type="primary"
+                    link
+                    :loading="isWorkspaceActionRunning(`workspace:save-plate:${toText(row?.plate_key)}`)"
+                    @click.stop="handleSavePlateToPrePool(row)"
+                  >
+                    保存到 pre_pools
+                  </el-button>
+                </template>
+              </el-table-column>
+              <el-table-column prop="appear_days_30" :label="windowDaysLabel" width="70" />
               <el-table-column prop="last_up_date" label="最后上板" width="110">
                 <template #default="{ row }">
                   <span class="mono">{{ row.last_up_date || row.seg_to || '-' }}</span>
@@ -134,19 +147,6 @@
                 </template>
               </el-table-column>
               <el-table-column :label="plateCountLabel" prop="stocks_count" width="92" />
-              <el-table-column label="操作" width="144" fixed="right">
-                <template #default="{ row }">
-                  <el-button
-                    size="small"
-                    type="primary"
-                    link
-                    :loading="isWorkspaceActionRunning(`workspace:save-plate:${toText(row?.plate_key)}`)"
-                    @click.stop="handleSavePlateToPrePool(row)"
-                  >
-                    保存到 pre_pools
-                  </el-button>
-                </template>
-              </el-table-column>
             </el-table>
           </div>
         </section>
@@ -296,9 +296,9 @@
             <span class="muted">{{ prePoolItems.length }} / {{ stockPoolItems.length }}</span>
           </div>
           <div class="panel-summary">
-            <span>pre_pool {{ prePoolItems.length }}</span>
+            <span>pre_pools {{ prePoolItems.length }}</span>
             <span>/</span>
-            <span>stockpools {{ stockPoolItems.length }}</span>
+            <span>stock_pools {{ stockPoolItems.length }}</span>
             <template v-if="workspaceBlkFilename">
               <span>/</span>
               <span>blk {{ workspaceBlkFilename }}</span>
@@ -339,6 +339,16 @@
                     {{ tab.sync_action_label }}
                   </el-button>
                   <el-button
+                    v-if="tab.key === 'pre_pool'"
+                    size="small"
+                    type="danger"
+                    plain
+                    :loading="isWorkspaceActionRunning('workspace:pre:clear')"
+                    @click="handleClearPrePool"
+                  >
+                    {{ tab.clear_action_label }}
+                  </el-button>
+                  <el-button
                     v-if="tab.key === 'stockpools'"
                     size="small"
                     type="primary"
@@ -347,6 +357,16 @@
                     @click="handleSyncStockPoolToTdx"
                   >
                     {{ tab.sync_action_label }}
+                  </el-button>
+                  <el-button
+                    v-if="tab.key === 'stockpools'"
+                    size="small"
+                    type="danger"
+                    plain
+                    :loading="isWorkspaceActionRunning('workspace:stock:clear')"
+                    @click="handleClearStockPool"
+                  >
+                    {{ tab.clear_action_label }}
                   </el-button>
                 </div>
                 <div class="panel-table">
@@ -438,6 +458,8 @@ import {
   SHOUBAN30_STOCK_WINDOW_OPTIONS,
   addShouban30PrePoolToStockPool,
   addShouban30StockPoolToMustPool,
+  clearShouban30PrePool,
+  clearShouban30StockPool,
   deleteShouban30PrePoolItem,
   deleteShouban30StockPoolItem,
   getShouban30PrePool,
@@ -582,9 +604,23 @@ const formatChanlunMetric = (value) => {
 
 const activeViewProvider = computed(() => normalizeViewProvider(route.query.p))
 const stockWindowDays = computed(() => {
-  return normalizeShouban30StockWindowDays(route.query.stock_window_days)
+  return normalizeShouban30StockWindowDays(route.query.days || route.query.stock_window_days)
 })
-const requestedAsOfDate = computed(() => toText(route.query.as_of_date))
+const requestedEndDate = computed(() => {
+  return toText(route.query.end_date || route.query.as_of_date)
+})
+
+const padDateNumber = (value) => String(value).padStart(2, '0')
+
+const calcCalendarWindowStart = (endDate, days) => {
+  const targetEndDate = toText(endDate)
+  if (!targetEndDate) return ''
+  const match = targetEndDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return ''
+  const next = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+  next.setUTCDate(next.getUTCDate() - normalizeShouban30StockWindowDays(days) + 1)
+  return `${next.getUTCFullYear()}-${padDateNumber(next.getUTCMonth() + 1)}-${padDateNumber(next.getUTCDate())}`
+}
 
 const updateQuery = (patch = {}) => {
   const nextQuery = {
@@ -726,23 +762,23 @@ const selectedStock = computed(() => {
   return currentStocks.value.find((item) => item.code6 === selectedStockCode6.value) || null
 })
 
-const resolvedAsOfDate = computed(() => {
+const resolvedEndDate = computed(() => {
   if (activeViewProvider.value === 'agg') {
     return SOURCE_PROVIDERS
-      .map((provider) => toText(sourceMetaByProvider.value?.[provider]?.as_of_date))
+      .map((provider) => toText(sourceMetaByProvider.value?.[provider]?.end_date || sourceMetaByProvider.value?.[provider]?.as_of_date))
       .filter(Boolean)
       .sort()
       .at(-1) || ''
   }
-  return toText(sourceMetaByProvider.value?.[activeViewProvider.value]?.as_of_date)
+  return toText(
+    sourceMetaByProvider.value?.[activeViewProvider.value]?.end_date
+      || sourceMetaByProvider.value?.[activeViewProvider.value]?.as_of_date,
+  )
 })
 
 const windowRangeLabel = computed(() => {
-  const samplePlate = currentPlates.value[0]
-    || xgbPlates.value[0]
-    || jygsPlates.value[0]
-  const start = toText(samplePlate?.stock_window_from)
-  const end = toText(samplePlate?.stock_window_to || resolvedAsOfDate.value)
+  const end = resolvedEndDate.value || requestedEndDate.value
+  const start = calcCalendarWindowStart(end, stockWindowDays.value)
   if (!start || !end) return ''
   return `${start} ~ ${end}`
 })
@@ -760,7 +796,7 @@ const currentFilterReplacePayload = computed(() => {
     plates: currentPlates.value,
     stockRowsByPlate: currentViewStockRowsByPlate.value,
     stockWindowDays: stockWindowDays.value,
-    asOfDate: resolvedAsOfDate.value || requestedAsOfDate.value,
+    asOfDate: resolvedEndDate.value || requestedEndDate.value,
     selectedExtraFilterKeys: selectedExtraFilterKeys.value,
   })
 })
@@ -781,6 +817,7 @@ const workspaceBlkSyncLabel = computed(() => {
   return `最近 blk 同步 ${sync.count ?? 0} 条 -> ${fileName}`
 })
 
+const windowDaysLabel = computed(() => `${stockWindowDays.value}天`)
 const plateCountLabel = computed(() => '通过数')
 const stockHitCountLabel = computed(() => `${stockWindowDays.value}次`)
 const platesEmptyText = computed(() => {
@@ -884,7 +921,7 @@ const buildSinglePlateReplacePayload = (plate) => {
     plate,
     stockRowsByPlate: currentViewStockRowsByPlate.value,
     stockWindowDays: stockWindowDays.value,
-    asOfDate: resolvedAsOfDate.value || requestedAsOfDate.value,
+    asOfDate: resolvedEndDate.value || requestedEndDate.value,
     selectedExtraFilterKeys: selectedExtraFilterKeys.value,
   })
 }
@@ -922,7 +959,7 @@ const handleAddPrePoolToStockPools = async (row) => {
   await runWorkspaceAction({
     actionKey: `workspace:pre:add:${toText(row?.code6)}`,
     action: () => addShouban30PrePoolToStockPool({ code6: row?.code6 }),
-    successMessage: `${toText(row?.code6)} 已加入 stockpools`,
+    successMessage: `${toText(row?.code6)} 已加入 stock_pools`,
   })
 }
 
@@ -930,7 +967,7 @@ const handleDeletePrePoolRow = async (row) => {
   await runWorkspaceAction({
     actionKey: `workspace:pre:delete:${toText(row?.code6)}`,
     action: () => deleteShouban30PrePoolItem({ code6: row?.code6 }),
-    successMessage: `${toText(row?.code6)} 已从 pre_pool 删除`,
+    successMessage: `${toText(row?.code6)} 已从 pre_pools 删除`,
   })
 }
 
@@ -938,8 +975,16 @@ const handleSyncPrePoolToTdx = async () => {
   await runWorkspaceAction({
     actionKey: 'workspace:pre:sync-tdx',
     action: () => syncShouban30PrePoolToTdx(),
-    successMessage: `已将 pre_pool ${prePoolItems.value.length} 条同步到通达信`,
+    successMessage: `已将 pre_pools ${prePoolItems.value.length} 条同步到通达信`,
     refreshWorkspace: false,
+  })
+}
+
+const handleClearPrePool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:pre:clear',
+    action: () => clearShouban30PrePool(),
+    successMessage: '已清空 pre_pools',
   })
 }
 
@@ -956,8 +1001,16 @@ const handleSyncStockPoolToTdx = async () => {
   await runWorkspaceAction({
     actionKey: 'workspace:stock:sync-tdx',
     action: () => syncShouban30StockPoolToTdx(),
-    successMessage: `已将 stockpools ${stockPoolItems.value.length} 条同步到通达信`,
+    successMessage: `已将 stock_pools ${stockPoolItems.value.length} 条同步到通达信`,
     refreshWorkspace: false,
+  })
+}
+
+const handleClearStockPool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:stock:clear',
+    action: () => clearShouban30StockPool(),
+    successMessage: '已清空 stock_pools',
   })
 }
 
@@ -965,7 +1018,7 @@ const handleDeleteStockPoolRow = async (row) => {
   await runWorkspaceAction({
     actionKey: `workspace:stock:delete:${toText(row?.code6)}`,
     action: () => deleteShouban30StockPoolItem({ code6: row?.code6 }),
-    successMessage: `${toText(row?.code6)} 已从 stockpools 删除`,
+    successMessage: `${toText(row?.code6)} 已从 stock_pools 删除`,
   })
 }
 
@@ -1007,8 +1060,8 @@ const loadStockReasons = async (code6) => {
 const fetchProviderPlates = async (provider) => {
   const response = await getShouban30Plates({
     provider,
-    stockWindowDays: stockWindowDays.value,
-    asOfDate: requestedAsOfDate.value || undefined,
+    days: stockWindowDays.value,
+    endDate: requestedEndDate.value || undefined,
   })
   const payload = unwrapApiData(response)
   return {
@@ -1025,8 +1078,8 @@ const fetchProviderStocksByPlate = async (provider, plates, asOfDate) => {
       const response = await getShouban30Stocks({
         provider,
         plateKey,
-        stockWindowDays: stockWindowDays.value,
-        asOfDate: asOfDate || requestedAsOfDate.value || undefined,
+        days: stockWindowDays.value,
+        endDate: asOfDate || requestedEndDate.value || undefined,
       })
       const payload = unwrapApiData(response)
       return [plateKey, normalizeList(payload.items)]
@@ -1075,7 +1128,7 @@ const loadViewData = async () => {
         return fetchProviderStocksByPlate(
           provider,
           nextPlates[provider],
-          toText(nextMeta[provider]?.as_of_date),
+          toText(nextMeta[provider]?.end_date || nextMeta[provider]?.as_of_date),
         )
       },
       emptyValueFactory: () => ({}),
@@ -1115,16 +1168,20 @@ const loadViewData = async () => {
 const handleProviderChange = (value) => {
   updateQuery({
     p: normalizeViewProvider(value),
-    stock_window_days: String(stockWindowDays.value),
-    as_of_date: requestedAsOfDate.value || undefined,
+    days: String(stockWindowDays.value),
+    end_date: requestedEndDate.value || undefined,
+    stock_window_days: undefined,
+    as_of_date: undefined,
   })
 }
 
 const handleStockWindowChange = (value) => {
   updateQuery({
     p: activeViewProvider.value,
-    stock_window_days: String(normalizeShouban30StockWindowDays(value)),
-    as_of_date: requestedAsOfDate.value || undefined,
+    days: String(normalizeShouban30StockWindowDays(value)),
+    end_date: requestedEndDate.value || undefined,
+    stock_window_days: undefined,
+    as_of_date: undefined,
   })
 }
 
@@ -1149,7 +1206,7 @@ const stockRowClassName = ({ row }) => {
 }
 
 watch(
-  () => [activeViewProvider.value, stockWindowDays.value, requestedAsOfDate.value],
+  () => [activeViewProvider.value, stockWindowDays.value, requestedEndDate.value],
   () => {
     loadViewData()
   },
@@ -1361,7 +1418,9 @@ onMounted(() => {
 
 .workspace-tab-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 8px;
 }
 

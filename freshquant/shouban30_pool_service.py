@@ -121,6 +121,12 @@ def _write_blk(docs):
 
 def _build_pre_pool_doc(item, context):
     now = datetime.now()
+    resolved_days = context.get("days")
+    if resolved_days is None:
+        resolved_days = context.get("stock_window_days")
+    resolved_end_date = str(
+        context.get("end_date") or context.get("as_of_date") or ""
+    ).strip()
     return {
         "code": item["code"],
         "name": item["name"],
@@ -132,8 +138,10 @@ def _build_pre_pool_doc(item, context):
             "shouban30_plate_key": item["plate_key"],
             "shouban30_plate_name": item["plate_name"],
             "shouban30_replace_scope": str(context.get("replace_scope") or "").strip(),
-            "shouban30_stock_window_days": context.get("stock_window_days"),
-            "shouban30_as_of_date": str(context.get("as_of_date") or "").strip(),
+            "shouban30_days": resolved_days,
+            "shouban30_end_date": resolved_end_date,
+            "shouban30_stock_window_days": resolved_days,
+            "shouban30_as_of_date": resolved_end_date,
             "shouban30_selected_filters": list(
                 context.get("selected_extra_filters") or []
             ),
@@ -160,6 +168,16 @@ def replace_pre_pool(items, context=None):
     }
 
 
+def _clear_pool(collection_name, category, syncer):
+    delete_result = DBfreshquant[collection_name].delete_many({"category": category})
+    blk_sync = syncer()
+    return {
+        "deleted_count": delete_result.deleted_count,
+        "category": category,
+        "blk_sync": blk_sync,
+    }
+
+
 def list_pre_pool():
     return [_serialize_pool_doc(doc) for doc in _sorted_pre_pool_docs()]
 
@@ -170,6 +188,22 @@ def sync_pre_pool_to_blk():
 
 def sync_stock_pool_to_blk():
     return _write_blk(_sorted_stock_pool_docs())
+
+
+def clear_pre_pool():
+    return _clear_pool(
+        "stock_pre_pools",
+        SHOUBAN30_PRE_POOL_CATEGORY,
+        sync_pre_pool_to_blk,
+    )
+
+
+def clear_stock_pool():
+    return _clear_pool(
+        "stock_pools",
+        SHOUBAN30_STOCK_POOL_CATEGORY,
+        sync_stock_pool_to_blk,
+    )
 
 
 def add_pre_pool_item_to_stock_pool(code6):

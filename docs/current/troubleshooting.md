@@ -205,12 +205,12 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 先检查：
 - `gantt_plate_daily`、`gantt_stock_daily`、`shouban30_plates`、`shouban30_stocks`
 - `/api/gantt/plates?provider=xgb`
-- `/api/gantt/shouban30/plates?provider=xgb`
+- `/api/gantt/shouban30/plates?provider=xgb&days=30`
 
 常见根因：
 - Dagster 任务未跑。
-- `as_of_date` 对应快照还没生成。
-- `stock_window_days` 不在 `30|45|60|90`。
+- `end_date` 对应快照还没生成。
+- `days` 不在 `30|45|60|90`。
 - 交易日日历源瞬时失败；当前实现会在移除代理环境变量后自动重试 3 次，但连续失败时仍拿不到最新完成交易日。
 - `jygs` 最近历史存在缺口，最近 `90` 个交易日 hole scan 还没补齐。
 - 上游 `jygs` 某个交易日确实没有热点；此时原始集合会保留 `is_empty_result=true` marker，但 gantt `series` 不会有点位。

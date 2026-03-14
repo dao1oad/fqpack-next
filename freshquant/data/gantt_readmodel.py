@@ -222,18 +222,17 @@ def _resolve_recent_trade_dates(
     target_end_date = _to_str(end_date)
     if not target_end_date:
         return []
+    target_days = max(_to_int(days, 1), 1)
+    start_date = _calc_start_date(target_end_date, target_days)
     all_dates = sorted(
         {
             _to_str(item.get(field_name))
             for item in rows
             if _to_str(item.get(field_name))
-            and _to_str(item.get(field_name)) <= target_end_date
+            and start_date <= _to_str(item.get(field_name)) <= target_end_date
         }
     )
-    if not all_dates:
-        return []
-    target_days = max(_to_int(days, 1), 1)
-    return all_dates[-target_days:]
+    return all_dates
 
 
 def _query_trade_dates_between(start_date: str, end_date: str) -> list[str]:
@@ -488,11 +487,16 @@ def query_gantt_stock_matrix(
 def query_shouban30_plate_rows(
     *,
     provider: str,
+    days: int | None = None,
+    end_date: str | None = None,
     as_of_date: str | None = None,
     stock_window_days: int = 30,
 ) -> list[dict[str, Any]]:
     provider_key = _to_str(provider)
-    target_window = _resolve_shouban30_stock_window_days(stock_window_days)
+    target_window = _resolve_shouban30_stock_window_days(
+        days if days is not None else stock_window_days
+    )
+    target_end_date = _to_str(end_date) or as_of_date
     rows = _find_rows(
         COL_SHOUBAN30_PLATES,
         {"provider": provider_key, "stock_window_days": target_window},
@@ -501,7 +505,7 @@ def query_shouban30_plate_rows(
         select_shouban30_plate_rows(
             rows,
             provider=provider_key,
-            as_of_date=as_of_date,
+            as_of_date=target_end_date,
             stock_window_days=target_window,
         )
     )
@@ -511,12 +515,17 @@ def query_shouban30_stock_rows(
     *,
     provider: str,
     plate_key: str,
+    days: int | None = None,
+    end_date: str | None = None,
     as_of_date: str | None = None,
     stock_window_days: int = 30,
 ) -> list[dict[str, Any]]:
     provider_key = _to_str(provider)
     target_plate_key = _to_str(plate_key)
-    target_window = _resolve_shouban30_stock_window_days(stock_window_days)
+    target_window = _resolve_shouban30_stock_window_days(
+        days if days is not None else stock_window_days
+    )
+    target_end_date = _to_str(end_date) or as_of_date
     rows = _find_rows(
         COL_SHOUBAN30_STOCKS,
         {
@@ -530,7 +539,7 @@ def query_shouban30_stock_rows(
             rows,
             provider=provider_key,
             plate_key=target_plate_key,
-            as_of_date=as_of_date,
+            as_of_date=target_end_date,
             stock_window_days=target_window,
         )
     )
@@ -1284,7 +1293,7 @@ def persist_shouban30_for_date(
     )
     plate_trade_dates = _resolve_recent_trade_dates(
         all_plate_rows,
-        days=30,
+        days=target_window,
         end_date=date_str,
         field_name="trade_date",
     )
@@ -1716,6 +1725,16 @@ def select_shouban30_plate_rows(
     target_date = _to_str(as_of_date)
     if not target_date:
         target_date = max(_to_str(item.get("as_of_date")) for item in filtered)
+    else:
+        eligible = [
+            item
+            for item in filtered
+            if _to_str(item.get("as_of_date"))
+            and _to_str(item.get("as_of_date")) <= target_date
+        ]
+        if not eligible:
+            return []
+        target_date = max(_to_str(item.get("as_of_date")) for item in eligible)
 
     return [item for item in filtered if _to_str(item.get("as_of_date")) == target_date]
 
@@ -1756,5 +1775,15 @@ def select_shouban30_stock_rows(
     target_date = _to_str(as_of_date)
     if not target_date:
         target_date = max(_to_str(item.get("as_of_date")) for item in filtered)
+    else:
+        eligible = [
+            item
+            for item in filtered
+            if _to_str(item.get("as_of_date"))
+            and _to_str(item.get("as_of_date")) <= target_date
+        ]
+        if not eligible:
+            return []
+        target_date = max(_to_str(item.get("as_of_date")) for item in eligible)
 
     return [item for item in filtered if _to_str(item.get("as_of_date")) == target_date]

@@ -44,15 +44,19 @@ def _resolve_as_of_date_arg() -> str | None:
     return _required_arg("as_of_date") or _required_arg("asOfDate")
 
 
-def _resolve_stock_window_days_arg() -> int:
-    raw = _required_arg("stock_window_days") or "30"
+def _resolve_shouban30_days_arg() -> int:
+    raw = _required_arg("days") or _required_arg("stock_window_days") or "30"
     try:
         value = int(raw)
     except (TypeError, ValueError) as exc:
-        raise ValueError("stock_window_days must be one of 30|45|60|90") from exc
+        raise ValueError("days must be one of 30|45|60|90") from exc
     if value not in SHOUBAN30_STOCK_WINDOWS:
-        raise ValueError("stock_window_days must be one of 30|45|60|90")
+        raise ValueError("days must be one of 30|45|60|90")
     return value
+
+
+def _resolve_shouban30_end_date_arg() -> str | None:
+    return _resolve_end_date_arg() or _resolve_as_of_date_arg()
 
 
 def _validate_iso_date(value: str | None, field_name: str) -> str | None:
@@ -65,9 +69,7 @@ def _validate_iso_date(value: str | None, field_name: str) -> str | None:
     return value
 
 
-def _resolve_shouban30_as_of_date(
-    items: list[dict], requested: str | None
-) -> str | None:
+def _resolve_shouban30_end_date(items: list[dict], requested: str | None) -> str | None:
     if requested:
         return requested
     dates = [str(item.get("as_of_date") or "").strip() for item in items or []]
@@ -75,6 +77,18 @@ def _resolve_shouban30_as_of_date(
     if not dates:
         return None
     return max(dates)
+
+
+def _resolve_shouban30_snapshot_date(
+    items: list[dict], requested: str | None
+) -> str | None:
+    dates = [str(item.get("as_of_date") or "").strip() for item in items or []]
+    dates = [item for item in dates if item]
+    if dates:
+        return max(dates)
+    if requested:
+        return requested
+    return None
 
 
 def _resolve_shouban30_chanlun_filter_version(items: list[dict]) -> str | None:
@@ -99,14 +113,54 @@ def _required_json_str(payload: dict, name: str) -> str:
     return value
 
 
+def _payload_text(payload: dict, *names: str) -> str:
+    for name in names:
+        value = payload.get(name)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _build_shouban30_meta(
+    items: list[dict], *, days: int, end_date: str | None
+) -> dict[str, str | int | None]:
+    resolved_end_date = _resolve_shouban30_end_date(items, end_date)
+    resolved_snapshot_date = _resolve_shouban30_snapshot_date(items, resolved_end_date)
+    return {
+        "days": days,
+        "end_date": resolved_end_date,
+        "as_of_date": resolved_snapshot_date,
+        "stock_window_days": days,
+        "chanlun_filter_version": _resolve_shouban30_chanlun_filter_version(items),
+    }
+
+
 def _build_shouban30_replace_context(payload: dict) -> dict:
+    raw_days = _payload_text(payload, "days", "stock_window_days")
+    days = 30 if not raw_days else _resolve_shouban30_days_arg_from_value(raw_days)
+    end_date = _payload_text(payload, "end_date", "as_of_date")
     return {
         "replace_scope": str(payload.get("replace_scope") or "").strip(),
-        "stock_window_days": payload.get("stock_window_days"),
-        "as_of_date": str(payload.get("as_of_date") or "").strip(),
+        "days": days,
+        "end_date": end_date,
+        "stock_window_days": days,
+        "as_of_date": end_date,
         "selected_extra_filters": list(payload.get("selected_extra_filters") or []),
         "plate_key": str(payload.get("plate_key") or "").strip(),
     }
+
+
+def _resolve_shouban30_days_arg_from_value(raw: str) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("days must be one of 30|45|60|90") from exc
+    if value not in SHOUBAN30_STOCK_WINDOWS:
+        raise ValueError("days must be one of 30|45|60|90")
+    return value
 
 
 @gantt_bp.route("/plates")
@@ -183,12 +237,12 @@ def get_shouban30_plates():
         return _bad_request("provider required")
 
     try:
-        as_of_date = _validate_iso_date(_resolve_as_of_date_arg(), "as_of_date")
-        stock_window_days = _resolve_stock_window_days_arg()
+        end_date = _validate_iso_date(_resolve_shouban30_end_date_arg(), "end_date")
+        days = _resolve_shouban30_days_arg()
         items = svc.query_shouban30_plate_rows(
             provider=provider,
-            as_of_date=as_of_date,
-            stock_window_days=stock_window_days,
+            end_date=end_date,
+            days=days,
         )
     except ValueError as exc:
         if str(exc) == "shouban30 chanlun snapshot not ready":
@@ -198,13 +252,7 @@ def get_shouban30_plates():
         {
             "data": {
                 "items": items,
-                "meta": {
-                    "as_of_date": _resolve_shouban30_as_of_date(items, as_of_date),
-                    "stock_window_days": stock_window_days,
-                    "chanlun_filter_version": _resolve_shouban30_chanlun_filter_version(
-                        items
-                    ),
-                },
+                "meta": _build_shouban30_meta(items, days=days, end_date=end_date),
             }
         }
     )
@@ -221,13 +269,13 @@ def get_shouban30_stocks():
         return _bad_request("plate_key required")
 
     try:
-        as_of_date = _validate_iso_date(_resolve_as_of_date_arg(), "as_of_date")
-        stock_window_days = _resolve_stock_window_days_arg()
+        end_date = _validate_iso_date(_resolve_shouban30_end_date_arg(), "end_date")
+        days = _resolve_shouban30_days_arg()
         items = svc.query_shouban30_stock_rows(
             provider=provider,
             plate_key=plate_key,
-            as_of_date=as_of_date,
-            stock_window_days=stock_window_days,
+            end_date=end_date,
+            days=days,
         )
     except ValueError as exc:
         if str(exc) == "shouban30 chanlun snapshot not ready":
@@ -237,13 +285,7 @@ def get_shouban30_stocks():
         {
             "data": {
                 "items": items,
-                "meta": {
-                    "as_of_date": _resolve_shouban30_as_of_date(items, as_of_date),
-                    "stock_window_days": stock_window_days,
-                    "chanlun_filter_version": _resolve_shouban30_chanlun_filter_version(
-                        items
-                    ),
-                },
+                "meta": _build_shouban30_meta(items, days=days, end_date=end_date),
             }
         }
     )
@@ -310,6 +352,23 @@ def sync_shouban30_pre_pool_to_tdx():
     return jsonify({"data": {"blk_sync": blk_sync}})
 
 
+@gantt_bp.route("/shouban30/pre-pool/clear", methods=["POST"])
+def clear_shouban30_pre_pool():
+    try:
+        result = shouban30_pool_service.clear_pre_pool()
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "deleted_count": result.get("deleted_count", 0),
+                "category": result.get("category"),
+            },
+            "meta": {"blk_sync": result.get("blk_sync")},
+        }
+    )
+
+
 @gantt_bp.route("/shouban30/pre-pool/delete", methods=["POST"])
 def delete_shouban30_pre_pool_item():
     try:
@@ -353,6 +412,23 @@ def sync_shouban30_stock_pool_to_tdx():
     except RuntimeError as exc:
         return _server_error(str(exc))
     return jsonify({"data": {"blk_sync": blk_sync}})
+
+
+@gantt_bp.route("/shouban30/stock-pool/clear", methods=["POST"])
+def clear_shouban30_stock_pool():
+    try:
+        result = shouban30_pool_service.clear_stock_pool()
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "deleted_count": result.get("deleted_count", 0),
+                "category": result.get("category"),
+            },
+            "meta": {"blk_sync": result.get("blk_sync")},
+        }
+    )
 
 
 @gantt_bp.route("/shouban30/stock-pool/delete", methods=["POST"])

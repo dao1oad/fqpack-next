@@ -225,8 +225,8 @@ def test_replace_pre_pool_persists_workspace_order_in_extra(monkeypatch, tmp_pat
         ],
         {
             "replace_scope": "single_plate",
-            "stock_window_days": 60,
-            "as_of_date": "2026-03-06",
+            "days": 60,
+            "end_date": "2026-03-06",
             "selected_extra_filters": [],
             "plate_key": "11",
         },
@@ -235,7 +235,10 @@ def test_replace_pre_pool_persists_workspace_order_in_extra(monkeypatch, tmp_pat
     saved_docs = list(fake_db["stock_pre_pools"].find({"category": "三十涨停Pro预选"}))
     assert [doc["extra"]["shouban30_order"] for doc in saved_docs] == [0, 1]
     assert saved_docs[0]["extra"]["shouban30_replace_scope"] == "single_plate"
+    assert saved_docs[0]["extra"]["shouban30_days"] == 60
+    assert saved_docs[0]["extra"]["shouban30_end_date"] == "2026-03-06"
     assert saved_docs[0]["extra"]["shouban30_stock_window_days"] == 60
+    assert saved_docs[0]["extra"]["shouban30_as_of_date"] == "2026-03-06"
 
 
 def test_sync_pre_pool_to_blk_keeps_workspace_order(monkeypatch, tmp_path):
@@ -336,6 +339,87 @@ def test_sync_stock_pool_to_blk_keeps_current_workspace_order(monkeypatch, tmp_p
     assert result["count"] == 2
     assert result["file_path"] == str(target)
     assert target.read_text(encoding="gbk").splitlines() == ["1600001", "0000333"]
+
+
+def test_clear_pre_pool_removes_only_shouban30_workspace_category_and_syncs_blk(
+    monkeypatch, tmp_path
+):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "first",
+                    "category": "三十涨停Pro预选",
+                    "extra": {"shouban30_order": 0},
+                },
+                {
+                    "code": "000333",
+                    "name": "second",
+                    "category": "三十涨停Pro预选",
+                    "extra": {"shouban30_order": 1},
+                },
+                {"code": "300001", "name": "legacy", "category": "其他策略"},
+            ]
+        ),
+        stock_pools=FakeCollection(),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+    monkeypatch.setenv("TDX_HOME", str(tmp_path))
+
+    result = service.clear_pre_pool()
+
+    target = Path(tmp_path) / "T0002" / "blocknew" / "30RYZT.blk"
+    assert result["deleted_count"] == 2
+    assert result["category"] == "三十涨停Pro预选"
+    assert result["blk_sync"] == {
+        "success": True,
+        "file_path": str(target),
+        "count": 0,
+    }
+    assert list(fake_db["stock_pre_pools"].find({"category": "三十涨停Pro预选"})) == []
+    assert fake_db["stock_pre_pools"].find_one({"category": "其他策略"}) == {
+        "code": "300001",
+        "name": "legacy",
+        "category": "其他策略",
+    }
+    assert target.read_text(encoding="gbk").splitlines() == []
+
+
+def test_clear_stock_pool_succeeds_for_empty_workspace_and_syncs_blk(
+    monkeypatch, tmp_path
+):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(),
+        stock_pools=FakeCollection(
+            [
+                {"code": "600001", "name": "legacy", "category": "其他策略"},
+            ]
+        ),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+    monkeypatch.setenv("TDX_HOME", str(tmp_path))
+
+    result = service.clear_stock_pool()
+
+    target = Path(tmp_path) / "T0002" / "blocknew" / "30RYZT.blk"
+    assert result["deleted_count"] == 0
+    assert result["category"] == "三十涨停Pro自选"
+    assert result["blk_sync"] == {
+        "success": True,
+        "file_path": str(target),
+        "count": 0,
+    }
+    assert fake_db["stock_pools"].find_one({"category": "其他策略"}) == {
+        "code": "600001",
+        "name": "legacy",
+        "category": "其他策略",
+    }
+    assert target.read_text(encoding="gbk").splitlines() == []
 
 
 def test_add_pre_pool_item_to_stock_pool_writes_shouban30_stock_category(monkeypatch):

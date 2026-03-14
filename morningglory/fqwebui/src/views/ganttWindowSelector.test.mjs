@@ -32,11 +32,16 @@ test('gantt history window switch reloads data after local button changes window
   assert.match(changeWindowDaysBlock, /loadData\(\)/)
 })
 
-test('shouban30 page keeps stock_window_days query wired into data fetches', () => {
+test('shouban30 page canonicalizes to days/end_date while keeping legacy link fallback', () => {
   const stockWindowDaysBlock = readBlock(
     shouban30PageSource,
     'const stockWindowDays = computed(() => {',
-    'const requestedAsOfDate = computed(() => toText(route.query.as_of_date))',
+    'const requestedEndDate = computed(() => {',
+  )
+  const requestedEndDateBlock = readBlock(
+    shouban30PageSource,
+    'const requestedEndDate = computed(() => {',
+    'const updateQuery = (patch = {}) => {',
   )
   const fetchProviderPlatesBlock = readBlock(
     shouban30PageSource,
@@ -51,14 +56,34 @@ test('shouban30 page keeps stock_window_days query wired into data fetches', () 
 
   assert.match(
     stockWindowDaysBlock,
+    /route\.query\.days/,
+  )
+  assert.match(
+    stockWindowDaysBlock,
     /route\.query\.stock_window_days/,
   )
   assert.match(
+    requestedEndDateBlock,
+    /route\.query\.end_date/,
+  )
+  assert.match(
+    requestedEndDateBlock,
+    /route\.query\.as_of_date/,
+  )
+  assert.match(
     fetchProviderPlatesBlock,
-    /stockWindowDays: stockWindowDays\.value/,
+    /days: stockWindowDays\.value/,
+  )
+  assert.match(
+    fetchProviderPlatesBlock,
+    /endDate: requestedEndDate\.value \|\| undefined/,
   )
   assert.match(
     fetchProviderStocksByPlateBlock,
-    /stockWindowDays: stockWindowDays\.value/,
+    /days: stockWindowDays\.value/,
+  )
+  assert.match(
+    fetchProviderStocksByPlateBlock,
+    /endDate: asOfDate \|\| requestedEndDate\.value \|\| undefined/,
   )
 })

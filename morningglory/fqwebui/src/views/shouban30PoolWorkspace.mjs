@@ -35,8 +35,8 @@ const buildReplacePayload = ({
   return {
     items: dedupedItems,
     replace_scope: replaceScope,
-    stock_window_days: Number(stockWindowDays) || 30,
-    as_of_date: toText(asOfDate),
+    days: Number(stockWindowDays) || 30,
+    end_date: toText(asOfDate),
     selected_extra_filters: normalizeList(selectedExtraFilterKeys).map((value) => toText(value)).filter(Boolean),
     plate_key: toText(plateKey),
   }
@@ -100,14 +100,16 @@ export const buildWorkspaceTabs = ({
   return [
     {
       key: 'pre_pool',
-      label: 'pre_pool',
+      label: 'pre_pools',
       sync_action_label: '同步到通达信',
-      rows: normalizeList(prePoolItems).map((item) => mapWorkspaceRow(item, '加入 stockpools')),
+      clear_action_label: '清空',
+      rows: normalizeList(prePoolItems).map((item) => mapWorkspaceRow(item, '加入 stock_pools')),
     },
     {
       key: 'stockpools',
-      label: 'stockpools',
+      label: 'stock_pools',
       sync_action_label: '同步到通达信',
+      clear_action_label: '清空',
       rows: normalizeList(stockPoolItems).map((item) => mapWorkspaceRow(item, '加入 must_pools')),
     },
   ]

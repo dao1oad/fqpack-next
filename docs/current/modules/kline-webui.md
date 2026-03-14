@@ -98,6 +98,7 @@ Kline 页面不维护自己的事实源，读取的主要是：
 - 检查 realtime cache 是否还在更新
 - 检查前端 period 切换后是否真的重新请求
 - 检查 `kline-slim-chart-controller.mjs` 是否收到了 legend / datazoom 事件
+- 当前 `KlineSlim` 会在 `datazoom`、`globalout` 和手动 `hideTip` 后主动清理 `axisPointer`，缩放或鼠标移出后不应残留白色横向准星/价格标签
 - 检查 scene 更新是否仍在走完整 option 替换；当前实现不应再依赖 `series replaceMerge` 回收结构框
 - 检查 renderer 生成的 series id 是否带当前结构路由作用域
 

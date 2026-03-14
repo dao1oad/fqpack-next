@@ -1,6 +1,7 @@
 import http from '@/http'
 
 export const SHOUBAN30_STOCK_WINDOW_OPTIONS = [30, 45, 60, 90]
+const toText = (value) => String(value || '').trim()
 
 export const normalizeShouban30Provider = (provider) => {
   return String(provider || '').trim() === 'jygs' ? 'jygs' : 'xgb'
@@ -14,42 +15,50 @@ export const normalizeShouban30StockWindowDays = (value, fallback = 30) => {
 
 const buildCommonParams = ({
   provider = 'xgb',
+  days,
   stockWindowDays = 30,
+  endDate,
   asOfDate
 } = {}) => {
+  const resolvedDays = normalizeShouban30StockWindowDays(days ?? stockWindowDays)
+  const resolvedEndDate = toText(endDate || asOfDate)
   const params = {
     provider: normalizeShouban30Provider(provider),
-    stock_window_days: normalizeShouban30StockWindowDays(stockWindowDays)
+    days: resolvedDays
   }
-  if (String(asOfDate || '').trim()) {
-    params.as_of_date = String(asOfDate).trim()
+  if (resolvedEndDate) {
+    params.end_date = resolvedEndDate
   }
   return params
 }
 
 export const getShouban30Plates = ({
   provider = 'xgb',
+  days,
   stockWindowDays = 30,
+  endDate,
   asOfDate
 } = {}) => {
   return http({
     url: '/api/gantt/shouban30/plates',
     method: 'get',
-    params: buildCommonParams({ provider, stockWindowDays, asOfDate })
+    params: buildCommonParams({ provider, days, stockWindowDays, endDate, asOfDate })
   })
 }
 
 export const getShouban30Stocks = ({
   provider = 'xgb',
   plateKey,
+  days,
   stockWindowDays = 30,
+  endDate,
   asOfDate
 } = {}) => {
   return http({
     url: '/api/gantt/shouban30/stocks',
     method: 'get',
     params: {
-      ...buildCommonParams({ provider, stockWindowDays, asOfDate }),
+      ...buildCommonParams({ provider, days, stockWindowDays, endDate, asOfDate }),
       plate_key: String(plateKey || '').trim()
     }
   })
@@ -97,6 +106,13 @@ export const syncShouban30PrePoolToTdx = () => {
   })
 }
 
+export const clearShouban30PrePool = () => {
+  return http({
+    url: '/api/gantt/shouban30/pre-pool/clear',
+    method: 'post'
+  })
+}
+
 export const getShouban30StockPool = () => {
   return http({
     url: '/api/gantt/shouban30/stock-pool',
@@ -127,6 +143,13 @@ export const deleteShouban30StockPoolItem = ({ code6 } = {}) => {
 export const syncShouban30StockPoolToTdx = () => {
   return http({
     url: '/api/gantt/shouban30/stock-pool/sync-to-tdx',
+    method: 'post'
+  })
+}
+
+export const clearShouban30StockPool = () => {
+  return http({
+    url: '/api/gantt/shouban30/stock-pool/clear',
     method: 'post'
   })
 }
