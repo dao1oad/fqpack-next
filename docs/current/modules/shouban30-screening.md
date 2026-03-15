@@ -44,6 +44,7 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 
 - `shouban30_plates` / `shouban30_stocks` 由 Gantt 盘后链路按 `30/45/60/90` 自然日窗口重建
 - Gantt recent hole backfill 修复 `jygs` 历史缺口后，会在同一次 Dagster 流水线里顺带重建 Shouban30 快照
+- 若最新交易日的 Shouban30 快照仍带旧交易日窗口语义，例如 `stock_window_from` 早于对应自然日窗口起点，Dagster 会把它当成 legacy snapshot 并对该交易日重建
 - `jygs` 某个交易日没有热点时，不再把 `trade_date` 漂移到别的日期；Shouban30 依赖的上游窗口会保留真实交易日边界
 
 页面当前支持：
@@ -121,6 +122,12 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 
 - 说明快照未准备好，先检查 `shouban30_plates` 与 `shouban30_stocks`
 - 再检查对应交易日的 Gantt backfill 是否已经完成；Shouban30 不会绕过 Gantt 读模型单独补数
+
+### 页面时间窗口切换后最早上板时间不变
+
+- 先核对返回 `meta.end_date` 与 `meta.as_of_date`，确认前端是否已经落到 `days/end_date`
+- 再查最新 `shouban30_plates` 的 `stock_window_from`；如果它早于同窗口自然日理论起点，说明仍是旧交易日窗口快照
+- 这种情况不需要手工先删旧数据，直接重跑 Dagster 或调用同一套 Shouban30 snapshot 重建逻辑即可覆盖
 
 ### 页面筛选按钮无效
 
