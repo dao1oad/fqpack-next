@@ -531,3 +531,12 @@ def test_broker_observe_only_submit_emits_bypass_event_without_calling_executor(
     assert collector.events[-1]["node"] == "execution_bypassed"
     assert collector.events[-1]["action"] == "buy"
     assert collector.events[-1]["payload"]["reason"] == "observe_only"
+
+
+def test_broker_observe_only_helper_is_defined_before_script_entrypoint():
+    broker_source = BROKER_PATH.read_text(encoding="utf-8")
+
+    helper_index = broker_source.index("def _is_observe_only_mode")
+    entrypoint_index = broker_source.index('if __name__ == "__main__":')
+
+    assert helper_index < entrypoint_index
