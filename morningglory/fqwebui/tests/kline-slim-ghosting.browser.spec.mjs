@@ -8,6 +8,7 @@ import {
   dragSliderPan,
   enableExtraPeriodLegends,
   forceFullRedraw,
+  readAxisPointerArtifacts,
   installVmHelpers,
   readChartState,
   readRenderSurface,
@@ -574,6 +575,110 @@ test('1m on -> zoom -> 1m off -> pan matches a forced full redraw in the same vi
   expect(afterSurface.displayListLength).toBe(beforeSurface.displayListLength)
   expect(diff.ratio).toBeLessThan(0.002)
   expect(pageErrors).toEqual([])
+})
+
+test('crosshair persists on mouse leave and updates in place when re-entering', async ({ page }) => {
+  await page.setViewportSize({ width: 1680, height: 960 })
+  await installVmHelpers(page)
+  await mockKlineSlimApis(page)
+  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+
+  await waitForChartReady(page)
+  await waitForSymbolRendered(page, 'sz002262')
+
+  const chart = page.locator('.kline-slim-chart')
+  const chartBox = await chart.boundingBox()
+  if (!chartBox) {
+    throw new Error('chart host not visible')
+  }
+
+  await page.mouse.move(chartBox.x + chartBox.width * 0.48, chartBox.y + chartBox.height * 0.34)
+  await page.waitForTimeout(120)
+
+  const insideArtifacts = await readAxisPointerArtifacts(page)
+  expect(insideArtifacts.verticalLineCount).toBe(1)
+  expect(insideArtifacts.horizontalLineCount).toBe(1)
+  expect(insideArtifacts.priceLabelCount).toBe(1)
+  expect(insideArtifacts.priceLabelBackgroundCount).toBe(1)
+  expect(insideArtifacts.dateLabelCount).toBe(1)
+  expect(insideArtifacts.dateLabelBackgroundCount).toBe(1)
+  expect(insideArtifacts.priceLabel?.text).toMatch(/^\d+(?:\.\d+)?$/)
+  expect(insideArtifacts.dateLabel?.text).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+
+  await page.mouse.move(chartBox.x + chartBox.width + 36, chartBox.y + chartBox.height + 36)
+  await page.waitForTimeout(120)
+
+  const outsideArtifacts = await readAxisPointerArtifacts(page)
+  expect(outsideArtifacts.itemCount).toBe(insideArtifacts.itemCount)
+  expect(outsideArtifacts.verticalLine?.shape?.x1).toBeCloseTo(insideArtifacts.verticalLine?.shape?.x1, 1)
+  expect(outsideArtifacts.horizontalLine?.shape?.y1).toBeCloseTo(
+    insideArtifacts.horizontalLine?.shape?.y1,
+    1
+  )
+  expect(outsideArtifacts.priceLabel?.text).toBe(insideArtifacts.priceLabel?.text)
+  expect(outsideArtifacts.dateLabel?.text).toBe(insideArtifacts.dateLabel?.text)
+
+  await page.mouse.move(chartBox.x + chartBox.width * 0.72, chartBox.y + chartBox.height * 0.61)
+  await page.waitForTimeout(120)
+
+  const reenteredArtifacts = await readAxisPointerArtifacts(page)
+  expect(reenteredArtifacts.itemCount).toBe(insideArtifacts.itemCount)
+  expect(reenteredArtifacts.verticalLineCount).toBe(1)
+  expect(reenteredArtifacts.horizontalLineCount).toBe(1)
+  expect(
+    Math.abs(reenteredArtifacts.verticalLine?.shape?.x1 - insideArtifacts.verticalLine?.shape?.x1)
+  ).toBeGreaterThan(10)
+  expect(
+    Math.abs(reenteredArtifacts.horizontalLine?.shape?.y1 - insideArtifacts.horizontalLine?.shape?.y1)
+  ).toBeGreaterThan(10)
+})
+
+test('crosshair price label clamps to the current y-axis range after viewport rescale', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1680, height: 960 })
+  await installVmHelpers(page)
+  await mockKlineSlimApis(page)
+  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+
+  await waitForChartReady(page)
+  await waitForSymbolRendered(page, 'sz002262')
+
+  const chart = page.locator('.kline-slim-chart')
+  const chartBox = await chart.boundingBox()
+  if (!chartBox) {
+    throw new Error('chart host not visible')
+  }
+
+  await page.mouse.move(chartBox.x + chartBox.width * 0.56, chartBox.y + chartBox.height * 0.12)
+  await page.waitForTimeout(120)
+
+  const initialArtifacts = await readAxisPointerArtifacts(page)
+  expect(initialArtifacts.priceLabel?.text).toMatch(/^\d+\.\d{2}$/)
+
+  await page.evaluate(async () => {
+    const chart = window.__klineSlimChart
+    chart.dispatchAction({
+      type: 'dataZoom',
+      dataZoomIndex: 0,
+      start: 0,
+      end: 20
+    })
+    await window.__waitForSlimPaint?.()
+  })
+
+  await page.waitForFunction(() => {
+    const state = window.__readKlineSlimChartState?.()
+    return !!state?.viewport?.xRange && state.viewport.xRange.start < 0.5 && state.viewport.xRange.end < 20.5
+  })
+
+  const afterState = await readChartState(page)
+  const afterArtifacts = await readAxisPointerArtifacts(page)
+
+  expect(Number(afterState.yAxis.max).toFixed(2)).toBe(afterArtifacts.priceLabel?.text)
+  expect(Number(afterState.yAxis.max)).toBeLessThan(Number(initialArtifacts.priceLabel?.text))
+  expect(afterArtifacts.verticalLineCount).toBe(1)
+  expect(afterArtifacts.horizontalLineCount).toBe(1)
 })
 
 test('same viewport after the 1m hide path matches a forced full redraw without extra structure boxes', async ({

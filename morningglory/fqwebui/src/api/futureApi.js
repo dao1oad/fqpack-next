@@ -25,6 +25,9 @@ export const futureApi = {
     if (data.realtimeCache) {
       url += '&realtimeCache=1'
     }
+    if (data.barCount) {
+      url += `&barCount=${data.barCount}`
+    }
     return axios({
       url,
       method: 'get'
