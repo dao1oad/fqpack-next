@@ -36,5 +36,5 @@ def test_memory_runtime_config_reads_bootstrap_file(tmp_path, monkeypatch):
     assert config.mongo_host == "10.0.0.7"
     assert config.mongo_port == 27028
     assert config.mongo_db == "fq_memory_bootstrap"
-    assert str(config.cold_memory_root).endswith(".memory\\cold")
-    assert str(config.artifact_root).endswith("artifacts\\bootstrap-memory")
+    assert config.cold_memory_root.as_posix().endswith(".memory/cold")
+    assert config.artifact_root.as_posix().endswith("artifacts/bootstrap-memory")

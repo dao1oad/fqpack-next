@@ -35,6 +35,13 @@
 
 环境变量前缀仍是 `FRESHQUANT_`，但在新系统里只用于覆盖 bootstrap 配置，不再作为业务设置真值。
 
+内存层运行真值仍要求保留：
+
+- `FQ_MEMORY_CONTEXT_PATH`
+- `FQ_MEMORY_CONTEXT_ROLE`
+
+它们和 `freshquant_bootstrap.yaml` 一起决定当前进程加载哪个 context pack，不属于 Mongo 业务设置。
+
 ## 配置优先级
 
 ### 启动配置
@@ -204,6 +211,8 @@ vendored `QUANTAXIS` 当前 Mongo 解析规则：
 - 其次读取 `FRESHQUANT_MONGODB__HOST/PORT`
 - 如果只拿到旧的本地 `localhost/127.0.0.1:27017` 默认值，会自动收口到宿主机 `27027`
 - 非本地目标例如 `fq_mongodb:27017` 保持不变，用于 Docker 容器内部链路
+
+若本地要复现同一模式，优先保证 `PYTHONPATH` 指向仓库源码、`morningglory/fqxtrade` 与 `sunflower/QUANTAXIS`。
 
 ## 当前宿主机模板
 

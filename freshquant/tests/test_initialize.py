@@ -156,6 +156,9 @@ def test_run_runtime_bootstrap_syncs_xt_credit_subjects_and_instrument_strategy_
         },
         credit_subject_sync_runner=lambda: {"count": 5},
         monitor_code_loader=lambda mode, max_symbols: ["sz000001", "sh510050"],
+        instrument_code_loader=lambda code: (
+            "510050.SH" if code == "510050" else "000001.SZ"
+        ),
         instrument_strategy_writer=lambda instrument_code, instrument_type, strategy_name: instrument_strategy_calls.append(
             (instrument_code, instrument_type, strategy_name)
         ),

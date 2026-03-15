@@ -179,6 +179,7 @@ def run_runtime_bootstrap(
     monitor_code_loader=load_monitor_codes,
     instrument_strategy_writer=None,
     instrument_type_loader=None,
+    instrument_code_loader=None,
 ):
     xt_runtime_sync_runner = xt_runtime_sync_runner or _default_xt_runtime_sync_runner
     credit_subject_sync_runner = (
@@ -188,6 +189,7 @@ def run_runtime_bootstrap(
         instrument_strategy_writer or _default_instrument_strategy_writer
     )
     instrument_type_loader = instrument_type_loader or _default_instrument_type_loader
+    instrument_code_loader = instrument_code_loader or _default_instrument_code_loader
 
     xt_summary = xt_runtime_sync_runner()
     credit_subject_summary = credit_subject_sync_runner()
@@ -202,10 +204,7 @@ def run_runtime_bootstrap(
         base_code = normalize_to_base_code(raw_code)
         if not base_code or len(base_code) != 6:
             continue
-        instrument_code = fq_util_code_append_market_code_suffix(
-            base_code,
-            upper_case=True,
-        )
+        instrument_code = instrument_code_loader(base_code)
         instrument_type = instrument_type_loader(base_code)
         instrument_kind = "etf" if instrument_type == InstrumentType.ETF_CN else "stock"
         instrument_strategy_writer(instrument_code, instrument_kind, strategy_id)
@@ -263,6 +262,13 @@ def _default_instrument_type_loader(code):
     from freshquant.instrument.general import query_instrument_type
 
     return query_instrument_type(code)
+
+
+def _default_instrument_code_loader(code):
+    return fq_util_code_append_market_code_suffix(
+        code,
+        upper_case=True,
+    )
 
 
 def _prompt_into_values(values, field_specs, *, scope, prompt_provider):
