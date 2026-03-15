@@ -35,6 +35,8 @@
 
 环境变量前缀仍是 `FRESHQUANT_`，但在新系统里只用于覆盖 bootstrap 配置，不再作为业务设置真值。
 
+当前 vendored `fqxtrade` 的 broker / puppet / Mongo / Redis / Redis 锁相关连接也跟随 `freshquant_bootstrap.yaml` 的基础设施配置，不再单独依赖旧 `freshquant.yaml`。
+
 内存层运行真值仍要求保留：
 
 - `FQ_MEMORY_CONTEXT_PATH`
@@ -203,6 +205,7 @@ python -m freshquant.initialize
 1. 交互式覆盖 `freshquant_bootstrap.yaml`
 2. 交互式覆盖 Mongo 系统设置
 3. 自动做运行态 bootstrap
+   - 先按当前 `xtquant` 配置尝试建立一次 XT 交易连接
    - XT 资产/持仓/委托/成交同步
    - `om_credit_subjects` 同步
    - 为当前监控标的补缺失 `instrument_strategy`

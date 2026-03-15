@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import types
 from types import SimpleNamespace
 
 from freshquant.carnation.enum_instrument import InstrumentType
@@ -199,3 +201,89 @@ def test_run_runtime_bootstrap_syncs_xt_credit_subjects_and_instrument_strategy_
         ("000001.SZ", "stock", "guardian_strategy_id"),
         ("510050.SH", "etf", "guardian_strategy_id"),
     ]
+
+
+def test_default_xt_runtime_sync_runner_connects_before_sync_when_connection_missing(
+    monkeypatch,
+):
+    from freshquant.initialize import _default_xt_runtime_sync_runner
+
+    connect_calls = []
+    sync_calls = []
+    connection_state = {
+        "xt_trader": None,
+        "acc": None,
+        "connected": False,
+    }
+
+    class FakeTradingManager:
+        def get_connection(self):
+            return (
+                connection_state["xt_trader"],
+                connection_state["acc"],
+                connection_state["connected"],
+            )
+
+        def update_connection(self, xt_trader, acc, connected):
+            connection_state["xt_trader"] = xt_trader
+            connection_state["acc"] = acc
+            connection_state["connected"] = connected
+
+    fake_manager = FakeTradingManager()
+
+    broker_module = types.ModuleType("morningglory.fqxtrade.fqxtrade.xtquant.broker")
+
+    def fake_connect(session_id=100):
+        connect_calls.append(session_id)
+        return "xt-trader", SimpleNamespace(account_id="068000076370"), True
+
+    broker_module.connect = fake_connect
+    broker_module.trading_manager = fake_manager
+    monkeypatch.setitem(
+        sys.modules,
+        "morningglory.fqxtrade.fqxtrade.xtquant.broker",
+        broker_module,
+    )
+
+    puppet_module = types.ModuleType("morningglory.fqxtrade.fqxtrade.xtquant.puppet")
+
+    def sync_summary():
+        sync_calls.append("summary")
+        assert connection_state["connected"] is True
+        return {"account_id": "068000076370"}
+
+    def sync_positions():
+        sync_calls.append("positions")
+        assert connection_state["connected"] is True
+        return [{"stock_code": "000001.SZ"}]
+
+    def sync_orders():
+        sync_calls.append("orders")
+        assert connection_state["connected"] is True
+        return [{"order_id": "order-1"}]
+
+    def sync_trades():
+        sync_calls.append("trades")
+        assert connection_state["connected"] is True
+        return [{"traded_id": "trade-1"}]
+
+    puppet_module.sync_summary = sync_summary
+    puppet_module.sync_positions = sync_positions
+    puppet_module.sync_orders = sync_orders
+    puppet_module.sync_trades = sync_trades
+    monkeypatch.setitem(
+        sys.modules,
+        "morningglory.fqxtrade.fqxtrade.xtquant.puppet",
+        puppet_module,
+    )
+
+    summary = _default_xt_runtime_sync_runner()
+
+    assert connect_calls == [100]
+    assert sync_calls == ["summary", "positions", "orders", "trades"]
+    assert summary == {
+        "assets": 1,
+        "positions": 1,
+        "orders": 1,
+        "trades": 1,
+    }

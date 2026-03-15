@@ -226,6 +226,8 @@ def run_runtime_bootstrap(
 
 
 def _default_xt_runtime_sync_runner():
+    _ensure_xt_runtime_connection()
+
     from morningglory.fqxtrade.fqxtrade.xtquant.puppet import (
         sync_orders,
         sync_positions,
@@ -243,6 +245,19 @@ def _default_xt_runtime_sync_runner():
         "orders": len(orders),
         "trades": len(trades),
     }
+
+
+def _ensure_xt_runtime_connection():
+    from morningglory.fqxtrade.fqxtrade.xtquant.broker import connect, trading_manager
+
+    xt_trader, acc, connected = trading_manager.get_connection()
+    if xt_trader is not None and acc is not None and connected:
+        return xt_trader, acc, connected
+
+    xt_trader, acc, connected = connect()
+    if xt_trader is not None and acc is not None and connected:
+        trading_manager.update_connection(xt_trader, acc, connected)
+    return xt_trader, acc, connected
 
 
 def _default_credit_subject_sync_runner():
