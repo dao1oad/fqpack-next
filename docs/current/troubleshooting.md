@@ -68,18 +68,18 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `fq_apiserver` 日志出现 `ServerSelectionTimeoutError: fq_mongodb:27027`
 
 先检查：
-- `docker exec <fq_apiserver> /freshquant/.venv/bin/python -c "from freshquant.config import settings; print(settings.get('mongodb'))"`
+- `docker exec <fq_apiserver> /freshquant/.venv/bin/python -c "from freshquant.bootstrap_config import bootstrap_config; print({'host': bootstrap_config.mongodb.host, 'port': bootstrap_config.mongodb.port, 'db': bootstrap_config.mongodb.db})"`
 - `docker exec <fq_apiserver> env | findstr MONGODB`
 - `docker compose -f docker/compose.parallel.yaml config`
 
 常见根因：
 - 容器环境只覆写了 `FRESHQUANT_MONGODB__HOST=fq_mongodb`，没有同时覆写 `FRESHQUANT_MONGODB__PORT=27017`
-- `freshquant/freshquant.yaml` 的宿主机默认 `mongodb.port=27027` 被保留下来，最终拼成 `fq_mongodb:27027`
+- `freshquant_bootstrap.yaml` 或容器环境只覆写了 Mongo host，但没有同时把端口收口到容器内 `27017`
 
 处理：
 - 在 `docker/compose.parallel.yaml` 为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 同时显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`
 - 如果并行环境还依赖主工作树 `.env`，也同步补齐 `FRESHQUANT_MONGODB__PORT=27017` 与 `MONGODB_PORT=27017`
-- 重建受影响容器后，再检查 `settings.get('mongodb')` 是否解析为 `{'host': 'fq_mongodb', 'port': 27017, ...}`
+- 重建受影响容器后，再检查 `bootstrap_config.mongodb` 是否解析为 `{'host': 'fq_mongodb', 'port': 27017, ...}`
 
 ## Web 页面空白
 
@@ -269,7 +269,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 先检查：
 - `docker compose -f docker/compose.parallel.yaml config`
 - `docker compose -f docker/compose.parallel.yaml exec fq_apiserver sh -lc "ls -la /opt/tdx/T0002/blocknew"`
-- `docker compose -f docker/compose.parallel.yaml exec fq_apiserver sh -lc "python - <<'PY'\nfrom freshquant.config import settings\nprint(settings.get('tdx'))\nPY"`
+- `docker compose -f docker/compose.parallel.yaml exec fq_apiserver sh -lc "python - <<'PY'\nfrom freshquant.bootstrap_config import bootstrap_config\nprint({'home': bootstrap_config.tdx.home, 'hq_endpoint': bootstrap_config.tdx.hq_endpoint})\nPY"`
 
 常见根因：
 - `fq_apiserver` 没有挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}:/opt/tdx`

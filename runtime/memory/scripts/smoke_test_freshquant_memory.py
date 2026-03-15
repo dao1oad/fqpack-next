@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -25,9 +26,16 @@ def main() -> int:
     parser.add_argument("--role", default="codex")
     args = parser.parse_args()
 
+    environ = dict(os.environ)
+    if args.service_root:
+        # Smoke test should stay inside the caller-provided sandbox root instead of
+        # writing artifacts to the default host runtime directory from bootstrap.
+        environ.setdefault("FRESHQUANT_MEMORY__ARTIFACT_ROOT", "artifacts/memory")
+
     config = MemoryRuntimeConfig.from_settings(
         repo_root=args.repo_root,
         service_root=args.service_root,
+        environ=environ,
     )
     store = InMemoryMemoryStore()
     refresh_summary = refresh_memory(

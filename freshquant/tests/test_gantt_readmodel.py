@@ -1,4 +1,5 @@
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -427,8 +428,8 @@ def test_load_shouban30_credit_subject_lookup_scopes_to_configured_account(
     monkeypatch.setattr(svc, "CreditSubjectRepository", FakeRepository)
     monkeypatch.setattr(
         svc,
-        "queryParam",
-        lambda key, default=None: "acct-2" if key == "xtquant.account" else default,
+        "system_settings",
+        SimpleNamespace(xtquant=SimpleNamespace(account="acct-2")),
     )
 
     lookup, ready = svc._load_shouban30_credit_subject_lookup()

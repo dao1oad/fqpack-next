@@ -15,6 +15,7 @@ from freshquant.position_management.snapshot_service import (
     DEFAULT_ALLOW_OPEN_MIN_BAIL,
     DEFAULT_HOLDING_ONLY_MIN_BAIL,
 )
+from freshquant.system_settings import system_settings
 from freshquant.util.code import normalize_to_base_code
 
 DEFAULT_STATE_STALE_AFTER_SECONDS = 15
@@ -26,6 +27,7 @@ class PositionManagementDashboardService:
         self,
         repository=None,
         holding_codes_provider=None,
+        settings_provider=None,
         query_param_loader=None,
         now_provider=None,
     ):
@@ -33,7 +35,9 @@ class PositionManagementDashboardService:
         self.holding_codes_provider = (
             holding_codes_provider or _default_holding_codes_provider
         )
-        self.query_param_loader = query_param_loader or _default_query_param_loader
+        self.settings_provider = settings_provider or _resolve_settings_provider(
+            query_param_loader
+        )
         self.now_provider = now_provider or _default_now_provider
 
     def get_dashboard(self):
@@ -57,11 +61,12 @@ class PositionManagementDashboardService:
             "state_stale_after_seconds": DEFAULT_STATE_STALE_AFTER_SECONDS,
             "default_state": DEFAULT_FALLBACK_STATE,
         }
+        xtquant_settings = getattr(self.settings_provider, "xtquant", None)
         xtquant = {
-            "path": str(self.query_param_loader("xtquant.path", "") or ""),
-            "account": str(self.query_param_loader("xtquant.account", "") or ""),
+            "path": str(getattr(xtquant_settings, "path", "") or ""),
+            "account": str(getattr(xtquant_settings, "account", "") or ""),
             "account_type": str(
-                self.query_param_loader("xtquant.account_type", "STOCK") or "STOCK"
+                getattr(xtquant_settings, "account_type", "STOCK") or "STOCK"
             ),
         }
         return {
@@ -422,8 +427,18 @@ def _default_holding_codes_provider():
     return get_stock_holding_codes()
 
 
-def _default_query_param_loader(key, default=None):
-    from freshquant.carnation.param import queryParam
+def _resolve_settings_provider(query_param_loader=None):
+    if query_param_loader is None:
+        return system_settings
 
-    value = queryParam(key, default)
-    return default if value is None else value
+    class _QueryParamSettingsProvider:
+        class _Xtquant:
+            def __init__(self, loader):
+                self.path = loader("xtquant.path", "") or ""
+                self.account = loader("xtquant.account", "") or ""
+                self.account_type = loader("xtquant.account_type", "STOCK") or "STOCK"
+
+        def __init__(self, loader):
+            self.xtquant = self._Xtquant(loader)
+
+    return _QueryParamSettingsProvider(query_param_loader)

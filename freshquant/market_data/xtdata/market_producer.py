@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 import traceback
@@ -12,7 +11,7 @@ from collections import deque
 import click
 from loguru import logger
 
-from freshquant.carnation.param import queryParam
+from freshquant.bootstrap_config import bootstrap_config
 from freshquant.market_data.xtdata.bar_generator import OneMinuteBarGenerator
 from freshquant.market_data.xtdata.constants import tick_queue_key_for_code
 from freshquant.market_data.xtdata.pools import (
@@ -21,6 +20,7 @@ from freshquant.market_data.xtdata.pools import (
 )
 from freshquant.market_data.xtdata.schema import TickQuoteEvent, normalize_prefixed_code
 from freshquant.runtime_observability.logger import RuntimeEventLogger
+from freshquant.system_settings import system_settings
 
 try:
     from freshquant.database.redis import redis_db  # type: ignore
@@ -45,6 +45,33 @@ def _load_subscription_codes(*, mode: str, max_symbols: int) -> list[str]:
     }
     codes.discard("")
     return sorted(codes)
+
+
+def resolve_producer_runtime_config(
+    *, settings_provider=None, bootstrap_provider=None
+) -> dict[str, int | str]:
+    settings_provider = settings_provider or system_settings
+    bootstrap_provider = bootstrap_provider or bootstrap_config
+    mode = normalize_xtdata_mode(
+        getattr(settings_provider.monitor, "xtdata_mode", None)
+    )
+    try:
+        max_symbols = int(
+            getattr(settings_provider.monitor, "xtdata_max_symbols", 50) or 50
+        )
+    except (TypeError, ValueError):
+        max_symbols = 50
+    if max_symbols <= 0:
+        max_symbols = 50
+    try:
+        port = int(getattr(bootstrap_provider.xtdata, "port", 58610) or 58610)
+    except (TypeError, ValueError):
+        port = 58610
+    return {
+        "port": port,
+        "mode": mode,
+        "max_symbols": max_symbols,
+    }
 
 
 class TickPump:
@@ -227,7 +254,8 @@ def start_producer():
     except Exception as e:  # pragma: no cover
         raise RuntimeError(f"xtquant/xtdata not installed: {e}")
 
-    port = int(os.environ.get("XTQUANT_PORT", "58610"))
+    runtime_config = resolve_producer_runtime_config()
+    port = int(runtime_config["port"])
     _emit_runtime(
         _get_runtime_logger(),
         {
@@ -238,10 +266,8 @@ def start_producer():
     )
     xtdata.connect(port=port)
 
-    mode = normalize_xtdata_mode(queryParam("monitor.xtdata.mode", None))
-    max_symbols = int(queryParam("monitor.xtdata.max_symbols", 50) or 50)
-    if max_symbols <= 0:
-        max_symbols = 50
+    mode = str(runtime_config["mode"])
+    max_symbols = int(runtime_config["max_symbols"])
     _emit_runtime(
         _get_runtime_logger(),
         {

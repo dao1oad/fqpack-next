@@ -25,7 +25,7 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 - `stock_pre_pools`
 - `stock_pools`
 - `must_pool`
-- `settings.tdx.home or TDX_HOME`
+- `bootstrap_config.tdx.home or TDX_HOME`
 - `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`
 
 ## 数据流
@@ -102,7 +102,7 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 - `pre_pool` 与 `stock_pool` 都使用 `extra.shouban30_order` 作为页面顺序与 `.blk` 输出顺序真值
   - 历史 `stock_pool` 记录缺失该字段时，读取顺序兼容回退到 `datetime desc`
 - 当前缠论过滤版本是 `30m_v1`
-- 通达信目录解析口径固定为：先读 `settings.tdx.home`，未配置时回退 `TDX_HOME`
+- 通达信目录解析口径固定为：先读 `bootstrap_config.tdx.home`，未配置时回退 `TDX_HOME`
 - Docker 并行部署下，`fq_apiserver` 当前必须挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}` 到 `/opt/tdx`
 - 默认分类：
   - `三十涨停Pro预选`

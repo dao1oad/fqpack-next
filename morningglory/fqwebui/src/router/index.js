@@ -14,6 +14,7 @@ const OrderManagement = () => import('../views/OrderManagement.vue')
 const PositionManagement = () => import('../views/PositionManagement.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
 const TpslManagement = () => import('../views/TpslManagement.vue')
+const SystemSettings = () => import('../views/SystemSettings.vue')
 
 const routes = [
   {
@@ -84,6 +85,11 @@ const routes = [
     path: '/runtime-observability',
     name: 'runtime-observability',
     component: RuntimeObservability
+  },
+  {
+    path: '/system-settings',
+    name: 'system-settings',
+    component: SystemSettings
   },
   {
     path: '/tpsl',

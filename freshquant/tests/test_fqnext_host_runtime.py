@@ -1,5 +1,6 @@
 import importlib.util
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -63,3 +64,52 @@ def test_unknown_surface_raises() -> None:
 
     with pytest.raises(ValueError, match="Unknown host deployment surface"):
         module.resolve_surface_programs(["unknown-surface"])
+
+
+def test_resolve_target_programs_supports_restart_surfaces_without_program_arg() -> (
+    None
+):
+    module = load_module()
+
+    args = module.build_parser().parse_args(
+        ["restart-surfaces", "--surface", "market_data", "--surface", "guardian"]
+    )
+
+    surfaces, programs = module.resolve_target_programs(args)
+
+    assert surfaces == ["market_data", "guardian"]
+    assert programs == [
+        "fqnext_realtime_xtdata_producer",
+        "fqnext_realtime_xtdata_consumer",
+        "fqnext_xtdata_adj_refresh_worker",
+        "fqnext_guardian_event",
+    ]
+
+
+def test_wait_for_state_accepts_exited_when_waiting_for_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_module()
+    states = iter(
+        [
+            {"statename": "RUNNING", "pid": 1},
+            {"statename": "EXITED", "pid": 0},
+        ]
+    )
+    server = types.SimpleNamespace()
+
+    def fake_get_process_info(_server, _name):
+        return next(states)
+
+    monkeypatch.setattr(module, "get_process_info", fake_get_process_info)
+
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+
+    info = module.wait_for_state(
+        server,
+        "fqnext_realtime_xtdata_producer",
+        "STOPPED",
+        timeout_seconds=2,
+    )
+
+    assert info["statename"] == "EXITED"

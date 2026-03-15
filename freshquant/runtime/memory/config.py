@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from freshquant.config import settings
+from freshquant.bootstrap_config import bootstrap_config
 
 
 def _resolve_rooted_path(value: str | Path, *, root: Path) -> Path:
@@ -42,32 +42,31 @@ class MemoryRuntimeConfig:
             or "D:/fqpack/runtime/symphony-service"
         ).resolve()
 
-        memory_settings = settings.get("memory", {}) or {}
-        memory_mongodb = memory_settings.get("mongodb", {}) or {}
-        mongodb_settings = settings.get("mongodb", {}) or {}
+        memory_settings = bootstrap_config.memory
+        memory_mongodb = memory_settings.mongodb
+        mongodb_settings = bootstrap_config.mongodb
 
         mongo_host = (
             env.get("FRESHQUANT_MEMORY__MONGODB__HOST")
-            or memory_mongodb.get("host")
-            or mongodb_settings.get("host")
+            or memory_mongodb.host
+            or mongodb_settings.host
             or "127.0.0.1"
         )
         mongo_port = int(
             env.get("FRESHQUANT_MEMORY__MONGODB__PORT")
-            or memory_mongodb.get("port")
-            or mongodb_settings.get("port")
+            or memory_mongodb.port
+            or mongodb_settings.port
             or 27027
         )
         mongo_db = (
             env.get("FRESHQUANT_MEMORY__MONGODB__DB")
-            or memory_mongodb.get("db")
-            or memory_settings.get("db")
+            or memory_mongodb.db
             or "fq_memory"
         )
 
         cold_memory_root = _resolve_rooted_path(
             env.get("FRESHQUANT_MEMORY__COLD_ROOT")
-            or memory_settings.get("cold_root")
+            or memory_settings.cold_root
             or ".codex/memory",
             root=repo_path,
         )
@@ -77,14 +76,9 @@ class MemoryRuntimeConfig:
                 explicit_artifact_root,
                 root=resolved_service_root,
             )
-        elif service_root is not None:
-            artifact_root = _resolve_rooted_path(
-                "artifacts/memory",
-                root=resolved_service_root,
-            )
         else:
             artifact_root = _resolve_rooted_path(
-                memory_settings.get("artifact_root") or "artifacts/memory",
+                memory_settings.artifact_root or "artifacts/memory",
                 root=resolved_service_root,
             )
 

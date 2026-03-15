@@ -6,7 +6,7 @@ import requests  # type: ignore[import-untyped]
 from blinker import signal
 from ratelimit import limits, sleep_and_retry
 
-from freshquant.carnation.param import queryParam
+from freshquant.system_settings import system_settings
 
 order_alert = signal("order_alert")
 market_data_alert = signal("market_data_alert")
@@ -31,15 +31,21 @@ def send_dingtalk_message(url, title, text):
             logging.error("Error Occurred: {0} {1}".format(e, traceback.format_exc()))
 
 
-def send_private_message(title, text):
+def send_private_message(title, text, *, settings_provider=None):
+    settings_provider = settings_provider or system_settings
     send_dingtalk_message(
-        queryParam("notification.webhook.dingtalk.private"), title, text
+        getattr(settings_provider.notification, "dingtalk_private_webhook", ""),
+        title,
+        text,
     )
 
 
-def send_public_message(title, text):
+def send_public_message(title, text, *, settings_provider=None):
+    settings_provider = settings_provider or system_settings
     send_dingtalk_message(
-        queryParam("notification.webhook.dingtalk.public"), title, text
+        getattr(settings_provider.notification, "dingtalk_public_webhook", ""),
+        title,
+        text,
     )
 
 

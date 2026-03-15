@@ -1,7 +1,9 @@
-import subprocess
-import psutil
 import os
-from freshquant.carnation.param import queryParam
+import subprocess
+
+import psutil
+
+from freshquant.system_settings import system_settings
 
 
 def check_process(process_name):
@@ -10,12 +12,14 @@ def check_process(process_name):
             return True
     return False
 
+
 def ensure_xt_mini_qmt():
     if not check_process('XtMiniQmt.exe'):
-        path = os.path.dirname(queryParam("xtquant.path", ""))
+        path = os.path.dirname(system_settings.xtquant.path)
         subprocess.Popen(os.path.join(path, 'bin.x64', 'XtItClient.exe'))
     else:
         print("XtMiniQmt.exe已经在运行了")
+
 
 if __name__ == "__main__":
     ensure_xt_mini_qmt()

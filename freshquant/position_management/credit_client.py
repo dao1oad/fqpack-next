@@ -2,8 +2,6 @@
 
 import time
 
-from freshquant.carnation.param import queryParam
-
 
 def _load_default_trader_factory():
     from xtquant.xttrader import XtQuantTrader
@@ -17,11 +15,10 @@ def _load_default_account_factory():
     return StockAccount
 
 
-def _query_param(key, default=None):
-    value = queryParam(key, default)
-    if value is None or value == "":
-        return default
-    return value
+def _load_default_system_settings_provider():
+    from freshquant.system_settings import system_settings
+
+    return system_settings
 
 
 class PositionCreditClient:
@@ -33,11 +30,18 @@ class PositionCreditClient:
         session_id=None,
         trader_factory=None,
         account_factory=None,
+        system_settings_provider=None,
     ):
-        self.path = path or _query_param("xtquant.path", "")
-        self.account_id = str(account_id or _query_param("xtquant.account", "")).strip()
+        settings_provider = (
+            system_settings_provider or _load_default_system_settings_provider()
+        )
+        xtquant_settings = getattr(settings_provider, "xtquant", None)
+        self.path = path or getattr(xtquant_settings, "path", "")
+        self.account_id = str(
+            account_id or getattr(xtquant_settings, "account", "")
+        ).strip()
         self.account_type = str(
-            account_type or _query_param("xtquant.account_type", "STOCK")
+            account_type or getattr(xtquant_settings, "account_type", "STOCK")
         ).upper()
         self.session_id = session_id or int(time.time())
         self.trader_factory = trader_factory or _load_default_trader_factory()

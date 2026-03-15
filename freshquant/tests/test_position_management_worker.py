@@ -171,6 +171,31 @@ def test_credit_client_queries_credit_detail_with_independent_connection():
     assert result[0]["m_dEnableBailBalance"] == 1000000.0
 
 
+def test_credit_client_uses_system_settings_provider_when_explicit_args_missing():
+    trader = FakeTrader()
+    client = PositionCreditClient(
+        system_settings_provider=SimpleNamespace(
+            xtquant=SimpleNamespace(
+                path="D:/miniqmt/userdata_mini",
+                account="1208970161",
+                account_type="CREDIT",
+            )
+        ),
+        session_id=101,
+        trader_factory=lambda _path, _session_id: trader,
+        account_factory=lambda account_id, account_type: SimpleNamespace(
+            account_id=account_id,
+            account_type=account_type,
+        ),
+    )
+
+    result = client.query_credit_detail()
+
+    assert trader.subscribed_account.account_id == "1208970161"
+    assert trader.subscribed_account.account_type == "CREDIT"
+    assert result[0]["m_dEnableBailBalance"] == 1000000.0
+
+
 def test_worker_run_once_calls_snapshot_service():
     service = FakeSnapshotService()
 

@@ -3,7 +3,7 @@ from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 
-from freshquant.config import settings
+from freshquant.bootstrap_config import bootstrap_config
 from freshquant.db import DBfreshquant
 
 SHOUBAN30_PRE_POOL_CATEGORY = "三十涨停Pro预选"
@@ -171,7 +171,7 @@ def _settings_get(root, dotted_key):
 
 def _require_tdx_home():
     tdx_home = str(
-        _settings_get(settings, "tdx.home") or os.environ.get("TDX_HOME") or ""
+        bootstrap_config.tdx.home or os.environ.get("TDX_HOME") or ""
     ).strip()
     if not tdx_home:
         raise RuntimeError("TDX_HOME not configured")

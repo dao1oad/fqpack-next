@@ -3,7 +3,7 @@
 import json
 import urllib.parse
 
-from freshquant.config import settings
+from freshquant.bootstrap_config import bootstrap_config
 
 
 def get_api_base_url() -> str:
@@ -25,7 +25,7 @@ def get_api_base_url() -> str:
         >>> get_api_base_url()
         'http://192.168.1.100:8080'
     """
-    return settings.get('api', {}).get('base_url', 'http://host.docker.internal')
+    return bootstrap_config.api.base_url or 'http://host.docker.internal'
 
 
 def fq_util_url_join(url, *paths):

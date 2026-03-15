@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from freshquant.carnation.param import queryParam
 from freshquant.chanlun_structure_service import get_chanlun_structure
 from freshquant.data.gantt_source_jygs import (
     COL_JYGS_ACTION_FIELDS,
@@ -29,6 +28,7 @@ from freshquant.market_data.xtdata.schema import normalize_prefixed_code
 from freshquant.order_management.credit_subjects.repository import (
     CreditSubjectRepository,
 )
+from freshquant.system_settings import system_settings
 
 COL_PLATE_REASON_DAILY = "plate_reason_daily"
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
@@ -988,9 +988,10 @@ def _resolve_shouban30_chanlun_result(
     return result
 
 
-def _load_shouban30_credit_subject_lookup():
+def _load_shouban30_credit_subject_lookup(settings_provider=None):
+    settings_provider = settings_provider or system_settings
     repository = CreditSubjectRepository()
-    account_id = _to_str(queryParam("xtquant.account", ""))
+    account_id = _to_str(getattr(settings_provider.xtquant, "account", ""))
     if not account_id:
         return {}, False
     rows = list(
