@@ -7,10 +7,10 @@ from dagster._core.events import DagsterEvent, EngineEventData
 from requests.exceptions import RequestException  # type: ignore[import-untyped]
 
 from freshquant.data.gantt_readmodel import (
-    _calc_start_date,
     COL_GANTT_STOCK_DAILY,
     COL_PLATE_REASON_DAILY,
     COL_STOCK_HOT_REASON_DAILY,
+    _calc_start_date,
     persist_gantt_daily_for_date,
     persist_plate_reason_daily_for_date,
     persist_shouban30_for_date,
