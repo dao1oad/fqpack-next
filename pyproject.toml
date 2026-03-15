@@ -77,7 +77,6 @@ dependencies = [
     "jsonpickle",
     "pywencai",
     "pyperclip",
-    "huey",
     "yfinance",
     "pyalgotrade",
     "pip>=25.3",

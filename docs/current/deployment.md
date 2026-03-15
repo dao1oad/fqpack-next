@@ -5,6 +5,7 @@
 - 代码改动后，受影响模块必须重新部署；只合并不部署不算完成。
 - Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
 - FreshQuant / QUANTAXIS 相关 Docker 服务在 `docker/compose.parallel.yaml` 内部固定使用 `fq_mongodb:27017`；不要只覆写 host 而保留宿主机默认 `27027`
+- 仓库根目录 legacy 批处理部署脚本 `deploy.bat` / `deploy_rear.bat` 已移除；当前只保留 `docker compose` + `script/fqnext_host_runtime_ctl.ps1` 这套正式入口。
 - `Merging` 只负责 merge 与 handoff；merge 后由单个全局 Codex 自动化统一判断 deploy、health check、runtime ops check 和 cleanup。
 - 部署动作结束后必须先做接口层健康检查，再做 deploy 后运维面检查；两者都通过后才进入 cleanup。
 - `Global Stewardship` 的实际收口链路固定为：`deploy -> health check -> runtime ops check -> cleanup`。

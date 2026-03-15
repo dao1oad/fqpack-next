@@ -309,6 +309,31 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 清空筛选后刷新页面
 - 如果 API 有数据但页面统计卡、recent feed、component board 全空，优先重建并重新部署 `fq_webui`，然后强刷浏览器缓存
 
+## 初始化程序第 3 步提示未连接到交易系统或账户信息缺失
+
+现象：
+- 运行 `python -m freshquant.initialize`。
+- 第 3 阶段 `运行态 bootstrap` 输出 `未连接到交易系统或账户信息缺失`。
+
+先检查：
+- `params.xtquant.path` 是否指向 MiniQMT 的 `userdata_mini`
+- `params.xtquant.account` / `params.xtquant.account_type` 是否与当前登录账号一致
+- MiniQMT 是否不只是进程存在，而是已经登录到目标交易账号
+
+当前行为：
+- 初始化程序在第 3 阶段会先按当前 `xtquant` 配置尝试建立一次 XT 交易连接，再做资产/持仓/委托/成交同步。
+
+常见根因：
+- `xtquant.path` 指到了安装目录或别的 `userdata_mini`
+- `xtquant.account` 与 MiniQMT 当前登录账号不一致
+- `xtquant.account_type` 填错，导致订阅失败
+- MiniQMT 进程已经启动，但交易账号还没真正登录完成
+
+处理：
+- 在系统设置里确认并保存 `xtquant.path / account / account_type`
+- 确认 MiniQMT 已登录目标账号后重新执行初始化
+- 若仍失败，再单独检查 `fqnext_xtquant_broker` 运行日志里的 connect / subscribe 错误码
+
 ## Deploy 后运维面检查失败
 
 现象：
