@@ -1,12 +1,13 @@
 import redis
-from pydash import get
+from typing import Any
 
 from fqxtrade.config import settings
+from pydash import get
 
 try:
     from freshquant.bootstrap_config import bootstrap_config as _bootstrap_config
 except Exception:  # pragma: no cover - fallback for standalone fqxtrade
-    _bootstrap_config = None
+    _bootstrap_config: Any | None = None
 
 
 def _resolve_redis_setting(key, default=None):
@@ -24,5 +25,7 @@ port = _resolve_redis_setting("port", 6379)
 db = _resolve_redis_setting("db", 1)
 password = _resolve_redis_setting("password")
 
-redis_connection_pool = redis.ConnectionPool(host=host, port=port, db=db, password=password, decode_responses=True)
+redis_connection_pool = redis.ConnectionPool(
+    host=host, port=port, db=db, password=password, decode_responses=True
+)
 redis_db = redis.StrictRedis(connection_pool=redis_connection_pool)

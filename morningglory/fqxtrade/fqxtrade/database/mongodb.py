@@ -1,11 +1,13 @@
 import pymongo
+from typing import Any
+
 from fqxtrade.config import cfg, settings
 from pydash import get
 
 try:
     from freshquant.bootstrap_config import bootstrap_config as _bootstrap_config
 except Exception:  # pragma: no cover - fallback for standalone fqxtrade
-    _bootstrap_config = None
+    _bootstrap_config: Any | None = None
 
 
 def _resolve_mongodb_setting(key, default=None):
