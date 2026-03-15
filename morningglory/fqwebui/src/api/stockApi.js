@@ -33,6 +33,15 @@ export const stockApi = {
       params: { page, size, category }
     })
   },
+  getStockModelSignalList ({ page, size }) {
+    page = page || 1
+    size = size || 10
+    return axios({
+      url: '/api/get_stock_model_signal_list',
+      method: 'get',
+      params: { page, size }
+    })
+  },
   getStockPoolsList ({ page, size }) {
     return axios({
       url: '/api/get_stock_pools_list',

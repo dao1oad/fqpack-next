@@ -14,27 +14,94 @@ from freshquant.strategy.toolkit.grid import plan_grid_distribution
 from freshquant.util.code import fq_util_code_append_market_code
 
 
+def _format_datetime(value, fmt):
+    if hasattr(value, "strftime"):
+        return value.strftime(fmt)
+    return str(value or "")
+
+
+def _normalize_page_size(page, size):
+    page = max(int(page or 1), 1)
+    size = max(int(size or 1000), 1)
+    return page, size
+
+
 def get_stock_signal_list(page=1, size=1000, category="candidates"):
+    page, size = _normalize_page_size(page, size)
     cond = {}
     if category == "candidates":
         cond["is_holding"] = False
         cond["position"] = "BUY_LONG"
+    elif category == "must_pool_buys":
+        cond["is_holding"] = False
+        cond["position"] = "BUY_LONG"
     else:
         cond["is_holding"] = True
-    data = list(
-        DBfreshquant["stock_signals"]
-        .find(cond)
-        .sort("fire_time", pymongo.DESCENDING)
-        .skip((page - 1) * size)
-        .limit(size)
-    )
+
+    if category == "must_pool_buys":
+        must_pool_codes = sorted(
+            str(doc.get("code") or "")
+            for doc in DBfreshquant["must_pool"].find({})
+            if doc.get("code")
+        )
+        if not must_pool_codes:
+            data = []
+        else:
+            data = list(
+                DBfreshquant["stock_signals"]
+                .find({**cond, "code": {"$in": must_pool_codes}})
+                .sort("fire_time", pymongo.DESCENDING)
+                .skip((page - 1) * size)
+                .limit(size)
+            )
+    else:
+        data = list(
+            DBfreshquant["stock_signals"]
+            .find(cond)
+            .sort("fire_time", pymongo.DESCENDING)
+            .skip((page - 1) * size)
+            .limit(size)
+        )
+
     if len(data) > 0:
         df = pd.DataFrame(data)
         df = df.drop(columns=["_id"])
-        df["fire_time"] = df["fire_time"].apply(lambda x: x.strftime("%Y-%m-%d %H:%M"))
+        df["fire_time"] = df["fire_time"].apply(
+            lambda x: _format_datetime(x, "%Y-%m-%d %H:%M")
+        )
         return df.to_dict("records")
     else:
         return []
+
+
+def get_stock_model_signal_list(page=1, size=1000):
+    page, size = _normalize_page_size(page, size)
+    start = (page - 1) * size
+    data = list(
+        DBfreshquant["realtime_screen_multi_period"]
+        .find({})
+        .sort([("datetime", pymongo.DESCENDING), ("created_at", pymongo.DESCENDING)])
+        .skip(start)
+        .limit(size)
+    )
+    out = []
+    for doc in data:
+        out.append(
+            {
+                "datetime": _format_datetime(doc.get("datetime"), "%Y-%m-%d %H:%M"),
+                "created_at": _format_datetime(
+                    doc.get("created_at"), "%Y-%m-%d %H:%M:%S"
+                ),
+                "code": doc.get("code") or "",
+                "name": doc.get("name") or "",
+                "period": doc.get("period") or "",
+                "model": doc.get("model") or "",
+                "close": doc.get("close"),
+                "stop_loss_price": doc.get("stop_loss_price"),
+                "source": doc.get("source") or "",
+            }
+        )
+    return out
 
 
 def get_stock_pools_list(page=1):
@@ -257,7 +324,7 @@ def add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount, fore
     # 将记录写入must_pool
     must_pool.import_pool(
         code,
-        record.get('category'),
+        record.get("category"),
         stop_loss_price,
         initial_lot_amount,
         lot_amount,
@@ -338,13 +405,13 @@ def add_to_stock_pools_by_stock(stock):
     Returns:
         bool: 操作是否成功
     """
-    code = stock.get('code')
+    code = stock.get("code")
     if code is None:
         return False
-    category = stock.get('category')
+    category = stock.get("category")
     if category is None:
         return False
-    stop_loss_price = stock.get('stop_loss_price')
+    stop_loss_price = stock.get("stop_loss_price")
     if stop_loss_price is None:
         return False
     save_a_stock_pools(code=code, category=category, stop_loss_price=stop_loss_price)

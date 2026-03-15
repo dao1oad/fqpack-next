@@ -25,9 +25,8 @@ producer 是唯一 XTData 入口；consumer 是唯一 bar 队列消费入口。
 - Redis
 - QuantAxis 历史库
 - 监控池来源
-  - `xt_positions`
-  - `must_pool`
-  - `stock_pools`
+  - `guardian_1m = xt_positions + must_pool`
+  - `clx_15_30 = stock_pools`
 
 ## 数据流
 
@@ -50,13 +49,16 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - Mongo / QuantAxis
   - 历史分钟线读取
   - 实时结构或补权结果所需的基础数据
+  - `realtime_screen_multi_period`
 
-当前模块本身不维护独立 Mongo 集合，而是依赖 QuantAxis 历史库与 Redis 实时缓存。
+当前模块会在 `clx_15_30` 模式下把命中的多周期 CLX 信号写入 `realtime_screen_multi_period`。
 
 ## 配置
 
 - `monitor.xtdata.mode`
   - 决定订阅池来源和 consumer 行为。
+  - `guardian_1m` 只服务 Guardian 1 分钟事件链。
+  - `clx_15_30` 会对 `stock_pools` 跑 15/30 分钟 CLX 模型，并写 `realtime_screen_multi_period`。
 - `monitor.xtdata.max_symbols`
   - 限制订阅池大小。
 - `monitor.xtdata.queue_backlog_threshold`

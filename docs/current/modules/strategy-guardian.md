@@ -10,10 +10,8 @@ Guardian 是当前 A 股实时策略层。它负责把 XTData consumer 产生的
   - `freshquant.strategy.guardian.StrategyGuardian`
 - 事件驱动入口
   - `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event`
-- 旧轮询入口
-  - 同模块 `--mode poll`
 
-当前正式运行口径是 `--mode event`。
+当前正式运行口径只有 `--mode event`。
 
 ## 依赖
 
@@ -27,7 +25,7 @@ Guardian 是当前 A 股实时策略层。它负责把 XTData consumer 产生的
 
 ## 数据流
 
-`bar update -> calculate_guardian_signals_latest -> save_a_stock_signal -> StrategyGuardian.on_signal -> buy/sell decision -> submit_guardian_order -> OrderSubmitService`
+`bar update -> calculate_guardian_signals_latest -> save_a_stock_signal -> stock_signals -> StrategyGuardian.on_signal -> buy/sell decision -> submit_guardian_order -> OrderSubmitService`
 
 买入路径分为两类：
 
@@ -46,6 +44,7 @@ Guardian 自身不维护订单账本，但依赖以下状态：
 
 - `must_pool`
 - `xt_positions`
+- `stock_signals`
 - Guardian buy grid 集合
   - `guardian_buy_grid_configs`
   - `guardian_buy_grid_states`

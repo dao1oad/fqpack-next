@@ -53,6 +53,7 @@ def _install_route_stubs(monkeypatch):
     stock_service = types.ModuleType("freshquant.stock_service")
     stock_service.get_stock_signal_list = lambda *args, **kwargs: []
     stock_service.get_stock_pools_list = lambda *args, **kwargs: []
+    stock_service.get_stock_model_signal_list = lambda *args, **kwargs: []
 
     chanlun_service = types.ModuleType("freshquant.chanlun_service")
     chanlun_service.get_data_v2 = lambda *args, **kwargs: {}
@@ -164,3 +165,24 @@ def test_get_stock_position_list_serializes_enriched_position_names(stock_routes
             "amount": -1000.13,
         }
     ]
+
+
+def test_get_stock_model_signal_list_route_uses_service_payload(
+    stock_routes, monkeypatch
+):
+    stock_routes.request.args = {"page": "2", "size": "50"}
+    monkeypatch.setattr(
+        stock_routes,
+        "_get_stock_service",
+        lambda: types.SimpleNamespace(
+            get_stock_model_signal_list=lambda page, size: [
+                {"page": page, "size": size, "model": "CLX10001"}
+            ]
+        ),
+        raising=False,
+    )
+
+    response = stock_routes.get_stock_model_signal_list()
+
+    assert response.status_code == 200
+    assert response.get_json() == [{"page": 2, "size": 50, "model": "CLX10001"}]
