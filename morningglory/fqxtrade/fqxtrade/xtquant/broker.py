@@ -429,6 +429,7 @@ def main():
         thread_pool.shutdown()
         logger.info("服务正常退出")
 
+
 def _runtime_context_from_order_message(order):
     payload = dict(order or {})
     return {
