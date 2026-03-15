@@ -85,6 +85,15 @@
 
 其中 `effective_state`、`stale` 和规则说明均由服务端按真实 `PositionPolicy` 计算。
 
+## 页面组织
+
+`/position-management` 当前已切到统一的 workbench density 语法：
+
+- 页面顶部只保留标题、配置更新时间和状态摘要条
+- 参数 inventory 维持“可编辑阈值 + 只读参数”边界，但统一压缩为紧凑 panel
+- 当前仓位状态改成摘要条、指标块和元数据块，不再使用大 hero
+- holding scope、规则矩阵、最近决策统一改成高密度列表/表格表达
+
 ## holding scope 口径
 
 页面展示的 holding scope 与门禁判断保持同一口径，不直接复用旧的股票持仓列表接口。

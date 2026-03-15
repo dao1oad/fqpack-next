@@ -87,6 +87,12 @@ TPSL 还会读取：
 - buy lot 级 stop_price 设置与启停
 - 同页查看 takeprofit / stoploss 触发历史及后续 request/order/trade
 
+当前 `/tpsl` 页面已切到统一的 workbench density 语法：
+
+- 顶部使用紧凑 toolbar 承载标题、摘要和刷新动作
+- 左侧保留 symbol 导航，右侧保留详情工作台
+- 统一历史改成高密度表格，继续同屏展示 request/order/trade 明细
+
 ## 部署/运行
 
 - 改动后至少重启：

@@ -1,14 +1,16 @@
 <template>
-  <div class="runtime-page">
+  <div class="workbench-page runtime-page">
     <MyHeader />
-    <div class="runtime-shell">
-      <section class="runtime-section runtime-section--workbench">
-        <div class="runtime-title-row">
-          <div>
-            <h1>运行观测</h1>
-            <p>主视图拆为全局 Trace 与组件 Event，分别回答“链路发生了什么”和“组件最近有没有工作”。</p>
+    <div class="workbench-body runtime-shell">
+      <section class="workbench-toolbar runtime-section runtime-section--workbench">
+        <div class="workbench-toolbar__header runtime-title-row">
+          <div class="workbench-title-group">
+            <div class="workbench-page-title">运行观测</div>
+            <div class="workbench-page-meta">
+              <span>主视图拆为全局 Trace 与组件 Event，分别回答“链路发生了什么”和“组件最近有没有工作”。</span>
+            </div>
           </div>
-          <div class="runtime-title-actions">
+          <div class="workbench-toolbar__actions runtime-title-actions">
             <el-radio-group v-model="activeView" size="small" class="runtime-view-switch">
               <el-radio-button label="traces">全局 Trace</el-radio-button>
               <el-radio-button label="events">组件 Event</el-radio-button>
@@ -32,45 +34,45 @@
 
         <el-alert
           v-if="pageError"
-          class="runtime-error-banner"
+          class="workbench-alert"
           type="error"
           :title="pageError"
           show-icon
           :closable="false"
         />
 
-        <div class="trace-list-summary">
-          <article class="trace-list-summary-card">
-            <span>可见 Trace</span>
-            <strong>{{ traceListSummary.trace_count }}</strong>
-          </article>
-          <article class="trace-list-summary-card">
-            <span>异常链路</span>
-            <strong>{{ traceListSummary.issue_trace_count }}</strong>
-          </article>
-          <article class="trace-list-summary-card">
-            <span>异常节点</span>
-            <strong>{{ traceListSummary.issue_step_count }}</strong>
-          </article>
-          <article class="trace-list-summary-card trace-list-summary-card--wide">
-            <span>当前筛选</span>
-            <div class="runtime-filter-chips">
-              <button
-                v-for="chip in filterChips"
-                :key="chip.key"
-                type="button"
-                class="runtime-filter-chip"
-                @click="clearFilterChip(chip)"
-              >
-                {{ chip.label }}
-              </button>
-              <span v-if="filterChips.length === 0" class="runtime-filter-empty">当前无筛选</span>
-            </div>
-          </article>
+        <div class="workbench-summary-row runtime-summary-row">
+          <span class="workbench-summary-chip">
+            可见 Trace <strong>{{ traceListSummary.trace_count }}</strong>
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--warning">
+            异常链路 <strong>{{ traceListSummary.issue_trace_count }}</strong>
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--danger">
+            异常节点 <strong>{{ traceListSummary.issue_step_count }}</strong>
+          </span>
+          <div class="runtime-filter-chips">
+            <button
+              v-for="chip in filterChips"
+              :key="chip.key"
+              type="button"
+              class="runtime-filter-chip"
+              @click="clearFilterChip(chip)"
+            >
+              {{ chip.label }}
+            </button>
+            <span
+              v-if="filterChips.length === 0"
+              class="workbench-summary-chip workbench-summary-chip--muted runtime-filter-empty"
+            >
+              当前无筛选
+            </span>
+          </div>
         </div>
+      </section>
 
-        <div class="runtime-browse-layout">
-          <aside class="runtime-browser-panel runtime-browser-panel--components">
+      <div class="runtime-browse-layout">
+        <aside class="workbench-panel runtime-browser-panel runtime-browser-panel--components">
             <div class="runtime-home-head">
               <div>
                 <h2>组件导航</h2>
@@ -148,7 +150,7 @@
             </div>
           </aside>
 
-          <section class="runtime-browser-panel runtime-browser-panel--feed">
+          <section class="workbench-panel runtime-browser-panel runtime-browser-panel--feed">
             <template v-if="activeView === 'traces'">
               <div class="runtime-home-head">
                 <div>
@@ -679,7 +681,6 @@
             </div>
           </section>
         </div>
-      </section>
     </div>
 
     <el-drawer v-model="advancedFilterVisible" size="420px" title="高级筛选">
@@ -1268,37 +1269,36 @@ onBeforeUnmount(() => {
 <style scoped>
 .runtime-page {
   min-height: 100vh;
-  background:
-    linear-gradient(180deg, #eef4ff 0%, #f9fbff 38%, #f5f7fa 100%);
+  background: #f5f7fa;
 }
 
 .runtime-shell {
-  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
+  min-height: 0;
 }
 
 .runtime-section {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid #dfe7f3;
-  border-radius: 18px;
-  padding: 18px;
-  box-shadow: 0 12px 36px rgba(20, 48, 84, 0.06);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
 }
 
 .runtime-title-row {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   align-items: flex-start;
-  margin-bottom: 14px;
+  margin: 0;
 }
 
 .runtime-title-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 
@@ -1306,44 +1306,34 @@ onBeforeUnmount(() => {
   margin-right: 4px;
 }
 
-.runtime-title-row h1 {
-  margin: 0;
-  font-size: 26px;
-  color: #17324d;
-}
-
-.runtime-title-row p {
-  margin: 6px 0 0;
-  color: #56718d;
-}
-
-.runtime-error-banner {
-  margin-bottom: 14px;
+.runtime-summary-row {
+  justify-content: space-between;
 }
 
 .runtime-filter-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-left: auto;
 }
 
 .runtime-filter-chip {
-  border: 0;
+  border: 1px solid #d9ecff;
   border-radius: 999px;
-  padding: 6px 10px;
-  background: #edf4fb;
-  color: #35506c;
+  padding: 4px 10px;
+  background: #f4f9ff;
+  color: #409eff;
   cursor: pointer;
+  font-size: 12px;
   font: inherit;
 }
 
 .runtime-filter-chip:hover {
-  background: #dbe9f7;
+  background: #ecf5ff;
 }
 
 .runtime-filter-empty {
-  color: #69829b;
-  font-size: 12px;
+  color: #64748b;
 }
 
 .runtime-home-section {
@@ -1362,19 +1352,19 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .runtime-home-head h2 {
   margin: 0;
-  color: #17324d;
-  font-size: 20px;
+  color: #303133;
+  font-size: 15px;
 }
 
 .runtime-home-head p {
-  margin: 6px 0 0;
-  color: #69829b;
-  font-size: 13px;
+  margin: 4px 0 0;
+  color: #909399;
+  font-size: 12px;
 }
 
 .runtime-home-meta {
@@ -1382,8 +1372,8 @@ onBeforeUnmount(() => {
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  background: #edf4fb;
-  color: #35506c;
+  background: #f8fafc;
+  color: #64748b;
   font-size: 12px;
 }
 
@@ -1396,22 +1386,23 @@ onBeforeUnmount(() => {
 .runtime-browse-layout {
   display: grid;
   grid-template-columns: 260px minmax(360px, 1.2fr) minmax(420px, 1.1fr);
-  gap: 16px;
+  gap: 12px;
   align-items: start;
 }
 
 .runtime-browser-panel {
   min-width: 0;
-  border: 1px solid #d8e2ee;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
-  padding: 16px;
+  border-color: #ebeef5;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
 }
 
 .runtime-browser-panel--detail {
   padding: 0;
   background: transparent;
   border: 0;
+  box-shadow: none;
 }
 
 .component-sidebar-list {
@@ -1422,10 +1413,10 @@ onBeforeUnmount(() => {
 
 .component-sidebar-item {
   width: 100%;
-  border: 1px solid #d8e2ee;
-  border-radius: 14px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
   background: #fff;
-  padding: 12px;
+  padding: 10px;
   text-align: left;
   cursor: pointer;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
@@ -1433,9 +1424,9 @@ onBeforeUnmount(() => {
 
 .component-sidebar-item:hover,
 .component-sidebar-item.active {
-  border-color: #21405e;
-  box-shadow: 0 12px 28px rgba(35, 73, 115, 0.12);
-  transform: translateX(2px);
+  border-color: #409eff;
+  box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.12);
+  transform: none;
 }
 
 .component-sidebar-item.is-warning {

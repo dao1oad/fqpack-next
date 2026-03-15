@@ -62,6 +62,15 @@
 
 `GET /api/order-management/orders* -> OrderManagementReadService -> om_orders + om_order_requests + om_order_events + om_trade_facts -> /order-management`
 
+## 页面组织
+
+`/order-management` 当前已切到统一的 workbench density 语法：
+
+- 顶部使用紧凑 toolbar 承载标题、筛选、摘要与主操作
+- 订单统计改为摘要条，不再使用独立大统计卡
+- 主体保持左侧订单列表、右侧订单详情的同屏并排结构
+- 详情区继续展示主记录、请求信息、状态流转、成交回报，但统一使用紧凑 panel 与标签语法
+
 ## 存储
 
 主事实集合：
