@@ -39,7 +39,6 @@ BOOTSTRAP_PROMPTS = [
 SETTINGS_PROMPTS = [
     ("notification.webhook.dingtalk.private", "私人钉钉机器人", "text"),
     ("notification.webhook.dingtalk.public", "公共钉钉机器人", "text"),
-    ("monitor.stock.periods", "监控股票周期（逗号分隔）", "list"),
     ("monitor.xtdata.mode", "XTData 模式", "text"),
     ("monitor.xtdata.max_symbols", "XTData 最大订阅数", "int"),
     ("monitor.xtdata.queue_backlog_threshold", "XTData 背压阈值", "int"),
@@ -48,10 +47,7 @@ SETTINGS_PROMPTS = [
     ("xtquant.account", "XT 账户", "text"),
     ("xtquant.account_type", "XT 账户类型", "text"),
     ("xtquant.broker_submit_mode", "Broker Submit Mode", "text"),
-    ("guardian.stock.position_pct", "Guardian 仓位百分比", "float"),
-    ("guardian.stock.auto_open", "Guardian 自动开仓（yes/no）", "bool"),
     ("guardian.stock.lot_amount", "Guardian 单次买入金额", "int"),
-    ("guardian.stock.min_amount", "Guardian 最小买入金额", "int"),
     ("guardian.stock.threshold.mode", "Guardian 阈值模式", "text"),
     ("guardian.stock.threshold.percent", "Guardian 阈值百分比", "float"),
     ("guardian.stock.threshold.atr.period", "Guardian 阈值 ATR 周期", "int"),

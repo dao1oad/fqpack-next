@@ -78,7 +78,7 @@ def test_system_config_update_routes_surface_validation_errors(monkeypatch):
             raise ValueError("mongodb.host is required")
 
         def update_settings(self, payload):
-            raise ValueError("guardian.stock.position_pct must be finite")
+            raise ValueError("guardian.stock.lot_amount must be an integer")
 
     monkeypatch.setattr(
         "freshquant.rear.system_config.routes._get_system_config_service",
@@ -102,5 +102,5 @@ def test_system_config_update_routes_surface_validation_errors(monkeypatch):
     assert settings_response.status_code == 400
     assert (
         settings_response.get_json()["error"]
-        == "guardian.stock.position_pct must be finite"
+        == "guardian.stock.lot_amount must be an integer"
     )

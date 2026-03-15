@@ -16,7 +16,6 @@ DEFAULT_NOTIFICATION = {
     }
 }
 DEFAULT_MONITOR = {
-    "stock": {"periods": ["1min", "5min"]},
     "xtdata": {
         "mode": "guardian_1m",
         "max_symbols": 60,
@@ -32,10 +31,7 @@ DEFAULT_XTQUANT = {
 }
 DEFAULT_GUARDIAN = {
     "stock": {
-        "position_pct": 30.0,
-        "auto_open": False,
         "lot_amount": 1500,
-        "min_amount": 1000,
         "threshold": {"mode": "percent", "percent": 1},
         "grid_interval": {"mode": "percent", "percent": 3},
     }
@@ -70,7 +66,6 @@ class NotificationSettings:
 
 @dataclass(frozen=True)
 class MonitorSettings:
-    stock_periods: list[str] = field(default_factory=lambda: ["1min", "5min"])
     xtdata_mode: str = "guardian_1m"
     xtdata_max_symbols: int = 60
     xtdata_queue_backlog_threshold: int = 500
@@ -87,10 +82,7 @@ class XtquantSettings:
 
 @dataclass(frozen=True)
 class GuardianSettings:
-    stock_position_pct: float = 30.0
-    stock_auto_open: bool = False
     stock_lot_amount: int = 1500
-    stock_min_amount: int = 1000
     stock_threshold: dict[str, Any] = field(
         default_factory=lambda: {"mode": "percent", "percent": 1}
     )
@@ -144,7 +136,6 @@ class SystemSettings:
             ),
         )
         self.monitor = MonitorSettings(
-            stock_periods=list(get(monitor_doc, "stock.periods", ["1min", "5min"])),
             xtdata_mode=str(get(monitor_doc, "xtdata.mode", "guardian_1m")),
             xtdata_max_symbols=int(get(monitor_doc, "xtdata.max_symbols", 60) or 60),
             xtdata_queue_backlog_threshold=int(
@@ -170,12 +161,7 @@ class SystemSettings:
             broker_submit_mode=broker_submit_mode,
         )
         self.guardian = GuardianSettings(
-            stock_position_pct=float(
-                get(guardian_doc, "stock.position_pct", 30.0) or 30.0
-            ),
-            stock_auto_open=bool(get(guardian_doc, "stock.auto_open", False)),
             stock_lot_amount=int(get(guardian_doc, "stock.lot_amount", 1500) or 1500),
-            stock_min_amount=int(get(guardian_doc, "stock.min_amount", 1000) or 1000),
             stock_threshold=dict(
                 get(guardian_doc, "stock.threshold", {"mode": "percent", "percent": 1})
             ),

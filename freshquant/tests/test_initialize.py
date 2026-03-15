@@ -58,7 +58,6 @@ def _make_dashboard():
                     }
                 },
                 "monitor": {
-                    "stock": {"periods": ["1min", "5min"]},
                     "xtdata": {
                         "mode": "guardian_1m",
                         "max_symbols": 50,
@@ -74,10 +73,7 @@ def _make_dashboard():
                 },
                 "guardian": {
                     "stock": {
-                        "position_pct": 31,
-                        "auto_open": True,
                         "lot_amount": 1800,
-                        "min_amount": 1200,
                         "threshold": {"mode": "percent", "percent": 1.2},
                         "grid_interval": {"mode": "percent", "percent": 3},
                     }

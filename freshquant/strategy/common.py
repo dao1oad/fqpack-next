@@ -35,30 +35,6 @@ def get_trade_amount(instrument_code: Optional[str] = None) -> int:
 
 
 @in_memory_cache.memoize(expiration=900)
-def get_trade_min_amount() -> int:
-    """获取最小交易手数配置（直接从guardian参数配置获取）"""
-    if param := DBfreshquant["params"].find_one({"code": "guardian"}):
-        return int(pydash.get(param["value"], "stock.min_amount", 1000))
-    return 1000
-
-
-@in_memory_cache.memoize(expiration=900)
-def get_position_pct() -> float:
-    """获取仓位比例配置（从guardian参数配置获取）"""
-    if param := DBfreshquant["params"].find_one({"code": "guardian"}):
-        return float(pydash.get(param["value"], "stock.position_pct", 30.0))
-    return 40.0
-
-
-@in_memory_cache.memoize(expiration=900)
-def get_auto_open() -> bool:
-    """获取自动开仓配置（从guardian参数配置获取）"""
-    if param := DBfreshquant["params"].find_one({"code": "guardian"}):
-        return bool(pydash.get(param["value"], "stock.auto_open", False))
-    return False
-
-
-@in_memory_cache.memoize(expiration=900)
 def get_threshold_config(instrument_code: Optional[str] = None) -> dict:
     """获取阈值配置：优先从 instrument_strategy 获取，其次从 guardian 参数获取，最后使用默认值"""
     default = {
@@ -111,4 +87,3 @@ def get_grid_interval_config(instrument_code: Optional[str] = None) -> dict:
 if __name__ == "__main__":
     trade_amount = get_trade_amount("603517.SH")
     print(trade_amount)
-    print(get_auto_open())

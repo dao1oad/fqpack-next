@@ -92,7 +92,6 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
                 {
                     "code": "monitor",
                     "value": {
-                        "stock": {"periods": ["1min", "5min"]},
                         "xtdata": {
                             "mode": "guardian_1m",
                             "max_symbols": 48,
@@ -114,10 +113,7 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
                     "code": "guardian",
                     "value": {
                         "stock": {
-                            "position_pct": 35.0,
-                            "auto_open": True,
                             "lot_amount": 1800,
-                            "min_amount": 1200,
                             "threshold": {"mode": "atr", "atr": {"period": 14}},
                             "grid_interval": {"mode": "percent", "percent": 3},
                         }
@@ -149,7 +145,6 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
 
     assert settings.notification.dingtalk_private_webhook == "https://private.example"
     assert settings.notification.dingtalk_public_webhook == "https://public.example"
-    assert settings.monitor.stock_periods == ["1min", "5min"]
     assert settings.monitor.xtdata_mode == "guardian_1m"
     assert settings.monitor.xtdata_max_symbols == 48
     assert settings.monitor.xtdata_queue_backlog_threshold == 200
@@ -158,10 +153,7 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
     assert settings.xtquant.account == "068000076370"
     assert settings.xtquant.account_type == "CREDIT"
     assert settings.xtquant.broker_submit_mode == "observe_only"
-    assert settings.guardian.stock_position_pct == 35.0
-    assert settings.guardian.stock_auto_open is True
     assert settings.guardian.stock_lot_amount == 1800
-    assert settings.guardian.stock_min_amount == 1200
     assert settings.guardian.stock_threshold == {
         "mode": "atr",
         "atr": {"period": 14},

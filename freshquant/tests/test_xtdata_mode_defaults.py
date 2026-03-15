@@ -34,6 +34,9 @@ class FakeParamsCollection:
         for key, value in (update.get("$set") or {}).items():
             _set_nested_value(doc, key, value)
 
+        for key in (update.get("$unset") or {}).keys():
+            _unset_nested_value(doc, key)
+
 
 class FakeDb:
     def __init__(self, docs: list[dict] | None = None):
@@ -50,6 +53,17 @@ def _set_nested_value(doc: dict, key: str, value):
             cur[part] = next_value
         cur = next_value
     cur[parts[-1]] = value
+
+
+def _unset_nested_value(doc: dict, key: str):
+    parts = str(key).split(".")
+    cur = doc
+    for part in parts[:-1]:
+        next_value = cur.get(part)
+        if not isinstance(next_value, dict):
+            return
+        cur = next_value
+    cur.pop(parts[-1], None)
 
 
 def test_normalize_xtdata_mode_defaults_to_guardian_1m():
@@ -132,3 +146,62 @@ def test_init_param_dict_preserves_explicit_clx_mode(monkeypatch):
     assert monitor_doc["value"]["xtdata"]["mode"] == "clx_15_30"
     assert monitor_doc["value"]["xtdata"]["max_symbols"] == 88
     assert monitor_doc["value"]["xtdata"]["prewarm"]["max_bars"] == 12345
+
+
+def test_init_param_dict_does_not_persist_removed_guardian_and_monitor_fields(
+    monkeypatch,
+):
+    fake_db = FakeDb()
+    monkeypatch.setattr(params, "DBfreshquant", fake_db)
+    monkeypatch.setattr(params, "mask", lambda value, show_chars=0: value)
+
+    params.init_param_dict(quiet=True)
+
+    monitor_doc = fake_db.params.docs["monitor"]
+    guardian_doc = fake_db.params.docs["guardian"]
+
+    assert monitor_doc["value"].get("stock", {}) == {}
+    assert "position_pct" not in guardian_doc["value"]["stock"]
+    assert "auto_open" not in guardian_doc["value"]["stock"]
+    assert "min_amount" not in guardian_doc["value"]["stock"]
+
+
+def test_init_param_dict_unsets_removed_guardian_and_monitor_fields_from_existing_docs(
+    monkeypatch,
+):
+    fake_db = FakeDb(
+        [
+            {
+                "code": "monitor",
+                "value": {
+                    "stock": {
+                        "periods": ["1m", "5m"],
+                    }
+                },
+            },
+            {
+                "code": "guardian",
+                "value": {
+                    "stock": {
+                        "position_pct": 30.0,
+                        "auto_open": True,
+                        "lot_amount": 3000.0,
+                        "min_amount": 1000.0,
+                    }
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr(params, "DBfreshquant", fake_db)
+    monkeypatch.setattr(params, "mask", lambda value, show_chars=0: value)
+
+    params.init_param_dict(quiet=True)
+
+    monitor_doc = fake_db.params.docs["monitor"]
+    guardian_doc = fake_db.params.docs["guardian"]
+
+    assert "periods" not in monitor_doc["value"].get("stock", {})
+    assert guardian_doc["value"]["stock"]["lot_amount"] == 3000.0
+    assert "position_pct" not in guardian_doc["value"]["stock"]
+    assert "auto_open" not in guardian_doc["value"]["stock"]
+    assert "min_amount" not in guardian_doc["value"]["stock"]

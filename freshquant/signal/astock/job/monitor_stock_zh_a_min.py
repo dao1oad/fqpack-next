@@ -33,7 +33,7 @@ strategy = StrategyGuardian()
 
 
 def monitor_stock_zh_a_min(loop):
-    periods = system_settings.monitor.stock_periods or ["1m"]
+    periods = ["1m"]
     executor = ThreadPoolExecutor()
 
     while True:

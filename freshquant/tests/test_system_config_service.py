@@ -140,7 +140,6 @@ def _build_database():
                 {
                     "code": "monitor",
                     "value": {
-                        "stock": {"periods": ["1min", "5min"]},
                         "xtdata": {
                             "mode": "guardian_1m",
                             "max_symbols": 50,
@@ -162,10 +161,7 @@ def _build_database():
                     "code": "guardian",
                     "value": {
                         "stock": {
-                            "position_pct": 31,
-                            "auto_open": True,
                             "lot_amount": 1800,
-                            "min_amount": 1200,
                             "threshold": {
                                 "mode": "atr",
                                 "atr": {"period": 14, "multiplier": 1.5},
@@ -315,7 +311,6 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
             }
         },
         "monitor": {
-            "stock": {"periods": ["1min"]},
             "xtdata": {
                 "mode": "guardian_1m",
                 "max_symbols": 88,
@@ -331,10 +326,7 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         },
         "guardian": {
             "stock": {
-                "position_pct": 25,
-                "auto_open": False,
                 "lot_amount": 3000,
-                "min_amount": 1800,
                 "threshold": {"mode": "percent", "percent": 1.2},
                 "grid_interval": {
                     "mode": "atr",

@@ -57,6 +57,21 @@
 
 排障时先判断问题属于“启动配置”还是“运行参数”，再去对应真值源排查。
 
+## Mongo 系统设置（params）
+
+除基础设施配置外，当前系统仍通过 `freshquant.params` 保存一部分运行时业务参数。
+
+当前正式使用的 `code` 只有：
+
+- `notification`
+- `monitor`
+- `xtquant`
+- `guardian`
+
+这些参数的字段含义、可选值和缺省行为，统一见：
+
+- [系统设置参数（params）](./reference/system-settings-params.md)
+
 ## Bootstrap 配置项
 
 ### 基础设施
@@ -117,7 +132,6 @@
 
 - `notification.webhook.dingtalk.private`
 - `notification.webhook.dingtalk.public`
-- `monitor.stock.periods`
 - `monitor.xtdata.mode`
 - `monitor.xtdata.max_symbols`
 - `monitor.xtdata.queue_backlog_threshold`
@@ -126,10 +140,7 @@
 - `xtquant.account`
 - `xtquant.account_type`
 - `xtquant.broker_submit_mode`
-- `guardian.stock.position_pct`
-- `guardian.stock.auto_open`
 - `guardian.stock.lot_amount`
-- `guardian.stock.min_amount`
 - `guardian.stock.threshold.*`
 - `guardian.stock.grid_interval.*`
 
