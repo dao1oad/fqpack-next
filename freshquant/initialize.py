@@ -4,7 +4,7 @@ import argparse
 from copy import deepcopy
 
 from freshquant.carnation.enum_instrument import InstrumentType
-from freshquant.market_data.xtdata.pools import load_monitor_codes
+from freshquant.market_data.xtdata.pools import load_guardian_monitor_codes
 from freshquant.system_config_service import SystemConfigService
 from freshquant.system_settings import system_settings
 from freshquant.util.code import (
@@ -181,7 +181,7 @@ def run_runtime_bootstrap(
     settings_provider=system_settings,
     xt_runtime_sync_runner=None,
     credit_subject_sync_runner=None,
-    monitor_code_loader=load_monitor_codes,
+    monitor_code_loader=load_guardian_monitor_codes,
     instrument_strategy_writer=None,
     instrument_type_loader=None,
     instrument_code_loader=None,
@@ -200,8 +200,7 @@ def run_runtime_bootstrap(
     credit_subject_summary = credit_subject_sync_runner()
     strategy_id = str(settings_provider.get_strategy_id("Guardian") or "")
     monitor_codes = monitor_code_loader(
-        mode=settings_provider.monitor.xtdata_mode,
-        max_symbols=settings_provider.monitor.xtdata_max_symbols,
+        max_symbols=settings_provider.monitor.xtdata_max_symbols
     )
 
     count = 0

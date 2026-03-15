@@ -72,7 +72,20 @@ def test_normalize_xtdata_mode_defaults_to_guardian_1m():
     assert pools.normalize_xtdata_mode("  ") == "guardian_1m"
     assert pools.normalize_xtdata_mode("unknown_mode") == "guardian_1m"
     assert pools.normalize_xtdata_mode("GUARDIAN_1M") == "guardian_1m"
-    assert pools.normalize_xtdata_mode("CLX_15_30") == "clx_15_30"
+    assert pools.normalize_xtdata_mode("CLX_15_30") == "guardian_and_clx_15_30"
+    assert (
+        pools.normalize_xtdata_mode("guardian_and_clx_15_30")
+        == "guardian_and_clx_15_30"
+    )
+
+
+def test_xtdata_mode_capabilities_cover_combined_mode():
+    assert pools.xtdata_mode_enables_guardian("guardian_1m") is True
+    assert pools.xtdata_mode_enables_clx("guardian_1m") is False
+    assert pools.xtdata_mode_enables_guardian("guardian_and_clx_15_30") is True
+    assert pools.xtdata_mode_enables_clx("guardian_and_clx_15_30") is True
+    assert pools.xtdata_mode_enables_guardian("clx_15_30") is True
+    assert pools.xtdata_mode_enables_clx("clx_15_30") is True
 
 
 def test_load_monitor_codes_defaults_unknown_mode_to_guardian(monkeypatch):
@@ -104,11 +117,36 @@ def test_load_monitor_codes_preserves_explicit_clx_mode(monkeypatch):
     monkeypatch.setattr(
         pools,
         "_load_clx_codes",
-        lambda limit: calls.append(("clx", limit)) or ["sz000002"],
+        lambda limit: calls.append(("clx", limit)) or ["sz000002", "sh600000"],
     )
 
-    assert pools.load_monitor_codes(mode="clx_15_30", max_symbols=7) == ["sz000002"]
-    assert calls == [("clx", 7)]
+    assert pools.load_monitor_codes(mode="clx_15_30", max_symbols=2) == [
+        "sz000001",
+        "sz000002",
+    ]
+    assert calls == [("guardian", 2), ("clx", 2)]
+
+
+def test_load_monitor_codes_combines_guardian_and_clx_with_guardian_priority(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        pools,
+        "_load_guardian_codes",
+        lambda limit: ["sh600000", "sz000001", "sz000002"][:limit],
+    )
+    monkeypatch.setattr(
+        pools,
+        "_load_clx_codes",
+        lambda limit: ["sz000002", "sz300001", "sh600010"][:limit],
+    )
+
+    assert pools.load_monitor_codes(mode="guardian_and_clx_15_30", max_symbols=4) == [
+        "sh600000",
+        "sz000001",
+        "sz000002",
+        "sz300001",
+    ]
 
 
 def test_init_param_dict_persists_guardian_default_when_mode_missing(monkeypatch):
@@ -143,7 +181,7 @@ def test_init_param_dict_preserves_explicit_clx_mode(monkeypatch):
     params.init_param_dict(quiet=True)
 
     monitor_doc = fake_db.params.docs["monitor"]
-    assert monitor_doc["value"]["xtdata"]["mode"] == "clx_15_30"
+    assert monitor_doc["value"]["xtdata"]["mode"] == "guardian_and_clx_15_30"
     assert monitor_doc["value"]["xtdata"]["max_symbols"] == 88
     assert monitor_doc["value"]["xtdata"]["prewarm"]["max_bars"] == 12345
 

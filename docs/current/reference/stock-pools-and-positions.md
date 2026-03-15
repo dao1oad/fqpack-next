@@ -23,12 +23,13 @@
 ### `stock_pools`
 
 - 表示进入进一步跟踪或候选交易的池子
-- `load_monitor_codes(mode=clx_15_30)` 会读取非过期 `stock_pools`
+- `load_monitor_codes(mode=guardian_and_clx_15_30)` 会在 Guardian 池之后补充非过期 `stock_pools`
+- 兼容旧值 `clx_15_30`，读取时会按联合模式执行
 
 ### `must_pool`
 
 - 是 Guardian 新开仓范围的重要来源
-- 也是 XTData `guardian_1m` 订阅池的一部分
+- 也是 XTData `guardian_1m` 和 `guardian_and_clx_15_30` 订阅池的一部分
 - 记录止损价、首笔金额、常规 lot 金额、是否 forever
 
 ### `xt_positions`
@@ -46,7 +47,7 @@
 - Guardian 持仓内操作范围
   - `xt_positions`
 - CLX 多周期实时模型订阅池
-  - 非过期 `stock_pools`
+  - 联合模式下由 Guardian 池优先后，再用非过期 `stock_pools` 补足
 - Shouban30 工作区
   - `stock_pre_pools -> stock_pools`
 - `/stock-control` 的 `must_pools买入信号`
@@ -85,13 +86,14 @@
 ### 股票已在 must_pool，但 XTData 还没订阅
 
 - 检查 producer 订阅池是否刷新
-- 检查 `monitor.xtdata.mode=guardian_1m`
+- 检查 `monitor.xtdata.mode` 是否是 `guardian_1m` 或 `guardian_and_clx_15_30`
 
 ### `stock_pools模型信号` 列表为空
 
 - 检查 `realtime_screen_multi_period` 是否有数据
 - 检查 XTData consumer 是否在跑
-- 检查 `monitor.xtdata.mode` 是否切到了 `clx_15_30`
+- 检查 `monitor.xtdata.mode` 是否切到了 `guardian_and_clx_15_30`
+- 如果库里还是旧值 `clx_15_30`，运行时也会按联合模式执行
 
 ### 持仓有票，但 Guardian 卖点不触发
 

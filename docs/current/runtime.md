@@ -171,6 +171,6 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 - Docker 里的 Mongo/Redis 与宿主机 broker/xtdata 之间必须通过宿主机端口对齐，否则交易链会出现“页面正常、worker 无数据”。
 - 如果宿主机仍靠 `frequant-next.bat` 手工拉起，而不是 `fqnext-supervisord` service 开机自启，`Global Stewardship` 会失去稳定的正式入口与权限边界。
 - 如果宿主机进程仍报 `127.0.0.1:27017`，优先检查进程环境是否缺少 `FRESHQUANT_MONGODB__HOST/PORT`，以及是否还在走旧的 `qaenv` 默认值。
-- Guardian event 模式要求 `monitor.xtdata.mode=guardian_1m`；模式不对时进程会启动但不会真正处理 bar 更新。
-- `stock_pools模型信号` 依赖 XTData consumer 在 `clx_15_30` 模式下写 `realtime_screen_multi_period`；只开 Guardian event 链时该列表不会自动刷新。
+- Guardian event 模式要求 `monitor.xtdata.mode` 启用 Guardian 能力；正式值为 `guardian_1m` 或 `guardian_and_clx_15_30`。
+- `stock_pools模型信号` 依赖 XTData consumer 在 `guardian_and_clx_15_30` 模式下写 `realtime_screen_multi_period`；库里旧值 `clx_15_30` 也会按该模式执行。
 - Runtime Observability 采用旁路写盘，日志队列满时允许丢事件；排障时要同时对照业务集合，而不是只看 runtime 页面。

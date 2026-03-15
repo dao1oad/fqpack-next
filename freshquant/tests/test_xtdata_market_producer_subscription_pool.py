@@ -7,7 +7,7 @@ def test_load_subscription_codes_only_uses_monitor_pool(monkeypatch):
     monkeypatch.setattr(
         market_producer,
         "load_monitor_codes",
-        lambda *, mode, max_symbols: ["SH600000", "sz000001", ""],
+        lambda *, mode, max_symbols: ["SH600000", "sz000001", "", "sh600000"],
     )
 
     codes = market_producer._load_subscription_codes(mode="guardian_1m", max_symbols=50)
@@ -28,6 +28,6 @@ def test_resolve_producer_runtime_config_uses_system_settings_and_bootstrap():
 
     assert config == {
         "port": 58611,
-        "mode": "clx_15_30",
+        "mode": "guardian_and_clx_15_30",
         "max_symbols": 88,
     }

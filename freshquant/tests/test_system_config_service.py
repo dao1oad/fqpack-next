@@ -312,7 +312,7 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         },
         "monitor": {
             "xtdata": {
-                "mode": "guardian_1m",
+                "mode": "clx_15_30",
                 "max_symbols": 88,
                 "queue_backlog_threshold": 320,
                 "prewarm": {"max_bars": 480},
@@ -343,9 +343,14 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
     result = service.update_settings(payload)
 
     assert result["values"]["xtquant"]["account"] == "123456"
+    assert result["values"]["monitor"]["xtdata"]["mode"] == "guardian_and_clx_15_30"
     assert (
         database["params"].find_one({"code": "xtquant"})["value"]["path"]
         == "D:/mini_qmt/userdata_mini"
+    )
+    assert (
+        database["params"].find_one({"code": "monitor"})["value"]["xtdata"]["mode"]
+        == "guardian_and_clx_15_30"
     )
     assert (
         database["params"].find_one({"code": "guardian"})["value"]["stock"][

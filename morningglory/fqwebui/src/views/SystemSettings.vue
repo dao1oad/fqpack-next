@@ -211,7 +211,10 @@
                   <el-form-item label="XTData 模式">
                     <el-select v-model="settingsForm.monitor.xtdata.mode">
                       <el-option label="guardian_1m" value="guardian_1m" />
-                      <el-option label="clx_15_30" value="clx_15_30" />
+                      <el-option
+                        label="guardian_and_clx_15_30"
+                        value="guardian_and_clx_15_30"
+                      />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="最大订阅数">
