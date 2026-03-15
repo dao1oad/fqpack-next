@@ -37,15 +37,52 @@ def _fetch_etf_adj(
     return docs
 
 
+def _resolve_etf_history_days(period: str, bar_count=0):
+    default_days = int(TIME_DELTA[period])
+    if not bar_count:
+        return default_days
+
+    try:
+        requested_bars = max(int(bar_count), 0)
+    except (TypeError, ValueError):
+        return default_days
+    if requested_bars <= 0:
+        return default_days
+
+    minute_map = {
+        "1m": 1,
+        "3m": 3,
+        "5m": 5,
+        "15m": 15,
+        "30m": 30,
+        "60m": 60,
+        "120m": 120,
+    }
+    if period in minute_map:
+        bars_per_day = max(1, int(240 / minute_map[period]))
+        requested_days = int(((requested_bars / bars_per_day) + 60) * 1.35)
+        return -max(abs(default_days), requested_days)
+
+    if period == "1d":
+        requested_days = int((requested_bars + 30) * 1.2)
+        return -max(abs(default_days), requested_days)
+
+    if period == "1w":
+        requested_days = int((requested_bars * 7 + 60) * 1.2)
+        return -max(abs(default_days), requested_days)
+
+    return default_days
+
+
 @in_memory_cache.memoize(expiration=3)
-def queryEtfCandleSticks(code: str, period: str, endDate=None):
+def queryEtfCandleSticks(code: str, period: str, endDate=None, bar_count=0):
     if endDate is None or endDate == "":
         end = datetime.now() + timedelta(1)
     else:
         end = datetime.strptime(endDate, "%Y-%m-%d")
     end = end.replace(hour=23, minute=59, second=59, microsecond=999, tzinfo=TZ)
     shortCode = code[2:]
-    start = end + timedelta(TIME_DELTA[period])
+    start = end + timedelta(days=_resolve_etf_history_days(period, bar_count))
     candleSticks = None
     if period == "1m":
         candleSticks = queryEtfCandleSticksMin(shortCode, "1min", start, end)
@@ -71,6 +108,8 @@ def queryEtfCandleSticks(code: str, period: str, endDate=None):
         candleSticks['time_stamp'] = candleSticks.index.to_series().apply(
             lambda value: value[0].timestamp()
         )
+    if candleSticks is not None and bar_count and len(candleSticks) > int(bar_count):
+        candleSticks = candleSticks.iloc[-int(bar_count) :].copy()
     return candleSticks
 
 

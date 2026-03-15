@@ -133,13 +133,14 @@ def get_stock_data(
     symbol,
     period,
     endDate=None,
+    bar_count=0,
 ):
     if endDate is None or endDate == "":
         end = datetime.now() + timedelta(1)
     else:
         end = datetime.strptime(endDate, "%Y-%m-%d")
     end = end.replace(hour=23, minute=59, second=59, microsecond=999, tzinfo=cfg.TZ)
-    start = end + timedelta(cfg.TIME_DELTA[period])
+    start = end + timedelta(days=_resolve_stock_history_days(period, bar_count))
     code = symbol[2:]
 
     kline_data = None
@@ -172,8 +173,49 @@ def get_stock_data(
         )
     if kline_data is not None:
         kline_data.fillna(0, inplace=True)
+        if bar_count and len(kline_data) > int(bar_count):
+            kline_data = kline_data.iloc[-int(bar_count) :].copy()
     kline_data['datetime'] = kline_data.index
     return kline_data
+
+
+def _resolve_stock_history_days(period, bar_count=0):
+    default_days = int(cfg.TIME_DELTA[period])
+    if not bar_count:
+        return default_days
+
+    try:
+        requested_bars = max(int(bar_count), 0)
+    except (TypeError, ValueError):
+        return default_days
+    if requested_bars <= 0:
+        return default_days
+
+    minute_map = {
+        '1m': 1,
+        '3m': 3,
+        '5m': 5,
+        '15m': 15,
+        '30m': 30,
+        '60m': 60,
+        '90m': 90,
+        '120m': 120,
+        '180m': 180,
+    }
+    if period in minute_map:
+        bars_per_day = max(1, int(240 / minute_map[period]))
+        requested_days = int(((requested_bars / bars_per_day) + 60) * 1.35)
+        return -max(abs(default_days), requested_days)
+
+    if period == '1d':
+        requested_days = int((requested_bars + 30) * 1.2)
+        return -max(abs(default_days), requested_days)
+
+    if period == '1w':
+        requested_days = int((requested_bars * 7 + 60) * 1.2)
+        return -max(abs(default_days), requested_days)
+
+    return default_days
 
 
 @in_memory_cache.memoize(expiration=3)

@@ -245,130 +245,92 @@ export async function installVmHelpers(page) {
       }
     }
 
-    const normalizeDisplayColor = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '')
-
-    const isAxisPointerHorizontalLine = (item) => {
-      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
-      const shape = item?.shape || {}
-      const stroke = normalizeDisplayColor(item?.style?.stroke)
-      if (!type.includes('line')) {
-        return false
-      }
-      if (
-        !Number.isFinite(shape.x1) ||
-        !Number.isFinite(shape.y1) ||
-        !Number.isFinite(shape.x2) ||
-        !Number.isFinite(shape.y2)
-      ) {
-        return false
-      }
-
-      const isHorizontal = Math.abs(shape.y1 - shape.y2) < 0.5
-      const span = Math.abs(shape.x2 - shape.x1)
-      return (
-        isHorizontal &&
-        span > 200 &&
-        (stroke === '#9ea0a5' || stroke === 'rgba(158,160,165,1)')
-      )
-    }
-
-    const isAxisPointerPriceLabel = (item) => {
-      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
-      const fill = normalizeDisplayColor(item?.style?.fill)
-      const text = String(item?.style?.text || item?.textContent || '').trim()
-      return (
-        (type.includes('text') || type.includes('tspan')) &&
-        /^\d+(?:\.\d+)?$/.test(text) &&
-        (fill === 'rgba(179,180,183,1)' || fill === '#b3b4b7')
-      )
-    }
-
-    const isAxisPointerPriceLabelBackground = (item) => {
-      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
-      const fill = normalizeDisplayColor(item?.style?.fill)
-      const shape = item?.shape || {}
-      return (
-        type.includes('rect') &&
-        (fill === '#536298' || fill === 'rgba(83,98,152,1)') &&
-        Number.isFinite(shape.width) &&
-        Number.isFinite(shape.height) &&
-        shape.width >= 20 &&
-        shape.width <= 64 &&
-        shape.height >= 18
-      )
-    }
-
-    const isAxisPointerDateLabel = (item) => {
-      const type = String(item?.type || item?.constructor?.name || '').toLowerCase()
-      const fill = normalizeDisplayColor(item?.style?.fill)
-      const text = String(item?.style?.text || item?.textContent || '').trim()
-      return (
-        (type.includes('text') || type.includes('tspan')) &&
-        /^\d{4}(?:-\d{2}(?:-\d{2})?)?$/.test(text) &&
-        (fill === 'rgba(179,180,183,1)' || fill === '#b3b4b7')
-      )
-    }
-
     window.__readKlineSlimAxisPointerArtifacts = () => {
       const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
-      const displayList = chart?.getZr?.()?.storage?.getDisplayList?.() || []
-      const horizontalLines = []
-      const priceLabels = []
-      const priceLabelBackgrounds = []
-      const dateLabels = []
-
-      displayList.forEach((item) => {
-        if (isAxisPointerHorizontalLine(item)) {
-          horizontalLines.push({
-            stroke: String(item?.style?.stroke || ''),
-            shape: {
-              x1: Number(item?.shape?.x1),
-              y1: Number(item?.shape?.y1),
-              x2: Number(item?.shape?.x2),
-              y2: Number(item?.shape?.y2)
-            }
-          })
-          return
+      const option = chart?.getOption?.() || {}
+      const rootGraphicList = Array.isArray(option?.graphic) ? option.graphic : []
+      const graphicList = []
+      const stack = [...rootGraphicList]
+      while (stack.length) {
+        const current = stack.shift()
+        if (!current || typeof current !== 'object') {
+          continue
         }
-
-        if (isAxisPointerPriceLabel(item)) {
-          priceLabels.push({
-            fill: String(item?.style?.fill || ''),
-            text: String(item?.style?.text || item?.textContent || '')
-          })
-          return
+        graphicList.push(current)
+        if (Array.isArray(current.elements)) {
+          stack.unshift(...current.elements)
         }
-
-        if (isAxisPointerPriceLabelBackground(item)) {
-          priceLabelBackgrounds.push({
-            fill: String(item?.style?.fill || ''),
-            shape: {
-              x: Number(item?.shape?.x),
-              y: Number(item?.shape?.y),
-              width: Number(item?.shape?.width),
-              height: Number(item?.shape?.height)
-            }
-          })
-          return
+        if (Array.isArray(current.children)) {
+          stack.unshift(...current.children)
         }
+      }
 
-        if (isAxisPointerDateLabel(item)) {
-          dateLabels.push({
-            fill: String(item?.style?.fill || ''),
-            text: String(item?.style?.text || item?.textContent || '')
-          })
-        }
-      })
+      const crosshairItems = graphicList
+        .map((item) => ({
+          id: String(item?.id || ''),
+          type: String(item?.type || ''),
+          shape: item?.shape || null,
+          style: item?.style || {},
+          x: Number(item?.x),
+          y: Number(item?.y)
+        }))
+        .filter((item) => item.id.startsWith('kline-slim-crosshair-'))
+
+      const verticalLine = crosshairItems.find((item) => item.id === 'kline-slim-crosshair-vertical')
+      const horizontalLine = crosshairItems.find(
+        (item) => item.id === 'kline-slim-crosshair-horizontal'
+      )
+      const priceLabel = crosshairItems.find((item) => item.id === 'kline-slim-crosshair-price-label')
+      const priceLabelBackground = crosshairItems.find(
+        (item) => item.id === 'kline-slim-crosshair-price-background'
+      )
+      const dateLabel = crosshairItems.find((item) => item.id === 'kline-slim-crosshair-date-label')
+      const dateLabelBackground = crosshairItems.find(
+        (item) => item.id === 'kline-slim-crosshair-date-background'
+      )
 
       return {
-        horizontalLineCount: horizontalLines.length,
-        labelCount: priceLabels.length,
-        priceLabelBackgroundCount: priceLabelBackgrounds.length,
-        dateLabelCount: dateLabels.length,
-        horizontalLines,
-        priceLabels,
-        priceLabelBackgrounds,
-        dateLabels
+        itemCount: crosshairItems.length,
+        verticalLineCount: verticalLine ? 1 : 0,
+        horizontalLineCount: horizontalLine ? 1 : 0,
+        priceLabelCount: priceLabel ? 1 : 0,
+        priceLabelBackgroundCount: priceLabelBackground ? 1 : 0,
+        dateLabelCount: dateLabel ? 1 : 0,
+        dateLabelBackgroundCount: dateLabelBackground ? 1 : 0,
+        verticalLine: verticalLine
+          ? {
+              shape: {
+                x1: Number(verticalLine?.shape?.x1),
+                y1: Number(verticalLine?.shape?.y1),
+                x2: Number(verticalLine?.shape?.x2),
+                y2: Number(verticalLine?.shape?.y2)
+              }
+            }
+          : null,
+        horizontalLine: horizontalLine
+          ? {
+              shape: {
+                x1: Number(horizontalLine?.shape?.x1),
+                y1: Number(horizontalLine?.shape?.y1),
+                x2: Number(horizontalLine?.shape?.x2),
+                y2: Number(horizontalLine?.shape?.y2)
+              }
+            }
+          : null,
+        priceLabel: priceLabel
+          ? {
+              text: String(priceLabel?.style?.text || ''),
+              x: Number(priceLabel?.x),
+              y: Number(priceLabel?.y)
+            }
+          : null,
+        dateLabel: dateLabel
+          ? {
+              text: String(dateLabel?.style?.text || ''),
+              x: Number(dateLabel?.x),
+              y: Number(dateLabel?.y)
+            }
+          : null
       }
     }
     window.__readKlineSlimRenderSurface = () => {

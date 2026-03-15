@@ -56,7 +56,7 @@ def _resolve_security_symbol_and_type(symbol):
     return normalized_symbol, instrument_type
 
 
-def get_data_v2(symbol, period, end_date=None):
+def get_data_v2(symbol, period, end_date=None, bar_count=0):
     stock_fills = None
     future_fills = None
     digitalcoin_fills = None
@@ -67,7 +67,12 @@ def get_data_v2(symbol, period, end_date=None):
         query_symbol = symbol
     if instrumentType == InstrumentType.STOCK_CN:
         name = pydash.get(query_stock_map(), f'{query_symbol.lower()}.name')
-        get_instrument_data = get_stock_data
+        get_instrument_data = lambda code, current_period, current_end_date: get_stock_data(
+            code,
+            current_period,
+            current_end_date,
+            bar_count=bar_count,
+        )
         stock_fills = get_stock_fills(query_symbol[2:])
         if stock_fills is not None and len(stock_fills) > 0:
             desired_columns = [
@@ -86,7 +91,12 @@ def get_data_v2(symbol, period, end_date=None):
             stock_fills = None
     elif instrumentType == InstrumentType.ETF_CN:
         name = pydash.get(query_etf_map(), f'{query_symbol.lower()}.name')
-        get_instrument_data = queryEtfCandleSticks
+        get_instrument_data = lambda code, current_period, current_end_date: queryEtfCandleSticks(
+            code,
+            current_period,
+            current_end_date,
+            bar_count=bar_count,
+        )
         stock_fills = get_stock_fills(query_symbol[2:])
         if stock_fills is not None and len(stock_fills) > 0:
             desired_columns = [
