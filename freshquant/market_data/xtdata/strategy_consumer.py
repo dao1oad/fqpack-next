@@ -32,6 +32,7 @@ from freshquant.market_data.xtdata.constants import (
 from freshquant.market_data.xtdata.pools import (
     load_monitor_codes,
     normalize_xtdata_mode,
+    xtdata_mode_enables_clx,
 )
 from freshquant.market_data.xtdata.realtime_store import upsert_realtime_bars
 from freshquant.market_data.xtdata.schema import BarCloseEvent
@@ -437,7 +438,7 @@ class StrategyConsumer:
 
     def _model_ids_for(self, period_backend: str) -> list[int]:
         period_backend = to_backend_period(period_backend)
-        if self.mode == "clx_15_30" and period_backend in {"15min", "30min"}:
+        if xtdata_mode_enables_clx(self.mode) and period_backend in {"15min", "30min"}:
             return list(range(10001, 10013))
         return []
 

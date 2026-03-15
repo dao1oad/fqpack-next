@@ -172,6 +172,34 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
     }
 
 
+def test_system_settings_normalizes_legacy_clx_mode_to_combined_mode():
+    from freshquant.system_settings import SystemSettings
+
+    database = FakeDatabase(
+        {
+            "params": [
+                {
+                    "code": "monitor",
+                    "value": {
+                        "xtdata": {
+                            "mode": "clx_15_30",
+                            "max_symbols": 48,
+                            "queue_backlog_threshold": 200,
+                            "prewarm": {"max_bars": 120},
+                        },
+                    },
+                },
+            ],
+            "pm_configs": [],
+            "instrument_strategy": [],
+        }
+    )
+
+    settings = SystemSettings(database=database)
+
+    assert settings.monitor.xtdata_mode == "guardian_and_clx_15_30"
+
+
 def test_system_settings_ensure_defaults_and_strategy_lookup():
     from freshquant.system_settings import SystemSettings
 

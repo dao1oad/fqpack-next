@@ -11,6 +11,7 @@ from freshquant.bootstrap_config import (
     reload_bootstrap_config,
     resolve_bootstrap_file_path,
 )
+from freshquant.market_data.xtdata.pools import normalize_xtdata_mode
 from freshquant.system_settings import system_settings
 
 BOOTSTRAP_SECTION_META = {
@@ -334,7 +335,7 @@ class SystemConfigService:
             },
             "monitor": {
                 "xtdata": {
-                    "mode": provider.monitor.xtdata_mode,
+                    "mode": normalize_xtdata_mode(provider.monitor.xtdata_mode),
                     "max_symbols": provider.monitor.xtdata_max_symbols,
                     "queue_backlog_threshold": provider.monitor.xtdata_queue_backlog_threshold,
                     "prewarm": {
@@ -504,8 +505,10 @@ class SystemConfigService:
             },
             "monitor": {
                 "xtdata": {
-                    "mode": _require_text(
-                        xtdata.get("mode"), field_name="monitor.xtdata.mode"
+                    "mode": normalize_xtdata_mode(
+                        _require_text(
+                            xtdata.get("mode"), field_name="monitor.xtdata.mode"
+                        )
                     ),
                     "max_symbols": _require_int(
                         xtdata.get("max_symbols"),

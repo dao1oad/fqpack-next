@@ -26,7 +26,10 @@ producer 是唯一 XTData 入口；consumer 是唯一 bar 队列消费入口。
 - QuantAxis 历史库
 - 监控池来源
   - `guardian_1m = xt_positions + must_pool`
-  - `clx_15_30 = stock_pools`
+  - `guardian_and_clx_15_30 = (xt_positions + must_pool) + stock_pools`
+    - 先保留 Guardian 池
+    - 再补未过期 `stock_pools`
+    - 总数不超过 `monitor.xtdata.max_symbols`
 
 ## 数据流
 
@@ -51,14 +54,19 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
   - 实时结构或补权结果所需的基础数据
   - `realtime_screen_multi_period`
 
-当前模块会在 `clx_15_30` 模式下把命中的多周期 CLX 信号写入 `realtime_screen_multi_period`。
+当前模块会在启用 CLX 能力时把命中的多周期 CLX 信号写入 `realtime_screen_multi_period`。
 
 ## 配置
 
 - `monitor.xtdata.mode`
   - 决定订阅池来源和 consumer 行为。
   - `guardian_1m` 只服务 Guardian 1 分钟事件链。
-  - `clx_15_30` 会对 `stock_pools` 跑 15/30 分钟 CLX 模型，并写 `realtime_screen_multi_period`。
+  - `guardian_and_clx_15_30` 同时服务：
+    - Guardian 1 分钟事件链
+    - `stock_pools` 的 15/30 分钟 CLX 模型
+  - 兼容旧值：
+    - `clx_15_30`
+      - 读取时自动归一到 `guardian_and_clx_15_30`
 - `monitor.xtdata.max_symbols`
   - 限制订阅池大小。
 - `monitor.xtdata.queue_backlog_threshold`
@@ -68,7 +76,8 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 
 对 Guardian 主链最重要的是：
 
-- `monitor.xtdata.mode=guardian_1m`
+- `monitor.xtdata.mode` 启用了 Guardian 能力
+  - 正式值可为 `guardian_1m` 或 `guardian_and_clx_15_30`
 
 ## 部署/运行
 

@@ -87,16 +87,23 @@
 
 - 含义：XTData 实时监控模式。
 - 类型：`str`
-- 支持值：
+- 正式支持值：
   - `guardian_1m`
-  - `clx_15_30`
+  - `guardian_and_clx_15_30`
 - 缺省值：`guardian_1m`
 - 非法值行为：自动归一到 `guardian_1m`
+- 兼容读取值：
+  - `clx_15_30`
+    - 读取时自动归一到 `guardian_and_clx_15_30`
 - 模式语义：
   - `guardian_1m`
     - 监控集合 = `xt_positions + must_pool`
-  - `clx_15_30`
-    - 监控集合 = 未过期 `stock_pools`
+    - Guardian event 正常运行
+    - 不跑 `stock_pools` 的 15/30 分钟 CLX 补充池
+  - `guardian_and_clx_15_30`
+    - 监控集合 = Guardian 池优先 + 未过期 `stock_pools` 补足
+    - Guardian event 正常运行
+    - XTData consumer 会继续跑 15/30 分钟 CLX 模型并写 `realtime_screen_multi_period`
 
 ### monitor.xtdata.max_symbols
 

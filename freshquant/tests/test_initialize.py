@@ -167,10 +167,14 @@ def test_run_runtime_bootstrap_syncs_xt_credit_subjects_and_instrument_strategy_
     from freshquant.initialize import run_runtime_bootstrap
 
     instrument_strategy_calls = []
+    monitor_loader_calls = []
 
     summary = run_runtime_bootstrap(
         settings_provider=SimpleNamespace(
-            monitor=SimpleNamespace(xtdata_mode="guardian_1m", xtdata_max_symbols=20),
+            monitor=SimpleNamespace(
+                xtdata_mode="guardian_and_clx_15_30",
+                xtdata_max_symbols=20,
+            ),
             get_strategy_id=lambda code: (
                 "guardian_strategy_id" if code == "Guardian" else ""
             ),
@@ -182,7 +186,8 @@ def test_run_runtime_bootstrap_syncs_xt_credit_subjects_and_instrument_strategy_
             "trades": 4,
         },
         credit_subject_sync_runner=lambda: {"count": 5},
-        monitor_code_loader=lambda mode, max_symbols: ["sz000001", "sh510050"],
+        monitor_code_loader=lambda max_symbols: monitor_loader_calls.append(max_symbols)
+        or ["sz000001", "sh510050"],
         instrument_code_loader=lambda code: (
             "510050.SH" if code == "510050" else "000001.SZ"
         ),
@@ -197,6 +202,7 @@ def test_run_runtime_bootstrap_syncs_xt_credit_subjects_and_instrument_strategy_
     assert summary["xt"]["assets"] == 1
     assert summary["credit_subjects"]["count"] == 5
     assert summary["instrument_strategy"]["count"] == 2
+    assert monitor_loader_calls == [20]
     assert instrument_strategy_calls == [
         ("000001.SZ", "stock", "guardian_strategy_id"),
         ("510050.SH", "etf", "guardian_strategy_id"),

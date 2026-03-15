@@ -13,7 +13,7 @@ def test_resolve_consumer_runtime_config_uses_system_settings():
     config = sc.resolve_consumer_runtime_config(
         settings_provider=SimpleNamespace(
             monitor=SimpleNamespace(
-                xtdata_mode="guardian_1m",
+                xtdata_mode="clx_15_30",
                 xtdata_max_symbols=66,
                 xtdata_queue_backlog_threshold=345,
             )
@@ -21,10 +21,22 @@ def test_resolve_consumer_runtime_config_uses_system_settings():
     )
 
     assert config == {
-        "mode": "guardian_1m",
+        "mode": "guardian_and_clx_15_30",
         "max_symbols": 66,
         "queue_backlog_threshold": 345,
     }
+
+
+def test_strategy_consumer_combined_mode_still_enables_clx_model_ids():
+    consumer = SimpleNamespace(mode="guardian_and_clx_15_30")
+
+    assert sc.StrategyConsumer._model_ids_for(consumer, "15min") == list(
+        range(10001, 10013)
+    )
+    assert sc.StrategyConsumer._model_ids_for(consumer, "30min") == list(
+        range(10001, 10013)
+    )
+    assert sc.StrategyConsumer._model_ids_for(consumer, "1min") == []
 
 
 def test_strategy_consumer_datetime_coercion_uses_runtime_constants_timezone(

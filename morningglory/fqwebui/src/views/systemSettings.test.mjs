@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   buildBootstrapSections,
@@ -115,4 +116,15 @@ test('buildSettingsSections formats arrays and booleans for display', () => {
   assert.equal(sections[0].items[0].value_label, 'guardian_1m')
   assert.equal(sections[1].items[0].value_label, '1,500')
   assert.equal(sections[1].restart_label, '保存后运行链按下次刷新生效')
+})
+
+test('SystemSettings mode selector only exposes official guardian and combined modes', () => {
+  const content = readFileSync(new URL('./SystemSettings.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /label="guardian_1m" value="guardian_1m"/)
+  assert.match(
+    content,
+    /label="guardian_and_clx_15_30"\s+value="guardian_and_clx_15_30"/,
+  )
+  assert.doesNotMatch(content, /label="clx_15_30" value="clx_15_30"/)
 })

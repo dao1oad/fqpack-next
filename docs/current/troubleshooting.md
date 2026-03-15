@@ -130,7 +130,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 先检查：
 - 运行命令是否是 `--mode event`
-- `monitor.xtdata.mode` 是否是 `guardian_1m`
+- `monitor.xtdata.mode` 是否是 `guardian_1m` 或 `guardian_and_clx_15_30`
 - `must_pool` / `xt_positions` 是否包含目标股票
 - `pm_current_state` 是否允许开仓
 
