@@ -208,11 +208,6 @@
               <section class="form-section">
                 <h4>监控</h4>
                 <el-form label-position="top">
-                  <el-form-item label="股票周期">
-                    <el-select v-model="settingsForm.monitor.stock.periods" multiple placeholder="请选择周期">
-                      <el-option v-for="period in monitorPeriods" :key="period" :label="period" :value="period" />
-                    </el-select>
-                  </el-form-item>
                   <el-form-item label="XTData 模式">
                     <el-select v-model="settingsForm.monitor.xtdata.mode">
                       <el-option label="guardian_1m" value="guardian_1m" />
@@ -258,17 +253,8 @@
               <section class="form-section">
                 <h4>Guardian</h4>
                 <el-form label-position="top">
-                  <el-form-item label="仓位百分比">
-                    <el-input-number v-model="settingsForm.guardian.stock.position_pct" :min="0" :max="100" controls-position="right" />
-                  </el-form-item>
-                  <el-form-item label="自动开仓">
-                    <el-switch v-model="settingsForm.guardian.stock.auto_open" active-text="是" inactive-text="否" />
-                  </el-form-item>
                   <el-form-item label="单次买入金额">
                     <el-input-number v-model="settingsForm.guardian.stock.lot_amount" :min="0" :step="100" controls-position="right" />
-                  </el-form-item>
-                  <el-form-item label="最小买入金额">
-                    <el-input-number v-model="settingsForm.guardian.stock.min_amount" :min="0" :step="100" controls-position="right" />
                   </el-form-item>
                   <el-form-item label="阈值模式">
                     <el-radio-group v-model="settingsForm.guardian.stock.threshold.mode">
@@ -391,8 +377,6 @@ import {
   readSystemConfigPayload,
 } from './systemSettings.mjs'
 
-const monitorPeriods = ['1min', '3min', '5min', '15min', '30min', '60min', '1d']
-
 const loading = ref(false)
 const savingBootstrap = ref(false)
 const savingSettings = ref(false)
@@ -440,7 +424,6 @@ function defaultSettingsForm () {
       },
     },
     monitor: {
-      stock: { periods: [] },
       xtdata: {
         mode: 'guardian_1m',
         max_symbols: 60,
@@ -456,10 +439,7 @@ function defaultSettingsForm () {
     },
     guardian: {
       stock: {
-        position_pct: 30,
-        auto_open: false,
         lot_amount: 1500,
-        min_amount: 1000,
         threshold: {
           mode: 'percent',
           percent: 1,

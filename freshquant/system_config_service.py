@@ -111,11 +111,10 @@ SETTINGS_SECTION_META = {
     },
     "monitor": {
         "title": "监控",
-        "description": "XTData 订阅模式、预热和股票周期配置。",
+        "description": "XTData 订阅模式、预热和消费节流配置。",
         "source": "params.monitor",
         "restart_required": False,
         "items": [
-            ("stock.periods", "股票周期"),
             ("xtdata.mode", "XTData 模式"),
             ("xtdata.max_symbols", "最大订阅数"),
             ("xtdata.queue_backlog_threshold", "队列背压阈值"),
@@ -140,10 +139,7 @@ SETTINGS_SECTION_META = {
         "source": "params.guardian",
         "restart_required": False,
         "items": [
-            ("stock.position_pct", "仓位百分比"),
-            ("stock.auto_open", "自动开仓"),
             ("stock.lot_amount", "单次买入金额"),
-            ("stock.min_amount", "最小买入金额"),
             ("stock.threshold.mode", "阈值模式"),
             ("stock.threshold.percent", "阈值百分比"),
             ("stock.threshold.atr.period", "阈值 ATR 周期"),
@@ -337,9 +333,6 @@ class SystemConfigService:
                 }
             },
             "monitor": {
-                "stock": {
-                    "periods": list(provider.monitor.stock_periods),
-                },
                 "xtdata": {
                     "mode": provider.monitor.xtdata_mode,
                     "max_symbols": provider.monitor.xtdata_max_symbols,
@@ -357,10 +350,7 @@ class SystemConfigService:
             },
             "guardian": {
                 "stock": {
-                    "position_pct": provider.guardian.stock_position_pct,
-                    "auto_open": provider.guardian.stock_auto_open,
                     "lot_amount": provider.guardian.stock_lot_amount,
-                    "min_amount": provider.guardian.stock_min_amount,
                     "threshold": deepcopy(provider.guardian.stock_threshold),
                     "grid_interval": deepcopy(provider.guardian.stock_grid_interval),
                 }
@@ -494,7 +484,6 @@ class SystemConfigService:
     def _normalize_settings_values(values):
         notification = values.get("notification") or {}
         monitor = values.get("monitor") or {}
-        stock = monitor.get("stock") or {}
         xtdata = monitor.get("xtdata") or {}
         xtquant = values.get("xtquant") or {}
         guardian = values.get("guardian") or {}
@@ -514,12 +503,6 @@ class SystemConfigService:
                 }
             },
             "monitor": {
-                "stock": {
-                    "periods": _require_string_list(
-                        stock.get("periods"),
-                        field_name="monitor.stock.periods",
-                    )
-                },
                 "xtdata": {
                     "mode": _require_text(
                         xtdata.get("mode"), field_name="monitor.xtdata.mode"
@@ -553,18 +536,9 @@ class SystemConfigService:
             },
             "guardian": {
                 "stock": {
-                    "position_pct": _require_float(
-                        guardian_stock.get("position_pct"),
-                        field_name="guardian.stock.position_pct",
-                    ),
-                    "auto_open": bool(guardian_stock.get("auto_open")),
                     "lot_amount": _require_int(
                         guardian_stock.get("lot_amount"),
                         field_name="guardian.stock.lot_amount",
-                    ),
-                    "min_amount": _require_int(
-                        guardian_stock.get("min_amount"),
-                        field_name="guardian.stock.min_amount",
                     ),
                     "threshold": deepcopy(guardian_stock.get("threshold") or {}),
                     "grid_interval": deepcopy(
@@ -628,12 +602,3 @@ def _require_float(value, *, field_name):
     if not math.isfinite(number):
         raise ValueError(f"{field_name} must be finite")
     return number
-
-
-def _require_string_list(value, *, field_name):
-    if not isinstance(value, list):
-        raise ValueError(f"{field_name} must be a list")
-    items = [str(item).strip() for item in value if str(item).strip()]
-    if not items:
-        raise ValueError(f"{field_name} must not be empty")
-    return items

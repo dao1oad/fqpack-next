@@ -47,11 +47,11 @@ const createPayload = () => ({
   settings: {
     values: {
       monitor: {
-        stock: { periods: ['1min', '5min'] },
+        xtdata: { mode: 'guardian_1m' },
       },
       guardian: {
         stock: {
-          auto_open: true,
+          lot_amount: 1500,
         },
       },
     },
@@ -62,14 +62,14 @@ const createPayload = () => ({
       {
         key: 'monitor',
         title: '监控',
-        description: 'XTData 订阅模式、预热和股票周期配置。',
+        description: 'XTData 订阅模式、预热和消费节流配置。',
         source: 'params.monitor',
         restart_required: false,
         items: [
           {
-            key: 'monitor.stock.periods',
-            label: '股票周期',
-            value: ['1min', '5min'],
+            key: 'monitor.xtdata.mode',
+            label: 'XTData 模式',
+            value: 'guardian_1m',
             restart_required: false,
             source: 'params.monitor',
           },
@@ -83,9 +83,9 @@ const createPayload = () => ({
         restart_required: false,
         items: [
           {
-            key: 'guardian.stock.auto_open',
-            label: '自动开仓',
-            value: true,
+            key: 'guardian.stock.lot_amount',
+            label: '单次买入金额',
+            value: 1500,
             restart_required: false,
             source: 'params.guardian',
           },
@@ -112,7 +112,7 @@ test('buildBootstrapSections formats restart badges and scalar values', () => {
 test('buildSettingsSections formats arrays and booleans for display', () => {
   const sections = buildSettingsSections(createPayload())
 
-  assert.equal(sections[0].items[0].value_label, '1min, 5min')
-  assert.equal(sections[1].items[0].value_label, '是')
+  assert.equal(sections[0].items[0].value_label, 'guardian_1m')
+  assert.equal(sections[1].items[0].value_label, '1,500')
   assert.equal(sections[1].restart_label, '保存后运行链按下次刷新生效')
 })

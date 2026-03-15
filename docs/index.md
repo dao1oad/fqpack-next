@@ -50,6 +50,7 @@
 - [ETF 数据](./current/reference/etf-data.md)
 - [股票池与持仓](./current/reference/stock-pools-and-positions.md)
 - [CLXS 信号函数](./current/reference/signal-clxs.md)
+- [系统设置参数（params）](./current/reference/system-settings-params.md)
 
 ## 当前阶段最常用入口
 

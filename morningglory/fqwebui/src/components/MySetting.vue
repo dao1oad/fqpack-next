@@ -51,17 +51,6 @@
             <!-- 监控设置 -->
             <el-tab-pane label="监控设置" name="monitor">
               <el-form :model="monitorForm" label-width="120px">
-                <el-form-item label="股票周期">
-                  <el-select v-model="monitorForm.stock.periods" multiple placeholder="请选择">
-                    <el-option label="1分钟" value="1m"></el-option>
-                    <el-option label="3分钟" value="3m"></el-option>
-                    <el-option label="5分钟" value="5m"></el-option>
-                    <el-option label="15分钟" value="15m"></el-option>
-                    <el-option label="30分钟" value="30m"></el-option>
-                    <el-option label="60分钟" value="60m"></el-option>
-                    <el-option label="日线" value="1d"></el-option>
-                  </el-select>
-                </el-form-item>
                 <el-form-item class="right-actions">
                   <el-button type="primary" @click="updateSetting('monitor', monitorForm)">保存</el-button>
                 </el-form-item>
@@ -98,20 +87,11 @@
               </el-form>
             </el-tab-pane>
 
-             <!-- 股票守护设置 -->
+            <!-- 股票守护设置 -->
             <el-tab-pane label="股票守护设置" name="guardian">
               <el-form :model="guardianForm" label-width="120px">
-                <el-form-item label="仓位百分比">
-                  <el-input-number v-model="guardianForm.stock.position_pct" :min="0" :max="100"></el-input-number>
-                </el-form-item>
-                <el-form-item label="自动开仓">
-                  <el-switch v-model="guardianForm.stock.auto_open" active-text="是" inactive-text="否"></el-switch>
-                </el-form-item>
                 <el-form-item label="单次买入金额">
                   <el-input-number v-model="guardianForm.stock.lot_amount" :min="0" :step="100"></el-input-number>
-                </el-form-item>
-                <el-form-item label="最小买入金额">
-                  <el-input-number v-model="guardianForm.stock.min_amount" :min="0" :step="100"></el-input-number>
                 </el-form-item>
 
                 <el-divider class="mt-32" content-position="left">买卖阈值</el-divider>
@@ -200,7 +180,7 @@
                   </el-form-item>
                 </template>
 
-                
+
 
                 <el-form-item class="right-actions">
                   <el-button type="primary" @click="updateSetting('guardian', guardianForm)">保存</el-button>
@@ -217,6 +197,7 @@
 <script>
 import { stockApi } from '@/api/stockApi'
 import _ from 'lodash'
+import { sanitizeLegacySettingValue } from './mySettingSanitizer.mjs'
 
 export default {
   name: 'MySetting',
@@ -249,11 +230,7 @@ export default {
         }
       },
       // 监控设置
-      monitorForm: {
-        stock: {
-          periods: []
-        }
-      },
+      monitorForm: {},
       // 迅投设置
       xtquantForm: {
         path: '',
@@ -269,10 +246,7 @@ export default {
       // 股票守护设置 (合并了gardian和guardian)
       guardianForm: {
         stock: {
-          position_pct: 30,
-          auto_open: true,
           lot_amount: 3000,
-          min_amount: 1000,
           threshold: {
             mode: 'percent', // percent或者atr
             percent: 1, // 1表示1%
@@ -308,21 +282,22 @@ export default {
           if (res && res.length > 0) {
             // 处理返回的设置数据
             res.forEach(item => {
+              const sanitizedValue = sanitizeLegacySettingValue(item.code, item.value)
               switch (item.code) {
                 case 'notification':
-                  this.notificationForm = _.merge({}, this.notificationForm, item.value)
+                  this.notificationForm = _.merge({}, this.notificationForm, sanitizedValue)
                   break
                 case 'monitor':
-                  this.monitorForm = _.merge({}, this.monitorForm, item.value)
+                  this.monitorForm = _.merge({}, this.monitorForm, sanitizedValue)
                   break
                 case 'xtquant':
-                  this.xtquantForm = _.merge({}, this.xtquantForm, item.value)
+                  this.xtquantForm = _.merge({}, this.xtquantForm, sanitizedValue)
                   break
                 case 'tdx':
-                  this.tdxForm = _.merge({}, this.tdxForm, item.value)
+                  this.tdxForm = _.merge({}, this.tdxForm, sanitizedValue)
                   break
                 case 'guardian':
-                  this.guardianForm = _.merge({}, this.guardianForm, item.value)
+                  this.guardianForm = _.merge({}, this.guardianForm, sanitizedValue)
                   break
               }
             })
@@ -340,8 +315,9 @@ export default {
     // 更新设置
     updateSetting (code, value) {
       this.isLoading = true
-      console.log(code, JSON.stringify(value))
-      stockApi.updateSetting(code, value)
+      const sanitizedValue = sanitizeLegacySettingValue(code, value)
+      console.log(code, JSON.stringify(sanitizedValue))
+      stockApi.updateSetting(code, sanitizedValue)
         .then(res => {
           if (res && res.code === '0') {
             this.$message.success('保存成功')
