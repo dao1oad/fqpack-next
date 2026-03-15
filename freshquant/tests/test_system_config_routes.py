@@ -15,7 +15,9 @@ def test_system_config_dashboard_route_returns_service_payload(monkeypatch):
     class FakeService:
         def get_dashboard(self):
             return {
-                "bootstrap": {"file_path": "D:/fqpack/config/freshquant_bootstrap.yaml"},
+                "bootstrap": {
+                    "file_path": "D:/fqpack/config/freshquant_bootstrap.yaml"
+                },
                 "settings": {"sections": [{"key": "guardian"}]},
             }
 

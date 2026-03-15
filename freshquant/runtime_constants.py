@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import pytz
+import pytz  # type: ignore[import-untyped]
 
 TIME_ZONE = "Asia/Shanghai"
 TZ = pytz.timezone(TIME_ZONE)

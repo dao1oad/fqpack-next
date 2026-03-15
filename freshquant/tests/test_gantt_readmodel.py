@@ -1,7 +1,7 @@
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
-from types import SimpleNamespace
 
 from freshquant.data.gantt_readmodel import (
     _build_xgb_gantt_rows,

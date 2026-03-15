@@ -8,7 +8,6 @@ from pathlib import Path
 from dynaconf import Dynaconf
 from pydash import get
 
-
 BASE_DIR = Path(__file__).resolve().parent
 EXE_DIR = Path(sys.argv[0]).resolve().parent if sys.argv and sys.argv[0] else Path.cwd()
 CWD_DIR = Path.cwd()
@@ -190,14 +189,18 @@ def load_bootstrap_config() -> BootstrapConfig:
         home=_as_str(get(settings, "tdx.home"), _as_str(os.environ.get("TDX_HOME"))),
         hq_endpoint=_as_str(
             get(settings, "tdx.hq.endpoint"),
-            _as_str(os.environ.get("FRESHQUANT_TDX__HQ__ENDPOINT"), "http://127.0.0.1:15001"),
+            _as_str(
+                os.environ.get("FRESHQUANT_TDX__HQ__ENDPOINT"), "http://127.0.0.1:15001"
+            ),
         ),
     )
     api = ApiBootstrapConfig(
         base_url=_as_str(get(settings, "api.base_url"), "http://127.0.0.1:15000")
     )
     xtdata = XtdataBootstrapConfig(
-        port=_as_int(get(settings, "xtdata.port"), _as_int(os.environ.get("XTQUANT_PORT"), 58610))
+        port=_as_int(
+            get(settings, "xtdata.port"), _as_int(os.environ.get("XTQUANT_PORT"), 58610)
+        )
     )
     runtime = RuntimeBootstrapConfig(
         log_dir=_as_str(

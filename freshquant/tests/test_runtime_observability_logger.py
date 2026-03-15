@@ -73,5 +73,8 @@ def test_get_runtime_log_root_falls_back_to_bootstrap_file(tmp_path, monkeypatch
     bootstrap_module = importlib.reload(bootstrap_module)
     logger_module = importlib.reload(logger_module)
 
-    assert bootstrap_module.bootstrap_config.runtime.log_dir == "D:/fqpack/runtime/test-logs"
+    assert (
+        bootstrap_module.bootstrap_config.runtime.log_dir
+        == "D:/fqpack/runtime/test-logs"
+    )
     assert logger_module.get_runtime_log_root() == Path("D:/fqpack/runtime/test-logs")

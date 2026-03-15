@@ -32,7 +32,9 @@ class PositionCreditClient:
         account_factory=None,
         system_settings_provider=None,
     ):
-        settings_provider = system_settings_provider or _load_default_system_settings_provider()
+        settings_provider = (
+            system_settings_provider or _load_default_system_settings_provider()
+        )
         xtquant_settings = getattr(settings_provider, "xtquant", None)
         self.path = path or getattr(xtquant_settings, "path", "")
         self.account_id = str(

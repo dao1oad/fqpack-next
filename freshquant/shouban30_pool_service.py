@@ -170,7 +170,9 @@ def _settings_get(root, dotted_key):
 
 
 def _require_tdx_home():
-    tdx_home = str(bootstrap_config.tdx.home or os.environ.get("TDX_HOME") or "").strip()
+    tdx_home = str(
+        bootstrap_config.tdx.home or os.environ.get("TDX_HOME") or ""
+    ).strip()
     if not tdx_home:
         raise RuntimeError("TDX_HOME not configured")
     return Path(tdx_home)

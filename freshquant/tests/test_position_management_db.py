@@ -15,7 +15,9 @@ def test_position_management_uses_dedicated_database():
     assert DEFAULT_POSITION_MANAGEMENT_DB == "freshquant_position_management"
 
 
-def test_position_management_db_uses_bootstrap_dedicated_database(tmp_path, monkeypatch):
+def test_position_management_db_uses_bootstrap_dedicated_database(
+    tmp_path, monkeypatch
+):
     bootstrap_file = tmp_path / "freshquant_bootstrap.yaml"
     bootstrap_file.write_text(
         "\n".join(
@@ -42,7 +44,9 @@ def test_position_management_db_uses_bootstrap_dedicated_database(tmp_path, monk
         == "unit_test_position_management"
     )
     assert pm_db_module.DBPositionManagement.name == "unit_test_position_management"
-    assert pm_db_module.get_position_management_db() == pm_db_module.DBPositionManagement
+    assert (
+        pm_db_module.get_position_management_db() == pm_db_module.DBPositionManagement
+    )
 
 
 def test_repository_exposes_expected_collection_names():

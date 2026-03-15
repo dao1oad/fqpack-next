@@ -53,7 +53,9 @@ except Exception as e:  # pragma: no cover
 
 def resolve_consumer_runtime_config(*, settings_provider=None) -> dict[str, int | str]:
     settings_provider = settings_provider or system_settings
-    mode = normalize_xtdata_mode(getattr(settings_provider.monitor, "xtdata_mode", None))
+    mode = normalize_xtdata_mode(
+        getattr(settings_provider.monitor, "xtdata_mode", None)
+    )
     try:
         max_symbols = int(
             getattr(settings_provider.monitor, "xtdata_max_symbols", 50) or 50

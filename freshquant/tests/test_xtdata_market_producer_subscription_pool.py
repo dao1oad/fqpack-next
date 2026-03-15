@@ -1,5 +1,6 @@
-from freshquant.market_data.xtdata import market_producer
 from types import SimpleNamespace
+
+from freshquant.market_data.xtdata import market_producer
 
 
 def test_load_subscription_codes_only_uses_monitor_pool(monkeypatch):

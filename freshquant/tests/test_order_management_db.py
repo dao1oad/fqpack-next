@@ -1,5 +1,6 @@
 import importlib
 
+
 def test_order_management_db_uses_bootstrap_dedicated_database(tmp_path, monkeypatch):
     bootstrap_file = tmp_path / "freshquant_bootstrap.yaml"
     bootstrap_file.write_text(

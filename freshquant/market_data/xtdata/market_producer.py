@@ -52,7 +52,9 @@ def resolve_producer_runtime_config(
 ) -> dict[str, int | str]:
     settings_provider = settings_provider or system_settings
     bootstrap_provider = bootstrap_provider or bootstrap_config
-    mode = normalize_xtdata_mode(getattr(settings_provider.monitor, "xtdata_mode", None))
+    mode = normalize_xtdata_mode(
+        getattr(settings_provider.monitor, "xtdata_mode", None)
+    )
     try:
         max_symbols = int(
             getattr(settings_provider.monitor, "xtdata_max_symbols", 50) or 50

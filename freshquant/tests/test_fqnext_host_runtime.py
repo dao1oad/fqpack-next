@@ -66,7 +66,9 @@ def test_unknown_surface_raises() -> None:
         module.resolve_surface_programs(["unknown-surface"])
 
 
-def test_resolve_target_programs_supports_restart_surfaces_without_program_arg() -> None:
+def test_resolve_target_programs_supports_restart_surfaces_without_program_arg() -> (
+    None
+):
     module = load_module()
 
     args = module.build_parser().parse_args(
@@ -84,7 +86,9 @@ def test_resolve_target_programs_supports_restart_surfaces_without_program_arg()
     ]
 
 
-def test_wait_for_state_accepts_exited_when_waiting_for_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_wait_for_state_accepts_exited_when_waiting_for_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = load_module()
     states = iter(
         [

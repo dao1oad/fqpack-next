@@ -4,8 +4,7 @@ from freshquant.bootstrap_config import bootstrap_config
 from freshquant.db import DBfreshquant, MongoClient
 
 order_management_db = (
-    bootstrap_config.order_management.mongo_database
-    or "freshquant_order_management"
+    bootstrap_config.order_management.mongo_database or "freshquant_order_management"
 )
 projection_db = (
     bootstrap_config.order_management.projection_database or DBfreshquant.name

@@ -207,9 +207,7 @@ def run_runtime_bootstrap(
             upper_case=True,
         )
         instrument_type = instrument_type_loader(base_code)
-        instrument_kind = (
-            "etf" if instrument_type == InstrumentType.ETF_CN else "stock"
-        )
+        instrument_kind = "etf" if instrument_type == InstrumentType.ETF_CN else "stock"
         instrument_strategy_writer(instrument_code, instrument_kind, strategy_id)
         count += 1
 

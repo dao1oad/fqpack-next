@@ -1,5 +1,6 @@
 import importlib
 
+
 def test_get_gantt_db_uses_bootstrap_mongodb_gantt_db(tmp_path, monkeypatch):
     bootstrap_file = tmp_path / "freshquant_bootstrap.yaml"
     bootstrap_file.write_text(

@@ -1,5 +1,5 @@
-from pathlib import Path
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 package_root = Path("morningglory/fqxtrade").resolve()

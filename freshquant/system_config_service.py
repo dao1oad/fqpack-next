@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from freshquant.bootstrap_config import (
     bootstrap_config,
@@ -12,7 +12,6 @@ from freshquant.bootstrap_config import (
     resolve_bootstrap_file_path,
 )
 from freshquant.system_settings import system_settings
-
 
 BOOTSTRAP_SECTION_META = {
     "mongodb": {
@@ -32,7 +31,12 @@ BOOTSTRAP_SECTION_META = {
         "description": "运行队列与实时缓存依赖的 Redis 启动配置。",
         "source": "bootstrap_file",
         "restart_required": True,
-        "items": [("host", "主机"), ("port", "端口"), ("db", "DB"), ("password", "密码")],
+        "items": [
+            ("host", "主机"),
+            ("port", "端口"),
+            ("db", "DB"),
+            ("password", "密码"),
+        ],
     },
     "order_management": {
         "title": "订单管理",
@@ -563,7 +567,9 @@ class SystemConfigService:
                         field_name="guardian.stock.min_amount",
                     ),
                     "threshold": deepcopy(guardian_stock.get("threshold") or {}),
-                    "grid_interval": deepcopy(guardian_stock.get("grid_interval") or {}),
+                    "grid_interval": deepcopy(
+                        guardian_stock.get("grid_interval") or {}
+                    ),
                 }
             },
             "position_management": {

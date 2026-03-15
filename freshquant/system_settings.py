@@ -7,7 +7,6 @@ import base62
 from bson import ObjectId
 from pydash import get
 
-
 DEFAULT_NOTIFICATION = {
     "webhook": {
         "dingtalk": {
@@ -155,9 +154,11 @@ class SystemSettings:
                 get(monitor_doc, "xtdata.prewarm.max_bars", 240) or 240
             ),
         )
-        broker_submit_mode = str(
-            get(xtquant_doc, "broker_submit_mode", "normal") or "normal"
-        ).strip().lower()
+        broker_submit_mode = (
+            str(get(xtquant_doc, "broker_submit_mode", "normal") or "normal")
+            .strip()
+            .lower()
+        )
         if broker_submit_mode not in {"normal", "observe_only"}:
             broker_submit_mode = "normal"
         self.xtquant = XtquantSettings(
@@ -191,8 +192,7 @@ class SystemSettings:
                 get(pm_config, "thresholds.allow_open_min_bail", 800000.0) or 800000.0
             ),
             holding_only_min_bail=float(
-                get(pm_config, "thresholds.holding_only_min_bail", 100000.0)
-                or 100000.0
+                get(pm_config, "thresholds.holding_only_min_bail", 100000.0) or 100000.0
             ),
         )
         self._strategies_by_code = strategies

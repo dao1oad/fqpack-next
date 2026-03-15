@@ -1,7 +1,7 @@
 import importlib
 from datetime import datetime
 
-import pytz
+import pytz  # type: ignore[import-untyped]
 
 from freshquant import runtime_constants
 from freshquant.market_data.xtdata.bar_generator import MultiPeriodResamplerFrom1m
@@ -45,6 +45,7 @@ def test_resample_5min_emits_on_bucket_end():
 
 def test_resampler_uses_runtime_constants_timezone(monkeypatch):
     import freshquant.market_data.xtdata.bar_generator as bar_generator_module
+
     with monkeypatch.context() as patch:
         patch.setattr(runtime_constants, "TZ", pytz.timezone("UTC"))
         bar_generator_module = importlib.reload(bar_generator_module)

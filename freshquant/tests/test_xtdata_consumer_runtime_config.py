@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 from types import SimpleNamespace
 
-import pytz
+import pytz  # type: ignore[import-untyped]
 
 import freshquant.market_data.xtdata.strategy_consumer as sc
 from freshquant import runtime_constants

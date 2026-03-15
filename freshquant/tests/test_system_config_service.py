@@ -166,7 +166,10 @@ def _build_database():
                             "auto_open": True,
                             "lot_amount": 1800,
                             "min_amount": 1200,
-                            "threshold": {"mode": "atr", "atr": {"period": 14, "multiplier": 1.5}},
+                            "threshold": {
+                                "mode": "atr",
+                                "atr": {"period": 14, "multiplier": 1.5},
+                            },
                             "grid_interval": {"mode": "percent", "percent": 3},
                         }
                     },
@@ -235,7 +238,10 @@ def test_system_config_service_dashboard_reads_bootstrap_and_mongo_settings(
     assert dashboard["bootstrap"]["file_path"] == str(bootstrap_file)
     assert dashboard["bootstrap"]["values"]["mongodb"]["host"] == "127.0.0.1"
     assert dashboard["bootstrap"]["sections"][0]["key"] == "mongodb"
-    assert dashboard["settings"]["values"]["guardian"]["stock"]["threshold"]["mode"] == "atr"
+    assert (
+        dashboard["settings"]["values"]["guardian"]["stock"]["threshold"]["mode"]
+        == "atr"
+    )
     assert dashboard["settings"]["sections"][0]["key"] == "notification"
     assert dashboard["settings"]["sections"][-1]["key"] == "position_management"
     assert dashboard["settings"]["strategies"][0]["code"] == "Guardian"
@@ -330,7 +336,10 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
                 "lot_amount": 3000,
                 "min_amount": 1800,
                 "threshold": {"mode": "percent", "percent": 1.2},
-                "grid_interval": {"mode": "atr", "atr": {"period": 21, "multiplier": 2}},
+                "grid_interval": {
+                    "mode": "atr",
+                    "atr": {"period": 21, "multiplier": 2},
+                },
             }
         },
         "position_management": {
@@ -342,8 +351,21 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
     result = service.update_settings(payload)
 
     assert result["values"]["xtquant"]["account"] == "123456"
-    assert database["params"].find_one({"code": "xtquant"})["value"]["path"] == "D:/mini_qmt/userdata_mini"
-    assert database["params"].find_one({"code": "guardian"})["value"]["stock"]["grid_interval"]["mode"] == "atr"
-    assert database["pm_configs"].find_one({"code": "default"})["thresholds"]["allow_open_min_bail"] == 950000
+    assert (
+        database["params"].find_one({"code": "xtquant"})["value"]["path"]
+        == "D:/mini_qmt/userdata_mini"
+    )
+    assert (
+        database["params"].find_one({"code": "guardian"})["value"]["stock"][
+            "grid_interval"
+        ]["mode"]
+        == "atr"
+    )
+    assert (
+        database["pm_configs"].find_one({"code": "default"})["thresholds"][
+            "allow_open_min_bail"
+        ]
+        == 950000
+    )
     assert settings.xtquant.account == "123456"
     assert settings.position_management.holding_only_min_bail == 150000
