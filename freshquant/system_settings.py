@@ -121,11 +121,20 @@ class SystemSettings:
         self.reload()
 
     def reload(self):
-        notification_doc = self._find_param("notification", DEFAULT_NOTIFICATION)
-        monitor_doc = self._find_param("monitor", DEFAULT_MONITOR)
-        xtquant_doc = self._find_param("xtquant", DEFAULT_XTQUANT)
-        guardian_doc = self._find_param("guardian", DEFAULT_GUARDIAN)
-        pm_config = self._find_pm_config()
+        try:
+            notification_doc = self._find_param("notification", DEFAULT_NOTIFICATION)
+            monitor_doc = self._find_param("monitor", DEFAULT_MONITOR)
+            xtquant_doc = self._find_param("xtquant", DEFAULT_XTQUANT)
+            guardian_doc = self._find_param("guardian", DEFAULT_GUARDIAN)
+            pm_config = self._find_pm_config()
+            strategies = self._load_strategies()
+        except Exception:
+            notification_doc = DEFAULT_NOTIFICATION
+            monitor_doc = DEFAULT_MONITOR
+            xtquant_doc = DEFAULT_XTQUANT
+            guardian_doc = DEFAULT_GUARDIAN
+            pm_config = DEFAULT_PM_CONFIG
+            strategies = {}
 
         self.notification = NotificationSettings(
             dingtalk_private_webhook=str(
@@ -186,7 +195,7 @@ class SystemSettings:
                 or 100000.0
             ),
         )
-        self._strategies_by_code = self._load_strategies()
+        self._strategies_by_code = strategies
         return self
 
     def _find_param(self, code: str, default: dict[str, Any]) -> dict[str, Any]:
@@ -241,26 +250,35 @@ class SystemSettings:
     def get_strategy_id(self, code: str) -> str:
         strategy = self._strategies_by_code.get(code)
         if strategy is None:
-            strategy = self.database["strategies"].find_one({"code": code})
+            try:
+                strategy = self.database["strategies"].find_one({"code": code})
+            except Exception:
+                return ""
             if strategy is None:
                 return ""
             self._strategies_by_code[code] = strategy
         strategy_id = strategy.get("_id") or ObjectId()
         encoded = str(strategy.get("b62_uid") or base62.encodebytes(strategy_id.binary))
         if strategy.get("b62_uid") != encoded:
-            self.database["strategies"].update_one(
-                {"_id": strategy_id},
-                {"$set": {"b62_uid": encoded}},
-            )
-            refreshed = self.database["strategies"].find_one({"code": code})
+            try:
+                self.database["strategies"].update_one(
+                    {"_id": strategy_id},
+                    {"$set": {"b62_uid": encoded}},
+                )
+                refreshed = self.database["strategies"].find_one({"code": code})
+            except Exception:
+                refreshed = None
             if refreshed is not None:
                 self._strategies_by_code[code] = refreshed
         return encoded
 
     def get_instrument_strategy(self, instrument_code: str):
-        document = self.database["instrument_strategy"].find_one(
-            {"instrument_code": instrument_code}
-        )
+        try:
+            document = self.database["instrument_strategy"].find_one(
+                {"instrument_code": instrument_code}
+            )
+        except Exception:
+            return None
         if document is None:
             return None
         document = dict(document)

@@ -249,7 +249,7 @@ def calculate_and_notify(symbol, code, period):
         for signal_type in signal_map:
             signals = resp[signal_type]
             for idx in range(len(signals["datetime"])):
-            fire_time = TZ.localize(signals["datetime"][idx])
+                fire_time = TZ.localize(signals["datetime"][idx])
                 tag = signals["tag"][idx]
                 all_signals.append(
                     {

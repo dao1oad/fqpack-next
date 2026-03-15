@@ -67,6 +67,11 @@ class FakeDatabase:
         return self.collections.setdefault(name, FakeCollection())
 
 
+class BrokenDatabase:
+    def __getitem__(self, name):
+        raise RuntimeError(f"database unavailable: {name}")
+
+
 def test_system_settings_reads_runtime_values_and_pm_thresholds():
     from freshquant.system_settings import SystemSettings
 
@@ -204,3 +209,19 @@ def test_system_settings_ensure_defaults_and_strategy_lookup():
     assert database["params"].find_one({"code": "monitor"}) is not None
     assert database["params"].find_one({"code": "guardian"}) is not None
     assert database["pm_configs"].find_one({"code": "default"}) is not None
+
+
+def test_system_settings_falls_back_to_defaults_when_database_unavailable():
+    from freshquant.system_settings import SystemSettings
+
+    settings = SystemSettings(database=BrokenDatabase())
+
+    assert settings.notification.dingtalk_private_webhook == ""
+    assert settings.monitor.xtdata_mode == "guardian_1m"
+    assert settings.xtquant.account == ""
+    assert settings.guardian.stock_threshold == {
+        "mode": "percent",
+        "percent": 1,
+    }
+    assert settings.position_management.allow_open_min_bail == 800000.0
+    assert settings.get_strategy_id("Guardian") == ""
