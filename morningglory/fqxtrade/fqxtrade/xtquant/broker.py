@@ -429,11 +429,6 @@ def main():
         thread_pool.shutdown()
         logger.info("服务正常退出")
 
-
-if __name__ == "__main__":
-    main()
-
-
 def _runtime_context_from_order_message(order):
     payload = dict(order or {})
     return {
@@ -632,3 +627,7 @@ def _get_runtime_logger():
     if _runtime_logger is None:
         _runtime_logger = RuntimeEventLogger("broker_gateway")
     return _runtime_logger
+
+
+if __name__ == "__main__":
+    main()
