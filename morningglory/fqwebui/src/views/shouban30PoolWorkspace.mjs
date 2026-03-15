@@ -145,3 +145,42 @@ export const buildWorkspaceTabs = ({
     },
   ]
 }
+
+export const resolveSelectedStockDetailContext = ({
+  selectedStockCode6 = '',
+  currentStocks = [],
+  workspaceTabs = [],
+} = {}) => {
+  const code6 = toText(selectedStockCode6)
+  if (!code6) return null
+
+  const currentStock = normalizeList(currentStocks)
+    .find((item) => toText(item?.code6) === code6)
+  if (currentStock) {
+    return {
+      code6,
+      name: toText(currentStock?.name) || code6,
+      provider: toText(currentStock?.provider),
+      plate_name: toText(currentStock?.plate_name),
+    }
+  }
+
+  const workspaceRow = normalizeList(workspaceTabs)
+    .flatMap((tab) => normalizeList(tab?.rows))
+    .find((item) => toText(item?.code6) === code6)
+  if (workspaceRow) {
+    return {
+      code6,
+      name: toText(workspaceRow?.name) || code6,
+      provider: toText(workspaceRow?.provider),
+      plate_name: toText(workspaceRow?.plate_name),
+    }
+  }
+
+  return {
+    code6,
+    name: code6,
+    provider: '',
+    plate_name: '',
+  }
+}

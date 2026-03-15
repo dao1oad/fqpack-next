@@ -73,6 +73,16 @@
               >
                 筛选
               </el-button>
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :disabled="platesLoading || stocksLoading || isFilterSelectionDirty || !currentFilterPrePoolCount"
+                :loading="isWorkspaceActionRunning('workspace:append-current-filter')"
+                @click="handleAppendCurrentFilterToPrePool"
+              >
+                全部加入 pre_pools
+              </el-button>
             </div>
 
             <div class="panel-summary">
@@ -218,9 +228,9 @@
         <section class="panel-card">
           <div class="panel-card-header">
             <span>标的详情</span>
-            <span class="muted" v-if="selectedStock">
-              <span class="mono">{{ selectedStock.code6 }}</span>
-              <span> {{ selectedStock.name }}</span>
+            <span class="muted" v-if="selectedStockDetailContext">
+              <span class="mono">{{ selectedStockDetailContext.code6 }}</span>
+              <span> {{ selectedStockDetailContext.name }}</span>
             </span>
           </div>
           <div class="detail-meta">
@@ -241,7 +251,7 @@
               size="small"
               border
               height="100%"
-              empty-text="请先选择中间标的"
+              empty-text="请先选择热点标的或工作区标的"
             >
               <el-table-column prop="date" label="日期" width="108">
                 <template #default="{ row }">
@@ -263,7 +273,7 @@
                 <template #default="{ row }">
                   <Shouban30ReasonPopover
                     :reference-text="row.stock_reason || row.plate_reason"
-                    :title="selectedStock ? `${selectedStock.name || selectedStock.code6} ${selectedStock.code6 || ''}`.trim() : '标的理由'"
+                    :title="selectedStockDetailContext ? `${selectedStockDetailContext.name || selectedStockDetailContext.code6} ${selectedStockDetailContext.code6 || ''}`.trim() : '标的理由'"
                     :subtitle="buildReasonDetailSubtitle(row)"
                     placement="left-start"
                     :width="620"
@@ -396,6 +406,8 @@
                     border
                     height="100%"
                     :empty-text="workspaceEmptyText"
+                    :row-class-name="workspaceRowClassName"
+                    @row-click="handleWorkspaceRowClick"
                   >
                     <el-table-column prop="code6" label="代码" width="92">
                       <template #default="{ row }">
@@ -403,14 +415,7 @@
                       </template>
                     </el-table-column>
                     <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
-                    <el-table-column prop="provider" label="来源" width="84">
-                      <template #default="{ row }">
-                        {{ formatProvider(row.provider) }}
-                      </template>
-                    </el-table-column>
-                    <el-table-column prop="plate_name" label="板块" min-width="140" show-overflow-tooltip />
-                    <el-table-column prop="category" label="分类" min-width="140" show-overflow-tooltip />
-                    <el-table-column label="操作" min-width="188" fixed="right">
+                    <el-table-column label="操作" min-width="188">
                       <template #default="{ row }">
                         <div class="workspace-row-actions">
                           <el-button
@@ -419,7 +424,7 @@
                             type="primary"
                             link
                             :loading="isWorkspaceActionRunning(`workspace:pre:add:${row.code6}`)"
-                            @click="handleAddPrePoolToStockPools(row)"
+                            @click.stop="handleAddPrePoolToStockPools(row)"
                           >
                             {{ row.primary_action_label }}
                           </el-button>
@@ -429,7 +434,7 @@
                             type="danger"
                             link
                             :loading="isWorkspaceActionRunning(`workspace:pre:delete:${row.code6}`)"
-                            @click="handleDeletePrePoolRow(row)"
+                            @click.stop="handleDeletePrePoolRow(row)"
                           >
                             {{ row.secondary_action_label }}
                           </el-button>
@@ -439,7 +444,7 @@
                             type="primary"
                             link
                             :loading="isWorkspaceActionRunning(`workspace:stock:add-must:${row.code6}`)"
-                            @click="handleAddStockPoolToMustPools(row)"
+                            @click.stop="handleAddStockPoolToMustPools(row)"
                           >
                             {{ row.primary_action_label }}
                           </el-button>
@@ -449,13 +454,20 @@
                             type="danger"
                             link
                             :loading="isWorkspaceActionRunning(`workspace:stock:delete:${row.code6}`)"
-                            @click="handleDeleteStockPoolRow(row)"
+                            @click.stop="handleDeleteStockPoolRow(row)"
                           >
                             {{ row.secondary_action_label }}
                           </el-button>
                         </div>
                       </template>
                     </el-table-column>
+                    <el-table-column prop="provider" label="来源" width="84">
+                      <template #default="{ row }">
+                        {{ formatProvider(row.provider) }}
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="plate_name" label="板块" min-width="140" show-overflow-tooltip />
+                    <el-table-column prop="category" label="分类" min-width="140" show-overflow-tooltip />
                   </el-table>
                 </div>
               </el-tab-pane>
@@ -512,8 +524,10 @@ import {
   toggleExtraFilter,
 } from './shouban30StockFilters.mjs'
 import {
+  buildCurrentFilterReplacePrePoolPayload,
   buildSinglePlateAppendPrePoolPayload,
   buildWorkspaceTabs,
+  resolveSelectedStockDetailContext,
 } from './shouban30PoolWorkspace.mjs'
 
 const VIEW_PROVIDER_OPTIONS = [
@@ -783,8 +797,26 @@ const selectedPlate = computed(() => {
 
 const currentStocks = computed(() => getViewStocksForPlate(selectedPlate.value))
 
-const selectedStock = computed(() => {
-  return currentStocks.value.find((item) => item.code6 === selectedStockCode6.value) || null
+const currentFilterPrePoolAppendPayload = computed(() => {
+  return buildCurrentFilterReplacePrePoolPayload({
+    plates: currentPlates.value,
+    stockRowsByPlate: currentViewStockRowsByPlate.value,
+    stockWindowDays: stockWindowDays.value,
+    asOfDate: resolvedEndDate.value || requestedEndDate.value,
+    selectedExtraFilterKeys: selectedExtraFilterKeys.value,
+  })
+})
+
+const currentFilterPrePoolCount = computed(() => {
+  return currentFilterPrePoolAppendPayload.value.items.length
+})
+
+const selectedStockDetailContext = computed(() => {
+  return resolveSelectedStockDetailContext({
+    selectedStockCode6: selectedStockCode6.value,
+    currentStocks: currentStocks.value,
+    workspaceTabs: workspaceTabs.value,
+  })
 })
 
 const resolvedEndDate = computed(() => {
@@ -956,6 +988,19 @@ const toggleExtraFilterSelection = (key) => {
 const handleApplyExtraFilters = () => {
   selectedExtraFilterKeys.value = normalizeFilterKeyList(draftExtraFilterKeys.value)
   ElMessage.success('已更新当前页面筛选结果')
+}
+
+const handleAppendCurrentFilterToPrePool = async () => {
+  const payload = currentFilterPrePoolAppendPayload.value
+  if (!payload.items.length) {
+    ElMessage.warning('当前筛选结果没有可加入的标的')
+    return
+  }
+  await runWorkspaceAction({
+    actionKey: 'workspace:append-current-filter',
+    action: () => appendShouban30PrePool(payload),
+    successMessage: `已将当前筛选结果 ${payload.items.length} 条加入 pre_pools`,
+  })
 }
 
 const handleSavePlateToPrePool = async (plate) => {
@@ -1234,6 +1279,10 @@ const handleStockRowClick = (row) => {
   selectedStockCode6.value = toText(row?.code6)
 }
 
+const handleWorkspaceRowClick = (row) => {
+  selectedStockCode6.value = toText(row?.code6)
+}
+
 const plateRowClassName = ({ row }) => {
   return selectedPlateViewKey.value && toText(row?.view_key) === selectedPlateViewKey.value
     ? 'is-selected-row'
@@ -1241,6 +1290,12 @@ const plateRowClassName = ({ row }) => {
 }
 
 const stockRowClassName = ({ row }) => {
+  return selectedStockCode6.value && toText(row?.code6) === selectedStockCode6.value
+    ? 'is-selected-row'
+    : ''
+}
+
+const workspaceRowClassName = ({ row }) => {
   return selectedStockCode6.value && toText(row?.code6) === selectedStockCode6.value
     ? 'is-selected-row'
     : ''
