@@ -1,49 +1,67 @@
 <template>
-  <div class="position-page">
+  <div class="workbench-page position-page">
     <MyHeader />
-    <div class="position-shell" v-loading="loading">
-      <section class="page-hero">
-        <div>
-          <p class="hero-kicker">Position Gate</p>
-          <h1>仓位管理</h1>
-          <p class="hero-copy">
-            统一查看保证金阈值、当前仓位状态、holding scope 和规则命中，不再靠 Mongo 集合与代码默认值排查。
-          </p>
+
+    <div class="workbench-body position-body" v-loading="loading">
+      <section class="workbench-toolbar">
+        <div class="workbench-toolbar__header">
+          <div class="workbench-title-group">
+            <div class="workbench-page-title">仓位管理</div>
+            <div class="workbench-page-meta">
+              <span>统一查看阈值、当前仓位状态、holding scope 和规则命中</span>
+              <span>/</span>
+              <span>配置更新时间 {{ configUpdatedAt }}</span>
+              <span>/</span>
+              <span>更新人 {{ configUpdatedBy }}</span>
+            </div>
+          </div>
+
+          <div class="workbench-toolbar__actions">
+            <el-button @click="loadDashboard">刷新</el-button>
+          </div>
         </div>
-        <div class="hero-actions">
-          <article class="hero-stamp">
-            <span>配置更新时间</span>
-            <strong>{{ configUpdatedAt }}</strong>
-            <em>{{ configUpdatedBy }}</em>
-          </article>
-          <el-button @click="loadDashboard">刷新</el-button>
+
+        <div class="workbench-summary-row">
+          <span class="workbench-summary-chip" :class="stateToneChipClass">
+            当前状态 <strong>{{ statePanel.hero.effective_state_label }}</strong>
+          </span>
+          <span class="workbench-summary-chip" :class="staleChipClass">
+            {{ statePanel.hero.stale_label }}
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--muted">
+            raw state <strong>{{ statePanel.hero.raw_state_label }}</strong>
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--muted">
+            规则 <strong>{{ statePanel.hero.matched_rule_title }}</strong>
+          </span>
         </div>
       </section>
 
       <el-alert
         v-if="pageError"
-        class="page-error"
+        class="workbench-alert"
         type="error"
         :title="pageError"
         show-icon
         :closable="false"
       />
 
-      <section class="position-section">
-        <div class="section-head">
-          <div>
-            <h2>参数 inventory</h2>
-            <p>把当前真正生效的阈值、代码默认值和系统连接参数放到同一页，但保留各自边界。</p>
+      <section class="workbench-panel position-config-panel">
+        <div class="workbench-panel__header">
+          <div class="workbench-title-group">
+            <div class="workbench-panel__title">参数 inventory</div>
+            <p class="workbench-panel__desc">把真正生效的阈值、代码默认值和系统连接参数放到同一页，但保持各自边界。</p>
           </div>
         </div>
-        <div class="config-grid">
-          <article class="panel-card panel-card--editor">
-            <div class="panel-head">
-              <div>
-                <h3>{{ editableSection.title }}</h3>
-                <p>{{ editableSection.description }}</p>
+
+        <div class="position-config-grid">
+          <article class="workbench-block workbench-block--muted position-edit-block">
+            <div class="workbench-panel__header position-block-head">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">{{ editableSection.title }}</div>
+                <p class="workbench-panel__desc">{{ editableSection.description }}</p>
               </div>
-              <span class="panel-badge">pm_configs.thresholds</span>
+              <span class="workbench-summary-chip workbench-summary-chip--muted">pm_configs.thresholds</span>
             </div>
 
             <el-form label-position="top" class="config-form">
@@ -70,8 +88,8 @@
               </el-form-item>
             </el-form>
 
-            <div class="editor-footer">
-              <p>首期仅开放保证金阈值编辑；其余参数保持只读，避免页面配置与运行链脱节。</p>
+            <div class="position-edit-footer">
+              <span class="workbench-muted">当前只开放保证金阈值编辑，其余参数保持只读。</span>
               <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
             </div>
           </article>
@@ -79,22 +97,25 @@
           <article
             v-for="section in readonlySections"
             :key="section.key"
-            class="panel-card"
+            class="workbench-block position-readonly-block"
           >
-            <div class="panel-head">
-              <div>
-                <h3>{{ section.title }}</h3>
-                <p>{{ section.description }}</p>
+            <div class="workbench-panel__header position-block-head">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">{{ section.title }}</div>
+                <p class="workbench-panel__desc">{{ section.description }}</p>
               </div>
             </div>
+
             <div class="readonly-list">
               <div
                 v-for="item in section.items"
                 :key="item.key"
                 class="readonly-item"
               >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value_label }}</strong>
+                <div class="readonly-item__main">
+                  <strong>{{ item.label }}</strong>
+                  <span>{{ item.value_label }}</span>
+                </div>
                 <p>{{ item.description }}</p>
               </div>
             </div>
@@ -102,132 +123,137 @@
         </div>
       </section>
 
-      <section class="position-section">
-        <div class="section-head">
-          <div>
-            <h2>当前仓位状态</h2>
-            <p>effective state、stale 语义和资产摘要均由服务端按真实 PositionPolicy 汇总。</p>
+      <div class="position-state-grid">
+        <section class="workbench-panel">
+          <div class="workbench-panel__header">
+            <div class="workbench-title-group">
+              <div class="workbench-panel__title">当前仓位状态</div>
+              <p class="workbench-panel__desc">effective state、stale 语义和资产摘要均由服务端按真实 PositionPolicy 汇总。</p>
+            </div>
           </div>
-        </div>
-        <div class="state-layout">
-          <article class="state-hero-card" :class="`is-${statePanel.hero.effective_state_tone}`">
-            <div class="state-hero-top">
-              <span class="state-pill" :class="`is-${statePanel.hero.effective_state_tone}`">
-                {{ statePanel.hero.effective_state_label }}
-              </span>
-              <span class="stale-pill" :class="{ 'is-stale': statePanel.hero.stale }">
-                {{ statePanel.hero.stale_label }}
-              </span>
-            </div>
-            <h3>{{ statePanel.hero.matched_rule_title }}</h3>
-            <p>{{ statePanel.hero.matched_rule_detail }}</p>
-            <div class="state-submeta">
-              <span>raw state {{ statePanel.hero.raw_state_label }}</span>
-            </div>
-          </article>
 
-          <div class="metric-grid">
+          <div class="workbench-summary-row">
+            <span class="workbench-summary-chip" :class="stateToneChipClass">
+              {{ statePanel.hero.effective_state_label }}
+            </span>
+            <span class="workbench-summary-chip" :class="staleChipClass">
+              {{ statePanel.hero.stale_label }}
+            </span>
+            <span class="workbench-summary-chip workbench-summary-chip--muted">
+              raw state <strong>{{ statePanel.hero.raw_state_label }}</strong>
+            </span>
+          </div>
+
+          <div class="position-rule-hint">
+            <strong>{{ statePanel.hero.matched_rule_title }}</strong>
+            <p>{{ statePanel.hero.matched_rule_detail }}</p>
+          </div>
+
+          <div class="position-metric-grid">
             <article
               v-for="item in statePanel.stats"
               :key="item.key"
-              class="metric-card"
+              class="workbench-block position-metric-card"
             >
               <span>{{ item.label }}</span>
               <strong>{{ item.value_label }}</strong>
             </article>
           </div>
-        </div>
 
-        <div class="meta-grid">
-          <article
-            v-for="item in statePanel.meta"
-            :key="item.key"
-            class="meta-card"
-          >
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </article>
-        </div>
-      </section>
-
-      <section class="position-section">
-        <div class="section-head">
-          <div>
-            <h2>持仓范围与规则矩阵</h2>
-            <p>holding scope 使用与门禁一致的 union 口径，规则矩阵直接回答当前哪些行为允许、为什么。</p>
+          <div class="position-meta-grid">
+            <article
+              v-for="item in statePanel.meta"
+              :key="item.key"
+              class="workbench-block position-meta-card"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
           </div>
-        </div>
-        <div class="rule-layout">
-          <article class="panel-card holding-card">
-            <div class="panel-head">
-              <div>
-                <h3>当前 holding scope</h3>
-                <p>{{ holdingScope.description }}</p>
-              </div>
-              <span class="panel-badge">{{ holdingScope.count_label }}</span>
+        </section>
+
+        <section class="workbench-panel">
+          <div class="workbench-panel__header">
+            <div class="workbench-title-group">
+              <div class="workbench-panel__title">持仓范围与规则矩阵</div>
+              <p class="workbench-panel__desc">holding scope 使用与门禁一致的 union 口径，规则矩阵直接回答当前哪些行为允许、为什么。</p>
             </div>
-            <div class="holding-source">source {{ holdingScope.source }}</div>
-            <div class="code-chip-list">
+          </div>
+
+          <div class="workbench-summary-row">
+            <span class="workbench-summary-chip workbench-summary-chip--muted">
+              count <strong>{{ holdingScope.count_label }}</strong>
+            </span>
+            <span class="workbench-summary-chip workbench-summary-chip--muted">
+              source <strong>{{ holdingScope.source }}</strong>
+            </span>
+          </div>
+
+          <div class="position-holding-panel">
+            <div class="position-holding-copy">{{ holdingScope.description }}</div>
+            <div class="position-code-chip-list">
               <span
                 v-for="code in holdingScope.codes"
                 :key="code"
-                class="code-chip"
+                class="workbench-summary-chip workbench-summary-chip--muted"
               >
                 {{ code }}
               </span>
-              <span v-if="holdingScope.codes.length === 0" class="code-chip code-chip--empty">
+              <span
+                v-if="holdingScope.codes.length === 0"
+                class="workbench-summary-chip workbench-summary-chip--muted"
+              >
                 当前无持仓代码
               </span>
             </div>
-          </article>
+          </div>
 
-          <div class="rule-grid">
-            <article
-              v-for="row in ruleMatrix"
-              :key="row.key"
-              class="rule-card"
-              :class="`is-${row.tone}`"
-            >
-              <div class="rule-top">
-                <span class="rule-status">{{ row.allowed_label }}</span>
-                <span class="rule-code">{{ row.reason_code }}</span>
-              </div>
-              <strong>{{ row.label }}</strong>
-              <p>{{ row.reason_text }}</p>
-            </article>
+          <el-table :data="ruleMatrix" size="small" border>
+            <el-table-column prop="label" label="行为" min-width="120" />
+            <el-table-column label="结果" width="88">
+              <template #default="{ row }">
+                <span
+                  class="workbench-summary-chip"
+                  :class="row.allowed ? 'workbench-summary-chip--success' : 'workbench-summary-chip--danger'"
+                >
+                  {{ row.allowed_label }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="reason_code" label="原因码" min-width="140" />
+            <el-table-column prop="reason_text" label="说明" min-width="220" />
+          </el-table>
+        </section>
+      </div>
+
+      <section class="workbench-panel">
+        <div class="workbench-panel__header">
+          <div class="workbench-title-group">
+            <div class="workbench-panel__title">最近决策</div>
+            <p class="workbench-panel__desc">辅助确认最近策略单被允许还是拒绝，以及对应原因码。</p>
           </div>
         </div>
-      </section>
 
-      <section class="position-section">
-        <div class="section-head">
-          <div>
-            <h2>最近决策</h2>
-            <p>辅助确认最近策略单被允许还是拒绝，以及对应原因码。</p>
-          </div>
-        </div>
-        <div v-if="recentDecisionRows.length" class="decision-list">
-          <article
-            v-for="row in recentDecisionRows"
-            :key="`${row.evaluated_at}-${row.symbol}-${row.reason_code}`"
-            class="decision-card"
-            :class="`is-${row.tone}`"
-          >
-            <div class="decision-top">
-              <strong>{{ row.strategy_label }}</strong>
-              <span class="decision-status">{{ row.allowed_label }}</span>
-            </div>
-            <p>{{ row.action_label }} {{ row.symbol_label }} · {{ row.state_label }}</p>
-            <div class="decision-meta">
-              <span>{{ row.reason_code || '-' }}</span>
-              <span>{{ row.evaluated_at_label }}</span>
-            </div>
-            <div class="decision-reason">{{ row.reason_text }}</div>
-          </article>
-        </div>
-        <div v-else class="panel-empty">
-          暂无最近决策记录。
-        </div>
+        <el-table v-if="recentDecisionRows.length" :data="recentDecisionRows" size="small" border>
+          <el-table-column prop="strategy_label" label="策略" min-width="140" />
+          <el-table-column prop="action_label" label="动作" width="86" />
+          <el-table-column prop="symbol_label" label="标的" width="100" />
+          <el-table-column prop="state_label" label="状态" min-width="120" />
+          <el-table-column label="结果" width="88">
+            <template #default="{ row }">
+              <span
+                class="workbench-summary-chip"
+                :class="row.tone === 'allow' ? 'workbench-summary-chip--success' : 'workbench-summary-chip--danger'"
+              >
+                {{ row.allowed_label }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="reason_text" label="说明" min-width="260" />
+          <el-table-column prop="evaluated_at_label" label="评估时间" min-width="176" />
+        </el-table>
+
+        <div v-else class="workbench-empty">暂无最近决策记录。</div>
       </section>
     </div>
   </div>
@@ -275,6 +301,16 @@ const ruleMatrix = computed(() => buildRuleMatrix(dashboard.value))
 const recentDecisionRows = computed(() => buildRecentDecisionRows(dashboard.value))
 const configUpdatedAt = computed(() => dashboard.value?.config?.updated_at || '未配置')
 const configUpdatedBy = computed(() => dashboard.value?.config?.updated_by || 'unknown')
+const stateToneChipClass = computed(() => {
+  const tone = statePanel.value?.hero?.effective_state_tone
+  if (tone === 'allow') return 'workbench-summary-chip--success'
+  if (tone === 'hold') return 'workbench-summary-chip--warning'
+  if (tone === 'reduce') return 'workbench-summary-chip--danger'
+  return 'workbench-summary-chip--muted'
+})
+const staleChipClass = computed(() => (
+  statePanel.value?.hero?.stale ? 'workbench-summary-chip--warning' : 'workbench-summary-chip--muted'
+))
 
 const syncEditableForm = () => {
   const thresholds = dashboard.value?.config?.thresholds || {}
@@ -332,421 +368,156 @@ onMounted(() => {
 })
 </script>
 
-<style lang="stylus" scoped>
-.position-page
-  min-height 100vh
-  background radial-gradient(circle at top left, rgba(212, 235, 255, 0.9), rgba(250, 246, 240, 0.95) 38%, #f7fafc 68%)
-
-.position-shell
-  padding 24px
-  display grid
-  gap 18px
-
-.page-hero
-  display flex
-  justify-content space-between
-  gap 16px
-  padding 24px
-  border 1px solid #d6e3ee
-  border-radius 24px
-  background linear-gradient(135deg, rgba(17, 53, 84, 0.95), rgba(42, 94, 123, 0.92))
-  color #f8fbff
-  box-shadow 0 18px 40px rgba(23, 56, 86, 0.16)
-
-.hero-kicker
-  margin 0
-  text-transform uppercase
-  letter-spacing 0.14em
-  font-size 12px
-  color rgba(226, 239, 251, 0.82)
-
-.page-hero h1
-  margin 10px 0 0
-  font-size 34px
-
-.hero-copy
-  margin 12px 0 0
-  max-width 720px
-  color rgba(233, 242, 250, 0.88)
-  line-height 1.6
-
-.hero-actions
-  min-width 240px
-  display flex
-  flex-direction column
-  align-items flex-end
-  gap 12px
-
-.hero-stamp
-  width 100%
-  padding 16px
-  border-radius 18px
-  background rgba(255, 255, 255, 0.08)
-  border 1px solid rgba(255, 255, 255, 0.16)
-
-.hero-stamp span,
-.hero-stamp em
-  display block
-  color rgba(228, 239, 249, 0.78)
-  font-size 12px
-
-.hero-stamp strong
-  display block
-  margin 8px 0 4px
-  color #ffffff
-  font-size 18px
-
-.page-error
-  margin-top -4px
-
-.position-section
-  padding 20px
-  border 1px solid #d9e4ee
-  border-radius 22px
-  background rgba(255, 255, 255, 0.82)
-  backdrop-filter blur(10px)
-
-.section-head
-  display flex
-  justify-content space-between
-  gap 12px
-  align-items flex-start
-  margin-bottom 16px
-
-.section-head h2
-  margin 0
-  color #19324b
-  font-size 22px
-
-.section-head p
-  margin 6px 0 0
-  color #5b738c
-  line-height 1.6
-
-.config-grid,
-.state-layout,
-.rule-layout
-  display grid
-  gap 14px
-
-.config-grid
-  grid-template-columns minmax(320px, 1.15fr) repeat(2, minmax(240px, 0.9fr))
-
-.panel-card
-  border 1px solid #d9e5ef
-  border-radius 18px
-  padding 16px
-  background linear-gradient(180deg, #ffffff 0%, #f7fafc 100%)
-
-.panel-card--editor
-  background linear-gradient(180deg, #ffffff 0%, #f3f8fc 100%)
-
-.panel-head
-  display flex
-  justify-content space-between
-  gap 12px
-  align-items flex-start
-  margin-bottom 14px
-
-.panel-head h3
-  margin 0
-  color #1f3a56
-
-.panel-head p
-  margin 6px 0 0
-  color #668097
-  line-height 1.5
-
-.panel-badge
-  display inline-flex
-  align-items center
-  padding 6px 10px
-  border-radius 999px
-  background #e7f0f7
-  color #30506b
-  font-size 12px
-
-.config-form :deep(.el-input-number)
-  width 100%
-
-.field-hint
-  margin 8px 0 0
-  color #6d879d
-  font-size 12px
-  line-height 1.5
-
-.editor-footer
-  display flex
-  justify-content space-between
-  gap 12px
-  align-items center
-  margin-top 8px
-  padding-top 14px
-  border-top 1px solid #e4ecf3
-
-.editor-footer p
-  margin 0
-  color #5f7890
-  line-height 1.5
-
-.readonly-list
-  display grid
-  gap 10px
-
-.readonly-item
-  padding 14px
-  border-radius 14px
-  background #f7fbff
-  border 1px solid #e2ebf3
-
-.readonly-item span
-  display block
-  color #627c94
-  font-size 12px
-
-.readonly-item strong
-  display block
-  margin-top 8px
-  color #1f3c58
-  font-size 18px
-
-.readonly-item p
-  margin 8px 0 0
-  color #69839b
-  line-height 1.5
-  font-size 12px
-
-.state-layout
-  grid-template-columns minmax(320px, 1.05fr) minmax(0, 1.2fr)
-  align-items stretch
-
-.state-hero-card
-  padding 18px
-  border-radius 20px
-  color #17324a
-  background linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 248, 252, 0.96))
-  border 1px solid #d9e5ef
-
-.state-hero-card.is-allow
-  background linear-gradient(180deg, #f0fbf5 0%, #ffffff 100%)
-
-.state-hero-card.is-hold
-  background linear-gradient(180deg, #fff8ea 0%, #ffffff 100%)
-
-.state-hero-card.is-reduce
-  background linear-gradient(180deg, #fff2ef 0%, #ffffff 100%)
-
-.state-hero-top
-  display flex
-  justify-content space-between
-  gap 10px
-  align-items center
-
-.state-pill,
-.stale-pill,
-.rule-status,
-.decision-status
-  display inline-flex
-  align-items center
-  justify-content center
-  padding 6px 12px
-  border-radius 999px
-  font-size 12px
-
-.state-pill.is-allow
-  background #1d9b62
-  color #fff
-
-.state-pill.is-hold
-  background #dd921e
-  color #fff
-
-.state-pill.is-reduce
-  background #d15041
-  color #fff
-
-.stale-pill
-  background #e8f1f7
-  color #35536f
-
-.stale-pill.is-stale
-  background #f6e8c7
-  color #8f6112
-
-.state-hero-card h3
-  margin 18px 0 0
-  font-size 24px
-  line-height 1.35
-
-.state-hero-card p
-  margin 10px 0 0
-  color #526c84
-  line-height 1.65
-
-.state-submeta
-  display flex
-  flex-wrap wrap
-  gap 8px
-  margin-top 16px
-  color #607b93
-  font-size 12px
-
-.metric-grid
-  display grid
-  grid-template-columns repeat(3, minmax(0, 1fr))
-  gap 12px
-
-.metric-card,
-.meta-card
-  padding 14px
-  border-radius 16px
-  border 1px solid #dde8f1
-  background #ffffff
-
-.metric-card span,
-.meta-card span
-  display block
-  color #69829b
-  font-size 12px
-
-.metric-card strong,
-.meta-card strong
-  display block
-  margin-top 8px
-  color #1d3b58
-  font-size 20px
-  line-height 1.2
-
-.meta-grid
-  margin-top 14px
-  display grid
-  grid-template-columns repeat(5, minmax(0, 1fr))
-  gap 12px
-
-.meta-card strong
-  font-size 14px
-  word-break break-all
-
-.rule-layout
-  grid-template-columns minmax(280px, 0.9fr) minmax(0, 1.3fr)
-
-.holding-source
-  color #6a859e
-  font-size 12px
-
-.code-chip-list
-  display flex
-  flex-wrap wrap
-  gap 8px
-  margin-top 14px
-
-.code-chip
-  padding 8px 12px
-  border-radius 999px
-  background #edf4fa
-  color #25425d
-  font-size 12px
-
-.code-chip--empty
-  background #f2f6fa
-  color #6a849d
-
-.rule-grid
-  display grid
-  grid-template-columns repeat(3, minmax(0, 1fr))
-  gap 12px
-
-.rule-card,
-.decision-card
-  padding 16px
-  border-radius 18px
-  border 1px solid #dbe6ef
-  background #fff
-
-.rule-card.is-allow,
-.decision-card.is-allow
-  background linear-gradient(180deg, #f0fbf5 0%, #ffffff 100%)
-
-.rule-card.is-reject,
-.decision-card.is-reject
-  background linear-gradient(180deg, #fff4ef 0%, #ffffff 100%)
-
-.rule-top,
-.decision-top,
-.decision-meta
-  display flex
-  justify-content space-between
-  gap 10px
-  align-items center
-
-.rule-status,
-.decision-status
-  background #19324a
-  color #fff
-
-.rule-code
-  color #67839c
-  font-size 12px
-
-.rule-card strong,
-.decision-card strong
-  display block
-  margin-top 14px
-  color #1f3c58
-
-.rule-card p,
-.decision-card p,
-.decision-reason
-  margin 10px 0 0
-  color #58728a
-  line-height 1.6
-
-.decision-list
-  display grid
-  grid-template-columns repeat(auto-fit, minmax(260px, 1fr))
-  gap 12px
-
-.decision-meta
-  margin-top 12px
-  color #6b859c
-  font-size 12px
-
-.panel-empty
-  min-height 120px
-  display grid
-  place-items center
-  border 1px dashed #d4e0ea
-  border-radius 18px
-  color #6b849b
-  background #f7fafc
-
-@media (max-width: 1180px)
-  .config-grid,
-  .state-layout,
-  .rule-layout,
-  .metric-grid,
-  .meta-grid,
-  .rule-grid
-    grid-template-columns 1fr
-
-@media (max-width: 900px)
-  .position-shell
-    padding 16px
-
-  .page-hero,
-  .panel-head,
-  .editor-footer,
-  .hero-actions,
-  .state-hero-top,
-  .rule-top,
-  .decision-top,
-  .decision-meta
-    flex-direction column
-    align-items stretch
-
-  .hero-actions
-    min-width 0
-
-  .page-hero h1
-    font-size 28px
+<style scoped>
+.position-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.position-config-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.12fr) repeat(2, minmax(220px, 0.94fr));
+  gap: 12px;
+}
+
+.position-block-head {
+  margin-bottom: 2px;
+}
+
+.config-form :deep(.el-input-number) {
+  width: 100%;
+}
+
+.field-hint {
+  margin: 8px 0 0;
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.position-edit-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.readonly-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.readonly-item {
+  padding: 10px 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.readonly-item__main {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.readonly-item__main strong {
+  color: #303133;
+}
+
+.readonly-item__main span,
+.readonly-item p,
+.position-holding-copy {
+  color: #606266;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.readonly-item p {
+  margin: 8px 0 0;
+}
+
+.position-state-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.15fr);
+  gap: 12px;
+}
+
+.position-rule-hint {
+  padding: 10px 12px;
+  border: 1px dashed #dbe1ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.position-rule-hint strong {
+  color: #303133;
+}
+
+.position-rule-hint p {
+  margin: 6px 0 0;
+  color: #606266;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.position-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.position-metric-card span,
+.position-meta-card span {
+  display: block;
+  color: #909399;
+  font-size: 12px;
+}
+
+.position-metric-card strong,
+.position-meta-card strong {
+  display: block;
+  margin-top: 8px;
+  color: #303133;
+  line-height: 1.35;
+}
+
+.position-metric-card strong {
+  font-size: 18px;
+}
+
+.position-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.position-meta-card strong {
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.position-holding-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.position-code-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 1320px) {
+  .position-config-grid,
+  .position-state-grid,
+  .position-metric-grid,
+  .position-meta-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

@@ -48,9 +48,9 @@
 
 - [行情数据](./current/reference/market-data.md)
 - [ETF 数据](./current/reference/etf-data.md)
+- [前端 Workbench 风格](./current/reference/frontend-workbench-style.md)
 - [股票池与持仓](./current/reference/stock-pools-and-positions.md)
 - [CLXS 信号函数](./current/reference/signal-clxs.md)
-- [系统设置参数（params）](./current/reference/system-settings-params.md)
 
 ## 当前阶段最常用入口
 

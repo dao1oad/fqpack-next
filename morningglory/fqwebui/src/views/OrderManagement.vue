@@ -1,24 +1,34 @@
 <template>
-  <div class="order-page">
+  <div class="workbench-page order-page">
     <MyHeader />
 
-    <div class="order-shell">
-      <section class="filter-card">
-        <div class="card-head">
-          <div>
-            <p class="eyebrow">Order Ledger</p>
-            <h1>订单管理</h1>
-            <p>统一查看订单账本、请求上下文、状态流转和成交回报。</p>
+    <div class="workbench-body order-body">
+      <section class="workbench-toolbar order-toolbar">
+        <div class="workbench-toolbar__header">
+          <div class="workbench-title-group">
+            <div class="workbench-page-title">订单管理</div>
+            <div class="workbench-page-meta">
+              <span>订单账本、请求上下文、状态流转、成交回报</span>
+              <span>/</span>
+              <span>当前列表 {{ total }} 条</span>
+              <template v-if="selectedOrderId">
+                <span>/</span>
+                <span>选中 <span class="workbench-code">{{ selectedOrderId }}</span></span>
+              </template>
+            </div>
           </div>
-          <div class="head-actions">
+
+          <div class="workbench-toolbar__actions">
             <el-button @click="resetFilters">重置</el-button>
-            <el-button type="primary" :loading="loadingOrders || loadingStats" @click="applyFilters">刷新</el-button>
+            <el-button type="primary" :loading="loadingOrders || loadingStats" @click="applyFilters">
+              刷新
+            </el-button>
           </div>
         </div>
 
         <el-alert
           v-if="pageError"
-          class="page-alert"
+          class="workbench-alert"
           type="error"
           :title="pageError"
           :closable="false"
@@ -58,135 +68,190 @@
         </div>
 
         <div class="filter-foot">
-          <el-switch
-            v-model="filters.missing_broker_only"
-            inline-prompt
-            active-text="缺 broker 单号"
-            inactive-text="全部订单"
-          />
-          <span class="filter-hint">时间筛选支持 `2026-03-13` 或 ISO 时间。</span>
+          <div class="workbench-inline-tags">
+            <el-switch
+              v-model="filters.missing_broker_only"
+              inline-prompt
+              active-text="缺 broker 单号"
+              inactive-text="全部订单"
+            />
+            <span class="workbench-muted">时间筛选支持 `2026-03-13` 或 ISO 时间。</span>
+          </div>
+
+          <div class="workbench-summary-row order-filter-chips">
+            <span
+              v-for="chip in activeFilterChips"
+              :key="chip"
+              class="workbench-summary-chip workbench-summary-chip--muted"
+            >
+              {{ chip }}
+            </span>
+            <span
+              v-if="activeFilterChips.length === 0"
+              class="workbench-summary-chip workbench-summary-chip--muted"
+            >
+              当前无额外筛选
+            </span>
+          </div>
         </div>
       </section>
 
-      <section class="stats-grid" v-loading="loadingStats">
-        <article class="stat-card">
-          <span>总订单数</span>
-          <strong>{{ stats.total }}</strong>
-          <small>最近更新时间 {{ stats.latest_updated_at }}</small>
-        </article>
-        <article class="stat-card">
-          <span>缺 broker 单号</span>
-          <strong>{{ stats.missing_broker_order_count }}</strong>
-          <small>排查 queued / submit 异常优先看这里</small>
-        </article>
-        <article class="stat-card">
-          <span>已成交 / 部分成交</span>
-          <strong>{{ stats.filled_count }} / {{ stats.partial_filled_count }}</strong>
-          <small>撤单 {{ stats.canceled_count }}，失败 {{ stats.failed_count }}</small>
-        </article>
-        <article class="stat-card stat-card--wide">
-          <span>买卖分布</span>
-          <div class="chip-row">
-            <span v-for="item in stats.sideCards" :key="item.key">{{ item.label }} {{ item.value }}</span>
-            <span v-if="stats.sideCards.length === 0">暂无</span>
+      <section class="workbench-panel order-stats-panel" v-loading="loadingStats">
+        <div class="workbench-panel__header">
+          <div class="workbench-title-group">
+            <div class="workbench-panel__title">订单摘要</div>
+            <p class="workbench-panel__desc">保留原有统计口径，用摘要条承载更多信息。</p>
           </div>
-          <div class="chip-row">
-            <span v-for="item in stats.stateCards" :key="item.key">{{ item.label }} {{ item.value }}</span>
-            <span v-if="stats.stateCards.length === 0">暂无状态分布</span>
-          </div>
-        </article>
+        </div>
+
+        <div class="workbench-summary-row">
+          <span class="workbench-summary-chip">
+            总订单 <strong>{{ stats.total }}</strong>
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--warning">
+            缺 broker 单号 <strong>{{ stats.missing_broker_order_count }}</strong>
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--success">
+            已成交 / 部分成交 <strong>{{ stats.filled_count }} / {{ stats.partial_filled_count }}</strong>
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--muted">
+            撤单 <strong>{{ stats.canceled_count }}</strong>
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--muted">
+            失败 <strong>{{ stats.failed_count }}</strong>
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--muted">
+            最近更新时间 <strong>{{ stats.latest_updated_at }}</strong>
+          </span>
+          <span
+            v-for="item in stats.sideCards"
+            :key="item.key"
+            class="workbench-summary-chip workbench-summary-chip--muted"
+          >
+            {{ item.label }} <strong>{{ item.value }}</strong>
+          </span>
+          <span
+            v-for="item in stats.stateCards"
+            :key="item.key"
+            class="workbench-summary-chip workbench-summary-chip--muted"
+          >
+            {{ item.label }} <strong>{{ item.value }}</strong>
+          </span>
+        </div>
       </section>
 
-      <div class="main-grid">
-        <section class="table-card" v-loading="loadingOrders">
-          <div class="card-head card-head--compact">
-            <div>
-              <h2>订单列表</h2>
-              <p>默认展示最近订单；点 symbol 可直接切到该标的历史。</p>
+      <div class="order-main-grid">
+        <section class="workbench-panel order-list-panel" v-loading="loadingOrders">
+          <div class="workbench-panel__header">
+            <div class="workbench-title-group">
+              <div class="workbench-panel__title">订单列表</div>
+              <p class="workbench-panel__desc">默认展示最近订单；点 symbol 可直接切到该标的历史。</p>
             </div>
-            <span class="muted">共 {{ total }} 条</span>
+            <div class="workbench-panel__meta">
+              <span>共 {{ total }} 条</span>
+              <span>/</span>
+              <span>页 {{ page }}</span>
+              <span>/</span>
+              <span>每页 {{ size }}</span>
+            </div>
           </div>
 
-          <el-empty v-if="rows.length === 0" description="当前筛选下没有订单。" />
-          <template v-else>
-            <el-table
-              :data="rows"
-              stripe
-              height="520"
-              :row-class-name="tableRowClassName"
-              @row-click="handleRowClick"
-            >
-              <el-table-column label="Symbol" min-width="120">
-                <template #default="{ row }">
-                  <el-button text type="primary" @click.stop="focusSymbol(row.symbol)">
-                    {{ row.symbol || '-' }}
-                  </el-button>
-                </template>
-              </el-table-column>
-              <el-table-column prop="side" label="Side" width="90" />
-              <el-table-column prop="state" label="State" width="140" />
-              <el-table-column prop="strategy_name" label="Strategy" min-width="140" />
-              <el-table-column prop="source" label="Source" width="120" />
-              <el-table-column label="Price / Qty" min-width="140">
-                <template #default="{ row }">
-                  {{ row.price ?? '-' }} / {{ row.quantity ?? '-' }}
-                </template>
-              </el-table-column>
-              <el-table-column label="Filled" min-width="120">
-                <template #default="{ row }">
-                  {{ row.filled_quantity }} / {{ row.avg_filled_price ?? '-' }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="internal_order_id" label="Internal Order" min-width="170" />
-              <el-table-column prop="request_id" label="Request" min-width="160" />
-              <el-table-column prop="broker_order_id" label="Broker" min-width="140" />
-              <el-table-column label="Updated" min-width="180">
-                <template #default="{ row }">
-                  {{ row.updated_at || row.created_at || '-' }}
-                </template>
-              </el-table-column>
-            </el-table>
+          <div class="workbench-table-wrap">
+            <el-empty v-if="rows.length === 0" description="当前筛选下没有订单。" />
+            <template v-else>
+              <el-table
+                :data="rows"
+                stripe
+                height="100%"
+                :row-class-name="tableRowClassName"
+                @row-click="handleRowClick"
+              >
+                <el-table-column label="Symbol" min-width="116">
+                  <template #default="{ row }">
+                    <el-button text type="primary" @click.stop="focusSymbol(row.symbol)">
+                      {{ row.symbol || '-' }}
+                    </el-button>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="side" label="Side" width="86" />
+                <el-table-column prop="state" label="State" width="132" />
+                <el-table-column prop="strategy_name" label="Strategy" min-width="132" />
+                <el-table-column prop="source" label="Source" width="110" />
+                <el-table-column label="Price / Qty" min-width="132">
+                  <template #default="{ row }">
+                    {{ row.price ?? '-' }} / {{ row.quantity ?? '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="Filled" min-width="118">
+                  <template #default="{ row }">
+                    {{ row.filled_quantity }} / {{ row.avg_filled_price ?? '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="internal_order_id" label="Internal Order" min-width="164" />
+                <el-table-column prop="request_id" label="Request" min-width="152" />
+                <el-table-column prop="broker_order_id" label="Broker" min-width="132" />
+                <el-table-column label="Updated" min-width="176">
+                  <template #default="{ row }">
+                    {{ row.updated_at || row.created_at || '-' }}
+                  </template>
+                </el-table-column>
+              </el-table>
+            </template>
+          </div>
 
-            <div class="pagination-row">
-              <el-pagination
-                background
-                layout="total, sizes, prev, pager, next"
-                :total="total"
-                :current-page="page"
-                :page-size="size"
-                :page-sizes="[10, 20, 50, 100]"
-                @current-change="changePage"
-                @size-change="changeSize"
-              />
-            </div>
-          </template>
+          <div v-if="rows.length" class="pagination-row">
+            <el-pagination
+              background
+              layout="total, sizes, prev, pager, next"
+              :total="total"
+              :current-page="page"
+              :page-size="size"
+              :page-sizes="[10, 20, 50, 100]"
+              @current-change="changePage"
+              @size-change="changeSize"
+            />
+          </div>
         </section>
 
-        <section class="detail-card" v-loading="loadingDetail">
+        <section class="workbench-panel order-detail-panel" v-loading="loadingDetail">
           <template v-if="detail">
-            <div class="card-head">
-              <div>
-                <p class="eyebrow">Order Detail</p>
-                <h2>{{ detail.headerTitle }}</h2>
-                <p>{{ detail.requestSummary }}</p>
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">{{ detail.headerTitle }}</div>
+                <div class="workbench-panel__meta">
+                  <span>{{ detail.requestSummary }}</span>
+                  <span>/</span>
+                  <span>{{ detail.tradeSummary }}</span>
+                </div>
               </div>
-              <div class="chip-row">
-                <span>{{ detail.order.side || '-' }}</span>
-                <span>{{ detail.order.state || '-' }}</span>
-                <span>{{ detail.tradeSummary }}</span>
+
+              <div class="workbench-summary-row">
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  {{ detail.order.side || '-' }}
+                </span>
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  {{ detail.order.state || '-' }}
+                </span>
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  {{ detail.tradeSummary }}
+                </span>
               </div>
             </div>
 
-            <div class="identifier-grid">
-              <article v-for="item in detail.identifierRows" :key="item.key" class="identifier-card">
+            <div class="workbench-summary-row order-identifier-row">
+              <span
+                v-for="item in detail.identifierRows"
+                :key="item.key"
+                class="workbench-summary-chip workbench-summary-chip--muted"
+              >
                 <span>{{ item.key }}</span>
                 <strong>{{ item.value }}</strong>
-              </article>
+              </span>
             </div>
 
-            <div class="info-grid">
-              <article class="info-card">
-                <h3>订单主记录</h3>
+            <div class="order-detail-grid">
+              <article class="workbench-block order-detail-block">
+                <div class="order-detail-block__head">订单主记录</div>
                 <el-descriptions :column="1" border size="small">
                   <el-descriptions-item label="symbol">{{ detail.order.symbol || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="side">{{ detail.order.side || '-' }}</el-descriptions-item>
@@ -199,8 +264,8 @@
                 </el-descriptions>
               </article>
 
-              <article class="info-card">
-                <h3>请求信息</h3>
+              <article class="workbench-block order-detail-block">
+                <div class="order-detail-block__head">请求信息</div>
                 <el-descriptions :column="1" border size="small">
                   <el-descriptions-item label="request_id">{{ detail.request.request_id || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="source">{{ detail.request.source || '-' }}</el-descriptions-item>
@@ -211,13 +276,11 @@
                   <el-descriptions-item label="created_at">{{ detail.request.created_at || '-' }}</el-descriptions-item>
                 </el-descriptions>
               </article>
-            </div>
 
-            <div class="info-grid">
-              <article class="info-card">
-                <h3>状态流转</h3>
+              <article class="workbench-block order-detail-block">
+                <div class="order-detail-block__head">状态流转</div>
                 <el-empty v-if="detail.timelineRows.length === 0" description="暂无事件" />
-                <el-timeline v-else>
+                <el-timeline v-else class="order-timeline">
                   <el-timeline-item
                     v-for="item in detail.timelineRows"
                     :key="item.event_id || `${item.event_type}-${item.created_at}`"
@@ -230,10 +293,10 @@
                 </el-timeline>
               </article>
 
-              <article class="info-card">
-                <h3>成交回报</h3>
+              <article class="workbench-block order-detail-block">
+                <div class="order-detail-block__head">成交回报</div>
                 <el-empty v-if="detail.tradeRows.length === 0" description="暂无成交" />
-                <el-table v-else :data="detail.tradeRows" stripe size="small">
+                <el-table v-else :data="detail.tradeRows" stripe size="small" height="100%">
                   <el-table-column prop="trade_fact_id" label="Trade Fact" min-width="140" />
                   <el-table-column prop="quantity" label="Qty" width="90" />
                   <el-table-column prop="price" label="Price" width="90" />
@@ -243,7 +306,8 @@
               </article>
             </div>
           </template>
-          <el-empty v-else description="先从左侧订单列表选择一笔订单。" />
+
+          <div v-else class="workbench-empty">先从左侧订单列表选择一笔订单。</div>
         </section>
       </div>
     </div>
@@ -251,7 +315,7 @@
 </template>
 
 <script setup>
-import { onMounted, toRefs } from 'vue'
+import { computed, onMounted, toRefs } from 'vue'
 
 import MyHeader from '@/views/MyHeader.vue'
 import { orderManagementApi } from '@/api/orderManagementApi'
@@ -287,6 +351,33 @@ const {
   total,
 } = toRefs(state)
 
+const activeFilterChips = computed(() => {
+  const chips = []
+  const valueMap = [
+    ['symbol', 'symbol'],
+    ['side', '方向'],
+    ['state', '状态'],
+    ['source', 'source'],
+    ['strategy_name', 'strategy'],
+    ['account_type', '账户'],
+    ['internal_order_id', 'internal'],
+    ['request_id', 'request'],
+    ['broker_order_id', 'broker'],
+    ['time_field', '时间口径'],
+    ['date_from', 'from'],
+    ['date_to', 'to'],
+  ]
+  for (const [key, label] of valueMap) {
+    const value = String(filters.value?.[key] ?? '').trim()
+    if (!value) continue
+    chips.push(`${label} ${value}`)
+  }
+  if (filters.value?.missing_broker_only) {
+    chips.push('仅缺 broker 单号')
+  }
+  return chips
+})
+
 const handleRowClick = async (row) => {
   await selectOrder(row?.internal_order_id)
 }
@@ -301,199 +392,93 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.order-page {
-  --bg: #eef3f0;
-  --paper: #fbfcfa;
-  --line: #dbe5de;
-  --ink: #18322a;
-  --muted: #5f786f;
-  --accent: #1f7a5d;
-  --accent-soft: #dff3ea;
-  min-height: 100vh;
-  background:
-    radial-gradient(circle at top right, rgba(31, 122, 93, 0.12), transparent 28%),
-    linear-gradient(180deg, #f4f8f5 0%, #e8efea 100%);
-}
-
-.order-shell {
+.order-body {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 18px;
-}
-
-.filter-card,
-.table-card,
-.detail-card,
-.stat-card,
-.identifier-card,
-.info-card {
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 22px;
-  box-shadow: 0 18px 42px rgba(28, 52, 44, 0.08);
-}
-
-.filter-card,
-.table-card,
-.detail-card {
-  padding: 20px;
-}
-
-.card-head {
-  display: flex;
-  justify-content: space-between;
   gap: 12px;
-  align-items: flex-start;
-}
-
-.card-head--compact {
-  margin-bottom: 14px;
-}
-
-.card-head h1,
-.card-head h2,
-.info-card h3 {
-  margin: 4px 0;
-  color: var(--ink);
-}
-
-.card-head p,
-.muted,
-.filter-hint,
-.identifier-card span,
-.stat-card span,
-.stat-card small {
-  color: var(--muted);
-}
-
-.eyebrow {
-  margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 12px;
-  color: var(--accent);
-}
-
-.head-actions,
-.chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.chip-row span {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 12px;
-}
-
-.page-alert {
-  margin: 16px 0;
 }
 
 .filter-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .filter-foot {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
   align-items: center;
-  margin-top: 14px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.stats-grid {
+.order-filter-chips {
+  justify-content: flex-end;
+}
+
+.order-stats-panel {
+  gap: 8px;
+}
+
+.order-main-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: minmax(0, 1.18fr) minmax(400px, 0.92fr);
+  gap: 12px;
+  min-height: calc(100vh - 292px);
 }
 
-.stat-card {
-  padding: 18px;
+.order-list-panel,
+.order-detail-panel {
+  min-height: 0;
 }
 
-.stat-card strong {
-  display: block;
-  margin: 8px 0;
-  font-size: 28px;
-  color: var(--ink);
-}
-
-.stat-card--wide {
-  grid-column: span 2;
-}
-
-.main-grid,
-.info-grid,
-.identifier-grid {
+.order-detail-grid {
   display: grid;
-  gap: 18px;
-}
-
-.main-grid {
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
-}
-
-.identifier-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  margin: 18px 0;
-}
-
-.identifier-card {
-  padding: 14px;
-}
-
-.identifier-card strong {
-  display: block;
-  margin-top: 8px;
-  color: var(--ink);
-  word-break: break-word;
-}
-
-.info-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 18px;
+  gap: 10px;
+  min-height: 0;
 }
 
-.info-card {
-  padding: 16px;
+.order-detail-block {
+  min-height: 0;
+}
+
+.order-detail-block__head {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.order-timeline {
+  margin-top: 2px;
 }
 
 .pagination-row {
   display: flex;
   justify-content: flex-end;
-  margin-top: 14px;
+  margin-top: 2px;
 }
 
 :deep(.order-row-active td) {
-  background: #eff8f3 !important;
+  background: #ecf5ff !important;
 }
 
-@media (max-width: 1180px) {
-  .filter-grid,
-  .stats-grid,
-  .main-grid,
-  .identifier-grid,
-  .info-grid {
+@media (max-width: 1320px) {
+  .filter-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .order-main-grid {
     grid-template-columns: 1fr;
+    min-height: auto;
   }
+}
 
-  .stat-card--wide {
-    grid-column: auto;
-  }
-
-  .card-head,
-  .filter-foot {
-    flex-direction: column;
+@media (max-width: 900px) {
+  .filter-grid,
+  .order-detail-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
