@@ -73,6 +73,7 @@ def test_fqxtrade_redis_uses_bootstrap_redis_port(monkeypatch, tmp_path):
 
         import fqxtrade.database.cache as fqxtrade_cache
         import fqxtrade.database.redis as fqxtrade_redis
+
         import freshquant.bootstrap_config as bootstrap_module
 
         bootstrap_module = importlib.reload(bootstrap_module)
@@ -111,6 +112,7 @@ def test_fqxtrade_mongodb_uses_bootstrap_mongo_port(monkeypatch, tmp_path):
         monkeypatch.setenv("FRESHQUANT_BOOTSTRAP_FILE", str(bootstrap_file))
 
         import fqxtrade.database.mongodb as fqxtrade_mongodb
+
         import freshquant.bootstrap_config as bootstrap_module
 
         bootstrap_module = importlib.reload(bootstrap_module)

@@ -4,10 +4,15 @@ from fqxtrade.config import settings
 from memoizit import Memoizer
 from pydash import get
 
+_bootstrap_config: Any | None
 try:
-    from freshquant.bootstrap_config import bootstrap_config as _bootstrap_config
+    from freshquant.bootstrap_config import (
+        bootstrap_config as _freshquant_bootstrap_config,
+    )
 except Exception:  # pragma: no cover - fallback for standalone fqxtrade
-    _bootstrap_config: Any | None = None
+    _bootstrap_config = None
+else:
+    _bootstrap_config = _freshquant_bootstrap_config
 
 
 def _resolve_redis_setting(key, default=None):
