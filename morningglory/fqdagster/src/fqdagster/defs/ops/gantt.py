@@ -7,6 +7,7 @@ from dagster._core.events import DagsterEvent, EngineEventData
 from requests.exceptions import RequestException  # type: ignore[import-untyped]
 
 from freshquant.data.gantt_readmodel import (
+    _calc_start_date,
     COL_GANTT_STOCK_DAILY,
     COL_PLATE_REASON_DAILY,
     COL_STOCK_HOT_REASON_DAILY,
@@ -89,6 +90,21 @@ def _to_str(value: Any) -> str:
     return str(value).strip()
 
 
+def _has_legacy_shouban30_window_semantics(
+    doc: dict[str, Any], *, trade_date: str, stock_window_days: int
+) -> bool:
+    expected_start_date = _calc_start_date(trade_date, stock_window_days)
+    stock_window_from = _to_str(doc.get("stock_window_from"))
+    if not stock_window_from:
+        return True
+    if stock_window_from < expected_start_date:
+        return True
+    seg_to = _to_str(doc.get("seg_to"))
+    if seg_to and seg_to < expected_start_date:
+        return True
+    return False
+
+
 def _query_latest_trade_date() -> str:
     trade_dates = list(tool_trade_date_hist_sina()["trade_date"])
     if not trade_dates:
@@ -143,6 +159,12 @@ def _has_legacy_shouban30_snapshot(trade_date: str) -> bool:
         ):
             return True
         if not _to_str(doc.get("chanlun_filter_version")):
+            return True
+        if _has_legacy_shouban30_window_semantics(
+            doc,
+            trade_date=date_str,
+            stock_window_days=stock_window_days,
+        ):
             return True
         windows.add(stock_window_days)
 

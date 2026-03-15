@@ -250,6 +250,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 上游 `jygs` 某个交易日确实没有热点；此时原始集合会保留 `is_empty_result=true` marker，但 gantt `series` 不会有点位。
 - 上游返回了别的 `trade_date`；此时会落 `empty_reason=upstream_trade_date_mismatch` marker，但该日期仍应继续进入 hole scan 重试。
 - 上游 `jygs action_field` 可能夹带单条缺 `reason` 的历史主题行；当前实现会跳过坏行并继续同步当天其余主题。若整天过滤后没有可用主题，则会落 `empty_reason=invalid_theme_fields` marker，而不是把整条 Dagster 作业打断。
+- Shouban30 最新快照可能字段齐全但仍是旧交易日窗口语义；如果 `stock_window_from` 早于对应自然日窗口起点，当前实现会把它视为 legacy snapshot，需补跑重建。
 
 处理：
 - 重跑 Dagster 作业
@@ -259,6 +260,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 若 marker 是 `empty_reason=upstream_trade_date_mismatch`，不要当成已补完；继续补跑 Dagster，等待上游返回目标交易日
 - 若日志里出现 `skipping invalid jygs theme rows`，说明是上游单条主题缺 `reason`；先核对该 trade_date 其他主题是否已正常落库，再确认是否需要人工补录该主题说明
 - 若目标交易日既没有真实 `jygs` 数据，也没有 `is_empty_result=true` marker，说明 recent hole scan 还没覆盖到；继续补跑 Dagster
+- 若 `/gantt/shouban30` 在不同 `days` 间切换后最早上板时间不变，优先检查 `shouban30_plates.stock_window_from`；确认是旧交易日窗口快照后，不需要手工删旧数据，直接重跑当前重建流程覆盖即可
 
 ## Shouban30 `sync-to-tdx` 成功但宿主机 `.blk` 不变
 
