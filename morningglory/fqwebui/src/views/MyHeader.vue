@@ -1,7 +1,6 @@
 <template>
   <div class="header-main">
     <div class="header-menu">
-      <MySetting ref="mySetting"></MySetting>
       <el-button-group>
         <el-button type="primary" @click="goSetting">设置</el-button>
       </el-button-group>
@@ -54,13 +53,8 @@
 </template>
 
 <script>
-import MySetting from '@/components/MySetting.vue'
-
 export default {
   name: 'my-header',
-  components: {
-    MySetting
-  },
   methods: {
     jumpToControl (type) {
       if (type === 'futures') {
@@ -92,7 +86,7 @@ export default {
       }
     },
     goSetting () {
-      this.$refs.mySetting.init()
+      this.$router.replace('/system-settings')
     }
   }
 }

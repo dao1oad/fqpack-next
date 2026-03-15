@@ -17,8 +17,6 @@ import pandas as pd
 from loguru import logger
 
 from freshquant.analysis.fullcalc_wrapper import run_fullcalc
-from freshquant.carnation.param import queryParam
-from freshquant.config import cfg
 from freshquant.data.adj_intraday import (
     apply_qfq_with_intraday_override,
     fetch_intraday_override,
@@ -37,7 +35,9 @@ from freshquant.market_data.xtdata.pools import (
 )
 from freshquant.market_data.xtdata.realtime_store import upsert_realtime_bars
 from freshquant.market_data.xtdata.schema import BarCloseEvent
+from freshquant.runtime_constants import TZ
 from freshquant.runtime_observability.logger import RuntimeEventLogger
+from freshquant.system_settings import system_settings
 from freshquant.util.period import (
     PUBSUB_CHANNEL,
     get_redis_cache_key,
@@ -49,6 +49,37 @@ try:
 except Exception as e:  # pragma: no cover
     redis_db = None  # type: ignore
     _REDIS_IMPORT_ERR = e
+
+
+def resolve_consumer_runtime_config(*, settings_provider=None) -> dict[str, int | str]:
+    settings_provider = settings_provider or system_settings
+    mode = normalize_xtdata_mode(getattr(settings_provider.monitor, "xtdata_mode", None))
+    try:
+        max_symbols = int(
+            getattr(settings_provider.monitor, "xtdata_max_symbols", 50) or 50
+        )
+    except (TypeError, ValueError):
+        max_symbols = 50
+    if max_symbols <= 0:
+        max_symbols = 50
+    try:
+        queue_backlog_threshold = int(
+            getattr(
+                settings_provider.monitor,
+                "xtdata_queue_backlog_threshold",
+                200,
+            )
+            or 200
+        )
+    except (TypeError, ValueError):
+        queue_backlog_threshold = 200
+    if queue_backlog_threshold <= 0:
+        queue_backlog_threshold = 200
+    return {
+        "mode": mode,
+        "max_symbols": max_symbols,
+        "queue_backlog_threshold": queue_backlog_threshold,
+    }
 
 
 def _base_code(code_prefixed: str) -> str:
@@ -125,8 +156,8 @@ def _coerce_bar_datetime(value: Any) -> pd.Timestamp | pd.NaT:
     if pd.isna(ts):
         return pd.NaT
     if ts.tzinfo is None:
-        return ts.tz_localize(cfg.TZ)
-    return ts.tz_convert(cfg.TZ)
+        return ts.tz_localize(TZ)
+    return ts.tz_convert(TZ)
 
 
 def _normalize_bar_window_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -192,7 +223,7 @@ def _load_minute_history_from_quantaxis_db(
             pd.to_numeric(raw_df["time_stamp"], errors="coerce"),
             unit="s",
             utc=True,
-        ).dt.tz_convert(cfg.TZ)
+        ).dt.tz_convert(TZ)
     hist_df = _normalize_bar_window_df(raw_df)
     if hist_df.empty:
         return hist_df
@@ -261,6 +292,7 @@ class StrategyConsumer:
         cache_ttl_seconds: int = 3600 * 24,
         queue_backlog_threshold: int | None = None,
         runtime_logger=None,
+        settings_provider=None,
     ):
         if redis_db is None:  # pragma: no cover
             raise RuntimeError(f"redis client unavailable: {_REDIS_IMPORT_ERR}")
@@ -286,10 +318,12 @@ class StrategyConsumer:
 
         self._catchup_mode = False
         self._dirty_latest: dict[tuple[str, str], dict[str, Any]] = {}
+        self.settings_provider = settings_provider or system_settings
+        runtime_config = resolve_consumer_runtime_config(
+            settings_provider=self.settings_provider
+        )
         self.queue_backlog_threshold = int(
-            queue_backlog_threshold
-            or queryParam("monitor.xtdata.queue_backlog_threshold", 200)
-            or 200
+            queue_backlog_threshold or runtime_config["queue_backlog_threshold"]
         )
         self.runtime_logger = runtime_logger or _get_runtime_logger()
         self._heartbeat_state = ConsumerHeartbeatState(window_s=300.0)
@@ -302,8 +336,8 @@ class StrategyConsumer:
             submit_fn=self._submit_fullcalc,
         )
 
-        self.mode = normalize_xtdata_mode(queryParam("monitor.xtdata.mode", None))
-        self.max_symbols = int(queryParam("monitor.xtdata.max_symbols", 50) or 50)
+        self.mode = str(runtime_config["mode"])
+        self.max_symbols = int(runtime_config["max_symbols"])
 
         logger.info(
             f"[Consumer] init mode={self.mode} max_bars={self.max_bars} "
@@ -478,7 +512,7 @@ class StrategyConsumer:
         - return: DataFrame with tz-aware `datetime` and columns open/high/low/close/volume/amount
         """
         period_backend = to_backend_period(period_backend)
-        end_dt = datetime.now(tz=cfg.TZ)
+        end_dt = datetime.now(tz=TZ)
         start_dt = end_dt - timedelta(
             days=_estimate_history_window_days(period_backend, max_bars=self.max_bars)
         )
@@ -639,7 +673,7 @@ class StrategyConsumer:
         ts = int(meta.get("bar_time") or 0)
         if ts <= 0:
             return
-        dt = datetime.fromtimestamp(ts, tz=cfg.TZ)
+        dt = datetime.fromtimestamp(ts, tz=TZ)
         time_key = dt.strftime("%Y%m%d%H%M%S")
 
         docs = []
@@ -667,7 +701,7 @@ class StrategyConsumer:
 
             doc = {
                 "datetime": dt,
-                "created_at": datetime.now(tz=cfg.TZ),
+                "created_at": datetime.now(tz=TZ),
                 "code": code,
                 "name": (inst or {}).get("name") or "",
                 "period": period,
@@ -942,7 +976,7 @@ class StrategyConsumer:
                 dt0 = datetime.strptime(str(t), "%Y%m%d%H%M%S")
             except Exception:
                 continue
-            dt0 = cfg.TZ.localize(dt0) if dt0.tzinfo is None else dt0.astimezone(cfg.TZ)
+            dt0 = TZ.localize(dt0) if dt0.tzinfo is None else dt0.astimezone(TZ)
             if not _is_cn_a_trading_bar_end(dt0):
                 continue
             try:
@@ -991,9 +1025,9 @@ class StrategyConsumer:
             for dt0, row in df_p.iterrows():
                 dt0 = dt0.to_pydatetime() if hasattr(dt0, "to_pydatetime") else dt0
                 dt0 = (
-                    cfg.TZ.localize(dt0)
+                    TZ.localize(dt0)
                     if getattr(dt0, "tzinfo", None) is None
-                    else dt0.astimezone(cfg.TZ)
+                    else dt0.astimezone(TZ)
                 )
                 if not _is_cn_a_trading_bar_end(dt0):
                     continue
@@ -1028,7 +1062,7 @@ class StrategyConsumer:
         if ts <= 0:
             return
 
-        dt = datetime.fromtimestamp(ts, tz=cfg.TZ)
+        dt = datetime.fromtimestamp(ts, tz=TZ)
         bar_raw = {
             "datetime": dt,
             "code": code,
@@ -1079,7 +1113,7 @@ class StrategyConsumer:
             return
 
         last_ts = self._last_bar_ts.get(key)
-        last_dt = datetime.fromtimestamp(int(last_ts), tz=cfg.TZ) if last_ts else None
+        last_dt = datetime.fromtimestamp(int(last_ts), tz=TZ) if last_ts else None
         if last_dt is not None:
             # ignore duplicates/old bars
             if ts <= int(last_ts or 0):

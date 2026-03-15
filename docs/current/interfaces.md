@@ -28,20 +28,8 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/gantt/stocks/reasons`
 - `/api/gantt/shouban30/plates`
 - `/api/gantt/shouban30/stocks`
-- `/api/gantt/shouban30/pre-pool`
-- `/api/gantt/shouban30/pre-pool/append`
-- `/api/gantt/shouban30/pre-pool/replace`
-- `/api/gantt/shouban30/pre-pool/add-to-stock-pools`
-- `/api/gantt/shouban30/pre-pool/sync-to-stock-pool`
-- `/api/gantt/shouban30/pre-pool/delete`
-- `/api/gantt/shouban30/pre-pool/clear`
-- `/api/gantt/shouban30/pre-pool/sync-to-tdx`
-- `/api/gantt/shouban30/stock-pool`
-- `/api/gantt/shouban30/stock-pool/add-to-must-pool`
-- `/api/gantt/shouban30/stock-pool/sync-to-must-pool`
-- `/api/gantt/shouban30/stock-pool/delete`
-- `/api/gantt/shouban30/stock-pool/clear`
-- `/api/gantt/shouban30/stock-pool/sync-to-tdx`
+- `/api/gantt/shouban30/pre-pool/*`
+- `/api/gantt/shouban30/stock-pool/*`
 
 ### `order`
 
@@ -53,6 +41,27 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/order-management/stats`
 - `/api/order-management/buy-lots/<buy_lot_id>`
 - `/api/order-management/stoploss/bind`
+
+### `position-management`
+
+- `/api/position-management/dashboard`
+- `/api/position-management/config`
+
+### `system-config`
+
+- `/api/system-config/dashboard`
+- `/api/system-config/bootstrap`
+- `/api/system-config/settings`
+
+### `runtime`
+
+- `/api/runtime/components`
+- `/api/runtime/health/summary`
+- `/api/runtime/traces`
+- `/api/runtime/traces/<trace_id>`
+- `/api/runtime/events`
+- `/api/runtime/raw-files/files`
+- `/api/runtime/raw-files/tail`
 
 ### `tpsl`
 
@@ -66,26 +75,12 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/tpsl/events`
 - `/api/tpsl/batches/<batch_id>`
 
-### `runtime`
-
-- `/api/runtime/components`
-- `/api/runtime/health/summary`
-- `/api/runtime/traces`
-- `/api/runtime/traces/<trace_id>`
-- `/api/runtime/events`
-- `/api/runtime/raw-files/files`
-- `/api/runtime/raw-files/tail`
-
-### `position-management`
-
-- `/api/position-management/dashboard`
-- `/api/position-management/config`
-
 其中：
 
 - `/api/runtime/health/summary` 固定返回核心组件全集；没有最新 health 数据时返回 `status=unknown`、`heartbeat_age_s=null`、`is_placeholder=true`
-- `xt_producer` heartbeat 指标包括 `rx_age_s`、`tick_count_5m`、`tick_batches_5m`、`subscribed_codes`、`connected`
-- `xt_consumer` heartbeat 指标包括 `last_bar_age_s`、`processed_bars_5m`、`backlog_sum`、`scheduler_pending`、`catchup_mode`
+- 仓位管理页面使用独立 `/api/position-management/*` 读模型接口，因为它需要同时返回配置 inventory、effective state、holding scope 和规则矩阵
+- 系统设置页面使用独立 `/api/system-config/*` 接口，明确区分 Bootstrap 文件配置与 Mongo 系统设置
+- Runtime API 只读原始日志与聚合视图，不承担修复动作
 
 ## CLI
 
@@ -115,6 +110,12 @@ python -m freshquant.cli om-order submit --action buy --symbol 600000 --price 10
 python -m freshquant.cli om-order cancel --internal-order-id <id>
 ```
 
+交互式初始化向导：
+
+```powershell
+python -m freshquant.initialize
+```
+
 ## 后台 worker 与服务入口
 
 - XTData producer
@@ -142,21 +143,13 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - `/gantt/stocks/:plateKey`
 - `/order-management`
 - `/position-management`
+- `/system-settings`
 - `/tpsl`
 - `/runtime-observability`
 
 ## 当前接口边界
 
-- 交易主入口是 `OrderSubmitService`；HTTP 和 CLI 只是它的包装。
-- 订单管理账本页通过 `/api/order-management/orders*` 与 `/api/order-management/stats` 读取聚合视图；前端不再自己做订单链 N+1 拼装。
-- Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面。
-- Runtime API 只读原始日志与聚合视图，不承担修复动作。
-- 仓位管理页面使用独立 `/api/position-management/*` 读模型接口，因为它需要同时返回配置 inventory、effective state、holding scope 和规则矩阵。
-- TPSL 管理页通过 `/api/tpsl/management/*` 和 `/api/tpsl/history` 读取 symbol 汇总、buy lot 止损和统一触发历史；止盈/止损写操作仍分别复用 `/api/tpsl/takeprofit/*` 与 `/api/order-management/stoploss/bind`。
-- `/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 当前正式时间参数是 `days` 与 `end_date`；返回 `meta` 会同时携带兼容别名 `stock_window_days` 与 `as_of_date`，其中 `end_date` 是自然日窗口终点，`as_of_date` 是实际命中的快照交易日。
-- `/api/gantt/shouban30/pre-pool/append` 用于把单个板块结果追加到 `pre_pool`；它只做 append + 去重，不写 `.blk`。
-- `/api/gantt/shouban30/pre-pool/sync-to-stock-pool` 用于把当前 `pre_pool` 中缺失于 `stock_pool` 的标的按 `pre_pool` 当前顺序追加到 `stock_pool` 末尾。
-- `/api/gantt/shouban30/pre-pool/replace` 仍保留兼容，但 `/gantt/shouban30` 页面不再用“筛选”按钮调用它；当前页面筛选只更新本页结果，不落库。
-- `stock_pool` 页面当前恢复单条 `/api/gantt/shouban30/stock-pool/add-to-must-pool`，并新增批量 `/api/gantt/shouban30/stock-pool/sync-to-must-pool`。
-- `stock_pool -> must_pool` 的单条与批量都复用同一套 upsert 语义：不存在记为 `created`，已存在记为 `updated`。
-- `/api/gantt/shouban30/stock-pool/sync-to-must-pool` 返回 `created_count / updated_count / total_count`，执行顺序与当前 `stock_pool` 列表顺序一致。
+- 交易主入口是 `OrderSubmitService`；HTTP 和 CLI 只是它的包装
+- 系统设置页只维护新系统正式配置，不再承载旧 SMTP / 邮件收件人或旧 `code + value` 通用参数模式
+- Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面
+- `/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 当前正式时间参数是 `days` 与 `end_date`

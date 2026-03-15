@@ -5,8 +5,8 @@ from datetime import datetime
 import pandas as pd
 
 from freshquant.basic.singleton_type import SingletonType
-from freshquant.config import cfg
 from freshquant.quantaxis.qafetch.qatdx_adv import QA_Tdx_Executor
+from freshquant.runtime_constants import DT_FORMAT_M, TZ
 
 
 class TdxExecutor(metaclass=SingletonType):
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     df.rename(columns={"vol": "volume"}, inplace=True)
     df = df[["datetime", "open", "close", "high", "low", "volume", "amount"]]
     df['datetime'] = df['datetime'].apply(
-        lambda record: cfg.TZ.localize(datetime.strptime(record, cfg.DT_FORMAT_M))
+        lambda record: TZ.localize(datetime.strptime(record, DT_FORMAT_M))
     )
     df.set_index('datetime', inplace=True, drop=True)
     df['open'] = df['open'].astype('float64')

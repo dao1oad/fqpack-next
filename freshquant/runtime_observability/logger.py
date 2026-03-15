@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
+from freshquant.bootstrap_config import bootstrap_config
 from freshquant.runtime_observability.runtime_node import resolve_runtime_node
 from freshquant.runtime_observability.schema import normalize_event
 
@@ -17,7 +18,7 @@ def get_runtime_log_root() -> Path:
     explicit = str(os.environ.get("FQ_RUNTIME_LOG_DIR") or "").strip()
     if explicit:
         return Path(explicit)
-    return Path("logs/runtime")
+    return Path(bootstrap_config.runtime.log_dir or "logs/runtime")
 
 
 def runtime_node_path(runtime_node: str | None) -> str:

@@ -10,9 +10,7 @@ from et_stopwatch import Stopwatch
 from loguru import logger
 
 import freshquant.util.datetime_helper as datetime_helper
-from freshquant.carnation.param import queryParam
 from freshquant.chanlun_service import get_data_v2
-from freshquant.config import cfg
 from freshquant.data.astock.pool import get_stock_monitor_codes
 from freshquant.data.trade_date_hist import tool_trade_date_seconds_to_start
 from freshquant.instrument.general import query_instrument_type
@@ -25,7 +23,9 @@ from freshquant.signal.astock.job.bar_event_listener import BarEventListener
 from freshquant.signal.astock.job.monitor_helpers_event import (
     calculate_guardian_signals_latest,
 )
+from freshquant.runtime_constants import DT_FORMAT_FULL, TZ
 from freshquant.strategy.guardian import StrategyGuardian
+from freshquant.system_settings import system_settings
 from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 from freshquant.util.period import to_backend_period, to_frontend_period
 
@@ -33,7 +33,7 @@ strategy = StrategyGuardian()
 
 
 def monitor_stock_zh_a_min(loop):
-    periods = queryParam("monitor.stock.periods", ["1m"])
+    periods = system_settings.monitor.stock_periods or ["1m"]
     executor = ThreadPoolExecutor()
 
     while True:
@@ -45,7 +45,7 @@ def monitor_stock_zh_a_min(loop):
                     logger.info(
                         "%s from now on, %s sleep %s to resume"
                         % (
-                            datetime.now().strftime(cfg.DT_FORMAT_FULL),
+                            datetime.now().strftime(DT_FORMAT_FULL),
                             "监控持仓股票信号",
                             durationpy.to_str(timedelta(seconds=seconds)),
                         )
@@ -100,14 +100,14 @@ def monitor_stock_zh_a_min_event_driven() -> None:
 
     Subscribe `CHANNEL:BAR_UPDATE` and calculate Guardian signals on 1min updates.
     """
-    xt_mode = normalize_xtdata_mode(queryParam("monitor.xtdata.mode", None))
+    xt_mode = normalize_xtdata_mode(system_settings.monitor.xtdata_mode)
     if xt_mode != "guardian_1m":
         logger.warning(
             f"[Event] monitor.xtdata.mode={xt_mode}; expected guardian_1m. Exiting."
         )
         return
 
-    max_symbols = int(queryParam("monitor.xtdata.max_symbols", 50) or 50)
+    max_symbols = int(system_settings.monitor.xtdata_max_symbols or 50)
 
     signal_map = {
         "buy_zs_huila": "回拉中枢上涨",
@@ -158,7 +158,7 @@ def monitor_stock_zh_a_min_event_driven() -> None:
             bar_ts = int(data.get("_bar_time") or 0)
             if bar_ts <= 0:
                 return
-            fire_time = datetime.fromtimestamp(bar_ts, tz=cfg.TZ)
+            fire_time = datetime.fromtimestamp(bar_ts, tz=TZ)
             period_front = to_frontend_period(period_backend)
 
             base_code = normalize_to_base_code(code)
@@ -249,7 +249,7 @@ def calculate_and_notify(symbol, code, period):
         for signal_type in signal_map:
             signals = resp[signal_type]
             for idx in range(len(signals["datetime"])):
-                fire_time = cfg.TZ.localize(signals["datetime"][idx])
+            fire_time = TZ.localize(signals["datetime"][idx])
                 tag = signals["tag"][idx]
                 all_signals.append(
                     {

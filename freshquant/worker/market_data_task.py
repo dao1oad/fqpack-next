@@ -6,7 +6,7 @@ from freshquant.database.redis import redis_db
 from freshquant.worker.queue import huey
 from QUANTAXIS.QAUtil.QADate import QA_util_time_stamp
 from freshquant.data.stock import fq_data_stock_resample_60min
-from freshquant.config import cfg
+from freshquant.runtime_constants import OHLC
 
 @huey.task()
 def save_hq_stock_realtime(records: list, collection: str = "stock_realtime"):
@@ -74,7 +74,7 @@ def process_hq_stock_realtime(df: pd.DataFrame, collection: str = "stock_realtim
 
     # 合成5分钟的数据
     df = (
-        df.resample('5T', closed='right', label='right').agg(cfg.OHLC).dropna(how='any')
+        df.resample('5T', closed='right', label='right').agg(OHLC).dropna(how='any')
     )
     df["code"] = code
     df["frequence"] = "5min"
@@ -91,7 +91,7 @@ def process_hq_stock_realtime(df: pd.DataFrame, collection: str = "stock_realtim
     # 合成15分钟的数据
     df = (
         df.resample('15T', closed='right', label='right')
-        .agg(cfg.OHLC)
+        .agg(OHLC)
         .dropna(how='any')
     )
     df["code"] = code
@@ -109,7 +109,7 @@ def process_hq_stock_realtime(df: pd.DataFrame, collection: str = "stock_realtim
     # 合成30分钟的数据
     df = (
         df.resample('30T', closed='right', label='right')
-        .agg(cfg.OHLC)
+        .agg(OHLC)
         .dropna(how='any')
     )
     df["code"] = code
@@ -139,7 +139,7 @@ def process_hq_stock_realtime(df: pd.DataFrame, collection: str = "stock_realtim
         save_hq_stock_realtime(df[1:].reset_index().to_dict(orient="records"), collection)
 
     # 先合成日线数据再过滤
-    df_daily = df.resample('1D', closed='left', label='left').agg(cfg.OHLC).dropna(how='any')
+    df_daily = df.resample('1D', closed='left', label='left').agg(OHLC).dropna(how='any')
     df_daily["code"] = code
     df_daily["frequence"] = "1d"
     df_daily["source"] = source

@@ -120,7 +120,7 @@
 - XTData producer 依赖 `XTQUANT_PORT`，默认 `58610`
 - XTData producer / consumer / TPSL / Order Management 共享 Redis
 - Guardian、Position worker、Order Management、TPSL 共享 Mongo 基础库与运行时事件日志
-- Shouban30 的 `.blk` 同步依赖宿主机 `settings.tdx.home or TDX_HOME`
+- Shouban30 的 `.blk` 同步依赖宿主机 `bootstrap_config.tdx.home or TDX_HOME`
 - Docker 并行环境下，Shouban30 的 API 同步链路依赖 `fq_apiserver` 挂载 `/opt/tdx`
 - 当通达信根目录配置为 `D:\tdx_biduan` 时，Shouban30 会写入 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`
 - `xt_producer` / `xt_consumer` 会向 `logs/runtime` 固定每 5 分钟写 1 次 heartbeat，供 `/runtime-observability` 的组件 Event / health 视图聚合；这些 heartbeat 不进入业务 Trace

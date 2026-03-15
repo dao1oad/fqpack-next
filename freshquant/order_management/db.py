@@ -1,19 +1,14 @@
 # -*- coding: utf-8 -*-
 
-from pydash import get
-
-from freshquant.config import settings
+from freshquant.bootstrap_config import bootstrap_config
 from freshquant.db import DBfreshquant, MongoClient
 
-order_management_db = get(
-    settings,
-    "order_management.mongo_database",
-    "freshquant_order_management",
+order_management_db = (
+    bootstrap_config.order_management.mongo_database
+    or "freshquant_order_management"
 )
-projection_db = get(
-    settings,
-    "order_management.projection_database",
-    DBfreshquant.name,
+projection_db = (
+    bootstrap_config.order_management.projection_database or DBfreshquant.name
 )
 
 DBOrderManagement = MongoClient[order_management_db]

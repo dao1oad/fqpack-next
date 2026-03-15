@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 from freshquant.carnation import xtconstant
-from freshquant.carnation.param import queryParam
 from freshquant.order_management.credit_subjects.repository import (
     CreditSubjectRepository,
 )
+from freshquant.system_settings import system_settings
 
 AUTO_CREDIT_TRADE_MODE = "auto"
 COLLATERAL_BUY_MODE = "collateral_buy"
@@ -58,18 +58,32 @@ def resolve_submit_credit_order(
     raise ValueError(f"unsupported credit_trade_mode: {requested_mode_value}")
 
 
-def get_configured_account_type(query_param=None):
-    query_param = query_param or queryParam
-    try:
-        configured_value = query_param("xtquant.account_type", "STOCK")
-    except Exception:
-        configured_value = "STOCK"
-    return _normalize_account_type(configured_value)
+def get_configured_account_type(settings_provider=None, query_param=None):
+    if settings_provider is not None:
+        configured_value = getattr(settings_provider.xtquant, "account_type", "STOCK")
+        return _normalize_account_type(configured_value)
+    if query_param is not None:
+        try:
+            configured_value = query_param("xtquant.account_type", "STOCK")
+        except Exception:
+            configured_value = "STOCK"
+        return _normalize_account_type(configured_value)
+    return _normalize_account_type(
+        getattr(system_settings.xtquant, "account_type", "STOCK")
+    )
 
 
-def build_credit_subject_lookup(repository=None, account_id=None, query_param=None):
+def build_credit_subject_lookup(
+    repository=None,
+    account_id=None,
+    query_param=None,
+    settings_provider=None,
+):
     repository = repository or CreditSubjectRepository()
-    configured_account_id = account_id or _get_configured_account_id(query_param)
+    configured_account_id = account_id or _get_configured_account_id(
+        query_param=query_param,
+        settings_provider=settings_provider,
+    )
 
     def _lookup(symbol):
         return repository.find_by_symbol(symbol, account_id=configured_account_id)
@@ -81,9 +95,13 @@ def build_credit_subjects_available(
     repository=None,
     account_id=None,
     query_param=None,
+    settings_provider=None,
 ):
     repository = repository or CreditSubjectRepository()
-    configured_account_id = account_id or _get_configured_account_id(query_param)
+    configured_account_id = account_id or _get_configured_account_id(
+        query_param=query_param,
+        settings_provider=settings_provider,
+    )
 
     def _available():
         return repository.has_any_subjects(account_id=configured_account_id)
@@ -91,12 +109,16 @@ def build_credit_subjects_available(
     return _available
 
 
-def _get_configured_account_id(query_param=None):
-    query_param = query_param or queryParam
-    try:
-        raw_value = query_param("xtquant.account", "")
-    except Exception:
-        raw_value = ""
+def _get_configured_account_id(query_param=None, settings_provider=None):
+    if settings_provider is not None:
+        raw_value = getattr(settings_provider.xtquant, "account", "")
+    elif query_param is not None:
+        try:
+            raw_value = query_param("xtquant.account", "")
+        except Exception:
+            raw_value = ""
+    else:
+        raw_value = getattr(system_settings.xtquant, "account", "")
     value = str(raw_value or "").strip()
     return value or None
 

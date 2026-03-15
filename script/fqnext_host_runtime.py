@@ -107,7 +107,11 @@ def wait_for_state(
     while time.time() < deadline:
         info = get_process_info(server, name)
         last_info = info
-        if str(info.get("statename", "")).upper() == expected:
+        current_state = str(info.get("statename", "")).upper()
+        acceptable_states = {expected}
+        if expected == "STOPPED":
+            acceptable_states.add("EXITED")
+        if current_state in acceptable_states:
             return info
         time.sleep(1)
     if last_info is None:
@@ -189,11 +193,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def resolve_target_programs(args: argparse.Namespace) -> tuple[list[str], list[str]]:
     raw_surfaces = list(args.surface or [])
-    if args.command == "status" and not raw_surfaces and not list(args.program or []):
+    explicit_programs = list(getattr(args, "program", []) or [])
+    if args.command == "status" and not raw_surfaces and not explicit_programs:
         raw_surfaces = list(SURFACE_ORDER)
 
     surfaces = ordered_surfaces(raw_surfaces)
-    programs = list(args.program or [])
+    programs = list(explicit_programs)
     if surfaces:
         programs.extend(resolve_surface_programs(surfaces))
     programs = list(dict.fromkeys(programs))

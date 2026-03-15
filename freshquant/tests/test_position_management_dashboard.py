@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -69,13 +70,15 @@ def _fixed_now():
     return datetime.fromisoformat("2026-03-07T12:00:20+08:00")
 
 
-def _query_param(key, default=None):
-    values = {
-        "xtquant.path": "D:/miniqmt/userdata_mini",
-        "xtquant.account": "1208970161",
-        "xtquant.account_type": "CREDIT",
-    }
-    return values.get(key, default)
+def _system_settings_provider():
+    return SimpleNamespace(
+        xtquant=SimpleNamespace(
+            path="D:/miniqmt/userdata_mini",
+            account="1208970161",
+            account_type="CREDIT",
+            broker_submit_mode="observe_only",
+        )
+    )
 
 
 def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
@@ -116,7 +119,7 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
     service = PositionManagementDashboardService(
         repository=repository,
         holding_codes_provider=lambda: ["000001", "600000"],
-        query_param_loader=_query_param,
+        settings_provider=_system_settings_provider(),
         now_provider=_fixed_now,
     )
 
@@ -146,7 +149,7 @@ def test_update_config_persists_thresholds_that_snapshot_service_consumes():
     service = PositionManagementDashboardService(
         repository=repository,
         holding_codes_provider=lambda: [],
-        query_param_loader=_query_param,
+        settings_provider=_system_settings_provider(),
         now_provider=_fixed_now,
     )
 
@@ -180,7 +183,7 @@ def test_update_config_rejects_invalid_threshold_order():
     service = PositionManagementDashboardService(
         repository=FakeRepository(),
         holding_codes_provider=lambda: [],
-        query_param_loader=_query_param,
+        settings_provider=_system_settings_provider(),
         now_provider=_fixed_now,
     )
 
@@ -212,7 +215,7 @@ def test_update_config_rejects_non_finite_threshold_values(field, value):
     service = PositionManagementDashboardService(
         repository=FakeRepository(),
         holding_codes_provider=lambda: [],
-        query_param_loader=_query_param,
+        settings_provider=_system_settings_provider(),
         now_provider=_fixed_now,
     )
     payload = {
@@ -242,7 +245,7 @@ def test_get_config_falls_back_to_defaults_for_non_finite_thresholds():
     service = PositionManagementDashboardService(
         repository=repository,
         holding_codes_provider=lambda: [],
-        query_param_loader=_query_param,
+        settings_provider=_system_settings_provider(),
         now_provider=_fixed_now,
     )
 
@@ -290,7 +293,7 @@ def test_dashboard_marks_threshold_change_as_pending_refresh_when_state_is_fresh
     service = PositionManagementDashboardService(
         repository=repository,
         holding_codes_provider=lambda: ["000001"],
-        query_param_loader=_query_param,
+        settings_provider=_system_settings_provider(),
         now_provider=_fixed_now,
     )
 

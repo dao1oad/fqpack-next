@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date, datetime, timezone
 from typing import Any
 
-from freshquant.carnation.param import queryParam
+from freshquant.bootstrap_config import bootstrap_config
 from freshquant.db import DBQuantAxis
 from freshquant.market_data.xtdata.pools import (
     load_monitor_codes,
     normalize_xtdata_mode,
 )
+from freshquant.system_settings import system_settings
 from freshquant.trading.dt import query_current_trade_date, query_prev_trade_date
 from freshquant.util.code import normalize_to_base_code
 
@@ -42,8 +42,8 @@ def _is_index_like_code(code_prefixed: str) -> bool:
 
 
 def _default_code_loader() -> list[str]:
-    mode = normalize_xtdata_mode(queryParam("monitor.xtdata.mode", None))
-    max_symbols = int(queryParam("monitor.xtdata.max_symbols", 50) or 50)
+    mode = normalize_xtdata_mode(system_settings.monitor.xtdata_mode)
+    max_symbols = int(system_settings.monitor.xtdata_max_symbols or 50)
     return list(load_monitor_codes(mode=mode, max_symbols=max_symbols) or [])
 
 
@@ -82,7 +82,7 @@ class XtDataAdjRefreshClient:
             from xtquant import xtdata as xtdata_module  # type: ignore
 
         self.xtdata = xtdata_module
-        self.port = int(port or os.environ.get("XTQUANT_PORT", "58610"))
+        self.port = int(port or bootstrap_config.xtdata.port or 58610)
         self._connected = False
 
     def _ensure_connected(self) -> None:

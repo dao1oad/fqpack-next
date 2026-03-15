@@ -1,0 +1,40 @@
+mongodb:
+  host: 127.0.0.1
+  port: 27027
+  db: freshquant
+  gantt_db: freshquant_gantt
+
+redis:
+  host: 127.0.0.1
+  port: 6380
+  db: 1
+  password: ""
+
+memory:
+  mongodb:
+    host: 127.0.0.1
+    port: 27027
+    db: fq_memory
+  cold_root: .codex/memory
+  artifact_root: D:/fqpack/runtime/symphony-service/artifacts/memory
+
+order_management:
+  mongo_database: freshquant_order_management
+  projection_database: freshquant
+
+position_management:
+  mongo_database: freshquant_position_management
+
+tdx:
+  home: D:/tdx_biduan
+  hq:
+    endpoint: http://127.0.0.1:15001
+
+api:
+  base_url: http://127.0.0.1:15000
+
+xtdata:
+  port: 58610
+
+runtime:
+  log_dir: logs/runtime

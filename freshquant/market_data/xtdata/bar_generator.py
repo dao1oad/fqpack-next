@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from freshquant.config import cfg
 from freshquant.market_data.xtdata.constants import queue_key_for_code
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
+from freshquant.runtime_constants import TZ
 
 try:
     from freshquant.database.redis import redis_db  # type: ignore
@@ -96,7 +96,7 @@ class MultiPeriodResamplerFrom1m:
             return []
         self._last_1m_end_ts[code] = end_ts
 
-        dt_end = datetime.fromtimestamp(end_ts, tz=cfg.TZ)
+        dt_end = datetime.fromtimestamp(end_ts, tz=TZ)
         emitted: list[BarEvent] = []
 
         o_raw = bar_data.get("open")
@@ -239,7 +239,7 @@ class OneMinuteBarGenerator:
     def _timer_loop(self) -> None:
         while not self._timer_stop.is_set():
             try:
-                now = datetime.now(tz=cfg.TZ)
+                now = datetime.now(tz=TZ)
                 if not _is_cn_a_trading_datetime(now):
                     time.sleep(1)
                     continue
@@ -276,7 +276,7 @@ class OneMinuteBarGenerator:
         end_ts = int(bar.get("time") or 0)
         if not bar or end_ts <= 0:
             return []
-        end_dt = datetime.fromtimestamp(end_ts, tz=cfg.TZ)
+        end_dt = datetime.fromtimestamp(end_ts, tz=TZ)
         if not _is_cn_a_trading_datetime(end_dt) or _is_noon_break(end_dt):
             self._bars.pop(code, None)
             return []
@@ -330,7 +330,7 @@ class OneMinuteBarGenerator:
         cum_vol = float(tick.get("volume") or 0.0)
         cum_amt = float(tick.get("amount") or 0.0)
 
-        dt = datetime.fromtimestamp(tick_time_ms / 1000, tz=cfg.TZ)
+        dt = datetime.fromtimestamp(tick_time_ms / 1000, tz=TZ)
         if not _is_cn_a_trading_datetime(dt):
             return []
         end_dt = _ceil_minute_end(dt)

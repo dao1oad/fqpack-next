@@ -1,20 +1,15 @@
 # -*- coding: utf-8 -*-
 
 import pymongo
-from pydash import get
 
-from freshquant.carnation.config import TZ
-from freshquant.config import settings
+from freshquant.bootstrap_config import bootstrap_config
+from freshquant.runtime_constants import TZ
 
-host = get(settings, "mongodb.host", "127.0.0.1")
-port = get(settings, "mongodb.port", 27027)
-db = get(settings, "mongodb.db", "freshquant")
-gantt_db = get(settings, "mongodb.gantt_db", "freshquant_gantt")
-order_management_db = get(
-    settings,
-    "order_management.mongo_database",
-    "freshquant_order_management",
-)
+host = bootstrap_config.mongodb.host
+port = bootstrap_config.mongodb.port
+db = bootstrap_config.mongodb.db
+gantt_db = bootstrap_config.mongodb.gantt_db
+order_management_db = bootstrap_config.order_management.mongo_database
 
 MongoClient = pymongo.MongoClient(
     host=host, port=port, connect=False, tz_aware=True, tzinfo=TZ

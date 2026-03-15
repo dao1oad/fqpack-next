@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 
 from freshquant.runtime_observability.logger import RuntimeEventLogger
@@ -55,3 +56,22 @@ def test_explicit_runtime_node_overrides_component_runtime_node(tmp_path):
     record = logger._queue.get_nowait()
 
     assert record["runtime_node"] == "docker:manual"
+
+
+def test_get_runtime_log_root_falls_back_to_bootstrap_file(tmp_path, monkeypatch):
+    bootstrap_file = tmp_path / "freshquant_bootstrap.yaml"
+    bootstrap_file.write_text(
+        "runtime:\n  log_dir: D:/fqpack/runtime/test-logs\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FRESHQUANT_BOOTSTRAP_FILE", str(bootstrap_file))
+    monkeypatch.delenv("FQ_RUNTIME_LOG_DIR", raising=False)
+
+    import freshquant.bootstrap_config as bootstrap_module
+    import freshquant.runtime_observability.logger as logger_module
+
+    bootstrap_module = importlib.reload(bootstrap_module)
+    logger_module = importlib.reload(logger_module)
+
+    assert bootstrap_module.bootstrap_config.runtime.log_dir == "D:/fqpack/runtime/test-logs"
+    assert logger_module.get_runtime_log_root() == Path("D:/fqpack/runtime/test-logs")

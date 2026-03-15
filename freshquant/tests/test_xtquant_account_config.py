@@ -1,3 +1,11 @@
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+package_root = Path("morningglory/fqxtrade").resolve()
+if str(package_root) not in sys.path:
+    sys.path.insert(0, str(package_root))
+
 from fqxtrade.xtquant.account import (
     resolve_broker_submit_mode,
     resolve_stock_account,
@@ -7,20 +15,18 @@ from fqxtrade.xtquant.account import (
 def test_resolve_stock_account_uses_configured_account_type():
     seen = {}
 
-    def fake_query_param(key, default=None):
-        values = {
-            "xtquant.account": "068000076370",
-            "xtquant.account_type": "CREDIT",
-        }
-        return values.get(key, default)
-
     class FakeStockAccount:
         def __init__(self, account_id, account_type="STOCK"):
             seen["account_id"] = account_id
             seen["account_type"] = account_type
 
     account, account_id, account_type = resolve_stock_account(
-        query_param=fake_query_param,
+        settings_provider=SimpleNamespace(
+            xtquant=SimpleNamespace(
+                account="068000076370",
+                account_type="CREDIT",
+            )
+        ),
         stock_account_cls=FakeStockAccount,
     )
 
@@ -36,19 +42,15 @@ def test_resolve_stock_account_uses_configured_account_type():
 def test_resolve_stock_account_defaults_to_stock():
     seen = {}
 
-    def fake_query_param(key, default=None):
-        values = {
-            "xtquant.account": "068000076370",
-        }
-        return values.get(key, default)
-
     class FakeStockAccount:
         def __init__(self, account_id, account_type="STOCK"):
             seen["account_id"] = account_id
             seen["account_type"] = account_type
 
     account, account_id, account_type = resolve_stock_account(
-        query_param=fake_query_param,
+        settings_provider=SimpleNamespace(
+            xtquant=SimpleNamespace(account="068000076370")
+        ),
         stock_account_cls=FakeStockAccount,
     )
 
@@ -62,30 +64,33 @@ def test_resolve_stock_account_defaults_to_stock():
 
 
 def test_resolve_broker_submit_mode_defaults_to_normal():
-    def fake_query_param(key, default=None):
-        values = {
-            "xtquant.account": "068000076370",
-        }
-        return values.get(key, default)
-
-    assert resolve_broker_submit_mode(query_param=fake_query_param) == "normal"
+    assert (
+        resolve_broker_submit_mode(
+            settings_provider=SimpleNamespace(
+                xtquant=SimpleNamespace(account="068000076370")
+            )
+        )
+        == "normal"
+    )
 
 
 def test_resolve_broker_submit_mode_accepts_observe_only():
-    def fake_query_param(key, default=None):
-        values = {
-            "xtquant.broker_submit_mode": "observe_only",
-        }
-        return values.get(key, default)
-
-    assert resolve_broker_submit_mode(query_param=fake_query_param) == "observe_only"
+    assert (
+        resolve_broker_submit_mode(
+            settings_provider=SimpleNamespace(
+                xtquant=SimpleNamespace(broker_submit_mode="observe_only")
+            )
+        )
+        == "observe_only"
+    )
 
 
 def test_resolve_broker_submit_mode_normalizes_invalid_value_to_normal():
-    def fake_query_param(key, default=None):
-        values = {
-            "xtquant.broker_submit_mode": "paper_trade",
-        }
-        return values.get(key, default)
-
-    assert resolve_broker_submit_mode(query_param=fake_query_param) == "normal"
+    assert (
+        resolve_broker_submit_mode(
+            settings_provider=SimpleNamespace(
+                xtquant=SimpleNamespace(broker_submit_mode="paper_trade")
+            )
+        )
+        == "normal"
+    )

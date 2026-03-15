@@ -32,7 +32,6 @@ from fqxtrade.xtquant.trading_manager import TradingManager
 from loguru import logger
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 
-from freshquant.carnation.param import queryParam
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.submit.execution_bridge import (
     dispatch_cancel_execution,
@@ -42,6 +41,7 @@ from freshquant.order_management.submit.execution_bridge import (
 )
 from freshquant.order_management.tracking.service import OrderTrackingService
 from freshquant.runtime_observability.logger import RuntimeEventLogger
+from freshquant.system_settings import system_settings
 from freshquant.trade.trade import checkManualStrategyInstument
 from freshquant.util.code import fq_util_code_append_market_code_suffix
 
@@ -202,12 +202,14 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
 
 def connect(session_id: int = 100):
     try:
-        path = queryParam("xtquant.path", "")
+        path = system_settings.xtquant.path
         if not path:
             logger.error("请在配置文件中设置 xtquant.path 参数")
             return None, None, False
         xt_trader = XtQuantTrader(path, session_id)
-        acc, account, account_type = resolve_stock_account(queryParam)
+        acc, account, account_type = resolve_stock_account(
+            settings_provider=system_settings
+        )
         if not account:
             logger.error("请在配置文件中设置 xtquant.account 参数")
             return None, None, False
@@ -247,7 +249,7 @@ def connect(session_id: int = 100):
 
 
 def trading_main_loop():
-    broker_submit_mode = resolve_broker_submit_mode(queryParam)
+    broker_submit_mode = resolve_broker_submit_mode(settings_provider=system_settings)
     if _is_observe_only_mode(broker_submit_mode):
         logger.info(
             "broker submit mode is observe_only; skip xtquant connect and broker sync"

@@ -393,7 +393,7 @@ def test_sync_pre_pool_to_blk_falls_back_to_settings_tdx_home(monkeypatch, tmp_p
     monkeypatch.delenv("TDX_HOME", raising=False)
     monkeypatch.setattr(
         service,
-        "settings",
+        "bootstrap_config",
         types.SimpleNamespace(tdx=types.SimpleNamespace(home=str(tmp_path))),
         raising=False,
     )
