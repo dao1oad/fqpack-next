@@ -231,7 +231,9 @@ def test_stock_data_skips_redis_when_end_date_present(monkeypatch, stock_routes)
     assert fake_redis.keys == []
 
 
-def test_stock_data_tails_cache_payload_when_bar_count_is_provided(monkeypatch, stock_routes):
+def test_stock_data_tails_cache_payload_when_bar_count_is_provided(
+    monkeypatch, stock_routes
+):
     cached_payload = {
         "symbol": "sz000001",
         "period": "5m",
@@ -281,7 +283,11 @@ def test_stock_data_forwards_bar_count_to_fallback(monkeypatch, stock_routes):
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
     response = call_stock_data(
-        stock_routes, symbol="sz000001", period="5m", realtimeCache="1", barCount="20000"
+        stock_routes,
+        symbol="sz000001",
+        period="5m",
+        realtimeCache="1",
+        barCount="20000",
     )
 
     assert response.status_code == 200

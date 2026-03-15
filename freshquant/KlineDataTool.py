@@ -15,10 +15,10 @@ from QUANTAXIS.QAData.data_resample import (
 from freshquant.config import cfg
 from freshquant.data.future.db import fq_data_future_fetch_day, fq_data_future_fetch_min
 from freshquant.data.stock import (
+    fq_data_stock_fetch_day,
     fq_data_stock_fetch_min,
     fq_data_stock_resample_90min,
     fq_data_stock_resample_120min,
-    fq_data_stock_fetch_day,
     fqDataStockResample3min,
 )
 from freshquant.database.cache import in_memory_cache

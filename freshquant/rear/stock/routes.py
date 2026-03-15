@@ -168,9 +168,7 @@ def _tail_stock_data_payload(payload, bar_count):
             **values,
             "date": [series_dates[index] for index in keep_indexes],
             "data": [
-                series_data[index]
-                for index in keep_indexes
-                if index < len(series_data)
+                series_data[index] for index in keep_indexes if index < len(series_data)
             ],
         }
 
