@@ -30,6 +30,7 @@ from freshquant.market_data.xtdata.constants import (
     REDIS_QUEUE_SHARDS,
 )
 from freshquant.market_data.xtdata.pools import (
+    load_clx_monitor_codes,
     load_monitor_codes,
     normalize_xtdata_mode,
     xtdata_mode_enables_clx,
@@ -318,6 +319,10 @@ class StrategyConsumer:
         self._backfill_executor = ThreadPoolExecutor(max_workers=2)
         self._backfill_lock = threading.Lock()
         self._backfilling_codes: set[str] = set()
+        self._clx_codes_lock = threading.Lock()
+        self._clx_codes_cache: set[str] = set()
+        self._clx_codes_loaded_at = 0.0
+        self._clx_codes_refresh_interval_s = 60.0
 
         self._catchup_mode = False
         self._dirty_latest: dict[tuple[str, str], dict[str, Any]] = {}
@@ -424,7 +429,7 @@ class StrategyConsumer:
                     "df": df[
                         ["datetime", "open", "high", "low", "close", "volume", "amount"]
                     ].copy(),
-                    "model_ids": self._model_ids_for(period),
+                    "model_ids": self._model_ids_for(code, period),
                 }
                 with self._lock:
                     self._windows[key] = df
@@ -436,11 +441,37 @@ class StrategyConsumer:
             "[Consumer] prewarm submitted; waiting fullcalc tasks in background"
         )
 
-    def _model_ids_for(self, period_backend: str) -> list[int]:
+    def _clx_monitor_codes(self, *, force: bool = False) -> set[str]:
+        if not xtdata_mode_enables_clx(self.mode):
+            return set()
+        now_ts = time.time()
+        with self._clx_codes_lock:
+            if (
+                not force
+                and self._clx_codes_cache
+                and (now_ts - float(self._clx_codes_loaded_at or 0.0))
+                < self._clx_codes_refresh_interval_s
+            ):
+                return set(self._clx_codes_cache)
+            codes = {
+                str(code or "").strip().lower()
+                for code in load_clx_monitor_codes(max_symbols=self.max_symbols)
+                if str(code or "").strip()
+            }
+            self._clx_codes_cache = codes
+            self._clx_codes_loaded_at = now_ts
+            return set(self._clx_codes_cache)
+
+    def _model_ids_for(self, code_prefixed: str, period_backend: str) -> list[int]:
         period_backend = to_backend_period(period_backend)
-        if xtdata_mode_enables_clx(self.mode) and period_backend in {"15min", "30min"}:
-            return list(range(10001, 10013))
-        return []
+        if not xtdata_mode_enables_clx(self.mode):
+            return []
+        if period_backend not in {"15min", "30min"}:
+            return []
+        code = str(code_prefixed or "").strip().lower()
+        if not code or code not in self._clx_monitor_codes():
+            return []
+        return list(range(10001, 10013))
 
     def _get_qfq_factor(self, *, kind: str, base_code6: str, date_str: str) -> float:
         """
@@ -830,7 +861,7 @@ class StrategyConsumer:
                 "df": df[
                     ["datetime", "open", "high", "low", "close", "volume", "amount"]
                 ].copy(),
-                "model_ids": self._model_ids_for(period),
+                "model_ids": self._model_ids_for(code, period),
             }
             with self._lock:
                 self._windows[key] = df
@@ -858,7 +889,7 @@ class StrategyConsumer:
                 "df": df[
                     ["datetime", "open", "high", "low", "close", "volume", "amount"]
                 ].copy(),
-                "model_ids": self._model_ids_for(period),
+                "model_ids": self._model_ids_for(code, period),
             }
             with self._lock:
                 self._windows[key] = df
@@ -1142,6 +1173,7 @@ class StrategyConsumer:
                     self._last_bar_ts[key] = ts
                 return
 
+        model_ids = self._model_ids_for(code, period)
         with self._lock:
             self._last_bar_ts[key] = ts
             df = self._update_window(key, bar_calc)
@@ -1152,7 +1184,7 @@ class StrategyConsumer:
                 "df": df[
                     ["datetime", "open", "high", "low", "close", "volume", "amount"]
                 ].copy(),
-                "model_ids": self._model_ids_for(period),
+                "model_ids": model_ids,
             }
             if self._catchup_mode:
                 self._dirty_latest[key] = meta
