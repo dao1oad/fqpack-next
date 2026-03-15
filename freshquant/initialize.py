@@ -72,6 +72,8 @@ SETTINGS_PROMPTS = [
     ),
 ]
 
+_SKIP_RUNTIME_BOOTSTRAP = object()
+
 
 def main(
     argv=None,
@@ -96,7 +98,9 @@ def main(
         input_fn=input_fn,
         output_fn=output_fn,
         runtime_bootstrap_runner=(
-            None if args.skip_runtime_bootstrap else runtime_bootstrap_runner
+            _SKIP_RUNTIME_BOOTSTRAP
+            if args.skip_runtime_bootstrap
+            else runtime_bootstrap_runner
         ),
     )
     return 0 if result else 1
@@ -143,19 +147,24 @@ def run_initialize_wizard(
 
     output_fn("")
     output_fn("[阶段 3/3] 运行态 bootstrap")
-    runtime_runner = runtime_bootstrap_runner or (
-        lambda: run_runtime_bootstrap(settings_provider=service.settings)
-    )
-    runtime_summary = runtime_runner()
-    output_fn("运行态 bootstrap 完成")
+    if runtime_bootstrap_runner is _SKIP_RUNTIME_BOOTSTRAP:
+        runtime_summary = {
+            "xt": {"assets": 0, "positions": 0, "orders": 0, "trades": 0},
+            "credit_subjects": {"count": 0},
+            "instrument_strategy": {"count": 0, "strategy_id": ""},
+            "skipped": True,
+        }
+        output_fn("运行态 bootstrap 已跳过")
+    else:
+        runtime_runner = runtime_bootstrap_runner or (
+            lambda: run_runtime_bootstrap(settings_provider=service.settings)
+        )
+        runtime_summary = runtime_runner()
+        output_fn("运行态 bootstrap 完成")
+
     output_fn(
         "XT 同步: 资产 {assets} / 持仓 {positions} / 委托 {orders} / 成交 {trades}".format(
             **(runtime_summary.get("xt") or {})
-        )
-    )
-    output_fn(
-        "信用标的同步: {count}".format(
-            count=(runtime_summary.get("credit_subjects") or {}).get("count", 0)
         )
     )
     output_fn(

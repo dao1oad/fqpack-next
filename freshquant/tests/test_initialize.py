@@ -136,6 +136,35 @@ def test_run_initialize_wizard_updates_bootstrap_and_settings_then_bootstraps_ru
     assert any("运行态 bootstrap 完成" in line for line in lines)
 
 
+def test_main_skip_runtime_bootstrap_does_not_execute_runtime_sync():
+    from freshquant.initialize import main
+
+    class FakeService:
+        def get_dashboard(self):
+            return _make_dashboard()
+
+        def update_bootstrap(self, payload):
+            return {"values": payload}
+
+        def update_settings(self, payload):
+            return {"values": payload}
+
+    lines = []
+
+    result = main(
+        ["--skip-runtime-bootstrap"],
+        service=FakeService(),
+        prompt_provider=lambda _field_key, _label, default, _kind: default,
+        output_fn=lines.append,
+        runtime_bootstrap_runner=lambda: (_ for _ in ()).throw(
+            AssertionError("runtime bootstrap should be skipped")
+        ),
+    )
+
+    assert result == 0
+    assert any("运行态 bootstrap 已跳过" in line for line in lines)
+
+
 def test_run_runtime_bootstrap_syncs_xt_credit_subjects_and_instrument_strategy_defaults():
     from freshquant.initialize import run_runtime_bootstrap
 
