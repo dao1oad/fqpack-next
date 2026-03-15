@@ -153,6 +153,14 @@ def get_stock_signal_list():
     return jsonify(signalList)
 
 
+@stock_bp.route("/get_stock_model_signal_list")
+def get_stock_model_signal_list():
+    page = int(request.args.get("page", "1"))
+    size = int(request.args.get("size", "1000"))
+    signal_list = _get_stock_service().get_stock_model_signal_list(page, size)
+    return jsonify(signal_list)
+
+
 # 获取股票池中股票列表
 @stock_bp.route("/get_stock_pools_list")
 def get_stock_pools_list():

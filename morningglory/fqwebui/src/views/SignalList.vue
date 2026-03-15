@@ -105,11 +105,11 @@ export default {
   props: {
     title: {
       type: String,
-      default: '候选股信号'
+      default: 'must_pools买入信号'
     },
     category: {
       type: String,
-      default: 'candidates'
+      default: 'must_pool_buys'
     }
   },
   data () {

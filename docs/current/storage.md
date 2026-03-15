@@ -13,6 +13,8 @@
 - `stock_pre_pools`
 - `stock_pools`
 - `must_pool`
+- `stock_signals`
+- `realtime_screen_multi_period`
 - 兼容历史的 `stock_fills`
 - 订单投影数据库中的持仓/成交兼容视图
 
@@ -76,6 +78,8 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - 主交易事实在订单管理库中，不在旧 `xt_orders/xt_trades` 集合中。
 - `xt_orders / xt_trades / xt_positions / xt_assets` 是外部回报与当前账户视角事实，不是内部订单请求事实。
 - `stock_pre_pools / stock_pools / must_pool` 是策略与页面共享的工作区/订阅范围集合。
+- `stock_signals` 是 Guardian event monitor 写入的实时信号日志。
+- `realtime_screen_multi_period` 是 `clx_15_30` consumer 写入的多周期模型信号读模型。
 - Gantt/Shouban30 集合是只读视图与筛选结果，不参与订单账本。
 - `fq_memory` 是 agent 旁路上下文库，不参与交易链、订单账本或正式运行真值。
 - Shouban30 当前把 `stock_pre_pools.extra.shouban30_order` 与 `stock_pools.extra.shouban30_order` 作为页面列表顺序和 `.blk` 输出顺序真值；历史 `stock_pools` 记录缺失该字段时，读取顺序兼容回退到旧 `datetime desc`。
@@ -101,6 +105,8 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 
 - XTData producer 写 Redis tick 队列。
 - XTData consumer 读 Redis bar 队列，写 QuantAxis 风格实时缓存与 Redis cache。
+- XTData consumer 在 `clx_15_30` 模式下额外写 `realtime_screen_multi_period`。
+- Guardian event monitor 写 `stock_signals`。
 - Guardian 读 `xt_positions`、`must_pool`、Guardian grid 集合，写订单请求。
 - Position worker 读 XT 资产/持仓，写 `pm_*` 集合。
 - Order submit 写 `om_order_requests`、`om_orders`、`om_order_events`，并把 broker payload 推到 Redis。

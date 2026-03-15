@@ -135,7 +135,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `pm_current_state` 是否允许开仓
 
 常见根因：
-- 事件模式没开，进程实际跑的是老轮询逻辑。
+- Guardian monitor 没有按 event 模式启动。
 - 信号超过 30 分钟被跳过。
 - buy/sell 冷却键仍在 Redis 里。
 - Position management 因 `HOLDING_ONLY` 或 `FORCE_PROFIT_REDUCE` 拒绝。

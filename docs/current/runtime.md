@@ -101,6 +101,8 @@
 - Web UI
 - Gantt/Shouban30 对应读模型数据
 - Runtime Observability 原始日志目录
+- `/stock-control` 的 Guardian 信号依赖 `stock_signals`
+- `/stock-control` 的 stock_pools 模型信号依赖 `realtime_screen_multi_period`
 - `/runtime-observability` 当前固定是 `全局 Trace + 组件 Event` 双视图
 - Guardian 排障时优先看全局 Trace 中的 `guardian_signal` 链路；组件侧栏主要用于切到对应组件的 Event 视图
 
@@ -170,4 +172,5 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 - 如果宿主机仍靠 `frequant-next.bat` 手工拉起，而不是 `fqnext-supervisord` service 开机自启，`Global Stewardship` 会失去稳定的正式入口与权限边界。
 - 如果宿主机进程仍报 `127.0.0.1:27017`，优先检查进程环境是否缺少 `FRESHQUANT_MONGODB__HOST/PORT`，以及是否还在走旧的 `qaenv` 默认值。
 - Guardian event 模式要求 `monitor.xtdata.mode=guardian_1m`；模式不对时进程会启动但不会真正处理 bar 更新。
+- `stock_pools模型信号` 依赖 XTData consumer 在 `clx_15_30` 模式下写 `realtime_screen_multi_period`；只开 Guardian event 链时该列表不会自动刷新。
 - Runtime Observability 采用旁路写盘，日志队列满时允许丢事件；排障时要同时对照业务集合，而不是只看 runtime 页面。
