@@ -633,6 +633,54 @@ test('crosshair persists on mouse leave and updates in place when re-entering', 
   ).toBeGreaterThan(10)
 })
 
+test('crosshair price label clamps to the current y-axis range after viewport rescale', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1680, height: 960 })
+  await installVmHelpers(page)
+  await mockKlineSlimApis(page)
+  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+
+  await waitForChartReady(page)
+  await waitForSymbolRendered(page, 'sz002262')
+
+  const chart = page.locator('.kline-slim-chart')
+  const chartBox = await chart.boundingBox()
+  if (!chartBox) {
+    throw new Error('chart host not visible')
+  }
+
+  await page.mouse.move(chartBox.x + chartBox.width * 0.56, chartBox.y + chartBox.height * 0.12)
+  await page.waitForTimeout(120)
+
+  const initialArtifacts = await readAxisPointerArtifacts(page)
+  expect(initialArtifacts.priceLabel?.text).toMatch(/^\d+\.\d{2}$/)
+
+  await page.evaluate(async () => {
+    const chart = window.__klineSlimChart
+    chart.dispatchAction({
+      type: 'dataZoom',
+      dataZoomIndex: 0,
+      start: 0,
+      end: 20
+    })
+    await window.__waitForSlimPaint?.()
+  })
+
+  await page.waitForFunction(() => {
+    const state = window.__readKlineSlimChartState?.()
+    return !!state?.viewport?.xRange && state.viewport.xRange.start < 0.5 && state.viewport.xRange.end < 20.5
+  })
+
+  const afterState = await readChartState(page)
+  const afterArtifacts = await readAxisPointerArtifacts(page)
+
+  expect(Number(afterState.yAxis.max).toFixed(2)).toBe(afterArtifacts.priceLabel?.text)
+  expect(Number(afterState.yAxis.max)).toBeLessThan(Number(initialArtifacts.priceLabel?.text))
+  expect(afterArtifacts.verticalLineCount).toBe(1)
+  expect(afterArtifacts.horizontalLineCount).toBe(1)
+})
+
 test('same viewport after the 1m hide path matches a forced full redraw without extra structure boxes', async ({
   page
 }) => {

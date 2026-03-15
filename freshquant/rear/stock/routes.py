@@ -44,6 +44,7 @@ except Exception:  # pragma: no cover
 
 stock_bp = Blueprint("stock", __name__, url_prefix="/api")
 
+MAX_STOCK_DATA_BAR_COUNT = 20000
 SERIES_TAIL_FIELDS = (
     "date",
     "open",
@@ -134,7 +135,7 @@ def _parse_bar_count(raw):
         value = int(raw or 0)
     except (TypeError, ValueError):
         return 0
-    return max(value, 0)
+    return min(max(value, 0), MAX_STOCK_DATA_BAR_COUNT)
 
 
 def _tail_stock_data_payload(payload, bar_count):

@@ -312,13 +312,13 @@ export function buildKlineSlimCrosshairGraphics({ chart, scene, viewport, crossh
 
   const visibleXSpan = Math.max(1e-6, visibleEndTs - visibleStartTs)
   const visibleYSpan = Math.max(1e-6, yMax - yMin)
+  const clampedSlotX = clampNumber(crosshair.slotX, visibleStartTs, visibleEndTs)
+  const clampedValueY = clampNumber(crosshair.valueY, yMin, yMax)
   const xPixel =
     gridRect.x +
-    (clampNumber(crosshair.slotX, visibleStartTs, visibleEndTs) - visibleStartTs) *
-      (gridRect.width / visibleXSpan)
+    (clampedSlotX - visibleStartTs) * (gridRect.width / visibleXSpan)
   const yPixel =
-    gridRect.y +
-    (yMax - clampNumber(crosshair.valueY, yMin, yMax)) * (gridRect.height / visibleYSpan)
+    gridRect.y + (yMax - clampedValueY) * (gridRect.height / visibleYSpan)
   if (!Number.isFinite(xPixel) || !Number.isFinite(yPixel)) {
     return []
   }
@@ -331,8 +331,8 @@ export function buildKlineSlimCrosshairGraphics({ chart, scene, viewport, crossh
     return []
   }
 
-  const priceText = formatCrosshairPrice(crosshair.valueY)
-  const dateText = resolveCrosshairDateLabel(scene, crosshair.slotX)
+  const priceText = formatCrosshairPrice(clampedValueY)
+  const dateText = resolveCrosshairDateLabel(scene, clampedSlotX)
   if (!priceText || !dateText) {
     return []
   }

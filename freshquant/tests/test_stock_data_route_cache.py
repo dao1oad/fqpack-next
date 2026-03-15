@@ -293,3 +293,29 @@ def test_stock_data_forwards_bar_count_to_fallback(monkeypatch, stock_routes):
     assert response.status_code == 200
     assert response.get_json() == {"source": "fallback", "barCount": 20000}
     assert fallback_calls == [("sz000001", "5m", None, 20000)]
+
+
+def test_stock_data_clamps_oversized_bar_count_before_fallback(
+    monkeypatch, stock_routes
+):
+    fake_redis = FakeRedis(value=None)
+    fallback_calls = []
+
+    def fake_get_data_v2(symbol, period, end_date, bar_count):
+        fallback_calls.append((symbol, period, end_date, bar_count))
+        return {"source": "fallback", "barCount": bar_count}
+
+    monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
+
+    response = call_stock_data(
+        stock_routes,
+        symbol="sz000001",
+        period="5m",
+        realtimeCache="1",
+        barCount="999999",
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {"source": "fallback", "barCount": 20000}
+    assert fallback_calls == [("sz000001", "5m", None, 20000)]
