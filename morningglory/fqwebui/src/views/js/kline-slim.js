@@ -35,6 +35,7 @@ import {
 const MAIN_PERIODS = SUPPORTED_CHANLUN_PERIODS
 const DEFAULT_PERIOD = DEFAULT_MAIN_PERIOD
 const CHANLUN_POLL_MS = 15000
+const DEFAULT_KLINE_SLIM_BAR_COUNT = 20000
 const CHANLUN_SOURCE_LABELS = {
   realtime_cache_fullcalc: '实时 fullcalc',
   history_fullcalc: '历史 fullcalc',
@@ -409,6 +410,7 @@ export default {
     handleResize() {
       if (this.chart) {
         this.chart.resize()
+        this.chartController?.syncCrosshair?.()
       }
     },
     handleVisibilityChange() {
@@ -779,7 +781,8 @@ export default {
           symbol: this.routeSymbol,
           period: this.currentPeriod,
           endDate: this.endDateModel || undefined,
-          realtimeCache: this.isRealtimeMode
+          realtimeCache: this.isRealtimeMode,
+          barCount: DEFAULT_KLINE_SLIM_BAR_COUNT
         })
         if (token !== this.routeToken || !payload) {
           return
@@ -829,7 +832,8 @@ export default {
           symbol: this.routeSymbol,
           period: resolvedPeriod,
           endDate: this.endDateModel || undefined,
-          realtimeCache: this.isRealtimeMode
+          realtimeCache: this.isRealtimeMode,
+          barCount: DEFAULT_KLINE_SLIM_BAR_COUNT
         })
         if (token !== this.routeToken || !payload) {
           return

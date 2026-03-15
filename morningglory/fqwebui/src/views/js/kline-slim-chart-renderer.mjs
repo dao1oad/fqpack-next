@@ -58,6 +58,14 @@ function pickViewportWindow(scene, viewport) {
   }
 }
 
+function clampNumber(value, min, max) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return min
+  }
+  return Math.max(min, Math.min(max, number))
+}
+
 function sanitizeSceneScopePart(value, fallback) {
   const normalized = String(value || '')
     .trim()
@@ -184,6 +192,246 @@ function buildTradingSlotAxis(dates, period) {
       return formatTradingAxisLabel(dates[rounded])
     }
   }
+}
+
+function resolveCrosshairDateLabel(scene, slotX) {
+  const labels = Array.isArray(scene?.tradingAxis?.labels) ? scene.tradingAxis.labels : []
+  if (!labels.length) {
+    return ''
+  }
+  const index = Math.max(0, Math.min(labels.length - 1, Math.round(Number(slotX))))
+  return String(labels[index] || '')
+}
+
+export function resolveKlineSlimGridRect(chart) {
+  const gridModel = chart?.getModel?.()?.getComponent?.('grid', 0)
+  const rect = gridModel?.coordinateSystem?.getRect?.()
+  if (!rect) {
+    return null
+  }
+  return {
+    x: Number(rect.x),
+    y: Number(rect.y),
+    width: Number(rect.width),
+    height: Number(rect.height)
+  }
+}
+
+function formatCrosshairPrice(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return ''
+  }
+  return numeric.toFixed(2)
+}
+
+function buildCrosshairTextGraphic({ id, x, y, width, height, text, fill }) {
+  return {
+    id,
+    name: id,
+    type: 'text',
+    silent: true,
+    z: 200,
+    x,
+    y,
+    style: {
+      text,
+      fill,
+      width,
+      height,
+      align: 'center',
+      verticalAlign: 'middle',
+      font: '12px sans-serif'
+    }
+  }
+}
+
+export function resolveKlineSlimCrosshairFromPixel({ chart, scene, viewport, pixel } = {}) {
+  if (!chart || !scene || !viewport || !Array.isArray(pixel) || pixel.length < 2) {
+    return null
+  }
+
+  const gridRect = resolveKlineSlimGridRect(chart)
+  if (!gridRect || gridRect.width <= 0 || gridRect.height <= 0) {
+    return null
+  }
+
+  const visibleWindow = pickViewportWindow(scene, viewport) || scene.mainWindow
+  const visibleStartTs = Number(visibleWindow?.startTs)
+  const visibleEndTs = Number(visibleWindow?.endTs)
+  const yMin = Number(viewport?.yRange?.min)
+  const yMax = Number(viewport?.yRange?.max)
+  if (
+    !Number.isFinite(visibleStartTs) ||
+    !Number.isFinite(visibleEndTs) ||
+    !Number.isFinite(yMin) ||
+    !Number.isFinite(yMax)
+  ) {
+    return null
+  }
+
+  const xRatio = clampNumber((pixel[0] - gridRect.x) / gridRect.width, 0, 1)
+  const yRatio = clampNumber((pixel[1] - gridRect.y) / gridRect.height, 0, 1)
+  const visibleXSpan = Math.max(1e-6, visibleEndTs - visibleStartTs)
+  const visibleYSpan = Math.max(1e-6, yMax - yMin)
+  return {
+    slotX: clampNumber(
+      visibleStartTs + visibleXSpan * xRatio,
+      scene.mainWindow.startTs,
+      scene.mainWindow.endTs
+    ),
+    valueY: clampNumber(yMax - visibleYSpan * yRatio, yMin, yMax)
+  }
+}
+
+export function buildKlineSlimCrosshairGraphics({ chart, scene, viewport, crosshair } = {}) {
+  if (!chart || !scene || !viewport || !crosshair) {
+    return []
+  }
+
+  const gridRect = resolveKlineSlimGridRect(chart)
+  if (!gridRect) {
+    return []
+  }
+
+  const visibleWindow = pickViewportWindow(scene, viewport) || scene.mainWindow
+  const visibleStartTs = Number(visibleWindow?.startTs)
+  const visibleEndTs = Number(visibleWindow?.endTs)
+  const yMin = Number(viewport?.yRange?.min)
+  const yMax = Number(viewport?.yRange?.max)
+  if (
+    !Number.isFinite(visibleStartTs) ||
+    !Number.isFinite(visibleEndTs) ||
+    !Number.isFinite(yMin) ||
+    !Number.isFinite(yMax) ||
+    gridRect.width <= 0 ||
+    gridRect.height <= 0
+  ) {
+    return []
+  }
+
+  const visibleXSpan = Math.max(1e-6, visibleEndTs - visibleStartTs)
+  const visibleYSpan = Math.max(1e-6, yMax - yMin)
+  const clampedSlotX = clampNumber(crosshair.slotX, visibleStartTs, visibleEndTs)
+  const clampedValueY = clampNumber(crosshair.valueY, yMin, yMax)
+  const xPixel =
+    gridRect.x +
+    (clampedSlotX - visibleStartTs) * (gridRect.width / visibleXSpan)
+  const yPixel =
+    gridRect.y + (yMax - clampedValueY) * (gridRect.height / visibleYSpan)
+  if (!Number.isFinite(xPixel) || !Number.isFinite(yPixel)) {
+    return []
+  }
+  if (
+    xPixel < gridRect.x ||
+    xPixel > gridRect.x + gridRect.width ||
+    yPixel < gridRect.y ||
+    yPixel > gridRect.y + gridRect.height
+  ) {
+    return []
+  }
+
+  const priceText = formatCrosshairPrice(clampedValueY)
+  const dateText = resolveCrosshairDateLabel(scene, clampedSlotX)
+  if (!priceText || !dateText) {
+    return []
+  }
+
+  const priceWidth = 64
+  const labelHeight = 20
+  const dateWidth = Math.max(96, dateText.length * 7 + 16)
+  const dateX = clampNumber(
+    xPixel - dateWidth / 2,
+    gridRect.x,
+    gridRect.x + gridRect.width - dateWidth
+  )
+
+  return [
+    {
+      id: 'kline-slim-crosshair-vertical',
+      name: 'kline-slim-crosshair-vertical',
+      type: 'line',
+      silent: true,
+      z: 198,
+      shape: {
+        x1: xPixel,
+        y1: gridRect.y,
+        x2: xPixel,
+        y2: gridRect.y + gridRect.height
+      },
+      style: {
+        stroke: '#94a3b8',
+        lineWidth: 1
+      }
+    },
+    {
+      id: 'kline-slim-crosshair-horizontal',
+      name: 'kline-slim-crosshair-horizontal',
+      type: 'line',
+      silent: true,
+      z: 198,
+      shape: {
+        x1: gridRect.x,
+        y1: yPixel,
+        x2: gridRect.x + gridRect.width,
+        y2: yPixel
+      },
+      style: {
+        stroke: '#94a3b8',
+        lineWidth: 1
+      }
+    },
+    {
+      id: 'kline-slim-crosshair-price-background',
+      name: 'kline-slim-crosshair-price-background',
+      type: 'rect',
+      silent: true,
+      z: 199,
+      shape: {
+        x: gridRect.x + gridRect.width + 8,
+        y: yPixel - labelHeight / 2,
+        width: priceWidth,
+        height: labelHeight
+      },
+      style: {
+        fill: '#334155'
+      }
+    },
+    buildCrosshairTextGraphic({
+      id: 'kline-slim-crosshair-price-label',
+      x: gridRect.x + gridRect.width + 8,
+      y: yPixel - labelHeight / 2,
+      width: priceWidth,
+      height: labelHeight,
+      text: priceText,
+      fill: '#e5e7eb'
+    }),
+    {
+      id: 'kline-slim-crosshair-date-background',
+      name: 'kline-slim-crosshair-date-background',
+      type: 'rect',
+      silent: true,
+      z: 199,
+      shape: {
+        x: dateX,
+        y: gridRect.y + gridRect.height + 8,
+        width: dateWidth,
+        height: labelHeight
+      },
+      style: {
+        fill: '#334155'
+      }
+    },
+    buildCrosshairTextGraphic({
+      id: 'kline-slim-crosshair-date-label',
+      x: dateX,
+      y: gridRect.y + gridRect.height + 8,
+      width: dateWidth,
+      height: labelHeight,
+      text: dateText,
+      fill: '#e5e7eb'
+    })
+  ]
 }
 
 function buildCandleItems(mainData, period, tradingAxis) {
@@ -662,7 +910,7 @@ export function buildKlineSlimChartScene({
   }
 }
 
-export function buildKlineSlimChartOption({ scene, viewport } = {}) {
+export function buildKlineSlimChartOption({ chart, scene, viewport, crosshair } = {}) {
   if (!scene) {
     return null
   }
@@ -744,7 +992,7 @@ export function buildKlineSlimChartOption({ scene, viewport } = {}) {
         start: viewport?.xRange?.start,
         end: viewport?.xRange?.end,
         throttle: 0,
-        zoomOnMouseWheel: true,
+        zoomOnMouseWheel: false,
         moveOnMouseMove: true,
         moveOnMouseWheel: false,
         preventDefaultMouseMove: true
@@ -768,7 +1016,13 @@ export function buildKlineSlimChartOption({ scene, viewport } = {}) {
         }
       }
     ],
-    series: buildSceneRenderSeries(scene, viewport)
+    series: buildSceneRenderSeries(scene, viewport),
+    graphic: buildKlineSlimCrosshairGraphics({
+      chart,
+      scene,
+      viewport,
+      crosshair
+    })
   }
 }
 
