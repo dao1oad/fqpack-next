@@ -143,9 +143,9 @@ class SubjectManagementDashboardService:
 
         positions = self._position_map()
         position = positions.get(normalized_symbol) or {}
-        latest_event = self._latest_trigger_map({normalized_symbol}).get(
-            normalized_symbol
-        ) or {}
+        latest_event = (
+            self._latest_trigger_map({normalized_symbol}).get(normalized_symbol) or {}
+        )
         pm_summary = dict(self.pm_summary_loader() or {})
 
         return {
@@ -243,7 +243,9 @@ class SubjectManagementDashboardService:
             symbol = _normalize_symbol(item.get("symbol"))
             if not symbol:
                 continue
-            current = rows.setdefault(symbol, {"active_count": 0, "open_buy_lot_count": 0})
+            current = rows.setdefault(
+                symbol, {"active_count": 0, "open_buy_lot_count": 0}
+            )
             if bool(item.get("enabled")):
                 current["active_count"] += 1
 
