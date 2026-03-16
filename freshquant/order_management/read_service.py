@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timezone
 
+from freshquant.instrument.general import query_instrument_info
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.util.code import normalize_to_base_code
 
@@ -290,10 +291,15 @@ class OrderManagementReadService:
 def _assemble_order_row(order, request):
     order_row = _sanitize_document(order or {})
     request_row = _sanitize_document(request or {})
+    symbol = _normalize_symbol(order_row.get("symbol"))
     return {
         **order_row,
         "request_id": order_row.get("request_id"),
-        "symbol": _normalize_symbol(order_row.get("symbol")),
+        "symbol": symbol,
+        "name": _normalize_optional_text(
+            order_row.get("name") or request_row.get("name")
+        )
+        or _resolve_instrument_name(symbol),
         "side": str(order_row.get("side") or "").strip().lower(),
         "state": str(order_row.get("state") or "").strip().upper(),
         "source": _normalize_optional_text(
@@ -348,6 +354,19 @@ def _normalize_symbol(value):
         return None
     normalized = normalize_to_base_code(text)
     return normalized or text
+
+
+def _resolve_instrument_name(symbol):
+    normalized_symbol = _normalize_symbol(symbol)
+    if not normalized_symbol:
+        return None
+    try:
+        instrument = query_instrument_info(normalized_symbol)
+    except Exception:
+        return None
+    if not isinstance(instrument, dict):
+        return None
+    return _normalize_optional_text(instrument.get("name"))
 
 
 def _normalize_optional_text(value, transform=None):

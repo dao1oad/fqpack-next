@@ -1,13 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   buildOrderDetailViewModel,
   buildOrderRows,
   buildOrderStats,
   createOrderManagementActions,
+  formatOrderPrice,
+  formatOrderTimestamp,
 } from './orderManagement.mjs'
 import { createOrderManagementPageController } from './orderManagementPage.mjs'
+
+const orderManagementPageSource = readFileSync(new URL('./OrderManagement.vue', import.meta.url), 'utf8')
 
 test('buildOrderRows sorts latest rows first and keeps request-derived fields', () => {
   const rows = buildOrderRows([
@@ -15,6 +20,7 @@ test('buildOrderRows sorts latest rows first and keeps request-derived fields', 
       internal_order_id: 'ord_1',
       request_id: 'req_1',
       symbol: '600000',
+      name: '浦发银行',
       side: 'buy',
       state: 'FILLED',
       strategy_name: 'Guardian',
@@ -35,8 +41,37 @@ test('buildOrderRows sorts latest rows first and keeps request-derived fields', 
 
   assert.equal(rows[0].internal_order_id, 'ord_2')
   assert.equal(rows[0].summaryLabel, '000001 · sell · QUEUED')
+  assert.equal(rows[1].name, '浦发银行')
   assert.equal(rows[1].strategy_name, 'Guardian')
   assert.equal(rows[1].source, 'strategy')
+})
+
+test('order helpers keep instrument name, 3-decimal prices and second-level timestamps', () => {
+  assert.equal(formatOrderPrice(null), '-')
+  assert.equal(formatOrderPrice(''), '-')
+  assert.equal(formatOrderPrice(10.12345), '10.123')
+  assert.equal(formatOrderPrice('10.1'), '10.100')
+  assert.equal(formatOrderTimestamp('2026-03-13T10:05:00+08:00'), '2026-03-13 10:05:00')
+  assert.equal(formatOrderTimestamp('2026-03-13T10:05:00.123+08:00'), '2026-03-13 10:05:00')
+})
+
+test('OrderManagement table shows name, wider state/source columns and keeps ids last', () => {
+  assert.match(orderManagementPageSource, /{{ row\.name \|\| '-' }}/)
+  assert.match(orderManagementPageSource, /<el-table-column prop="state" label="State" width="160" \/>/)
+  assert.match(orderManagementPageSource, /<el-table-column prop="source" label="Source" width="148" \/>/)
+  assert.match(orderManagementPageSource, /{{ formatOrderPrice\(row\.price\) }} \/ {{ formatOrderQuantity\(row\.quantity\) }}/)
+  assert.match(orderManagementPageSource, /{{ formatOrderTimestamp\(row\.updated_at \|\| row\.created_at\) }}/)
+  assert.match(orderManagementPageSource, /<el-table-column prop="price" label="Price" width="96">/)
+
+  const updatedColumnIndex = orderManagementPageSource.indexOf('label="Updated"')
+  const brokerColumnIndex = orderManagementPageSource.indexOf('label="Broker"')
+  const internalColumnIndex = orderManagementPageSource.indexOf('label="Internal Order"')
+  const requestColumnIndex = orderManagementPageSource.indexOf('label="Request"')
+
+  assert.ok(updatedColumnIndex > -1)
+  assert.ok(brokerColumnIndex > updatedColumnIndex)
+  assert.ok(internalColumnIndex > brokerColumnIndex)
+  assert.ok(requestColumnIndex > internalColumnIndex)
 })
 
 test('buildOrderDetailViewModel and buildOrderStats keep identifiers and distributions', () => {

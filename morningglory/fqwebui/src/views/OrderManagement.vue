@@ -166,35 +166,38 @@
                 :row-class-name="tableRowClassName"
                 @row-click="handleRowClick"
               >
-                <el-table-column label="Symbol" min-width="116">
+                <el-table-column label="Symbol" min-width="136">
                   <template #default="{ row }">
-                    <el-button text type="primary" @click.stop="focusSymbol(row.symbol)">
-                      {{ row.symbol || '-' }}
-                    </el-button>
+                    <div class="order-symbol-cell">
+                      <el-button text type="primary" @click.stop="focusSymbol(row.symbol)">
+                        {{ row.symbol || '-' }}
+                      </el-button>
+                      <span class="order-symbol-name">{{ row.name || '-' }}</span>
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column prop="side" label="Side" width="86" />
-                <el-table-column prop="state" label="State" width="132" />
+                <el-table-column prop="state" label="State" width="160" />
                 <el-table-column prop="strategy_name" label="Strategy" min-width="132" />
-                <el-table-column prop="source" label="Source" width="110" />
+                <el-table-column prop="source" label="Source" width="148" />
                 <el-table-column label="Price / Qty" min-width="132">
                   <template #default="{ row }">
-                    {{ row.price ?? '-' }} / {{ row.quantity ?? '-' }}
+                    {{ formatOrderPrice(row.price) }} / {{ formatOrderQuantity(row.quantity) }}
                   </template>
                 </el-table-column>
                 <el-table-column label="Filled" min-width="118">
                   <template #default="{ row }">
-                    {{ row.filled_quantity }} / {{ row.avg_filled_price ?? '-' }}
+                    {{ formatOrderQuantity(row.filled_quantity) }} / {{ formatOrderPrice(row.avg_filled_price) }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="internal_order_id" label="Internal Order" min-width="164" />
-                <el-table-column prop="request_id" label="Request" min-width="152" />
-                <el-table-column prop="broker_order_id" label="Broker" min-width="132" />
                 <el-table-column label="Updated" min-width="176">
                   <template #default="{ row }">
-                    {{ row.updated_at || row.created_at || '-' }}
+                    {{ formatOrderTimestamp(row.updated_at || row.created_at) }}
                   </template>
                 </el-table-column>
+                <el-table-column prop="broker_order_id" label="Broker" min-width="132" />
+                <el-table-column prop="internal_order_id" label="Internal Order" min-width="164" />
+                <el-table-column prop="request_id" label="Request" min-width="152" />
               </el-table>
             </template>
           </div>
@@ -299,7 +302,11 @@
                 <el-table v-else :data="detail.tradeRows" stripe size="small" height="100%">
                   <el-table-column prop="trade_fact_id" label="Trade Fact" min-width="140" />
                   <el-table-column prop="quantity" label="Qty" width="90" />
-                  <el-table-column prop="price" label="Price" width="90" />
+                  <el-table-column prop="price" label="Price" width="96">
+                    <template #default="{ row }">
+                      {{ formatOrderPrice(row.price) }}
+                    </template>
+                  </el-table-column>
                   <el-table-column prop="trade_time" label="Trade Time" min-width="140" />
                   <el-table-column prop="source" label="Source" min-width="120" />
                 </el-table>
@@ -319,7 +326,12 @@ import { computed, onMounted, toRefs } from 'vue'
 
 import MyHeader from '@/views/MyHeader.vue'
 import { orderManagementApi } from '@/api/orderManagementApi'
-import { createOrderManagementActions } from '@/views/orderManagement.mjs'
+import {
+  createOrderManagementActions,
+  formatOrderPrice,
+  formatOrderQuantity,
+  formatOrderTimestamp,
+} from '@/views/orderManagement.mjs'
 import { createOrderManagementPageController } from '@/views/orderManagementPage.mjs'
 
 const actions = createOrderManagementActions(orderManagementApi)
@@ -457,6 +469,24 @@ onMounted(async () => {
   font-size: 13px;
   font-weight: 600;
   color: #303133;
+}
+
+.order-symbol-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.order-symbol-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #6b7280;
 }
 
 .order-timeline {

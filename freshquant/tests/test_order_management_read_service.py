@@ -301,6 +301,33 @@ def test_list_orders_filters_and_paginates_order_rows():
     assert payload["rows"][0]["trace_id"] == "trc_fill_1"
 
 
+def test_list_orders_includes_instrument_name(monkeypatch):
+    repository = _build_repository()
+    monkeypatch.setattr(
+        "freshquant.order_management.read_service.query_instrument_info",
+        lambda symbol: {"name": "浦发银行"} if symbol == "600000" else None,
+    )
+    service = OrderManagementReadService(repository=repository)
+
+    payload = service.list_orders(symbol="600000", state="FILLED")
+
+    assert payload["rows"][0]["name"] == "浦发银行"
+
+
+def test_list_orders_tolerates_instrument_lookup_failures(monkeypatch):
+    repository = _build_repository()
+    monkeypatch.setattr(
+        "freshquant.order_management.read_service.query_instrument_info",
+        lambda _symbol: (_ for _ in ()).throw(RuntimeError("instrument lookup failed")),
+    )
+    service = OrderManagementReadService(repository=repository)
+
+    payload = service.list_orders(symbol="600000", state="FILLED")
+
+    assert payload["rows"][0]["internal_order_id"] == "ord_fill_1"
+    assert payload["rows"][0]["name"] is None
+
+
 def test_get_order_detail_assembles_request_events_and_trades():
     repository = _build_repository()
     service = OrderManagementReadService(repository=repository)
