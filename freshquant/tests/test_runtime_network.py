@@ -4,6 +4,7 @@ import importlib
 import importlib.util
 import os
 import sys
+import threading
 from pathlib import Path
 
 
@@ -82,6 +83,53 @@ def test_runtime_network_context_restores_values_after_nested_calls(monkeypatch)
 
     for key, value in original_values.items():
         assert os.environ.get(key) == value
+
+
+def test_clear_proxy_waits_for_active_without_proxy_context(monkeypatch):
+    network = importlib.import_module("freshquant.runtime.network")
+
+    original_values = {
+        "ALL_PROXY": "socks5://127.0.0.1:10808",
+        "HTTP_PROXY": "http://127.0.0.1:10809",
+        "HTTPS_PROXY": "http://127.0.0.1:10809",
+    }
+    for key, value in original_values.items():
+        monkeypatch.setenv(key, value)
+
+    entered = threading.Event()
+    release = threading.Event()
+    cleared = threading.Event()
+
+    def hold_without_proxy_env() -> None:
+        with network.without_proxy_env():
+            entered.set()
+            release.wait(timeout=5)
+
+    def clear_proxy_env() -> None:
+        assert entered.wait(timeout=5)
+        network.clear_proxy_env_for_current_process()
+        cleared.set()
+
+    context_thread = threading.Thread(target=hold_without_proxy_env)
+    clear_thread = threading.Thread(target=clear_proxy_env)
+
+    context_thread.start()
+    clear_thread.start()
+
+    assert entered.wait(timeout=5)
+    assert not cleared.wait(timeout=0.2)
+
+    release.set()
+
+    context_thread.join(timeout=5)
+    clear_thread.join(timeout=5)
+
+    assert not context_thread.is_alive()
+    assert not clear_thread.is_alive()
+    assert cleared.is_set()
+
+    for key in original_values:
+        assert os.environ.get(key) in (None, "")
 
 
 def test_importing_freshquant_clears_proxy_variables(monkeypatch):

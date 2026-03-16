@@ -46,5 +46,6 @@ def without_proxy_env(keys: tuple[str, ...] = PROXY_ENV_KEYS) -> Iterator[None]:
 
 
 def clear_proxy_env_for_current_process(keys: tuple[str, ...] = PROXY_ENV_KEYS) -> None:
-    for key in keys:
-        os.environ.pop(key, None)
+    with _PROXY_ENV_LOCK:
+        for key in keys:
+            os.environ.pop(key, None)
