@@ -10,6 +10,11 @@ from typing import Any, cast
 
 DEFAULT_CONFIG_PATH = Path("D:/fqpack/config/supervisord.fqnext.conf")
 DEFAULT_TIMEOUT_SECONDS = 30.0
+DEFAULT_SETTLE_SECONDS = 3.0
+DEFAULT_POLL_INTERVAL_SECONDS = 1.0
+TRANSITIONAL_STATES = {"STARTING", "STOPPING"}
+RETRYABLE_START_STATES = {"EXITED", "FATAL", "BACKOFF", "STARTING"}
+TIMEOUT_FLOOR_COMMANDS = {"restart-surfaces", "wait-settled"}
 
 SURFACE_ORDER = (
     "market_data",
@@ -43,6 +48,10 @@ SURFACE_PROGRAMS = {
         "fqnext_xtquant_broker",
         "fqnext_credit_subjects_worker",
     ],
+}
+
+SURFACE_MIN_TIMEOUT_SECONDS = {
+    "market_data": 180.0,
 }
 
 
@@ -87,6 +96,20 @@ def ordered_surfaces(surfaces: list[str]) -> list[str]:
     return [surface for surface in SURFACE_ORDER if surface in selected]
 
 
+def resolve_effective_timeout_seconds(
+    command: str,
+    surfaces: list[str],
+    requested_timeout_seconds: float,
+) -> float:
+    if command not in TIMEOUT_FLOOR_COMMANDS:
+        return requested_timeout_seconds
+    timeout_floor = max(
+        (SURFACE_MIN_TIMEOUT_SECONDS.get(normalize_surface(surface), 0.0) for surface in surfaces),
+        default=0.0,
+    )
+    return max(requested_timeout_seconds, timeout_floor)
+
+
 def build_server_proxy(rpc_url: str) -> xmlrpc.client.ServerProxy:
     return xmlrpc.client.ServerProxy(rpc_url)
 
@@ -125,9 +148,15 @@ def collect_status(
     server: xmlrpc.client.ServerProxy,
     programs: list[str],
 ) -> list[dict[str, object]]:
+    infos = {program: get_process_info(server, program) for program in programs}
+    return build_status_entries(infos)
+
+
+def build_status_entries(
+    infos: dict[str, dict[str, object]],
+) -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
-    for program in programs:
-        info = get_process_info(server, program)
+    for program, info in infos.items():
         entries.append(
             {
                 "name": program,
@@ -137,6 +166,71 @@ def collect_status(
             }
         )
     return entries
+
+
+def _snapshot_signature(
+    infos: dict[str, dict[str, object]],
+) -> tuple[tuple[str, str, int, int, int, int], ...]:
+    signature: list[tuple[str, str, int, int, int, int]] = []
+    for program in sorted(infos):
+        info = infos[program]
+        signature.append(
+            (
+                program,
+                str(info.get("statename", "")).upper(),
+                int(info.get("pid") or 0),
+                int(info.get("start") or 0),
+                int(info.get("stop") or 0),
+                int(info.get("exitstatus") or 0),
+            )
+        )
+    return tuple(signature)
+
+
+def wait_for_programs_settled(
+    server: xmlrpc.client.ServerProxy,
+    programs: list[str],
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    settle_seconds: float = DEFAULT_SETTLE_SECONDS,
+    poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
+) -> dict[str, dict[str, object]]:
+    deadline = time.time() + timeout_seconds
+    last_signature: tuple[tuple[str, str, int, int, int, int], ...] | None = None
+    stable_since: float | None = None
+    last_infos: dict[str, dict[str, object]] | None = None
+
+    while time.time() < deadline:
+        current_infos = {program: get_process_info(server, program) for program in programs}
+        last_infos = current_infos
+        states = {
+            program: str(info.get("statename", "")).upper()
+            for program, info in current_infos.items()
+        }
+        now = time.time()
+        if any(state in TRANSITIONAL_STATES for state in states.values()):
+            last_signature = None
+            stable_since = None
+        else:
+            signature = _snapshot_signature(current_infos)
+            if signature != last_signature:
+                last_signature = signature
+                stable_since = now
+            elif stable_since is not None and (now - stable_since) >= settle_seconds:
+                return current_infos
+        time.sleep(poll_interval_seconds)
+
+    if last_infos is None:
+        raise RuntimeError("Programs did not return process info while waiting to settle")
+    raise RuntimeError(
+        "Programs did not settle; last states="
+        + json.dumps(
+            {
+                program: str(info.get("statename", "")).upper()
+                for program, info in last_infos.items()
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def restart_programs(
@@ -151,10 +245,37 @@ def restart_programs(
         if before_state == "RUNNING":
             server.supervisor.stopProcess(program, True)
             wait_for_state(server, program, "STOPPED", timeout_seconds=timeout_seconds)
-        server.supervisor.startProcess(program, True)
-        after = wait_for_state(
-            server, program, "RUNNING", timeout_seconds=timeout_seconds
-        )
+        after: dict[str, object] | None = None
+        for attempt in range(2):
+            server.supervisor.startProcess(program, False)
+            try:
+                after = wait_for_state(
+                    server, program, "RUNNING", timeout_seconds=timeout_seconds
+                )
+                break
+            except RuntimeError:
+                latest = get_process_info(server, program)
+                latest_state = str(latest.get("statename", "")).upper()
+                if attempt >= 1 or latest_state not in RETRYABLE_START_STATES:
+                    raise
+                settled = latest
+                try:
+                    settled_infos = wait_for_programs_settled(
+                        server,
+                        [program],
+                        timeout_seconds=min(timeout_seconds, 15.0),
+                        settle_seconds=2.0,
+                        poll_interval_seconds=1.0,
+                    )
+                    settled = settled_infos[program]
+                    latest_state = str(settled.get("statename", "")).upper()
+                except RuntimeError:
+                    pass
+                if latest_state == "RUNNING":
+                    after = settled
+                    break
+        if after is None:
+            raise RuntimeError(f"Program {program} did not reach RUNNING after retry")
         results.append(
             {
                 "name": program,
@@ -187,6 +308,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_TIMEOUT_SECONDS,
     )
+    wait_parser = subparsers.add_parser("wait-settled")
+    wait_parser.add_argument("--surface", action="append", required=True)
+    wait_parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=DEFAULT_TIMEOUT_SECONDS,
+    )
+    wait_parser.add_argument(
+        "--settle-seconds",
+        type=float,
+        default=DEFAULT_SETTLE_SECONDS,
+    )
 
     return parser
 
@@ -212,6 +345,11 @@ def main() -> int:
     rpc_url = load_supervisor_rpc_url(args.config_path)
     server = build_server_proxy(rpc_url)
     surfaces, programs = resolve_target_programs(args)
+    effective_timeout_seconds = resolve_effective_timeout_seconds(
+        args.command,
+        surfaces,
+        float(getattr(args, "timeout_seconds", DEFAULT_TIMEOUT_SECONDS)),
+    )
 
     if args.command == "status":
         payload = {
@@ -222,13 +360,28 @@ def main() -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
 
+    if args.command == "wait-settled":
+        infos = wait_for_programs_settled(
+            server,
+            programs,
+            timeout_seconds=effective_timeout_seconds,
+            settle_seconds=args.settle_seconds,
+        )
+        payload = {
+            "rpc_url": rpc_url,
+            "surfaces": surfaces,
+            "programs": build_status_entries(infos),
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
     payload = {
         "rpc_url": rpc_url,
         "surfaces": surfaces,
         "programs": restart_programs(
             server,
             programs,
-            timeout_seconds=args.timeout_seconds,
+            timeout_seconds=effective_timeout_seconds,
         ),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))

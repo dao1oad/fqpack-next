@@ -71,6 +71,8 @@
 - 命中宿主机 deployment surface 时，正式入口固定为 `script/fqnext_host_runtime_ctl.ps1`；`D:\fqpack\supervisord\frequant-next.bat` 仅保留为兼容人工入口
 - 如果当前 Codex 会话没有管理员权限，`runtime/symphony/**` 的重载应走预装的计划任务桥接：普通会话先 `sync_freshquant_symphony_service.ps1`，再调用 `invoke_freshquant_symphony_restart_task.ps1`
 - 如果当前 Codex 会话没有管理员权限且 `fqnext-supervisord` service 需要恢复，应走预装的 `fqnext-supervisord-restart` 管理员桥接任务；普通会话不直接承担 service 修复
+- `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` 在走过 `fqnext-supervisord` service 恢复路径后，会先等待目标 surfaces 的托管进程脱离 `STARTING/STOPPING` 并稳定下来，再执行逐个 restart，避免和 supervisor 自启动阶段发生竞态
+- 对 `market_data` surface，`restart-surfaces` / `wait-settled` 的有效超时下限固定为 `180s`；`fqnext_realtime_xtdata_producer`、`fqnext_realtime_xtdata_consumer`、`fqnext_xtdata_adj_refresh_worker` 在 custom `fqnext-supervisord` 上已知可能在收到 start 请求后持续数十秒保持 `EXITED/STARTING`
 - `run_freshquant_symphony_restart_task.ps1` 在服务进入 `Running` 后仍会继续轮询 `http://127.0.0.1:40123/api/v1/state`，直到健康检查返回 `200` 或超时，避免把端口释放窗口误判为重载失败。
 - merge 后若发现代码问题，只创建 follow-up issue，由下一轮 `Symphony` 接手；不把原 issue 拉回 `Rework`
 - `Blocked` 只用于真实外部阻塞；进入 `Blocked` 时必须同时记录阻塞原因、解除条件、当前证据和恢复目标状态（`In Progress` / `Rework` / `Merging` / `Global Stewardship`）
