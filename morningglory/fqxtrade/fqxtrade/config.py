@@ -21,12 +21,6 @@ class Config:
     DT_FORMAT_DAY = "%Y-%m-%d"
     DT_FORMAT_M = "%Y-%m-%d %H:%M"
 
-    PROXIES = {
-        "http": os.environ.get('freshquant_PROXY', 'http://127.0.0.1:10809'),
-        "https": os.environ.get('freshquant_PROXY', 'http://127.0.0.1:10809'),
-    }
-    PROXY_HOST = os.environ.get('freshquant_PROXY_HOST', '127.0.0.1')
-    PROXY_PORT = os.environ.get('freshquant_PROXY_PORT', '10809')
     CUSTOM_DATA_DIR = os.environ.get('freshquant_CUSTOM_DATA_DIR')
     OHLC = {
         'open': 'first',

@@ -6,6 +6,7 @@ import requests  # type: ignore[import-untyped]
 from blinker import signal
 from ratelimit import limits, sleep_and_retry
 
+from freshquant.runtime.network import without_proxy_env
 from freshquant.system_settings import system_settings
 
 order_alert = signal("order_alert")
@@ -17,16 +18,35 @@ market_data_alert = signal("market_data_alert")
 def send_dingtalk_message(url, title, text):
     if url is not None and title is not None and text is not None:
         try:
-            requests.post(
-                url,
-                data=json.dumps(
-                    {
-                        "msgtype": "markdown",
-                        "markdown": {"title": f"freshquant: {title}", "text": text},
-                    }
-                ),
-                headers={"Content-Type": "application/json"},
-            )
+            with without_proxy_env():
+                response = requests.post(
+                    url,
+                    data=json.dumps(
+                        {
+                            "msgtype": "markdown",
+                            "markdown": {"title": f"freshquant: {title}", "text": text},
+                        }
+                    ),
+                    headers={"Content-Type": "application/json"},
+                )
+            if getattr(response, "status_code", 200) >= 400:
+                logging.error(
+                    "DingTalk HTTP error: status=%s body=%s",
+                    getattr(response, "status_code", ""),
+                    getattr(response, "text", ""),
+                )
+                return
+            try:
+                payload = response.json()
+            except Exception:
+                payload = None
+            if isinstance(payload, dict) and int(payload.get("errcode") or 0) != 0:
+                logging.error(
+                    "DingTalk rejected message: errcode=%s errmsg=%s body=%s",
+                    payload.get("errcode"),
+                    payload.get("errmsg"),
+                    getattr(response, "text", ""),
+                )
         except Exception as e:
             logging.error("Error Occurred: {0} {1}".format(e, traceback.format_exc()))
 

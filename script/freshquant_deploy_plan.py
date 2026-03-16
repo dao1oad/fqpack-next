@@ -88,6 +88,23 @@ HEALTH_CHECK_MAP = {
     ],
 }
 
+ALL_HOST_RUNTIME_SURFACES = (
+    "market_data",
+    "guardian",
+    "position_management",
+    "tpsl",
+    "order_management",
+)
+FRESHQUANT_SHARED_RUNTIME_SURFACES = (
+    "api",
+    "dagster",
+    *ALL_HOST_RUNTIME_SURFACES,
+)
+FRESHQUANT_MESSAGE_SURFACES = ("market_data", "guardian")
+FRESHQUANT_TRADING_SURFACES = ("api", "dagster", "market_data", "guardian")
+FRESHQUANT_LEGACY_CONFIG_SURFACES = ("dagster", "market_data", "guardian")
+FQXTRADE_RUNTIME_SURFACES = ("order_management",)
+
 
 @dataclass(frozen=True)
 class PathRule:
@@ -120,6 +137,48 @@ PATH_RULES: tuple[PathRule, ...] = (
         label="freshquant-rear",
         prefix="freshquant/rear/",
         surfaces=("api",),
+    ),
+    ExactRule(
+        label="freshquant-package-root",
+        exact_path="freshquant/__init__.py",
+        surfaces=FRESHQUANT_SHARED_RUNTIME_SURFACES,
+        notes=(
+            "`freshquant.__init__` 变更会影响 API、Dagster 与所有宿主机 `python -m freshquant...` 运行面。",
+        ),
+    ),
+    ExactRule(
+        label="freshquant-runtime-network",
+        exact_path="freshquant/runtime/network.py",
+        surfaces=FRESHQUANT_SHARED_RUNTIME_SURFACES,
+        notes=(
+            "`freshquant.runtime.network` 当前被 FreshQuant/FQXTrade 入口、钉钉通知与交易日历请求共享复用。",
+        ),
+    ),
+    PrefixRule(
+        label="freshquant-message",
+        prefix="freshquant/message/",
+        surfaces=FRESHQUANT_MESSAGE_SURFACES,
+    ),
+    PrefixRule(
+        label="freshquant-trading",
+        prefix="freshquant/trading/",
+        surfaces=FRESHQUANT_TRADING_SURFACES,
+    ),
+    ExactRule(
+        label="freshquant-config",
+        exact_path="freshquant/config.py",
+        surfaces=FRESHQUANT_LEGACY_CONFIG_SURFACES,
+        notes=(
+            "`freshquant.config` 仍被 market_data / guardian / dagster 链路直接引用。",
+        ),
+    ),
+    ExactRule(
+        label="freshquant-legacy-yaml",
+        exact_path="freshquant/freshquant.yaml",
+        surfaces=FRESHQUANT_LEGACY_CONFIG_SURFACES,
+        notes=(
+            "旧 `freshquant.yaml` 虽已降级，但当前仍随 `freshquant.config` 被部分宿主机链路读取。",
+        ),
     ),
     PrefixRule(
         label="order-management",
@@ -184,6 +243,12 @@ PATH_RULES: tuple[PathRule, ...] = (
         label="dagster-config",
         prefix="morningglory/fqdagsterconfig/",
         surfaces=("dagster",),
+    ),
+    PrefixRule(
+        label="fqxtrade-runtime",
+        prefix="morningglory/fqxtrade/fqxtrade/",
+        surfaces=FQXTRADE_RUNTIME_SURFACES,
+        notes=("vendored `fqxtrade` 改动会影响 broker / ingest 等宿主机订单链。",),
     ),
     PrefixRule(
         label="tradingagents",

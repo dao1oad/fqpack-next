@@ -154,24 +154,7 @@ async def _print_config_summary(logger):
         logger.info(f"MongoDB: {settings.MONGODB_HOST}:{settings.MONGODB_PORT}/{settings.MONGODB_DATABASE}")
         logger.info(f"Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}")
 
-        # 代理配置
-        import os
-        if settings.HTTP_PROXY or settings.HTTPS_PROXY:
-            logger.info("Proxy Configuration:")
-            if settings.HTTP_PROXY:
-                logger.info(f"  HTTP_PROXY: {settings.HTTP_PROXY}")
-            if settings.HTTPS_PROXY:
-                logger.info(f"  HTTPS_PROXY: {settings.HTTPS_PROXY}")
-            if settings.NO_PROXY:
-                # 只显示前3个域名
-                no_proxy_list = settings.NO_PROXY.split(',')
-                if len(no_proxy_list) <= 3:
-                    logger.info(f"  NO_PROXY: {settings.NO_PROXY}")
-                else:
-                    logger.info(f"  NO_PROXY: {','.join(no_proxy_list[:3])}... ({len(no_proxy_list)} domains)")
-            logger.info(f"  ✅ Proxy environment variables set successfully")
-        else:
-            logger.info("Proxy: Not configured (direct connection)")
+        logger.info("Proxy: Disabled for runtime (direct connection only)")
 
         # 检查大模型配置
         try:

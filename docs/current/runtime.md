@@ -112,6 +112,7 @@
 ## 并行环境的默认口径
 
 - 宿主机 `.env` 示例：`deployment/examples/envs.fqnext.example`
+- 宿主机 `.env` 示例默认不再携带 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量
 - Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`

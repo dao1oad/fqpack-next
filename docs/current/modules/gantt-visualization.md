@@ -26,7 +26,7 @@
 - Dagster 读模型更新
 - 交易日历来源 `freshquant.data.trade_date_hist -> freshquant.trading.dt -> AkShare Sina`
 
-交易日历抓取当前会临时移除 `ALL_PROXY`、`all_proxy`、`HTTP_PROXY`、`HTTPS_PROXY`，并对请求类瞬时失败自动重试 3 次，再决定最新完成交易日。
+交易日历抓取当前会临时移除 `ALL_PROXY`、`all_proxy`、`HTTP_PROXY`、`http_proxy`、`HTTPS_PROXY`、`https_proxy`、`NO_PROXY`、`no_proxy`，并对请求类瞬时失败自动重试 3 次，再决定最新完成交易日。
 
 ## 数据流
 
