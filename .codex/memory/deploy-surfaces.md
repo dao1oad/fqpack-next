@@ -1,18 +1,18 @@
-# Deploy Surfaces
+# 部署影响面
 
-- `freshquant/rear/**` -> redeploy API Server.
-- `freshquant/order_management/**` -> redeploy API and restart the `order_management` host surface.
-- `freshquant/position_management/**` -> redeploy API and restart the `position_management` host surface.
-- `freshquant/tpsl/**` -> redeploy API and restart the `tpsl` host surface.
-- `freshquant/market_data/**` -> restart the `market_data` host surface; prewarm again when required.
-- `freshquant/strategy/**` or `freshquant/signal/**` -> restart the `guardian` host surface.
-- `freshquant/data/**` changes that affect Gantt or Shouban30 -> redeploy API and, when needed, rerun Dagster surfaces.
-- `sunflower/QUANTAXIS/**` -> redeploy `fq_qawebserver` and any dependent host strategy surface.
-- `morningglory/fqwebui/**` -> rebuild and redeploy Web UI.
-- `morningglory/fqdagster/**` or `morningglory/fqdagsterconfig/**` -> restart Dagster webserver and daemon.
-- `third_party/tradingagents-cn/**` -> rebuild `ta_backend` and `ta_frontend`.
-- `runtime/symphony/**` -> sync the formal Symphony service and restart `fq-symphony-orchestrator`.
-- Use `py -3.12 script/freshquant_deploy_plan.py` as the formal deploy-scope calculator before deciding the final release batch.
-- All host deployment surfaces should go through `script/fqnext_host_runtime_ctl.ps1`, not ad-hoc process restarts.
+- `freshquant/rear/**` -> 重部署 API Server。
+- `freshquant/order_management/**` -> 重部署 API，并重启 `order_management` 宿主机运行面。
+- `freshquant/position_management/**` -> 重部署 API，并重启 `position_management` 宿主机运行面。
+- `freshquant/tpsl/**` -> 重部署 API，并重启 `tpsl` 宿主机运行面。
+- `freshquant/market_data/**` -> 重启 `market_data` 宿主机运行面；需要时重新执行 prewarm。
+- `freshquant/strategy/**` 或 `freshquant/signal/**` -> 重启 `guardian` 宿主机运行面。
+- `freshquant/data/**` 中影响 Gantt 或 Shouban30 的改动 -> 重部署 API，并在需要时重跑 Dagster 运行面。
+- `sunflower/QUANTAXIS/**` -> 重部署 `fq_qawebserver` 及其依赖的宿主机策略运行面。
+- `morningglory/fqwebui/**` -> 重新构建并重部署 Web UI。
+- `morningglory/fqdagster/**` 或 `morningglory/fqdagsterconfig/**` -> 重启 Dagster webserver 和 daemon。
+- `third_party/tradingagents-cn/**` -> 重新构建 `ta_backend` 和 `ta_frontend`。
+- `runtime/symphony/**` -> 同步正式 Symphony service，并重启 `fq-symphony-orchestrator`。
+- 在决定最终发布批次前，先用 `py -3.12 script/freshquant_deploy_plan.py` 计算正式部署范围。
+- 所有宿主机部署面都应通过 `script/fqnext_host_runtime_ctl.ps1` 执行，不要临时用 ad-hoc 进程重启替代。
 
-Use this file as derived agent memory only. Formal runtime truth still comes from deploy results and `docs/current/**`.
+本文件只作为派生 agent memory 使用；正式运行真值仍来自部署结果与 `docs/current/**`。

@@ -8,7 +8,9 @@ from pathlib import Path
 from freshquant.runtime.memory import (
     InMemoryMemoryStore,
     MemoryRuntimeConfig,
+    bootstrap_memory_context,
     compile_context_pack,
+    derive_issue_identifier,
     refresh_memory,
 )
 
@@ -651,4 +653,104 @@ def test_memory_smoke_script_runs_from_repo_without_installed_package(
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert "context_pack_path" in payload
+    assert payload["context_pack_path"].startswith(str(service_root))
+
+
+def test_derive_issue_identifier_prefers_workspace_issue_directory() -> None:
+    issue_identifier = derive_issue_identifier(
+        workspace_path=Path("D:/fqpack/runtime/symphony-service/workspaces/GH-166"),
+        branch_name="main",
+    )
+
+    assert issue_identifier == "GH-166"
+
+
+def test_derive_issue_identifier_falls_back_to_issue_number_in_branch_name() -> None:
+    issue_identifier = derive_issue_identifier(
+        workspace_path=Path("D:/fqpack/freshquant-2026.2.23"),
+        branch_name="codex/gh-166-symphony-global-stewardship-codex",
+    )
+
+    assert issue_identifier == "GH-166"
+
+
+def test_derive_issue_identifier_falls_back_to_local_workspace_name() -> None:
+    issue_identifier = derive_issue_identifier(
+        workspace_path=Path("D:/fqpack/freshquant-2026.2.23"),
+        branch_name="main",
+    )
+
+    assert issue_identifier == "LOCAL-freshquant-2026.2.23"
+
+
+def test_bootstrap_memory_context_refreshes_and_compiles_pack(tmp_path: Path) -> None:
+    repo_root = tmp_path / "freshquant-workspace"
+    service_root = tmp_path / "service"
+    cold_root = repo_root / ".codex" / "memory"
+    module_doc = repo_root / "docs" / "current" / "modules" / "runtime-observability.md"
+
+    _write(
+        cold_root / "workflow-rules.md",
+        "# 工作流规则\n\n- 直开会话先读 memory。\n",
+    )
+    _write(
+        module_doc,
+        "# 运行观测\n\n当前模块事实。\n",
+    )
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=cold_root,
+        artifact_root=service_root / "artifacts" / "memory",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+
+    result = bootstrap_memory_context(
+        config,
+        store,
+        workspace_path=repo_root,
+        branch_name="main",
+        git_status="clean",
+        issue_state="Local Session",
+        role="codex",
+    )
+
+    assert result["issue_identifier"] == "LOCAL-freshquant-workspace"
+    assert result["role"] == "codex"
+    assert Path(result["context_pack_path"]).exists()
+    assert result["refresh_summary"]["knowledge_items"] == 1
+
+    content = Path(result["context_pack_path"]).read_text(encoding="utf-8")
+    assert "工作流规则" in content
+    assert "Local Session" in content
+
+
+def test_bootstrap_memory_script_runs_from_repo_without_installed_package(
+    tmp_path: Path,
+) -> None:
+    service_root = tmp_path / "service-root"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "runtime/memory/scripts/bootstrap_freshquant_memory.py",
+            "--repo-root",
+            str(Path(".").resolve()),
+            "--service-root",
+            str(service_root),
+            "--in-memory",
+        ],
+        cwd=Path(".").resolve(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["role"] == "codex"
+    assert Path(payload["context_pack_path"]).exists()
     assert payload["context_pack_path"].startswith(str(service_root))

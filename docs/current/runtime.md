@@ -37,9 +37,11 @@
 - 管理员桥接任务以 `SYSTEM` + `Highest` 运行；安装脚本会给执行安装的 Windows 用户追加该任务的读取/执行权限，供普通 Codex 会话调用。
 - Symphony 运行模板：`runtime/symphony/WORKFLOW.freshquant.md`
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
-- Symphony / Global Stewardship / 自由 Codex 会话会在启动 `codex` 前通过 `runtime/memory/scripts/refresh_freshquant_memory.py` + `runtime/memory/scripts/compile_freshquant_context_pack.py` 刷新全局记忆并编译 context pack
+- Symphony / Global Stewardship 会在启动 `codex` 前通过 `runtime/memory/scripts/refresh_freshquant_memory.py` + `runtime/memory/scripts/compile_freshquant_context_pack.py` 刷新全局记忆并编译 context pack
+- 直接在 Codex app 中打开仓库的自由会话，如果没有现成 `FQ_MEMORY_CONTEXT_PATH`，应先执行 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 自举 memory refresh / compile，再读取返回的 `context_pack_path`
 - memory refresh 当前会汇总 `.codex/memory/**`、`docs/current/modules/*.md`、`artifacts/cleanup-requests/<issue>.json`、`artifacts/<issue>/deployment-comment.md`、`artifacts/cleanup-results/<issue>.json`，把 PR / deploy / health / cleanup 摘要写入 `fq_memory`
 - 会话通过环境变量 `FQ_MEMORY_CONTEXT_PATH` 注入本轮 context pack，并通过 `FQ_MEMORY_CONTEXT_ROLE` 暴露当前角色；`Global Stewardship` 默认编译 `global-stewardship` pack，其它工作区会话默认编译 `codex` pack
+- `bootstrap_freshquant_memory.py` 会为自由会话推导 `issue_identifier`：优先用显式参数，其次用 workspace 目录名或 branch 中的 issue id，最后回退到 `LOCAL-<workspace-name>`
 - agent 应先读该文件，再回到 GitHub / `docs/current/**` / deploy 结果确认正式真值
 - 冷记忆目录：`.codex/memory`
 - 热记忆 Mongo database：`fq_memory`
@@ -78,6 +80,7 @@
 - Symphony `sync/start` 也会校验 `prompts/merging.md` 的关键 guardrail：`Merging` 只能做一次性检查后结束当前 turn，不应在会话内使用 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 长轮询；`Merging` 不负责 deploy、health check 或 cleanup，只负责 handoff 到 `Global Stewardship`
 - Symphony `sync/start` 还会校验 `prompts/global_stewardship.md` 的关键 guardrail：必须按当前 `main` 统一判断部署、实际 deploy 时先采 runtime baseline 再做 runtime ops check、只创建 follow-up issue、不直接建修复 PR、并在无 open follow-up 阻塞时才允许关闭原 issue
 - memory refresh / compile 的正式脚本入口位于 `runtime/memory/scripts/**`；第一版只做结构化冷/热记忆和角色化 markdown context pack，不引入向量库或 embedding 检索
+- 自由 Codex 会话的正式自举入口是 `runtime/memory/scripts/bootstrap_freshquant_memory.py`
 - Symphony 写入 GitHub 的正式文本默认使用简体中文
 - 全局 Codex 自动化发现需要代码修复的问题时，只创建 follow-up issue，由下一轮 `Symphony` 接手；不直接建修复 PR
 - 运行日志根目录：`logs/runtime`，可被 `FQ_RUNTIME_LOG_DIR` 覆盖

@@ -22,6 +22,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `Get-ChildItem Env:FQ_MEMORY_CONTEXT_PATH`
 - `Get-ChildItem Env:FQ_MEMORY_CONTEXT_ROLE`
 - `Get-Content $env:FQ_MEMORY_CONTEXT_PATH`
+- `py -3.12 runtime/memory/scripts/bootstrap_freshquant_memory.py --repo-root . --service-root D:/fqpack/runtime/symphony-service`
 - `Get-Content D:/fqpack/runtime/symphony-service/artifacts/cleanup-requests/<issue>.json`
 - `py -3.12 runtime/memory/scripts/refresh_freshquant_memory.py --issue-identifier GH-166 --issue-state "In Progress" --branch-name <branch> --git-status clean`
 - `py -3.12 runtime/memory/scripts/compile_freshquant_context_pack.py --issue-identifier GH-166 --role codex`
@@ -31,6 +32,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 常见根因：
 - `run_freshquant_codex_session.ps1` 启动前没有成功执行 memory refresh / compile。
 - `run_freshquant_codex_session.ps1` 为当前 issue state 解析错了 role，导致 `Global Stewardship` 仍拿到普通 `codex` context pack。
+- 直接在 Codex app 中打开仓库时，没有先执行 `bootstrap_freshquant_memory.py`，就开始做通用 repo 扫描。
 - `fq_memory` 不可写，导致热记忆集合为空。
 - `cleanup-requests/<issue>.json` 缺失或字段不全，导致 context pack 无法显示 PR / branch / repository 元数据。
 - `deployment-comment.md` 或 `cleanup-results/<issue>.json` 缺失，导致 deploy / health / cleanup 摘要只能回退为 `unavailable`
@@ -39,6 +41,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 处理：
 - 先手动重跑 `refresh_freshquant_memory.py` 和 `compile_freshquant_context_pack.py`
+- 对自由会话，优先直接运行 `bootstrap_freshquant_memory.py`，读取返回的 `context_pack_path`
 - 确认 `D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs/<issue>/<role>.md` 已更新
 - 确认 Mongo `fq_memory` 中至少有 `task_state`、`knowledge_items`、`context_packs`
 - 如果 memory context 和正式真值冲突，优先修正式真值或刷新 memory，不要反向手改 context pack
