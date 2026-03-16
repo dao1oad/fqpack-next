@@ -47,7 +47,9 @@ def _resolve_git_status(repo_root: Path, explicit_git_status: str | None) -> str
     status_output = _git_output(repo_root, "status", "--short")
     if not status_output:
         return "clean"
-    return "; ".join(line.strip() for line in status_output.splitlines() if line.strip())
+    return "; ".join(
+        line.strip() for line in status_output.splitlines() if line.strip()
+    )
 
 
 def main() -> int:
@@ -83,6 +85,7 @@ def main() -> int:
         service_root=args.service_root,
         environ=environ,
     )
+    store: InMemoryMemoryStore | MongoMemoryStore
     if args.in_memory:
         store = InMemoryMemoryStore()
     else:
