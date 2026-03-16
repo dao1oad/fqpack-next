@@ -1,17 +1,37 @@
 FROM python:3.12-bookworm
 
+ARG FQ_IMAGE_GIT_SHA=unknown
+
 ENV TZ=Asia/Shanghai
 ENV UV_PROJECT_ENVIRONMENT=/freshquant/.venv
 ENV PATH="/freshquant/.venv/bin:${PATH}"
+
+LABEL org.opencontainers.image.revision="${FQ_IMAGE_GIT_SHA}"
+LABEL io.freshquant.git_sha="${FQ_IMAGE_GIT_SHA}"
 
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 WORKDIR /freshquant
 
-COPY . .
+COPY pyproject.toml uv.lock jupyter_server_config.json ./
+COPY morningglory/fqchan01 ./morningglory/fqchan01
+COPY morningglory/fqchan02 ./morningglory/fqchan02
+COPY morningglory/fqchan03 ./morningglory/fqchan03
+COPY morningglory/fqchan04 ./morningglory/fqchan04
+COPY morningglory/fqchan06 ./morningglory/fqchan06
+COPY morningglory/fqcopilot ./morningglory/fqcopilot
+COPY morningglory/fqdagster ./morningglory/fqdagster
+COPY morningglory/fqxtrade ./morningglory/fqxtrade
+COPY sunflower/xtquant ./sunflower/xtquant
+COPY sunflower/pytdx ./sunflower/pytdx
+COPY sunflower/backtrader ./sunflower/backtrader
+COPY sunflower/QUANTAXIS ./sunflower/QUANTAXIS
 
 RUN python -m pip install --no-cache-dir uv
-RUN uv sync --frozen
+RUN python -m uv sync --frozen --no-install-project
+
+COPY . .
+RUN /usr/local/bin/python -m uv sync --frozen
 
 RUN mkdir -p /root/.jupyter \
     && /freshquant/.venv/bin/jupyter lab --generate-config \

@@ -1,0 +1,5 @@
+node_modules
+web
+test-results
+tests
+src/**/*.test.mjs
