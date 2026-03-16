@@ -1,6 +1,7 @@
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from types import ModuleType
 
 
@@ -392,3 +393,39 @@ def test_refresh_stock_block_keeps_existing_docs_when_staging_insert_fails(
     assert any(
         "keeping existing collection unchanged" in msg for msg in log.warning_messages
     )
+
+
+def test_etf_xdxr_asset_calls_sync_function(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    log = FakeLog()
+    captured = {}
+
+    monkeypatch.setattr(
+        module,
+        "sync_etf_xdxr_all",
+        lambda: captured.setdefault("etf_xdxr", True) or {"ok": 1},
+    )
+
+    context = SimpleNamespace(log=log)
+    result = module.etf_xdxr(context, "2026-03-17 16:00:00")
+
+    assert captured == {"etf_xdxr": True}
+    assert isinstance(result, str)
+
+
+def test_etf_adj_asset_calls_sync_function(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    log = FakeLog()
+    captured = {}
+
+    monkeypatch.setattr(
+        module,
+        "sync_etf_adj_all",
+        lambda: captured.setdefault("etf_adj", True) or {"ok": 1},
+    )
+
+    context = SimpleNamespace(log=log)
+    result = module.etf_adj(context, "2026-03-17 16:00:00", "2026-03-17 16:01:00")
+
+    assert captured == {"etf_adj": True}
+    assert isinstance(result, str)
