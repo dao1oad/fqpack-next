@@ -112,6 +112,24 @@ function collectVisibleValues(scene, windowBounds) {
     })
   })
 
+  ;(Array.isArray(scene?.priceGuideLines) ? scene.priceGuideLines : []).forEach((line) => {
+    const price = Number(line?.price)
+    if (Number.isFinite(price)) {
+      values.push(price)
+    }
+  })
+
+  ;(Array.isArray(scene?.priceGuideBands) ? scene.priceGuideBands : []).forEach((band) => {
+    const top = Number(band?.top)
+    const bottom = Number(band?.bottom)
+    if (Number.isFinite(top)) {
+      values.push(top)
+    }
+    if (Number.isFinite(bottom)) {
+      values.push(bottom)
+    }
+  })
+
   return values.filter(Number.isFinite)
 }
 

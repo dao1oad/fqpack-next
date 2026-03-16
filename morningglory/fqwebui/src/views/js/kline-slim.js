@@ -3,10 +3,20 @@ import * as echarts from 'echarts'
 import { futureApi } from '@/api/futureApi'
 import { getGanttStockReasons } from '@/api/ganttApi'
 import { stockApi } from '@/api/stockApi'
+import { subjectManagementApi } from '@/api/subjectManagementApi'
 
 import echartsConfig from './echartsConfig'
 import { createKlineSlimChartController, createKlineSlimViewportState } from './kline-slim-chart-controller.mjs'
 import { buildKlineSlimChartScene } from './kline-slim-chart-renderer.mjs'
+import {
+  buildInitialKlineSlimPricePanelState,
+  clearSubjectPriceDetailState,
+  createKlineSlimPricePanelActions,
+  loadSubjectPriceDetail as loadSubjectPriceDetailState,
+  resetSubjectPriceDetailState,
+  saveGuardianPriceGuides,
+  saveTakeprofitPriceGuides,
+} from './kline-slim-price-panel.mjs'
 import {
   buildResolvedKlineSlimQuery,
   canApplyResolvedKlineSlimRoute,
@@ -41,6 +51,16 @@ const CHANLUN_SOURCE_LABELS = {
   history_fullcalc: '历史 fullcalc',
   fallback_fullcalc: '实时回退 fullcalc'
 }
+const GUARDIAN_GUIDE_META = [
+  { key: 'buy_1', label: 'BUY-1', shortLabel: 'B1', tone: 'blue', lineLabel: '蓝线' },
+  { key: 'buy_2', label: 'BUY-2', shortLabel: 'B2', tone: 'red', lineLabel: '红线' },
+  { key: 'buy_3', label: 'BUY-3', shortLabel: 'B3', tone: 'green', lineLabel: '绿线' }
+]
+const TAKEPROFIT_GUIDE_META = [
+  { level: 1, label: 'L1', tone: 'blue', lineLabel: '蓝线' },
+  { level: 2, label: 'L2', tone: 'red', lineLabel: '红线' },
+  { level: 3, label: 'L3', tone: 'green', lineLabel: '绿线' }
+]
 
 function buildVersion(data) {
   if (!data || !Array.isArray(data.date)) {
@@ -107,6 +127,11 @@ function buildChanlunSummaryItems({ item, fields }) {
   }))
 }
 
+function isTakeprofitArmedLevel(state, level) {
+  const armedLevels = state?.armed_levels || {}
+  return armedLevels[String(level)] !== false && armedLevels[level] !== false
+}
+
 export default {
   name: 'kline-slim',
   data() {
@@ -163,7 +188,8 @@ export default {
       chanlunStructureLoading: false,
       chanlunStructureError: '',
       chanlunStructureRefreshError: '',
-      chanlunStructureData: null
+      chanlunStructureData: null,
+      ...buildInitialKlineSlimPricePanelState()
     }
   },
   computed: {
@@ -188,6 +214,33 @@ export default {
         loading: !!this.sidebarLoading[section.key],
         error: this.sidebarErrors[section.key] || ''
       }))
+    },
+    guardianGuideRows() {
+      const buyActive = Array.isArray(this.guardianState?.buy_active)
+        ? this.guardianState.buy_active
+        : [true, true, true]
+      return GUARDIAN_GUIDE_META.map((item, index) => ({
+        ...item,
+        price: this.guardianDraft?.[item.key] ?? null,
+        active: Boolean(this.guardianDraft?.enabled) && buyActive[index] !== false
+      }))
+    },
+    takeprofitGuideRows() {
+      return TAKEPROFIT_GUIDE_META.map((item) => {
+        const draftIndex = item.level - 1
+        const draft = this.takeprofitDrafts?.[draftIndex] || {
+          level: item.level,
+          price: null,
+          manual_enabled: true
+        }
+        return {
+          ...item,
+          draftIndex,
+          price: draft.price,
+          manual_enabled: Boolean(draft.manual_enabled),
+          armed: Boolean(draft.manual_enabled) && isTakeprofitArmedLevel(this.takeprofitState, item.level)
+        }
+      })
     },
     emptyMessage() {
       return getKlineSlimEmptyMessage({
@@ -280,6 +333,7 @@ export default {
     }
   },
   created() {
+    this.pricePanelActions = createKlineSlimPricePanelActions(subjectManagementApi)
     this.loadSidebarData()
   },
   mounted() {
@@ -486,12 +540,17 @@ export default {
       this.routeToken += 1
       this.resetSlimDataState()
       this.stopPolling()
+      const shouldClearPricePanel = this.lastSubjectDetailSymbol && this.lastSubjectDetailSymbol !== this.routeSymbol
+      if (shouldClearPricePanel) {
+        clearSubjectPriceDetailState(this)
+      }
 
       if (this.chart && this.routeSymbol) {
         this.chart.showLoading(echartsConfig.loadingOption)
       }
 
       if (!this.routeSymbol) {
+        resetSubjectPriceDetailState(this)
         if (this.chartController) {
           this.chartController.clear()
         } else if (this.chart) {
@@ -501,6 +560,9 @@ export default {
         return
       }
 
+      this.loadSubjectPriceDetail({
+        force: shouldClearPricePanel || this.lastSubjectDetailSymbol !== this.routeSymbol || !this.subjectPriceDetail
+      })
       this.refreshVisibleChanlunPeriods(this.routeToken)
       if (this.isRealtimeMode && document.visibilityState === 'visible') {
         this.chanlunRefreshTimer = window.setInterval(
@@ -803,6 +865,33 @@ export default {
         this.mainLoading = false
       }
     },
+    async loadSubjectPriceDetail(options = {}) {
+      const updated = await loadSubjectPriceDetailState(this, {
+        actions: this.pricePanelActions,
+        symbol: options.symbol || this.routeSymbol,
+        force: !!options.force
+      })
+      if (updated) {
+        this.scheduleRender()
+      }
+      return updated
+    },
+    async handleSaveGuardianPriceGuides() {
+      return saveGuardianPriceGuides(this, {
+        actions: this.pricePanelActions,
+        symbol: this.routeSymbol,
+        notify: this.$message,
+        afterRefresh: () => this.scheduleRender()
+      })
+    },
+    async handleSaveTakeprofitPriceGuides() {
+      return saveTakeprofitPriceGuides(this, {
+        actions: this.pricePanelActions,
+        symbol: this.routeSymbol,
+        notify: this.$message,
+        afterRefresh: () => this.scheduleRender()
+      })
+    },
     async ensureChanlunPeriodLoaded(period, token = this.routeToken, options = {}) {
       const resolvedPeriod = normalizeChanlunPeriod(period)
       const { force = false } = options
@@ -883,6 +972,7 @@ export default {
           .concat(extraPeriods)
           .map((period) => this.chanlunVersionMap[period] || '')
           .concat(JSON.stringify(this.periodLegendSelected))
+          .concat(this.priceGuideVersion || '')
           .join('__')
         if (
           renderVersion === this.lastRenderedVersion &&
@@ -901,7 +991,8 @@ export default {
               .filter(([, payload]) => !!payload)
           ),
           visiblePeriods: extraPeriods,
-          legendSelected: this.periodLegendSelected
+          legendSelected: this.periodLegendSelected,
+          priceGuides: this.subjectPriceDetail?.chartPriceGuides || null
         })
         if (!scene) {
           return
@@ -981,6 +1072,9 @@ export default {
           ...(this.endDateModel ? { endDate: this.endDateModel } : {})
         }
       })
+    },
+    formatPriceGuideValue(value) {
+      return formatPriceValue(value)
     }
   }
 }

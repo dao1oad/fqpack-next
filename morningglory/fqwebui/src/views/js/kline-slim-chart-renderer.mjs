@@ -595,6 +595,39 @@ function buildLineSeries({ id, name, color, width, z, points }) {
   }
 }
 
+function buildPriceGuideLineSeries({ id, label, color, price, lineStyle, active, z, windowBounds }) {
+  return {
+    id,
+    name: label,
+    type: 'line',
+    data: [
+      [windowBounds.startTs, price],
+      [windowBounds.endTs, price]
+    ],
+    silent: true,
+    animation: false,
+    showSymbol: false,
+    z,
+    endLabel: {
+      show: true,
+      formatter: () => label,
+      color: '#e5e7eb',
+      backgroundColor: withAlpha(color, active ? 0.55 : 0.32),
+      padding: [2, 6],
+      borderRadius: 4
+    },
+    labelLayout: {
+      moveOverlap: 'shiftY'
+    },
+    lineStyle: {
+      color,
+      width: active ? 1.8 : 1.2,
+      type: lineStyle,
+      opacity: active ? 0.95 : 0.55
+    }
+  }
+}
+
 function buildLegendPlaceholderSeries(name, color, sceneScopeId, z = 1) {
   return {
     id: `legend-${sceneScopeId}-${name}`,
@@ -683,6 +716,96 @@ function buildStructureOverlaySeries({ id, name, boxes, z, color, borderWidth })
       }
     }
   }
+}
+
+function buildPriceGuideBandSeries({ id, color, top, bottom, z, windowBounds, active }) {
+  const fillColor = withAlpha(color, active ? 0.08 : 0.04)
+
+  return {
+    id,
+    name: id,
+    type: 'custom',
+    coordinateSystem: 'cartesian2d',
+    silent: true,
+    animation: false,
+    tooltip: {
+      show: false
+    },
+    z,
+    data: [[windowBounds.startTs, windowBounds.endTs, top, bottom]],
+    encode: {
+      x: [0, 1],
+      y: [2, 3]
+    },
+    renderItem(params, api) {
+      const startTop = api.coord([api.value(0), api.value(2)])
+      const endBottom = api.coord([api.value(1), api.value(3)])
+      const rectShape = clipRectToCoordSys(
+        {
+          x: Math.min(startTop[0], endBottom[0]),
+          y: Math.min(startTop[1], endBottom[1]),
+          width: Math.abs(endBottom[0] - startTop[0]),
+          height: Math.abs(endBottom[1] - startTop[1])
+        },
+        params.coordSys
+      )
+      if (!rectShape) {
+        return null
+      }
+
+      return {
+        type: 'rect',
+        shape: rectShape,
+        silent: true,
+        style: {
+          fill: fillColor,
+          stroke: 'transparent',
+          opacity: 1
+        }
+      }
+    }
+  }
+}
+
+function normalizePriceGuideLines(priceGuides) {
+  return (Array.isArray(priceGuides?.lines) ? priceGuides.lines : [])
+    .map((item, index) => {
+      const price = Number(item?.price)
+      if (!Number.isFinite(price)) {
+        return null
+      }
+      return {
+        id: String(item?.id || `price-guide-line-${index}`),
+        key: String(item?.key || item?.id || `line-${index}`),
+        group: String(item?.group || 'price-guide'),
+        label: String(item?.label || item?.id || `L${index + 1}`),
+        price,
+        color: item?.color || '#60a5fa',
+        lineStyle: item?.lineStyle === 'dashed' ? 'dashed' : 'solid',
+        active: item?.active !== false
+      }
+    })
+    .filter(Boolean)
+}
+
+function normalizePriceGuideBands(priceGuides) {
+  return (Array.isArray(priceGuides?.bands) ? priceGuides.bands : [])
+    .map((item, index) => {
+      const top = Number(item?.top)
+      const bottom = Number(item?.bottom)
+      if (!Number.isFinite(top) || !Number.isFinite(bottom)) {
+        return null
+      }
+      return {
+        id: String(item?.id || `price-guide-band-${index}`),
+        group: String(item?.group || 'price-guide'),
+        color: item?.color || '#60a5fa',
+        top: Math.max(top, bottom),
+        bottom: Math.min(top, bottom),
+        active: item?.active !== false
+      }
+    })
+    .filter(Boolean)
 }
 
 function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneScopeId) {
@@ -806,6 +929,26 @@ function buildSceneRenderSeries(scene, viewport) {
     }
   })
 
+  scene.priceGuideBands.forEach((band) => {
+    series.push(
+      buildPriceGuideBandSeries({
+        ...band,
+        z: 2,
+        windowBounds
+      })
+    )
+  })
+
+  scene.priceGuideLines.forEach((line) => {
+    series.push(
+      buildPriceGuideLineSeries({
+        ...line,
+        z: 8,
+        windowBounds
+      })
+    )
+  })
+
   scene.periodScenes.forEach((periodScene) => {
     if (!isPeriodOverlayVisible(scene, periodScene.period)) {
       return
@@ -852,7 +995,8 @@ export function buildKlineSlimChartScene({
   sceneId,
   extraChanlunMap = {},
   visiblePeriods = [],
-  legendSelected = null
+  legendSelected = null,
+  priceGuides = null
 } = {}) {
   const normalizedCurrent = normalizeChanlunPeriod(currentPeriod)
   const dates = Array.isArray(mainData?.date) ? mainData.date : []
@@ -905,6 +1049,8 @@ export function buildKlineSlimChartScene({
     realMainWindow,
     tradingAxis,
     mainCandles: buildCandleItems(mainData, normalizedCurrent, tradingAxis),
+    priceGuideLines: normalizePriceGuideLines(priceGuides),
+    priceGuideBands: normalizePriceGuideBands(priceGuides),
     periodScenes,
     structureBoxes: periodScenes.flatMap((periodScene) => periodScene.structureBoxes)
   }
