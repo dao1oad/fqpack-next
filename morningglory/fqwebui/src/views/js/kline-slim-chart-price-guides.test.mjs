@@ -30,7 +30,7 @@ const makePriceGuides = () => ({
       price: 12.5,
       color: '#3b82f6',
       label: 'G-B1 12.50',
-      lineStyle: 'solid',
+      lineStyle: 'dashed',
       group: 'guardian',
     },
     {
@@ -112,8 +112,9 @@ test('buildKlineSlimChartOption renders price lines without background bands and
   const takeprofitLine = option.series.find((item) => item.id === 'takeprofit-l1')
   const guardianBand = option.series.find((item) => item.id === 'guardian-band-1')
 
-  assert.equal(guardianLine.lineStyle.type, 'solid')
+  assert.equal(guardianLine.lineStyle.type, 'dashed')
   assert.equal(takeprofitLine.lineStyle.type, 'dashed')
+  assert.equal(guardianLine.lineStyle.width, takeprofitLine.lineStyle.width)
   assert.equal(guardianBand, undefined)
   assert.deepEqual(
     option.legend.data.slice(-2),

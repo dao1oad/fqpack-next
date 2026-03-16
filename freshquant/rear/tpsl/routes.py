@@ -1,9 +1,16 @@
 # -*- coding: utf-8 -*-
 
+from datetime import date, datetime
+
 from flask import Blueprint, jsonify, request
 
 from freshquant.tpsl.management_service import TpslManagementService
 from freshquant.tpsl.service import TpslService
+
+try:
+    from bson import ObjectId
+except Exception:  # pragma: no cover - bson ships with pymongo in production/tests
+    ObjectId = None
 
 tpsl_bp = Blueprint("tpsl", __name__, url_prefix="/api/tpsl")
 
@@ -22,13 +29,31 @@ def _value_error_response(error):
     return jsonify({"error": message}), status_code
 
 
+def _jsonify_safe(payload):
+    return jsonify(_make_json_safe(payload))
+
+
+def _make_json_safe(value):
+    if isinstance(value, dict):
+        return {key: _make_json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_make_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_make_json_safe(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if ObjectId is not None and isinstance(value, ObjectId):
+        return str(value)
+    return value
+
+
 @tpsl_bp.route("/takeprofit/<symbol>", methods=["GET"])
 def get_takeprofit_profile(symbol):
     try:
         detail = _get_tpsl_service().get_takeprofit_profile(symbol)
     except ValueError as error:
         return jsonify({"error": str(error)}), 404
-    return jsonify(detail)
+    return _jsonify_safe(detail)
 
 
 @tpsl_bp.route("/takeprofit/<symbol>", methods=["POST"])
@@ -45,7 +70,7 @@ def save_takeprofit_profile(symbol):
         )
     except (TypeError, ValueError) as error:
         return jsonify({"error": str(error)}), 400
-    return jsonify(detail)
+    return _jsonify_safe(detail)
 
 
 @tpsl_bp.route("/takeprofit/<symbol>/tiers/<int:level>/enable", methods=["POST"])
@@ -60,7 +85,7 @@ def enable_takeprofit_tier(symbol, level):
         )
     except ValueError as error:
         return _value_error_response(error)
-    return jsonify(detail)
+    return _jsonify_safe(detail)
 
 
 @tpsl_bp.route("/takeprofit/<symbol>/tiers/<int:level>/disable", methods=["POST"])
@@ -75,7 +100,7 @@ def disable_takeprofit_tier(symbol, level):
         )
     except ValueError as error:
         return _value_error_response(error)
-    return jsonify(detail)
+    return _jsonify_safe(detail)
 
 
 @tpsl_bp.route("/takeprofit/<symbol>/rearm", methods=["POST"])
@@ -88,7 +113,7 @@ def rearm_takeprofit(symbol):
         )
     except ValueError as error:
         return _value_error_response(error)
-    return jsonify(detail)
+    return _jsonify_safe(detail)
 
 
 @tpsl_bp.route("/events", methods=["GET"])
@@ -99,12 +124,12 @@ def list_tpsl_events():
     except (TypeError, ValueError):
         return jsonify({"error": "limit must be integer"}), 400
     rows = _get_tpsl_service().list_events(symbol=symbol, limit=limit)
-    return jsonify(rows)
+    return _jsonify_safe(rows)
 
 
 @tpsl_bp.route("/management/overview", methods=["GET"])
 def get_tpsl_management_overview():
-    return jsonify({"rows": _get_tpsl_management_service().get_overview()})
+    return _jsonify_safe({"rows": _get_tpsl_management_service().get_overview()})
 
 
 @tpsl_bp.route("/management/<symbol>", methods=["GET"])
@@ -117,7 +142,7 @@ def get_tpsl_management_detail(symbol):
         symbol,
         history_limit=history_limit,
     )
-    return jsonify(detail)
+    return _jsonify_safe(detail)
 
 
 @tpsl_bp.route("/history", methods=["GET"])
@@ -133,10 +158,10 @@ def list_tpsl_history():
         batch_id=request.args.get("batch_id"),
         limit=limit,
     )
-    return jsonify({"rows": rows})
+    return _jsonify_safe({"rows": rows})
 
 
 @tpsl_bp.route("/batches/<batch_id>", methods=["GET"])
 def get_tpsl_batch(batch_id):
     rows = _get_tpsl_service().get_batch_events(batch_id)
-    return jsonify(rows)
+    return _jsonify_safe(rows)

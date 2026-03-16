@@ -26,6 +26,18 @@ class InMemoryTpslRepository:
         return document
 
 
+class MongoSafeStateRepository(InMemoryTpslRepository):
+    def upsert_takeprofit_state(self, document):
+        armed_levels = dict(document.get("armed_levels") or {})
+        assert armed_levels == {str(key): value for key, value in armed_levels.items()}
+        stored = {
+            **document,
+            "armed_levels": dict(armed_levels),
+        }
+        self.states[document["symbol"]] = stored
+        return stored
+
+
 def _build_tiers():
     return [
         {"level": 1, "price": 10.2, "manual_enabled": True},
@@ -92,3 +104,17 @@ def test_get_profile_with_state_returns_profile_and_runtime_state():
     assert detail["symbol"] == "000001"
     assert len(detail["tiers"]) == 3
     assert detail["state"]["armed_levels"] == {1: True, 2: False, 3: True}
+
+
+def test_save_profile_stores_mongo_safe_state_keys_but_returns_level_map():
+    repo = MongoSafeStateRepository()
+    service = TakeprofitService(repository=repo)
+
+    profile = service.save_profile("000001", tiers=_build_tiers(), updated_by="api")
+
+    assert repo.states["000001"]["armed_levels"] == {
+        "1": True,
+        "2": False,
+        "3": True,
+    }
+    assert profile["state"]["armed_levels"] == {1: True, 2: False, 3: True}
