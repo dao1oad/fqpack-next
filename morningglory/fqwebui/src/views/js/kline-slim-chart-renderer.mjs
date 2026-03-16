@@ -7,6 +7,11 @@ import {
   buildPeriodLegendSelectionState,
   normalizeChanlunPeriod
 } from './kline-slim-chanlun-periods.mjs'
+import {
+  PRICE_GUIDE_LEGEND_GROUPS,
+  buildPriceGuideLegendSelectionState,
+  getPriceGuideLegendName
+} from './subject-price-guides.mjs'
 
 function toTimestamp(value) {
   if (!value && value !== 0) {
@@ -661,6 +666,17 @@ function isPeriodOverlayVisible(scene, period) {
   return !!scene.legendSelected[period]
 }
 
+function isPriceGuideVisible(scene, group) {
+  const legendName = getPriceGuideLegendName(group)
+  if (!legendName) {
+    return true
+  }
+  if (!scene?.legendSelected || !Object.prototype.hasOwnProperty.call(scene.legendSelected, legendName)) {
+    return true
+  }
+  return !!scene.legendSelected[legendName]
+}
+
 function buildStructureOverlaySeries({ id, name, boxes, z, color, borderWidth }) {
   const fillColor = withAlpha(color, 0.12)
 
@@ -718,55 +734,6 @@ function buildStructureOverlaySeries({ id, name, boxes, z, color, borderWidth })
   }
 }
 
-function buildPriceGuideBandSeries({ id, color, top, bottom, z, windowBounds, active }) {
-  const fillColor = withAlpha(color, active ? 0.08 : 0.04)
-
-  return {
-    id,
-    name: id,
-    type: 'custom',
-    coordinateSystem: 'cartesian2d',
-    silent: true,
-    animation: false,
-    tooltip: {
-      show: false
-    },
-    z,
-    data: [[windowBounds.startTs, windowBounds.endTs, top, bottom]],
-    encode: {
-      x: [0, 1],
-      y: [2, 3]
-    },
-    renderItem(params, api) {
-      const startTop = api.coord([api.value(0), api.value(2)])
-      const endBottom = api.coord([api.value(1), api.value(3)])
-      const rectShape = clipRectToCoordSys(
-        {
-          x: Math.min(startTop[0], endBottom[0]),
-          y: Math.min(startTop[1], endBottom[1]),
-          width: Math.abs(endBottom[0] - startTop[0]),
-          height: Math.abs(endBottom[1] - startTop[1])
-        },
-        params.coordSys
-      )
-      if (!rectShape) {
-        return null
-      }
-
-      return {
-        type: 'rect',
-        shape: rectShape,
-        silent: true,
-        style: {
-          fill: fillColor,
-          stroke: 'transparent',
-          opacity: 1
-        }
-      }
-    }
-  }
-}
-
 function normalizePriceGuideLines(priceGuides) {
   return (Array.isArray(priceGuides?.lines) ? priceGuides.lines : [])
     .map((item, index) => {
@@ -789,23 +756,17 @@ function normalizePriceGuideLines(priceGuides) {
 }
 
 function normalizePriceGuideBands(priceGuides) {
-  return (Array.isArray(priceGuides?.bands) ? priceGuides.bands : [])
-    .map((item, index) => {
-      const top = Number(item?.top)
-      const bottom = Number(item?.bottom)
-      if (!Number.isFinite(top) || !Number.isFinite(bottom)) {
-        return null
-      }
-      return {
-        id: String(item?.id || `price-guide-band-${index}`),
-        group: String(item?.group || 'price-guide'),
-        color: item?.color || '#60a5fa',
-        top: Math.max(top, bottom),
-        bottom: Math.min(top, bottom),
-        active: item?.active !== false
-      }
-    })
-    .filter(Boolean)
+  return []
+}
+
+function buildPriceGuideLegendEntries(lines = []) {
+  const visibleGroups = new Set(
+    (Array.isArray(lines) ? lines : [])
+      .map((item) => String(item?.group || '').trim())
+      .filter(Boolean)
+  )
+
+  return PRICE_GUIDE_LEGEND_GROUPS.filter((item) => visibleGroups.has(item.key))
 }
 
 function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneScopeId) {
@@ -907,9 +868,15 @@ function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneSco
 
 function buildSceneRenderSeries(scene, viewport) {
   const windowBounds = pickViewportWindow(scene, viewport) || scene.mainWindow
-  const series = scene.legendNames.map((name) =>
-    buildLegendPlaceholderSeries(name, PERIOD_STYLE_MAP[name].bi, scene.sceneScopeId)
-  )
+  const series = scene.legendNames.map((name) => {
+    const periodPalette = PERIOD_STYLE_MAP[name]
+    const priceGuideLegend = scene.priceGuideLegendEntries.find((item) => item.legendName === name)
+    return buildLegendPlaceholderSeries(
+      name,
+      periodPalette?.bi || priceGuideLegend?.color || '#60a5fa',
+      scene.sceneScopeId
+    )
+  })
 
   series.push({
     id: `${scene.currentPeriod}-${scene.sceneScopeId}-candlestick`,
@@ -929,17 +896,10 @@ function buildSceneRenderSeries(scene, viewport) {
     }
   })
 
-  scene.priceGuideBands.forEach((band) => {
-    series.push(
-      buildPriceGuideBandSeries({
-        ...band,
-        z: 2,
-        windowBounds
-      })
-    )
-  })
-
   scene.priceGuideLines.forEach((line) => {
+    if (!isPriceGuideVisible(scene, line.group)) {
+      return
+    }
     series.push(
       buildPriceGuideLineSeries({
         ...line,
@@ -1016,7 +976,9 @@ export function buildKlineSlimChartScene({
   })
   const legendNames = [...SUPPORTED_CHANLUN_PERIODS]
   const extras = visiblePeriods.filter((period) => period !== normalizedCurrent && legendNames.includes(period))
-  const resolvedLegendSelected = buildPeriodLegendSelectionState({
+  const normalizedPriceGuideLines = normalizePriceGuideLines(priceGuides)
+  const priceGuideLegendEntries = buildPriceGuideLegendEntries(normalizedPriceGuideLines)
+  const resolvedPeriodLegendSelected = buildPeriodLegendSelectionState({
     currentPeriod: normalizedCurrent,
     previousSelected:
       legendSelected ||
@@ -1024,6 +986,16 @@ export function buildKlineSlimChartScene({
         legendNames.map((period) => [period, period === normalizedCurrent || extras.includes(period)])
       )
   })
+  const resolvedPriceGuideLegendSelected = buildPriceGuideLegendSelectionState(legendSelected)
+  const resolvedLegendSelected = {
+    ...resolvedPeriodLegendSelected,
+    ...Object.fromEntries(
+      priceGuideLegendEntries.map((item) => [
+        item.legendName,
+        resolvedPriceGuideLegendSelected[item.legendName]
+      ])
+    )
+  }
   const periodScenes = [normalizedCurrent]
     .concat(extras)
     .map((period) => {
@@ -1040,8 +1012,9 @@ export function buildKlineSlimChartScene({
     name: mainData.name || '',
     currentPeriod: normalizedCurrent,
     sceneScopeId,
-    legendNames,
+    legendNames: legendNames.concat(priceGuideLegendEntries.map((item) => item.legendName)),
     legendSelected: resolvedLegendSelected,
+    priceGuideLegendEntries,
     mainWindow: {
       startTs: tradingAxis.startTs,
       endTs: tradingAxis.endTs
@@ -1049,7 +1022,7 @@ export function buildKlineSlimChartScene({
     realMainWindow,
     tradingAxis,
     mainCandles: buildCandleItems(mainData, normalizedCurrent, tradingAxis),
-    priceGuideLines: normalizePriceGuideLines(priceGuides),
+    priceGuideLines: normalizedPriceGuideLines,
     priceGuideBands: normalizePriceGuideBands(priceGuides),
     periodScenes,
     structureBoxes: periodScenes.flatMap((periodScene) => periodScene.structureBoxes)
