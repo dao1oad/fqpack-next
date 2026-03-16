@@ -40,6 +40,11 @@ from freshquant.order_management.submit.execution_bridge import (
     resolve_sell_price_type_compat,
 )
 from freshquant.order_management.tracking.service import OrderTrackingService
+from freshquant.runtime_observability.failures import (
+    build_exception_payload,
+    is_exception_emitted,
+    mark_exception_emitted,
+)
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.system_settings import system_settings
 from freshquant.trade.trade import checkManualStrategyInstument
@@ -471,37 +476,51 @@ def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode)
         _emit_broker_bypass(order, action=action)
         return result
 
-    execution = prepare_submit_execution(
-        order,
-        repository=order_management_repository,
-        tracking_service=order_tracking_service,
-    )
-    if execution.get("status") == "skipped":
-        return execution
-    resolved_order = execution.get("order_message", order)
+    try:
+        execution = prepare_submit_execution(
+            order,
+            repository=order_management_repository,
+            tracking_service=order_tracking_service,
+        )
+        if execution.get("status") == "skipped":
+            return execution
+        resolved_order = execution.get("order_message", order)
 
-    broker_order_id = submit_executor(resolved_order)
-    logger.info(broker_order_id)
-    finalize_submit_execution(
-        order,
-        broker_order_id=broker_order_id,
-        repository=order_management_repository,
-        tracking_service=order_tracking_service,
-        broker_submit_mode=broker_submit_mode,
-    )
-    _emit_broker_event(
-        "submit_result",
-        context=_runtime_context_from_order_message(resolved_order),
-        action=action,
-        symbol=resolved_order.get("symbol"),
-        status=(
-            "success"
-            if broker_order_id not in (None, "", "None") and int(broker_order_id) > 0
-            else "failed"
-        ),
-        payload={"broker_order_id": broker_order_id},
-    )
-    return {"status": "submitted", "broker_order_id": broker_order_id}
+        broker_order_id = submit_executor(resolved_order)
+        logger.info(broker_order_id)
+        finalize_submit_execution(
+            order,
+            broker_order_id=broker_order_id,
+            repository=order_management_repository,
+            tracking_service=order_tracking_service,
+            broker_submit_mode=broker_submit_mode,
+        )
+        _emit_broker_event(
+            "submit_result",
+            context=_runtime_context_from_order_message(resolved_order),
+            action=action,
+            symbol=resolved_order.get("symbol"),
+            status=(
+                "success"
+                if broker_order_id not in (None, "", "None")
+                and int(broker_order_id) > 0
+                else "failed"
+            ),
+            payload={"broker_order_id": broker_order_id},
+        )
+        return {"status": "submitted", "broker_order_id": broker_order_id}
+    except Exception as exc:
+        if not is_exception_emitted(exc):
+            _emit_broker_event(
+                "submit_result",
+                context=_runtime_context_from_order_message(order),
+                action=action,
+                symbol=order.get("symbol"),
+                status="error",
+                payload=build_exception_payload(exc),
+            )
+            mark_exception_emitted(exc)
+        raise
 
 
 def _handle_cancel_action(order, *, broker_submit_mode):
@@ -517,34 +536,47 @@ def _handle_cancel_action(order, *, broker_submit_mode):
         _emit_broker_bypass(order, action="cancel")
         return dispatch_result
 
-    xt_trader, acc, _ = trading_manager.get_connection()
-    dispatch_result = dispatch_cancel_execution(
-        order,
-        cancel_executor=(
-            lambda broker_order_id: (
-                xt_trader.cancel_order_stock(acc, broker_order_id)
-                if xt_trader is not None and acc is not None
-                else -1
+    try:
+        xt_trader, acc, _ = trading_manager.get_connection()
+        dispatch_result = dispatch_cancel_execution(
+            order,
+            cancel_executor=(
+                lambda broker_order_id: (
+                    xt_trader.cancel_order_stock(acc, broker_order_id)
+                    if xt_trader is not None and acc is not None
+                    else -1
+                )
+            ),
+            repository=order_management_repository,
+            tracking_service=order_tracking_service,
+            broker_submit_mode=broker_submit_mode,
+        )
+        logger.info(dispatch_result)
+        _emit_broker_event(
+            "submit_result",
+            context=_runtime_context_from_order_message(order),
+            action="cancel",
+            symbol=order.get("symbol"),
+            status=(
+                "success"
+                if dispatch_result.get("status") == "cancel_submitted"
+                else "failed"
+            ),
+            payload=dispatch_result,
+        )
+        return dispatch_result
+    except Exception as exc:
+        if not is_exception_emitted(exc):
+            _emit_broker_event(
+                "submit_result",
+                context=_runtime_context_from_order_message(order),
+                action="cancel",
+                symbol=order.get("symbol"),
+                status="error",
+                payload=build_exception_payload(exc),
             )
-        ),
-        repository=order_management_repository,
-        tracking_service=order_tracking_service,
-        broker_submit_mode=broker_submit_mode,
-    )
-    logger.info(dispatch_result)
-    _emit_broker_event(
-        "submit_result",
-        context=_runtime_context_from_order_message(order),
-        action="cancel",
-        symbol=order.get("symbol"),
-        status=(
-            "success"
-            if dispatch_result.get("status") == "cancel_submitted"
-            else "failed"
-        ),
-        payload=dispatch_result,
-    )
-    return dispatch_result
+            mark_exception_emitted(exc)
+        raise
 
 
 def _handle_maintenance_action(order, *, broker_submit_mode):

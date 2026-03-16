@@ -190,6 +190,8 @@ class OrderTrackingService:
             "quantity": report["quantity"],
             "price": report["price"],
             "trade_time": report["trade_time"],
+            "date": report.get("date"),
+            "time": report.get("time"),
             "source": report.get("source", "unknown"),
             "provisional": report.get("provisional", False),
         }

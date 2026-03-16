@@ -46,13 +46,21 @@
 
 `submit_order -> intent normalize -> credit mode resolve -> tracking_create -> queue payload build -> STOCK_ORDER_QUEUE -> broker`
 
+`submit / ingest / reconcile` 当前要求在 unexpected exception 时，直接在当前 runtime node 发 `status=error`、`reason_code=unexpected_exception` 的 trace step，而不是只记日志或靠下游兜底。这样全局 Trace 会停在真实失败节点，并保留 `payload.error_type/error_message`。
+
 ### 撤单
 
 `cancel_order -> internal_order_id 校验 -> cancel queue payload -> broker`
 
+撤单链当前也会把 `cancel_tracking_create -> cancel_queue_payload_build` 写入 `order_submit` runtime event；如果撤单队列入列失败，会直接在 `cancel_queue_payload_build` 发出异常 step。
+
 ### 回报
 
 `XT order/trade callback -> OrderManagementXtIngestService -> om_orders / om_trade_facts / om_buy_lots / om_sell_allocations -> projection update`
+
+`om_trade_facts` 当前会保留 `trade_time` 以及同一笔成交对应的 `date/time`；旧的 `external_inferred` 历史 lot / slice 如果缺少 `date/time`，投影读取时会按已有 `trade_time` 回填，避免 Guardian 和持仓视图在消费投影时拿到 `None/None`。
+
+如果 XT callback 在进入标准 ingest 前就抛异常，`try_ingest_xt_trade_dict` / `try_ingest_xt_order_dict` 现在也会在 `xt_report_ingest.report_receive` 发出异常 step，不再只留下普通日志后直接吞掉。
 
 ### 对账
 

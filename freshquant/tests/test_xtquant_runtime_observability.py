@@ -4,6 +4,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PUPPET_PATH = (
     REPO_ROOT / "morningglory" / "fqxtrade" / "fqxtrade" / "xtquant" / "puppet.py"
@@ -449,6 +451,126 @@ def test_puppet_buy_emits_runtime_trace_context(monkeypatch):
         assert event["action"] == "buy"
 
 
+def test_puppet_buy_emits_runtime_error_when_order_submit_raises(monkeypatch):
+    class FakeTrader:
+        def query_stock_asset(self, acc):
+            return types.SimpleNamespace(cash=100000.0, frozen_cash=0.0)
+
+        def order_stock(self, *args, **kwargs):
+            raise RuntimeError("xt submit failed")
+
+    _install_puppet_stubs(monkeypatch, xt_trader=FakeTrader())
+    puppet = _load_module("test_runtime_puppet_error", PUPPET_PATH)
+    collector = EventCollector()
+    puppet._runtime_logger = collector
+
+    with pytest.raises(RuntimeError, match="xt submit failed"):
+        puppet.buy(
+            "600000",
+            10.0,
+            300,
+            trace_id="trace-puppet-error-1",
+            intent_id="intent-puppet-error-1",
+            request_id="req-puppet-error-1",
+            internal_order_id="ord-puppet-error-1",
+        )
+
+    assert collector.events[-1]["node"] == "submit_result"
+    assert collector.events[-1]["status"] == "error"
+    assert collector.events[-1]["payload"]["error_type"] == "RuntimeError"
+    assert collector.events[-1]["payload"]["error_message"] == "xt submit failed"
+
+
+def test_puppet_buy_keeps_duplicate_check_and_submit_inside_trading_lock(
+    monkeypatch,
+):
+    _install_puppet_stubs(monkeypatch, xt_trader=types.SimpleNamespace())
+    puppet = _load_module("test_runtime_puppet_buy_lock", PUPPET_PATH)
+
+    class LockTrackingManager:
+        def __init__(self):
+            self.account = types.SimpleNamespace(account_id="acct-1")
+            self.lock_active = False
+
+        @contextlib.contextmanager
+        def lock(self):
+            self.lock_active = True
+            try:
+                yield
+            finally:
+                self.lock_active = False
+
+        def get_connection(self):
+            return self.xt_trader, self.account, True
+
+    manager = LockTrackingManager()
+
+    class GuardedCollection(FakeCollection):
+        def find_one(self, *args, **kwargs):
+            assert manager.lock_active
+            return None
+
+    class GuardedTrader:
+        def query_stock_asset(self, acc):
+            assert manager.lock_active
+            return types.SimpleNamespace(cash=100000.0, frozen_cash=0.0)
+
+        def order_stock(self, *args, **kwargs):
+            assert manager.lock_active
+            return 123456
+
+    manager.xt_trader = GuardedTrader()
+    puppet.trading_manager = manager
+    puppet.DBfreshquant["stock_orders"] = GuardedCollection()
+
+    assert puppet.buy("600000", 10.0, 300) == 123456
+
+
+def test_puppet_sell_keeps_duplicate_check_and_submit_inside_trading_lock(
+    monkeypatch,
+):
+    _install_puppet_stubs(monkeypatch, xt_trader=types.SimpleNamespace())
+    puppet = _load_module("test_runtime_puppet_sell_lock", PUPPET_PATH)
+
+    class LockTrackingManager:
+        def __init__(self):
+            self.account = types.SimpleNamespace(account_id="acct-1")
+            self.lock_active = False
+
+        @contextlib.contextmanager
+        def lock(self):
+            self.lock_active = True
+            try:
+                yield
+            finally:
+                self.lock_active = False
+
+        def get_connection(self):
+            return self.xt_trader, self.account, True
+
+    manager = LockTrackingManager()
+
+    class GuardedCollection(FakeCollection):
+        def find_one(self, *args, **kwargs):
+            assert manager.lock_active
+            return None
+
+    class GuardedTrader:
+        def query_stock_positions(self, acc):
+            assert manager.lock_active
+            return [types.SimpleNamespace(stock_code="600000.SH", can_use_volume=500)]
+
+        def order_stock(self, *args, **kwargs):
+            assert manager.lock_active
+            return 654321
+
+    manager.xt_trader = GuardedTrader()
+    puppet.trading_manager = manager
+    puppet.DBfreshquant["stock_orders"] = GuardedCollection()
+
+    assert puppet.sell("600000", 11, 10.0, 300) == 654321
+
+
 def test_broker_trade_callback_emits_resolved_runtime_context(monkeypatch):
     _install_broker_stubs(monkeypatch)
     broker = _load_module("test_runtime_broker", BROKER_PATH)
@@ -531,6 +653,37 @@ def test_broker_observe_only_submit_emits_bypass_event_without_calling_executor(
     assert collector.events[-1]["node"] == "execution_bypassed"
     assert collector.events[-1]["action"] == "buy"
     assert collector.events[-1]["payload"]["reason"] == "observe_only"
+
+
+def test_broker_submit_emits_runtime_error_when_executor_raises(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_submit_error", BROKER_PATH)
+    collector = EventCollector()
+    broker._runtime_logger = collector
+
+    with pytest.raises(RuntimeError, match="broker submit failed"):
+        broker._handle_submit_action(
+            {
+                "action": "buy",
+                "symbol": "600000",
+                "price": 10.0,
+                "quantity": 100,
+                "internal_order_id": "ord-broker-error-1",
+                "request_id": "req-broker-error-1",
+                "trace_id": "trace-broker-error-1",
+                "intent_id": "intent-broker-error-1",
+            },
+            action="buy",
+            submit_executor=lambda _resolved_order: (_ for _ in ()).throw(
+                RuntimeError("broker submit failed")
+            ),
+            broker_submit_mode="normal",
+        )
+
+    assert collector.events[-1]["node"] == "submit_result"
+    assert collector.events[-1]["status"] == "error"
+    assert collector.events[-1]["payload"]["error_type"] == "RuntimeError"
+    assert collector.events[-1]["payload"]["error_message"] == "broker submit failed"
 
 
 def test_broker_observe_only_helper_is_defined_before_script_entrypoint():

@@ -259,3 +259,47 @@ def test_assemble_traces_keeps_downstream_inflight_trace_open_after_submit_hando
     assert traces[0]["trace_kind"] == "guardian_signal"
     assert traces[0]["trace_status"] == "open"
     assert traces[0]["break_reason"] is None
+
+
+def test_assemble_traces_marks_last_exception_step_as_failed():
+    events = [
+        {
+            "trace_id": "trc_guardian_error_1",
+            "intent_id": "int_guardian_error_1",
+            "component": "guardian_strategy",
+            "node": "receive_signal",
+            "status": "info",
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "symbol": "000001",
+            "ts": "2026-03-09T10:00:00+08:00",
+        },
+        {
+            "trace_id": "trc_guardian_error_1",
+            "intent_id": "int_guardian_error_1",
+            "component": "guardian_strategy",
+            "node": "timing_check",
+            "status": "error",
+            "reason_code": "unexpected_exception",
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "symbol": "000001",
+            "payload": {
+                "error_type": "ValueError",
+                "error_message": "time data 'None None' does not match format",
+            },
+            "ts": "2026-03-09T10:00:01+08:00",
+        },
+    ]
+
+    traces = assemble_traces(events)
+
+    assert len(traces) == 1
+    assert traces[0]["trace_kind"] == "guardian_signal"
+    assert traces[0]["trace_status"] == "failed"
+    assert (
+        traces[0]["break_reason"]
+        == "unexpected_exception@guardian_strategy.timing_check:ValueError"
+    )
+    assert traces[0]["exit_component"] == "guardian_strategy"
+    assert traces[0]["exit_node"] == "timing_check"

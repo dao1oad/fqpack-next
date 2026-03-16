@@ -212,3 +212,73 @@ def test_ingest_order_report_emits_runtime_events():
     ]
     assert runtime_logger.events[0]["request_id"] == "req_xt_2"
     assert runtime_logger.events[1]["internal_order_id"] == "ord_xt_2"
+
+
+def test_try_ingest_xt_trade_dict_emits_runtime_error_when_wrapper_catches_exception(
+    monkeypatch,
+):
+    runtime_logger = FakeRuntimeLogger()
+    monkeypatch.setattr(xt_reports_module, "_runtime_logger", runtime_logger)
+    monkeypatch.setattr(
+        xt_reports_module,
+        "logger",
+        type("Logger", (), {"exception": staticmethod(lambda *args, **kwargs: None)})(),
+    )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "ingest_xt_trade_dict",
+        lambda _report: (_ for _ in ()).throw(KeyError("traded_time")),
+    )
+
+    result = xt_reports_module.try_ingest_xt_trade_dict(
+        {
+            "trace_id": "trc_xt_raw_trade",
+            "intent_id": "int_xt_raw_trade",
+            "request_id": "req_xt_raw_trade",
+            "internal_order_id": "ord_xt_raw_trade",
+            "symbol": "000001",
+            "source": "xt_trade_callback",
+        }
+    )
+
+    assert result is None
+    assert runtime_logger.events[-1]["node"] == "report_receive"
+    assert runtime_logger.events[-1]["status"] == "error"
+    assert runtime_logger.events[-1]["reason_code"] == "unexpected_exception"
+    assert runtime_logger.events[-1]["payload"]["error_type"] == "KeyError"
+    assert "traded_time" in runtime_logger.events[-1]["payload"]["error_message"]
+
+
+def test_try_ingest_xt_order_dict_emits_runtime_error_when_wrapper_catches_exception(
+    monkeypatch,
+):
+    runtime_logger = FakeRuntimeLogger()
+    monkeypatch.setattr(xt_reports_module, "_runtime_logger", runtime_logger)
+    monkeypatch.setattr(
+        xt_reports_module,
+        "logger",
+        type("Logger", (), {"exception": staticmethod(lambda *args, **kwargs: None)})(),
+    )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "ingest_xt_order_dict",
+        lambda _report: (_ for _ in ()).throw(RuntimeError("bad order report")),
+    )
+
+    result = xt_reports_module.try_ingest_xt_order_dict(
+        {
+            "trace_id": "trc_xt_raw_order",
+            "intent_id": "int_xt_raw_order",
+            "request_id": "req_xt_raw_order",
+            "internal_order_id": "ord_xt_raw_order",
+            "symbol": "000001",
+            "source": "xt_order_callback",
+        }
+    )
+
+    assert result is None
+    assert runtime_logger.events[-1]["node"] == "report_receive"
+    assert runtime_logger.events[-1]["status"] == "error"
+    assert runtime_logger.events[-1]["reason_code"] == "unexpected_exception"
+    assert runtime_logger.events[-1]["payload"]["error_type"] == "RuntimeError"
+    assert runtime_logger.events[-1]["payload"]["error_message"] == "bad order report"

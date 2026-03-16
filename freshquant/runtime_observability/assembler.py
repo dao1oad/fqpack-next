@@ -3,6 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, cast
 
+from freshquant.runtime_observability.failures import (
+    build_exception_break_reason,
+    is_exception_step,
+)
+
 _STRONG_ID_FIELDS = ("trace_id", "intent_id", "request_id", "internal_order_id")
 _ISSUE_STATUSES = {"warning", "failed", "error", "skipped"}
 _TERMINAL_COMPONENTS = {"xt_report_ingest", "order_reconcile"}
@@ -216,6 +221,9 @@ def _infer_trace_kind(steps: list[dict]) -> str:
 
 
 def _infer_trace_status(steps: list[dict], trace_kind: str) -> tuple[str, str | None]:
+    terminal_exception = _find_terminal_exception_step(steps)
+    if terminal_exception is not None:
+        return "failed", build_exception_break_reason(terminal_exception)
     if _is_completed_trace(steps, trace_kind):
         return "completed", None
     if _has_submit_intent(steps) and not _has_submit_intent_downstream(steps):
@@ -228,6 +236,17 @@ def _infer_trace_status(steps: list[dict], trace_kind: str) -> tuple[str, str | 
     ):
         return "stalled", None
     return "open", None
+
+
+def _find_terminal_exception_step(steps: list[dict]) -> dict | None:
+    for step in reversed(steps):
+        status = _normalized_text(step.get("status")).lower()
+        if not status:
+            continue
+        if status in {"failed", "error"} and is_exception_step(step):
+            return step
+        return None
+    return None
 
 
 def _is_completed_trace(steps: list[dict], trace_kind: str) -> bool:

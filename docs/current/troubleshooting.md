@@ -12,7 +12,29 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 ```
 
 - 需要页面层健康检查时，优先执行 `py -3.12 script/freshquant_health_check.py --surface web --format summary`
-- 这个入口会忽略系统代理环境，优先用于 deploy 后健康检查和日常排障
+- 这个入口会忽略系统代理环境，优先用于 deploy 后健康检查和日常排障；当前忽略键包括 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量
+
+## 运行面被代理污染
+
+现象：
+- 页面或数据库链路正常，但外发 HTTP 请求失败
+- `requests` / `urllib` 报 SOCKS、ProxyError、InvalidSchema 一类异常
+- 同一 webhook 或 URL 手工直连能通，运行进程里却失败
+
+先检查：
+- `Get-ChildItem Env:ALL_PROXY,Env:all_proxy,Env:HTTP_PROXY,Env:http_proxy,Env:HTTPS_PROXY,Env:https_proxy,Env:NO_PROXY,Env:no_proxy`
+- `Get-Content D:/fqpack/config/envs.conf`
+- `Get-Content D:/fqdata/log/fqnext_realtime_xtdata_consumer_err.log -Tail 200`
+
+常见根因：
+- 宿主机 Machine/User 级环境残留代理
+- supervisor 运行环境没有把代理变量清空
+- 某个外发请求直接继承了系统代理
+
+处理：
+- 确认 `D:/fqpack/config/envs.conf` 中代理变量均为空
+- 重新启动受影响宿主机进程或执行 `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces`
+- 若仍有失败，优先看 stderr 是否是业务级 HTTP 拒绝，而不是代理错误
 
 ## Memory context 缺失或过期
 
@@ -251,7 +273,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - Dagster 任务未跑。
 - `end_date` 对应快照还没生成。
 - `days` 不在 `30|45|60|90`。
-- 交易日日历源瞬时失败；当前实现会在移除代理环境变量后自动重试 3 次，但连续失败时仍拿不到最新完成交易日。
+- 交易日日历源瞬时失败；当前实现会在移除 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量后自动重试 3 次，但连续失败时仍拿不到最新完成交易日。
 - `jygs` 最近历史存在缺口，最近 `90` 个交易日 hole scan 还没补齐。
 - 上游 `jygs` 某个交易日确实没有热点；此时原始集合会保留 `is_empty_result=true` marker，但 gantt `series` 不会有点位。
 - 上游返回了别的 `trade_date`；此时会落 `empty_reason=upstream_trade_date_mismatch` marker，但该日期仍应继续进入 hole scan 重试。
@@ -261,7 +283,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 处理：
 - 重跑 Dagster 作业
 - 确认读模型索引与快照日期
-- 在任务运行环境检查 `ALL_PROXY`、`all_proxy`、`HTTP_PROXY`、`HTTPS_PROXY` 是否被错误注入，再确认 AkShare 到 Sina 可访问
+- 在任务运行环境检查 `ALL_PROXY`、`all_proxy`、`HTTP_PROXY`、`http_proxy`、`HTTPS_PROXY`、`https_proxy`、`NO_PROXY`、`no_proxy` 是否被错误注入，再确认 AkShare 到 Sina 可访问
 - 若 `/api/gantt/plates?provider=jygs&days=15/30/45/60/90` 的 `dates` 轴完整但 `series` 很少，先看 `jygs_action_fields` / `jygs_yidong`
 - 若 marker 是 `empty_reason=upstream_trade_date_mismatch`，不要当成已补完；继续补跑 Dagster，等待上游返回目标交易日
 - 若日志里出现 `skipping invalid jygs theme rows`，说明是上游单条主题缺 `reason`；先核对该 trade_date 其他主题是否已正常落库，再确认是否需要人工补录该主题说明
@@ -353,6 +375,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `Get-Service fqnext-supervisord`
 - `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status`
 - `powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface <surfaces>`
+- compose project 前缀后的容器名（例如 `fqnext_20260223-fq_apiserver-1`）当前会自动归一化；正常情况下不需要再手工准备 Docker snapshot alias
 
 常见根因：
 - `fq_mongodb` / `fq_redis` / 本轮要求存在的容器进入 `Restarting`、`Exited` 或 `unhealthy`

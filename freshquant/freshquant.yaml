@@ -23,10 +23,6 @@ redis:
   port: 6379
   db: 1
 
-proxy:
-  host: 127.0.0.1
-  port: 10809
-
 api:
   # API 服务地址，用于 Docker 容器访问宿主机服务
   # 支持环境变量: freshquant_API__BASE_URL

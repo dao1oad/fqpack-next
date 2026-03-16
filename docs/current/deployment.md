@@ -76,6 +76,7 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/invoke_freshqu
 
 - `install.bat` 会先清理 `morningglory/fqchan01/python/build`，再在 `uv sync --frozen` 阶段对本地原生包 `fqchan01` 强制执行 `refresh + reinstall`，避免宿主机继续复用损坏的 `fqchan01` 源码构建产物或缓存。
 - 如果部署目标包含 Guardian / Chanlun 相关宿主机链路，重装后应额外执行 `python -c "import fqchan01; print('IMPORT_OK')"` 做一次本地导入确认。
+- 正式运行面默认无代理；`D:/fqpack/config/envs.conf` 应显式清空 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量，`TradingAgents-CN` 后端启动时也会再次清理这些变量。
 
 ### 宿主机 Supervisor 底座安装
 
@@ -98,12 +99,17 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `freshquant/position_management/**` | 仓位管理 | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -BridgeIfServiceUnavailable` |
 | `freshquant/tpsl/**` | TPSL | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface tpsl -BridgeIfServiceUnavailable` |
 | `freshquant/market_data/**` | XTData producer / consumer | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data -BridgeIfServiceUnavailable`；必要时重新 prewarm |
+| `freshquant/__init__.py` / `freshquant/runtime/network.py` | API、Dagster、全部 FreshQuant 宿主机运行面 | 重建 `fq_apiserver`；重启 Dagster；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data,guardian,position_management,tpsl,order_management -BridgeIfServiceUnavailable` |
+| `freshquant/message/**` | XTData consumer / Guardian 通知链 | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data,guardian -BridgeIfServiceUnavailable` |
+| `freshquant/trading/**` | API、Dagster、XTData / Guardian 交易日历链 | 重建 `fq_apiserver`；重启 Dagster；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data,guardian -BridgeIfServiceUnavailable` |
+| `freshquant/config.py` / `freshquant/freshquant.yaml` | Dagster、XTData、Guardian 共享旧配置链 | 重启 Dagster；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data,guardian -BridgeIfServiceUnavailable` |
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface guardian -BridgeIfServiceUnavailable` |
 | `sunflower/QUANTAXIS/**` | QAWebServer 与依赖 QUANTAXIS 的宿主机策略链路 | 重建 `fq_qawebserver`；同步重启受影响宿主机 Guardian / strategy 进程 |
 | `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 读模型与 API | 重建 API；必要时重跑 Dagster 任务 |
 | `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |
 | `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |
-| `third_party/tradingagents-cn/**` | TradingAgents-CN | 重建 `ta_backend` 与 `ta_frontend` |
+| `morningglory/fqxtrade/fqxtrade/**` | broker / ingest 等 vendored 订单链 | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
+| `third_party/tradingagents-cn/**` | TradingAgents-CN | 重建 `ta_backend` 与 `ta_frontend`；后端运行时默认直连，不再继承任何 `*_PROXY` / `*_proxy` 环境变量 |
 | `runtime/symphony/**` | 正式 orchestrator | 已预装计划任务时执行 `sync_freshquant_symphony_service.ps1` + `invoke_freshquant_symphony_restart_task.ps1`；否则使用 `reinstall_freshquant_symphony_service.ps1` 或激活脚本 |
 
 ## 健康检查
@@ -117,7 +123,7 @@ py -3.12 script/freshquant_health_check.py --surface tradingagents --format summ
 py -3.12 script/freshquant_health_check.py --surface symphony --format summary
 ```
 
-- 脚本固定禁用系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`
+- 脚本固定禁用系统代理；当前会显式忽略 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量
 - 默认串行检查并带重试，避免 Windows 本机短连接探针造成假阴性
 - 如需补充特定地址，可追加 `--url http://127.0.0.1:18080/runtime-observability`
 
@@ -155,9 +161,11 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshqua
 ```
 
 - `DeploymentSurface` 取值固定为：`api`、`web`、`dagster`、`qa`、`tradingagents`、`symphony`、`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`；未知值会直接报错，不会静默跳过检查
+- `script/fqnext_host_runtime_ctl.ps1` 支持逗号分隔的多 surface 形式，例如 `-DeploymentSurface market_data,guardian`
 - 输出 JSON 至少包含：`baseline`、`docker_checks`、`service_checks`、`process_checks`、`warnings`、`failures`、`passed`
 - 固定检查基础容器：`fq_mongodb`、`fq_redis`
 - 按本轮部署面追加检查容器：`fq_apiserver`、`fq_webui`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver`、`ta_backend`、`ta_frontend`
+- 运维面检查会自动把 compose project 前缀后的容器名（例如 `fqnext_20260223-fq_apiserver-1`）归一化回正式服务名
 - 固定记录宿主机服务：`fq-symphony-orchestrator`、`fqnext-supervisord`；只有命中对应宿主机部署面时，`Running` 才是 deploy 通过前提
 - 关键进程语义固定为：deploy 前已运行的不能在 deploy 后消失；本轮明确要求恢复的必须恢复；deploy 前本来就没运行且本轮未涉及的只记 warning
 - 脚本支持 `-DockerSnapshotPath`、`-ServiceSnapshotPath`、`-ProcessSnapshotPath`，供手工回放或测试复现使用

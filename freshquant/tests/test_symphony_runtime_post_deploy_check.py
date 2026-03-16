@@ -124,6 +124,56 @@ def test_capture_baseline_records_runtime_state_from_snapshots(tmp_path: Path) -
     assert process_entries["guardian_monitor"]["running"] is False
 
 
+def test_capture_baseline_normalizes_compose_prefixed_container_names(
+    tmp_path: Path,
+) -> None:
+    docker_path = _write_json(
+        tmp_path / "docker-prefixed.json",
+        [
+            {
+                "Name": "fqnext_20260223-fq_mongodb-1",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+            {
+                "Name": "fqnext_20260223-fq_apiserver-1",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+        ],
+    )
+    service_path = _write_json(
+        tmp_path / "services.json",
+        [
+            {"Name": "fq-symphony-orchestrator", "Status": "Running"},
+            {"Name": "fqnext-supervisord", "Status": "Running"},
+        ],
+    )
+    process_path = _write_json(tmp_path / "processes.json", [])
+    output_path = tmp_path / "baseline.json"
+
+    result = _run_powershell(
+        SCRIPT,
+        "-Mode",
+        "CaptureBaseline",
+        "-OutputPath",
+        str(output_path),
+        "-DockerSnapshotPath",
+        str(docker_path),
+        "-ServiceSnapshotPath",
+        str(service_path),
+        "-ProcessSnapshotPath",
+        str(process_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    docker_entries = {entry["name"]: entry for entry in payload["baseline"]["docker"]}
+
+    assert docker_entries["fq_mongodb"]["exists"] is True
+    assert docker_entries["fq_mongodb"]["health_status"] == "healthy"
+    assert docker_entries["fq_apiserver"]["exists"] is True
+    assert docker_entries["fq_apiserver"]["health_status"] == "healthy"
+
+
 def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
     tmp_path: Path,
 ) -> None:
