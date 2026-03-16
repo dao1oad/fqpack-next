@@ -1,3 +1,13 @@
+import {
+  buildKlineSubjectPriceDetail,
+  buildTakeprofitDrafts,
+  normalizeGuardianConfig,
+  normalizeGuardianState,
+  normalizeTakeprofitTier,
+} from './js/subject-price-guides.mjs'
+
+export { buildTakeprofitDrafts }
+
 const toText = (value) => String(value ?? '').trim()
 
 const toNumber = (value, fallback = 0) => {
@@ -27,34 +37,12 @@ const formatBooleanLabel = (value, { truthy = '是', falsy = '否' } = {}) => {
   return value ? truthy : falsy
 }
 
-const normalizeTakeprofitTier = (row = {}) => ({
-  level: toNumber(row?.level),
-  price: toNullableNumber(row?.price),
-  enabled: Boolean(row?.enabled ?? row?.manual_enabled ?? true),
-  manual_enabled: Boolean(row?.manual_enabled ?? row?.enabled ?? true),
-})
-
 const normalizeMustPool = (row = {}) => ({
   category: toText(row?.category),
   stop_loss_price: toNullableNumber(row?.stop_loss_price),
   initial_lot_amount: toNullableNumber(row?.initial_lot_amount),
   lot_amount: toNullableNumber(row?.lot_amount),
   forever: Boolean(row?.forever),
-})
-
-const normalizeGuardianConfig = (row = {}) => ({
-  enabled: Boolean(row?.enabled),
-  buy_1: toNullableNumber(row?.buy_1),
-  buy_2: toNullableNumber(row?.buy_2),
-  buy_3: toNullableNumber(row?.buy_3),
-})
-
-const normalizeGuardianState = (row = {}) => ({
-  buy_active: Array.isArray(row?.buy_active) ? [...row.buy_active] : [true, true, true],
-  last_hit_level: toText(row?.last_hit_level),
-  last_hit_price: toNullableNumber(row?.last_hit_price),
-  last_hit_signal_time: toText(row?.last_hit_signal_time),
-  last_reset_reason: toText(row?.last_reset_reason),
 })
 
 const normalizeRuntimeSummary = (row = {}) => ({
@@ -75,34 +63,6 @@ const cloneTakeprofitDraft = (row = {}) => ({
   price: toNullableNumber(row?.price),
   manual_enabled: Boolean(row?.manual_enabled ?? row?.enabled ?? true),
 })
-
-export const buildTakeprofitDrafts = (tiers = []) => {
-  const normalized = (Array.isArray(tiers) ? tiers : [])
-    .map((row) => normalizeTakeprofitTier(row))
-    .filter((row) => row.level > 0)
-    .sort((left, right) => left.level - right.level)
-
-  const byLevel = new Map(normalized.map((row) => [row.level, row]))
-  const rows = []
-  for (const level of [1, 2, 3]) {
-    const existing = byLevel.get(level)
-    rows.push({
-      level,
-      price: existing ? existing.price : null,
-      manual_enabled: existing ? existing.manual_enabled : true,
-    })
-  }
-  for (const row of normalized) {
-    if (row.level > 3) {
-      rows.push({
-        level: row.level,
-        price: row.price,
-        manual_enabled: row.manual_enabled,
-      })
-    }
-  }
-  return rows
-}
 
 const buildTakeprofitSummary = (tiers = []) => {
   return buildTakeprofitDrafts(tiers)
@@ -197,9 +157,10 @@ export const buildOverviewRows = (rows = []) => {
 export const buildDetailViewModel = (detail = {}) => {
   const subject = detail?.subject || {}
   const mustPool = normalizeMustPool(detail?.must_pool || {})
-  const guardianConfig = normalizeGuardianConfig(detail?.guardian_buy_grid_config || {})
-  const guardianState = normalizeGuardianState(detail?.guardian_buy_grid_state || {})
-  const takeprofitTiers = (Array.isArray(detail?.takeprofit?.tiers) ? detail.takeprofit.tiers : [])
+  const priceDetail = buildKlineSubjectPriceDetail(detail)
+  const guardianConfig = priceDetail.guardianDraft
+  const guardianState = priceDetail.guardianState
+  const takeprofitTiers = priceDetail.takeprofitDrafts
     .map((row) => normalizeTakeprofitTier(row))
     .sort((left, right) => left.level - right.level)
   const runtimeSummary = normalizeRuntimeSummary(detail?.runtime_summary || {})
@@ -217,9 +178,9 @@ export const buildDetailViewModel = (detail = {}) => {
     guardianState,
     takeprofit: {
       tiers: takeprofitTiers,
-      state: detail?.takeprofit?.state || { armed_levels: {} },
+      state: priceDetail.takeprofitState,
     },
-    takeprofitDrafts: buildTakeprofitDrafts(takeprofitTiers),
+    takeprofitDrafts: priceDetail.takeprofitDrafts,
     buyLots: buildBuyLots(detail?.buy_lots || []),
     runtimeSummary,
     positionManagementSummary,
