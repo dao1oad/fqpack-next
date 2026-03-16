@@ -33,6 +33,14 @@
           @change="applyEndDate"
         />
         <el-button size="small" @click="reloadNow">刷新</el-button>
+        <el-button
+          size="small"
+          :type="showPriceGuidePanel ? 'primary' : 'default'"
+          :disabled="!routeSymbol"
+          @click="showPriceGuidePanel = !showPriceGuidePanel"
+        >
+          价格层级
+        </el-button>
         <el-button size="small" @click="openChanlunStructurePanel">缠论结构</el-button>
         <el-button size="small" @click="jumpToBigChart">大图</el-button>
       </div>
@@ -152,7 +160,184 @@
         </section>
       </aside>
 
-      <section class="kline-slim-content">
+      <section class="kline-slim-content" :class="{ 'has-side-panel': showPriceGuidePanel }">
+        <div v-if="showPriceGuidePanel" class="kline-slim-price-panel">
+          <div class="price-panel-header">
+            <div class="price-panel-header-main">
+              <div class="price-panel-title-row">
+                <span class="price-panel-title">价格层级</span>
+                <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
+                <span class="price-panel-chip">{{ currentPeriod }}</span>
+                <span v-if="subjectDetailLoading" class="price-panel-chip">同步中</span>
+              </div>
+              <div class="price-panel-meta-row">
+                <span>图上直接展示 Guardian / 止盈横线与带状网格</span>
+              </div>
+            </div>
+            <div class="price-panel-actions">
+              <el-button size="small" :loading="subjectDetailLoading" @click="loadSubjectPriceDetail({ force: true })">
+                刷新
+              </el-button>
+              <el-button size="small" @click="showPriceGuidePanel = false">关闭</el-button>
+            </div>
+          </div>
+
+          <div class="price-panel-body">
+            <div v-if="subjectDetailError" class="price-panel-inline-error">
+              {{ subjectDetailError }}
+            </div>
+            <div v-if="!routeSymbol" class="price-panel-state">请先从左侧选择标的</div>
+            <div v-else-if="subjectDetailLoading && !subjectPriceDetail" class="price-panel-state">
+              加载中...
+            </div>
+            <div v-else-if="!subjectPriceDetail" class="price-panel-state">
+              暂无价格层级配置
+            </div>
+            <div v-else class="price-panel-sections">
+              <section class="price-panel-section">
+                <div class="price-panel-section-header">
+                  <div class="price-panel-section-title-wrap">
+                    <span class="price-panel-section-title">Guardian 倍量价格</span>
+                    <span class="price-panel-section-note">高到低展示，蓝 / 红 / 绿实线</span>
+                  </div>
+                  <el-switch
+                    v-model="guardianDraft.enabled"
+                    size="small"
+                    inline-prompt
+                    active-text="开"
+                    inactive-text="关"
+                  />
+                </div>
+
+                <div class="price-panel-summary">
+                  <span class="price-panel-summary-chip" :class="{ active: guardianDraft.enabled }">
+                    总开关 {{ guardianDraft.enabled ? '开启' : '关闭' }}
+                  </span>
+                  <span v-if="guardianState.last_hit_level" class="price-panel-summary-chip">
+                    最近命中 {{ guardianState.last_hit_level }}
+                  </span>
+                  <span v-if="guardianState.last_hit_price !== null" class="price-panel-summary-chip">
+                    命中价 {{ formatPriceGuideValue(guardianState.last_hit_price) }}
+                  </span>
+                </div>
+
+                <div class="price-panel-grid">
+                  <div
+                    v-for="row in guardianGuideRows"
+                    :key="row.key"
+                    class="price-panel-row"
+                  >
+                    <div class="price-panel-row-main">
+                      <span
+                        class="price-guide-badge"
+                        :class="['price-guide-badge--guardian', `price-guide-badge--${row.tone}`]"
+                      >
+                        {{ row.lineLabel }}
+                      </span>
+                      <div class="price-panel-row-meta">
+                        <span class="price-panel-row-title">{{ row.label }}</span>
+                        <span class="price-panel-row-subtitle">图上 G-{{ row.shortLabel }} 横线</span>
+                      </div>
+                    </div>
+                    <div class="price-panel-row-editor">
+                      <el-input-number
+                        v-model="guardianDraft[row.key]"
+                        size="small"
+                        :min="0"
+                        :step="0.01"
+                        controls-position="right"
+                      />
+                      <span class="price-panel-state-chip" :class="{ active: row.active }">
+                        {{ row.active ? '激活' : '待机' }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="price-panel-footer">
+                  <span class="price-panel-footer-note">保存后会同步刷新图上的 Guardian 网格线。</span>
+                  <el-button
+                    size="small"
+                    type="primary"
+                    :loading="savingGuardianPriceGuides"
+                    @click="handleSaveGuardianPriceGuides"
+                  >
+                    保存 Guardian
+                  </el-button>
+                </div>
+              </section>
+
+              <section class="price-panel-section">
+                <div class="price-panel-section-header">
+                  <div class="price-panel-section-title-wrap">
+                    <span class="price-panel-section-title">止盈价格</span>
+                    <span class="price-panel-section-note">低到高展示，蓝 / 红 / 绿虚线</span>
+                  </div>
+                  <span class="price-panel-summary-chip">
+                    已布防 {{ takeprofitGuideRows.filter((row) => row.armed).length }}/3
+                  </span>
+                </div>
+
+                <div class="price-panel-grid">
+                  <div
+                    v-for="row in takeprofitGuideRows"
+                    :key="row.level"
+                    class="price-panel-row price-panel-row--stacked"
+                  >
+                    <div class="price-panel-row-main">
+                      <span
+                        class="price-guide-badge"
+                        :class="['price-guide-badge--takeprofit', `price-guide-badge--${row.tone}`]"
+                      >
+                        {{ row.lineLabel }}
+                      </span>
+                      <div class="price-panel-row-meta">
+                        <span class="price-panel-row-title">TP-{{ row.label }}</span>
+                        <span class="price-panel-row-subtitle">图上 TP-{{ row.label }} 横线</span>
+                      </div>
+                    </div>
+                    <div class="price-panel-row-editor price-panel-row-editor--multi">
+                      <el-input-number
+                        v-model="takeprofitDrafts[row.draftIndex].price"
+                        size="small"
+                        :min="0"
+                        :step="0.01"
+                        controls-position="right"
+                      />
+                      <el-switch
+                        v-model="takeprofitDrafts[row.draftIndex].manual_enabled"
+                        size="small"
+                        inline-prompt
+                        active-text="开"
+                        inactive-text="关"
+                      />
+                      <span class="price-panel-state-chip" :class="{ active: row.armed }">
+                        {{
+                          row.armed
+                            ? '布防'
+                            : (takeprofitDrafts[row.draftIndex].manual_enabled ? '待命' : '仅展示')
+                        }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="price-panel-footer">
+                  <span class="price-panel-footer-note">保存后会同步刷新图上的止盈网格线。</span>
+                  <el-button
+                    size="small"
+                    type="primary"
+                    :loading="savingTakeprofitGuides"
+                    @click="handleSaveTakeprofitPriceGuides"
+                  >
+                    保存止盈
+                  </el-button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+
         <div v-if="showChanlunStructurePanel" class="kline-slim-chanlun-panel">
           <div class="chanlun-panel-header">
             <div class="chanlun-panel-header-main">
@@ -459,6 +644,275 @@ export default klineSlim
   position relative
   flex 1
 
+.kline-slim-content.has-side-panel .kline-slim-chart,
+.kline-slim-content.has-side-panel .kline-slim-empty
+  right 384px
+
+.kline-slim-content.has-side-panel .kline-slim-chanlun-panel
+  right 396px
+
+.kline-slim-price-panel
+  position absolute
+  top 12px
+  right 12px
+  bottom 12px
+  width 372px
+  display flex
+  flex-direction column
+  border 1px solid rgba(148, 163, 184, 0.24)
+  border-radius 18px
+  background linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(10, 14, 20, 0.96))
+  backdrop-filter blur(14px)
+  box-shadow 0 24px 48px rgba(2, 6, 23, 0.4)
+  z-index 9
+  overflow hidden
+
+.price-panel-header
+  display flex
+  align-items flex-start
+  justify-content space-between
+  gap 16px
+  padding 16px 18px 14px
+  border-bottom 1px solid rgba(148, 163, 184, 0.18)
+  background linear-gradient(180deg, rgba(30, 41, 59, 0.78), rgba(15, 23, 42, 0.34))
+
+.price-panel-header-main
+  display flex
+  flex-direction column
+  gap 8px
+  min-width 0
+
+.price-panel-title-row
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+
+.price-panel-title
+  font-size 16px
+  font-weight 600
+  color #f8fafc
+
+.price-panel-chip
+  display inline-flex
+  align-items center
+  min-height 24px
+  padding 0 10px
+  border-radius 999px
+  border 1px solid rgba(148, 163, 184, 0.2)
+  background rgba(30, 41, 59, 0.62)
+  color #cbd5e1
+  font-size 12px
+
+.price-panel-meta-row
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 10px
+  font-size 12px
+  color #94a3b8
+
+.price-panel-actions
+  display flex
+  align-items center
+  gap 8px
+
+.price-panel-body
+  flex 1
+  overflow-y auto
+  padding 16px 18px 18px
+
+.price-panel-inline-error
+  margin-bottom 12px
+  padding 10px 12px
+  border 1px solid rgba(248, 113, 113, 0.28)
+  border-radius 12px
+  background rgba(127, 29, 29, 0.18)
+  color #fecaca
+  font-size 12px
+
+.price-panel-state
+  display flex
+  align-items center
+  justify-content center
+  min-height 180px
+  padding 0 12px
+  color #cbd5e1
+  font-size 13px
+  text-align center
+
+.price-panel-sections
+  display flex
+  flex-direction column
+  gap 14px
+
+.price-panel-section
+  display flex
+  flex-direction column
+  gap 14px
+  padding 14px
+  border 1px solid rgba(148, 163, 184, 0.14)
+  border-radius 16px
+  background rgba(15, 23, 42, 0.5)
+
+.price-panel-section-header
+  display flex
+  align-items flex-start
+  justify-content space-between
+  gap 12px
+
+.price-panel-section-title-wrap
+  display flex
+  flex-direction column
+  gap 6px
+  min-width 0
+
+.price-panel-section-title
+  font-size 14px
+  font-weight 600
+  color #f8fafc
+
+.price-panel-section-note
+  font-size 12px
+  color #93c5fd
+
+.price-panel-summary
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+
+.price-panel-summary-chip
+  display inline-flex
+  align-items center
+  min-height 24px
+  padding 0 10px
+  border-radius 999px
+  border 1px solid rgba(127, 127, 122, 0.2)
+  background rgba(30, 41, 59, 0.52)
+  color #cbd5e1
+  font-size 12px
+
+.price-panel-summary-chip.active
+  color #dbeafe
+  border-color rgba(96, 165, 250, 0.35)
+  background rgba(30, 64, 175, 0.24)
+
+.price-panel-grid
+  display flex
+  flex-direction column
+  gap 10px
+
+.price-panel-row
+  display grid
+  grid-template-columns minmax(0, 1fr) auto
+  gap 10px
+  align-items center
+  padding 12px
+  border 1px solid rgba(127, 127, 122, 0.16)
+  border-radius 14px
+  background rgba(15, 23, 42, 0.44)
+
+.price-panel-row--stacked
+  align-items stretch
+
+.price-panel-row-main
+  display flex
+  align-items center
+  gap 10px
+  min-width 0
+
+.price-panel-row-meta
+  display flex
+  flex-direction column
+  gap 4px
+  min-width 0
+
+.price-panel-row-title
+  font-size 13px
+  color #f8fafc
+  font-weight 600
+
+.price-panel-row-subtitle
+  font-size 12px
+  color #94a3b8
+
+.price-panel-row-editor
+  display flex
+  align-items center
+  justify-content flex-end
+  gap 8px
+
+.price-panel-row-editor--multi
+  flex-wrap wrap
+
+.price-panel-row-editor :deep(.el-input-number)
+  width 132px
+
+.price-guide-badge
+  display inline-flex
+  align-items center
+  justify-content center
+  min-width 52px
+  height 26px
+  padding 0 10px
+  border-radius 999px
+  font-size 12px
+  font-weight 600
+  letter-spacing 0.04em
+  border 1px solid transparent
+
+.price-guide-badge--guardian
+  box-shadow inset 0 0 0 1px rgba(148, 163, 184, 0.08)
+
+.price-guide-badge--takeprofit
+  box-shadow inset 0 0 0 1px rgba(148, 163, 184, 0.08)
+  opacity 0.92
+
+.price-guide-badge--blue
+  color #bfdbfe
+  border-color rgba(59, 130, 246, 0.35)
+  background rgba(30, 64, 175, 0.24)
+
+.price-guide-badge--red
+  color #fecaca
+  border-color rgba(239, 68, 68, 0.35)
+  background rgba(127, 29, 29, 0.22)
+
+.price-guide-badge--green
+  color #bbf7d0
+  border-color rgba(34, 197, 94, 0.35)
+  background rgba(20, 83, 45, 0.24)
+
+.price-panel-state-chip
+  display inline-flex
+  align-items center
+  justify-content center
+  min-width 48px
+  height 26px
+  padding 0 10px
+  border-radius 999px
+  border 1px solid rgba(127, 127, 122, 0.18)
+  background rgba(30, 41, 59, 0.5)
+  color #94a3b8
+  font-size 12px
+
+.price-panel-state-chip.active
+  color #dbeafe
+  border-color rgba(96, 165, 250, 0.35)
+  background rgba(30, 64, 175, 0.24)
+
+.price-panel-footer
+  display flex
+  align-items center
+  justify-content space-between
+  gap 12px
+
+.price-panel-footer-note
+  font-size 12px
+  line-height 1.5
+  color #94a3b8
+
 .kline-slim-chanlun-panel
   position absolute
   top 12px
@@ -666,6 +1120,19 @@ export default klineSlim
   .kline-slim-body
     top 120px
 
+  .kline-slim-content.has-side-panel .kline-slim-chart,
+  .kline-slim-content.has-side-panel .kline-slim-empty
+    right 344px
+
+  .kline-slim-content.has-side-panel .kline-slim-chanlun-panel
+    right 356px
+
+  .kline-slim-price-panel
+    width 332px
+
+  .price-panel-row
+    grid-template-columns 1fr
+
 @media (max-width: 900px)
   .kline-slim-body
     flex-direction column
@@ -679,15 +1146,45 @@ export default klineSlim
   .kline-slim-content
     min-height 0
 
+  .kline-slim-content.has-side-panel .kline-slim-chart,
+  .kline-slim-content.has-side-panel .kline-slim-empty
+    right 0
+
+  .kline-slim-content.has-side-panel .kline-slim-chanlun-panel
+    right 8px
+
   .kline-slim-chanlun-panel
     left 8px
     right 8px
     top 8px
     max-height calc(100% - 16px)
 
+  .kline-slim-price-panel
+    left 8px
+    right 8px
+    top auto
+    bottom 8px
+    width auto
+    max-height calc(100% - 16px)
+
   .chanlun-panel-header
     flex-direction column
     align-items stretch
+
+  .price-panel-header
+    flex-direction column
+    align-items stretch
+
+  .price-panel-actions
+    justify-content flex-end
+
+  .price-panel-section-header,
+  .price-panel-footer
+    flex-direction column
+    align-items stretch
+
+  .price-panel-row-editor
+    justify-content flex-start
 
   .chanlun-panel-actions
     justify-content flex-end

@@ -36,6 +36,8 @@ test('buildKlineSubjectPriceDetail keeps guardian, takeprofit and runtime state'
   assert.equal(detail.takeprofitDrafts[1].level, 2)
   assert.equal(detail.takeprofitDrafts[1].price, null)
   assert.deepEqual(detail.takeprofitState.armed_levels, { 1: true, 2: false, 3: true })
+  assert.equal(detail.chartPriceGuides.lines.length, 5)
+  assert.equal(detail.chartPriceGuides.bands.length, 3)
 })
 
 test('buildGuardianPriceGuides keeps blue red green order from high to low', () => {

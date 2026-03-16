@@ -132,6 +132,41 @@ export const buildTakeprofitPriceGuides = (tiers = [], state = {}) => {
     .filter(Boolean)
 }
 
+const buildSequentialBands = (lines = [], group) => {
+  const visibleLines = (Array.isArray(lines) ? lines : []).filter((row) => Number.isFinite(Number(row?.price)))
+  const bands = []
+  for (let index = 0; index < visibleLines.length - 1; index += 1) {
+    const current = visibleLines[index]
+    const next = visibleLines[index + 1]
+    bands.push({
+      id: `${group}-band-${index + 1}`,
+      group,
+      color: current.color,
+      top: Math.max(current.price, next.price),
+      bottom: Math.min(current.price, next.price),
+      active: current.active || next.active,
+    })
+  }
+  return bands
+}
+
+export const buildChartPriceGuides = ({
+  guardianDraft = {},
+  guardianState = {},
+  takeprofitDrafts = [],
+  takeprofitState = {},
+} = {}) => {
+  const guardianLines = buildGuardianPriceGuides(guardianDraft, guardianState)
+  const takeprofitLines = buildTakeprofitPriceGuides(takeprofitDrafts, takeprofitState)
+
+  return {
+    lines: guardianLines.concat(takeprofitLines),
+    bands: buildSequentialBands(guardianLines, 'guardian').concat(
+      buildSequentialBands(takeprofitLines, 'takeprofit')
+    ),
+  }
+}
+
 export const buildKlineSubjectPriceDetail = (detail = {}) => {
   const guardianDraft = normalizeGuardianConfig(detail?.guardian_buy_grid_config || {})
   const guardianState = normalizeGuardianState(detail?.guardian_buy_grid_state || {})
@@ -148,6 +183,12 @@ export const buildKlineSubjectPriceDetail = (detail = {}) => {
     takeprofitDrafts,
     takeprofitState,
     takeprofitPriceGuides: buildTakeprofitPriceGuides(takeprofitDrafts, takeprofitState),
+    chartPriceGuides: buildChartPriceGuides({
+      guardianDraft,
+      guardianState,
+      takeprofitDrafts,
+      takeprofitState,
+    }),
   }
 }
 
