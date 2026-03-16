@@ -108,31 +108,41 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 
 ## 健康检查
 
+统一使用正式入口：
+
+```powershell
+py -3.12 script/freshquant_health_check.py --surface api --format summary
+py -3.12 script/freshquant_health_check.py --surface web --format summary
+py -3.12 script/freshquant_health_check.py --surface tradingagents --format summary
+py -3.12 script/freshquant_health_check.py --surface symphony --format summary
+```
+
+- 脚本固定禁用系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`
+- 默认串行检查并带重试，避免 Windows 本机短连接探针造成假阴性
+- 如需补充特定地址，可追加 `--url http://127.0.0.1:18080/runtime-observability`
+
 ### API
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/health/summary
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/gantt/plates?provider=xgb
+py -3.12 script/freshquant_health_check.py --surface api --format summary
 ```
 
 ### Web UI
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/
+py -3.12 script/freshquant_health_check.py --surface web --format summary
 ```
 
 ### TradingAgents
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:13000/api/health
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:13080/health
+py -3.12 script/freshquant_health_check.py --surface tradingagents --format summary
 ```
 
 ### Symphony
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state
+py -3.12 script/freshquant_health_check.py --surface symphony --format summary
 ```
 
 ### Deploy 后运维面检查
