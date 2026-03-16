@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TypedDict
 
 DEFAULT_ACCEPTED_STATUS_CODES = (200, 204, 301, 302, 405)
 
@@ -21,6 +21,14 @@ class HealthCheckResult:
     status_code: int | None
     attempts: int
     error: str | None = None
+
+
+class HealthCheckPayload(TypedDict):
+    surfaces: list[str]
+    urls: list[str]
+    checks: list[dict[str, object]]
+    failures: list[str]
+    passed: bool
 
 
 def _repo_root() -> Path:
@@ -153,7 +161,7 @@ def build_payload(
     surfaces: list[str],
     urls: list[str],
     results: list[HealthCheckResult],
-) -> dict[str, object]:
+) -> HealthCheckPayload:
     failures = [result.url for result in results if not result.ok]
     return {
         "surfaces": surfaces,
@@ -164,7 +172,7 @@ def build_payload(
     }
 
 
-def render_summary(payload: dict[str, object]) -> str:
+def render_summary(payload: HealthCheckPayload) -> str:
     surfaces = payload["surfaces"]
     checks = payload["checks"]
     failures = payload["failures"]

@@ -10,7 +10,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def load_module():
     module_path = REPO_ROOT / "script" / "freshquant_health_check.py"
-    spec = importlib.util.spec_from_file_location("freshquant_health_check", module_path)
+    spec = importlib.util.spec_from_file_location(
+        "freshquant_health_check", module_path
+    )
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -104,9 +106,7 @@ def test_run_health_checks_records_failure_after_retries(monkeypatch) -> None:
     assert "connection refused" in results[0].error
 
 
-def test_main_outputs_json_and_returns_nonzero_for_failure(
-    monkeypatch, capsys
-) -> None:
+def test_main_outputs_json_and_returns_nonzero_for_failure(monkeypatch, capsys) -> None:
     module = load_module()
 
     monkeypatch.setattr(
