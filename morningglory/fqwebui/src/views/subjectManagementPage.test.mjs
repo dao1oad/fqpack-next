@@ -180,3 +180,61 @@ test('page controller loads overview first, then detail, switches rows and refre
   ])
   assert.deepEqual(messages, [['success', '基础设置已保存']])
 })
+
+test('page controller saves dense config table via must-pool and guardian apis with one refresh cycle', async () => {
+  const calls = []
+  const messages = []
+  const actions = {
+    async loadOverview() {
+      calls.push(['loadOverview'])
+      return makeOverviewRows()
+    },
+    async loadSubjectDetail(symbol) {
+      calls.push(['loadSubjectDetail', symbol])
+      return makeDetail(symbol)
+    },
+    async saveMustPool(symbol, payload) {
+      calls.push(['saveMustPool', symbol, payload.category, payload.stop_loss_price])
+      return { symbol, ...payload }
+    },
+    async saveGuardianBuyGrid(symbol, payload) {
+      calls.push(['saveGuardianBuyGrid', symbol, payload.enabled, payload.buy_1])
+      return { symbol, ...payload }
+    },
+    async saveTakeprofit(symbol, tiers) {
+      calls.push(['saveTakeprofit', symbol, tiers.length])
+      return { symbol, tiers }
+    },
+    async saveStoploss(buyLotId, payload) {
+      calls.push(['saveStoploss', buyLotId, payload.stop_price, payload.enabled])
+      return { buyLotId, ...payload }
+    },
+  }
+
+  const controller = createSubjectManagementPageController({
+    actions,
+    notify: {
+      success(message) {
+        messages.push(['success', message])
+      },
+    },
+  })
+
+  await controller.refreshOverview()
+  controller.state.mustPoolDraft.category = '核心银行'
+  controller.state.mustPoolDraft.stop_loss_price = 9.1
+  controller.state.guardianDraft.enabled = false
+  controller.state.guardianDraft.buy_1 = 10.1
+
+  await controller.handleSaveConfigBundle()
+
+  assert.deepEqual(calls, [
+    ['loadOverview'],
+    ['loadSubjectDetail', '600000'],
+    ['saveMustPool', '600000', '核心银行', 9.1],
+    ['saveGuardianBuyGrid', '600000', false, 10.1],
+    ['loadSubjectDetail', '600000'],
+    ['loadOverview'],
+  ])
+  assert.deepEqual(messages, [['success', '基础与 Guardian 已保存']])
+})

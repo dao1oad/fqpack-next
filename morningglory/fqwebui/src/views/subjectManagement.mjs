@@ -23,6 +23,10 @@ const formatInteger = (value) => {
   return String(Math.trunc(parsed))
 }
 
+const formatBooleanLabel = (value, { truthy = '是', falsy = '否' } = {}) => {
+  return value ? truthy : falsy
+}
+
 const normalizeTakeprofitTier = (row = {}) => ({
   level: toNumber(row?.level),
   price: toNullableNumber(row?.price),
@@ -220,6 +224,171 @@ export const buildDetailViewModel = (detail = {}) => {
     runtimeSummary,
     positionManagementSummary,
   }
+}
+
+const buildGuardianRuntimeNote = (guardianState = {}) => {
+  const lastHitLevel = toText(guardianState?.last_hit_level)
+  const lastHitPrice = formatPrice(guardianState?.last_hit_price)
+  const lastHitSignalTime = toText(guardianState?.last_hit_signal_time) || '-'
+  if (!lastHitLevel && lastHitPrice === '-') {
+    return '未命中'
+  }
+  return [lastHitLevel || '-', lastHitPrice, lastHitSignalTime]
+    .filter(Boolean)
+    .join(' / ')
+}
+
+export const buildDenseConfigRows = (detail = {}) => {
+  const mustPool = detail?.mustPool || {}
+  const guardianConfig = detail?.guardianConfig || {}
+  const guardianState = detail?.guardianState || {}
+  const buyActive = Array.isArray(guardianState.buy_active) ? guardianState.buy_active : []
+  const guardianRuntimeNote = buildGuardianRuntimeNote(guardianState)
+
+  return [
+    {
+      group: '基础',
+      key: 'category',
+      label: '分类',
+      currentLabel: toText(detail?.category || mustPool.category) || '-',
+      editor: 'text',
+      statusLabel: 'must_pool',
+      note: '标的归类摘要',
+    },
+    {
+      group: '基础',
+      key: 'stop_loss_price',
+      label: '止损价',
+      currentLabel: formatPrice(mustPool.stop_loss_price),
+      editor: 'number',
+      statusLabel: '风控',
+      note: '新开仓参考止损',
+    },
+    {
+      group: '基础',
+      key: 'initial_lot_amount',
+      label: '首笔金额',
+      currentLabel: formatInteger(mustPool.initial_lot_amount),
+      editor: 'integer',
+      statusLabel: '开仓',
+      note: '首次买入基准',
+    },
+    {
+      group: '基础',
+      key: 'lot_amount',
+      label: '常规金额',
+      currentLabel: formatInteger(mustPool.lot_amount),
+      editor: 'integer',
+      statusLabel: '加仓',
+      note: 'Guardian base_amount',
+    },
+    {
+      group: '基础',
+      key: 'forever',
+      label: '永久跟踪',
+      currentLabel: formatBooleanLabel(Boolean(mustPool.forever), { truthy: '开启', falsy: '关闭' }),
+      editor: 'switch',
+      statusLabel: mustPool.forever ? '永久' : '普通',
+      note: mustPool.forever ? '持续跟踪' : '普通标的',
+    },
+    {
+      group: 'Guardian',
+      key: 'guardian_enabled',
+      label: '启用',
+      currentLabel: formatBooleanLabel(Boolean(guardianConfig.enabled), { truthy: '开启', falsy: '关闭' }),
+      editor: 'switch',
+      statusLabel: guardianConfig.enabled ? '已启用' : '已关闭',
+      note: guardianRuntimeNote,
+    },
+    {
+      group: 'Guardian',
+      key: 'buy_1',
+      label: 'BUY-1',
+      currentLabel: formatPrice(guardianConfig.buy_1),
+      editor: 'number',
+      statusLabel: `当前 B1:${buyActive[0] ? '开' : '关'}`,
+      note: guardianRuntimeNote,
+    },
+    {
+      group: 'Guardian',
+      key: 'buy_2',
+      label: 'BUY-2',
+      currentLabel: formatPrice(guardianConfig.buy_2),
+      editor: 'number',
+      statusLabel: `当前 B2:${buyActive[1] ? '开' : '关'}`,
+      note: guardianRuntimeNote,
+    },
+    {
+      group: 'Guardian',
+      key: 'buy_3',
+      label: 'BUY-3',
+      currentLabel: formatPrice(guardianConfig.buy_3),
+      editor: 'number',
+      statusLabel: `当前 B3:${buyActive[2] ? '开' : '关'}`,
+      note: guardianRuntimeNote,
+    },
+  ]
+}
+
+export const buildDetailSummaryChips = (detail = {}) => {
+  const takeprofitDrafts = Array.isArray(detail?.takeprofitDrafts) ? detail.takeprofitDrafts : []
+  const takeprofitVisible = takeprofitDrafts.filter((row) => row.level <= 3)
+  const takeprofitEnabledCount = takeprofitVisible.filter((row) => row.manual_enabled && row.price !== null).length
+  const buyLots = Array.isArray(detail?.buyLots) ? detail.buyLots : []
+  const activeStoplossCount = buyLots.filter((row) => row?.stoploss?.enabled).length
+  const positionQuantity = toNumber(detail?.runtimeSummary?.position_quantity)
+  const pmState = toText(detail?.positionManagementSummary?.effective_state) || '-'
+
+  return [
+    {
+      key: 'category',
+      label: '分类',
+      value: toText(detail?.category) || '-',
+      tone: 'muted',
+    },
+    {
+      key: 'must_pool',
+      label: '标的',
+      value: detail?.mustPool?.forever ? '永久跟踪' : '普通标的',
+      tone: detail?.mustPool?.forever ? 'success' : 'muted',
+    },
+    {
+      key: 'position_quantity',
+      label: '持仓',
+      value: `${positionQuantity} 股`,
+      tone: positionQuantity > 0 ? 'success' : 'muted',
+    },
+    {
+      key: 'guardian_enabled',
+      label: 'Guardian',
+      value: detail?.guardianConfig?.enabled ? '开启' : '关闭',
+      tone: detail?.guardianConfig?.enabled ? 'warning' : 'muted',
+    },
+    {
+      key: 'takeprofit_enabled_count',
+      label: '止盈',
+      value: `${takeprofitEnabledCount} / ${takeprofitVisible.length || 3}`,
+      tone: takeprofitEnabledCount > 0 ? 'success' : 'muted',
+    },
+    {
+      key: 'stoploss_active_count',
+      label: '止损',
+      value: `${activeStoplossCount} / ${buyLots.length}`,
+      tone: activeStoplossCount > 0 ? 'danger' : 'muted',
+    },
+    {
+      key: 'pm_state',
+      label: '门禁',
+      value: pmState,
+      tone: pmState === 'ALLOW_OPEN'
+        ? 'success'
+        : pmState === 'HOLDING_ONLY'
+          ? 'warning'
+          : pmState === 'FORCE_PROFIT_REDUCE'
+            ? 'danger'
+            : 'muted',
+    },
+  ]
 }
 
 const buildTakeprofitPayload = (tiers = []) => {

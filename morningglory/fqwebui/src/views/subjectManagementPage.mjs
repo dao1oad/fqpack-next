@@ -51,6 +51,7 @@ export const createSubjectManagementPageController = ({
   const state = reactiveImpl({
     loadingOverview: false,
     loadingDetail: false,
+    savingConfigBundle: false,
     savingMustPool: false,
     savingGuardian: false,
     savingTakeprofit: false,
@@ -199,6 +200,25 @@ export const createSubjectManagementPageController = ({
     }
   }
 
+  const handleSaveConfigBundle = async () => {
+    if (!state.selectedSymbol) return
+    state.savingConfigBundle = true
+    try {
+      await actions.saveMustPool(state.selectedSymbol, cloneMustPoolDraft(state.mustPoolDraft))
+      await actions.saveGuardianBuyGrid(state.selectedSymbol, cloneGuardianDraft(state.guardianDraft))
+      emitNotify(notify, 'success', '基础与 Guardian 已保存')
+      await hydrateDetail(state.selectedSymbol, {
+        preserveTakeprofitDrafts: true,
+        preserveStoplossDrafts: true,
+      })
+      await reloadOverviewOnly()
+    } catch (error) {
+      state.pageError = errorMessage(error)
+    } finally {
+      state.savingConfigBundle = false
+    }
+  }
+
   const handleSaveGuardian = async () => {
     if (!state.selectedSymbol) return
     state.savingGuardian = true
@@ -265,6 +285,7 @@ export const createSubjectManagementPageController = ({
     refreshOverview,
     reloadCurrentSymbol,
     selectSymbol,
+    handleSaveConfigBundle,
     handleSaveMustPool,
     handleSaveGuardian,
     handleSaveTakeprofit,
