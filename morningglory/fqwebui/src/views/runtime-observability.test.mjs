@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises'
 import * as runtimeObservability from './runtimeObservability.mjs'
 
 import {
+  buildEventLedgerRows,
+  buildIdentityStrip,
   buildTraceIdentityLabel,
   applyBoardFilter,
   buildComponentBoard,
@@ -17,6 +19,8 @@ import {
   buildIssueSummary,
   buildRawRecordSummary,
   buildRecentTraceFeed,
+  buildTraceLedgerRows,
+  buildTraceStepLedgerRows,
   buildTraceSummaryMeta,
   buildTraceDetail,
   buildHealthCards,
@@ -479,6 +483,223 @@ test('buildComponentEventFeed keeps heartbeat and bootstrap events for component
       display: 'yes',
     },
   )
+})
+
+test('buildIdentityStrip merges strong ids without dropping symbol and trace metadata', () => {
+  assert.deepEqual(
+    buildIdentityStrip({
+      trace_id: 'trc_dense_1',
+      intent_ids: ['intent_dense_1'],
+      request_ids: ['req_dense_1'],
+      internal_order_ids: ['ord_dense_1'],
+      symbol: '000001',
+      trace_kind: 'guardian_signal',
+      trace_status: 'failed',
+    }),
+    {
+      primary: 'trace trc_dense_1',
+      items: [
+        { key: 'trace_id', label: 'Trace', value: 'trc_dense_1' },
+        { key: 'intent_id', label: 'Intent', value: 'intent_dense_1' },
+        { key: 'request_id', label: 'Request', value: 'req_dense_1' },
+        { key: 'internal_order_id', label: 'Order', value: 'ord_dense_1' },
+        { key: 'symbol', label: 'Symbol', value: '000001' },
+        { key: 'trace_kind', label: 'Kind', value: 'guardian_signal' },
+        { key: 'trace_status', label: 'Status', value: 'failed' },
+      ],
+    },
+  )
+})
+
+test('buildTraceLedgerRows returns dense table rows for recent trace list', () => {
+  const rows = buildTraceLedgerRows([
+    {
+      trace_id: 'trc_dense_1',
+      trace_key: 'trace:trc_dense_1',
+      trace_kind: 'guardian_signal',
+      trace_status: 'failed',
+      break_reason: 'unexpected_exception@guardian_strategy.timing_check:ValueError',
+      first_ts: '2026-03-09T10:00:00+08:00',
+      last_ts: '2026-03-09T10:00:02+08:00',
+      duration_ms: 2000,
+      entry_component: 'guardian_strategy',
+      entry_node: 'receive_signal',
+      exit_component: 'guardian_strategy',
+      exit_node: 'timing_check',
+      slowest_step: {
+        component: 'guardian_strategy',
+        node: 'timing_check',
+        delta_prev_ms: 1300,
+      },
+      request_ids: ['req_dense_1'],
+      internal_order_ids: ['ord_dense_1'],
+      intent_ids: ['intent_dense_1'],
+      symbol: '000001',
+      steps: [
+        {
+          component: 'guardian_strategy',
+          node: 'receive_signal',
+          status: 'info',
+          ts: '2026-03-09T10:00:00+08:00',
+          trace_id: 'trc_dense_1',
+          symbol: '000001',
+        },
+        {
+          component: 'guardian_strategy',
+          node: 'timing_check',
+          status: 'error',
+          ts: '2026-03-09T10:00:02+08:00',
+          trace_id: 'trc_dense_1',
+          symbol: '000001',
+          reason_code: 'unexpected_exception',
+          payload: {
+            error_type: 'ValueError',
+            error_message: 'invalid fill time',
+          },
+        },
+      ],
+    },
+  ])
+
+  assert.equal(rows.length, 1)
+  assert.deepEqual(rows[0], {
+    trace_key: 'trace:trc_dense_1',
+    trace_id: 'trc_dense_1',
+    symbol: '000001',
+    identity: 'trace trc_dense_1',
+    trace_kind: 'guardian_signal',
+    trace_kind_label: 'Guardian',
+    trace_status: 'failed',
+    trace_status_label: 'Failed',
+    last_ts: '2026-03-09T10:00:02+08:00',
+    duration_ms: 2000,
+    duration_label: '2s',
+    step_count: 2,
+    entry_exit_label: 'guardian_strategy.receive_signal -> guardian_strategy.timing_check',
+    break_reason: 'unexpected_exception@guardian_strategy.timing_check:ValueError',
+    slowest_step_label: 'guardian_strategy.timing_check · 1.3s',
+    has_issue: true,
+  })
+})
+
+test('buildTraceStepLedgerRows surfaces branch expr reason outcome context and error columns', () => {
+  const detail = buildTraceDetail({
+    trace_id: 'trc_step_dense_1',
+    symbol: '000001',
+    steps: [
+      {
+        component: 'guardian_strategy',
+        node: 'receive_signal',
+        status: 'info',
+        ts: '2026-03-09T10:00:00+08:00',
+      },
+      {
+        component: 'guardian_strategy',
+        node: 'timing_check',
+        status: 'error',
+        ts: '2026-03-09T10:00:01.300+08:00',
+        reason_code: 'unexpected_exception',
+        decision_branch: 'holding_sell_timing',
+        decision_expr: 'fill_time >= signal_time',
+        decision_context: {
+          timing: {
+            fill_time: '20260315 23:39:42',
+            signal_time: '20260315 23:00:00',
+          },
+        },
+        decision_outcome: {
+          outcome: 'reject',
+          reason_code: 'unexpected_exception',
+        },
+        payload: {
+          error_type: 'ValueError',
+          error_message: 'time data None None does not match format',
+        },
+      },
+    ],
+  })
+
+  const rows = buildTraceStepLedgerRows(detail)
+
+  assert.equal(rows.length, 2)
+  assert.deepEqual(rows[1], {
+    index: 1,
+    step_key: 'guardian_strategy|timing_check|2026-03-09T10:00:01.300+08:00|1',
+    ts: '2026-03-09T10:00:01.300+08:00',
+    delta_label: '1.3s',
+    component_node: 'guardian_strategy.timing_check',
+    status: 'error',
+    branch: 'holding_sell_timing',
+    expr: 'fill_time >= signal_time',
+    reason: 'unexpected_exception',
+    outcome: 'reject',
+    context_summary: 'timing.fill_time=20260315 23:39:42; timing.signal_time=20260315 23:00:00',
+    error_summary: 'ValueError: time data None None does not match format',
+    is_issue: true,
+  })
+})
+
+test('buildEventLedgerRows keeps heartbeat events and extracts summary and metrics columns', () => {
+  const rows = buildEventLedgerRows([
+    {
+      ts: '2026-03-09T10:05:00+08:00',
+      runtime_node: 'host:xt',
+      component: 'xt_producer',
+      node: 'heartbeat',
+      status: 'info',
+      symbol: '',
+      metrics: {
+        rx_age_s: 3,
+        tick_count_5m: 48,
+        subscribed_codes: 20,
+        connected: 1,
+      },
+    },
+    {
+      ts: '2026-03-09T10:05:01+08:00',
+      runtime_node: 'host:guardian',
+      component: 'guardian_strategy',
+      node: 'timing_check',
+      status: 'error',
+      symbol: '000001',
+      trace_id: 'trc_event_dense_1',
+      payload: {
+        error_type: 'ValueError',
+        error_message: 'invalid fill time',
+      },
+      reason_code: 'unexpected_exception',
+      decision_expr: 'fill_time >= signal_time',
+    },
+  ])
+
+  assert.deepEqual(rows, [
+    {
+      event_key: '2026-03-09T10:05:00+08:00|host:xt|xt_producer|heartbeat|0',
+      ts: '2026-03-09T10:05:00+08:00',
+      runtime_node: 'host:xt',
+      component: 'xt_producer',
+      node: 'heartbeat',
+      status: 'info',
+      symbol: '',
+      identity: '',
+      summary: 'heartbeat',
+      metrics_summary: '收 tick 3s · 5m ticks 48 · 订阅 20 · 连接 yes',
+      is_issue: false,
+    },
+    {
+      event_key: '2026-03-09T10:05:01+08:00|host:guardian|guardian_strategy|timing_check|1',
+      ts: '2026-03-09T10:05:01+08:00',
+      runtime_node: 'host:guardian',
+      component: 'guardian_strategy',
+      node: 'timing_check',
+      status: 'error',
+      symbol: '000001',
+      identity: 'trace trc_event_dense_1',
+      summary: 'unexpected_exception · fill_time >= signal_time · ValueError: invalid fill time',
+      metrics_summary: '',
+      is_issue: true,
+    },
+  ])
 })
 
 test('buildRecentTraceFeed exposes flow nodes with guardian decision detail and generic fallback summary', () => {

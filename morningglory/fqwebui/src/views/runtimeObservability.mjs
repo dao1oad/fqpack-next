@@ -586,6 +586,152 @@ export const buildTraceIdentityLabel = (trace = {}) => {
   return trace?.trace_key || '-'
 }
 
+const buildCompactIdentityLabel = (record = {}) => {
+  if (toText(record?.trace_id)) return `trace ${toText(record.trace_id)}`
+  if (Array.isArray(record?.intent_ids) && toText(record.intent_ids[0])) return `intent ${toText(record.intent_ids[0])}`
+  if (toText(record?.intent_id)) return `intent ${toText(record.intent_id)}`
+  if (Array.isArray(record?.request_ids) && toText(record.request_ids[0])) return `request ${toText(record.request_ids[0])}`
+  if (toText(record?.request_id)) return `request ${toText(record.request_id)}`
+  if (Array.isArray(record?.internal_order_ids) && toText(record.internal_order_ids[0])) return `order ${toText(record.internal_order_ids[0])}`
+  if (toText(record?.internal_order_id)) return `order ${toText(record.internal_order_id)}`
+  return ''
+}
+
+export const buildIdentityStrip = (record = {}) => {
+  const items = []
+  const pushItem = (key, label, value) => {
+    const normalized = toText(value)
+    if (!normalized) return
+    items.push({ key, label, value: normalized })
+  }
+  pushItem('trace_id', 'Trace', record?.trace_id)
+  pushItem('intent_id', 'Intent', record?.intent_ids?.[0] ?? record?.intent_id)
+  pushItem('request_id', 'Request', record?.request_ids?.[0] ?? record?.request_id)
+  pushItem('internal_order_id', 'Order', record?.internal_order_ids?.[0] ?? record?.internal_order_id)
+  pushItem('symbol', 'Symbol', record?.symbol)
+  pushItem('trace_kind', 'Kind', record?.trace_kind)
+  pushItem('trace_status', 'Status', record?.trace_status)
+  return {
+    primary: buildCompactIdentityLabel(record),
+    items,
+  }
+}
+
+export const buildTraceLedgerRows = (traces = [], options = {}) => {
+  const limit = Math.max(Number(options?.limit || traces?.length || 0), 0)
+  return normalizeTraces(traces)
+    .map((trace) => {
+      const detail = buildTraceDetail(trace)
+      return {
+        trace_key: toText(detail?.trace_key) || null,
+        trace_id: toText(detail?.trace_id) || null,
+        symbol: toText(detail?.symbol),
+        identity: buildCompactIdentityLabel({
+          trace_id: detail?.trace_id,
+          intent_ids: detail?.intent_ids,
+          request_ids: detail?.request_ids,
+          internal_order_ids: detail?.internal_order_ids,
+        }),
+        trace_kind: toText(detail?.trace_kind) || 'unknown',
+        trace_kind_label: TRACE_KIND_LABELS[toText(detail?.trace_kind)] || toText(detail?.trace_kind) || 'Unknown',
+        trace_status: toText(detail?.trace_status) || 'open',
+        trace_status_label: TRACE_STATUS_LABELS[toText(detail?.trace_status)] || toText(detail?.trace_status) || 'Open',
+        last_ts: toText(detail?.last_ts) || '',
+        duration_ms: Number.isFinite(detail?.duration_ms) ? Number(detail.duration_ms) : null,
+        duration_label: toText(detail?.duration_label) || '-',
+        step_count: Number(detail?.step_count || 0),
+        entry_exit_label: `${toText(detail?.entry_component)}.${toText(detail?.entry_node)} -> ${toText(detail?.exit_component)}.${toText(detail?.exit_node)}`,
+        break_reason: toText(detail?.break_reason),
+        slowest_step_label: detail?.slowest_step?.component && detail?.slowest_step?.node
+          ? `${toText(detail.slowest_step.component)}.${toText(detail.slowest_step.node)} · ${toText(detail.slowest_step.delta_from_prev_label || detail.slowest_step.delta_prev_label)}`
+          : '-',
+        has_issue: Number(detail?.issue_count || 0) > 0,
+      }
+    })
+    .sort((left, right) => toText(right?.last_ts).localeCompare(toText(left?.last_ts)))
+    .slice(0, limit)
+}
+
+const buildStepContextSummary = (step = {}) => {
+  return flattenGuardianContextItems(step?.decision_context || {})
+    .map((item) => `${item.key}=${summarizeInlineValue(item.value, 72)}`)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join('; ')
+}
+
+export const buildTraceStepLedgerRows = (detail = {}) => {
+  const steps = Array.isArray(detail?.steps) ? detail.steps : []
+  return steps.map((step) => {
+    const guardianStep = step?.guardian_step || buildGuardianStepInsight(step)
+    const contextSummary = buildStepContextSummary(step) || summarizeGuardianContext(guardianStep?.context_blocks)
+    const errorType = toText(step?.payload?.error_type)
+    const errorMessage = toText(step?.payload?.error_message)
+    return {
+      index: Number(step?.index || 0),
+      step_key: [
+        toText(step?.component),
+        toText(step?.node),
+        toText(step?.ts),
+        Number(step?.index || 0),
+      ].join('|'),
+      ts: toText(step?.ts),
+      delta_label: toText(step?.delta_from_prev_label),
+      component_node: `${toText(step?.component)}.${toText(step?.node)}`,
+      status: toText(step?.status) || 'info',
+      branch: guardianStep?.outcome?.branch || toText(step?.decision_branch),
+      expr: guardianStep?.outcome?.expr || toText(step?.decision_expr),
+      reason: guardianStep?.outcome?.reason_code || toText(step?.reason_code) || toText(step?.decision_outcome?.reason_code),
+      outcome: toText(guardianStep?.outcome?.code || step?.decision_outcome?.outcome || ''),
+      context_summary: contextSummary,
+      error_summary: errorType ? `${errorType}${errorMessage ? `: ${errorMessage}` : ''}` : '',
+      is_issue: Boolean(step?.is_issue),
+    }
+  })
+}
+
+const buildEventSummary = (event = {}) => {
+  const parts = []
+  const reason = toText(event?.reason_code)
+  const expr = toText(event?.decision_expr)
+  const errorType = toText(event?.payload?.error_type)
+  const errorMessage = toText(event?.payload?.error_message)
+  const errorSummary = errorType ? `${errorType}${errorMessage ? `: ${errorMessage}` : ''}` : ''
+  if (reason) parts.push(reason)
+  if (expr) parts.push(expr)
+  if (errorSummary) parts.push(errorSummary)
+  if (parts.length > 0) return parts.join(' · ')
+  return toText(event?.message) || toText(event?.node) || toText(event?.event_type) || 'event'
+}
+
+const buildEventMetricsSummary = (event = {}) => {
+  return buildHealthHighlights(event?.metrics || {})
+    .map((item) => `${item.label} ${item.display}`)
+    .join(' · ')
+}
+
+export const buildEventLedgerRows = (events = []) => {
+  return normalizeEvents(events).map((event, index) => ({
+    event_key: [
+      toText(event?.ts),
+      normalizeRuntimeNode(event?.runtime_node),
+      toText(event?.component),
+      toText(event?.node),
+      index,
+    ].join('|'),
+    ts: toText(event?.ts),
+    runtime_node: normalizeRuntimeNode(event?.runtime_node),
+    component: toText(event?.component) || 'runtime',
+    node: toText(event?.node) || 'event',
+    status: toText(event?.status) || 'info',
+    symbol: toText(event?.symbol),
+    identity: buildCompactIdentityLabel(event),
+    summary: buildEventSummary(event),
+    metrics_summary: buildEventMetricsSummary(event),
+    is_issue: ISSUE_STATUSES.has(toText(event?.status).toLowerCase()),
+  }))
+}
+
 export const buildComponentEventFeed = (events = [], options = {}) => {
   const component = toText(options?.component)
   const runtimeNode = toText(options?.runtime_node)
