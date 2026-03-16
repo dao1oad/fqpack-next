@@ -96,12 +96,46 @@ const GUARDIAN_CONTEXT_LABELS = {
   quantity: '数量上下文',
   position_management: '仓位管理',
 }
+const BEIJING_TIMEZONE = 'Asia/Shanghai'
+const TIMESTAMP_LABEL_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: BEIJING_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+})
+const TRACE_SYMBOL_NAME_FIELDS = [
+  'symbol_name',
+  'stock_name',
+  'display_name',
+  'security_name',
+  'instrument_name',
+  'code_name',
+  'name',
+]
 
 const parseTimestampMs = (value) => {
   const text = toText(value)
   if (!text) return null
   const parsed = Date.parse(text)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+export const formatTimestampLabel = (value) => {
+  const text = toText(value)
+  if (!text) return ''
+  const parsedMs = parseTimestampMs(text)
+  if (parsedMs === null) return text
+  const formatted = Object.fromEntries(
+    TIMESTAMP_LABEL_FORMATTER
+      .formatToParts(new Date(parsedMs))
+      .filter((item) => item.type !== 'literal')
+      .map((item) => [item.type, item.value]),
+  )
+  return `${formatted.year}-${formatted.month}-${formatted.day} ${formatted.hour}:${formatted.minute}:${formatted.second}`
 }
 
 export const formatDurationMs = (value) => {
@@ -317,6 +351,24 @@ const findTraceSymbol = (trace = {}, steps = []) => {
   for (const step of steps) {
     const symbol = toText(step?.symbol)
     if (symbol) return symbol
+  }
+  return '-'
+}
+
+const findTraceSymbolName = (trace = {}, steps = []) => {
+  for (const key of TRACE_SYMBOL_NAME_FIELDS) {
+    const value = toText(trace?.[key])
+    if (value) return value
+  }
+  const signalSummaryName = toText(trace?.signal_summary?.name)
+  if (signalSummaryName) return signalSummaryName
+  for (const step of steps) {
+    for (const key of TRACE_SYMBOL_NAME_FIELDS) {
+      const value = toText(step?.[key])
+      if (value) return value
+    }
+    const nestedSignalName = toText(step?.signal_summary?.name)
+    if (nestedSignalName) return nestedSignalName
   }
   return '-'
 }
@@ -551,7 +603,9 @@ export const summarizeTrace = (trace = {}) => {
     trace_status_label: TRACE_STATUS_LABELS[traceStatus] || traceStatus || 'Open',
     break_reason: toText(trace?.break_reason),
     first_ts: detail.first_ts,
+    first_ts_label: detail.first_ts_label,
     last_ts: detail.last_ts,
+    last_ts_label: detail.last_ts_label,
     duration_ms: detail.duration_ms,
     duration_label: detail.duration_label,
     entry_component: detail.entry_component,
@@ -564,6 +618,7 @@ export const summarizeTrace = (trace = {}) => {
     issue_count: detail.issue_count,
     has_issue: detail.issue_count > 0,
     symbol: detail.symbol,
+    symbol_name: detail.symbol_name,
     total_duration_label: detail.total_duration_label,
     total_duration_ms: detail.total_duration_ms,
     first_issue_node: toText(summaryMeta.first_issue?.node) || '-',
@@ -650,6 +705,7 @@ export const buildTraceLedgerRows = (traces = [], options = {}) => {
         trace_key: toText(detail?.trace_key) || null,
         trace_id: toText(detail?.trace_id) || null,
         symbol: toText(detail?.symbol),
+        symbol_name: toText(detail?.symbol_name) || '-',
         identity: buildCompactIdentityLabel({
           trace_id: detail?.trace_id,
           intent_ids: detail?.intent_ids,
@@ -661,6 +717,7 @@ export const buildTraceLedgerRows = (traces = [], options = {}) => {
         trace_status: toText(detail?.trace_status) || 'open',
         trace_status_label: TRACE_STATUS_LABELS[toText(detail?.trace_status)] || toText(detail?.trace_status) || 'Open',
         last_ts: toText(detail?.last_ts) || '',
+        last_ts_label: toText(detail?.last_ts_label) || toText(detail?.last_ts) || '',
         duration_ms: Number.isFinite(detail?.duration_ms) ? Number(detail.duration_ms) : null,
         duration_label: toText(detail?.duration_label) || '-',
         step_count: Number(detail?.step_count || 0),
@@ -700,6 +757,7 @@ export const buildTraceStepLedgerRows = (detail = {}) => {
         Number(step?.index || 0),
       ].join('|'),
       ts: toText(step?.ts),
+      ts_label: toText(step?.ts_label) || toText(step?.ts),
       delta_label: toText(step?.delta_from_prev_label),
       component_node: `${toText(step?.component)}.${toText(step?.node)}`,
       status: toText(step?.status) || 'info',
@@ -744,6 +802,7 @@ export const buildEventLedgerRows = (events = []) => {
       index,
     ].join('|'),
     ts: toText(event?.ts),
+    ts_label: formatTimestampLabel(event?.ts),
     runtime_node: normalizeRuntimeNode(event?.runtime_node),
     component: toText(event?.component) || 'runtime',
     node: toText(event?.node) || 'event',
@@ -785,6 +844,7 @@ export const buildComponentEventFeed = (events = [], options = {}) => {
       event_type: toText(event?.event_type) || 'trace_step',
       status: toText(event?.status) || 'info',
       ts: toText(event?.ts) || '',
+      ts_label: formatTimestampLabel(event?.ts),
       badges: buildEventBadges(event),
       summary: toText(event?.message) || summarizeInlineValue(event?.payload) || summarizeInlineValue(event?.metrics),
       summary_metrics: buildHealthHighlights(event?.metrics || {}),
@@ -930,6 +990,7 @@ export const buildTraceDetail = (trace = {}) => {
       index,
       status,
       is_issue: ISSUE_STATUSES.has(status),
+      ts_label: formatTimestampLabel(step?.ts),
       ts_ms: tsMs,
       offset_ms: Number.isFinite(step?.offset_ms) ? Number(step.offset_ms) : null,
       delta_from_prev_ms: deltaFromPrevMs,
@@ -965,7 +1026,9 @@ export const buildTraceDetail = (trace = {}) => {
     trace_status: toText(trace?.trace_status) || (issueSteps.length > 0 ? 'broken' : 'open'),
     break_reason: toText(trace?.break_reason),
     first_ts: toText(trace?.first_ts) || toText(steps.find((item) => item.ts)?.ts),
+    first_ts_label: formatTimestampLabel(toText(trace?.first_ts) || toText(steps.find((item) => item.ts)?.ts)),
     last_ts: toText(trace?.last_ts) || toText(lastStep?.ts),
+    last_ts_label: formatTimestampLabel(toText(trace?.last_ts) || toText(lastStep?.ts)),
     duration_ms: totalDurationMs,
     duration_label: totalDurationMs === null ? '-' : formatDurationMs(totalDurationMs),
     entry_component: toText(trace?.entry_component) || toText(steps[0]?.component) || '-',
@@ -977,6 +1040,7 @@ export const buildTraceDetail = (trace = {}) => {
     request_ids: Array.isArray(trace.request_ids) ? trace.request_ids : [],
     internal_order_ids: Array.isArray(trace.internal_order_ids) ? trace.internal_order_ids : [],
     symbol: findTraceSymbol(trace, steps),
+    symbol_name: findTraceSymbolName(trace, steps),
     steps,
     step_count: steps.length,
     issue_count: issueSteps.length,
@@ -1107,7 +1171,7 @@ export const buildRawRecordSummary = (record = {}) => {
   }
   return {
     title: `${toText(record?.component) || 'runtime'}.${toText(record?.node) || 'event'}`,
-    subtitle: toText(record?.ts) || '-',
+    subtitle: formatTimestampLabel(record?.ts) || '-',
     badges,
     body: buildJsonBlock(record?.payload) || buildJsonBlock(record?.metrics) || buildJsonBlock(record),
   }

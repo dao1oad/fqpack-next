@@ -31,6 +31,7 @@ import {
   findRawRecordIndex,
   findTraceByRow,
   filterTraceSteps,
+  formatTimestampLabel,
   formatDurationMs,
   groupStepsByComponent,
   hasMatchingRawSelection,
@@ -559,8 +560,8 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
       trace_kind: 'guardian_signal',
       trace_status: 'failed',
       break_reason: 'unexpected_exception@guardian_strategy.timing_check:ValueError',
-      first_ts: '2026-03-09T10:00:00+08:00',
-      last_ts: '2026-03-09T10:00:02+08:00',
+      first_ts: '2026-03-09T02:00:00Z',
+      last_ts: '2026-03-09T02:00:02Z',
       duration_ms: 2000,
       entry_component: 'guardian_strategy',
       entry_node: 'receive_signal',
@@ -580,15 +581,19 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
           component: 'guardian_strategy',
           node: 'receive_signal',
           status: 'info',
-          ts: '2026-03-09T10:00:00+08:00',
+          ts: '2026-03-09T02:00:00Z',
           trace_id: 'trc_dense_1',
           symbol: '000001',
+          signal_summary: {
+            code: '000001',
+            name: '平安银行',
+          },
         },
         {
           component: 'guardian_strategy',
           node: 'timing_check',
           status: 'error',
-          ts: '2026-03-09T10:00:02+08:00',
+          ts: '2026-03-09T02:00:02Z',
           trace_id: 'trc_dense_1',
           symbol: '000001',
           reason_code: 'unexpected_exception',
@@ -606,12 +611,14 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
     trace_key: 'trace:trc_dense_1',
     trace_id: 'trc_dense_1',
     symbol: '000001',
+    symbol_name: '平安银行',
     identity: 'trace trc_dense_1',
     trace_kind: 'guardian_signal',
     trace_kind_label: 'Guardian',
     trace_status: 'failed',
     trace_status_label: 'Failed',
-    last_ts: '2026-03-09T10:00:02+08:00',
+    last_ts: '2026-03-09T02:00:02Z',
+    last_ts_label: '2026-03-09 10:00:02',
     duration_ms: 2000,
     duration_label: '2s',
     step_count: 2,
@@ -666,6 +673,7 @@ test('buildTraceStepLedgerRows surfaces branch expr reason outcome context and e
     index: 1,
     step_key: 'guardian_strategy|timing_check|2026-03-09T10:00:01.300+08:00|1',
     ts: '2026-03-09T10:00:01.300+08:00',
+    ts_label: '2026-03-09 10:00:01',
     delta_label: '1.3s',
     component_node: 'guardian_strategy.timing_check',
     status: 'error',
@@ -682,7 +690,7 @@ test('buildTraceStepLedgerRows surfaces branch expr reason outcome context and e
 test('buildEventLedgerRows keeps heartbeat events and extracts summary and metrics columns', () => {
   const rows = buildEventLedgerRows([
     {
-      ts: '2026-03-09T10:05:00+08:00',
+      ts: '2026-03-09T02:05:00Z',
       runtime_node: 'host:xt',
       component: 'xt_producer',
       node: 'heartbeat',
@@ -696,7 +704,7 @@ test('buildEventLedgerRows keeps heartbeat events and extracts summary and metri
       },
     },
     {
-      ts: '2026-03-09T10:05:01+08:00',
+      ts: '2026-03-09T02:05:01Z',
       runtime_node: 'host:guardian',
       component: 'guardian_strategy',
       node: 'timing_check',
@@ -714,8 +722,9 @@ test('buildEventLedgerRows keeps heartbeat events and extracts summary and metri
 
   assert.deepEqual(rows, [
     {
-      event_key: '2026-03-09T10:05:00+08:00|host:xt|xt_producer|heartbeat|0',
-      ts: '2026-03-09T10:05:00+08:00',
+      event_key: '2026-03-09T02:05:00Z|host:xt|xt_producer|heartbeat|0',
+      ts: '2026-03-09T02:05:00Z',
+      ts_label: '2026-03-09 10:05:00',
       runtime_node: 'host:xt',
       component: 'xt_producer',
       node: 'heartbeat',
@@ -727,8 +736,9 @@ test('buildEventLedgerRows keeps heartbeat events and extracts summary and metri
       is_issue: false,
     },
     {
-      event_key: '2026-03-09T10:05:01+08:00|host:guardian|guardian_strategy|timing_check|1',
-      ts: '2026-03-09T10:05:01+08:00',
+      event_key: '2026-03-09T02:05:01Z|host:guardian|guardian_strategy|timing_check|1',
+      ts: '2026-03-09T02:05:01Z',
+      ts_label: '2026-03-09 10:05:01',
       runtime_node: 'host:guardian',
       component: 'guardian_strategy',
       node: 'timing_check',
@@ -1330,13 +1340,13 @@ test('buildTraceDetail derives durations, issue steps and step metadata', () => 
         component: 'guardian_strategy',
         node: 'receive_signal',
         status: 'info',
-        ts: '2026-03-09T10:00:00+08:00',
+        ts: '2026-03-09T02:00:00Z',
       },
       {
         component: 'position_gate',
         node: 'decision',
         status: 'skipped',
-        ts: '2026-03-09T10:00:00.250+08:00',
+        ts: '2026-03-09T02:00:00.250Z',
         reason_code: 'cooldown_active',
         decision_branch: 'cooldown_block',
         decision_expr: 'cooldown_remaining > 0',
@@ -1348,7 +1358,11 @@ test('buildTraceDetail derives durations, issue steps and step metadata', () => 
   assert.equal(detail.trace_id, 'trc_1')
   assert.equal(detail.issue_count, 1)
   assert.equal(detail.total_duration_label, '250ms')
+  assert.equal(detail.first_ts_label, '2026-03-09 10:00:00')
+  assert.equal(detail.last_ts_label, '2026-03-09 10:00:00')
   assert.equal(detail.first_issue.node, 'decision')
+  assert.equal(detail.steps[0].ts_label, '2026-03-09 10:00:00')
+  assert.equal(detail.steps[1].ts_label, '2026-03-09 10:00:00')
   assert.equal(detail.steps[1].delta_from_prev_label, '250ms')
   assert.equal(detail.steps[1].is_issue, true)
   assert.deepEqual(
@@ -1356,6 +1370,12 @@ test('buildTraceDetail derives durations, issue steps and step metadata', () => 
     ['decision_branch', 'reason_code', 'decision_expr'],
   )
   assert.match(detail.steps[1].payload_text, /"quantity": 300/)
+})
+
+test('formatTimestampLabel converts timestamps to Beijing time with second precision', () => {
+  assert.equal(formatTimestampLabel('2026-03-09T02:05:01.987Z'), '2026-03-09 10:05:01')
+  assert.equal(formatTimestampLabel('2026-03-09T10:05:01+08:00'), '2026-03-09 10:05:01')
+  assert.equal(formatTimestampLabel(''), '')
 })
 
 test('filterTraceSteps keeps only issue steps when requested', () => {
@@ -1463,7 +1483,7 @@ test('findRawRecordIndex matches the current step and buildRawRecordSummary mark
   assert.equal(findRawRecordIndex(records, step), 1)
   assert.deepEqual(buildRawRecordSummary(records[1]), {
     title: 'order_submit.queue_write',
-    subtitle: '2026-03-09T10:00:01+08:00',
+    subtitle: '2026-03-09 10:00:01',
     badges: ['trace trc_1', 'request req_1', 'order ord_1', 'symbol 600000'],
     body: '{\n  "quantity": 300\n}',
   })
@@ -1530,6 +1550,13 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /buildTraceLedgerRows/)
   assert.match(content, /buildTraceStepLedgerRows/)
   assert.match(content, /buildIdentityStrip/)
+  assert.match(content, /<span>name<\/span>/)
+  assert.match(content, /row\.symbol_name/)
+  assert.match(content, /runtime-ledger__cell--entry-exit/)
+  assert.match(content, /runtime-ledger__cell--status/)
+  assert.match(content, /:title="item\.component"/)
+  assert.match(content, /:title="detail\.runtime_node"/)
+  assert.match(content, /\.runtime-detail-tabs__tab \{[\s\S]*display: inline-flex;/)
   assert.doesNotMatch(content, /trace-feed-row/)
   assert.doesNotMatch(content, /trace-flow-strip/)
   assert.doesNotMatch(content, /trace-group-card/)
@@ -1542,5 +1569,6 @@ test('runtime observability event mode uses dense ledger layout instead of event
   assert.match(content, /event-detail-tabs/)
   assert.match(content, /buildEventLedgerRows/)
   assert.match(content, /embeddedRawRecordCards/)
+  assert.match(content, /runtime-ledger__cell--status/)
   assert.doesNotMatch(content, /event-feed-row/)
 })
