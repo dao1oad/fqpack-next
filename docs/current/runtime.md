@@ -8,7 +8,7 @@
 - Mongo 通过 `127.0.0.1:27027` 接入 Docker `fq_mongodb`；宿主机链路不要再使用 `127.0.0.1:27017`。
 - `fqnext-supervisord` 宿主机底座与其托管的交易/运行链 Python 进程。
 - Guardian monitor。
-- Position management worker。
+- Position management worker（同时刷新账户级状态和单标的实时仓位快照）。
 - TPSL tick listener。
 - Symphony 正式单实例 orchestrator。
 - 需要直接访问券商、终端、`TDX_HOME` 或 Windows 本地目录的组件。
@@ -128,6 +128,7 @@
 - XTData producer 依赖 `XTQUANT_PORT`，默认 `58610`
 - XTData producer / consumer / TPSL / Order Management 共享 Redis
 - Guardian、Position worker、Order Management、TPSL 共享 Mongo 基础库与运行时事件日志
+- Position worker 还依赖 Redis `QUEUE:BAR_CLOSE:*` 消费最新 `1m` 收盘价
 - Shouban30 的 `.blk` 同步依赖宿主机 `bootstrap_config.tdx.home or TDX_HOME`
 - Docker 并行环境下，Shouban30 的 API 同步链路依赖 `fq_apiserver` 挂载 `/opt/tdx`
 - 当通达信根目录配置为 `D:\tdx_biduan` 时，Shouban30 会写入 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`

@@ -159,6 +159,7 @@
               <el-table-column label="运行态" min-width="172">
                 <template #default="{ row }">
                   <div class="subject-summary-stack">
+                    <div class="subject-summary-line">仓位 {{ formatWanAmount(row.position_amount) }}</div>
                     <div class="subject-summary-line">持仓 {{ row.position_quantity }} 股</div>
                     <div class="subject-summary-line">{{ row.runtime?.last_hit_level || '-' }}</div>
                     <div class="subject-summary-line workbench-code">{{ formatDateTime(row.runtime?.last_trigger_time) }}</div>
@@ -524,6 +525,13 @@ const formatInteger = (value) => {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return '-'
   return String(Math.trunc(parsed))
+}
+
+const formatWanAmount = (value) => {
+  if (value === null || value === undefined || value === '') return '-'
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '-'
+  return `${(parsed / 10000).toFixed(2)} 万`
 }
 
 const formatDateTime = (value) => {

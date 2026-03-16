@@ -234,6 +234,7 @@ def test_management_overview_unions_holdings_and_configured_symbols():
                 "amount_adjusted": -5300.0,
             }
         ],
+        symbol_position_loader=lambda symbol: None,
     )
 
     rows = service.get_overview()
@@ -248,6 +249,32 @@ def test_management_overview_unions_holdings_and_configured_symbols():
     assert rows_by_symbol["000001"]["position_quantity"] == 0
     assert rows_by_symbol["000001"]["takeprofit_configured"] is True
     assert rows_by_symbol["000001"]["has_active_stoploss"] is False
+
+
+def test_management_overview_prefers_symbol_snapshot_market_value():
+    service = TpslManagementService(
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "sh600000",
+                "stock_code": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 500,
+                "amount_adjusted": -5300.0,
+            }
+        ],
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 123456.0,
+            "market_value_source": "bar_close_x_quantity",
+        },
+    )
+
+    rows = service.get_overview()
+
+    assert rows[0]["symbol"] == "600000"
+    assert rows[0]["position_amount"] == 123456.0
 
 
 def test_management_overview_uses_latest_event_query_instead_of_full_scan():
@@ -323,6 +350,7 @@ def test_management_overview_uses_latest_event_query_instead_of_full_scan():
                 "amount_adjusted": -5300.0,
             }
         ],
+        symbol_position_loader=lambda symbol: None,
     )
 
     rows = service.get_overview()
@@ -350,6 +378,7 @@ def test_management_history_ignores_blank_optional_filters():
         tpsl_repository=tpsl_repository,
         order_repository=InMemoryOrderManagementRepository(),
         position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
     )
 
     rows = service.list_history(
@@ -525,6 +554,7 @@ def test_management_detail_assembles_buy_lots_and_order_timeline():
                 "amount_adjusted": -2000.0,
             }
         ],
+        symbol_position_loader=lambda symbol: None,
     )
 
     detail = service.get_symbol_detail("sh600000", history_limit=10)
@@ -541,6 +571,32 @@ def test_management_detail_assembles_buy_lots_and_order_timeline():
     assert detail["history"][0]["orders"][0]["internal_order_id"] == "ord_stop_1"
     assert detail["history"][0]["trades"][0]["trade_fact_id"] == "trade_stop_1"
     assert detail["history"][1]["kind"] == "takeprofit"
+
+
+def test_management_detail_prefers_symbol_snapshot_market_value():
+    service = TpslManagementService(
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 500,
+                "amount": 5010.0,
+                "amount_adjusted": 4800.0,
+            }
+        ],
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 234567.0,
+            "market_value_source": "bar_close_x_quantity",
+        },
+    )
+
+    detail = service.get_symbol_detail("600000")
+
+    assert detail["position"]["quantity"] == 500
+    assert detail["position"]["amount"] == 234567.0
 
 
 def test_management_detail_is_json_serializable_with_mongo_object_ids():
@@ -650,6 +706,7 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
                 "amount_adjusted": -2000.0,
             }
         ],
+        symbol_position_loader=lambda symbol: None,
     )
 
     detail = service.get_symbol_detail("sh600000", history_limit=10)

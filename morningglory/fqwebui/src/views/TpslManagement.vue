@@ -79,7 +79,7 @@
                   <span>{{ row.symbol }}</span>
                 </div>
                 <span class="workbench-summary-chip workbench-summary-chip--muted">
-                  {{ row.position_quantity || 0 }} 股
+                  {{ row.position_amount_label }}
                 </span>
               </div>
 
@@ -117,6 +117,8 @@
                 </div>
                 <div class="workbench-panel__meta">
                   <span>当前持仓 {{ detail.position.quantity || 0 }} 股</span>
+                  <span>/</span>
+                  <span>实时仓位 {{ detail.positionAmountLabel }}</span>
                   <span>/</span>
                   <span>止盈层 {{ detail.takeprofitTierCount }} 个</span>
                   <span>/</span>
@@ -395,6 +397,14 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+}
+
+.symbol-list {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .tpsl-main-stack {

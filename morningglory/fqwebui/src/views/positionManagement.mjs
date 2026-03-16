@@ -22,11 +22,12 @@ const SECTION_META = {
 const INVENTORY_ORDER = {
   allow_open_min_bail: 1,
   holding_only_min_bail: 2,
-  state_stale_after_seconds: 3,
-  default_state: 4,
-  'xtquant.path': 5,
-  'xtquant.account': 6,
-  'xtquant.account_type': 7,
+  single_symbol_position_limit: 3,
+  state_stale_after_seconds: 4,
+  default_state: 5,
+  'xtquant.path': 6,
+  'xtquant.account': 7,
+  'xtquant.account_type': 8,
 }
 
 const RULE_ORDER = ['buy_new', 'buy_holding', 'sell']
@@ -80,7 +81,8 @@ const formatInventoryValue = (item = {}) => {
   }
   if (
     key === 'allow_open_min_bail' ||
-    key === 'holding_only_min_bail'
+    key === 'holding_only_min_bail' ||
+    key === 'single_symbol_position_limit'
   ) {
     return formatAmount(item?.value)
   }

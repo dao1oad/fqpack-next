@@ -102,6 +102,14 @@ class FakeSnapshotService:
         return {"state": ALLOW_OPEN}
 
 
+class FakeSymbolListener:
+    def __init__(self):
+        self.calls = 0
+
+    def run_forever(self):
+        self.calls += 1
+
+
 def test_refresh_writes_snapshot_and_current_state():
     repository = FakeRepository()
     service = PositionSnapshotService(
@@ -290,3 +298,35 @@ def test_worker_run_forever_refreshes_then_sleeps():
 
     assert service.calls == 1
     assert sleep_calls == [3]
+
+
+def test_worker_run_forever_starts_symbol_listener_thread():
+    service = FakeSnapshotService()
+    listener = FakeSymbolListener()
+    started = []
+
+    class FakeThread:
+        def __init__(self, *, target=None, daemon=None, name=None):
+            self.target = target
+            self.daemon = daemon
+            self.name = name
+
+        def start(self):
+            started.append({"daemon": self.daemon, "name": self.name})
+            self.target()
+
+    def fake_sleep(_seconds):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_forever(
+            service=service,
+            symbol_listener=listener,
+            interval_seconds=3,
+            sleep_fn=fake_sleep,
+            thread_factory=lambda **kwargs: FakeThread(**kwargs),
+        )
+
+    assert listener.calls == 1
+    assert service.calls == 1
+    assert started == [{"daemon": True, "name": "PositionSymbolListener"}]

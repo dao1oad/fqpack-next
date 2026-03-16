@@ -37,6 +37,12 @@ const formatBooleanLabel = (value, { truthy = '是', falsy = '否' } = {}) => {
   return value ? truthy : falsy
 }
 
+const formatAmountWan = (value) => {
+  const parsed = toNullableNumber(value)
+  if (parsed === null) return '-'
+  return `${(parsed / 10000).toFixed(2)} 万`
+}
+
 const normalizeMustPool = (row = {}) => ({
   category: toText(row?.category),
   stop_loss_price: toNullableNumber(row?.stop_loss_price),
@@ -132,11 +138,13 @@ export const buildOverviewRows = (rows = []) => {
         ].join(' / '),
         stoplossSummaryLabel: `${activeStoplossCount} / ${openBuyLotCount}`,
         runtimeSummaryLabel: [
+          formatAmountWan(runtime?.position_amount),
           `${toNumber(runtime?.position_quantity)} 股`,
           toText(runtime?.last_hit_level) || '-',
           toText(runtime?.last_trigger_time) || '-',
         ].join(' / '),
         position_quantity: toNumber(runtime?.position_quantity),
+        position_amount: toNullableNumber(runtime?.position_amount),
         stoplossActiveCount: activeStoplossCount,
         openBuyLotCount,
         hasMustPoolConfig,
@@ -316,7 +324,7 @@ export const buildDetailSummaryChips = (detail = {}) => {
     {
       key: 'position_quantity',
       label: '持仓',
-      value: `${positionQuantity} 股`,
+      value: `${positionQuantity} 股 / ${formatAmountWan(detail?.runtimeSummary?.position_amount)}`,
       tone: positionQuantity > 0 ? 'success' : 'muted',
     },
     {

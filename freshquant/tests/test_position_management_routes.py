@@ -40,7 +40,12 @@ def test_position_management_config_routes_forward_reads_and_validation_errors(
 ):
     class FakeService:
         def get_config(self):
-            return {"thresholds": {"allow_open_min_bail": 800000.0}}
+            return {
+                "thresholds": {
+                    "allow_open_min_bail": 800000.0,
+                    "single_symbol_position_limit": 800000.0,
+                }
+            }
 
         def update_config(self, payload):
             raise ValueError(
@@ -61,6 +66,7 @@ def test_position_management_config_routes_forward_reads_and_validation_errors(
             {
                 "allow_open_min_bail": 100000,
                 "holding_only_min_bail": 200000,
+                "single_symbol_position_limit": 800000,
             }
         ),
         content_type="application/json",
@@ -68,6 +74,10 @@ def test_position_management_config_routes_forward_reads_and_validation_errors(
 
     assert get_response.status_code == 200
     assert get_response.get_json()["thresholds"]["allow_open_min_bail"] == 800000.0
+    assert (
+        get_response.get_json()["thresholds"]["single_symbol_position_limit"]
+        == 800000.0
+    )
     assert post_response.status_code == 400
     assert (
         post_response.get_json()["error"]

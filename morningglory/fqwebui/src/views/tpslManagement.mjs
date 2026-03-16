@@ -13,6 +13,11 @@ const formatNumericLabel = (value) => {
   return Number.isInteger(parsed) ? parsed.toFixed(1) : text
 }
 
+const formatAmountWanLabel = (value) => {
+  const amount = toNumber(value)
+  return `${(amount / 10000).toFixed(2)} 万`
+}
+
 const buildBadges = (row = {}) => {
   const badges = []
   if (row.takeprofit_configured) badges.push('止盈')
@@ -64,6 +69,8 @@ export const buildOverviewRows = (rows = []) => {
       symbol: toText(row?.symbol),
       name: toText(row?.name),
       position_quantity: toNumber(row?.position_quantity),
+      position_amount: toNumber(row?.position_amount),
+      position_amount_label: formatAmountWanLabel(row?.position_amount),
       active_stoploss_buy_lot_count: toNumber(row?.active_stoploss_buy_lot_count),
       badges: buildBadges(row),
       last_trigger_label: toText(row?.last_trigger?.kind) || '-',
@@ -117,6 +124,7 @@ export const buildDetailViewModel = (detail = {}) => {
     symbol: toText(detail?.symbol),
     name: toText(detail?.name),
     position: detail?.position || { quantity: 0 },
+    positionAmountLabel: formatAmountWanLabel(detail?.position?.amount),
     takeprofit,
     takeprofitTierCount: Array.isArray(takeprofit?.tiers) ? takeprofit.tiers.length : 0,
     buyLots,

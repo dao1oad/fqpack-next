@@ -2,7 +2,7 @@
 
 ## 职责
 
-仓位管理负责把账户资产和持仓状态转换成策略可消费的“是否允许提交”门禁结论。它不是订单提交器，也不是 broker 适配层。
+仓位管理负责把账户资产、单标的实时仓位和持仓状态转换成策略可消费的“是否允许提交”门禁结论。它不是订单提交器，也不是 broker 适配层。
 
 ## 入口
 
@@ -11,6 +11,8 @@
 - 核心服务
   - `freshquant.position_management.snapshot_service.PositionSnapshotService`
   - `freshquant.position_management.service.PositionManagementService`
+  - `freshquant.position_management.symbol_position_service.SingleSymbolPositionService`
+  - `freshquant.position_management.symbol_position_listener.SingleSymbolPositionListener`
   - `freshquant.position_management.dashboard_service.PositionManagementDashboardService`
 - Web UI
   - `/position-management`
@@ -22,15 +24,23 @@
 ## 依赖
 
 - XT 资产/持仓快照
+- XTData producer `QUEUE:BAR_CLOSE:*`
+- projected positions / open buy lots
 - Mongo
 - Guardian / Order Submit
 - Runtime Observability
 
 ## 数据流
 
+账户级链路：
+
 `XT credit detail -> snapshot_service.refresh_once -> pm_credit_asset_snapshots / pm_current_state -> evaluate_strategy_order -> allow/reject`
 
-提交门禁发生在 Order Management 接收策略单时。卖单原则上总是允许；买单要看当前状态。
+单标的链路：
+
+`Redis 1m BAR_CLOSE + xt_positions + projected positions -> SingleSymbolPositionService -> pm_symbol_position_snapshots -> evaluate_strategy_order / tpsl / subject-management`
+
+提交门禁发生在 Order Management 接收策略单时。卖单原则上总是允许；买单先看账户级状态，再看单标的实时仓位上限。
 
 ## 存储
 
@@ -40,6 +50,7 @@
 - `pm_credit_asset_snapshots`
 - `pm_current_state`
 - `pm_strategy_decisions`
+- `pm_symbol_position_snapshots`
 
 ## 配置
 
@@ -55,12 +66,21 @@
 - stale 默认按 `HOLDING_ONLY` 处理
 - 允许开仓的最低保证金默认约 `800000`
 - 仅允许持仓内操作的最低保证金默认约 `100000`
+- 单标的实时仓位上限默认约 `800000`
+
+单标的实时仓位当前统一定义：
+
+- 数量优先 `xt_positions.volume`
+- 缺失时回退 `projected positions.quantity`
+- 价格优先最新 `1m BAR_CLOSE.close`
+- 缺失最新 `1m close` 时回退 `xt_positions.market_value`
 
 当前页面配置边界：
 
 - 可编辑并真实生效
   - `allow_open_min_bail`
   - `holding_only_min_bail`
+  - `single_symbol_position_limit`
 - 只读展示
   - `state_stale_after_seconds`
   - `default_state`
@@ -68,7 +88,11 @@
   - `xtquant.account`
   - `xtquant.account_type`
 
-阈值写入 `pm_configs.thresholds`，后续快照刷新时直接影响 `state_from_bail()` 的状态判定。
+阈值写入 `pm_configs.thresholds`。其中：
+
+- `allow_open_min_bail / holding_only_min_bail` 在下一次账户快照刷新后影响 `state_from_bail()`
+- `single_symbol_position_limit` 直接影响后续买入门禁
+
 如果阈值刚更新、`pm_current_state` 还没被下一次 snapshot 刷新重算，Dashboard 会明确标记“阈值已更新，当前状态待下一次快照刷新”；在这段窗口期内，真实门禁仍按当前 `pm_current_state` 生效。
 `POST /api/position-management/config` 只接受有限数值（finite number）阈值；`nan`、`inf`、`-inf` 会直接返回 400。若历史配置中出现这类脏值，Dashboard 读取时会回退到默认阈值，避免污染门禁判断。
 
@@ -83,7 +107,7 @@
 - 当前规则矩阵
 - 最近决策摘要
 
-其中 `effective_state`、`stale` 和规则说明均由服务端按真实 `PositionPolicy` 计算。
+其中 `effective_state`、`stale` 和规则说明均由服务端按真实 `PositionPolicy` 计算；最近决策还会带出单标的实时仓位与上限来源。
 
 ## 页面组织
 
@@ -91,6 +115,7 @@
 
 - 页面顶部只保留标题、配置更新时间和状态摘要条
 - 参数 inventory 维持“可编辑阈值 + 只读参数”边界，但统一压缩为紧凑 panel
+- 可编辑阈值当前包含账户级阈值和单标的实时仓位上限
 - 当前仓位状态改成摘要条、指标块和元数据块，不再使用大 hero
 - holding scope、规则矩阵、最近决策统一改成高密度列表/表格表达
 
@@ -112,6 +137,7 @@
 python -m freshquant.position_management.worker --interval 3
 ```
 
+- 当前 worker 会同时做账户级快照刷新和 `1m BAR_CLOSE` 监听。
 - 涉及门禁语义时，必须同时验证 Guardian 策略单与手工/API 单。
 
 ## 排障点
@@ -127,6 +153,15 @@ python -m freshquant.position_management.worker --interval 3
 - 检查 `pm_current_state`
 - 检查是否进入 stale
 - 检查保证金阈值是否触发 `HOLDING_ONLY` 或 `FORCE_PROFIT_REDUCE`
+- 检查 `pm_symbol_position_snapshots.market_value`
+- 检查 `single_symbol_position_limit` 是否触发 `symbol_position_limit_blocked`
+
+### 单标的实时仓位不刷新
+
+- 检查 `position_management.worker` 是否在跑
+- 检查 Redis `QUEUE:BAR_CLOSE:*` 是否有 `1m` 事件
+- 检查 `pm_symbol_position_snapshots` 最近更新时间
+- 检查目标 symbol 是否能从 `xt_positions` 或 projected positions 解析到数量
 
 ### 盈利减仓语义异常
 

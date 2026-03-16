@@ -14,10 +14,14 @@ from freshquant.position_management.service import PositionManagementService
 class FakeDecisionRepository:
     def __init__(self):
         self.current_state_doc = None
+        self.config_doc = None
         self.decisions = []
 
     def get_current_state(self):
         return self.current_state_doc
+
+    def get_config(self):
+        return self.config_doc
 
     def insert_decision(self, document):
         self.decisions.append(document)
@@ -168,4 +172,74 @@ def test_force_profit_reduce_allows_sell():
 
     assert decision.allowed is True
     assert decision.state == FORCE_PROFIT_REDUCE
+    assert decision.reason_code == "sell_allowed"
+
+
+def test_buy_is_blocked_when_symbol_market_value_exceeds_limit():
+    repository = FakeDecisionRepository()
+    repository.config_doc = {
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
+        }
+    }
+    service = PositionManagementService(
+        repository=repository,
+        holding_codes_provider=lambda: ["000001"],
+        now_provider=_fixed_now,
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 900000.0,
+            "market_value_source": "bar_close_x_quantity",
+            "quantity_source": "xt_positions",
+        },
+    )
+
+    decision = service.evaluate_strategy_order(
+        payload={"source": "strategy", "action": "buy", "symbol": "000001"},
+        current_state={
+            "state": ALLOW_OPEN,
+            "evaluated_at": "2026-03-07T12:00:00+08:00",
+        },
+    )
+
+    assert decision.allowed is False
+    assert decision.state == ALLOW_OPEN
+    assert decision.reason_code == "symbol_position_limit_blocked"
+    assert decision.meta["symbol_position_limit"] == 800000.0
+    assert decision.meta["symbol_market_value"] == 900000.0
+    assert repository.decisions[-1]["reason_code"] == "symbol_position_limit_blocked"
+
+
+def test_sell_is_not_blocked_by_symbol_position_limit():
+    repository = FakeDecisionRepository()
+    repository.config_doc = {
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
+        }
+    }
+    service = PositionManagementService(
+        repository=repository,
+        holding_codes_provider=lambda: ["000001"],
+        now_provider=_fixed_now,
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 900000.0,
+            "market_value_source": "bar_close_x_quantity",
+            "quantity_source": "xt_positions",
+        },
+    )
+
+    decision = service.evaluate_strategy_order(
+        payload={"source": "strategy", "action": "sell", "symbol": "000001"},
+        current_state={
+            "state": ALLOW_OPEN,
+            "evaluated_at": "2026-03-07T12:00:00+08:00",
+        },
+    )
+
+    assert decision.allowed is True
     assert decision.reason_code == "sell_allowed"

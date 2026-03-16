@@ -23,6 +23,7 @@ class TpslManagementService:
         takeprofit_service=None,
         order_repository=None,
         position_loader=None,
+        symbol_position_loader=None,
     ):
         self.tpsl_repository = tpsl_repository or TpslRepository()
         self.takeprofit_service = takeprofit_service or TakeprofitService(
@@ -30,6 +31,9 @@ class TpslManagementService:
         )
         self.order_repository = order_repository or OrderManagementRepository()
         self.position_loader = position_loader or _load_stock_positions
+        self.symbol_position_loader = (
+            symbol_position_loader or _default_symbol_position_loader
+        )
 
     def get_overview(self):
         positions = self._load_positions()
@@ -68,14 +72,16 @@ class TpslManagementService:
         rows = []
         for symbol in symbols:
             position = positions.get(symbol) or {}
+            symbol_position = dict(self.symbol_position_loader(symbol) or {})
             rows.append(
                 {
                     "symbol": symbol,
                     "name": position.get("name")
                     or str((profile_map.get(symbol) or {}).get("name") or "").strip(),
                     "position_quantity": int(position.get("quantity") or 0),
-                    "position_amount": float(
-                        position.get("amount_adjusted") or position.get("amount") or 0.0
+                    "position_amount": _resolve_position_amount(
+                        symbol_position,
+                        position,
                     ),
                     "takeprofit_configured": symbol in profile_map,
                     "has_active_stoploss": active_stoploss_counts.get(symbol, 0) > 0,
@@ -104,6 +110,8 @@ class TpslManagementService:
             "amount_adjusted": 0.0,
             "name": "",
         }
+        symbol_position = dict(self.symbol_position_loader(normalized_symbol) or {})
+        position_amount = _resolve_position_amount(symbol_position, position)
 
         takeprofit = None
         if self.tpsl_repository.find_takeprofit_profile(normalized_symbol) is not None:
@@ -145,8 +153,9 @@ class TpslManagementService:
                 "position": {
                     "symbol": normalized_symbol,
                     "quantity": int(position.get("quantity") or 0),
-                    "amount": float(position.get("amount") or 0.0),
+                    "amount": position_amount,
                     "amount_adjusted": float(position.get("amount_adjusted") or 0.0),
+                    "market_value_source": symbol_position.get("market_value_source"),
                 },
                 "takeprofit": takeprofit,
                 "buy_lots": buy_lots,
@@ -331,6 +340,19 @@ def _load_stock_positions():
     from freshquant.data.astock.holding import get_stock_positions
 
     return get_stock_positions()
+
+
+def _default_symbol_position_loader(symbol):
+    from freshquant.position_management.repository import PositionManagementRepository
+
+    return PositionManagementRepository().get_symbol_snapshot(_normalize_symbol(symbol))
+
+
+def _resolve_position_amount(symbol_position, position):
+    market_value = symbol_position.get("market_value")
+    if market_value is not None:
+        return float(market_value)
+    return float(position.get("amount_adjusted") or position.get("amount") or 0.0)
 
 
 def _normalize_event(row):

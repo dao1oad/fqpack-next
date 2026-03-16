@@ -93,6 +93,7 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
         "thresholds": {
             "allow_open_min_bail": 800000.0,
             "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
         },
         "updated_at": "2026-03-07T11:59:00+08:00",
         "updated_by": "pytest",
@@ -136,6 +137,8 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
     assert rules["buy_holding"]["allowed"] is True
     assert rules["sell"]["allowed"] is True
     assert inventory["allow_open_min_bail"]["editable"] is True
+    assert inventory["single_symbol_position_limit"]["editable"] is True
+    assert inventory["single_symbol_position_limit"]["value"] == 800000.0
     assert inventory["state_stale_after_seconds"]["editable"] is False
     assert inventory["xtquant.account_type"]["value"] == "CREDIT"
 
@@ -157,6 +160,7 @@ def test_update_config_persists_thresholds_that_snapshot_service_consumes():
         {
             "allow_open_min_bail": 900000,
             "holding_only_min_bail": 400000,
+            "single_symbol_position_limit": 950000,
             "updated_by": "pytest",
         }
     )
@@ -170,8 +174,10 @@ def test_update_config_persists_thresholds_that_snapshot_service_consumes():
     assert repository.upserted_config["thresholds"] == {
         "allow_open_min_bail": 900000.0,
         "holding_only_min_bail": 400000.0,
+        "single_symbol_position_limit": 950000.0,
     }
     assert result["thresholds"]["allow_open_min_bail"] == 900000.0
+    assert result["thresholds"]["single_symbol_position_limit"] == 950000.0
     assert state["state"] == HOLDING_ONLY
 
 
@@ -205,6 +211,7 @@ def test_update_config_rejects_invalid_threshold_order():
         ("allow_open_min_bail", "nan"),
         ("allow_open_min_bail", "inf"),
         ("holding_only_min_bail", "-inf"),
+        ("single_symbol_position_limit", "nan"),
     ],
 )
 def test_update_config_rejects_non_finite_threshold_values(field, value):
@@ -221,6 +228,7 @@ def test_update_config_rejects_non_finite_threshold_values(field, value):
     payload = {
         "allow_open_min_bail": 800000,
         "holding_only_min_bail": 100000,
+        "single_symbol_position_limit": 800000,
     }
     payload[field] = value
 
@@ -240,6 +248,7 @@ def test_get_config_falls_back_to_defaults_for_non_finite_thresholds():
         "thresholds": {
             "allow_open_min_bail": "nan",
             "holding_only_min_bail": "inf",
+            "single_symbol_position_limit": "nan",
         },
     }
     service = PositionManagementDashboardService(
@@ -253,6 +262,7 @@ def test_get_config_falls_back_to_defaults_for_non_finite_thresholds():
 
     assert payload["thresholds"]["allow_open_min_bail"] == 800000.0
     assert payload["thresholds"]["holding_only_min_bail"] == 100000.0
+    assert payload["thresholds"]["single_symbol_position_limit"] == 800000.0
 
 
 def test_dashboard_marks_threshold_change_as_pending_refresh_when_state_is_fresh():
@@ -267,6 +277,7 @@ def test_dashboard_marks_threshold_change_as_pending_refresh_when_state_is_fresh
         "thresholds": {
             "allow_open_min_bail": 900000.0,
             "holding_only_min_bail": 400000.0,
+            "single_symbol_position_limit": 950000.0,
         },
         "updated_at": "2026-03-07T12:00:18+08:00",
         "updated_by": "pytest",
