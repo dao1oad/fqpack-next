@@ -25,8 +25,8 @@ def _load_cli_modules(monkeypatch):
         sys.modules, "freshquant.data.etf_adj_sync", etf_adj_sync_module
     )
 
-    import freshquant.command.etf as etf_command_module
     import freshquant.cli as cli_module
+    import freshquant.command.etf as etf_command_module
 
     return importlib.reload(etf_command_module), importlib.reload(cli_module), calls
 

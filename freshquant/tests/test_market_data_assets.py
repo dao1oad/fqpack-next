@@ -1,8 +1,7 @@
 import importlib.util
 import sys
 from pathlib import Path
-from types import SimpleNamespace
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 
 def _build_dagster_stub():

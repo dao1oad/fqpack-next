@@ -48,6 +48,7 @@ def etf_list_save_command(engine):
     except Exception as e:
         click.echo(f"Error saving list: {str(e)}", err=True)
 
+
 @click.group(name="etf.day")
 def etf_day_command_group():
     pass
@@ -60,6 +61,7 @@ def etf_day_save_command(engine):
         QA_SU_save_etf_day(engine)
     except Exception as e:
         click.echo(f"Error saving day: {str(e)}", err=True)
+
 
 @click.group(name="etf.min")
 def etf_min_command_group():

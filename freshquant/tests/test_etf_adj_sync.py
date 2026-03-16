@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pandas as pd
 
@@ -35,9 +36,17 @@ class FakeCollection:
         for document in self.documents:
             matched = True
             for key, expected in query.items():
-                if isinstance(expected, dict) and "$gte" in expected and "$lte" in expected:
+                if (
+                    isinstance(expected, dict)
+                    and "$gte" in expected
+                    and "$lte" in expected
+                ):
                     value = document.get(key)
-                    if value is None or value < expected["$gte"] or value > expected["$lte"]:
+                    if (
+                        value is None
+                        or value < expected["$gte"]
+                        or value > expected["$lte"]
+                    ):
                         matched = False
                         break
                 elif document.get(key) != expected:
@@ -87,7 +96,7 @@ class FakeDb:
 
 
 class FakeTdxApi:
-    payload_by_code = {}
+    payload_by_code: dict[str, list[dict[str, Any]]] = {}
 
     def connect(self, ip, port, time_out=0.7):
         return self
@@ -124,7 +133,9 @@ def test_sync_etf_xdxr_all_preserves_existing_docs_when_source_returns_empty(
 
     monkeypatch.setattr(etf_adj_sync, "_ensure_indexes", lambda db: None)
     monkeypatch.setattr(
-        etf_adj_sync, "_pick_hq_host", lambda timeout=0.7: etf_adj_sync.TdxHqHost("fake", "127.0.0.1", 7709)
+        etf_adj_sync,
+        "_pick_hq_host",
+        lambda timeout=0.7: etf_adj_sync.TdxHqHost("fake", "127.0.0.1", 7709),
     )
     FakeTdxApi.payload_by_code = {"512000": []}
     monkeypatch.setattr(etf_adj_sync, "_import_pytdx", lambda: (FakeTdxApi, []))
@@ -163,7 +174,9 @@ def test_sync_etf_xdxr_all_replaces_docs_when_source_returns_events(monkeypatch)
 
     monkeypatch.setattr(etf_adj_sync, "_ensure_indexes", lambda db: None)
     monkeypatch.setattr(
-        etf_adj_sync, "_pick_hq_host", lambda timeout=0.7: etf_adj_sync.TdxHqHost("fake", "127.0.0.1", 7709)
+        etf_adj_sync,
+        "_pick_hq_host",
+        lambda timeout=0.7: etf_adj_sync.TdxHqHost("fake", "127.0.0.1", 7709),
     )
     FakeTdxApi.payload_by_code = {
         "512800": [
