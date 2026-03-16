@@ -47,6 +47,13 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/position-management/dashboard`
 - `/api/position-management/config`
 
+### `subject-management`
+
+- `/api/subject-management/overview`
+- `/api/subject-management/<symbol>`
+- `/api/subject-management/<symbol>/must-pool`
+- `/api/subject-management/<symbol>/guardian-buy-grid`
+
 ### `system-config`
 
 - `/api/system-config/dashboard`
@@ -79,6 +86,7 @@ python -m freshquant.rear.api_server --port 5000
 
 - `/api/runtime/health/summary` 固定返回核心组件全集；没有最新 health 数据时返回 `status=unknown`、`heartbeat_age_s=null`、`is_placeholder=true`
 - 仓位管理页面使用独立 `/api/position-management/*` 读模型接口，因为它需要同时返回配置 inventory、effective state、holding scope 和规则矩阵
+- 标的管理页面使用独立 `/api/subject-management/*` 聚合接口，把 `must_pool / guardian_buy_grid / takeprofit / buy lot stoploss / 运行态摘要` 收口到同一页；账户级仓位门禁只读联动展示，不在该页写入
 - 系统设置页面使用独立 `/api/system-config/*` 接口，明确区分 Bootstrap 文件配置与 Mongo 系统设置
 - Runtime API 只读原始日志与聚合视图，不承担修复动作
 
@@ -150,6 +158,7 @@ python -m freshquant.initialize
 - `/gantt/stocks/:plateKey`
 - `/order-management`
 - `/position-management`
+- `/subject-management`
 - `/system-settings`
 - `/tpsl`
 - `/runtime-observability`
