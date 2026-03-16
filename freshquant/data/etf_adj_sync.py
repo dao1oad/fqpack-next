@@ -128,6 +128,7 @@ def sync_etf_xdxr_all(
     db=DBQuantAxis,
     codes: Optional[Iterable[str]] = None,
     timeout: float = 0.7,
+    preserve_on_empty: bool = True,
 ) -> dict:
     """
     同步 ETF 除权/拆分事件到 quantaxis.etf_xdxr。
@@ -158,6 +159,7 @@ def sync_etf_xdxr_all(
     ok = 0
     failed = 0
     empty = 0
+    preserved = 0
 
     api = TdxHq_API()
     with api.connect(host.ip, host.port, time_out=timeout):
@@ -167,8 +169,16 @@ def sync_etf_xdxr_all(
                 raw = api.get_xdxr_info(market, code)
                 df = api.to_df(raw) if raw else pd.DataFrame()
                 if df is None or len(df) == 0:
-                    coll.delete_many({"code": code})
-                    empty += 1
+                    existing_docs = list(
+                        coll.find({"code": code}, {"_id": 0, "code": 1}).sort(
+                            "date", -1
+                        )
+                    )
+                    if existing_docs and preserve_on_empty:
+                        preserved += 1
+                    else:
+                        coll.delete_many({"code": code})
+                        empty += 1
                     continue
 
                 for col in ["year", "month", "day", "category"]:
@@ -213,10 +223,16 @@ def sync_etf_xdxr_all(
 
             if i % 200 == 0:
                 logger.info(
-                    f"etf_xdxr progress: {i}/{len(code_list)} ok={ok} empty={empty} failed={failed}"
+                    f"etf_xdxr progress: {i}/{len(code_list)} ok={ok} empty={empty} preserved={preserved} failed={failed}"
                 )
 
-    return {"total": len(code_list), "ok": ok, "empty": empty, "failed": failed}
+    return {
+        "total": len(code_list),
+        "ok": ok,
+        "empty": empty,
+        "preserved": preserved,
+        "failed": failed,
+    }
 
 
 def sync_etf_adj_all(

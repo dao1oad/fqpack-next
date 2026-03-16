@@ -88,6 +88,33 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 处理：
 - 重建 API：`docker compose -f docker/compose.parallel.yaml up -d --build fq_apiserver`
 
+## ETF 前复权错误
+
+现象：
+- ETF 在页面上跨扩缩股日出现价格断层
+- 例如事件日后 close 约为事件日前的一半，但事件日前没有按前复权回落
+
+先检查：
+- `python -m freshquant.cli etf.xdxr save --code 512000`
+- `python -m freshquant.cli etf.adj save --code 512000`
+- `python -m freshquant.cli etf.xdxr save --code 512800`
+- `python -m freshquant.cli etf.adj save --code 512800`
+- 查询 `quantaxis.etf_xdxr` 是否存在 `category=11` / `suogu`
+- 查询 `quantaxis.etf_adj` 是否在事件日前生成了 `adj=0.5` 这类因子
+- 请求 `/api/stock_data?period=1d&symbol=512000&endDate=2025-08-08`
+
+常见根因：
+- `quantaxis.etf_xdxr` 缺失扩缩股事件，导致 `etf_adj` 整段生成成 `1.0`
+- ETF 历史库已更新，但没有重跑 `etf_xdxr -> etf_adj`
+- 旧实现把上游空响应当真，单次同步把已有 `etf_xdxr` 清空
+
+处理：
+- 优先重跑 `etf.xdxr` 和 `etf.adj`
+- 如果是全市场历史缺口，执行一次 ETF 全量回填：
+  - `python -m freshquant.cli etf.xdxr save`
+  - `python -m freshquant.cli etf.adj save`
+- 如果库里 `etf_adj` 已正确，而页面仍错误，再查 `/api/stock_data` 所在运行面是否仍在读旧库或旧容器
+
 ## Docker API 报 `fq_mongodb:27027`
 
 现象：
