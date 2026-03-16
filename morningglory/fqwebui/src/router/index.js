@@ -17,6 +17,7 @@ const GanttShouban30Phase1 = () => import('../views/GanttShouban30Phase1.vue')
 const OrderManagement = () => import('../views/OrderManagement.vue')
 const PositionManagement = () => import('../views/PositionManagement.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
+const SubjectManagement = () => import('../views/SubjectManagement.vue')
 const TpslManagement = () => import('../views/TpslManagement.vue')
 const SystemSettings = () => import('../views/SystemSettings.vue')
 
@@ -97,6 +98,11 @@ const routes = [
     path: '/runtime-observability',
     name: 'runtime-observability',
     component: RuntimeObservability
+  }),
+  withRouteTitle({
+    path: '/subject-management',
+    name: 'subject-management',
+    component: SubjectManagement
   }),
   withRouteTitle({
     path: '/system-settings',

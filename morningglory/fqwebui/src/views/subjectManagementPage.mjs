@@ -77,9 +77,7 @@ export const createSubjectManagementPageController = ({
   })
 
   const holdingCount = computedImpl(() => state.overviewRows.filter((row) => row.position_quantity > 0).length)
-  const activeStoplossCount = computedImpl(() => {
-    return state.overviewRows.filter((row) => String(row.stoplossSummaryLabel || '').split('/')[0].trim() !== '0').length
-  })
+  const activeStoplossCount = computedImpl(() => state.overviewRows.filter((row) => row.hasActiveStoploss).length)
 
   const syncStoplossDrafts = (rows = []) => {
     for (const key of Object.keys(state.stoplossDrafts)) {

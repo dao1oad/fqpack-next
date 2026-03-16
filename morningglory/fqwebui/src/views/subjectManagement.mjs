@@ -135,6 +135,14 @@ export const buildOverviewRows = (rows = []) => {
       const stoploss = row?.stoploss || {}
       const runtime = row?.runtime || {}
       const takeprofitSummary = buildTakeprofitSummary(row?.takeprofit?.tiers || [])
+      const activeStoplossCount = toNumber(stoploss?.active_count)
+      const openBuyLotCount = toNumber(stoploss?.open_buy_lot_count)
+      const hasMustPoolConfig = Boolean(
+        mustPool.category
+        || mustPool.stop_loss_price !== null
+        || mustPool.initial_lot_amount !== null
+        || mustPool.lot_amount !== null,
+      )
       return {
         ...row,
         symbol: toText(row?.symbol),
@@ -158,13 +166,18 @@ export const buildOverviewRows = (rows = []) => {
           `常 ${formatInteger(mustPool.lot_amount)}`,
           mustPool.forever ? '永久' : '普通',
         ].join(' / '),
-        stoplossSummaryLabel: `${toNumber(stoploss?.active_count)} / ${toNumber(stoploss?.open_buy_lot_count)}`,
+        stoplossSummaryLabel: `${activeStoplossCount} / ${openBuyLotCount}`,
         runtimeSummaryLabel: [
           `${toNumber(runtime?.position_quantity)} 股`,
           toText(runtime?.last_hit_level) || '-',
           toText(runtime?.last_trigger_time) || '-',
         ].join(' / '),
         position_quantity: toNumber(runtime?.position_quantity),
+        stoplossActiveCount: activeStoplossCount,
+        openBuyLotCount,
+        hasMustPoolConfig,
+        hasTakeprofitConfig: Array.isArray(row?.takeprofit?.tiers) && row.takeprofit.tiers.length > 0,
+        hasActiveStoploss: activeStoplossCount > 0,
         has_position: toNumber(runtime?.position_quantity) > 0,
       }
     })
