@@ -1481,10 +1481,25 @@ test('buildTraceListSummary respects already filtered component slices', () => {
   ])
 })
 
-test('runtime observability global trace uses dense list container instead of stacked cards', async () => {
+test('runtime observability trace mode uses dense ledger layout instead of trace feed cards', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /trace-feed-list/)
-  assert.match(content, /trace-feed-row/)
-  assert.doesNotMatch(content, /recent-feed-item--stacked/)
+  assert.match(content, /runtime-ledger runtime-trace-ledger/)
+  assert.match(content, /runtime-detail-tabs/)
+  assert.match(content, /trace-step-ledger/)
+  assert.match(content, /buildTraceLedgerRows/)
+  assert.match(content, /buildTraceStepLedgerRows/)
+  assert.match(content, /buildIdentityStrip/)
+  assert.doesNotMatch(content, /trace-feed-row/)
+  assert.doesNotMatch(content, /trace-flow-strip/)
+  assert.doesNotMatch(content, /trace-group-card/)
+})
+
+test('runtime observability event mode uses dense ledger layout instead of event feed cards', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /runtime-ledger runtime-event-ledger/)
+  assert.match(content, /event-detail-tabs/)
+  assert.match(content, /buildEventLedgerRows/)
+  assert.doesNotMatch(content, /event-feed-row/)
 })
