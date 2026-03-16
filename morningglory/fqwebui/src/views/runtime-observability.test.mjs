@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import * as runtimeObservability from './runtimeObservability.mjs'
 
 import {
@@ -1211,4 +1212,12 @@ test('buildTraceListSummary respects already filtered component slices', () => {
   assert.deepEqual(summary.components, [
     { component: 'order_submit', issue_count: 2, trace_count: 1 },
   ])
+})
+
+test('runtime observability global trace uses dense list container instead of stacked cards', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /trace-feed-list/)
+  assert.match(content, /trace-feed-row/)
+  assert.doesNotMatch(content, /recent-feed-item--stacked/)
 })

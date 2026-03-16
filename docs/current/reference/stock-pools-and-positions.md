@@ -53,6 +53,11 @@
 - `/stock-control` 的 `must_pools买入信号`
   - `stock_signals`
   - 条件是 `position=BUY_LONG`、`is_holding=False`，且 code 当前仍在 `must_pool`
+- `/stock-control` 当前页面布局
+  - 左侧上半区展示“持仓股信号”
+  - 左侧下半区展示“must_pools买入信号”
+  - 右侧展示“stock_pools模型信号”
+  - 原“持仓股列表”已从该页移除
 - `/stock-control` 的 `stock_pools模型信号`
   - `realtime_screen_multi_period`
   - 展示 `datetime`、`created_at`、`code`、`name`、`period`、`model`、`close`、`stop_loss_price`、`source`

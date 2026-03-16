@@ -185,6 +185,12 @@
 - Bootstrap 文件配置
 - Mongo 系统设置
 
+页面当前使用固定视口工作台：
+
+- 左侧编辑区保持表单编辑能力
+- 右侧摘要、参数状态和策略信息统一压缩为高密度列表
+- 页面内使用局部滚动，不再依赖浏览器页面滚动
+
 `guardian.stock.threshold.*` 与 `guardian.stock.grid_interval.*` 保留。
 旧 SMTP / 邮件收件人配置不再进入新系统正式设置面。
 

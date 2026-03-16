@@ -1,7 +1,66 @@
-.stock-control-main {
-    margin 0 auto
-    h1{
-        text-align center
-    }
-}
+.stock-control-shell
+  display flex
+  flex-direction column
+  height 100vh
+  height 100dvh
+  overflow hidden
+  background #f5f7fa
+
+.stock-control-body
+  display grid
+  grid-template-columns minmax(0, 1fr) minmax(0, 1fr)
+  gap 12px
+  flex 1 1 auto
+  min-height 0
+  overflow hidden
+  padding 0 16px 16px
+
+.monitor-column
+  display flex
+  flex-direction column
+  gap 12px
+  min-height 0
+  overflow hidden
+
+.monitor-panel
+  display flex
+  flex-direction column
+  min-height 0
+  border 1px solid #ebeef5
+  border-radius 8px
+  background #fff
+
+.monitor-panel--full
+  flex 1 1 auto
+
+.monitor-column--signals .monitor-panel
+  flex 1 1 50%
+
+.monitor-panel__head
+  padding 12px 14px 8px
+  border-bottom 1px solid #f0f2f5
+
+  h2
+    margin 0
+    font-size 15px
+    font-weight 600
+    color #303133
+
+  p
+    margin 4px 0 0
+    color #909399
+    font-size 12px
+
+.monitor-panel__body
+  flex 1 1 auto
+  min-height 0
+  overflow auto
+
+@media (max-width: 1280px)
+  .stock-control-body
+    grid-template-columns 1fr
+    overflow auto
+
+  .monitor-column--signals .monitor-panel
+    flex 1 1 auto
 
