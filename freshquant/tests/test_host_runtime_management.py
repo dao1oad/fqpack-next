@@ -16,6 +16,13 @@ def test_host_runtime_ctl_normalizes_comma_separated_surfaces() -> None:
     assert "-split ','" in text
 
 
+def test_host_runtime_ctl_waits_for_settled_surfaces_after_service_recovery() -> None:
+    text = Path("script/fqnext_host_runtime_ctl.ps1").read_text(encoding="utf-8")
+
+    assert "wait-settled" in text
+    assert "WasRecovered" in text
+
+
 def test_install_fqnext_supervisord_service_uses_delayed_auto_start() -> None:
     text = Path("script/install_fqnext_supervisord_service.ps1").read_text(
         encoding="utf-8"

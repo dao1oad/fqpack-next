@@ -76,17 +76,26 @@ function Ensure-SupervisorServiceRunning {
     }
 
     if ($service.Status -eq 'Running') {
-        return $service
+        return [pscustomobject]@{
+            Service = $service
+            WasRecovered = $false
+        }
     }
 
     if (Test-IsElevatedSession) {
         Start-Service -Name $ServiceName
-        return Wait-ServiceRunning -ServiceName $ServiceName -TimeoutSeconds $TimeoutSeconds
+        return [pscustomobject]@{
+            Service = (Wait-ServiceRunning -ServiceName $ServiceName -TimeoutSeconds $TimeoutSeconds)
+            WasRecovered = $true
+        }
     }
 
     if ($AllowBridge -and (Test-Path $invokeBridgeScript)) {
         & $invokeBridgeScript -TaskName $TaskName -ServiceName $ServiceName -TimeoutSeconds ([int][Math]::Ceiling($TimeoutSeconds))
-        return Wait-ServiceRunning -ServiceName $ServiceName -TimeoutSeconds $TimeoutSeconds
+        return [pscustomobject]@{
+            Service = (Wait-ServiceRunning -ServiceName $ServiceName -TimeoutSeconds $TimeoutSeconds)
+            WasRecovered = $true
+        }
     }
 
     throw "Supervisor service '$ServiceName' is not Running and no admin bridge was used."
@@ -110,7 +119,7 @@ function Invoke-HostRuntimePython {
     foreach ($surface in $resolvedSurfaces) {
         $arguments += @('--surface', $surface)
     }
-    if ($Command -eq 'restart-surfaces') {
+    if ($Command -in @('restart-surfaces', 'wait-settled')) {
         $arguments += @('--timeout-seconds', [string]$TimeoutSeconds)
     }
 
@@ -138,10 +147,12 @@ switch ($Mode) {
         exit 0
     }
     'EnsureSupervisorService' {
-        $service = Ensure-SupervisorServiceRunning -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds -AllowBridge:$BridgeIfServiceUnavailable
+        $result = Ensure-SupervisorServiceRunning -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds -AllowBridge:$BridgeIfServiceUnavailable
+        $service = $result.Service
         [ordered]@{
             service_name = $service.Name
             service_status = [string]$service.Status
+            was_recovered = [bool]$result.WasRecovered
         } | ConvertTo-Json -Depth 4
         exit 0
     }
@@ -150,7 +161,10 @@ switch ($Mode) {
         exit 0
     }
     'EnsureServiceAndRestartSurfaces' {
-        Ensure-SupervisorServiceRunning -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds -AllowBridge:$BridgeIfServiceUnavailable | Out-Null
+        $result = Ensure-SupervisorServiceRunning -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds -AllowBridge:$BridgeIfServiceUnavailable
+        if ($result.WasRecovered) {
+            Invoke-HostRuntimePython -Command 'wait-settled' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
+        }
         Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
         exit 0
     }
