@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SYMPHONY_START_SCRIPT = (
     REPO_ROOT / "runtime" / "symphony" / "scripts" / "start_freshquant_symphony.ps1"
 )
-HOST_ENVS_CONF = Path("D:/fqpack/config/envs.conf")
+HOST_ENVS_CONF = Path(os.environ.get("FQ_HOST_ENVS_CONF", "D:/fqpack/config/envs.conf"))
 
 
 def test_start_freshquant_symphony_script_does_not_forward_proxy_env_vars() -> None:
@@ -22,6 +24,9 @@ def test_start_freshquant_symphony_script_does_not_forward_proxy_env_vars() -> N
 
 
 def test_host_runtime_envs_clear_all_proxy_variants() -> None:
+    if not HOST_ENVS_CONF.exists():
+        pytest.skip(f"host env file not available: {HOST_ENVS_CONF}")
+
     text = HOST_ENVS_CONF.read_text(encoding="utf-8")
 
     for key in (

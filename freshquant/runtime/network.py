@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-from threading import RLock
 from contextlib import contextmanager
+from threading import RLock
 from typing import Iterator
 
 PROXY_ENV_KEYS = (
