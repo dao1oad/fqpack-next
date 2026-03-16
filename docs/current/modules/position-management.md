@@ -12,7 +12,6 @@
   - `freshquant.position_management.snapshot_service.PositionSnapshotService`
   - `freshquant.position_management.service.PositionManagementService`
   - `freshquant.position_management.symbol_position_service.SingleSymbolPositionService`
-  - `freshquant.position_management.symbol_position_listener.SingleSymbolPositionListener`
   - `freshquant.position_management.dashboard_service.PositionManagementDashboardService`
 - Web UI
   - `/position-management`
@@ -25,6 +24,7 @@
 
 - XT 资产/持仓快照
 - XTData producer `QUEUE:BAR_CLOSE:*`
+- XTData `StrategyConsumer.handle_bar_close`
 - projected positions / open buy lots
 - Mongo
 - Guardian / Order Submit
@@ -38,7 +38,7 @@
 
 单标的链路：
 
-`Redis 1m BAR_CLOSE + xt_positions + projected positions -> SingleSymbolPositionService -> pm_symbol_position_snapshots -> evaluate_strategy_order / tpsl / subject-management`
+`StrategyConsumer.handle_bar_close(1m) + xt_positions + projected positions -> SingleSymbolPositionService -> pm_symbol_position_snapshots -> evaluate_strategy_order / tpsl / subject-management`
 
 提交门禁发生在 Order Management 接收策略单时。卖单原则上总是允许；买单先看账户级状态，再看单标的实时仓位上限。
 
@@ -137,7 +137,7 @@
 python -m freshquant.position_management.worker --interval 3
 ```
 
-- 当前 worker 会同时做账户级快照刷新和 `1m BAR_CLOSE` 监听。
+- 当前 worker 只负责账户级快照刷新；单标的实时仓位快照由 XTData `StrategyConsumer` 在消费 `1m BAR_CLOSE` 时同步刷新，worker 启动时只做一次 fallback 种子刷新。
 - 涉及门禁语义时，必须同时验证 Guardian 策略单与手工/API 单。
 
 ## 排障点
@@ -159,7 +159,7 @@ python -m freshquant.position_management.worker --interval 3
 ### 单标的实时仓位不刷新
 
 - 检查 `position_management.worker` 是否在跑
-- 检查 Redis `QUEUE:BAR_CLOSE:*` 是否有 `1m` 事件
+- 检查 XTData `StrategyConsumer` 是否正常消费 `QUEUE:BAR_CLOSE:*` 的 `1m` 事件
 - 检查 `pm_symbol_position_snapshots` 最近更新时间
 - 检查目标 symbol 是否能从 `xt_positions` 或 projected positions 解析到数量
 

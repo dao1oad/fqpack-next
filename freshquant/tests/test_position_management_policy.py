@@ -243,3 +243,37 @@ def test_sell_is_not_blocked_by_symbol_position_limit():
 
     assert decision.allowed is True
     assert decision.reason_code == "sell_allowed"
+
+
+def test_zero_symbol_position_limit_is_preserved_and_blocks_new_buy():
+    repository = FakeDecisionRepository()
+    repository.config_doc = {
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 0.0,
+        }
+    }
+    service = PositionManagementService(
+        repository=repository,
+        holding_codes_provider=lambda: [],
+        now_provider=_fixed_now,
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 1.0,
+            "market_value_source": "bar_close_x_quantity",
+            "quantity_source": "xt_positions",
+        },
+    )
+
+    decision = service.evaluate_strategy_order(
+        payload={"source": "strategy", "action": "buy", "symbol": "000001"},
+        current_state={
+            "state": ALLOW_OPEN,
+            "evaluated_at": "2026-03-07T12:00:00+08:00",
+        },
+    )
+
+    assert decision.allowed is False
+    assert decision.reason_code == "symbol_position_limit_blocked"
+    assert decision.meta["symbol_position_limit"] == 0.0

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import threading
 import time
 
 from freshquant.position_management.snapshot_service import PositionSnapshotService
@@ -14,18 +13,12 @@ def run_once(service=None):
 
 def run_forever(
     service=None,
-    symbol_listener=None,
+    symbol_position_service=None,
     interval_seconds=3,
     sleep_fn=time.sleep,
-    thread_factory=threading.Thread,
 ):
-    if symbol_listener is not None:
-        listener_thread = thread_factory(
-            target=symbol_listener.run_forever,
-            daemon=True,
-            name="PositionSymbolListener",
-        )
-        listener_thread.start()
+    if symbol_position_service is not None:
+        symbol_position_service.refresh_all_from_positions()
     while True:
         run_once(service=service)
         sleep_fn(interval_seconds)
@@ -44,13 +37,13 @@ def main(argv=None, service=None):
     if args.once:
         run_once(service=service)
         return 0
-    from freshquant.position_management.symbol_position_listener import (
-        SingleSymbolPositionListener,
+    from freshquant.position_management.symbol_position_service import (
+        SingleSymbolPositionService,
     )
 
     run_forever(
         service=service,
-        symbol_listener=SingleSymbolPositionListener(),
+        symbol_position_service=SingleSymbolPositionService(),
         interval_seconds=args.interval,
     )
     return 0

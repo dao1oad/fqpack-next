@@ -210,10 +210,12 @@ class PositionManagementService:
             else {}
         )
         thresholds = (config or {}).get("thresholds", {}) or {}
-        return (
-            _safe_float_or_none(thresholds.get("single_symbol_position_limit"))
-            or self.default_single_symbol_position_limit
+        resolved_limit = _safe_float_or_none(
+            thresholds.get("single_symbol_position_limit")
         )
+        if resolved_limit is None:
+            return self.default_single_symbol_position_limit
+        return resolved_limit
 
     def _emit_runtime(
         self,

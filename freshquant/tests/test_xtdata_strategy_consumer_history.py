@@ -300,6 +300,61 @@ def test_handle_bar_close_stores_stock_realtime_as_raw_bar(monkeypatch):
     assert captured["records"][0]["close"] == 10.5
 
 
+def test_handle_bar_close_refreshes_symbol_position_snapshot_on_1min(monkeypatch):
+    now_dt = datetime.now(tz=cfg.TZ).replace(second=0, microsecond=0)
+
+    class DummyScheduler:
+        def update(self, _key, _meta) -> None:
+            return None
+
+    class FakeSymbolPositionService:
+        def __init__(self):
+            self.calls: list[BarCloseEvent] = []
+
+        def refresh_from_bar_close(self, event):
+            self.calls.append(event)
+            return {"symbol": "000001"}
+
+    monkeypatch.setattr(sc, "upsert_realtime_bars", lambda **_kwargs: 1)
+
+    consumer = cast(Any, object.__new__(sc.StrategyConsumer))
+    consumer.max_bars = 32
+    consumer._is_index_like = lambda _code: False
+    consumer._lock = threading.Lock()
+    consumer._backfill_lock = threading.Lock()
+    consumer._backfilling_codes = set()
+    consumer._known_codes = {"sz000001"}
+    consumer._last_bar_ts = {}
+    consumer._windows = {}
+    consumer._dirty_latest = {}
+    consumer._catchup_mode = False
+    consumer._adj_factor_cache = {}
+    consumer._heartbeat_state = sc.ConsumerHeartbeatState(window_s=300.0)
+    consumer._scheduler = DummyScheduler()
+    consumer._model_ids_for = lambda _code, _period: []
+    consumer._maybe_trigger_backfill = lambda **_kwargs: False
+    consumer._symbol_position_service = FakeSymbolPositionService()
+
+    consumer.handle_bar_close(
+        BarCloseEvent(
+            code="sz000001",
+            period="1min",
+            data={
+                "time": int(now_dt.timestamp()),
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.5,
+                "close": 10.5,
+                "volume": 1000.0,
+                "amount": 10000.0,
+            },
+        )
+    )
+
+    assert len(consumer._symbol_position_service.calls) == 1
+    assert consumer._symbol_position_service.calls[0].period == "1min"
+
+
 def test_load_window_from_db_reads_index_like_history_without_external_quantaxis(
     monkeypatch,
 ):
