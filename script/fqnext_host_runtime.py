@@ -104,7 +104,10 @@ def resolve_effective_timeout_seconds(
     if command not in TIMEOUT_FLOOR_COMMANDS:
         return requested_timeout_seconds
     timeout_floor = max(
-        (SURFACE_MIN_TIMEOUT_SECONDS.get(normalize_surface(surface), 0.0) for surface in surfaces),
+        (
+            SURFACE_MIN_TIMEOUT_SECONDS.get(normalize_surface(surface), 0.0)
+            for surface in surfaces
+        ),
         default=0.0,
     )
     return max(requested_timeout_seconds, timeout_floor)
@@ -168,6 +171,20 @@ def build_status_entries(
     return entries
 
 
+def _coerce_int(value: object) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        return int(value)
+    raise TypeError(f"Expected int-compatible value, got {type(value).__name__}")
+
+
 def _snapshot_signature(
     infos: dict[str, dict[str, object]],
 ) -> tuple[tuple[str, str, int, int, int, int], ...]:
@@ -178,10 +195,10 @@ def _snapshot_signature(
             (
                 program,
                 str(info.get("statename", "")).upper(),
-                int(info.get("pid") or 0),
-                int(info.get("start") or 0),
-                int(info.get("stop") or 0),
-                int(info.get("exitstatus") or 0),
+                _coerce_int(info.get("pid")),
+                _coerce_int(info.get("start")),
+                _coerce_int(info.get("stop")),
+                _coerce_int(info.get("exitstatus")),
             )
         )
     return tuple(signature)
@@ -200,7 +217,9 @@ def wait_for_programs_settled(
     last_infos: dict[str, dict[str, object]] | None = None
 
     while time.time() < deadline:
-        current_infos = {program: get_process_info(server, program) for program in programs}
+        current_infos = {
+            program: get_process_info(server, program) for program in programs
+        }
         last_infos = current_infos
         states = {
             program: str(info.get("statename", "")).upper()
@@ -220,7 +239,9 @@ def wait_for_programs_settled(
         time.sleep(poll_interval_seconds)
 
     if last_infos is None:
-        raise RuntimeError("Programs did not return process info while waiting to settle")
+        raise RuntimeError(
+            "Programs did not return process info while waiting to settle"
+        )
     raise RuntimeError(
         "Programs did not settle; last states="
         + json.dumps(

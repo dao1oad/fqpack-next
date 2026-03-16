@@ -116,7 +116,9 @@ def test_resolve_effective_timeout_applies_market_data_floor() -> None:
     assert effective_timeout == 180.0
 
 
-def test_resolve_effective_timeout_keeps_requested_timeout_for_non_market_data() -> None:
+def test_resolve_effective_timeout_keeps_requested_timeout_for_non_market_data() -> (
+    None
+):
     module = load_module()
 
     effective_timeout = module.resolve_effective_timeout_seconds(
@@ -233,18 +235,28 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
     server = types.SimpleNamespace(
         supervisor=types.SimpleNamespace(
             stopProcess=lambda _name, _wait: True,
-            startProcess=lambda name, wait: start_calls.append((name, wait)) or True,
+            startProcess=None,
         )
     )
 
-    monkeypatch.setattr(module, "get_process_info", lambda _server, _name: next(process_infos))
+    def fake_start_process(name: str, wait: bool) -> bool:
+        start_calls.append((name, wait))
+        return True
+
+    server.supervisor.startProcess = fake_start_process
+
+    monkeypatch.setattr(
+        module, "get_process_info", lambda _server, _name: next(process_infos)
+    )
 
     def fake_wait_for_state(_server, _name, expected_state, timeout_seconds=0):
         if expected_state == "STOPPED":
             return {"statename": "EXITED", "pid": 0}
         running_wait_calls["value"] += 1
         if running_wait_calls["value"] == 1:
-            raise RuntimeError("Program fqnext_realtime_xtdata_producer did not reach RUNNING; last state=Exited")
+            raise RuntimeError(
+                "Program fqnext_realtime_xtdata_producer did not reach RUNNING; last state=Exited"
+            )
         return {"statename": "RUNNING", "pid": 22}
 
     monkeypatch.setattr(module, "wait_for_state", fake_wait_for_state)
