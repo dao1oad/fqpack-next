@@ -68,3 +68,41 @@ def test_summary_render_includes_host_and_docker_sections() -> None:
     assert "deployment_surfaces: api, web, order_management" in summary
     assert "docker_services: fq_apiserver, fq_webui" in summary
     assert "host_surfaces: order_management" in summary
+
+
+def test_shared_runtime_paths_expand_to_all_affected_surfaces() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=[
+            "freshquant/__init__.py",
+            "freshquant/runtime/network.py",
+            "freshquant/message/dingtalk.py",
+            "freshquant/trading/dt.py",
+            "morningglory/fqxtrade/fqxtrade/__init__.py",
+        ]
+    )
+
+    assert plan["deployment_surfaces"] == [
+        "api",
+        "dagster",
+        "market_data",
+        "guardian",
+        "position_management",
+        "tpsl",
+        "order_management",
+    ]
+    assert plan["docker_services"] == [
+        "fq_apiserver",
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+    ]
+    assert plan["host_surfaces"] == [
+        "market_data",
+        "guardian",
+        "position_management",
+        "tpsl",
+        "order_management",
+    ]
+    assert "fqnext_realtime_xtdata_consumer" in plan["host_programs"]
+    assert "fqnext_xtquant_broker" in plan["host_programs"]

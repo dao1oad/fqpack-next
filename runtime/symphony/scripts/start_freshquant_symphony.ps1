@@ -186,12 +186,17 @@ $elixirBin = Split-Path -Parent $mixPath
 $erlangBin = Split-Path -Parent $erlPath
 Add-PathPrefix -Directories @($gitBashBin, $codexShimBin, $elixirBin, $erlangBin)
 
-$proxyVars = @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'GITHUB_TOKEN', 'GH_TOKEN', 'FRESHQUANT_GITHUB_REPO', 'GITHUB_REPOSITORY')
-foreach ($name in $proxyVars) {
+$passthroughVars = @('GITHUB_TOKEN', 'GH_TOKEN', 'FRESHQUANT_GITHUB_REPO', 'GITHUB_REPOSITORY')
+foreach ($name in $passthroughVars) {
     $value = Get-EnvValue -Name $name
     if ($value) {
         [Environment]::SetEnvironmentVariable($name, $value, 'Process')
     }
+}
+
+$proxyEnvNames = @("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy")
+foreach ($name in $proxyEnvNames) {
+    [Environment]::SetEnvironmentVariable($name, '', 'Process')
 }
 
 [Environment]::SetEnvironmentVariable('SYMPHONY_WORKFLOW_PATH', $workflowPath, 'Process')

@@ -16,6 +16,22 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $pythonScript = Join-Path $repoRoot 'script\fqnext_host_runtime.py'
 $invokeBridgeScript = Join-Path $repoRoot 'script\invoke_fqnext_supervisord_restart_task.ps1'
 
+function Normalize-DeploymentSurfaces {
+    param([string[]]$Surfaces)
+
+    $normalized = [System.Collections.Generic.List[string]]::new()
+    foreach ($surface in @($Surfaces)) {
+        foreach ($token in @([string]$surface -split ',')) {
+            $trimmed = $token.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                $normalized.Add($trimmed)
+            }
+        }
+    }
+
+    return @($normalized)
+}
+
 function Test-IsElevatedSession {
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
@@ -88,8 +104,10 @@ function Invoke-HostRuntimePython {
         throw "Host runtime script not found: $pythonScript"
     }
 
+    $resolvedSurfaces = @(Normalize-DeploymentSurfaces -Surfaces $Surfaces)
+
     $arguments = @('-3.12', $pythonScript, '--config-path', $ResolvedConfigPath, $Command)
-    foreach ($surface in @($Surfaces)) {
+    foreach ($surface in $resolvedSurfaces) {
         $arguments += @('--surface', $surface)
     }
     if ($Command -eq 'restart-surfaces') {

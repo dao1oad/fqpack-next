@@ -269,7 +269,10 @@ function Get-AllKnownContainerNames {
 }
 
 function Resolve-ContainerName {
-    param($Entry)
+    param(
+        $Entry,
+        [string[]]$KnownNames = @()
+    )
 
     $value = Get-StringProperty -Object $Entry -PropertyNames @('Name', 'name', 'Names', 'names')
     if ([string]::IsNullOrWhiteSpace($value)) {
@@ -279,6 +282,20 @@ function Resolve-ContainerName {
     $normalized = $value.Trim()
     if ($normalized.StartsWith('/')) {
         $normalized = $normalized.TrimStart('/')
+    }
+
+    if (@($KnownNames).Count -gt 0) {
+        if ($KnownNames -contains $normalized) {
+            return $normalized
+        }
+
+        $orderedKnownNames = @($KnownNames | Sort-Object Length -Descending)
+        foreach ($knownName in $orderedKnownNames) {
+            $escapedName = [regex]::Escape($knownName)
+            if ($normalized -match "(?:^|[-_])$escapedName(?:[-_]\d+)?$") {
+                return $knownName
+            }
+        }
     }
 
     return $normalized
@@ -291,9 +308,21 @@ function Get-DockerSnapshot {
         return Convert-ToObjectArray (Read-JsonFile -Path $DockerSnapshotPath)
     }
 
+    $availableContainerNames = @(& docker ps -a --format '{{.Names}}' 2>$null)
     $snapshot = @()
     foreach ($name in $ContainerNames) {
-        $inspectJson = & docker inspect $name 2>$null
+        $inspectTarget = $name
+        if ($availableContainerNames -notcontains $name) {
+            $escapedName = [regex]::Escape($name)
+            foreach ($candidate in $availableContainerNames) {
+                if ($candidate -match "(?:^|[-_])$escapedName(?:[-_]\d+)?$") {
+                    $inspectTarget = $candidate
+                    break
+                }
+            }
+        }
+
+        $inspectJson = & docker inspect $inspectTarget 2>$null
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($inspectJson | Out-String))) {
             $snapshot += [pscustomobject]@{
                 Name = $name
@@ -302,7 +331,10 @@ function Get-DockerSnapshot {
             continue
         }
 
-        $snapshot += @(Convert-ToObjectArray ($inspectJson | ConvertFrom-Json))
+        foreach ($entry in @(Convert-ToObjectArray ($inspectJson | ConvertFrom-Json))) {
+            $entry.Name = $name
+            $snapshot += $entry
+        }
     }
 
     return $snapshot
@@ -343,7 +375,7 @@ function Normalize-DockerBaseline {
 
     $lookup = @{}
     foreach ($entry in @($Snapshot)) {
-        $name = Resolve-ContainerName -Entry $entry
+        $name = Resolve-ContainerName -Entry $entry -KnownNames $ContainerNames
         if ([string]::IsNullOrWhiteSpace($name)) {
             continue
         }
