@@ -5,6 +5,11 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
+const toFiniteNumber = (value) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 const readApiPayload = (response, key, fallback = null) => {
   if (response && typeof response === 'object') {
     if (response[key] !== undefined) return response[key]
@@ -31,6 +36,7 @@ export const buildOrderRows = (rows = []) => {
       request_id: toText(row?.request_id),
       broker_order_id: toText(row?.broker_order_id),
       symbol: toText(row?.symbol),
+      name: toText(row?.name),
       side: toText(row?.side),
       state: toText(row?.state),
       source: toText(row?.source),
@@ -90,6 +96,7 @@ export const buildOrderDetailViewModel = (detail = {}) => {
     request_id: toText(detail?.order?.request_id),
     broker_order_id: toText(detail?.order?.broker_order_id),
     symbol: toText(detail?.order?.symbol),
+    name: toText(detail?.order?.name),
     side: toText(detail?.order?.side),
     state: toText(detail?.order?.state),
     trace_id: toText(detail?.order?.trace_id),
@@ -160,3 +167,24 @@ export const createOrderManagementActions = (api) => ({
     return buildOrderStats(response)
   },
 })
+
+export const formatOrderPrice = (value) => {
+  const parsed = toFiniteNumber(value)
+  if (parsed === null) return toText(value) || '-'
+  return parsed.toFixed(3)
+}
+
+export const formatOrderQuantity = (value) => {
+  const parsed = toFiniteNumber(value)
+  if (parsed === null) return toText(value) || '-'
+  return Number.isInteger(parsed) ? String(parsed) : String(parsed)
+}
+
+export const formatOrderTimestamp = (value) => {
+  const text = toText(value)
+  if (!text) return '-'
+  const normalized = text.replace('T', ' ')
+  const withoutTimezone = normalized.replace(/([+-]\d{2}:\d{2}|Z)$/i, '')
+  const withoutFraction = withoutTimezone.replace(/\.\d+$/, '')
+  return withoutFraction || '-'
+}
