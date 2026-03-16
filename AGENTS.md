@@ -23,6 +23,15 @@
 - 当前部署：`docs/current/deployment.md`
 - 当前排障：`docs/current/troubleshooting.md`
 
+## 0.2.1 记忆自举
+
+- 若当前会话已经有 `FQ_MEMORY_CONTEXT_PATH` 且文件存在，先读该 context pack，再继续仓库探索。
+- 若是直接在 Codex app 中打开仓库的自由会话，且 `FQ_MEMORY_CONTEXT_PATH` 不存在或目标文件缺失：
+  - 先运行 `py -3.12 runtime/memory/scripts/bootstrap_freshquant_memory.py --repo-root . --service-root D:/fqpack/runtime/symphony-service`
+  - 读取返回 JSON 中的 `context_pack_path`
+  - 先读该 context pack，再继续通用 repo 扫描
+- 若 memory context 与 GitHub、`docs/current/**` 或真实 deploy 证据冲突，以正式真值为准。
+
 ## 0.3 部署硬规则
 
 - 代码更新后，受影响模块必须重新部署。

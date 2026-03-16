@@ -6,6 +6,7 @@ from pathlib import Path
 def test_current_docs_describe_memory_layer_contract() -> None:
     runtime_text = Path("docs/current/runtime.md").read_text(encoding="utf-8")
     architecture_text = Path("docs/current/architecture.md").read_text(encoding="utf-8")
+    interfaces_text = Path("docs/current/interfaces.md").read_text(encoding="utf-8")
     configuration_text = Path("docs/current/configuration.md").read_text(
         encoding="utf-8"
     )
@@ -28,9 +29,13 @@ def test_current_docs_describe_memory_layer_contract() -> None:
 
     assert "FQ_MEMORY_CONTEXT_PATH" in configuration_text
     assert "FQ_MEMORY_CONTEXT_ROLE" in configuration_text
+    assert "bootstrap_freshquant_memory.py" in architecture_text
+    assert "bootstrap_freshquant_memory.py" in runtime_text
+    assert "bootstrap_freshquant_memory.py" in interfaces_text
 
     assert "refresh_freshquant_memory.py" in troubleshooting_text
     assert "compile_freshquant_context_pack.py" in troubleshooting_text
+    assert "bootstrap_freshquant_memory.py" in troubleshooting_text
     assert "FQ_MEMORY_CONTEXT_PATH" in troubleshooting_text
     assert "FQ_MEMORY_CONTEXT_ROLE" in troubleshooting_text
     assert "cleanup-requests" in troubleshooting_text
@@ -50,6 +55,8 @@ def test_global_governance_allows_direct_pr_without_mandatory_issue() -> None:
 
     assert "轻量更新允许直接走 `feature branch -> PR`" in overview_text
     assert "Issue-managed" in overview_text
+    assert "bootstrap_freshquant_memory.py" in agents_text
+    assert "FQ_MEMORY_CONTEXT_PATH" in agents_text
 
 
 def test_troubleshooting_scopes_issue_state_machine_to_issue_managed_tasks() -> None:
@@ -70,12 +77,13 @@ def test_troubleshooting_scopes_issue_state_machine_to_issue_managed_tasks() -> 
 def test_cold_memory_workflow_rules_match_current_governance() -> None:
     workflow_text = Path(".codex/memory/workflow-rules.md").read_text(encoding="utf-8")
 
+    assert "工作流规则" in workflow_text
     assert "GitHub Issue" in workflow_text
     assert "GitHub PR + CI + merge gate" in workflow_text
-    assert "Issue body" in workflow_text
+    assert "执行合同" in workflow_text
     assert "Global Stewardship" in workflow_text
-    assert "follow-up issue" in workflow_text
-    assert "formal truth" in workflow_text
+    assert "后续 issue" in workflow_text
+    assert "正式真值" in workflow_text
 
     assert "Design Review" not in workflow_text
     assert "Draft PR" not in workflow_text
@@ -84,6 +92,8 @@ def test_cold_memory_workflow_rules_match_current_governance() -> None:
 
 def test_cold_memory_deploy_surfaces_cover_current_release_matrix() -> None:
     deploy_text = Path(".codex/memory/deploy-surfaces.md").read_text(encoding="utf-8")
+
+    assert "部署影响面" in deploy_text
 
     for expected in (
         "freshquant/rear/**",
@@ -101,10 +111,10 @@ def test_cold_memory_deploy_surfaces_cover_current_release_matrix() -> None:
         assert expected in deploy_text
 
     assert (
-        "`freshquant/position_management/**` -> redeploy API and restart the `position_management` host surface."
+        "`freshquant/position_management/**` -> 重部署 API，并重启 `position_management` 宿主机运行面。"
         in deploy_text
     )
     assert (
-        "`freshquant/tpsl/**` -> redeploy API and restart the `tpsl` host surface."
+        "`freshquant/tpsl/**` -> 重部署 API，并重启 `tpsl` 宿主机运行面。"
         in deploy_text
     )

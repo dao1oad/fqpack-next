@@ -1,10 +1,10 @@
-# Pitfalls
+# 常见陷阱
 
-- Do not treat merge as `Done`; deploy, health check, and cleanup still gate completion.
-- Do not let `Global Stewardship` create repair PRs; code defects become follow-up issues.
-- Do not force every small change through the issue state machine; direct `feature branch -> PR` is allowed outside Symphony-managed work.
-- Do not send post-merge deploy or runtime failures back to `Rework`; they belong to `Global Stewardship` follow-up handling.
-- Do not treat pending GitHub checks as `Rework`; `Merging` waits for GitHub truth to change.
-- Do not work directly on local `main`; use a feature branch and PR. If Symphony manages the task, use the deterministic issue branch.
-- Do not re-explore the whole repository after issue state, branch, and memory context are already known.
-- If memory context conflicts with fresh GitHub or runtime evidence, trust the formal source and refresh memory again.
+- 不要把 merge 误判成 `Done`；deploy、health check 和 cleanup 仍然是完成门槛。
+- 不要让 `Global Stewardship` 直接创建修复 PR；代码问题应进入后续 issue。
+- 不要把每个小改动都强行塞进 issue 状态机；`Symphony` 之外允许直接走 `feature branch -> PR`。
+- 不要把 merge 后的 deploy 或 runtime 故障回退到 `Rework`；它们属于 `Global Stewardship` 的后续处理范围。
+- 不要把 pending 的 GitHub checks 当成 `Rework`；`Merging` 应等待 GitHub 真值变化。
+- 不要直接在本地 `main` 上工作；必须使用 feature branch 和 PR。若任务由 `Symphony` 管理，则使用确定性的 issue branch。
+- 当 issue 状态、branch 和 memory context 已经明确后，不要重新全仓扫描整个仓库。
+- 如果 memory context 与最新 GitHub 或运行证据冲突，应以正式真值为准，并重新刷新 memory。
