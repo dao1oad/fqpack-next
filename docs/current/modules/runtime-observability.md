@@ -137,8 +137,10 @@ Guardian 当前 catalog 节点口径：
 - `trace_kind`
   - 当前至少包含：`guardian_signal`、`takeprofit`、`stoploss`、`external_reported`、`external_inferred`、`manual_api_order`、`unknown`
 - `trace_status`
-  - 当前至少包含：`open`、`completed`、`stalled`、`broken`
+  - 当前至少包含：`open`、`completed`、`failed`、`stalled`、`broken`
+  - 当最后一个有效 step 是异常 `error/failed` 节点时，Trace 会被判定为 `failed`
 - `break_reason`
+  - 异常终止时会形如 `unexpected_exception@component.node:ErrorType`
 - `first_ts`
 - `last_ts`
 - `duration_ms`
@@ -147,6 +149,13 @@ Guardian 当前 catalog 节点口径：
 - `step_count`
 - `slowest_step`
 - 每个 step 的 `offset_ms`、`delta_prev_ms`
+
+异常终止节点的 runtime payload 当前会保留：
+
+- `payload.error_type`
+- `payload.error_message`
+
+因此 `/runtime-observability` 不再只显示“停在上一跳”，而是直接显示真实异常节点和异常类型。
 
 ## 心跳口径
 

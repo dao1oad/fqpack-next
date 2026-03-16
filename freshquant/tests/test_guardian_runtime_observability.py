@@ -4,6 +4,7 @@ import sys
 import types
 
 import pendulum
+import pytest
 
 
 def _module(name: str, **attrs: object) -> types.ModuleType:
@@ -32,6 +33,10 @@ sys.modules.setdefault(
     _module(
         "redis",
         ConnectionPool=lambda **_kwargs: object(),
+        Redis=lambda **_kwargs: types.SimpleNamespace(
+            get=lambda *_args, **_kwargs: None,
+            set=lambda *_args, **_kwargs: True,
+        ),
         StrictRedis=lambda **_kwargs: types.SimpleNamespace(
             get=lambda *_args, **_kwargs: None,
             set=lambda *_args, **_kwargs: True,
@@ -335,6 +340,270 @@ def test_guardian_new_open_buy_cooldown_emits_structured_skip_finish(monkeypatch
     assert finish_event["decision_outcome"]["outcome"] == "skip"
     assert finish_event["reason_code"] == "new_open_cooldown_active"
     assert finish_event["status"] == "skipped"
+
+
+def test_guardian_scope_exception_emits_error_at_scope_node(monkeypatch):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: (_ for _ in ()).throw(
+            RuntimeError("holding scope backend unavailable")
+        ),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            exception=lambda *args, **kwargs: None,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="holding scope backend unavailable"):
+        guardian.on_signal(signal)
+
+    error_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "holding_scope_resolve" and event["status"] == "error"
+    )
+    assert error_event["reason_code"] == "unexpected_exception"
+    assert error_event["payload"]["error_type"] == "RuntimeError"
+    assert (
+        error_event["payload"]["error_message"] == "holding scope backend unavailable"
+    )
+    assert runtime_logger.events[-1] == error_event
+
+
+def test_guardian_holding_buy_unexpected_exception_emits_error_at_timing_check(
+    monkeypatch,
+):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_guardian_buy_grid_service",
+        lambda: FakeGuardianBuyGridService(),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
+        lambda _code: [
+            {
+                "date": None,
+                "time": None,
+                "price": 10.0,
+                "quantity": 100,
+            }
+        ],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            exception=lambda *args, **kwargs: None,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="None None"):
+        guardian.on_signal(signal)
+
+    error_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "timing_check" and event["status"] == "error"
+    )
+    assert error_event["reason_code"] == "unexpected_exception"
+    assert error_event["payload"]["error_type"] == "ValueError"
+    assert "None None" in error_event["payload"]["error_message"]
+    assert runtime_logger.events[-1] == error_event
+
+
+def test_guardian_new_open_buy_unexpected_exception_emits_error_at_quantity_check(
+    monkeypatch,
+):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_guardian_buy_grid_service",
+        lambda: types.SimpleNamespace(
+            build_new_open_decision=lambda *_args, **_kwargs: (
+                (_ for _ in ()).throw(RuntimeError("grid decision unavailable"))
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.queryMustPoolCodes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            exception=lambda *args, **kwargs: None,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="grid decision unavailable"):
+        guardian.on_signal(signal)
+
+    error_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "quantity_check" and event["status"] == "error"
+    )
+    assert error_event["reason_code"] == "unexpected_exception"
+    assert error_event["payload"]["error_type"] == "RuntimeError"
+    assert error_event["payload"]["error_message"] == "grid decision unavailable"
+    assert runtime_logger.events[-1] == error_event
+
+
+def test_guardian_buy_submit_unexpected_exception_emits_error_at_submit_intent(
+    monkeypatch,
+):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+    fire_time = signal["fire_time"]
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_guardian_buy_grid_service",
+        lambda: FakeGuardianBuyGridService(),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
+        lambda _code: [
+            {
+                "date": int(fire_time.subtract(minutes=1).format("YYYYMMDD")),
+                "time": fire_time.subtract(minutes=1).format("HH:mm:ss"),
+                "price": 10.0,
+                "quantity": 100,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.eval_stock_threshold_price",
+        lambda _code, _price: {"bot_river_price": 10.0, "top_river_price": 12.0},
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            exception=lambda *args, **kwargs: None,
+        ),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("submit failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="submit failed"):
+        guardian.on_signal(signal)
+
+    error_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "submit_intent" and event["status"] == "error"
+    )
+    assert error_event["reason_code"] == "unexpected_exception"
+    assert error_event["payload"]["error_type"] == "RuntimeError"
+    assert error_event["payload"]["error_message"] == "submit failed"
+    assert runtime_logger.events[-1] == error_event
+
+
+def test_guardian_sell_unexpected_exception_emits_error_and_failed_finish(monkeypatch):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+    signal["position"] = "SELL_SHORT"
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_guardian_buy_grid_service",
+        lambda: FakeGuardianBuyGridService(),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
+        lambda _code: [
+            {
+                "date": None,
+                "time": None,
+                "price": 10.0,
+                "quantity": 100,
+            }
+        ],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            exception=lambda *args, **kwargs: None,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="None None"):
+        guardian.on_signal(signal)
+
+    error_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "timing_check" and event["status"] == "error"
+    )
+    assert error_event["reason_code"] == "unexpected_exception"
+    assert error_event["payload"]["error_type"] == "ValueError"
+    assert "None None" in error_event["payload"]["error_message"]
+    assert runtime_logger.events[-1] == error_event
 
 
 def _make_signal():

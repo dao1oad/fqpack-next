@@ -23,6 +23,11 @@ from freshquant.order_management.projection.stock_fills import (
 )
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.tracking.service import OrderTrackingService
+from freshquant.runtime_observability.failures import (
+    build_exception_payload,
+    is_exception_emitted,
+    mark_exception_emitted,
+)
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 
 _BUY_ORDER_TYPES = {
@@ -66,77 +71,91 @@ class OrderManagementXtIngestService:
         self.runtime_logger = runtime_logger or _get_runtime_logger()
 
     def ingest_trade_report(self, report, lot_amount, grid_interval_lookup):
-        self._emit_runtime(
-            "report_receive", report, extra_payload={"report_type": "trade"}
-        )
-        trade_fact = self.tracking_service.ingest_trade_report(report)
-        symbol = trade_fact["symbol"]
-        buy_lot = None
-        lot_slices = []
-        sell_allocations = []
-        holdings_changed = False
-
-        if trade_fact["side"] == "buy":
-            buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
-                trade_fact["trade_fact_id"]
+        current_node = "report_receive"
+        try:
+            self._emit_runtime(
+                "report_receive", report, extra_payload={"report_type": "trade"}
             )
-            if buy_lot is None:
-                buy_lot = build_buy_lot_from_trade_fact(trade_fact)
-                self.repository.insert_buy_lot(buy_lot)
-                lot_slices = arrange_buy_lot(
-                    buy_lot,
-                    lot_amount=lot_amount,
-                    grid_interval=grid_interval_lookup(symbol, trade_fact),
+            current_node = "trade_match"
+            trade_fact = self.tracking_service.ingest_trade_report(report)
+            symbol = trade_fact["symbol"]
+            buy_lot = None
+            lot_slices = []
+            sell_allocations = []
+            holdings_changed = False
+
+            if trade_fact["side"] == "buy":
+                buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
+                    trade_fact["trade_fact_id"]
                 )
-                self.repository.replace_lot_slices_for_lot(
-                    buy_lot["buy_lot_id"],
-                    lot_slices,
+                if buy_lot is None:
+                    buy_lot = build_buy_lot_from_trade_fact(trade_fact)
+                    self.repository.insert_buy_lot(buy_lot)
+                    lot_slices = arrange_buy_lot(
+                        buy_lot,
+                        lot_amount=lot_amount,
+                        grid_interval=grid_interval_lookup(symbol, trade_fact),
+                    )
+                    self.repository.replace_lot_slices_for_lot(
+                        buy_lot["buy_lot_id"],
+                        lot_slices,
+                    )
+                    holdings_changed = True
+                    self._notify_new_buy_trade(symbol=symbol, price=trade_fact["price"])
+                else:
+                    lot_slices = self.repository.list_open_slices(symbol)
+            elif trade_fact["side"] == "sell":
+                buy_lots = self.repository.list_buy_lots(symbol)
+                open_slices = self.repository.list_open_slices(symbol)
+                sell_allocations = allocate_sell_to_slices(
+                    buy_lots=buy_lots,
+                    open_slices=open_slices,
+                    sell_trade_fact=trade_fact,
                 )
-                holdings_changed = True
-                self._notify_new_buy_trade(symbol=symbol, price=trade_fact["price"])
-            else:
-                lot_slices = self.repository.list_open_slices(symbol)
-        elif trade_fact["side"] == "sell":
+                for item in buy_lots:
+                    self.repository.replace_buy_lot(item)
+                self.repository.replace_open_slices(open_slices)
+                self.repository.insert_sell_allocations(sell_allocations)
+                holdings_changed = bool(sell_allocations)
+                self._reset_guardian_buy_grid_after_sell(symbol)
+
             buy_lots = self.repository.list_buy_lots(symbol)
             open_slices = self.repository.list_open_slices(symbol)
-            sell_allocations = allocate_sell_to_slices(
-                buy_lots=buy_lots,
-                open_slices=open_slices,
-                sell_trade_fact=trade_fact,
+            if holdings_changed:
+                mark_stock_holdings_projection_updated()
+            self._emit_runtime(
+                "trade_match",
+                report,
+                internal_order_id=trade_fact["internal_order_id"],
+                extra_payload={
+                    "side": trade_fact["side"],
+                    "quantity": trade_fact["quantity"],
+                    "holdings_changed": holdings_changed,
+                },
             )
-            for item in buy_lots:
-                self.repository.replace_buy_lot(item)
-            self.repository.replace_open_slices(open_slices)
-            self.repository.insert_sell_allocations(sell_allocations)
-            holdings_changed = bool(sell_allocations)
-            self._reset_guardian_buy_grid_after_sell(symbol)
 
-        buy_lots = self.repository.list_buy_lots(symbol)
-        open_slices = self.repository.list_open_slices(symbol)
-        if holdings_changed:
-            mark_stock_holdings_projection_updated()
-        self._emit_runtime(
-            "trade_match",
-            report,
-            internal_order_id=trade_fact["internal_order_id"],
-            extra_payload={
-                "side": trade_fact["side"],
-                "quantity": trade_fact["quantity"],
-                "holdings_changed": holdings_changed,
-            },
-        )
-
-        return {
-            "trade_fact": trade_fact,
-            "buy_lot": buy_lot,
-            "lot_slices": lot_slices,
-            "sell_allocations": sell_allocations,
-            "projections": {
-                "raw_fills": build_raw_fills_view([trade_fact]),
-                "open_buy_fills": build_open_buy_fills_view(buy_lots),
-                "arranged_fills": build_arranged_fills_view(open_slices),
-            },
-        }
+            return {
+                "trade_fact": trade_fact,
+                "buy_lot": buy_lot,
+                "lot_slices": lot_slices,
+                "sell_allocations": sell_allocations,
+                "projections": {
+                    "raw_fills": build_raw_fills_view([trade_fact]),
+                    "open_buy_fills": build_open_buy_fills_view(buy_lots),
+                    "arranged_fills": build_arranged_fills_view(open_slices),
+                },
+            }
+        except Exception as exc:
+            self._emit_runtime(
+                current_node,
+                report,
+                internal_order_id=report.get("internal_order_id"),
+                status="error",
+                reason_code="unexpected_exception",
+                extra_payload=build_exception_payload(exc),
+            )
+            mark_exception_emitted(exc)
+            raise
 
     def _notify_new_buy_trade(self, *, symbol, price):
         if self.tpsl_service is None:
@@ -159,19 +178,33 @@ class OrderManagementXtIngestService:
         )
         if normalized_report is None:
             return None
-        self._emit_runtime(
-            "report_receive",
-            normalized_report,
-            extra_payload={"report_type": "order"},
-        )
-        self.tracking_service.ingest_order_report(normalized_report)
-        self._emit_runtime(
-            "order_match",
-            normalized_report,
-            internal_order_id=normalized_report["internal_order_id"],
-            extra_payload={"state": normalized_report["state"]},
-        )
-        return normalized_report
+        current_node = "report_receive"
+        try:
+            self._emit_runtime(
+                "report_receive",
+                normalized_report,
+                extra_payload={"report_type": "order"},
+            )
+            current_node = "order_match"
+            self.tracking_service.ingest_order_report(normalized_report)
+            self._emit_runtime(
+                "order_match",
+                normalized_report,
+                internal_order_id=normalized_report["internal_order_id"],
+                extra_payload={"state": normalized_report["state"]},
+            )
+            return normalized_report
+        except Exception as exc:
+            self._emit_runtime(
+                current_node,
+                normalized_report,
+                internal_order_id=normalized_report.get("internal_order_id"),
+                status="error",
+                reason_code="unexpected_exception",
+                extra_payload=build_exception_payload(exc),
+            )
+            mark_exception_emitted(exc)
+            raise
 
     def _emit_runtime(
         self,
@@ -179,6 +212,8 @@ class OrderManagementXtIngestService:
         report,
         *,
         internal_order_id=None,
+        status="info",
+        reason_code="",
         extra_payload=None,
     ):
         event = {
@@ -190,6 +225,8 @@ class OrderManagementXtIngestService:
             "internal_order_id": internal_order_id or report.get("internal_order_id"),
             "symbol": report.get("symbol"),
             "source": report.get("source"),
+            "status": status,
+            "reason_code": reason_code,
             "payload": dict(extra_payload or {}),
         }
         try:
@@ -296,7 +333,10 @@ def ingest_xt_order_dict(report):
 def try_ingest_xt_trade_dict(report):
     try:
         return ingest_xt_trade_dict(report)
-    except Exception:
+    except Exception as exc:
+        if not is_exception_emitted(exc):
+            _emit_wrapper_exception(report, report_type="trade", exc=exc)
+            mark_exception_emitted(exc)
         logger.exception("failed to ingest xt trade report into order management")
         return None
 
@@ -304,7 +344,10 @@ def try_ingest_xt_trade_dict(report):
 def try_ingest_xt_order_dict(report):
     try:
         return ingest_xt_order_dict(report)
-    except Exception:
+    except Exception as exc:
+        if not is_exception_emitted(exc):
+            _emit_wrapper_exception(report, report_type="order", exc=exc)
+            mark_exception_emitted(exc)
         logger.exception("failed to ingest xt order report into order management")
         return None
 
@@ -378,6 +421,31 @@ def _get_guardian_buy_grid_service():
 
 
 _runtime_logger = None
+
+
+def _emit_wrapper_exception(report, *, report_type, exc):
+    payload = dict(report if isinstance(report, dict) else {})
+    symbol = payload.get("symbol")
+    if not symbol:
+        stock_code = str(payload.get("stock_code") or "")
+        symbol = stock_code[:6] if stock_code else None
+    event = {
+        "component": "xt_report_ingest",
+        "node": "report_receive",
+        "trace_id": payload.get("trace_id"),
+        "intent_id": payload.get("intent_id"),
+        "request_id": payload.get("request_id"),
+        "internal_order_id": payload.get("internal_order_id"),
+        "symbol": symbol,
+        "source": payload.get("source"),
+        "status": "error",
+        "reason_code": "unexpected_exception",
+        "payload": build_exception_payload(exc, extra={"report_type": report_type}),
+    }
+    try:
+        _get_runtime_logger().emit(event)
+    except Exception:
+        return
 
 
 def _get_runtime_logger():

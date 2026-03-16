@@ -16,6 +16,11 @@ from freshquant.database.redis import redis_db
 from freshquant.order_management.submit.guardian import submit_guardian_order
 from freshquant.pool.general import queryMustPoolCodes
 from freshquant.position_management.errors import PositionManagementRejectedError
+from freshquant.runtime_observability.failures import (
+    build_exception_payload,
+    is_exception_emitted,
+    mark_exception_emitted,
+)
 from freshquant.runtime_observability.ids import new_intent_id, new_trace_id
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
@@ -35,188 +40,209 @@ class StrategyGuardian(metaclass=SingletonType):
 
     def on_signal(self, signal):
         self._ensure_trace_id(signal)
-        code = signal["code"]
-        name = signal["name"]
-        fire_time = signal["fire_time"]
-        discover_time = signal.setdefault("discover_time", datetime_helper.now())
-        position = signal["position"]
-        price = signal["price"]
-        period = signal["period"]
-        remark = signal["remark"]
-        tags = signal["tags"] or []
-        zsdata = signal["zsdata"]
-        fills = signal["fills"]
-        action = self._resolve_action(position)
+        current_node = "receive_signal"
+        action = self._resolve_action(signal.get("position"))
+        try:
+            code = signal["code"]
+            name = signal["name"]
+            fire_time = signal["fire_time"]
+            discover_time = signal.setdefault("discover_time", datetime_helper.now())
+            position = signal["position"]
+            price = signal["price"]
+            period = signal["period"]
+            remark = signal["remark"]
+            tags = signal["tags"] or []
+            zsdata = signal["zsdata"]
+            fills = signal["fills"]
+            action = self._resolve_action(position)
 
-        holding_codes = set(get_stock_holding_codes())
-        must_pool_codes = set(queryMustPoolCodes())
-        in_holding = code in holding_codes
-        in_must_pool = code in must_pool_codes
-        should_alert_private = in_holding or in_must_pool
-        should_alert_public = position == "BUY_LONG" and not should_alert_private
-
-        log_data = {
-            "code": code,
-            "name": name,
-            "position": position,
-            "period": period,
-            "price": price,
-            "remark": remark,
-            "fire_time": fire_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "discover_time": discover_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "title": f'{"买点通知" if position == "BUY_LONG" else "卖点通知"} {code} {name}',
-        }
-        logger.info(json.dumps(log_data, ensure_ascii=False))
-        self._emit_runtime(
-            signal,
-            "receive_signal",
-            action=action,
-            decision_branch="signal_received",
-            decision_outcome={"outcome": "continue"},
-            payload={"period": period, "price": price, "remark": remark, "tags": tags},
-        )
-
-        scope_context = {
-            "scope": {
+            log_data = {
+                "code": code,
+                "name": name,
                 "position": position,
-                "in_holding": in_holding,
-                "in_must_pool": in_must_pool,
+                "period": period,
+                "price": price,
+                "remark": remark,
+                "fire_time": fire_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "discover_time": discover_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "title": f'{"买点通知" if position == "BUY_LONG" else "卖点通知"} {code} {name}',
             }
-        }
-        eligible = False
-        scope_branch = "unsupported_position"
-        scope_reason_code = "unsupported_position"
-        if position == "BUY_LONG":
-            if in_holding:
-                eligible = True
-                scope_branch = "holding_buy"
-                scope_reason_code = ""
-            elif in_must_pool:
-                eligible = True
-                scope_branch = "new_open_buy"
-                scope_reason_code = ""
-            else:
-                scope_branch = "buy_out_of_scope"
-                scope_reason_code = "buy_out_of_scope"
-        elif position == "SELL_SHORT":
-            if in_holding:
-                eligible = True
-                scope_branch = "holding_sell"
-                scope_reason_code = ""
-            else:
-                scope_branch = "sell_out_of_scope"
-                scope_reason_code = "sell_out_of_scope"
-
-        self._emit_runtime(
-            signal,
-            "holding_scope_resolve",
-            action=action,
-            status="success" if eligible else "skipped",
-            reason_code=scope_reason_code,
-            decision_branch=scope_branch,
-            decision_expr=(
-                "position == BUY_LONG ? (in_holding or in_must_pool) : in_holding"
-            ),
-            decision_context=scope_context,
-            decision_outcome={"outcome": "pass" if eligible else "skip"},
-            payload={"in_holding": in_holding, "in_must_pool": in_must_pool},
-        )
-
-        if not eligible:
-            self._emit_finish(
+            logger.info(json.dumps(log_data, ensure_ascii=False))
+            self._emit_runtime(
                 signal,
+                "receive_signal",
                 action=action,
-                status="skipped",
+                decision_branch="signal_received",
+                decision_outcome={"outcome": "continue"},
+                payload={
+                    "period": period,
+                    "price": price,
+                    "remark": remark,
+                    "tags": tags,
+                },
+            )
+
+            current_node = "holding_scope_resolve"
+            holding_codes = set(get_stock_holding_codes())
+            must_pool_codes = set(queryMustPoolCodes())
+            in_holding = code in holding_codes
+            in_must_pool = code in must_pool_codes
+            should_alert_private = in_holding or in_must_pool
+            should_alert_public = position == "BUY_LONG" and not should_alert_private
+
+            scope_context = {
+                "scope": {
+                    "position": position,
+                    "in_holding": in_holding,
+                    "in_must_pool": in_must_pool,
+                }
+            }
+            eligible = False
+            scope_branch = "unsupported_position"
+            scope_reason_code = "unsupported_position"
+            if position == "BUY_LONG":
+                if in_holding:
+                    eligible = True
+                    scope_branch = "holding_buy"
+                    scope_reason_code = ""
+                elif in_must_pool:
+                    eligible = True
+                    scope_branch = "new_open_buy"
+                    scope_reason_code = ""
+                else:
+                    scope_branch = "buy_out_of_scope"
+                    scope_reason_code = "buy_out_of_scope"
+            elif position == "SELL_SHORT":
+                if in_holding:
+                    eligible = True
+                    scope_branch = "holding_sell"
+                    scope_reason_code = ""
+                else:
+                    scope_branch = "sell_out_of_scope"
+                    scope_reason_code = "sell_out_of_scope"
+
+            self._emit_runtime(
+                signal,
+                "holding_scope_resolve",
+                action=action,
+                status="success" if eligible else "skipped",
                 reason_code=scope_reason_code,
-                outcome="skip",
                 decision_branch=scope_branch,
                 decision_expr=(
                     "position == BUY_LONG ? (in_holding or in_must_pool) : in_holding"
                 ),
                 decision_context=scope_context,
+                decision_outcome={"outcome": "pass" if eligible else "skip"},
+                payload={"in_holding": in_holding, "in_must_pool": in_must_pool},
             )
-        else:
-            cutoff_time = pendulum.now().add(minutes=-30)
-            timing_context = {
-                "timing": {
-                    "fire_time": fire_time,
-                    "discover_time": discover_time,
-                    "cutoff_time": cutoff_time,
-                    "max_age_minutes": 30,
-                }
-            }
-            if fire_time < cutoff_time:
-                self._emit_runtime(
-                    signal,
-                    "timing_check",
-                    action=action,
-                    status="skipped",
-                    reason_code="signal_too_old",
-                    decision_branch="signal_freshness",
-                    decision_expr="fire_time >= cutoff_time",
-                    decision_context=timing_context,
-                    decision_outcome={"outcome": "skip"},
-                )
+
+            if not eligible:
                 self._emit_finish(
                     signal,
                     action=action,
                     status="skipped",
-                    reason_code="signal_too_old",
+                    reason_code=scope_reason_code,
                     outcome="skip",
+                    decision_branch=scope_branch,
+                    decision_expr=(
+                        "position == BUY_LONG ? (in_holding or in_must_pool) : in_holding"
+                    ),
+                    decision_context=scope_context,
+                )
+            else:
+                current_node = "timing_check"
+                cutoff_time = pendulum.now().add(minutes=-30)
+                timing_context = {
+                    "timing": {
+                        "fire_time": fire_time,
+                        "discover_time": discover_time,
+                        "cutoff_time": cutoff_time,
+                        "max_age_minutes": 30,
+                    }
+                }
+                if fire_time < cutoff_time:
+                    self._emit_runtime(
+                        signal,
+                        "timing_check",
+                        action=action,
+                        status="skipped",
+                        reason_code="signal_too_old",
+                        decision_branch="signal_freshness",
+                        decision_expr="fire_time >= cutoff_time",
+                        decision_context=timing_context,
+                        decision_outcome={"outcome": "skip"},
+                    )
+                    self._emit_finish(
+                        signal,
+                        action=action,
+                        status="skipped",
+                        reason_code="signal_too_old",
+                        outcome="skip",
+                        decision_branch="signal_freshness",
+                        decision_expr="fire_time >= cutoff_time",
+                        decision_context=timing_context,
+                    )
+                    logger.info(
+                        "{code} {name} 超过30分钟，跳过下单指令",
+                        code=code,
+                        name=name,
+                    )
+                    return
+
+                self._emit_runtime(
+                    signal,
+                    "timing_check",
+                    action=action,
+                    status="success",
                     decision_branch="signal_freshness",
                     decision_expr="fire_time >= cutoff_time",
                     decision_context=timing_context,
+                    decision_outcome={"outcome": "pass"},
                 )
-                logger.info(
-                    "{code} {name} 超过30分钟，跳过下单指令", code=code, name=name
-                )
-                return
 
-            self._emit_runtime(
-                signal,
-                "timing_check",
-                action=action,
-                status="success",
-                decision_branch="signal_freshness",
-                decision_expr="fire_time >= cutoff_time",
-                decision_context=timing_context,
-                decision_outcome={"outcome": "pass"},
-            )
-
-            if position == "BUY_LONG":
-                if in_holding:
-                    self._handle_holding_buy(
+                if position == "BUY_LONG":
+                    if in_holding:
+                        self._handle_holding_buy(
+                            signal=signal,
+                            code=code,
+                            name=name,
+                            fire_time=fire_time,
+                            price=price,
+                            remark=remark,
+                            zsdata=zsdata,
+                            fills=fills,
+                        )
+                    elif in_must_pool:
+                        self._handle_new_open_buy(
+                            signal=signal,
+                            code=code,
+                            name=name,
+                            price=price,
+                            remark=remark,
+                        )
+                elif position == "SELL_SHORT" and in_holding:
+                    self._handle_sell(
                         signal=signal,
                         code=code,
                         name=name,
                         fire_time=fire_time,
                         price=price,
                         remark=remark,
-                        zsdata=zsdata,
-                        fills=fills,
                     )
-                elif in_must_pool:
-                    self._handle_new_open_buy(
-                        signal=signal,
-                        code=code,
-                        name=name,
-                        price=price,
-                        remark=remark,
-                    )
-            elif position == "SELL_SHORT" and in_holding:
-                self._handle_sell(
-                    signal=signal,
-                    code=code,
-                    name=name,
-                    fire_time=fire_time,
-                    price=price,
-                    remark=remark,
-                )
 
-        if should_alert_private:
-            order_alert.send("guardian", private=True, payload=signal)
-        elif should_alert_public:
-            order_alert.send("guardian", payload=signal)
+            if should_alert_private:
+                order_alert.send("guardian", private=True, payload=signal)
+            elif should_alert_public:
+                order_alert.send("guardian", payload=signal)
+        except Exception as exc:
+            if not is_exception_emitted(exc):
+                self._emit_unexpected_exception(
+                    signal,
+                    node=current_node,
+                    action=action,
+                    exc=exc,
+                )
+            raise
 
     def _handle_holding_buy(
         self,
@@ -230,249 +256,281 @@ class StrategyGuardian(metaclass=SingletonType):
         zsdata,
         fills,
     ):
-        fill_list = get_arranged_stock_fill_list(code) or []
-        last_fill = fill_list[-1] if fill_list else None
-        last_fill_dt = None
-        last_fill_price = None
-        if last_fill is not None:
-            last_fill_dt = datetime.strptime(
-                "%s %s" % (str(last_fill["date"]), last_fill["time"]),
-                "%Y%m%d %H:%M:%S",
-            )
-            last_fill_dt = fq_util_datetime_localize(last_fill_dt)
-            last_fill_price = last_fill["price"]
+        current_node = "timing_check"
+        try:
+            fill_list = get_arranged_stock_fill_list(code) or []
+            last_fill = fill_list[-1] if fill_list else None
+            last_fill_dt = None
+            last_fill_price = None
+            if last_fill is not None:
+                last_fill_dt = datetime.strptime(
+                    "%s %s" % (str(last_fill["date"]), last_fill["time"]),
+                    "%Y%m%d %H:%M:%S",
+                )
+                last_fill_dt = fq_util_datetime_localize(last_fill_dt)
+                last_fill_price = last_fill["price"]
 
-        if last_fill_dt is not None:
-            timing_context = {
-                "timing": {
-                    "fire_time": fire_time,
-                    "last_fill_time": last_fill_dt,
+            if last_fill_dt is not None:
+                timing_context = {
+                    "timing": {
+                        "fire_time": fire_time,
+                        "last_fill_time": last_fill_dt,
+                    }
                 }
-            }
-            if fire_time < last_fill_dt:
+                if fire_time < last_fill_dt:
+                    self._emit_runtime(
+                        signal,
+                        "timing_check",
+                        action="buy",
+                        status="skipped",
+                        reason_code="signal_before_last_fill",
+                        decision_branch="fill_ordering",
+                        decision_expr="fire_time >= last_fill_time",
+                        decision_context=timing_context,
+                        decision_outcome={"outcome": "skip"},
+                    )
+                    self._emit_finish(
+                        signal,
+                        action="buy",
+                        status="skipped",
+                        reason_code="signal_before_last_fill",
+                        outcome="skip",
+                        decision_branch="fill_ordering",
+                        decision_expr="fire_time >= last_fill_time",
+                        decision_context=timing_context,
+                    )
+                    logger.info("触发时间异常，跳过下单指令")
+                    return
+
                 self._emit_runtime(
                     signal,
                     "timing_check",
                     action="buy",
-                    status="skipped",
-                    reason_code="signal_before_last_fill",
+                    status="success",
                     decision_branch="fill_ordering",
                     decision_expr="fire_time >= last_fill_time",
                     decision_context=timing_context,
-                    decision_outcome={"outcome": "skip"},
+                    decision_outcome={"outcome": "pass"},
                 )
-                self._emit_finish(
-                    signal,
-                    action="buy",
-                    status="skipped",
-                    reason_code="signal_before_last_fill",
-                    outcome="skip",
-                    decision_branch="fill_ordering",
-                    decision_expr="fire_time >= last_fill_time",
-                    decision_context=timing_context,
-                )
-                logger.info("触发时间异常，跳过下单指令")
-                return
 
-            self._emit_runtime(
-                signal,
-                "timing_check",
-                action="buy",
-                status="success",
-                decision_branch="fill_ordering",
-                decision_expr="fire_time >= last_fill_time",
-                decision_context=timing_context,
-                decision_outcome={"outcome": "pass"},
-            )
-
-        if last_fill_price is not None:
-            threshold = eval_stock_threshold_price(code, last_fill_price)
-            threshold_context = {
-                "threshold": {
-                    "current_price": price,
-                    "last_fill_price": last_fill_price,
-                    "bot_river_price": threshold.get("bot_river_price"),
-                    "top_river_price": threshold.get("top_river_price"),
+            current_node = "price_threshold_check"
+            if last_fill_price is not None:
+                threshold = eval_stock_threshold_price(code, last_fill_price)
+                threshold_context = {
+                    "threshold": {
+                        "current_price": price,
+                        "last_fill_price": last_fill_price,
+                        "bot_river_price": threshold.get("bot_river_price"),
+                        "top_river_price": threshold.get("top_river_price"),
+                    }
                 }
-            }
-            if price > threshold["bot_river_price"]:
+                if price > threshold["bot_river_price"]:
+                    self._emit_runtime(
+                        signal,
+                        "price_threshold_check",
+                        action="buy",
+                        status="skipped",
+                        reason_code="price_threshold_not_met",
+                        decision_branch="holding_add_threshold",
+                        decision_expr="current_price <= bot_river_price",
+                        decision_context=threshold_context,
+                        decision_outcome={"outcome": "skip"},
+                    )
+                    self._emit_finish(
+                        signal,
+                        action="buy",
+                        status="skipped",
+                        reason_code="price_threshold_not_met",
+                        outcome="skip",
+                        decision_branch="holding_add_threshold",
+                        decision_expr="current_price <= bot_river_price",
+                        decision_context=threshold_context,
+                    )
+                    logger.info("触发价格未达，跳过下单指令")
+                    return
+
                 self._emit_runtime(
                     signal,
                     "price_threshold_check",
                     action="buy",
-                    status="skipped",
-                    reason_code="price_threshold_not_met",
+                    status="success",
                     decision_branch="holding_add_threshold",
                     decision_expr="current_price <= bot_river_price",
                     decision_context=threshold_context,
+                    decision_outcome={"outcome": "pass"},
+                )
+
+            current_node = "signal_structure_check"
+            structure_result = self._evaluate_signal_structure(
+                code=code,
+                name=name,
+                fire_time=fire_time,
+                fills=fills,
+                zsdata=zsdata,
+            )
+            self._emit_runtime(
+                signal,
+                "signal_structure_check",
+                action="buy",
+                status="success" if structure_result["passed"] else "skipped",
+                reason_code=structure_result["reason_code"],
+                decision_branch=structure_result["decision_branch"],
+                decision_expr="fills empty or signal has separating zs",
+                decision_context=structure_result["decision_context"],
+                decision_outcome={
+                    "outcome": "pass" if structure_result["passed"] else "skip"
+                },
+            )
+            if not structure_result["passed"]:
+                self._emit_finish(
+                    signal,
+                    action="buy",
+                    status="skipped",
+                    reason_code=structure_result["reason_code"],
+                    outcome="skip",
+                    decision_branch=structure_result["decision_branch"],
+                    decision_expr="fills empty or signal has separating zs",
+                    decision_context=structure_result["decision_context"],
+                )
+                return
+
+            current_node = "quantity_check"
+            decision = get_guardian_buy_grid_service().build_holding_add_decision(
+                code,
+                price,
+            )
+            current_node = "submit_intent"
+            self._submit_buy_order(
+                signal=signal,
+                code=code,
+                price=price,
+                remark=remark,
+                decision=decision,
+                set_new_open_cooldown=False,
+                quantity_reason_code="quantity_invalid",
+                submit_branch="holding_add",
+            )
+        except Exception as exc:
+            if not is_exception_emitted(exc):
+                self._emit_unexpected_exception(
+                    signal,
+                    node=current_node,
+                    action="buy",
+                    exc=exc,
+                )
+            raise
+
+    def _handle_new_open_buy(self, *, signal, code, name, price, remark):
+        current_node = "cooldown_check"
+        try:
+            cooldown_key = "fq:xtrade:last_new_order_time"
+            last_new_order_time = redis_db.get(cooldown_key)
+            cooldown_context = {
+                "cooldown": {
+                    "key": cooldown_key,
+                    "active": last_new_order_time is not None,
+                    "last_value": last_new_order_time,
+                    "cooldown_minutes": 15,
+                }
+            }
+            if last_new_order_time is not None:
+                self._emit_runtime(
+                    signal,
+                    "cooldown_check",
+                    action="buy",
+                    status="skipped",
+                    reason_code="new_open_cooldown_active",
+                    decision_branch="new_open_cooldown",
+                    decision_expr="last_new_order_time is None",
+                    decision_context=cooldown_context,
                     decision_outcome={"outcome": "skip"},
                 )
                 self._emit_finish(
                     signal,
                     action="buy",
                     status="skipped",
-                    reason_code="price_threshold_not_met",
+                    reason_code="new_open_cooldown_active",
                     outcome="skip",
-                    decision_branch="holding_add_threshold",
-                    decision_expr="current_price <= bot_river_price",
-                    decision_context=threshold_context,
+                    decision_branch="new_open_cooldown",
+                    decision_expr="last_new_order_time is None",
+                    decision_context=cooldown_context,
                 )
-                logger.info("触发价格未达，跳过下单指令")
+                logger.info(
+                    f"上次新开仓下单时间未超过15分钟，不再自动买入：{last_new_order_time}"
+                )
                 return
 
             self._emit_runtime(
                 signal,
-                "price_threshold_check",
+                "cooldown_check",
                 action="buy",
                 status="success",
-                decision_branch="holding_add_threshold",
-                decision_expr="current_price <= bot_river_price",
-                decision_context=threshold_context,
+                decision_branch="new_open_cooldown",
+                decision_expr="last_new_order_time is None",
+                decision_context=cooldown_context,
                 decision_outcome={"outcome": "pass"},
             )
 
-        structure_result = self._evaluate_signal_structure(
-            code=code,
-            name=name,
-            fire_time=fire_time,
-            fills=fills,
-            zsdata=zsdata,
-        )
-        self._emit_runtime(
-            signal,
-            "signal_structure_check",
-            action="buy",
-            status="success" if structure_result["passed"] else "skipped",
-            reason_code=structure_result["reason_code"],
-            decision_branch=structure_result["decision_branch"],
-            decision_expr="fills empty or signal has separating zs",
-            decision_context=structure_result["decision_context"],
-            decision_outcome={
-                "outcome": "pass" if structure_result["passed"] else "skip"
-            },
-        )
-        if not structure_result["passed"]:
-            self._emit_finish(
-                signal,
-                action="buy",
-                status="skipped",
-                reason_code=structure_result["reason_code"],
-                outcome="skip",
-                decision_branch=structure_result["decision_branch"],
-                decision_expr="fills empty or signal has separating zs",
-                decision_context=structure_result["decision_context"],
+            current_node = "quantity_check"
+            decision = get_guardian_buy_grid_service().build_new_open_decision(
+                code, price
             )
-            return
-
-        decision = get_guardian_buy_grid_service().build_holding_add_decision(
-            code,
-            price,
-        )
-        self._submit_buy_order(
-            signal=signal,
-            code=code,
-            price=price,
-            remark=remark,
-            decision=decision,
-            set_new_open_cooldown=False,
-            quantity_reason_code="quantity_invalid",
-            submit_branch="holding_add",
-        )
-
-    def _handle_new_open_buy(self, *, signal, code, name, price, remark):
-        cooldown_key = "fq:xtrade:last_new_order_time"
-        last_new_order_time = redis_db.get(cooldown_key)
-        cooldown_context = {
-            "cooldown": {
-                "key": cooldown_key,
-                "active": last_new_order_time is not None,
-                "last_value": last_new_order_time,
-                "cooldown_minutes": 15,
-            }
-        }
-        if last_new_order_time is not None:
-            self._emit_runtime(
-                signal,
-                "cooldown_check",
-                action="buy",
-                status="skipped",
-                reason_code="new_open_cooldown_active",
-                decision_branch="new_open_cooldown",
-                decision_expr="last_new_order_time is None",
-                decision_context=cooldown_context,
-                decision_outcome={"outcome": "skip"},
-            )
-            self._emit_finish(
-                signal,
-                action="buy",
-                status="skipped",
-                reason_code="new_open_cooldown_active",
-                outcome="skip",
-                decision_branch="new_open_cooldown",
-                decision_expr="last_new_order_time is None",
-                decision_context=cooldown_context,
-            )
-            logger.info(
-                f"上次新开仓下单时间未超过15分钟，不再自动买入：{last_new_order_time}"
-            )
-            return
-
-        self._emit_runtime(
-            signal,
-            "cooldown_check",
-            action="buy",
-            status="success",
-            decision_branch="new_open_cooldown",
-            decision_expr="last_new_order_time is None",
-            decision_context=cooldown_context,
-            decision_outcome={"outcome": "pass"},
-        )
-
-        decision = get_guardian_buy_grid_service().build_new_open_decision(code, price)
-        if decision.get("quantity", 0) <= 0:
-            quantity_context = {
-                "quantity": {
-                    "quantity": decision.get("quantity", 0),
-                    "path": decision.get("path"),
-                    "set_new_open_cooldown": True,
+            if decision.get("quantity", 0) <= 0:
+                quantity_context = {
+                    "quantity": {
+                        "quantity": decision.get("quantity", 0),
+                        "path": decision.get("path"),
+                        "set_new_open_cooldown": True,
+                    }
                 }
-            }
-            self._emit_runtime(
-                signal,
-                "quantity_check",
-                action="buy",
-                status="skipped",
-                reason_code="new_open_quantity_insufficient",
-                decision_branch="new_open_quantity",
-                decision_expr="quantity > 0",
-                decision_context=quantity_context,
-                decision_outcome={"outcome": "skip"},
-            )
-            self._emit_finish(
-                signal,
-                action="buy",
-                status="skipped",
-                reason_code="new_open_quantity_insufficient",
-                outcome="skip",
-                decision_branch="new_open_quantity",
-                decision_expr="quantity > 0",
-                decision_context=quantity_context,
-            )
-            logger.info(
-                "{code} {name} 新开仓可交易数量不足，跳过下单", code=code, name=name
-            )
-            return
+                self._emit_runtime(
+                    signal,
+                    "quantity_check",
+                    action="buy",
+                    status="skipped",
+                    reason_code="new_open_quantity_insufficient",
+                    decision_branch="new_open_quantity",
+                    decision_expr="quantity > 0",
+                    decision_context=quantity_context,
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="buy",
+                    status="skipped",
+                    reason_code="new_open_quantity_insufficient",
+                    outcome="skip",
+                    decision_branch="new_open_quantity",
+                    decision_expr="quantity > 0",
+                    decision_context=quantity_context,
+                )
+                logger.info(
+                    "{code} {name} 新开仓可交易数量不足，跳过下单",
+                    code=code,
+                    name=name,
+                )
+                return
 
-        self._submit_buy_order(
-            signal=signal,
-            code=code,
-            price=price,
-            remark=remark,
-            decision=decision,
-            set_new_open_cooldown=True,
-            quantity_reason_code="new_open_quantity_insufficient",
-            submit_branch="new_open",
-        )
+            current_node = "submit_intent"
+            self._submit_buy_order(
+                signal=signal,
+                code=code,
+                price=price,
+                remark=remark,
+                decision=decision,
+                set_new_open_cooldown=True,
+                quantity_reason_code="new_open_quantity_insufficient",
+                submit_branch="new_open",
+            )
+        except Exception as exc:
+            if not is_exception_emitted(exc):
+                self._emit_unexpected_exception(
+                    signal,
+                    node=current_node,
+                    action="buy",
+                    exc=exc,
+                )
+            raise
 
     def _submit_buy_order(
         self,
@@ -486,473 +544,501 @@ class StrategyGuardian(metaclass=SingletonType):
         quantity_reason_code,
         submit_branch,
     ):
-        quantity = int(decision.get("quantity") or 0)
-        quantity_context = {
-            "quantity": {
-                "quantity": quantity,
-                "path": decision.get("path"),
-                "grid_level": decision.get("grid_level"),
-                "source_price": decision.get("source_price"),
-                "set_new_open_cooldown": set_new_open_cooldown,
+        current_node = "quantity_check"
+        try:
+            quantity = int(decision.get("quantity") or 0)
+            quantity_context = {
+                "quantity": {
+                    "quantity": quantity,
+                    "path": decision.get("path"),
+                    "grid_level": decision.get("grid_level"),
+                    "source_price": decision.get("source_price"),
+                    "set_new_open_cooldown": set_new_open_cooldown,
+                }
             }
-        }
-        if quantity <= 0:
+            if quantity <= 0:
+                self._emit_runtime(
+                    signal,
+                    "quantity_check",
+                    action="buy",
+                    status="skipped",
+                    reason_code=quantity_reason_code,
+                    decision_branch=f"{submit_branch}_quantity",
+                    decision_expr="quantity > 0",
+                    decision_context=quantity_context,
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="buy",
+                    status="skipped",
+                    reason_code=quantity_reason_code,
+                    outcome="skip",
+                    decision_branch=f"{submit_branch}_quantity",
+                    decision_expr="quantity > 0",
+                    decision_context=quantity_context,
+                )
+                logger.info("{code} 买入数量无效，跳过下单", code=code)
+                return
+
             self._emit_runtime(
                 signal,
                 "quantity_check",
                 action="buy",
-                status="skipped",
-                reason_code=quantity_reason_code,
+                status="success",
                 decision_branch=f"{submit_branch}_quantity",
                 decision_expr="quantity > 0",
                 decision_context=quantity_context,
-                decision_outcome={"outcome": "skip"},
+                decision_outcome={"outcome": "pass"},
             )
-            self._emit_finish(
-                signal,
-                action="buy",
-                status="skipped",
-                reason_code=quantity_reason_code,
-                outcome="skip",
-                decision_branch=f"{submit_branch}_quantity",
-                decision_expr="quantity > 0",
-                decision_context=quantity_context,
-            )
-            logger.info("{code} 买入数量无效，跳过下单", code=code)
-            return
 
-        self._emit_runtime(
-            signal,
-            "quantity_check",
-            action="buy",
-            status="success",
-            decision_branch=f"{submit_branch}_quantity",
-            decision_expr="quantity > 0",
-            decision_context=quantity_context,
-            decision_outcome={"outcome": "pass"},
-        )
-
-        cooldown_key = f"buy:{code}"
-        cooldown_active = redis_db.get(cooldown_key) is not None
-        cooldown_context = {
-            "cooldown": {
-                "key": cooldown_key,
-                "active": cooldown_active,
-                "cooldown_minutes": 15,
+            current_node = "cooldown_check"
+            cooldown_key = f"buy:{code}"
+            cooldown_active = redis_db.get(cooldown_key) is not None
+            cooldown_context = {
+                "cooldown": {
+                    "key": cooldown_key,
+                    "active": cooldown_active,
+                    "cooldown_minutes": 15,
+                }
             }
-        }
-        if cooldown_active:
+            if cooldown_active:
+                self._emit_runtime(
+                    signal,
+                    "cooldown_check",
+                    action="buy",
+                    status="skipped",
+                    reason_code="buy_cooldown_active",
+                    decision_branch=f"{submit_branch}_buy_cooldown",
+                    decision_expr="buy_cooldown is None",
+                    decision_context=cooldown_context,
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="buy",
+                    status="skipped",
+                    reason_code="buy_cooldown_active",
+                    outcome="skip",
+                    decision_branch=f"{submit_branch}_buy_cooldown",
+                    decision_expr="buy_cooldown is None",
+                    decision_context=cooldown_context,
+                )
+                logger.info("{code} 买入冷却中，跳过下单", code=code)
+                return
+
             self._emit_runtime(
                 signal,
                 "cooldown_check",
                 action="buy",
-                status="skipped",
-                reason_code="buy_cooldown_active",
+                status="success",
                 decision_branch=f"{submit_branch}_buy_cooldown",
                 decision_expr="buy_cooldown is None",
                 decision_context=cooldown_context,
-                decision_outcome={"outcome": "skip"},
-            )
-            self._emit_finish(
-                signal,
-                action="buy",
-                status="skipped",
-                reason_code="buy_cooldown_active",
-                outcome="skip",
-                decision_branch=f"{submit_branch}_buy_cooldown",
-                decision_expr="buy_cooldown is None",
-                decision_context=cooldown_context,
-            )
-            logger.info("{code} 买入冷却中，跳过下单", code=code)
-            return
-
-        self._emit_runtime(
-            signal,
-            "cooldown_check",
-            action="buy",
-            status="success",
-            decision_branch=f"{submit_branch}_buy_cooldown",
-            decision_expr="buy_cooldown is None",
-            decision_context=cooldown_context,
-            decision_outcome={"outcome": "pass"},
-        )
-
-        strategy_context = {
-            "guardian_buy_grid": {
-                "path": decision.get("path"),
-                "grid_level": decision.get("grid_level"),
-                "hit_levels": list(decision.get("hit_levels") or []),
-                "multiplier": decision.get("multiplier", 1),
-                "source_price": decision.get("source_price"),
-                "buy_prices_snapshot": decision.get("buy_prices_snapshot"),
-                "buy_active_before": decision.get("buy_active_before"),
-                "initial_amount": decision.get("initial_amount"),
-                "base_amount": decision.get("base_amount"),
-            }
-        }
-
-        signal["quantity"] = quantity
-        signal.setdefault("intent_id", new_intent_id())
-        self._emit_runtime(
-            signal,
-            "submit_intent",
-            action="buy",
-            status="success",
-            decision_branch=submit_branch,
-            decision_expr="quantity > 0 and cooldown_inactive",
-            decision_context=quantity_context,
-            decision_outcome={"outcome": "submit"},
-            payload={"quantity": quantity, "grid_path": decision.get("path")},
-        )
-
-        try:
-            self._submit_guardian_order(
-                action="buy",
-                code=code,
-                price=price,
-                quantity=quantity,
-                remark=remark,
-                strategy_context=strategy_context,
-                signal=signal,
-            )
-        except PositionManagementRejectedError as exc:
-            rejection_context = {
-                "quantity": quantity_context["quantity"],
-                "position_management": {
-                    "action": "buy",
-                    "reason": str(exc),
-                },
-            }
-            self._emit_runtime(
-                signal,
-                "position_management_check",
-                action="buy",
-                status="failed",
-                reason_code="position_management_rejected",
-                decision_branch=f"{submit_branch}_position_management",
-                decision_expr="position_management_accepts",
-                decision_context=rejection_context,
-                decision_outcome={"outcome": "reject"},
-                payload={"reason": str(exc)},
-            )
-            self._emit_finish(
-                signal,
-                action="buy",
-                status="failed",
-                reason_code="position_management_rejected",
-                outcome="reject",
-                decision_branch=f"{submit_branch}_position_management",
-                decision_expr="position_management_accepts",
-                decision_context=rejection_context,
-            )
-            logger.info(
-                "{code} 买单被仓位管理拒绝：{reason}",
-                code=code,
-                reason=str(exc),
-            )
-            return
-
-        redis_db.set(f"buy:{code}", "1", timedelta(minutes=15))
-        if set_new_open_cooldown:
-            redis_db.set(
-                "fq:xtrade:last_new_order_time",
-                pendulum.now().format("YYYY-MM-DD HH:mm:ss"),
-                timedelta(minutes=15),
+                decision_outcome={"outcome": "pass"},
             )
 
-    def _handle_sell(self, *, signal, code, name, fire_time, price, remark):
-        fill_list = get_arranged_stock_fill_list(code) or []
-        last_fill = fill_list[-1] if fill_list else None
-        if last_fill is None:
-            holding_context = {
-                "scope": {
-                    "position": "SELL_SHORT",
-                    "fill_count": 0,
-                    "in_holding": False,
+            strategy_context = {
+                "guardian_buy_grid": {
+                    "path": decision.get("path"),
+                    "grid_level": decision.get("grid_level"),
+                    "hit_levels": list(decision.get("hit_levels") or []),
+                    "multiplier": decision.get("multiplier", 1),
+                    "source_price": decision.get("source_price"),
+                    "buy_prices_snapshot": decision.get("buy_prices_snapshot"),
+                    "buy_active_before": decision.get("buy_active_before"),
+                    "initial_amount": decision.get("initial_amount"),
+                    "base_amount": decision.get("base_amount"),
                 }
             }
+
+            current_node = "submit_intent"
+            signal["quantity"] = quantity
+            signal.setdefault("intent_id", new_intent_id())
             self._emit_runtime(
                 signal,
-                "holding_scope_resolve",
-                action="sell",
-                status="skipped",
-                reason_code="no_holding_fill",
-                decision_branch="sell_fill_scope",
-                decision_expr="fill_count > 0",
-                decision_context=holding_context,
-                decision_outcome={"outcome": "skip"},
+                "submit_intent",
+                action="buy",
+                status="success",
+                decision_branch=submit_branch,
+                decision_expr="quantity > 0 and cooldown_inactive",
+                decision_context=quantity_context,
+                decision_outcome={"outcome": "submit"},
+                payload={"quantity": quantity, "grid_path": decision.get("path")},
             )
-            self._emit_finish(
-                signal,
-                action="sell",
-                status="skipped",
-                reason_code="no_holding_fill",
-                outcome="skip",
-                decision_branch="sell_fill_scope",
-                decision_expr="fill_count > 0",
-                decision_context=holding_context,
-            )
-            logger.info("无持仓，跳过下单指令")
-            return
 
-        last_fill_dt = datetime.strptime(
-            "%s %s" % (str(last_fill["date"]), last_fill["time"]),
-            "%Y%m%d %H:%M:%S",
-        )
-        last_fill_dt = fq_util_datetime_localize(last_fill_dt)
-        timing_context = {
-            "timing": {
-                "fire_time": fire_time,
-                "last_fill_time": last_fill_dt,
+            try:
+                self._submit_guardian_order(
+                    action="buy",
+                    code=code,
+                    price=price,
+                    quantity=quantity,
+                    remark=remark,
+                    strategy_context=strategy_context,
+                    signal=signal,
+                )
+            except PositionManagementRejectedError as exc:
+                rejection_context = {
+                    "quantity": quantity_context["quantity"],
+                    "position_management": {
+                        "action": "buy",
+                        "reason": str(exc),
+                    },
+                }
+                self._emit_runtime(
+                    signal,
+                    "position_management_check",
+                    action="buy",
+                    status="failed",
+                    reason_code="position_management_rejected",
+                    decision_branch=f"{submit_branch}_position_management",
+                    decision_expr="position_management_accepts",
+                    decision_context=rejection_context,
+                    decision_outcome={"outcome": "reject"},
+                    payload={"reason": str(exc)},
+                )
+                self._emit_finish(
+                    signal,
+                    action="buy",
+                    status="failed",
+                    reason_code="position_management_rejected",
+                    outcome="reject",
+                    decision_branch=f"{submit_branch}_position_management",
+                    decision_expr="position_management_accepts",
+                    decision_context=rejection_context,
+                )
+                logger.info(
+                    "{code} 买单被仓位管理拒绝：{reason}",
+                    code=code,
+                    reason=str(exc),
+                )
+                return
+
+            redis_db.set(f"buy:{code}", "1", timedelta(minutes=15))
+            if set_new_open_cooldown:
+                redis_db.set(
+                    "fq:xtrade:last_new_order_time",
+                    pendulum.now().format("YYYY-MM-DD HH:mm:ss"),
+                    timedelta(minutes=15),
+                )
+        except Exception as exc:
+            if not is_exception_emitted(exc):
+                self._emit_unexpected_exception(
+                    signal,
+                    node=current_node,
+                    action="buy",
+                    exc=exc,
+                )
+            raise
+
+    def _handle_sell(self, *, signal, code, name, fire_time, price, remark):
+        current_node = "timing_check"
+        try:
+            fill_list = get_arranged_stock_fill_list(code) or []
+            last_fill = fill_list[-1] if fill_list else None
+            if last_fill is None:
+                holding_context = {
+                    "scope": {
+                        "position": "SELL_SHORT",
+                        "fill_count": 0,
+                        "in_holding": False,
+                    }
+                }
+                self._emit_runtime(
+                    signal,
+                    "holding_scope_resolve",
+                    action="sell",
+                    status="skipped",
+                    reason_code="no_holding_fill",
+                    decision_branch="sell_fill_scope",
+                    decision_expr="fill_count > 0",
+                    decision_context=holding_context,
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="sell",
+                    status="skipped",
+                    reason_code="no_holding_fill",
+                    outcome="skip",
+                    decision_branch="sell_fill_scope",
+                    decision_expr="fill_count > 0",
+                    decision_context=holding_context,
+                )
+                logger.info("无持仓，跳过下单指令")
+                return
+
+            last_fill_dt = datetime.strptime(
+                "%s %s" % (str(last_fill["date"]), last_fill["time"]),
+                "%Y%m%d %H:%M:%S",
+            )
+            last_fill_dt = fq_util_datetime_localize(last_fill_dt)
+            timing_context = {
+                "timing": {
+                    "fire_time": fire_time,
+                    "last_fill_time": last_fill_dt,
+                }
             }
-        }
-        if fire_time < last_fill_dt:
+            if fire_time < last_fill_dt:
+                self._emit_runtime(
+                    signal,
+                    "timing_check",
+                    action="sell",
+                    status="skipped",
+                    reason_code="signal_before_last_fill",
+                    decision_branch="fill_ordering",
+                    decision_expr="fire_time >= last_fill_time",
+                    decision_context=timing_context,
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="sell",
+                    status="skipped",
+                    reason_code="signal_before_last_fill",
+                    outcome="skip",
+                    decision_branch="fill_ordering",
+                    decision_expr="fire_time >= last_fill_time",
+                    decision_context=timing_context,
+                )
+                logger.info("触发时间异常，跳过下单指令")
+                return
+
             self._emit_runtime(
                 signal,
                 "timing_check",
                 action="sell",
-                status="skipped",
-                reason_code="signal_before_last_fill",
+                status="success",
                 decision_branch="fill_ordering",
                 decision_expr="fire_time >= last_fill_time",
                 decision_context=timing_context,
-                decision_outcome={"outcome": "skip"},
+                decision_outcome={"outcome": "pass"},
             )
-            self._emit_finish(
-                signal,
-                action="sell",
-                status="skipped",
-                reason_code="signal_before_last_fill",
-                outcome="skip",
-                decision_branch="fill_ordering",
-                decision_expr="fire_time >= last_fill_time",
-                decision_context=timing_context,
-            )
-            logger.info("触发时间异常，跳过下单指令")
-            return
 
-        self._emit_runtime(
-            signal,
-            "timing_check",
-            action="sell",
-            status="success",
-            decision_branch="fill_ordering",
-            decision_expr="fire_time >= last_fill_time",
-            decision_context=timing_context,
-            decision_outcome={"outcome": "pass"},
-        )
-
-        last_fill_price = last_fill["price"]
-        threshold = eval_stock_threshold_price(code, last_fill_price)
-        threshold_context = {
-            "threshold": {
-                "current_price": price,
-                "last_fill_price": last_fill_price,
-                "bot_river_price": threshold.get("bot_river_price"),
-                "top_river_price": threshold.get("top_river_price"),
+            current_node = "price_threshold_check"
+            last_fill_price = last_fill["price"]
+            threshold = eval_stock_threshold_price(code, last_fill_price)
+            threshold_context = {
+                "threshold": {
+                    "current_price": price,
+                    "last_fill_price": last_fill_price,
+                    "bot_river_price": threshold.get("bot_river_price"),
+                    "top_river_price": threshold.get("top_river_price"),
+                }
             }
-        }
-        if price < threshold["top_river_price"]:
+            if price < threshold["top_river_price"]:
+                self._emit_runtime(
+                    signal,
+                    "price_threshold_check",
+                    action="sell",
+                    status="skipped",
+                    reason_code="sell_threshold_not_met",
+                    decision_branch="profit_take_threshold",
+                    decision_expr="current_price >= top_river_price",
+                    decision_context=threshold_context,
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="sell",
+                    status="skipped",
+                    reason_code="sell_threshold_not_met",
+                    outcome="skip",
+                    decision_branch="profit_take_threshold",
+                    decision_expr="current_price >= top_river_price",
+                    decision_context=threshold_context,
+                )
+                logger.info("条件未达，跳过下单指令")
+                return
+
             self._emit_runtime(
                 signal,
                 "price_threshold_check",
                 action="sell",
-                status="skipped",
-                reason_code="sell_threshold_not_met",
+                status="success",
                 decision_branch="profit_take_threshold",
                 decision_expr="current_price >= top_river_price",
                 decision_context=threshold_context,
-                decision_outcome={"outcome": "skip"},
+                decision_outcome={"outcome": "pass"},
             )
-            self._emit_finish(
-                signal,
-                action="sell",
-                status="skipped",
-                reason_code="sell_threshold_not_met",
-                outcome="skip",
-                decision_branch="profit_take_threshold",
-                decision_expr="current_price >= top_river_price",
-                decision_context=threshold_context,
-            )
-            logger.info("条件未达，跳过下单指令")
-            return
 
-        self._emit_runtime(
-            signal,
-            "price_threshold_check",
-            action="sell",
-            status="success",
-            decision_branch="profit_take_threshold",
-            decision_expr="current_price >= top_river_price",
-            decision_context=threshold_context,
-            decision_outcome={"outcome": "pass"},
-        )
+            current_node = "quantity_check"
+            quantity = 0
+            profitable_fill_count = 0
+            for i in range(len(fill_list) - 1, -1, -1):
+                if price > fill_list[i]["price"]:
+                    quantity = quantity + fill_list[i]["quantity"]
+                    profitable_fill_count += 1
+                else:
+                    break
 
-        quantity = 0
-        profitable_fill_count = 0
-        for i in range(len(fill_list) - 1, -1, -1):
-            if price > fill_list[i]["price"]:
-                quantity = quantity + fill_list[i]["quantity"]
-                profitable_fill_count += 1
-            else:
-                break
-
-        quantity_context = {
-            "quantity": {
-                "quantity": quantity,
-                "profitable_fill_count": profitable_fill_count,
-                "fill_count": len(fill_list),
+            quantity_context = {
+                "quantity": {
+                    "quantity": quantity,
+                    "profitable_fill_count": profitable_fill_count,
+                    "fill_count": len(fill_list),
+                }
             }
-        }
-        if quantity <= 0:
+            if quantity <= 0:
+                self._emit_runtime(
+                    signal,
+                    "quantity_check",
+                    action="sell",
+                    status="skipped",
+                    reason_code="no_profitable_quantity",
+                    decision_branch="sell_profitable_quantity",
+                    decision_expr="quantity > 0",
+                    decision_context=quantity_context,
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="sell",
+                    status="skipped",
+                    reason_code="no_profitable_quantity",
+                    outcome="skip",
+                    decision_branch="sell_profitable_quantity",
+                    decision_expr="quantity > 0",
+                    decision_context=quantity_context,
+                )
+                logger.info("{code} {name} 当前无可卖盈利切片", code=code, name=name)
+                return
+
             self._emit_runtime(
                 signal,
                 "quantity_check",
                 action="sell",
-                status="skipped",
-                reason_code="no_profitable_quantity",
+                status="success",
                 decision_branch="sell_profitable_quantity",
                 decision_expr="quantity > 0",
                 decision_context=quantity_context,
-                decision_outcome={"outcome": "skip"},
+                decision_outcome={"outcome": "pass"},
             )
-            self._emit_finish(
-                signal,
-                action="sell",
-                status="skipped",
-                reason_code="no_profitable_quantity",
-                outcome="skip",
-                decision_branch="sell_profitable_quantity",
-                decision_expr="quantity > 0",
-                decision_context=quantity_context,
-            )
-            logger.info("{code} {name} 当前无可卖盈利切片", code=code, name=name)
-            return
 
-        self._emit_runtime(
-            signal,
-            "quantity_check",
-            action="sell",
-            status="success",
-            decision_branch="sell_profitable_quantity",
-            decision_expr="quantity > 0",
-            decision_context=quantity_context,
-            decision_outcome={"outcome": "pass"},
-        )
-
-        cooldown_key = f"sell:{code}"
-        cooldown_active = redis_db.get(cooldown_key) is not None
-        cooldown_context = {
-            "cooldown": {
-                "key": cooldown_key,
-                "active": cooldown_active,
-                "cooldown_minutes": 15,
+            current_node = "cooldown_check"
+            cooldown_key = f"sell:{code}"
+            cooldown_active = redis_db.get(cooldown_key) is not None
+            cooldown_context = {
+                "cooldown": {
+                    "key": cooldown_key,
+                    "active": cooldown_active,
+                    "cooldown_minutes": 15,
+                }
             }
-        }
-        if cooldown_active:
+            if cooldown_active:
+                self._emit_runtime(
+                    signal,
+                    "cooldown_check",
+                    action="sell",
+                    status="skipped",
+                    reason_code="sell_cooldown_active",
+                    decision_branch="sell_cooldown",
+                    decision_expr="sell_cooldown is None",
+                    decision_context=cooldown_context,
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="sell",
+                    status="skipped",
+                    reason_code="sell_cooldown_active",
+                    outcome="skip",
+                    decision_branch="sell_cooldown",
+                    decision_expr="sell_cooldown is None",
+                    decision_context=cooldown_context,
+                )
+                logger.info("{code} 卖出冷却中，跳过下单", code=code)
+                return
+
             self._emit_runtime(
                 signal,
                 "cooldown_check",
                 action="sell",
-                status="skipped",
-                reason_code="sell_cooldown_active",
+                status="success",
                 decision_branch="sell_cooldown",
                 decision_expr="sell_cooldown is None",
                 decision_context=cooldown_context,
-                decision_outcome={"outcome": "skip"},
+                decision_outcome={"outcome": "pass"},
             )
-            self._emit_finish(
-                signal,
-                action="sell",
-                status="skipped",
-                reason_code="sell_cooldown_active",
-                outcome="skip",
-                decision_branch="sell_cooldown",
-                decision_expr="sell_cooldown is None",
-                decision_context=cooldown_context,
-            )
-            logger.info("{code} 卖出冷却中，跳过下单", code=code)
-            return
 
-        self._emit_runtime(
-            signal,
-            "cooldown_check",
-            action="sell",
-            status="success",
-            decision_branch="sell_cooldown",
-            decision_expr="sell_cooldown is None",
-            decision_context=cooldown_context,
-            decision_outcome={"outcome": "pass"},
-        )
-
-        signal["quantity"] = quantity
-        signal.setdefault("intent_id", new_intent_id())
-        self._emit_runtime(
-            signal,
-            "submit_intent",
-            action="sell",
-            status="success",
-            decision_branch="sell_profit_take",
-            decision_expr="quantity > 0 and cooldown_inactive",
-            decision_context=quantity_context,
-            decision_outcome={"outcome": "submit"},
-            payload={"quantity": quantity, "is_profitable": True},
-        )
-        try:
-            submit_result = self._submit_guardian_order(
-                action="sell",
-                code=code,
-                price=price,
-                quantity=quantity,
-                remark=remark,
-                is_profitable=True,
-                signal=signal,
-            )
-        except PositionManagementRejectedError as exc:
-            rejection_context = {
-                "quantity": quantity_context["quantity"],
-                "position_management": {
-                    "action": "sell",
-                    "reason": str(exc),
-                },
-            }
+            current_node = "submit_intent"
+            signal["quantity"] = quantity
+            signal.setdefault("intent_id", new_intent_id())
             self._emit_runtime(
                 signal,
-                "position_management_check",
+                "submit_intent",
                 action="sell",
-                status="failed",
-                reason_code="position_management_rejected",
-                decision_branch="sell_position_management",
-                decision_expr="position_management_accepts",
-                decision_context=rejection_context,
-                decision_outcome={"outcome": "reject"},
-                payload={"reason": str(exc)},
+                status="success",
+                decision_branch="sell_profit_take",
+                decision_expr="quantity > 0 and cooldown_inactive",
+                decision_context=quantity_context,
+                decision_outcome={"outcome": "submit"},
+                payload={"quantity": quantity, "is_profitable": True},
             )
-            self._emit_finish(
-                signal,
-                action="sell",
-                status="failed",
-                reason_code="position_management_rejected",
-                outcome="reject",
-                decision_branch="sell_position_management",
-                decision_expr="position_management_accepts",
-                decision_context=rejection_context,
-            )
-            logger.info(
-                "{code} 卖单被仓位管理拒绝：{reason}",
-                code=code,
-                reason=str(exc),
-            )
-            return
+            try:
+                submit_result = self._submit_guardian_order(
+                    action="sell",
+                    code=code,
+                    price=price,
+                    quantity=quantity,
+                    remark=remark,
+                    is_profitable=True,
+                    signal=signal,
+                )
+            except PositionManagementRejectedError as exc:
+                rejection_context = {
+                    "quantity": quantity_context["quantity"],
+                    "position_management": {
+                        "action": "sell",
+                        "reason": str(exc),
+                    }
+                }
+                self._emit_runtime(
+                    signal,
+                    "position_management_check",
+                    action="sell",
+                    status="failed",
+                    reason_code="position_management_rejected",
+                    decision_branch="sell_position_management",
+                    decision_expr="position_management_accepts",
+                    decision_context=rejection_context,
+                    decision_outcome={"outcome": "reject"},
+                    payload={"reason": str(exc)},
+                )
+                self._emit_finish(
+                    signal,
+                    action="sell",
+                    status="failed",
+                    reason_code="position_management_rejected",
+                    outcome="reject",
+                    decision_branch="sell_position_management",
+                    decision_expr="position_management_accepts",
+                    decision_context=rejection_context,
+                )
+                logger.info(
+                    "{code} 卖单被仓位管理拒绝：{reason}",
+                    code=code,
+                    reason=str(exc),
+                )
+                return
 
-        redis_db.set(f"sell:{code}", "1", timedelta(minutes=15))
-        queue_payload = (submit_result or {}).get("queue_payload") or {}
-        if queue_payload.get("position_management_force_profit_reduce"):
-            logger.info(
-                "{code} 命中仓位管理减仓盈利模式：{mode}",
-                code=code,
-                mode=queue_payload.get("position_management_profit_reduce_mode"),
-            )
+            redis_db.set(f"sell:{code}", "1", timedelta(minutes=15))
+            queue_payload = (submit_result or {}).get("queue_payload") or {}
+            if queue_payload.get("position_management_force_profit_reduce"):
+                logger.info(
+                    "{code} 命中仓位管理减仓盈利模式：{mode}",
+                    code=code,
+                    mode=queue_payload.get("position_management_profit_reduce_mode"),
+                )
+        except Exception as exc:
+            if not is_exception_emitted(exc):
+                self._emit_unexpected_exception(
+                    signal,
+                    node=current_node,
+                    action="sell",
+                    exc=exc,
+                )
+            raise
 
     def _evaluate_signal_structure(self, *, code, name, fire_time, fills, zsdata):
         structure_context = {
@@ -1122,6 +1208,18 @@ class StrategyGuardian(metaclass=SingletonType):
             self.runtime_logger.emit(event)
         except Exception:
             return
+
+    def _emit_unexpected_exception(self, signal, *, node, action, exc):
+        self._emit_runtime(
+            signal,
+            node,
+            action=action,
+            status="error",
+            reason_code="unexpected_exception",
+            decision_outcome={"outcome": "error"},
+            payload=build_exception_payload(exc),
+        )
+        mark_exception_emitted(exc)
 
     def _submit_guardian_order(
         self,

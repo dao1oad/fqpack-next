@@ -24,6 +24,10 @@ from freshquant.order_management.ingest.xt_reports import (
 )
 from freshquant.order_management.reconcile.service import ExternalOrderReconcileService
 from freshquant.ordering.general import query_strategy_id
+from freshquant.runtime_observability.failures import (
+    build_exception_payload,
+    mark_exception_emitted,
+)
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.trade.trade import calculateTradeFee, saveInstrumentStrategy
 from freshquant.util.code import fq_util_code_append_market_code_suffix
@@ -589,27 +593,29 @@ def buy(
         "symbol": symbol,
         "action": "buy",
     }
-    _emit_puppet_event(
-        "submit_prepare",
-        context=context,
-        payload={
-            "price": float(price),
-            "quantity": int(quantity),
-            "retry_count": retryCount,
-        },
-    )
-    with trading_manager.lock():
-        # 获取当前连接的xt_trader和acc
-        xt_trader, acc, _ = trading_manager.get_connection()
-        if xt_trader is None or acc is None:
-            logger.error("未连接到交易系统或账户信息缺失")
-            _emit_puppet_event(
-                "submit_result",
-                context=context,
-                status="failed",
-                payload={"reason": "not_connected"},
-            )
-            return None
+    current_node = "submit_prepare"
+    try:
+        _emit_puppet_event(
+            "submit_prepare",
+            context=context,
+            payload={
+                "price": float(price),
+                "quantity": int(quantity),
+                "retry_count": retryCount,
+            },
+        )
+        with trading_manager.lock():
+            # 获取当前连接的xt_trader和acc
+            xt_trader, acc, _ = trading_manager.get_connection()
+            if xt_trader is None or acc is None:
+                logger.error("未连接到交易系统或账户信息缺失")
+                _emit_puppet_event(
+                    "submit_result",
+                    context=context,
+                    status="failed",
+                    payload={"reason": "not_connected"},
+                )
+                return None
         today = int(pendulum.now().format("YYYYMMDD"))
         yestoday = int(pendulum.yesterday().format("YYYYMMDD"))
         one = DBfreshquant["stock_orders"].find_one(
@@ -663,6 +669,7 @@ def buy(
             if price_type in (None, "", "None", 0, "0")
             else int(price_type)
         )
+        current_node = "submit_decision"
         _emit_puppet_event(
             "submit_decision",
             context=context,
@@ -672,6 +679,7 @@ def buy(
                 "price_type": price_type_to_use,
             },
         )
+        current_node = "submit_result"
         fix_result_order_id = xt_trader.order_stock(
             acc,
             stock_code,
@@ -714,6 +722,15 @@ def buy(
                     ),
                 )
         return fix_result_order_id
+    except Exception as exc:
+        _emit_puppet_event(
+            current_node,
+            context=context,
+            status="error",
+            payload=build_exception_payload(exc),
+        )
+        mark_exception_emitted(exc)
+        raise
 
 
 def sell(
@@ -738,27 +755,29 @@ def sell(
         "symbol": symbol,
         "action": "sell",
     }
-    _emit_puppet_event(
-        "submit_prepare",
-        context=context,
-        payload={
-            "price": float(price),
-            "quantity": int(quantity),
-            "retry_count": retryCount,
-        },
-    )
-    with trading_manager.lock():
-        # 获取当前连接的xt_trader和acc
-        xt_trader, acc, _ = trading_manager.get_connection()
-        if xt_trader is None or acc is None:
-            logger.error("未连接到交易系统或账户信息缺失")
-            _emit_puppet_event(
-                "submit_result",
-                context=context,
-                status="failed",
-                payload={"reason": "not_connected"},
-            )
-            return None
+    current_node = "submit_prepare"
+    try:
+        _emit_puppet_event(
+            "submit_prepare",
+            context=context,
+            payload={
+                "price": float(price),
+                "quantity": int(quantity),
+                "retry_count": retryCount,
+            },
+        )
+        with trading_manager.lock():
+            # 获取当前连接的xt_trader和acc
+            xt_trader, acc, _ = trading_manager.get_connection()
+            if xt_trader is None or acc is None:
+                logger.error("未连接到交易系统或账户信息缺失")
+                _emit_puppet_event(
+                    "submit_result",
+                    context=context,
+                    status="failed",
+                    payload={"reason": "not_connected"},
+                )
+                return None
         today = int(pendulum.now().format("YYYYMMDD"))
         yestoday = int(pendulum.yesterday().format("YYYYMMDD"))
         one = DBfreshquant["stock_orders"].find_one(
@@ -831,6 +850,7 @@ def sell(
                     payload={"reason": "insufficient_position"},
                 )
                 return
+        current_node = "submit_decision"
         _emit_puppet_event(
             "submit_decision",
             context=context,
@@ -844,6 +864,7 @@ def sell(
                 ),
             },
         )
+        current_node = "submit_result"
         fix_result_order_id = xt_trader.order_stock(
             acc,
             stock_code,
@@ -889,6 +910,15 @@ def sell(
                     ),
                 )
         return fix_result_order_id
+    except Exception as exc:
+        _emit_puppet_event(
+            current_node,
+            context=context,
+            status="error",
+            payload=build_exception_payload(exc),
+        )
+        mark_exception_emitted(exc)
+        raise
 
 
 def _emit_puppet_event(node, *, context=None, status="info", payload=None):

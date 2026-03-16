@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 
+from datetime import datetime
+
 from freshquant.order_management.ids import new_buy_lot_id, new_lot_slice_id
 
 
 def build_buy_lot_from_trade_fact(trade_fact):
     if trade_fact["side"] != "buy":
         raise ValueError("buy lot can only be built from buy trade fact")
+    resolved_date, resolved_time = _resolve_trade_date_time(trade_fact)
     return {
         "buy_lot_id": new_buy_lot_id(),
         "origin_trade_fact_id": trade_fact["trade_fact_id"],
@@ -18,8 +21,8 @@ def build_buy_lot_from_trade_fact(trade_fact):
             round(float(trade_fact["price"]) * float(trade_fact["quantity"]), 2),
         ),
         "amount_adjust": float(trade_fact.get("amount_adjust", 1.0)),
-        "date": trade_fact.get("date"),
-        "time": trade_fact.get("time"),
+        "date": resolved_date,
+        "time": resolved_time,
         "trade_time": trade_fact.get("trade_time"),
         "name": trade_fact.get("name", ""),
         "stock_code": trade_fact.get("stock_code"),
@@ -122,6 +125,7 @@ def _arrange_remaining(
         "sort_key": float(f"{current_price:.2f}"),
         "date": buy_lot.get("date"),
         "time": buy_lot.get("time"),
+        "trade_time": buy_lot.get("trade_time"),
         "symbol": buy_lot["symbol"],
         "status": "open",
     }
@@ -151,3 +155,22 @@ def _insert_slice_desc(slices, slice_document):
             slices.insert(index, slice_document)
             return
     slices.append(slice_document)
+
+
+def _resolve_trade_date_time(trade_fact):
+    date_value = trade_fact.get("date")
+    time_value = trade_fact.get("time")
+    if _has_date_time(date_value, time_value):
+        return date_value, time_value
+    trade_time = trade_fact.get("trade_time")
+    if trade_time in {None, ""}:
+        return date_value, time_value
+    try:
+        trade_dt = datetime.fromtimestamp(int(trade_time))
+    except (OSError, OverflowError, TypeError, ValueError):
+        return date_value, time_value
+    return int(trade_dt.strftime("%Y%m%d")), trade_dt.strftime("%H:%M:%S")
+
+
+def _has_date_time(date_value, time_value):
+    return date_value not in {None, ""} and time_value not in {None, ""}
