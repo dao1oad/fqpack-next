@@ -588,26 +588,50 @@ export const buildTraceIdentityLabel = (trace = {}) => {
 
 const buildCompactIdentityLabel = (record = {}) => {
   if (toText(record?.trace_id)) return `trace ${toText(record.trace_id)}`
-  if (Array.isArray(record?.intent_ids) && toText(record.intent_ids[0])) return `intent ${toText(record.intent_ids[0])}`
-  if (toText(record?.intent_id)) return `intent ${toText(record.intent_id)}`
-  if (Array.isArray(record?.request_ids) && toText(record.request_ids[0])) return `request ${toText(record.request_ids[0])}`
-  if (toText(record?.request_id)) return `request ${toText(record.request_id)}`
-  if (Array.isArray(record?.internal_order_ids) && toText(record.internal_order_ids[0])) return `order ${toText(record.internal_order_ids[0])}`
-  if (toText(record?.internal_order_id)) return `order ${toText(record.internal_order_id)}`
+  const firstIntent = collectIdentityValues(record?.intent_ids, record?.intent_id)[0]
+  if (firstIntent) return `intent ${firstIntent}`
+  const firstRequest = collectIdentityValues(record?.request_ids, record?.request_id)[0]
+  if (firstRequest) return `request ${firstRequest}`
+  const firstOrder = collectIdentityValues(record?.internal_order_ids, record?.internal_order_id)[0]
+  if (firstOrder) return `order ${firstOrder}`
   return ''
+}
+
+function collectIdentityValues(...valueSets) {
+  const values = []
+  const seen = new Set()
+  const pushValue = (value) => {
+    const normalized = toText(value)
+    if (!normalized || seen.has(normalized)) return
+    seen.add(normalized)
+    values.push(normalized)
+  }
+  for (const valueSet of valueSets) {
+    if (Array.isArray(valueSet)) {
+      for (const value of valueSet) pushValue(value)
+      continue
+    }
+    pushValue(valueSet)
+  }
+  return values
 }
 
 export const buildIdentityStrip = (record = {}) => {
   const items = []
-  const pushItem = (key, label, value) => {
-    const normalized = toText(value)
-    if (!normalized) return
-    items.push({ key, label, value: normalized })
+  const pushItem = (key, label, ...valueSets) => {
+    const values = collectIdentityValues(...valueSets)
+    if (values.length === 0) return
+    items.push({
+      key,
+      label,
+      value: values.join(', '),
+      values,
+    })
   }
   pushItem('trace_id', 'Trace', record?.trace_id)
-  pushItem('intent_id', 'Intent', record?.intent_ids?.[0] ?? record?.intent_id)
-  pushItem('request_id', 'Request', record?.request_ids?.[0] ?? record?.request_id)
-  pushItem('internal_order_id', 'Order', record?.internal_order_ids?.[0] ?? record?.internal_order_id)
+  pushItem('intent_id', 'Intent', record?.intent_ids, record?.intent_id)
+  pushItem('request_id', 'Request', record?.request_ids, record?.request_id)
+  pushItem('internal_order_id', 'Order', record?.internal_order_ids, record?.internal_order_id)
   pushItem('symbol', 'Symbol', record?.symbol)
   pushItem('trace_kind', 'Kind', record?.trace_kind)
   pushItem('trace_status', 'Status', record?.trace_status)
@@ -841,6 +865,47 @@ export const buildRawLookupFromStep = (step = {}) => {
     component: toText(step?.component),
     date,
   }
+}
+
+const buildTraceSelectionIdentity = (step = {}) => {
+  return [
+    toText(step?.trace_id),
+    toText(step?.component),
+    toText(step?.node),
+    toText(step?.ts),
+    Number.isFinite(step?.index) ? String(step.index) : toText(step?.index),
+  ].join('|')
+}
+
+const buildEventSelectionIdentity = (event = {}) => {
+  return [
+    toText(event?.key),
+    toText(event?.runtime_node),
+    toText(event?.component),
+    toText(event?.node),
+    toText(event?.ts),
+  ].join('|')
+}
+
+export const buildRawSelectionKey = (record = {}, view = 'traces') => {
+  const lookup = buildRawLookupFromStep(record)
+  if (!lookup) return ''
+  const normalizedView = toText(view) || 'traces'
+  const identity = normalizedView === 'events'
+    ? buildEventSelectionIdentity(record)
+    : buildTraceSelectionIdentity(record)
+  if (!toText(identity.replace(/\|/g, ' '))) return ''
+  return [
+    normalizedView,
+    lookup.runtime_node,
+    lookup.component,
+    lookup.date,
+    identity,
+  ].join('|')
+}
+
+export const hasMatchingRawSelection = (selectionKey, record = {}, view = 'traces') => {
+  return Boolean(selectionKey) && selectionKey === buildRawSelectionKey(record, view)
 }
 
 export const buildTraceDetail = (trace = {}) => {

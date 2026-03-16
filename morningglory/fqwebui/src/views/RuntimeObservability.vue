@@ -287,16 +287,16 @@
           </div>
             <div v-if="selectedTrace" class="trace-detail-body trace-detail-body--stacked">
               <div v-if="traceIdentityStrip.items.length" class="trace-identity-strip">
-                <button
-                  v-for="item in traceIdentityStrip.items"
-                  :key="item.key"
-                  type="button"
-                  class="trace-identity-strip__item"
-                  @click="copyText(item.value)"
-                >
-                  <span>{{ item.label }}</span>
-                  <code>{{ item.value }}</code>
-                </button>
+                  <button
+                    v-for="item in traceIdentityStrip.items"
+                    :key="item.key"
+                    type="button"
+                    class="trace-identity-strip__item"
+                    @click="copyText(buildIdentityCopyValue(item))"
+                  >
+                    <span>{{ item.label }}</span>
+                    <code>{{ item.value }}</code>
+                  </button>
               </div>
 
               <div class="runtime-detail-tabs">
@@ -571,12 +571,12 @@
                 <span>{{ selectedStep ? `${selectedStep.component}.${selectedStep.node}` : '选择一个 Step 后可直接定位 Raw' }}</span>
                 <el-button type="primary" plain :disabled="!selectedStep" @click="openRawBrowser">打开 Raw Browser</el-button>
               </div>
-              <div v-if="rawRecordCards.length" class="raw-record-list raw-record-list--embedded">
+              <div v-if="embeddedRawRecordCards.length" class="raw-record-list raw-record-list--embedded">
                 <article
-                  v-for="(record, index) in rawRecordCards"
+                  v-for="(record, index) in embeddedRawRecordCards"
                   :key="`${record.title}-${record.subtitle}-${index}`"
                   class="raw-record-card"
-                  :class="{ active: rawFocusedIndex === index }"
+                  :class="{ active: embeddedRawFocusedIndex === index }"
                 >
                   <header>
                     <strong>{{ record.title }}</strong>
@@ -614,7 +614,7 @@
                     :key="item.key"
                     type="button"
                     class="trace-identity-strip__item"
-                    @click="copyText(item.value)"
+                    @click="copyText(buildIdentityCopyValue(item))"
                   >
                     <span>{{ item.label }}</span>
                     <code>{{ item.value }}</code>
@@ -705,12 +705,12 @@
                     <span>{{ selectedEvent.component }}.{{ selectedEvent.node }}</span>
                     <el-button type="primary" plain @click="openRawBrowser">打开 Raw Browser</el-button>
                   </div>
-                  <div v-if="rawRecordCards.length" class="raw-record-list raw-record-list--embedded">
+                  <div v-if="embeddedRawRecordCards.length" class="raw-record-list raw-record-list--embedded">
                     <article
-                      v-for="(record, index) in rawRecordCards"
+                      v-for="(record, index) in embeddedRawRecordCards"
                       :key="`${record.title}-${record.subtitle}-${index}`"
                       class="raw-record-card"
-                      :class="{ active: rawFocusedIndex === index }"
+                      :class="{ active: embeddedRawFocusedIndex === index }"
                     >
                       <header>
                         <strong>{{ record.title }}</strong>
@@ -798,6 +798,7 @@ import {
   buildTraceListSummary,
   buildIssueSummary,
   buildRawRecordSummary,
+  buildRawSelectionKey,
   buildTraceLedgerRows,
   buildTraceSummaryMeta,
   buildTraceDetail,
@@ -809,6 +810,7 @@ import {
   findTraceByRow,
   findRawRecordIndex,
   filterTraceSteps,
+  hasMatchingRawSelection,
   pickDefaultSidebarComponent,
   pickDefaultTraceStep,
   readApiPayload,
@@ -843,6 +845,7 @@ const rawDrawerVisible = ref(false)
 const rawFiles = ref([])
 const rawRecords = ref([])
 const rawFocusedIndex = ref(-1)
+const rawSelectionKey = ref('')
 const rawRecordRefs = ref({})
 const pageError = ref('')
 const boardFilter = reactive({
@@ -915,6 +918,13 @@ const traceStepLedgerRows = computed(() =>
 const traceIdentityStrip = computed(() => buildIdentityStrip(selectedTraceDetail.value))
 const eventIdentityStrip = computed(() => buildIdentityStrip(selectedEvent.value || {}))
 const rawRecordCards = computed(() => rawRecords.value.map((record) => buildRawRecordSummary(record)))
+const activeEmbeddedRawTarget = computed(() => (activeView.value === 'events' ? selectedEvent.value : selectedStep.value))
+const embeddedRawRecordCards = computed(() => {
+  return hasMatchingRawSelection(rawSelectionKey.value, activeEmbeddedRawTarget.value, activeView.value)
+    ? rawRecordCards.value
+    : []
+})
+const embeddedRawFocusedIndex = computed(() => (embeddedRawRecordCards.value.length > 0 ? rawFocusedIndex.value : -1))
 
 const syncQueryState = (target, source = {}) => {
   for (const field of TRACE_QUERY_FIELDS) {
@@ -1070,6 +1080,12 @@ const handleStepSelect = (step) => {
   selectedStep.value = step || null
 }
 
+const buildIdentityCopyValue = (item = {}) => {
+  return Array.isArray(item?.values) && item.values.length > 0
+    ? item.values.join('\n')
+    : String(item?.value || '').trim()
+}
+
 const openRawBrowser = async () => {
   const target = activeView.value === 'events' ? selectedEvent.value : selectedStep.value
   if (target) {
@@ -1086,6 +1102,8 @@ const openRawBrowser = async () => {
 const openRawFromStep = async (step) => {
   const lookup = buildRawLookupFromStep(step)
   if (!lookup) return
+  const selectionKey = buildRawSelectionKey(step, activeView.value)
+  rawSelectionKey.value = selectionKey
   rawQuery.runtime_node = lookup.runtime_node
   rawQuery.component = lookup.component
   rawQuery.date = lookup.date
@@ -1094,7 +1112,7 @@ const openRawFromStep = async (step) => {
   await loadRawFiles()
   if (rawFiles.value.length > 0) {
     rawQuery.file = rawFiles.value[0].name
-    await loadRawTail(step)
+    await loadRawTail(step, selectionKey)
   }
 }
 
@@ -1112,8 +1130,12 @@ const loadRawFiles = async () => {
   }
 }
 
-const loadRawTail = async (targetStep = activeView.value === 'events' ? selectedEvent.value : selectedStep.value) => {
+const loadRawTail = async (
+  targetStep = activeView.value === 'events' ? selectedEvent.value : selectedStep.value,
+  targetSelectionKey = buildRawSelectionKey(targetStep, activeView.value),
+) => {
   if (!rawQuery.file) return
+  rawSelectionKey.value = targetSelectionKey || ''
   loading.raw = true
   try {
     const response = await runtimeObservabilityApi.tailRawFile({
@@ -1123,8 +1145,10 @@ const loadRawTail = async (targetStep = activeView.value === 'events' ? selected
       file: rawQuery.file,
       lines: 120,
     })
-    rawRecords.value = readApiPayload(response, 'records', [])
-    rawFocusedIndex.value = findRawRecordIndex(rawRecords.value, targetStep)
+    const records = readApiPayload(response, 'records', [])
+    if (targetSelectionKey && targetSelectionKey !== rawSelectionKey.value) return
+    rawRecords.value = records
+    rawFocusedIndex.value = findRawRecordIndex(records, targetStep)
     await scrollToFocusedRawRecord()
   } finally {
     loading.raw = false

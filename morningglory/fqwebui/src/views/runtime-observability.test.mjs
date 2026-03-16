@@ -6,6 +6,7 @@ import * as runtimeObservability from './runtimeObservability.mjs'
 import {
   buildEventLedgerRows,
   buildIdentityStrip,
+  buildRawSelectionKey,
   buildTraceIdentityLabel,
   applyBoardFilter,
   buildComponentBoard,
@@ -32,6 +33,7 @@ import {
   filterTraceSteps,
   formatDurationMs,
   groupStepsByComponent,
+  hasMatchingRawSelection,
   pickDefaultSidebarComponent,
   pickDefaultTraceStep,
   sortTraceSummaries,
@@ -485,13 +487,16 @@ test('buildComponentEventFeed keeps heartbeat and bootstrap events for component
   )
 })
 
-test('buildIdentityStrip merges strong ids without dropping symbol and trace metadata', () => {
+test('buildIdentityStrip preserves all strong ids without dropping symbol and trace metadata', () => {
   assert.deepEqual(
     buildIdentityStrip({
       trace_id: 'trc_dense_1',
-      intent_ids: ['intent_dense_1'],
-      request_ids: ['req_dense_1'],
-      internal_order_ids: ['ord_dense_1'],
+      intent_ids: ['intent_dense_1', 'intent_dense_2'],
+      intent_id: 'intent_dense_2',
+      request_ids: ['req_dense_1', 'req_dense_2'],
+      request_id: 'req_dense_2',
+      internal_order_ids: ['ord_dense_1', 'ord_dense_2'],
+      internal_order_id: 'ord_dense_2',
       symbol: '000001',
       trace_kind: 'guardian_signal',
       trace_status: 'failed',
@@ -499,16 +504,51 @@ test('buildIdentityStrip merges strong ids without dropping symbol and trace met
     {
       primary: 'trace trc_dense_1',
       items: [
-        { key: 'trace_id', label: 'Trace', value: 'trc_dense_1' },
-        { key: 'intent_id', label: 'Intent', value: 'intent_dense_1' },
-        { key: 'request_id', label: 'Request', value: 'req_dense_1' },
-        { key: 'internal_order_id', label: 'Order', value: 'ord_dense_1' },
-        { key: 'symbol', label: 'Symbol', value: '000001' },
-        { key: 'trace_kind', label: 'Kind', value: 'guardian_signal' },
-        { key: 'trace_status', label: 'Status', value: 'failed' },
+        { key: 'trace_id', label: 'Trace', value: 'trc_dense_1', values: ['trc_dense_1'] },
+        { key: 'intent_id', label: 'Intent', value: 'intent_dense_1, intent_dense_2', values: ['intent_dense_1', 'intent_dense_2'] },
+        { key: 'request_id', label: 'Request', value: 'req_dense_1, req_dense_2', values: ['req_dense_1', 'req_dense_2'] },
+        { key: 'internal_order_id', label: 'Order', value: 'ord_dense_1, ord_dense_2', values: ['ord_dense_1', 'ord_dense_2'] },
+        { key: 'symbol', label: 'Symbol', value: '000001', values: ['000001'] },
+        { key: 'trace_kind', label: 'Kind', value: 'guardian_signal', values: ['guardian_signal'] },
+        { key: 'trace_status', label: 'Status', value: 'failed', values: ['failed'] },
       ],
     },
   )
+})
+
+test('buildRawSelectionKey scopes embedded raw records to the current selection', () => {
+  const traceStepA = {
+    trace_id: 'trc_dense_1',
+    runtime_node: 'host:guardian',
+    component: 'guardian_strategy',
+    node: 'timing_check',
+    ts: '2026-03-09T10:00:03+08:00',
+    index: 1,
+  }
+  const traceStepB = {
+    ...traceStepA,
+    node: 'submit_intent',
+    ts: '2026-03-09T10:00:04+08:00',
+    index: 2,
+  }
+  const eventA = {
+    key: 'event_a',
+    runtime_node: 'host:guardian',
+    component: 'guardian_strategy',
+    node: 'timing_check',
+    ts: '2026-03-09T10:00:03+08:00',
+  }
+
+  const traceSelectionKey = buildRawSelectionKey(traceStepA, 'traces')
+  const eventSelectionKey = buildRawSelectionKey(eventA, 'events')
+
+  assert.ok(traceSelectionKey)
+  assert.ok(eventSelectionKey)
+  assert.notEqual(traceSelectionKey, buildRawSelectionKey(traceStepB, 'traces'))
+  assert.notEqual(traceSelectionKey, eventSelectionKey)
+  assert.equal(hasMatchingRawSelection(traceSelectionKey, traceStepA, 'traces'), true)
+  assert.equal(hasMatchingRawSelection(traceSelectionKey, traceStepB, 'traces'), false)
+  assert.equal(hasMatchingRawSelection(traceSelectionKey, eventA, 'events'), false)
 })
 
 test('buildTraceLedgerRows returns dense table rows for recent trace list', () => {
@@ -1501,5 +1541,6 @@ test('runtime observability event mode uses dense ledger layout instead of event
   assert.match(content, /runtime-ledger runtime-event-ledger/)
   assert.match(content, /event-detail-tabs/)
   assert.match(content, /buildEventLedgerRows/)
+  assert.match(content, /embeddedRawRecordCards/)
   assert.doesNotMatch(content, /event-feed-row/)
 })
