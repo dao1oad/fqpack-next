@@ -250,7 +250,7 @@ export const buildDenseConfigRows = (detail = {}) => {
       group: '基础',
       key: 'category',
       label: '分类',
-      currentLabel: toText(detail?.category || mustPool.category) || '-',
+      currentLabel: toText(mustPool.category) || '-',
       editor: 'text',
       statusLabel: 'must_pool',
       note: '标的归类摘要',

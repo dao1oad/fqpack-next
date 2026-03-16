@@ -127,6 +127,7 @@ test('buildDenseConfigRows flattens must-pool and guardian fields into one dense
       category: '银行',
     },
     must_pool: {
+      category: '银行',
       stop_loss_price: 9.2,
       initial_lot_amount: 80000,
       lot_amount: 50000,
@@ -158,6 +159,25 @@ test('buildDenseConfigRows flattens must-pool and guardian fields into one dense
   assert.equal(rows[6].statusLabel, '当前 B1:开')
   assert.equal(rows[7].statusLabel, '当前 B2:关')
   assert.equal(rows[8].note.includes('BUY-2'), true)
+})
+
+test('buildDenseConfigRows keeps category row bound to must-pool category instead of subject category', () => {
+  const detail = buildDetailViewModel({
+    subject: {
+      symbol: '600000',
+      name: '浦发银行',
+      category: '银行',
+    },
+    must_pool: {
+      category: '守护池',
+    },
+  })
+
+  const rows = buildDenseConfigRows(detail)
+
+  assert.equal(detail.category, '银行')
+  assert.equal(detail.mustPool.category, '守护池')
+  assert.equal(rows[0].currentLabel, '守护池')
 })
 
 test('buildDetailSummaryChips compresses subject, runtime and pm state into header chips', () => {

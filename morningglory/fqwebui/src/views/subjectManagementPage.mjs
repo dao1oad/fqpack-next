@@ -38,6 +38,22 @@ const cloneStoplossDrafts = (drafts = {}) => {
   )
 }
 
+const hasMustPoolDraftChanges = (detail, draft) => {
+  const baseline = cloneMustPoolDraft({
+    category: detail?.mustPool?.category,
+    stop_loss_price: detail?.mustPool?.stop_loss_price,
+    initial_lot_amount: detail?.mustPool?.initial_lot_amount,
+    lot_amount: detail?.mustPool?.lot_amount,
+    forever: detail?.mustPool?.forever,
+  })
+  return JSON.stringify(cloneMustPoolDraft(draft)) !== JSON.stringify(baseline)
+}
+
+const hasGuardianDraftChanges = (detail, draft) => {
+  const baseline = cloneGuardianDraft(detail?.guardianConfig || {})
+  return JSON.stringify(cloneGuardianDraft(draft)) !== JSON.stringify(baseline)
+}
+
 export const createSubjectManagementPageController = ({
   actions,
   notify,
@@ -96,7 +112,7 @@ export const createSubjectManagementPageController = ({
     state.detail = detail
     state.selectedSymbol = detail.symbol
     state.mustPoolDraft = cloneMustPoolDraft({
-      category: detail.category || detail.mustPool?.category,
+      category: detail.mustPool?.category,
       stop_loss_price: detail.mustPool?.stop_loss_price,
       initial_lot_amount: detail.mustPool?.initial_lot_amount,
       lot_amount: detail.mustPool?.lot_amount,
@@ -202,17 +218,45 @@ export const createSubjectManagementPageController = ({
 
   const handleSaveConfigBundle = async () => {
     if (!state.selectedSymbol) return
+    const mustPoolChanged = hasMustPoolDraftChanges(state.detail, state.mustPoolDraft)
+    const guardianChanged = hasGuardianDraftChanges(state.detail, state.guardianDraft)
+    if (!mustPoolChanged && !guardianChanged) {
+      return
+    }
     state.savingConfigBundle = true
+    let mustPoolSaved = false
     try {
-      await actions.saveMustPool(state.selectedSymbol, cloneMustPoolDraft(state.mustPoolDraft))
-      await actions.saveGuardianBuyGrid(state.selectedSymbol, cloneGuardianDraft(state.guardianDraft))
-      emitNotify(notify, 'success', '基础与 Guardian 已保存')
+      if (mustPoolChanged) {
+        await actions.saveMustPool(state.selectedSymbol, cloneMustPoolDraft(state.mustPoolDraft))
+        mustPoolSaved = true
+      }
+      if (guardianChanged) {
+        await actions.saveGuardianBuyGrid(state.selectedSymbol, cloneGuardianDraft(state.guardianDraft))
+      }
+      emitNotify(
+        notify,
+        'success',
+        mustPoolChanged && guardianChanged
+          ? '基础与 Guardian 已保存'
+          : mustPoolChanged
+            ? '基础设置已保存'
+            : 'Guardian 设置已保存',
+      )
       await hydrateDetail(state.selectedSymbol, {
         preserveTakeprofitDrafts: true,
         preserveStoplossDrafts: true,
       })
       await reloadOverviewOnly()
     } catch (error) {
+      if (mustPoolSaved) {
+        emitNotify(notify, 'warning', '基础设置已保存，Guardian 保存失败')
+        await hydrateDetail(state.selectedSymbol, {
+          preserveGuardianDraft: true,
+          preserveTakeprofitDrafts: true,
+          preserveStoplossDrafts: true,
+        })
+        await reloadOverviewOnly()
+      }
       state.pageError = errorMessage(error)
     } finally {
       state.savingConfigBundle = false
