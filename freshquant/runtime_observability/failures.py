@@ -14,7 +14,8 @@ def is_exception_step(step: dict) -> bool:
     status = str(step.get("status") or "").strip().lower()
     if status not in {"failed", "error"}:
         return False
-    payload = step.get("payload") if isinstance(step.get("payload"), dict) else {}
+    payload_raw = step.get("payload")
+    payload: dict = payload_raw if isinstance(payload_raw, dict) else {}
     if str(payload.get("error_type") or "").strip():
         return True
     return str(step.get("reason_code") or "").strip() == "unexpected_exception"
@@ -24,7 +25,8 @@ def build_exception_break_reason(step: dict) -> str:
     reason_code = str(step.get("reason_code") or "unexpected_exception").strip()
     component = str(step.get("component") or "").strip() or "runtime"
     node = str(step.get("node") or "").strip() or "event"
-    payload = step.get("payload") if isinstance(step.get("payload"), dict) else {}
+    payload_raw = step.get("payload")
+    payload: dict = payload_raw if isinstance(payload_raw, dict) else {}
     error_type = str(payload.get("error_type") or "").strip()
     if error_type:
         return f"{reason_code}@{component}.{node}:{error_type}"

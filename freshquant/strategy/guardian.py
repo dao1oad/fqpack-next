@@ -991,7 +991,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     "position_management": {
                         "action": "sell",
                         "reason": str(exc),
-                    }
+                    },
                 }
                 self._emit_runtime(
                     signal,
