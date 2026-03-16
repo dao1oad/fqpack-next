@@ -14,6 +14,11 @@ const TAKEPROFIT_LEVELS = [
   { level: 3, color: GUIDE_COLORS[2] },
 ]
 
+export const PRICE_GUIDE_LEGEND_GROUPS = [
+  { key: 'guardian', legendName: 'Guardian 价格线', color: GUIDE_COLORS[0] },
+  { key: 'takeprofit', legendName: '止盈价格线', color: GUIDE_COLORS[2] },
+]
+
 const toText = (value) => String(value ?? '').trim()
 
 const toNumber = (value, fallback = 0) => {
@@ -132,22 +137,25 @@ export const buildTakeprofitPriceGuides = (tiers = [], state = {}) => {
     .filter(Boolean)
 }
 
-const buildSequentialBands = (lines = [], group) => {
-  const visibleLines = (Array.isArray(lines) ? lines : []).filter((row) => Number.isFinite(Number(row?.price)))
-  const bands = []
-  for (let index = 0; index < visibleLines.length - 1; index += 1) {
-    const current = visibleLines[index]
-    const next = visibleLines[index + 1]
-    bands.push({
-      id: `${group}-band-${index + 1}`,
-      group,
-      color: current.color,
-      top: Math.max(current.price, next.price),
-      bottom: Math.min(current.price, next.price),
-      active: current.active || next.active,
-    })
+export const getPriceGuideLegendName = (group) =>
+  PRICE_GUIDE_LEGEND_GROUPS.find((item) => item.key === group)?.legendName || String(group || '').trim()
+
+export const buildPriceGuideLegendSelectionState = (previousSelected = null) => {
+  const defaults = Object.fromEntries(
+    PRICE_GUIDE_LEGEND_GROUPS.map((item) => [item.legendName, true])
+  )
+  if (!previousSelected || typeof previousSelected !== 'object') {
+    return defaults
   }
-  return bands
+
+  return Object.fromEntries(
+    PRICE_GUIDE_LEGEND_GROUPS.map((item) => [
+      item.legendName,
+      Object.prototype.hasOwnProperty.call(previousSelected, item.legendName)
+        ? !!previousSelected[item.legendName]
+        : true,
+    ])
+  )
 }
 
 export const buildChartPriceGuides = ({
@@ -161,9 +169,7 @@ export const buildChartPriceGuides = ({
 
   return {
     lines: guardianLines.concat(takeprofitLines),
-    bands: buildSequentialBands(guardianLines, 'guardian').concat(
-      buildSequentialBands(takeprofitLines, 'takeprofit')
-    ),
+    bands: [],
   }
 }
 

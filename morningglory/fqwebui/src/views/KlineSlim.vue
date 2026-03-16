@@ -46,7 +46,7 @@
       </div>
       <div class="toolbar-right">
         <span class="status-chip">主图 {{ currentPeriod }}</span>
-        <span class="status-chip">图例控制主图缠论层与额外周期叠加</span>
+        <span class="status-chip">图例控制缠论叠加与价格横线</span>
         <span class="status-chip">主图末 bar {{ lastMainBarLabel }}</span>
         <span class="status-chip" :class="{ error: lastError }">{{ statusText }}</span>
       </div>
@@ -171,7 +171,7 @@
                 <span v-if="subjectDetailLoading" class="price-panel-chip">同步中</span>
               </div>
               <div class="price-panel-meta-row">
-                <span>图上直接展示 Guardian / 止盈横线与带状网格</span>
+                <span>图上默认展示 Guardian / 止盈横线，可在 legend 中关闭</span>
               </div>
             </div>
             <div class="price-panel-actions">
@@ -255,7 +255,7 @@
                 </div>
 
                 <div class="price-panel-footer">
-                  <span class="price-panel-footer-note">保存后会同步刷新图上的 Guardian 网格线。</span>
+                  <span class="price-panel-footer-note">保存后会同步刷新图上的 Guardian 横线。</span>
                   <el-button
                     size="small"
                     type="primary"
@@ -323,7 +323,7 @@
                 </div>
 
                 <div class="price-panel-footer">
-                  <span class="price-panel-footer-note">保存后会同步刷新图上的止盈网格线。</span>
+                  <span class="price-panel-footer-note">保存后会同步刷新图上的止盈横线。</span>
                   <el-button
                     size="small"
                     type="primary"
@@ -646,15 +646,15 @@ export default klineSlim
 
 .kline-slim-content.has-side-panel .kline-slim-chart,
 .kline-slim-content.has-side-panel .kline-slim-empty
-  right 384px
+  left 384px
 
 .kline-slim-content.has-side-panel .kline-slim-chanlun-panel
-  right 396px
+  left 396px
 
 .kline-slim-price-panel
   position absolute
   top 12px
-  right 12px
+  left 12px
   bottom 12px
   width 372px
   display flex
@@ -826,16 +826,24 @@ export default klineSlim
   display flex
   flex-direction column
   gap 4px
+  flex 1
   min-width 0
+  overflow hidden
 
 .price-panel-row-title
   font-size 13px
   color #f8fafc
   font-weight 600
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
 
 .price-panel-row-subtitle
   font-size 12px
   color #94a3b8
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
 
 .price-panel-row-editor
   display flex
@@ -1122,10 +1130,10 @@ export default klineSlim
 
   .kline-slim-content.has-side-panel .kline-slim-chart,
   .kline-slim-content.has-side-panel .kline-slim-empty
-    right 344px
+    left 344px
 
   .kline-slim-content.has-side-panel .kline-slim-chanlun-panel
-    right 356px
+    left 356px
 
   .kline-slim-price-panel
     width 332px
