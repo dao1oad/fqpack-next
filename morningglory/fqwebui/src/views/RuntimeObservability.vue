@@ -100,7 +100,7 @@
                 :class="[statusClass(item.status), { active: activeComponent === item.component }]"
                 @click="handleComponentFilter(item.component)"
               >
-                <span class="component-ledger__component">{{ item.component }}</span>
+                <span class="component-ledger__component" :title="item.component">{{ item.component }}</span>
                 <span class="component-ledger__status">{{ item.status }}</span>
                 <span class="component-ledger__heartbeat">{{ item.heartbeat_label }}</span>
                 <span>{{ item.issue_trace_count }}</span>
@@ -120,7 +120,7 @@
                   :key="`${item.component}-${detail.runtime_node}`"
                   class="component-ledger__runtime-row"
                 >
-                  <span class="component-ledger__runtime-node">{{ detail.runtime_node }}</span>
+                  <span class="component-ledger__runtime-node" :title="detail.runtime_node">{{ detail.runtime_node }}</span>
                   <span class="component-ledger__runtime-status" :class="statusClass(detail.status)">
                     {{ detail.status }}
                   </span>
@@ -131,6 +131,7 @@
                       <span
                         v-for="highlight in detail.highlights"
                         :key="`${item.component}-${detail.runtime_node}-${highlight.key}`"
+                        :title="`${highlight.label} ${highlight.display}`"
                       >
                         {{ highlight.label }} {{ highlight.display }}
                       </span>
@@ -173,6 +174,7 @@
                 <div class="runtime-ledger__header runtime-trace-ledger__grid">
                   <span>last_ts</span>
                   <span>symbol</span>
+                  <span>name</span>
                   <span>identity</span>
                   <span>kind</span>
                   <span>status</span>
@@ -190,20 +192,21 @@
                   :class="{ active: isActiveTraceRow(row) }"
                   @click="handleRecentTraceClick(row)"
                 >
-                  <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.last_ts || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.last_ts_label || '-' }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.symbol || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_name || '-'">{{ row.symbol_name || '-' }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.identity || '-' }}</span>
                   <span class="runtime-ledger__cell">{{ row.trace_kind_label }}</span>
-                  <span class="runtime-ledger__cell">
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status">
                     <span class="runtime-inline-status" :class="statusClass(row.trace_status)">
                       {{ row.trace_status_label }}
                     </span>
                   </span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.entry_exit_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate runtime-ledger__cell--entry-exit" :title="row.entry_exit_label">{{ row.entry_exit_label }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.step_count }}</span>
                   <span class="runtime-ledger__cell">{{ row.duration_label }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.break_reason || '-' }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.slowest_step_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.break_reason || '-'">{{ row.break_reason || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.slowest_step_label || '-'">{{ row.slowest_step_label }}</span>
                 </button>
               </div>
               <div v-else class="runtime-empty-panel">
@@ -242,11 +245,11 @@
                 :class="{ active: isActiveEventRow(componentEventFeed[rowIndex]) }"
                 @click="handleEventClick(componentEventFeed[rowIndex])"
               >
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts || '-' }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.runtime_node }}</span>
                 <span class="runtime-ledger__cell">{{ row.component }}</span>
                 <span class="runtime-ledger__cell">{{ row.node }}</span>
-                <span class="runtime-ledger__cell">
+                <span class="runtime-ledger__cell runtime-ledger__cell--status">
                   <span class="runtime-inline-status" :class="statusClass(row.status)">
                     {{ row.status }}
                   </span>
@@ -371,11 +374,11 @@
                 <div class="trace-summary-grid">
                   <article class="trace-summary-card">
                     <span>开始时间</span>
-                    <strong>{{ selectedTraceDetail.first_ts || '-' }}</strong>
+                    <strong>{{ selectedTraceDetail.first_ts_label || '-' }}</strong>
                   </article>
                   <article class="trace-summary-card">
                     <span>结束时间</span>
-                    <strong>{{ selectedTraceDetail.last_ts || '-' }}</strong>
+                    <strong>{{ selectedTraceDetail.last_ts_label || '-' }}</strong>
                   </article>
                   <article class="trace-summary-card">
                     <span>入口 -> 出口</span>
@@ -433,10 +436,10 @@
                   @click="handleStepSelect(filteredSteps[rowIndex])"
                 >
                   <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.index + 1 }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
                   <span class="runtime-ledger__cell">{{ row.delta_label || '-' }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.component_node }}</span>
-                  <span class="runtime-ledger__cell">
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status">
                     <span class="runtime-inline-status" :class="statusClass(row.status)">
                       {{ row.status }}
                     </span>
@@ -456,7 +459,7 @@
                   <div class="step-inspector-head" :class="statusClass(selectedStep.status)">
                     <div>
                       <strong>{{ selectedStep.component }}.{{ selectedStep.node }}</strong>
-                      <p>{{ selectedStep.ts || '-' }}</p>
+                      <p>{{ selectedStep.ts_label || '-' }}</p>
                     </div>
                     <span class="trace-step-status">{{ selectedStep.status || 'info' }}</span>
                   </div>
@@ -652,7 +655,7 @@
                   <div class="step-inspector-head" :class="statusClass(selectedEvent.status)">
                     <div>
                       <strong>{{ selectedEvent.component }}.{{ selectedEvent.node }}</strong>
-                      <p>{{ selectedEvent.ts || '-' }}</p>
+                      <p>{{ selectedEvent.ts_label || '-' }}</p>
                     </div>
                     <span class="trace-step-status">{{ selectedEvent.status || 'info' }}</span>
                   </div>
@@ -1455,11 +1458,12 @@ onBeforeUnmount(() => {
 
 .runtime-browse-layout {
   display: grid;
-  grid-template-columns: 260px minmax(360px, 1.2fr) minmax(420px, 1.1fr);
-  gap: 12px;
+  grid-template-columns: minmax(220px, 0.72fr) minmax(600px, 1.95fr) minmax(460px, 1.45fr);
+  gap: 14px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   align-items: stretch;
 }
 
@@ -1800,7 +1804,7 @@ onBeforeUnmount(() => {
 .component-ledger__header,
 .component-ledger__row {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) 80px 84px 72px 72px;
+  grid-template-columns: minmax(0, 1.45fr) 96px 84px 72px 72px;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
@@ -1831,6 +1835,14 @@ onBeforeUnmount(() => {
 }
 
 .component-ledger__component,
+.component-ledger__runtime-node {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.component-ledger__component,
 .component-ledger__runtime-node,
 .runtime-ledger__cell--strong {
   color: #21405e;
@@ -1846,7 +1858,7 @@ onBeforeUnmount(() => {
 .component-ledger__runtime-header,
 .component-ledger__runtime-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) 72px 72px 72px minmax(0, 1.8fr);
+  grid-template-columns: minmax(0, 1.3fr) 96px 78px 72px minmax(0, 1.9fr);
   align-items: start;
   gap: 8px;
   font-size: 12px;
@@ -1864,10 +1876,16 @@ onBeforeUnmount(() => {
 }
 
 .component-ledger__runtime-highlights {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: #45627f;
+}
+
+.component-ledger__runtime-highlights span + span {
+  margin-left: 8px;
 }
 
 .runtime-ledger {
@@ -1914,11 +1932,31 @@ onBeforeUnmount(() => {
 }
 
 .runtime-trace-ledger__grid {
-  grid-template-columns: 152px 76px 132px 76px 88px minmax(180px, 1.4fr) 52px 72px minmax(150px, 1fr) minmax(150px, 1fr);
+  grid-template-columns:
+    152px
+    84px
+    112px
+    144px
+    84px
+    112px
+    minmax(320px, 2.35fr)
+    52px
+    72px
+    minmax(190px, 1.1fr)
+    minmax(190px, 1fr);
 }
 
 .runtime-event-ledger__grid {
-  grid-template-columns: 152px 128px 104px 104px 88px 76px 132px minmax(170px, 1.3fr) minmax(150px, 1fr);
+  grid-template-columns:
+    152px
+    144px
+    120px
+    120px
+    112px
+    84px
+    144px
+    minmax(220px, 1.45fr)
+    minmax(220px, 1.15fr);
 }
 
 .runtime-ledger__cell {
@@ -1942,19 +1980,31 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
 }
 
+.runtime-ledger__cell--status {
+  overflow: visible;
+}
+
+.runtime-ledger__cell--entry-exit {
+  color: #21405e;
+  font-weight: 600;
+}
+
 .runtime-inline-status,
 .component-ledger__status,
 .component-ledger__runtime-status {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 64px;
+  min-width: 88px;
+  box-sizing: border-box;
   padding: 4px 8px;
   border-radius: 999px;
   background: #edf4fb;
   color: #35506c;
   font-size: 12px;
+  line-height: 1;
   text-transform: lowercase;
+  white-space: nowrap;
 }
 
 .runtime-inline-status.is-success,
@@ -2452,10 +2502,18 @@ onBeforeUnmount(() => {
 
 .runtime-detail-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .runtime-detail-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 76px;
+  min-height: 34px;
+  box-sizing: border-box;
   border: 1px solid #d8e2ee;
   border-radius: 999px;
   background: #fff;
@@ -2463,6 +2521,8 @@ onBeforeUnmount(() => {
   color: #5e7690;
   cursor: pointer;
   font: inherit;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .runtime-detail-tabs__tab.active {
@@ -2508,7 +2568,18 @@ onBeforeUnmount(() => {
 .trace-step-ledger__header,
 .trace-step-ledger__row {
   display: grid;
-  grid-template-columns: 40px 152px 72px minmax(160px, 1.2fr) 88px 112px 140px 120px 72px minmax(150px, 1fr) minmax(150px, 1fr);
+  grid-template-columns:
+    40px
+    152px
+    72px
+    minmax(200px, 1.25fr)
+    112px
+    112px
+    160px
+    128px
+    72px
+    minmax(190px, 1fr)
+    minmax(190px, 1fr);
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
