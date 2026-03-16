@@ -128,12 +128,14 @@
 - 检查 Redis `STOCK_ORDER_QUEUE`
 - 检查 gateway 进程是否消费
 - 检查是否误开 `observe_only`
+- 信用账户卖出若使用自动 `credit_trade_mode` / 自动 `price_mode`，还要检查 credit detail 与连续竞价状态是否可正常读取；当前读取失败会直接报错，不再静默退化为默认卖出模式或限价单
 
 ### 成交回来了但前端无持仓
 
 - 检查 `om_trade_facts`
 - 检查 `om_buy_lots` 和投影是否更新
 - 检查 reconcile 是否把外部成交匹配成内部单
+- 如果是 external reconcile 落账，还要检查 lot amount / grid interval 是否可解析；当前解析失败会直接报错，不再静默使用 `3000 / 1.03`
 
 ### 卖出后 lot 不对
 

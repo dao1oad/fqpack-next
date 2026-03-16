@@ -55,13 +55,12 @@ class TpslTickConsumer:
         if event is None:
             return None
 
-        active_codes = self.refresh_universe()
-        if event.code not in active_codes:
-            return None
-
         symbol = normalize_to_base_code(event.code)
         trace_id = new_trace_id()
         try:
+            active_codes = self.refresh_universe()
+            if event.code not in active_codes:
+                return None
             self._emit_runtime(
                 "tick_match",
                 symbol=symbol,

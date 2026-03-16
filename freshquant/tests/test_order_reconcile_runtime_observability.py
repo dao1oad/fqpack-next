@@ -1,3 +1,4 @@
+import freshquant.order_management.reconcile.service as reconcile_service_module
 from freshquant.order_management.reconcile.service import ExternalOrderReconcileService
 from freshquant.order_management.tracking.service import OrderTrackingService
 
@@ -152,7 +153,19 @@ class InMemoryRepository:
         return None
 
 
-def test_reconcile_trade_reports_emits_runtime_events():
+def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_resolve_lot_amount",
+        lambda _symbol: 3000,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_grid_interval_lookup",
+        lambda _symbol, _trade_fact: 1.03,
+        raising=False,
+    )
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)
     tracking_service.submit_order(
@@ -206,7 +219,19 @@ def test_reconcile_trade_reports_emits_runtime_events():
     assert runtime_logger.events[1]["internal_order_id"] == "ord_recon_1"
 
 
-def test_confirm_expired_candidates_emits_externalize_event():
+def test_confirm_expired_candidates_emits_externalize_event(monkeypatch):
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_resolve_lot_amount",
+        lambda _symbol: 3000,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_grid_interval_lookup",
+        lambda _symbol, _trade_fact: 1.03,
+        raising=False,
+    )
     repository = InMemoryRepository()
     runtime_logger = FakeRuntimeLogger()
     service = ExternalOrderReconcileService(

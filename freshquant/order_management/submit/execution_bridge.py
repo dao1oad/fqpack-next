@@ -328,9 +328,23 @@ def _resolve_runtime_execution(
         }
     else:
         credit_detail = None
-        if account_type == "CREDIT" and action == "sell":
+        if _requires_runtime_credit_detail(
+            account_type=account_type,
+            action=action,
+            requested_credit_trade_mode=requested_credit_trade_mode,
+            resolved_credit_trade_mode=resolved_credit_trade_mode,
+        ):
             credit_loader = credit_detail_loader or _default_credit_detail_loader
-            credit_detail = credit_loader()
+            try:
+                credit_detail = credit_loader()
+            except Exception as exc:
+                raise RuntimeError(
+                    "credit detail unavailable for auto credit sell resolution"
+                ) from exc
+            if credit_detail is None:
+                raise RuntimeError(
+                    "credit detail unavailable for auto credit sell resolution"
+                )
         credit_resolution = resolve_runtime_credit_execution(
             account_type=account_type,
             action=action,
@@ -356,13 +370,24 @@ def _resolve_runtime_execution(
         continuous_provider = (
             continuous_auction_provider or _default_continuous_auction_provider
         )
+        continuous_auction = False
+        if _requires_continuous_auction_probe(
+            account_type=account_type,
+            price_mode=requested_price_mode,
+        ):
+            try:
+                continuous_auction = bool(continuous_provider())
+            except Exception as exc:
+                raise RuntimeError(
+                    "continuous auction state unavailable for credit auto price resolution"
+                ) from exc
         if account_type == "CREDIT":
             price_resolution = resolve_price_mode(
                 symbol=symbol,
                 action=action,
                 price_mode=requested_price_mode,
                 input_price=input_price,
-                continuous_auction=bool(continuous_provider()),
+                continuous_auction=continuous_auction,
             )
         else:
             price_resolution = _limit_price_resolution(
@@ -386,20 +411,24 @@ def _default_credit_detail_loader():
     try:
         from freshquant.position_management.credit_client import PositionCreditClient
 
-        details = PositionCreditClient().query_credit_detail() or []
-    except Exception:
-        return None
-    if not details:
-        return None
-    return details[0]
+        details = PositionCreditClient().query_credit_detail()
+    except Exception as exc:
+        raise RuntimeError("credit detail query failed") from exc
+    detail = _extract_credit_detail(details)
+    if detail is None:
+        raise RuntimeError("credit detail unavailable")
+    return detail
 
 
 def _default_continuous_auction_provider():
     try:
         from fqxtrade.util.trading_time import is_continuous_auction_time
-    except Exception:
-        return False
-    return bool(is_continuous_auction_time())
+    except Exception as exc:
+        raise RuntimeError("continuous auction state unavailable") from exc
+    try:
+        return bool(is_continuous_auction_time())
+    except Exception as exc:
+        raise RuntimeError("continuous auction state unavailable") from exc
 
 
 def _market_5_cancel_resolution(symbol, action, requested_mode, price_value):
@@ -462,6 +491,30 @@ def _normalize_mode(value, default="auto"):
     return normalized or default
 
 
+def _requires_runtime_credit_detail(
+    *,
+    account_type,
+    action,
+    requested_credit_trade_mode,
+    resolved_credit_trade_mode,
+):
+    if _normalize_account_type(account_type) != "CREDIT":
+        return False
+    if str(action or "").strip().lower() != "sell":
+        return False
+    effective_mode = _normalize_optional_mode(
+        resolved_credit_trade_mode
+    ) or _normalize_mode(requested_credit_trade_mode)
+    return effective_mode not in {"sell_repay", "collateral_sell"}
+
+
+def _requires_continuous_auction_probe(*, account_type, price_mode):
+    return (
+        _normalize_account_type(account_type) == "CREDIT"
+        and _normalize_mode(price_mode) == AUTO_PRICE_MODE
+    )
+
+
 def _normalize_optional_mode(value):
     if value in (None, ""):
         return None
@@ -480,6 +533,14 @@ def _credit_detail_value(detail, field_name):
     if isinstance(detail, dict):
         return _safe_float(detail.get(field_name))
     return _safe_float(getattr(detail, field_name, 0.0))
+
+
+def _extract_credit_detail(details):
+    if details is None:
+        return None
+    if isinstance(details, (list, tuple)):
+        return details[0] if details else None
+    return details
 
 
 def _safe_float(value):

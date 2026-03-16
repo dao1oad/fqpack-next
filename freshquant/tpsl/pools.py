@@ -21,9 +21,15 @@ def _load_holding_codes() -> set[str]:
         {},
         {"stock_code": 1, "code": 1, "symbol": 1, "volume": 1},
     ):
-        if _coerce_positive_int(doc.get("volume")) <= 0:
-            continue
         raw = doc.get("stock_code") or doc.get("code") or doc.get("symbol") or ""
+        volume = _parse_non_negative_int(
+            doc.get("volume"),
+            field_name="xt_positions volume",
+            symbol=raw,
+            default=0,
+        )
+        if volume <= 0:
+            continue
         code = normalize_prefixed_code(str(raw)).lower()
         if code:
             codes.add(code)
@@ -49,8 +55,15 @@ def _load_configured_codes() -> set[str]:
     return codes
 
 
-def _coerce_positive_int(value) -> int:
+def _parse_non_negative_int(value, *, field_name, symbol, default) -> int:
+    if value in (None, ""):
+        return int(default)
     try:
-        return int(value or 0)
-    except Exception:
-        return 0
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{field_name} invalid for {symbol or '-'}: {value!r}"
+        ) from exc
+    if parsed < 0:
+        raise ValueError(f"{field_name} invalid for {symbol or '-'}: {value!r}")
+    return parsed
