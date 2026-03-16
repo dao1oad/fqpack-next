@@ -41,6 +41,7 @@ import {
   getRealtimeRefreshPeriods,
   normalizeChanlunPeriod
 } from './kline-slim-chanlun-periods.mjs'
+import { buildPriceGuideLegendSelectionState } from './subject-price-guides.mjs'
 
 const MAIN_PERIODS = SUPPORTED_CHANLUN_PERIODS
 const DEFAULT_PERIOD = DEFAULT_MAIN_PERIOD
@@ -163,6 +164,7 @@ export default {
       periodLegendSelected: buildPeriodLegendSelectionState({
         currentPeriod: DEFAULT_PERIOD
       }),
+      priceGuideLegendSelected: buildPriceGuideLegendSelectionState(),
       holdings: [],
       mustPools: [],
       stockPools: [],
@@ -807,6 +809,7 @@ export default {
         currentPeriod: this.currentPeriod,
         previousSelected: selected
       })
+      this.priceGuideLegendSelected = buildPriceGuideLegendSelectionState(selected)
       this.visibleChanlunPeriods = getVisibleChanlunPeriods({
         currentPeriod: this.currentPeriod,
         selected: this.periodLegendSelected
@@ -972,6 +975,7 @@ export default {
           .concat(extraPeriods)
           .map((period) => this.chanlunVersionMap[period] || '')
           .concat(JSON.stringify(this.periodLegendSelected))
+          .concat(JSON.stringify(this.priceGuideLegendSelected))
           .concat(this.priceGuideVersion || '')
           .join('__')
         if (
@@ -991,7 +995,10 @@ export default {
               .filter(([, payload]) => !!payload)
           ),
           visiblePeriods: extraPeriods,
-          legendSelected: this.periodLegendSelected,
+          legendSelected: {
+            ...this.periodLegendSelected,
+            ...this.priceGuideLegendSelected
+          },
           priceGuides: this.subjectPriceDetail?.chartPriceGuides || null
         })
         if (!scene) {

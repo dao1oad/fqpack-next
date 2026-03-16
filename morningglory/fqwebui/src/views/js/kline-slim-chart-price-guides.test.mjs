@@ -63,9 +63,8 @@ test('buildKlineSlimChartScene carries guardian and takeprofit price guides', ()
   })
 
   assert.equal(scene.priceGuideLines.length, 2)
-  assert.equal(scene.priceGuideBands.length, 1)
+  assert.equal(scene.priceGuideBands.length, 0)
   assert.equal(scene.priceGuideLines[0].id, 'guardian-buy_1')
-  assert.equal(scene.priceGuideBands[0].id, 'guardian-band-1')
 })
 
 test('deriveViewportStateForScene includes price guide values in y range', () => {
@@ -88,7 +87,7 @@ test('deriveViewportStateForScene includes price guide values in y range', () =>
   assert.equal(viewport.yRange.min < 8.5, true)
 })
 
-test('buildKlineSlimChartOption renders price lines and bands with expected styles', () => {
+test('buildKlineSlimChartOption renders price lines without background bands and exposes legend toggles', () => {
   const scene = buildKlineSlimChartScene({
     mainData: makeMainData(),
     currentPeriod: '30m',
@@ -115,5 +114,11 @@ test('buildKlineSlimChartOption renders price lines and bands with expected styl
 
   assert.equal(guardianLine.lineStyle.type, 'solid')
   assert.equal(takeprofitLine.lineStyle.type, 'dashed')
-  assert.equal(guardianBand.type, 'custom')
+  assert.equal(guardianBand, undefined)
+  assert.deepEqual(
+    option.legend.data.slice(-2),
+    ['Guardian 价格线', '止盈价格线'],
+  )
+  assert.equal(option.legend.selected['Guardian 价格线'], true)
+  assert.equal(option.legend.selected['止盈价格线'], true)
 })
