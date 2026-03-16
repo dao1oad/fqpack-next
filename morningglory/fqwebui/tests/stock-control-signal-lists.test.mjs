@@ -8,6 +8,10 @@ test('StockControl uses must_pools title and includes stock_pools model signals 
 
   assert.match(content, /must_pools买入信号/)
   assert.match(content, /stock_pools模型信号/)
+  assert.doesNotMatch(content, /<StockPositionList/)
+  assert.match(content, /stock-control-shell/)
+  assert.match(content, /monitor-column monitor-column--signals/)
+  assert.match(content, /monitor-column monitor-column--model/)
 })
 
 test('stockApi exposes stock model signal list endpoint', async () => {

@@ -1,6 +1,7 @@
 <template>
-  <div>
+  <div class="future-control-shell">
     <MyHeader />
+    <div class="future-control-main future-control-body">
     <!--仓位计算-->
     <el-divider content-position="center">仓位计算器</el-divider>
     <el-row>
@@ -637,6 +638,7 @@
         <StatisticsChat></StatisticsChat>
       </el-tab-pane>
     </el-tabs>
+    </div>
   </div>
 </template>
 

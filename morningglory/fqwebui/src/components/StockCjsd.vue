@@ -1,8 +1,11 @@
 <template>
-  <div>
+  <div class="stock-cjsd-shell">
     <MyHeader></MyHeader>
-    <el-divider content-position="center">超级赛道</el-divider>
-    <el-table v-loading="isLoading" :data="cjsdList" size="small" fit :stripe="true" :border="true">
+    <div class="stock-cjsd-body">
+      <section class="stock-cjsd-panel">
+        <el-divider content-position="center">超级赛道</el-divider>
+        <div class="stock-cjsd-panel__table">
+          <el-table v-loading="isLoading" :data="cjsdList" size="small" fit :stripe="true" :border="true">
       <el-table-column prop="date" label="日期" width="100"> </el-table-column>
       <el-table-column prop="cjsd_1" label="超级赛道1">
         <template #default="scope">
@@ -174,20 +177,23 @@
           </el-table></template
         >
       </el-table-column>
-    </el-table>
-    <el-row>
-      <el-pagination
-        background
-        layout="total,sizes,prev,pager,next"
-        v-model:current-page="listQuery.current"
-        :page-size="listQuery.size"
-        :total="listQuery.total"
-        :page-sizes="[10, 50, 100]"
-        @current-change="handlePageChange"
-        @size-change="handleSizeChange"
-        class="mt-5"
-      />
-    </el-row>
+          </el-table>
+        </div>
+        <el-row class="stock-cjsd-panel__pager">
+          <el-pagination
+            background
+            layout="total,sizes,prev,pager,next"
+            v-model:current-page="listQuery.current"
+            :page-size="listQuery.size"
+            :total="listQuery.total"
+            :page-sizes="[10, 50, 100]"
+            @current-change="handlePageChange"
+            @size-change="handleSizeChange"
+            class="mt-5"
+          />
+        </el-row>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -256,5 +262,40 @@ export default {
 }
 </script>
 <style lang="stylus" scoped>
-@import '../style/stock-control.styl';
+.stock-cjsd-shell
+  display flex
+  flex-direction column
+  height 100vh
+  height 100dvh
+  overflow hidden
+  background #f5f7fa
+
+.stock-cjsd-body
+  flex 1 1 auto
+  min-height 0
+  overflow hidden
+  padding 12px 16px 16px
+
+.stock-cjsd-panel
+  display flex
+  flex-direction column
+  min-height 0
+  height 100%
+  overflow hidden
+  padding 0 12px 12px
+  border 1px solid #ebeef5
+  border-radius 8px
+  background #fff
+
+.stock-cjsd-panel__table
+  flex 1 1 auto
+  min-height 0
+  overflow auto
+
+.stock-cjsd-panel__pager
+  margin-top 10px
+  flex 0 0 auto
+
+.stock-cjsd-panel :deep(.el-table .el-table__cell)
+  vertical-align top
 </style>

@@ -137,10 +137,10 @@ python -m freshquant.initialize
 ## Web UI 路由
 
 - `/stock-control`
-  - 持仓股列表
-  - `must_pools买入信号`
   - 持仓股信号
+  - `must_pools买入信号`
   - `stock_pools模型信号`
+- 顶部导航按钮当前使用浏览器新标签页打开路由，并通过 `tabTitle` 驱动浏览器标签标题
 - `/kline-slim`
 - `/gantt`
 - `/gantt/shouban30`
@@ -157,6 +157,7 @@ python -m freshquant.initialize
 - `/stock-control` 当前读取两类信号接口：
   - `/api/get_stock_signal_list`
   - `/api/get_stock_model_signal_list`
+- `/stock-control` 当前只展示信号列表，不再承载持仓股列表
 - 系统设置页只维护新系统正式配置，不再承载旧 SMTP / 邮件收件人或旧 `code + value` 通用参数模式
 - Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面
 - `/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 当前正式时间参数是 `days` 与 `end_date`

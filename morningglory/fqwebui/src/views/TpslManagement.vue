@@ -368,18 +368,26 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .tpsl-layout {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 12px;
-  min-height: calc(100vh - 228px);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .tpsl-sidebar-panel,
 .tpsl-main-stack {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .symbol-list,
@@ -387,6 +395,10 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.tpsl-main-stack {
+  overflow: auto;
 }
 
 .symbol-card {
@@ -438,7 +450,6 @@ onMounted(async () => {
 @media (max-width: 1180px) {
   .tpsl-layout {
     grid-template-columns: 1fr;
-    min-height: auto;
   }
 }
 </style>

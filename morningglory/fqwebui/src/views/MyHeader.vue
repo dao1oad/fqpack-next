@@ -53,40 +53,27 @@
 </template>
 
 <script>
+import { getHeaderNavTarget } from '@/router/pageMeta.mjs'
+
 export default {
   name: 'my-header',
   methods: {
     jumpToControl (type) {
-      if (type === 'futures') {
-        this.$router.replace('/futures-control')
-      } else if (type === 'klineSlim') {
-        this.$router.replace('/kline-slim')
-      } else if (type === 'orders') {
-        this.$router.replace('/order-management')
-      } else if (type === 'positionManagement') {
-        this.$router.replace('/position-management')
-      } else if (type === 'orders') {
-        this.$router.replace('/order-management')
-      } else if (type === 'positionManagement') {
-        this.$router.replace('/position-management')
-      } else if (type === 'runtime') {
-        this.$router.replace('/runtime-observability')
-      } else if (type === 'tpsl') {
-        this.$router.replace('/tpsl')
-      } else if (type === 'gantt') {
-        this.$router.replace('/gantt?p=xgb')
-      } else if (type === 'shouban30') {
-        this.$router.replace('/gantt/shouban30?p=xgb&days=30')
-      } else if (type === 'stock') {
-        this.$router.replace('/stock-control')
-      } else if (type === 'pool') {
-        this.$router.replace('/stock-pools')
-      } else if (type === 'cjsd') {
-        this.$router.replace('/stock-cjsd')
-      }
+      this.openNavTab(type)
     },
     goSetting () {
-      this.$router.replace('/system-settings')
+      this.openNavTab('systemSettings')
+    },
+    openNavTab (type) {
+      const target = getHeaderNavTarget(type)
+      if (!target) return
+
+      const routeUrl = this.$router.resolve({
+        path: target.path,
+        query: target.query
+      })
+
+      window.open(routeUrl.href, '_blank', 'noopener')
     }
   }
 }
