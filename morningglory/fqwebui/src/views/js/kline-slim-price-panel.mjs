@@ -31,12 +31,8 @@ export const cloneTakeprofitDrafts = (rows = []) => {
   }))
 }
 
-export const buildInitialKlineSlimPricePanelState = () => ({
-  showPriceGuidePanel: false,
-  subjectDetailLoading: false,
+const buildEmptySubjectPriceDetailState = () => ({
   subjectDetailError: '',
-  savingGuardianPriceGuides: false,
-  savingTakeprofitGuides: false,
   subjectPriceDetail: null,
   guardianDraft: cloneGuardianDraft(),
   guardianState: {
@@ -49,6 +45,19 @@ export const buildInitialKlineSlimPricePanelState = () => ({
   priceGuideVersion: '',
   lastSubjectDetailSymbol: '',
 })
+
+export const buildInitialKlineSlimPricePanelState = () => ({
+  showPriceGuidePanel: false,
+  subjectDetailLoading: false,
+  savingGuardianPriceGuides: false,
+  savingTakeprofitGuides: false,
+  subjectDetailRequestId: 0,
+  ...buildEmptySubjectPriceDetailState(),
+})
+
+export const clearSubjectPriceDetailState = (state) => {
+  Object.assign(state, buildEmptySubjectPriceDetailState())
+}
 
 export const buildPriceGuideVersion = (priceDetail = {}) => {
   const guardian = Array.isArray(priceDetail?.guardianPriceGuides) ? priceDetail.guardianPriceGuides : []
@@ -79,7 +88,12 @@ export const applySubjectPriceDetailState = (state, detail) => {
 }
 
 export const resetSubjectPriceDetailState = (state) => {
-  Object.assign(state, buildInitialKlineSlimPricePanelState())
+  state.showPriceGuidePanel = false
+  state.subjectDetailLoading = false
+  state.savingGuardianPriceGuides = false
+  state.savingTakeprofitGuides = false
+  state.subjectDetailRequestId = 0
+  clearSubjectPriceDetailState(state)
 }
 
 export const shouldReloadSubjectPriceDetail = ({
@@ -127,18 +141,33 @@ export const loadSubjectPriceDetail = async (
     return false
   }
 
+  const currentSymbol = String(state?.lastSubjectDetailSymbol || '').trim()
+  const nextSymbol = String(symbol || '').trim()
+  const requestId = Number(state?.subjectDetailRequestId || 0) + 1
+  state.subjectDetailRequestId = requestId
+  if (currentSymbol && currentSymbol !== nextSymbol) {
+    clearSubjectPriceDetailState(state)
+  }
   state.subjectDetailLoading = true
   try {
     const detail = await actions.loadSubjectDetail(symbol)
+    if (state.subjectDetailRequestId !== requestId) {
+      return false
+    }
     applySubjectPriceDetailState(state, detail)
     state.subjectDetailError = ''
     state.lastSubjectDetailSymbol = symbol
     return true
   } catch (error) {
+    if (state.subjectDetailRequestId !== requestId) {
+      return false
+    }
     state.subjectDetailError = errorMessage(error)
     return false
   } finally {
-    state.subjectDetailLoading = false
+    if (state.subjectDetailRequestId === requestId) {
+      state.subjectDetailLoading = false
+    }
   }
 }
 

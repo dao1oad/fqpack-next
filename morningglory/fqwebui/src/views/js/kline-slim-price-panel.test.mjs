@@ -166,3 +166,78 @@ test('saveTakeprofitPriceGuides validates, saves, reloads and triggers render ca
   assert.equal(result.ok, true)
   assert.equal(renderCount, 1)
 })
+
+test('loadSubjectPriceDetail ignores stale responses from older symbol requests', async () => {
+  const resolvers = new Map()
+  const actions = createKlineSlimPricePanelActions({
+    getDetail(symbol) {
+      return new Promise((resolve) => {
+        resolvers.set(symbol, resolve)
+      })
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  const firstLoad = loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '600000',
+    force: true,
+  })
+  const secondLoad = loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '000001',
+    force: true,
+  })
+
+  resolvers.get('000001')?.(makeDetail('000001', {
+    guardian_buy_grid_config: {
+      enabled: true,
+      buy_1: 20.2,
+      buy_2: 19.9,
+      buy_3: 19.5,
+    },
+  }))
+  await secondLoad
+  resolvers.get('600000')?.(makeDetail('600000', {
+    guardian_buy_grid_config: {
+      enabled: true,
+      buy_1: 10.2,
+      buy_2: 9.9,
+      buy_3: 9.5,
+    },
+  }))
+  await firstLoad
+
+  assert.equal(state.lastSubjectDetailSymbol, '000001')
+  assert.equal(state.guardianDraft.buy_1, 20.2)
+})
+
+test('loadSubjectPriceDetail clears stale drafts before a different symbol load fails', async () => {
+  const actions = createKlineSlimPricePanelActions({
+    async getDetail(symbol) {
+      if (symbol === '000001') {
+        throw new Error('detail failed')
+      }
+      return makeDetail(symbol)
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  await loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '600000',
+    force: true,
+  })
+
+  const result = await loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '000001',
+    force: true,
+  })
+
+  assert.equal(result, false)
+  assert.equal(state.subjectPriceDetail, null)
+  assert.equal(state.guardianDraft.buy_1, null)
+  assert.equal(state.lastSubjectDetailSymbol, '')
+  assert.equal(state.subjectDetailError, 'detail failed')
+})

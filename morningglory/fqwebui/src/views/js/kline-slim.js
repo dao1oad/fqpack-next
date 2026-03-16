@@ -10,6 +10,7 @@ import { createKlineSlimChartController, createKlineSlimViewportState } from './
 import { buildKlineSlimChartScene } from './kline-slim-chart-renderer.mjs'
 import {
   buildInitialKlineSlimPricePanelState,
+  clearSubjectPriceDetailState,
   createKlineSlimPricePanelActions,
   loadSubjectPriceDetail as loadSubjectPriceDetailState,
   resetSubjectPriceDetailState,
@@ -539,6 +540,10 @@ export default {
       this.routeToken += 1
       this.resetSlimDataState()
       this.stopPolling()
+      const shouldClearPricePanel = this.lastSubjectDetailSymbol && this.lastSubjectDetailSymbol !== this.routeSymbol
+      if (shouldClearPricePanel) {
+        clearSubjectPriceDetailState(this)
+      }
 
       if (this.chart && this.routeSymbol) {
         this.chart.showLoading(echartsConfig.loadingOption)
@@ -556,7 +561,7 @@ export default {
       }
 
       this.loadSubjectPriceDetail({
-        force: this.lastSubjectDetailSymbol !== this.routeSymbol || !this.subjectPriceDetail
+        force: shouldClearPricePanel || this.lastSubjectDetailSymbol !== this.routeSymbol || !this.subjectPriceDetail
       })
       this.refreshVisibleChanlunPeriods(this.routeToken)
       if (this.isRealtimeMode && document.visibilityState === 'visible') {
