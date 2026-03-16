@@ -616,93 +616,92 @@ def buy(
                     payload={"reason": "not_connected"},
                 )
                 return None
-        today = int(pendulum.now().format("YYYYMMDD"))
-        yestoday = int(pendulum.yesterday().format("YYYYMMDD"))
-        one = DBfreshquant["stock_orders"].find_one(
-            {
-                "$or": [
-                    {
-                        "symbol": symbol,
-                        "date": today,
-                        "op": {"$regex": "买"},
-                        "status": "未成交",
-                    },
-                    {
-                        "symbol": symbol,
-                        "date": yestoday,
-                        "time": {"$gt": "15:00:00"},
-                        "op": {"$regex": "买"},
-                        "status": "未成交",
-                    },
-                ]
-            }
-        )
-        if one is not None:
-            logger.info("有未成交订单")
+            today = int(pendulum.now().format("YYYYMMDD"))
+            yestoday = int(pendulum.yesterday().format("YYYYMMDD"))
+            one = DBfreshquant["stock_orders"].find_one(
+                {
+                    "$or": [
+                        {
+                            "symbol": symbol,
+                            "date": today,
+                            "op": {"$regex": "买"},
+                            "status": "未成交",
+                        },
+                        {
+                            "symbol": symbol,
+                            "date": yestoday,
+                            "time": {"$gt": "15:00:00"},
+                            "op": {"$regex": "买"},
+                            "status": "未成交",
+                        },
+                    ]
+                }
+            )
+            if one is not None:
+                logger.info("有未成交订单")
+                _emit_puppet_event(
+                    "submit_result",
+                    context=context,
+                    status="skipped",
+                    payload={"reason": "existing_unfilled_order"},
+                )
+                return
+            asset = xt_trader.query_stock_asset(acc)
+            if asset.cash - asset.frozen_cash < float(price) * int(
+                quantity
+            ) + calculateTradeFee(price, quantity):
+                logger.info("资金不足")
+                _emit_puppet_event(
+                    "submit_result",
+                    context=context,
+                    status="skipped",
+                    payload={"reason": "insufficient_cash"},
+                )
+                return
+            stock_code = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
+            order_type_to_use = (
+                xtconstant.STOCK_BUY
+                if order_type in (None, "", "None")
+                else int(order_type)
+            )
+            price_type_to_use = (
+                xtconstant.FIX_PRICE
+                if price_type in (None, "", "None", 0, "0")
+                else int(price_type)
+            )
+            current_node = "submit_decision"
+            _emit_puppet_event(
+                "submit_decision",
+                context=context,
+                payload={
+                    "stock_code": stock_code,
+                    "order_type": order_type_to_use,
+                    "price_type": price_type_to_use,
+                },
+            )
+            current_node = "submit_result"
+            fix_result_order_id = xt_trader.order_stock(
+                acc,
+                stock_code,
+                order_type_to_use,
+                int(quantity),
+                price_type_to_use,
+                float(price),
+                strategy_name=strategyName,
+                order_remark=remark,
+            )
+            logger.info("订单号: " + str(fix_result_order_id))
             _emit_puppet_event(
                 "submit_result",
                 context=context,
-                status="skipped",
-                payload={"reason": "existing_unfilled_order"},
+                status=(
+                    "success"
+                    if fix_result_order_id and int(fix_result_order_id) > 0
+                    else "failed"
+                ),
+                payload={"broker_order_id": fix_result_order_id},
             )
-            return
-        asset = xt_trader.query_stock_asset(acc)
-        if asset.cash - asset.frozen_cash < float(price) * int(
-            quantity
-        ) + calculateTradeFee(price, quantity):
-            logger.info("资金不足")
-            _emit_puppet_event(
-                "submit_result",
-                context=context,
-                status="skipped",
-                payload={"reason": "insufficient_cash"},
-            )
-            return
-        stock_code = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
-        order_type_to_use = (
-            xtconstant.STOCK_BUY
-            if order_type in (None, "", "None")
-            else int(order_type)
-        )
-        price_type_to_use = (
-            xtconstant.FIX_PRICE
-            if price_type in (None, "", "None", 0, "0")
-            else int(price_type)
-        )
-        current_node = "submit_decision"
-        _emit_puppet_event(
-            "submit_decision",
-            context=context,
-            payload={
-                "stock_code": stock_code,
-                "order_type": order_type_to_use,
-                "price_type": price_type_to_use,
-            },
-        )
-        current_node = "submit_result"
-        fix_result_order_id = xt_trader.order_stock(
-            acc,
-            stock_code,
-            order_type_to_use,
-            int(quantity),
-            price_type_to_use,
-            float(price),
-            strategy_name=strategyName,
-            order_remark=remark,
-        )
-        logger.info("订单号: " + str(fix_result_order_id))
-        _emit_puppet_event(
-            "submit_result",
-            context=context,
-            status=(
-                "success"
-                if fix_result_order_id and int(fix_result_order_id) > 0
-                else "failed"
-            ),
-            payload={"broker_order_id": fix_result_order_id},
-        )
-        if fix_result_order_id < 0:
-            if retryCount < 3:
+            if fix_result_order_id < 0 and retryCount < 3:
                 # Exponential backoff delay: 2^retryCount seconds
                 delay = 2**retryCount
                 time.sleep(delay)
@@ -721,7 +720,7 @@ def buy(
                         }
                     ),
                 )
-        return fix_result_order_id
+            return fix_result_order_id
     except Exception as exc:
         _emit_puppet_event(
             current_node,
@@ -778,119 +777,118 @@ def sell(
                     payload={"reason": "not_connected"},
                 )
                 return None
-        today = int(pendulum.now().format("YYYYMMDD"))
-        yestoday = int(pendulum.yesterday().format("YYYYMMDD"))
-        one = DBfreshquant["stock_orders"].find_one(
-            {
-                "$or": [
-                    {
-                        "symbol": symbol,
-                        "date": today,
-                        "op": {"$regex": "卖"},
-                        "status": "未成交",
-                    },
-                    {
-                        "symbol": symbol,
-                        "date": yestoday,
-                        "time": {"$gt": "15:00:00"},
-                        "op": {"$regex": "卖"},
-                        "status": "未成交",
-                    },
-                ]
-            }
-        )
-        if one is not None:
-            logger.info("有未成交订单")
-            _emit_puppet_event(
-                "submit_result",
-                context=context,
-                status="skipped",
-                payload={"reason": "existing_unfilled_order"},
+            today = int(pendulum.now().format("YYYYMMDD"))
+            yestoday = int(pendulum.yesterday().format("YYYYMMDD"))
+            one = DBfreshquant["stock_orders"].find_one(
+                {
+                    "$or": [
+                        {
+                            "symbol": symbol,
+                            "date": today,
+                            "op": {"$regex": "卖"},
+                            "status": "未成交",
+                        },
+                        {
+                            "symbol": symbol,
+                            "date": yestoday,
+                            "time": {"$gt": "15:00:00"},
+                            "op": {"$regex": "卖"},
+                            "status": "未成交",
+                        },
+                    ]
+                }
             )
-            return
-        stock_code = (
-            symbol
-            if symbol.endswith(".SH") or symbol.endswith(".SZ")
-            else fq_util_code_append_market_code_suffix(symbol, upper_case=True)
-        )
-        price = float(price)
-        if price == 0.0:
-            ticks = xtdata.get_full_tick([stock_code])
-            if ticks is not None and stock_code in ticks:
-                price = (
-                    ticks[stock_code]["bidPrice"][0]
-                    if ticks[stock_code]["bidPrice"][0] != 0
-                    else ticks[stock_code]["lastPrice"]
-                )
-        order_type_to_use = (
-            None if order_type in (None, "", "None") else int(order_type)
-        )
-        if order_type_to_use is None:
-            order_type_to_use = xtconstant.STOCK_SELL
-            if stock_code in REPO_CODE_LIST:
-                order_type_to_use = xtconstant.CREDIT_SELL
-        if stock_code not in REPO_CODE_LIST:
-            positions = xt_trader.query_stock_positions(acc)
-            position = pydash.find(positions, lambda p: p.stock_code == stock_code)
-            if position is None:
-                logger.info("无持仓")
+            if one is not None:
+                logger.info("有未成交订单")
                 _emit_puppet_event(
                     "submit_result",
                     context=context,
                     status="skipped",
-                    payload={"reason": "no_position"},
+                    payload={"reason": "existing_unfilled_order"},
                 )
                 return
-            if position.can_use_volume < int(quantity):
-                logger.info("持仓不足")
-                _emit_puppet_event(
-                    "submit_result",
-                    context=context,
-                    status="skipped",
-                    payload={"reason": "insufficient_position"},
-                )
-                return
-        current_node = "submit_decision"
-        _emit_puppet_event(
-            "submit_decision",
-            context=context,
-            payload={
-                "stock_code": stock_code,
-                "order_type": order_type_to_use,
-                "price_type": (
+            stock_code = (
+                symbol
+                if symbol.endswith(".SH") or symbol.endswith(".SZ")
+                else fq_util_code_append_market_code_suffix(symbol, upper_case=True)
+            )
+            price = float(price)
+            if price == 0.0:
+                ticks = xtdata.get_full_tick([stock_code])
+                if ticks is not None and stock_code in ticks:
+                    price = (
+                        ticks[stock_code]["bidPrice"][0]
+                        if ticks[stock_code]["bidPrice"][0] != 0
+                        else ticks[stock_code]["lastPrice"]
+                    )
+            order_type_to_use = (
+                None if order_type in (None, "", "None") else int(order_type)
+            )
+            if order_type_to_use is None:
+                order_type_to_use = xtconstant.STOCK_SELL
+                if stock_code in REPO_CODE_LIST:
+                    order_type_to_use = xtconstant.CREDIT_SELL
+            if stock_code not in REPO_CODE_LIST:
+                positions = xt_trader.query_stock_positions(acc)
+                position = pydash.find(positions, lambda p: p.stock_code == stock_code)
+                if position is None:
+                    logger.info("无持仓")
+                    _emit_puppet_event(
+                        "submit_result",
+                        context=context,
+                        status="skipped",
+                        payload={"reason": "no_position"},
+                    )
+                    return
+                if position.can_use_volume < int(quantity):
+                    logger.info("持仓不足")
+                    _emit_puppet_event(
+                        "submit_result",
+                        context=context,
+                        status="skipped",
+                        payload={"reason": "insufficient_position"},
+                    )
+                    return
+            current_node = "submit_decision"
+            _emit_puppet_event(
+                "submit_decision",
+                context=context,
+                payload={
+                    "stock_code": stock_code,
+                    "order_type": order_type_to_use,
+                    "price_type": (
+                        xtconstant.FIX_PRICE
+                        if price_type in (0, None, "", "None", "0")
+                        else int(price_type)
+                    ),
+                },
+            )
+            current_node = "submit_result"
+            fix_result_order_id = xt_trader.order_stock(
+                acc,
+                stock_code,
+                order_type_to_use,
+                int(quantity),
+                (
                     xtconstant.FIX_PRICE
                     if price_type in (0, None, "", "None", "0")
                     else int(price_type)
                 ),
-            },
-        )
-        current_node = "submit_result"
-        fix_result_order_id = xt_trader.order_stock(
-            acc,
-            stock_code,
-            order_type_to_use,
-            int(quantity),
-            (
-                xtconstant.FIX_PRICE
-                if price_type in (0, None, "", "None", "0")
-                else int(price_type)
-            ),
-            float(price),
-            strategyName,
-            remark,
-        )
-        _emit_puppet_event(
-            "submit_result",
-            context=context,
-            status=(
-                "success"
-                if fix_result_order_id and int(fix_result_order_id) > 0
-                else "failed"
-            ),
-            payload={"broker_order_id": fix_result_order_id},
-        )
-        if fix_result_order_id < 0:
-            if retryCount < 3:
+                float(price),
+                strategyName,
+                remark,
+            )
+            _emit_puppet_event(
+                "submit_result",
+                context=context,
+                status=(
+                    "success"
+                    if fix_result_order_id and int(fix_result_order_id) > 0
+                    else "failed"
+                ),
+                payload={"broker_order_id": fix_result_order_id},
+            )
+            if fix_result_order_id < 0 and retryCount < 3:
                 # Exponential backoff delay: 2^retryCount seconds
                 delay = 2**retryCount
                 time.sleep(delay)
@@ -909,7 +907,7 @@ def sell(
                         }
                     ),
                 )
-        return fix_result_order_id
+            return fix_result_order_id
     except Exception as exc:
         _emit_puppet_event(
             current_node,
