@@ -1130,10 +1130,10 @@ export default klineSlim
 
   .kline-slim-content.has-side-panel .kline-slim-chart,
   .kline-slim-content.has-side-panel .kline-slim-empty
-    right 344px
+    left 344px
 
   .kline-slim-content.has-side-panel .kline-slim-chanlun-panel
-    right 356px
+    left 356px
 
   .kline-slim-price-panel
     width 332px
