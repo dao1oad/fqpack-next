@@ -199,6 +199,7 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
                 "quantity": 500,
             }
         ],
+        symbol_position_loader=lambda symbol: None,
         pm_summary_loader=lambda: {
             "effective_state": "HOLDING_ONLY",
             "allow_open_min_bail": 800000.0,
@@ -220,7 +221,35 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["stoploss"]["active_count"] == 1
     assert rows[0]["stoploss"]["open_buy_lot_count"] == 1
     assert rows[0]["runtime"]["position_quantity"] == 500
+    assert rows[0]["runtime"]["position_amount"] == 0.0
     assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:40:00+08:00"
+
+
+def test_subject_management_overview_prefers_symbol_snapshot_market_value():
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 500,
+                "amount": 5010.0,
+            }
+        ],
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 123456.0,
+            "market_value_source": "bar_close_x_quantity",
+        },
+        pm_summary_loader=lambda: {},
+    )
+
+    rows = service.get_overview()
+
+    assert rows[0]["runtime"]["position_quantity"] == 500
+    assert rows[0]["runtime"]["position_amount"] == 123456.0
 
 
 def test_subject_management_overview_normalizes_must_pool_codes_before_grouping():
@@ -264,6 +293,7 @@ def test_subject_management_overview_normalizes_must_pool_codes_before_grouping(
                 "quantity": 500,
             }
         ],
+        symbol_position_loader=lambda symbol: None,
         pm_summary_loader=lambda: {},
     )
 
@@ -365,6 +395,7 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lot
                 "amount": 5010.0,
             }
         ],
+        symbol_position_loader=lambda symbol: None,
         pm_summary_loader=lambda: {
             "effective_state": "HOLDING_ONLY",
             "allow_open_min_bail": 800000.0,
@@ -384,6 +415,33 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lot
     assert detail["buy_lots"][0]["stoploss"]["stop_price"] == 9.2
     assert detail["runtime_summary"]["position_quantity"] == 500
     assert detail["position_management_summary"]["effective_state"] == "HOLDING_ONLY"
+
+
+def test_subject_management_detail_prefers_symbol_snapshot_market_value():
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 500,
+                "amount": 5010.0,
+            }
+        ],
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 234567.0,
+            "market_value_source": "bar_close_x_quantity",
+        },
+        pm_summary_loader=lambda: {},
+    )
+
+    detail = service.get_detail("600000")
+
+    assert detail["runtime_summary"]["position_quantity"] == 500
+    assert detail["runtime_summary"]["position_amount"] == 234567.0
 
 
 def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
@@ -424,6 +482,7 @@ def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
         tpsl_repository=tpsl_repository,
         order_repository=order_repository,
         position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
         pm_summary_loader=lambda: {},
     )
 
@@ -456,6 +515,7 @@ def test_subject_management_uses_default_position_loader_when_not_injected(monke
         database=FakeDatabase(),
         tpsl_repository=InMemoryTpslRepository(),
         order_repository=InMemoryOrderManagementRepository(),
+        symbol_position_loader=lambda symbol: None,
         pm_summary_loader=lambda: {},
     )
 

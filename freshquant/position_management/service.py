@@ -19,6 +19,8 @@ from freshquant.util.code import normalize_to_base_code
 
 
 class PositionManagementService:
+    default_single_symbol_position_limit = 800000.0
+
     def __init__(
         self,
         repository=None,
@@ -26,6 +28,7 @@ class PositionManagementService:
         now_provider=None,
         policy=None,
         runtime_logger=None,
+        symbol_position_loader=None,
     ):
         self.repository = repository or PositionManagementRepository()
         self.holding_codes_provider = (
@@ -34,6 +37,7 @@ class PositionManagementService:
         self.now_provider = now_provider or _default_now_provider
         self.policy = policy or PositionPolicy()
         self.runtime_logger = runtime_logger or _get_runtime_logger()
+        self.symbol_position_loader = symbol_position_loader
 
     def evaluate_strategy_order(
         self,
@@ -76,6 +80,19 @@ class PositionManagementService:
                 action=action,
                 is_holding_symbol=is_holding_symbol,
             )
+            symbol_position_meta = {}
+            if allowed and action == "buy":
+                (
+                    allowed,
+                    reason_code,
+                    reason_text,
+                    symbol_position_meta,
+                ) = self._apply_single_symbol_position_limit(
+                    symbol=symbol,
+                    allowed=allowed,
+                    reason_code=reason_code,
+                    reason_text=reason_text,
+                )
             self._emit_runtime(
                 "policy_eval",
                 payload=payload,
@@ -92,6 +109,7 @@ class PositionManagementService:
                 "is_holding_symbol": is_holding_symbol,
                 "evaluated_at": self.now_provider().isoformat(),
             }
+            meta.update(symbol_position_meta)
             if (
                 allowed
                 and action == "sell"
@@ -150,6 +168,55 @@ class PositionManagementService:
             mark_exception_emitted(exc)
             raise
 
+    def _apply_single_symbol_position_limit(
+        self,
+        *,
+        symbol,
+        allowed,
+        reason_code,
+        reason_text,
+    ):
+        if not allowed or self.symbol_position_loader is None:
+            return allowed, reason_code, reason_text, {}
+        snapshot = dict(self.symbol_position_loader(symbol) or {})
+        limit = self._resolve_single_symbol_position_limit()
+        market_value = _safe_float_or_none(snapshot.get("market_value"))
+        meta = {
+            "symbol_position_limit": limit,
+            "symbol_market_value": market_value,
+            "symbol_market_value_source": snapshot.get("market_value_source"),
+            "symbol_quantity_source": snapshot.get("quantity_source"),
+        }
+        if market_value is None:
+            return (
+                False,
+                "symbol_position_unavailable",
+                "单标的实时仓位不可用，当前禁止买入",
+                meta,
+            )
+        if market_value >= limit:
+            return (
+                False,
+                "symbol_position_limit_blocked",
+                "单标的实时仓位已达到上限，禁止继续买入",
+                meta,
+            )
+        return allowed, reason_code, reason_text, meta
+
+    def _resolve_single_symbol_position_limit(self):
+        config = (
+            self.repository.get_config()
+            if hasattr(self.repository, "get_config")
+            else {}
+        )
+        thresholds = (config or {}).get("thresholds", {}) or {}
+        resolved_limit = _safe_float_or_none(
+            thresholds.get("single_symbol_position_limit")
+        )
+        if resolved_limit is None:
+            return self.default_single_symbol_position_limit
+        return resolved_limit
+
     def _emit_runtime(
         self,
         node,
@@ -207,6 +274,18 @@ def _default_now_provider():
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc)
+
+
+def _safe_float_or_none(value):
+    if value is None or value == "":
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed != parsed or parsed in {float("inf"), float("-inf")}:
+        return None
+    return parsed
 
 
 def _default_holding_codes_provider():

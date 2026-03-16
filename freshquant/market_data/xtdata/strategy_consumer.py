@@ -337,6 +337,7 @@ class StrategyConsumer:
         self._heartbeat_state = ConsumerHeartbeatState(window_s=300.0)
         self._last_runtime_heartbeat_at = 0.0
         self._runtime_heartbeat_interval_s = 300.0
+        self._symbol_position_service: Any = None
 
         self._executor = ProcessPoolExecutor(max_workers=self.fullcalc_workers)
         self._scheduler = CoalescingScheduler(
@@ -1122,6 +1123,7 @@ class StrategyConsumer:
             )
         except Exception as e:
             logger.error(f"[Consumer] save realtime failed {code} {period}: {e}")
+        self._refresh_symbol_position_snapshot(ev)
 
         key = (code, period)
 
@@ -1191,6 +1193,31 @@ class StrategyConsumer:
             else:
                 self._scheduler.update(key, meta)
         self._heartbeat_state.record_processed_bar()
+
+    def _refresh_symbol_position_snapshot(self, ev: BarCloseEvent) -> None:
+        if to_backend_period(ev.period) != "1min":
+            return
+        service = getattr(self, "_symbol_position_service", None)
+        if service is False:
+            return
+        if service is None:
+            try:
+                from freshquant.position_management.symbol_position_service import (
+                    SingleSymbolPositionService,
+                )
+
+                service = SingleSymbolPositionService()
+                self._symbol_position_service = service
+            except Exception as exc:
+                self._symbol_position_service = False
+                logger.warning(f"[Consumer] init symbol position service failed: {exc}")
+                return
+        try:
+            service.refresh_from_bar_close(ev)
+        except Exception as exc:
+            logger.warning(
+                f"[Consumer] refresh symbol position snapshot failed {ev.code}: {exc}"
+            )
 
     def run_forever(self) -> None:
         queue_keys = [

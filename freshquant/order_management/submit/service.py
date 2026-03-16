@@ -373,9 +373,15 @@ def _load_queue_client():
 
 
 def _load_position_management_service(runtime_logger=None):
+    from freshquant.position_management.repository import PositionManagementRepository
     from freshquant.position_management.service import PositionManagementService
 
-    return PositionManagementService(runtime_logger=runtime_logger)
+    repository = PositionManagementRepository()
+    return PositionManagementService(
+        repository=repository,
+        runtime_logger=runtime_logger,
+        symbol_position_loader=lambda symbol: repository.get_symbol_snapshot(symbol),
+    )
 
 
 _runtime_logger = None

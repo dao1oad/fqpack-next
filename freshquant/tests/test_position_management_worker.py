@@ -102,6 +102,14 @@ class FakeSnapshotService:
         return {"state": ALLOW_OPEN}
 
 
+class FakeSymbolPositionService:
+    def __init__(self):
+        self.calls = 0
+
+    def refresh_all_from_positions(self):
+        self.calls += 1
+
+
 def test_refresh_writes_snapshot_and_current_state():
     repository = FakeRepository()
     service = PositionSnapshotService(
@@ -290,3 +298,22 @@ def test_worker_run_forever_refreshes_then_sleeps():
 
     assert service.calls == 1
     assert sleep_calls == [3]
+
+
+def test_worker_run_forever_seeds_symbol_snapshots_once():
+    service = FakeSnapshotService()
+    symbol_position_service = FakeSymbolPositionService()
+
+    def fake_sleep(_seconds):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_forever(
+            service=service,
+            symbol_position_service=symbol_position_service,
+            interval_seconds=3,
+            sleep_fn=fake_sleep,
+        )
+
+    assert symbol_position_service.calls == 1
+    assert service.calls == 1

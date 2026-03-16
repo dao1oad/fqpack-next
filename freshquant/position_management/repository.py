@@ -8,9 +8,10 @@ class PositionManagementRepository:
     snapshot_collection_name = "pm_credit_asset_snapshots"
     current_state_collection_name = "pm_current_state"
     decision_collection_name = "pm_strategy_decisions"
+    symbol_snapshot_collection_name = "pm_symbol_position_snapshots"
 
     def __init__(self, database=None):
-        self.database = database or DBPositionManagement
+        self.database = database if database is not None else DBPositionManagement
 
     @property
     def configs(self):
@@ -27,6 +28,10 @@ class PositionManagementRepository:
     @property
     def strategy_decisions(self):
         return self.database[self.decision_collection_name]
+
+    @property
+    def symbol_position_snapshots(self):
+        return self.database[self.symbol_snapshot_collection_name]
 
     def get_config(self):
         document = self.configs.find_one({"enabled": True}, sort=[("updated_at", -1)])
@@ -76,4 +81,35 @@ class PositionManagementRepository:
         cursor = self.strategy_decisions.find().sort([("evaluated_at", -1)])
         if resolved_limit > 0:
             cursor = cursor.limit(resolved_limit)
+        return list(cursor)
+
+    def upsert_symbol_snapshot(self, document):
+        payload = dict(document or {})
+        payload.pop("_id", None)
+        symbol = str(payload.get("symbol") or "").strip()
+        if not symbol:
+            raise ValueError("symbol snapshot requires symbol")
+        payload["symbol"] = symbol
+        self.symbol_position_snapshots.update_one(
+            {"symbol": symbol},
+            {"$set": payload},
+            upsert=True,
+        )
+        return self.get_symbol_snapshot(symbol) or payload
+
+    def get_symbol_snapshot(self, symbol):
+        normalized_symbol = str(symbol or "").strip()
+        if not normalized_symbol:
+            return None
+        return self.symbol_position_snapshots.find_one({"symbol": normalized_symbol})
+
+    def list_symbol_snapshots(self, symbols=None):
+        query = {}
+        if symbols:
+            query["symbol"] = {
+                "$in": [
+                    str(item).strip() for item in list(symbols) if str(item).strip()
+                ]
+            }
+        cursor = self.symbol_position_snapshots.find(query).sort([("symbol", 1)])
         return list(cursor)

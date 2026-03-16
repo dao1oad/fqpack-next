@@ -10,6 +10,8 @@
 - buy lot 级止损绑定
 - 只读运行态与仓位门禁摘要
 
+其中“运行态”里的仓位金额当前统一读取 `position_management.pm_symbol_position_snapshots.market_value`。
+
 页面采用左表右编模式：左侧高密度表格展示当前配置摘要，右侧只编辑当前选中的单个标的。
 右侧编辑区采用高密度工作台布局：
 
@@ -51,6 +53,7 @@
 - `om_stoploss_bindings`
 - `om_buy_lots`
 - `xt_positions`
+- `pm_symbol_position_snapshots`
 
 ## 数据流
 
@@ -68,6 +71,7 @@
 
 - 页面只编辑标的级设置，不编辑账户级仓位门禁。
 - 仓位门禁只读展示 `effective_state / allow_open_min_bail / holding_only_min_bail`。
+- 左表“运行态”和右栏 `runtime_summary.position_amount` 使用统一单标的实时仓位定义。
 - 止盈编辑区默认至少显示三层；如果已有更高层级，会保留现有层级并继续显示前三层。
 - 止损仍按 open buy lot 维护，不提升成纯标的级配置。
 
@@ -88,6 +92,7 @@
 
 - 检查保存后是否同时刷新了 detail 和 overview
 - 检查 `must_pool / guardian_buy_grid / takeprofit / stoploss` 是否写入到了各自真值集合
+- 检查 `pm_symbol_position_snapshots` 是否已经刷新到最新 `market_value`
 
 ### 止盈三层显示正常但保存失败
 

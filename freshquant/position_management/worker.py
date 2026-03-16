@@ -11,7 +11,14 @@ def run_once(service=None):
     return snapshot_service.refresh_once()
 
 
-def run_forever(service=None, interval_seconds=3, sleep_fn=time.sleep):
+def run_forever(
+    service=None,
+    symbol_position_service=None,
+    interval_seconds=3,
+    sleep_fn=time.sleep,
+):
+    if symbol_position_service is not None:
+        symbol_position_service.refresh_all_from_positions()
     while True:
         run_once(service=service)
         sleep_fn(interval_seconds)
@@ -30,7 +37,15 @@ def main(argv=None, service=None):
     if args.once:
         run_once(service=service)
         return 0
-    run_forever(service=service, interval_seconds=args.interval)
+    from freshquant.position_management.symbol_position_service import (
+        SingleSymbolPositionService,
+    )
+
+    run_forever(
+        service=service,
+        symbol_position_service=SingleSymbolPositionService(),
+        interval_seconds=args.interval,
+    )
     return 0
 
 

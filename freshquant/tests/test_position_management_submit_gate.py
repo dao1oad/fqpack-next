@@ -211,3 +211,36 @@ def test_strategy_order_persists_strategy_context_to_tracking_and_queue():
 
     assert repository.order_requests[0]["strategy_context"] == strategy_context
     assert result["queue_payload"]["strategy_context"] == strategy_context
+
+
+def test_default_position_management_service_injects_symbol_position_loader(
+    monkeypatch,
+):
+    import freshquant.order_management.submit.service as submit_service_module
+
+    captured = {}
+
+    class FakePositionManagementService:
+        def __init__(
+            self,
+            repository=None,
+            runtime_logger=None,
+            symbol_position_loader=None,
+        ):
+            captured["repository"] = repository
+            captured["runtime_logger"] = runtime_logger
+            captured["symbol_position_loader"] = symbol_position_loader
+
+    monkeypatch.setattr(
+        "freshquant.position_management.service.PositionManagementService",
+        FakePositionManagementService,
+    )
+
+    service = submit_service_module._load_position_management_service(
+        runtime_logger="runtime-logger"
+    )
+
+    assert isinstance(service, FakePositionManagementService)
+    assert captured["repository"] is not None
+    assert captured["runtime_logger"] == "runtime-logger"
+    assert callable(captured["symbol_position_loader"])

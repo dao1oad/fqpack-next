@@ -20,6 +20,7 @@ from freshquant.util.code import normalize_to_base_code
 
 DEFAULT_STATE_STALE_AFTER_SECONDS = 15
 DEFAULT_FALLBACK_STATE = HOLDING_ONLY
+DEFAULT_SINGLE_SYMBOL_POSITION_LIMIT = 800000.0
 
 
 class PositionManagementDashboardService:
@@ -97,6 +98,11 @@ class PositionManagementDashboardService:
             current_thresholds["holding_only_min_bail"],
             field_name="holding_only_min_bail",
         )
+        single_symbol_position_limit = _require_finite_float(
+            payload.get("single_symbol_position_limit"),
+            current_thresholds["single_symbol_position_limit"],
+            field_name="single_symbol_position_limit",
+        )
         if allow_open_min_bail <= holding_only_min_bail:
             raise ValueError(
                 "allow_open_min_bail must be greater than holding_only_min_bail"
@@ -111,6 +117,7 @@ class PositionManagementDashboardService:
                 "thresholds": {
                     "allow_open_min_bail": allow_open_min_bail,
                     "holding_only_min_bail": holding_only_min_bail,
+                    "single_symbol_position_limit": single_symbol_position_limit,
                 },
                 "updated_at": self.now_provider().isoformat(),
                 "updated_by": str(payload.get("updated_by") or "api").strip() or "api",
@@ -129,6 +136,10 @@ class PositionManagementDashboardService:
             "holding_only_min_bail": _coerce_float(
                 thresholds.get("holding_only_min_bail"),
                 DEFAULT_HOLDING_ONLY_MIN_BAIL,
+            ),
+            "single_symbol_position_limit": _coerce_float(
+                thresholds.get("single_symbol_position_limit"),
+                DEFAULT_SINGLE_SYMBOL_POSITION_LIMIT,
             ),
         }
 
@@ -265,6 +276,15 @@ class PositionManagementDashboardService:
                 "group": "editable_thresholds",
                 "source": "pm_configs.thresholds",
                 "description": "超过该阈值但未达到开仓阈值时进入 HOLDING_ONLY。",
+            },
+            {
+                "key": "single_symbol_position_limit",
+                "label": "单标的实时仓位上限",
+                "value": thresholds["single_symbol_position_limit"],
+                "editable": True,
+                "group": "editable_thresholds",
+                "source": "pm_configs.thresholds",
+                "description": "买入前额外检查该标的实时仓位，达到上限时拒绝继续买入。",
             },
             {
                 "key": "state_stale_after_seconds",

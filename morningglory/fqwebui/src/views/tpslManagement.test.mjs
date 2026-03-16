@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import {
   buildDetailViewModel,
@@ -42,12 +44,27 @@ test('buildOverviewRows sorts holding symbols before config-only symbols and kee
   assert.equal(rows[1].symbol, '000001')
 })
 
+test('buildOverviewRows exposes position amount labels in chinese wan with two decimals', () => {
+  const rows = buildOverviewRows([
+    {
+      symbol: '600000',
+      name: '浦发银行',
+      position_quantity: 500,
+      position_amount: 123456.789,
+    },
+  ])
+
+  assert.equal(rows[0].position_amount, 123456.789)
+  assert.equal(rows[0].position_amount_label, '12.35 万')
+})
+
 test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstream order facts', () => {
   const detail = buildDetailViewModel({
     symbol: '600000',
     name: '浦发银行',
     position: {
       quantity: 200,
+      amount: 234567,
     },
     takeprofit: {
       tiers: [
@@ -88,6 +105,7 @@ test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstr
   })
 
   assert.equal(detail.takeprofitTierCount, 2)
+  assert.equal(detail.positionAmountLabel, '23.46 万')
   assert.equal(detail.buyLots[0].stoplossLabel, '9.2')
   assert.equal(detail.buyLots[0].sellHistoryLabel, '1 次卖出分配')
   assert.equal(detail.historyRows[0].batch_id, 'sl_batch_1')
@@ -315,4 +333,13 @@ test('page controller runs takeprofit save, stoploss save and history refresh fr
     ['success', '止盈层级已保存'],
     ['success', '已更新 lot_1'],
   ])
+})
+
+test('TpslManagement view keeps symbol list scrollable inside the fixed viewport shell', () => {
+  const filePath = path.resolve(import.meta.dirname, 'TpslManagement.vue')
+  const source = fs.readFileSync(filePath, 'utf8')
+
+  assert.match(source, /\.symbol-list,\s*[\r\n]+\s*\.tpsl-main-stack\s*\{/)
+  assert.match(source, /\.symbol-list[\s\S]*?overflow:\s*auto;/)
+  assert.match(source, /\.symbol-list[\s\S]*?flex:\s*1 1 auto;/)
 })

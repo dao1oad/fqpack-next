@@ -56,6 +56,7 @@ def test_repository_exposes_expected_collection_names():
     assert repository.snapshot_collection_name == "pm_credit_asset_snapshots"
     assert repository.current_state_collection_name == "pm_current_state"
     assert repository.decision_collection_name == "pm_strategy_decisions"
+    assert repository.symbol_snapshot_collection_name == "pm_symbol_position_snapshots"
 
 
 def test_models_export_expected_states():

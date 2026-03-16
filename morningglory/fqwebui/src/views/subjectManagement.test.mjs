@@ -38,6 +38,7 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
       },
       runtime: {
         position_quantity: 500,
+        position_amount: 123456,
         last_hit_level: 'BUY-2',
         last_trigger_time: '2026-03-16T10:40:00+08:00',
       },
@@ -49,6 +50,7 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
   assert.equal(rows[0].takeprofitSummary[0].priceLabel, '-')
   assert.equal(rows[0].guardianSummaryLabel.includes('B1'), true)
   assert.equal(rows[0].stoplossSummaryLabel, '2 / 5')
+  assert.equal(rows[0].runtimeSummaryLabel.includes('12.35 万'), true)
   assert.equal(rows[0].runtimeSummaryLabel.includes('500'), true)
 })
 
@@ -99,7 +101,7 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
     ],
     runtime_summary: {
       position_quantity: 500,
-      position_amount: 5010,
+      position_amount: 123456,
       last_trigger_time: '2026-03-16T10:40:00+08:00',
       last_trigger_kind: 'takeprofit',
     },
@@ -206,6 +208,7 @@ test('buildDetailSummaryChips compresses subject, runtime and pm state into head
     ],
     runtime_summary: {
       position_quantity: 500,
+      position_amount: 123456,
     },
     position_management_summary: {
       effective_state: 'HOLDING_ONLY',
@@ -219,7 +222,7 @@ test('buildDetailSummaryChips compresses subject, runtime and pm state into head
     ['category', 'must_pool', 'position_quantity', 'guardian_enabled', 'takeprofit_enabled_count', 'stoploss_active_count', 'pm_state'],
   )
   assert.equal(chips[1].value, '永久跟踪')
-  assert.equal(chips[2].value, '500 股')
+  assert.equal(chips[2].value, '500 股 / 12.35 万')
   assert.equal(chips[4].value, '1 / 3')
   assert.equal(chips[5].value, '1 / 2')
 })

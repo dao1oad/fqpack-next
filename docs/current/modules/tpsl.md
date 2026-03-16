@@ -30,6 +30,7 @@ TPSL 模块负责在独立 tick 链路上评估止盈和止损条件，并在条
 - Order Management 提交能力
 - buy lot / stoploss 绑定信息
 - stock holdings 读模型
+- `position_management.pm_symbol_position_snapshots`
 - 订单 request / order / event / trade 追踪集合
 
 ## 数据流
@@ -38,9 +39,9 @@ TPSL 模块负责在独立 tick 链路上评估止盈和止损条件，并在条
 
 执行顺序上，takeprofit 先于 stoploss 评估。
 
-`/api/tpsl/management/overview -> TpslManagementService -> 当前持仓 + takeprofit profile + stoploss 绑定 + 最近触发事件`
+`/api/tpsl/management/overview -> TpslManagementService -> 当前持仓数量 + 单标的实时仓位 + takeprofit profile + stoploss 绑定 + 最近触发事件`
 
-`/api/tpsl/management/<symbol> -> TpslManagementService -> takeprofit profile/state + open buy lots + stoploss bindings + 统一历史`
+`/api/tpsl/management/<symbol> -> TpslManagementService -> takeprofit profile/state + open buy lots + 单标的实时仓位 + stoploss bindings + 统一历史`
 
 `/api/tpsl/history -> TpslManagementService -> om_exit_trigger_events + om_order_requests + om_orders + om_order_events + om_trade_facts`
 
@@ -94,7 +95,9 @@ TPSL 还会读取：
 当前 `/tpsl` 页面已切到统一的 workbench density 语法：
 
 - 顶部使用紧凑 toolbar 承载标题、摘要和刷新动作
-- 左侧保留 symbol 导航，右侧保留详情工作台
+- 左侧保留 symbol 导航，列表在单屏内独立滚动，卡片摘要展示统一单标的实时仓位（万元）
+- 右侧保留详情工作台
+- 右侧标题摘要同时展示持仓股数和统一实时仓位
 - 统一历史改成高密度表格，继续同屏展示 request/order/trade 明细
 
 ## 部署/运行
@@ -129,6 +132,12 @@ python -m freshquant.tpsl.tick_listener
 - 检查 `om_order_requests.scope_type / scope_ref_id` 是否写成 `takeprofit_batch` 或 `stoploss_batch`
 - 检查 `om_orders.request_id`、`om_order_events.internal_order_id`、`om_trade_facts.internal_order_id` 是否能串起来
 - 检查 `om_exit_trigger_events.batch_id` 是否和 request 的 `scope_ref_id` 一致
+
+### 管理页仓位金额不对
+
+- 检查 `pm_symbol_position_snapshots.market_value`
+- 检查对应 symbol 最近是否收到 `1m BAR_CLOSE`
+- 缺少 `1m close` 时，检查 `xt_positions.market_value` 是否存在
 
 ### 触发事件落了但批次无单
 

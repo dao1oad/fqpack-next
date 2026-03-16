@@ -17,6 +17,7 @@ class SubjectManagementDashboardService:
         tpsl_repository=None,
         order_repository=None,
         position_loader=None,
+        symbol_position_loader=None,
         pm_summary_loader=None,
     ):
         if database is None:
@@ -27,6 +28,9 @@ class SubjectManagementDashboardService:
         self.tpsl_repository = tpsl_repository or TpslRepository()
         self.order_repository = order_repository or OrderManagementRepository()
         self.position_loader = position_loader or _default_position_loader
+        self.symbol_position_loader = (
+            symbol_position_loader or _default_symbol_position_loader
+        )
         self.pm_summary_loader = pm_summary_loader or _default_pm_summary_loader
 
     def get_overview(self):
@@ -52,6 +56,7 @@ class SubjectManagementDashboardService:
             guardian_state = guardian_state_rows.get(symbol) or {}
             takeprofit = takeprofit_profiles.get(symbol) or {"tiers": []}
             position = positions.get(symbol) or {}
+            symbol_position = dict(self.symbol_position_loader(symbol) or {})
             stoploss = stoploss_summary.get(
                 symbol,
                 {"active_count": 0, "open_buy_lot_count": 0},
@@ -82,6 +87,10 @@ class SubjectManagementDashboardService:
                     "stoploss": stoploss,
                     "runtime": {
                         "position_quantity": int(position.get("quantity") or 0),
+                        "position_amount": _resolve_position_amount(
+                            symbol_position,
+                            position,
+                        ),
                         "last_hit_level": guardian_state.get("last_hit_level"),
                         "last_trigger_time": latest_event.get("created_at"),
                     },
@@ -145,6 +154,7 @@ class SubjectManagementDashboardService:
 
         positions = self._position_map()
         position = positions.get(normalized_symbol) or {}
+        symbol_position = dict(self.symbol_position_loader(normalized_symbol) or {})
         latest_event = (
             self._latest_trigger_map({normalized_symbol}).get(normalized_symbol) or {}
         )
@@ -168,9 +178,13 @@ class SubjectManagementDashboardService:
                 "buy_lots": buy_lots,
                 "runtime_summary": {
                     "position_quantity": int(position.get("quantity") or 0),
-                    "position_amount": _safe_float(position.get("amount")),
+                    "position_amount": _resolve_position_amount(
+                        symbol_position,
+                        position,
+                    ),
                     "last_trigger_time": latest_event.get("created_at"),
                     "last_trigger_kind": latest_event.get("kind"),
+                    "market_value_source": symbol_position.get("market_value_source"),
                 },
                 "position_management_summary": pm_summary,
             }
@@ -382,6 +396,19 @@ def _default_position_loader():
     from freshquant.data.astock.holding import get_stock_positions
 
     return get_stock_positions()
+
+
+def _default_symbol_position_loader(symbol):
+    from freshquant.position_management.repository import PositionManagementRepository
+
+    return PositionManagementRepository().get_symbol_snapshot(_normalize_symbol(symbol))
+
+
+def _resolve_position_amount(symbol_position, position):
+    market_value = symbol_position.get("market_value")
+    if market_value is not None:
+        return _safe_float(market_value)
+    return _safe_float(position.get("amount"))
 
 
 def _json_safe_payload(value):

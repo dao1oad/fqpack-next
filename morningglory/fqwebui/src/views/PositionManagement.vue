@@ -84,12 +84,19 @@
                   :step="10000"
                   controls-position="right"
                 />
+                <el-input-number
+                  v-else-if="item.key === 'single_symbol_position_limit'"
+                  v-model="editableForm.single_symbol_position_limit"
+                  :min="0"
+                  :step="10000"
+                  controls-position="right"
+                />
                 <p class="field-hint">{{ item.description }}</p>
               </el-form-item>
             </el-form>
 
             <div class="position-edit-footer">
-              <span class="workbench-muted">当前只开放保证金阈值编辑，其余参数保持只读。</span>
+              <span class="workbench-muted">当前开放账户阈值和单标的实时仓位上限编辑，其余参数保持只读。</span>
               <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
             </div>
           </article>
@@ -282,6 +289,7 @@ const dashboard = ref({})
 const editableForm = reactive({
   allow_open_min_bail: 0,
   holding_only_min_bail: 0,
+  single_symbol_position_limit: 0,
 })
 
 const configSections = computed(() => buildConfigSections(dashboard.value))
@@ -316,6 +324,7 @@ const syncEditableForm = () => {
   const thresholds = dashboard.value?.config?.thresholds || {}
   editableForm.allow_open_min_bail = Number(thresholds.allow_open_min_bail || 0)
   editableForm.holding_only_min_bail = Number(thresholds.holding_only_min_bail || 0)
+  editableForm.single_symbol_position_limit = Number(thresholds.single_symbol_position_limit || 0)
 }
 
 const resolveErrorMessage = (error, fallback) => {
@@ -352,6 +361,7 @@ const saveThresholds = async () => {
     await positionManagementApi.updateConfig({
       allow_open_min_bail: editableForm.allow_open_min_bail,
       holding_only_min_bail: editableForm.holding_only_min_bail,
+      single_symbol_position_limit: editableForm.single_symbol_position_limit,
       updated_by: 'web-ui',
     })
     ElMessage.success('仓位管理阈值已保存')
