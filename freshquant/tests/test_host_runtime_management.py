@@ -9,6 +9,13 @@ def test_host_runtime_ctl_references_supervisor_service_and_bridge() -> None:
     assert "EnsureServiceAndRestartSurfaces" in text
 
 
+def test_host_runtime_ctl_normalizes_comma_separated_surfaces() -> None:
+    text = Path("script/fqnext_host_runtime_ctl.ps1").read_text(encoding="utf-8")
+
+    assert "Normalize-DeploymentSurfaces" in text
+    assert "-split ','" in text
+
+
 def test_install_fqnext_supervisord_service_uses_delayed_auto_start() -> None:
     text = Path("script/install_fqnext_supervisord_service.ps1").read_text(
         encoding="utf-8"

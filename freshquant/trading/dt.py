@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 
-import os
-from contextlib import contextmanager
 from datetime import date, datetime
-from typing import Callable, Iterator, Optional, TypeVar
+from typing import Callable, Optional, TypeVar
 
 import akshare as ak
 import pandas as pd
@@ -12,39 +10,14 @@ from requests.exceptions import RequestException  # type: ignore[import-untyped]
 
 from freshquant.carnation.config import DT_FORMAT_DAY
 from freshquant.database.cache import redis_cache
+from freshquant.runtime.network import without_proxy_env
 
 T = TypeVar("T")
-_PROXY_ENV_KEYS = ("ALL_PROXY", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY")
 _TRADE_DATE_FETCH_RETRIES = 3
 
 
-@contextmanager
-def _without_proxy_env(keys: tuple[str, ...] = _PROXY_ENV_KEYS) -> Iterator[None]:
-    original = [(key, os.environ.get(key)) for key in keys]
-    for key, _ in original:
-        os.environ.pop(key, None)
-    try:
-        yield
-    finally:
-        if os.name == "nt":
-            restored: dict[str, str] = {}
-            for key, value in original:
-                if value is not None:
-                    restored[key.upper()] = value
-            for key, _ in original:
-                os.environ.pop(key, None)
-            for key, value in restored.items():
-                os.environ[key] = value
-        else:
-            for key, value in original:
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
-
-
 def _call_without_proxy_env(func: Callable[[], T]) -> T:
-    with _without_proxy_env():
+    with without_proxy_env():
         return func()
 
 
