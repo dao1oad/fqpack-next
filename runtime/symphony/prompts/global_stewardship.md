@@ -25,7 +25,8 @@ Required behavior:
 - Read the current `main` state before deciding any deployment batch.
 - Prefer handling issues in groups when they share compatible deployment surfaces.
 - Use `py -3.12 script/freshquant_deploy_plan.py` to resolve deployment surfaces, Docker services, host surfaces, runtime ops surfaces, fixed ports, and health checks before deploying.
-- Use the current deployment matrix and health check commands from the repository docs and runtime prompts as the supporting contract behind that deploy plan.
+- Use `py -3.12 script/freshquant_health_check.py --surface <surfaces>` as the formal post-deploy health-check entry, and let it run without inherited system proxy settings.
+- Use the current deployment matrix and health check commands from the repository docs and runtime prompts as the supporting contract behind that deploy plan and health-check run.
 - If the deploy plan includes host runtime surfaces, use `script/fqnext_host_runtime_ctl.ps1` as the formal host-runtime control entry instead of ad hoc `.bat` or raw process commands.
 - If the deploy plan includes `runtime/symphony/**`, sync `runtime/symphony/**` to the formal service root and restart `fq-symphony-orchestrator` before other deploy actions in the batch.
 - If the current round performs a real deploy, capture a runtime baseline before deploy and run `runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1` in `Verify` mode after health checks and before cleanup.

@@ -6,10 +6,13 @@
 
 ```powershell
 docker compose -f docker/compose.parallel.yaml ps
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state
+py -3.12 script/freshquant_health_check.py --surface api --format summary
+py -3.12 script/freshquant_health_check.py --surface symphony --format summary
 Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime -Descending | Select-Object -First 20 FullName,LastWriteTime
 ```
+
+- 需要页面层健康检查时，优先执行 `py -3.12 script/freshquant_health_check.py --surface web --format summary`
+- 这个入口会忽略系统代理环境，优先用于 deploy 后健康检查和日常排障
 
 ## Memory context 缺失或过期
 
@@ -53,7 +56,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 先检查：
 - `docker compose -f docker/compose.parallel.yaml ps`
-- `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components`
+- `py -3.12 script/freshquant_health_check.py --surface api --format summary`
 
 常见根因：
 - `fq_apiserver` 没启动或容器异常退出。
@@ -90,7 +93,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `18080` 可打开但页面白屏，或单页能进、数据区全空。
 
 先检查：
-- `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/`
+- `py -3.12 script/freshquant_health_check.py --surface web --format summary`
 - 浏览器 DevTools 是否是接口 4xx/5xx
 
 常见根因：
@@ -394,7 +397,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - Issue 被领取但不前进，merge 后没有进入 `Global Stewardship`，或原 issue 长时间不收口。
 
 先检查：
-- `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state`
+- `py -3.12 script/freshquant_health_check.py --surface symphony --format summary`
 - `Get-Service fq-symphony-orchestrator`
 - `runtime/symphony-service/artifacts/`
 

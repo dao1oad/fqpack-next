@@ -18,6 +18,7 @@ $requiredPatterns = @(
     @{ Name = 'memory context derived rule'; Pattern = 'memory context as derived input only' },
     @{ Name = 'current main rule'; Pattern = 'Read the current `main` state before deciding any deployment batch' },
     @{ Name = 'deploy plan script rule'; Pattern = 'freshquant_deploy_plan\.py' },
+    @{ Name = 'health check script rule'; Pattern = 'freshquant_health_check\.py' },
     @{ Name = 'host runtime control rule'; Pattern = 'fqnext_host_runtime_ctl\.ps1' },
     @{ Name = 'symphony pre-sync rule'; Pattern = 'sync `runtime/symphony/\*\*` to the formal service root and restart `fq-symphony-orchestrator` before other deploy actions' },
     @{ Name = 'runtime ops baseline rule'; Pattern = 'If the current round performs a real deploy,\s*capture a runtime baseline before deploy' },
