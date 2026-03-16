@@ -3,10 +3,19 @@ import * as echarts from 'echarts'
 import { futureApi } from '@/api/futureApi'
 import { getGanttStockReasons } from '@/api/ganttApi'
 import { stockApi } from '@/api/stockApi'
+import { subjectManagementApi } from '@/api/subjectManagementApi'
 
 import echartsConfig from './echartsConfig'
 import { createKlineSlimChartController, createKlineSlimViewportState } from './kline-slim-chart-controller.mjs'
 import { buildKlineSlimChartScene } from './kline-slim-chart-renderer.mjs'
+import {
+  buildInitialKlineSlimPricePanelState,
+  createKlineSlimPricePanelActions,
+  loadSubjectPriceDetail as loadSubjectPriceDetailState,
+  resetSubjectPriceDetailState,
+  saveGuardianPriceGuides,
+  saveTakeprofitPriceGuides,
+} from './kline-slim-price-panel.mjs'
 import {
   buildResolvedKlineSlimQuery,
   canApplyResolvedKlineSlimRoute,
@@ -163,7 +172,8 @@ export default {
       chanlunStructureLoading: false,
       chanlunStructureError: '',
       chanlunStructureRefreshError: '',
-      chanlunStructureData: null
+      chanlunStructureData: null,
+      ...buildInitialKlineSlimPricePanelState()
     }
   },
   computed: {
@@ -280,6 +290,7 @@ export default {
     }
   },
   created() {
+    this.pricePanelActions = createKlineSlimPricePanelActions(subjectManagementApi)
     this.loadSidebarData()
   },
   mounted() {
@@ -492,6 +503,7 @@ export default {
       }
 
       if (!this.routeSymbol) {
+        resetSubjectPriceDetailState(this)
         if (this.chartController) {
           this.chartController.clear()
         } else if (this.chart) {
@@ -501,6 +513,9 @@ export default {
         return
       }
 
+      this.loadSubjectPriceDetail({
+        force: this.lastSubjectDetailSymbol !== this.routeSymbol || !this.subjectPriceDetail
+      })
       this.refreshVisibleChanlunPeriods(this.routeToken)
       if (this.isRealtimeMode && document.visibilityState === 'visible') {
         this.chanlunRefreshTimer = window.setInterval(
@@ -803,6 +818,29 @@ export default {
         this.mainLoading = false
       }
     },
+    async loadSubjectPriceDetail(options = {}) {
+      return loadSubjectPriceDetailState(this, {
+        actions: this.pricePanelActions,
+        symbol: options.symbol || this.routeSymbol,
+        force: !!options.force
+      })
+    },
+    async handleSaveGuardianPriceGuides() {
+      return saveGuardianPriceGuides(this, {
+        actions: this.pricePanelActions,
+        symbol: this.routeSymbol,
+        notify: this.$message,
+        afterRefresh: () => this.scheduleRender()
+      })
+    },
+    async handleSaveTakeprofitPriceGuides() {
+      return saveTakeprofitPriceGuides(this, {
+        actions: this.pricePanelActions,
+        symbol: this.routeSymbol,
+        notify: this.$message,
+        afterRefresh: () => this.scheduleRender()
+      })
+    },
     async ensureChanlunPeriodLoaded(period, token = this.routeToken, options = {}) {
       const resolvedPeriod = normalizeChanlunPeriod(period)
       const { force = false } = options
@@ -883,6 +921,7 @@ export default {
           .concat(extraPeriods)
           .map((period) => this.chanlunVersionMap[period] || '')
           .concat(JSON.stringify(this.periodLegendSelected))
+          .concat(this.priceGuideVersion || '')
           .join('__')
         if (
           renderVersion === this.lastRenderedVersion &&
