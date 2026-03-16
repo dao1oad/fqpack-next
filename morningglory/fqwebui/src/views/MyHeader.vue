@@ -19,6 +19,9 @@
         <el-button type="success" @click="jumpToControl('positionManagement')" size="small">
           仓位管理
         </el-button>
+        <el-button type="success" plain @click="jumpToControl('subjectManagement')" size="small">
+          标的管理
+        </el-button>
         <el-button type="warning" plain @click="jumpToControl('tpsl')" size="small">
           TPSL
         </el-button>

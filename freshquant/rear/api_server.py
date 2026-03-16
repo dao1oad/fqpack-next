@@ -23,6 +23,9 @@ def create_app():
     )
     app.register_blueprint(import_module("freshquant.rear.runtime.routes").runtime_bp)
     app.register_blueprint(import_module("freshquant.rear.tpsl.routes").tpsl_bp)
+    app.register_blueprint(
+        import_module("freshquant.rear.subject_management.routes").subject_management_bp
+    )
     return app
 
 

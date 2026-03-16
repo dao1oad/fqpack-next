@@ -38,6 +38,7 @@
 - [订单管理](./current/modules/order-management.md)
 - [仓位管理](./current/modules/position-management.md)
 - [止盈止损](./current/modules/tpsl.md)
+- [标的管理](./current/modules/subject-management.md)
 - [甘特图展示](./current/modules/gantt-visualization.md)
 - [首板筛选](./current/modules/shouban30-screening.md)
 - [Kline Web UI](./current/modules/kline-webui.md)

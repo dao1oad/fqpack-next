@@ -23,6 +23,10 @@ export const HEADER_NAV_TARGETS = {
     label: '仓位管理',
     path: '/position-management',
   },
+  subjectManagement: {
+    label: '标的管理',
+    path: '/subject-management',
+  },
   tpsl: {
     label: 'TPSL',
     path: '/tpsl',
@@ -73,6 +77,7 @@ export const ROUTE_TITLES_BY_NAME = {
   'gantt-stocks': '板块趋势',
   'order-management': '订单管理',
   'position-management': '仓位管理',
+  'subject-management': '标的管理',
   'runtime-observability': '运行观测',
   'system-settings': '系统设置',
   'tpsl-management': 'TPSL',
