@@ -47,6 +47,8 @@ test('buildOrderRows sorts latest rows first and keeps request-derived fields', 
 })
 
 test('order helpers keep instrument name, 3-decimal prices and second-level timestamps', () => {
+  assert.equal(formatOrderPrice(null), '-')
+  assert.equal(formatOrderPrice(''), '-')
   assert.equal(formatOrderPrice(10.12345), '10.123')
   assert.equal(formatOrderPrice('10.1'), '10.100')
   assert.equal(formatOrderTimestamp('2026-03-13T10:05:00+08:00'), '2026-03-13 10:05:00')

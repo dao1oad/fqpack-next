@@ -6,6 +6,8 @@ const toNumber = (value, fallback = 0) => {
 }
 
 const toFiniteNumber = (value) => {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string' && value.trim() === '') return null
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
 }
