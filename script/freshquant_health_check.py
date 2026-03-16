@@ -28,6 +28,7 @@ class HealthCheckPayload(TypedDict):
     urls: list[str]
     checks: list[dict[str, object]]
     failures: list[str]
+    warnings: list[str]
     passed: bool
 
 
@@ -161,6 +162,7 @@ def build_payload(
     surfaces: list[str],
     urls: list[str],
     results: list[HealthCheckResult],
+    warnings: list[str] | None = None,
 ) -> HealthCheckPayload:
     failures = [result.url for result in results if not result.ok]
     return {
@@ -168,6 +170,7 @@ def build_payload(
         "urls": urls,
         "checks": [asdict(result) for result in results],
         "failures": failures,
+        "warnings": warnings or [],
         "passed": not failures,
     }
 
@@ -193,6 +196,10 @@ def render_summary(payload: HealthCheckPayload) -> str:
         lines.append("failures:")
         for failure in failures:
             lines.append(f"- {failure}")
+    if payload["warnings"]:
+        lines.append("warnings:")
+        for warning in payload["warnings"]:
+            lines.append(f"- {warning}")
     return "\n".join(lines)
 
 
@@ -243,9 +250,25 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     surfaces = parse_multi_values(args.surface)
+    extra_urls = parse_multi_values(args.url)
     urls = resolve_check_urls(surfaces=surfaces, extra_urls=args.url)
     if not urls:
-        parser.error("At least one --surface or --url target is required.")
+        if not surfaces and not extra_urls:
+            parser.error("At least one --surface or --url target is required.")
+        payload = build_payload(
+            surfaces=surfaces,
+            urls=[],
+            results=[],
+            warnings=[
+                "No HTTP health checks are configured for the requested surfaces: "
+                + ", ".join(surfaces)
+            ],
+        )
+        if args.format == "json":
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(render_summary(payload))
+        return 0
 
     results = run_health_checks(
         urls,

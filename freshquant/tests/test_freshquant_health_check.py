@@ -135,3 +135,18 @@ def test_main_outputs_json_and_returns_nonzero_for_failure(monkeypatch, capsys) 
     assert payload["passed"] is False
     assert payload["checks"][0]["status_code"] == 503
     assert payload["failures"] == ["http://127.0.0.1:18080/"]
+
+
+def test_main_allows_surface_without_http_checks(monkeypatch, capsys) -> None:
+    module = load_module()
+
+    monkeypatch.setattr(module, "resolve_check_urls", lambda surfaces, extra_urls: [])
+
+    exit_code = module.main(["--surface", "dagster", "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["passed"] is True
+    assert payload["checks"] == []
+    assert payload["failures"] == []
+    assert "dagster" in payload["warnings"][0]
