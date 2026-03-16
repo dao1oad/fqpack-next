@@ -176,12 +176,12 @@
                 <span v-else>当前暂无异常 Trace</span>
               </article>
 
-              <div v-if="recentTraceFeed.length" class="recent-feed-list recent-feed-list--stacked">
+              <div v-if="recentTraceFeed.length" class="trace-feed-list recent-feed-list--stacked">
                 <button
                   v-for="item in recentTraceFeed"
                   :key="item.trace_key || item.trace_id"
                   type="button"
-                  class="recent-feed-item recent-feed-item--stacked"
+                  class="trace-feed-row"
                   :class="{ active: isActiveTraceRow(item) }"
                   @click="handleRecentTraceClick(item)"
                 >
@@ -276,12 +276,12 @@
               </div>
             </div>
 
-            <div v-if="componentEventFeed.length" class="recent-feed-list recent-feed-list--stacked">
+            <div v-if="componentEventFeed.length" class="event-feed-list recent-feed-list--stacked">
               <button
                 v-for="item in componentEventFeed"
                 :key="item.key"
                 type="button"
-                class="recent-feed-item recent-feed-item--stacked"
+                class="event-feed-row"
                 :class="{ active: isActiveEventRow(item) }"
                 @click="handleEventClick(item)"
               >
@@ -1268,7 +1268,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .runtime-page {
-  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: #f5f7fa;
 }
 
@@ -1276,7 +1280,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .runtime-section {
@@ -1387,10 +1393,17 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 260px minmax(360px, 1.2fr) minmax(420px, 1.1fr);
   gap: 12px;
-  align-items: start;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  align-items: stretch;
 }
 
 .runtime-browser-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   min-width: 0;
   border-color: #ebeef5;
   border-radius: 8px;
@@ -1399,6 +1412,7 @@ onBeforeUnmount(() => {
 }
 
 .runtime-browser-panel--detail {
+  min-height: 0;
   padding: 0;
   background: transparent;
   border: 0;
@@ -1409,6 +1423,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .component-sidebar-item {
@@ -1715,6 +1732,46 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.trace-feed-list,
+.event-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.trace-feed-row,
+.event-feed-row {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #e5edf5;
+  background: transparent;
+  padding: 10px 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  align-items: stretch;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trace-feed-row:last-child,
+.event-feed-row:last-child {
+  border-bottom: 0;
+}
+
+.trace-feed-row:hover,
+.event-feed-row:hover {
+  background: #f8fbff;
+}
+
+.trace-feed-row.active,
+.event-feed-row.active {
+  background: #eef6ff;
+}
+
 .recent-feed-item {
   width: 100%;
   border: 1px solid #d8e2ee;
@@ -1732,16 +1789,6 @@ onBeforeUnmount(() => {
 .recent-feed-item:hover {
   border-color: #5d8fbd;
   box-shadow: 0 8px 20px rgba(35, 73, 115, 0.08);
-}
-
-.recent-feed-item--stacked {
-  grid-template-columns: 1fr;
-  align-items: stretch;
-}
-
-.recent-feed-item--stacked.active {
-  border-color: #21405e;
-  box-shadow: 0 12px 28px rgba(35, 73, 115, 0.12);
 }
 
 .recent-feed-topline,
@@ -2064,10 +2111,14 @@ onBeforeUnmount(() => {
 }
 
 .trace-detail {
+  display: flex;
+  flex-direction: column;
   border: 1px solid #dfe7f3;
   border-radius: 14px;
   background: linear-gradient(180deg, #fbfdff 0%, #f4f8fc 100%);
   padding: 14px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .trace-detail--embedded {
@@ -2114,6 +2165,9 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
   gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .trace-summary-grid {
@@ -2195,7 +2249,10 @@ onBeforeUnmount(() => {
 
 .trace-timeline-panel,
 .step-inspector {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .guardian-trace-panel {
@@ -2341,7 +2398,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 420px;
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
   overflow: auto;
   padding-left: 20px;
   border-left: 2px solid #dbe5ef;
@@ -2524,6 +2583,7 @@ onBeforeUnmount(() => {
   background: #fff;
   padding: 12px;
   min-height: 320px;
+  overflow: auto;
 }
 
 .step-inspector-head {
@@ -2672,7 +2732,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 70vh;
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
   overflow: auto;
 }
 

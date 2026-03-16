@@ -6,8 +6,9 @@ import click
 from loguru import logger
 
 from freshquant.market_data.xtdata.pools import (
-    load_monitor_codes,
+    load_guardian_monitor_codes,
     normalize_xtdata_mode,
+    xtdata_mode_enables_guardian,
 )
 from freshquant.runtime_constants import TZ
 from freshquant.signal.a_stock_common import save_a_stock_signal
@@ -30,9 +31,9 @@ def monitor_stock_zh_a_min_event_driven() -> None:
     Subscribe `CHANNEL:BAR_UPDATE` and calculate Guardian signals on 1min updates.
     """
     xt_mode = normalize_xtdata_mode(system_settings.monitor.xtdata_mode)
-    if xt_mode != "guardian_1m":
+    if not xtdata_mode_enables_guardian(xt_mode):
         logger.warning(
-            f"[Event] monitor.xtdata.mode={xt_mode}; expected guardian_1m. Exiting."
+            f"[Event] monitor.xtdata.mode={xt_mode}; guardian capability disabled. Exiting."
         )
         return
 
@@ -58,7 +59,7 @@ def monitor_stock_zh_a_min_event_driven() -> None:
     filter_periods = {to_backend_period("1m")}
 
     def _load_codes() -> set[str]:
-        codes = load_monitor_codes(mode="guardian_1m", max_symbols=max_symbols)
+        codes = load_guardian_monitor_codes(max_symbols=max_symbols)
         return {c.lower() for c in codes if c}
 
     codes_lock = {"codes": _load_codes()}

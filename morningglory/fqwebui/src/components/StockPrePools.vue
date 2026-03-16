@@ -1,54 +1,56 @@
 <template>
-  <div >
+  <div class="stock-pool-subview">
       <el-divider content-position="center">预选股票池</el-divider>
-      <el-row>
+      <el-row class="stock-pool-subview__menu">
         <el-menu :default-active="currentCategory" @select="handleCategoryChange" mode="horizontal">
           <el-menu-item v-for="cat in categoryList" :key="cat" :index="cat">
             {{ cat }}
           </el-menu-item>
         </el-menu>
       </el-row>
-      <el-table
-        v-loading="isLoading"
-        :data="stockList"
-        size="small"
-        :stripe="true"
-        :border="true"
-      >
-        <el-table-column prop="symbol" label="代码" width="100">
-          <template #default="scope">
-            <el-link
-              type="primary"
-              :underline="true"
-              @click="jumpToKline(scope.row.symbol)"
-            >
-              {{ scope.row.symbol }}
-            </el-link>
-          </template>
-        </el-table-column>
-        <el-table-column prop="name" label="名字"> </el-table-column>
-        <el-table-column prop="category" label="分类">
-          <template #default="scope">
-            <template v-if="Array.isArray(scope.row.category)">
-              <span v-for="(cat, index) in scope.row.category" :key="index">
-                {{ cat }}{{ index < scope.row.category.length - 1 ? '，' : '' }}
-              </span>
-            </template>
-            <template v-else>
-              {{ scope.row.category }}
-            </template>
-          </template>
-        </el-table-column>
-        <el-table-column prop="stop_loss_price" label="止损价格"> </el-table-column>
-        <el-table-column prop="datetime" label="时间"> </el-table-column>
-        <el-table-column label="操作">
+      <div class="stock-pool-subview__table">
+        <el-table
+          v-loading="isLoading"
+          :data="stockList"
+          size="small"
+          :stripe="true"
+          :border="true"
+        >
+          <el-table-column prop="symbol" label="代码" width="100">
             <template #default="scope">
-              <el-button @click="showAddDialog(scope.row)">加入监控池</el-button>
-              <el-button @click="deleteFromStockPrePoolsByCode(scope.row)">删除</el-button>
+              <el-link
+                type="primary"
+                :underline="true"
+                @click="jumpToKline(scope.row.symbol)"
+              >
+                {{ scope.row.symbol }}
+              </el-link>
             </template>
-        </el-table-column>
-      </el-table>
-      <el-row>
+          </el-table-column>
+          <el-table-column prop="name" label="名字"> </el-table-column>
+          <el-table-column prop="category" label="分类">
+            <template #default="scope">
+              <template v-if="Array.isArray(scope.row.category)">
+                <span v-for="(cat, index) in scope.row.category" :key="index">
+                  {{ cat }}{{ index < scope.row.category.length - 1 ? '，' : '' }}
+                </span>
+              </template>
+              <template v-else>
+                {{ scope.row.category }}
+              </template>
+            </template>
+          </el-table-column>
+          <el-table-column prop="stop_loss_price" label="止损价格"> </el-table-column>
+          <el-table-column prop="datetime" label="时间"> </el-table-column>
+          <el-table-column label="操作">
+              <template #default="scope">
+                <el-button @click="showAddDialog(scope.row)">加入监控池</el-button>
+                <el-button @click="deleteFromStockPrePoolsByCode(scope.row)">删除</el-button>
+              </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <el-row class="stock-pool-subview__pager">
         <el-pagination
           background
           layout="total,sizes,prev,pager,next"
@@ -243,9 +245,25 @@ export default {
 }
 </script>
 <style lang="stylus" scoped>
-.stock-pool-main :deep() {
-  .el-table .el-table__cell {
-    vertical-align: top
-  }
-}
+.stock-pool-subview
+  display flex
+  flex-direction column
+  min-height 0
+  height 100%
+
+.stock-pool-subview__menu
+  flex 0 0 auto
+  margin-bottom 10px
+
+.stock-pool-subview__table
+  flex 1 1 auto
+  min-height 0
+  overflow auto
+
+.stock-pool-subview__pager
+  margin-top 10px
+  flex 0 0 auto
+
+.stock-pool-subview :deep(.el-table .el-table__cell)
+  vertical-align top
 </style>

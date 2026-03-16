@@ -1,5 +1,5 @@
 <template>
-  <div class="shouban30-page">
+  <div class="shouban30-page shouban30-shell">
     <MyHeader />
     <div class="shouban30-page-body">
       <div class="shouban30-toolbar">
@@ -531,8 +531,8 @@ import {
 } from './shouban30PoolWorkspace.mjs'
 
 const VIEW_PROVIDER_OPTIONS = [
-  { name: 'xgb', label: 'XGB' },
-  { name: 'jygs', label: 'JYGS' },
+  { name: 'xgb', label: '选股通' },
+  { name: 'jygs', label: '韭研公社' },
   { name: 'agg', label: '聚合' },
 ]
 const SOURCE_PROVIDERS = ['xgb', 'jygs']
@@ -1359,17 +1359,26 @@ onMounted(() => {
 
 <style scoped>
 .shouban30-page {
-  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: #f5f7fa;
 }
 
 .shouban30-page-body {
-  min-height: calc(100vh - 64px);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
   padding: 12px 16px 16px;
 }
 
 .shouban30-toolbar {
-  margin-bottom: 12px;
+  flex: 0 0 auto;
   padding: 12px 16px;
   background: #fff;
   border: 1px solid #ebeef5;
@@ -1405,15 +1414,19 @@ onMounted(() => {
 
 .shouban30-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 1.15fr) minmax(280px, 1fr) minmax(320px, 1.25fr);
+  grid-template-columns: minmax(300px, 1.05fr) minmax(300px, 1.02fr) minmax(340px, 1.2fr);
+  grid-template-rows: minmax(0, 1fr) minmax(260px, 0.72fr);
   gap: 12px;
-  min-height: calc(100vh - 180px);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .panel-card {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
   padding: 12px;
   background: #fff;
   border: 1px solid #ebeef5;
@@ -1422,7 +1435,7 @@ onMounted(() => {
 
 .panel-card-workspace {
   grid-column: 1 / -1;
-  min-height: 320px;
+  min-height: 0;
 }
 
 .panel-card-header {
@@ -1505,12 +1518,16 @@ onMounted(() => {
 .panel-table {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .workspace-tabs-wrap,
 .workspace-tabs {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .workspace-tab-actions {
@@ -1535,9 +1552,32 @@ onMounted(() => {
   background: #ecf5ff !important;
 }
 
+:deep(.panel-table .el-table) {
+  height: 100%;
+}
+
+:deep(.workspace-tabs .el-tabs__header) {
+  margin-bottom: 8px;
+}
+
+:deep(.workspace-tabs .el-tabs__content) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+:deep(.workspace-tabs .el-tab-pane) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
 @media (max-width: 1440px) {
   .shouban30-grid {
     grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(240px, 0.72fr);
   }
 
   .shouban30-grid > :last-child {
@@ -1548,7 +1588,12 @@ onMounted(() => {
 @media (max-width: 960px) {
   .shouban30-grid {
     grid-template-columns: 1fr;
-    min-height: auto;
+    grid-template-rows: repeat(4, minmax(280px, auto));
+    overflow: auto;
+  }
+
+  .shouban30-page-body {
+    overflow: auto;
   }
 
   .panel-table {

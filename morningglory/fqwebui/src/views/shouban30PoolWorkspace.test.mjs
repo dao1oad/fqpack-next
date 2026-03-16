@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 
 import {
   buildCurrentFilterReplacePrePoolPayload,
@@ -215,4 +216,19 @@ test('resolveSelectedStockDetailContext prefers current stock row when both curr
     provider: 'agg',
     plate_name: '',
   })
+})
+
+test('gantt tabs use 韭研公社 label and shouban30 keeps fixed workspace layout markers', async () => {
+  const [ganttContent, ganttStocksContent, shoubanContent] = await Promise.all([
+    readFile(new URL('./GanttUnified.vue', import.meta.url), 'utf8'),
+    readFile(new URL('./GanttUnifiedStocks.vue', import.meta.url), 'utf8'),
+    readFile(new URL('./GanttShouban30Phase1.vue', import.meta.url), 'utf8'),
+  ])
+
+  assert.match(ganttContent, /韭研公社/)
+  assert.doesNotMatch(ganttContent, /韭研公式/)
+  assert.match(ganttStocksContent, /韭研公社/)
+  assert.doesNotMatch(ganttStocksContent, /韭研公式/)
+  assert.match(shoubanContent, /panel-card-workspace/)
+  assert.match(shoubanContent, /shouban30-shell/)
 })

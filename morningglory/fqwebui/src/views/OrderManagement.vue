@@ -396,6 +396,9 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .filter-grid {
@@ -424,19 +427,25 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: minmax(0, 1.18fr) minmax(400px, 0.92fr);
   gap: 12px;
-  min-height: calc(100vh - 292px);
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .order-list-panel,
 .order-detail-panel {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .order-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: auto;
 }
 
 .order-detail-block {
@@ -471,7 +480,6 @@ onMounted(async () => {
 
   .order-main-grid {
     grid-template-columns: 1fr;
-    min-height: auto;
   }
 }
 

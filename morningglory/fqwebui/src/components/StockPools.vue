@@ -1,77 +1,79 @@
 <template>
-  <div class="stock-pool-main">
+  <div class="stock-pool-shell">
     <MyHeader></MyHeader>
-    <el-row>
-      <el-col :span="12">
-        <el-divider content-position="center">监控股票池</el-divider>
-        <div style="margin-bottom: 10px; text-align: right;">
-          <el-button type="primary" @click="showAddStockDialog">添加股票</el-button>
+    <div class="stock-pool-body">
+      <div class="stock-pool-grid">
+        <section class="stock-pool-panel">
+          <el-divider content-position="center">监控股票池</el-divider>
+          <div class="stock-pool-panel__toolbar">
+            <el-button type="primary" @click="showAddStockDialog">添加股票</el-button>
+          </div>
+          <div class="stock-pool-panel__table">
+            <el-table
+              v-loading="isLoading"
+              :data="stockList"
+              size="small"
+              :stripe="true"
+              :border="true"
+            >
+              <el-table-column prop="symbol" label="代码" width="100">
+                <template #default="scope">
+                  <el-link
+                    type="primary"
+                    :underline="true"
+                    @click="jumpToKline(scope.row.symbol)"
+                  >
+                    {{ scope.row.symbol }}
+                  </el-link>
+                </template>
+              </el-table-column>
+              <el-table-column prop="name" label="名字"> </el-table-column>
+              <el-table-column prop="category" label="分类">
+                <template #default="scope">
+                  <template v-if="Array.isArray(scope.row.category)">
+                    <span v-for="(cat, index) in scope.row.category" :key="index">
+                      {{ cat }}{{ index < scope.row.category.length - 1 ? '，' : '' }}
+                    </span>
+                  </template>
+                  <template v-else>
+                    {{ scope.row.category }}
+                  </template>
+                </template>
+              </el-table-column>
+              <el-table-column prop="stop_loss_price" label="止损价格"> </el-table-column>
+              <el-table-column prop="datetime" label="时间"> </el-table-column>
+              <el-table-column label="操作">
+                <template #default="scope">
+                  <el-button @click="addToStockMustPoolsByCode(scope.row)">添加到必选</el-button>
+                  <el-button @click="deleteFromStockPoolsByCode(scope.row)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+          <el-row class="stock-pool-panel__pager">
+            <el-pagination
+              background
+              layout="total,sizes,prev,pager,next"
+              v-model:current-page="listQuery.current"
+              :page-size="listQuery.size"
+              :total="listQuery.total"
+              :page-sizes="[20, 50, 100]"
+              @current-change="handlePageChange"
+              @size-change="handleSizeChange"
+              class="mt-5"
+            />
+          </el-row>
+        </section>
+        <div class="stock-pool-side">
+          <section class="stock-pool-panel">
+            <StockPrePools @stock-refresh="refreshStockList"/>
+          </section>
+          <section class="stock-pool-panel">
+            <StockMustPools ref="stockMustPoolsRef"/>
+          </section>
         </div>
-        <el-table
-          v-loading="isLoading"
-          :data="stockList"
-          size="small"
-          :stripe="true"
-          :border="true"
-        >
-          <el-table-column prop="symbol" label="代码" width="100">
-            <template #default="scope">
-              <el-link
-                type="primary"
-                :underline="true"
-                @click="jumpToKline(scope.row.symbol)"
-              >
-                {{ scope.row.symbol }}
-              </el-link>
-            </template>
-          </el-table-column>
-          <el-table-column prop="name" label="名字"> </el-table-column>
-          <el-table-column prop="category" label="分类">
-            <template #default="scope">
-              <template v-if="Array.isArray(scope.row.category)">
-                <span v-for="(cat, index) in scope.row.category" :key="index">
-                  {{ cat }}{{ index < scope.row.category.length - 1 ? '，' : '' }}
-                </span>
-              </template>
-              <template v-else>
-                {{ scope.row.category }}
-              </template>
-            </template>
-          </el-table-column>
-          <el-table-column prop="stop_loss_price" label="止损价格"> </el-table-column>
-          <el-table-column prop="datetime" label="时间"> </el-table-column>
-          <el-table-column label="操作">
-            <template #default="scope">
-              <el-button @click="addToStockMustPoolsByCode(scope.row)">添加到必选</el-button>
-              <el-button @click="deleteFromStockPoolsByCode(scope.row)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <el-row>
-          <el-pagination
-            background
-            layout="total,sizes,prev,pager,next"
-            v-model:current-page="listQuery.current"
-            :page-size="listQuery.size"
-            :total="listQuery.total"
-            :page-sizes="[20, 50, 100]"
-            @current-change="handlePageChange"
-            @size-change="handleSizeChange"
-            class="mt-5"
-          />
-        </el-row>
-      </el-col>
-      <el-col :span="12">
-        <!-- 候选股 -->
-        <StockPrePools @stock-refresh="refreshStockList"/>
-      </el-col>
-    </el-row>
-    <el-row>
-      <el-col :span="12">
-        <!-- 必选 -->
-        <StockMustPools ref="stockMustPoolsRef"/>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
     <el-dialog title="增加必选股票" v-model="dialogFormVisible">
       <el-form :model="form" size="large">
         <el-form-item label="股票号" :label-width="formLabelWidth">
@@ -310,9 +312,70 @@ export default {
 }
 </script>
 <style lang="stylus" scoped>
-.stock-pool-main :deep() {
-  .el-table .el-table__cell {
-    vertical-align: top
-  }
-}
+.stock-pool-shell
+  display flex
+  flex-direction column
+  height 100vh
+  height 100dvh
+  overflow hidden
+  background #f5f7fa
+
+.stock-pool-body
+  flex 1 1 auto
+  min-height 0
+  overflow hidden
+  padding 12px 16px 16px
+
+.stock-pool-grid
+  display grid
+  grid-template-columns minmax(0, 1.2fr) minmax(0, 1fr)
+  gap 12px
+  height 100%
+  min-height 0
+
+.stock-pool-side
+  display grid
+  grid-template-rows minmax(0, 1fr) minmax(0, 1fr)
+  gap 12px
+  min-height 0
+
+.stock-pool-panel
+  display flex
+  flex-direction column
+  min-height 0
+  overflow hidden
+  padding 0 12px 12px
+  border 1px solid #ebeef5
+  border-radius 8px
+  background #fff
+
+.stock-pool-panel__toolbar
+  display flex
+  justify-content flex-end
+  gap 8px
+  margin-bottom 10px
+  flex 0 0 auto
+
+.stock-pool-panel__table
+  flex 1 1 auto
+  min-height 0
+  overflow auto
+
+.stock-pool-panel__pager
+  margin-top 10px
+  flex 0 0 auto
+
+.stock-pool-panel :deep(.el-table .el-table__cell)
+  vertical-align top
+
+@media (max-width: 1440px)
+  .stock-pool-body
+    overflow auto
+
+  .stock-pool-grid
+    grid-template-columns 1fr
+    height auto
+
+  .stock-pool-side
+    grid-template-rows repeat(2, minmax(320px, 1fr))
 </style>

@@ -154,8 +154,8 @@ def test_get_data_v2_uses_stock_fetcher_for_bare_stock_code_when_maps_missing(
 
     captured = {}
 
-    def fake_get_stock_data(symbol, period, end_date):
-        captured["args"] = (symbol, period, end_date)
+    def fake_get_stock_data(symbol, period, end_date, bar_count=0):
+        captured["args"] = (symbol, period, end_date, bar_count)
         return pd.DataFrame(
             {
                 "datetime": pd.to_datetime(["2026-03-11 09:35", "2026-03-11 09:40"]),
@@ -184,7 +184,7 @@ def test_get_data_v2_uses_stock_fetcher_for_bare_stock_code_when_maps_missing(
 
     payload = chanlun_service.get_data_v2("002594", "5m")
 
-    assert captured["args"] == ("sz002594", "5m", None)
+    assert captured["args"] == ("sz002594", "5m", None, 0)
     assert payload["symbol"] == "002594"
     assert payload["name"] == "比亚迪"
     assert payload["instrumentType"] == InstrumentType.STOCK_CN

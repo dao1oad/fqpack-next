@@ -56,7 +56,7 @@ def _resolve_security_symbol_and_type(symbol):
     return normalized_symbol, instrument_type
 
 
-def get_data_v2(symbol, period, end_date=None):
+def get_data_v2(symbol, period, end_date=None, bar_count=0):
     stock_fills = None
     future_fills = None
     digitalcoin_fills = None
@@ -66,8 +66,15 @@ def get_data_v2(symbol, period, end_date=None):
         instrumentType = query_instrument_type((symbol or "").lower())
         query_symbol = symbol
     if instrumentType == InstrumentType.STOCK_CN:
-        name = pydash.get(query_stock_map(), f'{query_symbol.lower()}.name')
-        get_instrument_data = get_stock_data
+        name = pydash.get(query_stock_map(), f"{query_symbol.lower()}.name")
+        get_instrument_data = (
+            lambda code, current_period, current_end_date: get_stock_data(
+                code,
+                current_period,
+                current_end_date,
+                bar_count=bar_count,
+            )
+        )
         stock_fills = get_stock_fills(query_symbol[2:])
         if stock_fills is not None and len(stock_fills) > 0:
             desired_columns = [
@@ -85,8 +92,15 @@ def get_data_v2(symbol, period, end_date=None):
         else:
             stock_fills = None
     elif instrumentType == InstrumentType.ETF_CN:
-        name = pydash.get(query_etf_map(), f'{query_symbol.lower()}.name')
-        get_instrument_data = queryEtfCandleSticks
+        name = pydash.get(query_etf_map(), f"{query_symbol.lower()}.name")
+        get_instrument_data = (
+            lambda code, current_period, current_end_date: queryEtfCandleSticks(
+                code,
+                current_period,
+                current_end_date,
+                bar_count=bar_count,
+            )
+        )
         stock_fills = get_stock_fills(query_symbol[2:])
         if stock_fills is not None and len(stock_fills) > 0:
             desired_columns = [
@@ -106,7 +120,7 @@ def get_data_v2(symbol, period, end_date=None):
     else:
         future_obj = fq_fetch_future_basic(symbol)
         if future_obj is not None:
-            name = future_obj['name']
+            name = future_obj["name"]
         get_instrument_data = get_future_data_v2
         future_fills = queryArrangedCnFutureFillList(symbol)
 
@@ -141,37 +155,37 @@ def get_data_v2(symbol, period, end_date=None):
         "endDate": end_date,
         "dateBigLevel": [],
         "date": kline_data.time_str.to_list(),
-        "open": trading_signals['open'],
-        "high": trading_signals['high'],
-        "low": trading_signals['low'],
-        "close": trading_signals['close'],
-        "bidata": trading_signals['bi_data'],
-        "duandata": trading_signals['duan_data'],
-        "higherDuanData": trading_signals['higher_duan_data'],
-        "higherHigherDuanData": trading_signals['higher_higher_duan_data'],
-        "zsdata": trading_signals['zd_data'],
-        "zsflag": trading_signals['zs_flag'],
-        "duan_zsdata": trading_signals['duan_zs_data'],
-        "duan_zsflag": trading_signals['duan_zs_flag'],
-        "higher_duan_zsdata": trading_signals['high_duan_zs_data'],
-        "higher_duan_zsflag": trading_signals['high_duan_zs_flag'],
-        "buy_zs_huila": trading_signals['buy_zs_huila'],
-        "sell_zs_huila": trading_signals['sell_zs_huila'],
-        "buy_v_reverse": trading_signals['buy_v_reverse'],
-        "sell_v_reverse": trading_signals['sell_v_reverse'],
-        "macd_bullish_divergence": trading_signals['macd_bullish_divergence'],
-        "macd_bearish_divergence": trading_signals['macd_bearish_divergence'],
-        'fractal': placeholder.fractal,
+        "open": trading_signals["open"],
+        "high": trading_signals["high"],
+        "low": trading_signals["low"],
+        "close": trading_signals["close"],
+        "bidata": trading_signals["bi_data"],
+        "duandata": trading_signals["duan_data"],
+        "higherDuanData": trading_signals["higher_duan_data"],
+        "higherHigherDuanData": trading_signals["higher_higher_duan_data"],
+        "zsdata": trading_signals["zd_data"],
+        "zsflag": trading_signals["zs_flag"],
+        "duan_zsdata": trading_signals["duan_zs_data"],
+        "duan_zsflag": trading_signals["duan_zs_flag"],
+        "higher_duan_zsdata": trading_signals["high_duan_zs_data"],
+        "higher_duan_zsflag": trading_signals["high_duan_zs_flag"],
+        "buy_zs_huila": trading_signals["buy_zs_huila"],
+        "sell_zs_huila": trading_signals["sell_zs_huila"],
+        "buy_v_reverse": trading_signals["buy_v_reverse"],
+        "sell_v_reverse": trading_signals["sell_v_reverse"],
+        "macd_bullish_divergence": trading_signals["macd_bullish_divergence"],
+        "macd_bearish_divergence": trading_signals["macd_bearish_divergence"],
+        "fractal": placeholder.fractal,
         "stock_fills": stock_fills,
         "future_fills": future_fills,
         "digitalcoin_fills": digitalcoin_fills,
     }
 
-    resp['notLower'] = calcNotLower(
-        trading_signals['duan_signal_list'], kline_data.low.to_list()
+    resp["notLower"] = calcNotLower(
+        trading_signals["duan_signal_list"], kline_data.low.to_list()
     )
-    resp['notHigher'] = calcNotHigher(
-        trading_signals['duan_signal_list'], kline_data.high.to_list()
+    resp["notHigher"] = calcNotHigher(
+        trading_signals["duan_signal_list"], kline_data.high.to_list()
     )
 
     return resp
@@ -182,11 +196,11 @@ def get_data_v3(symbol, period, end_date=None):
     if match_stock is not None:
         get_instrument_data = get_stock_data
     elif (
-        symbol in config['global_future_symbol']
-        or symbol in config['global_stock_symbol']
+        symbol in config["global_future_symbol"]
+        or symbol in config["global_stock_symbol"]
     ):
         get_instrument_data = getGlobalFutureData
-    elif 'USDT' in symbol:
+    elif "USDT" in symbol:
         get_instrument_data = None
     else:
         get_instrument_data = getFutureData
@@ -202,12 +216,12 @@ def get_data_v3(symbol, period, end_date=None):
         )
     )
 
-    MACD = QA.MACD(kline_data['close'], 12, 26, 9)
-    kline_data['diff'] = MACD['DIFF'].fillna(0)
-    kline_data['dea'] = MACD['DEA'].fillna(0)
-    kline_data['macd'] = MACD['MACD'].fillna(0)
-    kline_data['jc'] = QA.CROSS(MACD['DIFF'], MACD['DEA']).fillna(0)
-    kline_data['sc'] = QA.CROSS(MACD['DEA'], MACD['DIFF']).fillna(0)
+    MACD = QA.MACD(kline_data["close"], 12, 26, 9)
+    kline_data["diff"] = MACD["DIFF"].fillna(0)
+    kline_data["dea"] = MACD["DEA"].fillna(0)
+    kline_data["macd"] = MACD["MACD"].fillna(0)
+    kline_data["jc"] = QA.CROSS(MACD["DIFF"], MACD["DEA"]).fillna(0)
+    kline_data["sc"] = QA.CROSS(MACD["DEA"], MACD["DIFF"]).fillna(0)
 
     chanlun = Chanlun().analysis(
         kline_data.time_stamp.to_list(),
@@ -216,9 +230,9 @@ def get_data_v3(symbol, period, end_date=None):
         kline_data.low.to_list(),
         kline_data.high.to_list(),
     )
-    kline_data['bi'] = chanlun.bi_signal_list
-    kline_data['duan'] = chanlun.duan_signal_list
-    kline_data['duan2'] = chanlun.higher_duan_signal_list
+    kline_data["bi"] = chanlun.bi_signal_list
+    kline_data["duan"] = chanlun.duan_signal_list
+    kline_data["duan2"] = chanlun.higher_duan_signal_list
 
     data = {
         "symbol": symbol,
@@ -226,19 +240,19 @@ def get_data_v3(symbol, period, end_date=None):
         "kline_data": kline_data,
         "chanlun_data": chanlun,
     }
-    kline_data = data['kline_data']
+    kline_data = data["kline_data"]
 
     bi_data = {
-        'date': list(map(str_from_timestamp, chanlun.bi_data['dt'])),
-        'data': chanlun.bi_data['data'],
+        "date": list(map(str_from_timestamp, chanlun.bi_data["dt"])),
+        "data": chanlun.bi_data["data"],
     }
     duan_data = {
-        'date': list(map(str_from_timestamp, chanlun.duan_data['dt'])),
-        'data': chanlun.duan_data['data'],
+        "date": list(map(str_from_timestamp, chanlun.duan_data["dt"])),
+        "data": chanlun.duan_data["data"],
     }
     higher_chanlun_data = {
-        'date': list(map(str_from_timestamp, chanlun.higher_duan_data['dt'])),
-        'data': chanlun.higher_duan_data['data'],
+        "date": list(map(str_from_timestamp, chanlun.higher_duan_data["dt"])),
+        "data": chanlun.higher_duan_data["data"],
     }
 
     # 计算笔中枢
@@ -248,7 +262,7 @@ def get_data_v3(symbol, period, end_date=None):
     entanglement_list_1d = None
     mian_ji_di_bei_chi_sg = None
     huang_bai_xian_di_bei_chi_sg = None
-    if period != '1d':
+    if period != "1d":
         daily_data = get_instrument_data(symbol, "1d", end_date)
 
     if daily_data is not None and len(daily_data) > 0:
@@ -260,19 +274,19 @@ def get_data_v3(symbol, period, end_date=None):
         )
         daily_data = daily_data.set_index("time_stamp", drop=False)
         chanlunData_1d = Chanlun().analysis(
-            daily_data['time_stamp'].to_list(),
-            daily_data['open'].to_list(),
-            daily_data['close'].to_list(),
-            daily_data['low'].to_list(),
-            daily_data['high'].to_list(),
+            daily_data["time_stamp"].to_list(),
+            daily_data["open"].to_list(),
+            daily_data["close"].to_list(),
+            daily_data["low"].to_list(),
+            daily_data["high"].to_list(),
         )
-        daily_data['bi'] = chanlunData_1d.bi_signal_list
-        daily_data['duan'] = chanlunData_1d.duan_signal_list
-        daily_data['duan2'] = chanlunData_1d.higher_duan_signal_list
+        daily_data["bi"] = chanlunData_1d.bi_signal_list
+        daily_data["duan"] = chanlunData_1d.duan_signal_list
+        daily_data["duan2"] = chanlunData_1d.higher_duan_signal_list
         entanglement_list_1d = chanlunData_1d.pivot_list
 
     rise_break_pivot_gg_sg = rise_break_pivot_gg(
-        kline_data['datetime'].to_list(),
+        kline_data["datetime"].to_list(),
         kline_data.time_str.to_list(),
         kline_data.high.to_list(),
         kline_data.duan.to_list(),
@@ -280,7 +294,7 @@ def get_data_v3(symbol, period, end_date=None):
         kline_data.duan2.to_list(),
     )
     rise_break_pivot_zg_sg = rise_break_pivot_zg(
-        kline_data['datetime'].to_list(),
+        kline_data["datetime"].to_list(),
         kline_data.time_str.to_list(),
         kline_data.high.to_list(),
         kline_data.low.to_list(),
@@ -289,7 +303,7 @@ def get_data_v3(symbol, period, end_date=None):
         kline_data.duan2.to_list(),
     )
     rise_break_pivot_zm_sg = rise_break_pivot_zm(
-        kline_data['datetime'].to_list(),
+        kline_data["datetime"].to_list(),
         kline_data.time_str.to_list(),
         kline_data.high.to_list(),
         kline_data.low.to_list(),
@@ -298,7 +312,7 @@ def get_data_v3(symbol, period, end_date=None):
         kline_data.duan2.to_list(),
     )
     rise_break_pivot_zd_sg = rise_break_pivot_zd(
-        kline_data['datetime'].to_list(),
+        kline_data["datetime"].to_list(),
         kline_data.time_str.to_list(),
         kline_data.high.to_list(),
         kline_data.low.to_list(),
@@ -324,7 +338,7 @@ def get_data_v3(symbol, period, end_date=None):
                 time_str_list.append(time_str)
                 date_str_list.append(
                     datetime.datetime.strptime(time_str, "%Y-%m-%d %H:%M").strftime(
-                        '%Y-%m-%d'
+                        "%Y-%m-%d"
                     )
                 )
                 zg_list.append(pivot.zg)
@@ -332,114 +346,114 @@ def get_data_v3(symbol, period, end_date=None):
                 direction_list.append(pivot.direction)
         gao_ji_bie_data = pd.DataFrame(
             {
-                'date_str': date_str_list,
-                'zg': zg_list,
-                'zd': zd_list,
-                'direction': direction_list,
+                "date_str": date_str_list,
+                "zg": zg_list,
+                "zd": zd_list,
+                "direction": direction_list,
             }
         )
         mian_ji_di_bei_chi_sg = mian_ji_di_bei_chi(
-            kline_data['datetime'].to_list(),
-            kline_data['time_str'].to_list(),
-            kline_data['high'].to_list(),
-            kline_data['low'].to_list(),
-            kline_data['bi'].to_list(),
-            kline_data['duan'].to_list(),
-            kline_data['diff'].to_list(),
-            kline_data['macd'].to_list(),
-            kline_data['jc'].to_list(),
-            kline_data['duan2'].to_list(),
+            kline_data["datetime"].to_list(),
+            kline_data["time_str"].to_list(),
+            kline_data["high"].to_list(),
+            kline_data["low"].to_list(),
+            kline_data["bi"].to_list(),
+            kline_data["duan"].to_list(),
+            kline_data["diff"].to_list(),
+            kline_data["macd"].to_list(),
+            kline_data["jc"].to_list(),
+            kline_data["duan2"].to_list(),
         )
         ben_ji_bie_data = pd.DataFrame(
             {
-                'datetime': mian_ji_di_bei_chi_sg['datetime'],
-                'time_str': mian_ji_di_bei_chi_sg['time_str'],
-                'price': mian_ji_di_bei_chi_sg['price'],
-                'stop_lose_price': mian_ji_di_bei_chi_sg['stop_lose_price'],
-                'stop_win_price': mian_ji_di_bei_chi_sg['stop_win_price'],
+                "datetime": mian_ji_di_bei_chi_sg["datetime"],
+                "time_str": mian_ji_di_bei_chi_sg["time_str"],
+                "price": mian_ji_di_bei_chi_sg["price"],
+                "stop_lose_price": mian_ji_di_bei_chi_sg["stop_lose_price"],
+                "stop_win_price": mian_ji_di_bei_chi_sg["stop_win_price"],
             }
         )
-        ben_ji_bie_data['date_str'] = ben_ji_bie_data['time_str'].apply(
+        ben_ji_bie_data["date_str"] = ben_ji_bie_data["time_str"].apply(
             lambda v: datetime.datetime.strptime(v, "%Y-%m-%d %H:%M").strftime(
-                '%Y-%m-%d'
+                "%Y-%m-%d"
             )
         )
         ben_ji_bie_data = ben_ji_bie_data.join(
-            gao_ji_bie_data.set_index('date_str'), on='date_str', how='outer', sort=True
+            gao_ji_bie_data.set_index("date_str"), on="date_str", how="outer", sort=True
         )
-        ben_ji_bie_data['zg'].fillna(method='ffill', inplace=True)
-        ben_ji_bie_data['zd'].fillna(method='ffill', inplace=True)
-        ben_ji_bie_data['direction'].fillna(method='ffill', inplace=True)
-        ben_ji_bie_data.dropna(subset=['datetime'], inplace=True)
+        ben_ji_bie_data["zg"].fillna(method="ffill", inplace=True)
+        ben_ji_bie_data["zd"].fillna(method="ffill", inplace=True)
+        ben_ji_bie_data["direction"].fillna(method="ffill", inplace=True)
+        ben_ji_bie_data.dropna(subset=["datetime"], inplace=True)
         ben_ji_bie_data = ben_ji_bie_data[
-            (ben_ji_bie_data['price'] >= ben_ji_bie_data['zd'])
-            & (ben_ji_bie_data['price'] < ben_ji_bie_data['zg'])
+            (ben_ji_bie_data["price"] >= ben_ji_bie_data["zd"])
+            & (ben_ji_bie_data["price"] < ben_ji_bie_data["zg"])
         ]
         mian_ji_di_bei_chi_sg = ben_ji_bie_data[
             [
-                'datetime',
-                'time_str',
-                'price',
-                'stop_lose_price',
-                'stop_win_price',
-                'zd',
-                'zg',
+                "datetime",
+                "time_str",
+                "price",
+                "stop_lose_price",
+                "stop_win_price",
+                "zd",
+                "zg",
             ]
-        ].to_dict(orient='list')
+        ].to_dict(orient="list")
 
         huang_bai_xian_di_bei_chi_sg = huang_bai_xian_di_bei_chi(
-            kline_data['datetime'].to_list(),
-            kline_data['time_str'].to_list(),
-            kline_data['high'].to_list(),
-            kline_data['low'].to_list(),
-            kline_data['bi'].to_list(),
-            kline_data['duan'].to_list(),
-            kline_data['diff'].to_list(),
-            kline_data['dea'].to_list(),
-            kline_data['jc'].to_list(),
-            kline_data['duan2'].to_list(),
+            kline_data["datetime"].to_list(),
+            kline_data["time_str"].to_list(),
+            kline_data["high"].to_list(),
+            kline_data["low"].to_list(),
+            kline_data["bi"].to_list(),
+            kline_data["duan"].to_list(),
+            kline_data["diff"].to_list(),
+            kline_data["dea"].to_list(),
+            kline_data["jc"].to_list(),
+            kline_data["duan2"].to_list(),
         )
 
         ben_ji_bie_data = pd.DataFrame(
             {
-                'datetime': huang_bai_xian_di_bei_chi_sg['datetime'],
-                'time_str': huang_bai_xian_di_bei_chi_sg['time_str'],
-                'price': huang_bai_xian_di_bei_chi_sg['price'],
-                'stop_lose_price': huang_bai_xian_di_bei_chi_sg['stop_lose_price'],
-                'stop_win_price': huang_bai_xian_di_bei_chi_sg['stop_win_price'],
+                "datetime": huang_bai_xian_di_bei_chi_sg["datetime"],
+                "time_str": huang_bai_xian_di_bei_chi_sg["time_str"],
+                "price": huang_bai_xian_di_bei_chi_sg["price"],
+                "stop_lose_price": huang_bai_xian_di_bei_chi_sg["stop_lose_price"],
+                "stop_win_price": huang_bai_xian_di_bei_chi_sg["stop_win_price"],
             }
         )
 
-        ben_ji_bie_data['date_str'] = ben_ji_bie_data['time_str'].apply(
+        ben_ji_bie_data["date_str"] = ben_ji_bie_data["time_str"].apply(
             lambda v: datetime.datetime.strptime(v, "%Y-%m-%d %H:%M").strftime(
-                '%Y-%m-%d'
+                "%Y-%m-%d"
             )
         )
         ben_ji_bie_data = ben_ji_bie_data.join(
-            gao_ji_bie_data.set_index('date_str'), on='date_str', how='outer', sort=True
+            gao_ji_bie_data.set_index("date_str"), on="date_str", how="outer", sort=True
         )
-        ben_ji_bie_data['zg'].fillna(method='ffill', inplace=True)
-        ben_ji_bie_data['zd'].fillna(method='ffill', inplace=True)
-        ben_ji_bie_data['direction'].fillna(method='ffill', inplace=True)
-        ben_ji_bie_data.dropna(subset=['datetime'], inplace=True)
+        ben_ji_bie_data["zg"].fillna(method="ffill", inplace=True)
+        ben_ji_bie_data["zd"].fillna(method="ffill", inplace=True)
+        ben_ji_bie_data["direction"].fillna(method="ffill", inplace=True)
+        ben_ji_bie_data.dropna(subset=["datetime"], inplace=True)
         ben_ji_bie_data = ben_ji_bie_data[
-            (ben_ji_bie_data['price'] >= ben_ji_bie_data['zd'])
-            & (ben_ji_bie_data['price'] < ben_ji_bie_data['zg'])
+            (ben_ji_bie_data["price"] >= ben_ji_bie_data["zd"])
+            & (ben_ji_bie_data["price"] < ben_ji_bie_data["zg"])
         ]
         huang_bai_xian_di_bei_chi_sg = ben_ji_bie_data[
             [
-                'datetime',
-                'time_str',
-                'price',
-                'stop_lose_price',
-                'stop_win_price',
-                'zd',
-                'zg',
+                "datetime",
+                "time_str",
+                "price",
+                "stop_lose_price",
+                "stop_win_price",
+                "zd",
+                "zg",
             ]
-        ].to_dict(orient='list')
+        ].to_dict(orient="list")
     # 计算MACD背离
     macd_divergence = locate_macd_divergence(
-        kline_data['datetime'].to_list(),
+        kline_data["datetime"].to_list(),
         kline_data.high.to_list(),
         kline_data.low.to_list(),
         kline_data.open.to_list(),
@@ -447,8 +461,8 @@ def get_data_v3(symbol, period, end_date=None):
         kline_data.bi.to_list(),
     )
 
-    macd_bullish_divergence = macd_divergence['bullish']
-    macd_bearish_divergence = macd_divergence['bearish']
+    macd_bullish_divergence = macd_divergence["bullish"]
+    macd_bearish_divergence = macd_divergence["bearish"]
 
     resp = {
         "symbol": symbol,
@@ -474,8 +488,8 @@ def get_data_v3(symbol, period, end_date=None):
         "macd_bearish_divergence": macd_bearish_divergence,
     }
 
-    resp['notLower'] = calcNotLower(kline_data.duan.to_list(), kline_data.low.to_list())
-    resp['notHigher'] = calcNotHigher(
+    resp["notLower"] = calcNotLower(kline_data.duan.to_list(), kline_data.low.to_list())
+    resp["notHigher"] = calcNotHigher(
         kline_data.duan.to_list(), kline_data.high.to_list()
     )
 

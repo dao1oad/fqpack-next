@@ -38,13 +38,15 @@ def _to_xt_symbol(code_prefixed: str) -> str:
 
 
 def _load_subscription_codes(*, mode: str, max_symbols: int) -> list[str]:
-    codes = {
-        normalize_prefixed_code(code).lower()
-        for code in (load_monitor_codes(mode=mode, max_symbols=max_symbols) or [])
-        if code
-    }
-    codes.discard("")
-    return sorted(codes)
+    codes: list[str] = []
+    seen: set[str] = set()
+    for raw_code in load_monitor_codes(mode=mode, max_symbols=max_symbols) or []:
+        code = normalize_prefixed_code(raw_code).lower()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        codes.append(code)
+    return codes
 
 
 def resolve_producer_runtime_config(

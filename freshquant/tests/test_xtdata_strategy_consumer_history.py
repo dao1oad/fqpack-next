@@ -274,7 +274,7 @@ def test_handle_bar_close_stores_stock_realtime_as_raw_bar(monkeypatch):
     consumer._adj_factor_cache = {}
     consumer._heartbeat_state = sc.ConsumerHeartbeatState(window_s=300.0)
     consumer._scheduler = DummyScheduler()
-    consumer._model_ids_for = lambda _period: []
+    consumer._model_ids_for = lambda _code, _period: []
     consumer._maybe_trigger_backfill = lambda **_kwargs: False
 
     consumer.handle_bar_close(

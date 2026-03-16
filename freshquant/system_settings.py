@@ -7,6 +7,8 @@ import base62
 from bson import ObjectId
 from pydash import get
 
+from freshquant.market_data.xtdata.pools import normalize_xtdata_mode
+
 DEFAULT_NOTIFICATION = {
     "webhook": {
         "dingtalk": {
@@ -136,7 +138,7 @@ class SystemSettings:
             ),
         )
         self.monitor = MonitorSettings(
-            xtdata_mode=str(get(monitor_doc, "xtdata.mode", "guardian_1m")),
+            xtdata_mode=normalize_xtdata_mode(get(monitor_doc, "xtdata.mode")),
             xtdata_max_symbols=int(get(monitor_doc, "xtdata.max_symbols", 60) or 60),
             xtdata_queue_backlog_threshold=int(
                 get(monitor_doc, "xtdata.queue_backlog_threshold", 500) or 500

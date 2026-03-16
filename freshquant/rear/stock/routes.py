@@ -44,6 +44,29 @@ except Exception:  # pragma: no cover
 
 stock_bp = Blueprint("stock", __name__, url_prefix="/api")
 
+MAX_STOCK_DATA_BAR_COUNT = 20000
+SERIES_TAIL_FIELDS = (
+    "date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount",
+    "_bi_signal_list",
+)
+POINT_SERIES_FIELDS = (
+    "bidata",
+    "duandata",
+    "higherDuanData",
+    "higherHigherDuanData",
+)
+STRUCTURE_SERIES_FIELDS = (
+    ("zsdata", "zsflag"),
+    ("duan_zsdata", "duan_zsflag"),
+    ("higher_duan_zsdata", "higher_duan_zsflag"),
+)
+
 
 def _get_stock_service():
     return import_module("freshquant.stock_service")
@@ -107,11 +130,85 @@ def _get_realtime_stock_data_from_cache(symbol, period, end_date):
     return payload if isinstance(payload, dict) else None
 
 
+def _parse_bar_count(raw):
+    try:
+        value = int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
+    return min(max(value, 0), MAX_STOCK_DATA_BAR_COUNT)
+
+
+def _tail_stock_data_payload(payload, bar_count):
+    if not isinstance(payload, dict) or bar_count <= 0:
+        return payload
+
+    date_list = payload.get("date")
+    if not isinstance(date_list, list) or len(date_list) <= bar_count:
+        return payload
+
+    cutoff = str(date_list[-bar_count])
+    result = dict(payload)
+
+    for field in SERIES_TAIL_FIELDS:
+        values = payload.get(field)
+        if isinstance(values, list) and len(values) == len(date_list):
+            result[field] = values[-bar_count:]
+
+    for field in POINT_SERIES_FIELDS:
+        values = payload.get(field)
+        if not isinstance(values, dict):
+            continue
+        series_dates = values.get("date")
+        series_data = values.get("data")
+        if not isinstance(series_dates, list) or not isinstance(series_data, list):
+            continue
+        keep_indexes = [
+            index for index, value in enumerate(series_dates) if str(value) >= cutoff
+        ]
+        result[field] = {
+            **values,
+            "date": [series_dates[index] for index in keep_indexes],
+            "data": [
+                series_data[index] for index in keep_indexes if index < len(series_data)
+            ],
+        }
+
+    for field, flag_field in STRUCTURE_SERIES_FIELDS:
+        values = payload.get(field)
+        flags = payload.get(flag_field)
+        if not isinstance(values, list):
+            continue
+        kept_values = []
+        kept_flags = []
+        for index, item in enumerate(values):
+            if (
+                not isinstance(item, list)
+                or len(item) < 2
+                or not isinstance(item[1], list)
+                or not item[1]
+            ):
+                kept_values.append(item)
+                if isinstance(flags, list) and index < len(flags):
+                    kept_flags.append(flags[index])
+                continue
+            end_value = str(item[1][0])
+            if end_value >= cutoff:
+                kept_values.append(item)
+                if isinstance(flags, list) and index < len(flags):
+                    kept_flags.append(flags[index])
+        result[field] = kept_values
+        if isinstance(flags, list):
+            result[flag_field] = kept_flags
+
+    return result
+
+
 @stock_bp.route("/stock_data")
 def stock_data():
     period = request.args.get("period")
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
+    bar_count = _parse_bar_count(request.args.get("barCount"))
     use_realtime_cache = request.args.get("realtimeCache", "").lower() in {
         "1",
         "true",
@@ -120,8 +217,9 @@ def stock_data():
     result = None
     if use_realtime_cache:
         result = _get_realtime_stock_data_from_cache(symbol, period, end_date)
+        result = _tail_stock_data_payload(result, bar_count)
     if result is None:
-        result = get_data_v2(symbol, period, end_date)
+        result = get_data_v2(symbol, period, end_date, bar_count=bar_count)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
 
 

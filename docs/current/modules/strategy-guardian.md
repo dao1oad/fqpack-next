@@ -53,7 +53,10 @@ Guardian 自身不维护订单账本，但依赖以下状态：
 ## 配置
 
 - `monitor.xtdata.mode`
-  - 事件模式必须是 `guardian_1m`
+  - 事件模式必须启用 Guardian 能力
+  - 正式值：
+    - `guardian_1m`
+    - `guardian_and_clx_15_30`
 - `monitor.xtdata.max_symbols`
 - buy grid 初始金额与层级配置
 - Redis 冷却键
@@ -109,7 +112,7 @@ python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
 ### 有信号但完全不触发
 
 - 检查是否跑在 `--mode event`
-- 检查 `monitor.xtdata.mode=guardian_1m`
+- 检查 `monitor.xtdata.mode` 是否是 `guardian_1m` 或 `guardian_and_clx_15_30`
 
 ### BUY_LONG 信号没有下单
 

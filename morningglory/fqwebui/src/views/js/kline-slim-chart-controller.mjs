@@ -1,9 +1,16 @@
-import { buildKlineSlimChartOption } from './kline-slim-chart-renderer.mjs'
+import {
+  buildKlineSlimChartOption,
+  buildKlineSlimCrosshairGraphics,
+  resolveKlineSlimGridRect,
+  resolveKlineSlimCrosshairFromPixel
+} from './kline-slim-chart-renderer.mjs'
 
 const DEFAULT_X_RANGE = {
   start: 70,
   end: 100
 }
+const WHEEL_ZOOM_IN_FACTOR = 0.85
+const MIN_WHEEL_ZOOM_SPAN = 2
 
 function clampRangeValue(value, fallback) {
   const number = Number(value)
@@ -35,6 +42,36 @@ function readXRangeFromDataZoomEvent(event, fallbackViewport = createKlineSlimVi
     start: source.start ?? fallbackViewport.xRange.start,
     end: source.end ?? fallbackViewport.xRange.end
   })
+}
+
+function buildWheelZoomXRange({ currentRange, cursorRatio, zoomDirection } = {}) {
+  const normalizedRange = normalizeXRange(currentRange)
+  const rangeSpan = Math.max(1, normalizedRange.end - normalizedRange.start)
+  const clampedCursorRatio = clampRangeValue(cursorRatio, 0.5) / 100
+  const factor =
+    zoomDirection > 0 ? WHEEL_ZOOM_IN_FACTOR : 1 / WHEEL_ZOOM_IN_FACTOR
+  const nextSpan = Math.max(
+    MIN_WHEEL_ZOOM_SPAN,
+    Math.min(100, rangeSpan * factor)
+  )
+  if (Math.abs(nextSpan - rangeSpan) < 0.001) {
+    return normalizedRange
+  }
+
+  const center = normalizedRange.start + rangeSpan * clampedCursorRatio
+  let start = center - nextSpan * clampedCursorRatio
+  let end = center + nextSpan * (1 - clampedCursorRatio)
+
+  if (start < 0) {
+    end = Math.min(100, end - start)
+    start = 0
+  }
+  if (end > 100) {
+    start = Math.max(0, start - (end - 100))
+    end = 100
+  }
+
+  return normalizeXRange({ start, end })
 }
 
 function pickVisibleWindow(scene, xRange) {
@@ -135,7 +172,30 @@ export function createKlineSlimChartController({
 } = {}) {
   let viewport = createKlineSlimViewportState()
   let currentScene = null
+  let crosshair = null
   let applyingViewport = false
+
+  const applyCrosshairOverlay = () => {
+    if (!chart || applyingViewport) {
+      return
+    }
+    chart.setOption(
+      {
+        graphic: buildKlineSlimCrosshairGraphics({
+          chart,
+          scene: currentScene,
+          viewport,
+          crosshair
+        })
+      },
+      {
+        notMerge: false,
+        replaceMerge: ['graphic'],
+        silent: true,
+        lazyUpdate: true
+      }
+    )
+  }
 
   const syncViewport = (event = null) => {
     if (!chart || !currentScene || applyingViewport) {
@@ -156,9 +216,9 @@ export function createKlineSlimChartController({
     })
 
     applyingViewport = true
-    chart.setOption(buildKlineSlimChartOption({ scene: currentScene, viewport }), {
+    chart.setOption(buildKlineSlimChartOption({ chart, scene: currentScene, viewport, crosshair }), {
       notMerge: false,
-      replaceMerge: ['series', 'xAxis', 'yAxis', 'dataZoom']
+      replaceMerge: ['series', 'xAxis', 'yAxis', 'dataZoom', 'graphic']
     })
     applyingViewport = false
     onViewportChange?.(viewport)
@@ -172,11 +232,107 @@ export function createKlineSlimChartController({
     syncViewport(event)
   }
 
+  const handleMouseWheel = (event) => {
+    if (!chart || !currentScene || applyingViewport) {
+      return
+    }
+
+    const pixel = [
+      Number(event?.offsetX ?? event?.zrX ?? event?.event?.zrX ?? event?.event?.offsetX),
+      Number(event?.offsetY ?? event?.zrY ?? event?.event?.zrY ?? event?.event?.offsetY)
+    ]
+    if (pixel.some((value) => !Number.isFinite(value))) {
+      return
+    }
+
+    const gridRect = resolveKlineSlimGridRect(chart)
+    if (
+      !gridRect ||
+      pixel[0] < gridRect.x ||
+      pixel[0] > gridRect.x + gridRect.width ||
+      pixel[1] < gridRect.y ||
+      pixel[1] > gridRect.y + gridRect.height
+    ) {
+      return
+    }
+
+    const wheelDelta = Number(
+      event?.wheelDelta ??
+        event?.zrDelta ??
+        event?.event?.wheelDelta ??
+        (Number(event?.event?.deltaY) ? -Number(event?.event?.deltaY) : 0)
+    )
+    if (!Number.isFinite(wheelDelta) || wheelDelta === 0) {
+      return
+    }
+
+    const cursorRatio = ((pixel[0] - gridRect.x) / Math.max(1, gridRect.width)) * 100
+    const nextRange = buildWheelZoomXRange({
+      currentRange: viewport.xRange,
+      cursorRatio,
+      zoomDirection: wheelDelta
+    })
+    if (
+      Math.abs(nextRange.start - viewport.xRange.start) < 0.001 &&
+      Math.abs(nextRange.end - viewport.xRange.end) < 0.001
+    ) {
+      return
+    }
+
+    event?.event?.preventDefault?.()
+    event?.event?.stopPropagation?.()
+    chart.dispatchAction({
+      type: 'dataZoom',
+      dataZoomId: 'kline-slim-inside-zoom',
+      start: nextRange.start,
+      end: nextRange.end
+    })
+  }
+
+  const handleMouseMove = (event) => {
+    const pixel = [
+      Number(event?.offsetX ?? event?.zrX ?? event?.event?.zrX ?? event?.event?.offsetX),
+      Number(event?.offsetY ?? event?.zrY ?? event?.event?.zrY ?? event?.event?.offsetY)
+    ]
+
+    if (!chart || !currentScene || applyingViewport) {
+      return
+    }
+    if (pixel.some((value) => !Number.isFinite(value))) {
+      return
+    }
+
+    const gridRect = resolveKlineSlimGridRect(chart)
+    const containPixel =
+      !!gridRect &&
+      pixel[0] >= gridRect.x &&
+      pixel[0] <= gridRect.x + gridRect.width &&
+      pixel[1] >= gridRect.y &&
+      pixel[1] <= gridRect.y + gridRect.height
+    if (!containPixel) {
+      return
+    }
+
+    const resolvedCrosshair = resolveKlineSlimCrosshairFromPixel({
+      chart,
+      scene: currentScene,
+      viewport,
+      pixel
+    })
+    if (!resolvedCrosshair) {
+      return
+    }
+    crosshair = resolvedCrosshair
+    applyCrosshairOverlay()
+  }
+
   if (chart) {
     chart.on('legendselectchanged', handleLegendSelectChanged)
     chart.on('legendselected', handleLegendSelectChanged)
     chart.on('legendunselected', handleLegendSelectChanged)
     chart.on('datazoom', handleDataZoom)
+    chart.getZr?.().on('mousemove', handleMouseMove)
+    chart.getZr?.().on('mousewheel', handleMouseWheel)
   }
 
   return {
@@ -185,14 +341,19 @@ export function createKlineSlimChartController({
         return
       }
 
+      const shouldResetCrosshair =
+        resetViewport || !currentScene || currentScene.sceneScopeId !== scene.sceneScopeId
       currentScene = scene
+      if (shouldResetCrosshair) {
+        crosshair = null
+      }
       viewport = resetViewport ? createKlineSlimViewportState() : createKlineSlimViewportState(viewport)
       viewport = deriveViewportStateForScene({
         scene: currentScene,
         viewport
       })
       applyingViewport = true
-      chart.setOption(buildKlineSlimChartOption({ scene: currentScene, viewport }), {
+      chart.setOption(buildKlineSlimChartOption({ chart, scene: currentScene, viewport, crosshair }), {
         notMerge: true
       })
       applyingViewport = false
@@ -202,10 +363,17 @@ export function createKlineSlimChartController({
     clear() {
       currentScene = null
       viewport = createKlineSlimViewportState()
+      crosshair = null
       chart?.clear?.()
+    },
+    syncCrosshair() {
+      applyCrosshairOverlay()
     },
     getViewport() {
       return viewport
+    },
+    getCrosshair() {
+      return crosshair
     },
     dispose() {
       if (!chart) {
@@ -215,6 +383,8 @@ export function createKlineSlimChartController({
       chart.off('legendselected', handleLegendSelectChanged)
       chart.off('legendunselected', handleLegendSelectChanged)
       chart.off('datazoom', handleDataZoom)
+      chart.getZr?.().off('mousemove', handleMouseMove)
+      chart.getZr?.().off('mousewheel', handleMouseWheel)
     }
   }
 }

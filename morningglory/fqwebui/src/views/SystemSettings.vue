@@ -1,5 +1,5 @@
 <template>
-  <div class="system-settings-page">
+  <div class="system-settings-page system-settings-shell">
     <MyHeader />
     <div class="settings-shell" v-loading="loading">
       <section class="settings-hero">
@@ -38,13 +38,13 @@
           <span class="section-pill">Source: Bootstrap File</span>
         </div>
         <div class="settings-grid">
-          <article class="panel-card panel-card--editor">
-            <div class="panel-head">
+          <section class="settings-editor-pane">
+            <div class="settings-panel-head">
               <div>
                 <h3>编辑 Bootstrap 配置</h3>
                 <p>保存后会直接覆盖 Bootstrap 文件，建议按模块重启相关服务。</p>
               </div>
-              <span class="panel-badge">需重启</span>
+              <span class="settings-badge">需重启</span>
             </div>
 
             <div class="form-grid">
@@ -148,29 +148,29 @@
                 保存启动配置
               </el-button>
             </div>
-          </article>
+          </section>
 
-          <div class="summary-column">
-            <article
+          <aside class="settings-side-pane">
+            <section
               v-for="section in bootstrapSections"
               :key="section.key"
-              class="panel-card"
+              class="settings-summary-block"
             >
-              <div class="panel-head">
+              <div class="settings-panel-head">
                 <div>
                   <h3>{{ section.title }}</h3>
                   <p>{{ section.description }}</p>
                 </div>
-                <span class="panel-badge">{{ section.restart_label }}</span>
+                <span class="settings-badge">{{ section.restart_label }}</span>
               </div>
-              <div class="summary-list">
-                <div v-for="item in section.items" :key="item.key" class="summary-item">
+              <div class="settings-summary-list">
+                <div v-for="item in section.items" :key="item.key" class="settings-summary-item">
                   <span>{{ item.label }}</span>
                   <strong>{{ item.value_label }}</strong>
                 </div>
               </div>
-            </article>
-          </div>
+            </section>
+          </aside>
         </div>
       </section>
 
@@ -183,13 +183,13 @@
           <span class="section-pill section-pill--soft">Source: Mongo</span>
         </div>
         <div class="settings-grid">
-          <article class="panel-card panel-card--editor">
-            <div class="panel-head">
+          <section class="settings-editor-pane">
+            <div class="settings-panel-head">
               <div>
                 <h3>编辑 Mongo 系统设置</h3>
                 <p>保存后系统会按下次轮询或刷新使用新值，适合参数调试和运行期观察。</p>
               </div>
-              <span class="panel-badge panel-badge--soft">即时生效</span>
+              <span class="settings-badge settings-badge--soft">即时生效</span>
             </div>
 
             <div class="form-grid">
@@ -211,7 +211,10 @@
                   <el-form-item label="XTData 模式">
                     <el-select v-model="settingsForm.monitor.xtdata.mode">
                       <el-option label="guardian_1m" value="guardian_1m" />
-                      <el-option label="clx_15_30" value="clx_15_30" />
+                      <el-option
+                        label="guardian_and_clx_15_30"
+                        value="guardian_and_clx_15_30"
+                      />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="最大订阅数">
@@ -316,49 +319,49 @@
                 保存系统设置
               </el-button>
             </div>
-          </article>
+          </section>
 
-          <div class="summary-column">
-            <article
+          <aside class="settings-side-pane">
+            <section
               v-for="section in settingsSections"
               :key="section.key"
-              class="panel-card"
+              class="settings-summary-block"
             >
-              <div class="panel-head">
+              <div class="settings-panel-head">
                 <div>
                   <h3>{{ section.title }}</h3>
                   <p>{{ section.description }}</p>
                 </div>
-                <span class="panel-badge panel-badge--soft">{{ section.restart_label }}</span>
+                <span class="settings-badge settings-badge--soft">{{ section.restart_label }}</span>
               </div>
-              <div class="summary-list">
-                <div v-for="item in section.items" :key="item.key" class="summary-item">
+              <div class="settings-summary-list">
+                <div v-for="item in section.items" :key="item.key" class="settings-summary-item">
                   <span>{{ item.label }}</span>
                   <strong>{{ item.value_label }}</strong>
                 </div>
               </div>
-            </article>
+            </section>
 
-            <article class="panel-card">
-              <div class="panel-head">
+            <section class="settings-summary-block">
+              <div class="settings-panel-head">
                 <div>
                   <h3>策略字典</h3>
                   <p>当前新系统依赖的策略字典真值，按 `strategies` 只读展示。</p>
                 </div>
-                <span class="panel-badge panel-badge--soft">只读</span>
+                <span class="settings-badge settings-badge--soft">只读</span>
               </div>
-              <div class="strategy-list">
-                <div v-for="strategy in strategies" :key="strategy.code" class="strategy-item">
+              <div class="settings-strategy-list">
+                <div v-for="strategy in strategies" :key="strategy.code" class="settings-strategy-item">
                   <strong>{{ strategy.code }}</strong>
                   <span>{{ strategy.name || '-' }}</span>
                   <p>{{ strategy.b62_uid || '-' }}</p>
                 </div>
-                <div v-if="strategies.length === 0" class="panel-empty">
+                <div v-if="strategies.length === 0" class="settings-list-empty">
                   暂无策略字典记录。
                 </div>
               </div>
-            </article>
-          </div>
+            </section>
+          </aside>
         </div>
       </section>
     </div>
@@ -557,86 +560,97 @@ onMounted(() => {
 
 <style lang="stylus" scoped>
 .system-settings-page
-  min-height 100vh
+  display flex
+  flex-direction column
+  height 100vh
+  height 100dvh
+  overflow hidden
   background radial-gradient(circle at top left, rgba(206, 230, 255, 0.88), rgba(248, 243, 233, 0.94) 38%, #f7fafc 72%)
 
 .settings-shell
-  padding 24px
-  display grid
-  gap 18px
+  padding 16px
+  display flex
+  flex 1 1 auto
+  flex-direction column
+  gap 16px
+  min-height 0
+  overflow hidden
 
 .settings-hero
   display flex
   justify-content space-between
   gap 16px
-  padding 24px
+  padding 16px
   border 1px solid #d6e3ee
-  border-radius 24px
-  background linear-gradient(140deg, rgba(14, 46, 73, 0.96), rgba(30, 101, 119, 0.92))
-  color #f8fbff
-  box-shadow 0 18px 40px rgba(23, 56, 86, 0.16)
+  border-radius 12px
+  background rgba(255, 255, 255, 0.92)
+  color #19324b
 
 .hero-kicker
   margin 0
   text-transform uppercase
   letter-spacing 0.14em
   font-size 12px
-  color rgba(226, 239, 251, 0.82)
+  color #6f88a1
 
 .settings-hero h1
-  margin 10px 0 0
-  font-size 34px
+  margin 8px 0 0
+  font-size 28px
 
 .hero-copy
-  margin 12px 0 0
-  max-width 760px
-  color rgba(233, 242, 250, 0.88)
-  line-height 1.65
+  margin 8px 0 0
+  max-width 880px
+  color #5b738c
+  line-height 1.6
 
 .hero-actions
-  min-width 280px
+  min-width 320px
   display flex
   flex-direction column
-  align-items flex-end
-  gap 12px
+  align-items stretch
+  gap 10px
 
 .hero-stamp
   width 100%
-  padding 16px
-  border-radius 18px
-  background rgba(255, 255, 255, 0.08)
-  border 1px solid rgba(255, 255, 255, 0.16)
+  padding 12px 14px
+  border-radius 10px
+  background #f8fbff
+  border 1px solid #dfe9f3
 
 .hero-stamp span,
 .hero-stamp em
   display block
-  color rgba(228, 239, 249, 0.78)
+  color #6f88a1
   font-size 12px
 
 .hero-stamp strong
   display block
-  margin 8px 0 4px
-  color #ffffff
-  font-size 16px
-  line-height 1.45
+  margin 6px 0 4px
+  color #1f3c58
+  font-size 14px
+  line-height 1.4
   word-break break-all
 
 .page-error
   margin-top -4px
 
 .settings-section
-  padding 20px
+  display flex
+  flex-direction column
+  gap 16px
+  padding 16px
+  flex 1 1 auto
+  min-height 0
+  overflow hidden
   border 1px solid #d9e4ee
-  border-radius 22px
-  background rgba(255, 255, 255, 0.84)
-  backdrop-filter blur(10px)
+  border-radius 12px
+  background rgba(255, 255, 255, 0.9)
 
 .section-head
   display flex
   justify-content space-between
   gap 12px
   align-items flex-start
-  margin-bottom 16px
 
 .section-head h2
   margin 0
@@ -665,33 +679,54 @@ onMounted(() => {
   display grid
   grid-template-columns minmax(0, 1.25fr) minmax(320px, 0.85fr)
   gap 16px
+  flex 1 1 auto
+  min-height 0
 
-.panel-card
+.settings-editor-pane,
+.settings-side-pane
+  display flex
+  flex-direction column
+  min-height 0
+
+.settings-editor-pane
+  padding 14px 16px
   border 1px solid #d9e5ef
-  border-radius 18px
-  padding 16px
-  background linear-gradient(180deg, #ffffff 0%, #f7fafc 100%)
-
-.panel-card--editor
+  border-radius 12px
   background linear-gradient(180deg, #ffffff 0%, #f2f8fc 100%)
+  overflow hidden
 
-.panel-head
+.settings-side-pane
+  gap 12px
+  overflow auto
+
+.settings-summary-block
+  display flex
+  flex-direction column
+  gap 10px
+  padding-top 12px
+  border-top 1px solid #e5edf5
+
+.settings-summary-block:first-child
+  padding-top 0
+  border-top 0
+
+.settings-panel-head
   display flex
   justify-content space-between
   gap 12px
   align-items flex-start
-  margin-bottom 14px
+  margin-bottom 10px
 
-.panel-head h3
+.settings-panel-head h3
   margin 0
   color #1f3a56
 
-.panel-head p
+.settings-panel-head p
   margin 6px 0 0
   color #668097
   line-height 1.5
 
-.panel-badge
+.settings-badge
   display inline-flex
   align-items center
   padding 6px 10px
@@ -701,7 +736,7 @@ onMounted(() => {
   font-size 12px
   text-align center
 
-.panel-badge--soft
+.settings-badge--soft
   background #e7f3e9
   color #2b5f3b
 
@@ -709,12 +744,16 @@ onMounted(() => {
   display grid
   grid-template-columns repeat(2, minmax(0, 1fr))
   gap 14px
+  flex 1 1 auto
+  min-height 0
+  overflow auto
+  padding-right 4px
 
 .form-section
-  padding 14px
-  border-radius 16px
+  padding 12px
+  border-radius 10px
   border 1px solid #deebf3
-  background rgba(255, 255, 255, 0.92)
+  background rgba(255, 255, 255, 0.96)
 
 .form-section h4
   margin 0 0 12px
@@ -737,50 +776,56 @@ onMounted(() => {
   color #5f7890
   line-height 1.6
 
-.summary-column
+.settings-summary-list,
+.settings-strategy-list
   display grid
-  gap 14px
+  gap 0
 
-.summary-list,
-.strategy-list
+.settings-summary-item,
+.settings-strategy-item
   display grid
   gap 10px
+  padding 8px 0
+  border-bottom 1px solid #edf2f7
 
-.summary-item,
-.strategy-item
-  padding 12px 14px
-  border-radius 14px
-  background #f7fbff
-  border 1px solid #e2ebf3
+.settings-summary-item
+  grid-template-columns 132px minmax(0, 1fr)
 
-.summary-item span,
-.strategy-item span
+.settings-strategy-item
+  grid-template-columns 96px minmax(0, 1fr)
+
+.settings-summary-item:last-child,
+.settings-strategy-item:last-child
+  border-bottom 0
+
+.settings-summary-item span,
+.settings-strategy-item span
   display block
   color #627c94
   font-size 12px
 
-.summary-item strong,
-.strategy-item strong
+.settings-summary-item strong,
+.settings-strategy-item strong
   display block
-  margin-top 8px
   color #1f3c58
-  font-size 16px
+  font-size 13px
   line-height 1.35
   word-break break-all
 
-.strategy-item p
-  margin 8px 0 0
+.settings-strategy-item p
+  grid-column 2
+  margin 4px 0 0
   color #69839b
   font-size 12px
   line-height 1.5
   word-break break-all
 
-.panel-empty
+.settings-list-empty
   min-height 80px
   display grid
   place-items center
   border 1px dashed #d4e0ea
-  border-radius 18px
+  border-radius 10px
   color #6b849b
   background #f7fafc
 
@@ -796,7 +841,7 @@ onMounted(() => {
   .settings-hero,
   .hero-actions,
   .section-head,
-  .panel-head,
+  .settings-panel-head,
   .editor-footer
     flex-direction column
     align-items stretch

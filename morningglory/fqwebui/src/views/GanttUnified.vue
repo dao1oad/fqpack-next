@@ -5,7 +5,7 @@
       <div class="gantt-tabs">
         <el-tabs v-model="activeProvider" @tab-change="handleProviderChange">
           <el-tab-pane label="选股通" name="xgb" />
-          <el-tab-pane label="韭研公式" name="jygs" />
+          <el-tab-pane label="韭研公社" name="jygs" />
         </el-tabs>
       </div>
 
