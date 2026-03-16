@@ -173,11 +173,14 @@ class SubjectManagementDashboardService:
         }
 
     def _must_pool_map(self):
-        return {
-            item["code"]: self._normalize_must_pool(item)
-            for item in list(self.database["must_pool"].find({}))
-            if _normalize_symbol(item.get("code"))
-        }
+        rows = {}
+        for item in list(self.database["must_pool"].find({})):
+            normalized = self._normalize_must_pool(item)
+            symbol = (normalized or {}).get("symbol")
+            if not symbol:
+                continue
+            rows[symbol] = normalized
+        return rows
 
     def _guardian_config_map(self):
         rows = {}

@@ -114,10 +114,23 @@ def _require_positive_float(value, field_name):
 
 
 def _require_non_negative_int(value, field_name):
-    try:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be integer")
+
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f"{field_name} must be integer")
         number = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be integer") from error
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text or not text.lstrip("+-").isdigit():
+            raise ValueError(f"{field_name} must be integer")
+        number = int(text)
+    else:
+        raise ValueError(f"{field_name} must be integer")
+
     if number < 0:
         raise ValueError(f"{field_name} must be greater than or equal to 0")
     return number

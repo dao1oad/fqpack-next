@@ -219,6 +219,58 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:40:00+08:00"
 
 
+def test_subject_management_overview_normalizes_must_pool_codes_before_grouping():
+    database = FakeDatabase(
+        {
+            "must_pool": FakeCollection(
+                [
+                    {
+                        "code": "600000.SH",
+                        "name": "浦发银行",
+                        "category": "银行",
+                        "stop_loss_price": 9.2,
+                        "initial_lot_amount": 80000,
+                        "lot_amount": 50000,
+                        "forever": True,
+                    }
+                ]
+            ),
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "BUY-1": 10.2,
+                        "BUY-2": 9.9,
+                        "BUY-3": 9.5,
+                        "enabled": True,
+                    }
+                ]
+            ),
+        }
+    )
+
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 500,
+            }
+        ],
+        pm_summary_loader=lambda: {},
+    )
+
+    rows = service.get_overview()
+
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "600000"
+    assert rows[0]["must_pool"]["symbol"] == "600000"
+    assert rows[0]["must_pool"]["stop_loss_price"] == 9.2
+
+
 def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lots_and_pm_summary():
     database = FakeDatabase(
         {
