@@ -724,12 +724,40 @@ export default {
         items: this.reasonCache[code6] || []
       })
     },
+    closePriceGuidePanel() {
+      this.showPriceGuidePanel = false
+    },
+    async togglePriceGuidePanel() {
+      if (!this.routeSymbol) {
+        return
+      }
+      if (this.showPriceGuidePanel) {
+        this.closePriceGuidePanel()
+        return
+      }
+      this.closeChanlunStructurePanel()
+      this.showPriceGuidePanel = true
+      if (!this.subjectPriceDetail && !this.subjectDetailLoading) {
+        await this.loadSubjectPriceDetail({ force: true })
+      }
+    },
     resetChanlunStructureState() {
       this.showChanlunStructurePanel = false
       this.chanlunStructureLoading = false
       this.chanlunStructureError = ''
       this.chanlunStructureRefreshError = ''
       this.chanlunStructureData = null
+    },
+    async toggleChanlunStructurePanel() {
+      if (!this.routeSymbol) {
+        return
+      }
+      if (this.showChanlunStructurePanel) {
+        this.closeChanlunStructurePanel()
+        return
+      }
+      this.closePriceGuidePanel()
+      await this.openChanlunStructurePanel()
     },
     async openChanlunStructurePanel() {
       if (!this.routeSymbol) {

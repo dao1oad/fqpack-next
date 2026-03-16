@@ -37,16 +37,23 @@
           size="small"
           :type="showPriceGuidePanel ? 'primary' : 'default'"
           :disabled="!routeSymbol"
-          @click="showPriceGuidePanel = !showPriceGuidePanel"
+          @click="togglePriceGuidePanel"
         >
           价格层级
         </el-button>
-        <el-button size="small" @click="openChanlunStructurePanel">缠论结构</el-button>
+        <el-button
+          size="small"
+          :type="showChanlunStructurePanel ? 'primary' : 'default'"
+          :disabled="!routeSymbol"
+          @click="toggleChanlunStructurePanel"
+        >
+          缠论结构
+        </el-button>
         <el-button size="small" @click="jumpToBigChart">大图</el-button>
       </div>
       <div class="toolbar-right">
         <span class="status-chip">主图 {{ currentPeriod }}</span>
-        <span class="status-chip">图例控制缠论叠加与价格横线</span>
+        <span class="status-chip">图例控制主图缠论层与额外周期叠加，并可关闭价格横线</span>
         <span class="status-chip">主图末 bar {{ lastMainBarLabel }}</span>
         <span class="status-chip" :class="{ error: lastError }">{{ statusText }}</span>
       </div>
@@ -160,8 +167,8 @@
         </section>
       </aside>
 
-      <section class="kline-slim-content" :class="{ 'has-side-panel': showPriceGuidePanel }">
-        <div v-if="showPriceGuidePanel" class="kline-slim-price-panel">
+      <section class="kline-slim-content">
+        <div v-if="showPriceGuidePanel" class="kline-slim-price-panel kline-slim-overlay-panel">
           <div class="price-panel-header">
             <div class="price-panel-header-main">
               <div class="price-panel-title-row">
@@ -178,7 +185,7 @@
               <el-button size="small" :loading="subjectDetailLoading" @click="loadSubjectPriceDetail({ force: true })">
                 刷新
               </el-button>
-              <el-button size="small" @click="showPriceGuidePanel = false">关闭</el-button>
+              <el-button size="small" @click="closePriceGuidePanel">关闭</el-button>
             </div>
           </div>
 
@@ -338,7 +345,7 @@
           </div>
         </div>
 
-        <div v-if="showChanlunStructurePanel" class="kline-slim-chanlun-panel">
+        <div v-if="showChanlunStructurePanel" class="kline-slim-chanlun-panel kline-slim-overlay-panel">
           <div class="chanlun-panel-header">
             <div class="chanlun-panel-header-main">
               <div class="chanlun-panel-title-row">
@@ -644,28 +651,24 @@ export default klineSlim
   position relative
   flex 1
 
-.kline-slim-content.has-side-panel .kline-slim-chart,
-.kline-slim-content.has-side-panel .kline-slim-empty
-  left 384px
-
-.kline-slim-content.has-side-panel .kline-slim-chanlun-panel
-  left 396px
-
-.kline-slim-price-panel
+.kline-slim-overlay-panel
   position absolute
   top 12px
   left 12px
+  z-index 9
+  overflow hidden
+  backdrop-filter blur(14px)
+  box-shadow 0 24px 48px rgba(2, 6, 23, 0.4)
+
+.kline-slim-price-panel
   bottom 12px
   width 372px
+  max-width calc(100% - 24px)
   display flex
   flex-direction column
   border 1px solid rgba(148, 163, 184, 0.24)
   border-radius 18px
   background linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(10, 14, 20, 0.96))
-  backdrop-filter blur(14px)
-  box-shadow 0 24px 48px rgba(2, 6, 23, 0.4)
-  z-index 9
-  overflow hidden
 
 .price-panel-header
   display flex
@@ -922,9 +925,6 @@ export default klineSlim
   color #94a3b8
 
 .kline-slim-chanlun-panel
-  position absolute
-  top 12px
-  left 12px
   right 12px
   max-height calc(100% - 24px)
   display flex
@@ -932,10 +932,6 @@ export default klineSlim
   border 1px solid rgba(148, 163, 184, 0.28)
   border-radius 16px
   background rgba(15, 23, 42, 0.82)
-  backdrop-filter blur(14px)
-  box-shadow 0 24px 48px rgba(2, 6, 23, 0.38)
-  z-index 8
-  overflow hidden
 
 .chanlun-panel-header
   display flex
@@ -1128,13 +1124,6 @@ export default klineSlim
   .kline-slim-body
     top 120px
 
-  .kline-slim-content.has-side-panel .kline-slim-chart,
-  .kline-slim-content.has-side-panel .kline-slim-empty
-    left 344px
-
-  .kline-slim-content.has-side-panel .kline-slim-chanlun-panel
-    left 356px
-
   .kline-slim-price-panel
     width 332px
 
@@ -1154,23 +1143,16 @@ export default klineSlim
   .kline-slim-content
     min-height 0
 
-  .kline-slim-content.has-side-panel .kline-slim-chart,
-  .kline-slim-content.has-side-panel .kline-slim-empty
-    right 0
-
-  .kline-slim-content.has-side-panel .kline-slim-chanlun-panel
-    right 8px
+  .kline-slim-overlay-panel
+    top 8px
+    left 8px
 
   .kline-slim-chanlun-panel
-    left 8px
     right 8px
-    top 8px
     max-height calc(100% - 16px)
 
   .kline-slim-price-panel
-    left 8px
     right 8px
-    top auto
     bottom 8px
     width auto
     max-height calc(100% - 16px)
