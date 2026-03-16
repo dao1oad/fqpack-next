@@ -78,6 +78,11 @@ class FixedPositionReader:
         return 300
 
 
+class AlwaysAvailableLockClient:
+    def acquire(self, *_args, **_kwargs):
+        return True
+
+
 def test_tpsl_submit_intent_emits_trace_step():
     runtime_logger = FakeRuntimeLogger()
     takeprofit_service = FakeTakeprofitService()
@@ -86,6 +91,7 @@ def test_tpsl_submit_intent_emits_trace_step():
         order_submit_service=FakeOrderSubmitService(),
         order_repository=FakeOrderRepository(),
         position_reader=FixedPositionReader(),
+        lock_client=AlwaysAvailableLockClient(),
         runtime_logger=runtime_logger,
     )
 

@@ -78,12 +78,18 @@ class FixedPositionReader:
         return self.can_use_volume
 
 
+class AlwaysAvailableLockClient:
+    def acquire(self, *_args, **_kwargs):
+        return True
+
+
 def test_submit_takeprofit_batch_calls_order_submit_service_with_batch_scope():
     submit_service = FakeOrderSubmitService()
     repo = InMemoryTpslRepository()
     service = TpslService(
         takeprofit_service=TakeprofitService(repository=repo),
         order_submit_service=submit_service,
+        lock_client=AlwaysAvailableLockClient(),
     )
 
     service.submit_takeprofit_batch(
@@ -106,6 +112,7 @@ def test_submit_stoploss_batch_calls_order_submit_service_with_batch_scope():
     service = TpslService(
         takeprofit_service=TakeprofitService(repository=repo),
         order_submit_service=submit_service,
+        lock_client=AlwaysAvailableLockClient(),
     )
 
     service.submit_stoploss_batch(
@@ -137,6 +144,7 @@ def test_submit_takeprofit_batch_persists_buy_lot_rich_trigger_event():
     service = TpslService(
         takeprofit_service=tp_service,
         order_submit_service=submit_service,
+        lock_client=AlwaysAvailableLockClient(),
     )
 
     service.submit_takeprofit_batch(
@@ -167,6 +175,7 @@ def test_submit_stoploss_batch_persists_stoploss_trigger_event():
     service = TpslService(
         takeprofit_service=TakeprofitService(repository=repo),
         order_submit_service=submit_service,
+        lock_client=AlwaysAvailableLockClient(),
     )
 
     service.submit_stoploss_batch(
