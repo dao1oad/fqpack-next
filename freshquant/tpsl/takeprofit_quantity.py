@@ -24,7 +24,10 @@ def choose_takeprofit_level(*, ask1, tiers, armed_levels):
             continue
         if not bool(raw.get("manual_enabled", True)):
             continue
-        if not bool((armed_levels or {}).get(level)):
+        armed = (armed_levels or {}).get(level)
+        if armed is None:
+            armed = (armed_levels or {}).get(str(level))
+        if not bool(armed):
             continue
         if ask_price >= tier_price:
             eligible.append(

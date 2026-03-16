@@ -40,6 +40,12 @@ LAZY_COMMANDS: dict[str, tuple[str, str, str]] = {
     "etf.list": ("freshquant.command.etf", "etf_list_command_group", "ETF 列表"),
     "etf.day": ("freshquant.command.etf", "etf_day_command_group", "ETF 日线"),
     "etf.min": ("freshquant.command.etf", "etf_min_command_group", "ETF 分钟线"),
+    "etf.xdxr": (
+        "freshquant.command.etf",
+        "etf_xdxr_command_group",
+        "ETF 除权除息/扩缩股",
+    ),
+    "etf.adj": ("freshquant.command.etf", "etf_adj_command_group", "ETF 前复权因子"),
     "index": ("freshquant.command.index", "index_command_group", "指数主命令"),
     "index.list": ("freshquant.command.index", "index_list_command_group", "指数列表"),
     "index.day": ("freshquant.command.index", "index_day_command_group", "指数日线"),

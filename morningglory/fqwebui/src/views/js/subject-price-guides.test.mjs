@@ -59,9 +59,9 @@ test('buildGuardianPriceGuides keeps blue red green order from high to low', () 
       lineStyle: row.lineStyle,
     })),
     [
-      { key: 'buy_1', price: 10.2, color: '#3b82f6', active: true, lineStyle: 'solid' },
-      { key: 'buy_2', price: 9.9, color: '#ef4444', active: false, lineStyle: 'solid' },
-      { key: 'buy_3', price: 9.5, color: '#22c55e', active: true, lineStyle: 'solid' },
+      { key: 'buy_1', price: 10.2, color: '#3b82f6', active: true, lineStyle: 'dashed' },
+      { key: 'buy_2', price: 9.9, color: '#ef4444', active: false, lineStyle: 'dashed' },
+      { key: 'buy_3', price: 9.5, color: '#22c55e', active: true, lineStyle: 'dashed' },
     ],
   )
   assert.equal(lines[0].label, 'G-B1 10.20')

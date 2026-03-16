@@ -1,5 +1,6 @@
 import json
 
+from bson import ObjectId
 from flask import Flask
 
 from freshquant.rear.tpsl.routes import tpsl_bp
@@ -116,6 +117,43 @@ def test_takeprofit_profile_route_reads_profile(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json()["symbol"] == "000001"
+
+
+def test_takeprofit_save_route_jsonifies_objectid_documents(monkeypatch):
+    class ObjectIdTpslService(FakeTpslService):
+        def save_takeprofit_profile(self, symbol, *, tiers, updated_by):
+            self.calls.append(("save_takeprofit_profile", symbol, tiers, updated_by))
+            return {
+                "_id": ObjectId("65f000000000000000000001"),
+                "symbol": symbol,
+                "tiers": list(tiers),
+                "state": {
+                    "_id": ObjectId("65f000000000000000000002"),
+                    "armed_levels": {1: True, 2: False, 3: True},
+                },
+            }
+
+    service = ObjectIdTpslService()
+    client = _build_client(monkeypatch, service)
+
+    response = client.post(
+        "/api/tpsl/takeprofit/000001",
+        data=json.dumps(
+            {
+                "tiers": [
+                    {"level": 1, "price": 10.0, "manual_enabled": True},
+                    {"level": 2, "price": 11.0, "manual_enabled": False},
+                    {"level": 3, "price": 11.5, "manual_enabled": True},
+                ]
+            }
+        ),
+        content_type="application/json",
+    )
+
+    body = response.get_json()
+    assert response.status_code == 200
+    assert body["_id"] == "65f000000000000000000001"
+    assert body["state"]["_id"] == "65f000000000000000000002"
 
 
 def test_takeprofit_tier_enable_route_updates_manual_enabled(monkeypatch):

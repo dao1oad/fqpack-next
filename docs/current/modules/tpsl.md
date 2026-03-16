@@ -45,7 +45,11 @@ TPSL 模块负责在独立 tick 链路上评估止盈和止损条件，并在条
 
 `/api/tpsl/history -> TpslManagementService -> om_exit_trigger_events + om_order_requests + om_orders + om_order_events + om_trade_facts`
 
+`/api/tpsl/takeprofit/<symbol>` 读写与 tier enable/disable/rearm 响应在返回前也会把 Mongo `ObjectId`、日期时间对象归一成 JSON-safe 值，避免保存后因为原始文档字段导致 500。
+
 `/api/tpsl/management/<symbol>` 与 `/api/tpsl/history` 在返回前会把 Mongo `ObjectId`、日期时间对象归一成 JSON-safe 值，避免管理页详情/历史响应因为底层文档原始字段而序列化失败。
+
+`om_takeprofit_states.armed_levels` 在 Mongo 中按 string key 持久化（例如 `"1": true`），服务层对外仍按 level map 归一读取，避免首次补 state 或 rearm 时因为整型 key 被 Mongo 拒绝。
 
 ## 存储
 
