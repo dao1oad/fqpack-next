@@ -73,7 +73,9 @@ class SingleSymbolPositionService:
         return self.save_symbol_snapshot(snapshot)
 
     def refresh_all_from_positions(self):
-        symbols = sorted(set(self._xt_position_map()) | set(self._projected_position_map()))
+        symbols = sorted(
+            set(self._xt_position_map()) | set(self._projected_position_map())
+        )
         rows = []
         for symbol in symbols:
             snapshot = self.resolve_symbol_snapshot(symbol, None)
@@ -94,7 +96,9 @@ class SingleSymbolPositionService:
         normalized_symbols = None
         if symbols is not None:
             normalized_symbols = [
-                _normalize_symbol(item) for item in list(symbols) if _normalize_symbol(item)
+                _normalize_symbol(item)
+                for item in list(symbols)
+                if _normalize_symbol(item)
             ]
         return self.repository.list_symbol_snapshots(normalized_symbols)
 

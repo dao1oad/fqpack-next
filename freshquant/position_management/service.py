@@ -204,7 +204,11 @@ class PositionManagementService:
         return allowed, reason_code, reason_text, meta
 
     def _resolve_single_symbol_position_limit(self):
-        config = self.repository.get_config() if hasattr(self.repository, "get_config") else {}
+        config = (
+            self.repository.get_config()
+            if hasattr(self.repository, "get_config")
+            else {}
+        )
         thresholds = (config or {}).get("thresholds", {}) or {}
         return (
             _safe_float_or_none(thresholds.get("single_symbol_position_limit"))

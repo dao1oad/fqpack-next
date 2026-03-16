@@ -11,7 +11,7 @@ class PositionManagementRepository:
     symbol_snapshot_collection_name = "pm_symbol_position_snapshots"
 
     def __init__(self, database=None):
-        self.database = database or DBPositionManagement
+        self.database = database if database is not None else DBPositionManagement
 
     @property
     def configs(self):
@@ -107,7 +107,9 @@ class PositionManagementRepository:
         query = {}
         if symbols:
             query["symbol"] = {
-                "$in": [str(item).strip() for item in list(symbols) if str(item).strip()]
+                "$in": [
+                    str(item).strip() for item in list(symbols) if str(item).strip()
+                ]
             }
         cursor = self.symbol_position_snapshots.find(query).sort([("symbol", 1)])
         return list(cursor)
