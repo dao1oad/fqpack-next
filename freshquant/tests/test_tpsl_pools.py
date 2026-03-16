@@ -1,3 +1,5 @@
+import pytest
+
 from freshquant.tpsl import pools
 
 
@@ -52,3 +54,32 @@ def test_load_active_tpsl_codes_only_returns_held_and_configured_symbols(monkeyp
     )
 
     assert pools.load_active_tpsl_codes() == ["sz000001", "sz000002"]
+
+
+def test_load_active_tpsl_codes_raises_when_position_volume_is_invalid(monkeypatch):
+    monkeypatch.setattr(
+        pools,
+        "DBfreshquant",
+        FakeDb(
+            {
+                "xt_positions": FakeCollection(
+                    [
+                        {"stock_code": "000001.SZ", "volume": "bad"},
+                    ]
+                )
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        pools,
+        "DBOrderManagement",
+        FakeDb(
+            {
+                "om_stoploss_bindings": FakeCollection([]),
+                "om_takeprofit_profiles": FakeCollection([]),
+            }
+        ),
+    )
+
+    with pytest.raises(ValueError, match="xt_positions volume"):
+        pools.load_active_tpsl_codes()

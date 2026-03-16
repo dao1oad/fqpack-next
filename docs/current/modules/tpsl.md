@@ -70,7 +70,7 @@ TPSL 还会读取：
 
 - takeprofit profile tiers
 - rearm / enable / disable 状态
-- cooldown lock（Redis 或内存 fallback）
+- cooldown lock（未配置 Redis 时使用进程内 fallback；Redis 已配置但写锁失败时直接报错）
 - Redis host/port/db
 
 当前可通过 API：
@@ -111,12 +111,14 @@ python -m freshquant.tpsl.tick_listener
 - 检查 worker 是否在跑
 - 检查 active universe 是否包含目标股票
 - 检查 Redis tick 队列是否真的有目标 code
+- 检查 `xt_positions.volume` 是否存在非数字脏值；当前不会再静默按 0 处理
 
 ### 命中止盈但没有生成退出单
 
 - 检查 profile 是否 enabled
 - 检查 cooldown 是否仍在
 - 检查 `xt_positions` 可卖数量
+- 检查 `xt_positions.can_use_volume / volume` 是否存在非数字脏值；当前会直接报错，不再静默按 0 阻断
 
 ### 管理页历史里只有 trigger，看不到后续订单或成交
 

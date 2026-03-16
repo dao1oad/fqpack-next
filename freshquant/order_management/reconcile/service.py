@@ -493,15 +493,19 @@ def _build_inferred_trade_report(candidate, internal_order_id):
 def _safe_resolve_lot_amount(symbol):
     try:
         return _resolve_lot_amount(symbol)
-    except Exception:
-        return 3000
+    except Exception as exc:
+        raise RuntimeError(
+            f"lot amount unavailable for external reconcile: {symbol}"
+        ) from exc
 
 
 def _safe_grid_interval_lookup(symbol, trade_fact):
     try:
         return _default_grid_interval_lookup(symbol, trade_fact)
-    except Exception:
-        return 1.03
+    except Exception as exc:
+        raise RuntimeError(
+            f"grid interval unavailable for external reconcile: {symbol}"
+        ) from exc
 
 
 _runtime_logger = None

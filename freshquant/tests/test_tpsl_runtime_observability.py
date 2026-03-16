@@ -1,3 +1,5 @@
+import pytest
+
 from freshquant.tpsl.consumer import TpslTickConsumer
 from freshquant.tpsl.service import TpslService
 
@@ -152,3 +154,30 @@ def test_tpsl_tick_consumer_emits_tick_match_before_service_submit():
 
     assert runtime_logger.events[0]["node"] == "tick_match"
     assert service.calls == [("takeprofit", "000001")]
+
+
+def test_tpsl_tick_consumer_emits_error_when_universe_refresh_fails():
+    runtime_logger = FakeRuntimeLogger()
+    consumer = TpslTickConsumer(
+        service=object(),
+        universe_loader=lambda: (_ for _ in ()).throw(
+            RuntimeError("xt_positions invalid")
+        ),
+        refresh_interval_s=999,
+        runtime_logger=runtime_logger,
+    )
+
+    with pytest.raises(RuntimeError, match="xt_positions invalid"):
+        consumer.handle_tick(
+            {
+                "code": "sz000001",
+                "ask1": 10.8,
+                "bid1": 9.2,
+                "lastPrice": 10.0,
+                "time": 1710000000,
+            }
+        )
+
+    assert runtime_logger.events[-1]["node"] == "tick_match"
+    assert runtime_logger.events[-1]["status"] == "error"
+    assert runtime_logger.events[-1]["payload"]["error_type"] == "RuntimeError"

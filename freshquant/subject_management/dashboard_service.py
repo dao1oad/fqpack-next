@@ -26,7 +26,7 @@ class SubjectManagementDashboardService:
         self.database = database
         self.tpsl_repository = tpsl_repository or TpslRepository()
         self.order_repository = order_repository or OrderManagementRepository()
-        self.position_loader = position_loader or (lambda: [])
+        self.position_loader = position_loader or _default_position_loader
         self.pm_summary_loader = pm_summary_loader or _default_pm_summary_loader
 
     def get_overview(self):
@@ -376,6 +376,12 @@ def _default_pm_summary_loader():
         "allow_open_min_bail": thresholds.get("allow_open_min_bail"),
         "holding_only_min_bail": thresholds.get("holding_only_min_bail"),
     }
+
+
+def _default_position_loader():
+    from freshquant.data.astock.holding import get_stock_positions
+
+    return get_stock_positions()
 
 
 def _json_safe_payload(value):

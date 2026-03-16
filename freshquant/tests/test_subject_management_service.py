@@ -433,3 +433,36 @@ def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
     assert "_id" not in detail["takeprofit"]["state"]
     assert "_id" not in detail["buy_lots"][0]
     assert "_id" not in detail["buy_lots"][0]["stoploss"]
+
+
+def test_subject_management_uses_default_position_loader_when_not_injected(monkeypatch):
+    import freshquant.subject_management.dashboard_service as dashboard_service_module
+
+    monkeypatch.setattr(
+        dashboard_service_module,
+        "_default_position_loader",
+        lambda: [
+            {
+                "symbol": "002262.SZ",
+                "name": "恩华药业",
+                "quantity": 500,
+                "amount": 12345.0,
+            }
+        ],
+        raising=False,
+    )
+
+    service = dashboard_service_module.SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        pm_summary_loader=lambda: {},
+    )
+
+    rows = service.get_overview()
+    detail = service.get_detail("002262")
+
+    assert rows[0]["symbol"] == "002262"
+    assert rows[0]["runtime"]["position_quantity"] == 500
+    assert detail["runtime_summary"]["position_quantity"] == 500
+    assert detail["runtime_summary"]["position_amount"] == 12345.0

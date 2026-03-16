@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 
+from loguru import logger
+
 from freshquant.position_management.credit_client import PositionCreditClient
 from freshquant.position_management.models import (
     ALLOW_OPEN,
@@ -29,7 +31,7 @@ class PositionSnapshotService:
 
     def refresh_once(self):
         try:
-            detail = self._query_credit_detail()
+            detail = _normalize_credit_detail(self._query_credit_detail())
             queried_at = self._now_isoformat()
             available_bail_balance = _safe_float(detail.get("m_dEnableBailBalance"))
             snapshot = {
@@ -44,7 +46,7 @@ class PositionSnapshotService:
                 "market_value": _safe_float(detail.get("m_dMarketValue")),
                 "total_debt": _safe_float(detail.get("m_dTotalDebt")),
                 "source": "xtquant",
-                "raw": detail,
+                "raw": dict(detail),
             }
             self.repository.insert_snapshot(snapshot)
 
@@ -60,6 +62,7 @@ class PositionSnapshotService:
             self.repository.upsert_current_state(current_state)
             return current_state
         except Exception:
+            logger.exception("position management snapshot refresh failed")
             current_state = self.repository.get_current_state()
             if current_state is not None:
                 fallback_state = dict(current_state)
@@ -112,3 +115,23 @@ def _safe_float(value, default=0.0):
         return float(value)
     except (TypeError, ValueError):
         return float(default)
+
+
+def _normalize_credit_detail(detail):
+    if detail is None:
+        return {}
+    if isinstance(detail, dict):
+        return dict(detail)
+
+    normalized = {}
+    for name in dir(detail):
+        if not name.startswith("m_"):
+            continue
+        try:
+            value = getattr(detail, name)
+        except Exception:
+            continue
+        if callable(value):
+            continue
+        normalized[name] = value
+    return normalized

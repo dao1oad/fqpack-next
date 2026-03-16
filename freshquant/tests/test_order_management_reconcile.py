@@ -1,3 +1,5 @@
+import pytest
+
 import freshquant.order_management.ingest.xt_reports as xt_reports_module
 import freshquant.order_management.reconcile.service as reconcile_service_module
 from freshquant.order_management.guardian.arranger import (
@@ -184,6 +186,18 @@ def _build_service(monkeypatch=None, *, marks=None, mark_label="updated"):
             monkeypatch,
             marks=marks,
             mark_label=mark_label,
+        )
+        monkeypatch.setattr(
+            reconcile_service_module,
+            "_safe_resolve_lot_amount",
+            lambda _symbol: 3000,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            reconcile_service_module,
+            "_safe_grid_interval_lookup",
+            lambda _symbol, _trade_fact: 1.03,
+            raising=False,
         )
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)
@@ -419,3 +433,71 @@ def test_partial_trade_shrinks_pending_candidate_before_confirm(monkeypatch):
         "external_reported",
         "external_inferred",
     ]
+
+
+def test_reconcile_trade_reports_raises_when_lot_amount_resolution_fails(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_internal_lot_amount_error",
+        }
+    )
+    tracking_service.mark_order_queued("ord_internal_lot_amount_error")
+    tracking_service.ingest_order_report(
+        {
+            "internal_order_id": "ord_internal_lot_amount_error",
+            "state": "SUBMITTING",
+            "event_type": "submit_started",
+            "broker_order_id": None,
+        }
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_resolve_lot_amount",
+        lambda _symbol: (_ for _ in ()).throw(RuntimeError("lot amount unavailable")),
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="lot amount unavailable"):
+        service.reconcile_trade_reports(
+            [
+                {
+                    "order_id": 90004,
+                    "traded_id": "T90004",
+                    "stock_code": "000001.SZ",
+                    "order_type": 23,
+                    "traded_volume": 200,
+                    "traded_price": 10.5,
+                    "traded_time": 1_030,
+                }
+            ]
+        )
+
+
+def test_confirm_expired_candidates_raises_when_grid_interval_resolution_fails(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
+    service.detect_external_candidates(
+        positions=[
+            {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
+        ],
+        detected_at=1_000,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_grid_interval_lookup",
+        lambda _symbol, _trade_fact: (_ for _ in ()).throw(
+            RuntimeError("grid interval unavailable")
+        ),
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="grid interval unavailable"):
+        service.confirm_expired_candidates(now=1_121)

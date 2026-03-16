@@ -1,4 +1,10 @@
+import sys
+import types
+
+import pytest
+
 from freshquant.carnation import xtconstant
+from freshquant.order_management.submit import execution_bridge
 from freshquant.order_management.submit.execution_bridge import (
     dispatch_cancel_execution,
     finalize_submit_execution,
@@ -281,3 +287,153 @@ def test_prepare_submit_execution_resolves_credit_sell_order_before_submit():
     assert result["order_message"]["price"] == 9.92
     assert order["broker_order_type"] == xtconstant.CREDIT_SELL_SECU_REPAY
     assert order["broker_price_type"] == xtconstant.MARKET_SH_CONVERT_5_CANCEL
+
+
+def test_default_credit_detail_loader_accepts_credit_detail_object(monkeypatch):
+    detail = types.SimpleNamespace(m_dAvailable=10001, m_dFinDebt=1)
+    fake_module = types.ModuleType("freshquant.position_management.credit_client")
+
+    class FakeClient:
+        def query_credit_detail(self):
+            return detail
+
+    fake_module.PositionCreditClient = FakeClient
+    monkeypatch.setitem(
+        sys.modules,
+        "freshquant.position_management.credit_client",
+        fake_module,
+    )
+
+    assert execution_bridge._default_credit_detail_loader() is detail
+
+
+def test_prepare_submit_execution_rejects_credit_auto_sell_when_credit_detail_missing():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "600000",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "api",
+            "internal_order_id": "ord_runtime_sell_missing_credit_detail",
+            "account_type": "CREDIT",
+            "credit_trade_mode": "auto",
+            "price_mode": "auto",
+        }
+    )
+    repository.update_order(
+        "ord_runtime_sell_missing_credit_detail",
+        {
+            "state": "QUEUED",
+            "account_type": "CREDIT",
+            "credit_trade_mode_requested": "auto",
+            "price_mode_requested": "auto",
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="credit detail"):
+        prepare_submit_execution(
+            {
+                "internal_order_id": "ord_runtime_sell_missing_credit_detail",
+                "action": "sell",
+                "symbol": "600000",
+                "price": 10.0,
+                "quantity": 100,
+            },
+            repository=repository,
+            tracking_service=tracking_service,
+            credit_detail_loader=lambda: None,
+            continuous_auction_provider=lambda: True,
+        )
+
+
+def test_prepare_submit_execution_rejects_credit_auto_price_when_auction_state_missing():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "600000",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "api",
+            "internal_order_id": "ord_runtime_sell_missing_auction_state",
+            "account_type": "CREDIT",
+            "credit_trade_mode": "auto",
+            "price_mode": "auto",
+        }
+    )
+    repository.update_order(
+        "ord_runtime_sell_missing_auction_state",
+        {
+            "state": "QUEUED",
+            "account_type": "CREDIT",
+            "credit_trade_mode_requested": "auto",
+            "price_mode_requested": "auto",
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="continuous auction"):
+        prepare_submit_execution(
+            {
+                "internal_order_id": "ord_runtime_sell_missing_auction_state",
+                "action": "sell",
+                "symbol": "600000",
+                "price": 10.0,
+                "quantity": 100,
+            },
+            repository=repository,
+            tracking_service=tracking_service,
+            credit_detail_loader=lambda: {"m_dAvailable": 10001, "m_dFinDebt": 1},
+            continuous_auction_provider=lambda: (_ for _ in ()).throw(
+                RuntimeError("clock unavailable")
+            ),
+        )
+
+
+def test_prepare_submit_execution_skips_auction_probe_for_explicit_limit_price():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "600000",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "api",
+            "internal_order_id": "ord_runtime_sell_limit_price",
+            "account_type": "CREDIT",
+            "credit_trade_mode": "auto",
+            "price_mode": "limit",
+        }
+    )
+    repository.update_order(
+        "ord_runtime_sell_limit_price",
+        {
+            "state": "QUEUED",
+            "account_type": "CREDIT",
+            "credit_trade_mode_requested": "auto",
+            "price_mode_requested": "limit",
+        },
+    )
+
+    result = prepare_submit_execution(
+        {
+            "internal_order_id": "ord_runtime_sell_limit_price",
+            "action": "sell",
+            "symbol": "600000",
+            "price": 10.0,
+            "quantity": 100,
+        },
+        repository=repository,
+        tracking_service=tracking_service,
+        credit_detail_loader=lambda: {"m_dAvailable": 10001, "m_dFinDebt": 1},
+        continuous_auction_provider=lambda: (_ for _ in ()).throw(
+            AssertionError("continuous_auction_provider should not be called")
+        ),
+    )
+
+    assert result["status"] == "execute"
+    assert result["order_message"]["broker_price_type"] == xtconstant.FIX_PRICE

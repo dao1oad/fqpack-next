@@ -1,4 +1,6 @@
-from freshquant.tpsl.service import TpslService
+import pytest
+
+from freshquant.tpsl.service import TpslService, _CooldownLockClient, _PositionReader
 from freshquant.tpsl.takeprofit_service import TakeprofitService
 
 
@@ -224,3 +226,53 @@ def test_evaluate_takeprofit_blocks_when_sellable_volume_is_zero():
 
     assert batch["status"] == "blocked"
     assert batch["blocked_reason"] == "can_use_volume"
+
+
+class FakeCollection:
+    def __init__(self, rows):
+        self.rows = list(rows)
+
+    def find(self, *_args, **_kwargs):
+        return list(self.rows)
+
+
+class FakeDb(dict):
+    def __getitem__(self, name):
+        return dict.__getitem__(self, name)
+
+
+def test_position_reader_raises_when_sellable_volume_fields_are_invalid():
+    database = FakeDb(
+        {
+            "xt_positions": FakeCollection(
+                [
+                    {
+                        "stock_code": "000001.SZ",
+                        "can_use_volume": "bad",
+                        "volume": 300,
+                    }
+                ]
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="xt_positions can_use_volume"):
+        _PositionReader(database).get_can_use_volume("000001")
+
+
+def test_cooldown_lock_client_raises_when_redis_lock_write_fails():
+    class FailingRedis:
+        def set(self, *_args, **_kwargs):
+            raise RuntimeError("redis unavailable")
+
+    with pytest.raises(RuntimeError, match="cooldown redis lock failed"):
+        _CooldownLockClient(FailingRedis()).acquire(
+            "tpsl:cooldown:000001", ttl_seconds=3
+        )
+
+
+def test_cooldown_lock_client_uses_memory_backend_when_redis_not_configured():
+    client = _CooldownLockClient(None)
+
+    assert client.acquire("tpsl:cooldown:000001", ttl_seconds=3) is True
+    assert client.acquire("tpsl:cooldown:000001", ttl_seconds=3) is False

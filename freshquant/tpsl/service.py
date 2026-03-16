@@ -506,8 +506,8 @@ class _CooldownLockClient:
         if self.redis_client is not None:
             try:
                 return bool(self.redis_client.set(key, "1", ex=ttl, nx=True))
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError("tpsl cooldown redis lock failed") from exc
 
         now = time.time()
         expired_at = float(self._memory.get(key) or 0.0)
@@ -536,13 +536,19 @@ class _PositionReader:
             raw = doc.get("stock_code") or doc.get("code") or doc.get("symbol") or ""
             if _normalize_symbol(raw) != base_symbol:
                 continue
-            try:
-                return max(
-                    int(doc.get("can_use_volume") or 0),
-                    int(doc.get("volume") or 0),
-                )
-            except Exception:
-                return 0
+            can_use_volume = _parse_non_negative_int(
+                doc.get("can_use_volume"),
+                field_name="xt_positions can_use_volume",
+                symbol=raw,
+                default=0,
+            )
+            volume = _parse_non_negative_int(
+                doc.get("volume"),
+                field_name="xt_positions volume",
+                symbol=raw,
+                default=0,
+            )
+            return max(can_use_volume, volume)
         return 0
 
 
@@ -600,6 +606,20 @@ def _build_buy_lot_details(buy_lot_quantities):
             }
         )
     return details
+
+
+def _parse_non_negative_int(value, *, field_name, symbol, default):
+    if value in (None, ""):
+        return int(default)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{field_name} invalid for {symbol or '-'}: {value!r}"
+        ) from exc
+    if parsed < 0:
+        raise ValueError(f"{field_name} invalid for {symbol or '-'}: {value!r}")
+    return parsed
 
 
 _runtime_logger = None

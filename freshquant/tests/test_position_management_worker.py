@@ -54,6 +54,24 @@ class FailingCreditClient:
         raise TimeoutError("timeout")
 
 
+class CreditDetailObject:
+    def __init__(self):
+        self.m_dEnableBailBalance = 865432.12
+        self.m_dAvailable = 102345.67
+        self.m_dFetchBalance = 92345.67
+        self.m_dBalance = 1432100.0
+        self.m_dMarketValue = 1210000.0
+        self.m_dTotalDebt = 530000.0
+
+
+class SuccessfulObjectCreditClient:
+    account_id = "1208970161"
+    account_type = "CREDIT"
+
+    def query_credit_detail(self):
+        return [CreditDetailObject()]
+
+
 class FakeTrader:
     def __init__(self):
         self.started = False
@@ -119,6 +137,29 @@ def test_refresh_uses_current_state_when_query_fails():
     assert repository.snapshots == []
 
 
+def test_refresh_accepts_object_style_credit_detail_and_serializes_raw_payload():
+    repository = FakeRepository()
+    service = PositionSnapshotService(
+        repository=repository,
+        credit_client=SuccessfulObjectCreditClient(),
+    )
+
+    result = service.refresh_once()
+
+    assert result["state"] == ALLOW_OPEN
+    assert result["data_source"] == "xtquant"
+    assert repository.snapshots[-1]["available_bail_balance"] == 865432.12
+    assert repository.snapshots[-1]["raw"] == {
+        "m_dEnableBailBalance": 865432.12,
+        "m_dAvailable": 102345.67,
+        "m_dFetchBalance": 92345.67,
+        "m_dBalance": 1432100.0,
+        "m_dMarketValue": 1210000.0,
+        "m_dTotalDebt": 530000.0,
+    }
+    assert repository.current_state_doc["available_bail_balance"] == 865432.12
+
+
 def test_refresh_defaults_to_holding_only_when_query_fails_without_state():
     repository = FakeRepository()
     service = PositionSnapshotService(
@@ -130,6 +171,28 @@ def test_refresh_defaults_to_holding_only_when_query_fails_without_state():
 
     assert result["state"] == HOLDING_ONLY
     assert result["data_source"] == "default_fallback"
+
+
+def test_refresh_logs_exception_before_returning_fallback(monkeypatch):
+    import freshquant.position_management.snapshot_service as snapshot_service_module
+
+    seen = []
+
+    class FakeLogger:
+        def exception(self, message):
+            seen.append(message)
+
+    monkeypatch.setattr(snapshot_service_module, "logger", FakeLogger(), raising=False)
+
+    service = PositionSnapshotService(
+        repository=FakeRepository(),
+        credit_client=FailingCreditClient(),
+    )
+
+    result = service.refresh_once()
+
+    assert result["data_source"] == "default_fallback"
+    assert seen == ["position management snapshot refresh failed"]
 
 
 def test_credit_client_rejects_non_credit_account_type():
