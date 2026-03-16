@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bson import ObjectId
+
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.tpsl.repository import TpslRepository
 from freshquant.util.code import normalize_to_base_code
@@ -148,29 +150,31 @@ class SubjectManagementDashboardService:
         )
         pm_summary = dict(self.pm_summary_loader() or {})
 
-        return {
-            "subject": {
-                "symbol": normalized_symbol,
-                "name": (
-                    position.get("name")
-                    or (must_pool or {}).get("name")
-                    or str(((takeprofit_profile or {}).get("name") or "")).strip()
-                ),
-                "category": (must_pool or {}).get("category"),
-            },
-            "must_pool": must_pool,
-            "guardian_buy_grid_config": guardian_config,
-            "guardian_buy_grid_state": guardian_state,
-            "takeprofit": takeprofit,
-            "buy_lots": buy_lots,
-            "runtime_summary": {
-                "position_quantity": int(position.get("quantity") or 0),
-                "position_amount": _safe_float(position.get("amount")),
-                "last_trigger_time": latest_event.get("created_at"),
-                "last_trigger_kind": latest_event.get("kind"),
-            },
-            "position_management_summary": pm_summary,
-        }
+        return _json_safe_payload(
+            {
+                "subject": {
+                    "symbol": normalized_symbol,
+                    "name": (
+                        position.get("name")
+                        or (must_pool or {}).get("name")
+                        or str(((takeprofit_profile or {}).get("name") or "")).strip()
+                    ),
+                    "category": (must_pool or {}).get("category"),
+                },
+                "must_pool": must_pool,
+                "guardian_buy_grid_config": guardian_config,
+                "guardian_buy_grid_state": guardian_state,
+                "takeprofit": takeprofit,
+                "buy_lots": buy_lots,
+                "runtime_summary": {
+                    "position_quantity": int(position.get("quantity") or 0),
+                    "position_amount": _safe_float(position.get("amount")),
+                    "last_trigger_time": latest_event.get("created_at"),
+                    "last_trigger_kind": latest_event.get("kind"),
+                },
+                "position_management_summary": pm_summary,
+            }
+        )
 
     def _must_pool_map(self):
         rows = {}
@@ -372,3 +376,17 @@ def _default_pm_summary_loader():
         "allow_open_min_bail": thresholds.get("allow_open_min_bail"),
         "holding_only_min_bail": thresholds.get("holding_only_min_bail"),
     }
+
+
+def _json_safe_payload(value):
+    if isinstance(value, dict):
+        return {
+            key: _json_safe_payload(item) for key, item in value.items() if key != "_id"
+        }
+    if isinstance(value, list):
+        return [_json_safe_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe_payload(item) for item in value]
+    if isinstance(value, ObjectId):
+        return str(value)
+    return value

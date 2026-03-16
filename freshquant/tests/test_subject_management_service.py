@@ -1,3 +1,7 @@
+import json
+
+from bson import ObjectId
+
 from freshquant.subject_management.dashboard_service import (
     SubjectManagementDashboardService,
 )
@@ -380,3 +384,52 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lot
     assert detail["buy_lots"][0]["stoploss"]["stop_price"] == 9.2
     assert detail["runtime_summary"]["position_quantity"] == 500
     assert detail["position_management_summary"]["effective_state"] == "HOLDING_ONLY"
+
+
+def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
+    database = FakeDatabase()
+    tpsl_repository = InMemoryTpslRepository()
+    tpsl_repository.states["002262"] = {
+        "_id": ObjectId(),
+        "symbol": "002262",
+        "armed_levels": {1: True},
+    }
+    order_repository = InMemoryOrderManagementRepository()
+    order_repository.buy_lots.extend(
+        [
+            {
+                "_id": ObjectId(),
+                "buy_lot_id": "lot_1",
+                "symbol": "002262",
+                "date": 20260316,
+                "time": "10:31:00",
+                "remaining_quantity": 200,
+            }
+        ]
+    )
+    order_repository.stoploss_bindings.extend(
+        [
+            {
+                "_id": ObjectId(),
+                "buy_lot_id": "lot_1",
+                "symbol": "002262",
+                "stop_price": 18.6,
+                "enabled": True,
+            }
+        ]
+    )
+
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=tpsl_repository,
+        order_repository=order_repository,
+        position_loader=lambda: [],
+        pm_summary_loader=lambda: {},
+    )
+
+    detail = service.get_detail("002262")
+
+    json.dumps(detail)
+    assert "_id" not in detail["takeprofit"]["state"]
+    assert "_id" not in detail["buy_lots"][0]
+    assert "_id" not in detail["buy_lots"][0]["stoploss"]
