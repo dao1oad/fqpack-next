@@ -17,7 +17,9 @@ class TakeprofitService:
         current_profile = (
             self.repository.find_takeprofit_profile(normalized_symbol) or {}
         )
-        current_state = self.repository.find_takeprofit_state(normalized_symbol)
+        current_state = _normalize_state_document(
+            self.repository.find_takeprofit_state(normalized_symbol)
+        )
         normalized_tiers = _normalize_tiers(tiers)
         now = _now()
 
@@ -42,7 +44,9 @@ class TakeprofitService:
 
     def get_state(self, symbol):
         normalized_symbol = _normalize_symbol(symbol)
-        state = self.repository.find_takeprofit_state(normalized_symbol)
+        state = _normalize_state_document(
+            self.repository.find_takeprofit_state(normalized_symbol)
+        )
         if state is None:
             profile = self.repository.find_takeprofit_profile(normalized_symbol)
             if profile is None:
@@ -82,7 +86,7 @@ class TakeprofitService:
             raise ValueError("takeprofit profile not found")
         state = self.get_state(normalized_symbol)
 
-        armed_levels = dict(state.get("armed_levels") or {})
+        armed_levels = _normalize_armed_levels(state.get("armed_levels") or {})
         for tier in profile.get("tiers") or []:
             tier_level = int(tier["level"])
             if tier_level <= int(level):
@@ -99,7 +103,9 @@ class TakeprofitService:
             "updated_by": updated_by,
             "version": int(state.get("version") or 0) + 1,
         }
-        saved_state = self.repository.upsert_takeprofit_state(updated_state)
+        saved_state = self.repository.upsert_takeprofit_state(
+            _serialize_state_document(updated_state)
+        )
         self.repository.insert_exit_trigger_event(
             {
                 "event_id": new_event_id(),
@@ -120,7 +126,7 @@ class TakeprofitService:
                 "created_at": _now(),
             }
         )
-        return saved_state
+        return _normalize_state_document(saved_state)
 
     def rearm_all_levels(self, symbol, *, updated_by="system", reason="manual"):
         normalized_symbol = _normalize_symbol(symbol)
@@ -142,7 +148,10 @@ class TakeprofitService:
             "updated_by": updated_by,
             "version": int(state.get("version") or 0) + 1,
         }
-        return self.repository.upsert_takeprofit_state(updated_state)
+        saved_state = self.repository.upsert_takeprofit_state(
+            _serialize_state_document(updated_state)
+        )
+        return _normalize_state_document(saved_state)
 
     def set_tier_manual_enabled(self, symbol, *, level, enabled, updated_by="system"):
         detail = self.get_profile_with_state(symbol)
@@ -160,7 +169,7 @@ class TakeprofitService:
 
         profile = self.save_profile(symbol, tiers=tiers, updated_by=updated_by)
         state = self.get_state(symbol)
-        armed_levels = dict(state.get("armed_levels") or {})
+        armed_levels = _normalize_armed_levels(state.get("armed_levels") or {})
         armed_levels[target_level] = bool(enabled)
         updated_state = {
             **state,
@@ -170,15 +179,17 @@ class TakeprofitService:
             "updated_by": updated_by,
             "version": int(state.get("version") or 0) + 1,
         }
-        saved_state = self.repository.upsert_takeprofit_state(updated_state)
+        saved_state = self.repository.upsert_takeprofit_state(
+            _serialize_state_document(updated_state)
+        )
         return {
             **profile,
-            "state": saved_state,
+            "state": _normalize_state_document(saved_state),
         }
 
     def _ensure_state(self, symbol, *, tiers, current_state, updated_by):
         if current_state is not None:
-            return current_state
+            return _normalize_state_document(current_state)
 
         now = _now()
         state = {
@@ -190,7 +201,10 @@ class TakeprofitService:
             "updated_at": now,
             "updated_by": updated_by,
         }
-        return self.repository.upsert_takeprofit_state(state)
+        saved_state = self.repository.upsert_takeprofit_state(
+            _serialize_state_document(state)
+        )
+        return _normalize_state_document(saved_state)
 
 
 def _normalize_tiers(tiers):
@@ -205,6 +219,36 @@ def _normalize_tiers(tiers):
             }
         )
     return sorted(items, key=lambda item: item["level"])
+
+
+def _normalize_armed_levels(armed_levels):
+    normalized = {}
+    for raw_level, raw_enabled in dict(armed_levels or {}).items():
+        try:
+            level = int(raw_level)
+        except (TypeError, ValueError):
+            continue
+        normalized[level] = bool(raw_enabled)
+    return normalized
+
+
+def _serialize_state_document(document):
+    state = dict(document or {})
+    state["armed_levels"] = {
+        str(level): enabled
+        for level, enabled in _normalize_armed_levels(
+            state.get("armed_levels") or {}
+        ).items()
+    }
+    return state
+
+
+def _normalize_state_document(document):
+    if document is None:
+        return None
+    state = dict(document)
+    state["armed_levels"] = _normalize_armed_levels(state.get("armed_levels") or {})
+    return state
 
 
 def _normalize_symbol(symbol):

@@ -57,3 +57,17 @@ def test_takeprofit_level_skips_disabled_or_disarmed_tiers():
     )
 
     assert result["level"] == 1
+
+
+def test_takeprofit_level_accepts_string_key_armed_levels():
+    result = choose_takeprofit_level(
+        ask1=11.8,
+        tiers=[
+            {"level": 1, "price": 10.0, "manual_enabled": True},
+            {"level": 2, "price": 11.0, "manual_enabled": True},
+            {"level": 3, "price": 11.5, "manual_enabled": True},
+        ],
+        armed_levels={"1": True, "2": False, "3": True},
+    )
+
+    assert result["level"] == 3

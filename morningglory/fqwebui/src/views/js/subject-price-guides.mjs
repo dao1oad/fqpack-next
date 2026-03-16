@@ -106,7 +106,7 @@ export const buildGuardianPriceGuides = (config = {}, state = {}) => {
         color: item.color,
         label: `G-${item.shortLabel} ${formatGuidePrice(price)}`,
         active: Boolean(normalizedConfig.enabled) && normalizedState.buy_active[index] !== false,
-        lineStyle: 'solid',
+        lineStyle: 'dashed',
       }
     })
     .filter(Boolean)
