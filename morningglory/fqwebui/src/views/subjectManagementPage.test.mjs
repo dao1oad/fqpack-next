@@ -65,13 +65,14 @@ const makeOverviewRows = () => buildOverviewRows([
   },
 ])
 
-const makeDetail = (symbol = '600000') => buildDetailViewModel({
+const makeDetail = (symbol = '600000', overrides = {}) => buildDetailViewModel({
   subject: {
     symbol,
     name: symbol === '600000' ? '浦发银行' : '平安银行',
     category: '银行',
   },
   must_pool: {
+    category: '银行',
     stop_loss_price: symbol === '600000' ? 9.2 : 8.8,
     initial_lot_amount: symbol === '600000' ? 80000 : 60000,
     lot_amount: symbol === '600000' ? 50000 : 40000,
@@ -117,6 +118,7 @@ const makeDetail = (symbol = '600000') => buildDetailViewModel({
     allow_open_min_bail: 800000,
     holding_only_min_bail: 100000,
   },
+  ...overrides,
 })
 
 test('page controller loads overview first, then detail, switches rows and refreshes after must-pool save', async () => {
@@ -179,4 +181,190 @@ test('page controller loads overview first, then detail, switches rows and refre
     ['loadOverview'],
   ])
   assert.deepEqual(messages, [['success', '基础设置已保存']])
+})
+
+test('page controller saves dense config table via must-pool and guardian apis with one refresh cycle', async () => {
+  const calls = []
+  const messages = []
+  const actions = {
+    async loadOverview() {
+      calls.push(['loadOverview'])
+      return makeOverviewRows()
+    },
+    async loadSubjectDetail(symbol) {
+      calls.push(['loadSubjectDetail', symbol])
+      return makeDetail(symbol)
+    },
+    async saveMustPool(symbol, payload) {
+      calls.push(['saveMustPool', symbol, payload.category, payload.stop_loss_price])
+      return { symbol, ...payload }
+    },
+    async saveGuardianBuyGrid(symbol, payload) {
+      calls.push(['saveGuardianBuyGrid', symbol, payload.enabled, payload.buy_1])
+      return { symbol, ...payload }
+    },
+    async saveTakeprofit(symbol, tiers) {
+      calls.push(['saveTakeprofit', symbol, tiers.length])
+      return { symbol, tiers }
+    },
+    async saveStoploss(buyLotId, payload) {
+      calls.push(['saveStoploss', buyLotId, payload.stop_price, payload.enabled])
+      return { buyLotId, ...payload }
+    },
+  }
+
+  const controller = createSubjectManagementPageController({
+    actions,
+    notify: {
+      success(message) {
+        messages.push(['success', message])
+      },
+    },
+  })
+
+  await controller.refreshOverview()
+  controller.state.mustPoolDraft.category = '核心银行'
+  controller.state.mustPoolDraft.stop_loss_price = 9.1
+  controller.state.guardianDraft.enabled = false
+  controller.state.guardianDraft.buy_1 = 10.1
+
+  await controller.handleSaveConfigBundle()
+
+  assert.deepEqual(calls, [
+    ['loadOverview'],
+    ['loadSubjectDetail', '600000'],
+    ['saveMustPool', '600000', '核心银行', 9.1],
+    ['saveGuardianBuyGrid', '600000', false, 10.1],
+    ['loadSubjectDetail', '600000'],
+    ['loadOverview'],
+  ])
+  assert.deepEqual(messages, [['success', '基础与 Guardian 已保存']])
+})
+
+test('page controller uses must-pool category draft instead of subject category fallback', async () => {
+  const actions = {
+    async loadOverview() {
+      return makeOverviewRows()
+    },
+    async loadSubjectDetail(symbol) {
+      return makeDetail(symbol, {
+        subject: {
+          symbol,
+          name: '浦发银行',
+          category: '银行',
+        },
+        must_pool: {
+          category: '守护池',
+          stop_loss_price: 9.2,
+          initial_lot_amount: 80000,
+          lot_amount: 50000,
+          forever: true,
+        },
+      })
+    },
+    async saveMustPool() {
+      throw new Error('should not save')
+    },
+    async saveGuardianBuyGrid() {
+      throw new Error('should not save')
+    },
+    async saveTakeprofit() {
+      throw new Error('should not save')
+    },
+    async saveStoploss() {
+      throw new Error('should not save')
+    },
+  }
+
+  const controller = createSubjectManagementPageController({ actions, notify: {} })
+
+  await controller.refreshOverview()
+
+  assert.equal(controller.state.detail.category, '银行')
+  assert.equal(controller.state.detail.mustPool.category, '守护池')
+  assert.equal(controller.state.mustPoolDraft.category, '守护池')
+})
+
+test('page controller reloads persisted state and warns when guardian save fails after must-pool save', async () => {
+  const calls = []
+  const messages = []
+  let detailVersion = 'initial'
+  const actions = {
+    async loadOverview() {
+      calls.push(['loadOverview'])
+      return makeOverviewRows()
+    },
+    async loadSubjectDetail(symbol) {
+      calls.push(['loadSubjectDetail', symbol, detailVersion])
+      return detailVersion === 'initial'
+        ? makeDetail(symbol, {
+          must_pool: {
+            category: '银行',
+            stop_loss_price: 9.2,
+            initial_lot_amount: 80000,
+            lot_amount: 50000,
+            forever: true,
+          },
+        })
+        : makeDetail(symbol, {
+          must_pool: {
+            category: '核心银行',
+            stop_loss_price: 9.1,
+            initial_lot_amount: 80000,
+            lot_amount: 50000,
+            forever: true,
+          },
+        })
+    },
+    async saveMustPool(symbol, payload) {
+      calls.push(['saveMustPool', symbol, payload.category, payload.stop_loss_price])
+      detailVersion = 'must-pool-saved'
+      return { symbol, ...payload }
+    },
+    async saveGuardianBuyGrid(symbol, payload) {
+      calls.push(['saveGuardianBuyGrid', symbol, payload.enabled, payload.buy_1])
+      throw new Error('guardian failed')
+    },
+    async saveTakeprofit() {
+      throw new Error('should not save')
+    },
+    async saveStoploss() {
+      throw new Error('should not save')
+    },
+  }
+
+  const controller = createSubjectManagementPageController({
+    actions,
+    notify: {
+      success(message) {
+        messages.push(['success', message])
+      },
+      warning(message) {
+        messages.push(['warning', message])
+      },
+    },
+  })
+
+  await controller.refreshOverview()
+  controller.state.mustPoolDraft.category = '核心银行'
+  controller.state.mustPoolDraft.stop_loss_price = 9.1
+  controller.state.guardianDraft.enabled = false
+  controller.state.guardianDraft.buy_1 = 10.1
+
+  await controller.handleSaveConfigBundle()
+
+  assert.equal(controller.state.mustPoolDraft.category, '核心银行')
+  assert.equal(controller.state.mustPoolDraft.stop_loss_price, 9.1)
+  assert.equal(controller.state.guardianDraft.enabled, false)
+  assert.equal(controller.state.guardianDraft.buy_1, 10.1)
+  assert.equal(controller.state.pageError, 'guardian failed')
+  assert.deepEqual(messages, [['warning', '基础设置已保存，Guardian 保存失败']])
+  assert.deepEqual(calls, [
+    ['loadOverview'],
+    ['loadSubjectDetail', '600000', 'initial'],
+    ['saveMustPool', '600000', '核心银行', 9.1],
+    ['saveGuardianBuyGrid', '600000', false, 10.1],
+    ['loadSubjectDetail', '600000', 'must-pool-saved'],
+    ['loadOverview'],
+  ])
 })

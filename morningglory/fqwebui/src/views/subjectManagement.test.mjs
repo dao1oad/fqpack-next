@@ -1,8 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 
 import {
   buildDetailViewModel,
+  buildDetailSummaryChips,
+  buildDenseConfigRows,
   buildOverviewRows,
   buildTakeprofitDrafts,
   createSubjectManagementActions,
@@ -116,6 +119,111 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.equal(detail.positionManagementSummary.effective_state, 'HOLDING_ONLY')
 })
 
+test('buildDenseConfigRows flattens must-pool and guardian fields into one dense editor table', () => {
+  const detail = buildDetailViewModel({
+    subject: {
+      symbol: '600000',
+      name: '浦发银行',
+      category: '银行',
+    },
+    must_pool: {
+      category: '银行',
+      stop_loss_price: 9.2,
+      initial_lot_amount: 80000,
+      lot_amount: 50000,
+      forever: true,
+    },
+    guardian_buy_grid_config: {
+      enabled: true,
+      buy_1: 10.2,
+      buy_2: 9.9,
+      buy_3: 9.5,
+    },
+    guardian_buy_grid_state: {
+      buy_active: [true, false, true],
+      last_hit_level: 'BUY-2',
+      last_hit_price: 9.88,
+      last_hit_signal_time: '2026-03-16T10:40:00+08:00',
+    },
+  })
+
+  const rows = buildDenseConfigRows(detail)
+
+  assert.deepEqual(
+    rows.map((row) => row.key),
+    ['category', 'stop_loss_price', 'initial_lot_amount', 'lot_amount', 'forever', 'guardian_enabled', 'buy_1', 'buy_2', 'buy_3'],
+  )
+  assert.equal(rows[0].currentLabel, '银行')
+  assert.equal(rows[1].group, '基础')
+  assert.equal(rows[5].group, 'Guardian')
+  assert.equal(rows[6].statusLabel, '当前 B1:开')
+  assert.equal(rows[7].statusLabel, '当前 B2:关')
+  assert.equal(rows[8].note.includes('BUY-2'), true)
+})
+
+test('buildDenseConfigRows keeps category row bound to must-pool category instead of subject category', () => {
+  const detail = buildDetailViewModel({
+    subject: {
+      symbol: '600000',
+      name: '浦发银行',
+      category: '银行',
+    },
+    must_pool: {
+      category: '守护池',
+    },
+  })
+
+  const rows = buildDenseConfigRows(detail)
+
+  assert.equal(detail.category, '银行')
+  assert.equal(detail.mustPool.category, '守护池')
+  assert.equal(rows[0].currentLabel, '守护池')
+})
+
+test('buildDetailSummaryChips compresses subject, runtime and pm state into header chips', () => {
+  const detail = buildDetailViewModel({
+    subject: {
+      symbol: '600000',
+      name: '浦发银行',
+      category: '银行',
+    },
+    must_pool: {
+      forever: true,
+    },
+    guardian_buy_grid_config: {
+      enabled: true,
+    },
+    takeprofit: {
+      tiers: [
+        { level: 1, price: 10.8, enabled: true },
+        { level: 2, price: 11.2, enabled: false },
+      ],
+      state: { armed_levels: { 1: true } },
+    },
+    buy_lots: [
+      { buy_lot_id: 'lot-1', stoploss: { enabled: true } },
+      { buy_lot_id: 'lot-2', stoploss: { enabled: false } },
+    ],
+    runtime_summary: {
+      position_quantity: 500,
+    },
+    position_management_summary: {
+      effective_state: 'HOLDING_ONLY',
+    },
+  })
+
+  const chips = buildDetailSummaryChips(detail)
+
+  assert.deepEqual(
+    chips.map((chip) => chip.key),
+    ['category', 'must_pool', 'position_quantity', 'guardian_enabled', 'takeprofit_enabled_count', 'stoploss_active_count', 'pm_state'],
+  )
+  assert.equal(chips[1].value, '永久跟踪')
+  assert.equal(chips[2].value, '500 股')
+  assert.equal(chips[4].value, '1 / 3')
+  assert.equal(chips[5].value, '1 / 2')
+})
+
 test('buildTakeprofitDrafts preserves existing tiers beyond level 3 while keeping first three visible', () => {
   const rows = buildTakeprofitDrafts([
     { level: 2, price: 10.8, enabled: false },
@@ -197,4 +305,15 @@ test('createSubjectManagementActions calls subject, guardian, takeprofit and sto
     ['saveTakeprofitProfile', '600000', 1],
     ['bindStoploss', 'lot_1', 9.2, true],
   ])
+})
+
+test('SubjectManagement view uses dense table editor layout instead of form blocks', () => {
+  const source = fs.readFileSync(new URL('./SubjectManagement.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /subject-editor-summarybar/)
+  assert.match(source, /subject-editor-table-panel/)
+  assert.match(source, /subject-editor-config-table/)
+  assert.match(source, /subject-editor-stoploss-table/)
+  assert.doesNotMatch(source, /subject-form-grid/)
+  assert.doesNotMatch(source, /subject-runtime-grid/)
 })

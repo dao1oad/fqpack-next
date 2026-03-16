@@ -11,6 +11,12 @@
 - 只读运行态与仓位门禁摘要
 
 页面采用左表右编模式：左侧高密度表格展示当前配置摘要，右侧只编辑当前选中的单个标的。
+右侧编辑区采用高密度工作台布局：
+
+- 顶部摘要条压缩展示标的、持仓、Guardian、止盈、止损与仓位门禁摘要
+- `基础配置 + Guardian` 合并为一张紧凑编辑表
+- `止盈设置` 固定三层为一张紧凑编辑表
+- `按 buy lot 止损` 继续使用一张紧凑编辑表
 
 ## 入口
 
@@ -50,11 +56,9 @@
 
 `/subject-management -> /api/subject-management/overview -> 左侧高密度摘要表`
 
-`点击标的 -> /api/subject-management/<symbol> -> 右侧基础设置 / Guardian / 止盈止损 / 只读运行态`
+`点击标的 -> /api/subject-management/<symbol> -> 右侧摘要条 + 基础配置/Guardian 表 + 止盈表 + 止损表`
 
-`保存基础设置 -> /api/subject-management/<symbol>/must-pool -> 刷新当前 detail + overview 摘要`
-
-`保存 Guardian -> /api/subject-management/<symbol>/guardian-buy-grid -> 刷新当前 detail + overview 摘要`
+`保存基础配置 + Guardian -> must-pool + guardian-buy-grid 两个写接口顺序提交 -> 刷新当前 detail + overview 摘要`
 
 `保存止盈 -> /api/tpsl/takeprofit/<symbol> -> 刷新当前 detail + overview 摘要`
 
