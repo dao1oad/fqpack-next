@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 
 from freshquant.order_management.guardian.allocation_policy import (
@@ -12,6 +13,7 @@ from freshquant.order_management.guardian.arranger import (
 from freshquant.order_management.guardian.read_model import (
     build_arranged_fill_read_model,
 )
+from freshquant.order_management.projection.stock_fills import list_arranged_fills
 
 
 def _load_cases():
@@ -136,3 +138,61 @@ def test_guardian_read_model_matches_legacy_sell_quantity_cases():
         }
         for item in arranged
     ] == case["expected_open_slices"]
+
+
+def test_build_buy_lot_from_trade_fact_backfills_date_and_time_from_trade_time():
+    trade_time = 1710000000
+    expected_dt = datetime.fromtimestamp(trade_time)
+
+    buy_lot = build_buy_lot_from_trade_fact(
+        {
+            "trade_fact_id": "trade_buy_missing_date_time",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 10.0,
+            "trade_time": trade_time,
+            "date": None,
+            "time": None,
+        }
+    )
+
+    assert buy_lot["date"] == int(expected_dt.strftime("%Y%m%d"))
+    assert buy_lot["time"] == expected_dt.strftime("%H:%M:%S")
+
+
+def test_list_arranged_fills_backfills_date_and_time_from_buy_lot_trade_time():
+    trade_time = 1710000000
+    expected_dt = datetime.fromtimestamp(trade_time)
+
+    class FakeRepository:
+        def list_open_slices(self, symbol=None):
+            return [
+                {
+                    "buy_lot_id": "lot_1",
+                    "symbol": "000001",
+                    "guardian_price": 10.93,
+                    "remaining_quantity": 200,
+                    "original_quantity": 200,
+                    "sort_key": 10.93,
+                    "status": "open",
+                    "date": None,
+                    "time": None,
+                }
+            ]
+
+        def list_buy_lots(self, symbol=None):
+            return [
+                {
+                    "buy_lot_id": "lot_1",
+                    "symbol": "000001",
+                    "trade_time": trade_time,
+                    "date": None,
+                    "time": None,
+                }
+            ]
+
+    arranged = list_arranged_fills("000001", repository=FakeRepository())
+
+    assert arranged[0]["date"] == int(expected_dt.strftime("%Y%m%d"))
+    assert arranged[0]["time"] == expected_dt.strftime("%H:%M:%S")

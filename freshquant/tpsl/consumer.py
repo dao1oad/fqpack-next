@@ -5,6 +5,11 @@ from __future__ import annotations
 import time
 
 from freshquant.market_data.xtdata.schema import TickQuoteEvent, normalize_prefixed_code
+from freshquant.runtime_observability.failures import (
+    build_exception_payload,
+    is_exception_emitted,
+    mark_exception_emitted,
+)
 from freshquant.runtime_observability.ids import new_trace_id
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.tpsl.pools import load_active_tpsl_codes
@@ -56,47 +61,62 @@ class TpslTickConsumer:
 
         symbol = normalize_to_base_code(event.code)
         trace_id = new_trace_id()
-        self._emit_runtime(
-            "tick_match",
-            symbol=symbol,
-            trace_id=trace_id,
-            payload={"code": event.code, "tick_time": event.tick_time},
-        )
-        takeprofit_batch = self.service.evaluate_takeprofit(
-            symbol=symbol,
-            code=event.code,
-            ask1=event.ask1,
-            bid1=event.bid1,
-            last_price=event.last_price,
-            tick_time=event.tick_time,
-            trace_id=trace_id,
-        )
-        if takeprofit_batch:
-            if takeprofit_batch.get("status") == "blocked":
-                return takeprofit_batch
-            return self.service.submit_takeprofit_batch(takeprofit_batch)
+        try:
+            self._emit_runtime(
+                "tick_match",
+                symbol=symbol,
+                trace_id=trace_id,
+                payload={"code": event.code, "tick_time": event.tick_time},
+            )
+            takeprofit_batch = self.service.evaluate_takeprofit(
+                symbol=symbol,
+                code=event.code,
+                ask1=event.ask1,
+                bid1=event.bid1,
+                last_price=event.last_price,
+                tick_time=event.tick_time,
+                trace_id=trace_id,
+            )
+            if takeprofit_batch:
+                if takeprofit_batch.get("status") == "blocked":
+                    return takeprofit_batch
+                return self.service.submit_takeprofit_batch(takeprofit_batch)
 
-        stoploss_batch = self.service.evaluate_stoploss(
-            symbol=symbol,
-            code=event.code,
-            bid1=event.bid1,
-            ask1=event.ask1,
-            last_price=event.last_price,
-            tick_time=event.tick_time,
-            trace_id=trace_id,
-        )
-        if stoploss_batch:
-            if stoploss_batch.get("status") == "blocked":
-                return stoploss_batch
-            return self.service.submit_stoploss_batch(stoploss_batch)
-        return None
+            stoploss_batch = self.service.evaluate_stoploss(
+                symbol=symbol,
+                code=event.code,
+                bid1=event.bid1,
+                ask1=event.ask1,
+                last_price=event.last_price,
+                tick_time=event.tick_time,
+                trace_id=trace_id,
+            )
+            if stoploss_batch:
+                if stoploss_batch.get("status") == "blocked":
+                    return stoploss_batch
+                return self.service.submit_stoploss_batch(stoploss_batch)
+            return None
+        except Exception as exc:
+            if not is_exception_emitted(exc):
+                self._emit_runtime(
+                    "tick_match",
+                    symbol=symbol,
+                    trace_id=trace_id,
+                    status="error",
+                    payload=build_exception_payload(exc),
+                )
+                mark_exception_emitted(exc)
+            raise
 
-    def _emit_runtime(self, node, *, symbol, trace_id=None, payload=None):
+    def _emit_runtime(
+        self, node, *, symbol, trace_id=None, status="info", payload=None
+    ):
         event = {
             "component": "tpsl_worker",
             "node": node,
             "trace_id": trace_id,
             "symbol": symbol,
+            "status": status,
             "payload": dict(payload or {}),
         }
         try:

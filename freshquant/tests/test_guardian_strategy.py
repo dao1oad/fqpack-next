@@ -34,6 +34,10 @@ sys.modules.setdefault(
     _module(
         "redis",
         ConnectionPool=lambda **_kwargs: object(),
+        Redis=lambda **_kwargs: types.SimpleNamespace(
+            get=lambda *_args, **_kwargs: None,
+            set=lambda *_args, **_kwargs: True,
+        ),
         StrictRedis=lambda **_kwargs: types.SimpleNamespace(
             get=lambda *_args, **_kwargs: None,
             set=lambda *_args, **_kwargs: True,

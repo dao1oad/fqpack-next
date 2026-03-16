@@ -63,6 +63,7 @@ const TRACE_KIND_LABELS = {
 const TRACE_STATUS_LABELS = {
   open: 'Open',
   completed: 'Completed',
+  failed: 'Failed',
   stalled: 'Stalled',
   broken: 'Broken',
 }

@@ -371,6 +371,52 @@ test('buildRecentTraceFeed preserves backend trace metadata for global trace vie
   assert.equal(feed[0].exit_node, 'submit_intent')
 })
 
+test('buildRecentTraceFeed exposes failed trace label for terminal exception traces', () => {
+  const feed = buildRecentTraceFeed([
+    {
+      trace_id: 'trc_failed_meta',
+      trace_key: 'trace:trc_failed_meta',
+      trace_kind: 'guardian_signal',
+      trace_status: 'failed',
+      break_reason: 'unexpected_exception@guardian_strategy.timing_check:ValueError',
+      first_ts: '2026-03-09T10:00:00+08:00',
+      last_ts: '2026-03-09T10:00:02+08:00',
+      duration_ms: 2000,
+      entry_component: 'guardian_strategy',
+      entry_node: 'receive_signal',
+      exit_component: 'guardian_strategy',
+      exit_node: 'timing_check',
+      steps: [
+        {
+          component: 'guardian_strategy',
+          node: 'receive_signal',
+          status: 'info',
+          ts: '2026-03-09T10:00:00+08:00',
+          trace_id: 'trc_failed_meta',
+          symbol: '000001',
+        },
+        {
+          component: 'guardian_strategy',
+          node: 'timing_check',
+          status: 'error',
+          reason_code: 'unexpected_exception',
+          payload: { error_type: 'ValueError', error_message: 'None None' },
+          ts: '2026-03-09T10:00:02+08:00',
+          trace_id: 'trc_failed_meta',
+          symbol: '000001',
+        },
+      ],
+    },
+  ])
+
+  assert.equal(feed[0].trace_status, 'failed')
+  assert.equal(feed[0].trace_status_label, 'Failed')
+  assert.equal(
+    feed[0].break_reason,
+    'unexpected_exception@guardian_strategy.timing_check:ValueError',
+  )
+})
+
 test('buildComponentEventFeed keeps heartbeat and bootstrap events for component event view', () => {
   const feed = buildComponentEventFeed(
     [

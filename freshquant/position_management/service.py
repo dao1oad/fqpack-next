@@ -10,6 +10,10 @@ from freshquant.position_management.models import (
 )
 from freshquant.position_management.policy import PositionPolicy
 from freshquant.position_management.repository import PositionManagementRepository
+from freshquant.runtime_observability.failures import (
+    build_exception_payload,
+    mark_exception_emitted,
+)
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.util.code import normalize_to_base_code
 
@@ -38,94 +42,113 @@ class PositionManagementService:
         holding_codes=None,
         is_profitable=False,
     ):
-        resolved_current_state = current_state or self.repository.get_current_state()
-        self._emit_runtime(
-            "state_load",
-            payload=payload,
-            extra_payload={"current_state": resolved_current_state},
-        )
-        effective_state = self.policy.effective_state(
-            resolved_current_state,
-            now_value=self.now_provider(),
-        )
-        self._emit_runtime(
-            "freshness_check",
-            payload=payload,
-            extra_payload={
-                "current_state": resolved_current_state,
-                "effective_state": effective_state,
-            },
-        )
         action = str(payload.get("action") or "").lower()
         symbol = _normalize_symbol(payload.get("symbol"))
-        current_holding_codes = holding_codes or list(self.holding_codes_provider())
-        is_holding_symbol = symbol in current_holding_codes
+        current_node = "state_load"
+        try:
+            resolved_current_state = (
+                current_state or self.repository.get_current_state()
+            )
+            self._emit_runtime(
+                "state_load",
+                payload=payload,
+                extra_payload={"current_state": resolved_current_state},
+            )
+            current_node = "freshness_check"
+            effective_state = self.policy.effective_state(
+                resolved_current_state,
+                now_value=self.now_provider(),
+            )
+            self._emit_runtime(
+                "freshness_check",
+                payload=payload,
+                extra_payload={
+                    "current_state": resolved_current_state,
+                    "effective_state": effective_state,
+                },
+            )
+            current_holding_codes = holding_codes or list(self.holding_codes_provider())
+            is_holding_symbol = symbol in current_holding_codes
 
-        allowed, reason_code, reason_text = _evaluate_action(
-            state=effective_state,
-            action=action,
-            is_holding_symbol=is_holding_symbol,
-        )
-        self._emit_runtime(
-            "policy_eval",
-            payload=payload,
-            action=action,
-            symbol=symbol,
-            reason_code=reason_code,
-            extra_payload={
-                "effective_state": effective_state,
+            current_node = "policy_eval"
+            allowed, reason_code, reason_text = _evaluate_action(
+                state=effective_state,
+                action=action,
+                is_holding_symbol=is_holding_symbol,
+            )
+            self._emit_runtime(
+                "policy_eval",
+                payload=payload,
+                action=action,
+                symbol=symbol,
+                reason_code=reason_code,
+                extra_payload={
+                    "effective_state": effective_state,
+                    "is_holding_symbol": is_holding_symbol,
+                    "allowed": allowed,
+                },
+            )
+            meta = {
                 "is_holding_symbol": is_holding_symbol,
-                "allowed": allowed,
-            },
-        )
-        meta = {
-            "is_holding_symbol": is_holding_symbol,
-            "evaluated_at": self.now_provider().isoformat(),
-        }
-        if (
-            allowed
-            and action == "sell"
-            and effective_state == FORCE_PROFIT_REDUCE
-            and is_profitable
-            and _is_guardian_strategy(payload.get("strategy_name"))
-        ):
-            meta["force_profit_reduce"] = True
-            meta["profit_reduce_mode"] = "guardian_placeholder"
-        decision_id = _build_decision_id()
-        decision_document = {
-            "decision_id": decision_id,
-            "strategy_name": payload.get("strategy_name"),
-            "action": action,
-            "symbol": symbol,
-            "is_holding_symbol": is_holding_symbol,
-            "state": effective_state,
-            "allowed": allowed,
-            "reason_code": reason_code,
-            "reason_text": reason_text,
-            "evaluated_at": meta["evaluated_at"],
-            "meta": meta,
-        }
-        self.repository.insert_decision(decision_document)
-        self._emit_runtime(
-            "decision_record",
-            payload=payload,
-            action=action,
-            symbol=symbol,
-            reason_code=reason_code,
-            extra_payload={
+                "evaluated_at": self.now_provider().isoformat(),
+            }
+            if (
+                allowed
+                and action == "sell"
+                and effective_state == FORCE_PROFIT_REDUCE
+                and is_profitable
+                and _is_guardian_strategy(payload.get("strategy_name"))
+            ):
+                meta["force_profit_reduce"] = True
+                meta["profit_reduce_mode"] = "guardian_placeholder"
+            decision_id = _build_decision_id()
+            decision_document = {
                 "decision_id": decision_id,
+                "strategy_name": payload.get("strategy_name"),
+                "action": action,
+                "symbol": symbol,
+                "is_holding_symbol": is_holding_symbol,
+                "state": effective_state,
                 "allowed": allowed,
+                "reason_code": reason_code,
+                "reason_text": reason_text,
+                "evaluated_at": meta["evaluated_at"],
                 "meta": meta,
-            },
-        )
-        return PositionDecision(
-            allowed=allowed,
-            state=effective_state,
-            reason_code=reason_code,
-            reason_text=reason_text,
-            decision_id=decision_id,
-            meta=meta,
-        )
+            }
+            self.repository.insert_decision(decision_document)
+            current_node = "decision_record"
+            self._emit_runtime(
+                "decision_record",
+                payload=payload,
+                action=action,
+                symbol=symbol,
+                reason_code=reason_code,
+                extra_payload={
+                    "decision_id": decision_id,
+                    "allowed": allowed,
+                    "meta": meta,
+                },
+            )
+            return PositionDecision(
+                allowed=allowed,
+                state=effective_state,
+                reason_code=reason_code,
+                reason_text=reason_text,
+                decision_id=decision_id,
+                meta=meta,
+            )
+        except Exception as exc:
+            self._emit_runtime(
+                current_node,
+                payload=payload,
+                action=action,
+                symbol=symbol,
+                reason_code="unexpected_exception",
+                status="error",
+                extra_payload=build_exception_payload(exc),
+            )
+            mark_exception_emitted(exc)
+            raise
 
     def _emit_runtime(
         self,
@@ -135,6 +158,7 @@ class PositionManagementService:
         action=None,
         symbol=None,
         reason_code=None,
+        status="info",
         extra_payload=None,
     ):
         event = {
@@ -146,6 +170,7 @@ class PositionManagementService:
             "symbol": symbol or payload.get("symbol"),
             "strategy_name": payload.get("strategy_name"),
             "source": payload.get("source"),
+            "status": status,
             "reason_code": reason_code or "",
             "payload": dict(extra_payload or {}),
         }

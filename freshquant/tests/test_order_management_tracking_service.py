@@ -126,6 +126,38 @@ def test_ingest_trade_report_is_idempotent_by_broker_trade_id():
     assert len(repository.trade_facts) == 1
 
 
+def test_ingest_trade_report_preserves_date_and_time_fields():
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 12.34,
+            "quantity": 100,
+            "source": "strategy",
+        }
+    )
+    internal_order_id = repository.orders[0]["internal_order_id"]
+    report = {
+        "internal_order_id": internal_order_id,
+        "broker_trade_id": "T-002",
+        "symbol": "000001",
+        "side": "buy",
+        "quantity": 100,
+        "price": 12.30,
+        "trade_time": 1710000000,
+        "date": 20240309,
+        "time": "09:31:00",
+        "source": "xt_trade_callback",
+    }
+
+    created = service.ingest_trade_report(report)
+
+    assert created["date"] == 20240309
+    assert created["time"] == "09:31:00"
+
+
 def test_ingest_order_report_is_idempotent_when_state_is_unchanged():
     repository = InMemoryRepository()
     service = OrderTrackingService(repository=repository)
