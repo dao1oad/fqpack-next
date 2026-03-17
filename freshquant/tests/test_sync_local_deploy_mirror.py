@@ -112,7 +112,9 @@ def test_sync_local_deploy_mirror_can_use_dedicated_checkout_branch(
 
     assert result["ok"] is True
     assert result["head_sha"] == target_sha
-    assert git(["rev-parse", "--abbrev-ref", "HEAD"], mirror) == "deploy-production-main"
+    assert (
+        git(["rev-parse", "--abbrev-ref", "HEAD"], mirror) == "deploy-production-main"
+    )
     assert git(["rev-parse", "HEAD"], mirror) == target_sha
 
 
@@ -174,7 +176,13 @@ def test_sync_local_deploy_mirror_marks_repo_safe_before_git_commands(
         "safe.directory",
         str(mirror.resolve()),
     ]
-    assert ["git", "checkout", "-B", "deploy-production-main", "refs/remotes/origin/main"] in subprocess_calls
+    assert [
+        "git",
+        "checkout",
+        "-B",
+        "deploy-production-main",
+        "refs/remotes/origin/main",
+    ] in subprocess_calls
 
 
 def test_sync_local_deploy_mirror_rejects_dirty_repo(tmp_path: Path) -> None:
