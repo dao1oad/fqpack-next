@@ -26,6 +26,10 @@
 ## 0.2.1 记忆自举
 
 - 若当前会话已经有 `FQ_MEMORY_CONTEXT_PATH` 且文件存在，先读该 context pack，再继续仓库探索。
+- 自由 `Codex CLI` / `codex app-server` 会话的正式硬入口是：
+  - `codex_run/start_codex_cli.bat`
+  - `codex_run/start_codex_app_server.bat`
+  - 这两个入口会先调用 `codex_run/start_freshquant_codex.ps1` 自动执行 memory bootstrap，再启动对应 `codex` 命令
 - 若是直接在 Codex app 中打开仓库的自由会话，且 `FQ_MEMORY_CONTEXT_PATH` 不存在或目标文件缺失：
   - 先运行 `py -3.12 runtime/memory/scripts/bootstrap_freshquant_memory.py --repo-root . --service-root D:/fqpack/runtime/symphony-service`
   - 读取返回 JSON 中的 `context_pack_path`

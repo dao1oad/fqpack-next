@@ -37,6 +37,7 @@
 - 冷记忆
   - 目录：`.codex/memory/**`
   - 进入 git，保存长期有效的模块边界、deploy surfaces、workflow rules、pitfalls。
+  - refresh 时默认不直接读取当前工作树，而是读取远程 `origin/main` 的快照作为开发参考。
 - 热记忆
   - 代码入口：`freshquant/runtime/memory/**`
   - 存储：Mongo `fq_memory`
@@ -72,7 +73,7 @@
 
 ### 记忆编译链
 
-`.codex/memory/** + docs/current/modules/*.md + artifacts/cleanup-requests/<issue>.json + artifacts/<issue>/deployment-comment.md + artifacts/cleanup-results/<issue>.json -> freshquant.runtime.memory.refresh -> Mongo fq_memory -> freshquant.runtime.memory.compiler -> context pack markdown -> Symphony/Global Stewardship wrapper 或 bootstrap_freshquant_memory.py -> FQ_MEMORY_CONTEXT_PATH`
+`origin/main:.codex/memory/** + origin/main:docs/current/modules/*.md + artifacts/cleanup-requests/<issue>.json + artifacts/<issue>/deployment-comment.md + artifacts/cleanup-results/<issue>.json -> freshquant.runtime.memory.refresh -> Mongo fq_memory -> freshquant.runtime.memory.compiler -> context pack markdown -> Symphony/Global Stewardship wrapper 或 bootstrap_freshquant_memory.py -> FQ_MEMORY_CONTEXT_PATH`
 
 ## 进程边界
 
