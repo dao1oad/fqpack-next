@@ -13,6 +13,7 @@
 - `deploy-production.yml` 不依赖 `actions/checkout`；它会在 Windows runner 上用 PowerShell 直接下载目标 SHA 的源码归档并展开到 `GITHUB_WORKSPACE`，绕开该宿主机上 `git/libcurl` 对 GitHub 的不稳定 fetch 链路。
 - 由于 zipball 工作区没有 `.git`，`script/ci/run_formal_deploy.py` 在增量 deploy 场景会改用 GitHub compare API 计算 `last_success_sha -> current main` 的 changed paths，而不是依赖本地 `git diff`。
 - `deploy-production.yml` 中仓库自定义的 PowerShell step 固定使用 `-NoProfile -ExecutionPolicy Bypass -File {0}`；正式 self-hosted runner 即使本机 PowerShell policy 更严格，也不会在 step 启动前被策略拦截。
+- 这些自定义 PowerShell step 会在脚本首行显式设置 `$ErrorActionPreference = 'Stop'`，保留 fail-fast 行为，避免 `Remove-Item` / `Copy-Item` 这类 non-terminating cmdlet error 被静默放过。
 - 这里的约束是“只允许部署当前 main tip”，不是“任意一次成功的 main workflow 都可重复 deploy”。
 - `fq_webui` 构建上下文固定为 `morningglory/fqwebui`，并使用子目录 `.dockerignore` 排除 `node_modules` / `web` 等构建噪音；rear 镜像继续使用仓库根上下文，但通过根 `.dockerignore` 和分层 `uv sync` 缓存降低重建成本。
 - `api`、`dagster`、`qa` 当前共享同一套 rear 镜像；命中这些部署面时，部署计划会先刷新 shared rear image，再启动受影响容器，避免 `dagster` / `qa` 单独重启时继续吃旧镜像。

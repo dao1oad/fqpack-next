@@ -165,6 +165,7 @@ def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     assert '--github-repository "${{ github.repository }}"' in text
     assert "shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}" in text
     assert "shell: powershell\n" not in text
+    assert text.count("$ErrorActionPreference = 'Stop'") >= 5
 
 
 def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
