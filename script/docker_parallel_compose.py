@@ -45,6 +45,7 @@ SHARED_REAR_BUILD_INPUT_PREFIXES = (
     "morningglory/fqchan06/",
     "morningglory/fqcopilot/",
     "morningglory/fqdagster/",
+    "morningglory/fqdagsterconfig/",
     "morningglory/fqxtrade/",
     "sunflower/xtquant/",
     "sunflower/pytdx/",

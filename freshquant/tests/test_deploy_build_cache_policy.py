@@ -120,3 +120,10 @@ def test_powershell_compose_entry_restores_detached_flag_swallowed_by_shell() ->
     assert '[Alias("d")]' in text or "[Alias('d')]" in text
     assert '"-d"' in text
     assert "$Detached" in text
+
+
+def test_powershell_compose_entry_preserves_detached_flag_on_fallback() -> None:
+    text = Path("script/docker_parallel_compose.ps1").read_text(encoding="utf-8")
+
+    assert "$fallbackComposeArgs" in text
+    assert "$resolvedComposeArgs = @($fallbackComposeArgs)" in text

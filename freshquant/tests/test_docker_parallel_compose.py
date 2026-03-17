@@ -230,3 +230,47 @@ def test_compute_rewrite_result_keeps_no_build_when_dirty_paths_are_unrelated(
     assert result["skip_build"] is True
     assert result["mode"] == "local_cached"
     assert result["compose_args"] == ["up", "-d", "--no-build", "fq_webui"]
+
+
+def test_compute_rewrite_result_rebuilds_when_dagsterconfig_changes(
+    monkeypatch,
+) -> None:
+    module = load_module()
+
+    monkeypatch.setattr(module, "load_current_revision", lambda _: "abc123")
+    monkeypatch.setattr(
+        module,
+        "load_compose_service_images",
+        lambda _: (
+            ["fq_dagster_webserver"],
+            {"fq_dagster_webserver": "fqnext_rear:2026.2.23"},
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "load_local_image_revisions",
+        lambda _: {"fqnext_rear:2026.2.23": "abc123"},
+    )
+    monkeypatch.setattr(module, "load_remote_image_revisions", lambda _: {})
+    monkeypatch.setattr(
+        module,
+        "build_registry_service_images",
+        lambda revision: {
+            "fq_dagster_webserver": f"ghcr.io/dao1oad/fqnext-rear:{revision}"
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "load_dirty_paths",
+        lambda _: ["morningglory/fqdagsterconfig/workspace.yaml"],
+    )
+
+    result = module.compute_rewrite_result(
+        repo_root=Path("."),
+        compose_file=Path("docker/compose.parallel.yaml"),
+        compose_args=["up", "-d", "--build", "fq_dagster_webserver"],
+    )
+
+    assert result["skip_build"] is False
+    assert result["mode"] == "build_required"
+    assert result["compose_args"] == ["up", "-d", "--build", "fq_dagster_webserver"]

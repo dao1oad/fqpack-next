@@ -50,6 +50,7 @@ if ($Detached.IsPresent -and $resolvedComposeArgs -and $resolvedComposeArgs -not
     }
     $resolvedComposeArgs = $reconstructedComposeArgs
 }
+$fallbackComposeArgs = @($resolvedComposeArgs)
 if ($resolvedComposeArgs.Count -gt 0) {
     try {
         $helperArgs = @(
@@ -81,7 +82,7 @@ if ($resolvedComposeArgs.Count -gt 0) {
                     & docker pull $pullImage
                     if ($LASTEXITCODE -ne 0) {
                         Write-Warning "remote image pull failed for $pullImage; falling back to original compose args"
-                        $resolvedComposeArgs = @($ComposeArgs)
+                        $resolvedComposeArgs = @($fallbackComposeArgs)
                         $pullFailed = $true
                         break
                     }
@@ -93,7 +94,7 @@ if ($resolvedComposeArgs.Count -gt 0) {
         }
     } catch {
         Write-Warning "smart-build fallback to original compose args: $($_.Exception.Message)"
-        $resolvedComposeArgs = @($ComposeArgs)
+        $resolvedComposeArgs = @($fallbackComposeArgs)
     }
 }
 
