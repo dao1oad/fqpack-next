@@ -116,6 +116,7 @@
 - 宿主机 `.env` 示例：`deployment/examples/envs.fqnext.example`
 - 宿主机 `.env` 示例默认不再携带 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量
 - Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
+- GHCR 预构建镜像仅用于加速 Docker 部署，不改变运行真值；实际运行真值仍来自当前 `main`、deploy 结果与 health/runtime ops evidence
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - `docker/compose.parallel.yaml` 会为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`，避免容器误继承宿主机默认 `27027`
@@ -141,7 +142,7 @@
 ### 只调 API / 页面
 
 ```powershell
-docker compose -f docker/compose.parallel.yaml up -d --build fq_mongodb fq_redis fq_apiserver fq_webui
+powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 up -d --build fq_mongodb fq_redis fq_apiserver fq_webui
 ```
 
 ### 调实时交易链
