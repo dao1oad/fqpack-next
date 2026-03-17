@@ -88,10 +88,7 @@ def test_prune_runtime_log_dirs_keeps_last_five_trade_days(tmp_path):
     trade_days = [date(2026, 3, 9) + timedelta(days=index) for index in range(6)]
     for day in trade_days:
         path = (
-            tmp_path
-            / "host_guardian"
-            / "guardian_strategy"
-            / day.strftime("%Y-%m-%d")
+            tmp_path / "host_guardian" / "guardian_strategy" / day.strftime("%Y-%m-%d")
         )
         path.mkdir(parents=True, exist_ok=True)
         (path / "guardian_strategy.jsonl").write_text("{}", encoding="utf-8")
@@ -104,5 +101,7 @@ def test_prune_runtime_log_dirs_keeps_last_five_trade_days(tmp_path):
     )
 
     assert removed == ["2026-03-09"]
-    assert not (tmp_path / "host_guardian" / "guardian_strategy" / "2026-03-09").exists()
+    assert not (
+        tmp_path / "host_guardian" / "guardian_strategy" / "2026-03-09"
+    ).exists()
     assert (tmp_path / "host_guardian" / "guardian_strategy" / "2026-03-10").exists()

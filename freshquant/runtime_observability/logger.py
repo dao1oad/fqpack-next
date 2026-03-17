@@ -44,9 +44,9 @@ def prune_runtime_log_dirs(
     root_dir: str | os.PathLike[str] | None = None,
     retain_trade_days: int = 5,
     today: date | datetime | str | None = None,
-    trade_dates: list[date | datetime | str]
-    | tuple[date | datetime | str, ...]
-    | None = None,
+    trade_dates: (
+        list[date | datetime | str] | tuple[date | datetime | str, ...] | None
+    ) = None,
 ) -> list[str]:
     root = Path(root_dir) if root_dir is not None else get_runtime_log_root()
     if not root.exists():
@@ -104,9 +104,7 @@ def _resolve_retained_trade_days(
     date_directories: dict[str, list[Path]],
     retain_trade_days: int,
     today: date | datetime | str | None,
-    trade_dates: list[date | datetime | str]
-    | tuple[date | datetime | str, ...]
-    | None,
+    trade_dates: list[date | datetime | str] | tuple[date | datetime | str, ...] | None,
 ) -> set[str]:
     if trade_dates is not None:
         normalized = _normalize_trade_day_texts(trade_dates, today=today)
