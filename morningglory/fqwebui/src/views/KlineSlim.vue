@@ -207,19 +207,12 @@
                     <span class="price-panel-section-title">Guardian 倍量价格</span>
                     <span class="price-panel-section-note">高到低展示，蓝 / 红 / 绿实线</span>
                   </div>
-                  <el-switch
-                    v-model="guardianDraft.enabled"
-                    size="small"
-                    inline-prompt
-                    active-text="开"
-                    inactive-text="关"
-                  />
+                  <span class="price-panel-summary-chip">
+                    已生效 {{ guardianGuideRows.filter((row) => row.manual_enabled).length }}/3
+                  </span>
                 </div>
 
                 <div class="price-panel-summary">
-                  <span class="price-panel-summary-chip" :class="{ active: guardianDraft.enabled }">
-                    总开关 {{ guardianDraft.enabled ? '开启' : '关闭' }}
-                  </span>
                   <span v-if="guardianState.last_hit_level" class="price-panel-summary-chip">
                     最近命中 {{ guardianState.last_hit_level }}
                   </span>
@@ -246,7 +239,7 @@
                         <span class="price-panel-row-subtitle">图上 G-{{ row.shortLabel }} 横线</span>
                       </div>
                     </div>
-                    <div class="price-panel-row-editor">
+                    <div class="price-panel-row-editor price-panel-row-editor--multi">
                       <el-input-number
                         v-model="guardianDraft[row.key]"
                         size="small"
@@ -254,8 +247,15 @@
                         :step="0.01"
                         controls-position="right"
                       />
+                      <el-switch
+                        v-model="guardianDraft.buy_enabled[row.index]"
+                        size="small"
+                        inline-prompt
+                        active-text="开"
+                        inactive-text="关"
+                      />
                       <span class="price-panel-state-chip" :class="{ active: row.active }">
-                        {{ row.active ? '激活' : '待机' }}
+                        {{ row.active ? '激活' : (row.manual_enabled ? '待机' : '仅展示') }}
                       </span>
                     </div>
                   </div>

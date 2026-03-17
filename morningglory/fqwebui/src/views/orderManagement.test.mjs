@@ -55,23 +55,28 @@ test('order helpers keep instrument name, 3-decimal prices and second-level time
   assert.equal(formatOrderTimestamp('2026-03-13T10:05:00.123+08:00'), '2026-03-13 10:05:00')
 })
 
-test('OrderManagement table shows name, wider state/source columns and keeps ids last', () => {
+test('OrderManagement table uses Chinese semantics and places 更新时间 after 标的代码', () => {
   assert.match(orderManagementPageSource, /{{ row\.name \|\| '-' }}/)
-  assert.match(orderManagementPageSource, /<el-table-column prop="state" label="State" width="160" \/>/)
-  assert.match(orderManagementPageSource, /<el-table-column prop="source" label="Source" width="148" \/>/)
+  assert.match(orderManagementPageSource, /<el-table-column prop="side" label="方向" width="86" \/>/)
+  assert.match(orderManagementPageSource, /<el-table-column prop="state" label="订单状态" width="160" \/>/)
+  assert.match(orderManagementPageSource, /<el-table-column prop="strategy_name" label="策略" min-width="132" \/>/)
+  assert.match(orderManagementPageSource, /<el-table-column prop="source" label="来源" width="148" \/>/)
   assert.match(orderManagementPageSource, /{{ formatOrderPrice\(row\.price\) }} \/ {{ formatOrderQuantity\(row\.quantity\) }}/)
   assert.match(orderManagementPageSource, /{{ formatOrderTimestamp\(row\.updated_at \|\| row\.created_at\) }}/)
-  assert.match(orderManagementPageSource, /<el-table-column prop="price" label="Price" width="96">/)
+  assert.match(orderManagementPageSource, /<el-table-column prop="broker_order_id" label="券商单号" min-width="132" \/>/)
 
-  const updatedColumnIndex = orderManagementPageSource.indexOf('label="Updated"')
-  const brokerColumnIndex = orderManagementPageSource.indexOf('label="Broker"')
-  const internalColumnIndex = orderManagementPageSource.indexOf('label="Internal Order"')
-  const requestColumnIndex = orderManagementPageSource.indexOf('label="Request"')
+  const symbolColumnIndex = orderManagementPageSource.indexOf('<el-table-column label="标的代码"')
+  const updatedColumnIndex = orderManagementPageSource.indexOf('<el-table-column label="更新时间"')
+  const sideColumnIndex = orderManagementPageSource.indexOf('<el-table-column prop="side" label="方向"')
+  const brokerColumnIndex = orderManagementPageSource.indexOf('<el-table-column prop="broker_order_id" label="券商单号"')
 
+  assert.ok(symbolColumnIndex > -1)
   assert.ok(updatedColumnIndex > -1)
-  assert.ok(brokerColumnIndex > updatedColumnIndex)
-  assert.ok(internalColumnIndex > brokerColumnIndex)
-  assert.ok(requestColumnIndex > internalColumnIndex)
+  assert.ok(updatedColumnIndex > symbolColumnIndex)
+  assert.ok(sideColumnIndex > updatedColumnIndex)
+  assert.ok(brokerColumnIndex > sideColumnIndex)
+  assert.doesNotMatch(orderManagementPageSource, /label="Internal Order"/)
+  assert.doesNotMatch(orderManagementPageSource, /label="Request"/)
 })
 
 test('buildOrderDetailViewModel and buildOrderStats keep identifiers and distributions', () => {

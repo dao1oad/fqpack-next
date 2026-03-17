@@ -19,6 +19,12 @@ const SECTION_META = {
   },
 }
 
+const SOURCE_META = {
+  'pm_configs.thresholds': '当前生效配置',
+  code_default: '代码默认值',
+  'params.xtquant': '系统参数',
+}
+
 const INVENTORY_ORDER = {
   allow_open_min_bail: 1,
   holding_only_min_bail: 2,
@@ -104,20 +110,10 @@ export const readDashboardPayload = (response, fallback = {}) => {
 }
 
 export const buildConfigSections = (dashboard = {}) => {
-  const payload = readDashboardPayload(dashboard)
-  const inventory = Array.isArray(payload?.config?.inventory) ? payload.config.inventory : []
+  const inventoryRows = buildInventoryRows(dashboard)
   return SECTION_ORDER
     .map((key) => {
-      const items = inventory
-        .filter((item) => toText(item?.group) === key)
-        .sort((left, right) => (
-          (INVENTORY_ORDER[toText(left?.key)] || 999) -
-          (INVENTORY_ORDER[toText(right?.key)] || 999)
-        ))
-        .map((item) => ({
-          ...item,
-          value_label: formatInventoryValue(item),
-        }))
+      const items = inventoryRows.filter((item) => toText(item?.group) === key)
       if (items.length === 0) return null
       return {
         key,
@@ -127,6 +123,27 @@ export const buildConfigSections = (dashboard = {}) => {
       }
     })
     .filter(Boolean)
+}
+
+export const buildInventoryRows = (dashboard = {}) => {
+  const payload = readDashboardPayload(dashboard)
+  const inventory = Array.isArray(payload?.config?.inventory) ? payload.config.inventory : []
+  return [...inventory]
+    .sort((left, right) => (
+      (INVENTORY_ORDER[toText(left?.key)] || 999) -
+      (INVENTORY_ORDER[toText(right?.key)] || 999)
+    ))
+    .map((item) => {
+      const group = toText(item?.group)
+      const source = toText(item?.source)
+      return {
+        ...item,
+        group,
+        group_label: SECTION_META[group]?.title || group || '-',
+        source_label: SOURCE_META[source] || source || '-',
+        value_label: formatInventoryValue(item),
+      }
+    })
 }
 
 export const buildStatePanel = (dashboard = {}) => {
@@ -206,6 +223,13 @@ export const buildRecentDecisionRows = (dashboard = {}) => {
     allowed_label: row?.allowed ? '允许' : '拒绝',
     tone: row?.allowed ? 'allow' : 'reject',
     symbol_label: toText(row?.symbol) || '-',
+    symbol_name_label: (
+      toText(row?.symbol_name) ||
+      toText(row?.name) ||
+      toText(row?.meta?.symbol_name) ||
+      toText(row?.meta?.name) ||
+      '-'
+    ),
     strategy_label: toText(row?.strategy_name) || '-',
     evaluated_at_label: toText(row?.evaluated_at) || '-',
     reason_text: toText(row?.reason_text) || toText(row?.reason_code) || '-',

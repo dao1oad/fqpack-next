@@ -11,6 +11,9 @@ test('KlineSlim view exposes price guide toolbar entry and side panel layout', (
   assert.match(source, /止盈价格/)
   assert.match(source, /price-guide-badge--guardian/)
   assert.match(source, /price-guide-badge--takeprofit/)
+  assert.match(source, /guardianGuideRows\.filter\(\(row\) => row\.manual_enabled\)\.length/)
+  assert.match(source, /v-model="guardianDraft\.buy_enabled\[row\.index\]"/)
+  assert.doesNotMatch(source, /v-model="guardianDraft\.enabled"/)
 })
 
 test('KlineSlim keeps price guide and chanlun panels on the chart overlay instead of shrinking the chart area', () => {

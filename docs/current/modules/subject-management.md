@@ -59,6 +59,8 @@
 
 `/subject-management -> /api/subject-management/overview -> 左侧高密度摘要表`
 
+`/api/subject-management/overview` 当前不是只读 `must_pool`；左表 symbol 集合来自 `must_pool + guardian_buy_grid_configs + guardian_buy_grid_states + takeprofit_profiles + positions + stoploss_summary` 的并集
+
 `点击标的 -> /api/subject-management/<symbol> -> 右侧摘要条 + 基础配置/Guardian 表 + 止盈表 + 止损表`
 
 `保存基础配置 + Guardian -> must-pool + guardian-buy-grid 两个写接口顺序提交 -> 刷新当前 detail + overview 摘要`
@@ -72,6 +74,8 @@
 - 页面只编辑标的级设置，不编辑账户级仓位门禁。
 - 仓位门禁只读展示 `effective_state / allow_open_min_bail / holding_only_min_bail`。
 - 左表“运行态”和右栏 `runtime_summary.position_amount` 使用统一单标的实时仓位定义。
+- 左表代码下方的 `持仓 / 观察` 标签不是后端独立字段，而是前端根据 `runtime.position_quantity > 0` 派生：大于 0 显示 `持仓`，否则显示 `观察`
+- 当前页面没有“删除标的”动作；某个 symbol 只要仍存在于 overview 的任一来源集合，就会继续显示。要让它从页面消失，必须把该 symbol 从上述所有来源集合里移除
 - 止盈编辑区默认至少显示三层；如果已有更高层级，会保留现有层级并继续显示前三层。
 - 止损仍按 open buy lot 维护，不提升成纯标的级配置。
 
