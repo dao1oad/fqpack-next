@@ -137,5 +137,14 @@ def test_load_bootstrap_config_reads_screening_db(monkeypatch, tmp_path):
     import freshquant.bootstrap_config as bootstrap_module
 
     bootstrap_module = importlib.reload(bootstrap_module)
+    import freshquant.db as db_module
+
+    db_module = importlib.reload(db_module)
     config = bootstrap_module.load_bootstrap_config()
     assert config.mongodb.screening_db == "fqscreening_runtime"
+    assert db_module.DBScreening.name == "fqscreening_runtime"
+    assert db_module.get_db("screening") is db_module.DBScreening
+    assert (
+        db_module.get_db(bootstrap_module.bootstrap_config.mongodb.screening_db)
+        is db_module.DBScreening
+    )
