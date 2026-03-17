@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from freshquant.db import DBScreening
 
 
@@ -127,15 +129,15 @@ def test_repository_builds_expected_indexes():
         ],
         "daily_screening_memberships": [
             {
-                "name": "daily_screening_memberships_run_stage_code",
-                "keys": [("run_id", 1), ("stage", 1), ("code", 1)],
+                "name": "daily_screening_memberships_run_scope_stage_code",
+                "keys": [("run_id", 1), ("scope", 1), ("stage", 1), ("code", 1)],
                 "unique": True,
             }
         ],
         "daily_screening_stock_snapshots": [
             {
-                "name": "daily_screening_stock_snapshots_run_code",
-                "keys": [("run_id", 1), ("code", 1)],
+                "name": "daily_screening_stock_snapshots_run_scope_code",
+                "keys": [("run_id", 1), ("scope", 1), ("code", 1)],
                 "unique": True,
             }
         ],
@@ -164,13 +166,17 @@ def test_repository_ensure_indexes_calls_create_index_with_expected_contract():
     ]
     assert repo.memberships.created_indexes == [
         (
-            [("run_id", 1), ("stage", 1), ("code", 1)],
+            [("run_id", 1), ("scope", 1), ("stage", 1), ("code", 1)],
             True,
-            "daily_screening_memberships_run_stage_code",
+            "daily_screening_memberships_run_scope_stage_code",
         )
     ]
     assert repo.stock_snapshots.created_indexes == [
-        ([("run_id", 1), ("code", 1)], True, "daily_screening_stock_snapshots_run_code")
+        (
+            [("run_id", 1), ("scope", 1), ("code", 1)],
+            True,
+            "daily_screening_stock_snapshots_run_scope_code",
+        )
     ]
 
 
@@ -190,6 +196,173 @@ def test_repository_ensure_indexes_skips_fake_collections_without_create_index()
     )
 
     repo.ensure_indexes()
+
+
+def test_repository_uses_scope_in_identity_for_same_run():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_runs=SimpleCollection("daily_screening_runs"),
+        daily_screening_memberships=SimpleCollection(
+            "daily_screening_memberships"
+        ),
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots"
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.replace_stage_memberships(
+        run_id="run-1",
+        stage="clxs",
+        scope="scope-a",
+        memberships=[{"code": "000001", "name": "alpha"}],
+    )
+    repo.replace_stage_memberships(
+        run_id="run-1",
+        stage="clxs",
+        scope="scope-b",
+        memberships=[{"code": "000001", "name": "alpha"}],
+    )
+    repo.upsert_stock_snapshots(
+        run_id="run-1",
+        scope="scope-a",
+        snapshots=[{"code": "000001", "name": "alpha"}],
+    )
+    repo.upsert_stock_snapshots(
+        run_id="run-1",
+        scope="scope-b",
+        snapshots=[{"code": "000001", "name": "alpha"}],
+    )
+
+    assert repo.index_specs()["daily_screening_memberships"][0]["keys"] == [
+        ("run_id", 1),
+        ("scope", 1),
+        ("stage", 1),
+        ("code", 1),
+    ]
+    assert repo.index_specs()["daily_screening_stock_snapshots"][0]["keys"] == [
+        ("run_id", 1),
+        ("scope", 1),
+        ("code", 1),
+    ]
+    assert sorted(
+        (row.get("scope"), row.get("code"))
+        for row in fake_db["daily_screening_memberships"].docs
+    ) == [("scope-a", "000001"), ("scope-b", "000001")]
+    assert sorted(
+        (row.get("scope"), row.get("code"))
+        for row in fake_db["daily_screening_stock_snapshots"].docs
+    ) == [("scope-a", "000001"), ("scope-b", "000001")]
+
+
+def test_repository_requires_membership_identity_keys():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    repo = DailyScreeningRepository(db=FakeDB())
+
+    with pytest.raises(ValueError):
+        repo.replace_stage_memberships(stage="clxs", memberships=[{"code": "000001"}])
+
+    with pytest.raises(ValueError):
+        repo.replace_stage_memberships(
+            run_id="run-1",
+            memberships=[{"code": "000001"}],
+        )
+
+    with pytest.raises(ValueError):
+        repo.replace_stage_memberships(
+            run_id="run-1",
+            stage="clxs",
+            memberships=[{"name": "alpha"}],
+        )
+
+
+def test_repository_requires_snapshot_identity_keys():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    repo = DailyScreeningRepository(db=FakeDB())
+
+    with pytest.raises(ValueError):
+        repo.upsert_stock_snapshots(snapshots=[{"code": "000001"}])
+
+    with pytest.raises(ValueError):
+        repo.upsert_stock_snapshots(run_id="run-1", snapshots=[{"name": "alpha"}])
+
+
+def test_repository_summary_stage_filter_only_affects_memberships():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_runs=SimpleCollection("daily_screening_runs"),
+        daily_screening_memberships=SimpleCollection(
+            "daily_screening_memberships"
+        ),
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots"
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.replace_stage_memberships(
+        run_id="run-1",
+        stage="clxs",
+        scope="scope-a",
+        memberships=[{"code": "000001", "name": "alpha"}],
+    )
+    repo.replace_stage_memberships(
+        run_id="run-1",
+        stage="chanlun",
+        scope="scope-a",
+        memberships=[{"code": "000002", "name": "beta"}],
+    )
+    repo.upsert_stock_snapshots(
+        run_id="run-1",
+        scope="scope-a",
+        snapshots=[
+            {"code": "000001", "name": "alpha"},
+            {"code": "000002", "name": "beta"},
+        ],
+    )
+
+    summary = repo.query_scope_summary(run_id="run-1", stage="clxs")
+
+    assert summary["membership_count"] == 1
+    assert summary["stage_counts"] == {"clxs": 1}
+    assert summary["stock_count"] == 2
+    assert summary["stock_codes"] == ["000001", "000002"]
+
+
+def test_repository_summary_keeps_run_id_empty_when_only_scope_is_provided():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_runs=SimpleCollection("daily_screening_runs"),
+        daily_screening_memberships=SimpleCollection(
+            "daily_screening_memberships"
+        ),
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots"
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.replace_stage_memberships(
+        run_id="run-1",
+        stage="clxs",
+        scope="scope-a",
+        memberships=[{"code": "000001", "name": "alpha"}],
+    )
+    repo.upsert_stock_snapshots(
+        run_id="run-1",
+        scope="scope-a",
+        snapshots=[{"code": "000001", "name": "alpha"}],
+    )
+
+    summary = repo.query_scope_summary(scope="scope-a")
+
+    assert summary["run_id"] is None
+    assert summary["scope"] == "scope-a"
 
 
 def test_repository_round_trips_run_scope_documents():

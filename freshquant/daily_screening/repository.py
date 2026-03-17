@@ -27,15 +27,20 @@ class DailyScreeningRepository:
             ],
             "daily_screening_memberships": [
                 {
-                    "name": "daily_screening_memberships_run_stage_code",
-                    "keys": [("run_id", 1), ("stage", 1), ("code", 1)],
+                    "name": "daily_screening_memberships_run_scope_stage_code",
+                    "keys": [
+                        ("run_id", 1),
+                        ("scope", 1),
+                        ("stage", 1),
+                        ("code", 1),
+                    ],
                     "unique": True,
                 }
             ],
             "daily_screening_stock_snapshots": [
                 {
-                    "name": "daily_screening_stock_snapshots_run_code",
-                    "keys": [("run_id", 1), ("code", 1)],
+                    "name": "daily_screening_stock_snapshots_run_scope_code",
+                    "keys": [("run_id", 1), ("scope", 1), ("code", 1)],
                     "unique": True,
                 }
             ],
@@ -75,19 +80,38 @@ class DailyScreeningRepository:
         scope=None,
         **document,
     ):
-        payloads = [
-            self._normalize_membership(item, run_id=run_id, stage=stage, scope=scope)
-            for item in list(memberships or [])
-        ]
+        raw_items = list(memberships or [])
+        if not raw_items:
+            return []
         effective_run_id = self._first_non_empty(
-            run_id, *(payload.get("run_id") for payload in payloads)
+            run_id, *(self._primary_value(item, "run_id") for item in raw_items)
+        )
+        effective_stage = self._first_non_empty(
+            stage, *(self._primary_value(item, "stage") for item in raw_items)
+        )
+        if effective_run_id is None:
+            raise ValueError("run_id required")
+        if effective_stage is None:
+            raise ValueError("stage required")
+        payloads = [
+            self._normalize_membership(
+                item,
+                run_id=effective_run_id,
+                stage=effective_stage,
+                scope=scope,
+            )
+            for item in raw_items
+        ]
+        if any(self._primary_value(payload, "code", "symbol") is None for payload in payloads):
+            raise ValueError("code required")
+        effective_run_id = self._first_non_empty(
+            effective_run_id, *(payload.get("run_id") for payload in payloads)
         )
         effective_scope = self._first_non_empty(
             scope, *(payload.get("scope") for payload in payloads)
         )
         query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
-        if stage is not None:
-            query["stage"] = stage
+        query["stage"] = effective_stage
         self._delete_many(self.memberships, query)
         if payloads:
             self._insert_many(self.memberships, payloads)
@@ -100,12 +124,22 @@ class DailyScreeningRepository:
         scope=None,
         **document,
     ):
-        payloads = [
-            self._normalize_snapshot(item, run_id=run_id, scope=scope)
-            for item in list(snapshots or [])
-        ]
+        raw_items = list(snapshots or [])
+        if not raw_items:
+            return []
         effective_run_id = self._first_non_empty(
-            run_id, *(payload.get("run_id") for payload in payloads)
+            run_id, *(self._primary_value(item, "run_id") for item in raw_items)
+        )
+        if effective_run_id is None:
+            raise ValueError("run_id required")
+        payloads = [
+            self._normalize_snapshot(item, run_id=effective_run_id, scope=scope)
+            for item in raw_items
+        ]
+        if any(self._primary_value(payload, "code", "symbol") is None for payload in payloads):
+            raise ValueError("code required")
+        effective_run_id = self._first_non_empty(
+            effective_run_id, *(payload.get("run_id") for payload in payloads)
         )
         effective_scope = self._first_non_empty(
             scope, *(payload.get("scope") for payload in payloads)
@@ -126,17 +160,19 @@ class DailyScreeningRepository:
         stage=None,
         **filters,
     ) -> dict[str, Any]:
-        query = self._scope_query(run_id=run_id, scope=scope)
-        query.update(filters)
+        membership_query = self._scope_query(run_id=run_id, scope=scope)
+        membership_query.update(filters)
+        stock_query = self._scope_query(run_id=run_id, scope=scope)
+        stock_query.update(filters)
         if stage is not None:
-            query["stage"] = stage
-        memberships = self._find_many(self.memberships, query)
-        stocks = self._find_many(self.stock_snapshots, query)
+            membership_query["stage"] = stage
+        memberships = self._find_many(self.memberships, membership_query)
+        stocks = self._find_many(self.stock_snapshots, stock_query)
         stage_counts = Counter(
             str(item.get("stage") or "").strip() for item in memberships if item.get("stage")
         )
         return {
-            "run_id": self._first_non_empty(run_id, scope),
+            "run_id": run_id,
             "scope": scope,
             "membership_count": len(memberships),
             "stock_count": len(stocks),
