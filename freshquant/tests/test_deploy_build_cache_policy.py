@@ -82,7 +82,10 @@ def test_dagster_config_sync_overwrites_existing_files() -> None:
     text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
 
     assert "cp -f /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/" in text
-    assert "cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/" not in text
+    assert (
+        "cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/"
+        not in text
+    )
 
 
 def test_docker_images_workflow_publishes_to_ghcr() -> None:

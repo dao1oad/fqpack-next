@@ -295,7 +295,9 @@ def compute_rewrite_result(
     remote_image_revisions = load_remote_image_revisions(remote_images)
 
     dirty_paths = load_dirty_paths(repo_root)
-    dirty_affects_target = dirty_paths_affect_target_services(dirty_paths, target_services)
+    dirty_affects_target = dirty_paths_affect_target_services(
+        dirty_paths, target_services
+    )
 
     mode = "build_required"
     rewritten = list(compose_args)
