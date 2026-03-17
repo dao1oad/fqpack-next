@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+
+if command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$repo_root/script/fq_local_preflight.ps1" -Mode Ensure
+elif command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$repo_root/script/fq_local_preflight.ps1" -Mode Ensure
+else
+  echo "FreshQuant pre-push hook requires powershell.exe or pwsh in PATH." >&2
+  exit 1
+fi
+

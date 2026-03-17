@@ -9,10 +9,34 @@ docker compose -f docker/compose.parallel.yaml ps
 py -3.12 script/freshquant_health_check.py --surface api --format summary
 py -3.12 script/freshquant_health_check.py --surface symphony --format summary
 Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime -Descending | Select-Object -First 20 FullName,LastWriteTime
+powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Check
+powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGitDiff origin/main...HEAD
 ```
 
 - 需要页面层健康检查时，优先执行 `py -3.12 script/freshquant_health_check.py --surface web --format summary`
 - 这个入口会忽略系统代理环境，优先用于 deploy 后健康检查和日常排障；当前忽略键包括 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量
+
+## 本地 preflight 没有自动生效
+
+现象：
+- `git push` 前没有触发本地预检
+- 明明当前 `HEAD` 没跑过预检，但 push 还是直接发出去了
+
+先检查：
+- `git config --get core.hooksPath`
+- `Get-ChildItem .githooks`
+- `powershell -ExecutionPolicy Bypass -File script/install_repo_hooks.ps1`
+- `powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Check`
+
+常见根因：
+- 仓库 `core.hooksPath` 没指到 `.githooks`
+- 当前会话没跑过 `install.bat`
+- 本机没有可用的 `powershell.exe` 或 `pwsh`
+
+处理：
+- 重新执行 `powershell -ExecutionPolicy Bypass -File script/install_repo_hooks.ps1`
+- 确认 `.githooks/pre-push` 存在
+- 手动执行一次 `powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ensure`
 
 ## 运行面被代理污染
 
@@ -87,6 +111,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 处理：
 - 重建 API：`docker compose -f docker/compose.parallel.yaml up -d --build fq_apiserver`
+- 或优先使用 `powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -ChangedPath freshquant/rear/api_server.py -RunHealthChecks`
 
 ## ETF 前复权错误
 

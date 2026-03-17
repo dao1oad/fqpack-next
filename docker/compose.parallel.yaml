@@ -34,8 +34,10 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.rear
-      args:
-        FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}
+      cache_from:
+        - type=local,src=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/rear
+      cache_to:
+        - type=local,dest=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/rear,mode=max
     image: ${FQNEXT_REAR_IMAGE:-fqnext_rear:2026.2.23}
     env_file:
       - ${FQ_COMPOSE_ENV_FILE:?Set FQ_COMPOSE_ENV_FILE to the primary worktree .env}
@@ -98,7 +100,7 @@ services:
       [
         "sh",
         "-lc",
-        "mkdir -p /opt/dagster/home; cp -f /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; cd /opt/dagster/home; /freshquant/.venv/bin/dagster-webserver -h 0.0.0.0 -p 10003 -w /opt/dagster/home/workspace.yaml",
+        "mkdir -p /opt/dagster/home; cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; cd /opt/dagster/home; /freshquant/.venv/bin/dagster-webserver -h 0.0.0.0 -p 10003 -w /opt/dagster/home/workspace.yaml",
       ]
     ports:
       - "11003:10003"
@@ -136,7 +138,7 @@ services:
       [
         "sh",
         "-lc",
-        "mkdir -p /opt/dagster/home; cp -f /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; /freshquant/.venv/bin/dagster-daemon run -w /opt/dagster/home/workspace.yaml",
+        "mkdir -p /opt/dagster/home; cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; /freshquant/.venv/bin/dagster-daemon run -w /opt/dagster/home/workspace.yaml",
       ]
     volumes:
       - fqnext_dagster_data:/opt/dagster
@@ -176,10 +178,12 @@ services:
 
   fq_webui:
     build:
-      context: ../morningglory/fqwebui
-      dockerfile: ../../docker/Dockerfile.web
-      args:
-        FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}
+      context: ..
+      dockerfile: docker/Dockerfile.web
+      cache_from:
+        - type=local,src=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/web
+      cache_to:
+        - type=local,dest=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/web,mode=max
     image: ${FQNEXT_WEBUI_IMAGE:-fqnext_webui:2026.2.23}
     ports:
       - "18080:80"
@@ -194,8 +198,10 @@ services:
     build:
       context: ../third_party/tradingagents-cn
       dockerfile: Dockerfile.backend
-      args:
-        FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}
+      cache_from:
+        - type=local,src=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/ta_backend
+      cache_to:
+        - type=local,dest=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/ta_backend,mode=max
     image: ${FQNEXT_TA_BACKEND_IMAGE:-fqnext_ta_backend:2026.2.23}
     env_file:
       - ${FQ_COMPOSE_ENV_FILE:?Set FQ_COMPOSE_ENV_FILE to the primary worktree .env}
@@ -264,8 +270,10 @@ services:
     build:
       context: ../third_party/tradingagents-cn
       dockerfile: Dockerfile.frontend
-      args:
-        FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}
+      cache_from:
+        - type=local,src=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/ta_frontend
+      cache_to:
+        - type=local,dest=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/ta_frontend,mode=max
     image: ${FQNEXT_TA_FRONTEND_IMAGE:-fqnext_ta_frontend:2026.2.23}
     ports:
       - "13080:80"

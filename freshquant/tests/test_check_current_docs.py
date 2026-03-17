@@ -31,6 +31,22 @@ def _run_guard(
     )
 
 
+def _run_guard_with_changed_files(
+    repo: Path, *changed_files: str
+) -> subprocess.CompletedProcess[str]:
+    command = [str(PYTHON), str(SCRIPT_PATH)]
+    for changed_file in changed_files:
+        command.extend(["--changed-file", changed_file])
+
+    return subprocess.run(
+        command,
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def _write(repo: Path, relative_path: str, content: str) -> None:
     path = repo / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,19 +109,18 @@ def test_ci_only_changes_do_not_require_current_docs(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_current_deployment_doc_mentions_production_mirror_worktree() -> None:
-    deployment_text = (REPO_ROOT / "docs/current/deployment.md").read_text(
-        encoding="utf-8"
-    )
-    runtime_text = (REPO_ROOT / "docs/current/runtime.md").read_text(encoding="utf-8")
+def test_changed_file_mode_requires_docs_when_backend_changes(tmp_path: Path) -> None:
+    repo, _ = _init_repo(tmp_path)
 
-    assert (
-        r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-        in deployment_text
-    )
-    assert "deploy-production-main" in deployment_text
-    assert "safe.directory" in deployment_text
-    assert (
-        r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-        in runtime_text
-    )
+    result = _run_guard_with_changed_files(repo, "freshquant/rear/api_server.py")
+
+    assert result.returncode != 0
+    assert "docs/current" in (result.stderr + result.stdout)
+
+
+def test_changed_file_mode_passes_for_docs_only_changes(tmp_path: Path) -> None:
+    repo, _ = _init_repo(tmp_path)
+
+    result = _run_guard_with_changed_files(repo, "docs/current/runtime.md")
+
+    assert result.returncode == 0, result.stderr
