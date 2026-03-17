@@ -161,6 +161,8 @@ def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     assert "Download target revision archive" in text
     assert "Invoke-WebRequest" in text
     assert "Expand-Archive" in text
+    assert 'GH_TOKEN: ${{ github.token }}' in text
+    assert '--github-repository "${{ github.repository }}"' in text
 
 
 def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
