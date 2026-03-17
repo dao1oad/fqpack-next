@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import subprocess
 import sys
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -61,6 +63,61 @@ def load_changed_paths(repo_root: Path, base_sha: str, head_sha: str) -> list[st
         text=True,
     )
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def load_changed_paths_from_compare_api(
+    repository: str,
+    base_sha: str,
+    head_sha: str,
+    github_token: str | None,
+) -> list[str]:
+    if not github_token:
+        raise RuntimeError(
+            "GH_TOKEN is required when formal deploy runs without a local git repository"
+        )
+
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repository}/compare/{base_sha}...{head_sha}",
+        headers={
+            "Authorization": f"Bearer {github_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "fqpack-formal-deploy",
+        },
+    )
+    with urllib.request.urlopen(request) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    changed_paths: list[str] = []
+    for item in payload.get("files", []):
+        filename = str(item.get("filename", "")).strip()
+        previous_filename = str(item.get("previous_filename", "")).strip()
+        if filename:
+            changed_paths.append(filename)
+        if previous_filename:
+            changed_paths.append(previous_filename)
+    return changed_paths
+
+
+def resolve_changed_paths(
+    repo_root: Path,
+    base_sha: str,
+    head_sha: str,
+    *,
+    github_repository: str | None,
+) -> list[str]:
+    if (repo_root / ".git").exists():
+        return load_changed_paths(repo_root, base_sha, head_sha)
+    if not github_repository:
+        raise RuntimeError(
+            "incremental formal deploy requires a git repository or --github-repository"
+        )
+    return load_changed_paths_from_compare_api(
+        github_repository,
+        base_sha,
+        head_sha,
+        os.environ.get("GH_TOKEN"),
+    )
 
 
 def load_deploy_plan_module(repo_root: Path):
@@ -200,6 +257,7 @@ def run_formal_deploy(
     runs_root: Path,
     head_sha: str | None = None,
     run_url: str | None = None,
+    github_repository: str | None = None,
 ) -> dict[str, Any]:
     repo_root = repo_root.resolve()
     state_path = Path(state_path)
@@ -227,10 +285,11 @@ def run_formal_deploy(
         changed_paths = (
             []
             if bootstrap
-            else load_changed_paths(
+            else resolve_changed_paths(
                 repo_root,
                 str(previous_state["last_success_sha"]),
                 current_sha,
+                github_repository=github_repository,
             )
         )
         plan = build_plan(plan_module, bootstrap, changed_paths)
@@ -349,6 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runs-root")
     parser.add_argument("--head-sha")
     parser.add_argument("--run-url")
+    parser.add_argument("--github-repository")
     parser.add_argument("--format", choices=("json", "summary"), default="json")
     return parser
 
@@ -383,6 +443,7 @@ def main(argv: list[str] | None = None) -> int:
             runs_root=runs_root,
             head_sha=args.head_sha,
             run_url=args.run_url,
+            github_repository=args.github_repository,
         )
     except Exception as exc:
         print(
