@@ -103,7 +103,10 @@ def test_current_deployment_docs_cover_local_mirror_production_deploys() -> None
 
     assert "GHCR" in deployment_text
     assert "本机 deploy mirror" in deployment_text
-    assert r"D:\fqpack\freshquant-2026.2.23" in deployment_text
+    assert (
+        r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+        in deployment_text
+    )
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in deployment_text
     assert "本机 deploy mirror" in runtime_text
 
@@ -160,8 +163,14 @@ def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     assert "production" in text
     assert "run_formal_deploy.py" in text
     assert "github.sha" in text
-    assert r"D:\fqpack\freshquant-2026.2.23" in text
+    assert r"FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23" in text
+    assert (
+        r"FQ_DEPLOY_MIRROR_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+        in text
+    )
+    assert 'FQ_DEPLOY_MIRROR_BRANCH: "deploy-production-main"' in text
     assert "sync_local_deploy_mirror.py" in text
+    assert "safe.directory" in text
     assert 'FQ_DOCKER_FORCE_LOCAL_BUILD: "1"' in text
     assert "actions/checkout@v4" not in text
     assert "actions/setup-python@v5" not in text
@@ -169,9 +178,10 @@ def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     assert "zipball" not in text
     assert "curl.exe" not in text
     assert "Expand-Archive" not in text
-    assert 'GH_TOKEN: ${{ github.token }}' in text
+    assert "GH_TOKEN: ${{ github.token }}" in text
     assert "shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}" in text
     assert "shell: powershell\n" not in text
+    assert "git -C $canonicalRoot worktree prune" in text
     assert "py -3.12 -m uv --version" in text
     assert "py -3.12 -m uv sync --frozen" in text
     assert "pip install --upgrade pip uv" not in text
@@ -198,12 +208,21 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert "当前 main tip" in deployment_text
     assert "宿主机已安装的 Python 3.12" in deployment_text
     assert "宿主机已安装的 uv" in deployment_text
+    assert (
+        r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+        in deployment_text
+    )
     assert r"D:\fqpack\freshquant-2026.2.23" in deployment_text
+    assert "safe.directory" in deployment_text
     assert "本机 deploy mirror" in deployment_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in deployment_text
     assert "deploy-production.yml" in runtime_text
     assert "formal-deploy" in runtime_text
     assert "宿主机已安装的 Python 3.12" in runtime_text
     assert "宿主机已安装的 uv" in runtime_text
+    assert (
+        r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+        in runtime_text
+    )
     assert r"D:\fqpack\freshquant-2026.2.23" in runtime_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in runtime_text
