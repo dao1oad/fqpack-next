@@ -140,6 +140,13 @@ def test_docker_images_workflow_uses_dynamic_publish_matrix() -> None:
     assert "docker buildx imagetools create" in text
 
 
+def test_docker_images_workflow_fetches_full_history_for_diff_planning() -> None:
+    text = Path(".github/workflows/docker-images.yml").read_text(encoding="utf-8")
+
+    assert "resolve-publish-plan" in text
+    assert "fetch-depth: 0" in text
+
+
 def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
 
