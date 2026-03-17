@@ -97,14 +97,15 @@ def test_docker_images_workflow_publishes_to_ghcr() -> None:
     assert "docker/login-action" in text
 
 
-def test_current_deployment_docs_cover_registry_first_deploys() -> None:
+def test_current_deployment_docs_cover_local_mirror_production_deploys() -> None:
     deployment_text = Path("docs/current/deployment.md").read_text(encoding="utf-8")
     runtime_text = Path("docs/current/runtime.md").read_text(encoding="utf-8")
 
     assert "GHCR" in deployment_text
-    assert "优先拉取 registry 中与当前 commit 匹配的镜像" in deployment_text
-    assert "shared rear image" in deployment_text
-    assert "GHCR 预构建镜像" in runtime_text
+    assert "本机 deploy mirror" in deployment_text
+    assert r"D:\fqpack\freshquant-2026.2.23" in deployment_text
+    assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in deployment_text
+    assert "本机 deploy mirror" in runtime_text
 
 
 def test_powershell_compose_entry_enables_buildkit_and_env_overrides() -> None:
@@ -150,27 +151,30 @@ def test_docker_images_workflow_fetches_full_history_for_diff_planning() -> None
 def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
 
-    assert "workflow_run" in text
-    assert "Docker Images" in text
+    assert "push:" in text
+    assert "branches: [main]" in text
+    assert "workflow_run" not in text
+    assert "Docker Images" not in text
     assert "self-hosted" in text
     assert "windows" in text
     assert "production" in text
     assert "run_formal_deploy.py" in text
-    assert "github.event.workflow_run.head_sha" in text
+    assert "github.sha" in text
+    assert r"D:\fqpack\freshquant-2026.2.23" in text
+    assert "sync_local_deploy_mirror.py" in text
+    assert 'FQ_DOCKER_FORCE_LOCAL_BUILD: "1"' in text
     assert "actions/checkout@v4" not in text
     assert "actions/setup-python@v5" not in text
-    assert "Download target revision archive" in text
-    assert "curl.exe" in text
-    assert "Resolve-DnsName codeload.github.com" in text
-    assert "--retry-all-errors" in text
-    assert "--http1.1" in text
-    assert "Expand-Archive" in text
+    assert "Download target revision archive" not in text
+    assert "zipball" not in text
+    assert "curl.exe" not in text
+    assert "Expand-Archive" not in text
     assert 'GH_TOKEN: ${{ github.token }}' in text
-    assert '--github-repository "${{ github.repository }}"' in text
     assert "shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}" in text
     assert "shell: powershell\n" not in text
-    assert "py -3.12 -m pip install --upgrade pip uv" in text
+    assert "py -3.12 -m uv --version" in text
     assert "py -3.12 -m uv sync --frozen" in text
+    assert "pip install --upgrade pip uv" not in text
     assert text.count("$ErrorActionPreference = 'Stop'") >= 5
 
 
@@ -179,8 +183,9 @@ def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
 
     assert "Validate main tip freshness" in text
     assert "api.github.com/repos/${{ github.repository }}/branches/main" in text
-    assert "github.event.workflow_run.head_sha" in text
-    assert "stale main deploy trigger" in text
+    assert "github.sha" in text
+    assert "stale main deploy trigger" not in text
+    assert "stale push deploy trigger" in text
 
 
 def test_current_docs_cover_automatic_production_deploy_state() -> None:
@@ -192,9 +197,13 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert "上一次成功部署" in deployment_text
     assert "当前 main tip" in deployment_text
     assert "宿主机已安装的 Python 3.12" in deployment_text
-    assert "codeload.github.com" in deployment_text
-    assert "curl.exe" in deployment_text
+    assert "宿主机已安装的 uv" in deployment_text
+    assert r"D:\fqpack\freshquant-2026.2.23" in deployment_text
+    assert "本机 deploy mirror" in deployment_text
+    assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in deployment_text
     assert "deploy-production.yml" in runtime_text
     assert "formal-deploy" in runtime_text
     assert "宿主机已安装的 Python 3.12" in runtime_text
-    assert "codeload.github.com" in runtime_text
+    assert "宿主机已安装的 uv" in runtime_text
+    assert r"D:\fqpack\freshquant-2026.2.23" in runtime_text
+    assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in runtime_text

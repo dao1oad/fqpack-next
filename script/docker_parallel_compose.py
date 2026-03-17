@@ -80,6 +80,11 @@ SERVICE_BUILD_INPUT_PREFIXES = {
 }
 
 
+def env_flag(name: str) -> bool:
+    value = os.environ.get(name, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def normalize_path(path: str) -> str:
     return path.replace("\\", "/").strip()
 
@@ -299,13 +304,14 @@ def compute_rewrite_result(
     dirty_affects_target = dirty_paths_affect_target_services(
         dirty_paths, target_services
     )
+    force_local_build = env_flag("FQ_DOCKER_FORCE_LOCAL_BUILD")
 
     mode = "build_required"
     rewritten = list(compose_args)
     image_overrides: dict[str, str] = {}
     pull_images: list[str] = []
 
-    if not dirty_affects_target:
+    if not dirty_affects_target and not force_local_build:
         remote_rewritten = rewrite_compose_args_for_cached_images(
             args=compose_args,
             all_services=all_services,
@@ -336,6 +342,8 @@ def compute_rewrite_result(
         reason = "matching registry images already exist for current HEAD"
     elif mode == "local_cached":
         reason = "all target local images already match current HEAD"
+    elif force_local_build:
+        reason = "local build forced by FQ_DOCKER_FORCE_LOCAL_BUILD"
     else:
         reason = "build required, dirty paths affect target build inputs, or cache metadata unavailable"
 

@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+import importlib.util
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+
+def load_module():
+    module_path = Path("script/ci/sync_local_deploy_mirror.py")
+    spec = importlib.util.spec_from_file_location(
+        "sync_local_deploy_mirror", module_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def git(args: list[str], cwd: Path) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def init_bare_remote(tmp_path: Path) -> Path:
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "--bare", str(remote)], check=True)
+    return remote
+
+
+def init_seed_repo(tmp_path: Path, remote: Path) -> tuple[Path, str]:
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    git(["init"], seed)
+    git(["config", "user.name", "Codex"], seed)
+    git(["config", "user.email", "codex@example.invalid"], seed)
+    (seed / "README.md").write_text("seed\n", encoding="utf-8")
+    git(["add", "README.md"], seed)
+    git(["commit", "-m", "seed"], seed)
+    git(["branch", "-M", "main"], seed)
+    git(["remote", "add", "origin", str(remote)], seed)
+    git(["push", "-u", "origin", "main"], seed)
+    return seed, git(["rev-parse", "HEAD"], seed)
+
+
+def clone_mirror(tmp_path: Path, remote: Path) -> Path:
+    mirror = tmp_path / "mirror"
+    subprocess.run(["git", "clone", str(remote), str(mirror)], check=True)
+    git(["config", "user.name", "Codex"], mirror)
+    git(["config", "user.email", "codex@example.invalid"], mirror)
+    git(["checkout", "main"], mirror)
+    return mirror
+
+
+def commit_in_repo(repo: Path, filename: str, content: str, message: str) -> str:
+    (repo / filename).write_text(content, encoding="utf-8")
+    git(["add", filename], repo)
+    git(["commit", "-m", message], repo)
+    return git(["rev-parse", "HEAD"], repo)
+
+
+def push_main(repo: Path) -> str:
+    git(["push", "origin", "main"], repo)
+    return git(["rev-parse", "HEAD"], repo)
+
+
+def test_sync_local_deploy_mirror_fast_forwards_clean_repo(tmp_path: Path) -> None:
+    module = load_module()
+    remote = init_bare_remote(tmp_path)
+    seed, _ = init_seed_repo(tmp_path, remote)
+    mirror = clone_mirror(tmp_path, remote)
+
+    commit_in_repo(seed, "README.md", "updated\n", "update main")
+    target_sha = push_main(seed)
+
+    result = module.sync_local_deploy_mirror(repo_root=mirror, target_sha=target_sha)
+
+    assert result["ok"] is True
+    assert result["head_sha"] == target_sha
+    assert git(["rev-parse", "HEAD"], mirror) == target_sha
+
+
+def test_sync_local_deploy_mirror_rejects_dirty_repo(tmp_path: Path) -> None:
+    module = load_module()
+    remote = init_bare_remote(tmp_path)
+    seed, seed_sha = init_seed_repo(tmp_path, remote)
+    mirror = clone_mirror(tmp_path, remote)
+
+    commit_in_repo(seed, "README.md", "updated\n", "update main")
+    push_main(seed)
+
+    (mirror / "README.md").write_text("dirty\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="dirty working tree"):
+        module.sync_local_deploy_mirror(repo_root=mirror, target_sha=seed_sha)
+
+
+def test_sync_local_deploy_mirror_rejects_target_sha_mismatch(tmp_path: Path) -> None:
+    module = load_module()
+    remote = init_bare_remote(tmp_path)
+    seed, _ = init_seed_repo(tmp_path, remote)
+    mirror = clone_mirror(tmp_path, remote)
+
+    commit_in_repo(seed, "README.md", "updated\n", "update main")
+    push_main(seed)
+
+    with pytest.raises(RuntimeError, match="origin/main does not match target sha"):
+        module.sync_local_deploy_mirror(repo_root=mirror, target_sha="deadbeef")
+
+
+def test_sync_local_deploy_mirror_rejects_non_fast_forward_main(tmp_path: Path) -> None:
+    module = load_module()
+    remote = init_bare_remote(tmp_path)
+    seed, _ = init_seed_repo(tmp_path, remote)
+    mirror = clone_mirror(tmp_path, remote)
+
+    commit_in_repo(mirror, "local.txt", "local\n", "local only commit")
+    commit_in_repo(seed, "remote.txt", "remote\n", "remote commit")
+    target_sha = push_main(seed)
+
+    with pytest.raises(RuntimeError, match="failed to fast-forward main"):
+        module.sync_local_deploy_mirror(repo_root=mirror, target_sha=target_sha)
