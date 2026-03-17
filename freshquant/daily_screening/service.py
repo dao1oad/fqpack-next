@@ -211,14 +211,21 @@ class DailyScreeningService:
     def iter_sse(self, run_id: str, *, after: int = 0, once: bool = False):
         cursor = max(int(after or 0), 0)
         while True:
+            event_after = self._event_cursor_for_sse_after(cursor)
             events = self.session_store.wait_for_events(
-                run_id, after=cursor, timeout=1.0
+                run_id, after=event_after, timeout=1.0
             )
             if events:
                 for event in events:
-                    cursor = int(event["seq"])
-                    for sse_event, payload in self._iter_sse_outputs(run_id, event):
-                        yield self._format_sse(sse_event, payload)
+                    internal_seq = int(event["seq"])
+                    for output_index, (sse_event, payload) in enumerate(
+                        self._iter_sse_outputs(run_id, event)
+                    ):
+                        sse_cursor = self._sse_cursor(internal_seq, output_index)
+                        if sse_cursor <= cursor:
+                            continue
+                        cursor = sse_cursor
+                        yield self._format_sse(sse_event, payload, sse_id=sse_cursor)
                 if once:
                     break
             elif once:
@@ -227,11 +234,10 @@ class DailyScreeningService:
                 yield self._format_sse(
                     "heartbeat",
                     {"seq": cursor, "ts": datetime.now().astimezone().isoformat()},
+                    sse_id=cursor,
                 )
             snapshot = self.get_run(run_id)
-            if snapshot["status"] in {"completed", "failed"} and cursor >= int(
-                snapshot["event_count"]
-            ):
+            if snapshot["status"] in {"completed", "failed"}:
                 break
 
     def _execute_run(self, run_id: str, config: dict) -> None:
@@ -757,12 +763,20 @@ class DailyScreeningService:
             return datetime.combine(value, datetime.min.time())
         return datetime.min
 
-    def _format_sse(self, event: str, payload: dict) -> str:
+    def _format_sse(self, event: str, payload: dict, *, sse_id: int | None = None) -> str:
         return (
-            f"id: {payload.get('seq', '')}\n"
+            f"id: {sse_id if sse_id is not None else payload.get('seq', '')}\n"
             f"event: {event}\n"
             f"data: {json.dumps(self._jsonable(payload), ensure_ascii=False)}\n\n"
         )
+
+    def _event_cursor_for_sse_after(self, after: int) -> int:
+        if after <= 0:
+            return 0
+        return max((int(after) // 10) - 1, 0)
+
+    def _sse_cursor(self, internal_seq: int, output_index: int) -> int:
+        return max(int(internal_seq), 0) * 10 + max(int(output_index), 0)
 
     def _iter_sse_outputs(self, run_id: str, event: dict):
         yield event["event"], event

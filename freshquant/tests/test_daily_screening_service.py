@@ -27,9 +27,10 @@ def _parse_sse_events(chunks: list[str]) -> list[dict]:
     parsed = []
     for chunk in chunks:
         lines = [line for line in chunk.strip().splitlines() if line]
+        event_id = next(line.split(": ", 1)[1] for line in lines if line.startswith("id: "))
         event = next(line.split(": ", 1)[1] for line in lines if line.startswith("event: "))
         data = next(line.split(": ", 1)[1] for line in lines if line.startswith("data: "))
-        parsed.append({"event": event, "data": json.loads(data)})
+        parsed.append({"id": int(event_id), "event": event, "data": json.loads(data)})
     return parsed
 
 
@@ -411,6 +412,65 @@ def test_daily_screening_service_iter_sse_keeps_new_internal_events_and_streams_
         "summary",
         "completed",
     ]
+    assert [event["id"] for event in sse_events] == [
+        10,
+        11,
+        20,
+        21,
+        30,
+        31,
+        40,
+        41,
+        50,
+        51,
+        60,
+        61,
+        70,
+        71,
+        80,
+        81,
+        90,
+        91,
+        92,
+    ]
+
+
+def test_daily_screening_service_iter_sse_resume_after_internal_event_replays_pending_legacy_frame():
+    from freshquant.daily_screening.service import DailyScreeningService
+    from freshquant.daily_screening.session_store import DailyScreeningSessionStore
+
+    store = DailyScreeningSessionStore()
+    service = DailyScreeningService(
+        session_store=store,
+        db=FakeDB(stock_pre_pools=FakeCollection([])),
+    )
+    store.create_run(
+        run_id="run-3",
+        model="clxs",
+        params={"model": "clxs"},
+    )
+    store.publish_event(
+        "run-3",
+        "run_started",
+        {"model": "clxs", "params": {"model": "clxs"}},
+    )
+    store.publish_event(
+        "run-3",
+        "stage_started",
+        {"stage": "clxs", "label": "CLXS_10001"},
+    )
+
+    initial_events = _parse_sse_events(list(service.iter_sse("run-3", once=True)))
+    resumed_events = _parse_sse_events(
+        list(service.iter_sse("run-3", after=initial_events[0]["id"], once=True))
+    )
+
+    assert initial_events[0]["event"] == "run_started"
+    assert initial_events[1]["event"] == "started"
+    assert resumed_events[0]["event"] == "started"
+    assert resumed_events[0]["id"] == 11
+    assert resumed_events[1]["event"] == "stage_started"
+    assert resumed_events[2]["event"] == "phase_started"
 
 
 def test_daily_screening_service_iter_sse_maps_run_failed_to_legacy_error_and_completed():
