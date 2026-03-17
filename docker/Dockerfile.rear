@@ -27,11 +27,11 @@ COPY sunflower/pytdx ./sunflower/pytdx
 COPY sunflower/backtrader ./sunflower/backtrader
 COPY sunflower/QUANTAXIS ./sunflower/QUANTAXIS
 
-RUN python -m pip install --no-cache-dir uv
-RUN python -m uv sync --frozen --no-install-project
+RUN --mount=type=cache,target=/root/.cache/pip python -m pip install uv
+RUN --mount=type=cache,target=/root/.cache/uv python -m uv sync --frozen --no-install-project
 
 COPY . .
-RUN /usr/local/bin/python -m uv sync --frozen
+RUN --mount=type=cache,target=/root/.cache/uv /usr/local/bin/python -m uv sync --frozen
 
 RUN mkdir -p /root/.jupyter \
     && /freshquant/.venv/bin/jupyter lab --generate-config \

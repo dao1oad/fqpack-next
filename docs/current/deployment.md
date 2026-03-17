@@ -6,8 +6,9 @@
 - Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
 - FreshQuant / QUANTAXIS 相关 Docker 服务在 `docker/compose.parallel.yaml` 内部固定使用 `fq_mongodb:27017`；不要只覆写 host 而保留宿主机默认 `27027`
 - 仓库根目录 legacy 批处理部署脚本 `deploy.bat` / `deploy_rear.bat` 已移除；当前只保留 `docker compose` + `script/fqnext_host_runtime_ctl.ps1` 这套正式入口。
-- Docker 侧正式入口优先使用 `powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 ...`；该脚本会自动解析主工作树 `.env` / runtime log 目录、注入当前 `HEAD` 到镜像 label，并在目标镜像已命中当前提交时跳过冗余 `--build`。如果判定失败或元数据缺失，会保守回退到正常重建。
+- Docker 侧正式入口优先使用 `powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 ...`；该脚本会自动解析主工作树 `.env` / runtime log 目录、注入当前 `HEAD` 到镜像 label、开启 BuildKit，并优先拉取 GHCR 中与当前 commit 匹配的预构建镜像；若远端镜像不可用，再保守回退到本机构建。
 - `fq_webui` 构建上下文固定为 `morningglory/fqwebui`，并使用子目录 `.dockerignore` 排除 `node_modules` / `web` 等构建噪音；rear 镜像继续使用仓库根上下文，但通过根 `.dockerignore` 和分层 `uv sync` 缓存降低重建成本。
+- `api`、`dagster`、`qa` 当前共享同一套 rear 镜像；命中这些部署面时，部署计划会先刷新 shared rear image，再启动受影响容器，避免 `dagster` / `qa` 单独重启时继续吃旧镜像。
 - `Merging` 只负责 merge 与 handoff；merge 后由单个全局 Codex 自动化统一判断 deploy、health check、runtime ops check 和 cleanup。
 - 部署动作结束后必须先做接口层健康检查，再做 deploy 后运维面检查；两者都通过后才进入 cleanup。
 - `Global Stewardship` 的实际收口链路固定为：`deploy -> health check -> runtime ops check -> cleanup`。
@@ -22,6 +23,10 @@
 ```powershell
 powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 up -d --build
 ```
+
+- `main` 合并后的镜像预构建 workflow：`.github/workflows/docker-images.yml`
+- 默认镜像发布位置：`GHCR`
+- 正式收口时优先拉取 registry 中与当前 commit 匹配的镜像；只有不命中或拉取失败时，才会本机构建
 
 ### 共享部署计划解析
 
@@ -199,6 +204,7 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 - merge 后原 issue 进入 `Global Stewardship`，不直接 `Done`。
 - 单个全局 Codex 自动化按当前 `main` 和部署面并集统一决定是否批量 deploy，并先用 `script/freshquant_deploy_plan.py` 计算本轮 Docker / 宿主机动作。
 - Docker deploy 一律优先走 `script/docker_parallel_compose.ps1`，不要在正式收口链路里临时手拼 `FQ_COMPOSE_ENV_FILE` 或绕开 smart-build / git SHA label 注入。
+- 若 GHCR 中已存在与当前 commit 匹配的预构建镜像，正式 deploy 应优先走 `pull + up -d --no-build`；只有不命中时才回退本机构建。
 - 本轮没有实际 deploy 时，不执行 runtime ops check。
 - 本轮有实际 deploy 时，必须先 `CaptureBaseline`，再在 health check 后执行 `Verify`。
 - 命中宿主机 deployment surface 时，统一通过 `script/fqnext_host_runtime_ctl.ps1` 控制 `fqnext-supervisord`，不要再直接依赖 `.bat` 或手工找进程。
