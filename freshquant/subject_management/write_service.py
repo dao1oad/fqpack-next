@@ -87,7 +87,9 @@ class SubjectManagementWriteService:
             "buy_1": _optional_float(detail.get("BUY-1"), "BUY-1"),
             "buy_2": _optional_float(detail.get("BUY-2"), "BUY-2"),
             "buy_3": _optional_float(detail.get("BUY-3"), "BUY-3"),
-            "buy_enabled": _optional_bool_list(detail.get("buy_enabled"), "buy_enabled"),
+            "buy_enabled": _optional_bool_list(
+                detail.get("buy_enabled"), "buy_enabled"
+            ),
         }
 
     def _guardian_service(self):

@@ -249,7 +249,9 @@ class PositionManagementDashboardService:
                     "strategy_name": item.get("strategy_name"),
                     "action": item.get("action"),
                     "symbol": item.get("symbol"),
-                    "symbol_name": _resolve_recent_decision_symbol_name(item, meta=meta),
+                    "symbol_name": _resolve_recent_decision_symbol_name(
+                        item, meta=meta
+                    ),
                     "state": item.get("state"),
                     "allowed": bool(item.get("allowed")),
                     "reason_code": item.get("reason_code"),

@@ -123,9 +123,7 @@ class GuardianBuyGridService:
         resolved_buy_enabled = _coerce_buy_enabled(
             buy_enabled,
             default=(
-                [False, False, False]
-                if enabled is False
-                else current_buy_enabled
+                [False, False, False] if enabled is False else current_buy_enabled
             ),
         )
         document = {
