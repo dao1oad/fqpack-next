@@ -34,6 +34,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.rear
+      args:
+        FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}
     image: ${FQNEXT_REAR_IMAGE:-fqnext_rear:2026.2.23}
     env_file:
       - ${FQ_COMPOSE_ENV_FILE:?Set FQ_COMPOSE_ENV_FILE to the primary worktree .env}
@@ -174,8 +176,10 @@ services:
 
   fq_webui:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.web
+      context: ../morningglory/fqwebui
+      dockerfile: ../../docker/Dockerfile.web
+      args:
+        FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}
     image: ${FQNEXT_WEBUI_IMAGE:-fqnext_webui:2026.2.23}
     ports:
       - "18080:80"
