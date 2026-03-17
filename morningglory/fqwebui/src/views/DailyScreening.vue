@@ -15,7 +15,7 @@
               <span>/</span>
               <span>当前模型 {{ currentModelLabel }}</span>
               <span>/</span>
-              <span>来源 remark <span class="workbench-code">{{ currentForm.remark || '-' }}</span></span>
+              <span>来源 remark <span class="workbench-code">{{ currentRemarkSummary }}</span></span>
             </div>
           </div>
 
@@ -97,6 +97,9 @@
                 :disabled="field.readonly"
                 filterable
                 clearable
+                :multiple="Boolean(field.multiple)"
+                :collapse-tags="Boolean(field.multiple)"
+                :collapse-tags-tooltip="Boolean(field.multiple)"
                 class="daily-field-control"
               >
                 <el-option
@@ -206,16 +209,41 @@
                 <p class="workbench-panel__desc">accepted 事件会直接出现在这里，帮助理解哪些结果真的进入最终集合。</p>
               </div>
               <div class="workbench-panel__meta">
-                <span>{{ acceptedRows.length }} 条</span>
+                <span>{{ filteredAcceptedRows.length }} 条</span>
               </div>
             </div>
 
+            <div class="daily-filter-bar">
+              <el-radio-group v-model="resultBranchFilter" size="small">
+                <el-radio-button label="all">全部分支</el-radio-button>
+                <el-radio-button
+                  v-for="item in filterOptions.branches"
+                  :key="item.key"
+                  :label="item.key"
+                >
+                  {{ item.label }} · {{ item.count }}
+                </el-radio-button>
+              </el-radio-group>
+              <el-radio-group v-model="resultModelFilter" size="small">
+                <el-radio-button label="all">全部模型</el-radio-button>
+                <el-radio-button
+                  v-for="item in filterOptions.models"
+                  :key="item.key"
+                  :label="item.key"
+                >
+                  {{ item.label }} · {{ item.count }}
+                </el-radio-button>
+              </el-radio-group>
+            </div>
+
             <el-table
-              :data="acceptedRows"
+              :data="filteredAcceptedRows"
               size="small"
               border
               height="280"
             >
+              <el-table-column prop="branch" label="分支" width="90" />
+              <el-table-column prop="model_label" label="模型" min-width="140" show-overflow-tooltip />
               <el-table-column prop="code" label="代码" width="88" />
               <el-table-column prop="name" label="名称" min-width="100" show-overflow-tooltip />
               <el-table-column prop="signal_type" label="信号" min-width="140" show-overflow-tooltip />
@@ -248,15 +276,18 @@
             </div>
 
             <el-table
-              :data="prePoolRows"
+              :data="filteredPrePoolRows"
               size="small"
               border
               height="360"
             >
+              <el-table-column prop="branch" label="分支" width="90" />
+              <el-table-column prop="model_label" label="模型" min-width="140" show-overflow-tooltip />
               <el-table-column prop="code" label="代码" width="88" />
               <el-table-column prop="name" label="名称" min-width="100" show-overflow-tooltip />
               <el-table-column prop="category" label="分类" min-width="120" show-overflow-tooltip />
               <el-table-column prop="remark" label="来源" min-width="160" show-overflow-tooltip />
+              <el-table-column prop="period" label="周期" width="76" />
               <el-table-column label="止损" width="86">
                 <template #default="{ row }">
                   {{ formatNumber(row.stop_loss_price) }}
@@ -285,15 +316,19 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import MyHeader from './MyHeader.vue'
 import { dailyScreeningApi, createDailyScreeningStream } from '@/api/dailyScreeningApi.js'
 import {
+  applyDailyScreeningRowFilters,
   buildDailyScreeningCliPreview,
   buildDailyScreeningForms,
+  buildDailyScreeningModelFilters,
+  buildDailyScreeningSourceQueries,
   getDailyScreeningGuide,
+  mergeDailyScreeningRows,
   resolveDailyScreeningFields,
 } from './dailyScreeningPage.mjs'
 
@@ -302,8 +337,9 @@ const loadingPrePools = ref(false)
 const startingRun = ref(false)
 const pageError = ref('')
 const schema = ref({ models: [], options: {} })
-const selectedModel = ref('clxs')
+const selectedModel = ref('all')
 const forms = reactive({
+  all: {},
   clxs: {},
   chanlun: {},
 })
@@ -314,6 +350,8 @@ const acceptedRows = ref([])
 const logEvents = ref([])
 const prePoolRows = ref([])
 const prePoolScope = ref('source')
+const resultBranchFilter = ref('all')
+const resultModelFilter = ref('all')
 let eventSource = null
 
 const models = computed(() => Array.isArray(schema.value?.models) ? schema.value.models : [])
@@ -324,6 +362,30 @@ const visibleFields = computed(() => resolveDailyScreeningFields(schema.value, s
 const cliPreview = computed(() => buildDailyScreeningCliPreview(selectedModel.value, currentForm.value))
 const guideLines = computed(() => getDailyScreeningGuide(selectedModel.value))
 const orderedLogEvents = computed(() => [...logEvents.value].reverse())
+const filterOptions = computed(() => buildDailyScreeningModelFilters([
+  ...acceptedRows.value,
+  ...prePoolRows.value,
+], resultBranchFilter.value))
+const filteredAcceptedRows = computed(() => applyDailyScreeningRowFilters(
+  acceptedRows.value,
+  {
+    branch: resultBranchFilter.value,
+    modelKey: resultModelFilter.value,
+  },
+))
+const filteredPrePoolRows = computed(() => applyDailyScreeningRowFilters(
+  prePoolRows.value,
+  {
+    branch: resultBranchFilter.value,
+    modelKey: resultModelFilter.value,
+  },
+))
+const currentRemarkSummary = computed(() => {
+  if (selectedModel.value === 'all') {
+    return `${currentForm.value?.clxs_remark || 'daily-screening:clxs'} -> ${currentForm.value?.chanlun_remark || 'daily-screening:chanlun'}`
+  }
+  return currentForm.value?.remark || '-'
+})
 
 const statusChipClass = computed(() => {
   const status = String(runSnapshot.value?.status || '').toLowerCase()
@@ -331,6 +393,12 @@ const statusChipClass = computed(() => {
   if (status === 'failed') return 'workbench-summary-chip--danger'
   if (status === 'running') return 'workbench-summary-chip--warning'
   return 'workbench-summary-chip--muted'
+})
+
+watch(filterOptions, (nextValue) => {
+  if (resultModelFilter.value === 'all') return
+  if (nextValue.models.some((item) => item.key === resultModelFilter.value)) return
+  resultModelFilter.value = 'all'
 })
 
 const closeStream = () => {
@@ -355,6 +423,9 @@ const loadSchema = async () => {
     const { data } = await dailyScreeningApi.getSchema()
     schema.value = data || { models: [], options: {} }
     applyForms(buildDailyScreeningForms(schema.value))
+    if (!models.value.find((model) => model.id === selectedModel.value)) {
+      selectedModel.value = models.value[0]?.id || 'all'
+    }
     pageError.value = ''
     await refreshPrePools()
   } catch (error) {
@@ -383,16 +454,26 @@ const buildStartPayload = () => ({
 const refreshPrePools = async () => {
   loadingPrePools.value = true
   try {
-    const params = {
-      limit: 200,
-    }
     if (prePoolScope.value === 'run' && activeRunId.value) {
-      params.run_id = activeRunId.value
-    } else {
-      params.remark = currentForm.value?.remark || ''
+      const { data } = await dailyScreeningApi.getPrePools({
+        limit: 200,
+        run_id: activeRunId.value,
+      })
+      prePoolRows.value = Array.isArray(data?.rows) ? data.rows : []
+      return
     }
-    const { data } = await dailyScreeningApi.getPrePools(params)
-    prePoolRows.value = Array.isArray(data?.rows) ? data.rows : []
+
+    const queries = buildDailyScreeningSourceQueries(
+      selectedModel.value,
+      currentForm.value,
+      200,
+    )
+    const responses = await Promise.all(
+      queries.map((params) => dailyScreeningApi.getPrePools(params)),
+    )
+    prePoolRows.value = mergeDailyScreeningRows(
+      ...responses.map((response) => response?.data?.rows),
+    )
   } catch (error) {
     pageError.value = error?.response?.data?.error || error?.message || '加载预选池失败'
   } finally {
@@ -408,14 +489,22 @@ const resolveFieldLabel = (field) => {
     stretch_opt: 'stretch_opt',
     trend_opt: 'trend_opt',
     model_opt: 'model_opt',
+    model_opts: 'CLXS 模型',
+    clxs_model_opts: 'CLXS 全模型',
     save_pre_pools: '写入 pre_pools',
     output_category: '输出分类',
     remark: '来源备注',
+    clxs_remark: 'CLXS 来源',
+    chanlun_remark: 'chanlun 来源',
     input_mode: '输入模式',
     period_mode: '周期模式',
+    chanlun_period_mode: 'chanlun 周期',
     pre_pool_category: '预选池分类',
     pre_pool_remark: '预选池来源',
     max_concurrent: '最大并发',
+    chanlun_max_concurrent: 'chanlun 并发',
+    signal_types: '缠论信号',
+    chanlun_signal_types: 'chanlun 全信号',
     save_signal: '写入信号',
     save_pools: '写入股票池',
     pool_expire_days: '股票池天数',
@@ -443,6 +532,8 @@ const eventToneMap = {
   hit_raw: 'muted',
   accepted: 'success',
   persisted: 'success',
+  phase_started: 'warning',
+  phase_completed: 'neutral',
   summary: 'neutral',
   completed: 'success',
   error: 'danger',
@@ -458,6 +549,9 @@ const eventSummary = (eventName, payload = {}) => {
   }
   if (eventName === 'persisted') {
     return `${payload.code || '-'} -> ${payload.category || '-'} / ${payload.remark || '-'}`
+  }
+  if (eventName === 'phase_started' || eventName === 'phase_completed') {
+    return `${payload.branch || '-'} ${payload.label || '-'} accepted=${payload.accepted_count || 0}`
   }
   if (eventName === 'summary') {
     return `accepted=${payload.accepted_count || 0}, persisted=${payload.persisted_count || 0}`
@@ -522,7 +616,7 @@ const connectStream = (runId) => {
   }
   streamState.value = 'connecting'
   eventSource = createDailyScreeningStream(runId)
-  const eventNames = ['started', 'universe', 'progress', 'hit_raw', 'accepted', 'persisted', 'summary', 'completed', 'error', 'heartbeat']
+  const eventNames = ['started', 'universe', 'progress', 'hit_raw', 'accepted', 'persisted', 'phase_started', 'phase_completed', 'summary', 'completed', 'error', 'heartbeat']
   for (const name of eventNames) {
     eventSource.addEventListener(name, (event) => {
       streamState.value = name === 'heartbeat' ? 'streaming' : 'connected'
@@ -540,6 +634,8 @@ const startRun = async () => {
   logEvents.value = []
   acceptedRows.value = []
   prePoolScope.value = 'run'
+  resultBranchFilter.value = 'all'
+  resultModelFilter.value = 'all'
   closeStream()
   try {
     const { data } = await dailyScreeningApi.startRun(buildStartPayload())
@@ -675,6 +771,12 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 10px;
   margin-top: 16px;
+}
+
+.daily-filter-bar {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .daily-stream-list {
