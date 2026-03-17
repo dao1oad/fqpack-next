@@ -1,41 +1,41 @@
-import axios from 'axios'
+import http from '@/http'
 
 export const dailyScreeningApi = {
   getSchema () {
-    return axios({
+    return http({
       url: '/api/daily-screening/schema',
       method: 'get',
     })
   },
   startRun (data) {
-    return axios({
+    return http({
       url: '/api/daily-screening/runs',
       method: 'post',
       data,
     })
   },
   getRun (runId) {
-    return axios({
+    return http({
       url: `/api/daily-screening/runs/${runId}`,
       method: 'get',
     })
   },
   getPrePools (params = {}) {
-    return axios({
+    return http({
       url: '/api/daily-screening/pre-pools',
       method: 'get',
       params,
     })
   },
   addPrePoolToStockPool (data) {
-    return axios({
+    return http({
       url: '/api/daily-screening/pre-pools/stock-pools',
       method: 'post',
       data,
     })
   },
   deletePrePool (data) {
-    return axios({
+    return http({
       url: '/api/daily-screening/pre-pools/delete',
       method: 'post',
       data,
