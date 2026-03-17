@@ -310,6 +310,35 @@ def test_updating_config_resets_buy_active_and_records_audit_log():
     assert database["audit_log"].docs[-1]["state_reset"] is True
 
 
+def test_enabled_true_without_buy_enabled_reopens_all_levels_for_legacy_callers():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "buy_enabled": [False, False, False],
+                        "enabled": False,
+                    }
+                ]
+            )
+        }
+    )
+    service = _build_service(database)
+
+    result = service.upsert_config(
+        "000001",
+        enabled=True,
+        updated_by="cli",
+    )
+
+    assert result["buy_enabled"] == [True, True, True]
+    assert result["enabled"] is True
+
+
 def test_manual_state_changes_and_manual_reset_are_audited():
     database = FakeDatabase({"audit_log": FakeCollection()})
     service = _build_service(database)

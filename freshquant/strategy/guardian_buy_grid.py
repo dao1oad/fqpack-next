@@ -120,12 +120,17 @@ class GuardianBuyGridService:
             current.get("buy_enabled"),
             default=[bool(current.get("enabled", True))] * 3,
         )
-        resolved_buy_enabled = _coerce_buy_enabled(
-            buy_enabled,
-            default=(
-                [False, False, False] if enabled is False else current_buy_enabled
-            ),
-        )
+        if buy_enabled is not None:
+            resolved_buy_enabled = _coerce_buy_enabled(
+                buy_enabled,
+                default=current_buy_enabled,
+            )
+        elif enabled is False:
+            resolved_buy_enabled = [False, False, False]
+        elif enabled is True:
+            resolved_buy_enabled = [True, True, True]
+        else:
+            resolved_buy_enabled = current_buy_enabled
         document = {
             "code": normalized,
             "BUY-1": _coerce_float(
