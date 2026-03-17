@@ -427,6 +427,90 @@ def test_repository_rejects_mixed_scope_snapshots():
         )
 
 
+def test_repository_rejects_mixed_stage_memberships_without_mutating_existing_rows():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_runs=SimpleCollection("daily_screening_runs"),
+        daily_screening_memberships=SimpleCollection(
+            "daily_screening_memberships",
+            docs=[
+                {
+                    "run_id": "run-1",
+                    "stage": "clxs",
+                    "scope": "scope-a",
+                    "code": "000001",
+                }
+            ],
+        ),
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots"
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    with pytest.raises(ValueError):
+        repo.replace_stage_memberships(
+            run_id="run-1",
+            scope="scope-a",
+            memberships=[
+                {"stage": "clxs", "code": "000001"},
+                {"stage": "chanlun", "code": "000002"},
+            ],
+        )
+
+    assert fake_db["daily_screening_memberships"].docs == [
+        {
+            "run_id": "run-1",
+            "stage": "clxs",
+            "scope": "scope-a",
+            "code": "000001",
+        }
+    ]
+
+
+def test_repository_rejects_mixed_run_id_memberships_without_mutating_existing_rows():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_runs=SimpleCollection("daily_screening_runs"),
+        daily_screening_memberships=SimpleCollection(
+            "daily_screening_memberships",
+            docs=[
+                {
+                    "run_id": "run-1",
+                    "stage": "clxs",
+                    "scope": "scope-a",
+                    "code": "000001",
+                }
+            ],
+        ),
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots"
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    with pytest.raises(ValueError):
+        repo.replace_stage_memberships(
+            stage="clxs",
+            scope="scope-a",
+            memberships=[
+                {"run_id": "run-1", "code": "000001"},
+                {"run_id": "run-2", "code": "000002"},
+            ],
+        )
+
+    assert fake_db["daily_screening_memberships"].docs == [
+        {
+            "run_id": "run-1",
+            "stage": "clxs",
+            "scope": "scope-a",
+            "code": "000001",
+        }
+    ]
+
+
 def test_repository_invalid_membership_batch_does_not_clear_existing_rows():
     from freshquant.daily_screening.repository import DailyScreeningRepository
 
@@ -461,6 +545,45 @@ def test_repository_invalid_membership_batch_does_not_clear_existing_rows():
         {
             "run_id": "run-1",
             "stage": "clxs",
+            "scope": "scope-a",
+            "code": "000001",
+        }
+    ]
+
+
+def test_repository_rejects_mixed_run_id_snapshots_without_mutating_existing_rows():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_runs=SimpleCollection("daily_screening_runs"),
+        daily_screening_memberships=SimpleCollection(
+            "daily_screening_memberships"
+        ),
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots",
+            docs=[
+                {
+                    "run_id": "run-1",
+                    "scope": "scope-a",
+                    "code": "000001",
+                }
+            ],
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    with pytest.raises(ValueError):
+        repo.upsert_stock_snapshots(
+            scope="scope-a",
+            snapshots=[
+                {"run_id": "run-1", "code": "000001"},
+                {"run_id": "run-2", "code": "000002"},
+            ],
+        )
+
+    assert fake_db["daily_screening_stock_snapshots"].docs == [
+        {
+            "run_id": "run-1",
             "scope": "scope-a",
             "code": "000001",
         }

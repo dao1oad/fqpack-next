@@ -81,19 +81,19 @@ class DailyScreeningRepository:
         **document,
     ):
         raw_items = list(memberships or [])
-        effective_run_id = self._first_non_empty(
-            run_id, *(self._primary_value(item, "run_id") for item in raw_items)
+        effective_run_id = self._resolve_single_identity(
+            run_id, raw_items, field_name="run_id"
         )
-        effective_stage = self._first_non_empty(
-            stage, *(self._primary_value(item, "stage") for item in raw_items)
+        effective_stage = self._resolve_single_identity(
+            stage, raw_items, field_name="stage"
+        )
+        effective_scope = self._resolve_single_identity(
+            scope, raw_items, field_name="scope"
         )
         if effective_run_id is None:
             raise ValueError("run_id required")
         if effective_stage is None:
             raise ValueError("stage required")
-        effective_scope = self._resolve_single_scope(
-            scope, raw_items, field_name="scope"
-        )
         if not raw_items:
             query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
             query["stage"] = effective_stage
@@ -128,14 +128,14 @@ class DailyScreeningRepository:
         **document,
     ):
         raw_items = list(snapshots or [])
-        effective_run_id = self._first_non_empty(
-            run_id, *(self._primary_value(item, "run_id") for item in raw_items)
+        effective_run_id = self._resolve_single_identity(
+            run_id, raw_items, field_name="run_id"
+        )
+        effective_scope = self._resolve_single_identity(
+            scope, raw_items, field_name="scope"
         )
         if effective_run_id is None and raw_items:
             raise ValueError("run_id required")
-        effective_scope = self._resolve_single_scope(
-            scope, raw_items, field_name="scope"
-        )
         if not raw_items:
             return []
         payloads = [
@@ -240,22 +240,22 @@ class DailyScreeningRepository:
                 return candidate
         return None
 
-    def _resolve_single_scope(
+    def _resolve_single_identity(
         self,
         explicit_scope,
         items: list[dict[str, Any]],
         *,
         field_name: str,
     ):
-        scopes = []
+        values = []
         explicit = self._first_non_empty(explicit_scope)
         if explicit is not None:
-            scopes.append(str(explicit).strip())
+            values.append(str(explicit).strip())
         for item in items:
             value = self._first_non_empty(self._primary_value(item, field_name))
             if value is not None:
-                scopes.append(str(value).strip())
-        normalized = {value for value in scopes if value}
+                values.append(str(value).strip())
+        normalized = {value for value in values if value}
         if len(normalized) > 1:
             raise ValueError(f"{field_name} must be consistent within one call")
         return next(iter(normalized), None)
