@@ -90,9 +90,7 @@ def sync_local_deploy_mirror(
     ensure_clean_worktree(repo_root)
 
     before_sha = current_head_sha(repo_root)
-    origin_main_sha = fetch_origin_main(
-        repo_root, remote_url=remote_url, branch=branch
-    )
+    origin_main_sha = fetch_origin_main(repo_root, remote_url=remote_url, branch=branch)
     if origin_main_sha != target_sha:
         raise RuntimeError(
             f"origin/main does not match target sha: origin/main={origin_main_sha} target={target_sha}"

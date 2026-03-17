@@ -10,7 +10,9 @@ import pytest
 
 def load_module():
     module_path = Path("script/ci/sync_local_deploy_mirror.py")
-    spec = importlib.util.spec_from_file_location("sync_local_deploy_mirror", module_path)
+    spec = importlib.util.spec_from_file_location(
+        "sync_local_deploy_mirror", module_path
+    )
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
