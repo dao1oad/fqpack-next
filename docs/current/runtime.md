@@ -126,6 +126,7 @@
 - 该 workflow 不走 `actions/checkout`；会先调用 GitHub API 校验 `main` tip，再用 PowerShell 下载目标 SHA 的源码归档并展开到 runner 工作区，避免宿主机 `git/libcurl` 网络抖动导致 deploy 卡在 checkout
 - 对已经有 `last_success_sha` 的增量正式 deploy，`run_formal_deploy.py` 会在 zipball 工作区下回退到 GitHub compare API 计算 changed paths，因此不会因为缺少 `.git` 而失去增量部署能力
 - 该 workflow 中的 PowerShell steps 固定带 `-ExecutionPolicy Bypass`，避免 self-hosted Windows runner 的本机执行策略在 step 启动前拦截临时脚本
+- 该 workflow 也会显式设置 `$ErrorActionPreference = 'Stop'`，确保 PowerShell cmdlet 的 non-terminating error 仍然按 fail-fast 方式中断正式 deploy
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - `docker/compose.parallel.yaml` 会为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`，避免容器误继承宿主机默认 `27027`

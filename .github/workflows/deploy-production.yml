@@ -27,6 +27,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = 'Stop'
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = "application/vnd.github+json"
@@ -48,6 +49,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = 'Stop'
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = "application/vnd.github+json"
@@ -90,20 +92,25 @@ jobs:
 
       - name: Install uv
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
-        run: python -m pip install --upgrade pip uv
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --upgrade pip uv
 
       - name: Sync locked environment
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
-        run: uv sync --frozen
+        run: |
+          $ErrorActionPreference = 'Stop'
+          uv sync --frozen
 
       - name: Run formal production deploy
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          py -3.12 script/ci/run_formal_deploy.py
-          --repo-root .
-          --head-sha "${{ github.event.workflow_run.head_sha }}"
-          --run-url "${{ github.event.workflow_run.html_url }}"
-          --github-repository "${{ github.repository }}"
-          --format summary
+        run: |
+          $ErrorActionPreference = 'Stop'
+          py -3.12 script/ci/run_formal_deploy.py `
+            --repo-root . `
+            --head-sha "${{ github.event.workflow_run.head_sha }}" `
+            --run-url "${{ github.event.workflow_run.html_url }}" `
+            --github-repository "${{ github.repository }}" `
+            --format summary
