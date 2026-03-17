@@ -55,6 +55,14 @@ def test_collect_ci_context_marks_code_changes_as_not_docs_only() -> None:
     assert context["deployment_required"] is True
 
 
+def test_collect_ci_context_can_import_deploy_plan_module() -> None:
+    module = _load_module(COLLECT_CONTEXT_SCRIPT, "collect_ci_context")
+
+    deploy_plan_module = module.load_deploy_plan_module()
+
+    assert hasattr(deploy_plan_module, "build_deploy_plan")
+
+
 def test_select_pytest_shard_is_deterministic_and_disjoint() -> None:
     module = _load_module(SELECT_SHARD_SCRIPT, "select_pytest_shard")
 
@@ -110,4 +118,3 @@ def test_select_pytest_shard_cli_outputs_json(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert "selected" in payload
-
