@@ -274,3 +274,45 @@ def test_compute_rewrite_result_rebuilds_when_dagsterconfig_changes(
     assert result["skip_build"] is False
     assert result["mode"] == "build_required"
     assert result["compose_args"] == ["up", "-d", "--build", "fq_dagster_webserver"]
+
+
+def test_compute_rewrite_result_can_force_local_build(monkeypatch) -> None:
+    module = load_module()
+
+    monkeypatch.setenv("FQ_DOCKER_FORCE_LOCAL_BUILD", "1")
+    monkeypatch.setattr(module, "load_current_revision", lambda _: "abc123")
+    monkeypatch.setattr(
+        module,
+        "load_compose_service_images",
+        lambda _: (
+            ["fq_webui"],
+            {"fq_webui": "fqnext_webui:2026.2.23"},
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "load_local_image_revisions",
+        lambda _: {"fqnext_webui:2026.2.23": "abc123"},
+    )
+    monkeypatch.setattr(
+        module,
+        "load_remote_image_revisions",
+        lambda _: {"ghcr.io/dao1oad/fqnext-webui:abc123": "abc123"},
+    )
+    monkeypatch.setattr(
+        module,
+        "build_registry_service_images",
+        lambda revision: {"fq_webui": f"ghcr.io/dao1oad/fqnext-webui:{revision}"},
+    )
+    monkeypatch.setattr(module, "load_dirty_paths", lambda _: [])
+
+    result = module.compute_rewrite_result(
+        repo_root=Path("."),
+        compose_file=Path("docker/compose.parallel.yaml"),
+        compose_args=["up", "-d", "--build", "fq_webui"],
+    )
+
+    assert result["skip_build"] is False
+    assert result["mode"] == "build_required"
+    assert result["reason"] == "local build forced by FQ_DOCKER_FORCE_LOCAL_BUILD"
+    assert result["compose_args"] == ["up", "-d", "--build", "fq_webui"]
