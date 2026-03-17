@@ -23,4 +23,3 @@ def test_ci_workflow_shards_pytest_with_matrix() -> None:
     assert "matrix:" in text
     assert "select_pytest_shard.py" in text
     assert "strategy:" in text
-

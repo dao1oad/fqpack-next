@@ -1,4 +1,7 @@
 param(
+    [Alias("d")]
+    [switch]$Detached,
+
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ComposeArgs
 )
@@ -6,6 +9,12 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$env:DOCKER_BUILDKIT = "1"
+$env:COMPOSE_DOCKER_CLI_BUILD = "1"
+$env:COMPOSE_BAKE = "true"
+Set-Item -Path "Env:DOCKER_BUILDKIT" -Value "1"
+Set-Item -Path "Env:COMPOSE_DOCKER_CLI_BUILD" -Value "1"
+Set-Item -Path "Env:COMPOSE_BAKE" -Value "true"
 
 if (-not $env:FQ_RUNTIME_LOG_HOST_DIR) {
     $resolvedRuntimeLogHostDir = & py -3.12 "$repoRoot\script\docker_parallel_runtime.py" --repo-root $repoRoot --kind runtime-log-dir
@@ -24,15 +33,7 @@ if (-not $env:FQ_COMPOSE_ENV_FILE) {
 }
 
 if (-not $env:FQ_DOCKER_BUILD_CACHE_ROOT) {
-    $env:FQ_DOCKER_BUILD_CACHE_ROOT = (Join-Path $repoRoot ".artifacts\docker-build-cache")
-}
-
-if (-not $env:DOCKER_BUILDKIT) {
-    $env:DOCKER_BUILDKIT = "1"
-}
-
-if (-not $env:COMPOSE_BAKE) {
-    $env:COMPOSE_BAKE = "true"
+    Set-Item -Path "Env:FQ_DOCKER_BUILD_CACHE_ROOT" -Value (Join-Path $repoRoot ".artifacts\docker-build-cache")
 }
 
 if (-not (Test-Path $env:FQ_RUNTIME_LOG_HOST_DIR)) {
@@ -47,20 +48,86 @@ if (-not (Test-Path $env:FQ_DOCKER_BUILD_CACHE_ROOT)) {
     New-Item -ItemType Directory -Path $env:FQ_DOCKER_BUILD_CACHE_ROOT -Force | Out-Null
 }
 
+$currentRevision = (& git -C $repoRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "failed to resolve current git revision"
+}
+$env:FQ_IMAGE_GIT_SHA = $currentRevision
+
+$resolvedComposeArgs = @($ComposeArgs)
+if ($Detached.IsPresent -and $resolvedComposeArgs -and $resolvedComposeArgs -notcontains "-d") {
+    $reconstructedComposeArgs = @($resolvedComposeArgs[0], "-d")
+    if ($resolvedComposeArgs.Count -gt 1) {
+        $reconstructedComposeArgs += $resolvedComposeArgs[1..($resolvedComposeArgs.Count - 1)]
+    }
+    $resolvedComposeArgs = $reconstructedComposeArgs
+}
+
+$fallbackComposeArgs = @($resolvedComposeArgs)
+if ($resolvedComposeArgs.Count -gt 0) {
+    try {
+        $helperArgs = @(
+            "$repoRoot\script\docker_parallel_compose.py",
+            "--repo-root",
+            $repoRoot,
+            "--compose-file",
+            "$repoRoot\docker\compose.parallel.yaml"
+        )
+        foreach ($composeArg in $resolvedComposeArgs) {
+            $helperArgs += "--compose-arg=$([string]$composeArg)"
+        }
+
+        $smartBuildJson = & py -3.12 @helperArgs
+        if ($LASTEXITCODE -eq 0 -and $smartBuildJson) {
+            $smartBuild = $smartBuildJson | ConvertFrom-Json
+            $resolvedComposeArgs = @($smartBuild.compose_args | ForEach-Object { [string]$_ })
+            if ($smartBuild.image_overrides) {
+                foreach ($property in $smartBuild.image_overrides.PSObject.Properties) {
+                    Set-Item -Path "Env:$($property.Name)" -Value ([string]$property.Value)
+                }
+            }
+            if ($smartBuild.skip_build) {
+                Write-Host "smart-build[$($smartBuild.mode)]: $($smartBuild.reason)"
+            }
+            if ($smartBuild.mode -eq "remote_cached" -and $smartBuild.pull_images) {
+                $pullFailed = $false
+                foreach ($pullImage in @($smartBuild.pull_images | ForEach-Object { [string]$_ })) {
+                    Write-Host "PULL_IMAGE=$pullImage"
+                    & docker pull $pullImage
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Warning "remote image pull failed for $pullImage; falling back to original compose args"
+                        $resolvedComposeArgs = @($fallbackComposeArgs)
+                        $pullFailed = $true
+                        break
+                    }
+                }
+                if ($pullFailed) {
+                    Write-Host "smart-build fallback: build_required"
+                }
+            }
+        }
+    } catch {
+        Write-Warning "smart-build fallback to original compose args: $($_.Exception.Message)"
+        $resolvedComposeArgs = @($fallbackComposeArgs)
+    }
+}
+
 $dockerArgs = @(
     "compose",
     "-f",
     "$repoRoot\docker\compose.parallel.yaml"
 )
 
-if ($ComposeArgs) {
-    $dockerArgs += $ComposeArgs
+if ($resolvedComposeArgs) {
+    $dockerArgs += $resolvedComposeArgs
 }
 
 Write-Host "FQ_RUNTIME_LOG_HOST_DIR=$($env:FQ_RUNTIME_LOG_HOST_DIR)"
 Write-Host "FQ_COMPOSE_ENV_FILE=$($env:FQ_COMPOSE_ENV_FILE)"
 Write-Host "FQ_DOCKER_BUILD_CACHE_ROOT=$($env:FQ_DOCKER_BUILD_CACHE_ROOT)"
+Write-Host "FQ_IMAGE_GIT_SHA=$($env:FQ_IMAGE_GIT_SHA)"
 Write-Host "DOCKER_BUILDKIT=$($env:DOCKER_BUILDKIT)"
 Write-Host "COMPOSE_BAKE=$($env:COMPOSE_BAKE)"
+Write-Host "DOCKER_ARGS=$($dockerArgs -join ' ')"
 & docker @dockerArgs
 exit $LASTEXITCODE

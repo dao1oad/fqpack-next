@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 DOCS_ONLY_PREFIXES = (
     "docs/",
     ".codex/",
@@ -36,7 +35,10 @@ def git_diff_name_only(base_ref: str, head_ref: str) -> list[str]:
 
 
 def normalize_path(path: str) -> str:
-    return path.replace("\\", "/").lstrip("./").strip()
+    normalized = path.replace("\\", "/").strip()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
 
 
 def unique_in_order(values: list[str]) -> list[str]:

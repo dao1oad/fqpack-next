@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -19,9 +18,7 @@ def test_local_preflight_and_hook_scripts_exist() -> None:
 
 
 def test_local_preflight_script_contains_preflight_contract() -> None:
-    text = (REPO_ROOT / "script" / "fq_local_preflight.ps1").read_text(
-        encoding="utf-8"
-    )
+    text = (REPO_ROOT / "script" / "fq_local_preflight.ps1").read_text(encoding="utf-8")
 
     assert "check_current_docs.py" in text
     assert "pre-commit" in text

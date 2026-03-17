@@ -18,4 +18,3 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "[freshquant] repo hooks installed via core.hooksPath=.githooks"
-

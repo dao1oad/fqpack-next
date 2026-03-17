@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYTHON = Path(sys.executable)
 COLLECT_CONTEXT_SCRIPT = REPO_ROOT / "script" / "ci" / "collect_ci_context.py"
@@ -61,6 +60,19 @@ def test_collect_ci_context_can_import_deploy_plan_module() -> None:
     deploy_plan_module = module.load_deploy_plan_module()
 
     assert hasattr(deploy_plan_module, "build_deploy_plan")
+
+
+def test_collect_ci_context_preserves_leading_dot_paths() -> None:
+    module = _load_module(COLLECT_CONTEXT_SCRIPT, "collect_ci_context")
+
+    context = module.build_context(
+        changed_files=["./.github/workflows/ci.yml", ".githooks/pre-push", ".codex/memory/workflow-rules.md"],
+        deployment_required=False,
+    )
+
+    assert ".github/workflows/ci.yml" in context["changed_files"]
+    assert ".githooks/pre-push" in context["changed_files"]
+    assert ".codex/memory/workflow-rules.md" in context["changed_files"]
 
 
 def test_select_pytest_shard_is_deterministic_and_disjoint() -> None:

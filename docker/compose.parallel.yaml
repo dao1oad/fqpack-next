@@ -34,6 +34,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.rear
+      args:
+        FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}
       cache_from:
         - type=local,src=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/rear
       cache_to:
@@ -100,7 +102,7 @@ services:
       [
         "sh",
         "-lc",
-        "mkdir -p /opt/dagster/home; cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; cd /opt/dagster/home; /freshquant/.venv/bin/dagster-webserver -h 0.0.0.0 -p 10003 -w /opt/dagster/home/workspace.yaml",
+        "mkdir -p /opt/dagster/home; cp -f /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; cd /opt/dagster/home; /freshquant/.venv/bin/dagster-webserver -h 0.0.0.0 -p 10003 -w /opt/dagster/home/workspace.yaml",
       ]
     ports:
       - "11003:10003"
@@ -138,7 +140,7 @@ services:
       [
         "sh",
         "-lc",
-        "mkdir -p /opt/dagster/home; cp -n /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; /freshquant/.venv/bin/dagster-daemon run -w /opt/dagster/home/workspace.yaml",
+        "mkdir -p /opt/dagster/home; cp -f /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; /freshquant/.venv/bin/dagster-daemon run -w /opt/dagster/home/workspace.yaml",
       ]
     volumes:
       - fqnext_dagster_data:/opt/dagster
@@ -178,8 +180,10 @@ services:
 
   fq_webui:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.web
+      context: ../morningglory/fqwebui
+      dockerfile: ../../docker/Dockerfile.web
+      args:
+        FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}
       cache_from:
         - type=local,src=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/web
       cache_to:
@@ -198,6 +202,8 @@ services:
     build:
       context: ../third_party/tradingagents-cn
       dockerfile: Dockerfile.backend
+      args:
+        FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}
       cache_from:
         - type=local,src=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/ta_backend
       cache_to:
@@ -270,6 +276,8 @@ services:
     build:
       context: ../third_party/tradingagents-cn
       dockerfile: Dockerfile.frontend
+      args:
+        FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}
       cache_from:
         - type=local,src=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/ta_frontend
       cache_to:

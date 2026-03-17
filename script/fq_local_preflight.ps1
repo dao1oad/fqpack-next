@@ -261,4 +261,3 @@ $payload = [ordered]@{
 
 Write-Utf8NoBomFile -Path $recordPath -Content ($payload | ConvertTo-Json -Depth 4)
 Write-Host "[freshquant] local preflight passed for $headSha against $resolvedBaseRef"
-

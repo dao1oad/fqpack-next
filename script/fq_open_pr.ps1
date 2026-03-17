@@ -27,4 +27,3 @@ if (-not $ghCommand) {
 
 & $ghCommand.Source @("pr", "create") $GhArgs
 exit $LASTEXITCODE
-

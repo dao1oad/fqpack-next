@@ -6,6 +6,16 @@
 - Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
 - FreshQuant / QUANTAXIS 相关 Docker 服务在 `docker/compose.parallel.yaml` 内部固定使用 `fq_mongodb:27017`；不要只覆写 host 而保留宿主机默认 `27027`
 - 仓库根目录 legacy 批处理部署脚本 `deploy.bat` / `deploy_rear.bat` 已移除；当前只保留 `docker compose` + `script/fqnext_host_runtime_ctl.ps1` 这套正式入口。
+- Docker 侧正式入口优先使用 `powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 ...`；该脚本会自动解析主工作树 `.env` / runtime log 目录、注入当前 `HEAD` 到镜像 label、开启 BuildKit。正式自动 deploy 会额外设置 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，强制 production 机基于本机 deploy mirror 本地构建，而不是优先拉 GHCR。
+- `.github/workflows/docker-images.yml` 仍会在 `main` push 后发布镜像到 GHCR，但它不再是正式 deploy 的前置条件；正式 deploy 真值改为本机 deploy mirror。
+- `.github/workflows/deploy-production.yml` 当前由 `push main` 直接触发，并在 `[self-hosted, windows, production]` runner 上执行。
+- 正式 deploy mirror 固定目录是 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`；该目录使用专用本地分支 `deploy-production-main` fast-forward 到远程 `main`，再由正式 workflow 从这个目录构建和部署。
+- `D:\fqpack\freshquant-2026.2.23` 现在只作为 canonical repo root，用于管理/创建正式 mirror worktree；它不再被视为正式构建工作区。
+- 该 workflow 依赖正式 Windows runner 宿主机已安装的 Python 3.12 与 uv；也就是说 production runner 上必须已经有“宿主机已安装的 uv”，不再在线执行 `pip install uv` 或下载源码归档。
+- `deploy-production.yml` 在真正执行正式 deploy 前，会通过 GitHub API 再次校验 `${{ github.sha }}` 是否仍然是当前 main tip；对已经过时的 push 事件会直接拒绝。
+- `deploy-production.yml` 不再下载 `zipball/<sha>`，也不依赖 `actions/checkout`；它会先确保 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 这个本机 deploy mirror worktree 存在，再把它 fast-forward 到目标 SHA，然后在该目录下执行 `uv sync` 和 `run_formal_deploy.py`。
+- production runner service 用户与仓库目录 owner 不一致时，workflow 会先为 canonical repo root 和 mirror root 显式配置 `git safe.directory`，避免 self-hosted Windows service 因 dubious ownership 拒绝执行 git。
+- 自动正式部署的状态文件固定为 `D:\fqpack\runtime\symphony-service\artifacts\formal-deploy\production-state.json`；会记录上一次成功部署的 commit、最近一次尝试时间与最近一次部署 surfaces。
 - `Merging` 只负责 merge 与 handoff；merge 后由单个全局 Codex 自动化统一判断 deploy、health check、runtime ops check 和 cleanup。
 - 部署动作结束后必须先做接口层健康检查，再做 deploy 后运维面检查；两者都通过后才进入 cleanup。
 - `Global Stewardship` 的实际收口链路固定为：`deploy -> health check -> runtime ops check -> cleanup`。
@@ -25,6 +35,20 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 - 这条命令只用于显式全量重建；日常 selective deploy 统一优先走 `script/fq_apply_deploy_plan.ps1`
 - Docker 构建默认启用 BuildKit 本地缓存；未显式设置时，`script/docker_parallel_compose.ps1` 会把 `FQ_DOCKER_BUILD_CACHE_ROOT` 设为仓库下的 `.artifacts/docker-build-cache`
+- `main` 合并后的镜像发布 workflow：`.github/workflows/docker-images.yml`
+- `main` 合并后的正式自动部署 workflow：`.github/workflows/deploy-production.yml`
+- 正式 deploy canonical repo root：`D:\fqpack\freshquant-2026.2.23`
+- 正式 deploy mirror：`D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
+- 正式收口时由 `FQ_DOCKER_FORCE_LOCAL_BUILD=1` 强制本机构建；GHCR 不再是正式 deploy 前置
+
+### 自动正式部署
+
+- `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
+- `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
+- 如果触发事件里的 SHA 已经不是当前 main tip，`deploy-production.yml` 会直接失败，不会对过时 push 继续 deploy。
+- workflow 本身会先从 canonical repo root bootstrap/同步本机 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` mirror，再在该目录下执行 `py -3.12 -m uv sync --frozen` 与 `run_formal_deploy.py`。
+- 正式 deploy 要求 production runner 宿主机已安装的 Python 3.12 与 uv；缺任一工具都会在 deploy 前直接失败。
+- 本轮正式 deploy 会显式导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，避免 `docker_parallel_compose.py` 把 `--build` 改写成 GHCR pull 路径。
 
 ### 共享部署计划解析
 
