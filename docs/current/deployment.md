@@ -9,10 +9,12 @@
 - Docker 侧正式入口优先使用 `powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 ...`；该脚本会自动解析主工作树 `.env` / runtime log 目录、注入当前 `HEAD` 到镜像 label、开启 BuildKit。正式自动 deploy 会额外设置 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，强制 production 机基于本机 mirror 本地构建，而不是优先拉 GHCR。
 - `.github/workflows/docker-images.yml` 仍会在 `main` push 后发布镜像，但它不再是正式 deploy 的前置条件；正式 deploy 真值改为本机 mirror。
 - `.github/workflows/deploy-production.yml` 当前由 `push main` 直接触发，并在 `[self-hosted, windows, production]` runner 上执行。
-- 正式 deploy mirror 固定目录是 `D:\fqpack\freshquant-2026.2.23`；该目录的 `main` 分支负责与远程 `main` 同步，再由正式 workflow 从这个目录构建和部署。
+- 正式 deploy mirror 固定目录是 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`；该目录使用专用本地分支 `deploy-production-main` fast-forward 到远程 `main`，再由正式 workflow 从这个目录构建和部署。
+- `D:\fqpack\freshquant-2026.2.23` 现在只作为 canonical repo root，用于管理/创建正式 mirror worktree；它不再被视为正式构建工作区。
 - 该 workflow 依赖正式 Windows runner 宿主机已安装的 Python 3.12 与 uv；也就是说 production runner 上必须已经有“宿主机已安装的 uv”，不再在线执行 `pip install uv` 或下载源码归档。
 - `deploy-production.yml` 在真正执行正式 deploy 前，会通过 GitHub API 再次校验 `${{ github.sha }}` 是否仍然是当前 `main` tip；对已经过时的 push 事件会直接拒绝。
-- `deploy-production.yml` 不再下载 `zipball/<sha>`，也不依赖 `actions/checkout`；它会先把 `D:\fqpack\freshquant-2026.2.23` 这个本机 deploy mirror fast-forward 到目标 SHA，再在该目录下执行 `uv sync` 和 `run_formal_deploy.py`。
+- `deploy-production.yml` 不再下载 `zipball/<sha>`，也不依赖 `actions/checkout`；它会先确保 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 这个本机 deploy mirror worktree 存在，再把它 fast-forward 到目标 SHA，然后在该目录下执行 `uv sync` 和 `run_formal_deploy.py`。
+- production runner service 用户与仓库目录 owner 不一致时，workflow 会先为 canonical repo root 和 mirror root 显式配置 `git safe.directory`，避免 self-hosted Windows service 因 dubious ownership 拒绝执行 git。
 - mirror 同步优先调用 `script/ci/sync_local_deploy_mirror.py`；如果 production mirror 尚未包含该脚本，workflow 会走一次内联 bootstrap fast-forward 逻辑，但仍然只针对本机 `main` mirror 做同步，不下载部署归档。
 - `deploy-production.yml` 中仓库自定义的 PowerShell step 固定使用 `-NoProfile -ExecutionPolicy Bypass -File {0}`；正式 self-hosted runner 即使本机 PowerShell policy 更严格，也不会在 step 启动前被策略拦截。
 - 这些自定义 PowerShell step 会在脚本首行显式设置 `$ErrorActionPreference = 'Stop'`，保留 fail-fast 行为，避免 `Remove-Item` / `Copy-Item` 这类 non-terminating cmdlet error 被静默放过。
@@ -38,7 +40,8 @@ powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 up -
 
 - `main` 合并后的镜像发布 workflow：`.github/workflows/docker-images.yml`
 - `main` 合并后的正式自动部署 workflow：`.github/workflows/deploy-production.yml`
-- 正式 deploy mirror：`D:\fqpack\freshquant-2026.2.23`
+- 正式 deploy canonical repo root：`D:\fqpack\freshquant-2026.2.23`
+- 正式 deploy mirror：`D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
 - 正式收口时由 `FQ_DOCKER_FORCE_LOCAL_BUILD=1` 强制本机构建；GHCR 不再是正式 deploy 前置
 
 ### 自动正式部署
@@ -46,7 +49,8 @@ powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 up -
 - `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - 如果触发事件里的 SHA 已经不是当前 `main` tip，`deploy-production.yml` 会直接失败，不会对过时 push 继续 deploy。
-- workflow 本身会先同步本机 `D:\fqpack\freshquant-2026.2.23` mirror，再在该目录下执行 `py -3.12 -m uv sync --frozen` 与 `run_formal_deploy.py`。
+- workflow 本身会先从 canonical repo root bootstrap/同步本机 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` mirror，再在该目录下执行 `py -3.12 -m uv sync --frozen` 与 `run_formal_deploy.py`。
+- 正式 mirror 的本地分支固定为 `deploy-production-main`；它只承担 production deploy mirror 角色，不与其它 worktree 复用本地 `main`。
 - 正式 deploy 要求 production runner 宿主机已安装的 Python 3.12 与 uv；缺任一工具都会在 deploy 前直接失败。
 - 本轮正式 deploy 会显式导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，避免 `docker_parallel_compose.py` 把 `--build` 改写成 GHCR pull 路径。
 - 如果 `production-state.json` 尚不存在，首次会按 bootstrap 模式执行全量 surface deploy；成功后才写入初始状态。
