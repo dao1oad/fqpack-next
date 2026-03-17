@@ -58,6 +58,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - `run_freshquant_codex_session.ps1` 启动前没有成功执行 memory refresh / compile。
 - `run_freshquant_codex_session.ps1` 为当前 issue state 解析错了 role，导致 `Global Stewardship` 仍拿到普通 `codex` context pack。
 - 直接在 Codex app 中打开仓库时，没有走 `codex_run/start_codex_cli.bat`，且也没有手动执行 `bootstrap_freshquant_memory.py`，就开始做通用 repo 扫描。
+- 直接双击 `codex_run/start_codex_app_server.bat` 后误以为“没有持续输出就是没启动”；实际上 `codex app-server` 默认走 `stdio://`，没有客户端接入前可以保持静默。
 - `fq_memory` 不可写，导致热记忆集合为空。
 - `cleanup-requests/<issue>.json` 缺失或字段不全，导致 context pack 无法显示 PR / branch / repository 元数据。
 - `deployment-comment.md` 或 `cleanup-results/<issue>.json` 缺失，导致 deploy / health / cleanup 摘要只能回退为 `unavailable`
@@ -67,6 +68,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 处理：
 - 先手动重跑 `refresh_freshquant_memory.py` 和 `compile_freshquant_context_pack.py`
 - 对自由会话，优先通过 `codex_run/start_codex_cli.bat` 或 `codex_run/start_codex_app_server.bat` 进入；如果当前已经在会话里，再直接运行 `bootstrap_freshquant_memory.py`
+- `start_codex_app_server.bat` 正常启动后会先打印 memory context 摘要；如果窗口仍在，就说明前台 app-server 仍在运行。关闭窗口或按 `Ctrl+C` 会停止它。
 - 确认 `D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs/<issue>/<role>.md` 已更新
 - 确认 Mongo `fq_memory` 中至少有 `task_state`、`knowledge_items`、`context_packs`
 - 如果 memory context 和正式真值冲突，优先修正式真值或刷新 memory，不要反向手改 context pack

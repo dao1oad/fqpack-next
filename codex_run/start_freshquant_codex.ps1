@@ -53,6 +53,54 @@ function Resolve-PythonLauncher {
     throw 'Python launcher not found in PATH.'
 }
 
+function Resolve-AppServerListenUrl {
+    param([string[]]$Args)
+
+    if (-not $Args) {
+        return 'stdio://'
+    }
+
+    for ($index = 0; $index -lt $Args.Length; $index++) {
+        $argument = $Args[$index]
+        if ($argument -eq '--listen' -and ($index + 1) -lt $Args.Length) {
+            return $Args[$index + 1]
+        }
+        if ($argument.StartsWith('--listen=')) {
+            return $argument.Substring('--listen='.Length)
+        }
+    }
+
+    return 'stdio://'
+}
+
+function Show-AppServerBanner {
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$BootstrapPayload,
+        [Parameter(Mandatory = $true)][string]$ListenUrl,
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$ServiceRoot
+    )
+
+    Write-Host ''
+    Write-Host 'FreshQuant Codex App Server' -ForegroundColor Cyan
+    Write-Host 'Mode: app-server runs in the foreground.'
+    Write-Host "Transport: $ListenUrl"
+    Write-Host "Repo root: $RepoRoot"
+    Write-Host "Service root: $ServiceRoot"
+    Write-Host "Memory context: $($BootstrapPayload.context_pack_path)"
+    Write-Host "Memory role: $($BootstrapPayload.role)"
+    Write-Host "Issue identifier: $($BootstrapPayload.issue_identifier)"
+    if ($ListenUrl -eq 'stdio://') {
+        Write-Host 'Status: stdio:// is silent until a client connects. No continuous output is expected.'
+    }
+    else {
+        Write-Host "Status: confirm the client can reach $ListenUrl to verify readiness."
+    }
+    Write-Host 'Close this window to stop the server.'
+    Write-Host 'Press Ctrl+C to stop the server from the keyboard.'
+    Write-Host ''
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $bootstrapScript = Join-Path $repoRoot 'runtime\memory\scripts\bootstrap_freshquant_memory.py'
 
@@ -65,6 +113,13 @@ $codexPath = Resolve-CommandPath -Name 'codex'
 
 Push-Location $repoRoot
 try {
+    if ($Mode -eq 'app-server') {
+        Write-Host ''
+        Write-Host 'Starting FreshQuant Codex App Server...' -ForegroundColor Cyan
+        Write-Host 'Running memory bootstrap before launching app-server.'
+        Write-Host ''
+    }
+
     $bootstrapArgs = @()
     if ($pythonLauncher.Prefix) {
         $bootstrapArgs += $pythonLauncher.Prefix
@@ -109,6 +164,12 @@ try {
     )
 
     if ($Mode -eq 'app-server') {
+        $listenUrl = Resolve-AppServerListenUrl -Args $CodexArgs
+        Show-AppServerBanner `
+            -BootstrapPayload $bootstrapPayload `
+            -ListenUrl $listenUrl `
+            -RepoRoot $repoRoot `
+            -ServiceRoot $ServiceRoot
         $commandArgs = @(
             '--config',
             'shell_environment_policy.inherit=all',

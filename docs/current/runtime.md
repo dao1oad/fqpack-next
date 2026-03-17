@@ -39,6 +39,9 @@
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
 - Symphony / Global Stewardship 会在启动 `codex` 前通过 `runtime/memory/scripts/refresh_freshquant_memory.py` + `runtime/memory/scripts/compile_freshquant_context_pack.py` 刷新全局记忆并编译 context pack
 - 自由会话的正式硬入口位于 `codex_run/start_codex_cli.bat` 与 `codex_run/start_codex_app_server.bat`；它们会先执行 `codex_run/start_freshquant_codex.ps1`，由该 wrapper 调 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 自举 memory refresh / compile，再启动 `codex`
+- `codex_run/start_codex_app_server.bat` 启动的是前台 `codex app-server`；wrapper 会先打印 memory bootstrap 和 context pack 摘要，再让当前窗口承载服务
+- `codex app-server` 默认走 `stdio://`，所以在客户端接入前可以没有持续输出；只要窗口仍在，前台服务就还活着
+- 关闭 `start_codex_app_server.bat` 的窗口，或在窗口里按 `Ctrl+C`，都会停止当前 `codex app-server`
 - 如果是直接在 Codex app 中打开仓库、没有走 `codex_run/*.bat`，且当前会话没有现成 `FQ_MEMORY_CONTEXT_PATH`，仍应先执行 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 再继续仓库探索
 - memory refresh 会先同步远程 `origin/main`，再从该 ref 的 `.codex/memory/**` 与 `docs/current/modules/*.md` 汇总开发参考记忆；同时继续读取 `artifacts/cleanup-requests/<issue>.json`、`artifacts/<issue>/deployment-comment.md`、`artifacts/cleanup-results/<issue>.json`，把 PR / deploy / health / cleanup 摘要写入 `fq_memory`
 - 会话通过环境变量 `FQ_MEMORY_CONTEXT_PATH` 注入本轮 context pack，并通过 `FQ_MEMORY_CONTEXT_ROLE` 暴露当前角色；`Global Stewardship` 默认编译 `global-stewardship` pack，其它工作区会话默认编译 `codex` pack
