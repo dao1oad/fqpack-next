@@ -127,3 +127,14 @@ def test_powershell_compose_entry_preserves_detached_flag_on_fallback() -> None:
 
     assert "$fallbackComposeArgs" in text
     assert "$resolvedComposeArgs = @($fallbackComposeArgs)" in text
+
+
+def test_docker_images_workflow_uses_dynamic_publish_matrix() -> None:
+    text = Path(".github/workflows/docker-images.yml").read_text(encoding="utf-8")
+
+    assert "resolve-publish-plan" in text
+    assert "resolve_docker_image_publish_plan.py" in text
+    assert "fromJson(" in text
+    assert "matrix.action == 'build'" in text
+    assert "matrix.action == 'retag'" in text
+    assert "docker buildx imagetools create" in text
