@@ -14,7 +14,7 @@ RUN pnpm config set fetch-retries 5 && \
 
 WORKDIR /fqwebui
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --prefer-offline --fetch-timeout 100000 --loglevel warn
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prefer-offline --fetch-timeout 100000 --loglevel warn
 
 COPY .browserslistrc jsconfig.json index.html vite.config.js ./
 COPY public ./public
