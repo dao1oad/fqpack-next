@@ -133,9 +133,13 @@ python -m freshquant.initialize
   - `runtime/symphony/scripts/activate_github_first_formal_service.ps1`
   - `runtime/symphony/scripts/install_freshquant_symphony_restart_task.ps1`
   - `runtime/symphony/scripts/invoke_freshquant_symphony_restart_task.ps1`
-- Memory bootstrap
+- Codex 自由会话硬入口
+  - `codex_run/start_codex_cli.bat`
+  - `codex_run/start_codex_app_server.bat`
+  - 两者都先调用 `codex_run/start_freshquant_codex.ps1`，由 wrapper 执行 `runtime/memory/scripts/bootstrap_freshquant_memory.py`，再启动对应 `codex` 命令
+- Memory bootstrap fallback
   - `runtime/memory/scripts/bootstrap_freshquant_memory.py`
-  - 供直接在 Codex app 中打开仓库的自由会话先执行 memory refresh / compile，并返回 `context_pack_path`
+  - 供没有走 `codex_run/*.bat` 的自由会话手动执行 memory refresh / compile，并返回 `context_pack_path`
 
 ## Web UI 路由
 

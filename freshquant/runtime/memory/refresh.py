@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .cold_memory import load_cold_memory_items
+from .cold_memory import build_cold_memory_item, load_cold_memory_items
 from .config import MemoryRuntimeConfig
 
 
@@ -14,34 +15,207 @@ def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
-def _extract_title(path: Path) -> str:
-    content = path.read_text(encoding="utf-8")
+def _extract_title_from_content(content: str, fallback: str) -> str:
     for line in content.splitlines():
         stripped = line.strip()
         if stripped.startswith("# "):
             return stripped[2:].strip()
-    return path.stem.replace("-", " ").title()
+    return fallback
+
+
+def _extract_title(path: Path) -> str:
+    content = path.read_text(encoding="utf-8")
+    return _extract_title_from_content(content, path.stem.replace("-", " ").title())
+
+
+def _run_git(
+    repo_root: Path,
+    *args: str,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _parse_reference_ref(reference_ref: str) -> tuple[str, str] | None:
+    if "/" not in reference_ref:
+        return None
+    remote, branch = reference_ref.split("/", 1)
+    if not remote or not branch:
+        return None
+    return remote, branch
+
+
+def _fetch_reference_ref(repo_root: Path, reference_ref: str) -> None:
+    parsed = _parse_reference_ref(reference_ref)
+    if parsed is None:
+        return
+    remote, branch = parsed
+    _run_git(
+        repo_root,
+        "fetch",
+        remote,
+        f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
+    )
+
+
+def _reference_ref_exists(repo_root: Path, reference_ref: str) -> bool:
+    return _run_git(repo_root, "rev-parse", "--verify", reference_ref).returncode == 0
+
+
+def _list_markdown_files_from_ref(
+    repo_root: Path,
+    *,
+    reference_ref: str,
+    root_path: PurePosixPath,
+) -> list[PurePosixPath]:
+    result = _run_git(
+        repo_root,
+        "ls-tree",
+        "-r",
+        "--name-only",
+        reference_ref,
+        "--",
+        root_path.as_posix(),
+    )
+    if result.returncode != 0:
+        return []
+    return [
+        PurePosixPath(line.strip())
+        for line in result.stdout.splitlines()
+        if line.strip().endswith(".md")
+    ]
+
+
+def _read_text_from_ref(
+    repo_root: Path,
+    *,
+    reference_ref: str,
+    relative_path: PurePosixPath,
+) -> str | None:
+    result = _run_git(repo_root, "show", f"{reference_ref}:{relative_path.as_posix()}")
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def _build_module_status(
+    *,
+    module_id: str,
+    title: str,
+    source_path: str,
+    generated_at: str,
+    source_ref: str,
+) -> dict[str, Any]:
+    return {
+        "module_id": module_id,
+        "title": title,
+        "source_path": source_path,
+        "status": "documented",
+        "generated_at": generated_at,
+        "source_ref": source_ref,
+    }
 
 
 def _collect_module_status(
     config: MemoryRuntimeConfig, *, generated_at: str
 ) -> list[dict[str, Any]]:
-    modules_root = config.repo_root / "docs" / "current" / "modules"
-    if not modules_root.exists():
+    reference_ref = config.reference_ref
+    modules_root = PurePosixPath("docs/current/modules")
+    _fetch_reference_ref(config.repo_root, reference_ref)
+
+    if _reference_ref_exists(config.repo_root, reference_ref):
+        items: list[dict[str, Any]] = []
+        for relative_path in sorted(
+            _list_markdown_files_from_ref(
+                config.repo_root,
+                reference_ref=reference_ref,
+                root_path=modules_root,
+            )
+        ):
+            content = _read_text_from_ref(
+                config.repo_root,
+                reference_ref=reference_ref,
+                relative_path=relative_path,
+            )
+            if content is None:
+                continue
+            items.append(
+                _build_module_status(
+                    module_id=relative_path.stem,
+                    title=_extract_title_from_content(
+                        content,
+                        relative_path.stem.replace("-", " ").title(),
+                    ),
+                    source_path=f"{reference_ref}:{relative_path.as_posix()}",
+                    generated_at=generated_at,
+                    source_ref=reference_ref,
+                )
+            )
+        return items
+
+    filesystem_root = config.repo_root / "docs" / "current" / "modules"
+    if not filesystem_root.exists():
         return []
 
-    items: list[dict[str, Any]] = []
-    for path in sorted(modules_root.glob("*.md")):
+    items = []
+    for path in sorted(filesystem_root.glob("*.md")):
         items.append(
-            {
-                "module_id": path.stem,
-                "title": _extract_title(path),
-                "source_path": str(path),
-                "status": "documented",
-                "generated_at": generated_at,
-            }
+            _build_module_status(
+                module_id=path.stem,
+                title=_extract_title(path),
+                source_path=str(path),
+                generated_at=generated_at,
+                source_ref=reference_ref,
+            )
         )
     return items
+
+
+def _load_reference_cold_memory_items(
+    config: MemoryRuntimeConfig, *, generated_at: str
+) -> list[dict[str, Any]]:
+    reference_ref = config.reference_ref
+    cold_root = PurePosixPath(".codex/memory")
+    _fetch_reference_ref(config.repo_root, reference_ref)
+
+    if _reference_ref_exists(config.repo_root, reference_ref):
+        items: list[dict[str, Any]] = []
+        for relative_path in sorted(
+            _list_markdown_files_from_ref(
+                config.repo_root,
+                reference_ref=reference_ref,
+                root_path=cold_root,
+            )
+        ):
+            content = _read_text_from_ref(
+                config.repo_root,
+                reference_ref=reference_ref,
+                relative_path=relative_path,
+            )
+            if content is None:
+                continue
+            repo_relative_path = relative_path.relative_to(cold_root)
+            items.append(
+                build_cold_memory_item(
+                    relative_path=repo_relative_path,
+                    content=content,
+                    source_path=f"{reference_ref}:{relative_path.as_posix()}",
+                    generated_at=generated_at,
+                    source_ref=reference_ref,
+                )
+            )
+        return items
+
+    return load_cold_memory_items(
+        config.cold_memory_root,
+        generated_at=generated_at,
+        source_ref=reference_ref,
+    )
 
 
 def _normalize_runtime_document(
@@ -361,8 +535,8 @@ def refresh_memory(
     git_status: str,
 ) -> dict[str, int]:
     generated_at = _utc_now()
-    knowledge_items = load_cold_memory_items(
-        config.cold_memory_root,
+    knowledge_items = _load_reference_cold_memory_items(
+        config,
         generated_at=generated_at,
     )
     module_status = _collect_module_status(config, generated_at=generated_at)
@@ -380,6 +554,7 @@ def refresh_memory(
         "issue_state": issue_state,
         "branch_name": branch_name,
         "git_status": git_status,
+        "reference_ref": config.reference_ref,
         "repo_root": str(config.repo_root),
         "service_root": str(config.service_root),
         "generated_at": generated_at,
@@ -452,10 +627,14 @@ def refresh_memory(
         store.upsert_many(
             "knowledge_items",
             knowledge_items,
-            key_fields=("knowledge_item_id",),
+            key_fields=("source_ref", "knowledge_item_id"),
         )
     if module_status:
-        store.upsert_many("module_status", module_status, key_fields=("module_id",))
+        store.upsert_many(
+            "module_status",
+            module_status,
+            key_fields=("source_ref", "module_id"),
+        )
 
     return {
         "task_state": len(task_state),

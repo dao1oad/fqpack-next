@@ -21,7 +21,7 @@ class InMemoryMemoryStore:
             key = tuple(payload[field] for field in key_fields)
             replaced = False
             for index, existing in enumerate(bucket):
-                existing_key = tuple(existing[field] for field in key_fields)
+                existing_key = tuple(existing.get(field) for field in key_fields)
                 if existing_key == key:
                     bucket[index] = payload
                     replaced = True

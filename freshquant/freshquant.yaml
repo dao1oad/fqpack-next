@@ -7,6 +7,7 @@ mongodb:
 memory:
   cold_root: .codex/memory
   artifact_root: D:/fqpack/runtime/symphony-service/artifacts/memory
+  reference_ref: origin/main
   mongodb:
     host: 127.0.0.1
     port: 27027

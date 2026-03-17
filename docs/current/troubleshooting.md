@@ -32,7 +32,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 常见根因：
 - `run_freshquant_codex_session.ps1` 启动前没有成功执行 memory refresh / compile。
 - `run_freshquant_codex_session.ps1` 为当前 issue state 解析错了 role，导致 `Global Stewardship` 仍拿到普通 `codex` context pack。
-- 直接在 Codex app 中打开仓库时，没有先执行 `bootstrap_freshquant_memory.py`，就开始做通用 repo 扫描。
+- 直接在 Codex app 中打开仓库时，没有走 `codex_run/start_codex_cli.bat`，且也没有手动执行 `bootstrap_freshquant_memory.py`，就开始做通用 repo 扫描。
 - `fq_memory` 不可写，导致热记忆集合为空。
 - `cleanup-requests/<issue>.json` 缺失或字段不全，导致 context pack 无法显示 PR / branch / repository 元数据。
 - `deployment-comment.md` 或 `cleanup-results/<issue>.json` 缺失，导致 deploy / health / cleanup 摘要只能回退为 `unavailable`
@@ -41,7 +41,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 处理：
 - 先手动重跑 `refresh_freshquant_memory.py` 和 `compile_freshquant_context_pack.py`
-- 对自由会话，优先直接运行 `bootstrap_freshquant_memory.py`，读取返回的 `context_pack_path`
+- 对自由会话，优先通过 `codex_run/start_codex_cli.bat` 或 `codex_run/start_codex_app_server.bat` 进入；如果当前已经在会话里，再直接运行 `bootstrap_freshquant_memory.py`
 - 确认 `D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs/<issue>/<role>.md` 已更新
 - 确认 Mongo `fq_memory` 中至少有 `task_state`、`knowledge_items`、`context_packs`
 - 如果 memory context 和正式真值冲突，优先修正式真值或刷新 memory，不要反向手改 context pack
@@ -425,6 +425,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 需要 Symphony 接管的新建 GitHub issue 时默认只打 `symphony` 与 `in-progress`
 - 如果日志里反复只有通用 repo 扫描而没有 issue 标识、标题、描述，先检查 `WORKFLOW.freshquant.md` 是否仍包含 issue placeholders；`sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 现在会对这份 prompt 做合约校验
 - 如果会话一开始就回到全仓扫描，先看 `FQ_MEMORY_CONTEXT_PATH` 是否存在，以及 `runtime/memory/scripts/refresh_freshquant_memory.py` / `compile_freshquant_context_pack.py` 最近一次是否执行成功
+- 对自由会话，再补查是否绕过了 `codex_run/*.bat`，或 `codex_run/start_freshquant_codex.ps1` 在 bootstrap 阶段提前失败
 - 如果 `Merging` 很慢，先看 session 里是否出现 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 轮询；正式 prompt 现在要求只做一次性检查后结束当前 turn，让 orchestrator 下一轮继续
 - 如果 PR 无法 merge，先看 required checks、unresolved review threads、`mergeStateStatus` 和 ruleset，不要先看评论里的 `APPROVED`
 - 如果 required checks 还在 pending，保持在 `Merging`，不要提前打回 `Rework`
