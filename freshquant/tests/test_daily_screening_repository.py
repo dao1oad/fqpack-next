@@ -117,7 +117,61 @@ def test_repository_builds_expected_indexes():
     repo = DailyScreeningRepository(db=FakeDB())
     specs = repo.index_specs()
 
-    assert ("run_id", 1) in specs["daily_screening_runs"][0]["keys"]
+    assert specs == {
+        "daily_screening_runs": [
+            {
+                "name": "daily_screening_runs_run_id",
+                "keys": [("run_id", 1)],
+                "unique": True,
+            }
+        ],
+        "daily_screening_memberships": [
+            {
+                "name": "daily_screening_memberships_run_stage_code",
+                "keys": [("run_id", 1), ("stage", 1), ("code", 1)],
+                "unique": True,
+            }
+        ],
+        "daily_screening_stock_snapshots": [
+            {
+                "name": "daily_screening_stock_snapshots_run_code",
+                "keys": [("run_id", 1), ("code", 1)],
+                "unique": True,
+            }
+        ],
+    }
+
+
+def test_repository_ensure_indexes_calls_create_index_with_expected_contract():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    repo = DailyScreeningRepository(
+        db=FakeDB(
+            daily_screening_runs=IndexableCollection("daily_screening_runs"),
+            daily_screening_memberships=IndexableCollection(
+                "daily_screening_memberships"
+            ),
+            daily_screening_stock_snapshots=IndexableCollection(
+                "daily_screening_stock_snapshots"
+            ),
+        )
+    )
+
+    repo.ensure_indexes()
+
+    assert repo.runs.created_indexes == [
+        ([("run_id", 1)], True, "daily_screening_runs_run_id")
+    ]
+    assert repo.memberships.created_indexes == [
+        (
+            [("run_id", 1), ("stage", 1), ("code", 1)],
+            True,
+            "daily_screening_memberships_run_stage_code",
+        )
+    ]
+    assert repo.stock_snapshots.created_indexes == [
+        ([("run_id", 1), ("code", 1)], True, "daily_screening_stock_snapshots_run_code")
+    ]
 
 
 def test_repository_ensure_indexes_skips_fake_collections_without_create_index():

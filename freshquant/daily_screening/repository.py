@@ -29,6 +29,7 @@ class DailyScreeningRepository:
                 {
                     "name": "daily_screening_memberships_run_stage_code",
                     "keys": [("run_id", 1), ("stage", 1), ("code", 1)],
+                    "unique": True,
                 }
             ],
             "daily_screening_stock_snapshots": [
