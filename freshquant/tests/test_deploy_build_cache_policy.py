@@ -163,6 +163,8 @@ def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     assert "Expand-Archive" in text
     assert 'GH_TOKEN: ${{ github.token }}' in text
     assert '--github-repository "${{ github.repository }}"' in text
+    assert "shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}" in text
+    assert "shell: powershell\n" not in text
 
 
 def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
