@@ -58,6 +58,11 @@ def load_current_revision(repo_root: Path) -> str:
     return result.stdout.strip()
 
 
+def load_worktree_is_dirty(repo_root: Path) -> bool:
+    result = run_capture(["git", "-C", str(repo_root), "status", "--porcelain"])
+    return bool(result.stdout.strip())
+
+
 def load_compose_service_images(compose_file: Path) -> tuple[list[str], dict[str, str]]:
     result = run_capture(
         [
@@ -108,6 +113,7 @@ def compute_rewrite_result(
     compose_args: list[str],
 ) -> dict[str, object]:
     current_revision = load_current_revision(repo_root)
+    worktree_is_dirty = load_worktree_is_dirty(repo_root)
     all_services, service_images = load_compose_service_images(compose_file)
     target_services = extract_target_services(compose_args, all_services)
     images = sorted(
@@ -125,11 +131,14 @@ def compute_rewrite_result(
         image_revisions=image_revisions,
         current_revision=current_revision,
     )
+    if worktree_is_dirty:
+        rewritten = list(compose_args)
+
     skipped = rewritten != compose_args
     reason = (
         "all target images already match current HEAD"
         if skipped
-        else "build required or cache metadata unavailable"
+        else "build required, worktree dirty, or cache metadata unavailable"
     )
     return {
         "compose_args": rewritten,

@@ -102,3 +102,32 @@ def test_parser_collects_repeated_compose_args() -> None:
     )
 
     assert parsed.compose_arg == ["up", "-d", "--build", "fq_webui"]
+
+
+def test_compute_rewrite_result_keeps_build_when_worktree_is_dirty(monkeypatch) -> None:
+    module = load_module()
+
+    monkeypatch.setattr(module, "load_current_revision", lambda _: "abc123")
+    monkeypatch.setattr(
+        module,
+        "load_compose_service_images",
+        lambda _: (
+            ["fq_webui"],
+            {"fq_webui": "fqnext_webui:2026.2.23"},
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "load_image_revisions",
+        lambda _: {"fqnext_webui:2026.2.23": "abc123"},
+    )
+    monkeypatch.setattr(module, "load_worktree_is_dirty", lambda _: True)
+
+    result = module.compute_rewrite_result(
+        repo_root=Path("."),
+        compose_file=Path("docker/compose.parallel.yaml"),
+        compose_args=["up", "-d", "--build", "fq_webui"],
+    )
+
+    assert result["skip_build"] is False
+    assert result["compose_args"] == ["up", "-d", "--build", "fq_webui"]
