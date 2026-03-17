@@ -2,10 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
-import { buildConfigSections } from './positionManagement.mjs'
+import { buildInventoryRows } from './positionManagement.mjs'
 
-test('buildConfigSections keeps single symbol position limit in editable thresholds', () => {
-  const sections = buildConfigSections({
+test('buildInventoryRows keeps single symbol position limit editable inside merged table', () => {
+  const rows = buildInventoryRows({
     config: {
       inventory: [
         {
@@ -36,18 +36,28 @@ test('buildConfigSections keeps single symbol position limit in editable thresho
     },
   })
 
-  const editable = sections.find((item) => item.key === 'editable_thresholds')
+  const editableRows = rows.filter((item) => item.group === 'editable_thresholds')
+  const singleSymbolLimit = rows.find((item) => item.key === 'single_symbol_position_limit')
 
   assert.deepEqual(
-    editable.items.map((item) => item.key),
+    editableRows.map((item) => item.key),
     ['allow_open_min_bail', 'holding_only_min_bail', 'single_symbol_position_limit'],
   )
-  assert.equal(editable.items[2].value_label, '800,000.00')
+  assert.equal(singleSymbolLimit.value_label, '800,000.00')
+  assert.equal(singleSymbolLimit.group_label, '已生效且可编辑')
+  assert.equal(singleSymbolLimit.editable, true)
 })
 
-test('PositionManagement view renders single symbol position limit editor', () => {
+test('PositionManagement view renders merged inventory table and symbol name column', () => {
   const source = fs.readFileSync(new URL('./PositionManagement.vue', import.meta.url), 'utf8')
 
+  assert.match(source, /inventoryRows/)
+  assert.match(source, /prop="group_label" label="分组"/)
+  assert.match(source, /prop="description" label="说明"/)
+  assert.match(source, /prop="symbol_name_label" label="标的名称"/)
   assert.match(source, /single_symbol_position_limit/)
   assert.match(source, /v-model="editableForm\.single_symbol_position_limit"/)
+  assert.doesNotMatch(source, /position-config-grid/)
+  assert.doesNotMatch(source, /editableSection/)
+  assert.doesNotMatch(source, /readonlySections/)
 })

@@ -60,7 +60,8 @@
   - 原“持仓股列表”已从该页移除
 - `/stock-control` 的 `stock_pools模型信号`
   - `realtime_screen_multi_period`
-  - 展示 `datetime`、`created_at`、`code`、`name`、`period`、`model`、`close`、`stop_loss_price`、`source`
+  - 展示 `datetime`、`created_at`、`code`、`name`、`period`、`model`、`source`
+  - 价格列当前按两行展示 `触发价 / 止损价`，列宽显式放大，并统一保留三位小数
 
 ## 当前高频操作
 
