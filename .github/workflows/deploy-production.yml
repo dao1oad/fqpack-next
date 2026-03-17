@@ -23,10 +23,11 @@ jobs:
     runs-on: [self-hosted, windows, production]
     steps:
       - name: Validate main tip freshness
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = 'Stop'
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = "application/vnd.github+json"
@@ -44,16 +45,11 @@ jobs:
           }
 
       - name: Download target revision archive
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $headers = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = "application/vnd.github+json"
-            "X-GitHub-Api-Version" = "2022-11-28"
-            "User-Agent" = "fqpack-deploy-production"
-          }
+          $ErrorActionPreference = 'Stop'
           $targetSha = "${{ github.event.workflow_run.head_sha }}"
           $archiveUrl = "https://api.github.com/repos/${{ github.repository }}/zipball/$targetSha"
           $archivePath = Join-Path $env:RUNNER_TEMP "deploy-target.zip"
@@ -67,11 +63,46 @@ jobs:
           }
           Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force | Remove-Item -Recurse -Force
 
-          Invoke-WebRequest `
-            -Uri $archiveUrl `
-            -Headers $headers `
-            -OutFile $archivePath `
-            -MaximumRedirection 5
+          $codeloadIp = $null
+          for ($attempt = 1; $attempt -le 3 -and -not $codeloadIp; $attempt++) {
+            try {
+              $codeloadIp = Resolve-DnsName codeload.github.com -Type A -ErrorAction Stop |
+                Where-Object { $_.IPAddress } |
+                Select-Object -First 1 -ExpandProperty IPAddress
+            } catch {
+              if ($attempt -ge 3) {
+                throw
+              }
+              Start-Sleep -Seconds (2 * $attempt)
+            }
+          }
+          if (-not $codeloadIp) {
+            throw "failed to resolve codeload.github.com for deploy archive download"
+          }
+
+          $curlArgs = @(
+            "--location",
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--http1.1",
+            "--retry", "5",
+            "--retry-all-errors",
+            "--retry-delay", "3",
+            "--connect-timeout", "30",
+            "--max-time", "600",
+            "--resolve", "codeload.github.com:443:$codeloadIp",
+            "-H", "Authorization: Bearer $env:GH_TOKEN",
+            "-H", "Accept: application/vnd.github+json",
+            "-H", "X-GitHub-Api-Version: 2022-11-28",
+            "-H", "User-Agent: fqpack-deploy-production",
+            "--output", $archivePath,
+            $archiveUrl
+          )
+          & curl.exe @curlArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "curl archive download failed with exit code $LASTEXITCODE"
+          }
           Expand-Archive -Path $archivePath -DestinationPath $extractRoot -Force
 
           $sourceRoot = Get-ChildItem -Path $extractRoot -Directory | Select-Object -First 1
@@ -83,27 +114,27 @@ jobs:
             Copy-Item -LiteralPath $_.FullName -Destination $env:GITHUB_WORKSPACE -Recurse -Force
           }
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Install uv
-        shell: powershell
-        run: python -m pip install --upgrade pip uv
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          py -3.12 -m pip install --upgrade pip uv
 
       - name: Sync locked environment
-        shell: powershell
-        run: uv sync --frozen
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          py -3.12 -m uv sync --frozen
 
       - name: Run formal production deploy
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          py -3.12 script/ci/run_formal_deploy.py
-          --repo-root .
-          --head-sha "${{ github.event.workflow_run.head_sha }}"
-          --run-url "${{ github.event.workflow_run.html_url }}"
-          --github-repository "${{ github.repository }}"
-          --format summary
+        run: |
+          $ErrorActionPreference = 'Stop'
+          py -3.12 script/ci/run_formal_deploy.py `
+            --repo-root . `
+            --head-sha "${{ github.event.workflow_run.head_sha }}" `
+            --run-url "${{ github.event.workflow_run.html_url }}" `
+            --github-repository "${{ github.repository }}" `
+            --format summary
