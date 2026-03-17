@@ -4,6 +4,7 @@ import argparse
 import json
 import subprocess
 from pathlib import Path
+from typing import Sequence
 
 IMAGE_DEFINITIONS = {
     "rear": {
@@ -76,7 +77,9 @@ def path_matches_prefix(path: str, prefix: str) -> bool:
     )
 
 
-def should_build_image(changed_paths: list[str], build_input_prefixes: tuple[str, ...]) -> bool:
+def should_build_image(
+    changed_paths: list[str], build_input_prefixes: Sequence[str]
+) -> bool:
     return any(
         path_matches_prefix(path, prefix)
         for path in changed_paths

@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
-DEFAULT_STATE = {
+DEFAULT_STATE: dict[str, Any] = {
     "last_success_sha": None,
     "last_attempt_sha": None,
     "last_attempt_at": None,

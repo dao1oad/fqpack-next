@@ -20,7 +20,6 @@ from formal_deploy_state import (  # noqa: E402
     write_deploy_state,
 )
 
-
 DEFAULT_SERVICE_ROOT = Path(r"D:\fqpack\runtime\symphony-service")
 
 
@@ -106,9 +105,7 @@ def execute_command(
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
     if result.returncode != 0:
-        raise RuntimeError(
-            f"command failed ({result.returncode}): {' '.join(command)}"
-        )
+        raise RuntimeError(f"command failed ({result.returncode}): {' '.join(command)}")
 
 
 def build_capture_baseline_command(output_path: Path) -> list[str]:
@@ -186,7 +183,9 @@ def build_health_commands(plan: dict[str, Any], plan_module) -> list[list[str]]:
     return commands
 
 
-def build_plan(plan_module, bootstrap: bool, changed_paths: list[str]) -> dict[str, Any]:
+def build_plan(
+    plan_module, bootstrap: bool, changed_paths: list[str]
+) -> dict[str, Any]:
     if bootstrap:
         return plan_module.build_deploy_plan(
             explicit_surfaces=list(plan_module.SURFACE_ORDER)
@@ -212,7 +211,9 @@ def run_formal_deploy(
         current_sha = head_sha or load_current_revision(repo_root)
         attempt_at = utcnow()
         attempt_at_iso = isoformat(attempt_at)
-        run_dir = runs_root / f"{attempt_at.strftime('%Y%m%dT%H%M%SZ')}-{current_sha[:12]}"
+        run_dir = (
+            runs_root / f"{attempt_at.strftime('%Y%m%dT%H%M%SZ')}-{current_sha[:12]}"
+        )
         run_dir.mkdir(parents=True, exist_ok=True)
 
         state = dict(previous_state)
@@ -257,7 +258,9 @@ def run_formal_deploy(
             )
 
             if "symphony" in plan["deployment_surfaces"]:
-                for index, symphony_command in enumerate(build_symphony_commands(), start=2):
+                for index, symphony_command in enumerate(
+                    build_symphony_commands(), start=2
+                ):
                     commands.append(symphony_command)
                     execute_command(
                         symphony_command,
@@ -337,7 +340,9 @@ def run_formal_deploy(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run formal FreshQuant production deploy.")
+    parser = argparse.ArgumentParser(
+        description="Run formal FreshQuant production deploy."
+    )
     parser.add_argument("--repo-root", default=str(repo_root_default()))
     parser.add_argument("--service-root", default=str(DEFAULT_SERVICE_ROOT))
     parser.add_argument("--state-path")
@@ -355,8 +360,7 @@ def render_summary(result: dict[str, Any]) -> str:
         f"ok: {str(result['ok']).lower()}",
         f"bootstrap: {str(result['bootstrap']).lower()}",
         f"current_sha: {result['current_sha']}",
-        "deployment_surfaces: "
-        + (", ".join(plan["deployment_surfaces"]) or "none"),
+        "deployment_surfaces: " + (", ".join(plan["deployment_surfaces"]) or "none"),
         f"run_dir: {result['run_dir']}",
     ]
     return "\n".join(lines)
@@ -366,8 +370,12 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     repo_root = Path(args.repo_root)
     service_root = Path(args.service_root)
-    state_path = Path(args.state_path) if args.state_path else default_state_path(service_root)
-    runs_root = Path(args.runs_root) if args.runs_root else default_runs_root(service_root)
+    state_path = (
+        Path(args.state_path) if args.state_path else default_state_path(service_root)
+    )
+    runs_root = (
+        Path(args.runs_root) if args.runs_root else default_runs_root(service_root)
+    )
     try:
         result = run_formal_deploy(
             repo_root=repo_root,

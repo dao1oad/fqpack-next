@@ -141,7 +141,10 @@ def test_bootstrap_without_state_deploys_all_surfaces(
     assert result["bootstrap"] is True
     assert result["plan"]["deployment_surfaces"] == list(surface_order)
     assert read_state(state_path)["last_success_sha"] == "newsha"
-    assert commands[0][4] == "runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1"
+    assert (
+        commands[0][4]
+        == "runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1"
+    )
 
 
 def test_successful_run_updates_last_success_sha(
@@ -213,7 +216,9 @@ def test_successful_run_updates_last_success_sha(
     assert state["last_attempt_sha"] == "newsha"
     assert state["last_deployed_surfaces"] == ["web"]
     assert state["last_run_url"] == "https://example.invalid/runs/2"
-    assert any("freshquant_health_check.py" in " ".join(command) for command in commands)
+    assert any(
+        "freshquant_health_check.py" in " ".join(command) for command in commands
+    )
 
 
 def test_failed_health_check_does_not_advance_state(
