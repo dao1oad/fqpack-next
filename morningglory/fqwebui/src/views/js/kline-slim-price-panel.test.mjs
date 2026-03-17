@@ -17,6 +17,7 @@ const makeDetail = (symbol = '600000', overrides = {}) => ({
   },
   guardian_buy_grid_config: {
     enabled: true,
+    buy_enabled: [true, false, true],
     buy_1: 10.2,
     buy_2: 9.9,
     buy_3: 9.5,
@@ -55,6 +56,7 @@ test('loadSubjectPriceDetail hydrates state and price guide version', async () =
 
   assert.deepEqual(calls, [['getDetail', '600000']])
   assert.equal(state.guardianDraft.buy_1, 10.2)
+  assert.deepEqual(state.guardianDraft.buy_enabled, [true, false, true])
   assert.equal(state.takeprofitDrafts.length, 3)
   assert.equal(state.priceGuideVersion.includes('guardian-buy_1'), true)
   assert.equal(state.lastSubjectDetailSymbol, '600000')
@@ -95,7 +97,7 @@ test('saveGuardianPriceGuides validates, saves, reloads and triggers render call
       return makeDetail(symbol)
     },
     async saveGuardianBuyGrid(symbol, payload) {
-      calls.push(['saveGuardianBuyGrid', symbol, payload.buy_1, payload.enabled])
+      calls.push(['saveGuardianBuyGrid', symbol, payload.buy_1, payload.buy_enabled, payload.enabled])
       return { symbol, ...payload }
     },
   })
@@ -108,6 +110,7 @@ test('saveGuardianPriceGuides validates, saves, reloads and triggers render call
     force: true,
   })
   state.guardianDraft.buy_1 = 10.3
+  state.guardianDraft.buy_enabled = [true, false, false]
 
   const result = await saveGuardianPriceGuides(state, {
     actions,
@@ -120,7 +123,7 @@ test('saveGuardianPriceGuides validates, saves, reloads and triggers render call
 
   assert.deepEqual(calls, [
     ['getDetail', '600000'],
-    ['saveGuardianBuyGrid', '600000', 10.3, true],
+    ['saveGuardianBuyGrid', '600000', 10.3, [true, false, false], true],
     ['getDetail', '600000'],
   ])
   assert.equal(result.ok, true)

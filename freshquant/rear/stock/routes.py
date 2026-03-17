@@ -516,6 +516,7 @@ def guardian_buy_grid_config_post():
         buy_1=payload.get("buy_1"),
         buy_2=payload.get("buy_2"),
         buy_3=payload.get("buy_3"),
+        buy_enabled=payload.get("buy_enabled"),
         enabled=payload.get("enabled"),
         updated_by=payload.get("updated_by", "api"),
     )

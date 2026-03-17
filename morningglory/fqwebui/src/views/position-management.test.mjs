@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  buildConfigSections,
+  buildInventoryRows,
+  buildRecentDecisionRows,
   readDashboardPayload,
   buildRuleMatrix,
   buildStatePanel,
@@ -101,25 +102,72 @@ const createDashboard = () => ({
       reason_text: '当前状态允许卖出持仓',
     },
   ],
+  recent_decisions: [
+    {
+      strategy_name: 'Guardian',
+      action: 'buy',
+      symbol: '000001',
+      symbol_name: '',
+      state: 'HOLDING_ONLY',
+      allowed: true,
+      reason_code: 'holding_buy_allowed',
+      reason_text: '',
+      evaluated_at: '2026-03-07T12:00:00+08:00',
+      meta: {
+        symbol_name: '平安银行',
+      },
+    },
+  ],
 })
 
-test('buildConfigSections groups editable thresholds and readonly inventories', () => {
-  const sections = buildConfigSections(createDashboard())
+test('buildInventoryRows merges three inventory groups into one ordered table', () => {
+  const rows = buildInventoryRows(createDashboard())
 
   assert.deepEqual(
-    sections.map((section) => ({
-      key: section.key,
-      count: section.items.length,
+    rows.map((row) => ({
+      key: row.key,
+      group: row.group,
+      group_label: row.group_label,
     })),
     [
-      { key: 'editable_thresholds', count: 2 },
-      { key: 'policy_defaults', count: 2 },
-      { key: 'system_connection', count: 1 },
+      {
+        key: 'allow_open_min_bail',
+        group: 'editable_thresholds',
+        group_label: '已生效且可编辑',
+      },
+      {
+        key: 'holding_only_min_bail',
+        group: 'editable_thresholds',
+        group_label: '已生效且可编辑',
+      },
+      {
+        key: 'state_stale_after_seconds',
+        group: 'policy_defaults',
+        group_label: '代码默认值',
+      },
+      {
+        key: 'default_state',
+        group: 'policy_defaults',
+        group_label: '代码默认值',
+      },
+      {
+        key: 'xtquant.account_type',
+        group: 'system_connection',
+        group_label: '系统级连接参数',
+      },
     ],
   )
-  assert.equal(sections[0].items[0].value_label, '800,000.00')
-  assert.equal(sections[1].items[0].value_label, '15 秒')
-  assert.equal(sections[2].items[0].value_label, 'CREDIT')
+  assert.equal(rows[0].value_label, '800,000.00')
+  assert.equal(rows[2].value_label, '15 秒')
+  assert.equal(rows[4].value_label, 'CREDIT')
+})
+
+test('buildRecentDecisionRows exposes symbol name from payload or meta', () => {
+  const rows = buildRecentDecisionRows(createDashboard())
+
+  assert.equal(rows[0].symbol_label, '000001')
+  assert.equal(rows[0].symbol_name_label, '平安银行')
+  assert.equal(rows[0].reason_text, 'holding_buy_allowed')
 })
 
 test('buildStatePanel exposes state labels, stale badge and asset metrics', () => {

@@ -42,7 +42,7 @@ test('buildKlineSubjectPriceDetail keeps guardian, takeprofit and runtime state'
 
 test('buildGuardianPriceGuides keeps blue red green order from high to low', () => {
   const lines = buildGuardianPriceGuides({
-    enabled: true,
+    buy_enabled: [true, false, true],
     buy_1: 10.2,
     buy_2: 9.9,
     buy_3: 9.5,
@@ -65,6 +65,31 @@ test('buildGuardianPriceGuides keeps blue red green order from high to low', () 
     ],
   )
   assert.equal(lines[0].label, 'G-B1 10.20')
+})
+
+test('buildGuardianPriceGuides respects per-level switches instead of a single global switch', () => {
+  const lines = buildGuardianPriceGuides({
+    enabled: true,
+    buy_enabled: [true, false, true],
+    buy_1: 10.2,
+    buy_2: 9.9,
+    buy_3: 9.5,
+  }, {
+    buy_active: [true, true, true],
+  })
+
+  assert.deepEqual(
+    lines.map((row) => ({
+      key: row.key,
+      active: row.active,
+      manual_enabled: row.manual_enabled,
+    })),
+    [
+      { key: 'buy_1', active: true, manual_enabled: true },
+      { key: 'buy_2', active: false, manual_enabled: false },
+      { key: 'buy_3', active: true, manual_enabled: true },
+    ],
+  )
 })
 
 test('buildTakeprofitPriceGuides keeps blue red green order from low to high', () => {

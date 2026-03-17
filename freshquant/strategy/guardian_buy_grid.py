@@ -12,6 +12,7 @@ BUY_LEVEL_MULTIPLIERS = {
     "BUY-3": 4,
 }
 DEFAULT_BUY_ACTIVE = [True, True, True]
+DEFAULT_BUY_ENABLED = [True, True, True]
 DEFAULT_INITIAL_LOT_AMOUNT = 150000
 AUTOMATED_UPDATERS = {"order_management", "system"}
 
@@ -39,6 +40,17 @@ def _coerce_buy_active(value: Any) -> list[bool]:
     if isinstance(value, list) and len(value) == 3:
         return [bool(value[0]), bool(value[1]), bool(value[2])]
     return list(DEFAULT_BUY_ACTIVE)
+
+
+def _coerce_buy_enabled(
+    value: Any,
+    *,
+    default: list[bool] | None = None,
+) -> list[bool]:
+    fallback = list(default or DEFAULT_BUY_ENABLED)
+    if isinstance(value, list) and len(value) == 3:
+        return [bool(value[0]), bool(value[1]), bool(value[2])]
+    return fallback
 
 
 def _amount_to_quantity(amount: float, price: float) -> int:
@@ -97,12 +109,25 @@ class GuardianBuyGridService:
         buy_1: float | None = None,
         buy_2: float | None = None,
         buy_3: float | None = None,
+        buy_enabled: list[bool] | None = None,
         enabled: bool | None = True,
         updated_by: str = "manual",
     ) -> dict[str, Any]:
         normalized = normalize_to_base_code(code)
         current = self.get_config(normalized) or {}
         state_reset = False
+        current_buy_enabled = _coerce_buy_enabled(
+            current.get("buy_enabled"),
+            default=[bool(current.get("enabled", True))] * 3,
+        )
+        resolved_buy_enabled = _coerce_buy_enabled(
+            buy_enabled,
+            default=(
+                [False, False, False]
+                if enabled is False
+                else current_buy_enabled
+            ),
+        )
         document = {
             "code": normalized,
             "BUY-1": _coerce_float(
@@ -114,10 +139,8 @@ class GuardianBuyGridService:
             "BUY-3": _coerce_float(
                 buy_3 if buy_3 is not None else current.get("BUY-3")
             ),
-            "enabled": _coerce_bool(
-                enabled if enabled is not None else current.get("enabled"),
-                default=True,
-            ),
+            "buy_enabled": resolved_buy_enabled,
+            "enabled": any(resolved_buy_enabled),
             "updated_at": self.now_fn(),
             "updated_by": updated_by,
         }
@@ -323,8 +346,14 @@ class GuardianBuyGridService:
     ) -> list[str]:
         if price <= 0 or not config or not config.get("enabled", True):
             return []
+        buy_enabled = _coerce_buy_enabled(
+            config.get("buy_enabled"),
+            default=[bool(config.get("enabled", True))] * 3,
+        )
         hit_levels: list[str] = []
         for index, level in enumerate(BUY_LEVELS):
+            if not buy_enabled[index]:
+                continue
             if not buy_active[index]:
                 continue
             level_price = _coerce_float(config.get(level))
@@ -352,12 +381,17 @@ class GuardianBuyGridService:
         }
 
     def _normalize_config(self, raw: dict[str, Any]) -> dict[str, Any]:
+        buy_enabled = _coerce_buy_enabled(
+            raw.get("buy_enabled"),
+            default=[_coerce_bool(raw.get("enabled"), default=True)] * 3,
+        )
         return {
             "code": normalize_to_base_code(raw.get("code") or ""),
             "BUY-1": _coerce_float(raw.get("BUY-1")),
             "BUY-2": _coerce_float(raw.get("BUY-2")),
             "BUY-3": _coerce_float(raw.get("BUY-3")),
-            "enabled": _coerce_bool(raw.get("enabled"), default=True),
+            "buy_enabled": buy_enabled,
+            "enabled": any(buy_enabled),
             "updated_at": raw.get("updated_at"),
             "updated_by": raw.get("updated_by"),
         }

@@ -221,10 +221,15 @@ export default {
       const buyActive = Array.isArray(this.guardianState?.buy_active)
         ? this.guardianState.buy_active
         : [true, true, true]
+      const buyEnabled = Array.isArray(this.guardianDraft?.buy_enabled)
+        ? this.guardianDraft.buy_enabled
+        : [true, true, true]
       return GUARDIAN_GUIDE_META.map((item, index) => ({
         ...item,
+        index,
         price: this.guardianDraft?.[item.key] ?? null,
-        active: Boolean(this.guardianDraft?.enabled) && buyActive[index] !== false
+        manual_enabled: buyEnabled[index] !== false,
+        active: buyEnabled[index] !== false && buyActive[index] !== false
       }))
     },
     takeprofitGuideRows() {

@@ -5,9 +5,9 @@ export const TRACE_QUERY_FIELDS = ['trace_id', 'intent_id', 'request_id', 'inter
 export const TRACE_QUERY_LABELS = {
   trace_id: 'Trace',
   intent_id: 'Intent',
-  request_id: 'Request',
-  internal_order_id: 'Order',
-  symbol: 'Symbol',
+  request_id: '请求',
+  internal_order_id: '订单',
+  symbol: '标的',
   component: '组件',
   runtime_node: '节点',
 }
@@ -52,20 +52,47 @@ const STATUS_SEVERITY = {
   success: 1,
 }
 const TRACE_KIND_LABELS = {
-  guardian_signal: 'Guardian',
-  takeprofit: 'Takeprofit',
-  stoploss: 'Stoploss',
-  external_reported: 'External Reported',
-  external_inferred: 'External Inferred',
-  manual_api_order: 'Manual API',
-  unknown: 'Unknown',
+  guardian_signal: 'Guardian 信号',
+  takeprofit: '止盈链路',
+  stoploss: '止损链路',
+  external_reported: '外部上报',
+  external_inferred: '外部推断',
+  manual_api_order: '手动下单',
+  unknown: '未知链路',
 }
 const TRACE_STATUS_LABELS = {
-  open: 'Open',
-  completed: 'Completed',
-  failed: 'Failed',
-  stalled: 'Stalled',
-  broken: 'Broken',
+  open: '进行中',
+  completed: '已完成',
+  failed: '失败',
+  stalled: '停滞',
+  broken: '断裂',
+}
+const COMPONENT_LABELS = {
+  xt_producer: 'XT 行情接收',
+  xt_consumer: 'XT 行情消费',
+  guardian_strategy: 'Guardian 策略',
+  position_gate: '仓位门禁',
+  order_submit: '下单提交流水',
+  broker_gateway: '券商网关',
+  puppet_gateway: 'Puppet 网关',
+  xt_report_ingest: 'XT 回报接入',
+  order_reconcile: '订单对账',
+  tpsl_worker: '止盈止损执行',
+}
+const COMMON_NODE_LABELS = {
+  bootstrap: '启动',
+  heartbeat: '心跳',
+  queue_write: '队列写入',
+  tracking_create: '跟踪单创建',
+  submit_intent: '提交意图',
+  submit_result: '下单结果',
+  order_callback: '订单回报',
+  batch_create: '批量创建',
+  state_load: '加载仓位状态',
+  freshness_check: '状态新鲜度校验',
+  policy_eval: '门禁策略判断',
+  decision_record: '决策落库',
+  finish: '结束结论',
 }
 const GUARDIAN_COMPONENT = 'guardian_strategy'
 const GUARDIAN_NODE_LABELS = {
@@ -116,6 +143,39 @@ const TRACE_SYMBOL_NAME_FIELDS = [
   'code_name',
   'name',
 ]
+
+const resolveComponentLabel = (component) => {
+  const normalized = toText(component)
+  return COMPONENT_LABELS[normalized] || normalized || '运行组件'
+}
+
+const resolveNodeLabel = (component, node) => {
+  const normalizedComponent = toText(component)
+  const normalizedNode = toText(node)
+  if (normalizedComponent === GUARDIAN_COMPONENT && GUARDIAN_NODE_LABELS[normalizedNode]) {
+    return GUARDIAN_NODE_LABELS[normalizedNode]
+  }
+  return COMMON_NODE_LABELS[normalizedNode] || normalizedNode || '事件'
+}
+
+const resolveSymbolNameFromRecord = (record = {}) => {
+  for (const key of TRACE_SYMBOL_NAME_FIELDS) {
+    const value = toText(record?.[key])
+    if (value) return value
+  }
+  const signalSummaryName = toText(record?.signal_summary?.name)
+  if (signalSummaryName) return signalSummaryName
+  return ''
+}
+
+const buildSymbolDisplay = (symbol, symbolName) => {
+  const normalizedSymbol = toText(symbol)
+  const normalizedSymbolName = toText(symbolName)
+  if (!normalizedSymbol && !normalizedSymbolName) return '-'
+  if (!normalizedSymbol) return normalizedSymbolName
+  if (!normalizedSymbolName) return normalizedSymbol
+  return `${normalizedSymbol} / ${normalizedSymbolName}`
+}
 
 const parseTimestampMs = (value) => {
   const text = toText(value)
@@ -478,9 +538,9 @@ const buildStepOutcomeLabel = (step = {}) => {
 const buildFlowNodeLabel = (step = {}) => {
   const guardianStep = step?.guardian_step || buildGuardianStepInsight(step)
   if (guardianStep?.node_label) return guardianStep.node_label
-  const component = toText(step?.component)
-  const node = toText(step?.node)
-  return [component, node].filter(Boolean).join('.') || 'runtime.event'
+  const componentLabel = resolveComponentLabel(step?.component)
+  const nodeLabel = resolveNodeLabel(step?.component, step?.node)
+  return [componentLabel, nodeLabel].filter(Boolean).join('.') || '运行事件'
 }
 
 const buildFlowNodeHoverItems = (step = {}) => {
@@ -572,6 +632,28 @@ export const buildTraceFlowNodes = (steps = []) => {
       hover_items: buildFlowNodeHoverItems(step),
     }
   })
+}
+
+export const filterTracesByKind = (traces = [], kind = 'all') => {
+  const normalizedKind = toText(kind) || 'all'
+  if (normalizedKind === 'all') return normalizeTraces(traces)
+  return normalizeTraces(traces).filter((trace) => toText(trace?.trace_kind) === normalizedKind)
+}
+
+export const buildTraceKindOptions = (traces = []) => {
+  const options = [{ value: 'all', label: '全部链路' }]
+  const kinds = [...new Set(
+    normalizeTraces(traces)
+      .map((trace) => toText(trace?.trace_kind))
+      .filter(Boolean),
+  )].sort((left, right) => left.localeCompare(right))
+  for (const kind of kinds) {
+    options.push({
+      value: kind,
+      label: TRACE_KIND_LABELS[kind] || kind,
+    })
+  }
+  return options
 }
 
 export const buildTraceQuery = (form = {}) => {
@@ -697,40 +779,32 @@ export const buildIdentityStrip = (record = {}) => {
 }
 
 export const buildTraceLedgerRows = (traces = [], options = {}) => {
-  const limit = Math.max(Number(options?.limit || traces?.length || 0), 0)
-  return normalizeTraces(traces)
+  const limit = Number(options?.limit || 0)
+  const rows = normalizeTraces(traces)
     .map((trace) => {
       const detail = buildTraceDetail(trace)
+      const flowNodes = buildTraceFlowNodes(detail?.steps || [])
       return {
         trace_key: toText(detail?.trace_key) || null,
         trace_id: toText(detail?.trace_id) || null,
         symbol: toText(detail?.symbol),
         symbol_name: toText(detail?.symbol_name) || '-',
-        identity: buildCompactIdentityLabel({
-          trace_id: detail?.trace_id,
-          intent_ids: detail?.intent_ids,
-          request_ids: detail?.request_ids,
-          internal_order_ids: detail?.internal_order_ids,
-        }),
         trace_kind: toText(detail?.trace_kind) || 'unknown',
-        trace_kind_label: TRACE_KIND_LABELS[toText(detail?.trace_kind)] || toText(detail?.trace_kind) || 'Unknown',
+        trace_kind_label: TRACE_KIND_LABELS[toText(detail?.trace_kind)] || toText(detail?.trace_kind) || '未知链路',
         trace_status: toText(detail?.trace_status) || 'open',
-        trace_status_label: TRACE_STATUS_LABELS[toText(detail?.trace_status)] || toText(detail?.trace_status) || 'Open',
+        trace_status_label: TRACE_STATUS_LABELS[toText(detail?.trace_status)] || toText(detail?.trace_status) || '进行中',
         last_ts: toText(detail?.last_ts) || '',
         last_ts_label: toText(detail?.last_ts_label) || toText(detail?.last_ts) || '',
         duration_ms: Number.isFinite(detail?.duration_ms) ? Number(detail.duration_ms) : null,
         duration_label: toText(detail?.duration_label) || '-',
         step_count: Number(detail?.step_count || 0),
-        entry_exit_label: `${toText(detail?.entry_component)}.${toText(detail?.entry_node)} -> ${toText(detail?.exit_component)}.${toText(detail?.exit_node)}`,
+        entry_exit_label: flowNodes.map((item) => item.label).join(' -> ') || '-',
         break_reason: toText(detail?.break_reason),
-        slowest_step_label: detail?.slowest_step?.component && detail?.slowest_step?.node
-          ? `${toText(detail.slowest_step.component)}.${toText(detail.slowest_step.node)} · ${toText(detail.slowest_step.delta_from_prev_label || detail.slowest_step.delta_prev_label)}`
-          : '-',
         has_issue: Number(detail?.issue_count || 0) > 0,
       }
     })
     .sort((left, right) => toText(right?.last_ts).localeCompare(toText(left?.last_ts)))
-    .slice(0, limit)
+  return limit > 0 ? rows.slice(0, limit) : rows
 }
 
 const buildStepContextSummary = (step = {}) => {
@@ -759,7 +833,7 @@ export const buildTraceStepLedgerRows = (detail = {}) => {
       ts: toText(step?.ts),
       ts_label: toText(step?.ts_label) || toText(step?.ts),
       delta_label: toText(step?.delta_from_prev_label),
-      component_node: `${toText(step?.component)}.${toText(step?.node)}`,
+      component_node: buildFlowNodeLabel(step),
       status: toText(step?.status) || 'info',
       branch: guardianStep?.outcome?.branch || toText(step?.decision_branch),
       expr: guardianStep?.outcome?.expr || toText(step?.decision_expr),
@@ -804,11 +878,15 @@ export const buildEventLedgerRows = (events = []) => {
     ts: toText(event?.ts),
     ts_label: formatTimestampLabel(event?.ts),
     runtime_node: normalizeRuntimeNode(event?.runtime_node),
+    runtime_node_label: normalizeRuntimeNode(event?.runtime_node),
     component: toText(event?.component) || 'runtime',
+    component_label: resolveComponentLabel(event?.component),
     node: toText(event?.node) || 'event',
+    node_label: resolveNodeLabel(event?.component, event?.node),
     status: toText(event?.status) || 'info',
     symbol: toText(event?.symbol),
-    identity: buildCompactIdentityLabel(event),
+    symbol_name: resolveSymbolNameFromRecord(event),
+    symbol_display: buildSymbolDisplay(toText(event?.symbol), resolveSymbolNameFromRecord(event)),
     summary: buildEventSummary(event),
     metrics_summary: buildEventMetricsSummary(event),
     is_issue: ISSUE_STATUSES.has(toText(event?.status).toLowerCase()),
@@ -1416,6 +1494,7 @@ const compareSidebarRuntimeDetails = (left = {}, right = {}) => {
 
 const buildEmptySidebarItem = (component) => ({
   component,
+  component_label: resolveComponentLabel(component),
   status: 'unknown',
   heartbeat_age_s: null,
   heartbeat_label: 'no data',
@@ -1424,6 +1503,8 @@ const buildEmptySidebarItem = (component) => ({
   trace_count: 0,
   is_placeholder: true,
   preview_highlights: [],
+  runtime_summary_label: '-',
+  runtime_summary_title: '暂无运行节点数据',
   runtime_details: [
     {
       component,
@@ -1456,6 +1537,7 @@ export const buildComponentSidebarItems = (traces = [], components = []) => {
     const primary = runtimeDetails[0]
     return {
       component,
+      component_label: resolveComponentLabel(component),
       status: runtimeDetails
         .map((item) => item.status)
         .sort((left, right) => getStatusSeverity(right) - getStatusSeverity(left))[0] || 'unknown',
@@ -1466,6 +1548,10 @@ export const buildComponentSidebarItems = (traces = [], components = []) => {
       trace_count: runtimeDetails.reduce((total, item) => total + Number(item.trace_count || 0), 0),
       is_placeholder: runtimeDetails.every((item) => item.is_placeholder),
       preview_highlights: Array.isArray(primary?.highlights) ? primary.highlights.slice(0, 2) : [],
+      runtime_summary_label: runtimeDetails.map((item) => item.runtime_node).join(' / '),
+      runtime_summary_title: runtimeDetails
+        .map((item) => `${item.runtime_node} · ${item.heartbeat_label} · Trace ${item.trace_count}`)
+        .join('\n'),
       runtime_details: runtimeDetails,
     }
   })

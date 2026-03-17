@@ -3,6 +3,7 @@
 import math
 from datetime import datetime, timezone
 
+from freshquant.instrument.general import query_instrument_info
 from freshquant.position_management.models import (
     ALLOW_OPEN,
     FORCE_PROFIT_REDUCE,
@@ -242,17 +243,19 @@ class PositionManagementDashboardService:
         decisions = self.repository.list_recent_decisions(limit=limit) or []
         rows = []
         for item in decisions:
+            meta = item.get("meta") or {}
             rows.append(
                 {
                     "strategy_name": item.get("strategy_name"),
                     "action": item.get("action"),
                     "symbol": item.get("symbol"),
+                    "symbol_name": _resolve_recent_decision_symbol_name(item, meta=meta),
                     "state": item.get("state"),
                     "allowed": bool(item.get("allowed")),
                     "reason_code": item.get("reason_code"),
                     "reason_text": item.get("reason_text"),
                     "evaluated_at": item.get("evaluated_at"),
-                    "meta": item.get("meta") or {},
+                    "meta": meta,
                 }
             )
         return rows
@@ -415,6 +418,39 @@ def _build_threshold_refresh_rule(
             "snapshot 刷新完成。"
         ),
     }
+
+
+def _resolve_recent_decision_symbol_name(item, *, meta=None):
+    normalized_meta = meta if isinstance(meta, dict) else {}
+    for candidate in (
+        item.get("symbol_name"),
+        item.get("name"),
+        normalized_meta.get("symbol_name"),
+        normalized_meta.get("name"),
+        _resolve_instrument_name(item.get("symbol")),
+    ):
+        text = _normalize_optional_text(candidate)
+        if text:
+            return text
+    return None
+
+
+def _resolve_instrument_name(symbol):
+    normalized_symbol = normalize_to_base_code(symbol)
+    if not normalized_symbol:
+        return None
+    try:
+        instrument = query_instrument_info(normalized_symbol)
+    except Exception:
+        return None
+    if not isinstance(instrument, dict):
+        return None
+    return _normalize_optional_text(instrument.get("name"))
+
+
+def _normalize_optional_text(value):
+    text = str(value or "").strip()
+    return text or None
 
 
 def _coerce_float(value, default):
