@@ -189,32 +189,3 @@ class DailyScreeningSessionStore:
             session["error"] = data.get("message") or data.get("error")
             if data.get("stage_summaries"):
                 session["stage_summaries"] = copy.deepcopy(data["stage_summaries"])
-        elif event == "started":
-            session["status"] = "running"
-            session["started_at"] = record["ts"]
-        elif event == "universe":
-            total = int(data.get("total") or 0)
-            if total > 0:
-                session["progress"]["total"] = total
-        elif event == "progress":
-            session["progress"]["processed"] = max(
-                int(session["progress"]["processed"]),
-                int(data.get("processed") or 0),
-            )
-            total = int(data.get("total") or 0)
-            if total > 0:
-                session["progress"]["total"] = total
-        elif event == "accepted":
-            session["progress"]["accepted"] += 1
-            session["results"].append(copy.deepcopy(data))
-        elif event == "persisted":
-            session["progress"]["persisted"] += 1
-        elif event == "summary":
-            session["summary"] = copy.deepcopy(data)
-        elif event == "error":
-            session["error"] = data.get("message") or data.get("error")
-        elif event == "completed":
-            session["status"] = data.get("status") or "completed"
-            session["completed_at"] = record["ts"]
-            if data.get("error"):
-                session["error"] = data["error"]

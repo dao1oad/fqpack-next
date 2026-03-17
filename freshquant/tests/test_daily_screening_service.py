@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -20,6 +21,16 @@ class FakeCollection:
 class FakeDB(dict):
     def __getitem__(self, name):
         return dict.__getitem__(self, name)
+
+
+def _parse_sse_events(chunks: list[str]) -> list[dict]:
+    parsed = []
+    for chunk in chunks:
+        lines = [line for line in chunk.strip().splitlines() if line]
+        event = next(line.split(": ", 1)[1] for line in lines if line.startswith("event: "))
+        data = next(line.split(": ", 1)[1] for line in lines if line.startswith("data: "))
+        parsed.append({"event": event, "data": json.loads(data)})
+    return parsed
 
 
 def test_daily_screening_schema_exposes_dynamic_pre_pool_options():
@@ -267,6 +278,190 @@ def test_daily_screening_service_streams_stage_events(monkeypatch):
     assert events[1]["event"] == "stage_started"
     assert events[-2]["event"] == "stage_completed"
     assert events[-1]["event"] == "run_completed"
+
+
+def test_daily_screening_service_iter_sse_keeps_new_internal_events_and_streams_legacy_compat():
+    from freshquant.daily_screening.service import DailyScreeningService
+    from freshquant.daily_screening.session_store import DailyScreeningSessionStore
+
+    store = DailyScreeningSessionStore()
+    service = DailyScreeningService(
+        session_store=store,
+        db=FakeDB(stock_pre_pools=FakeCollection([])),
+    )
+    store.create_run(
+        run_id="run-1",
+        model="clxs",
+        params={"model": "clxs"},
+    )
+    store.publish_event(
+        "run-1",
+        "run_started",
+        {"model": "clxs", "params": {"model": "clxs"}},
+    )
+    store.publish_event(
+        "run-1",
+        "stage_started",
+        {"stage": "clxs", "label": "CLXS_10001"},
+    )
+    store.publish_event(
+        "run-1",
+        "stage_progress",
+        {"stage": "clxs", "kind": "universe", "total": 3},
+    )
+    store.publish_event(
+        "run-1",
+        "stage_progress",
+        {"stage": "clxs", "kind": "stock_progress", "processed": 1, "total": 3},
+    )
+    store.publish_event(
+        "run-1",
+        "stage_progress",
+        {
+            "stage": "clxs",
+            "kind": "hit_raw",
+            "code": "000001",
+            "signal_type": "CLXS_10001",
+        },
+    )
+    store.publish_event(
+        "run-1",
+        "stage_progress",
+        {
+            "stage": "clxs",
+            "kind": "accepted",
+            "accepted_delta": 1,
+            "code": "000001",
+        },
+    )
+    store.publish_event(
+        "run-1",
+        "stage_progress",
+        {
+            "stage": "clxs",
+            "kind": "persisted",
+            "persisted_delta": 1,
+            "code": "000001",
+        },
+    )
+    store.publish_event(
+        "run-1",
+        "stage_completed",
+        {
+            "stage": "clxs",
+            "label": "CLXS_10001",
+            "status": "completed",
+            "accepted_count": 1,
+            "persisted_count": 1,
+        },
+    )
+    store.publish_event(
+        "run-1",
+        "run_completed",
+        {
+            "status": "completed",
+            "summary": {
+                "accepted_count": 1,
+                "persisted_count": 1,
+                "stage_count": 1,
+            },
+            "stage_summaries": {
+                "clxs": {
+                    "stage": "clxs",
+                    "status": "completed",
+                    "accepted_count": 1,
+                    "persisted_count": 1,
+                }
+            },
+        },
+    )
+
+    internal_events = store.get_events("run-1")
+    sse_events = _parse_sse_events(list(service.iter_sse("run-1", once=True)))
+
+    assert [event["event"] for event in internal_events] == [
+        "run_started",
+        "stage_started",
+        "stage_progress",
+        "stage_progress",
+        "stage_progress",
+        "stage_progress",
+        "stage_progress",
+        "stage_completed",
+        "run_completed",
+    ]
+    assert [event["event"] for event in sse_events] == [
+        "run_started",
+        "started",
+        "stage_started",
+        "phase_started",
+        "stage_progress",
+        "universe",
+        "stage_progress",
+        "progress",
+        "stage_progress",
+        "hit_raw",
+        "stage_progress",
+        "accepted",
+        "stage_progress",
+        "persisted",
+        "stage_completed",
+        "phase_completed",
+        "run_completed",
+        "summary",
+        "completed",
+    ]
+
+
+def test_daily_screening_service_iter_sse_maps_run_failed_to_legacy_error_and_completed():
+    from freshquant.daily_screening.service import DailyScreeningService
+    from freshquant.daily_screening.session_store import DailyScreeningSessionStore
+
+    store = DailyScreeningSessionStore()
+    service = DailyScreeningService(
+        session_store=store,
+        db=FakeDB(stock_pre_pools=FakeCollection([])),
+    )
+    store.create_run(
+        run_id="run-2",
+        model="clxs",
+        params={"model": "clxs"},
+    )
+    store.publish_event(
+        "run-2",
+        "run_started",
+        {"model": "clxs", "params": {"model": "clxs"}},
+    )
+    store.publish_event(
+        "run-2",
+        "stage_started",
+        {"stage": "clxs", "label": "CLXS_10001"},
+    )
+    store.publish_event(
+        "run-2",
+        "run_failed",
+        {
+            "status": "failed",
+            "error": "boom",
+            "stage_summaries": {
+                "clxs": {"stage": "clxs", "status": "failed", "error": "boom"}
+            },
+        },
+    )
+
+    sse_events = _parse_sse_events(list(service.iter_sse("run-2", once=True)))
+
+    assert [event["event"] for event in sse_events] == [
+        "run_started",
+        "started",
+        "stage_started",
+        "phase_started",
+        "run_failed",
+        "error",
+        "completed",
+    ]
+    assert sse_events[-2]["data"]["data"]["message"] == "boom"
+    assert sse_events[-1]["data"]["data"]["status"] == "failed"
 
 
 def test_daily_screening_service_passes_filtered_pre_pool_query_to_chanlun(

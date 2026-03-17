@@ -217,7 +217,8 @@ class DailyScreeningService:
             if events:
                 for event in events:
                     cursor = int(event["seq"])
-                    yield self._format_sse(event["event"], event)
+                    for sse_event, payload in self._iter_sse_outputs(run_id, event):
+                        yield self._format_sse(sse_event, payload)
                 if once:
                     break
             elif once:
@@ -290,55 +291,19 @@ class DailyScreeningService:
         persisted_total = 0
 
         clxs_config = dict(config["clxs"])
-        self.session_store.publish_event(
-            run_id,
-            "phase_started",
-            {
-                "branch": "clxs",
-                "label": "CLXS 全模型",
-                "model_opts": clxs_config["model_opts"],
-            },
-        )
         clxs_results = await self._run_clxs_models(run_id, clxs_config)
         combined_results.extend(clxs_results)
         _save_database_outputs(clxs_results, clxs_config)
         persisted_total += self._persist_results(run_id, clxs_config, clxs_results)
-        self.session_store.publish_event(
-            run_id,
-            "phase_completed",
-            {
-                "branch": "clxs",
-                "label": "CLXS 全模型",
-                "accepted_count": len(clxs_results),
-            },
-        )
 
         chanlun_config = dict(config["chanlun"])
         if chanlun_config["input_mode"] != "single_code":
             chanlun_config["pre_pool_run_id"] = run_id
-        self.session_store.publish_event(
-            run_id,
-            "phase_started",
-            {
-                "branch": "chanlun",
-                "label": "chanlun 全信号",
-                "signal_types": chanlun_config["signal_types"],
-            },
-        )
         chanlun_results = await self._run_model(run_id, chanlun_config)
         combined_results.extend(chanlun_results)
         _save_database_outputs(chanlun_results, chanlun_config)
         persisted_total += self._persist_results(
             run_id, chanlun_config, chanlun_results
-        )
-        self.session_store.publish_event(
-            run_id,
-            "phase_completed",
-            {
-                "branch": "chanlun",
-                "label": "chanlun 全信号",
-                "accepted_count": len(chanlun_results),
-            },
         )
 
         return combined_results, persisted_total
@@ -798,6 +763,107 @@ class DailyScreeningService:
             f"event: {event}\n"
             f"data: {json.dumps(self._jsonable(payload), ensure_ascii=False)}\n\n"
         )
+
+    def _iter_sse_outputs(self, run_id: str, event: dict):
+        yield event["event"], event
+        for mapped_event, mapped_payload in self._legacy_sse_outputs(run_id, event):
+            yield mapped_event, mapped_payload
+
+    def _legacy_sse_outputs(self, run_id: str, event: dict):
+        name = str(event.get("event") or "").strip()
+        data = dict(event.get("data") or {})
+        record = {
+            "seq": event.get("seq"),
+            "ts": event.get("ts"),
+        }
+        if name == "run_started":
+            yield "started", {
+                **record,
+                "event": "started",
+                "data": {
+                    "strategy": data.get("model") or data.get("strategy"),
+                    "params": self._jsonable(data.get("params") or {}),
+                },
+            }
+            return
+        if name == "stage_started":
+            yield "phase_started", {
+                **record,
+                "event": "phase_started",
+                "data": self._legacy_phase_payload(data),
+            }
+            return
+        if name == "stage_progress":
+            legacy_name = self._legacy_progress_event_name(data)
+            if legacy_name is None:
+                return
+            yield legacy_name, {
+                **record,
+                "event": legacy_name,
+                "data": self._legacy_progress_payload(data, legacy_name),
+            }
+            return
+        if name == "stage_completed":
+            yield "phase_completed", {
+                **record,
+                "event": "phase_completed",
+                "data": self._legacy_phase_payload(data),
+            }
+            return
+        if name == "run_completed":
+            snapshot = self.get_run(run_id)
+            summary = dict(data.get("summary") or {})
+            yield "summary", {
+                **record,
+                "event": "summary",
+                "data": {
+                    "strategy": snapshot["model"],
+                    "accepted_count": int(summary.get("accepted_count") or 0),
+                    "persisted_count": int(summary.get("persisted_count") or 0),
+                },
+            }
+            yield "completed", {
+                **record,
+                "event": "completed",
+                "data": {"status": data.get("status") or "completed"},
+            }
+            return
+        if name == "run_failed":
+            message = str(data.get("message") or data.get("error") or "")
+            yield "error", {
+                **record,
+                "event": "error",
+                "data": {"message": message},
+            }
+            yield "completed", {
+                **record,
+                "event": "completed",
+                "data": {"status": data.get("status") or "failed", "error": message},
+            }
+
+    def _legacy_phase_payload(self, data: dict) -> dict:
+        payload = dict(data)
+        payload.setdefault("branch", payload.get("stage") or "")
+        return payload
+
+    def _legacy_progress_event_name(self, data: dict) -> str | None:
+        kind = str(data.get("kind") or "").strip()
+        mapping = {
+            "universe": "universe",
+            "stock_progress": "progress",
+            "hit_raw": "hit_raw",
+            "accepted": "accepted",
+            "persisted": "persisted",
+            "error": "error",
+        }
+        return mapping.get(kind)
+
+    def _legacy_progress_payload(self, data: dict, legacy_name: str) -> dict:
+        payload = dict(data)
+        payload.setdefault("branch", payload.get("stage") or "")
+        if legacy_name == "error":
+            payload["message"] = payload.get("message") or payload.get("error") or ""
+        return payload
 
     def _jsonable(self, value: Any):
         if isinstance(value, dict):

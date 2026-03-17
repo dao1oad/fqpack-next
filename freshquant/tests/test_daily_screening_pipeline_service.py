@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 
 class FakeRepository:
     def __init__(self) -> None:
@@ -36,3 +38,78 @@ def test_pipeline_service_records_stage_summaries(monkeypatch):
     assert run["status"] == "queued"
     assert run["stage_summaries"] == {}
     assert repo.get_run(run["id"])["trigger_type"] == "manual_api"
+
+
+def test_pipeline_service_execute_run_success_path_records_summary(monkeypatch):
+    from freshquant.daily_screening.pipeline_service import (
+        DailyScreeningPipelineService,
+    )
+
+    monkeypatch.setattr(
+        "freshquant.daily_screening.pipeline_service.uuid.uuid4",
+        lambda: type("FixedUUID", (), {"hex": "run2234567890"})(),
+    )
+    repo = FakeRepository()
+    pipeline = DailyScreeningPipelineService(repository=repo)
+    created = pipeline.start_run({"model": "clxs"}, trigger_type="manual_api")
+    events = []
+
+    run = pipeline.execute_run(
+        created["id"],
+        {"model": "clxs", "model_opt": 10001},
+        execute_stage=lambda stage_name, stage_config: (
+            [
+                SimpleNamespace(code="000001"),
+                SimpleNamespace(code="000002"),
+            ],
+            1,
+        ),
+        on_event=lambda event, payload: events.append((event, payload)),
+    )
+
+    assert [event for event, _payload in events] == [
+        "run_started",
+        "stage_started",
+        "stage_completed",
+        "run_completed",
+    ]
+    assert run["status"] == "completed"
+    assert run["summary"] == {
+        "accepted_count": 2,
+        "persisted_count": 1,
+        "stage_count": 1,
+    }
+    assert repo.get_run(created["id"])["stage_summaries"]["clxs"]["accepted_count"] == 2
+
+
+def test_pipeline_service_execute_run_failure_path_emits_run_failed(monkeypatch):
+    from freshquant.daily_screening.pipeline_service import (
+        DailyScreeningPipelineService,
+    )
+
+    monkeypatch.setattr(
+        "freshquant.daily_screening.pipeline_service.uuid.uuid4",
+        lambda: type("FixedUUID", (), {"hex": "run3234567890"})(),
+    )
+    repo = FakeRepository()
+    pipeline = DailyScreeningPipelineService(repository=repo)
+    created = pipeline.start_run({"model": "clxs"}, trigger_type="manual_api")
+    events = []
+
+    run = pipeline.execute_run(
+        created["id"],
+        {"model": "clxs", "model_opt": 10001},
+        execute_stage=lambda stage_name, stage_config: (_ for _ in ()).throw(
+            RuntimeError("boom")
+        ),
+        on_event=lambda event, payload: events.append((event, payload)),
+    )
+
+    assert [event for event, _payload in events] == [
+        "run_started",
+        "stage_started",
+        "run_failed",
+    ]
+    assert run["status"] == "failed"
+    assert run["error"] == "boom"
+    assert run["stage_summaries"]["clxs"]["status"] == "failed"
