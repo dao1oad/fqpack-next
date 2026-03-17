@@ -183,6 +183,38 @@ export const getDailyScreeningGuide = (modelId) => {
   ]
 }
 
+export const buildDailyScreeningSourceQueries = (modelId, form = {}, limit = 200) => {
+  if (modelId === 'all') {
+    return [...new Set([
+      form.clxs_remark,
+      form.chanlun_remark,
+    ].map((item) => String(item || '').trim()).filter(Boolean))]
+      .map((remark) => ({ limit, remark }))
+  }
+
+  const remark = String(form.remark || '').trim()
+  return remark ? [{ limit, remark }] : [{ limit }]
+}
+
+export const mergeDailyScreeningRows = (...groups) => {
+  const merged = []
+  const seen = new Set()
+
+  groups.flatMap((group) => toArray(group)).forEach((row) => {
+    const key = [
+      row.code ?? '',
+      row.category ?? '',
+      row.remark ?? '',
+      row.datetime ?? '',
+    ].join('|')
+    if (seen.has(key)) return
+    seen.add(key)
+    merged.push(row)
+  })
+
+  return merged
+}
+
 export const normalizeDailyScreeningRow = (row = {}) => {
   const branch = row.branch
     || row.extra?.screening_branch

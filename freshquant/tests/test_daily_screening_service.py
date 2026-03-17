@@ -539,3 +539,108 @@ def test_daily_screening_service_runs_all_pipeline_and_persists_model_metadata(
             },
         },
     ]
+
+
+def test_daily_screening_service_all_mode_keeps_intermediate_pre_pool_writes(
+    monkeypatch,
+):
+    from freshquant.daily_screening.service import DailyScreeningService
+    from freshquant.daily_screening.session_store import DailyScreeningSessionStore
+
+    fake_db = FakeDB(stock_pre_pools=FakeCollection([]))
+    service = DailyScreeningService(
+        session_store=DailyScreeningSessionStore(),
+        db=fake_db,
+    )
+
+    persisted = []
+    captured = {}
+    monkeypatch.setattr(
+        "freshquant.daily_screening.service._save_pre_pool",
+        lambda **kwargs: persisted.append(kwargs),
+    )
+    monkeypatch.setattr(
+        "freshquant.daily_screening.service._save_database_outputs",
+        lambda results, config: None,
+    )
+
+    class FakeClxsStrategy:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def screen(self, **_kwargs):
+            payload = {
+                "strategy": "clxs",
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "period": "1d",
+                "fire_time": datetime(2026, 3, 17, 15, 0),
+                "price": 10.5,
+                "stop_loss_price": 9.8,
+                "signal_type": "CLXS_10001",
+                "position": "BUY_LONG",
+                "remark": "",
+                "category": "",
+                "tags": [],
+            }
+            self.kwargs["on_result_accepted"](payload)
+            return [
+                SimpleNamespace(
+                    code="000001",
+                    name="alpha",
+                    symbol="sz000001",
+                    period="1d",
+                    fire_time=datetime(2026, 3, 17, 15, 0),
+                    price=10.5,
+                    stop_loss_price=9.8,
+                    signal_type="CLXS_10001",
+                    position="BUY_LONG",
+                    remark="",
+                    category="",
+                )
+            ]
+
+    class FakeChanlunStrategy:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def screen(self, **kwargs):
+            captured["pre_pool_query"] = kwargs.get("pre_pool_query")
+            return []
+
+    monkeypatch.setattr(
+        service,
+        "_make_clxs_strategy",
+        lambda run_id, config: FakeClxsStrategy(
+            **service._make_strategy_hooks(run_id, config),
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_make_chanlun_strategy",
+        lambda run_id, config: FakeChanlunStrategy(
+            **service._make_strategy_hooks(run_id, config),
+        ),
+    )
+
+    snapshot = service.start_run(
+        {
+            "model": "all",
+            "days": 1,
+            "save_pre_pools": False,
+        },
+        run_async=False,
+    )
+
+    run = service.get_run(snapshot["id"])
+
+    assert run["status"] == "completed"
+    assert run["params"]["clxs"]["save_pre_pools"] is True
+    assert run["params"]["chanlun"]["save_pre_pools"] is True
+    assert captured["pre_pool_query"] == {
+        "remark": "daily-screening:clxs",
+        "extra.screening_run_id": run["id"],
+    }
+    assert len(persisted) == 4
+    assert {item["remark"] for item in persisted} == {"daily-screening:clxs"}

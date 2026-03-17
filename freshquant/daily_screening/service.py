@@ -582,7 +582,7 @@ class DailyScreeningService:
                 "model": "all",
                 "days": max(int(payload.get("days") or 1), 1),
                 "code": code,
-                "save_pre_pools": self._as_bool(payload.get("save_pre_pools"), True),
+                "save_pre_pools": True,
                 "clxs": {
                     "model": "clxs",
                     "days": max(int(payload.get("days") or 1), 1),
@@ -592,9 +592,7 @@ class DailyScreeningService:
                     "trend_opt": int(payload.get("trend_opt") or 1),
                     "model_opt": clxs_model_opts[0],
                     "model_opts": clxs_model_opts,
-                    "save_pre_pools": self._as_bool(
-                        payload.get("save_pre_pools"), True
-                    ),
+                    "save_pre_pools": True,
                     "save_signal": False,
                     "save_pools": False,
                     "pool_expire_days": 10,
@@ -621,9 +619,7 @@ class DailyScreeningService:
                     ),
                     "save_signal": False,
                     "save_pools": False,
-                    "save_pre_pools": self._as_bool(
-                        payload.get("save_pre_pools"), True
-                    ),
+                    "save_pre_pools": True,
                     "pool_expire_days": 10,
                     "output_category": "",
                     "remark": "daily-screening:chanlun",
@@ -878,7 +874,12 @@ class DailyScreeningService:
                     ],
                 },
                 {"name": "chanlun_max_concurrent", "type": "number", "default": 50},
-                {"name": "save_pre_pools", "type": "boolean", "default": True},
+                {
+                    "name": "save_pre_pools",
+                    "type": "boolean",
+                    "default": True,
+                    "readonly": True,
+                },
                 {
                     "name": "clxs_remark",
                     "type": "text",

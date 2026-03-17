@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildDailyScreeningSourceQueries,
+  mergeDailyScreeningRows,
   buildDailyScreeningModelFilters,
   buildDailyScreeningCliPreview,
   buildDailyScreeningForms,
@@ -246,5 +248,43 @@ test('buildDailyScreeningModelFilters keeps branch counts and narrows models by 
   assert.deepEqual(clxsFilters.models, [
     { key: 'CLXS_8', label: 'MACD 背驰', branch: 'clxs', count: 2 },
     { key: 'CLXS_10001', label: '默认 CLXS', branch: 'clxs', count: 1 },
+  ])
+})
+
+test('buildDailyScreeningSourceQueries keeps all-mode source view scoped to current remarks', () => {
+  assert.deepEqual(
+    buildDailyScreeningSourceQueries('all', {
+      clxs_remark: 'daily-screening:clxs',
+      chanlun_remark: 'daily-screening:chanlun',
+    }),
+    [
+      { limit: 200, remark: 'daily-screening:clxs' },
+      { limit: 200, remark: 'daily-screening:chanlun' },
+    ],
+  )
+  assert.deepEqual(
+    buildDailyScreeningSourceQueries('clxs', {
+      remark: 'daily-screening:clxs',
+    }),
+    [{ limit: 200, remark: 'daily-screening:clxs' }],
+  )
+})
+
+test('mergeDailyScreeningRows flattens duplicate source rows by storage identity', () => {
+  const merged = mergeDailyScreeningRows(
+    [
+      { code: '000001', category: 'CLXS_8', remark: 'daily-screening:clxs', datetime: '2026-03-17T15:00:00' },
+      { code: '000002', category: 'CLXS_9', remark: 'daily-screening:clxs', datetime: '2026-03-17T15:00:00' },
+    ],
+    [
+      { code: '000001', category: 'CLXS_8', remark: 'daily-screening:clxs', datetime: '2026-03-17T15:00:00' },
+      { code: '000003', category: 'chanlun_service', remark: 'daily-screening:chanlun', datetime: '2026-03-17T15:05:00' },
+    ],
+  )
+
+  assert.deepEqual(merged, [
+    { code: '000001', category: 'CLXS_8', remark: 'daily-screening:clxs', datetime: '2026-03-17T15:00:00' },
+    { code: '000002', category: 'CLXS_9', remark: 'daily-screening:clxs', datetime: '2026-03-17T15:00:00' },
+    { code: '000003', category: 'chanlun_service', remark: 'daily-screening:chanlun', datetime: '2026-03-17T15:05:00' },
   ])
 })

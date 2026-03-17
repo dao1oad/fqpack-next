@@ -99,6 +99,10 @@
   - 先按 `分支` 过滤
   - 再按 `模型` 过滤
   - 模型按钮会显示当前结果数量
+  - `全链路 + 当前来源` 只会拉取：
+    - `daily-screening:clxs`
+    - `daily-screening:chanlun`
+    不会直接扫全量历史 pre_pool
 
 ## 当前实现细节
 
@@ -110,6 +114,9 @@
   - `10001`
 - `CLXS` 未显式设置 `output_category` 时，pre_pool `category` 会跟随结果自身 `signal_type`，例如 `CLXS_8`、`CLXS_10001`。
 - `chanlun` 页面模式默认启用 6 个固定信号，并保留 `signal_type + period` 粒度，避免不同信号在页面二次筛选时被提前合并。
+- `全链路` 的 `save_pre_pools` 在页面上是只读开启状态。原因是：
+  - `CLXS` 中间结果必须先写入 `stock_pre_pools`
+  - `chanlun` 才能按 `remark + run_id` 只消费本次 CLXS 输出
 - `全链路` 模式下，如果不是单票扫描，`chanlun` 会自动追加：
   - `remark = daily-screening:clxs`
   - `extra.screening_run_id = 当前 run_id`

@@ -326,7 +326,9 @@ import {
   buildDailyScreeningCliPreview,
   buildDailyScreeningForms,
   buildDailyScreeningModelFilters,
+  buildDailyScreeningSourceQueries,
   getDailyScreeningGuide,
+  mergeDailyScreeningRows,
   resolveDailyScreeningFields,
 } from './dailyScreeningPage.mjs'
 
@@ -452,16 +454,26 @@ const buildStartPayload = () => ({
 const refreshPrePools = async () => {
   loadingPrePools.value = true
   try {
-    const params = {
-      limit: 200,
-    }
     if (prePoolScope.value === 'run' && activeRunId.value) {
-      params.run_id = activeRunId.value
-    } else if (selectedModel.value !== 'all') {
-      params.remark = currentForm.value?.remark || ''
+      const { data } = await dailyScreeningApi.getPrePools({
+        limit: 200,
+        run_id: activeRunId.value,
+      })
+      prePoolRows.value = Array.isArray(data?.rows) ? data.rows : []
+      return
     }
-    const { data } = await dailyScreeningApi.getPrePools(params)
-    prePoolRows.value = Array.isArray(data?.rows) ? data.rows : []
+
+    const queries = buildDailyScreeningSourceQueries(
+      selectedModel.value,
+      currentForm.value,
+      200,
+    )
+    const responses = await Promise.all(
+      queries.map((params) => dailyScreeningApi.getPrePools(params)),
+    )
+    prePoolRows.value = mergeDailyScreeningRows(
+      ...responses.map((response) => response?.data?.rows),
+    )
   } catch (error) {
     pageError.value = error?.response?.data?.error || error?.message || '加载预选池失败'
   } finally {
