@@ -95,6 +95,7 @@
   - `save_pre_pools`
   - `pool_expire_days`
 - 页面会显示等效 CLI 预览，但 `remark / SSE / 全链路编排 / 预选池来源过滤 / pre_pool_run_id` 属于页面扩展，不是原 CLI 自带参数。
+- 页面里的模型切换、结果过滤、`本次 run / 当前来源` 切换，统一使用 Element Plus 当前 `radio value` 绑定方式，不依赖旧版 `label` 充当值的兼容模式。
 - “本次结果”和“已落库预选池”都支持：
   - 先按 `分支` 过滤
   - 再按 `模型` 过滤
