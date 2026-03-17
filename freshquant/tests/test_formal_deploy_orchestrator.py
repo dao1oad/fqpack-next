@@ -477,3 +477,70 @@ def test_noop_run_skips_deploy_commands_and_advances_state(
     assert commands == []
     assert state["last_success_sha"] == "newsha"
     assert state["last_deployed_surfaces"] == []
+
+
+def test_incremental_run_without_git_dir_uses_compare_api_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_module()
+    commands: list[list[str]] = []
+    repo_root = tmp_path / "archive-repo"
+    repo_root.mkdir()
+
+    state_path = tmp_path / "production-state.json"
+    write_state(
+        state_path,
+        {
+            "last_success_sha": "oldsha",
+            "last_attempt_sha": "oldsha",
+            "last_attempt_at": "2026-03-16T00:00:00+00:00",
+            "last_success_at": "2026-03-16T00:00:00+00:00",
+            "last_deployed_surfaces": ["api"],
+            "last_run_url": "https://example.invalid/runs/0",
+        },
+    )
+
+    fake_plan_module = SimpleNamespace(
+        SURFACE_ORDER=("web",),
+        HEALTH_CHECK_MAP={},
+        build_deploy_plan=lambda changed_paths=None, explicit_surfaces=None: make_plan(
+            surfaces=["web"]
+        ),
+    )
+
+    def unexpected_git_diff(*_args: object, **_kwargs: object) -> list[str]:
+        raise AssertionError("git diff should not run without .git")
+
+    monkeypatch.setattr(module, "load_current_revision", lambda _: "newsha")
+    monkeypatch.setattr(module, "load_changed_paths", unexpected_git_diff)
+    monkeypatch.setattr(
+        module,
+        "load_changed_paths_from_compare_api",
+        lambda repository, base_sha, head_sha, github_token: [
+            "morningglory/fqwebui/src/App.vue"
+        ],
+    )
+    monkeypatch.setattr(module, "load_deploy_plan_module", lambda _: fake_plan_module)
+    monkeypatch.setattr(
+        module,
+        "execute_command",
+        lambda command, **_: commands.append(command),
+    )
+    monkeypatch.setattr(
+        module,
+        "utcnow",
+        lambda: datetime(2026, 3, 17, 10, 30, 0, tzinfo=timezone.utc),
+    )
+
+    result = module.run_formal_deploy(
+        repo_root=repo_root,
+        state_path=state_path,
+        runs_root=tmp_path / "runs",
+        head_sha="newsha",
+        run_url="https://example.invalid/runs/6",
+        github_repository="dao1oad/fqpack-next",
+    )
+
+    assert result["changed_paths"] == ["morningglory/fqwebui/src/App.vue"]
+    assert result["plan"]["deployment_surfaces"] == ["web"]
+    assert read_state(state_path)["last_success_sha"] == "newsha"

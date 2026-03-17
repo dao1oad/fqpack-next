@@ -123,6 +123,8 @@
 - Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
 - GHCR 预构建镜像仅用于加速 Docker 部署，不改变运行真值；实际运行真值仍来自当前 `main`、deploy 结果与 health/runtime ops evidence
 - `deploy-production.yml` 在正式 Windows self-hosted runner 上消费这些 GHCR 镜像，并把 deploy state / logs 固化到 `formal-deploy` artifacts 目录
+- 该 workflow 不走 `actions/checkout`；会先调用 GitHub API 校验 `main` tip，再用 PowerShell 下载目标 SHA 的源码归档并展开到 runner 工作区，避免宿主机 `git/libcurl` 网络抖动导致 deploy 卡在 checkout
+- 对已经有 `last_success_sha` 的增量正式 deploy，`run_formal_deploy.py` 会在 zipball 工作区下回退到 GitHub compare API 计算 changed paths，因此不会因为缺少 `.git` 而失去增量部署能力
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - `docker/compose.parallel.yaml` 会为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`，避免容器误继承宿主机默认 `27027`
