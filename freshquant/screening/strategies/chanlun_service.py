@@ -6,6 +6,7 @@
 
 import asyncio
 from datetime import datetime, timedelta
+from typing import Callable
 
 from bson.codec_options import CodecOptions
 from loguru import logger
@@ -17,8 +18,8 @@ from freshquant.data.astock.basic import fq_fetch_a_stock_basic
 from freshquant.data.trade_date_hist import tool_trade_date_last
 from freshquant.db import DBfreshquant
 from freshquant.screening.base.strategy import ScreenResult, ScreenStrategy
-from freshquant.screening.writers import DatabaseOutput, ReportOutput
 from freshquant.screening.signal_types import CHANLUN_SIGNAL_TYPES
+from freshquant.screening.writers import DatabaseOutput, ReportOutput
 from freshquant.util.datetime_helper import fq_util_datetime_localize
 
 
@@ -47,6 +48,11 @@ class ChanlunServiceStrategy(ScreenStrategy):
         max_concurrent: int = 50,
         days: int = 1,
         output_html: bool = True,
+        on_universe: Callable[[dict], None] | None = None,
+        on_stock_progress: Callable[[dict], None] | None = None,
+        on_hit_raw: Callable[[dict], None] | None = None,
+        on_result_accepted: Callable[[dict], None] | None = None,
+        on_error: Callable[[dict], None] | None = None,
     ):
         """
 
@@ -69,6 +75,11 @@ class ChanlunServiceStrategy(ScreenStrategy):
         self.days = days
         self.output_html = output_html
         self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._on_universe = on_universe
+        self._on_stock_progress = on_stock_progress
+        self._on_hit_raw = on_hit_raw
+        self._on_result_accepted = on_result_accepted
+        self._on_error = on_error
 
         # 只使用与 monitor_stock_zh_a_min.py 相同的信号类型
         monitored_signal_types = [
@@ -91,6 +102,7 @@ class ChanlunServiceStrategy(ScreenStrategy):
         code: str | None = None,
         period: str | None = None,
         days: int | None = None,
+        pre_pool_query: dict | None = None,
     ) -> list[ScreenResult]:
         """执行选股
 
@@ -106,17 +118,33 @@ class ChanlunServiceStrategy(ScreenStrategy):
         # 使用传入的 days 或初始化值
         scan_days = days if days is not None else self.days
         tasks = []
+        total_tasks = 0
 
         if symbol:
             # 单个股票
             logger.info(f"扫描股票: {symbol}, 周期: {period or '所有'}")
-            tasks.append(self._scan_stock(symbol, period))
+            total_tasks = 1
+            tasks.append(
+                (
+                    {"code": code or symbol[2:], "symbol": symbol},
+                    self._scan_stock(symbol, period),
+                )
+            )
+            self._emit_hook(
+                self._on_universe,
+                {
+                    "strategy": self.name,
+                    "total": total_tasks,
+                    "mode": "single_code",
+                    "code": code or symbol[2:],
+                },
+            )
         else:
             # 从预选池获取股票列表
             stock_list = list(
                 DBfreshquant["stock_pre_pools"]
                 .with_options(codec_options=CodecOptions(tz_aware=True, tzinfo=cfg.TZ))
-                .find()
+                .find(pre_pool_query or {})
             )
 
             if not stock_list:
@@ -136,41 +164,116 @@ class ChanlunServiceStrategy(ScreenStrategy):
 
             stock_list = list(unique_stocks.values())
             logger.info(f"从预选池加载 {len(stock_list)} 只股票（去重后），开始扫描...")
+            total_tasks = len(stock_list)
+            self._emit_hook(
+                self._on_universe,
+                {
+                    "strategy": self.name,
+                    "total": total_tasks,
+                    "mode": "pre_pool",
+                    "code": None,
+                },
+            )
 
-            for stock in tqdm(stock_list, desc="加载股票", disable=len(stock_list) < 10):
+            for stock in tqdm(
+                stock_list, desc="加载股票", disable=len(stock_list) < 10
+            ):
                 stock_info = fq_fetch_a_stock_basic(stock["code"])
                 if not stock_info:
                     logger.warning(f"无法获取股票信息: {stock['code']}")
                     continue
                 sym = f"{stock_info['sse']}{stock_info['code']}"
-                tasks.append(self._scan_stock(sym, period, stock))
+                tasks.append(
+                    (
+                        {
+                            "code": stock["code"],
+                            "symbol": sym,
+                            "name": stock_info.get("name"),
+                        },
+                        self._scan_stock(sym, period, stock),
+                    )
+                )
 
         if not tasks:
             logger.warning("没有可扫描的股票")
             return []
 
         # 分批执行，避免一次性创建过多任务
-        logger.info(f"开始分批扫描 {len(tasks)} 只股票（每批 {self.max_concurrent} 只）...")
+        logger.info(
+            f"开始分批扫描 {len(tasks)} 只股票（每批 {self.max_concurrent} 只）..."
+        )
         results = []
         batch_size = self.max_concurrent
+        processed_total = 0
 
         for i in range(0, len(tasks), batch_size):
-            batch = tasks[i:i + batch_size]
+            batch = tasks[i : i + batch_size]
             batch_num = i // batch_size + 1
             total_batches = (len(tasks) + batch_size - 1) // batch_size
 
-            logger.info(f"执行第 {batch_num}/{total_batches} 批（{len(batch)} 只股票）...")
+            logger.info(
+                f"执行第 {batch_num}/{total_batches} 批（{len(batch)} 只股票）..."
+            )
 
             # 执行当前批次
-            batch_results = await asyncio.gather(*batch, return_exceptions=True)
+            batch_results = await asyncio.gather(
+                *[item[1] for item in batch], return_exceptions=True
+            )
 
             # 处理结果
             batch_valid_results = []
-            for r in batch_results:
+            for task_meta, r in zip(batch, batch_results):
+                meta = task_meta[0]
+                processed_total += 1
                 if isinstance(r, Exception):
                     logger.error(f"扫描失败: {r}")
+                    self._emit_error(
+                        code=meta.get("code"),
+                        symbol=meta.get("symbol"),
+                        error=r,
+                    )
+                    self._emit_hook(
+                        self._on_stock_progress,
+                        {
+                            "strategy": self.name,
+                            "processed": processed_total,
+                            "total": total_tasks,
+                            "code": meta.get("code"),
+                            "name": meta.get("name"),
+                            "symbol": meta.get("symbol"),
+                            "result_count": 0,
+                            "status": "error",
+                        },
+                    )
                 elif r:
                     batch_valid_results.extend(r)
+                    self._emit_hook(
+                        self._on_stock_progress,
+                        {
+                            "strategy": self.name,
+                            "processed": processed_total,
+                            "total": total_tasks,
+                            "code": meta.get("code"),
+                            "name": meta.get("name"),
+                            "symbol": meta.get("symbol"),
+                            "result_count": len(r),
+                            "status": "ok",
+                        },
+                    )
+                else:
+                    self._emit_hook(
+                        self._on_stock_progress,
+                        {
+                            "strategy": self.name,
+                            "processed": processed_total,
+                            "total": total_tasks,
+                            "code": meta.get("code"),
+                            "name": meta.get("name"),
+                            "symbol": meta.get("symbol"),
+                            "result_count": 0,
+                            "status": "ok",
+                        },
+                    )
 
             # 筛选最近 N 个交易日的信号（每批立即过滤）
             if scan_days > 0 and batch_valid_results:
@@ -183,23 +286,30 @@ class ChanlunServiceStrategy(ScreenStrategy):
                     ) - timedelta(days=scan_days - 1)
                 else:
                     # 如果无法获取交易日，回退到当前时间
-                    cutoff_date = fq_util_datetime_localize(datetime.now()) - timedelta(days=scan_days)
+                    cutoff_date = fq_util_datetime_localize(datetime.now()) - timedelta(
+                        days=scan_days
+                    )
 
                 before_count = len(batch_valid_results)
                 # 筛选日期和信号方向（只保留 BUY_LONG）
                 batch_valid_results = [
-                    r for r in batch_valid_results
+                    r
+                    for r in batch_valid_results
                     if r.fire_time >= cutoff_date and r.position == "BUY_LONG"
                 ]
                 after_count = len(batch_valid_results)
                 if before_count > after_count:
-                    logger.debug(f"批次 {batch_num} 筛选: {before_count} → {after_count}（过滤 SELL_SHORT）")
+                    logger.debug(
+                        f"批次 {batch_num} 筛选: {before_count} → {after_count}（过滤 SELL_SHORT）"
+                    )
 
             # 添加到总结果
             results.extend(batch_valid_results)
 
             # 每批后报告进度
-            logger.info(f"第 {batch_num}/{total_batches} 批完成，本批 {len(batch_valid_results)} 条，累计 {len(results)} 条")
+            logger.info(
+                f"第 {batch_num}/{total_batches} 批完成，本批 {len(batch_valid_results)} 条，累计 {len(results)} 条"
+            )
 
         logger.info(f"扫描完成，共找到 {len(results)} 条信号")
 
@@ -207,12 +317,17 @@ class ChanlunServiceStrategy(ScreenStrategy):
         results = self._deduplicate(results)
         self._sort_results(results)
 
+        for result in results:
+            self._emit_hook(self._on_result_accepted, self._result_to_payload(result))
+
         # 输出报表
         if results:
             ReportOutput.print_table(results, title="缠论信号")
 
             if self.output_html:
-                ReportOutput.save_html(results, filename="chanlun_service_screening.html")
+                ReportOutput.save_html(
+                    results, filename="chanlun_service_screening.html"
+                )
 
         # 批量保存
         if results:
@@ -251,7 +366,7 @@ class ChanlunServiceStrategy(ScreenStrategy):
                 # 添加超时限制，避免卡死
                 period_results = await asyncio.wait_for(
                     self._scan_period(symbol, code, sse, p, category),
-                    timeout=30.0  # 30 秒超时
+                    timeout=30.0,  # 30 秒超时
                 )
                 results.extend(period_results)
             except asyncio.TimeoutError:
@@ -329,6 +444,10 @@ class ChanlunServiceStrategy(ScreenStrategy):
                             category=category,
                         )
                     )
+                    self._emit_hook(
+                        self._on_hit_raw,
+                        self._result_to_payload(results[-1]),
+                    )
                 except Exception as e:
                     logger.error(f"解析信号失败 {symbol} {signal_type} {i}: {e}")
 
@@ -359,6 +478,50 @@ class ChanlunServiceStrategy(ScreenStrategy):
             results: 选股结果列表（就地修改）
         """
         results.sort(key=lambda r: r.fire_time, reverse=True)
+
+    def _result_to_payload(self, result: ScreenResult) -> dict:
+        return {
+            "strategy": self.name,
+            "code": result.code,
+            "name": result.name,
+            "symbol": result.symbol,
+            "period": result.period,
+            "fire_time": result.fire_time,
+            "price": result.price,
+            "stop_loss_price": result.stop_loss_price,
+            "signal_type": result.signal_type,
+            "position": result.position,
+            "remark": result.remark,
+            "category": result.category,
+            "tags": list(result.tags),
+        }
+
+    def _emit_hook(
+        self, callback: Callable[[dict], None] | None, payload: dict
+    ) -> None:
+        if callback is None:
+            return
+        try:
+            callback(payload)
+        except Exception as exc:
+            logger.warning(f"chanlun_service hook 执行失败: {exc}")
+
+    def _emit_error(
+        self,
+        *,
+        code: str | None,
+        symbol: str | None = None,
+        error: Exception,
+    ) -> None:
+        self._emit_hook(
+            self._on_error,
+            {
+                "strategy": self.name,
+                "code": code,
+                "symbol": symbol,
+                "error": str(error),
+            },
+        )
 
 
 # 兼容旧接口

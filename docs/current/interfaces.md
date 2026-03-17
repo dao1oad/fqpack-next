@@ -31,6 +31,16 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/gantt/shouban30/pre-pool/*`
 - `/api/gantt/shouban30/stock-pool/*`
 
+### `daily-screening`
+
+- `/api/daily-screening/schema`
+- `/api/daily-screening/runs`
+- `/api/daily-screening/runs/<run_id>`
+- `/api/daily-screening/runs/<run_id>/stream`
+- `/api/daily-screening/pre-pools`
+- `/api/daily-screening/pre-pools/stock-pools`
+- `/api/daily-screening/pre-pools/delete`
+
 ### `order`
 
 - `/api/order/submit`
@@ -88,6 +98,7 @@ python -m freshquant.rear.api_server --port 5000
 - 仓位管理页面使用独立 `/api/position-management/*` 读模型接口，因为它需要同时返回配置 inventory、effective state、holding scope 和规则矩阵
 - 标的管理页面使用独立 `/api/subject-management/*` 聚合接口，把 `must_pool / guardian_buy_grid / takeprofit / buy lot stoploss / 运行态摘要` 收口到同一页；账户级仓位门禁只读联动展示，不在该页写入
 - 系统设置页面使用独立 `/api/system-config/*` 接口，明确区分 Bootstrap 文件配置与 Mongo 系统设置
+- 每日选股页面使用独立 `/api/daily-screening/*` 接口，把 schema、扫描会话、SSE 事件流和共享 `stock_pre_pools` 来源隔离收口到同一页
 - Runtime API 只读原始日志与聚合视图，不承担修复动作
 
 ## CLI
@@ -155,6 +166,7 @@ python -m freshquant.initialize
 - `/kline-slim`
 - `/gantt`
 - `/gantt/shouban30`
+- `/daily-screening`
 - `/gantt/stocks/:plateKey`
 - `/order-management`
 - `/position-management`
@@ -174,3 +186,4 @@ python -m freshquant.initialize
 - 系统设置页只维护新系统正式配置，不再承载旧 SMTP / 邮件收件人或旧 `code + value` 通用参数模式
 - Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面
 - `/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 当前正式时间参数是 `days` 与 `end_date`
+- `/api/daily-screening/runs/<run_id>/stream` 是当前系统正式 SSE 入口，页面通过该接口实时消费选股事件

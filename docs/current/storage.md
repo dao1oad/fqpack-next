@@ -78,6 +78,10 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - 主交易事实在订单管理库中，不在旧 `xt_orders/xt_trades` 集合中。
 - `xt_orders / xt_trades / xt_positions / xt_assets` 是外部回报与当前账户视角事实，不是内部订单请求事实。
 - `stock_pre_pools / stock_pools / must_pool` 是策略与页面共享的工作区/订阅范围集合。
+- 每日选股页面会把来源真值写到 `stock_pre_pools.remark`，当前正式值包括：
+  - `daily-screening:clxs`
+  - `daily-screening:chanlun`
+- 当 `remark` 非空时，`stock_pre_pools` 当前 upsert 语义是 `code + category + remark`；空 `remark` 仍保持旧 `code + category` 语义。
 - `stock_signals` 是 Guardian event monitor 写入的实时信号日志。
 - `realtime_screen_multi_period` 是启用 CLX 能力的 XTData consumer 写入的多周期模型信号读模型。
 - Gantt/Shouban30 集合是只读视图与筛选结果，不参与订单账本。
@@ -114,6 +118,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - XT 回报 ingest 写 `om_trade_facts`、`om_buy_lots`、`om_lot_slices`、`om_sell_allocations` 等。
 - TPSL 读 `xt_positions` 与 `om_*`，写 `om_takeprofit_*` / `om_exit_trigger_events`。
 - Gantt/Shouban30 API 读 gantt 库，并在工作区操作时写 `stock_pre_pools`、`stock_pools`；`stock_pool -> must_pool` 的单条/批量动作会显式写 `must_pool`，但不会改写 `stock_pool` 顺序。
+- 每日选股 API 直接调用 `CLXS / chanlun` 策略，把扫描会话留在 API 进程内存，并在结果 accepted 后把页面来源写到 `stock_pre_pools`；可选地再写 `stock_signals / stock_pools`。
 
 ## 当前排障原则
 
