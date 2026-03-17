@@ -66,7 +66,11 @@ def test_collect_ci_context_preserves_leading_dot_paths() -> None:
     module = _load_module(COLLECT_CONTEXT_SCRIPT, "collect_ci_context")
 
     context = module.build_context(
-        changed_files=["./.github/workflows/ci.yml", ".githooks/pre-push", ".codex/memory/workflow-rules.md"],
+        changed_files=[
+            "./.github/workflows/ci.yml",
+            ".githooks/pre-push",
+            ".codex/memory/workflow-rules.md",
+        ],
         deployment_required=False,
     )
 

@@ -11,4 +11,3 @@ else
   echo "FreshQuant pre-push hook requires powershell.exe or pwsh in PATH." >&2
   exit 1
 fi
-
