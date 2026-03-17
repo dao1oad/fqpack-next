@@ -106,3 +106,30 @@ def test_shared_runtime_paths_expand_to_all_affected_surfaces() -> None:
     ]
     assert "fqnext_realtime_xtdata_consumer" in plan["host_programs"]
     assert "fqnext_xtquant_broker" in plan["host_programs"]
+
+
+def test_dagster_surface_requires_shared_rear_build_target() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(explicit_surfaces=["dagster"])
+
+    assert plan["docker_build_targets"] == ["fq_apiserver"]
+    assert plan["docker_up_services"] == [
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+    ]
+    assert plan["docker_services"] == [
+        "fq_apiserver",
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+    ]
+
+
+def test_qa_surface_requires_shared_rear_build_target() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(explicit_surfaces=["qa"])
+
+    assert plan["docker_build_targets"] == ["fq_apiserver"]
+    assert plan["docker_up_services"] == ["fq_qawebserver"]
+    assert plan["docker_services"] == ["fq_apiserver", "fq_qawebserver"]

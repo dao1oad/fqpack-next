@@ -2,10 +2,95 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
 LABEL_KEY = "io.freshquant.git_sha"
+DEFAULT_GHCR_NAMESPACE = os.environ.get("FQ_GHCR_NAMESPACE", "ghcr.io/dao1oad")
+
+SERVICE_IMAGE_ENV_VARS = {
+    "fq_apiserver": "FQNEXT_REAR_IMAGE",
+    "fq_tdxhq": "FQNEXT_REAR_IMAGE",
+    "fq_dagster_webserver": "FQNEXT_REAR_IMAGE",
+    "fq_dagster_daemon": "FQNEXT_REAR_IMAGE",
+    "fq_qawebserver": "FQNEXT_REAR_IMAGE",
+    "fq_webui": "FQNEXT_WEBUI_IMAGE",
+    "ta_backend": "FQNEXT_TA_BACKEND_IMAGE",
+    "ta_frontend": "FQNEXT_TA_FRONTEND_IMAGE",
+}
+
+SERVICE_REGISTRY_PACKAGES = {
+    "fq_apiserver": "fqnext-rear",
+    "fq_tdxhq": "fqnext-rear",
+    "fq_dagster_webserver": "fqnext-rear",
+    "fq_dagster_daemon": "fqnext-rear",
+    "fq_qawebserver": "fqnext-rear",
+    "fq_webui": "fqnext-webui",
+    "ta_backend": "fqnext-ta-backend",
+    "ta_frontend": "fqnext-ta-frontend",
+}
+
+SHARED_REAR_BUILD_INPUT_PREFIXES = (
+    "docker/Dockerfile.rear",
+    ".dockerignore",
+    "pyproject.toml",
+    "uv.lock",
+    "jupyter_server_config.json",
+    "freshquant/",
+    "morningglory/fqchan01/",
+    "morningglory/fqchan02/",
+    "morningglory/fqchan03/",
+    "morningglory/fqchan04/",
+    "morningglory/fqchan06/",
+    "morningglory/fqcopilot/",
+    "morningglory/fqdagster/",
+    "morningglory/fqxtrade/",
+    "sunflower/xtquant/",
+    "sunflower/pytdx/",
+    "sunflower/backtrader/",
+    "sunflower/QUANTAXIS/",
+)
+
+GLOBAL_BUILD_INPUT_PREFIXES = (
+    "docker/compose.parallel.yaml",
+    "script/docker_parallel_compose.py",
+    "script/docker_parallel_compose.ps1",
+)
+
+SERVICE_BUILD_INPUT_PREFIXES = {
+    "fq_apiserver": SHARED_REAR_BUILD_INPUT_PREFIXES,
+    "fq_tdxhq": SHARED_REAR_BUILD_INPUT_PREFIXES,
+    "fq_dagster_webserver": SHARED_REAR_BUILD_INPUT_PREFIXES,
+    "fq_dagster_daemon": SHARED_REAR_BUILD_INPUT_PREFIXES,
+    "fq_qawebserver": SHARED_REAR_BUILD_INPUT_PREFIXES,
+    "fq_webui": (
+        "docker/Dockerfile.web",
+        "morningglory/fqwebui/",
+    ),
+    "ta_backend": (
+        "third_party/tradingagents-cn/Dockerfile.backend",
+        "third_party/tradingagents-cn/",
+    ),
+    "ta_frontend": (
+        "third_party/tradingagents-cn/Dockerfile.frontend",
+        "third_party/tradingagents-cn/",
+    ),
+}
+
+
+def normalize_path(path: str) -> str:
+    return path.replace("\\", "/").strip()
+
+
+def path_matches_prefix(path: str, prefix: str) -> bool:
+    normalized_path = normalize_path(path)
+    normalized_prefix = normalize_path(prefix)
+    if normalized_prefix.endswith("/"):
+        return normalized_path.startswith(normalized_prefix)
+    return normalized_path == normalized_prefix or normalized_path.startswith(
+        normalized_prefix + "/"
+    )
 
 
 def is_supported_up_build(args: list[str]) -> bool:
@@ -58,9 +143,20 @@ def load_current_revision(repo_root: Path) -> str:
     return result.stdout.strip()
 
 
-def load_worktree_is_dirty(repo_root: Path) -> bool:
-    result = run_capture(["git", "-C", str(repo_root), "status", "--porcelain"])
-    return bool(result.stdout.strip())
+def load_dirty_paths(repo_root: Path) -> list[str]:
+    result = run_capture(
+        ["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=all"]
+    )
+    dirty_paths: list[str] = []
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.rstrip()
+        if not line:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        dirty_paths.append(normalize_path(path))
+    return dirty_paths
 
 
 def load_compose_service_images(compose_file: Path) -> tuple[list[str], dict[str, str]]:
@@ -86,7 +182,7 @@ def load_compose_service_images(compose_file: Path) -> tuple[list[str], dict[str
     return service_names, service_images
 
 
-def load_image_revisions(images: list[str]) -> dict[str, str]:
+def load_local_image_revisions(images: list[str]) -> dict[str, str]:
     revisions: dict[str, str] = {}
     for image in images:
         result = subprocess.run(
@@ -107,44 +203,148 @@ def load_image_revisions(images: list[str]) -> dict[str, str]:
     return revisions
 
 
+def load_remote_image_revisions(images: list[str]) -> dict[str, str]:
+    revisions: dict[str, str] = {}
+    for image in images:
+        result = subprocess.run(
+            ["docker", "manifest", "inspect", image],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            continue
+        if ":" in image:
+            revisions[image] = image.rsplit(":", 1)[1]
+    return revisions
+
+
+def build_registry_service_images(current_revision: str) -> dict[str, str]:
+    return {
+        service: f"{DEFAULT_GHCR_NAMESPACE}/{package}:{current_revision}"
+        for service, package in SERVICE_REGISTRY_PACKAGES.items()
+    }
+
+
+def build_image_overrides(
+    target_services: list[str],
+    service_images: dict[str, str],
+) -> tuple[dict[str, str], list[str]]:
+    overrides: dict[str, str] = {}
+    pull_images: list[str] = []
+
+    for service in target_services:
+        env_name = SERVICE_IMAGE_ENV_VARS.get(service)
+        image = service_images.get(service)
+        if not env_name or not image:
+            continue
+        overrides[env_name] = image
+        if image not in pull_images:
+            pull_images.append(image)
+
+    return overrides, pull_images
+
+
+def dirty_paths_affect_target_services(
+    dirty_paths: list[str],
+    target_services: list[str],
+) -> bool:
+    if not dirty_paths:
+        return False
+
+    prefixes = list(GLOBAL_BUILD_INPUT_PREFIXES)
+    for service in target_services:
+        service_prefixes = SERVICE_BUILD_INPUT_PREFIXES.get(service)
+        if service_prefixes is None:
+            return True
+        prefixes.extend(service_prefixes)
+
+    for path in dirty_paths:
+        if any(path_matches_prefix(path, prefix) for prefix in prefixes):
+            return True
+
+    return False
+
+
 def compute_rewrite_result(
     repo_root: Path,
     compose_file: Path,
     compose_args: list[str],
 ) -> dict[str, object]:
     current_revision = load_current_revision(repo_root)
-    worktree_is_dirty = load_worktree_is_dirty(repo_root)
     all_services, service_images = load_compose_service_images(compose_file)
     target_services = extract_target_services(compose_args, all_services)
-    images = sorted(
+
+    local_images = sorted(
         {
             service_images.get(service, "")
             for service in target_services
             if service_images.get(service)
         }
     )
-    image_revisions = load_image_revisions(images)
-    rewritten = rewrite_compose_args_for_cached_images(
-        args=compose_args,
-        all_services=all_services,
-        service_images=service_images,
-        image_revisions=image_revisions,
-        current_revision=current_revision,
+    local_image_revisions = load_local_image_revisions(local_images)
+
+    registry_service_images = build_registry_service_images(current_revision)
+    remote_images = sorted(
+        {
+            registry_service_images.get(service, "")
+            for service in target_services
+            if registry_service_images.get(service)
+        }
     )
-    if worktree_is_dirty:
-        rewritten = list(compose_args)
+    remote_image_revisions = load_remote_image_revisions(remote_images)
+
+    dirty_paths = load_dirty_paths(repo_root)
+    dirty_affects_target = dirty_paths_affect_target_services(dirty_paths, target_services)
+
+    mode = "build_required"
+    rewritten = list(compose_args)
+    image_overrides: dict[str, str] = {}
+    pull_images: list[str] = []
+
+    if not dirty_affects_target:
+        remote_rewritten = rewrite_compose_args_for_cached_images(
+            args=compose_args,
+            all_services=all_services,
+            service_images=registry_service_images,
+            image_revisions=remote_image_revisions,
+            current_revision=current_revision,
+        )
+        if remote_rewritten != compose_args:
+            mode = "remote_cached"
+            rewritten = remote_rewritten
+            image_overrides, pull_images = build_image_overrides(
+                target_services, registry_service_images
+            )
+        else:
+            local_rewritten = rewrite_compose_args_for_cached_images(
+                args=compose_args,
+                all_services=all_services,
+                service_images=service_images,
+                image_revisions=local_image_revisions,
+                current_revision=current_revision,
+            )
+            if local_rewritten != compose_args:
+                mode = "local_cached"
+                rewritten = local_rewritten
 
     skipped = rewritten != compose_args
-    reason = (
-        "all target images already match current HEAD"
-        if skipped
-        else "build required, worktree dirty, or cache metadata unavailable"
-    )
+    if mode == "remote_cached":
+        reason = "matching registry images already exist for current HEAD"
+    elif mode == "local_cached":
+        reason = "all target local images already match current HEAD"
+    else:
+        reason = "build required, dirty paths affect target build inputs, or cache metadata unavailable"
+
     return {
         "compose_args": rewritten,
         "skip_build": skipped,
         "reason": reason,
         "current_revision": current_revision,
+        "mode": mode,
+        "dirty_paths": dirty_paths,
+        "image_overrides": image_overrides,
+        "pull_images": pull_images,
     }
 
 

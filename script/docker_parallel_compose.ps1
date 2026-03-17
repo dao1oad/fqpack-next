@@ -1,4 +1,7 @@
 param(
+    [Alias("d")]
+    [switch]$Detached,
+
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ComposeArgs
 )
@@ -6,6 +9,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$env:DOCKER_BUILDKIT = "1"
+$env:COMPOSE_DOCKER_CLI_BUILD = "1"
 
 if (-not $env:FQ_RUNTIME_LOG_HOST_DIR) {
     $resolvedRuntimeLogHostDir = & py -3.12 "$repoRoot\script\docker_parallel_runtime.py" --repo-root $repoRoot --kind runtime-log-dir
@@ -38,6 +43,13 @@ if ($LASTEXITCODE -ne 0) {
 $env:FQ_IMAGE_GIT_SHA = $currentRevision
 
 $resolvedComposeArgs = @($ComposeArgs)
+if ($Detached.IsPresent -and $resolvedComposeArgs -and $resolvedComposeArgs -notcontains "-d") {
+    $reconstructedComposeArgs = @($resolvedComposeArgs[0], "-d")
+    if ($resolvedComposeArgs.Count -gt 1) {
+        $reconstructedComposeArgs += $resolvedComposeArgs[1..($resolvedComposeArgs.Count - 1)]
+    }
+    $resolvedComposeArgs = $reconstructedComposeArgs
+}
 if ($resolvedComposeArgs.Count -gt 0) {
     try {
         $helperArgs = @(
@@ -54,8 +66,29 @@ if ($resolvedComposeArgs.Count -gt 0) {
         if ($LASTEXITCODE -eq 0 -and $smartBuildJson) {
             $smartBuild = $smartBuildJson | ConvertFrom-Json
             $resolvedComposeArgs = @($smartBuild.compose_args | ForEach-Object { [string]$_ })
+            if ($smartBuild.image_overrides) {
+                foreach ($property in $smartBuild.image_overrides.PSObject.Properties) {
+                    Set-Item -Path "Env:$($property.Name)" -Value ([string]$property.Value)
+                }
+            }
             if ($smartBuild.skip_build) {
-                Write-Host "smart-build: $($smartBuild.reason)"
+                Write-Host "smart-build[$($smartBuild.mode)]: $($smartBuild.reason)"
+            }
+            if ($smartBuild.mode -eq "remote_cached" -and $smartBuild.pull_images) {
+                $pullFailed = $false
+                foreach ($pullImage in @($smartBuild.pull_images | ForEach-Object { [string]$_ })) {
+                    Write-Host "PULL_IMAGE=$pullImage"
+                    & docker pull $pullImage
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Warning "remote image pull failed for $pullImage; falling back to original compose args"
+                        $resolvedComposeArgs = @($ComposeArgs)
+                        $pullFailed = $true
+                        break
+                    }
+                }
+                if ($pullFailed) {
+                    Write-Host "smart-build fallback: build_required"
+                }
             }
         }
     } catch {
@@ -77,6 +110,7 @@ if ($resolvedComposeArgs) {
 Write-Host "FQ_RUNTIME_LOG_HOST_DIR=$($env:FQ_RUNTIME_LOG_HOST_DIR)"
 Write-Host "FQ_COMPOSE_ENV_FILE=$($env:FQ_COMPOSE_ENV_FILE)"
 Write-Host "FQ_IMAGE_GIT_SHA=$($env:FQ_IMAGE_GIT_SHA)"
+Write-Host "DOCKER_BUILDKIT=$($env:DOCKER_BUILDKIT)"
 Write-Host "DOCKER_ARGS=$($dockerArgs -join ' ')"
 & docker @dockerArgs
 exit $LASTEXITCODE

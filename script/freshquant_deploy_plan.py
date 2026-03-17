@@ -53,6 +53,14 @@ DOCKER_SERVICE_MAP = {
     "tradingagents": ["ta_backend", "ta_frontend"],
 }
 
+DOCKER_BUILD_TARGET_MAP = {
+    "api": ["fq_apiserver"],
+    "web": ["fq_webui"],
+    "dagster": ["fq_apiserver"],
+    "qa": ["fq_apiserver"],
+    "tradingagents": ["ta_backend", "ta_frontend"],
+}
+
 HOST_SURFACE_PROGRAMS = {
     "market_data": [
         "fqnext_realtime_xtdata_producer",
@@ -319,13 +327,21 @@ def build_deploy_plan(
         surfaces.add(normalize_surface(value))
 
     ordered = ordered_surfaces(surfaces)
-    docker_services = unique_in_order(
+    docker_build_targets = unique_in_order(
+        [
+            service
+            for surface in ordered
+            for service in DOCKER_BUILD_TARGET_MAP.get(surface, [])
+        ]
+    )
+    docker_up_services = unique_in_order(
         [
             service
             for surface in ordered
             for service in DOCKER_SERVICE_MAP.get(surface, [])
         ]
     )
+    docker_services = unique_in_order(docker_build_targets + docker_up_services)
     host_surfaces = [surface for surface in ordered if surface in HOST_SURFACE_PROGRAMS]
     host_programs = unique_in_order(
         [
@@ -403,6 +419,8 @@ def build_deploy_plan(
         "changed_paths": [normalize_path(path) for path in changed_paths],
         "deployment_required": bool(ordered),
         "deployment_surfaces": ordered,
+        "docker_build_targets": docker_build_targets,
+        "docker_up_services": docker_up_services,
         "docker_services": docker_services,
         "host_surfaces": host_surfaces,
         "host_programs": host_programs,
@@ -417,6 +435,8 @@ def build_deploy_plan(
 
 def render_summary(plan: dict[str, object]) -> str:
     deployment_surfaces = cast(list[str], plan["deployment_surfaces"])
+    docker_build_targets = cast(list[str], plan["docker_build_targets"])
+    docker_up_services = cast(list[str], plan["docker_up_services"])
     docker_services = cast(list[str], plan["docker_services"])
     host_surfaces = cast(list[str], plan["host_surfaces"])
     host_programs = cast(list[str], plan["host_programs"])
@@ -429,6 +449,8 @@ def render_summary(plan: dict[str, object]) -> str:
         "FreshQuant 部署计划",
         f"- deployment_required: {str(plan['deployment_required']).lower()}",
         "- deployment_surfaces: " + (", ".join(deployment_surfaces) or "none"),
+        "- docker_build_targets: " + (", ".join(docker_build_targets) or "none"),
+        "- docker_up_services: " + (", ".join(docker_up_services) or "none"),
         "- docker_services: " + (", ".join(docker_services) or "none"),
         "- host_surfaces: " + (", ".join(host_surfaces) or "none"),
         "- host_programs: " + (", ".join(host_programs) or "none"),
