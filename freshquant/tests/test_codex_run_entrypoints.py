@@ -25,6 +25,7 @@ def test_shared_codex_wrapper_bootstraps_memory_before_launch() -> None:
     assert "codex" in content
     assert "app-server" in content
 
+
 def test_app_server_wrapper_prints_foreground_status_guidance() -> None:
     content = WRAPPER_SCRIPT.read_text(encoding="utf-8")
 
@@ -33,6 +34,8 @@ def test_app_server_wrapper_prints_foreground_status_guidance() -> None:
     assert "Close this window to stop the server." in content
     assert "app-server runs in the foreground." in content
     assert "Ctrl+C" in content
+
+
 def test_cli_bat_calls_wrapper_in_cli_mode() -> None:
     content = CLI_BAT.read_text(encoding="utf-8")
 
