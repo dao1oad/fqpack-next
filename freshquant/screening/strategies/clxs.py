@@ -15,16 +15,16 @@ from loguru import logger
 from tabulate import tabulate
 from tqdm import tqdm
 
-from freshquant.instrument.stock import fq_inst_fetch_stock_list
 from freshquant.data.stock import fq_data_stock_fetch_day
-from freshquant.trading.dt import fq_trading_fetch_trade_dates
+from freshquant.instrument.stock import fq_inst_fetch_stock_list
 from freshquant.screening.base.strategy import ScreenResult, ScreenStrategy
 from freshquant.screening.writers import DatabaseOutput, ReportOutput
+from freshquant.trading.dt import fq_trading_fetch_trade_dates
 
 # 导入外部模块
 try:
-    from fqcopilot import fq_clxs  # type: ignore
     from fqchan04 import fq_recognise_bi  # type: ignore
+    from fqcopilot import fq_clxs  # type: ignore
 except ImportError as e:
     logger.warning(f"导入外部模块失败: {e}")
     fq_clxs = None
@@ -219,11 +219,16 @@ class ClxsStrategy(ScreenStrategy):
 
             # 计算信号
             sigs = fq_clxs(
-                length, highs, lows,
+                length,
+                highs,
+                lows,
                 stock_day_data.open.to_list(),
-                closes, stock_day_data.volume.to_list(),
-                self.wave_opt, self.stretch_opt,
-                self.trend_opt, self.model_opt
+                closes,
+                stock_day_data.volume.to_list(),
+                self.wave_opt,
+                self.stretch_opt,
+                self.trend_opt,
+                self.model_opt,
             )
 
             # 检查最新信号
@@ -403,10 +408,12 @@ if __name__ == "__main__":
     parser.add_argument("--model-opt", type=int, default=10001)
     args = parser.parse_args()
 
-    asyncio.run(screen(
-        days=args.days,
-        wave_opt=args.wave_opt,
-        stretch_opt=args.stretch_opt,
-        trend_opt=args.trend_opt,
-        model_opt=args.model_opt,
-    ))
+    asyncio.run(
+        screen(
+            days=args.days,
+            wave_opt=args.wave_opt,
+            stretch_opt=args.stretch_opt,
+            trend_opt=args.trend_opt,
+            model_opt=args.model_opt,
+        )
+    )

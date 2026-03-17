@@ -18,8 +18,8 @@ from freshquant.data.astock.basic import fq_fetch_a_stock_basic
 from freshquant.data.trade_date_hist import tool_trade_date_last
 from freshquant.db import DBfreshquant
 from freshquant.screening.base.strategy import ScreenResult, ScreenStrategy
-from freshquant.screening.writers import DatabaseOutput, ReportOutput
 from freshquant.screening.signal_types import CHANLUN_SIGNAL_TYPES
+from freshquant.screening.writers import DatabaseOutput, ReportOutput
 from freshquant.util.datetime_helper import fq_util_datetime_localize
 
 
@@ -175,7 +175,9 @@ class ChanlunServiceStrategy(ScreenStrategy):
                 },
             )
 
-            for stock in tqdm(stock_list, desc="加载股票", disable=len(stock_list) < 10):
+            for stock in tqdm(
+                stock_list, desc="加载股票", disable=len(stock_list) < 10
+            ):
                 stock_info = fq_fetch_a_stock_basic(stock["code"])
                 if not stock_info:
                     logger.warning(f"无法获取股票信息: {stock['code']}")
@@ -197,17 +199,21 @@ class ChanlunServiceStrategy(ScreenStrategy):
             return []
 
         # 分批执行，避免一次性创建过多任务
-        logger.info(f"开始分批扫描 {len(tasks)} 只股票（每批 {self.max_concurrent} 只）...")
+        logger.info(
+            f"开始分批扫描 {len(tasks)} 只股票（每批 {self.max_concurrent} 只）..."
+        )
         results = []
         batch_size = self.max_concurrent
         processed_total = 0
 
         for i in range(0, len(tasks), batch_size):
-            batch = tasks[i:i + batch_size]
+            batch = tasks[i : i + batch_size]
             batch_num = i // batch_size + 1
             total_batches = (len(tasks) + batch_size - 1) // batch_size
 
-            logger.info(f"执行第 {batch_num}/{total_batches} 批（{len(batch)} 只股票）...")
+            logger.info(
+                f"执行第 {batch_num}/{total_batches} 批（{len(batch)} 只股票）..."
+            )
 
             # 执行当前批次
             batch_results = await asyncio.gather(
@@ -280,23 +286,30 @@ class ChanlunServiceStrategy(ScreenStrategy):
                     ) - timedelta(days=scan_days - 1)
                 else:
                     # 如果无法获取交易日，回退到当前时间
-                    cutoff_date = fq_util_datetime_localize(datetime.now()) - timedelta(days=scan_days)
+                    cutoff_date = fq_util_datetime_localize(datetime.now()) - timedelta(
+                        days=scan_days
+                    )
 
                 before_count = len(batch_valid_results)
                 # 筛选日期和信号方向（只保留 BUY_LONG）
                 batch_valid_results = [
-                    r for r in batch_valid_results
+                    r
+                    for r in batch_valid_results
                     if r.fire_time >= cutoff_date and r.position == "BUY_LONG"
                 ]
                 after_count = len(batch_valid_results)
                 if before_count > after_count:
-                    logger.debug(f"批次 {batch_num} 筛选: {before_count} → {after_count}（过滤 SELL_SHORT）")
+                    logger.debug(
+                        f"批次 {batch_num} 筛选: {before_count} → {after_count}（过滤 SELL_SHORT）"
+                    )
 
             # 添加到总结果
             results.extend(batch_valid_results)
 
             # 每批后报告进度
-            logger.info(f"第 {batch_num}/{total_batches} 批完成，本批 {len(batch_valid_results)} 条，累计 {len(results)} 条")
+            logger.info(
+                f"第 {batch_num}/{total_batches} 批完成，本批 {len(batch_valid_results)} 条，累计 {len(results)} 条"
+            )
 
         logger.info(f"扫描完成，共找到 {len(results)} 条信号")
 
@@ -312,7 +325,9 @@ class ChanlunServiceStrategy(ScreenStrategy):
             ReportOutput.print_table(results, title="缠论信号")
 
             if self.output_html:
-                ReportOutput.save_html(results, filename="chanlun_service_screening.html")
+                ReportOutput.save_html(
+                    results, filename="chanlun_service_screening.html"
+                )
 
         # 批量保存
         if results:
@@ -351,7 +366,7 @@ class ChanlunServiceStrategy(ScreenStrategy):
                 # 添加超时限制，避免卡死
                 period_results = await asyncio.wait_for(
                     self._scan_period(symbol, code, sse, p, category),
-                    timeout=30.0  # 30 秒超时
+                    timeout=30.0,  # 30 秒超时
                 )
                 results.extend(period_results)
             except asyncio.TimeoutError:

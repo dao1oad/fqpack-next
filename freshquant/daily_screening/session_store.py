@@ -4,6 +4,7 @@ import copy
 import threading
 import uuid
 from datetime import datetime
+from typing import Any
 
 
 def _now_iso() -> str:
@@ -12,13 +13,13 @@ def _now_iso() -> str:
 
 class DailyScreeningSessionStore:
     def __init__(self) -> None:
-        self._sessions: dict[str, dict] = {}
+        self._sessions: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
 
     def create_run(self, *, model: str, params: dict) -> str:
         run_id = uuid.uuid4().hex[:12]
         condition = threading.Condition()
-        session = {
+        session: dict[str, Any] = {
             "id": run_id,
             "model": model,
             "params": copy.deepcopy(params),
@@ -68,7 +69,11 @@ class DailyScreeningSessionStore:
     def get_events(self, run_id: str, after: int = 0) -> list[dict]:
         session = self._require_session(run_id)
         return copy.deepcopy(
-            [event for event in session["events"] if int(event["seq"]) > int(after or 0)]
+            [
+                event
+                for event in session["events"]
+                if int(event["seq"]) > int(after or 0)
+            ]
         )
 
     def wait_for_events(
@@ -77,10 +82,9 @@ class DailyScreeningSessionStore:
         session = self._require_session(run_id)
         condition = session["_condition"]
         with condition:
-            if (
-                int(session["event_count"]) <= int(after or 0)
-                and session["status"] not in {"completed", "failed"}
-            ):
+            if int(session["event_count"]) <= int(after or 0) and session[
+                "status"
+            ] not in {"completed", "failed"}:
                 condition.wait(timeout=timeout)
             return copy.deepcopy(
                 [

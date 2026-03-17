@@ -6,6 +6,7 @@ import sys
 import types
 from datetime import date, datetime
 from types import SimpleNamespace
+from typing import Any
 
 import pandas as pd
 
@@ -32,7 +33,7 @@ class FakeDB(dict):
 
 
 def _import_strategy_modules_with_stubs(monkeypatch, fake_db: FakeDB | None = None):
-    writers_module = types.ModuleType("freshquant.screening.writers")
+    writers_module: Any = types.ModuleType("freshquant.screening.writers")
 
     class _DatabaseOutput:
         @staticmethod
@@ -51,36 +52,38 @@ def _import_strategy_modules_with_stubs(monkeypatch, fake_db: FakeDB | None = No
     writers_module.DatabaseOutput = _DatabaseOutput
     writers_module.ReportOutput = _ReportOutput
 
-    instrument_stock_module = types.ModuleType("freshquant.instrument.stock")
+    instrument_stock_module: Any = types.ModuleType("freshquant.instrument.stock")
     instrument_stock_module.fq_inst_fetch_stock_list = lambda code=None: []
 
-    data_stock_module = types.ModuleType("freshquant.data.stock")
+    data_stock_module: Any = types.ModuleType("freshquant.data.stock")
     data_stock_module.fq_data_stock_fetch_day = lambda code, start, end: None
 
-    trading_dt_module = types.ModuleType("freshquant.trading.dt")
+    trading_dt_module: Any = types.ModuleType("freshquant.trading.dt")
     trading_dt_module.fq_trading_fetch_trade_dates = lambda: pd.DataFrame(
         {"trade_date": [date(2026, 3, 17)]}
     )
 
-    chanlun_service_module = types.ModuleType("freshquant.chanlun_service")
+    chanlun_service_module: Any = types.ModuleType("freshquant.chanlun_service")
     chanlun_service_module.get_data_v2 = lambda symbol, period, current_day: {}
 
-    config_module = types.ModuleType("freshquant.config")
+    config_module: Any = types.ModuleType("freshquant.config")
     config_module.cfg = SimpleNamespace(TZ=None)
 
-    astock_basic_module = types.ModuleType("freshquant.data.astock.basic")
+    astock_basic_module: Any = types.ModuleType("freshquant.data.astock.basic")
     astock_basic_module.fq_fetch_a_stock_basic = lambda code: None
 
-    trade_date_hist_module = types.ModuleType("freshquant.data.trade_date_hist")
+    trade_date_hist_module: Any = types.ModuleType("freshquant.data.trade_date_hist")
     trade_date_hist_module.tool_trade_date_last = lambda: date(2026, 3, 17)
 
-    datetime_helper_module = types.ModuleType("freshquant.util.datetime_helper")
+    datetime_helper_module: Any = types.ModuleType("freshquant.util.datetime_helper")
     datetime_helper_module.fq_util_datetime_localize = lambda value: value
 
-    db_module = types.ModuleType("freshquant.db")
-    db_module.DBfreshquant = fake_db or FakeDB(stock_pre_pools=FakePrePoolCollection([]))
+    db_module: Any = types.ModuleType("freshquant.db")
+    db_module.DBfreshquant = fake_db or FakeDB(
+        stock_pre_pools=FakePrePoolCollection([])
+    )
 
-    chanlun_lahui_module = types.ModuleType(
+    chanlun_lahui_module: Any = types.ModuleType(
         "freshquant.screening.strategies.chanlun_la_hui"
     )
     chanlun_lahui_module.ChanlunLaHuiStrategy = object
@@ -111,8 +114,8 @@ def _import_strategy_modules_with_stubs(monkeypatch, fake_db: FakeDB | None = No
         chanlun_lahui_module,
     )
 
-    import freshquant.screening.strategies.clxs as clxs
     import freshquant.screening.strategies.chanlun_service as chanlun_service
+    import freshquant.screening.strategies.clxs as clxs
 
     return importlib.reload(clxs), importlib.reload(chanlun_service)
 
@@ -128,7 +131,9 @@ def test_clxs_strategy_emits_hooks_for_universe_progress_and_results(monkeypatch
             {"code": "000002", "name": "ST beta", "sse": "sz"},
         ],
     )
-    monkeypatch.setattr(clxs, "fq_recognise_bi", lambda length, highs, lows: [-1] * length)
+    monkeypatch.setattr(
+        clxs, "fq_recognise_bi", lambda length, highs, lows: [-1] * length
+    )
     monkeypatch.setattr(
         clxs,
         "fq_clxs",
@@ -202,9 +207,13 @@ def test_clxs_strategy_without_hooks_preserves_old_behavior(monkeypatch):
     clxs, _ = _import_strategy_modules_with_stubs(monkeypatch)
 
     monkeypatch.setattr(
-        clxs, "fq_inst_fetch_stock_list", lambda: [{"code": "000001", "name": "alpha", "sse": "sz"}]
+        clxs,
+        "fq_inst_fetch_stock_list",
+        lambda: [{"code": "000001", "name": "alpha", "sse": "sz"}],
     )
-    monkeypatch.setattr(clxs, "fq_recognise_bi", lambda length, highs, lows: [-1] * length)
+    monkeypatch.setattr(
+        clxs, "fq_recognise_bi", lambda length, highs, lows: [-1] * length
+    )
     monkeypatch.setattr(
         clxs,
         "fq_clxs",
@@ -270,7 +279,9 @@ def test_chanlun_strategy_emits_hooks_for_universe_progress_and_results(monkeypa
             },
         },
     )
-    monkeypatch.setattr(chanlun_service, "tool_trade_date_last", lambda: date(2026, 3, 17))
+    monkeypatch.setattr(
+        chanlun_service, "tool_trade_date_last", lambda: date(2026, 3, 17)
+    )
     monkeypatch.setattr(
         chanlun_service,
         "fq_util_datetime_localize",

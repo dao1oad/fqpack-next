@@ -4,6 +4,7 @@ import importlib
 import sys
 import types
 from types import SimpleNamespace
+from typing import Any
 
 import pendulum
 
@@ -39,30 +40,29 @@ class FakeDB:
 
 
 def _import_a_stock_common_with_stubs(monkeypatch, fake_db: FakeDB):
-    basic_module = types.ModuleType("freshquant.data.astock.basic")
+    basic_module: Any = types.ModuleType("freshquant.data.astock.basic")
     basic_module.fq_fetch_a_stock_category = lambda code: "stock"
 
-    db_module = types.ModuleType("freshquant.db")
+    db_module: Any = types.ModuleType("freshquant.db")
     db_module.DBfreshquant = fake_db
     db_module.DBQuantAxis = SimpleNamespace()
 
-    instrument_module = types.ModuleType("freshquant.instrument.general")
-    instrument_module.query_instrument_info = lambda code: {"code": code, "name": "alpha"}
+    instrument_module: Any = types.ModuleType("freshquant.instrument.general")
+    instrument_module.query_instrument_info = lambda code: {
+        "code": code,
+        "name": "alpha",
+    }
 
-    holding_module = types.ModuleType("freshquant.data.astock.holding")
+    holding_module: Any = types.ModuleType("freshquant.data.astock.holding")
     holding_module.get_stock_holding_codes = lambda: []
 
-    datetime_helper_module = types.ModuleType("freshquant.util.datetime_helper")
+    datetime_helper_module: Any = types.ModuleType("freshquant.util.datetime_helper")
     datetime_helper_module.fq_util_datetime_localize = lambda value: value
 
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.basic", basic_module)
     monkeypatch.setitem(sys.modules, "freshquant.db", db_module)
-    monkeypatch.setitem(
-        sys.modules, "freshquant.instrument.general", instrument_module
-    )
-    monkeypatch.setitem(
-        sys.modules, "freshquant.data.astock.holding", holding_module
-    )
+    monkeypatch.setitem(sys.modules, "freshquant.instrument.general", instrument_module)
+    monkeypatch.setitem(sys.modules, "freshquant.data.astock.holding", holding_module)
     monkeypatch.setitem(
         sys.modules, "freshquant.util.datetime_helper", datetime_helper_module
     )

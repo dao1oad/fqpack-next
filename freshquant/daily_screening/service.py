@@ -182,7 +182,9 @@ class DailyScreeningService:
     def iter_sse(self, run_id: str, *, after: int = 0, once: bool = False):
         cursor = max(int(after or 0), 0)
         while True:
-            events = self.session_store.wait_for_events(run_id, after=cursor, timeout=1.0)
+            events = self.session_store.wait_for_events(
+                run_id, after=cursor, timeout=1.0
+            )
             if events:
                 for event in events:
                     cursor = int(event["seq"])
@@ -221,7 +223,9 @@ class DailyScreeningService:
                     "persisted_count": persisted_count,
                 },
             )
-            self.session_store.publish_event(run_id, "completed", {"status": "completed"})
+            self.session_store.publish_event(
+                run_id, "completed", {"status": "completed"}
+            )
         except Exception as exc:
             message = str(exc)
             self.session_store.publish_event(run_id, "error", {"message": message})
@@ -316,7 +320,8 @@ class DailyScreeningService:
                 "screening_input_mode": config["input_mode"],
                 "screening_source_scope": self._source_scope(config),
                 "screening_signal_type": result.signal_type,
-                "screening_signal_name": getattr(result, "remark", "") or result.signal_type,
+                "screening_signal_name": getattr(result, "remark", "")
+                or result.signal_type,
                 "screening_period": result.period,
                 "screening_params": self._public_params(config),
             }
@@ -442,7 +447,11 @@ class DailyScreeningService:
             "save_pre_pools": self._as_bool(payload.get("save_pre_pools"), True),
             "pool_expire_days": max(int(payload.get("pool_expire_days") or 10), 1),
             "output_category": str(payload.get("output_category") or "").strip()
-            or (pre_pool_category if input_mode == "category_filtered_pre_pools" else "chanlun_service"),
+            or (
+                pre_pool_category
+                if input_mode == "category_filtered_pre_pools"
+                else "chanlun_service"
+            ),
             "remark": str(payload.get("remark") or "").strip()
             or "daily-screening:chanlun",
         }

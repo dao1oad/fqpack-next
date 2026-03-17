@@ -91,14 +91,22 @@ def test_daily_screening_pre_pools_routes_delegate_to_service(monkeypatch):
     add_response = client.post(
         "/api/daily-screening/pre-pools/stock-pools",
         data=json.dumps(
-            {"code": "000001", "category": "CLXS_10001", "remark": "daily-screening:clxs"}
+            {
+                "code": "000001",
+                "category": "CLXS_10001",
+                "remark": "daily-screening:clxs",
+            }
         ),
         content_type="application/json",
     )
     delete_response = client.post(
         "/api/daily-screening/pre-pools/delete",
         data=json.dumps(
-            {"code": "000001", "category": "CLXS_10001", "remark": "daily-screening:clxs"}
+            {
+                "code": "000001",
+                "category": "CLXS_10001",
+                "remark": "daily-screening:clxs",
+            }
         ),
         content_type="application/json",
     )
