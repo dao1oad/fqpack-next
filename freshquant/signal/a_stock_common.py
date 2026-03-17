@@ -103,31 +103,37 @@ def save_a_stock_pre_pools(
     dt=pendulum.now(),
     stop_loss_price=None,
     expire_at=pendulum.now().add(days=89),
+    remark=None,
     **extra_fields
 ):
     dt = pendulum.datetime(dt.year, dt.month, dt.day, tz=pendulum.now().timezone)
     expire_at = pendulum.datetime(expire_at.year, expire_at.month, expire_at.day, tz=pendulum.now().timezone)
     instrument = query_instrument_info(code)
     if instrument is not None:
-        # 初始化 extra 字段
+        query = {"code": code, "category": category}
+        if remark:
+            query["remark"] = remark
+
         extra = {}
-        # 如果文档存在，获取现有的 extra 字段
-        existing_doc = DBfreshquant.stock_pre_pools.find_one({"code": code, "category": category})
+        existing_doc = DBfreshquant.stock_pre_pools.find_one(query)
         if existing_doc and "extra" in existing_doc:
             extra = existing_doc["extra"]
 
-        # 更新 extra 字段
         extra.update(extra_fields)
 
+        set_fields = {
+            "stop_loss_price": stop_loss_price,
+            "datetime": dt,
+            "expire_at": expire_at,
+            "extra": extra,
+        }
+        if remark:
+            set_fields["remark"] = remark
+
         DBfreshquant.stock_pre_pools.find_one_and_update(
-            {"code": code, "category": category},
+            query,
             {
-                "$set": {
-                    "stop_loss_price": stop_loss_price,
-                    "datetime": dt,
-                    "expire_at": expire_at,
-                    "extra": extra  # 更新 extra 字段
-                },
+                "$set": set_fields,
                 "$setOnInsert": {
                     "name": instrument["name"],
                 }

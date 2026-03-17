@@ -36,6 +36,9 @@
         <el-button type="warning" @click="jumpToControl('shouban30')" size="small">
           首板选股
         </el-button>
+        <el-button type="danger" plain @click="jumpToControl('dailyScreening')" size="small">
+          每日选股
+        </el-button>
       </el-button-group>
       <el-button-group>
         <el-button type="primary" @click="jumpToControl('stock')" size="small">

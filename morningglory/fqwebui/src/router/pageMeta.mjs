@@ -50,6 +50,10 @@ export const HEADER_NAV_TARGETS = {
       days: '30',
     },
   },
+  dailyScreening: {
+    label: '每日选股',
+    path: '/daily-screening',
+  },
   stock: {
     label: '股票',
     path: '/stock-control',
@@ -74,6 +78,7 @@ export const ROUTE_TITLES_BY_NAME = {
   'kline-slim': '行情图表',
   gantt: '板块趋势',
   'gantt-shouban30': '首板选股',
+  'daily-screening': '每日选股',
   'gantt-stocks': '板块趋势',
   'order-management': '订单管理',
   'position-management': '仓位管理',

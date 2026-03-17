@@ -20,6 +20,10 @@
   - `freshquant.rear.*`
   - `morningglory/fqwebui`
   - 负责 API、Web UI 与历史/实时视图展示。
+- 盘后选股工作台层
+  - `freshquant.daily_screening.*`
+  - `freshquant.screening.strategies.*`
+  - 负责把 CLI 选股链路以页面 + SSE 会话的形式重新组织出来，但不替代底层策略实现。
 - 数据处理层
   - `freshquant.data.gantt_readmodel`
   - `freshquant.shouban30_pool_service`
@@ -66,6 +70,10 @@
 
 `Dagster / readmodel job -> Mongo gantt_db -> gantt routes -> GanttUnified / GanttShouban30Phase1 / KlineSlim`
 
+### 盘后选股工作台链
+
+`DailyScreening.vue -> /api/daily-screening/* -> DailyScreeningService -> CLXS / chanlun strategy -> session store / SSE -> stock_pre_pools`
+
 ### 运行观测链
 
 `各模块 RuntimeEventLogger -> logs/runtime/<runtime_node>/<component>/<date>/*.jsonl -> runtime assembler -> /api/runtime/* -> RuntimeObservability.vue`
@@ -104,6 +112,7 @@
 - Order Management 是订单事实层，维护请求、内部订单、事件、买入 lot、卖出分配与外部单对齐。
 - TPSL 是独立退出策略，依赖订单事实和持仓，不跟 Guardian 共用状态机。
 - Gantt 与 Shouban30 只消费读模型与工作区集合，不参与交易链。
+- 每日选股工作台复用 `stock_pre_pools / stock_pools`，但用顶层 `remark` 隔离页面来源，不再把共享集合当成无来源语义的单池子。
 - Runtime Observability 是旁路系统，允许丢日志，不允许卡住主交易链。
 - 全局记忆层也是旁路系统，只负责减少 agent 重复探索，不允许覆盖正式真值。
 - TradingAgents-CN 与主交易链完全解耦，只共享 Mongo/Redis 基础设施和宿主机配置。

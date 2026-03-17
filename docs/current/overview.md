@@ -6,12 +6,12 @@ FreshQuant 当前已经完成第一阶段的模块收口，现阶段进入第二
 
 ## 当前已落地能力
 
-- HTTP API 已统一挂载 `future / stock / general / gantt / order / position-management / subject-management / runtime / tpsl` 九组蓝图。
+- HTTP API 已统一挂载 `future / stock / general / gantt / daily-screening / order / position-management / subject-management / runtime / tpsl` 十组蓝图。
 - CLI 已收口到 `stock / etf / index / future / xt-* / om-order` 等命令组。
 - XTData producer/consumer 已形成实时 tick、1 分钟 bar、结构计算与缓存链路。
 - Guardian 已形成事件驱动的策略执行入口，并与订单管理、仓位管理、TPSL 解耦。
 - 订单管理、仓位管理、TPSL 已形成三段式交易链路。
-- Gantt、Shouban30、KlineSlim、订单管理、仓位管理、标的管理、股票 TPSL 管理、Runtime Observability 等前端页面已落地。
+- Gantt、Shouban30、每日选股、KlineSlim、订单管理、仓位管理、标的管理、股票 TPSL 管理、Runtime Observability 等前端页面已落地。
 - TradingAgents-CN 已作为并行子系统接入 Docker 并行环境。
 - Symphony 正式 orchestrator 已切到 GitHub-first 工作流。
 
@@ -20,7 +20,7 @@ FreshQuant 当前已经完成第一阶段的模块收口，现阶段进入第二
 - `freshquant/`
   - 后端 API、CLI、数据接入、策略、订单、仓位、TPSL 与运行观测代码。
 - `morningglory/fqwebui/`
-  - Vue Web UI，包括 Gantt、Shouban30、KlineSlim、订单管理、仓位管理、标的管理、股票 TPSL 管理、Runtime Observability 页面。
+  - Vue Web UI，包括 Gantt、Shouban30、每日选股、KlineSlim、订单管理、仓位管理、标的管理、股票 TPSL 管理、Runtime Observability 页面。
 - `morningglory/fqdagster/` 与 `morningglory/fqdagsterconfig/`
   - Gantt/Shouban30 读模型的 Dagster 运行面。
 - `runtime/symphony/`
