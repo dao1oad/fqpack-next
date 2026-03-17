@@ -90,6 +90,93 @@ def test_sync_local_deploy_mirror_fast_forwards_clean_repo(tmp_path: Path) -> No
     assert git(["rev-parse", "HEAD"], mirror) == target_sha
 
 
+def test_sync_local_deploy_mirror_can_use_dedicated_checkout_branch(
+    tmp_path: Path,
+) -> None:
+    module = load_module()
+    remote = init_bare_remote(tmp_path)
+    seed, _ = init_seed_repo(tmp_path, remote)
+    mirror = clone_mirror(tmp_path, remote)
+
+    git(["checkout", "-b", "feature/local-change"], mirror)
+    commit_in_repo(seed, "README.md", "updated\n", "update main")
+    target_sha = push_main(seed)
+
+    result = module.sync_local_deploy_mirror(
+        repo_root=mirror,
+        target_sha=target_sha,
+        remote_url=str(remote),
+        branch="main",
+        checkout_branch="deploy-production-main",
+    )
+
+    assert result["ok"] is True
+    assert result["head_sha"] == target_sha
+    assert git(["rev-parse", "--abbrev-ref", "HEAD"], mirror) == "deploy-production-main"
+    assert git(["rev-parse", "HEAD"], mirror) == target_sha
+
+
+def test_sync_local_deploy_mirror_marks_repo_safe_before_git_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_module()
+    mirror = tmp_path / "mirror"
+    (mirror / ".git").mkdir(parents=True)
+
+    subprocess_calls: list[list[str]] = []
+    head_values = iter(("before-sha", "after-sha"))
+
+    class FakeResult:
+        def __init__(self) -> None:
+            self.returncode = 0
+            self.stdout = ""
+            self.stderr = ""
+
+    def fake_run(
+        args: list[str],
+        cwd: Path,
+        check: bool = False,
+        capture_output: bool = False,
+        text: bool = False,
+    ) -> FakeResult:
+        subprocess_calls.append(args)
+        result = FakeResult()
+        if args[:4] == ["git", "show-ref", "--verify", "--quiet"]:
+            result.returncode = 1
+        return result
+
+    def fake_run_git(repo_root: Path, *args: str) -> str:
+        if args == ("status", "--porcelain"):
+            return ""
+        if args == ("rev-parse", "HEAD"):
+            return next(head_values)
+        if args == ("rev-parse", "refs/remotes/origin/main"):
+            return "after-sha"
+        raise AssertionError(f"unexpected git args: {args}")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(module, "run_git", fake_run_git)
+
+    result = module.sync_local_deploy_mirror(
+        repo_root=mirror,
+        target_sha="after-sha",
+        remote_url="https://github.com/dao1oad/fqpack-next.git",
+        branch="main",
+        checkout_branch="deploy-production-main",
+    )
+
+    assert result["ok"] is True
+    assert subprocess_calls[0] == [
+        "git",
+        "config",
+        "--global",
+        "--add",
+        "safe.directory",
+        str(mirror.resolve()),
+    ]
+    assert ["git", "checkout", "-B", "deploy-production-main", "refs/remotes/origin/main"] in subprocess_calls
+
+
 def test_sync_local_deploy_mirror_rejects_dirty_repo(tmp_path: Path) -> None:
     module = load_module()
     remote = init_bare_remote(tmp_path)

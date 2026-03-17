@@ -91,3 +91,21 @@ def test_ci_only_changes_do_not_require_current_docs(tmp_path: Path) -> None:
     result = _run_guard(repo, base_ref, head_ref)
 
     assert result.returncode == 0, result.stderr
+
+
+def test_current_deployment_doc_mentions_production_mirror_worktree() -> None:
+    deployment_text = (REPO_ROOT / "docs/current/deployment.md").read_text(
+        encoding="utf-8"
+    )
+    runtime_text = (REPO_ROOT / "docs/current/runtime.md").read_text(encoding="utf-8")
+
+    assert (
+        r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+        in deployment_text
+    )
+    assert "deploy-production-main" in deployment_text
+    assert "safe.directory" in deployment_text
+    assert (
+        r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+        in runtime_text
+    )

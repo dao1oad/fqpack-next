@@ -15,7 +15,9 @@ jobs:
   deploy:
     runs-on: [self-hosted, windows, production]
     env:
-      FQ_DEPLOY_MIRROR_ROOT: D:\fqpack\freshquant-2026.2.23
+      FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23
+      FQ_DEPLOY_MIRROR_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production
+      FQ_DEPLOY_MIRROR_BRANCH: "deploy-production-main"
       FQ_DOCKER_FORCE_LOCAL_BUILD: "1"
     steps:
       - name: Validate main tip freshness
@@ -44,12 +46,41 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
+          $canonicalRoot = $env:FQ_DEPLOY_CANONICAL_REPO_ROOT
           $mirrorRoot = $env:FQ_DEPLOY_MIRROR_ROOT
+          $mirrorBranch = $env:FQ_DEPLOY_MIRROR_BRANCH
           $targetSha = "${{ github.sha }}"
           $remoteUrl = "https://github.com/${{ github.repository }}.git"
+          $remoteBranch = "main"
+
+          if (-not (Test-Path $canonicalRoot)) {
+            throw "canonical repo root does not exist: $canonicalRoot"
+          }
+
+          & git config --global --add safe.directory $canonicalRoot
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to trust canonical repo root as safe.directory"
+          }
 
           if (-not (Test-Path $mirrorRoot)) {
-            throw "deploy mirror root does not exist: $mirrorRoot"
+            & git -C $canonicalRoot fetch $remoteUrl "refs/heads/$remoteBranch`:refs/remotes/origin/$remoteBranch"
+            if ($LASTEXITCODE -ne 0) {
+              throw "failed to fetch remote main before mirror bootstrap"
+            }
+
+            & git -C $canonicalRoot worktree add $mirrorRoot -B $mirrorBranch "refs/remotes/origin/$remoteBranch"
+            if ($LASTEXITCODE -ne 0) {
+              throw "failed to create production deploy mirror worktree"
+            }
+          }
+
+          if (-not (Test-Path (Join-Path $mirrorRoot ".git"))) {
+            throw "deploy mirror is not a git repository: $mirrorRoot"
+          }
+
+          & git config --global --add safe.directory $mirrorRoot
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to trust deploy mirror as safe.directory"
           }
 
           $syncScript = Join-Path $mirrorRoot "script\ci\sync_local_deploy_mirror.py"
@@ -58,7 +89,8 @@ jobs:
               --repo-root $mirrorRoot `
               --target-sha $targetSha `
               --remote-url $remoteUrl `
-              --branch main `
+              --branch $remoteBranch `
+              --checkout-branch $mirrorBranch `
               --format summary
             if ($LASTEXITCODE -ne 0) {
               throw "local deploy mirror sync script failed"
@@ -72,12 +104,12 @@ jobs:
               throw "deploy mirror has a dirty working tree: $mirrorRoot"
             }
 
-            & git -C $mirrorRoot fetch $remoteUrl refs/heads/main:refs/remotes/origin/main
+            & git -C $mirrorRoot fetch $remoteUrl "refs/heads/$remoteBranch`:refs/remotes/origin/$remoteBranch"
             if ($LASTEXITCODE -ne 0) {
               throw "failed to fetch remote main into deploy mirror"
             }
 
-            $originMainSha = (& git -C $mirrorRoot rev-parse refs/remotes/origin/main).Trim()
+            $originMainSha = (& git -C $mirrorRoot rev-parse "refs/remotes/origin/$remoteBranch").Trim()
             if ($LASTEXITCODE -ne 0) {
               throw "failed to resolve origin/main after fetch"
             }
@@ -85,13 +117,18 @@ jobs:
               throw "origin/main does not match target sha: origin/main=$originMainSha target=$targetSha"
             }
 
-            & git -C $mirrorRoot checkout main
-            if ($LASTEXITCODE -ne 0) {
-              throw "failed to checkout deploy mirror main"
+            & git -C $mirrorRoot show-ref --verify --quiet "refs/heads/$mirrorBranch"
+            if ($LASTEXITCODE -eq 0) {
+              & git -C $mirrorRoot checkout $mirrorBranch
+            } else {
+              & git -C $mirrorRoot checkout -B $mirrorBranch "refs/remotes/origin/$remoteBranch"
             }
-            & git -C $mirrorRoot merge --ff-only refs/remotes/origin/main
             if ($LASTEXITCODE -ne 0) {
-              throw "failed to fast-forward main"
+              throw "failed to checkout deploy mirror branch"
+            }
+            & git -C $mirrorRoot merge --ff-only "refs/remotes/origin/$remoteBranch"
+            if ($LASTEXITCODE -ne 0) {
+              throw "failed to fast-forward deploy mirror branch"
             }
 
             $headSha = (& git -C $mirrorRoot rev-parse HEAD).Trim()

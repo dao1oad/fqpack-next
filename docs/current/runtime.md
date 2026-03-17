@@ -37,9 +37,11 @@
 - 正式自动部署 workflow：`.github/workflows/deploy-production.yml`
 - 正式自动部署 state：`D:/fqpack/runtime/symphony-service/artifacts/formal-deploy/production-state.json`
 - 正式自动部署单次运行 artifacts：`D:/fqpack/runtime/symphony-service/artifacts/formal-deploy/runs`
-- 正式自动部署 mirror 根目录固定为 `D:\fqpack\freshquant-2026.2.23`；正式 deploy 会先把这个目录的 `main` 分支同步到远程 `main`，再从该目录执行本地构建和部署。
+- 正式自动部署 canonical repo root 固定为 `D:\fqpack\freshquant-2026.2.23`；它只负责托管 Git 仓库与创建 worktree。
+- 正式自动部署 mirror 根目录固定为 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`；正式 deploy 会先把该 worktree 的 `deploy-production-main` 分支同步到远程 `main`，再从该目录执行本地构建和部署。
 - 正式自动部署 workflow 依赖宿主机已安装的 Python 3.12 与 uv；也就是说 self-hosted Windows runner 上必须已经有“宿主机已安装的 uv”，不再通过 `actions/setup-python` 或 `pip install uv` 在线准备工具链。
 - 正式自动部署 workflow 会显式设置 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，强制 `docker_parallel_compose.py` 在 production 机基于 deploy mirror 本地构建。
+- 正式自动部署 workflow 会在 git 操作前为 canonical repo root 和 mirror root 显式写入 `safe.directory`，避免 runner service 账号和目录 owner 不一致时被 Git 阻断。
 - 管理员桥接任务以 `SYSTEM` + `Highest` 运行；安装脚本会给执行安装的 Windows 用户追加该任务的读取/执行权限，供普通 Codex 会话调用。
 - Symphony 运行模板：`runtime/symphony/WORKFLOW.freshquant.md`
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
@@ -126,9 +128,9 @@
 - Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
 - GHCR 预构建镜像仅用于加速 Docker 部署，不改变运行真值；实际运行真值仍来自当前 `main`、deploy 结果与 health/runtime ops evidence
 - `deploy-production.yml` 在正式 Windows self-hosted runner 上把 deploy state / logs 固化到 `formal-deploy` artifacts 目录，但正式 deploy 真值已经改为本机 mirror，不再依赖下载部署归档或把 Docker Images 作为前置。
-- 该 workflow 不走 `actions/checkout`，也不再下载 `zipball/<sha>`；它会先调用 GitHub API 校验 `main` tip，再把 `D:\fqpack\freshquant-2026.2.23` 这个本机 deploy mirror fast-forward 到目标 SHA。
+- 该 workflow 不走 `actions/checkout`，也不再下载 `zipball/<sha>`；它会先调用 GitHub API 校验 `main` tip，再确保 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 这个本机 deploy mirror worktree 存在并 fast-forward 到目标 SHA。
 - 对已经有 `last_success_sha` 的增量正式 deploy，`run_formal_deploy.py` 现在直接在 mirror 的 `.git` 工作树里计算 `last_success_sha..HEAD` changed paths，不再依赖 compare API 作为正式路径。
-- mirror 同步完成后，workflow 直接在 `D:\fqpack\freshquant-2026.2.23` 目录执行 `py -3.12 -m uv sync --frozen`，然后调用 `run_formal_deploy.py`。
+- mirror 同步完成后，workflow 直接在 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 目录执行 `py -3.12 -m uv sync --frozen`，然后调用 `run_formal_deploy.py`。
 - 该 workflow 中的 PowerShell steps 固定带 `-ExecutionPolicy Bypass`，避免 self-hosted Windows runner 的本机执行策略在 step 启动前拦截临时脚本
 - 该 workflow 也会显式设置 `$ErrorActionPreference = 'Stop'`，确保 PowerShell cmdlet 的 non-terminating error 仍然按 fail-fast 方式中断正式 deploy
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
