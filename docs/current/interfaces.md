@@ -137,6 +137,7 @@ python -m freshquant.initialize
   - `codex_run/start_codex_cli.bat`
   - `codex_run/start_codex_app_server.bat`
   - 两者都先调用 `codex_run/start_freshquant_codex.ps1`，由 wrapper 执行 `runtime/memory/scripts/bootstrap_freshquant_memory.py`，再启动对应 `codex` 命令
+  - `start_codex_app_server.bat` 保持前台运行，默认启动 `codex app-server` 的 `stdio://` 传输；关闭该窗口即停止服务
 - Memory bootstrap fallback
   - `runtime/memory/scripts/bootstrap_freshquant_memory.py`
   - 供没有走 `codex_run/*.bat` 的自由会话手动执行 memory refresh / compile，并返回 `context_pack_path`
