@@ -10,6 +10,23 @@ import pendulum
 
 from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 from freshquant.db import DBfreshquant
+from freshquant.screening.signal_types import CHANLUN_SIGNAL_TYPES
+
+CLXS_MODEL_OPTIONS: list[dict[str, int | str]] = [
+    {"value": 8, "label": "MACD 背驰"},
+    {"value": 9, "label": "中枢回拉"},
+    {"value": 12, "label": "V 反"},
+    {"value": 10001, "label": "默认 CLXS"},
+]
+DEFAULT_CLXS_MODEL_OPTS: list[int] = [int(item["value"]) for item in CLXS_MODEL_OPTIONS]
+DEFAULT_CHANLUN_SIGNAL_TYPES: list[str] = [
+    "buy_zs_huila",
+    "buy_v_reverse",
+    "macd_bullish_divergence",
+    "sell_zs_huila",
+    "sell_v_reverse",
+    "macd_bearish_divergence",
+]
 
 
 def _save_pre_pool(**kwargs) -> None:
@@ -70,7 +87,11 @@ class DailyScreeningService:
             - {""}
         )
         return {
-            "models": [self._clxs_schema(), self._chanlun_schema()],
+            "models": [
+                self._all_schema(),
+                self._clxs_schema(),
+                self._chanlun_schema(),
+            ],
             "options": {
                 "pre_pool_categories": categories,
                 "pre_pool_remarks": remarks,
@@ -211,9 +232,14 @@ class DailyScreeningService:
             {"strategy": config["model"], "params": self._jsonable(config)},
         )
         try:
-            results = asyncio.run(self._run_model(run_id, config))
-            _save_database_outputs(results, config)
-            persisted_count = self._persist_results(run_id, config, results)
+            if config["model"] == "all":
+                results, persisted_count = asyncio.run(
+                    self._run_all_pipeline(run_id, config)
+                )
+            else:
+                results = asyncio.run(self._run_model(run_id, config))
+                _save_database_outputs(results, config)
+                persisted_count = self._persist_results(run_id, config, results)
             self.session_store.publish_event(
                 run_id,
                 "summary",
@@ -237,8 +263,7 @@ class DailyScreeningService:
 
     async def _run_model(self, run_id: str, config: dict) -> list[Any]:
         if config["model"] == "clxs":
-            strategy = self._make_clxs_strategy(run_id, config)
-            return await strategy.screen(days=config["days"], code=config["code"])
+            return await self._run_clxs_models(run_id, config)
         strategy = self._make_chanlun_strategy(run_id, config)
         kwargs = {
             "days": config["days"],
@@ -253,6 +278,101 @@ class DailyScreeningService:
                 kwargs["pre_pool_query"] = query
         return await strategy.screen(**kwargs)
 
+    async def _run_all_pipeline(
+        self, run_id: str, config: dict
+    ) -> tuple[list[Any], int]:
+        combined_results = []
+        persisted_total = 0
+
+        clxs_config = dict(config["clxs"])
+        self.session_store.publish_event(
+            run_id,
+            "phase_started",
+            {
+                "branch": "clxs",
+                "label": "CLXS 全模型",
+                "model_opts": clxs_config["model_opts"],
+            },
+        )
+        clxs_results = await self._run_clxs_models(run_id, clxs_config)
+        combined_results.extend(clxs_results)
+        _save_database_outputs(clxs_results, clxs_config)
+        persisted_total += self._persist_results(run_id, clxs_config, clxs_results)
+        self.session_store.publish_event(
+            run_id,
+            "phase_completed",
+            {
+                "branch": "clxs",
+                "label": "CLXS 全模型",
+                "accepted_count": len(clxs_results),
+            },
+        )
+
+        chanlun_config = dict(config["chanlun"])
+        if chanlun_config["input_mode"] != "single_code":
+            chanlun_config["pre_pool_run_id"] = run_id
+        self.session_store.publish_event(
+            run_id,
+            "phase_started",
+            {
+                "branch": "chanlun",
+                "label": "chanlun 全信号",
+                "signal_types": chanlun_config["signal_types"],
+            },
+        )
+        chanlun_results = await self._run_model(run_id, chanlun_config)
+        combined_results.extend(chanlun_results)
+        _save_database_outputs(chanlun_results, chanlun_config)
+        persisted_total += self._persist_results(
+            run_id, chanlun_config, chanlun_results
+        )
+        self.session_store.publish_event(
+            run_id,
+            "phase_completed",
+            {
+                "branch": "chanlun",
+                "label": "chanlun 全信号",
+                "accepted_count": len(chanlun_results),
+            },
+        )
+
+        return combined_results, persisted_total
+
+    async def _run_clxs_models(self, run_id: str, config: dict) -> list[Any]:
+        model_opts = list(config.get("model_opts") or [config["model_opt"]])
+        results = []
+        for model_opt in model_opts:
+            step_config = {
+                **config,
+                "model_opt": model_opt,
+            }
+            self.session_store.publish_event(
+                run_id,
+                "phase_started",
+                {
+                    "branch": "clxs",
+                    "label": f"CLXS_{model_opt}",
+                    "model_opt": model_opt,
+                },
+            )
+            strategy = self._make_clxs_strategy(run_id, step_config)
+            step_results = await strategy.screen(
+                days=step_config["days"],
+                code=step_config["code"],
+            )
+            results.extend(step_results)
+            self.session_store.publish_event(
+                run_id,
+                "phase_completed",
+                {
+                    "branch": "clxs",
+                    "label": f"CLXS_{model_opt}",
+                    "model_opt": model_opt,
+                    "accepted_count": len(step_results),
+                },
+            )
+        return results
+
     def _make_clxs_strategy(self, run_id: str, config: dict):
         from freshquant.screening.strategies.clxs import ClxsStrategy
 
@@ -263,7 +383,7 @@ class DailyScreeningService:
             model_opt=config["model_opt"],
             save_pre_pools=False,
             output_html=False,
-            **self._make_strategy_hooks(run_id),
+            **self._make_strategy_hooks(run_id, config),
         )
 
     def _make_chanlun_strategy(self, run_id: str, config: dict):
@@ -273,6 +393,10 @@ class DailyScreeningService:
 
         return ChanlunServiceStrategy(
             periods=config["periods"],
+            signal_types=config.get("signal_types"),
+            preserve_signal_variants=bool(
+                config.get("preserve_signal_variants", False)
+            ),
             pool_expire_days=config["pool_expire_days"],
             save_signal=False,
             save_pools=False,
@@ -280,25 +404,27 @@ class DailyScreeningService:
             max_concurrent=config["max_concurrent"],
             days=config["days"],
             output_html=False,
-            **self._make_strategy_hooks(run_id),
+            **self._make_strategy_hooks(run_id, config),
         )
 
-    def _make_strategy_hooks(self, run_id: str) -> dict:
+    def _make_strategy_hooks(self, run_id: str, config: dict) -> dict:
         return {
             "on_universe": lambda payload: self.session_store.publish_event(
-                run_id, "universe", self._jsonable(payload)
+                run_id, "universe", self._jsonable(self._with_context(config, payload))
             ),
             "on_stock_progress": lambda payload: self.session_store.publish_event(
-                run_id, "progress", self._jsonable(payload)
+                run_id, "progress", self._jsonable(self._with_context(config, payload))
             ),
             "on_hit_raw": lambda payload: self.session_store.publish_event(
-                run_id, "hit_raw", self._jsonable(payload)
+                run_id, "hit_raw", self._jsonable(self._with_context(config, payload))
             ),
             "on_result_accepted": lambda payload: self.session_store.publish_event(
-                run_id, "accepted", self._jsonable(payload)
+                run_id,
+                "accepted",
+                self._jsonable(self._with_context(config, payload)),
             ),
             "on_error": lambda payload: self.session_store.publish_event(
-                run_id, "error", self._jsonable(payload)
+                run_id, "error", self._jsonable(self._with_context(config, payload))
             ),
         }
 
@@ -308,6 +434,7 @@ class DailyScreeningService:
         persisted_count = 0
         for result in results:
             category = self._resolve_output_category(config, result)
+            model_meta = self._result_model_meta(config, result)
             payload = {
                 "code": result.code,
                 "category": category,
@@ -317,13 +444,16 @@ class DailyScreeningService:
                 "remark": config["remark"],
                 "screening_run_id": run_id,
                 "screening_model": config["model"],
+                "screening_branch": model_meta["branch"],
+                "screening_model_key": model_meta["model_key"],
+                "screening_model_label": model_meta["model_label"],
                 "screening_input_mode": config["input_mode"],
                 "screening_source_scope": self._source_scope(config),
                 "screening_signal_type": result.signal_type,
                 "screening_signal_name": getattr(result, "remark", "")
                 or result.signal_type,
                 "screening_period": result.period,
-                "screening_params": self._public_params(config),
+                "screening_params": self._public_params_for_result(config, result),
             }
             _save_pre_pool(**payload)
             persisted_count += 1
@@ -333,6 +463,9 @@ class DailyScreeningService:
                 self._jsonable(
                     {
                         "code": result.code,
+                        "branch": model_meta["branch"],
+                        "model_key": model_meta["model_key"],
+                        "model_label": model_meta["model_label"],
                         "category": category,
                         "remark": config["remark"],
                         "screening_run_id": run_id,
@@ -346,6 +479,9 @@ class DailyScreeningService:
         if explicit:
             return explicit
         if config["model"] == "clxs":
+            signal_type = str(getattr(result, "signal_type", "") or "").strip()
+            if signal_type.startswith("CLXS_"):
+                return signal_type
             return f"CLXS_{config['model_opt']}"
         if str(getattr(result, "category", "") or "").strip():
             return str(result.category).strip()
@@ -354,12 +490,16 @@ class DailyScreeningService:
     def _build_pre_pool_query(self, config: dict) -> dict | None:
         mode = config["input_mode"]
         if mode == "all_pre_pools":
+            query = {}
+        elif mode == "category_filtered_pre_pools":
+            query = {"category": config["pre_pool_category"]}
+        elif mode == "remark_filtered_pre_pools":
+            query = {"remark": config["pre_pool_remark"]}
+        else:
             return None
-        if mode == "category_filtered_pre_pools":
-            return {"category": config["pre_pool_category"]}
-        if mode == "remark_filtered_pre_pools":
-            return {"remark": config["pre_pool_remark"]}
-        return None
+        if config.get("pre_pool_run_id"):
+            query["extra.screening_run_id"] = config["pre_pool_run_id"]
+        return query or None
 
     def _public_params(self, config: dict) -> dict:
         if config["model"] == "clxs":
@@ -378,11 +518,35 @@ class DailyScreeningService:
             "period_mode": config["period_mode"],
             "pre_pool_category": config["pre_pool_category"],
             "pre_pool_remark": config["pre_pool_remark"],
+            "pre_pool_run_id": config.get("pre_pool_run_id"),
+            "signal_types": config.get("signal_types"),
             "max_concurrent": config["max_concurrent"],
             "save_signal": config["save_signal"],
             "save_pools": config["save_pools"],
             "pool_expire_days": config["pool_expire_days"],
         }
+
+    def _public_params_for_result(self, config: dict, result: Any) -> dict:
+        if config["model"] != "clxs":
+            return self._public_params(config)
+        model_opt = self._resolve_clxs_model_opt(result, fallback=config["model_opt"])
+        return {
+            "days": config["days"],
+            "code": config["code"],
+            "wave_opt": config["wave_opt"],
+            "stretch_opt": config["stretch_opt"],
+            "trend_opt": config["trend_opt"],
+            "model_opt": model_opt,
+        }
+
+    def _resolve_clxs_model_opt(self, item: Any, *, fallback: int) -> int:
+        signal_type = str(getattr(item, "signal_type", "") or "").strip()
+        if signal_type.startswith("CLXS_"):
+            try:
+                return int(signal_type.split("_", 1)[1])
+            except ValueError:
+                return fallback
+        return fallback
 
     def _source_scope(self, config: dict) -> str:
         mode = config["input_mode"]
@@ -394,11 +558,80 @@ class DailyScreeningService:
 
     def _normalize_start_payload(self, payload: dict) -> dict:
         model = str(payload.get("model") or "").strip().lower()
-        if model not in {"clxs", "chanlun"}:
-            raise ValueError("model must be clxs or chanlun")
+        if model not in {"all", "clxs", "chanlun"}:
+            raise ValueError("model must be all, clxs or chanlun")
+        if model == "all":
+            code = self._normalize_code(payload.get("code"))
+            clxs_model_opts = self._normalize_int_list(
+                payload.get("clxs_model_opts"),
+                default=DEFAULT_CLXS_MODEL_OPTS,
+            )
+            chanlun_signal_types = self._normalize_text_list(
+                payload.get("chanlun_signal_types"),
+                default=DEFAULT_CHANLUN_SIGNAL_TYPES,
+            )
+            chanlun_period_mode = (
+                str(payload.get("chanlun_period_mode") or "all").strip() or "all"
+            )
+            chanlun_periods = (
+                ["30m", "60m", "1d"]
+                if chanlun_period_mode == "all"
+                else [chanlun_period_mode]
+            )
+            return {
+                "model": "all",
+                "days": max(int(payload.get("days") or 1), 1),
+                "code": code,
+                "save_pre_pools": True,
+                "clxs": {
+                    "model": "clxs",
+                    "days": max(int(payload.get("days") or 1), 1),
+                    "code": code,
+                    "wave_opt": int(payload.get("wave_opt") or 1560),
+                    "stretch_opt": int(payload.get("stretch_opt") or 0),
+                    "trend_opt": int(payload.get("trend_opt") or 1),
+                    "model_opt": clxs_model_opts[0],
+                    "model_opts": clxs_model_opts,
+                    "save_pre_pools": True,
+                    "save_signal": False,
+                    "save_pools": False,
+                    "pool_expire_days": 10,
+                    "output_category": "",
+                    "remark": "daily-screening:clxs",
+                    "input_mode": "single_code" if code else "market",
+                },
+                "chanlun": {
+                    "model": "chanlun",
+                    "days": max(int(payload.get("days") or 1), 1),
+                    "code": code,
+                    "input_mode": (
+                        "single_code" if code else "remark_filtered_pre_pools"
+                    ),
+                    "period_mode": chanlun_period_mode,
+                    "periods": chanlun_periods,
+                    "pre_pool_category": None,
+                    "pre_pool_remark": None if code else "daily-screening:clxs",
+                    "pre_pool_run_id": None,
+                    "signal_types": chanlun_signal_types,
+                    "preserve_signal_variants": True,
+                    "max_concurrent": max(
+                        int(payload.get("chanlun_max_concurrent") or 50), 1
+                    ),
+                    "save_signal": False,
+                    "save_pools": False,
+                    "save_pre_pools": True,
+                    "pool_expire_days": 10,
+                    "output_category": "",
+                    "remark": "daily-screening:chanlun",
+                },
+            }
         if model == "clxs":
             code = self._normalize_code(payload.get("code"))
-            model_opt = int(payload.get("model_opt") or 10001)
+            model_opts = self._normalize_int_list(
+                payload.get("model_opts"),
+                default=[int(payload.get("model_opt") or 10001)],
+            )
+            model_opt = model_opts[0]
             return {
                 "model": "clxs",
                 "days": max(int(payload.get("days") or 1), 1),
@@ -407,12 +640,12 @@ class DailyScreeningService:
                 "stretch_opt": int(payload.get("stretch_opt") or 0),
                 "trend_opt": int(payload.get("trend_opt") or 1),
                 "model_opt": model_opt,
+                "model_opts": model_opts,
                 "save_pre_pools": self._as_bool(payload.get("save_pre_pools"), True),
                 "save_signal": False,
                 "save_pools": False,
                 "pool_expire_days": 10,
-                "output_category": str(payload.get("output_category") or "").strip()
-                or f"CLXS_{model_opt}",
+                "output_category": str(payload.get("output_category") or "").strip(),
                 "remark": str(payload.get("remark") or "").strip()
                 or "daily-screening:clxs",
                 "input_mode": "single_code" if code else "market",
@@ -441,6 +674,13 @@ class DailyScreeningService:
             "periods": periods,
             "pre_pool_category": pre_pool_category or None,
             "pre_pool_remark": pre_pool_remark or None,
+            "pre_pool_run_id": str(payload.get("pre_pool_run_id") or "").strip()
+            or None,
+            "signal_types": self._normalize_text_list(
+                payload.get("signal_types"),
+                default=DEFAULT_CHANLUN_SIGNAL_TYPES,
+            ),
+            "preserve_signal_variants": True,
             "max_concurrent": max(int(payload.get("max_concurrent") or 50), 1),
             "save_signal": self._as_bool(payload.get("save_signal"), False),
             "save_pools": self._as_bool(payload.get("save_pools"), False),
@@ -480,7 +720,39 @@ class DailyScreeningService:
             "datetime": self._jsonable(row.get("datetime")),
             "expire_at": self._jsonable(row.get("expire_at")),
             "stop_loss_price": row.get("stop_loss_price"),
+            "branch": extra.get("screening_branch") or "",
+            "model_key": extra.get("screening_model_key") or "",
+            "model_label": extra.get("screening_model_label") or "",
+            "signal_type": extra.get("screening_signal_type") or "",
+            "signal_name": extra.get("screening_signal_name") or "",
+            "period": extra.get("screening_period") or "",
             "extra": self._jsonable(extra),
+        }
+
+    def _with_context(self, config: dict, payload: dict) -> dict:
+        payload = dict(payload or {})
+        model_meta = self._result_model_meta(config, payload)
+        payload.setdefault("branch", model_meta["branch"])
+        payload.setdefault("model_key", model_meta["model_key"])
+        payload.setdefault("model_label", model_meta["model_label"])
+        payload.setdefault("source_remark", config.get("remark") or "")
+        return payload
+
+    def _result_model_meta(self, config: dict, item: Any) -> dict:
+        if isinstance(item, dict):
+            signal_type = str(item.get("signal_type") or "").strip()
+            label = str(item.get("remark") or "").strip()
+        else:
+            signal_type = str(getattr(item, "signal_type", "") or "").strip()
+            label = str(getattr(item, "remark", "") or "").strip()
+        branch = "clxs" if config["model"] == "clxs" else "chanlun"
+        model_key = signal_type or (
+            f"CLXS_{config['model_opt']}" if branch == "clxs" else branch
+        )
+        return {
+            "branch": branch,
+            "model_key": model_key,
+            "model_label": label or model_key,
         }
 
     def _sort_key(self, value: Any):
@@ -536,6 +808,93 @@ class DailyScreeningService:
             return value
         return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
+    def _normalize_text_list(self, value: Any, *, default: list[str]) -> list[str]:
+        if value is None:
+            return list(default)
+        if isinstance(value, str):
+            items = [part.strip() for part in value.split(",")]
+        elif isinstance(value, (list, tuple, set)):
+            items = [str(item).strip() for item in value]
+        else:
+            items = [str(value).strip()]
+        normalized = [item for item in items if item]
+        return normalized or list(default)
+
+    def _normalize_int_list(self, value: Any, *, default: list[int]) -> list[int]:
+        raw_items = self._normalize_text_list(
+            value, default=[str(item) for item in default]
+        )
+        normalized = []
+        for item in raw_items:
+            try:
+                normalized.append(int(item))
+            except ValueError:
+                continue
+        return normalized or list(default)
+
+    def _all_schema(self) -> dict:
+        return {
+            "id": "all",
+            "label": "全链路",
+            "fields": [
+                {"name": "days", "type": "number", "default": 1},
+                {"name": "code", "type": "text", "default": ""},
+                {"name": "wave_opt", "type": "number", "default": 1560},
+                {"name": "stretch_opt", "type": "number", "default": 0},
+                {"name": "trend_opt", "type": "number", "default": 1},
+                {
+                    "name": "clxs_model_opts",
+                    "type": "select",
+                    "multiple": True,
+                    "default": list(DEFAULT_CLXS_MODEL_OPTS),
+                    "options": list(CLXS_MODEL_OPTIONS),
+                },
+                {
+                    "name": "chanlun_signal_types",
+                    "type": "select",
+                    "multiple": True,
+                    "default": list(DEFAULT_CHANLUN_SIGNAL_TYPES),
+                    "options": [
+                        {
+                            "value": signal_type,
+                            "label": CHANLUN_SIGNAL_TYPES[signal_type]["name"],
+                        }
+                        for signal_type in DEFAULT_CHANLUN_SIGNAL_TYPES
+                    ],
+                },
+                {
+                    "name": "chanlun_period_mode",
+                    "type": "select",
+                    "default": "all",
+                    "options": [
+                        {"value": "all", "label": "30m / 60m / 1d"},
+                        {"value": "30m", "label": "30m"},
+                        {"value": "60m", "label": "60m"},
+                        {"value": "1d", "label": "1d"},
+                    ],
+                },
+                {"name": "chanlun_max_concurrent", "type": "number", "default": 50},
+                {
+                    "name": "save_pre_pools",
+                    "type": "boolean",
+                    "default": True,
+                    "readonly": True,
+                },
+                {
+                    "name": "clxs_remark",
+                    "type": "text",
+                    "default": "daily-screening:clxs",
+                    "readonly": True,
+                },
+                {
+                    "name": "chanlun_remark",
+                    "type": "text",
+                    "default": "daily-screening:chanlun",
+                    "readonly": True,
+                },
+            ],
+        }
+
     def _clxs_schema(self) -> dict:
         return {
             "id": "clxs",
@@ -547,18 +906,14 @@ class DailyScreeningService:
                 {"name": "stretch_opt", "type": "number", "default": 0},
                 {"name": "trend_opt", "type": "number", "default": 1},
                 {
-                    "name": "model_opt",
+                    "name": "model_opts",
                     "type": "select",
-                    "default": 10001,
-                    "options": [
-                        {"value": 8, "label": "MACD 背驰"},
-                        {"value": 9, "label": "中枢回拉"},
-                        {"value": 12, "label": "V 反"},
-                        {"value": 10001, "label": "默认 CLXS"},
-                    ],
+                    "multiple": True,
+                    "default": [10001],
+                    "options": list(CLXS_MODEL_OPTIONS),
                 },
                 {"name": "save_pre_pools", "type": "boolean", "default": True},
-                {"name": "output_category", "type": "text", "default": "CLXS_10001"},
+                {"name": "output_category", "type": "text", "default": ""},
                 {
                     "name": "remark",
                     "type": "text",
@@ -603,6 +958,19 @@ class DailyScreeningService:
                         {"value": "1d", "label": "1d"},
                     ],
                 },
+                {
+                    "name": "signal_types",
+                    "type": "select",
+                    "multiple": True,
+                    "default": list(DEFAULT_CHANLUN_SIGNAL_TYPES),
+                    "options": [
+                        {
+                            "value": signal_type,
+                            "label": CHANLUN_SIGNAL_TYPES[signal_type]["name"],
+                        }
+                        for signal_type in DEFAULT_CHANLUN_SIGNAL_TYPES
+                    ],
+                },
                 {"name": "pre_pool_category", "type": "text", "default": ""},
                 {"name": "pre_pool_remark", "type": "text", "default": ""},
                 {"name": "max_concurrent", "type": "number", "default": 50},
@@ -613,7 +981,7 @@ class DailyScreeningService:
                 {
                     "name": "output_category",
                     "type": "text",
-                    "default": "chanlun_service",
+                    "default": "",
                 },
                 {
                     "name": "remark",
