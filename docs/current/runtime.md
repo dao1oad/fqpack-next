@@ -38,6 +38,7 @@
 - 正式自动部署 state：`D:/fqpack/runtime/symphony-service/artifacts/formal-deploy/production-state.json`
 - 正式自动部署单次运行 artifacts：`D:/fqpack/runtime/symphony-service/artifacts/formal-deploy/runs`
 - 正式自动部署 workflow 依赖宿主机已安装的 Python 3.12；self-hosted Windows runner 不再通过 `actions/setup-python` 临时安装 Python。
+- 正式自动部署 workflow 现在通过 `curl.exe` 下载目标 `zipball/<sha>`，并在 runner 本地先解析 `codeload.github.com`，再用显式 `--resolve` 和重试参数拉取源码归档。
 - 管理员桥接任务以 `SYSTEM` + `Highest` 运行；安装脚本会给执行安装的 Windows 用户追加该任务的读取/执行权限，供普通 Codex 会话调用。
 - Symphony 运行模板：`runtime/symphony/WORKFLOW.freshquant.md`
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
@@ -125,6 +126,7 @@
 - GHCR 预构建镜像仅用于加速 Docker 部署，不改变运行真值；实际运行真值仍来自当前 `main`、deploy 结果与 health/runtime ops evidence
 - `deploy-production.yml` 在正式 Windows self-hosted runner 上消费这些 GHCR 镜像，并把 deploy state / logs 固化到 `formal-deploy` artifacts 目录
 - 该 workflow 不走 `actions/checkout`；会先调用 GitHub API 校验 `main` tip，再用 PowerShell 下载目标 SHA 的源码归档并展开到 runner 工作区，避免宿主机 `git/libcurl` 网络抖动导致 deploy 卡在 checkout
+- 该 workflow 当前使用 `curl.exe` 而不是 PowerShell `Invoke-WebRequest` 下载 archive，并对 `codeload.github.com` 做显式解析、`--resolve` 和 retry，避免 self-hosted runner 在归档重定向链路上出现 DNS 解析失败或连接意外关闭
 - 对已经有 `last_success_sha` 的增量正式 deploy，`run_formal_deploy.py` 会在 zipball 工作区下回退到 GitHub compare API 计算 changed paths，因此不会因为缺少 `.git` 而失去增量部署能力
 - 该 workflow 下载源码后直接使用宿主机已安装的 Python 3.12 执行 `py -3.12 -m pip install --upgrade pip uv` 和 `py -3.12 -m uv sync --frozen`，绕开 `actions/setup-python` 在本机执行策略下触发的 `setup.ps1` 拦截
 - 该 workflow 中的 PowerShell steps 固定带 `-ExecutionPolicy Bypass`，避免 self-hosted Windows runner 的本机执行策略在 step 启动前拦截临时脚本
