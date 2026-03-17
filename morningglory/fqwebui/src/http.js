@@ -11,7 +11,7 @@ axios.interceptors.request.use(
 // 响应拦截
 axios.interceptors.response.use((res) => {
   // 对响应数据做些事
-  if (res.status !== 200) {
+  if (res.status < 200 || res.status >= 300) {
     return Promise.reject(res)
   }
   return res.data
