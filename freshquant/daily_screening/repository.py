@@ -94,10 +94,10 @@ class DailyScreeningRepository:
         effective_scope = self._resolve_single_scope(
             scope, raw_items, field_name="scope"
         )
-        query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
-        query["stage"] = effective_stage
-        self._delete_many(self.memberships, query)
         if not raw_items:
+            query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
+            query["stage"] = effective_stage
+            self._delete_many(self.memberships, query)
             return []
         payloads = [
             self._normalize_membership(
@@ -113,6 +113,9 @@ class DailyScreeningRepository:
             for payload in payloads
         ):
             raise ValueError("code required")
+        query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
+        query["stage"] = effective_stage
+        self._delete_many(self.memberships, query)
         if payloads:
             self._insert_many(self.memberships, payloads)
         return payloads

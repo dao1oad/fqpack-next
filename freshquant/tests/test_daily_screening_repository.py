@@ -427,6 +427,46 @@ def test_repository_rejects_mixed_scope_snapshots():
         )
 
 
+def test_repository_invalid_membership_batch_does_not_clear_existing_rows():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_runs=SimpleCollection("daily_screening_runs"),
+        daily_screening_memberships=SimpleCollection(
+            "daily_screening_memberships",
+            docs=[
+                {
+                    "run_id": "run-1",
+                    "stage": "clxs",
+                    "scope": "scope-a",
+                    "code": "000001",
+                }
+            ],
+        ),
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots"
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    with pytest.raises(ValueError):
+        repo.replace_stage_memberships(
+            run_id="run-1",
+            stage="clxs",
+            scope="scope-a",
+            memberships=[{"name": "alpha"}],
+        )
+
+    assert fake_db["daily_screening_memberships"].docs == [
+        {
+            "run_id": "run-1",
+            "stage": "clxs",
+            "scope": "scope-a",
+            "code": "000001",
+        }
+    ]
+
+
 def test_repository_round_trips_run_scope_documents():
     from freshquant.daily_screening.repository import DailyScreeningRepository
 
