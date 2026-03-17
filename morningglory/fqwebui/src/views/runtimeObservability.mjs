@@ -656,6 +656,23 @@ export const buildTraceKindOptions = (traces = []) => {
   return options
 }
 
+export const pickDefaultTraceKind = (
+  traces = [],
+  currentKind = '',
+  preferredKind = 'guardian_signal',
+) => {
+  const normalizedCurrent = toText(currentKind)
+  const availableKinds = new Set(
+    normalizeTraces(traces)
+      .map((trace) => toText(trace?.trace_kind))
+      .filter(Boolean),
+  )
+  if (normalizedCurrent === 'all') return 'all'
+  if (normalizedCurrent && availableKinds.has(normalizedCurrent)) return normalizedCurrent
+  if (availableKinds.has(preferredKind)) return preferredKind
+  return 'all'
+}
+
 export const buildTraceQuery = (form = {}) => {
   const query = {}
   for (const key of TRACE_QUERY_FIELDS) {

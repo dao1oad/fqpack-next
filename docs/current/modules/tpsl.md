@@ -39,6 +39,12 @@ TPSL 模块负责在独立 tick 链路上评估止盈和止损条件，并在条
 
 执行顺序上，takeprofit 先于 stoploss 评估。
 
+TPSL 与 Runtime Observability 的当前口径：
+
+- `evaluate_takeprofit` 只有在某个有效止盈层级真正命中当前价格时，才会创建 `trace_id` 并把后续 `trigger_eval / blocked / error` 事件并入全局 Trace
+- 止盈价未设置、空字符串、非法值或层级未命中时，只保留普通 runtime event，不进入全局 Trace
+- `evaluate_stoploss` 同样只在存在真实命中的 binding 时才创建 `trace_id`，避免空跑评估淹没全局 Trace
+
 `/api/tpsl/management/overview -> TpslManagementService -> 当前持仓数量 + 单标的实时仓位 + takeprofit profile + stoploss 绑定 + 最近触发事件`
 
 `/api/tpsl/management/<symbol> -> TpslManagementService -> takeprofit profile/state + open buy lots + 单标的实时仓位 + stoploss bindings + 统一历史`

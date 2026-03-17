@@ -570,34 +570,35 @@
                 <div class="trace-detail-actions">
                   <el-button :disabled="!selectedEvent" @click="openRawBrowser">原始数据</el-button>
                 </div>
-              </div>
+            </div>
               <div v-if="selectedEvent" class="trace-detail-body trace-detail-body--stacked">
-                <div class="runtime-detail-tabs event-detail-tabs">
-                  <button
-                    type="button"
-                    class="runtime-detail-tabs__tab"
-                    :class="{ active: activeEventDetailTab === 'event' }"
-                    @click="activeEventDetailTab = 'event'"
-                  >
-                    事件
-                  </button>
-                  <button
-                    type="button"
-                    class="runtime-detail-tabs__tab"
-                    :class="{ active: activeEventDetailTab === 'payload' }"
-                    @click="activeEventDetailTab = 'payload'"
-                  >
-                    载荷
-                  </button>
-                  <button
-                    type="button"
-                    class="runtime-detail-tabs__tab"
-                    :class="{ active: activeEventDetailTab === 'raw' }"
-                    @click="activeEventDetailTab = 'raw'"
-                  >
-                    原始数据
-                  </button>
-                </div>
+                <div class="trace-detail-tabs-wrap workspace-tabs-wrap">
+                  <el-tabs v-model="activeEventDetailTab" class="workspace-tabs event-detail-tabs">
+                    <el-tab-pane name="event">
+                      <template #label>
+                        <div class="workspace-tab-label">
+                          <span>事件</span>
+                          <span class="tab-meta">{{ eventMetaRows.length + eventSummaryRows.length + eventMetricRows.length }}</span>
+                        </div>
+                      </template>
+                    </el-tab-pane>
+                    <el-tab-pane name="payload">
+                      <template #label>
+                        <div class="workspace-tab-label">
+                          <span>载荷</span>
+                          <span class="tab-meta">{{ eventPayloadRows.length + eventMetricsRows.length }}</span>
+                        </div>
+                      </template>
+                    </el-tab-pane>
+                    <el-tab-pane name="raw">
+                      <template #label>
+                        <div class="workspace-tab-label">
+                          <span>原始数据</span>
+                          <span class="tab-meta">{{ embeddedRawLedgerRows.length }}</span>
+                        </div>
+                      </template>
+                    </el-tab-pane>
+                  </el-tabs>
 
                 <section v-show="activeEventDetailTab === 'event'" class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
                   <div class="detail-pane-grid">
@@ -717,6 +718,7 @@
                   </div>
                   <div v-else class="trace-empty">尚未加载 Raw，点击上方按钮拉取当前事件的原始记录。</div>
                 </section>
+                </div>
               </div>
               <div v-else class="trace-empty">先从左侧选择组件，再从中间选择一个 Event</div>
             </div>
@@ -806,6 +808,7 @@ import {
   filterTraceSteps,
   hasMatchingRawSelection,
   pickDefaultSidebarComponent,
+  pickDefaultTraceKind,
   pickDefaultTraceStep,
   readApiPayload,
   stopPollingTimer,
@@ -832,7 +835,7 @@ const activeView = ref('traces')
 const onlyIssues = ref(false)
 const autoRefresh = ref(false)
 const advancedFilterVisible = ref(false)
-const selectedTraceKind = ref('all')
+const selectedTraceKind = ref('')
 const activeTraceDetailTab = ref('steps')
 const activeEventDetailTab = ref('event')
 const rawDrawerVisible = ref(false)
@@ -1857,6 +1860,10 @@ watch(componentEventFeed, (items) => {
   selectedEvent.value = items.find((item) => item.key === currentKey) || items[0] || null
 }, { immediate: true })
 
+watch(traces, (items) => {
+  selectedTraceKind.value = pickDefaultTraceKind(items, selectedTraceKind.value)
+}, { immediate: true })
+
 watch(componentSidebarItems, (items) => {
   if (items.length === 0) {
     boardFilter.component = ''
@@ -2027,7 +2034,7 @@ onBeforeUnmount(() => {
 
 .runtime-browse-layout {
   display: grid;
-  grid-template-columns: minmax(220px, 0.72fr) minmax(600px, 1.95fr) minmax(460px, 1.45fr);
+  grid-template-columns: minmax(200px, 0.58fr) minmax(820px, 2.42fr) minmax(400px, 1.08fr);
   gap: 14px;
   flex: 1 1 auto;
   min-height: 0;
@@ -2486,14 +2493,14 @@ onBeforeUnmount(() => {
 .runtime-trace-ledger__grid {
   grid-template-columns:
     152px
-    88px
-    140px
-    108px
-    108px
-    minmax(360px, 2.8fr)
-    60px
-    76px
-    minmax(220px, 1.2fr);
+    72px
+    112px
+    104px
+    102px
+    minmax(480px, 3.6fr)
+    54px
+    84px
+    minmax(160px, 0.9fr);
 }
 
 .runtime-event-ledger__grid {

@@ -56,6 +56,18 @@ class FakeTakeprofitService:
         return {"symbol": symbol, "level": level, "batch_id": batch_id}
 
 
+class EmptyPriceTakeprofitService:
+    def get_profile_with_state(self, symbol):
+        return {
+            "symbol": symbol,
+            "tiers": [{"level": 1, "price": "", "manual_enabled": True}],
+            "state": {"armed_levels": {1: True}},
+        }
+
+    def mark_level_triggered(self, *_args, **_kwargs):
+        raise AssertionError("mark_level_triggered should not be called")
+
+
 class FakeOrderRepository:
     def list_open_slices(self, symbol=None, buy_lot_ids=None):
         return [
@@ -187,3 +199,59 @@ def test_tpsl_tick_consumer_emits_error_when_universe_refresh_fails():
     assert runtime_logger.events[-1]["node"] == "tick_match"
     assert runtime_logger.events[-1]["status"] == "error"
     assert runtime_logger.events[-1]["payload"]["error_type"] == "RuntimeError"
+
+
+def test_evaluate_takeprofit_without_hit_does_not_emit_trace_ids():
+    runtime_logger = FakeRuntimeLogger()
+    service = TpslService(
+        takeprofit_service=FakeTakeprofitService(),
+        order_submit_service=FakeOrderSubmitService(),
+        order_repository=FakeOrderRepository(),
+        position_reader=FixedPositionReader(),
+        lock_client=AlwaysAvailableLockClient(),
+        runtime_logger=runtime_logger,
+    )
+
+    batch = service.evaluate_takeprofit(
+        symbol="000001",
+        code="sz000001",
+        ask1=10.0,
+        bid1=9.9,
+        last_price=10.0,
+        tick_time=1710000000,
+    )
+
+    assert batch is None
+    assert [event["node"] for event in runtime_logger.events] == [
+        "profile_load",
+        "trigger_eval",
+    ]
+    assert all(not event.get("trace_id") for event in runtime_logger.events)
+
+
+def test_evaluate_takeprofit_ignores_empty_tier_price_without_trace_ids():
+    runtime_logger = FakeRuntimeLogger()
+    service = TpslService(
+        takeprofit_service=EmptyPriceTakeprofitService(),
+        order_submit_service=FakeOrderSubmitService(),
+        order_repository=FakeOrderRepository(),
+        position_reader=FixedPositionReader(),
+        lock_client=AlwaysAvailableLockClient(),
+        runtime_logger=runtime_logger,
+    )
+
+    batch = service.evaluate_takeprofit(
+        symbol="000001",
+        code="sz000001",
+        ask1=10.8,
+        bid1=10.7,
+        last_price=10.8,
+        tick_time=1710000000,
+    )
+
+    assert batch is None
+    assert [event["node"] for event in runtime_logger.events] == [
+        "profile_load",
+        "trigger_eval",
+    ]
+    assert all(not event.get("trace_id") for event in runtime_logger.events)

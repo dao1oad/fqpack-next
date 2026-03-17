@@ -12,6 +12,7 @@ from freshquant.runtime_observability.assembler import assemble_traces
 from freshquant.runtime_observability.health import build_health_summary
 from freshquant.runtime_observability.logger import (
     get_runtime_log_root,
+    prune_runtime_log_dirs,
     runtime_node_path,
 )
 from freshquant.runtime_observability.node_catalog import COMPONENTS
@@ -39,7 +40,7 @@ def health_summary():
 @runtime_bp.get("/traces")
 def list_traces():
     events = load_runtime_events(
-        limit=_limit_arg(default=2000, cap=10000),
+        limit=0,
         filters=_request_filters(),
         require_trace_key=True,
     )
@@ -49,7 +50,7 @@ def list_traces():
 @runtime_bp.get("/traces/<trace_id>")
 def get_trace(trace_id: str):
     events = load_runtime_events(
-        limit=_limit_arg(default=2000, cap=10000),
+        limit=0,
         filters={"trace_id": str(trace_id or "").strip()},
         require_trace_key=True,
     )
@@ -241,6 +242,7 @@ def _iter_jsonl_files():
     root = get_runtime_log_root()
     if not root.exists():
         return []
+    prune_runtime_log_dirs(root_dir=root)
     return sorted(root.rglob("*.jsonl"))
 
 

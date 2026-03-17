@@ -303,3 +303,27 @@ def test_assemble_traces_marks_last_exception_step_as_failed():
     )
     assert traces[0]["exit_component"] == "guardian_strategy"
     assert traces[0]["exit_node"] == "timing_check"
+
+
+def test_assemble_traces_resolves_symbol_name_from_instrument_query(monkeypatch):
+    monkeypatch.setattr(
+        "freshquant.runtime_observability.assembler.query_instrument_info",
+        lambda symbol: {"name": "平安银行"} if symbol == "000001" else None,
+    )
+
+    traces = assemble_traces(
+        [
+            {
+                "trace_id": "trc_symbol_name_1",
+                "component": "order_submit",
+                "node": "tracking_create",
+                "status": "info",
+                "symbol": "sz000001",
+                "ts": "2026-03-09T10:00:00+08:00",
+            }
+        ]
+    )
+
+    assert len(traces) == 1
+    assert traces[0]["symbol"] == "000001"
+    assert traces[0]["symbol_name"] == "平安银行"
