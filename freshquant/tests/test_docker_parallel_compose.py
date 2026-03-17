@@ -5,7 +5,9 @@ from pathlib import Path
 
 def load_module():
     module_path = Path("script/docker_parallel_compose.py")
-    spec = importlib.util.spec_from_file_location("docker_parallel_compose", module_path)
+    spec = importlib.util.spec_from_file_location(
+        "docker_parallel_compose", module_path
+    )
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
