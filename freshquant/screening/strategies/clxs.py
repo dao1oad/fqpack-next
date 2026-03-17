@@ -7,7 +7,7 @@
 import argparse
 import asyncio
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Callable, Optional
 
 import pandas as pd
 import pydash
@@ -15,16 +15,16 @@ from loguru import logger
 from tabulate import tabulate
 from tqdm import tqdm
 
-from freshquant.instrument.stock import fq_inst_fetch_stock_list
 from freshquant.data.stock import fq_data_stock_fetch_day
-from freshquant.trading.dt import fq_trading_fetch_trade_dates
+from freshquant.instrument.stock import fq_inst_fetch_stock_list
 from freshquant.screening.base.strategy import ScreenResult, ScreenStrategy
 from freshquant.screening.writers import DatabaseOutput, ReportOutput
+from freshquant.trading.dt import fq_trading_fetch_trade_dates
 
 # 导入外部模块
 try:
-    from fqcopilot import fq_clxs  # type: ignore
     from fqchan04 import fq_recognise_bi  # type: ignore
+    from fqcopilot import fq_clxs  # type: ignore
 except ImportError as e:
     logger.warning(f"导入外部模块失败: {e}")
     fq_clxs = None
@@ -49,6 +49,11 @@ class ClxsStrategy(ScreenStrategy):
         model_opt: int = 10001,
         save_pre_pools: bool = True,
         output_html: bool = True,
+        on_universe: Callable[[dict], None] | None = None,
+        on_stock_progress: Callable[[dict], None] | None = None,
+        on_hit_raw: Callable[[dict], None] | None = None,
+        on_result_accepted: Callable[[dict], None] | None = None,
+        on_error: Callable[[dict], None] | None = None,
     ):
         """
 
@@ -66,6 +71,11 @@ class ClxsStrategy(ScreenStrategy):
         self.model_opt = model_opt
         self.save_pre_pools = save_pre_pools
         self.output_html = output_html
+        self._on_universe = on_universe
+        self._on_stock_progress = on_stock_progress
+        self._on_hit_raw = on_hit_raw
+        self._on_result_accepted = on_result_accepted
+        self._on_error = on_error
 
     async def screen(
         self,
@@ -92,13 +102,51 @@ class ClxsStrategy(ScreenStrategy):
         if code:
             stock_list = [s for s in stock_list if s.get("code") == code]
 
+        self._emit_hook(
+            self._on_universe,
+            {
+                "strategy": self.name,
+                "total": len(stock_list),
+                "mode": "single_code" if code else "market",
+                "code": code,
+            },
+        )
+
         tasks = []
         pbar = tqdm(total=len(stock_list), desc="Processing signals")
+        processed = 0
 
         async def process_with_progress(stock):
-            result = await self._scan_stock(stock, days)
-            pbar.update(1)
-            return result
+            nonlocal processed
+            result_count = 0
+            status = "ok"
+            try:
+                result = await self._scan_stock(stock, days)
+                result_count = len(result)
+                return result
+            except Exception as exc:
+                status = "error"
+                self._emit_error(
+                    code=stock.get("code"),
+                    name=stock.get("name"),
+                    error=exc,
+                )
+                return exc
+            finally:
+                processed += 1
+                self._emit_hook(
+                    self._on_stock_progress,
+                    {
+                        "strategy": self.name,
+                        "processed": processed,
+                        "total": len(stock_list),
+                        "code": stock.get("code"),
+                        "name": stock.get("name"),
+                        "result_count": result_count,
+                        "status": status,
+                    },
+                )
+                pbar.update(1)
 
         for stock in stock_list:
             tasks.append(process_with_progress(stock))
@@ -116,6 +164,9 @@ class ClxsStrategy(ScreenStrategy):
         # 去重和排序
         results = self._deduplicate(results)
         self._sort_results(results)
+
+        for result in results:
+            self._emit_hook(self._on_result_accepted, self._result_to_payload(result))
 
         # 保存到预选池
         if results and self.save_pre_pools:
@@ -168,11 +219,16 @@ class ClxsStrategy(ScreenStrategy):
 
             # 计算信号
             sigs = fq_clxs(
-                length, highs, lows,
+                length,
+                highs,
+                lows,
                 stock_day_data.open.to_list(),
-                closes, stock_day_data.volume.to_list(),
-                self.wave_opt, self.stretch_opt,
-                self.trend_opt, self.model_opt
+                closes,
+                stock_day_data.volume.to_list(),
+                self.wave_opt,
+                self.stretch_opt,
+                self.trend_opt,
+                self.model_opt,
             )
 
             # 检查最新信号
@@ -192,6 +248,10 @@ class ClxsStrategy(ScreenStrategy):
                         signal_type=f"CLXS_{self.model_opt}",
                         position="BUY_LONG",
                     )
+                )
+                self._emit_hook(
+                    self._on_hit_raw,
+                    self._result_to_payload(results[-1]),
                 )
 
         return results
@@ -264,6 +324,50 @@ class ClxsStrategy(ScreenStrategy):
         """
         results.sort(key=lambda r: (r.fire_time, getattr(r, 'amount', 0)), reverse=True)
 
+    def _result_to_payload(self, result: ScreenResult) -> dict:
+        return {
+            "strategy": self.name,
+            "code": result.code,
+            "name": result.name,
+            "symbol": result.symbol,
+            "period": result.period,
+            "fire_time": result.fire_time,
+            "price": result.price,
+            "stop_loss_price": result.stop_loss_price,
+            "signal_type": result.signal_type,
+            "position": result.position,
+            "remark": result.remark,
+            "category": result.category,
+            "tags": list(result.tags),
+        }
+
+    def _emit_hook(
+        self, callback: Callable[[dict], None] | None, payload: dict
+    ) -> None:
+        if callback is None:
+            return
+        try:
+            callback(payload)
+        except Exception as exc:
+            logger.warning(f"CLXS hook 执行失败: {exc}")
+
+    def _emit_error(
+        self,
+        *,
+        code: str | None,
+        name: str | None = None,
+        error: Exception,
+    ) -> None:
+        self._emit_hook(
+            self._on_error,
+            {
+                "strategy": self.name,
+                "code": code,
+                "name": name,
+                "error": str(error),
+            },
+        )
+
 
 # 兼容旧接口
 async def screen(
@@ -304,10 +408,12 @@ if __name__ == "__main__":
     parser.add_argument("--model-opt", type=int, default=10001)
     args = parser.parse_args()
 
-    asyncio.run(screen(
-        days=args.days,
-        wave_opt=args.wave_opt,
-        stretch_opt=args.stretch_opt,
-        trend_opt=args.trend_opt,
-        model_opt=args.model_opt,
-    ))
+    asyncio.run(
+        screen(
+            days=args.days,
+            wave_opt=args.wave_opt,
+            stretch_opt=args.stretch_opt,
+            trend_opt=args.trend_opt,
+            model_opt=args.model_opt,
+        )
+    )
