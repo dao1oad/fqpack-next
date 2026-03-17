@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildDailyScreeningModelFilters,
   buildDailyScreeningCliPreview,
   buildDailyScreeningForms,
   getDailyScreeningGuide,
@@ -11,6 +12,37 @@ import {
 const schema = {
   models: [
     {
+      id: 'all',
+      fields: [
+        { name: 'days', default: 1 },
+        { name: 'code', default: '' },
+        { name: 'wave_opt', default: 1560 },
+        { name: 'stretch_opt', default: 0 },
+        { name: 'trend_opt', default: 1 },
+        {
+          name: 'clxs_model_opts',
+          default: [8, 9, 12, 10001],
+          options: [
+            { value: 8, label: 'MACD 背驰' },
+            { value: 9, label: '中枢回拉' },
+          ],
+        },
+        {
+          name: 'chanlun_signal_types',
+          default: ['buy_zs_huila', 'macd_bullish_divergence'],
+          options: [
+            { value: 'buy_zs_huila', label: '回拉中枢上涨' },
+            { value: 'macd_bullish_divergence', label: 'MACD看涨背驰' },
+          ],
+        },
+        {
+          name: 'chanlun_period_mode',
+          default: 'all',
+          options: [{ value: 'all', label: '30m / 60m / 1d' }],
+        },
+      ],
+    },
+    {
       id: 'clxs',
       fields: [
         { name: 'days', default: 1 },
@@ -18,9 +50,13 @@ const schema = {
         { name: 'wave_opt', default: 1560 },
         { name: 'stretch_opt', default: 0 },
         { name: 'trend_opt', default: 1 },
-        { name: 'model_opt', default: 10001, options: [{ value: 10001, label: '默认 CLXS' }] },
+        {
+          name: 'model_opts',
+          default: [10001],
+          options: [{ value: 10001, label: '默认 CLXS' }],
+        },
         { name: 'save_pre_pools', default: true },
-        { name: 'output_category', default: 'CLXS_10001' },
+        { name: 'output_category', default: '' },
         { name: 'remark', default: 'daily-screening:clxs', readonly: true },
       ],
     },
@@ -60,15 +96,25 @@ const schema = {
 test('buildDailyScreeningForms seeds defaults from schema', () => {
   const forms = buildDailyScreeningForms(schema)
 
+  assert.deepEqual(forms.all, {
+    days: 1,
+    code: '',
+    wave_opt: 1560,
+    stretch_opt: 0,
+    trend_opt: 1,
+    clxs_model_opts: [8, 9, 12, 10001],
+    chanlun_signal_types: ['buy_zs_huila', 'macd_bullish_divergence'],
+    chanlun_period_mode: 'all',
+  })
   assert.deepEqual(forms.clxs, {
     days: 1,
     code: '',
     wave_opt: 1560,
     stretch_opt: 0,
     trend_opt: 1,
-    model_opt: 10001,
+    model_opts: [10001],
     save_pre_pools: true,
-    output_category: 'CLXS_10001',
+    output_category: '',
     remark: 'daily-screening:clxs',
   })
   assert.equal(forms.chanlun.input_mode, 'all_pre_pools')
@@ -96,20 +142,23 @@ test('resolveDailyScreeningFields hides and expands chanlun fields by mode', () 
   )
 })
 
-test('buildDailyScreeningCliPreview renders clxs command and page-only extensions', () => {
+test('buildDailyScreeningCliPreview renders clxs command set and page-only extensions', () => {
   const preview = buildDailyScreeningCliPreview('clxs', {
     days: 2,
     code: '000001',
     wave_opt: 1560,
     stretch_opt: 0,
     trend_opt: 1,
-    model_opt: 10001,
+    model_opts: [8, 10001],
     remark: 'daily-screening:clxs',
   })
 
   assert.equal(
     preview.command,
-    'stock screen clxs --days 2 --code 000001 --wave-opt 1560 --stretch-opt 0 --trend-opt 1 --model-opt 10001',
+    [
+      'stock screen clxs --days 2 --code 000001 --wave-opt 1560 --stretch-opt 0 --trend-opt 1 --model-opt 8',
+      'stock screen clxs --days 2 --code 000001 --wave-opt 1560 --stretch-opt 0 --trend-opt 1 --model-opt 10001',
+    ].join('\n'),
   )
   assert.deepEqual(preview.extensions, ['remark=daily-screening:clxs'])
 })
@@ -142,10 +191,60 @@ test('buildDailyScreeningCliPreview renders chanlun command for filtered pre-poo
   ])
 })
 
+test('buildDailyScreeningCliPreview renders all-pipeline preview with CLXS and chanlun model sets', () => {
+  const preview = buildDailyScreeningCliPreview('all', {
+    days: 1,
+    code: '',
+    wave_opt: 1560,
+    stretch_opt: 0,
+    trend_opt: 1,
+    clxs_model_opts: [8, 10001],
+    chanlun_signal_types: ['buy_zs_huila', 'macd_bullish_divergence'],
+    chanlun_period_mode: 'all',
+  })
+
+  assert.match(preview.command, /stock screen clxs/)
+  assert.match(preview.command, /--model-opt 8/)
+  assert.match(preview.command, /--model-opt 10001/)
+  assert.match(preview.command, /stock screen chanlun/)
+  assert.deepEqual(preview.extensions, [
+    'chanlun_source=current_clxs_run',
+    'chanlun_signal_types=buy_zs_huila,macd_bullish_divergence',
+  ])
+})
+
 test('getDailyScreeningGuide exposes the real rule summary for each model', () => {
+  const allGuide = getDailyScreeningGuide('all')
   const clxsGuide = getDailyScreeningGuide('clxs')
   const chanlunGuide = getDailyScreeningGuide('chanlun')
 
+  assert.ok(allGuide.some((line) => line.includes('CLXS 全模型')))
   assert.ok(clxsGuide.some((line) => line.includes('sigs[-1] > 0')))
   assert.ok(chanlunGuide.some((line) => line.includes('BUY_LONG')))
+})
+
+test('buildDailyScreeningModelFilters keeps branch counts and narrows models by branch', () => {
+  const rows = [
+    { branch: 'clxs', model_key: 'CLXS_8', model_label: 'MACD 背驰' },
+    { branch: 'clxs', model_key: 'CLXS_8', model_label: 'MACD 背驰' },
+    { branch: 'clxs', model_key: 'CLXS_10001', model_label: '默认 CLXS' },
+    { branch: 'chanlun', model_key: 'buy_zs_huila', model_label: '回拉中枢上涨' },
+  ]
+
+  const allFilters = buildDailyScreeningModelFilters(rows, 'all')
+  const clxsFilters = buildDailyScreeningModelFilters(rows, 'clxs')
+
+  assert.deepEqual(allFilters.branches, [
+    { key: 'clxs', label: 'CLXS', count: 3 },
+    { key: 'chanlun', label: 'chanlun', count: 1 },
+  ])
+  assert.deepEqual(allFilters.models, [
+    { key: 'CLXS_8', label: 'MACD 背驰', branch: 'clxs', count: 2 },
+    { key: 'CLXS_10001', label: '默认 CLXS', branch: 'clxs', count: 1 },
+    { key: 'buy_zs_huila', label: '回拉中枢上涨', branch: 'chanlun', count: 1 },
+  ])
+  assert.deepEqual(clxsFilters.models, [
+    { key: 'CLXS_8', label: 'MACD 背驰', branch: 'clxs', count: 2 },
+    { key: 'CLXS_10001', label: '默认 CLXS', branch: 'clxs', count: 1 },
+  ])
 })

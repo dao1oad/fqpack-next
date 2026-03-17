@@ -41,6 +41,8 @@ class ChanlunServiceStrategy(ScreenStrategy):
     def __init__(
         self,
         periods: list[str] | None = None,
+        signal_types: list[str] | None = None,
+        preserve_signal_variants: bool = False,
         pool_expire_days: int = 10,
         save_signal: bool = False,
         save_pools: bool = False,
@@ -58,6 +60,8 @@ class ChanlunServiceStrategy(ScreenStrategy):
 
         Args:
             periods: 周期列表，默认 ['30m', '60m', '1d']
+            signal_types: 指定信号类型集合，默认使用监控链路固定的 6 个信号
+            preserve_signal_variants: 是否保留 signal_type + period 维度，不按 code + date 压缩
             pool_expire_days: 股票池过期天数
             save_signal: 是否保存到 stock_signals
             save_pools: 是否保存到 stock_pools
@@ -75,6 +79,7 @@ class ChanlunServiceStrategy(ScreenStrategy):
         self.days = days
         self.output_html = output_html
         self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._preserve_signal_variants = bool(preserve_signal_variants)
         self._on_universe = on_universe
         self._on_stock_progress = on_stock_progress
         self._on_hit_raw = on_hit_raw
@@ -90,9 +95,10 @@ class ChanlunServiceStrategy(ScreenStrategy):
             "sell_v_reverse",
             "macd_bearish_divergence",
         ]
+        selected_signal_types = signal_types or monitored_signal_types
         self._signal_types = {
             sig_type: CHANLUN_SIGNAL_TYPES[sig_type]
-            for sig_type in monitored_signal_types
+            for sig_type in selected_signal_types
             if sig_type in CHANLUN_SIGNAL_TYPES
         }
 
@@ -465,7 +471,11 @@ class ChanlunServiceStrategy(ScreenStrategy):
         seen = set()
         unique = []
         for r in results:
-            key = (r.code, r.fire_time.date())
+            key = (
+                (r.code, r.fire_time.date(), r.signal_type, r.period)
+                if self._preserve_signal_variants
+                else (r.code, r.fire_time.date())
+            )
             if key not in seen:
                 seen.add(key)
                 unique.append(r)
