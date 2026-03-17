@@ -34,6 +34,9 @@
 - Symphony 工作区根目录：`D:/fqpack/runtime/symphony-service/workspaces`
 - Symphony 按需管理员计划任务：`fq-symphony-orchestrator-restart`
 - Symphony 管理员桥接状态文件：`D:/fqpack/runtime/symphony-service/artifacts/admin-bridge/restart-status.json`
+- 正式自动部署 workflow：`.github/workflows/deploy-production.yml`
+- 正式自动部署 state：`D:/fqpack/runtime/symphony-service/artifacts/formal-deploy/production-state.json`
+- 正式自动部署单次运行 artifacts：`D:/fqpack/runtime/symphony-service/artifacts/formal-deploy/runs`
 - 管理员桥接任务以 `SYSTEM` + `Highest` 运行；安装脚本会给执行安装的 Windows 用户追加该任务的读取/执行权限，供普通 Codex 会话调用。
 - Symphony 运行模板：`runtime/symphony/WORKFLOW.freshquant.md`
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
@@ -48,6 +51,7 @@
 - context pack 产物根目录：`D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs`
 - Deploy 后运维面检查脚本：`runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1`
 - 共享部署计划脚本：`script/freshquant_deploy_plan.py`
+- 正式自动部署 orchestrator：`script/ci/run_formal_deploy.py`
 - 宿主机运行时控制脚本：`script/fqnext_host_runtime_ctl.ps1`
 - FQNext 宿主机 Supervisor service：`fqnext-supervisord`
 - FQNext 宿主机 Supervisor RPC：`http://127.0.0.1:10011/RPC2`
@@ -66,6 +70,7 @@
 - `Rework` 只用于未 merge 前的确定性仓库内问题；进入时必须同时记录 `blocker_class`、`evidence`、`next_action`、`exit_condition`
 - `Global Stewardship` 由单个全局 Codex 自动化负责；它统一处理 deploy、health check、runtime ops check、cleanup 和 follow-up issue 创建
 - `Global Stewardship` 在真正执行 deploy 前，应先调用 `script/freshquant_deploy_plan.py` 生成本轮 Docker / 宿主机计划
+- 自动正式部署会基于 `production-state.json` 里的 `last_success_sha` 计算本轮增量；首次 bootstrap 时才做全量 deploy
 - `Global Stewardship` 只有在本轮实际发生 deploy 时才做 runtime ops check；执行顺序固定为 `deploy -> health check -> runtime ops check -> cleanup`
 - 全局记忆层只提供旁路汇总，不新增正式真值源；如果 memory context 与 GitHub / `docs/current/**` / 实际 deploy 结果冲突，正式真值优先
 - 命中宿主机 deployment surface 时，正式入口固定为 `script/fqnext_host_runtime_ctl.ps1`；`D:\fqpack\supervisord\frequant-next.bat` 仅保留为兼容人工入口
@@ -117,6 +122,7 @@
 - 宿主机 `.env` 示例默认不再携带 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量
 - Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
 - GHCR 预构建镜像仅用于加速 Docker 部署，不改变运行真值；实际运行真值仍来自当前 `main`、deploy 结果与 health/runtime ops evidence
+- `deploy-production.yml` 在正式 Windows self-hosted runner 上消费这些 GHCR 镜像，并把 deploy state / logs 固化到 `formal-deploy` artifacts 目录
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - `docker/compose.parallel.yaml` 会为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`，避免容器误继承宿主机默认 `27027`

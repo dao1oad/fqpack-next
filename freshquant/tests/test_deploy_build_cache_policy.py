@@ -138,3 +138,26 @@ def test_docker_images_workflow_uses_dynamic_publish_matrix() -> None:
     assert "matrix.action == 'build'" in text
     assert "matrix.action == 'retag'" in text
     assert "docker buildx imagetools create" in text
+
+
+def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
+    text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
+
+    assert "workflow_run" in text
+    assert "Docker Images" in text
+    assert "self-hosted" in text
+    assert "windows" in text
+    assert "production" in text
+    assert "run_formal_deploy.py" in text
+    assert "github.event.workflow_run.head_sha" in text
+
+
+def test_current_docs_cover_automatic_production_deploy_state() -> None:
+    deployment_text = Path("docs/current/deployment.md").read_text(encoding="utf-8")
+    runtime_text = Path("docs/current/runtime.md").read_text(encoding="utf-8")
+
+    assert "deploy-production.yml" in deployment_text
+    assert "production-state.json" in deployment_text
+    assert "上一次成功部署" in deployment_text
+    assert "deploy-production.yml" in runtime_text
+    assert "formal-deploy" in runtime_text
