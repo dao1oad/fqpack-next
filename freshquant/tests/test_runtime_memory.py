@@ -11,9 +11,11 @@ from freshquant.runtime.memory import (
     bootstrap_memory_context,
     compile_context_pack,
     derive_issue_identifier,
-    refresh_memory,
 )
 from freshquant.runtime.memory import refresh as refresh_module
+from freshquant.runtime.memory import (
+    refresh_memory,
+)
 
 
 def _write(path: Path, content: str) -> None:

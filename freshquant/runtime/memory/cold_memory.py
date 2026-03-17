@@ -20,7 +20,9 @@ def build_cold_memory_item(
     source_kind: str = "cold_memory",
     source_ref: str | None = None,
 ) -> dict[str, str]:
-    title = _extract_title(content, Path(relative_path.name).stem.replace("-", " ").title())
+    title = _extract_title(
+        content, Path(relative_path.name).stem.replace("-", " ").title()
+    )
     category = (
         relative_path.parts[0]
         if len(relative_path.parts) > 1

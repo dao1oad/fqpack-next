@@ -38,8 +38,7 @@ def test_cli_bat_calls_wrapper_in_cli_mode() -> None:
         for line in content.splitlines()
     )
     assert any(
-        "-Mode cli" in line and "-CodexArgs %*" in line
-        for line in content.splitlines()
+        "-Mode cli" in line and "-CodexArgs %*" in line for line in content.splitlines()
     )
 
 
