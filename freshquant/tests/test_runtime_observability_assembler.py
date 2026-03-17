@@ -1,3 +1,4 @@
+import freshquant.runtime_observability.assembler as assembler_module
 from freshquant.runtime_observability.assembler import assemble_traces
 
 
@@ -306,6 +307,7 @@ def test_assemble_traces_marks_last_exception_step_as_failed():
 
 
 def test_assemble_traces_resolves_symbol_name_from_instrument_query(monkeypatch):
+    assembler_module._lookup_symbol_name_cached.cache_clear()
     monkeypatch.setattr(
         "freshquant.runtime_observability.assembler.query_instrument_info",
         lambda symbol: {"name": "平安银行"} if symbol == "000001" else None,
@@ -327,3 +329,51 @@ def test_assemble_traces_resolves_symbol_name_from_instrument_query(monkeypatch)
     assert len(traces) == 1
     assert traces[0]["symbol"] == "000001"
     assert traces[0]["symbol_name"] == "平安银行"
+    assembler_module._lookup_symbol_name_cached.cache_clear()
+
+
+def test_assemble_traces_retries_symbol_name_lookup_after_cache_miss(monkeypatch):
+    assembler_module._lookup_symbol_name_cached.cache_clear()
+    monkeypatch.setattr(
+        "freshquant.runtime_observability.assembler.query_instrument_info",
+        lambda symbol: None,
+    )
+
+    traces = assemble_traces(
+        [
+            {
+                "trace_id": "trc_symbol_name_cache_1",
+                "component": "order_submit",
+                "node": "tracking_create",
+                "status": "info",
+                "symbol": "sz000001",
+                "ts": "2026-03-09T10:00:00+08:00",
+            }
+        ]
+    )
+
+    assert len(traces) == 1
+    assert traces[0]["symbol_name"] is None
+
+    monkeypatch.setattr(
+        "freshquant.runtime_observability.assembler.query_instrument_info",
+        lambda symbol: {"name": "平安银行"} if symbol == "000001" else None,
+    )
+
+    traces = assemble_traces(
+        [
+            {
+                "trace_id": "trc_symbol_name_cache_2",
+                "component": "order_submit",
+                "node": "tracking_create",
+                "status": "info",
+                "symbol": "sz000001",
+                "ts": "2026-03-09T10:00:01+08:00",
+            }
+        ]
+    )
+
+    assert len(traces) == 1
+    assert traces[0]["symbol"] == "000001"
+    assert traces[0]["symbol_name"] == "平安银行"
+    assembler_module._lookup_symbol_name_cached.cache_clear()

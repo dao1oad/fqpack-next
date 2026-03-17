@@ -357,17 +357,27 @@ def _find_trace_symbol_name(steps: list[dict], *, symbol: str | None) -> str | N
 
 
 @lru_cache(maxsize=1024)
+def _lookup_symbol_name_cached(symbol: str) -> str:
+    try:
+        instrument = query_instrument_info(symbol)
+    except Exception:
+        raise LookupError(symbol) from None
+    if not isinstance(instrument, dict):
+        raise LookupError(symbol)
+    name = _normalized_text(instrument.get("name")) or None
+    if not name:
+        raise LookupError(symbol)
+    return name
+
+
 def _lookup_symbol_name(symbol: str) -> str | None:
     normalized = normalize_to_base_code(symbol)
     if not normalized:
         return None
     try:
-        instrument = query_instrument_info(normalized)
-    except Exception:
+        return _lookup_symbol_name_cached(normalized)
+    except LookupError:
         return None
-    if not isinstance(instrument, dict):
-        return None
-    return _normalized_text(instrument.get("name")) or None
 
 
 def _sort_timestamp(event: dict) -> tuple[str, int]:
