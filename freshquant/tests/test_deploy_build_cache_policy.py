@@ -160,7 +160,10 @@ def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     assert "actions/checkout@v4" not in text
     assert "actions/setup-python@v5" not in text
     assert "Download target revision archive" in text
-    assert "Invoke-WebRequest" in text
+    assert "curl.exe" in text
+    assert "Resolve-DnsName codeload.github.com" in text
+    assert "--retry-all-errors" in text
+    assert "--http1.1" in text
     assert "Expand-Archive" in text
     assert 'GH_TOKEN: ${{ github.token }}' in text
     assert '--github-repository "${{ github.repository }}"' in text
@@ -189,6 +192,9 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert "上一次成功部署" in deployment_text
     assert "当前 main tip" in deployment_text
     assert "宿主机已安装的 Python 3.12" in deployment_text
+    assert "codeload.github.com" in deployment_text
+    assert "curl.exe" in deployment_text
     assert "deploy-production.yml" in runtime_text
     assert "formal-deploy" in runtime_text
     assert "宿主机已安装的 Python 3.12" in runtime_text
+    assert "codeload.github.com" in runtime_text
