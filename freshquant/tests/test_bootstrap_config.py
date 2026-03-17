@@ -114,3 +114,28 @@ def test_reload_bootstrap_config_refreshes_global_snapshot(monkeypatch, tmp_path
     assert bootstrap_module.bootstrap_config.runtime.log_dir == (
         "D:/fqpack/logs/runtime-b"
     )
+
+
+def test_load_bootstrap_config_reads_screening_db(monkeypatch, tmp_path):
+    bootstrap_file = tmp_path / "freshquant_bootstrap.yaml"
+    bootstrap_file.write_text(
+        "\n".join(
+            [
+                "mongodb:",
+                "  host: 127.0.0.1",
+                "  port: 27027",
+                "  db: freshquant_runtime",
+                "  gantt_db: freshquant_gantt_runtime",
+                "  screening_db: fqscreening_runtime",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FRESHQUANT_BOOTSTRAP_FILE", str(bootstrap_file))
+
+    import importlib
+    import freshquant.bootstrap_config as bootstrap_module
+
+    bootstrap_module = importlib.reload(bootstrap_module)
+    config = bootstrap_module.load_bootstrap_config()
+    assert config.mongodb.screening_db == "fqscreening_runtime"

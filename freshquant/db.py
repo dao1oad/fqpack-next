@@ -9,6 +9,7 @@ host = bootstrap_config.mongodb.host
 port = bootstrap_config.mongodb.port
 db = bootstrap_config.mongodb.db
 gantt_db = bootstrap_config.mongodb.gantt_db
+screening_db = bootstrap_config.mongodb.screening_db
 order_management_db = bootstrap_config.order_management.mongo_database
 
 MongoClient = pymongo.MongoClient(
@@ -16,6 +17,7 @@ MongoClient = pymongo.MongoClient(
 )
 DBfreshquant = MongoClient[db]
 DBGantt = MongoClient[gantt_db]
+DBScreening = MongoClient[screening_db]
 DBOrderManagement = MongoClient[order_management_db]
 DBQuantAxis = MongoClient["quantaxis"]
 DBQA = MongoClient["qa"]
@@ -26,6 +28,8 @@ def get_db(dbName):
         return DBfreshquant
     elif dbName in {"gantt", gantt_db}:
         return DBGantt
+    elif dbName in {"screening", screening_db}:
+        return DBScreening
     elif dbName in {"order_management", order_management_db}:
         return DBOrderManagement
     elif dbName == "quantaxis":
