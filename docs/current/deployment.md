@@ -9,6 +9,7 @@
 - Docker 侧正式入口优先使用 `powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 ...`；该脚本会自动解析主工作树 `.env` / runtime log 目录、注入当前 `HEAD` 到镜像 label、开启 BuildKit，并优先拉取 GHCR 中与当前 commit 匹配的预构建镜像；若远端镜像不可用，再保守回退到本机构建。
 - `.github/workflows/docker-images.yml` 在 `main` push 后会先解析受影响镜像；只有改到的服务真正 build，未改到的服务只把现有 `:main` digest retag 成当前 commit SHA，保持 registry-first deploy 命中。
 - `.github/workflows/deploy-production.yml` 会在 `Docker Images` 成功后自动触发，并在 `[self-hosted, windows, production]` runner 上执行 `py -3.12 script/ci/run_formal_deploy.py` 完成正式环境 deploy。
+- 该 workflow 依赖正式 Windows runner 宿主机已安装的 Python 3.12，不再使用 `actions/setup-python`；原因是该 runner 的本机执行策略会拦截 action 解压后调用的 `setup.ps1`。
 - `deploy-production.yml` 在真正执行正式 deploy 前，会通过 GitHub API 再次校验 `github.event.workflow_run.head_sha` 是否仍然是当前 `main` tip；对历史成功 workflow 的 rerun 会直接拒绝，避免把正式环境误回滚到旧 commit。
 - `deploy-production.yml` 不依赖 `actions/checkout`；它会在 Windows runner 上用 PowerShell 直接下载目标 SHA 的源码归档并展开到 `GITHUB_WORKSPACE`，绕开该宿主机上 `git/libcurl` 对 GitHub 的不稳定 fetch 链路。
 - 由于 zipball 工作区没有 `.git`，`script/ci/run_formal_deploy.py` 在增量 deploy 场景会改用 GitHub compare API 计算 `last_success_sha -> current main` 的 changed paths，而不是依赖本地 `git diff`。
@@ -45,6 +46,7 @@ powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 up -
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - 如果触发事件里的 SHA 已经不是当前 `main` tip，`deploy-production.yml` 会直接失败，不会对历史成功 run 继续 deploy。
 - workflow 本身会通过 GitHub API 校验 `main` tip，并通过 `zipball/<sha>` 下载目标版本源码；正式 deploy 不再依赖 runner 本地 `git fetch/checkout` 成功。
+- workflow 在下载源码后直接调用宿主机已安装的 Python 3.12 执行 `pip/uv` 与 deploy orchestrator，不再依赖 `actions/setup-python` 的安装阶段。
 - 如果工作区来自 zipball 而没有 `.git`，`run_formal_deploy.py` 会使用 `GH_TOKEN + github.repository` 调 compare API 生成增量 changed paths。
 - 如果 `production-state.json` 尚不存在，首次会按 bootstrap 模式执行全量 surface deploy；成功后才写入初始状态。
 - 如果本轮 diff 不命中任何 deployment surface，workflow 仍会推进 `production-state.json` 到当前 commit，但不会执行 deploy / health check / runtime ops check。
