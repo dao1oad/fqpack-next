@@ -38,12 +38,14 @@
 - Symphony 运行模板：`runtime/symphony/WORKFLOW.freshquant.md`
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
 - Symphony / Global Stewardship 会在启动 `codex` 前通过 `runtime/memory/scripts/refresh_freshquant_memory.py` + `runtime/memory/scripts/compile_freshquant_context_pack.py` 刷新全局记忆并编译 context pack
-- 直接在 Codex app 中打开仓库的自由会话，如果没有现成 `FQ_MEMORY_CONTEXT_PATH`，应先执行 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 自举 memory refresh / compile，再读取返回的 `context_pack_path`
-- memory refresh 当前会汇总 `.codex/memory/**`、`docs/current/modules/*.md`、`artifacts/cleanup-requests/<issue>.json`、`artifacts/<issue>/deployment-comment.md`、`artifacts/cleanup-results/<issue>.json`，把 PR / deploy / health / cleanup 摘要写入 `fq_memory`
+- 自由会话的正式硬入口位于 `codex_run/start_codex_cli.bat` 与 `codex_run/start_codex_app_server.bat`；它们会先执行 `codex_run/start_freshquant_codex.ps1`，由该 wrapper 调 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 自举 memory refresh / compile，再启动 `codex`
+- 如果是直接在 Codex app 中打开仓库、没有走 `codex_run/*.bat`，且当前会话没有现成 `FQ_MEMORY_CONTEXT_PATH`，仍应先执行 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 再继续仓库探索
+- memory refresh 会先同步远程 `origin/main`，再从该 ref 的 `.codex/memory/**` 与 `docs/current/modules/*.md` 汇总开发参考记忆；同时继续读取 `artifacts/cleanup-requests/<issue>.json`、`artifacts/<issue>/deployment-comment.md`、`artifacts/cleanup-results/<issue>.json`，把 PR / deploy / health / cleanup 摘要写入 `fq_memory`
 - 会话通过环境变量 `FQ_MEMORY_CONTEXT_PATH` 注入本轮 context pack，并通过 `FQ_MEMORY_CONTEXT_ROLE` 暴露当前角色；`Global Stewardship` 默认编译 `global-stewardship` pack，其它工作区会话默认编译 `codex` pack
 - `bootstrap_freshquant_memory.py` 会为自由会话推导 `issue_identifier`：优先用显式参数，其次用 workspace 目录名或 branch 中的 issue id，最后回退到 `LOCAL-<workspace-name>`
 - agent 应先读该文件，再回到 GitHub / `docs/current/**` / deploy 结果确认正式真值
 - 冷记忆目录：`.codex/memory`
+- 开发参考默认引用：`origin/main`（可通过 `FRESHQUANT_MEMORY__REFERENCE_REF` 覆盖）
 - 热记忆 Mongo database：`fq_memory`
 - context pack 产物根目录：`D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs`
 - Deploy 后运维面检查脚本：`runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1`

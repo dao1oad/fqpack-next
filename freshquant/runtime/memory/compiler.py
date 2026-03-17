@@ -34,6 +34,9 @@ def _format_module_status(items: list[dict[str, Any]]) -> str:
 
 def _format_task_snapshot_extras(task_state: dict[str, Any]) -> str:
     lines: list[str] = []
+    reference_ref = task_state.get("reference_ref")
+    if reference_ref:
+        lines.append(f"- Reference ref: `{reference_ref}`")
     repository = task_state.get("repository")
     if repository:
         lines.append(f"- Repository: `{repository}`")
@@ -124,8 +127,12 @@ def compile_context_pack(
     health_results = store.find(
         "health_results", filters={"issue_identifier": issue_identifier}
     )
-    knowledge_items = store.find("knowledge_items")
-    module_status = store.find("module_status")
+    knowledge_items = store.find(
+        "knowledge_items", filters={"source_ref": config.reference_ref}
+    )
+    module_status = store.find(
+        "module_status", filters={"source_ref": config.reference_ref}
+    )
 
     if not task_state:
         raise ValueError(f"No task_state found for issue {issue_identifier}")

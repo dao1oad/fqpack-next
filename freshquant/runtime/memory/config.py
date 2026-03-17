@@ -21,6 +21,7 @@ class MemoryRuntimeConfig:
     service_root: Path
     cold_memory_root: Path
     artifact_root: Path
+    reference_ref: str
     mongo_host: str
     mongo_port: int
     mongo_db: str
@@ -81,12 +82,18 @@ class MemoryRuntimeConfig:
                 memory_settings.artifact_root or "artifacts/memory",
                 root=resolved_service_root,
             )
+        reference_ref = (
+            env.get("FRESHQUANT_MEMORY__REFERENCE_REF")
+            or getattr(memory_settings, "reference_ref", None)
+            or "origin/main"
+        )
 
         return cls(
             repo_root=repo_path,
             service_root=resolved_service_root,
             cold_memory_root=cold_memory_root,
             artifact_root=artifact_root,
+            reference_ref=str(reference_ref),
             mongo_host=str(mongo_host),
             mongo_port=mongo_port,
             mongo_db=str(mongo_db),

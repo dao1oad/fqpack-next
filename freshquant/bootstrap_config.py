@@ -48,6 +48,7 @@ class MemoryBootstrapConfig:
     mongodb: MemoryMongoBootstrapConfig = MemoryMongoBootstrapConfig()
     cold_root: str = ".codex/memory"
     artifact_root: str = "D:/fqpack/runtime/symphony-service/artifacts/memory"
+    reference_ref: str = "origin/main"
 
 
 @dataclass(frozen=True)
@@ -168,6 +169,7 @@ def load_bootstrap_config() -> BootstrapConfig:
             get(settings, "memory.artifact_root"),
             "D:/fqpack/runtime/symphony-service/artifacts/memory",
         ),
+        reference_ref=_as_str(get(settings, "memory.reference_ref"), "origin/main"),
     )
     order_management = OrderManagementBootstrapConfig(
         mongo_database=_as_str(
