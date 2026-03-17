@@ -85,22 +85,17 @@ jobs:
             Copy-Item -LiteralPath $_.FullName -Destination $env:GITHUB_WORKSPACE -Recurse -Force
           }
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Install uv
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m pip install --upgrade pip uv
+          py -3.12 -m pip install --upgrade pip uv
 
       - name: Sync locked environment
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
-          uv sync --frozen
+          py -3.12 -m uv sync --frozen
 
       - name: Run formal production deploy
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
