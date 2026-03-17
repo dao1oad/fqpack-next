@@ -77,6 +77,7 @@ class SubjectManagementWriteService:
             buy_1=_optional_float(payload.get("buy_1"), "buy_1"),
             buy_2=_optional_float(payload.get("buy_2"), "buy_2"),
             buy_3=_optional_float(payload.get("buy_3"), "buy_3"),
+            buy_enabled=_optional_bool_list(payload.get("buy_enabled"), "buy_enabled"),
             enabled=_optional_bool(payload.get("enabled")),
             updated_by=str(payload.get("updated_by") or "api"),
         )
@@ -86,6 +87,9 @@ class SubjectManagementWriteService:
             "buy_1": _optional_float(detail.get("BUY-1"), "BUY-1"),
             "buy_2": _optional_float(detail.get("BUY-2"), "BUY-2"),
             "buy_3": _optional_float(detail.get("BUY-3"), "BUY-3"),
+            "buy_enabled": _optional_bool_list(
+                detail.get("buy_enabled"), "buy_enabled"
+            ),
         }
 
     def _guardian_service(self):
@@ -149,3 +153,11 @@ def _optional_bool(value):
     if value is None:
         return None
     return bool(value)
+
+
+def _optional_bool_list(value, field_name):
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) != 3:
+        raise ValueError(f"{field_name} must be a 3-item boolean list")
+    return [bool(value[0]), bool(value[1]), bool(value[2])]

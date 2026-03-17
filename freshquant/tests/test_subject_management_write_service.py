@@ -43,3 +43,49 @@ def test_update_must_pool_rejects_fractional_lot_amounts(monkeypatch, field_name
 
     with pytest.raises(ValueError, match=rf"^{field_name} must be integer$"):
         service.update_must_pool("600000.SH", payload)
+
+
+def test_update_guardian_buy_grid_forwards_per_level_switches():
+    captured = {}
+
+    class FakeGuardianService:
+        def upsert_config(self, symbol, **kwargs):
+            captured["call"] = (symbol, kwargs)
+            return {
+                "code": symbol,
+                "enabled": True,
+                "BUY-1": 10.2,
+                "BUY-2": 9.9,
+                "BUY-3": 9.5,
+                "buy_enabled": [True, False, True],
+            }
+
+    service = SubjectManagementWriteService(
+        database=FakeDatabase(),
+        guardian_service=FakeGuardianService(),
+    )
+
+    result = service.update_guardian_buy_grid(
+        "600000.SH",
+        {
+            "buy_1": 10.2,
+            "buy_2": 9.9,
+            "buy_3": 9.5,
+            "buy_enabled": [True, False, True],
+            "updated_by": "pytest",
+        },
+    )
+
+    assert captured["call"] == (
+        "600000",
+        {
+            "buy_1": 10.2,
+            "buy_2": 9.9,
+            "buy_3": 9.5,
+            "buy_enabled": [True, False, True],
+            "enabled": None,
+            "updated_by": "pytest",
+        },
+    )
+    assert result["symbol"] == "600000"
+    assert result["buy_enabled"] == [True, False, True]

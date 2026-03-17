@@ -1,4 +1,5 @@
 const DEFAULT_BUY_ACTIVE = [true, true, true]
+const DEFAULT_BUY_ENABLED = [true, true, true]
 
 const GUIDE_COLORS = ['#3b82f6', '#ef4444', '#22c55e']
 
@@ -38,8 +39,23 @@ const formatGuidePrice = (value) => {
   return parsed.toFixed(2)
 }
 
+const normalizeGuardianBuyEnabled = (row = {}) => {
+  const fallback = row?.enabled ?? true
+  if (Array.isArray(row?.buy_enabled) && row.buy_enabled.length >= 3) {
+    return row.buy_enabled.slice(0, 3).map((item) => item !== false)
+  }
+  return DEFAULT_BUY_ENABLED.map((_, index) => {
+    const fieldValue = row?.[`buy_${index + 1}_enabled`]
+    if (fieldValue === undefined) {
+      return Boolean(fallback)
+    }
+    return fieldValue !== false
+  })
+}
+
 export const normalizeGuardianConfig = (row = {}) => ({
-  enabled: Boolean(row?.enabled),
+  buy_enabled: normalizeGuardianBuyEnabled(row),
+  enabled: normalizeGuardianBuyEnabled(row).some(Boolean),
   buy_1: toNullableNumber(row?.buy_1),
   buy_2: toNullableNumber(row?.buy_2),
   buy_3: toNullableNumber(row?.buy_3),
@@ -97,6 +113,7 @@ export const buildGuardianPriceGuides = (config = {}, state = {}) => {
       if (price === null || price <= 0) {
         return null
       }
+      const manualEnabled = normalizedConfig.buy_enabled[index] !== false
       return {
         id: `guardian-${item.key}`,
         key: item.key,
@@ -105,7 +122,8 @@ export const buildGuardianPriceGuides = (config = {}, state = {}) => {
         price,
         color: item.color,
         label: `G-${item.shortLabel} ${formatGuidePrice(price)}`,
-        active: Boolean(normalizedConfig.enabled) && normalizedState.buy_active[index] !== false,
+        manual_enabled: manualEnabled,
+        active: manualEnabled && normalizedState.buy_active[index] !== false,
         lineStyle: 'dashed',
       }
     })
@@ -200,7 +218,7 @@ export const buildKlineSubjectPriceDetail = (detail = {}) => {
 
 export const validateGuardianGuideDraft = (draft = {}) => {
   const normalized = normalizeGuardianConfig(draft)
-  if (!normalized.enabled) {
+  if (!normalized.buy_enabled.some(Boolean)) {
     return { valid: true, message: '' }
   }
 

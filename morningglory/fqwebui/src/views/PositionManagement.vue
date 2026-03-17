@@ -50,83 +50,52 @@
         <div class="workbench-panel__header">
           <div class="workbench-title-group">
             <div class="workbench-panel__title">参数 inventory</div>
-            <p class="workbench-panel__desc">把真正生效的阈值、代码默认值和系统连接参数放到同一页，但保持各自边界。</p>
+            <p class="workbench-panel__desc">把真正生效的阈值、代码默认值和系统连接参数合并到一张表，同时保留说明和可编辑边界。</p>
           </div>
         </div>
 
-        <div class="position-config-grid">
-          <article class="workbench-block workbench-block--muted position-edit-block">
-            <div class="workbench-panel__header position-block-head">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">{{ editableSection.title }}</div>
-                <p class="workbench-panel__desc">{{ editableSection.description }}</p>
+        <el-table :data="inventoryRows" size="small" border class="position-config-table">
+          <el-table-column prop="group_label" label="分组" min-width="140" show-overflow-tooltip />
+          <el-table-column label="参数" min-width="240">
+            <template #default="{ row }">
+              <div class="inventory-parameter-cell">
+                <strong>{{ row.label }}</strong>
+                <span>{{ row.source_label }}</span>
               </div>
-              <span class="workbench-summary-chip workbench-summary-chip--muted">pm_configs.thresholds</span>
-            </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="当前值" min-width="220">
+            <template #default="{ row }">
+              <el-input-number
+                v-if="row.key === 'allow_open_min_bail'"
+                v-model="editableForm.allow_open_min_bail"
+                :min="0"
+                :step="10000"
+                controls-position="right"
+              />
+              <el-input-number
+                v-else-if="row.key === 'holding_only_min_bail'"
+                v-model="editableForm.holding_only_min_bail"
+                :min="0"
+                :step="10000"
+                controls-position="right"
+              />
+              <el-input-number
+                v-else-if="row.key === 'single_symbol_position_limit'"
+                v-model="editableForm.single_symbol_position_limit"
+                :min="0"
+                :step="10000"
+                controls-position="right"
+              />
+              <span v-else class="inventory-value">{{ row.value_label }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="description" label="说明" min-width="360" show-overflow-tooltip />
+        </el-table>
 
-            <el-form label-position="top" class="config-form">
-              <el-form-item
-                v-for="item in editableSection.items"
-                :key="item.key"
-                :label="item.label"
-              >
-                <el-input-number
-                  v-if="item.key === 'allow_open_min_bail'"
-                  v-model="editableForm.allow_open_min_bail"
-                  :min="0"
-                  :step="10000"
-                  controls-position="right"
-                />
-                <el-input-number
-                  v-else-if="item.key === 'holding_only_min_bail'"
-                  v-model="editableForm.holding_only_min_bail"
-                  :min="0"
-                  :step="10000"
-                  controls-position="right"
-                />
-                <el-input-number
-                  v-else-if="item.key === 'single_symbol_position_limit'"
-                  v-model="editableForm.single_symbol_position_limit"
-                  :min="0"
-                  :step="10000"
-                  controls-position="right"
-                />
-                <p class="field-hint">{{ item.description }}</p>
-              </el-form-item>
-            </el-form>
-
-            <div class="position-edit-footer">
-              <span class="workbench-muted">当前开放账户阈值和单标的实时仓位上限编辑，其余参数保持只读。</span>
-              <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
-            </div>
-          </article>
-
-          <article
-            v-for="section in readonlySections"
-            :key="section.key"
-            class="workbench-block position-readonly-block"
-          >
-            <div class="workbench-panel__header position-block-head">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">{{ section.title }}</div>
-                <p class="workbench-panel__desc">{{ section.description }}</p>
-              </div>
-            </div>
-
-            <div class="readonly-list">
-              <div
-                v-for="item in section.items"
-                :key="item.key"
-                class="readonly-item"
-              >
-                <div class="readonly-item__main">
-                  <strong>{{ item.label }}</strong>
-                  <span>{{ item.value_label }}</span>
-                </div>
-                <p>{{ item.description }}</p>
-              </div>
-            </div>
-          </article>
+        <div class="position-edit-footer">
+          <span class="workbench-muted">当前开放账户阈值和单标的实时仓位上限保持可编辑，其余参数继续只读展示。</span>
+          <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
         </div>
       </section>
 
@@ -244,7 +213,8 @@
         <el-table v-if="recentDecisionRows.length" :data="recentDecisionRows" size="small" border>
           <el-table-column prop="strategy_label" label="策略" min-width="140" />
           <el-table-column prop="action_label" label="动作" width="86" />
-          <el-table-column prop="symbol_label" label="标的" width="100" />
+          <el-table-column prop="symbol_label" label="标的代码" width="100" />
+          <el-table-column prop="symbol_name_label" label="标的名称" min-width="140" />
           <el-table-column prop="state_label" label="状态" min-width="120" />
           <el-table-column label="结果" width="88">
             <template #default="{ row }">
@@ -273,8 +243,8 @@ import { ElMessage } from 'element-plus'
 import MyHeader from '@/views/MyHeader.vue'
 import { positionManagementApi } from '@/api/positionManagementApi'
 import {
-  buildConfigSections,
   buildHoldingScopeView,
+  buildInventoryRows,
   buildRecentDecisionRows,
   buildRuleMatrix,
   buildStatePanel,
@@ -292,17 +262,7 @@ const editableForm = reactive({
   single_symbol_position_limit: 0,
 })
 
-const configSections = computed(() => buildConfigSections(dashboard.value))
-const editableSection = computed(() => (
-  configSections.value.find((section) => section.key === 'editable_thresholds') || {
-    title: '已生效且可编辑',
-    description: '',
-    items: [],
-  }
-))
-const readonlySections = computed(() => (
-  configSections.value.filter((section) => section.key !== 'editable_thresholds')
-))
+const inventoryRows = computed(() => buildInventoryRows(dashboard.value))
 const statePanel = computed(() => buildStatePanel(dashboard.value))
 const holdingScope = computed(() => buildHoldingScopeView(dashboard.value))
 const ruleMatrix = computed(() => buildRuleMatrix(dashboard.value))
@@ -388,25 +348,12 @@ onMounted(() => {
   overflow: auto;
 }
 
-.position-config-grid {
-  display: grid;
-  grid-template-columns: minmax(320px, 1.12fr) repeat(2, minmax(220px, 0.94fr));
-  gap: 12px;
+.position-config-table {
+  margin-top: 6px;
 }
 
-.position-block-head {
-  margin-bottom: 2px;
-}
-
-.config-form :deep(.el-input-number) {
+.position-config-table :deep(.el-input-number) {
   width: 100%;
-}
-
-.field-hint {
-  margin: 8px 0 0;
-  color: #909399;
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .position-edit-footer {
@@ -415,42 +362,25 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  margin-top: 12px;
 }
 
-.readonly-list {
+.inventory-parameter-cell {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
-.readonly-item {
-  padding: 10px 12px;
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.readonly-item__main {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: center;
-}
-
-.readonly-item__main strong {
+.inventory-parameter-cell strong {
   color: #303133;
 }
 
-.readonly-item__main span,
-.readonly-item p,
+.inventory-parameter-cell span,
+.inventory-value,
 .position-holding-copy {
   color: #606266;
   font-size: 12px;
   line-height: 1.5;
-}
-
-.readonly-item p {
-  margin: 8px 0 0;
 }
 
 .position-state-grid {
@@ -526,7 +456,6 @@ onMounted(() => {
 }
 
 @media (max-width: 1320px) {
-  .position-config-grid,
   .position-state-grid,
   .position-metric-grid,
   .position-meta-grid {

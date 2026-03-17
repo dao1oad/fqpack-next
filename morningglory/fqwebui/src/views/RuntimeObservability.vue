@@ -76,71 +76,49 @@
           <div class="runtime-home-head">
             <div>
               <h2>组件导航</h2>
-              <p>组件筛选和运行健康统一压成台账，展开后直接看 runtime node 明细。</p>
+              <p>保持和标的列表一致的卡片切换方式，直接按组件查看运行节点、心跳和异常概况。</p>
             </div>
             <span class="runtime-home-meta">核心组件 {{ componentSidebarItems.length }} 个</span>
           </div>
 
-          <div class="component-ledger">
-            <div class="component-ledger__header">
-              <span>组件</span>
-              <span>状态</span>
-              <span>心跳</span>
-              <span>异常链路</span>
-              <span>异常节点</span>
-            </div>
-            <div
+          <div class="component-symbol-list">
+            <button
               v-for="item in componentSidebarItems"
               :key="item.component"
-              class="component-ledger__entry"
+              type="button"
+              class="component-symbol-card"
+              :class="{ active: activeComponent === item.component }"
+              @click="handleComponentFilter(item.component)"
             >
-              <button
-                type="button"
-                class="component-ledger__row"
-                :class="[statusClass(item.status), { active: activeComponent === item.component }]"
-                @click="handleComponentFilter(item.component)"
-              >
-                <span class="component-ledger__component" :title="item.component">{{ item.component }}</span>
-                <span class="component-ledger__status">{{ item.status }}</span>
-                <span class="component-ledger__heartbeat">{{ item.heartbeat_label }}</span>
-                <span>{{ item.issue_trace_count }}</span>
-                <span>{{ item.issue_step_count }}</span>
-              </button>
-
-              <div v-if="activeComponent === item.component" class="component-ledger__detail">
-                <div class="component-ledger__runtime-header">
-                  <span>runtime node</span>
-                  <span>状态</span>
-                  <span>心跳</span>
-                  <span>异常</span>
-                  <span>highlights</span>
+              <div class="component-symbol-card__head">
+                <div>
+                  <strong :title="item.component_label">{{ item.component_label }}</strong>
+                  <span :title="item.component">{{ item.component }}</span>
                 </div>
-                <div
-                  v-for="detail in item.runtime_details"
-                  :key="`${item.component}-${detail.runtime_node}`"
-                  class="component-ledger__runtime-row"
-                >
-                  <span class="component-ledger__runtime-node" :title="detail.runtime_node">{{ detail.runtime_node }}</span>
-                  <span class="component-ledger__runtime-status" :class="statusClass(detail.status)">
-                    {{ detail.status }}
-                  </span>
-                  <span>{{ detail.heartbeat_label }}</span>
-                  <span>{{ detail.issue_trace_count }}/{{ detail.issue_step_count }}</span>
-                  <span class="component-ledger__runtime-highlights">
-                    <template v-if="detail.highlights.length">
-                      <span
-                        v-for="highlight in detail.highlights"
-                        :key="`${item.component}-${detail.runtime_node}-${highlight.key}`"
-                        :title="`${highlight.label} ${highlight.display}`"
-                      >
-                        {{ highlight.label }} {{ highlight.display }}
-                      </span>
-                    </template>
-                    <span v-else>no data</span>
-                  </span>
-                </div>
+                <span class="runtime-inline-status" :class="statusClass(item.status)">
+                  {{ item.status }}
+                </span>
               </div>
-            </div>
+
+              <div class="component-symbol-card__badges">
+                <span class="workbench-summary-chip workbench-summary-chip--muted" :title="item.runtime_summary_title">
+                  {{ item.runtime_summary_label || '-' }}
+                </span>
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  Trace {{ item.trace_count }}
+                </span>
+                <span class="workbench-summary-chip workbench-summary-chip--warning">
+                  异常 {{ item.issue_trace_count }}/{{ item.issue_step_count }}
+                </span>
+              </div>
+
+              <div class="component-symbol-card__foot">
+                <span>主心跳 {{ item.heartbeat_label }}</span>
+                <span :title="item.runtime_summary_title">
+                  {{ item.runtime_details[0]?.runtime_node || '-' }}
+                </span>
+              </div>
+            </button>
           </div>
         </aside>
 
@@ -149,11 +127,18 @@
               <div class="runtime-home-head">
                 <div>
                   <h2>全局 Trace</h2>
-                  <p>主表直接给出最近链路的入口、出口、断裂原因和慢点，右侧默认看完整 Step 台账。</p>
+                  <p>主表直接展示链路类型、中文节点路径和断裂原因，并支持按 kind 快速筛选。</p>
                 </div>
                 <div class="runtime-home-actions">
+                  <el-select v-model="selectedTraceKind" size="small" class="runtime-kind-filter">
+                    <el-option
+                      v-for="option in traceKindOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
                   <span class="runtime-home-meta">当前显示 {{ traceLedgerRows.length }} 条</span>
-                  <el-button v-if="recentTraceLimit < 50" text @click="showMoreRecentTraces">查看更多</el-button>
                 </div>
               </div>
 
@@ -172,17 +157,15 @@
 
               <div v-if="traceLedgerRows.length" class="runtime-ledger runtime-trace-ledger">
                 <div class="runtime-ledger__header runtime-trace-ledger__grid">
-                  <span>last_ts</span>
-                  <span>symbol</span>
-                  <span>name</span>
-                  <span>identity</span>
-                  <span>kind</span>
-                  <span>status</span>
-                  <span>entry -> exit</span>
-                  <span>steps</span>
-                  <span>duration</span>
-                  <span>break_reason</span>
-                  <span>slowest</span>
+                  <span>最近时间</span>
+                  <span>标的代码</span>
+                  <span>标的名称</span>
+                  <span>链路类型</span>
+                  <span>链路状态</span>
+                  <span>节点路径</span>
+                  <span>节点数</span>
+                  <span>总耗时</span>
+                  <span>断裂原因</span>
                 </div>
                 <button
                   v-for="row in traceLedgerRows"
@@ -195,7 +178,6 @@
                   <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.last_ts_label || '-' }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.symbol || '-' }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_name || '-'">{{ row.symbol_name || '-' }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.identity || '-' }}</span>
                   <span class="runtime-ledger__cell">{{ row.trace_kind_label }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--status">
                     <span class="runtime-inline-status" :class="statusClass(row.trace_status)">
@@ -206,7 +188,6 @@
                   <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.step_count }}</span>
                   <span class="runtime-ledger__cell">{{ row.duration_label }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.break_reason || '-'">{{ row.break_reason || '-' }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.slowest_step_label || '-'">{{ row.slowest_step_label }}</span>
                 </button>
               </div>
               <div v-else class="runtime-empty-panel">
@@ -227,15 +208,14 @@
 
             <div v-if="eventLedgerRows.length" class="runtime-ledger runtime-event-ledger">
               <div class="runtime-ledger__header runtime-event-ledger__grid">
-                <span>ts</span>
-                <span>runtime_node</span>
-                <span>component</span>
-                <span>node</span>
-                <span>status</span>
-                <span>symbol</span>
-                <span>identity</span>
-                <span>summary</span>
-                <span>metrics</span>
+                <span>运行时间</span>
+                <span>运行节点</span>
+                <span>组件</span>
+                <span>节点</span>
+                <span>状态</span>
+                <span>标的</span>
+                <span>摘要</span>
+                <span>指标</span>
               </div>
               <button
                 v-for="(row, rowIndex) in eventLedgerRows"
@@ -246,18 +226,17 @@
                 @click="handleEventClick(componentEventFeed[rowIndex])"
               >
                 <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.runtime_node }}</span>
-                <span class="runtime-ledger__cell">{{ row.component }}</span>
-                <span class="runtime-ledger__cell">{{ row.node }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.runtime_node_label">{{ row.runtime_node_label }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.component_label">{{ row.component_label }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.node_label">{{ row.node_label }}</span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--status">
                   <span class="runtime-inline-status" :class="statusClass(row.status)">
                     {{ row.status }}
                   </span>
                 </span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.symbol || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.identity || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.summary || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.metrics_summary || '-' }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.summary || '-'">{{ row.summary || '-' }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.metrics_summary || '-'">{{ row.metrics_summary || '-' }}</span>
               </button>
             </div>
             <div v-else class="runtime-empty-panel">
@@ -271,68 +250,44 @@
           <div class="trace-detail-head">
             <div>
               <strong>{{ selectedTraceDetail.trace_id || selectedTrace?.trace_key || '选择一条 Trace' }}</strong>
-              <div v-if="selectedTrace" class="trace-summary-chips">
-                <span class="trace-summary-chip">{{ selectedTraceDetail.trace_kind || 'unknown' }}</span>
-                <span class="trace-summary-chip">{{ selectedTraceDetail.trace_status || 'open' }}</span>
-                <span class="trace-summary-chip">steps {{ selectedTraceDetail.step_count }}</span>
-                <span class="trace-summary-chip" :class="{ 'is-issue': selectedTraceDetail.issue_count > 0 }">
-                  issues {{ selectedTraceDetail.issue_count }}
-                </span>
-                <span class="trace-summary-chip">duration {{ selectedTraceDetail.duration_label || selectedTraceDetail.total_duration_label }}</span>
-                <span v-if="selectedTraceDetail.break_reason" class="trace-summary-chip is-issue">
-                  {{ selectedTraceDetail.break_reason }}
-                </span>
-              </div>
             </div>
             <div class="trace-detail-actions">
-              <el-button :disabled="!selectedStep" @click="openRawBrowser">Raw</el-button>
+              <el-button :disabled="!selectedStep" @click="openRawBrowser">原始数据</el-button>
             </div>
           </div>
             <div v-if="selectedTrace" class="trace-detail-body trace-detail-body--stacked">
-              <div v-if="traceIdentityStrip.items.length" class="trace-identity-strip">
-                  <button
-                    v-for="item in traceIdentityStrip.items"
-                    :key="item.key"
-                    type="button"
-                    class="trace-identity-strip__item"
-                    @click="copyText(buildIdentityCopyValue(item))"
-                  >
-                    <span>{{ item.label }}</span>
-                    <code>{{ item.value }}</code>
-                  </button>
-              </div>
-
-              <div class="runtime-detail-tabs">
-                <button
-                  type="button"
-                  class="runtime-detail-tabs__tab"
-                  :class="{ active: activeTraceDetailTab === 'steps' }"
-                  @click="activeTraceDetailTab = 'steps'"
-                >
-                  Steps
-                </button>
-                <button
-                  type="button"
-                  class="runtime-detail-tabs__tab"
-                  :class="{ active: activeTraceDetailTab === 'summary' }"
-                  @click="activeTraceDetailTab = 'summary'"
-                >
-                  Summary
-                </button>
-                <button
-                  type="button"
-                  class="runtime-detail-tabs__tab"
-                  :class="{ active: activeTraceDetailTab === 'raw' }"
-                  @click="activeTraceDetailTab = 'raw'"
-                >
-                  Raw
-                </button>
-              </div>
+              <div class="trace-detail-tabs-wrap workspace-tabs-wrap">
+                <el-tabs v-model="activeTraceDetailTab" class="workspace-tabs trace-detail-tabs">
+                  <el-tab-pane name="steps">
+                    <template #label>
+                      <div class="workspace-tab-label">
+                        <span>步骤</span>
+                        <span class="tab-meta">{{ traceStepLedgerRows.length }}</span>
+                      </div>
+                    </template>
+                  </el-tab-pane>
+                  <el-tab-pane name="summary">
+                    <template #label>
+                      <div class="workspace-tab-label">
+                        <span>摘要</span>
+                        <span class="tab-meta">{{ guardianTrace ? 3 : 2 }}</span>
+                      </div>
+                    </template>
+                  </el-tab-pane>
+                  <el-tab-pane name="raw">
+                    <template #label>
+                      <div class="workspace-tab-label">
+                        <span>原始数据</span>
+                        <span class="tab-meta">{{ embeddedRawLedgerRows.length }}</span>
+                      </div>
+                    </template>
+                  </el-tab-pane>
+                </el-tabs>
 
               <section v-show="activeTraceDetailTab === 'summary'" class="runtime-detail-panel runtime-detail-panel--summary runtime-detail-panel--fill">
                 <div class="detail-pane-grid">
                   <section class="detail-ledger-section">
-                    <div class="detail-ledger-section__title">Trace 摘要</div>
+                    <div class="detail-ledger-section__title">链路摘要</div>
                     <table class="detail-kv-table trace-summary-ledger">
                       <tbody>
                         <tr v-for="row in traceSummaryRows" :key="`trace-summary-${row.key}`">
@@ -387,7 +342,7 @@
                 </div>
               </section>
 
-            <section v-show="activeTraceDetailTab === 'steps'" class="runtime-detail-panel">
+            <section v-show="activeTraceDetailTab === 'steps'" class="runtime-detail-panel runtime-detail-panel--steps">
               <div class="trace-ledger-toolbar">
                 <span>{{ onlyIssues ? '仅显示异常节点' : '显示全部节点' }}</span>
                 <span>可见 {{ traceStepLedgerRows.length }} / {{ selectedTraceDetail.step_count }}</span>
@@ -396,16 +351,16 @@
               <div v-if="traceStepLedgerRows.length" class="trace-step-ledger">
                 <div class="trace-step-ledger__header trace-step-ledger__grid">
                   <span>#</span>
-                  <span>ts</span>
-                  <span>delta</span>
-                  <span>component.node</span>
-                  <span>status</span>
-                  <span>branch</span>
-                  <span>expr</span>
-                  <span>reason</span>
-                  <span>outcome</span>
-                  <span>context</span>
-                  <span>error</span>
+                  <span>时间</span>
+                  <span>耗时</span>
+                  <span>节点</span>
+                  <span>状态</span>
+                  <span>分支</span>
+                  <span>条件</span>
+                  <span>原因</span>
+                  <span>结果</span>
+                  <span>上下文</span>
+                  <span>错误</span>
                 </div>
                 <button
                   v-for="(row, rowIndex) in traceStepLedgerRows"
@@ -463,6 +418,7 @@
                   <div class="detail-pane-grid detail-pane-grid--step">
                     <section class="detail-ledger-section">
                       <div class="detail-ledger-section__title">Step 摘要</div>
+
                       <table class="detail-kv-table">
                         <tbody>
                           <tr v-for="row in selectedStepOverviewRows" :key="`selected-step-overview-${row.key}`">
@@ -602,6 +558,7 @@
               </div>
               <div v-else class="trace-empty">尚未加载 Raw，点击上方按钮拉取当前节点的原始记录。</div>
             </section>
+              </div>
           </div>
           <div v-else class="trace-empty">暂无选中链路</div>
           </div>
@@ -609,30 +566,12 @@
               <div class="trace-detail-head">
                 <div>
                   <strong>{{ selectedEvent ? `${selectedEvent.component}.${selectedEvent.node}` : '选择一个组件 Event' }}</strong>
-                  <div v-if="selectedEvent" class="trace-summary-chips">
-                    <span class="trace-summary-chip">{{ selectedEvent.event_type || 'trace_step' }}</span>
-                    <span class="trace-summary-chip">{{ selectedEvent.status || 'info' }}</span>
-                    <span class="trace-summary-chip">{{ selectedEvent.runtime_node || '-' }}</span>
-                  </div>
                 </div>
                 <div class="trace-detail-actions">
-                  <el-button :disabled="!selectedEvent" @click="openRawBrowser">Raw</el-button>
+                  <el-button :disabled="!selectedEvent" @click="openRawBrowser">原始数据</el-button>
                 </div>
               </div>
               <div v-if="selectedEvent" class="trace-detail-body trace-detail-body--stacked">
-                <div v-if="eventIdentityStrip.items.length" class="trace-identity-strip">
-                  <button
-                    v-for="item in eventIdentityStrip.items"
-                    :key="item.key"
-                    type="button"
-                    class="trace-identity-strip__item"
-                    @click="copyText(buildIdentityCopyValue(item))"
-                  >
-                    <span>{{ item.label }}</span>
-                    <code>{{ item.value }}</code>
-                  </button>
-                </div>
-
                 <div class="runtime-detail-tabs event-detail-tabs">
                   <button
                     type="button"
@@ -640,7 +579,7 @@
                     :class="{ active: activeEventDetailTab === 'event' }"
                     @click="activeEventDetailTab = 'event'"
                   >
-                    Event
+                    事件
                   </button>
                   <button
                     type="button"
@@ -648,7 +587,7 @@
                     :class="{ active: activeEventDetailTab === 'payload' }"
                     @click="activeEventDetailTab = 'payload'"
                   >
-                    Payload
+                    载荷
                   </button>
                   <button
                     type="button"
@@ -656,7 +595,7 @@
                     :class="{ active: activeEventDetailTab === 'raw' }"
                     @click="activeEventDetailTab = 'raw'"
                   >
-                    Raw
+                    原始数据
                   </button>
                 </div>
 
@@ -703,7 +642,7 @@
                 <section v-show="activeEventDetailTab === 'payload'" class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
                   <div class="detail-pane-grid">
                     <section class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">Payload 字段</div>
+                      <div class="detail-ledger-section__title">载荷字段</div>
                       <table class="detail-kv-table">
                         <tbody>
                           <tr v-if="!eventPayloadRows.length">
@@ -719,7 +658,7 @@
                     </section>
 
                     <section class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">Metrics 字段</div>
+                      <div class="detail-ledger-section__title">指标字段</div>
                       <table class="detail-kv-table">
                         <tbody>
                           <tr v-if="!eventMetricsRows.length">
@@ -758,9 +697,9 @@
                   </div>
                   <div v-if="embeddedRawLedgerRows.length" class="embedded-raw-ledger">
                     <div class="embedded-raw-ledger__header">
-                      <span>record</span>
-                      <span>summary</span>
-                      <span>badges</span>
+                      <span>记录</span>
+                      <span>摘要</span>
+                      <span>标识</span>
                     </div>
                     <div
                       v-for="row in embeddedRawLedgerRows"
@@ -847,8 +786,8 @@ import {
   buildComponentEventFeed,
   buildEventLedgerRows,
   buildComponentSidebarItems,
-  buildIdentityStrip,
   buildIssuePriorityCards,
+  buildTraceKindOptions,
   buildTraceListSummary,
   buildIssueSummary,
   buildRawRecordSummary,
@@ -863,6 +802,7 @@ import {
   createTraceQueryState,
   findTraceByRow,
   findRawRecordIndex,
+  filterTracesByKind,
   filterTraceSteps,
   hasMatchingRawSelection,
   pickDefaultSidebarComponent,
@@ -892,7 +832,7 @@ const activeView = ref('traces')
 const onlyIssues = ref(false)
 const autoRefresh = ref(false)
 const advancedFilterVisible = ref(false)
-const recentTraceLimit = ref(20)
+const selectedTraceKind = ref('all')
 const activeTraceDetailTab = ref('steps')
 const activeEventDetailTab = ref('event')
 const rawDrawerVisible = ref(false)
@@ -956,7 +896,17 @@ const buildDetailRows = (rows = []) => {
 }
 
 const buildNodeLabel = (component, node) => {
-  const parts = [String(component || '').trim(), String(node || '').trim()].filter(Boolean)
+  const normalizedComponent = String(component || '').trim()
+  const normalizedNode = String(node || '').trim()
+  const parts = []
+  if (normalizedComponent) {
+    const matchedComponent = componentSidebarItems.value.find((item) => item.component === normalizedComponent)
+    parts.push(matchedComponent?.component_label || normalizedComponent)
+  }
+  if (normalizedNode) {
+    const matchedNode = eventLedgerRows.value.find((item) => item.component === normalizedComponent && item.node === normalizedNode)
+    parts.push(matchedNode?.node_label || normalizedNode)
+  }
   return parts.length ? parts.join('.') : '-'
 }
 
@@ -1026,14 +976,14 @@ const buildContextRows = (blocks = []) => {
 }
 
 const visibleTraces = computed(() => {
-  if (!onlyIssues.value) return traces.value
-  return traces.value.filter((trace) => buildTraceDetail(trace).issue_count > 0)
+  const kindFiltered = filterTracesByKind(traces.value, selectedTraceKind.value)
+  if (!onlyIssues.value) return kindFiltered
+  return kindFiltered.filter((trace) => buildTraceDetail(trace).issue_count > 0)
 })
+const traceKindOptions = computed(() => buildTraceKindOptions(traces.value))
 const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
 const issuePriorityCards = computed(() => buildIssuePriorityCards(visibleTraces.value))
-const traceLedgerRows = computed(() =>
-  buildTraceLedgerRows(visibleTraces.value, { limit: recentTraceLimit.value }),
-)
+const traceLedgerRows = computed(() => buildTraceLedgerRows(visibleTraces.value))
 const componentSidebarItems = computed(() => buildComponentSidebarItems(traces.value, healthCards.value))
 const activeComponent = computed(() => String(boardFilter.component || '').trim())
 const componentEventFeed = computed(() => {
@@ -1064,6 +1014,14 @@ const filterChips = computed(() => {
       field,
     })
   }
+  if (selectedTraceKind.value && selectedTraceKind.value !== 'all') {
+    const activeOption = traceKindOptions.value.find((item) => item.value === selectedTraceKind.value)
+    chips.push({
+      key: 'trace-kind',
+      label: activeOption?.label || selectedTraceKind.value,
+      kind: 'trace-kind',
+    })
+  }
   return chips
 })
 
@@ -1080,8 +1038,6 @@ const traceStepLedgerRows = computed(() =>
     steps: filteredSteps.value,
   }),
 )
-const traceIdentityStrip = computed(() => buildIdentityStrip(selectedTraceDetail.value))
-const eventIdentityStrip = computed(() => buildIdentityStrip(selectedEvent.value || {}))
 const rawRecordCards = computed(() => rawRecords.value.map((record) => buildRawRecordSummary(record)))
 const activeEmbeddedRawTarget = computed(() => (activeView.value === 'events' ? selectedEvent.value : selectedStep.value))
 const embeddedRawRecordCards = computed(() => {
@@ -1101,27 +1057,27 @@ const traceSummaryRows = computed(() =>
     },
     {
       key: 'symbol',
-      label: 'Symbol',
+      label: '标的代码',
       value: selectedTraceDetail.value.symbol,
       mono: true,
       always: true,
     },
     {
       key: 'name',
-      label: 'Name',
+      label: '标的名称',
       value: selectedTraceDetail.value.symbol_name,
       always: true,
     },
     {
       key: 'kind',
-      label: 'Kind',
-      value: selectedTraceDetail.value.trace_kind,
+      label: '链路类型',
+      value: traceLedgerRows.value.find((item) => item.trace_id === selectedTraceDetail.value.trace_id)?.trace_kind_label || selectedTraceDetail.value.trace_kind,
       always: true,
     },
     {
       key: 'status',
-      label: 'Status',
-      value: selectedTraceDetail.value.trace_status,
+      label: '链路状态',
+      value: traceLedgerRows.value.find((item) => item.trace_id === selectedTraceDetail.value.trace_id)?.trace_status_label || selectedTraceDetail.value.trace_status,
       always: true,
     },
     {
@@ -1146,14 +1102,14 @@ const traceSummaryRows = computed(() =>
     },
     {
       key: 'step_count',
-      label: 'Steps',
+      label: '节点数',
       value: selectedTraceDetail.value.step_count,
       mono: true,
       always: true,
     },
     {
       key: 'issue_count',
-      label: 'Issues',
+      label: '异常节点数',
       value: selectedTraceDetail.value.issue_count,
       mono: true,
       always: true,
@@ -1628,7 +1584,6 @@ const openAdvancedFilter = () => {
 
 const applyAdvancedFilter = async () => {
   syncQueryState(query, draftQuery)
-  recentTraceLimit.value = 20
   await Promise.all([loadTraces(), loadEvents()])
   advancedFilterVisible.value = false
 }
@@ -1670,7 +1625,6 @@ const handleComponentFilter = (target) => {
   if (!normalizedComponent) return
   boardFilter.component = normalizedComponent
   boardFilter.runtime_node = ''
-  recentTraceLimit.value = 20
 }
 
 const clearFilterChip = async (chip) => {
@@ -1679,15 +1633,15 @@ const clearFilterChip = async (chip) => {
     onlyIssues.value = false
     return
   }
+  if (chip.kind === 'trace-kind') {
+    selectedTraceKind.value = 'all'
+    return
+  }
   if (chip.kind === 'query' && chip.field) {
     query[chip.field] = ''
     draftQuery[chip.field] = ''
     await loadTraces()
   }
-}
-
-const showMoreRecentTraces = () => {
-  recentTraceLimit.value = 50
 }
 
 const handleStepSelect = (step) => {
@@ -2067,6 +2021,10 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.runtime-kind-filter {
+  width: 160px;
+}
+
 .runtime-browse-layout {
   display: grid;
   grid-template-columns: minmax(220px, 0.72fr) minmax(600px, 1.95fr) minmax(460px, 1.45fr);
@@ -2098,75 +2056,61 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
-.component-sidebar-list {
+.component-symbol-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
-.component-sidebar-item {
+.component-symbol-card {
   width: 100%;
+  padding: 12px;
   border: 1px solid #ebeef5;
   border-radius: 8px;
   background: #fff;
-  padding: 10px;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.component-sidebar-item:hover,
-.component-sidebar-item.active {
+.component-symbol-card:hover,
+.component-symbol-card.active {
   border-color: #409eff;
   box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.12);
-  transform: none;
 }
 
-.component-sidebar-item.is-warning {
-  background: linear-gradient(180deg, #ffffff 0%, #fff8ec 100%);
-}
-
-.component-sidebar-item.is-failed {
-  background: linear-gradient(180deg, #ffffff 0%, #fff1f0 100%);
-}
-
-.component-sidebar-item.is-skipped {
-  background: linear-gradient(180deg, #ffffff 0%, #f5f2ff 100%);
-}
-
-.component-sidebar-main,
-.component-sidebar-meta,
-.component-sidebar-popover-stats,
-.component-sidebar-popover-highlights,
-.trace-flow-popover-item {
+.component-symbol-card__head,
+.component-symbol-card__foot,
+.component-symbol-card__badges {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.component-sidebar-main {
+.component-symbol-card__head,
+.component-symbol-card__foot {
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
 }
 
-.component-sidebar-main strong {
+.component-symbol-card__head strong {
+  display: block;
   color: #21405e;
 }
 
-.component-sidebar-heartbeat,
-.component-sidebar-meta,
-.component-sidebar-popover p,
-.component-sidebar-popover-stats,
-.recent-feed-identity {
+.component-symbol-card__head span,
+.component-symbol-card__foot {
   color: #69829b;
   font-size: 12px;
 }
 
-.component-sidebar-meta {
+.component-symbol-card__badges {
   margin-top: 10px;
 }
 
@@ -2542,28 +2486,25 @@ onBeforeUnmount(() => {
 .runtime-trace-ledger__grid {
   grid-template-columns:
     152px
-    84px
-    112px
-    144px
-    84px
-    112px
-    minmax(320px, 2.35fr)
-    52px
-    72px
-    minmax(190px, 1.1fr)
-    minmax(190px, 1fr);
+    88px
+    140px
+    108px
+    108px
+    minmax(360px, 2.8fr)
+    60px
+    76px
+    minmax(220px, 1.2fr);
 }
 
 .runtime-event-ledger__grid {
   grid-template-columns:
     152px
     144px
-    120px
-    120px
+    140px
+    140px
     112px
-    84px
-    144px
-    minmax(220px, 1.45fr)
+    180px
+    minmax(260px, 1.45fr)
     minmax(220px, 1.15fr);
 }
 
@@ -2905,8 +2846,54 @@ onBeforeUnmount(() => {
 
 .trace-detail-body--stacked {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px;
+}
+
+.trace-detail-tabs-wrap,
+.trace-detail-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.trace-detail-tabs-wrap > .runtime-detail-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.workspace-tab-label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.tab-meta {
+  font-size: 11px;
+  font-weight: 400;
+}
+
+:deep(.workspace-tabs .el-tabs__header) {
+  margin-bottom: 8px;
+}
+
+:deep(.workspace-tabs .el-tabs__content) {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+:deep(.workspace-tabs .el-tab-pane) {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .detail-pane-grid {
@@ -3102,6 +3089,15 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
+.runtime-detail-panel--steps {
+  --trace-step-ledger-row-height: 40px;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .runtime-detail-panel__toolbar,
 .trace-ledger-toolbar,
 .step-inspector-summary {
@@ -3124,7 +3120,9 @@ onBeforeUnmount(() => {
 .trace-step-ledger {
   display: flex;
   flex-direction: column;
+  flex: 0 0 auto;
   min-height: 0;
+  max-height: calc(var(--trace-step-ledger-row-height) * 9 + 2px);
   overflow: auto;
   border: 1px solid #e5edf5;
   border-radius: 12px;
@@ -3150,6 +3148,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
+  min-height: var(--trace-step-ledger-row-height);
   font-size: 12px;
 }
 
@@ -3298,11 +3297,12 @@ onBeforeUnmount(() => {
 }
 
 .step-inspector {
+  flex: 1 1 auto;
   border: 1px solid #d8e2ee;
   border-radius: 12px;
   background: #fff;
   padding: 12px;
-  min-height: 320px;
+  min-height: 0;
   overflow: auto;
 }
 

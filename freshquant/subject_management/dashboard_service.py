@@ -312,9 +312,14 @@ class SubjectManagementDashboardService:
     def _normalize_guardian_config(raw):
         if raw is None:
             return None
+        buy_enabled = _safe_bool_list(
+            raw.get("buy_enabled"),
+            default=[bool(raw.get("enabled", True))] * 3,
+        )
         return {
             "symbol": _normalize_symbol(raw.get("code")),
-            "enabled": bool(raw.get("enabled", True)),
+            "enabled": any(buy_enabled),
+            "buy_enabled": buy_enabled,
             "buy_1": _safe_float_or_none(raw.get("BUY-1")),
             "buy_2": _safe_float_or_none(raw.get("BUY-2")),
             "buy_3": _safe_float_or_none(raw.get("BUY-3")),
@@ -374,6 +379,13 @@ def _safe_int_or_none(value):
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _safe_bool_list(value, *, default=None):
+    fallback = list(default or [True, True, True])
+    if isinstance(value, list) and len(value) == 3:
+        return [bool(value[0]), bool(value[1]), bool(value[2])]
+    return fallback
 
 
 def _default_pm_summary_loader():

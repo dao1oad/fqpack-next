@@ -19,10 +19,10 @@
       </el-table-column>
       <el-table-column prop="period" label="周期" width="80" />
       <el-table-column prop="model" label="模型" width="90" />
-      <el-table-column label="价格" width="130">
+      <el-table-column label="价格" width="160">
         <template #default="{ row }">
-          <div>close: {{ formatPrice(row.close) }}</div>
-          <div>stop: {{ formatPrice(row.stop_loss_price) }}</div>
+          <div class="price-cell-line">触发价: {{ formatPrice(row.close) }}</div>
+          <div class="price-cell-line">止损价: {{ formatPrice(row.stop_loss_price) }}</div>
         </template>
       </el-table-column>
       <el-table-column prop="source" label="来源" min-width="120" />
@@ -94,7 +94,11 @@ export default {
       if (value === null || value === undefined || value === '') {
         return '--'
       }
-      return value
+      const parsed = Number(value)
+      if (!Number.isFinite(parsed)) {
+        return '--'
+      }
+      return parsed.toFixed(3)
     }
   }
 }
@@ -105,5 +109,9 @@ export default {
   .el-table .el-table__cell {
     vertical-align: top
   }
+}
+
+.price-cell-line {
+  white-space: nowrap
 }
 </style>

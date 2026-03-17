@@ -17,7 +17,16 @@ const emitNotify = (notify, level, message) => {
 }
 
 export const cloneGuardianDraft = (draft = {}) => ({
-  enabled: Boolean(draft?.enabled),
+  buy_enabled: Array.isArray(draft?.buy_enabled) && draft.buy_enabled.length >= 3
+    ? draft.buy_enabled.slice(0, 3).map((item) => item !== false)
+    : [
+      draft?.enabled !== false,
+      draft?.enabled !== false,
+      draft?.enabled !== false,
+    ],
+  enabled: Array.isArray(draft?.buy_enabled) && draft.buy_enabled.length >= 3
+    ? draft.buy_enabled.slice(0, 3).some((item) => item !== false)
+    : Boolean(draft?.enabled ?? true),
   buy_1: draft?.buy_1 ?? null,
   buy_2: draft?.buy_2 ?? null,
   buy_3: draft?.buy_3 ?? null,
