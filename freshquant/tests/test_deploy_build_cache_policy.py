@@ -157,14 +157,17 @@ def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     assert "production" in text
     assert "run_formal_deploy.py" in text
     assert "github.event.workflow_run.head_sha" in text
+    assert "actions/checkout@v4" not in text
+    assert "Download target revision archive" in text
+    assert "Invoke-WebRequest" in text
+    assert "Expand-Archive" in text
 
 
 def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
     text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
 
     assert "Validate main tip freshness" in text
-    assert "git fetch origin main --no-tags --prune" in text
-    assert "git rev-parse FETCH_HEAD" in text
+    assert "api.github.com/repos/${{ github.repository }}/branches/main" in text
     assert "github.event.workflow_run.head_sha" in text
     assert "stale main deploy trigger" in text
 
