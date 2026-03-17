@@ -181,6 +181,7 @@ def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     assert "GH_TOKEN: ${{ github.token }}" in text
     assert "shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}" in text
     assert "shell: powershell\n" not in text
+    assert "git -C $canonicalRoot worktree prune" in text
     assert "py -3.12 -m uv --version" in text
     assert "py -3.12 -m uv sync --frozen" in text
     assert "pip install --upgrade pip uv" not in text

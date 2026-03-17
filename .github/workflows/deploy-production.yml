@@ -68,6 +68,11 @@ jobs:
               throw "failed to fetch remote main before mirror bootstrap"
             }
 
+            & git -C $canonicalRoot worktree prune
+            if ($LASTEXITCODE -ne 0) {
+              throw "failed to prune stale git worktree metadata before mirror bootstrap"
+            }
+
             & git -C $canonicalRoot worktree add $mirrorRoot -B $mirrorBranch "refs/remotes/origin/$remoteBranch"
             if ($LASTEXITCODE -ne 0) {
               throw "failed to create production deploy mirror worktree"
