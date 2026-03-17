@@ -169,6 +169,35 @@ def test_holding_add_skips_inactive_levels_and_uses_next_active_match():
     assert decision["quantity"] == 17600
 
 
+def test_holding_add_skips_levels_disabled_by_manual_config_switch():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "buy_enabled": [True, False, True],
+                        "enabled": True,
+                    }
+                ]
+            ),
+            "guardian_buy_grid_states": FakeCollection(
+                [{"code": "000001", "buy_active": [True, True, True]}]
+            ),
+        }
+    )
+    service = _build_service(database)
+
+    decision = service.build_holding_add_decision("000001", 7.8)
+
+    assert decision["grid_level"] == "BUY-3"
+    assert decision["hit_levels"] == ["BUY-1", "BUY-3"]
+    assert decision["multiplier"] == 4
+
+
 def test_holding_add_without_config_falls_back_to_base_amount():
     service = _build_service(FakeDatabase())
 
@@ -266,17 +295,48 @@ def test_updating_config_resets_buy_active_and_records_audit_log():
         buy_1=10.1,
         buy_2=9.1,
         buy_3=8.1,
+        buy_enabled=[True, False, True],
         enabled=True,
         updated_by="cli",
     )
 
     assert result["BUY-1"] == 10.1
+    assert result["buy_enabled"] == [True, False, True]
     assert service.get_state("000001")["buy_active"] == [True, True, True]
     assert (
         database["audit_log"].docs[-1]["operation"]
         == "guardian_buy_grid_config_updated"
     )
     assert database["audit_log"].docs[-1]["state_reset"] is True
+
+
+def test_enabled_true_without_buy_enabled_reopens_all_levels_for_legacy_callers():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "buy_enabled": [False, False, False],
+                        "enabled": False,
+                    }
+                ]
+            )
+        }
+    )
+    service = _build_service(database)
+
+    result = service.upsert_config(
+        "000001",
+        enabled=True,
+        updated_by="cli",
+    )
+
+    assert result["buy_enabled"] == [True, True, True]
+    assert result["enabled"] is True
 
 
 def test_manual_state_changes_and_manual_reset_are_audited():

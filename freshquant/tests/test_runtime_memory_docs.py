@@ -40,6 +40,7 @@ def test_current_docs_describe_memory_layer_contract() -> None:
     assert "Ctrl+C" in runtime_text
     assert "codex_run/start_codex_cli.bat" in interfaces_text
     assert "关闭该窗口即停止服务" in interfaces_text
+    assert "codex_run/start_codex_cli.bat" in interfaces_text
 
     assert "refresh_freshquant_memory.py" in troubleshooting_text
     assert "compile_freshquant_context_pack.py" in troubleshooting_text

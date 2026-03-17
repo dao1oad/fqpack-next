@@ -119,6 +119,7 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
                         "BUY-1": 10.2,
                         "BUY-2": 9.9,
                         "BUY-3": 9.5,
+                        "buy_enabled": [True, False, True],
                         "enabled": True,
                     }
                 ]
@@ -215,6 +216,7 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["must_pool"]["initial_lot_amount"] == 80000
     assert rows[0]["guardian"]["enabled"] is True
     assert rows[0]["guardian"]["buy_1"] == 10.2
+    assert rows[0]["guardian"]["buy_enabled"] == [True, False, True]
     assert rows[0]["guardian"]["last_hit_level"] == "BUY-2"
     assert rows[0]["takeprofit"]["tiers"][0]["level"] == 1
     assert rows[0]["takeprofit"]["tiers"][1]["enabled"] is False
@@ -275,6 +277,7 @@ def test_subject_management_overview_normalizes_must_pool_codes_before_grouping(
                         "BUY-1": 10.2,
                         "BUY-2": 9.9,
                         "BUY-3": 9.5,
+                        "buy_enabled": [True, False, True],
                         "enabled": True,
                     }
                 ]
@@ -328,6 +331,7 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lot
                         "BUY-1": 10.2,
                         "BUY-2": 9.9,
                         "BUY-3": 9.5,
+                        "buy_enabled": [True, False, True],
                         "enabled": True,
                     }
                 ]
@@ -408,6 +412,7 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lot
     assert detail["subject"]["symbol"] == "600000"
     assert detail["must_pool"]["lot_amount"] == 50000
     assert detail["guardian_buy_grid_config"]["buy_3"] == 9.5
+    assert detail["guardian_buy_grid_config"]["buy_enabled"] == [True, False, True]
     assert detail["guardian_buy_grid_state"]["last_hit_level"] == "BUY-2"
     assert detail["takeprofit"]["tiers"][2]["level"] == 3
     assert detail["takeprofit"]["state"]["armed_levels"][2] is False

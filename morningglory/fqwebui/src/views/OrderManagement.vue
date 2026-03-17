@@ -166,7 +166,7 @@
                 :row-class-name="tableRowClassName"
                 @row-click="handleRowClick"
               >
-                <el-table-column label="Symbol" min-width="136">
+                <el-table-column label="标的代码" min-width="136">
                   <template #default="{ row }">
                     <div class="order-symbol-cell">
                       <el-button text type="primary" @click.stop="focusSymbol(row.symbol)">
@@ -176,28 +176,26 @@
                     </div>
                   </template>
                 </el-table-column>
-                <el-table-column prop="side" label="Side" width="86" />
-                <el-table-column prop="state" label="State" width="160" />
-                <el-table-column prop="strategy_name" label="Strategy" min-width="132" />
-                <el-table-column prop="source" label="Source" width="148" />
-                <el-table-column label="Price / Qty" min-width="132">
-                  <template #default="{ row }">
-                    {{ formatOrderPrice(row.price) }} / {{ formatOrderQuantity(row.quantity) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="Filled" min-width="118">
-                  <template #default="{ row }">
-                    {{ formatOrderQuantity(row.filled_quantity) }} / {{ formatOrderPrice(row.avg_filled_price) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="Updated" min-width="176">
+                <el-table-column label="更新时间" min-width="176">
                   <template #default="{ row }">
                     {{ formatOrderTimestamp(row.updated_at || row.created_at) }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="broker_order_id" label="Broker" min-width="132" />
-                <el-table-column prop="internal_order_id" label="Internal Order" min-width="164" />
-                <el-table-column prop="request_id" label="Request" min-width="152" />
+                <el-table-column prop="side" label="方向" width="86" />
+                <el-table-column prop="state" label="订单状态" width="160" />
+                <el-table-column prop="strategy_name" label="策略" min-width="132" />
+                <el-table-column prop="source" label="来源" width="148" />
+                <el-table-column label="委托价 / 委托量" min-width="132">
+                  <template #default="{ row }">
+                    {{ formatOrderPrice(row.price) }} / {{ formatOrderQuantity(row.quantity) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="成交量 / 成交均价" min-width="118">
+                  <template #default="{ row }">
+                    {{ formatOrderQuantity(row.filled_quantity) }} / {{ formatOrderPrice(row.avg_filled_price) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="broker_order_id" label="券商单号" min-width="132" />
               </el-table>
             </template>
           </div>

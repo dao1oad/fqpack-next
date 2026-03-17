@@ -137,6 +137,7 @@ def test_guardian_buy_grid_config_routes_get_and_post(monkeypatch, stock_routes)
                 "BUY-1": 10.0,
                 "BUY-2": 9.0,
                 "BUY-3": 8.0,
+                "buy_enabled": [True, False, True],
                 "enabled": True,
             }
 
@@ -163,6 +164,7 @@ def test_guardian_buy_grid_config_routes_get_and_post(monkeypatch, stock_routes)
         "buy_1": 10.1,
         "buy_2": 9.1,
         "buy_3": 8.1,
+        "buy_enabled": [True, False, True],
         "enabled": True,
         "updated_by": "pytest",
     }
@@ -175,6 +177,7 @@ def test_guardian_buy_grid_config_routes_get_and_post(monkeypatch, stock_routes)
             "buy_1": 10.1,
             "buy_2": 9.1,
             "buy_3": 8.1,
+            "buy_enabled": [True, False, True],
             "enabled": True,
             "updated_by": "pytest",
         },

@@ -16,6 +16,7 @@ class FakeRepository:
         self.snapshot_doc = None
         self.upserted_config = None
         self.snapshots = []
+        self.decision_docs = []
 
     def get_config(self):
         return self.config_doc
@@ -46,7 +47,7 @@ class FakeRepository:
         return document
 
     def list_recent_decisions(self, limit=10):
-        return []
+        return list(self.decision_docs[:limit])
 
 
 class SuccessfulCreditClient:
@@ -116,6 +117,21 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
         "total_debt": 530000.0,
         "source": "xtquant",
     }
+    repository.decision_docs = [
+        {
+            "strategy_name": "Guardian",
+            "action": "buy",
+            "symbol": "000001",
+            "state": HOLDING_ONLY,
+            "allowed": True,
+            "reason_code": "holding_buy_allowed",
+            "reason_text": "当前状态允许买入已持仓标的",
+            "evaluated_at": "2026-03-07T12:00:00+08:00",
+            "meta": {
+                "symbol_name": "平安银行",
+            },
+        }
+    ]
 
     service = PositionManagementDashboardService(
         repository=repository,
@@ -141,6 +157,7 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
     assert inventory["single_symbol_position_limit"]["value"] == 800000.0
     assert inventory["state_stale_after_seconds"]["editable"] is False
     assert inventory["xtquant.account_type"]["value"] == "CREDIT"
+    assert payload["recent_decisions"][0]["symbol_name"] == "平安银行"
 
 
 def test_update_config_persists_thresholds_that_snapshot_service_consumes():

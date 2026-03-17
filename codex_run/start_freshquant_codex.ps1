@@ -100,7 +100,6 @@ function Show-AppServerBanner {
     Write-Host 'Press Ctrl+C to stop the server from the keyboard.'
     Write-Host ''
 }
-
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $bootstrapScript = Join-Path $repoRoot 'runtime\memory\scripts\bootstrap_freshquant_memory.py'
 
@@ -119,7 +118,6 @@ try {
         Write-Host 'Running memory bootstrap before launching app-server.'
         Write-Host ''
     }
-
     $bootstrapArgs = @()
     if ($pythonLauncher.Prefix) {
         $bootstrapArgs += $pythonLauncher.Prefix

@@ -5,21 +5,38 @@
         <el-button type="primary" @click="goSetting">设置</el-button>
       </el-button-group>
       <el-button-group>
-        <el-button type="primary" @click="jumpToControl('futures')" size="small">
+        <el-button
+          type="primary"
+          @click="jumpToControl('futures')"
+          size="small"
+        >
           期货
         </el-button>
       </el-button-group>
       <el-button-group>
-        <el-button type="warning" @click="jumpToControl('klineSlim')" size="small">
+        <el-button
+          type="warning"
+          @click="jumpToControl('klineSlim')"
+          size="small"
+        >
           行情图表
         </el-button>
         <el-button type="success" @click="jumpToControl('orders')" size="small">
           订单管理
         </el-button>
-        <el-button type="success" @click="jumpToControl('positionManagement')" size="small">
+        <el-button
+          type="success"
+          @click="jumpToControl('positionManagement')"
+          size="small"
+        >
           仓位管理
         </el-button>
-        <el-button type="success" plain @click="jumpToControl('subjectManagement')" size="small">
+        <el-button
+          type="success"
+          plain
+          @click="jumpToControl('subjectManagement')"
+          size="small"
+        >
           标的管理
         </el-button>
         <el-button type="warning" plain @click="jumpToControl('tpsl')" size="small">
@@ -35,6 +52,14 @@
         </el-button>
         <el-button type="warning" @click="jumpToControl('shouban30')" size="small">
           首板选股
+        </el-button>
+        <el-button
+          type="danger"
+          plain
+          @click="jumpToControl('dailyScreening')"
+          size="small"
+        >
+          每日选股
         </el-button>
       </el-button-group>
       <el-button-group>
@@ -61,24 +86,24 @@ import { getHeaderNavTarget } from '@/router/pageMeta.mjs'
 export default {
   name: 'my-header',
   methods: {
-    jumpToControl (type) {
+    jumpToControl(type) {
       this.openNavTab(type)
     },
-    goSetting () {
+    goSetting() {
       this.openNavTab('systemSettings')
     },
-    openNavTab (type) {
+    openNavTab(type) {
       const target = getHeaderNavTarget(type)
       if (!target) return
 
       const routeUrl = this.$router.resolve({
         path: target.path,
-        query: target.query
+        query: target.query,
       })
 
       window.open(routeUrl.href, '_blank', 'noopener')
-    }
-  }
+    },
+  },
 }
 </script>
 
