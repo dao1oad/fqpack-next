@@ -115,6 +115,12 @@ def save_a_stock_pre_pools(
         query = {"code": code, "category": category}
         if remark:
             query["remark"] = remark
+        else:
+            query["$or"] = [
+                {"remark": {"$exists": False}},
+                {"remark": None},
+                {"remark": ""},
+            ]
 
         extra = {}
         existing_doc = DBfreshquant.stock_pre_pools.find_one(query)

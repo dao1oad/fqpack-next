@@ -67,6 +67,29 @@ def test_daily_screening_stream_route_returns_sse(monkeypatch):
     assert 'event: started' in response.get_data(as_text=True)
 
 
+def test_daily_screening_stream_route_uses_last_event_id_header(monkeypatch):
+    class FakeService:
+        def get_run(self, run_id):
+            assert run_id == "run-1"
+            return {"id": run_id, "status": "running", "event_count": 4}
+
+        def iter_sse(self, run_id, *, after=0, once=False):
+            assert run_id == "run-1"
+            assert after == 3
+            assert once is False
+            yield 'id: 4\nevent: progress\ndata: {"seq": 4}\n\n'
+
+    client = _make_client(monkeypatch, FakeService())
+    response = client.get(
+        "/api/daily-screening/runs/run-1/stream",
+        headers={"Last-Event-ID": "3"},
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/event-stream"
+    assert 'event: progress' in response.get_data(as_text=True)
+
+
 def test_daily_screening_pre_pools_routes_delegate_to_service(monkeypatch):
     captured = {}
 

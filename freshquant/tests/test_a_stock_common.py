@@ -13,9 +13,27 @@ class FakePrePoolCollection:
     def __init__(self) -> None:
         self.docs: list[dict] = []
 
+    def _match(self, doc: dict, query: dict) -> bool:
+        for key, value in query.items():
+            if key == "$or":
+                if not any(self._match(doc, item) for item in value):
+                    return False
+                continue
+
+            if isinstance(value, dict) and "$exists" in value:
+                exists = key in doc
+                if exists != value["$exists"]:
+                    return False
+                continue
+
+            if doc.get(key) != value:
+                return False
+
+        return True
+
     def find_one(self, query: dict) -> dict | None:
         for doc in self.docs:
-            if all(doc.get(key) == value for key, value in query.items()):
+            if self._match(doc, query):
                 return doc
         return None
 
@@ -123,4 +141,47 @@ def test_save_a_stock_pre_pools_keeps_rows_isolated_by_remark(monkeypatch):
     } == {
         ("000001", "chanlun_service", "daily-screening:clxs"),
         ("000001", "chanlun_service", "daily-screening:chanlun"),
+    }
+
+
+def test_save_a_stock_pre_pools_without_remark_does_not_overwrite_remark_rows(
+    monkeypatch,
+):
+    fake_db = FakeDB()
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+
+    a_stock_common.save_a_stock_pre_pools(
+        code="000001",
+        category="chanlun_service",
+        dt=pendulum.datetime(2026, 3, 17),
+        remark="daily-screening:clxs",
+        screening_run_id="run-clxs",
+    )
+    a_stock_common.save_a_stock_pre_pools(
+        code="000001",
+        category="chanlun_service",
+        dt=pendulum.datetime(2026, 3, 18),
+        screening_run_id="legacy-run",
+    )
+
+    assert len(fake_db.stock_pre_pools.docs) == 2
+    docs_by_remark = {
+        doc.get("remark"): {
+            "code": doc["code"],
+            "category": doc["category"],
+            "extra": doc["extra"],
+        }
+        for doc in fake_db.stock_pre_pools.docs
+    }
+    assert docs_by_remark == {
+        "daily-screening:clxs": {
+            "code": "000001",
+            "category": "chanlun_service",
+            "extra": {"screening_run_id": "run-clxs"},
+        },
+        None: {
+            "code": "000001",
+            "category": "chanlun_service",
+            "extra": {"screening_run_id": "legacy-run"},
+        },
     }

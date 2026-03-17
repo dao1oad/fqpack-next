@@ -27,6 +27,13 @@ def _as_bool(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _as_int(value, default: int = 0) -> int:
+    try:
+        return int(str(value or "").strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
 @daily_screening_bp.get("/schema")
 def get_schema():
     return jsonify(_get_daily_screening_service().get_schema())
@@ -55,7 +62,9 @@ def get_run(run_id: str):
 @daily_screening_bp.get("/runs/<run_id>/stream")
 def stream_run(run_id: str):
     service = _get_daily_screening_service()
-    after = int(request.args.get("after", "0") or 0)
+    after = _as_int(request.args.get("after"))
+    if after <= 0:
+        after = _as_int(request.headers.get("Last-Event-ID"))
     once = _as_bool(request.args.get("once"))
 
     try:
