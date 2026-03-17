@@ -152,6 +152,16 @@ def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     assert "github.event.workflow_run.head_sha" in text
 
 
+def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
+    text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
+
+    assert "Validate main tip freshness" in text
+    assert "git fetch origin main --no-tags --prune" in text
+    assert "git rev-parse FETCH_HEAD" in text
+    assert "github.event.workflow_run.head_sha" in text
+    assert "stale main deploy trigger" in text
+
+
 def test_current_docs_cover_automatic_production_deploy_state() -> None:
     deployment_text = Path("docs/current/deployment.md").read_text(encoding="utf-8")
     runtime_text = Path("docs/current/runtime.md").read_text(encoding="utf-8")
@@ -159,5 +169,6 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert "deploy-production.yml" in deployment_text
     assert "production-state.json" in deployment_text
     assert "上一次成功部署" in deployment_text
+    assert "当前 main tip" in deployment_text
     assert "deploy-production.yml" in runtime_text
     assert "formal-deploy" in runtime_text

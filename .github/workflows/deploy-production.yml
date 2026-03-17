@@ -28,6 +28,16 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
+      - name: Validate main tip freshness
+        shell: powershell
+        run: |
+          git fetch origin main --no-tags --prune
+          $currentMain = (git rev-parse FETCH_HEAD).Trim()
+          $targetSha = "${{ github.event.workflow_run.head_sha }}"
+          if ($currentMain -ne $targetSha) {
+            throw "stale main deploy trigger: workflow_run.head_sha=$targetSha current_main=$currentMain"
+          }
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
