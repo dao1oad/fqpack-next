@@ -70,7 +70,7 @@
               <el-radio-button
                 v-for="model in models"
                 :key="model.id"
-                :label="model.id"
+                :value="model.id"
               >
                 {{ model.label || model.id }}
               </el-radio-button>
@@ -215,21 +215,21 @@
 
             <div class="daily-filter-bar">
               <el-radio-group v-model="resultBranchFilter" size="small">
-                <el-radio-button label="all">全部分支</el-radio-button>
+                <el-radio-button value="all">全部分支</el-radio-button>
                 <el-radio-button
                   v-for="item in filterOptions.branches"
                   :key="item.key"
-                  :label="item.key"
+                  :value="item.key"
                 >
                   {{ item.label }} · {{ item.count }}
                 </el-radio-button>
               </el-radio-group>
               <el-radio-group v-model="resultModelFilter" size="small">
-                <el-radio-button label="all">全部模型</el-radio-button>
+                <el-radio-button value="all">全部模型</el-radio-button>
                 <el-radio-button
                   v-for="item in filterOptions.models"
                   :key="item.key"
-                  :label="item.key"
+                  :value="item.key"
                 >
                   {{ item.label }} · {{ item.count }}
                 </el-radio-button>
@@ -269,8 +269,8 @@
               </div>
               <div class="workbench-panel__meta">
                 <el-radio-group v-model="prePoolScope" size="small" @change="refreshPrePools">
-                  <el-radio-button label="run" :disabled="!activeRunId">本次 run</el-radio-button>
-                  <el-radio-button label="source">当前来源</el-radio-button>
+                  <el-radio-button value="run" :disabled="!activeRunId">本次 run</el-radio-button>
+                  <el-radio-button value="source">当前来源</el-radio-button>
                 </el-radio-group>
               </div>
             </div>
