@@ -1,0 +1,61 @@
+name: Deploy Production
+
+on:
+  workflow_run:
+    workflows: ["Docker Images"]
+    types: [completed]
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main'
+      }}
+    runs-on: [self-hosted, windows, production]
+    steps:
+      - name: Checkout target revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Validate main tip freshness
+        shell: powershell
+        run: |
+          git fetch origin main --no-tags --prune
+          $currentMain = (git rev-parse FETCH_HEAD).Trim()
+          $targetSha = "${{ github.event.workflow_run.head_sha }}"
+          if ($currentMain -ne $targetSha) {
+            throw "stale main deploy trigger: workflow_run.head_sha=$targetSha current_main=$currentMain"
+          }
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        shell: powershell
+        run: python -m pip install --upgrade pip uv
+
+      - name: Sync locked environment
+        shell: powershell
+        run: uv sync --frozen
+
+      - name: Run formal production deploy
+        shell: powershell
+        run: >
+          py -3.12 script/ci/run_formal_deploy.py
+          --repo-root .
+          --head-sha "${{ github.event.workflow_run.head_sha }}"
+          --run-url "${{ github.event.workflow_run.html_url }}"
+          --format summary
