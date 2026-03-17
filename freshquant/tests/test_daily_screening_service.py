@@ -159,20 +159,21 @@ def test_daily_screening_service_runs_clxs_and_persists_results_with_remark(
     events = service.session_store.get_events(run["id"])
 
     assert run["status"] == "completed"
+    assert run["stage_summaries"]["clxs"]["status"] == "completed"
+    assert run["stage_summaries"]["clxs"]["accepted_count"] == 1
     assert run["progress"]["accepted"] == 1
     assert run["progress"]["persisted"] == 1
     assert run["results"][0]["code"] == "000001"
     assert [event["event"] for event in events] == [
-        "started",
-        "phase_started",
-        "universe",
-        "progress",
-        "hit_raw",
-        "accepted",
-        "phase_completed",
-        "persisted",
-        "summary",
-        "completed",
+        "run_started",
+        "stage_started",
+        "stage_progress",
+        "stage_progress",
+        "stage_progress",
+        "stage_progress",
+        "stage_progress",
+        "stage_completed",
+        "run_completed",
     ]
     assert persisted == [
         {
@@ -202,6 +203,70 @@ def test_daily_screening_service_runs_clxs_and_persists_results_with_remark(
             },
         }
     ]
+
+
+def test_daily_screening_service_streams_stage_events(monkeypatch):
+    from freshquant.daily_screening.service import DailyScreeningService
+    from freshquant.daily_screening.session_store import DailyScreeningSessionStore
+
+    fake_db = FakeDB(stock_pre_pools=FakeCollection([]))
+    service = DailyScreeningService(
+        session_store=DailyScreeningSessionStore(),
+        db=fake_db,
+    )
+
+    monkeypatch.setattr(
+        "freshquant.daily_screening.service._save_database_outputs",
+        lambda results, config: None,
+    )
+
+    class FakeClxsStrategy:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def screen(self, **_kwargs):
+            self.kwargs["on_result_accepted"](
+                {
+                    "strategy": "clxs",
+                    "code": "000001",
+                    "name": "alpha",
+                    "symbol": "sz000001",
+                    "period": "1d",
+                    "fire_time": datetime(2026, 3, 17, 15, 0),
+                    "price": 10.5,
+                    "stop_loss_price": 9.8,
+                    "signal_type": "CLXS_10001",
+                    "position": "BUY_LONG",
+                    "remark": "",
+                    "category": "",
+                    "tags": [],
+                }
+            )
+            return []
+
+    monkeypatch.setattr(
+        service,
+        "_make_clxs_strategy",
+        lambda run_id, config: FakeClxsStrategy(
+            **service._make_strategy_hooks(run_id, config)
+        ),
+    )
+
+    snapshot = service.start_run(
+        {
+            "model": "clxs",
+            "days": 1,
+            "save_pre_pools": False,
+        },
+        run_async=False,
+    )
+
+    events = service.session_store.get_events(snapshot["id"])
+
+    assert events[0]["event"] == "run_started"
+    assert events[1]["event"] == "stage_started"
+    assert events[-2]["event"] == "stage_completed"
+    assert events[-1]["event"] == "run_completed"
 
 
 def test_daily_screening_service_passes_filtered_pre_pool_query_to_chanlun(

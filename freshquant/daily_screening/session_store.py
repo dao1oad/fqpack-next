@@ -16,8 +16,8 @@ class DailyScreeningSessionStore:
         self._sessions: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
 
-    def create_run(self, *, model: str, params: dict) -> str:
-        run_id = uuid.uuid4().hex[:12]
+    def create_run(self, *, model: str, params: dict, run_id: str | None = None) -> str:
+        run_id = str(run_id or uuid.uuid4().hex[:12])
         condition = threading.Condition()
         session: dict[str, Any] = {
             "id": run_id,
@@ -29,6 +29,7 @@ class DailyScreeningSessionStore:
             "completed_at": None,
             "error": None,
             "summary": {},
+            "stage_summaries": {},
             "progress": {
                 "processed": 0,
                 "total": 0,
@@ -112,6 +113,7 @@ class DailyScreeningSessionStore:
             "completed_at": session["completed_at"],
             "error": session["error"],
             "summary": copy.deepcopy(session["summary"]),
+            "stage_summaries": copy.deepcopy(session["stage_summaries"]),
             "progress": copy.deepcopy(session["progress"]),
             "results": copy.deepcopy(session["results"]),
             "event_count": int(session["event_count"]),
@@ -120,7 +122,74 @@ class DailyScreeningSessionStore:
     def _apply_event(self, session: dict, record: dict) -> None:
         event = record["event"]
         data = record["data"]
-        if event == "started":
+        if event == "run_started":
+            session["status"] = "running"
+            session["started_at"] = record["ts"]
+        elif event == "stage_started":
+            stage = str(data.get("stage") or "").strip()
+            if stage:
+                current = copy.deepcopy(session["stage_summaries"].get(stage) or {})
+                current.update(
+                    {
+                        "stage": stage,
+                        "label": data.get("label") or current.get("label") or stage,
+                        "status": "running",
+                        "started_at": data.get("started_at") or record["ts"],
+                    }
+                )
+                session["stage_summaries"][stage] = current
+        elif event == "stage_progress":
+            stage = str(data.get("stage") or "").strip()
+            if stage:
+                current = copy.deepcopy(session["stage_summaries"].get(stage) or {})
+                current.setdefault("stage", stage)
+                current.setdefault("label", data.get("label") or stage)
+                current.setdefault("status", "running")
+                session["stage_summaries"][stage] = current
+            kind = str(data.get("kind") or "").strip()
+            if kind == "universe":
+                total = int(data.get("total") or 0)
+                if total > 0:
+                    session["progress"]["total"] = total
+            elif kind == "stock_progress":
+                session["progress"]["processed"] = max(
+                    int(session["progress"]["processed"]),
+                    int(data.get("processed") or 0),
+                )
+                total = int(data.get("total") or 0)
+                if total > 0:
+                    session["progress"]["total"] = total
+            elif kind == "accepted":
+                delta = max(int(data.get("accepted_delta") or 1), 0)
+                session["progress"]["accepted"] += delta
+                session["results"].append(copy.deepcopy(data))
+            elif kind == "persisted":
+                delta = max(int(data.get("persisted_delta") or 1), 0)
+                session["progress"]["persisted"] += delta
+            elif kind == "error":
+                session["error"] = data.get("message") or data.get("error")
+        elif event == "stage_completed":
+            stage = str(data.get("stage") or "").strip()
+            if stage:
+                current = copy.deepcopy(session["stage_summaries"].get(stage) or {})
+                current.update(copy.deepcopy(data))
+                current.setdefault("stage", stage)
+                current["status"] = data.get("status") or "completed"
+                current["completed_at"] = data.get("completed_at") or record["ts"]
+                session["stage_summaries"][stage] = current
+        elif event == "run_completed":
+            session["status"] = data.get("status") or "completed"
+            session["completed_at"] = record["ts"]
+            session["summary"] = copy.deepcopy(data.get("summary") or {})
+            if data.get("stage_summaries"):
+                session["stage_summaries"] = copy.deepcopy(data["stage_summaries"])
+        elif event == "run_failed":
+            session["status"] = data.get("status") or "failed"
+            session["completed_at"] = record["ts"]
+            session["error"] = data.get("message") or data.get("error")
+            if data.get("stage_summaries"):
+                session["stage_summaries"] = copy.deepcopy(data["stage_summaries"])
+        elif event == "started":
             session["status"] = "running"
             session["started_at"] = record["ts"]
         elif event == "universe":

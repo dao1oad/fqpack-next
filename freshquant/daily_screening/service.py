@@ -8,6 +8,7 @@ from typing import Any
 
 import pendulum
 
+from freshquant.daily_screening.pipeline_service import DailyScreeningPipelineService
 from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 from freshquant.db import DBfreshquant
 from freshquant.screening.signal_types import CHANLUN_SIGNAL_TYPES
@@ -73,9 +74,11 @@ class DailyScreeningService:
         *,
         session_store: DailyScreeningSessionStore | None = None,
         db=None,
+        pipeline_service: DailyScreeningPipelineService | None = None,
     ) -> None:
         self.session_store = session_store or DailyScreeningSessionStore()
         self.db = db or DBfreshquant
+        self.pipeline_service = pipeline_service or DailyScreeningPipelineService()
 
     def get_schema(self) -> dict:
         categories = sorted(
@@ -100,7 +103,12 @@ class DailyScreeningService:
 
     def start_run(self, payload: dict | None, *, run_async: bool = True) -> dict:
         config = self._normalize_start_payload(payload or {})
-        run_id = self.session_store.create_run(model=config["model"], params=config)
+        run = self.pipeline_service.start_run(config, trigger_type="manual_api")
+        run_id = self.session_store.create_run(
+            run_id=run["id"],
+            model=config["model"],
+            params=config,
+        )
         if run_async:
             thread = threading.Thread(
                 target=self._execute_run,
@@ -226,40 +234,37 @@ class DailyScreeningService:
                 break
 
     def _execute_run(self, run_id: str, config: dict) -> None:
-        self.session_store.publish_event(
+        self.pipeline_service.execute_run(
             run_id,
-            "started",
-            {"strategy": config["model"], "params": self._jsonable(config)},
+            config,
+            execute_stage=lambda stage_name, stage_config: self._execute_stage(
+                run_id, stage_name, stage_config
+            ),
+            on_event=lambda event, payload: self.session_store.publish_event(
+                run_id,
+                event,
+                self._jsonable(payload),
+            ),
         )
-        try:
-            if config["model"] == "all":
-                results, persisted_count = asyncio.run(
-                    self._run_all_pipeline(run_id, config)
-                )
-            else:
-                results = asyncio.run(self._run_model(run_id, config))
-                _save_database_outputs(results, config)
-                persisted_count = self._persist_results(run_id, config, results)
-            self.session_store.publish_event(
-                run_id,
-                "summary",
-                {
-                    "strategy": config["model"],
-                    "accepted_count": len(results),
-                    "persisted_count": persisted_count,
-                },
-            )
-            self.session_store.publish_event(
-                run_id, "completed", {"status": "completed"}
-            )
-        except Exception as exc:
-            message = str(exc)
-            self.session_store.publish_event(run_id, "error", {"message": message})
-            self.session_store.publish_event(
-                run_id,
-                "completed",
-                {"status": "failed", "error": message},
-            )
+
+    def _execute_stage(
+        self,
+        run_id: str,
+        stage_name: str,
+        config: dict,
+    ) -> tuple[list[Any], int]:
+        stage_config = {**config, "_pipeline_stage": stage_name}
+        if (
+            stage_name == "chanlun"
+            and stage_config.get("_pipeline_parent_model") == "all"
+            and stage_config.get("input_mode") != "single_code"
+            and not stage_config.get("pre_pool_run_id")
+        ):
+            stage_config["pre_pool_run_id"] = run_id
+        results = asyncio.run(self._run_model(run_id, stage_config))
+        _save_database_outputs(results, stage_config)
+        persisted_count = self._persist_results(run_id, stage_config, results)
+        return results, persisted_count
 
     async def _run_model(self, run_id: str, config: dict) -> list[Any]:
         if config["model"] == "clxs":
@@ -346,31 +351,12 @@ class DailyScreeningService:
                 **config,
                 "model_opt": model_opt,
             }
-            self.session_store.publish_event(
-                run_id,
-                "phase_started",
-                {
-                    "branch": "clxs",
-                    "label": f"CLXS_{model_opt}",
-                    "model_opt": model_opt,
-                },
-            )
             strategy = self._make_clxs_strategy(run_id, step_config)
             step_results = await strategy.screen(
                 days=step_config["days"],
                 code=step_config["code"],
             )
             results.extend(step_results)
-            self.session_store.publish_event(
-                run_id,
-                "phase_completed",
-                {
-                    "branch": "clxs",
-                    "label": f"CLXS_{model_opt}",
-                    "model_opt": model_opt,
-                    "accepted_count": len(step_results),
-                },
-            )
         return results
 
     def _make_clxs_strategy(self, run_id: str, config: dict):
@@ -408,23 +394,63 @@ class DailyScreeningService:
         )
 
     def _make_strategy_hooks(self, run_id: str, config: dict) -> dict:
+        stage = str(config.get("_pipeline_stage") or config["model"]).strip()
         return {
             "on_universe": lambda payload: self.session_store.publish_event(
-                run_id, "universe", self._jsonable(self._with_context(config, payload))
+                run_id,
+                "stage_progress",
+                self._jsonable(
+                    {
+                        **self._with_context(config, payload),
+                        "stage": stage,
+                        "kind": "universe",
+                    }
+                ),
             ),
             "on_stock_progress": lambda payload: self.session_store.publish_event(
-                run_id, "progress", self._jsonable(self._with_context(config, payload))
+                run_id,
+                "stage_progress",
+                self._jsonable(
+                    {
+                        **self._with_context(config, payload),
+                        "stage": stage,
+                        "kind": "stock_progress",
+                    }
+                ),
             ),
             "on_hit_raw": lambda payload: self.session_store.publish_event(
-                run_id, "hit_raw", self._jsonable(self._with_context(config, payload))
+                run_id,
+                "stage_progress",
+                self._jsonable(
+                    {
+                        **self._with_context(config, payload),
+                        "stage": stage,
+                        "kind": "hit_raw",
+                    }
+                ),
             ),
             "on_result_accepted": lambda payload: self.session_store.publish_event(
                 run_id,
-                "accepted",
-                self._jsonable(self._with_context(config, payload)),
+                "stage_progress",
+                self._jsonable(
+                    {
+                        **self._with_context(config, payload),
+                        "stage": stage,
+                        "kind": "accepted",
+                        "accepted_delta": 1,
+                    }
+                ),
             ),
             "on_error": lambda payload: self.session_store.publish_event(
-                run_id, "error", self._jsonable(self._with_context(config, payload))
+                run_id,
+                "stage_progress",
+                self._jsonable(
+                    {
+                        **self._with_context(config, payload),
+                        "stage": stage,
+                        "kind": "error",
+                    }
+                ),
             ),
         }
 
@@ -432,6 +458,7 @@ class DailyScreeningService:
         if not config.get("save_pre_pools"):
             return 0
         persisted_count = 0
+        stage = str(config.get("_pipeline_stage") or config["model"]).strip()
         for result in results:
             category = self._resolve_output_category(config, result)
             model_meta = self._result_model_meta(config, result)
@@ -459,9 +486,12 @@ class DailyScreeningService:
             persisted_count += 1
             self.session_store.publish_event(
                 run_id,
-                "persisted",
+                "stage_progress",
                 self._jsonable(
                     {
+                        "stage": stage,
+                        "kind": "persisted",
+                        "persisted_delta": 1,
                         "code": result.code,
                         "branch": model_meta["branch"],
                         "model_key": model_meta["model_key"],
