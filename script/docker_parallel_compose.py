@@ -110,7 +110,13 @@ def compute_rewrite_result(
     current_revision = load_current_revision(repo_root)
     all_services, service_images = load_compose_service_images(compose_file)
     target_services = extract_target_services(compose_args, all_services)
-    images = sorted({service_images.get(service, "") for service in target_services if service_images.get(service)})
+    images = sorted(
+        {
+            service_images.get(service, "")
+            for service in target_services
+            if service_images.get(service)
+        }
+    )
     image_revisions = load_image_revisions(images)
     rewritten = rewrite_compose_args_for_cached_images(
         args=compose_args,
@@ -143,7 +149,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--compose-file",
         type=Path,
-        default=Path(__file__).resolve().parent.parent / "docker" / "compose.parallel.yaml",
+        default=Path(__file__).resolve().parent.parent
+        / "docker"
+        / "compose.parallel.yaml",
     )
     parser.add_argument("--compose-arg", action="append", default=[])
     return parser
