@@ -14,29 +14,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  resolve-publish-plan:
+    name: resolve-publish-plan
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.publish-plan.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve publish SHAs
+        id: publish-shas
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+            echo "base_sha=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "head_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve publish plan
+        id: publish-plan
+        shell: bash
+        run: |
+          if [ "${{ steps.publish-shas.outputs.bootstrap }}" = "true" ]; then
+            python script/ci/resolve_docker_image_publish_plan.py --repo-root . --head-sha "${{ steps.publish-shas.outputs.head_sha }}" --bootstrap > publish-plan.json
+          else
+            python script/ci/resolve_docker_image_publish_plan.py --repo-root . --base-sha "${{ steps.publish-shas.outputs.base_sha }}" --head-sha "${{ steps.publish-shas.outputs.head_sha }}" > publish-plan.json
+          fi
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path("publish-plan.json").read_text(encoding="utf-8"))
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as handle:
+              handle.write(f"matrix={json.dumps(payload['matrix'])}\n")
+          PY
+
   publish:
     name: publish-${{ matrix.name }}
     runs-on: ubuntu-latest
+    needs: resolve-publish-plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: rear
-            image_name: fqnext-rear
-            context: .
-            dockerfile: ./docker/Dockerfile.rear
-          - name: webui
-            image_name: fqnext-webui
-            context: ./morningglory/fqwebui
-            dockerfile: ./docker/Dockerfile.web
-          - name: ta-backend
-            image_name: fqnext-ta-backend
-            context: ./third_party/tradingagents-cn
-            dockerfile: ./third_party/tradingagents-cn/Dockerfile.backend
-          - name: ta-frontend
-            image_name: fqnext-ta-frontend
-            context: ./third_party/tradingagents-cn
-            dockerfile: ./third_party/tradingagents-cn/Dockerfile.frontend
+      matrix: ${{ fromJson(needs.resolve-publish-plan.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,6 +87,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push image
+        if: ${{ matrix.action == 'build' }}
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -68,3 +100,13 @@ jobs:
             ghcr.io/${{ env.IMAGE_OWNER }}/${{ matrix.image_name }}:main
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Retag unchanged image
+        if: ${{ matrix.action == 'retag' }}
+        shell: bash
+        run: |
+          source_image="ghcr.io/${{ env.IMAGE_OWNER }}/${{ matrix.image_name }}:main"
+          sha_image="ghcr.io/${{ env.IMAGE_OWNER }}/${{ matrix.image_name }}:${{ github.sha }}"
+
+          docker buildx imagetools inspect "$source_image" > /dev/null
+          docker buildx imagetools create -t "$sha_image" -t "$source_image" "$source_image"
