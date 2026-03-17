@@ -81,8 +81,6 @@ class DailyScreeningRepository:
         **document,
     ):
         raw_items = list(memberships or [])
-        if not raw_items:
-            return []
         effective_run_id = self._first_non_empty(
             run_id, *(self._primary_value(item, "run_id") for item in raw_items)
         )
@@ -93,26 +91,28 @@ class DailyScreeningRepository:
             raise ValueError("run_id required")
         if effective_stage is None:
             raise ValueError("stage required")
+        effective_scope = self._resolve_single_scope(
+            scope, raw_items, field_name="scope"
+        )
+        query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
+        query["stage"] = effective_stage
+        self._delete_many(self.memberships, query)
+        if not raw_items:
+            return []
         payloads = [
             self._normalize_membership(
                 item,
                 run_id=effective_run_id,
                 stage=effective_stage,
-                scope=scope,
+                scope=effective_scope,
             )
             for item in raw_items
         ]
-        if any(self._primary_value(payload, "code", "symbol") is None for payload in payloads):
+        if any(
+            self._primary_value(payload, "code", "symbol") is None
+            for payload in payloads
+        ):
             raise ValueError("code required")
-        effective_run_id = self._first_non_empty(
-            effective_run_id, *(payload.get("run_id") for payload in payloads)
-        )
-        effective_scope = self._first_non_empty(
-            scope, *(payload.get("scope") for payload in payloads)
-        )
-        query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
-        query["stage"] = effective_stage
-        self._delete_many(self.memberships, query)
         if payloads:
             self._insert_many(self.memberships, payloads)
         return payloads
@@ -125,25 +125,27 @@ class DailyScreeningRepository:
         **document,
     ):
         raw_items = list(snapshots or [])
-        if not raw_items:
-            return []
         effective_run_id = self._first_non_empty(
             run_id, *(self._primary_value(item, "run_id") for item in raw_items)
         )
-        if effective_run_id is None:
+        if effective_run_id is None and raw_items:
             raise ValueError("run_id required")
+        effective_scope = self._resolve_single_scope(
+            scope, raw_items, field_name="scope"
+        )
+        if not raw_items:
+            return []
         payloads = [
-            self._normalize_snapshot(item, run_id=effective_run_id, scope=scope)
+            self._normalize_snapshot(
+                item, run_id=effective_run_id, scope=effective_scope
+            )
             for item in raw_items
         ]
-        if any(self._primary_value(payload, "code", "symbol") is None for payload in payloads):
+        if any(
+            self._primary_value(payload, "code", "symbol") is None
+            for payload in payloads
+        ):
             raise ValueError("code required")
-        effective_run_id = self._first_non_empty(
-            effective_run_id, *(payload.get("run_id") for payload in payloads)
-        )
-        effective_scope = self._first_non_empty(
-            scope, *(payload.get("scope") for payload in payloads)
-        )
         for payload in payloads:
             query = self._snapshot_query(
                 payload,
@@ -234,6 +236,26 @@ class DailyScreeningRepository:
             if candidate is not None and str(candidate).strip() != "":
                 return candidate
         return None
+
+    def _resolve_single_scope(
+        self,
+        explicit_scope,
+        items: list[dict[str, Any]],
+        *,
+        field_name: str,
+    ):
+        scopes = []
+        explicit = self._first_non_empty(explicit_scope)
+        if explicit is not None:
+            scopes.append(str(explicit).strip())
+        for item in items:
+            value = self._first_non_empty(self._primary_value(item, field_name))
+            if value is not None:
+                scopes.append(str(value).strip())
+        normalized = {value for value in scopes if value}
+        if len(normalized) > 1:
+            raise ValueError(f"{field_name} must be consistent within one call")
+        return next(iter(normalized), None)
 
     def _scope_query(self, *, run_id=None, scope=None) -> dict[str, Any]:
         query: dict[str, Any] = {}

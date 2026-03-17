@@ -365,6 +365,68 @@ def test_repository_summary_keeps_run_id_empty_when_only_scope_is_provided():
     assert summary["scope"] == "scope-a"
 
 
+def test_repository_empty_membership_list_clears_target_stage():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_runs=SimpleCollection("daily_screening_runs"),
+        daily_screening_memberships=SimpleCollection(
+            "daily_screening_memberships",
+            docs=[
+                {"run_id": "run-1", "stage": "clxs", "scope": "scope-a", "code": "000001"},
+                {"run_id": "run-1", "stage": "clxs", "scope": "scope-b", "code": "000002"},
+                {"run_id": "run-1", "stage": "chanlun", "scope": "scope-a", "code": "000003"},
+            ],
+        ),
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots"
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.replace_stage_memberships(
+        run_id="run-1",
+        stage="clxs",
+        memberships=[],
+    )
+
+    assert [
+        (row["stage"], row["scope"], row["code"])
+        for row in fake_db["daily_screening_memberships"].docs
+    ] == [("chanlun", "scope-a", "000003")]
+
+
+def test_repository_rejects_mixed_scope_memberships():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    repo = DailyScreeningRepository(db=FakeDB())
+
+    with pytest.raises(ValueError):
+        repo.replace_stage_memberships(
+            run_id="run-1",
+            stage="clxs",
+            memberships=[
+                {"code": "000001", "scope": "scope-a"},
+                {"code": "000002", "scope": "scope-b"},
+            ],
+        )
+
+
+def test_repository_rejects_mixed_scope_snapshots():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    repo = DailyScreeningRepository(db=FakeDB())
+
+    with pytest.raises(ValueError):
+        repo.upsert_stock_snapshots(
+            run_id="run-1",
+            snapshots=[
+                {"code": "000001", "scope": "scope-a"},
+                {"code": "000002", "scope": "scope-b"},
+            ],
+        )
+
+
 def test_repository_round_trips_run_scope_documents():
     from freshquant.daily_screening.repository import DailyScreeningRepository
 
