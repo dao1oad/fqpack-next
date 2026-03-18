@@ -173,7 +173,9 @@ class DailyScreeningService:
                     "is_latest": not latest_marked,
                     "scope_kind": "trade_date",
                     "trade_date": trade_date,
-                    "source_run_id": str(run.get("run_id") or run.get("id") or "").strip(),
+                    "source_run_id": str(
+                        run.get("run_id") or run.get("id") or ""
+                    ).strip(),
                 }
             )
             latest_marked = True
@@ -997,7 +999,9 @@ class DailyScreeningService:
             scope=scope,
             memberships=memberships,
         )
-        all_memberships = get_stock_detail_memberships(run_id=target_run_id, scope=scope)
+        all_memberships = get_stock_detail_memberships(
+            run_id=target_run_id, scope=scope
+        )
         snapshots = self._build_run_scope_snapshots(
             run_id=target_run_id,
             scope=scope,
@@ -1754,11 +1758,15 @@ class DailyScreeningService:
         }
 
     def _load_hot_reasons(self, code6: str) -> list[dict]:
-        query_func: Callable[..., Any] | None = globals().get("query_stock_hot_reason_rows")
+        query_func: Callable[..., Any] | None = globals().get(
+            "query_stock_hot_reason_rows"
+        )
         if query_func is None or not callable(query_func):
             from freshquant.data.gantt_readmodel import (
-                query_stock_hot_reason_rows as query_func,
+                query_stock_hot_reason_rows as imported_query_stock_hot_reason_rows,
             )
+
+            query_func = imported_query_stock_hot_reason_rows
 
         try:
             rows = query_func(code6=code6, provider="all", limit=0)
@@ -1827,7 +1835,10 @@ class DailyScreeningService:
             "screening_signal_type": str(membership.get("signal_type") or "").strip(),
             "screening_signal_name": str(membership.get("signal_name") or "").strip(),
             "screening_period": str(membership.get("period") or "").strip(),
-            "screening_params": {"run_id": effective_run_id, "scope_id": scope_ref["scope_id"]},
+            "screening_params": {
+                "run_id": effective_run_id,
+                "scope_id": scope_ref["scope_id"],
+            },
         }
 
     def _with_context(self, config: dict, payload: dict) -> dict:

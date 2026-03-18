@@ -1561,6 +1561,57 @@ def test_daily_screening_service_persists_run_scope_read_model_for_all_pipeline(
     assert snapshots[0]["shouban30_providers"] == ["jygs", "xgb"]
 
 
+def test_daily_screening_service_materializes_trade_date_scope_for_dagster_runs():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+
+    service._persist_run_scope_read_model(
+        "run-dagster-1",
+        "clxs",
+        {
+            "model": "clxs",
+            "model_opt": 10001,
+            "trade_date": "2026-03-18",
+            "_trigger_type": "dagster_schedule",
+            "remark": "",
+        },
+        [
+            SimpleNamespace(
+                code="000001",
+                name="alpha",
+                symbol="sz000001",
+                period="1d",
+                fire_time=datetime(2026, 3, 18, 15, 0),
+                price=10.5,
+                stop_loss_price=9.8,
+                signal_type="CLXS_10001",
+                position="BUY_LONG",
+                remark="",
+                category="",
+            )
+        ],
+    )
+
+    official_scope = "trade_date:2026-03-18"
+    summary = repository.query_scope_summary(
+        run_id=official_scope,
+        scope=official_scope,
+    )
+    memberships = repository.get_stock_detail_memberships(
+        run_id=official_scope,
+        scope=official_scope,
+        code="000001",
+    )
+    snapshots = repository.query_scope_stocks(
+        run_id=official_scope,
+        scope=official_scope,
+    )
+
+    assert summary["stage_counts"] == {"clxs": 1}
+    assert memberships[0]["origin_run_id"] == "run-dagster-1"
+    assert snapshots[0]["origin_run_id"] == "run-dagster-1"
+    assert snapshots[0]["clxs_models"] == ["CLXS_10001"]
+
+
 def _seed_run_scope_snapshot_fixture(
     repository,
     *,
@@ -1813,7 +1864,11 @@ def test_daily_screening_service_get_scopes_and_latest_scope_from_repository_run
     assert scopes["items"][0]["scope"] == "trade_date:2026-03-18"
     assert scopes["items"][0]["is_latest"] is True
     assert scopes["items"][0]["scope_kind"] == "trade_date"
-    assert [item["run_id"] for item in scopes["items"][2:]] == ["run-2", "run-3", "run-1"]
+    assert [item["run_id"] for item in scopes["items"][2:]] == [
+        "run-2",
+        "run-3",
+        "run-1",
+    ]
     assert latest["run_id"] == "trade_date:2026-03-18"
     assert latest["scope"] == "trade_date:2026-03-18"
     assert latest["label"] == "正式 2026-03-18"
@@ -1905,6 +1960,41 @@ def test_daily_screening_service_get_stock_detail_returns_snapshot_and_membershi
         "near_long_term_ma",
     }
     assert detail["hot_reasons"] == hot_reason_rows
+
+
+def test_daily_screening_service_supports_trade_date_scope_detail_and_pre_pool():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    _seed_run_scope_snapshot_fixture(
+        repository,
+        run_id="trade_date:2026-03-18",
+        scope="trade_date:2026-03-18",
+        origin_run_id="run-dagster-1",
+    )
+    persisted = []
+
+    import freshquant.daily_screening.service as service_module
+
+    original_save_pre_pool = service_module._save_pre_pool
+    service_module._save_pre_pool = lambda **kwargs: persisted.append(kwargs)
+    try:
+        detail = service.get_stock_detail("trade_date:2026-03-18", "000001")
+        payload = service.add_to_pre_pool(
+            {"run_id": "trade_date:2026-03-18", "code": "000001"}
+        )
+    finally:
+        service_module._save_pre_pool = original_save_pre_pool
+
+    assert detail["run_id"] == "trade_date:2026-03-18"
+    assert detail["scope"] == "trade_date:2026-03-18"
+    assert detail["snapshot"]["origin_run_id"] == "run-dagster-1"
+    assert payload == {
+        "code": "000001",
+        "category": "CLXS_10001",
+        "remark": "daily-screening:clxs",
+    }
+    assert persisted[0]["screening_run_id"] == "run-dagster-1"
+    assert persisted[0]["screening_source_scope"] == "trade_date:2026-03-18"
+    assert persisted[0]["screening_input_mode"] == "trade_date_scope"
 
 
 def test_daily_screening_service_add_to_pre_pool_uses_scope_snapshot_and_memberships():
