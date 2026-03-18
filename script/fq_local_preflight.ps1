@@ -157,8 +157,30 @@ function Test-ValidPreflightRecord {
     return (
         $payload.governance.status -eq "passed" -and
         $payload.pre_commit.status -eq "passed" -and
-        $payload.pytest.status -eq "passed"
+        $payload.pytest.status -eq "passed" -and
+        @("passed", "skipped") -contains [string]$payload.review_threads.status
     )
+}
+
+function Invoke-ReviewThreadsCheck {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][hashtable]$PythonLauncher
+    )
+
+    $checkReviewThreadsScript = Join-Path $RepoRoot "script\ci\check_pr_review_threads.py"
+    $reviewThreadsRaw = & $PythonLauncher.Path @(
+        $PythonLauncher.Prefix + @(
+            $checkReviewThreadsScript,
+            "--repo-root",
+            $RepoRoot
+        )
+    )
+    $reviewThreadsExitCode = $LASTEXITCODE
+    return @{
+        ExitCode = $reviewThreadsExitCode
+        Payload = (($reviewThreadsRaw -join "`n") | ConvertFrom-Json)
+    }
 }
 
 function Invoke-ExternalCommand {
@@ -176,8 +198,6 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoRoot)) {
     throw "fq_local_preflight.ps1 must run inside a git repository."
 }
 $repoRoot = $repoRoot.Trim()
-$pythonLauncher = Resolve-PythonLauncher -RepoRoot $repoRoot
-$uvPath = Resolve-UvPath
 $absoluteGitDir = (& git -C $repoRoot rev-parse --absolute-git-dir 2>$null)
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($absoluteGitDir)) {
     throw "Unable to resolve absolute git dir."
@@ -185,26 +205,50 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($absoluteGitDir)) {
 $recordRoot = Join-Path $absoluteGitDir.Trim() "fq-preflight"
 $resolvedBaseRef = Resolve-BaseRef -RepoRoot $repoRoot
 
-if (-not $SkipFetch) {
+if ($Mode -ne "Check" -and -not $SkipFetch) {
     Fetch-BaseRef -RepoRoot $repoRoot -ResolvedBaseRef $resolvedBaseRef
 }
 
 $headSha = Get-GitSha -RepoRoot $repoRoot -RefName "HEAD"
 $baseSha = Get-GitSha -RepoRoot $repoRoot -RefName $resolvedBaseRef
 $recordPath = Join-Path $recordRoot "$headSha.json"
+$pythonLauncher = Resolve-PythonLauncher -RepoRoot $repoRoot
 
 if ($Mode -eq "Check") {
     if (Test-ValidPreflightRecord -RecordPath $recordPath -HeadSha $headSha -BaseSha $baseSha) {
+        $reviewThreadsResult = Invoke-ReviewThreadsCheck -RepoRoot $repoRoot -PythonLauncher $pythonLauncher
+        if ($reviewThreadsResult.ExitCode -ne 0) {
+            exit 1
+        }
+        if ([string]$reviewThreadsResult.Payload.status -eq "failed") {
+            exit 1
+        }
         exit 0
     }
     exit 1
 }
 
 if ($Mode -eq "Ensure" -and (Test-ValidPreflightRecord -RecordPath $recordPath -HeadSha $headSha -BaseSha $baseSha)) {
+    $reviewThreadsResult = Invoke-ReviewThreadsCheck -RepoRoot $repoRoot -PythonLauncher $pythonLauncher
+    if ($reviewThreadsResult.ExitCode -ne 0) {
+        exit $reviewThreadsResult.ExitCode
+    }
+    if ([string]$reviewThreadsResult.Payload.status -eq "failed") {
+        exit 2
+    }
+    $reviewThreadPayload = $reviewThreadsResult.Payload
+    $cachedPayload = Get-Content -Raw $recordPath | ConvertFrom-Json
+    $cachedPayload.review_threads = [ordered]@{
+        status = [string]$reviewThreadPayload.status
+        unresolved_count = if ($null -ne $reviewThreadPayload.unresolved_threads) { [int]$reviewThreadPayload.unresolved_threads } else { 0 }
+        pr_number = if ($null -ne $reviewThreadPayload.pr_number -and -not [string]::IsNullOrWhiteSpace([string]$reviewThreadPayload.pr_number)) { [int]$reviewThreadPayload.pr_number } else { $null }
+    }
+    Write-Utf8NoBomFile -Path $recordPath -Content ($cachedPayload | ConvertTo-Json -Depth 4)
     Write-Host "[freshquant] local preflight cache hit for $headSha against $resolvedBaseRef"
     exit 0
 }
 
+$uvPath = Resolve-UvPath
 $checkCurrentDocsScript = Join-Path $repoRoot "script\ci\check_current_docs.py"
 $governanceExitCode = Invoke-ExternalCommand -FilePath $pythonLauncher.Path -Arguments @(
     $pythonLauncher.Prefix + @(
@@ -249,6 +293,21 @@ if ($pytestExitCode -ne 0) {
     exit $pytestExitCode
 }
 
+$reviewThreadsResult = Invoke-ReviewThreadsCheck -RepoRoot $repoRoot -PythonLauncher $pythonLauncher
+if ($reviewThreadsResult.ExitCode -ne 0) {
+    exit $reviewThreadsResult.ExitCode
+}
+$reviewThreads = $reviewThreadsResult.Payload
+$reviewThreadStatus = [string]$reviewThreads.status
+$reviewThreadUnresolvedCount = 0
+if ($null -ne $reviewThreads.unresolved_threads) {
+    $reviewThreadUnresolvedCount = [int]$reviewThreads.unresolved_threads
+}
+$reviewThreadPrNumber = $null
+if ($null -ne $reviewThreads.pr_number -and -not [string]::IsNullOrWhiteSpace([string]$reviewThreads.pr_number)) {
+    $reviewThreadPrNumber = [int]$reviewThreads.pr_number
+}
+
 $payload = [ordered]@{
     head_sha = $headSha
     base_ref = $resolvedBaseRef
@@ -257,6 +316,11 @@ $payload = [ordered]@{
     governance = [ordered]@{ status = "passed" }
     pre_commit = [ordered]@{ status = "passed" }
     pytest = [ordered]@{ status = "passed" }
+    review_threads = [ordered]@{
+        status = $reviewThreadStatus
+        unresolved_count = $reviewThreadUnresolvedCount
+        pr_number = $reviewThreadPrNumber
+    }
 }
 
 Write-Utf8NoBomFile -Path $recordPath -Content ($payload | ConvertTo-Json -Depth 4)

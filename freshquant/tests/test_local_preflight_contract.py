@@ -22,10 +22,12 @@ def test_local_preflight_script_contains_preflight_contract() -> None:
 
     assert "check_current_docs.py" in text
     assert "pre-commit" in text
+    assert "check_pr_review_threads.py" in text
     assert '"pytest"' in text
     assert '"freshquant/tests"' in text
     assert '"loadfile"' in text
     assert "remote.pushDefault" in text
+    assert "Invoke-ReviewThreadsCheck" in text
     assert "head_sha" in text
     assert "base_sha" in text
     assert "fq-preflight" in text
@@ -46,3 +48,9 @@ def test_open_pr_script_requires_preflight_before_gh_pr_create() -> None:
     assert "pr" in text
     assert "create" in text
     assert "fq_local_preflight.ps1" in text
+
+
+def test_review_thread_check_script_exists() -> None:
+    script = REPO_ROOT / "script" / "ci" / "check_pr_review_threads.py"
+
+    assert script.exists()

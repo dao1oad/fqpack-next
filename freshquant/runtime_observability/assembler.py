@@ -30,7 +30,9 @@ _SYMBOL_NAME_FIELDS = (
 )
 
 
-def assemble_traces(events: list[dict] | tuple[dict, ...]) -> list[dict]:
+def assemble_traces(
+    events: list[dict] | tuple[dict, ...], *, include_symbol_name: bool = False
+) -> list[dict]:
     normalized_events = [
         dict(event)
         for event in (events or [])
@@ -54,14 +56,17 @@ def assemble_traces(events: list[dict] | tuple[dict, ...]) -> list[dict]:
         root = disjoint.find(index)
         grouped.setdefault(root, []).append(event)
 
-    traces = [_build_trace(records) for records in grouped.values()]
+    traces = [
+        _build_trace(records, include_symbol_name=include_symbol_name)
+        for records in grouped.values()
+    ]
     traces.sort(
         key=lambda item: _sort_timestamp_value(item.get("last_ts")), reverse=True
     )
     return traces
 
 
-def _build_trace(events: list[dict]) -> dict:
+def _build_trace(events: list[dict], *, include_symbol_name: bool) -> dict:
     sorted_steps = sorted(events, key=_sort_timestamp)
     trace_ids = _collect_field_values(sorted_steps, "trace_id")
     intent_ids = _collect_field_values(sorted_steps, "intent_id")
@@ -81,7 +86,11 @@ def _build_trace(events: list[dict]) -> dict:
     entry_step = timed_steps[0] if timed_steps else {}
     exit_step = timed_steps[-1] if timed_steps else {}
     symbol = _find_trace_symbol(timed_steps)
-    symbol_name = _find_trace_symbol_name(timed_steps, symbol=symbol)
+    symbol_name = _find_trace_symbol_name(
+        timed_steps,
+        symbol=symbol,
+        include_lookup=include_symbol_name,
+    )
 
     return {
         "trace_key": trace_key,
@@ -340,7 +349,9 @@ def _find_trace_symbol(steps: list[dict]) -> str | None:
     return None
 
 
-def _find_trace_symbol_name(steps: list[dict], *, symbol: str | None) -> str | None:
+def _find_trace_symbol_name(
+    steps: list[dict], *, symbol: str | None, include_lookup: bool
+) -> str | None:
     for step in steps:
         for field in _SYMBOL_NAME_FIELDS:
             value = _normalized_text(step.get(field))
@@ -351,7 +362,7 @@ def _find_trace_symbol_name(steps: list[dict], *, symbol: str | None) -> str | N
             value = _normalized_text(signal_summary.get("name"))
             if value:
                 return value
-    if symbol:
+    if include_lookup and symbol:
         return _lookup_symbol_name(symbol)
     return None
 

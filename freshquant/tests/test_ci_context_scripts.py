@@ -101,6 +101,39 @@ def test_select_pytest_shard_is_deterministic_and_disjoint() -> None:
     assert set(shard_0 + shard_1 + shard_2) == set(test_files)
 
 
+def test_select_pytest_shard_balances_using_duration_weights() -> None:
+    module = _load_module(SELECT_SHARD_SCRIPT, "select_pytest_shard")
+
+    test_files = [
+        "freshquant/tests/test_a.py",
+        "freshquant/tests/test_b.py",
+        "freshquant/tests/test_c.py",
+        "freshquant/tests/test_d.py",
+    ]
+    durations = {
+        "freshquant/tests/test_a.py": 10.0,
+        "freshquant/tests/test_b.py": 9.0,
+        "freshquant/tests/test_c.py": 2.0,
+        "freshquant/tests/test_d.py": 1.0,
+    }
+
+    shard_0 = module.select_shard(
+        test_files,
+        shard_index=0,
+        shard_count=2,
+        durations=durations,
+    )
+    shard_1 = module.select_shard(
+        test_files,
+        shard_index=1,
+        shard_count=2,
+        durations=durations,
+    )
+
+    assert shard_0 == ["freshquant/tests/test_a.py", "freshquant/tests/test_d.py"]
+    assert shard_1 == ["freshquant/tests/test_b.py", "freshquant/tests/test_c.py"]
+
+
 def test_select_pytest_shard_lists_recursive_tests(tmp_path: Path) -> None:
     module = _load_module(SELECT_SHARD_SCRIPT, "select_pytest_shard")
     nested = tmp_path / "assets"
@@ -147,3 +180,56 @@ def test_select_pytest_shard_cli_outputs_json(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert "selected" in payload
+
+
+def test_select_pytest_shard_cli_accepts_duration_json(tmp_path: Path) -> None:
+    test_list_path = tmp_path / "tests.json"
+    durations_path = tmp_path / "durations.json"
+    test_list_path.write_text(
+        json.dumps(
+            [
+                "freshquant/tests/test_a.py",
+                "freshquant/tests/test_b.py",
+                "freshquant/tests/test_c.py",
+                "freshquant/tests/test_d.py",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    durations_path.write_text(
+        json.dumps(
+            {
+                "freshquant/tests/test_a.py": 10.0,
+                "freshquant/tests/test_b.py": 9.0,
+                "freshquant/tests/test_c.py": 2.0,
+                "freshquant/tests/test_d.py": 1.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            str(PYTHON),
+            str(SELECT_SHARD_SCRIPT),
+            "--test-list-json",
+            str(test_list_path),
+            "--durations-json",
+            str(durations_path),
+            "--shard-index",
+            "1",
+            "--shard-count",
+            "2",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["selected"] == [
+        "freshquant/tests/test_b.py",
+        "freshquant/tests/test_c.py",
+    ]

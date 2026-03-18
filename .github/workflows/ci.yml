@@ -145,7 +145,7 @@ jobs:
 
       - name: Select pytest shard
         id: shard
-        run: python script/ci/select_pytest_shard.py --shard-index ${{ matrix.shard }} --shard-count 3 --github-output "$GITHUB_OUTPUT"
+        run: python script/ci/select_pytest_shard.py --durations-json script/ci/pytest_file_durations.json --shard-index ${{ matrix.shard }} --shard-count 3 --github-output "$GITHUB_OUTPUT"
 
       - name: Run pytest shard (unit tests only, xdist loadfile)
         if: steps.shard.outputs.selected_count != '0'

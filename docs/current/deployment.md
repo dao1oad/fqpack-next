@@ -24,6 +24,7 @@
 - 正式收口前先用 `py -3.12 script/freshquant_deploy_plan.py` 生成部署计划；不要在会话内临场重新推理 Docker / 宿主机边界。
 - 正式执行部署时，优先通过 `powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1` 消费共享部署计划；不要把 Docker 与宿主机动作拆成临时命令。
 - 提交前应先执行 `powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ensure`，并保持 `.githooks/pre-push` 已安装，避免把明显失败留到 PR CI。
+- 当前 `script/fq_local_preflight.ps1` 除了 docs guard、pre-commit、pytest 外，还会在当前分支已有关联 PR 且 `gh` 已登录时阻断 unresolved review threads。
 
 ## 常用部署命令
 
