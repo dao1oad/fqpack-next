@@ -1668,6 +1668,36 @@ def test_daily_screening_service_get_scope_summary_uses_run_scope():
     assert summary["stock_codes"] == ["000001", "000002", "000003"]
 
 
+def test_daily_screening_service_get_scopes_and_latest_scope_from_repository_runs():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    repository.save_run(
+        run_id="run-1",
+        id="run-1",
+        status="completed",
+        started_at="2026-03-18T19:00:00",
+    )
+    repository.save_run(
+        run_id="run-2",
+        id="run-2",
+        status="running",
+        started_at="2026-03-18T19:30:00",
+    )
+
+    scopes = service.get_scopes()
+    latest = service.get_latest_scope()
+
+    assert [item["run_id"] for item in scopes["items"]] == ["run-2", "run-1"]
+    assert scopes["items"][0]["scope"] == "run:run-2"
+    assert scopes["items"][0]["is_latest"] is True
+    assert scopes["items"][1]["is_latest"] is False
+    assert latest == {
+        "run_id": "run-2",
+        "scope": "run:run-2",
+        "label": "run-2",
+        "is_latest": True,
+    }
+
+
 def test_daily_screening_service_query_scope_applies_intersection_and_source_filters():
     service, repository, _screening_db = _make_service_with_screening_repo()
     _seed_run_scope_snapshot_fixture(repository)
@@ -1691,8 +1721,42 @@ def test_daily_screening_service_query_scope_applies_intersection_and_source_fil
 def test_daily_screening_service_get_stock_detail_returns_snapshot_and_memberships():
     service, repository, _screening_db = _make_service_with_screening_repo()
     _seed_run_scope_snapshot_fixture(repository)
+    hot_reason_rows = [
+        {
+            "date": "2026-03-18",
+            "time": "09:31",
+            "provider": "xgb",
+            "plate_name": "机器人",
+            "stock_reason": "情绪修复",
+            "plate_reason": "机器人催化",
+        }
+    ]
+    from freshquant.tests import test_daily_screening_service as test_module
 
-    detail = service.get_stock_detail("run-1", "000001")
+    def fake_query_stock_hot_reason_rows(*, code6, provider, limit):
+        assert code6 == "000001"
+        assert provider == "all"
+        assert limit == 0
+        return hot_reason_rows
+
+    import freshquant.daily_screening.service as service_module
+
+    original_query_stock_hot_reason_rows = getattr(
+        service_module,
+        "query_stock_hot_reason_rows",
+        None,
+    )
+    service_module.query_stock_hot_reason_rows = fake_query_stock_hot_reason_rows
+
+    try:
+        detail = service.get_stock_detail("run-1", "000001")
+    finally:
+        if original_query_stock_hot_reason_rows is None:
+            delattr(service_module, "query_stock_hot_reason_rows")
+        else:
+            service_module.query_stock_hot_reason_rows = (
+                original_query_stock_hot_reason_rows
+            )
 
     assert detail["run_id"] == "run-1"
     assert detail["scope"] == "run:run-1"
@@ -1705,3 +1769,70 @@ def test_daily_screening_service_get_stock_detail_returns_snapshot_and_membershi
         ("market_flags", "credit_subject"),
         ("market_flags", "near_long_term_ma"),
     }
+    assert [item["signal_type"] for item in detail["clxs_memberships"]] == ["CLXS_10001"]
+    assert [item["signal_type"] for item in detail["chanlun_memberships"]] == [
+        "buy_zs_huila"
+    ]
+    assert [item["signal_type"] for item in detail["agg90_memberships"]] == ["agg90"]
+    assert {
+        item["signal_type"] for item in detail["market_flag_memberships"]
+    } == {"credit_subject", "near_long_term_ma"}
+    assert detail["hot_reasons"] == hot_reason_rows
+
+
+def test_daily_screening_service_add_to_pre_pool_uses_scope_snapshot_and_memberships():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    _seed_run_scope_snapshot_fixture(repository)
+    persisted = []
+
+    import freshquant.daily_screening.service as service_module
+
+    original_save_pre_pool = service_module._save_pre_pool
+    service_module._save_pre_pool = lambda **kwargs: persisted.append(kwargs)
+    try:
+        payload = service.add_to_pre_pool({"run_id": "run-1", "code": "000001"})
+    finally:
+        service_module._save_pre_pool = original_save_pre_pool
+
+    assert payload == {
+        "code": "000001",
+        "category": "CLXS_10001",
+        "remark": "daily-screening:clxs",
+    }
+    assert len(persisted) == 1
+    assert persisted[0]["code"] == "000001"
+    assert persisted[0]["category"] == "CLXS_10001"
+    assert persisted[0]["remark"] == "daily-screening:clxs"
+    assert persisted[0]["name"] == "alpha"
+    assert persisted[0]["screening_run_id"] == "run-1"
+    assert persisted[0]["screening_branch"] == "clxs"
+    assert persisted[0]["screening_model_key"] == "CLXS_10001"
+    assert persisted[0]["screening_model_label"] == "S0001"
+
+
+def test_daily_screening_service_add_batch_to_pre_pool_uses_query_filters():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    _seed_run_scope_snapshot_fixture(repository)
+    persisted = []
+
+    import freshquant.daily_screening.service as service_module
+
+    original_save_pre_pool = service_module._save_pre_pool
+    service_module._save_pre_pool = lambda **kwargs: persisted.append(kwargs)
+    try:
+        result = service.add_batch_to_pre_pool(
+            {
+                "run_id": "run-1",
+                "selected_sets": ["clxs", "chanlun", "shouban30_agg90"],
+                "clxs_models": ["CLXS_10001"],
+                "chanlun_signal_types": ["buy_zs_huila"],
+                "chanlun_periods": ["30m"],
+                "shouban30_providers": ["xgb"],
+            }
+        )
+    finally:
+        service_module._save_pre_pool = original_save_pre_pool
+
+    assert result == {"created_count": 1, "codes": ["000001"]}
+    assert len(persisted) == 1
+    assert persisted[0]["code"] == "000001"

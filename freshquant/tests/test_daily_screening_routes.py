@@ -152,6 +152,28 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
     captured = {}
 
     class FakeService:
+        def get_scopes(self):
+            captured["scopes"] = True
+            return {
+                "items": [
+                    {
+                        "run_id": "run-1",
+                        "scope": "run:run-1",
+                        "label": "run-1",
+                        "is_latest": True,
+                    }
+                ]
+            }
+
+        def get_latest_scope(self):
+            captured["latest"] = True
+            return {
+                "run_id": "run-1",
+                "scope": "run:run-1",
+                "label": "run-1",
+                "is_latest": True,
+            }
+
         def get_scope_summary(self, run_id):
             captured["summary"] = run_id
             return {"run_id": run_id, "scope": f"run:{run_id}", "stock_count": 1}
@@ -164,8 +186,18 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
             captured["detail"] = (run_id, code)
             return {"run_id": run_id, "scope": f"run:{run_id}", "snapshot": {"code": code}, "memberships": []}
 
+        def add_to_pre_pool(self, payload):
+            captured["add_to_pre_pool"] = payload
+            return {"code": "000001", "category": "CLXS_10001", "remark": "daily-screening:clxs"}
+
+        def add_batch_to_pre_pool(self, payload):
+            captured["add_batch_to_pre_pool"] = payload
+            return {"created_count": 1, "codes": ["000001"]}
+
     client = _make_client(monkeypatch, FakeService())
 
+    scopes_response = client.get("/api/daily-screening/scopes")
+    latest_response = client.get("/api/daily-screening/scopes/latest")
     summary_response = client.get("/api/daily-screening/scopes/run-1/summary")
     query_response = client.post(
         "/api/daily-screening/query",
@@ -173,6 +205,24 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
         content_type="application/json",
     )
     detail_response = client.get("/api/daily-screening/stocks/000001/detail?run_id=run-1")
+    add_to_pre_pool_response = client.post(
+        "/api/daily-screening/actions/add-to-pre-pool",
+        data=json.dumps({"run_id": "run-1", "code": "000001"}),
+        content_type="application/json",
+    )
+    add_batch_to_pre_pool_response = client.post(
+        "/api/daily-screening/actions/add-batch-to-pre-pool",
+        data=json.dumps({"run_id": "run-1", "selected_sets": ["clxs"]}),
+        content_type="application/json",
+    )
+
+    assert scopes_response.status_code == 200
+    assert scopes_response.get_json()["items"][0]["run_id"] == "run-1"
+    assert captured["scopes"] is True
+
+    assert latest_response.status_code == 200
+    assert latest_response.get_json()["run_id"] == "run-1"
+    assert captured["latest"] is True
 
     assert summary_response.status_code == 200
     assert summary_response.get_json()["scope"] == "run:run-1"
@@ -185,3 +235,14 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
     assert detail_response.status_code == 200
     assert detail_response.get_json()["snapshot"]["code"] == "000001"
     assert captured["detail"] == ("run-1", "000001")
+
+    assert add_to_pre_pool_response.status_code == 200
+    assert add_to_pre_pool_response.get_json()["code"] == "000001"
+    assert captured["add_to_pre_pool"] == {"run_id": "run-1", "code": "000001"}
+
+    assert add_batch_to_pre_pool_response.status_code == 200
+    assert add_batch_to_pre_pool_response.get_json()["codes"] == ["000001"]
+    assert captured["add_batch_to_pre_pool"] == {
+        "run_id": "run-1",
+        "selected_sets": ["clxs"],
+    }

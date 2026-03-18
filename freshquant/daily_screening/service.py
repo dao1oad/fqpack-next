@@ -137,6 +137,33 @@ class DailyScreeningService:
     def get_schema_options(self) -> dict:
         return self.get_schema()["options"]
 
+    def get_scopes(self) -> dict:
+        items = []
+        for index, run in enumerate(self._list_repository_runs()):
+            run_id = str(run.get("run_id") or run.get("id") or "").strip()
+            if not run_id:
+                continue
+            items.append(
+                {
+                    "run_id": run_id,
+                    "scope": self._run_scope(run_id),
+                    "label": run_id,
+                    "is_latest": index == 0,
+                }
+            )
+        return {"items": items}
+
+    def get_latest_scope(self) -> dict:
+        items = self.get_scopes()["items"]
+        if not items:
+            return {
+                "run_id": "",
+                "scope": "",
+                "label": "",
+                "is_latest": False,
+            }
+        return dict(items[0])
+
     def get_scope_summary(self, run_id: str) -> dict:
         repository = self._screening_repository()
         if repository is None:
@@ -197,11 +224,92 @@ class DailyScreeningService:
         )
         if not snapshots and not memberships:
             raise ValueError("stock detail not found")
+        clxs_memberships = [item for item in memberships if item.get("stage") == "clxs"]
+        chanlun_memberships = [
+            item for item in memberships if item.get("stage") == "chanlun"
+        ]
+        agg90_memberships = [
+            item for item in memberships if item.get("stage") == "shouban30_agg90"
+        ]
+        market_flag_memberships = [
+            item for item in memberships if item.get("stage") == "market_flags"
+        ]
         return {
             "run_id": run_id,
             "scope": scope,
             "snapshot": snapshots[0] if snapshots else None,
             "memberships": memberships,
+            "clxs_memberships": clxs_memberships,
+            "chanlun_memberships": chanlun_memberships,
+            "agg90_memberships": agg90_memberships,
+            "market_flag_memberships": market_flag_memberships,
+            "hot_reasons": self._load_hot_reasons(normalized_code),
+        }
+
+    def add_to_pre_pool(self, payload: dict | None) -> dict:
+        payload = payload or {}
+        run_id = str(payload.get("run_id") or "").strip()
+        if not run_id:
+            raise ValueError("run_id required")
+        code = self._normalize_code(payload.get("code"))
+        if not code:
+            raise ValueError("code required")
+        detail = self.get_stock_detail(run_id, code)
+        snapshot = detail.get("snapshot") or {}
+        memberships = list(detail.get("memberships") or [])
+        primary = self._select_primary_membership(memberships)
+        category = str(payload.get("category") or "").strip() or self._scope_category(
+            snapshot, primary
+        )
+        remark = str(payload.get("remark") or "").strip() or self._scope_remark(primary)
+        if not category:
+            raise ValueError("category required")
+        extra = self._scope_extra(run_id, primary)
+        dt = (
+            primary.get("fire_time")
+            or snapshot.get("latest_fire_time")
+            or pendulum.now()
+        )
+        save_payload = {
+            "code": code,
+            "category": category,
+            "dt": dt,
+            "name": snapshot.get("name") or primary.get("name") or "",
+            "stop_loss_price": primary.get("stop_loss_price"),
+            "remark": remark,
+            "expire_at_days": 89,
+            **extra,
+        }
+        _save_pre_pool(**save_payload)
+        return {
+            "code": code,
+            "category": category,
+            "remark": remark,
+        }
+
+    def add_batch_to_pre_pool(self, payload: dict | None) -> dict:
+        payload = payload or {}
+        run_id = str(payload.get("run_id") or "").strip()
+        if not run_id:
+            raise ValueError("run_id required")
+        scope_rows = self.query_scope(run_id, payload).get("rows") or []
+        codes = []
+        for row in scope_rows:
+            code = self._normalize_code(row.get("code"))
+            if not code:
+                continue
+            self.add_to_pre_pool(
+                {
+                    "run_id": run_id,
+                    "code": code,
+                    "remark": payload.get("remark"),
+                    "category": payload.get("category"),
+                }
+            )
+            codes.append(code)
+        return {
+            "created_count": len(codes),
+            "codes": codes,
         }
 
     def list_pre_pools(
@@ -809,6 +917,26 @@ class DailyScreeningService:
         if not callable(get_stock_detail_memberships):
             return None
         return repository
+
+    def _list_repository_runs(self) -> list[dict[str, Any]]:
+        repository = self._screening_repository()
+        if repository is None:
+            return []
+        runs_collection = getattr(repository, "runs", None)
+        if isinstance(runs_collection, dict):
+            rows = [dict(item) for item in runs_collection.values()]
+        elif hasattr(runs_collection, "find"):
+            rows = [dict(item) for item in list(runs_collection.find({}))]
+        else:
+            rows = []
+        rows.sort(key=self._run_sort_key, reverse=True)
+        return rows
+
+    def _run_sort_key(self, row: dict[str, Any]):
+        return (
+            str(row.get("started_at") or row.get("created_at") or ""),
+            str(row.get("run_id") or row.get("id") or ""),
+        )
 
     def _matches_scope_filters(self, row: dict[str, Any], payload: dict) -> bool:
         selected_by = dict(row.get("selected_by") or {})
@@ -1455,6 +1583,74 @@ class DailyScreeningService:
             "signal_name": extra.get("screening_signal_name") or "",
             "period": extra.get("screening_period") or "",
             "extra": self._jsonable(extra),
+        }
+
+    def _load_hot_reasons(self, code6: str) -> list[dict]:
+        query_func = globals().get("query_stock_hot_reason_rows")
+        if not callable(query_func):
+            from freshquant.data.gantt_readmodel import query_stock_hot_reason_rows as query_func
+
+        try:
+            rows = query_func(code6=code6, provider="all", limit=0)
+        except Exception:
+            return []
+        return [self._jsonable(dict(item)) for item in list(rows or [])]
+
+    def _select_primary_membership(self, memberships: list[dict]) -> dict:
+        if not memberships:
+            return {}
+        return sorted(memberships, key=self._membership_priority_key)[0]
+
+    def _membership_priority_key(self, membership: dict):
+        stage = str(membership.get("stage") or "").strip()
+        priority = {
+            "clxs": 0,
+            "chanlun": 1,
+            "shouban30_agg90": 2,
+            "market_flags": 3,
+        }.get(stage, 9)
+        return (
+            priority,
+            str(membership.get("model_key") or membership.get("signal_type") or ""),
+        )
+
+    def _scope_category(self, snapshot: dict, membership: dict) -> str:
+        return str(
+            membership.get("model_key")
+            or membership.get("signal_type")
+            or snapshot.get("category")
+            or membership.get("stage")
+            or ""
+        ).strip()
+
+    def _scope_remark(self, membership: dict) -> str:
+        branch = str(
+            membership.get("branch") or membership.get("stage") or "screening"
+        ).strip()
+        return f"daily-screening:{branch}"
+
+    def _scope_extra(self, run_id: str, membership: dict) -> dict:
+        return {
+            "screening_run_id": run_id,
+            "screening_model": str(
+                membership.get("branch") or membership.get("stage") or ""
+            ).strip(),
+            "screening_branch": str(membership.get("branch") or "").strip(),
+            "screening_model_key": str(
+                membership.get("model_key") or membership.get("signal_type") or ""
+            ).strip(),
+            "screening_model_label": str(
+                membership.get("model_label")
+                or membership.get("signal_name")
+                or membership.get("signal_type")
+                or ""
+            ).strip(),
+            "screening_input_mode": "run_scope",
+            "screening_source_scope": self._run_scope(run_id),
+            "screening_signal_type": str(membership.get("signal_type") or "").strip(),
+            "screening_signal_name": str(membership.get("signal_name") or "").strip(),
+            "screening_period": str(membership.get("period") or "").strip(),
+            "screening_params": {"run_id": run_id},
         }
 
     def _with_context(self, config: dict, payload: dict) -> dict:
