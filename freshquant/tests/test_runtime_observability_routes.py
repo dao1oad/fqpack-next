@@ -144,6 +144,14 @@ def test_runtime_traces_route_keeps_tracked_events_when_heartbeats_exceed_limit(
 
 
 def test_runtime_traces_route_filters_against_full_matched_set(monkeypatch, tmp_path):
+    import freshquant.runtime_observability.assembler as assembler
+
+    assembler._lookup_symbol_name_cached.cache_clear()
+    monkeypatch.setattr(
+        assembler,
+        "query_instrument_info",
+        lambda symbol: {"name": f"Name-{symbol}"},
+    )
     records = [
         {
             "event_type": "trace_step",
