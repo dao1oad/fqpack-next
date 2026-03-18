@@ -113,7 +113,7 @@ def _resolve_retained_trade_days(
 
     try:
         normalized = _normalize_trade_day_texts(
-            (tool_trade_date_hist_sina() or {}).get("trade_date") or [],
+            _extract_trade_day_values(tool_trade_date_hist_sina()),
             today=today,
         )
         if normalized:
@@ -122,6 +122,31 @@ def _resolve_retained_trade_days(
         pass
 
     return set(sorted(date_directories)[-retain_trade_days:])
+
+
+def _extract_trade_day_values(raw) -> list[date | datetime | str]:
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        return _extract_trade_day_values(raw.get("trade_date"))
+    columns = getattr(raw, "columns", None)
+    if columns is not None and "trade_date" in columns:
+        try:
+            return list(raw["trade_date"])
+        except Exception:
+            return []
+    if isinstance(raw, (list, tuple, set)):
+        return list(raw)
+    if hasattr(raw, "tolist") and not isinstance(raw, (str, bytes)):
+        try:
+            values = raw.tolist()
+        except Exception:
+            values = None
+        if isinstance(values, list):
+            return values
+        if isinstance(values, tuple):
+            return list(values)
+    return [raw]
 
 
 def _normalize_trade_day_texts(

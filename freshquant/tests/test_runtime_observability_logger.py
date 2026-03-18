@@ -2,6 +2,9 @@ import importlib
 from datetime import date, timedelta
 from pathlib import Path
 
+import pandas as pd
+
+import freshquant.runtime_observability.logger as logger_module
 from freshquant.runtime_observability.logger import (
     RuntimeEventLogger,
     prune_runtime_log_dirs,
@@ -105,3 +108,53 @@ def test_prune_runtime_log_dirs_keeps_last_five_trade_days(tmp_path):
         tmp_path / "host_guardian" / "guardian_strategy" / "2026-03-09"
     ).exists()
     assert (tmp_path / "host_guardian" / "guardian_strategy" / "2026-03-10").exists()
+
+
+def test_prune_runtime_log_dirs_reads_trade_date_column_from_source_payload(
+    tmp_path, monkeypatch
+):
+    for day_text in (
+        "2026-03-06",
+        "2026-03-07",
+        "2026-03-08",
+        "2026-03-09",
+        "2026-03-10",
+        "2026-03-11",
+    ):
+        path = tmp_path / "host_guardian" / "guardian_strategy" / day_text
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "guardian_strategy.jsonl").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        logger_module,
+        "tool_trade_date_hist_sina",
+        lambda: pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(
+                    [
+                        "2026-03-05",
+                        "2026-03-06",
+                        "2026-03-09",
+                        "2026-03-10",
+                        "2026-03-11",
+                        "2026-03-12",
+                    ]
+                )
+            }
+        ),
+    )
+
+    removed = prune_runtime_log_dirs(
+        root_dir=tmp_path,
+        retain_trade_days=5,
+        today=date(2026, 3, 11),
+    )
+
+    assert removed == ["2026-03-07", "2026-03-08"]
+    assert (tmp_path / "host_guardian" / "guardian_strategy" / "2026-03-06").exists()
+    assert not (
+        tmp_path / "host_guardian" / "guardian_strategy" / "2026-03-07"
+    ).exists()
+    assert not (
+        tmp_path / "host_guardian" / "guardian_strategy" / "2026-03-08"
+    ).exists()
