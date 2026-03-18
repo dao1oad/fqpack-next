@@ -50,17 +50,26 @@ def _parse_reference_ref(reference_ref: str) -> tuple[str, str] | None:
     return remote, branch
 
 
-def _fetch_reference_ref(repo_root: Path, reference_ref: str) -> None:
+def _repo_relative_posix_path(repo_root: Path, path: Path) -> PurePosixPath | None:
+    try:
+        relative_path = path.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        return None
+    return PurePosixPath(relative_path.as_posix())
+
+
+def _fetch_reference_ref(repo_root: Path, reference_ref: str) -> bool:
     parsed = _parse_reference_ref(reference_ref)
     if parsed is None:
-        return
+        return True
     remote, branch = parsed
-    _run_git(
+    result = _run_git(
         repo_root,
         "fetch",
         remote,
         f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
     )
+    return result.returncode == 0
 
 
 def _reference_ref_exists(repo_root: Path, reference_ref: str) -> bool:
@@ -126,9 +135,9 @@ def _collect_module_status(
 ) -> list[dict[str, Any]]:
     reference_ref = config.reference_ref
     modules_root = PurePosixPath("docs/current/modules")
-    _fetch_reference_ref(config.repo_root, reference_ref)
+    reference_ready = _fetch_reference_ref(config.repo_root, reference_ref)
 
-    if _reference_ref_exists(config.repo_root, reference_ref):
+    if reference_ready and _reference_ref_exists(config.repo_root, reference_ref):
         items: list[dict[str, Any]] = []
         for relative_path in sorted(
             _list_markdown_files_from_ref(
@@ -180,10 +189,14 @@ def _load_reference_cold_memory_items(
     config: MemoryRuntimeConfig, *, generated_at: str
 ) -> list[dict[str, Any]]:
     reference_ref = config.reference_ref
-    cold_root = PurePosixPath(".codex/memory")
-    _fetch_reference_ref(config.repo_root, reference_ref)
+    cold_root = _repo_relative_posix_path(config.repo_root, config.cold_memory_root)
+    reference_ready = _fetch_reference_ref(config.repo_root, reference_ref)
 
-    if _reference_ref_exists(config.repo_root, reference_ref):
+    if (
+        cold_root is not None
+        and reference_ready
+        and _reference_ref_exists(config.repo_root, reference_ref)
+    ):
         items: list[dict[str, Any]] = []
         for relative_path in sorted(
             _list_markdown_files_from_ref(

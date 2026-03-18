@@ -33,7 +33,9 @@ def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _seed_origin_main_reference_repo(tmp_path: Path) -> Path:
+def _seed_origin_main_reference_repo(
+    tmp_path: Path, *, cold_root_relative: str = ".codex/memory"
+) -> Path:
     remote_path = tmp_path / "remote.git"
     init_remote = _run_git("init", "--bare", str(remote_path), cwd=tmp_path)
     assert init_remote.returncode == 0, init_remote.stderr
@@ -48,7 +50,7 @@ def _seed_origin_main_reference_repo(tmp_path: Path) -> Path:
     assert _run_git("config", "user.name", "Test User", cwd=seed_path).returncode == 0
 
     _write(
-        seed_path / ".codex" / "memory" / "workflow-rules.md",
+        seed_path / Path(cold_root_relative) / "workflow-rules.md",
         "# Workflow Rules\n\n- Read memory from origin/main.\n",
     )
     _write(
@@ -56,7 +58,7 @@ def _seed_origin_main_reference_repo(tmp_path: Path) -> Path:
         "# Runtime Observability\n\nMain branch module facts.\n",
     )
 
-    assert _run_git("add", ".codex", "docs", cwd=seed_path).returncode == 0
+    assert _run_git("add", cold_root_relative, "docs", cwd=seed_path).returncode == 0
     commit_result = _run_git("commit", "-m", "seed memory reference", cwd=seed_path)
     assert commit_result.returncode == 0, commit_result.stderr
 
@@ -216,6 +218,51 @@ def test_refresh_memory_uses_origin_main_reference_snapshot_instead_of_working_t
     assert "- `subject-management`:" not in content
 
 
+def test_refresh_memory_uses_configured_cold_root_from_reference_snapshot(
+    tmp_path: Path,
+) -> None:
+    repo_root = _seed_origin_main_reference_repo(
+        tmp_path,
+        cold_root_relative=".memory/cold",
+    )
+    service_root = tmp_path / "service"
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=repo_root / ".memory" / "cold",
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+
+    summary = refresh_memory(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-configured-cold-root",
+        issue_state="Local Session",
+        branch_name="feature/local-drift",
+        git_status="clean",
+    )
+
+    assert summary["knowledge_items"] == 1
+
+    output_path = compile_context_pack(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-configured-cold-root",
+        role="codex",
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "Workflow Rules" in content
+    knowledge_item = store.find("knowledge_items")[0]
+    assert knowledge_item["source_path"] == "origin/main:.memory/cold/workflow-rules.md"
+
+
 def test_compile_context_pack_ignores_stale_module_records_from_other_worktrees(
     tmp_path: Path,
 ) -> None:
@@ -333,7 +380,7 @@ def test_fetch_reference_ref_updates_remote_tracking_ref_explicitly(
 
     monkeypatch.setattr(refresh_module, "_run_git", fake_run_git)
 
-    refresh_module._fetch_reference_ref(tmp_path, "origin/main")
+    assert refresh_module._fetch_reference_ref(tmp_path, "origin/main") is True
 
     assert calls == [
         (
@@ -342,6 +389,90 @@ def test_fetch_reference_ref_updates_remote_tracking_ref_explicitly(
             "+refs/heads/main:refs/remotes/origin/main",
         )
     ]
+
+
+def test_fetch_reference_ref_returns_false_when_git_fetch_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    def fake_run_git(repo_root: Path, *args: str):
+        class _Result:
+            returncode = 1
+            stdout = ""
+            stderr = "fetch failed"
+
+        return _Result()
+
+    monkeypatch.setattr(refresh_module, "_run_git", fake_run_git)
+
+    assert refresh_module._fetch_reference_ref(tmp_path, "origin/main") is False
+
+
+def test_refresh_memory_falls_back_to_working_tree_when_reference_fetch_fails(
+    tmp_path: Path,
+) -> None:
+    repo_root = _seed_origin_main_reference_repo(tmp_path)
+    service_root = tmp_path / "service"
+    checkout_seed_result = _run_git(
+        "checkout",
+        "origin/main",
+        "--",
+        ".codex",
+        "docs",
+        cwd=repo_root,
+    )
+    assert checkout_seed_result.returncode == 0, checkout_seed_result.stderr
+
+    _write(
+        repo_root / ".codex" / "memory" / "feature-only.md",
+        "# Feature Only\n\n- Local fallback when fetch fails.\n",
+    )
+    _write(
+        repo_root / "docs" / "current" / "modules" / "subject-management.md",
+        "# Subject Management\n\nFeature branch fallback.\n",
+    )
+    set_remote_result = _run_git(
+        "remote",
+        "set-url",
+        "origin",
+        str(tmp_path / "missing-remote.git"),
+        cwd=repo_root,
+    )
+    assert set_remote_result.returncode == 0, set_remote_result.stderr
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=repo_root / ".codex" / "memory",
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+
+    summary = refresh_memory(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-fetch-fallback",
+        issue_state="Local Session",
+        branch_name="feature/local-drift",
+        git_status="M docs/current/modules/subject-management.md",
+    )
+
+    assert summary["knowledge_items"] == 2
+    assert summary["module_status"] == 2
+
+    output_path = compile_context_pack(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-fetch-fallback",
+        role="codex",
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "Feature Only" in content
+    assert "- `subject-management`:" in content
 
 
 def test_refresh_memory_reads_deployment_comment_and_cleanup_result_artifacts(
