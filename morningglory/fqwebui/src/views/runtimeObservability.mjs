@@ -682,6 +682,15 @@ export const buildTraceQuery = (form = {}) => {
   return query
 }
 
+export const buildBoardScopedQuery = (form = {}, boardFilter = {}) => {
+  const query = buildTraceQuery(form)
+  const component = toText(boardFilter?.component)
+  const runtimeNode = toText(boardFilter?.runtime_node)
+  if (component) query.component = component
+  if (runtimeNode) query.runtime_node = runtimeNode
+  return query
+}
+
 export const createTraceQueryState = () => Object.fromEntries(
   TRACE_QUERY_FIELDS.map((field) => [field, '']),
 )

@@ -9,6 +9,7 @@ import {
   buildRawSelectionKey,
   buildTraceIdentityLabel,
   applyBoardFilter,
+  buildBoardScopedQuery,
   buildComponentBoard,
   buildComponentEventFeed,
   buildComponentSidebarItems,
@@ -204,6 +205,29 @@ test('buildTraceQuery trims empty fields', () => {
       runtime_node: 'host:broker',
     },
   )
+})
+
+test('buildBoardScopedQuery merges sidebar filter into event query without mutating the base query', () => {
+  const baseQuery = {
+    symbol: '000001',
+    component: '',
+  }
+
+  assert.deepEqual(
+    buildBoardScopedQuery(baseQuery, {
+      component: ' guardian_strategy ',
+      runtime_node: ' host:guardian ',
+    }),
+    {
+      symbol: '000001',
+      component: 'guardian_strategy',
+      runtime_node: 'host:guardian',
+    },
+  )
+  assert.deepEqual(baseQuery, {
+    symbol: '000001',
+    component: '',
+  })
 })
 
 test('trace query state includes intent_id for strong-key filtering', () => {
@@ -808,6 +832,13 @@ test('pickDefaultTraceKind prefers guardian traces and falls back to all when un
     ]),
     'all',
   )
+})
+
+test('RuntimeObservability.vue scopes event reloads with the active sidebar component', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /runtimeObservabilityApi\.listEvents\(buildBoardScopedQuery\(query,\s*boardFilter\)\)/)
+  assert.match(content, /watch\(\s*\(\) => \[boardFilter\.component,\s*boardFilter\.runtime_node\],/)
 })
 
 test('buildRecentTraceFeed exposes flow nodes with guardian decision detail and generic fallback summary', () => {

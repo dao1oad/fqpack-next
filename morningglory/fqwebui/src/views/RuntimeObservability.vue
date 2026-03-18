@@ -800,6 +800,7 @@ import {
   buildTraceStepLedgerRows,
   buildHealthCards,
   buildRawLookupFromStep,
+  buildBoardScopedQuery,
   buildTraceQuery,
   createTraceQueryState,
   findTraceByRow,
@@ -849,6 +850,7 @@ const boardFilter = reactive({
   component: '',
   runtime_node: '',
 })
+let eventLoadToken = 0
 const rawQuery = reactive({
   runtime_node: '',
   component: '',
@@ -1568,11 +1570,15 @@ const loadTraces = async (options = {}) => {
 
 const loadEvents = async (options = {}) => {
   const suppressError = Boolean(options?.suppressError)
+  const loadToken = eventLoadToken + 1
+  eventLoadToken = loadToken
   try {
     if (!suppressError) pageError.value = ''
-    const response = await runtimeObservabilityApi.listEvents(buildTraceQuery(query))
+    const response = await runtimeObservabilityApi.listEvents(buildBoardScopedQuery(query, boardFilter))
+    if (loadToken !== eventLoadToken) return
     events.value = readApiPayload(response, 'events', [])
   } catch (error) {
+    if (loadToken !== eventLoadToken) return
     if (!suppressError) {
       pageError.value = summarizeRequestError('Event 列表加载失败', error)
     }
@@ -1643,7 +1649,7 @@ const clearFilterChip = async (chip) => {
   if (chip.kind === 'query' && chip.field) {
     query[chip.field] = ''
     draftQuery[chip.field] = ''
-    await loadTraces()
+    await Promise.all([loadTraces(), loadEvents()])
   }
 }
 
@@ -1875,6 +1881,15 @@ watch(componentSidebarItems, (items) => {
   boardFilter.component = fallback
   boardFilter.runtime_node = ''
 }, { immediate: true })
+
+watch(
+  () => [boardFilter.component, boardFilter.runtime_node],
+  async ([component, runtimeNode], [prevComponent, prevRuntimeNode] = []) => {
+    if (component === prevComponent && runtimeNode === prevRuntimeNode) return
+    if (!component && !runtimeNode) return
+    await loadEvents({ suppressError: true })
+  },
+)
 
 watch(visibleTraces, (items) => {
   const currentRow = {
