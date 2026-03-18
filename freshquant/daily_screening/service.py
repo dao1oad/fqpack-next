@@ -13,11 +13,10 @@ from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 from freshquant.db import DBfreshquant
 from freshquant.screening.signal_types import CHANLUN_SIGNAL_TYPES
 
+FULL_CLXS_MODEL_OPTS: list[int] = list(range(10001, 10013))
 CLXS_MODEL_OPTIONS: list[dict[str, int | str]] = [
-    {"value": 8, "label": "MACD 背驰"},
-    {"value": 9, "label": "中枢回拉"},
-    {"value": 12, "label": "V 反"},
-    {"value": 10001, "label": "默认 CLXS"},
+    {"value": model_opt, "label": f"S{model_opt % 10000:04d}"}
+    for model_opt in FULL_CLXS_MODEL_OPTS
 ]
 DEFAULT_CLXS_MODEL_OPTS: list[int] = [int(item["value"]) for item in CLXS_MODEL_OPTIONS]
 DEFAULT_CHANLUN_SIGNAL_TYPES: list[str] = [
@@ -66,6 +65,16 @@ def _save_database_outputs(results: list[Any], config: dict) -> None:
         save_pre_pools=False,
         pool_expire_days=int(config.get("pool_expire_days") or 10),
     )
+
+
+def _resolve_clxs_model_label(model_opt: Any) -> str | None:
+    try:
+        calc_type = int(model_opt) % 10000
+    except (TypeError, ValueError):
+        return None
+    if calc_type <= 0:
+        return None
+    return f"S{calc_type:04d}"
 
 
 class DailyScreeningService:
@@ -750,6 +759,19 @@ class DailyScreeningService:
         model_key = signal_type or (
             f"CLXS_{config['model_opt']}" if branch == "clxs" else branch
         )
+        if branch == "clxs":
+            model_opt = config.get("model_opt")
+            if signal_type.startswith("CLXS_"):
+                try:
+                    model_opt = int(signal_type.removeprefix("CLXS_"))
+                except ValueError:
+                    model_opt = config.get("model_opt")
+            model_label = _resolve_clxs_model_label(model_opt)
+            return {
+                "branch": branch,
+                "model_key": model_key,
+                "model_label": model_label or label or model_key,
+            }
         return {
             "branch": branch,
             "model_key": model_key,
