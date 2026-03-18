@@ -82,6 +82,32 @@ def stream_run(run_id: str):
     )
 
 
+@daily_screening_bp.get("/scopes/<run_id>/summary")
+def get_scope_summary(run_id: str):
+    return jsonify(_get_daily_screening_service().get_scope_summary(run_id))
+
+
+@daily_screening_bp.post("/query")
+def query_scope():
+    payload = _request_json_payload()
+    run_id = str(payload.get("run_id") or "").strip()
+    if not run_id:
+        return jsonify({"error": "run_id required"}), 400
+    return jsonify(_get_daily_screening_service().query_scope(run_id, payload))
+
+
+@daily_screening_bp.get("/stocks/<code>/detail")
+def get_stock_detail(code: str):
+    run_id = str(request.args.get("run_id") or "").strip()
+    if not run_id:
+        return jsonify({"error": "run_id required"}), 400
+    try:
+        payload = _get_daily_screening_service().get_stock_detail(run_id, code)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+    return jsonify(payload)
+
+
 @daily_screening_bp.get("/pre-pools")
 def list_pre_pools():
     limit = int(request.args.get("limit", "200") or 200)

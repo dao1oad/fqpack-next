@@ -1466,3 +1466,242 @@ def test_daily_screening_service_persists_run_scope_read_model_for_all_pipeline(
         {"signal_type": "buy_zs_huila", "period": "30m"}
     ]
     assert snapshots[0]["shouban30_providers"] == ["jygs", "xgb"]
+
+
+def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
+    scope = f"run:{run_id}"
+    repository.replace_stage_memberships(
+        run_id=run_id,
+        stage="clxs",
+        scope=scope,
+        memberships=[
+            {
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "branch": "clxs",
+                "model_key": "CLXS_10001",
+                "model_label": "S0001",
+                "signal_type": "CLXS_10001",
+                "period": "1d",
+            },
+            {
+                "code": "000002",
+                "name": "beta",
+                "symbol": "sz000002",
+                "branch": "clxs",
+                "model_key": "CLXS_10002",
+                "model_label": "S0002",
+                "signal_type": "CLXS_10002",
+                "period": "1d",
+            },
+        ],
+    )
+    repository.replace_stage_memberships(
+        run_id=run_id,
+        stage="chanlun",
+        scope=scope,
+        memberships=[
+            {
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "branch": "chanlun",
+                "model_key": "buy_zs_huila",
+                "model_label": "回拉中枢上涨",
+                "signal_type": "buy_zs_huila",
+                "period": "30m",
+            },
+            {
+                "code": "000003",
+                "name": "gamma",
+                "symbol": "sz000003",
+                "branch": "chanlun",
+                "model_key": "macd_bullish_divergence",
+                "model_label": "MACD看涨背驰",
+                "signal_type": "macd_bullish_divergence",
+                "period": "1d",
+            },
+        ],
+    )
+    repository.replace_stage_memberships(
+        run_id=run_id,
+        stage="shouban30_agg90",
+        scope=scope,
+        memberships=[
+            {
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "branch": "shouban30_agg90",
+                "model_key": "agg90",
+                "model_label": "90日聚合",
+                "signal_type": "agg90",
+                "period": "90d",
+                "providers": ["xgb", "jygs"],
+            },
+            {
+                "code": "000003",
+                "name": "gamma",
+                "symbol": "sz000003",
+                "branch": "shouban30_agg90",
+                "model_key": "agg90",
+                "model_label": "90日聚合",
+                "signal_type": "agg90",
+                "period": "90d",
+                "providers": ["jygs"],
+            },
+        ],
+    )
+    repository.replace_stage_memberships(
+        run_id=run_id,
+        stage="market_flags",
+        scope=scope,
+        memberships=[
+            {
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "branch": "market_flags",
+                "model_key": "credit_subject",
+                "model_label": "融资标的",
+                "signal_type": "credit_subject",
+                "period": "1d",
+            },
+            {
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "branch": "market_flags",
+                "model_key": "near_long_term_ma",
+                "model_label": "均线附近",
+                "signal_type": "near_long_term_ma",
+                "period": "1d",
+            },
+            {
+                "code": "000003",
+                "name": "gamma",
+                "symbol": "sz000003",
+                "branch": "market_flags",
+                "model_key": "quality_subject",
+                "model_label": "优质标的",
+                "signal_type": "quality_subject",
+                "period": "1d",
+            },
+        ],
+    )
+    repository.upsert_stock_snapshots(
+        run_id=run_id,
+        scope=scope,
+        snapshots=[
+            {
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "selected_by": {
+                    "clxs": True,
+                    "chanlun": True,
+                    "shouban30_agg90": True,
+                    "credit_subject": True,
+                    "quality_subject": False,
+                    "near_long_term_ma": True,
+                },
+                "clxs_models": ["CLXS_10001"],
+                "chanlun_variants": [
+                    {"signal_type": "buy_zs_huila", "period": "30m"}
+                ],
+                "shouban30_providers": ["jygs", "xgb"],
+            },
+            {
+                "code": "000002",
+                "name": "beta",
+                "symbol": "sz000002",
+                "selected_by": {
+                    "clxs": True,
+                    "chanlun": False,
+                    "shouban30_agg90": False,
+                    "credit_subject": False,
+                    "quality_subject": False,
+                    "near_long_term_ma": False,
+                },
+                "clxs_models": ["CLXS_10002"],
+                "chanlun_variants": [],
+                "shouban30_providers": [],
+            },
+            {
+                "code": "000003",
+                "name": "gamma",
+                "symbol": "sz000003",
+                "selected_by": {
+                    "clxs": False,
+                    "chanlun": True,
+                    "shouban30_agg90": True,
+                    "credit_subject": False,
+                    "quality_subject": True,
+                    "near_long_term_ma": False,
+                },
+                "clxs_models": [],
+                "chanlun_variants": [
+                    {"signal_type": "macd_bullish_divergence", "period": "1d"}
+                ],
+                "shouban30_providers": ["jygs"],
+            },
+        ],
+    )
+    return scope
+
+
+def test_daily_screening_service_get_scope_summary_uses_run_scope():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    scope = _seed_run_scope_snapshot_fixture(repository)
+
+    summary = service.get_scope_summary("run-1")
+
+    assert summary["run_id"] == "run-1"
+    assert summary["scope"] == scope
+    assert summary["stage_counts"] == {
+        "clxs": 2,
+        "chanlun": 2,
+        "shouban30_agg90": 2,
+        "market_flags": 3,
+    }
+    assert summary["stock_codes"] == ["000001", "000002", "000003"]
+
+
+def test_daily_screening_service_query_scope_applies_intersection_and_source_filters():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    _seed_run_scope_snapshot_fixture(repository)
+
+    payload = {
+        "selected_sets": ["clxs", "chanlun", "shouban30_agg90", "credit_subject"],
+        "clxs_models": ["CLXS_10001"],
+        "chanlun_signal_types": ["buy_zs_huila"],
+        "chanlun_periods": ["30m"],
+        "shouban30_providers": ["xgb"],
+    }
+
+    result = service.query_scope("run-1", payload)
+
+    assert result["run_id"] == "run-1"
+    assert result["scope"] == "run:run-1"
+    assert result["total"] == 1
+    assert [row["code"] for row in result["rows"]] == ["000001"]
+
+
+def test_daily_screening_service_get_stock_detail_returns_snapshot_and_memberships():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    _seed_run_scope_snapshot_fixture(repository)
+
+    detail = service.get_stock_detail("run-1", "000001")
+
+    assert detail["run_id"] == "run-1"
+    assert detail["scope"] == "run:run-1"
+    assert detail["snapshot"]["code"] == "000001"
+    assert detail["snapshot"]["selected_by"]["credit_subject"] is True
+    assert {(item["stage"], item["signal_type"]) for item in detail["memberships"]} == {
+        ("clxs", "CLXS_10001"),
+        ("chanlun", "buy_zs_huila"),
+        ("shouban30_agg90", "agg90"),
+        ("market_flags", "credit_subject"),
+        ("market_flags", "near_long_term_ma"),
+    }

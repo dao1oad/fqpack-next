@@ -137,6 +137,73 @@ class DailyScreeningService:
     def get_schema_options(self) -> dict:
         return self.get_schema()["options"]
 
+    def get_scope_summary(self, run_id: str) -> dict:
+        repository = self._screening_repository()
+        if repository is None:
+            return {
+                "run_id": run_id,
+                "scope": self._run_scope(run_id),
+                "membership_count": 0,
+                "stock_count": 0,
+                "stage_counts": {},
+                "stock_codes": [],
+            }
+        return repository.query_scope_summary(
+            run_id=run_id,
+            scope=self._run_scope(run_id),
+        )
+
+    def query_scope(self, run_id: str, payload: dict | None = None) -> dict:
+        repository = self._screening_repository()
+        scope = self._run_scope(run_id)
+        if repository is None:
+            return {
+                "run_id": run_id,
+                "scope": scope,
+                "total": 0,
+                "rows": [],
+                "summary": self.get_scope_summary(run_id),
+            }
+        rows = repository.query_scope_stocks(run_id=run_id, scope=scope)
+        filters = payload or {}
+        filtered_rows = [
+            row for row in rows if self._matches_scope_filters(row, filters)
+        ]
+        return {
+            "run_id": run_id,
+            "scope": scope,
+            "total": len(filtered_rows),
+            "rows": filtered_rows,
+            "summary": self.get_scope_summary(run_id),
+        }
+
+    def get_stock_detail(self, run_id: str, code: Any) -> dict:
+        normalized_code = self._normalize_code(code)
+        if not normalized_code:
+            raise ValueError("code required")
+        repository = self._screening_repository()
+        scope = self._run_scope(run_id)
+        if repository is None:
+            raise ValueError("stock detail not found")
+        snapshots = repository.query_scope_stocks(
+            run_id=run_id,
+            scope=scope,
+            code=normalized_code,
+        )
+        memberships = repository.get_stock_detail_memberships(
+            run_id=run_id,
+            scope=scope,
+            code=normalized_code,
+        )
+        if not snapshots and not memberships:
+            raise ValueError("stock detail not found")
+        return {
+            "run_id": run_id,
+            "scope": scope,
+            "snapshot": snapshots[0] if snapshots else None,
+            "memberships": memberships,
+        }
+
     def list_pre_pools(
         self,
         *,
@@ -727,6 +794,74 @@ class DailyScreeningService:
 
     def _run_scope(self, run_id: str) -> str:
         return f"run:{run_id}"
+
+    def _screening_repository(self):
+        repository = getattr(self.pipeline_service, "repository", None)
+        query_scope_summary = getattr(repository, "query_scope_summary", None)
+        query_scope_stocks = getattr(repository, "query_scope_stocks", None)
+        get_stock_detail_memberships = getattr(
+            repository,
+            "get_stock_detail_memberships",
+            None,
+        )
+        if not callable(query_scope_summary) or not callable(query_scope_stocks):
+            return None
+        if not callable(get_stock_detail_memberships):
+            return None
+        return repository
+
+    def _matches_scope_filters(self, row: dict[str, Any], payload: dict) -> bool:
+        selected_by = dict(row.get("selected_by") or {})
+        selected_sets = self._normalize_text_list(payload.get("selected_sets"), default=[])
+        for item in selected_sets:
+            if not bool(selected_by.get(item)):
+                return False
+
+        clxs_models = set(
+            self._normalize_text_list(payload.get("clxs_models"), default=[])
+        )
+        if clxs_models:
+            snapshot_models = {
+                str(item).strip() for item in list(row.get("clxs_models") or [])
+                if str(item).strip()
+            }
+            if not snapshot_models.intersection(clxs_models):
+                return False
+
+        chanlun_signal_types = set(
+            self._normalize_text_list(payload.get("chanlun_signal_types"), default=[])
+        )
+        chanlun_periods = set(
+            self._normalize_text_list(payload.get("chanlun_periods"), default=[])
+        )
+        if chanlun_signal_types or chanlun_periods:
+            variants = list(row.get("chanlun_variants") or [])
+
+            def _variant_matches(item: dict[str, Any]) -> bool:
+                signal_type = str(item.get("signal_type") or "").strip()
+                period = str(item.get("period") or "").strip()
+                if chanlun_signal_types and signal_type not in chanlun_signal_types:
+                    return False
+                if chanlun_periods and period not in chanlun_periods:
+                    return False
+                return True
+
+            if not any(_variant_matches(item) for item in variants):
+                return False
+
+        shouban30_providers = set(
+            self._normalize_text_list(payload.get("shouban30_providers"), default=[])
+        )
+        if shouban30_providers:
+            providers = {
+                str(item).strip()
+                for item in list(row.get("shouban30_providers") or [])
+                if str(item).strip()
+            }
+            if not providers.intersection(shouban30_providers):
+                return False
+
+        return True
 
     def _build_run_scope_membership(
         self,

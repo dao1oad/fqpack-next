@@ -146,3 +146,42 @@ def test_daily_screening_pre_pools_routes_delegate_to_service(monkeypatch):
     assert captured["add"]["code"] == "000001"
     assert delete_response.status_code == 200
     assert captured["delete"]["remark"] == "daily-screening:clxs"
+
+
+def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
+    captured = {}
+
+    class FakeService:
+        def get_scope_summary(self, run_id):
+            captured["summary"] = run_id
+            return {"run_id": run_id, "scope": f"run:{run_id}", "stock_count": 1}
+
+        def query_scope(self, run_id, payload):
+            captured["query"] = (run_id, payload)
+            return {"run_id": run_id, "scope": f"run:{run_id}", "rows": [{"code": "000001"}], "total": 1}
+
+        def get_stock_detail(self, run_id, code):
+            captured["detail"] = (run_id, code)
+            return {"run_id": run_id, "scope": f"run:{run_id}", "snapshot": {"code": code}, "memberships": []}
+
+    client = _make_client(monkeypatch, FakeService())
+
+    summary_response = client.get("/api/daily-screening/scopes/run-1/summary")
+    query_response = client.post(
+        "/api/daily-screening/query",
+        data=json.dumps({"run_id": "run-1", "selected_sets": ["clxs", "chanlun"]}),
+        content_type="application/json",
+    )
+    detail_response = client.get("/api/daily-screening/stocks/000001/detail?run_id=run-1")
+
+    assert summary_response.status_code == 200
+    assert summary_response.get_json()["scope"] == "run:run-1"
+    assert captured["summary"] == "run-1"
+
+    assert query_response.status_code == 200
+    assert query_response.get_json()["rows"] == [{"code": "000001"}]
+    assert captured["query"] == ("run-1", {"run_id": "run-1", "selected_sets": ["clxs", "chanlun"]})
+
+    assert detail_response.status_code == 200
+    assert detail_response.get_json()["snapshot"]["code"] == "000001"
+    assert captured["detail"] == ("run-1", "000001")
