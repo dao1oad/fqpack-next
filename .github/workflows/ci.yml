@@ -110,8 +110,8 @@ jobs:
           raise SystemExit(subprocess.call(command))
           PY
 
-  pytest:
-    name: pytest
+  pytest-shards:
+    name: pytest-shard (${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
@@ -150,3 +150,22 @@ jobs:
       - name: Run pytest shard (unit tests only, xdist loadfile)
         if: steps.shard.outputs.selected_count != '0'
         run: uv run pytest -q ${{ steps.shard.outputs.pytest_args }} -n auto --dist loadfile
+
+  pytest:
+    name: pytest
+    needs:
+      - changes
+      - pytest-shards
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Finalize pytest gate
+        run: |
+          if [ "${{ needs.changes.outputs.docs_only }}" = "true" ]; then
+            echo "Docs-only change; pytest shard fan-out skipped."
+            exit 0
+          fi
+          if [ "${{ needs.pytest-shards.result }}" != "success" ]; then
+            echo "pytest shards failed or were cancelled."
+            exit 1
+          fi

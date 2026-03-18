@@ -101,6 +101,19 @@ def test_select_pytest_shard_is_deterministic_and_disjoint() -> None:
     assert set(shard_0 + shard_1 + shard_2) == set(test_files)
 
 
+def test_select_pytest_shard_lists_recursive_tests(tmp_path: Path) -> None:
+    module = _load_module(SELECT_SHARD_SCRIPT, "select_pytest_shard")
+    nested = tmp_path / "assets"
+    nested.mkdir()
+    (tmp_path / "test_root.py").write_text("", encoding="utf-8")
+    (nested / "test_nested.py").write_text("", encoding="utf-8")
+
+    discovered = module.list_test_files(tmp_path)
+
+    assert (tmp_path / "test_root.py").as_posix() in discovered
+    assert (nested / "test_nested.py").as_posix() in discovered
+
+
 def test_select_pytest_shard_cli_outputs_json(tmp_path: Path) -> None:
     test_list_path = tmp_path / "tests.json"
     test_list_path.write_text(

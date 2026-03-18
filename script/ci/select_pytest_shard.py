@@ -8,7 +8,7 @@ from pathlib import Path
 
 def list_test_files(test_root: str | Path = "freshquant/tests") -> list[str]:
     root = Path(test_root)
-    return sorted(path.as_posix() for path in root.glob("test_*.py"))
+    return sorted(path.as_posix() for path in root.rglob("test_*.py"))
 
 
 def select_shard(
