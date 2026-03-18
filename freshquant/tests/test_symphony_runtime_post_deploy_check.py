@@ -33,8 +33,14 @@ def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str
         str(script),
         *args,
     ]
-    return subprocess.run(
-        command, capture_output=True, text=True, check=False, cwd=REPO_ROOT
+    completed = subprocess.run(
+        command, capture_output=True, text=False, check=False, cwd=REPO_ROOT
+    )
+    return subprocess.CompletedProcess(
+        completed.args,
+        completed.returncode,
+        stdout=(completed.stdout or b"").decode("utf-8", errors="replace"),
+        stderr=(completed.stderr or b"").decode("utf-8", errors="replace"),
     )
 
 

@@ -9,6 +9,7 @@ import {
   buildRawSelectionKey,
   buildTraceIdentityLabel,
   applyBoardFilter,
+  buildBoardScopedQuery,
   buildComponentBoard,
   buildComponentEventFeed,
   buildComponentSidebarItems,
@@ -38,6 +39,7 @@ import {
   groupStepsByComponent,
   hasMatchingRawSelection,
   pickDefaultSidebarComponent,
+  pickDefaultTraceKind,
   pickDefaultTraceStep,
   sortTraceSummaries,
   summarizeTrace,
@@ -203,6 +205,29 @@ test('buildTraceQuery trims empty fields', () => {
       runtime_node: 'host:broker',
     },
   )
+})
+
+test('buildBoardScopedQuery merges sidebar filter into event query without mutating the base query', () => {
+  const baseQuery = {
+    symbol: '000001',
+    component: '',
+  }
+
+  assert.deepEqual(
+    buildBoardScopedQuery(baseQuery, {
+      component: ' guardian_strategy ',
+      runtime_node: ' host:guardian ',
+    }),
+    {
+      symbol: '000001',
+      component: 'guardian_strategy',
+      runtime_node: 'host:guardian',
+    },
+  )
+  assert.deepEqual(baseQuery, {
+    symbol: '000001',
+    component: '',
+  })
 })
 
 test('trace query state includes intent_id for strong-key filtering', () => {
@@ -790,6 +815,30 @@ test('buildTraceKindOptions returns chinese labels for available trace kinds', (
     { value: 'guardian_signal', label: 'Guardian 信号' },
     { value: 'takeprofit', label: '止盈链路' },
   ])
+})
+
+test('pickDefaultTraceKind prefers guardian traces and falls back to all when unavailable', () => {
+  assert.equal(
+    pickDefaultTraceKind([
+      { trace_id: 'trc_guardian', trace_kind: 'guardian_signal', steps: [] },
+      { trace_id: 'trc_takeprofit', trace_kind: 'takeprofit', steps: [] },
+    ]),
+    'guardian_signal',
+  )
+
+  assert.equal(
+    pickDefaultTraceKind([
+      { trace_id: 'trc_takeprofit', trace_kind: 'takeprofit', steps: [] },
+    ]),
+    'all',
+  )
+})
+
+test('RuntimeObservability.vue scopes event reloads with the active sidebar component', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /runtimeObservabilityApi\.listEvents\(buildBoardScopedQuery\(query,\s*boardFilter\)\)/)
+  assert.match(content, /watch\(\s*\(\) => \[boardFilter\.component,\s*boardFilter\.runtime_node\],/)
 })
 
 test('buildRecentTraceFeed exposes flow nodes with guardian decision detail and generic fallback summary', () => {
@@ -1603,12 +1652,15 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /buildTraceStepLedgerRows/)
   assert.match(content, /v-model="selectedTraceKind"/)
   assert.match(content, /traceKindOptions/)
+  assert.match(content, /pickDefaultTraceKind/)
   assert.match(content, /<span>标的名称<\/span>/)
   assert.match(content, /row\.symbol_name/)
   assert.match(content, /runtime-ledger__cell--entry-exit/)
   assert.match(content, /runtime-ledger__cell--status/)
   assert.match(content, /component-symbol-list/)
   assert.match(content, /component-symbol-card/)
+  assert.match(content, /grid-template-columns:\s*minmax\(200px,\s*0\.58fr\)\s*minmax\(820px,\s*2\.42fr\)\s*minmax\(400px,\s*1\.08fr\)/)
+  assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*72px[\s\S]*112px[\s\S]*104px[\s\S]*102px[\s\S]*minmax\(480px,\s*3\.6fr\)[\s\S]*54px[\s\S]*84px[\s\S]*minmax\(160px,\s*0\.9fr\)/)
   assert.match(content, /步骤/)
   assert.match(content, /摘要/)
   assert.match(content, /原始数据/)
@@ -1635,7 +1687,10 @@ test('runtime observability event mode uses dense ledger layout instead of event
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
   assert.match(content, /runtime-ledger runtime-event-ledger/)
-  assert.match(content, /event-detail-tabs/)
+  assert.match(content, /<el-tabs v-model="activeEventDetailTab" class="workspace-tabs event-detail-tabs"/)
+  assert.match(content, /<div class="workspace-tab-label">\s*<span>事件<\/span>/)
+  assert.match(content, /<div class="workspace-tab-label">\s*<span>载荷<\/span>/)
+  assert.match(content, /<div class="workspace-tab-label">\s*<span>原始数据<\/span>/)
   assert.match(content, /buildEventLedgerRows/)
   assert.match(content, /embeddedRawRecordCards/)
   assert.match(content, /event-detail-ledger/)
@@ -1647,9 +1702,8 @@ test('runtime observability event mode uses dense ledger layout instead of event
   assert.match(content, /<span>组件<\/span>/)
   assert.match(content, /<span>节点<\/span>/)
   assert.match(content, /<span>标的<\/span>/)
-  assert.match(content, /\.runtime-detail-tabs__tab \{[\s\S]*min-width: 84px;/)
+  assert.match(content, /:deep\(\.workspace-tabs \.el-tabs__content\)/)
   assert.doesNotMatch(content, /event-feed-row/)
-  assert.doesNotMatch(content, /<section v-show="activeEventDetailTab === 'event'" class="step-inspector">/)
   assert.doesNotMatch(content, /<section v-show="activeEventDetailTab === 'payload'" class="runtime-detail-panel">/)
   assert.doesNotMatch(content, /raw-record-list raw-record-list--embedded/)
 })

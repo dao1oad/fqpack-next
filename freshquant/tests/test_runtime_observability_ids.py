@@ -16,8 +16,9 @@ def test_resolve_runtime_node_prefers_explicit_env(monkeypatch):
 
 def test_normalize_event_sets_runtime_node_when_missing(monkeypatch):
     monkeypatch.delenv("FQ_RUNTIME_NODE", raising=False)
+    expected = resolve_runtime_node("guardian_strategy")
     event = normalize_event(
         {"component": "guardian_strategy", "node": "receive_signal"}
     )
 
-    assert event["runtime_node"].startswith("host:")
+    assert event["runtime_node"] == expected

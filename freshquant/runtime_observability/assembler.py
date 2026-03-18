@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+from functools import lru_cache
 from typing import Any, cast
 
+from freshquant.instrument.general import query_instrument_info
 from freshquant.runtime_observability.failures import (
     build_exception_break_reason,
     is_exception_step,
 )
+from freshquant.util.code import normalize_to_base_code
 
 _STRONG_ID_FIELDS = ("trace_id", "intent_id", "request_id", "internal_order_id")
 _ISSUE_STATUSES = {"warning", "failed", "error", "skipped"}
@@ -15,6 +18,15 @@ _ORDER_SUBMIT_NODES = {"tracking_create", "queue_payload_build"}
 _BROKER_COMPONENTS = {"broker_gateway", "puppet_gateway"}
 _SUBMIT_INTENT_DOWNSTREAM_COMPONENTS = (
     {"order_submit"} | _BROKER_COMPONENTS | _TERMINAL_COMPONENTS
+)
+_SYMBOL_NAME_FIELDS = (
+    "symbol_name",
+    "stock_name",
+    "display_name",
+    "security_name",
+    "instrument_name",
+    "code_name",
+    "name",
 )
 
 
@@ -68,6 +80,8 @@ def _build_trace(events: list[dict]) -> dict:
     trace_status, break_reason = _infer_trace_status(timed_steps, trace_kind)
     entry_step = timed_steps[0] if timed_steps else {}
     exit_step = timed_steps[-1] if timed_steps else {}
+    symbol = _find_trace_symbol(timed_steps)
+    symbol_name = _find_trace_symbol_name(timed_steps, symbol=symbol)
 
     return {
         "trace_key": trace_key,
@@ -75,6 +89,8 @@ def _build_trace(events: list[dict]) -> dict:
         "intent_ids": intent_ids,
         "request_ids": request_ids,
         "internal_order_ids": internal_order_ids,
+        "symbol": symbol,
+        "symbol_name": symbol_name,
         "trace_kind": trace_kind,
         "trace_status": trace_status,
         "break_reason": break_reason,
@@ -312,6 +328,56 @@ def _strong_id_values(event: dict) -> list[str]:
         if value:
             values.append(f"{field}:{value}")
     return values
+
+
+def _find_trace_symbol(steps: list[dict]) -> str | None:
+    for step in steps:
+        symbol = _normalized_text(step.get("symbol"))
+        if not symbol:
+            continue
+        normalized = normalize_to_base_code(symbol)
+        return normalized or symbol
+    return None
+
+
+def _find_trace_symbol_name(steps: list[dict], *, symbol: str | None) -> str | None:
+    for step in steps:
+        for field in _SYMBOL_NAME_FIELDS:
+            value = _normalized_text(step.get(field))
+            if value:
+                return value
+        signal_summary = step.get("signal_summary")
+        if isinstance(signal_summary, dict):
+            value = _normalized_text(signal_summary.get("name"))
+            if value:
+                return value
+    if symbol:
+        return _lookup_symbol_name(symbol)
+    return None
+
+
+@lru_cache(maxsize=1024)
+def _lookup_symbol_name_cached(symbol: str) -> str:
+    try:
+        instrument = query_instrument_info(symbol)
+    except Exception:
+        raise LookupError(symbol) from None
+    if not isinstance(instrument, dict):
+        raise LookupError(symbol)
+    name = _normalized_text(instrument.get("name")) or None
+    if not name:
+        raise LookupError(symbol)
+    return name
+
+
+def _lookup_symbol_name(symbol: str) -> str | None:
+    normalized = normalize_to_base_code(symbol)
+    if not normalized:
+        return None
+    try:
+        return _lookup_symbol_name_cached(normalized)
+    except LookupError:
+        return None
 
 
 def _sort_timestamp(event: dict) -> tuple[str, int]:

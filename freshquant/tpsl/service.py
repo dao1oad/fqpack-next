@@ -179,6 +179,7 @@ class TpslService:
     ):
         base_symbol = _normalize_symbol(symbol or code)
         current_node = "profile_load"
+        trace_id_value = None
         try:
             profile = self.takeprofit_service.get_profile_with_state(base_symbol)
         except ValueError:
@@ -187,7 +188,6 @@ class TpslService:
             self._emit_runtime(
                 "profile_load",
                 symbol=base_symbol,
-                trace_id=trace_id,
                 payload={"code": code},
             )
 
@@ -198,11 +198,17 @@ class TpslService:
                 tiers=profile.get("tiers") or [],
                 armed_levels=state.get("armed_levels") or {},
             )
+            if hit is not None:
+                trace_id_value = str(trace_id or "").strip() or new_trace_id()
             self._emit_runtime(
                 "trigger_eval",
                 symbol=base_symbol,
-                trace_id=trace_id,
-                payload={"kind": "takeprofit", "hit_level": (hit or {}).get("level")},
+                trace_id=trace_id_value,
+                payload={
+                    "kind": "takeprofit",
+                    "hit_level": (hit or {}).get("level"),
+                    "triggered": bool(hit),
+                },
             )
             if hit is None:
                 return None
@@ -220,6 +226,7 @@ class TpslService:
                 return {
                     "status": "blocked",
                     "symbol": base_symbol,
+                    "trace_id": trace_id_value,
                     "blocked_reason": "can_use_volume",
                     "quantity": 0,
                 }
@@ -229,6 +236,7 @@ class TpslService:
                 return {
                     "status": "blocked",
                     "symbol": base_symbol,
+                    "trace_id": trace_id_value,
                     "blocked_reason": "board_lot",
                     "quantity": 0,
                 }
@@ -238,7 +246,6 @@ class TpslService:
                 quantity_cap=order_quantity,
             )
             batch_id = f"takeprofit_batch_{uuid4().hex}"
-            trace_id_value = str(trace_id or "").strip() or new_trace_id()
             intent_id_value = new_intent_id()
             current_node = "batch_create"
             self._emit_runtime(
@@ -279,7 +286,7 @@ class TpslService:
             self._emit_runtime(
                 current_node,
                 symbol=base_symbol,
-                trace_id=trace_id,
+                trace_id=trace_id_value or trace_id,
                 status="error",
                 reason_code="unexpected_exception",
                 payload=build_exception_payload(exc),
@@ -300,6 +307,7 @@ class TpslService:
     ):
         base_symbol = _normalize_symbol(symbol or code)
         current_node = "trigger_eval"
+        trace_id_value = None
         try:
             triggered_bindings = []
             for binding in self.order_repository.list_stoploss_bindings(
@@ -311,10 +319,12 @@ class TpslService:
                     continue
                 if float(bid1 or 0.0) <= float(stop_price):
                     triggered_bindings.append(binding)
+            if triggered_bindings:
+                trace_id_value = str(trace_id or "").strip() or new_trace_id()
             self._emit_runtime(
                 "trigger_eval",
                 symbol=base_symbol,
-                trace_id=trace_id,
+                trace_id=trace_id_value,
                 payload={
                     "kind": "stoploss",
                     "triggered_bindings": len(triggered_bindings),
@@ -332,7 +342,6 @@ class TpslService:
                 can_use_volume=can_use_volume,
             )
             if batch.get("status") != "blocked":
-                trace_id_value = str(trace_id or "").strip() or new_trace_id()
                 intent_id_value = new_intent_id()
                 batch["ask1"] = float(ask1 or 0.0)
                 batch["last_price"] = float(last_price or 0.0)
@@ -352,12 +361,14 @@ class TpslService:
                         "quantity": batch.get("quantity"),
                     },
                 )
+            elif trace_id_value:
+                batch["trace_id"] = trace_id_value
             return batch
         except Exception as exc:
             self._emit_runtime(
                 current_node,
                 symbol=base_symbol,
-                trace_id=trace_id,
+                trace_id=trace_id_value or trace_id,
                 status="error",
                 reason_code="unexpected_exception",
                 payload=build_exception_payload(exc),

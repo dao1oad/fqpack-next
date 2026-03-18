@@ -143,6 +143,46 @@ def test_runtime_traces_route_keeps_tracked_events_when_heartbeats_exceed_limit(
     assert [trace["trace_id"] for trace in body["traces"]] == ["trc_heartbeat_window"]
 
 
+def test_runtime_traces_route_filters_against_full_matched_set(monkeypatch, tmp_path):
+    import freshquant.runtime_observability.assembler as assembler
+
+    assembler._lookup_symbol_name_cached.cache_clear()
+    monkeypatch.setattr(
+        assembler,
+        "query_instrument_info",
+        lambda symbol: {"name": f"Name-{symbol}"},
+    )
+    records = [
+        {
+            "event_type": "trace_step",
+            "trace_id": f"trc_fullset_{index:04d}",
+            "component": "guardian_strategy",
+            "runtime_node": "host:guardian",
+            "node": "receive_signal",
+            "symbol": "000001",
+            "ts": f"2026-03-09T10:{index // 60:02d}:{index % 60:02d}+08:00",
+        }
+        for index in range(2105)
+    ]
+    _write_events(
+        tmp_path,
+        runtime_node_path="host_guardian",
+        component="guardian_strategy",
+        date="2026-03-09",
+        file_name="guardian_strategy_2026-03-09_1.jsonl",
+        records=records,
+    )
+    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+    client = _make_runtime_client()
+
+    resp = client.get("/api/runtime/traces?symbol=000001")
+
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert len(body["traces"]) == 2105
+    assert body["traces"][-1]["trace_id"] == "trc_fullset_0000"
+
+
 def test_runtime_raw_file_tail_route(monkeypatch, tmp_path):
     _write_events(
         tmp_path,
