@@ -451,7 +451,11 @@ def test_repository_ensure_indexes_calls_create_index_with_expected_contract():
         )
     ]
     assert repo.stock_snapshots.created_indexes == [
-        ([("scope_id", 1), ("code", 1)], True, "daily_screening_stock_snapshots_scope_id_code")
+        (
+            [("scope_id", 1), ("code", 1)],
+            True,
+            "daily_screening_stock_snapshots_scope_id_code",
+        )
     ]
 
 

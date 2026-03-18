@@ -35,8 +35,7 @@ MARKET_FLAG_LABELS: dict[str, str] = {
 }
 CHANLUN_PERIOD_ORDER: dict[str, int] = {"30m": 0, "60m": 1, "1d": 2}
 CHANLUN_SIGNAL_ORDER: dict[str, int] = {
-    signal_type: index
-    for index, signal_type in enumerate(DEFAULT_CHANLUN_SIGNAL_TYPES)
+    signal_type: index for index, signal_type in enumerate(DEFAULT_CHANLUN_SIGNAL_TYPES)
 }
 
 
@@ -363,7 +362,11 @@ class DailyScreeningService:
                 model_label = _resolve_clxs_model_label(
                     getattr(result, "signal_type", None) or model_opt
                 )
-                if not result_code or result_code not in candidate_set or not model_label:
+                if (
+                    not result_code
+                    or result_code not in candidate_set
+                    or not model_label
+                ):
                     continue
                 payload = self._build_condition_membership_doc(
                     condition_key=f"cls:{model_label}",
@@ -1570,7 +1573,7 @@ class DailyScreeningService:
         normalized_code = self._normalize_code(code)
         if not normalized_code:
             raise ValueError("code required")
-        payload = {
+        payload: dict[str, Any] = {
             "condition_key": str(condition_key or "").strip(),
             "code": normalized_code,
             "name": str(name or normalized_code).strip() or normalized_code,
@@ -1685,7 +1688,10 @@ class DailyScreeningService:
 
     def _filter_catalog_signal_label(self, condition_key: str) -> str:
         suffix = condition_key.split(":", 1)[1].strip()
-        return CHANLUN_SIGNAL_TYPES.get(suffix, {}).get("name", suffix or condition_key)
+        signal_info = CHANLUN_SIGNAL_TYPES.get(suffix)
+        if signal_info is None:
+            return suffix or condition_key
+        return signal_info["name"]
 
     def _filter_catalog_cls_label(self, condition_key: str) -> str:
         suffix = condition_key.split(":", 1)[1].strip()
@@ -1701,7 +1707,11 @@ class DailyScreeningService:
     def _filter_catalog_flag_sort_key(self, item: dict[str, Any]) -> tuple[int, str]:
         key = str(item.get("key") or "")
         suffix = key.split(":", 1)[1].strip() if ":" in key else key
-        order = list(MARKET_FLAG_LABELS).index(suffix) if suffix in MARKET_FLAG_LABELS else 10_000
+        order = (
+            list(MARKET_FLAG_LABELS).index(suffix)
+            if suffix in MARKET_FLAG_LABELS
+            else 10_000
+        )
         return (order, key)
 
     def _filter_catalog_period_sort_key(self, item: dict[str, Any]) -> tuple[int, str]:

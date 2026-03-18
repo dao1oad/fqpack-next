@@ -72,7 +72,7 @@ class ChanlunServiceStrategy(ScreenStrategy):
             days: 扫描最近 N 天的信号，默认 1
             output_html: 是否输出 HTML 报表，默认 True
         """
-        self.periods = periods or ['30m', '60m', '1d']
+        self.periods = periods or ["30m", "60m", "1d"]
         self.pool_expire_days = pool_expire_days
         self.save_signal = save_signal
         self.save_pools = save_pools
@@ -305,16 +305,12 @@ class ChanlunServiceStrategy(ScreenStrategy):
                     r
                     for r in batch_valid_results
                     if r.fire_time >= cutoff_date
-                    and (
-                        self.include_sell_short or r.position == "BUY_LONG"
-                    )
+                    and (self.include_sell_short or r.position == "BUY_LONG")
                 ]
                 after_count = len(batch_valid_results)
                 if before_count > after_count:
                     filter_label = (
-                        "过滤超窗信号"
-                        if self.include_sell_short
-                        else "过滤 SELL_SHORT"
+                        "过滤超窗信号" if self.include_sell_short else "过滤 SELL_SHORT"
                     )
                     logger.debug(
                         f"批次 {batch_num} 筛选: {before_count} → {after_count}（{filter_label}）"

@@ -48,7 +48,11 @@ def _coalesce_scope_id(*values) -> str:
 @daily_screening_bp.get("/schema")
 def get_schema():
     return (
-        jsonify({"error": "manual daily-screening schema disabled; use Dagster scope query APIs"}),
+        jsonify(
+            {
+                "error": "manual daily-screening schema disabled; use Dagster scope query APIs"
+            }
+        ),
         410,
     )
 
@@ -56,7 +60,9 @@ def get_schema():
 @daily_screening_bp.post("/runs")
 def start_run():
     return (
-        jsonify({"error": "manual daily-screening run disabled; use Dagster schedule/job"}),
+        jsonify(
+            {"error": "manual daily-screening run disabled; use Dagster schedule/job"}
+        ),
         410,
     )
 
@@ -64,7 +70,11 @@ def start_run():
 @daily_screening_bp.get("/runs/<run_id>")
 def get_run(run_id: str):
     return (
-        jsonify({"error": "manual run inspection disabled; use Dagster and scope query APIs"}),
+        jsonify(
+            {
+                "error": "manual run inspection disabled; use Dagster and scope query APIs"
+            }
+        ),
         410,
     )
 
@@ -72,7 +82,11 @@ def get_run(run_id: str):
 @daily_screening_bp.get("/runs/<run_id>/stream")
 def stream_run(run_id: str):
     return (
-        jsonify({"error": "daily-screening SSE disabled; use Dagster assets and scope query APIs"}),
+        jsonify(
+            {
+                "error": "daily-screening SSE disabled; use Dagster assets and scope query APIs"
+            }
+        ),
         410,
     )
 

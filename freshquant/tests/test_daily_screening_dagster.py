@@ -134,9 +134,7 @@ def test_daily_screening_assets_keep_publish_as_terminal_node(monkeypatch):
     _prepare_fqdagster_import(monkeypatch)
 
     assets_module = importlib.import_module("fqdagster.defs.assets.daily_screening")
-    cls_asset_names = [
-        f"daily_screening_cls_s{index:04d}" for index in range(1, 13)
-    ]
+    cls_asset_names = [f"daily_screening_cls_s{index:04d}" for index in range(1, 13)]
 
     assert assets_module.daily_screening_universe.dependency_names == [
         "daily_screening_upstream_guard"

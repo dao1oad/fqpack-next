@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from inspect import Parameter, Signature
-from typing import Any
+from typing import Any, cast
 
 from dagster import asset
 
@@ -87,7 +87,9 @@ def _persist_condition_memberships(
         )
 
 
-def _collect_code_rows(*membership_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _collect_code_rows(
+    *membership_groups: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for memberships in membership_groups:
         for item in memberships or []:
@@ -120,7 +122,9 @@ def _filter_memberships_by_condition(
 
 
 def _build_cls_model_asset(model_opt: int):
-    model_label = _resolve_clxs_model_label(model_opt) or f"S{int(model_opt) % 10000:04d}"
+    model_label = (
+        _resolve_clxs_model_label(model_opt) or f"S{int(model_opt) % 10000:04d}"
+    )
     asset_name = f"daily_screening_cls_{str(model_label).lower()}"
 
     @asset(name=asset_name, group_name=DAILY_SCREENING_GROUP)
@@ -160,7 +164,10 @@ def _build_cls_aggregate_asset(dependency_names: list[str]):
         for payload in payloads:
             memberships.extend(list(payload.get("memberships") or []))
         memberships.sort(
-            key=lambda item: (str(item.get("condition_key") or ""), str(item.get("code") or ""))
+            key=lambda item: (
+                str(item.get("condition_key") or ""),
+                str(item.get("code") or ""),
+            )
         )
         return _merge_stage_payload(
             base_payload,
@@ -169,15 +176,16 @@ def _build_cls_aggregate_asset(dependency_names: list[str]):
             model_asset_names=list(dependency_names),
         )
 
-    _aggregate.__name__ = "daily_screening_cls"
-    _aggregate.__signature__ = Signature(
+    aggregate_fn = cast(Any, _aggregate)
+    aggregate_fn.__name__ = "daily_screening_cls"
+    aggregate_fn.__signature__ = Signature(
         parameters=[
             Parameter(name, kind=Parameter.POSITIONAL_OR_KEYWORD)
             for name in dependency_names
         ]
     )
     return asset(name="daily_screening_cls", group_name=DAILY_SCREENING_GROUP)(
-        _aggregate
+        aggregate_fn
     )
 
 
@@ -468,7 +476,9 @@ def daily_screening_snapshot_assemble(
     )
     metric_rows = {
         str(item.get("code") or ""): dict(item)
-        for item in list(daily_screening_shouban30_chanlun_metrics.get("snapshots") or [])
+        for item in list(
+            daily_screening_shouban30_chanlun_metrics.get("snapshots") or []
+        )
         if str(item.get("code") or "").strip()
     }
     snapshots = []

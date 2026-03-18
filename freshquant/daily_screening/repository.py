@@ -89,7 +89,10 @@ class DailyScreeningRepository:
         if effective_condition_key is None:
             raise ValueError("condition_key required")
         if not raw_items:
-            query = {"scope_id": effective_scope_id, "condition_key": effective_condition_key}
+            query = {
+                "scope_id": effective_scope_id,
+                "condition_key": effective_condition_key,
+            }
             self._delete_many(self.memberships, query)
             return []
         payloads = [
@@ -106,7 +109,10 @@ class DailyScreeningRepository:
             for payload in payloads
         ):
             raise ValueError("code required")
-        query = {"scope_id": effective_scope_id, "condition_key": effective_condition_key}
+        query = {
+            "scope_id": effective_scope_id,
+            "condition_key": effective_condition_key,
+        }
         self._delete_many(self.memberships, query)
         if payloads:
             self._insert_many(self.memberships, payloads)
@@ -181,7 +187,9 @@ class DailyScreeningRepository:
                 raise ValueError("trade_date required")
 
             if not raw_items:
-                self._delete_many(self.stock_snapshots, {"scope_id": effective_scope_id})
+                self._delete_many(
+                    self.stock_snapshots, {"scope_id": effective_scope_id}
+                )
                 return []
 
             payloads = [
@@ -222,9 +230,7 @@ class DailyScreeningRepository:
             return []
 
         payloads = [
-            self._normalize_snapshot(
-                item, scope_id=effective_scope_id
-            )
+            self._normalize_snapshot(item, scope_id=effective_scope_id)
             for item in raw_items
         ]
         if any(
@@ -414,9 +420,7 @@ class DailyScreeningRepository:
         )
         return self._apply_legacy_condition_identity(payload)
 
-    def _normalize_snapshot(
-        self, item: Any, *, scope_id=None
-    ) -> dict[str, Any]:
+    def _normalize_snapshot(self, item: Any, *, scope_id=None) -> dict[str, Any]:
         payload = dict(item or {})
         if scope_id is not None:
             payload.setdefault("scope_id", scope_id)

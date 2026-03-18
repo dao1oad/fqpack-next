@@ -122,9 +122,7 @@ def test_daily_screening_filters_route_returns_catalog(monkeypatch):
             }
 
     client = _make_client(monkeypatch, FakeService())
-    response = client.get(
-        "/api/daily-screening/filters?scope_id=trade_date:2026-03-18"
-    )
+    response = client.get("/api/daily-screening/filters?scope_id=trade_date:2026-03-18")
 
     assert response.status_code == 200
     assert response.get_json()["groups"] == {"hot_windows": []}
