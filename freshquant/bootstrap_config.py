@@ -26,6 +26,7 @@ class MongoBootstrapConfig:
     port: int = 27027
     db: str = "freshquant"
     gantt_db: str = "freshquant_gantt"
+    screening_db: str = "fqscreening"
 
 
 @dataclass(frozen=True)
@@ -151,6 +152,7 @@ def load_bootstrap_config() -> BootstrapConfig:
         port=_as_int(get(settings, "mongodb.port"), 27027),
         db=_as_str(get(settings, "mongodb.db"), "freshquant"),
         gantt_db=_as_str(get(settings, "mongodb.gantt_db"), "freshquant_gantt"),
+        screening_db=_as_str(get(settings, "mongodb.screening_db"), "fqscreening"),
     )
     redis = RedisBootstrapConfig(
         host=_as_str(get(settings, "redis.host"), "127.0.0.1"),

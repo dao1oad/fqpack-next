@@ -2,12 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  buildDailyScreeningSourceQueries,
-  mergeDailyScreeningRows,
-  buildDailyScreeningModelFilters,
-  buildDailyScreeningCliPreview,
   buildDailyScreeningForms,
-  getDailyScreeningGuide,
+  buildDailyScreeningQueryPayload,
+  buildDailyScreeningSetOptions,
+  buildDailyScreeningWorkbenchState,
+  normalizeDailyScreeningScopeItems,
   readDailyScreeningPayload,
   resolveDailyScreeningFields,
 } from './dailyScreeningPage.mjs'
@@ -24,10 +23,11 @@ const schema = {
         { name: 'trend_opt', default: 1 },
         {
           name: 'clxs_model_opts',
-          default: [8, 9, 12, 10001],
+          default: [10001, 10002, 10003],
           options: [
-            { value: 8, label: 'MACD 背驰' },
-            { value: 9, label: '中枢回拉' },
+            { value: 10001, label: 'S0001' },
+            { value: 10002, label: 'S0002' },
+            { value: 10003, label: 'S0003' },
           ],
         },
         {
@@ -56,10 +56,9 @@ const schema = {
         {
           name: 'model_opts',
           default: [10001],
-          options: [{ value: 10001, label: '默认 CLXS' }],
+          options: [{ value: 10001, label: 'S0001' }],
         },
         { name: 'save_pre_pools', default: true },
-        { name: 'output_category', default: '' },
         { name: 'remark', default: 'daily-screening:clxs', readonly: true },
       ],
     },
@@ -80,12 +79,8 @@ const schema = {
         },
         { name: 'pre_pool_category', default: '' },
         { name: 'pre_pool_remark', default: '' },
-        { name: 'max_concurrent', default: 50 },
-        { name: 'save_signal', default: false },
         { name: 'save_pools', default: false },
-        { name: 'save_pre_pools', default: true },
         { name: 'pool_expire_days', default: 10 },
-        { name: 'output_category', default: 'chanlun_service' },
         { name: 'remark', default: 'daily-screening:chanlun', readonly: true },
       ],
     },
@@ -105,23 +100,12 @@ test('buildDailyScreeningForms seeds defaults from schema', () => {
     wave_opt: 1560,
     stretch_opt: 0,
     trend_opt: 1,
-    clxs_model_opts: [8, 9, 12, 10001],
+    clxs_model_opts: [10001, 10002, 10003],
     chanlun_signal_types: ['buy_zs_huila', 'macd_bullish_divergence'],
     chanlun_period_mode: 'all',
   })
-  assert.deepEqual(forms.clxs, {
-    days: 1,
-    code: '',
-    wave_opt: 1560,
-    stretch_opt: 0,
-    trend_opt: 1,
-    model_opts: [10001],
-    save_pre_pools: true,
-    output_category: '',
-    remark: 'daily-screening:clxs',
-  })
-  assert.equal(forms.chanlun.input_mode, 'all_pre_pools')
-  assert.equal(forms.chanlun.period_mode, 'all')
+  assert.equal(forms.clxs.remark, 'daily-screening:clxs')
+  assert.equal(forms.chanlun.remark, 'daily-screening:chanlun')
 })
 
 test('readDailyScreeningPayload supports both axios envelopes and interceptor-unwrapped payloads', () => {
@@ -145,6 +129,19 @@ test('readDailyScreeningPayload supports both axios envelopes and interceptor-un
     },
   )
 
+  assert.deepEqual(
+    readDailyScreeningPayload({
+      run_id: 'run-9',
+      scope: 'run:run-9',
+      label: 'run-9',
+    }),
+    {
+      run_id: 'run-9',
+      scope: 'run:run-9',
+      label: 'run-9',
+    },
+  )
+
   assert.deepEqual(readDailyScreeningPayload(null), {})
 })
 
@@ -162,154 +159,85 @@ test('resolveDailyScreeningFields hides and expands chanlun fields by mode', () 
   assert.ok(fieldNames.includes('pre_pool_remark'))
   assert.ok(!fieldNames.includes('code'))
   assert.ok(fieldNames.includes('pool_expire_days'))
-  const remarkField = fields.find((field) => field.name === 'pre_pool_remark')
-  assert.deepEqual(
-    remarkField.options.map((item) => item.value),
-    ['daily-screening:chanlun', 'daily-screening:clxs'],
-  )
 })
 
-test('buildDailyScreeningCliPreview renders clxs command set and page-only extensions', () => {
-  const preview = buildDailyScreeningCliPreview('clxs', {
-    days: 2,
-    code: '000001',
-    wave_opt: 1560,
-    stretch_opt: 0,
-    trend_opt: 1,
-    model_opts: [8, 10001],
-    remark: 'daily-screening:clxs',
+test('buildDailyScreeningWorkbenchState exposes intersection defaults for the unified workbench', () => {
+  const state = buildDailyScreeningWorkbenchState(schema, {
+    run_id: 'run-9',
+    scope: 'run:run-9',
+    label: 'run-9',
   })
 
-  assert.equal(
-    preview.command,
-    [
-      'stock screen clxs --days 2 --code 000001 --wave-opt 1560 --stretch-opt 0 --trend-opt 1 --model-opt 8',
-      'stock screen clxs --days 2 --code 000001 --wave-opt 1560 --stretch-opt 0 --trend-opt 1 --model-opt 10001',
-    ].join('\n'),
-  )
-  assert.deepEqual(preview.extensions, ['remark=daily-screening:clxs'])
+  assert.equal(state.selectedModel, 'all')
+  assert.equal(state.selectedRunId, 'run-9')
+  assert.deepEqual(state.selectedSets, ['clxs', 'chanlun'])
+  assert.deepEqual(state.clxsModels, [])
+  assert.deepEqual(state.chanlunSignalTypes, [])
+  assert.deepEqual(state.chanlunPeriods, [])
+  assert.deepEqual(state.shouban30Providers, [])
 })
 
-test('buildDailyScreeningCliPreview renders chanlun command for filtered pre-pools', () => {
-  const preview = buildDailyScreeningCliPreview('chanlun', {
-    days: 1,
-    input_mode: 'remark_filtered_pre_pools',
-    pre_pool_remark: 'daily-screening:clxs',
-    period_mode: '60m',
-    max_concurrent: 50,
-    save_signal: true,
-    save_pools: true,
-    pool_expire_days: 15,
-    remark: 'daily-screening:chanlun',
+test('normalizeDailyScreeningScopeItems keeps latest flag and stable labels', () => {
+  const items = normalizeDailyScreeningScopeItems({
+    items: [
+      { run_id: 'run-2', scope: 'run:run-2', label: 'run-2', is_latest: true },
+      { run_id: 'run-1', scope: 'run:run-1', label: 'run-1', is_latest: false },
+    ],
   })
 
-  assert.equal(
-    preview.command,
-    'stock screen chanlun --days 1 --period 60m',
-  )
-  assert.deepEqual(preview.extensions, [
-    'input_mode=remark_filtered_pre_pools',
-    'pre_pool_remark=daily-screening:clxs',
-    'max_concurrent=50',
-    'save_signal=true',
-    'save_pools=true',
-    'pool_expire_days=15',
-    'remark=daily-screening:chanlun',
+  assert.deepEqual(items, [
+    { runId: 'run-2', scope: 'run:run-2', label: 'run-2', isLatest: true },
+    { runId: 'run-1', scope: 'run:run-1', label: 'run-1', isLatest: false },
   ])
 })
 
-test('buildDailyScreeningCliPreview renders all-pipeline preview with CLXS and chanlun model sets', () => {
-  const preview = buildDailyScreeningCliPreview('all', {
-    days: 1,
-    code: '',
-    wave_opt: 1560,
-    stretch_opt: 0,
-    trend_opt: 1,
-    clxs_model_opts: [8, 10001],
-    chanlun_signal_types: ['buy_zs_huila', 'macd_bullish_divergence'],
-    chanlun_period_mode: 'all',
+test('buildDailyScreeningSetOptions maps summary counts to the six intersection sources', () => {
+  const options = buildDailyScreeningSetOptions({
+    stage_counts: {
+      clxs: 12,
+      chanlun: 5,
+      shouban30_agg90: 8,
+      market_flags: 11,
+    },
   })
 
-  assert.match(preview.command, /stock screen clxs/)
-  assert.match(preview.command, /--model-opt 8/)
-  assert.match(preview.command, /--model-opt 10001/)
-  assert.match(preview.command, /stock screen chanlun/)
-  assert.deepEqual(preview.extensions, [
-    'chanlun_source=current_clxs_run',
-    'chanlun_signal_types=buy_zs_huila,macd_bullish_divergence',
-  ])
-})
-
-test('getDailyScreeningGuide exposes the real rule summary for each model', () => {
-  const allGuide = getDailyScreeningGuide('all')
-  const clxsGuide = getDailyScreeningGuide('clxs')
-  const chanlunGuide = getDailyScreeningGuide('chanlun')
-
-  assert.ok(allGuide.some((line) => line.includes('CLXS 全模型')))
-  assert.ok(clxsGuide.some((line) => line.includes('sigs[-1] > 0')))
-  assert.ok(chanlunGuide.some((line) => line.includes('BUY_LONG')))
-})
-
-test('buildDailyScreeningModelFilters keeps branch counts and narrows models by branch', () => {
-  const rows = [
-    { branch: 'clxs', model_key: 'CLXS_8', model_label: 'MACD 背驰' },
-    { branch: 'clxs', model_key: 'CLXS_8', model_label: 'MACD 背驰' },
-    { branch: 'clxs', model_key: 'CLXS_10001', model_label: '默认 CLXS' },
-    { branch: 'chanlun', model_key: 'buy_zs_huila', model_label: '回拉中枢上涨' },
-  ]
-
-  const allFilters = buildDailyScreeningModelFilters(rows, 'all')
-  const clxsFilters = buildDailyScreeningModelFilters(rows, 'clxs')
-
-  assert.deepEqual(allFilters.branches, [
-    { key: 'clxs', label: 'CLXS', count: 3 },
-    { key: 'chanlun', label: 'chanlun', count: 1 },
-  ])
-  assert.deepEqual(allFilters.models, [
-    { key: 'CLXS_8', label: 'MACD 背驰', branch: 'clxs', count: 2 },
-    { key: 'CLXS_10001', label: '默认 CLXS', branch: 'clxs', count: 1 },
-    { key: 'buy_zs_huila', label: '回拉中枢上涨', branch: 'chanlun', count: 1 },
-  ])
-  assert.deepEqual(clxsFilters.models, [
-    { key: 'CLXS_8', label: 'MACD 背驰', branch: 'clxs', count: 2 },
-    { key: 'CLXS_10001', label: '默认 CLXS', branch: 'clxs', count: 1 },
-  ])
-})
-
-test('buildDailyScreeningSourceQueries keeps all-mode source view scoped to current remarks', () => {
   assert.deepEqual(
-    buildDailyScreeningSourceQueries('all', {
-      clxs_remark: 'daily-screening:clxs',
-      chanlun_remark: 'daily-screening:chanlun',
-    }),
-    [
-      { limit: 200, remark: 'daily-screening:clxs' },
-      { limit: 200, remark: 'daily-screening:chanlun' },
-    ],
+    options.map((item) => item.key),
+    ['clxs', 'chanlun', 'shouban30_agg90', 'credit_subject', 'near_long_term_ma', 'quality_subject'],
   )
-  assert.deepEqual(
-    buildDailyScreeningSourceQueries('clxs', {
-      remark: 'daily-screening:clxs',
-    }),
-    [{ limit: 200, remark: 'daily-screening:clxs' }],
-  )
+  assert.equal(options[0].count, 12)
+  assert.equal(options[1].count, 5)
+  assert.equal(options[2].count, 8)
 })
 
-test('mergeDailyScreeningRows flattens duplicate source rows by storage identity', () => {
-  const merged = mergeDailyScreeningRows(
-    [
-      { code: '000001', category: 'CLXS_8', remark: 'daily-screening:clxs', datetime: '2026-03-17T15:00:00' },
-      { code: '000002', category: 'CLXS_9', remark: 'daily-screening:clxs', datetime: '2026-03-17T15:00:00' },
-    ],
-    [
-      { code: '000001', category: 'CLXS_8', remark: 'daily-screening:clxs', datetime: '2026-03-17T15:00:00' },
-      { code: '000003', category: 'chanlun_service', remark: 'daily-screening:chanlun', datetime: '2026-03-17T15:05:00' },
-    ],
-  )
+test('buildDailyScreeningQueryPayload keeps source intersection and source-internal union filters separate', () => {
+  const payload = buildDailyScreeningQueryPayload({
+    runId: 'run-1',
+    selectedSets: ['clxs', 'chanlun', 'quality_subject'],
+    clxsModels: ['CLXS_10001', 'CLXS_10008'],
+    chanlunSignalTypes: ['buy_zs_huila'],
+    chanlunPeriods: ['30m', '60m'],
+    shouban30Providers: ['xgb'],
+  })
 
-  assert.deepEqual(merged, [
-    { code: '000001', category: 'CLXS_8', remark: 'daily-screening:clxs', datetime: '2026-03-17T15:00:00' },
-    { code: '000002', category: 'CLXS_9', remark: 'daily-screening:clxs', datetime: '2026-03-17T15:00:00' },
-    { code: '000003', category: 'chanlun_service', remark: 'daily-screening:chanlun', datetime: '2026-03-17T15:05:00' },
-  ])
+  assert.deepEqual(payload, {
+    run_id: 'run-1',
+    selected_sets: ['clxs', 'chanlun', 'quality_subject'],
+    clxs_models: ['CLXS_10001', 'CLXS_10008'],
+    chanlun_signal_types: ['buy_zs_huila'],
+    chanlun_periods: ['30m', '60m'],
+    shouban30_providers: ['xgb'],
+  })
+})
+
+test('buildDailyScreeningQueryPayload normalizes numeric clxs model selections to membership model keys', () => {
+  const payload = buildDailyScreeningQueryPayload({
+    runId: 'run-1',
+    clxsModels: [10001, '10008'],
+  })
+
+  assert.deepEqual(payload, {
+    run_id: 'run-1',
+    clxs_models: ['CLXS_10001', 'CLXS_10008'],
+  })
 })

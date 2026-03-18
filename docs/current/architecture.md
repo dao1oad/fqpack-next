@@ -23,7 +23,7 @@
 - 盘后选股工作台层
   - `freshquant.daily_screening.*`
   - `freshquant.screening.strategies.*`
-  - 负责把 CLI 选股链路以页面 + SSE 会话的形式重新组织出来，但不替代底层策略实现。
+  - 负责把 `CLXS / chanlun / shouban30_agg90 / market_flags` 统一编排成正式盘后筛选工作台，并把结果写入 `fqscreening`。
 - 数据处理层
   - `freshquant.data.gantt_readmodel`
   - `freshquant.shouban30_pool_service`
@@ -73,7 +73,11 @@
 
 ### 盘后选股工作台链
 
-`DailyScreening.vue -> /api/daily-screening/* -> DailyScreeningService -> CLXS / chanlun strategy -> session store / SSE -> stock_pre_pools`
+`DailyScreening.vue -> /api/daily-screening/* -> DailyScreeningService -> CLXS / chanlun / shouban30_agg90 / market_flags -> fqscreening -> query/detail API`
+
+### 每日筛选自动任务链
+
+`Dagster 19:00 schedule -> job_daily_screening_postclose -> DailyScreeningService.start_run(trigger_type=dagster_schedule) -> fqscreening`
 
 ### 运行观测链
 
@@ -113,7 +117,7 @@
 - Order Management 是订单事实层，维护请求、内部订单、事件、买入 lot、卖出分配与外部单对齐。
 - TPSL 是独立退出策略，依赖订单事实和持仓，不跟 Guardian 共用状态机。
 - Gantt 与 Shouban30 只消费读模型与工作区集合，不参与交易链。
-- 每日选股工作台复用 `stock_pre_pools / stock_pools`，但用顶层 `remark` 隔离页面来源，不再把共享集合当成无来源语义的单池子。
+- 每日选股正式结果真值在 `fqscreening`；`stock_pre_pools / stock_pools` 只保留人工工作区角色。
 - Runtime Observability 是旁路系统，允许丢日志，不允许卡住主交易链。
 - 全局记忆层也是旁路系统，只负责减少 agent 重复探索，不允许覆盖正式真值。
 - TradingAgents-CN 与主交易链完全解耦，只共享 Mongo/Redis 基础设施和宿主机配置。
@@ -124,3 +128,4 @@
 - 订单管理 ingest 会在买入成交后回写 buy lot，并为 TPSL 准备退出上下文。
 - 卖出成交后会重置 Guardian buy grid 状态，避免旧层级持续生效。
 - Shouban30 当前把页面结果同步到 `stock_pre_pools` / `stock_pools`，并在 `stock_pool` 工作区提供显式 `must_pool` upsert；`30RYZT.blk` 输出仍只由手动 sync-to-tdx/clear 控制。
+- 每日选股页面只在显式点击 `add-to-pre-pool` / `add-batch-to-pre-pool` 时把 `fqscreening` 结果复制到共享工作区，不会把正式结果库和人工池子混写。

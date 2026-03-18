@@ -20,23 +20,50 @@ export const dailyScreeningApi = {
       method: 'get',
     })
   },
-  getPrePools (params = {}) {
+  getScopes () {
     return http({
-      url: '/api/daily-screening/pre-pools',
+      url: '/api/daily-screening/scopes',
       method: 'get',
-      params,
     })
   },
-  addPrePoolToStockPool (data) {
+  getLatestScope () {
     return http({
-      url: '/api/daily-screening/pre-pools/stock-pools',
+      url: '/api/daily-screening/scopes/latest',
+      method: 'get',
+    })
+  },
+  getScopeSummary (runId) {
+    return http({
+      url: `/api/daily-screening/scopes/${runId}/summary`,
+      method: 'get',
+    })
+  },
+  queryStocks (data) {
+    return http({
+      url: '/api/daily-screening/query',
       method: 'post',
       data,
     })
   },
-  deletePrePool (data) {
+  getStockDetail (runId, code) {
     return http({
-      url: '/api/daily-screening/pre-pools/delete',
+      url: `/api/daily-screening/stocks/${code}/detail`,
+      method: 'get',
+      params: {
+        run_id: runId,
+      },
+    })
+  },
+  addToPrePool (data) {
+    return http({
+      url: '/api/daily-screening/actions/add-to-pre-pool',
+      method: 'post',
+      data,
+    })
+  },
+  addBatchToPrePool (data) {
+    return http({
+      url: '/api/daily-screening/actions/add-batch-to-pre-pool',
       method: 'post',
       data,
     })

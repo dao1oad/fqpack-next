@@ -7,10 +7,13 @@ from freshquant.daily_screening.service import DailyScreeningService
 daily_screening_bp = Blueprint(
     "daily_screening", __name__, url_prefix="/api/daily-screening"
 )
-_daily_screening_service = DailyScreeningService()
+_daily_screening_service: DailyScreeningService | None = None
 
 
 def _get_daily_screening_service() -> DailyScreeningService:
+    global _daily_screening_service
+    if _daily_screening_service is None:
+        _daily_screening_service = DailyScreeningService()
     return _daily_screening_service
 
 
@@ -80,6 +83,64 @@ def stream_run(run_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@daily_screening_bp.get("/scopes")
+def get_scopes():
+    return jsonify(_get_daily_screening_service().get_scopes())
+
+
+@daily_screening_bp.get("/scopes/latest")
+def get_latest_scope():
+    return jsonify(_get_daily_screening_service().get_latest_scope())
+
+
+@daily_screening_bp.get("/scopes/<run_id>/summary")
+def get_scope_summary(run_id: str):
+    return jsonify(_get_daily_screening_service().get_scope_summary(run_id))
+
+
+@daily_screening_bp.post("/query")
+def query_scope():
+    payload = _request_json_payload()
+    run_id = str(payload.get("run_id") or "").strip()
+    if not run_id:
+        return jsonify({"error": "run_id required"}), 400
+    return jsonify(_get_daily_screening_service().query_scope(run_id, payload))
+
+
+@daily_screening_bp.get("/stocks/<code>/detail")
+def get_stock_detail(code: str):
+    run_id = str(request.args.get("run_id") or "").strip()
+    if not run_id:
+        return jsonify({"error": "run_id required"}), 400
+    try:
+        payload = _get_daily_screening_service().get_stock_detail(run_id, code)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+    return jsonify(payload)
+
+
+@daily_screening_bp.post("/actions/add-to-pre-pool")
+def add_to_pre_pool():
+    try:
+        payload = _get_daily_screening_service().add_to_pre_pool(
+            _request_json_payload()
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(payload)
+
+
+@daily_screening_bp.post("/actions/add-batch-to-pre-pool")
+def add_batch_to_pre_pool():
+    try:
+        payload = _get_daily_screening_service().add_batch_to_pre_pool(
+            _request_json_payload()
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(payload)
 
 
 @daily_screening_bp.get("/pre-pools")

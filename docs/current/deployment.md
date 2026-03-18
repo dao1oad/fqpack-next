@@ -142,6 +142,7 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface guardian -BridgeIfServiceUnavailable` |
 | `sunflower/QUANTAXIS/**` | QAWebServer 与依赖 QUANTAXIS 的宿主机策略链路 | 重建 `fq_qawebserver`；同步重启受影响宿主机 Guardian / strategy 进程 |
 | `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 读模型与 API | 重建 API；必要时重跑 Dagster 任务 |
+| `freshquant/daily_screening/**` | 每日选股 API 与 `fqscreening` 读模型 | 重建 API；如改动影响自动任务语义，补跑 Dagster 每日筛选任务 |
 | `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |
 | `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |
 | `third_party/tradingagents-cn/**` | TradingAgents-CN | 重建 `ta_backend` 与 `ta_frontend` |
@@ -205,7 +206,7 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 ## 部署后必须确认的事实
 
 - API 蓝图能返回，不是只监听端口。
-- Web UI 页面不是空白页，关键页面 `/gantt`、`/gantt/shouban30`、`/position-management`、`/tpsl`、`/runtime-observability` 能打开。
+- Web UI 页面不是空白页，关键页面 `/gantt`、`/gantt/shouban30`、`/daily-screening`、`/position-management`、`/tpsl`、`/runtime-observability` 能打开。
 - 如果本轮改了 Shouban30 工作区或 `sync-to-tdx` 语义，确认 `fq_apiserver` 已挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}`，并实测 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk` 被更新。
 - XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积。
 - 如果改了运行观测或 XTData runtime 埋点，确认 `/runtime-observability` 页面能看到 `xt_producer` / `xt_consumer` 的 5 分钟 heartbeat 与关键指标，而不是只看到启动事件。
