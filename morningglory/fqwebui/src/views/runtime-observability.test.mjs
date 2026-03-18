@@ -7,6 +7,8 @@ import {
   buildEventLedgerRows,
   buildIdentityStrip,
   buildRawSelectionKey,
+  buildTodayTimeRange,
+  buildTimeRangeQuery,
   buildTraceIdentityLabel,
   applyBoardFilter,
   buildBoardScopedQuery,
@@ -207,6 +209,36 @@ test('buildTraceQuery trims empty fields', () => {
   )
 })
 
+test('buildTraceQuery merges explicit time range bounds', () => {
+  assert.deepEqual(
+    buildTraceQuery(
+      {
+        symbol: '000001',
+      },
+      ['2026-03-18T00:00:00+08:00', '2026-03-18T23:59:59+08:00'],
+    ),
+    {
+      symbol: '000001',
+      start_time: '2026-03-18T00:00:00+08:00',
+      end_time: '2026-03-18T23:59:59+08:00',
+    },
+  )
+})
+
+test('buildTodayTimeRange returns current Beijing day bounds', () => {
+  assert.deepEqual(
+    buildTodayTimeRange('2026-03-18T12:34:56+08:00'),
+    ['2026-03-18T00:00:00+08:00', '2026-03-18T23:59:59+08:00'],
+  )
+  assert.deepEqual(
+    buildTimeRangeQuery(['2026-03-18T00:00:00+08:00', '2026-03-18T23:59:59+08:00']),
+    {
+      start_time: '2026-03-18T00:00:00+08:00',
+      end_time: '2026-03-18T23:59:59+08:00',
+    },
+  )
+})
+
 test('buildBoardScopedQuery merges sidebar filter into event query without mutating the base query', () => {
   const baseQuery = {
     symbol: '000001',
@@ -253,6 +285,17 @@ test('buildTraceIdentityLabel falls back to intent before request and order', ()
     }),
     'intent int_1',
   )
+})
+
+test('buildTraceDetail reuses hydrated detail objects without rebuilding', () => {
+  const detail = buildTraceDetail(
+    makeTrace({
+      traceId: 'trc_hydrated',
+      lastTs: '2026-03-09T10:00:03.000Z',
+    }),
+  )
+
+  assert.equal(buildTraceDetail(detail), detail)
 })
 
 test('stopPollingTimer clears current timer without arming a new one', () => {
@@ -837,8 +880,29 @@ test('pickDefaultTraceKind prefers guardian traces and falls back to all when un
 test('RuntimeObservability.vue scopes event reloads with the active sidebar component', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /runtimeObservabilityApi\.listEvents\(buildBoardScopedQuery\(query,\s*boardFilter\)\)/)
+  assert.match(content, /const buildEventRequestParams = \(\) => buildBoardScopedQuery\(query,\s*boardFilter,\s*timeRange\.value\)/)
+  assert.match(content, /const params = buildEventRequestParams\(\)/)
+  assert.match(content, /runtimeObservabilityApi\.listEvents\(params\)/)
   assert.match(content, /watch\(\s*\(\) => \[boardFilter\.component,\s*boardFilter\.runtime_node\],/)
+  assert.match(content, /if \(activeView\.value !== 'events'\) return/)
+  assert.match(content, /watch\(activeView,\s*async \(view,\s*previousView\) => \{/)
+  assert.match(content, /lastLoadedEventQueryKey\.value === buildEventRequestKey\(\)/)
+})
+
+test('RuntimeObservability.vue keeps toolbar actions in the left title block and exposes a time range picker', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<div class="runtime-title-main">[\s\S]*<div class="workbench-title-group">[\s\S]*<div class="runtime-title-actions">/)
+  assert.match(content, /<el-date-picker[\s\S]*type="datetimerange"/)
+  assert.match(content, /buildTraceQuery\(query,\s*timeRange\.value\)/)
+  assert.match(content, /buildBoardScopedQuery\(query,\s*boardFilter,\s*timeRange\.value\)/)
+})
+
+test('RuntimeObservability.vue reuses trace list payload for detail selection instead of refetching trace detail', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /const handleTraceClick = async \(row\) => \{[\s\S]*selectedTrace\.value = selected/)
+  assert.doesNotMatch(content, /runtimeObservabilityApi\.getTraceDetail\(/)
 })
 
 test('buildRecentTraceFeed exposes flow nodes with guardian decision detail and generic fallback summary', () => {

@@ -4,31 +4,44 @@
     <div class="workbench-body runtime-shell">
       <section class="workbench-toolbar runtime-section runtime-section--workbench">
         <div class="workbench-toolbar__header runtime-title-row">
-          <div class="workbench-title-group">
-            <div class="workbench-page-title">运行观测</div>
-            <div class="workbench-page-meta">
-              <span>主视图拆为全局 Trace 与组件 Event，分别回答“链路发生了什么”和“组件最近有没有工作”。</span>
+          <div class="runtime-title-main">
+            <div class="workbench-title-group">
+              <div class="workbench-page-title">运行观测</div>
+              <div class="workbench-page-meta">
+                <span>主视图拆为全局 Trace 与组件 Event，分别回答“链路发生了什么”和“组件最近有没有工作”。</span>
+              </div>
             </div>
-          </div>
-          <div class="workbench-toolbar__actions runtime-title-actions">
-            <el-radio-group v-model="activeView" size="small" class="runtime-view-switch">
-              <el-radio-button label="traces">全局 Trace</el-radio-button>
-              <el-radio-button label="events">组件 Event</el-radio-button>
-            </el-radio-group>
-            <el-switch
-              v-model="autoRefresh"
-              inline-prompt
-              active-text="自动刷新"
-              inactive-text="手动"
-            />
-            <el-switch
-              v-model="onlyIssues"
-              inline-prompt
-              active-text="仅异常"
-              inactive-text="全部"
-            />
-            <el-button @click="openAdvancedFilter">高级筛选</el-button>
-            <el-button type="primary" :loading="loading.overview" @click="loadOverview">刷新</el-button>
+            <div class="runtime-title-actions">
+              <el-date-picker
+                v-model="timeRange"
+                type="datetimerange"
+                class="runtime-time-range"
+                value-format="YYYY-MM-DDTHH:mm:ssZ"
+                range-separator="至"
+                start-placeholder="开始时间"
+                end-placeholder="结束时间"
+                :clearable="false"
+                @change="handleTimeRangeChange"
+              />
+              <el-radio-group v-model="activeView" size="small" class="runtime-view-switch">
+                <el-radio-button label="traces">全局 Trace</el-radio-button>
+                <el-radio-button label="events">组件 Event</el-radio-button>
+              </el-radio-group>
+              <el-switch
+                v-model="autoRefresh"
+                inline-prompt
+                active-text="自动刷新"
+                inactive-text="手动"
+              />
+              <el-switch
+                v-model="onlyIssues"
+                inline-prompt
+                active-text="仅异常"
+                inactive-text="全部"
+              />
+              <el-button @click="openAdvancedFilter">高级筛选</el-button>
+              <el-button type="primary" :loading="loading.overview" @click="loadOverview">刷新</el-button>
+            </div>
           </div>
         </div>
 
@@ -788,6 +801,8 @@ import {
   buildComponentEventFeed,
   buildEventLedgerRows,
   buildComponentSidebarItems,
+  buildTodayTimeRange,
+  buildTimeRangeQuery,
   buildIssuePriorityCards,
   buildTraceKindOptions,
   buildTraceListSummary,
@@ -829,6 +844,7 @@ const draftQuery = reactive(createTraceQueryState())
 const healthCards = ref([])
 const traces = ref([])
 const events = ref([])
+const timeRange = ref(buildTodayTimeRange())
 const selectedTrace = ref(null)
 const selectedStep = ref(null)
 const selectedEvent = ref(null)
@@ -850,6 +866,7 @@ const boardFilter = reactive({
   component: '',
   runtime_node: '',
 })
+const lastLoadedEventQueryKey = ref('')
 let eventLoadToken = 0
 const rawQuery = reactive({
   runtime_node: '',
@@ -980,16 +997,30 @@ const buildContextRows = (blocks = []) => {
   )
 }
 
+const normalizeTimeRangeState = (value) => {
+  if (Array.isArray(value) && value.length === 2) {
+    const [startTime, endTime] = value
+    if (String(startTime || '').trim() && String(endTime || '').trim()) {
+      return [startTime, endTime]
+    }
+  }
+  return buildTodayTimeRange()
+}
+
+const buildEventRequestParams = () => buildBoardScopedQuery(query, boardFilter, timeRange.value)
+const buildEventRequestKey = () => JSON.stringify(buildEventRequestParams())
+
+const hydratedTraces = computed(() => traces.value.map((trace) => buildTraceDetail(trace)))
 const visibleTraces = computed(() => {
-  const kindFiltered = filterTracesByKind(traces.value, selectedTraceKind.value)
+  const kindFiltered = filterTracesByKind(hydratedTraces.value, selectedTraceKind.value)
   if (!onlyIssues.value) return kindFiltered
-  return kindFiltered.filter((trace) => buildTraceDetail(trace).issue_count > 0)
+  return kindFiltered.filter((trace) => trace.issue_count > 0)
 })
-const traceKindOptions = computed(() => buildTraceKindOptions(traces.value))
+const traceKindOptions = computed(() => buildTraceKindOptions(hydratedTraces.value))
 const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
 const issuePriorityCards = computed(() => buildIssuePriorityCards(visibleTraces.value))
 const traceLedgerRows = computed(() => buildTraceLedgerRows(visibleTraces.value))
-const componentSidebarItems = computed(() => buildComponentSidebarItems(traces.value, healthCards.value))
+const componentSidebarItems = computed(() => buildComponentSidebarItems(hydratedTraces.value, healthCards.value))
 const activeComponent = computed(() => String(boardFilter.component || '').trim())
 const componentEventFeed = computed(() => {
   if (!activeComponent.value) return []
@@ -1521,10 +1552,12 @@ const loadOverview = async () => {
   loading.overview = true
   try {
     pageError.value = ''
+    const currentTimeRange = normalizeTimeRangeState(timeRange.value)
+    timeRange.value = currentTimeRange
     const [healthResult, traceResult, eventResult] = await Promise.allSettled([
-      runtimeObservabilityApi.getHealthSummary(),
+      runtimeObservabilityApi.getHealthSummary(buildTimeRangeQuery(currentTimeRange)),
       loadTraces({ suppressError: true }),
-      loadEvents({ suppressError: true }),
+      ...(activeView.value === 'events' ? [loadEvents({ suppressError: true })] : []),
     ])
     const errors = []
     if (healthResult.status === 'fulfilled') {
@@ -1537,7 +1570,7 @@ const loadOverview = async () => {
     if (traceResult.status === 'rejected') {
       errors.push(summarizeRequestError('Trace 列表加载失败', traceResult.reason))
     }
-    if (eventResult.status === 'rejected') {
+    if (eventResult?.status === 'rejected') {
       errors.push(summarizeRequestError('Event 列表加载失败', eventResult.reason))
     }
     pageError.value = errors.join('；')
@@ -1551,13 +1584,13 @@ const loadTraces = async (options = {}) => {
   loading.traces = true
   try {
     if (!suppressError) pageError.value = ''
-    const response = await runtimeObservabilityApi.listTraces(buildTraceQuery(query))
+    const response = await runtimeObservabilityApi.listTraces(buildTraceQuery(query, timeRange.value))
     traces.value = readApiPayload(response, 'traces', [])
     const currentTraceRow = {
       trace_key: selectedTrace.value?.trace_key,
       trace_id: selectedTrace.value?.trace_id,
     }
-    selectedTrace.value = findTraceByRow(traces.value, currentTraceRow) || traces.value[0] || null
+    selectedTrace.value = findTraceByRow(hydratedTraces.value, currentTraceRow) || hydratedTraces.value[0] || null
   } catch (error) {
     if (!suppressError) {
       pageError.value = summarizeRequestError('Trace 列表加载失败', error)
@@ -1571,12 +1604,15 @@ const loadTraces = async (options = {}) => {
 const loadEvents = async (options = {}) => {
   const suppressError = Boolean(options?.suppressError)
   const loadToken = eventLoadToken + 1
+  const params = buildEventRequestParams()
+  const requestKey = JSON.stringify(params)
   eventLoadToken = loadToken
   try {
     if (!suppressError) pageError.value = ''
-    const response = await runtimeObservabilityApi.listEvents(buildBoardScopedQuery(query, boardFilter))
+    const response = await runtimeObservabilityApi.listEvents(params)
     if (loadToken !== eventLoadToken) return
     events.value = readApiPayload(response, 'events', [])
+    lastLoadedEventQueryKey.value = requestKey
   } catch (error) {
     if (loadToken !== eventLoadToken) return
     if (!suppressError) {
@@ -1593,7 +1629,11 @@ const openAdvancedFilter = () => {
 
 const applyAdvancedFilter = async () => {
   syncQueryState(query, draftQuery)
-  await Promise.all([loadTraces(), loadEvents()])
+  const tasks = [loadTraces()]
+  if (activeView.value === 'events') {
+    tasks.push(loadEvents())
+  }
+  await Promise.all(tasks)
   advancedFilterVisible.value = false
 }
 
@@ -1602,14 +1642,9 @@ const resetAdvancedFilter = () => {
 }
 
 const handleTraceClick = async (row) => {
-  const selected = findTraceByRow(traces.value, row)
+  const selected = findTraceByRow(hydratedTraces.value, row)
   if (!selected) return
-  if (selected.trace_id) {
-    const response = await runtimeObservabilityApi.getTraceDetail(selected.trace_id)
-    selectedTrace.value = readApiPayload(response, 'trace', selected)
-  } else {
-    selectedTrace.value = selected
-  }
+  selectedTrace.value = selected
   activeTraceDetailTab.value = 'steps'
 }
 
@@ -1624,6 +1659,11 @@ const handleRecentTraceClick = async (row) => {
 const handleEventClick = (event) => {
   selectedEvent.value = event || null
   activeEventDetailTab.value = 'event'
+}
+
+const handleTimeRangeChange = async (value) => {
+  timeRange.value = normalizeTimeRangeState(value)
+  await loadOverview()
 }
 
 const handleComponentFilter = (target) => {
@@ -1649,7 +1689,11 @@ const clearFilterChip = async (chip) => {
   if (chip.kind === 'query' && chip.field) {
     query[chip.field] = ''
     draftQuery[chip.field] = ''
-    await Promise.all([loadTraces(), loadEvents()])
+    const tasks = [loadTraces()]
+    if (activeView.value === 'events') {
+      tasks.push(loadEvents())
+    }
+    await Promise.all(tasks)
   }
 }
 
@@ -1866,7 +1910,7 @@ watch(componentEventFeed, (items) => {
   selectedEvent.value = items.find((item) => item.key === currentKey) || items[0] || null
 }, { immediate: true })
 
-watch(traces, (items) => {
+watch(hydratedTraces, (items) => {
   selectedTraceKind.value = pickDefaultTraceKind(items, selectedTraceKind.value)
 }, { immediate: true })
 
@@ -1887,9 +1931,16 @@ watch(
   async ([component, runtimeNode], [prevComponent, prevRuntimeNode] = []) => {
     if (component === prevComponent && runtimeNode === prevRuntimeNode) return
     if (!component && !runtimeNode) return
+    if (activeView.value !== 'events') return
     await loadEvents({ suppressError: true })
   },
 )
+
+watch(activeView, async (view, previousView) => {
+  if (view !== 'events' || view === previousView) return
+  if (lastLoadedEventQueryKey.value === buildEventRequestKey()) return
+  await loadEvents({ suppressError: true })
+})
 
 watch(visibleTraces, (items) => {
   const currentRow = {
@@ -1949,10 +2000,17 @@ onBeforeUnmount(() => {
 
 .runtime-title-row {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   align-items: flex-start;
   margin: 0;
+}
+
+.runtime-title-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
 }
 
 .runtime-title-actions {
@@ -1960,6 +2018,10 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.runtime-time-range {
+  min-width: 340px;
 }
 
 .runtime-view-switch {

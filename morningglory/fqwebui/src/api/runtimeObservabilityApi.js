@@ -7,10 +7,11 @@ export const runtimeObservabilityApi = {
       method: 'get'
     })
   },
-  getHealthSummary () {
+  getHealthSummary (params = {}) {
     return axios({
       url: '/api/runtime/health/summary',
-      method: 'get'
+      method: 'get',
+      params
     })
   },
   listTraces (params = {}) {
@@ -20,10 +21,11 @@ export const runtimeObservabilityApi = {
       params
     })
   },
-  getTraceDetail (traceId) {
+  getTraceDetail (traceId, params = {}) {
     return axios({
       url: `/api/runtime/traces/${traceId}`,
-      method: 'get'
+      method: 'get',
+      params
     })
   },
   listEvents (params = {}) {
