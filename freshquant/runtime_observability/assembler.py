@@ -66,6 +66,24 @@ def assemble_traces(
     return traces
 
 
+def enrich_events_with_symbol_name(
+    events: list[dict] | tuple[dict, ...],
+) -> list[dict]:
+    enriched: list[dict] = []
+    for event in events or []:
+        if not isinstance(event, dict):
+            continue
+        record = dict(event)
+        symbol = _normalized_text(record.get("symbol")) or None
+        symbol_name = _find_inline_symbol_name(record)
+        if not symbol_name and symbol:
+            symbol_name = _lookup_symbol_name(symbol)
+        if symbol_name:
+            record["symbol_name"] = symbol_name
+        enriched.append(record)
+    return enriched
+
+
 def _build_trace(events: list[dict], *, include_symbol_name: bool) -> dict:
     sorted_steps = sorted(events, key=_sort_timestamp)
     trace_ids = _collect_field_values(sorted_steps, "trace_id")
@@ -353,17 +371,24 @@ def _find_trace_symbol_name(
     steps: list[dict], *, symbol: str | None, include_lookup: bool
 ) -> str | None:
     for step in steps:
-        for field in _SYMBOL_NAME_FIELDS:
-            value = _normalized_text(step.get(field))
-            if value:
-                return value
-        signal_summary = step.get("signal_summary")
-        if isinstance(signal_summary, dict):
-            value = _normalized_text(signal_summary.get("name"))
-            if value:
-                return value
+        value = _find_inline_symbol_name(step)
+        if value:
+            return value
     if include_lookup and symbol:
         return _lookup_symbol_name(symbol)
+    return None
+
+
+def _find_inline_symbol_name(record: dict) -> str | None:
+    for field in _SYMBOL_NAME_FIELDS:
+        value = _normalized_text(record.get(field))
+        if value:
+            return value
+    signal_summary = record.get("signal_summary")
+    if isinstance(signal_summary, dict):
+        value = _normalized_text(signal_summary.get("name"))
+        if value:
+            return value
     return None
 
 

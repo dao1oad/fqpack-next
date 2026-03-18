@@ -323,6 +323,46 @@ def test_runtime_traces_route_supports_explicit_symbol_name_opt_in(
     assert detail_body["trace"]["symbol_name"] == "平安银行"
 
 
+def test_runtime_events_route_supports_explicit_symbol_name_opt_in(
+    monkeypatch, tmp_path
+):
+    import freshquant.runtime_observability.assembler as assembler
+
+    assembler._lookup_symbol_name_cached.cache_clear()
+    monkeypatch.setattr(
+        assembler,
+        "query_instrument_info",
+        lambda symbol: {"name": "平安银行"} if symbol == "000001" else None,
+    )
+    _write_events(
+        tmp_path,
+        runtime_node_path="host_rear",
+        component="order_submit",
+        date="2026-03-09",
+        file_name="order_submit_2026-03-09_1.jsonl",
+        records=[
+            {
+                "event_type": "trace_step",
+                "trace_id": "trc_event_symbol_name_opt_in",
+                "component": "order_submit",
+                "runtime_node": "host:rear",
+                "node": "tracking_create",
+                "symbol": "sz000001",
+                "ts": "2026-03-09T10:00:00+08:00",
+            }
+        ],
+    )
+    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+    client = _make_runtime_client()
+
+    resp = client.get("/api/runtime/events?include_symbol_name=1")
+
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["events"][0]["symbol"] == "sz000001"
+    assert body["events"][0]["symbol_name"] == "平安银行"
+
+
 def test_runtime_raw_file_tail_route(monkeypatch, tmp_path):
     _write_events(
         tmp_path,

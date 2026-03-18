@@ -198,19 +198,17 @@ class TpslService:
                 tiers=profile.get("tiers") or [],
                 armed_levels=state.get("armed_levels") or {},
             )
-            if hit:
-                trace_id_value = str(trace_id or "").strip() or new_trace_id()
-            self._emit_runtime(
-                "trigger_eval",
-                symbol=base_symbol,
-                trace_id=trace_id_value,
-                payload={
-                    "kind": "takeprofit",
-                    "hit_level": (hit or {}).get("level"),
-                    "triggered": bool(hit),
-                },
-            )
+            trigger_payload = {
+                "kind": "takeprofit",
+                "hit_level": (hit or {}).get("level"),
+                "triggered": bool(hit),
+            }
             if not hit:
+                self._emit_runtime(
+                    "trigger_eval",
+                    symbol=base_symbol,
+                    payload=trigger_payload,
+                )
                 return None
 
             open_slices = self.order_repository.list_open_slices(base_symbol)
@@ -219,28 +217,48 @@ class TpslService:
                 tier_price=hit["price"],
             )
             if int(quantity_result["quantity"] or 0) <= 0:
+                self._emit_runtime(
+                    "trigger_eval",
+                    symbol=base_symbol,
+                    payload=trigger_payload,
+                )
                 return None
 
             sell_cap = self.position_reader.get_can_use_volume(base_symbol)
             if int(sell_cap or 0) <= 0:
+                self._emit_runtime(
+                    "trigger_eval",
+                    symbol=base_symbol,
+                    payload=trigger_payload,
+                )
                 return {
                     "status": "blocked",
                     "symbol": base_symbol,
-                    "trace_id": trace_id_value,
                     "blocked_reason": "can_use_volume",
                     "quantity": 0,
                 }
             quantity_cap = min(int(quantity_result["quantity"]), int(sell_cap))
             order_quantity = _floor_to_board_lot(quantity_cap)
             if order_quantity < 100:
+                self._emit_runtime(
+                    "trigger_eval",
+                    symbol=base_symbol,
+                    payload=trigger_payload,
+                )
                 return {
                     "status": "blocked",
                     "symbol": base_symbol,
-                    "trace_id": trace_id_value,
                     "blocked_reason": "board_lot",
                     "quantity": 0,
                 }
 
+            trace_id_value = str(trace_id or "").strip() or new_trace_id()
+            self._emit_runtime(
+                "trigger_eval",
+                symbol=base_symbol,
+                trace_id=trace_id_value,
+                payload=trigger_payload,
+            )
             capped = _cap_takeprofit_breakdown(
                 quantity_result.get("profit_slices") or [],
                 quantity_cap=order_quantity,
@@ -319,18 +337,16 @@ class TpslService:
                     continue
                 if float(bid1 or 0.0) <= float(stop_price):
                     triggered_bindings.append(binding)
-            if triggered_bindings:
-                trace_id_value = str(trace_id or "").strip() or new_trace_id()
-            self._emit_runtime(
-                "trigger_eval",
-                symbol=base_symbol,
-                trace_id=trace_id_value,
-                payload={
-                    "kind": "stoploss",
-                    "triggered_bindings": len(triggered_bindings),
-                },
-            )
+            trigger_payload = {
+                "kind": "stoploss",
+                "triggered_bindings": len(triggered_bindings),
+            }
             if not triggered_bindings:
+                self._emit_runtime(
+                    "trigger_eval",
+                    symbol=base_symbol,
+                    payload=trigger_payload,
+                )
                 return None
 
             can_use_volume = self.position_reader.get_can_use_volume(base_symbol)
@@ -341,28 +357,42 @@ class TpslService:
                 triggered_bindings=triggered_bindings,
                 can_use_volume=can_use_volume,
             )
-            if batch.get("status") != "blocked":
-                intent_id_value = new_intent_id()
-                batch["ask1"] = float(ask1 or 0.0)
-                batch["last_price"] = float(last_price or 0.0)
-                batch["tick_time"] = int(tick_time or 0)
-                batch["trace_id"] = trace_id_value
-                batch["intent_id"] = intent_id_value
-                batch["triggered_bindings"] = list(triggered_bindings)
-                current_node = "batch_create"
+            if batch.get("status") == "blocked":
+                batch.pop("trace_id", None)
+                batch.pop("intent_id", None)
                 self._emit_runtime(
-                    "batch_create",
+                    "trigger_eval",
                     symbol=base_symbol,
-                    trace_id=trace_id_value,
-                    intent_id=intent_id_value,
-                    payload={
-                        "kind": "stoploss",
-                        "batch_id": batch.get("batch_id"),
-                        "quantity": batch.get("quantity"),
-                    },
+                    payload=trigger_payload,
                 )
-            elif trace_id_value:
-                batch["trace_id"] = trace_id_value
+                return batch
+
+            trace_id_value = str(trace_id or "").strip() or new_trace_id()
+            self._emit_runtime(
+                "trigger_eval",
+                symbol=base_symbol,
+                trace_id=trace_id_value,
+                payload=trigger_payload,
+            )
+            intent_id_value = new_intent_id()
+            batch["ask1"] = float(ask1 or 0.0)
+            batch["last_price"] = float(last_price or 0.0)
+            batch["tick_time"] = int(tick_time or 0)
+            batch["trace_id"] = trace_id_value
+            batch["intent_id"] = intent_id_value
+            batch["triggered_bindings"] = list(triggered_bindings)
+            current_node = "batch_create"
+            self._emit_runtime(
+                "batch_create",
+                symbol=base_symbol,
+                trace_id=trace_id_value,
+                intent_id=intent_id_value,
+                payload={
+                    "kind": "stoploss",
+                    "batch_id": batch.get("batch_id"),
+                    "quantity": batch.get("quantity"),
+                },
+            )
             return batch
         except Exception as exc:
             self._emit_runtime(

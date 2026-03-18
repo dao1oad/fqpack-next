@@ -881,12 +881,18 @@ test('RuntimeObservability.vue scopes event reloads with the active sidebar comp
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
   assert.match(content, /const buildEventRequestParams = \(\) => buildBoardScopedQuery\(query,\s*boardFilter,\s*timeRange\.value\)/)
-  assert.match(content, /const params = buildEventRequestParams\(\)/)
+  assert.match(content, /const params = \{[\s\S]*buildEventRequestParams\(\)[\s\S]*include_symbol_name:\s*1[\s\S]*\}/)
   assert.match(content, /runtimeObservabilityApi\.listEvents\(params\)/)
   assert.match(content, /watch\(\s*\(\) => \[boardFilter\.component,\s*boardFilter\.runtime_node\],/)
   assert.match(content, /if \(activeView\.value !== 'events'\) return/)
   assert.match(content, /watch\(activeView,\s*async \(view,\s*previousView\) => \{/)
   assert.match(content, /lastLoadedEventQueryKey\.value === buildEventRequestKey\(\)/)
+})
+
+test('RuntimeObservability.vue switches to component event view when sidebar component is clicked from global trace', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /const handleComponentFilter = \(target\) => \{[\s\S]*activeView\.value = 'events'/)
 })
 
 test('RuntimeObservability.vue keeps toolbar actions in the left title block and exposes a time range picker', async () => {
@@ -903,6 +909,29 @@ test('RuntimeObservability.vue reuses trace list payload for detail selection in
 
   assert.match(content, /const handleTraceClick = async \(row\) => \{[\s\S]*selectedTrace\.value = selected/)
   assert.doesNotMatch(content, /runtimeObservabilityApi\.getTraceDetail\(/)
+})
+
+test('RuntimeObservability.vue keeps the right detail pane scrollable at full zoom instead of clipping content', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /:deep\(\.workspace-tabs \.el-tabs__content\) \{[\s\S]*flex:\s*1 1 auto;[\s\S]*overflow:\s*hidden;/)
+  assert.match(content, /:deep\(\.workspace-tabs \.el-tab-pane\) \{[\s\S]*flex:\s*1 1 auto;[\s\S]*min-height:\s*0;/)
+  assert.match(content, /\.runtime-detail-panel--fill \{[\s\S]*overflow:\s*auto;/)
+})
+
+test('RuntimeObservability.vue only renders guardian step tables when guardian metadata exists', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<section v-if="selectedStep\?\.guardian_step && selectedStepGuardianRows.length" class="detail-ledger-section">/)
+  assert.match(content, /<section v-if="selectedStep\?\.guardian_step && selectedStepSignalRows.length" class="detail-ledger-section">/)
+})
+
+test('RuntimeObservability.vue requests explicit symbol-name enrichment for traces and events', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /runtimeObservabilityApi\.listTraces\(\{[\s\S]*include_symbol_name:\s*1[\s\S]*\}\)/)
+  assert.match(content, /const params = \{[\s\S]*buildEventRequestParams\(\)[\s\S]*include_symbol_name:\s*1[\s\S]*\}/)
+  assert.match(content, /value: selectedEvent\.value\?\.symbol_display/)
 })
 
 test('buildRecentTraceFeed exposes flow nodes with guardian decision detail and generic fallback summary', () => {
@@ -1631,6 +1660,7 @@ test('findRawRecordIndex matches the current step and buildRawRecordSummary mark
       request_id: 'req_1',
       internal_order_id: 'ord_1',
       symbol: '600000',
+      symbol_name: '浦发银行',
       payload: { quantity: 300 },
     },
   ]
@@ -1639,7 +1669,7 @@ test('findRawRecordIndex matches the current step and buildRawRecordSummary mark
   assert.deepEqual(buildRawRecordSummary(records[1]), {
     title: 'order_submit.queue_write',
     subtitle: '2026-03-09 10:00:01',
-    badges: ['trace trc_1', 'request req_1', 'order ord_1', 'symbol 600000'],
+    badges: ['trace trc_1', 'request req_1', 'order ord_1', 'symbol 600000 / 浦发银行'],
     body: '{\n  "quantity": 300\n}',
   })
 })

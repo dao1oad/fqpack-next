@@ -8,7 +8,10 @@ from typing import Any
 
 from flask import Blueprint, jsonify, request
 
-from freshquant.runtime_observability.assembler import assemble_traces
+from freshquant.runtime_observability.assembler import (
+    assemble_traces,
+    enrich_events_with_symbol_name,
+)
 from freshquant.runtime_observability.health import build_health_summary
 from freshquant.runtime_observability.logger import (
     _collect_runtime_date_directories,
@@ -83,6 +86,8 @@ def list_events():
         start_time=start_time,
         end_time=end_time,
     )
+    if _include_symbol_name():
+        events = enrich_events_with_symbol_name(events)
     return jsonify({"events": events})
 
 
