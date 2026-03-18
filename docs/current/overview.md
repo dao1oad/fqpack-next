@@ -22,7 +22,7 @@ FreshQuant 当前已经完成第一阶段的模块收口，现阶段进入第二
 - `morningglory/fqwebui/`
   - Vue Web UI，包括 Gantt、Shouban30、每日选股、KlineSlim、订单管理、仓位管理、标的管理、股票 TPSL 管理、Runtime Observability 页面。
 - `morningglory/fqdagster/` 与 `morningglory/fqdagsterconfig/`
-  - Gantt/Shouban30 读模型的 Dagster 运行面。
+  - Gantt/Shouban30 读模型与每日选股 19:00 自动任务的 Dagster 运行面。
 - `runtime/symphony/`
   - GitHub-first 正式工作流模板、服务同步脚本、cleanup finalizer。
 - `third_party/tradingagents-cn/`

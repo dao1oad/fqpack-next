@@ -29,6 +29,14 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - `shouban30_plates`
 - `shouban30_stocks`
 
+### `fqscreening` 或 `mongodb.screening_db`
+
+每日选股正式结果库，当前主要集合：
+
+- `daily_screening_runs`
+- `daily_screening_memberships`
+- `daily_screening_stock_snapshots`
+
 ### `freshquant_order_management`
 
 订单管理主事实库，当前主要集合：
@@ -77,14 +85,15 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 
 - 主交易事实在订单管理库中，不在旧 `xt_orders/xt_trades` 集合中。
 - `xt_orders / xt_trades / xt_positions / xt_assets` 是外部回报与当前账户视角事实，不是内部订单请求事实。
-- `stock_pre_pools / stock_pools / must_pool` 是策略与页面共享的工作区/订阅范围集合。
-- 每日选股页面会把来源真值写到 `stock_pre_pools.remark`，当前正式值包括：
+- `stock_pre_pools / stock_pools / must_pool` 是策略与页面共享的工作区/订阅范围集合，不再承担每日选股正式结果真值。
+- 每日选股正式 run、membership 和股票快照都落在 `fqscreening`；页面只在显式动作时复制结果到 `stock_pre_pools`。
+- 当每日选股复制结果到 `stock_pre_pools` 时，当前仍使用顶层 `remark` 保持来源隔离，正式值包括：
   - `daily-screening:clxs`
   - `daily-screening:chanlun`
-- 当 `remark` 非空时，`stock_pre_pools` 当前 upsert 语义是 `code + category + remark`；空 `remark` 仍保持旧 `code + category` 语义。
 - `stock_signals` 是 Guardian event monitor 写入的实时信号日志。
 - `realtime_screen_multi_period` 是启用 CLX 能力的 XTData consumer 写入的多周期模型信号读模型。
 - Gantt/Shouban30 集合是只读视图与筛选结果，不参与订单账本。
+- `daily_screening_runs / memberships / stock_snapshots` 是每日选股正式读模型，不参与订单账本。
 - `fq_memory` 是 agent 旁路上下文库，不参与交易链、订单账本或正式运行真值。
 - Shouban30 当前把 `stock_pre_pools.extra.shouban30_order` 与 `stock_pools.extra.shouban30_order` 作为页面列表顺序和 `.blk` 输出顺序真值；历史 `stock_pools` 记录缺失该字段时，读取顺序兼容回退到旧 `datetime desc`。
 
@@ -118,7 +127,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - XT 回报 ingest 写 `om_trade_facts`、`om_buy_lots`、`om_lot_slices`、`om_sell_allocations` 等。
 - TPSL 读 `xt_positions` 与 `om_*`，写 `om_takeprofit_*` / `om_exit_trigger_events`。
 - Gantt/Shouban30 API 读 gantt 库，并在工作区操作时写 `stock_pre_pools`、`stock_pools`；`stock_pool -> must_pool` 的单条/批量动作会显式写 `must_pool`，但不会改写 `stock_pool` 顺序。
-- 每日选股 API 直接调用 `CLXS / chanlun` 策略，把扫描会话留在 API 进程内存，并在结果 accepted 后把页面来源写到 `stock_pre_pools`；可选地再写 `stock_signals / stock_pools`。
+- 每日选股 API 直接调用 `CLXS / chanlun / shouban30_agg90 / market_flags`，把正式 run 和查询快照写入 `fqscreening`；手动工作区动作才会写 `stock_pre_pools`。
 
 ## 当前排障原则
 

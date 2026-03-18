@@ -81,7 +81,9 @@ def _make_service(*, fake_db=None, session_store=None):
     )
 
 
-def _make_service_with_screening_repo(*, fake_db=None, screening_db=None, session_store=None):
+def _make_service_with_screening_repo(
+    *, fake_db=None, screening_db=None, session_store=None
+):
     from freshquant.daily_screening.pipeline_service import (
         DailyScreeningPipelineService,
     )
@@ -111,9 +113,15 @@ def _parse_sse_events(chunks: list[str]) -> list[dict]:
     parsed = []
     for chunk in chunks:
         lines = [line for line in chunk.strip().splitlines() if line]
-        event_id = next(line.split(": ", 1)[1] for line in lines if line.startswith("id: "))
-        event = next(line.split(": ", 1)[1] for line in lines if line.startswith("event: "))
-        data = next(line.split(": ", 1)[1] for line in lines if line.startswith("data: "))
+        event_id = next(
+            line.split(": ", 1)[1] for line in lines if line.startswith("id: ")
+        )
+        event = next(
+            line.split(": ", 1)[1] for line in lines if line.startswith("event: ")
+        )
+        data = next(
+            line.split(": ", 1)[1] for line in lines if line.startswith("data: ")
+        )
         parsed.append({"id": int(event_id), "event": event, "data": json.loads(data)})
     return parsed
 
@@ -157,14 +165,22 @@ def test_daily_screening_schema_exposes_dynamic_pre_pool_options():
         field for field in all_model["fields"] if field["name"] == "clxs_model_opts"
     )
     assert all_clxs_field["default"] == FULL_CLXS_MODEL_OPTS
-    assert [option["value"] for option in all_clxs_field["options"]] == FULL_CLXS_MODEL_OPTS
-    assert [option["label"] for option in all_clxs_field["options"]] == FULL_CLXS_MODEL_LABELS
+    assert [
+        option["value"] for option in all_clxs_field["options"]
+    ] == FULL_CLXS_MODEL_OPTS
+    assert [
+        option["label"] for option in all_clxs_field["options"]
+    ] == FULL_CLXS_MODEL_LABELS
     assert any(field["name"] == "chanlun_signal_types" for field in all_model["fields"])
     clxs_model = next(item for item in schema["models"] if item["id"] == "clxs")
-    clxs_field = next(field for field in clxs_model["fields"] if field["name"] == "model_opts")
+    clxs_field = next(
+        field for field in clxs_model["fields"] if field["name"] == "model_opts"
+    )
     assert clxs_field["default"] == [10001]
     assert [option["value"] for option in clxs_field["options"]] == FULL_CLXS_MODEL_OPTS
-    assert [option["label"] for option in clxs_field["options"]] == FULL_CLXS_MODEL_LABELS
+    assert [
+        option["label"] for option in clxs_field["options"]
+    ] == FULL_CLXS_MODEL_LABELS
     chanlun_model = next(item for item in schema["models"] if item["id"] == "chanlun")
     assert any(field["name"] == "input_mode" for field in chanlun_model["fields"])
 
@@ -180,6 +196,77 @@ def test_daily_screening_service_normalizes_all_mode_to_full_clxs_model_set():
     assert config["clxs"]["model_opts"] == FULL_CLXS_MODEL_OPTS
     assert config["clxs"]["model_opt"] == 10001
     assert config["clxs"]["remark"] == "daily-screening:clxs"
+
+
+def test_daily_screening_service_start_run_supports_dagster_trigger_type():
+    from freshquant.daily_screening.service import DailyScreeningService
+    from freshquant.daily_screening.session_store import DailyScreeningSessionStore
+
+    captured = {}
+
+    class FakePipelineService:
+        def start_run(self, params, *, trigger_type):
+            captured["trigger_type"] = trigger_type
+            return {"id": "run-dagster", "run_id": "run-dagster"}
+
+        def execute_run(self, run_id, config, *, execute_stage, on_event):
+            captured["execute_run"] = {
+                "run_id": run_id,
+                "model": config["model"],
+            }
+            on_event(
+                "run_started",
+                {"run_id": run_id, "status": "running", "model": config["model"]},
+            )
+            on_event(
+                "run_completed",
+                {
+                    "run_id": run_id,
+                    "status": "completed",
+                    "summary": {"accepted_count": 0, "persisted_count": 0},
+                    "stage_summaries": {},
+                },
+            )
+            return {"run_id": run_id, "status": "completed"}
+
+    service = DailyScreeningService(
+        session_store=DailyScreeningSessionStore(),
+        db=FakeDB(stock_pre_pools=FakeCollection([])),
+        pipeline_service=FakePipelineService(),
+    )
+
+    run = service.start_run(
+        {"model": "all"},
+        run_async=False,
+        trigger_type="dagster_schedule",
+    )
+
+    assert captured["trigger_type"] == "dagster_schedule"
+    assert captured["execute_run"] == {"run_id": "run-dagster", "model": "all"}
+    assert run["status"] == "completed"
+
+
+def test_daily_screening_service_ensures_screening_indexes_on_init():
+    from freshquant.daily_screening.service import DailyScreeningService
+    from freshquant.daily_screening.session_store import DailyScreeningSessionStore
+
+    captured = {"ensure_indexes": 0}
+
+    class FakePipelineService:
+        def __init__(self):
+            self.repository = SimpleNamespace(
+                ensure_indexes=lambda: captured.__setitem__(
+                    "ensure_indexes", captured["ensure_indexes"] + 1
+                )
+            )
+
+    DailyScreeningService(
+        session_store=DailyScreeningSessionStore(),
+        db=FakeDB(stock_pre_pools=FakeCollection([])),
+        pipeline_service=FakePipelineService(),
+    )
+
+    assert captured["ensure_indexes"] == 1
 
 
 def test_daily_screening_service_runs_clxs_and_persists_results_with_remark(
@@ -829,13 +916,17 @@ def test_daily_screening_service_runs_all_pipeline_and_persists_model_metadata(
     assert [item["model_key"] for item in run["results"][:12]] == [
         f"CLXS_{model_opt}" for model_opt in FULL_CLXS_MODEL_OPTS
     ]
-    assert [item["model_label"] for item in run["results"][:12]] == FULL_CLXS_MODEL_LABELS
+    assert [
+        item["model_label"] for item in run["results"][:12]
+    ] == FULL_CLXS_MODEL_LABELS
     assert [item["branch"] for item in run["results"][:12]] == ["clxs"] * 12
     assert [item["model_key"] for item in run["results"][12:]] == [
         "buy_zs_huila",
         "macd_bullish_divergence",
     ]
-    clxs_persisted = [item for item in persisted if item["remark"] == "daily-screening:clxs"]
+    clxs_persisted = [
+        item for item in persisted if item["remark"] == "daily-screening:clxs"
+    ]
     chanlun_persisted = [
         item for item in persisted if item["remark"] == "daily-screening:chanlun"
     ]
@@ -974,7 +1065,9 @@ def test_daily_screening_service_all_mode_keeps_intermediate_pre_pool_writes(
     assert [item["screening_model_key"] for item in persisted] == [
         f"CLXS_{model_opt}" for model_opt in FULL_CLXS_MODEL_OPTS
     ]
-    assert [item["screening_model_label"] for item in persisted] == FULL_CLXS_MODEL_LABELS
+    assert [
+        item["screening_model_label"] for item in persisted
+    ] == FULL_CLXS_MODEL_LABELS
 
 
 def test_daily_screening_service_all_mode_runs_chanlun_against_current_clxs_universe(
@@ -1468,14 +1561,22 @@ def test_daily_screening_service_persists_run_scope_read_model_for_all_pipeline(
     assert snapshots[0]["shouban30_providers"] == ["jygs", "xgb"]
 
 
-def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
-    scope = f"run:{run_id}"
+def _seed_run_scope_snapshot_fixture(
+    repository,
+    *,
+    run_id="run-1",
+    scope=None,
+    origin_run_id=None,
+):
+    scope = scope or f"run:{run_id}"
+    origin_run_id = origin_run_id or run_id
     repository.replace_stage_memberships(
         run_id=run_id,
         stage="clxs",
         scope=scope,
         memberships=[
             {
+                "origin_run_id": origin_run_id,
                 "code": "000001",
                 "name": "alpha",
                 "symbol": "sz000001",
@@ -1486,6 +1587,7 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
                 "period": "1d",
             },
             {
+                "origin_run_id": origin_run_id,
                 "code": "000002",
                 "name": "beta",
                 "symbol": "sz000002",
@@ -1503,6 +1605,7 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
         scope=scope,
         memberships=[
             {
+                "origin_run_id": origin_run_id,
                 "code": "000001",
                 "name": "alpha",
                 "symbol": "sz000001",
@@ -1513,6 +1616,7 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
                 "period": "30m",
             },
             {
+                "origin_run_id": origin_run_id,
                 "code": "000003",
                 "name": "gamma",
                 "symbol": "sz000003",
@@ -1530,6 +1634,7 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
         scope=scope,
         memberships=[
             {
+                "origin_run_id": origin_run_id,
                 "code": "000001",
                 "name": "alpha",
                 "symbol": "sz000001",
@@ -1541,6 +1646,7 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
                 "providers": ["xgb", "jygs"],
             },
             {
+                "origin_run_id": origin_run_id,
                 "code": "000003",
                 "name": "gamma",
                 "symbol": "sz000003",
@@ -1559,6 +1665,7 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
         scope=scope,
         memberships=[
             {
+                "origin_run_id": origin_run_id,
                 "code": "000001",
                 "name": "alpha",
                 "symbol": "sz000001",
@@ -1569,6 +1676,7 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
                 "period": "1d",
             },
             {
+                "origin_run_id": origin_run_id,
                 "code": "000001",
                 "name": "alpha",
                 "symbol": "sz000001",
@@ -1579,6 +1687,7 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
                 "period": "1d",
             },
             {
+                "origin_run_id": origin_run_id,
                 "code": "000003",
                 "name": "gamma",
                 "symbol": "sz000003",
@@ -1595,6 +1704,7 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
         scope=scope,
         snapshots=[
             {
+                "origin_run_id": origin_run_id,
                 "code": "000001",
                 "name": "alpha",
                 "symbol": "sz000001",
@@ -1607,12 +1717,11 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
                     "near_long_term_ma": True,
                 },
                 "clxs_models": ["CLXS_10001"],
-                "chanlun_variants": [
-                    {"signal_type": "buy_zs_huila", "period": "30m"}
-                ],
+                "chanlun_variants": [{"signal_type": "buy_zs_huila", "period": "30m"}],
                 "shouban30_providers": ["jygs", "xgb"],
             },
             {
+                "origin_run_id": origin_run_id,
                 "code": "000002",
                 "name": "beta",
                 "symbol": "sz000002",
@@ -1629,6 +1738,7 @@ def _seed_run_scope_snapshot_fixture(repository, *, run_id="run-1"):
                 "shouban30_providers": [],
             },
             {
+                "origin_run_id": origin_run_id,
                 "code": "000003",
                 "name": "gamma",
                 "symbol": "sz000003",
@@ -1674,7 +1784,9 @@ def test_daily_screening_service_get_scopes_and_latest_scope_from_repository_run
         run_id="run-1",
         id="run-1",
         status="completed",
-        started_at="2026-03-18T19:00:00",
+        started_at="2026-03-17T19:00:00",
+        trigger_type="dagster_schedule",
+        params={"trade_date": "2026-03-17"},
     )
     repository.save_run(
         run_id="run-2",
@@ -1682,20 +1794,32 @@ def test_daily_screening_service_get_scopes_and_latest_scope_from_repository_run
         status="running",
         started_at="2026-03-18T19:30:00",
     )
+    repository.save_run(
+        run_id="run-3",
+        id="run-3",
+        status="completed",
+        started_at="2026-03-18T19:00:00",
+        trigger_type="dagster_schedule",
+        params={"trade_date": "2026-03-18"},
+    )
 
     scopes = service.get_scopes()
     latest = service.get_latest_scope()
 
-    assert [item["run_id"] for item in scopes["items"]] == ["run-2", "run-1"]
-    assert scopes["items"][0]["scope"] == "run:run-2"
+    assert [item["run_id"] for item in scopes["items"][:2]] == [
+        "trade_date:2026-03-18",
+        "trade_date:2026-03-17",
+    ]
+    assert scopes["items"][0]["scope"] == "trade_date:2026-03-18"
     assert scopes["items"][0]["is_latest"] is True
-    assert scopes["items"][1]["is_latest"] is False
-    assert latest == {
-        "run_id": "run-2",
-        "scope": "run:run-2",
-        "label": "run-2",
-        "is_latest": True,
-    }
+    assert scopes["items"][0]["scope_kind"] == "trade_date"
+    assert [item["run_id"] for item in scopes["items"][2:]] == ["run-2", "run-3", "run-1"]
+    assert latest["run_id"] == "trade_date:2026-03-18"
+    assert latest["scope"] == "trade_date:2026-03-18"
+    assert latest["label"] == "正式 2026-03-18"
+    assert latest["is_latest"] is True
+    assert latest["scope_kind"] == "trade_date"
+    assert latest["source_run_id"] == "run-3"
 
 
 def test_daily_screening_service_query_scope_applies_intersection_and_source_filters():
@@ -1769,14 +1893,17 @@ def test_daily_screening_service_get_stock_detail_returns_snapshot_and_membershi
         ("market_flags", "credit_subject"),
         ("market_flags", "near_long_term_ma"),
     }
-    assert [item["signal_type"] for item in detail["clxs_memberships"]] == ["CLXS_10001"]
+    assert [item["signal_type"] for item in detail["clxs_memberships"]] == [
+        "CLXS_10001"
+    ]
     assert [item["signal_type"] for item in detail["chanlun_memberships"]] == [
         "buy_zs_huila"
     ]
     assert [item["signal_type"] for item in detail["agg90_memberships"]] == ["agg90"]
-    assert {
-        item["signal_type"] for item in detail["market_flag_memberships"]
-    } == {"credit_subject", "near_long_term_ma"}
+    assert {item["signal_type"] for item in detail["market_flag_memberships"]} == {
+        "credit_subject",
+        "near_long_term_ma",
+    }
     assert detail["hot_reasons"] == hot_reason_rows
 
 

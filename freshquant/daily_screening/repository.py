@@ -27,12 +27,15 @@ class DailyScreeningRepository:
             ],
             "daily_screening_memberships": [
                 {
-                    "name": "daily_screening_memberships_run_scope_stage_code",
+                    "name": "daily_screening_memberships_run_scope_stage_code_model_period_fire_time",
                     "keys": [
                         ("run_id", 1),
                         ("scope", 1),
                         ("stage", 1),
                         ("code", 1),
+                        ("model_key", 1),
+                        ("period", 1),
+                        ("fire_time", 1),
                     ],
                     "unique": True,
                 }

@@ -129,8 +129,16 @@ def test_repository_builds_expected_indexes():
         ],
         "daily_screening_memberships": [
             {
-                "name": "daily_screening_memberships_run_scope_stage_code",
-                "keys": [("run_id", 1), ("scope", 1), ("stage", 1), ("code", 1)],
+                "name": "daily_screening_memberships_run_scope_stage_code_model_period_fire_time",
+                "keys": [
+                    ("run_id", 1),
+                    ("scope", 1),
+                    ("stage", 1),
+                    ("code", 1),
+                    ("model_key", 1),
+                    ("period", 1),
+                    ("fire_time", 1),
+                ],
                 "unique": True,
             }
         ],
@@ -166,9 +174,17 @@ def test_repository_ensure_indexes_calls_create_index_with_expected_contract():
     ]
     assert repo.memberships.created_indexes == [
         (
-            [("run_id", 1), ("scope", 1), ("stage", 1), ("code", 1)],
+            [
+                ("run_id", 1),
+                ("scope", 1),
+                ("stage", 1),
+                ("code", 1),
+                ("model_key", 1),
+                ("period", 1),
+                ("fire_time", 1),
+            ],
             True,
-            "daily_screening_memberships_run_scope_stage_code",
+            "daily_screening_memberships_run_scope_stage_code_model_period_fire_time",
         )
     ]
     assert repo.stock_snapshots.created_indexes == [
@@ -240,6 +256,9 @@ def test_repository_uses_scope_in_identity_for_same_run():
         ("scope", 1),
         ("stage", 1),
         ("code", 1),
+        ("model_key", 1),
+        ("period", 1),
+        ("fire_time", 1),
     ]
     assert repo.index_specs()["daily_screening_stock_snapshots"][0]["keys"] == [
         ("run_id", 1),
@@ -636,3 +655,54 @@ def test_repository_round_trips_run_scope_documents():
     assert summary["stage_counts"] == {"clxs": 2}
     assert [item["code"] for item in stocks] == ["000001", "000002"]
     assert [item["code"] for item in detail_memberships] == ["000001"]
+
+
+def test_repository_allows_multiple_memberships_for_same_code_and_stage():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_runs=SimpleCollection("daily_screening_runs"),
+        daily_screening_memberships=SimpleCollection(
+            "daily_screening_memberships"
+        ),
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots"
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    memberships = repo.replace_stage_memberships(
+        run_id="run-1",
+        stage="chanlun",
+        scope="scope-a",
+        memberships=[
+            {
+                "code": "000001",
+                "name": "alpha",
+                "model_key": "buy_zs_huila",
+                "period": "30m",
+                "fire_time": "2026-03-18T09:30:00+08:00",
+            },
+            {
+                "code": "000001",
+                "name": "alpha",
+                "model_key": "buy_zs_huila",
+                "period": "60m",
+                "fire_time": "2026-03-18T10:30:00+08:00",
+            },
+            {
+                "code": "000001",
+                "name": "alpha",
+                "model_key": "macd_bullish_divergence",
+                "period": "1d",
+                "fire_time": "2026-03-18T15:00:00+08:00",
+            },
+        ],
+    )
+
+    assert [(item["code"], item["model_key"], item["period"]) for item in memberships] == [
+        ("000001", "buy_zs_huila", "30m"),
+        ("000001", "buy_zs_huila", "60m"),
+        ("000001", "macd_bullish_divergence", "1d"),
+    ]
+    assert len(fake_db["daily_screening_memberships"].docs) == 3

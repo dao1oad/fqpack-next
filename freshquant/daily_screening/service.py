@@ -5,7 +5,7 @@ import json
 import threading
 from datetime import date, datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 import pendulum
 
@@ -89,6 +89,13 @@ class DailyScreeningService:
         self.session_store = session_store or DailyScreeningSessionStore()
         self.db = db or DBfreshquant
         self.pipeline_service = pipeline_service or DailyScreeningPipelineService()
+        self._ensure_screening_indexes()
+
+    def _ensure_screening_indexes(self) -> None:
+        repository = getattr(self.pipeline_service, "repository", None)
+        ensure_indexes = getattr(repository, "ensure_indexes", None)
+        if callable(ensure_indexes):
+            ensure_indexes()
 
     def get_schema(self) -> dict:
         categories = sorted(
@@ -111,24 +118,31 @@ class DailyScreeningService:
             },
         }
 
-    def start_run(self, payload: dict | None, *, run_async: bool = True) -> dict:
+    def start_run(
+        self,
+        payload: dict | None,
+        *,
+        run_async: bool = True,
+        trigger_type: str = "manual_api",
+    ) -> dict:
         config = self._normalize_start_payload(payload or {})
-        run = self.pipeline_service.start_run(config, trigger_type="manual_api")
+        execution_config = {**config, "_trigger_type": trigger_type}
+        run = self.pipeline_service.start_run(config, trigger_type=trigger_type)
         run_id = self.session_store.create_run(
             run_id=run["id"],
             model=config["model"],
-            params=config,
+            params=execution_config,
         )
         if run_async:
             thread = threading.Thread(
                 target=self._execute_run,
-                args=(run_id, config),
+                args=(run_id, execution_config),
                 daemon=True,
                 name=f"daily-screening-{run_id}",
             )
             thread.start()
         else:
-            self._execute_run(run_id, config)
+            self._execute_run(run_id, execution_config)
         return self.get_run(run_id)
 
     def get_run(self, run_id: str) -> dict:
@@ -139,7 +153,32 @@ class DailyScreeningService:
 
     def get_scopes(self) -> dict:
         items = []
-        for index, run in enumerate(self._list_repository_runs()):
+        latest_marked = False
+        seen_trade_dates: set[str] = set()
+        repository_runs = self._list_repository_runs()
+
+        for run in repository_runs:
+            if not self._is_official_completed_run(run):
+                continue
+            trade_date = self._run_trade_date(run)
+            if not trade_date or trade_date in seen_trade_dates:
+                continue
+            scope_id = self._trade_date_scope(trade_date)
+            seen_trade_dates.add(trade_date)
+            items.append(
+                {
+                    "run_id": scope_id,
+                    "scope": scope_id,
+                    "label": f"正式 {trade_date}",
+                    "is_latest": not latest_marked,
+                    "scope_kind": "trade_date",
+                    "trade_date": trade_date,
+                    "source_run_id": str(run.get("run_id") or run.get("id") or "").strip(),
+                }
+            )
+            latest_marked = True
+
+        for run in repository_runs:
             run_id = str(run.get("run_id") or run.get("id") or "").strip()
             if not run_id:
                 continue
@@ -148,9 +187,13 @@ class DailyScreeningService:
                     "run_id": run_id,
                     "scope": self._run_scope(run_id),
                     "label": run_id,
-                    "is_latest": index == 0,
+                    "is_latest": not latest_marked,
+                    "scope_kind": "run",
+                    "trade_date": self._run_trade_date(run),
+                    "source_run_id": run_id,
                 }
             )
+            latest_marked = True
         return {"items": items}
 
     def get_latest_scope(self) -> dict:
@@ -165,39 +208,44 @@ class DailyScreeningService:
         return dict(items[0])
 
     def get_scope_summary(self, run_id: str) -> dict:
+        scope_ref = self._resolve_scope_ref(run_id)
         repository = self._screening_repository()
         if repository is None:
             return {
-                "run_id": run_id,
-                "scope": self._run_scope(run_id),
+                "run_id": scope_ref["scope_id"],
+                "scope": scope_ref["scope"],
                 "membership_count": 0,
                 "stock_count": 0,
                 "stage_counts": {},
                 "stock_codes": [],
             }
         return repository.query_scope_summary(
-            run_id=run_id,
-            scope=self._run_scope(run_id),
+            run_id=scope_ref["run_id"],
+            scope=scope_ref["scope"],
         )
 
     def query_scope(self, run_id: str, payload: dict | None = None) -> dict:
         repository = self._screening_repository()
-        scope = self._run_scope(run_id)
+        scope_ref = self._resolve_scope_ref(run_id)
+        scope = scope_ref["scope"]
         if repository is None:
             return {
-                "run_id": run_id,
+                "run_id": scope_ref["scope_id"],
                 "scope": scope,
                 "total": 0,
                 "rows": [],
                 "summary": self.get_scope_summary(run_id),
             }
-        rows = repository.query_scope_stocks(run_id=run_id, scope=scope)
+        rows = repository.query_scope_stocks(
+            run_id=scope_ref["run_id"],
+            scope=scope,
+        )
         filters = payload or {}
         filtered_rows = [
             row for row in rows if self._matches_scope_filters(row, filters)
         ]
         return {
-            "run_id": run_id,
+            "run_id": scope_ref["scope_id"],
             "scope": scope,
             "total": len(filtered_rows),
             "rows": filtered_rows,
@@ -208,17 +256,18 @@ class DailyScreeningService:
         normalized_code = self._normalize_code(code)
         if not normalized_code:
             raise ValueError("code required")
+        scope_ref = self._resolve_scope_ref(run_id)
         repository = self._screening_repository()
-        scope = self._run_scope(run_id)
+        scope = scope_ref["scope"]
         if repository is None:
             raise ValueError("stock detail not found")
         snapshots = repository.query_scope_stocks(
-            run_id=run_id,
+            run_id=scope_ref["run_id"],
             scope=scope,
             code=normalized_code,
         )
         memberships = repository.get_stock_detail_memberships(
-            run_id=run_id,
+            run_id=scope_ref["run_id"],
             scope=scope,
             code=normalized_code,
         )
@@ -235,7 +284,7 @@ class DailyScreeningService:
             item for item in memberships if item.get("stage") == "market_flags"
         ]
         return {
-            "run_id": run_id,
+            "run_id": scope_ref["scope_id"],
             "scope": scope,
             "snapshot": snapshots[0] if snapshots else None,
             "memberships": memberships,
@@ -426,17 +475,20 @@ class DailyScreeningService:
                 break
 
     def _execute_run(self, run_id: str, config: dict) -> None:
+        def _forward_event(event: str, payload: dict) -> None:
+            self.session_store.publish_event(
+                run_id,
+                event,
+                self._jsonable(payload),
+            )
+
         self.pipeline_service.execute_run(
             run_id,
             config,
             execute_stage=lambda stage_name, stage_config: self._execute_stage(
                 run_id, stage_name, stage_config
             ),
-            on_event=lambda event, payload: self.session_store.publish_event(
-                run_id,
-                event,
-                self._jsonable(payload),
-            ),
+            on_event=_forward_event,
         )
 
     def _execute_stage(
@@ -446,7 +498,10 @@ class DailyScreeningService:
         config: dict,
     ) -> tuple[list[Any], int]:
         stage_config = {**config, "_pipeline_stage": stage_name}
-        if stage_name == "chanlun" and stage_config.get("_pipeline_parent_model") == "all":
+        if (
+            stage_name == "chanlun"
+            and stage_config.get("_pipeline_parent_model") == "all"
+        ):
             if stage_config.get("input_mode") != "single_code":
                 stage_config["_input_codes"] = self._current_clxs_run_codes(run_id)
                 stage_config["input_mode"] = "current_clxs_run"
@@ -619,9 +674,12 @@ class DailyScreeningService:
                 entry["providers"].add(provider)
             if provider and plate_key:
                 entry["plate_refs"].add(f"{provider}:{plate_key}")
-            latest_trade_date = str(row.get("latest_trade_date") or row.get("as_of_date") or "").strip()
+            latest_trade_date = str(
+                row.get("latest_trade_date") or row.get("as_of_date") or ""
+            ).strip()
             if latest_trade_date and (
-                entry["latest_trade_date"] is None or latest_trade_date > entry["latest_trade_date"]
+                entry["latest_trade_date"] is None
+                or latest_trade_date > entry["latest_trade_date"]
             ):
                 entry["latest_trade_date"] = latest_trade_date
 
@@ -716,7 +774,9 @@ class DailyScreeningService:
                 quality_subject_source_version=quality_subject_source_version,
             )
             stock_results: list[Any] = []
-            if config.get("include_credit_subject") and filter_result.get("is_credit_subject"):
+            if config.get("include_credit_subject") and filter_result.get(
+                "is_credit_subject"
+            ):
                 stock_results.append(
                     self._build_market_flag_result(
                         code=code,
@@ -727,7 +787,9 @@ class DailyScreeningService:
                         category="credit_subject",
                     )
                 )
-            if config.get("include_quality_subject") and filter_result.get("is_quality_subject"):
+            if config.get("include_quality_subject") and filter_result.get(
+                "is_quality_subject"
+            ):
                 stock_results.append(
                     self._build_market_flag_result(
                         code=code,
@@ -751,7 +813,7 @@ class DailyScreeningService:
                         remark=f"均线附近 {basis}" if basis else "均线附近",
                         category="near_long_term_ma",
                     )
-            )
+                )
             results.extend(stock_results)
             self.session_store.publish_event(
                 run_id,
@@ -785,8 +847,11 @@ class DailyScreeningService:
         if not providers or not trade_date:
             return []
         collection = DBGantt[COL_SHOUBAN30_STOCKS]
+        find_rows = getattr(collection, "find", None)
+        if not callable(find_rows):
+            return []
         rows = list(
-            collection.find(
+            find_rows(
                 {
                     "provider": {"$in": providers},
                     "stock_window_days": int(config.get("window_days") or 90),
@@ -797,7 +862,9 @@ class DailyScreeningService:
         if not rows:
             return []
         latest_as_of_date = max(
-            str(row.get("as_of_date") or "").strip() for row in rows if row.get("as_of_date")
+            str(row.get("as_of_date") or "").strip()
+            for row in rows
+            if row.get("as_of_date")
         )
         return [
             dict(row)
@@ -829,7 +896,9 @@ class DailyScreeningService:
             category=category,
         )
 
-    def _publish_manual_result_accepted(self, run_id: str, config: dict, result: Any) -> None:
+    def _publish_manual_result_accepted(
+        self, run_id: str, config: dict, result: Any
+    ) -> None:
         stage = str(config.get("_pipeline_stage") or config["model"]).strip()
         payload = {
             **self._with_context(
@@ -865,43 +934,118 @@ class DailyScreeningService:
         config: dict,
         results: list[Any],
     ) -> None:
+        self._persist_scope_read_model(
+            target_run_id=run_id,
+            scope=self._run_scope(run_id),
+            stage_name=stage_name,
+            config=config,
+            results=results,
+            origin_run_id=run_id,
+        )
+        if self._should_materialize_trade_date_scope(config):
+            official_scope = self._trade_date_scope(str(config.get("trade_date") or ""))
+            if official_scope:
+                self._persist_scope_read_model(
+                    target_run_id=official_scope,
+                    scope=official_scope,
+                    stage_name=stage_name,
+                    config=config,
+                    results=results,
+                    origin_run_id=run_id,
+                )
+
+    def _persist_scope_read_model(
+        self,
+        *,
+        target_run_id: str,
+        scope: str,
+        stage_name: str,
+        config: dict,
+        results: list[Any],
+        origin_run_id: str,
+    ) -> None:
         repository = getattr(self.pipeline_service, "repository", None)
         if repository is None:
             return
-        replace_stage_memberships = getattr(repository, "replace_stage_memberships", None)
+        replace_stage_memberships = getattr(
+            repository, "replace_stage_memberships", None
+        )
         upsert_stock_snapshots = getattr(repository, "upsert_stock_snapshots", None)
-        get_stock_detail_memberships = getattr(repository, "get_stock_detail_memberships", None)
-        if not callable(replace_stage_memberships) or not callable(
-            upsert_stock_snapshots
-        ) or not callable(get_stock_detail_memberships):
+        get_stock_detail_memberships = getattr(
+            repository, "get_stock_detail_memberships", None
+        )
+        if (
+            not callable(replace_stage_memberships)
+            or not callable(upsert_stock_snapshots)
+            or not callable(get_stock_detail_memberships)
+        ):
             return
-        scope = self._run_scope(run_id)
         memberships = [
             self._build_run_scope_membership(
-                run_id=run_id,
+                run_id=target_run_id,
                 scope=scope,
                 stage_name=stage_name,
                 config=config,
                 result=result,
+                origin_run_id=origin_run_id,
             )
             for result in (results or [])
         ]
         replace_stage_memberships(
-            run_id=run_id,
+            run_id=target_run_id,
             stage=stage_name,
             scope=scope,
             memberships=memberships,
         )
-        all_memberships = get_stock_detail_memberships(run_id=run_id, scope=scope)
+        all_memberships = get_stock_detail_memberships(run_id=target_run_id, scope=scope)
         snapshots = self._build_run_scope_snapshots(
-            run_id=run_id,
+            run_id=target_run_id,
             scope=scope,
             memberships=all_memberships,
+            origin_run_id=origin_run_id,
         )
-        upsert_stock_snapshots(run_id=run_id, scope=scope, snapshots=snapshots)
+        upsert_stock_snapshots(run_id=target_run_id, scope=scope, snapshots=snapshots)
 
     def _run_scope(self, run_id: str) -> str:
         return f"run:{run_id}"
+
+    def _trade_date_scope(self, trade_date: str) -> str:
+        text = str(trade_date or "").strip()
+        if not text:
+            return ""
+        return f"trade_date:{text}"
+
+    def _resolve_scope_ref(self, value: str) -> dict[str, str]:
+        text = str(value or "").strip()
+        if not text:
+            return {"scope_id": "", "run_id": "", "scope": "", "scope_kind": ""}
+        if text.startswith("trade_date:"):
+            return {
+                "scope_id": text,
+                "run_id": text,
+                "scope": text,
+                "scope_kind": "trade_date",
+            }
+        if text.startswith("run:"):
+            actual_run_id = text.split(":", 1)[1].strip()
+            return {
+                "scope_id": actual_run_id,
+                "run_id": actual_run_id,
+                "scope": text,
+                "scope_kind": "run",
+            }
+        return {
+            "scope_id": text,
+            "run_id": text,
+            "scope": self._run_scope(text),
+            "scope_kind": "run",
+        }
+
+    def _should_materialize_trade_date_scope(self, config: dict) -> bool:
+        return bool(
+            str(config.get("trade_date") or "").strip()
+            and str(config.get("_trigger_type") or "").strip() == "dagster_schedule"
+        )
 
     def _screening_repository(self):
         repository = getattr(self.pipeline_service, "repository", None)
@@ -925,10 +1069,12 @@ class DailyScreeningService:
         runs_collection = getattr(repository, "runs", None)
         if isinstance(runs_collection, dict):
             rows = [dict(item) for item in runs_collection.values()]
-        elif hasattr(runs_collection, "find"):
-            rows = [dict(item) for item in list(runs_collection.find({}))]
         else:
-            rows = []
+            find_runs = getattr(runs_collection, "find", None)
+            if callable(find_runs):
+                rows = [dict(item) for item in list(find_runs({}))]
+            else:
+                rows = []
         rows.sort(key=self._run_sort_key, reverse=True)
         return rows
 
@@ -938,9 +1084,22 @@ class DailyScreeningService:
             str(row.get("run_id") or row.get("id") or ""),
         )
 
+    def _run_trade_date(self, row: dict[str, Any]) -> str:
+        params = dict(row.get("params") or {})
+        return str(row.get("trade_date") or params.get("trade_date") or "").strip()
+
+    def _is_official_completed_run(self, row: dict[str, Any]) -> bool:
+        return (
+            str(row.get("trigger_type") or "").strip() == "dagster_schedule"
+            and str(row.get("status") or "").strip() == "completed"
+            and bool(self._run_trade_date(row))
+        )
+
     def _matches_scope_filters(self, row: dict[str, Any], payload: dict) -> bool:
         selected_by = dict(row.get("selected_by") or {})
-        selected_sets = self._normalize_text_list(payload.get("selected_sets"), default=[])
+        selected_sets = self._normalize_text_list(
+            payload.get("selected_sets"), default=[]
+        )
         for item in selected_sets:
             if not bool(selected_by.get(item)):
                 return False
@@ -950,7 +1109,8 @@ class DailyScreeningService:
         )
         if clxs_models:
             snapshot_models = {
-                str(item).strip() for item in list(row.get("clxs_models") or [])
+                str(item).strip()
+                for item in list(row.get("clxs_models") or [])
                 if str(item).strip()
             }
             if not snapshot_models.intersection(clxs_models):
@@ -999,11 +1159,13 @@ class DailyScreeningService:
         stage_name: str,
         config: dict,
         result: Any,
+        origin_run_id: str | None = None,
     ) -> dict[str, Any]:
         model_meta = self._result_model_meta(config, result)
         return {
             "run_id": run_id,
             "scope": scope,
+            "origin_run_id": origin_run_id or run_id,
             "stage": stage_name,
             "code": self._normalize_code(getattr(result, "code", None)),
             "name": str(getattr(result, "name", "") or "").strip(),
@@ -1032,6 +1194,7 @@ class DailyScreeningService:
         run_id: str,
         scope: str,
         memberships: list[dict[str, Any]],
+        origin_run_id: str | None = None,
     ) -> list[dict[str, Any]]:
         grouped: dict[str, dict[str, Any]] = {}
         for item in memberships or []:
@@ -1043,6 +1206,7 @@ class DailyScreeningService:
                 {
                     "run_id": run_id,
                     "scope": scope,
+                    "origin_run_id": origin_run_id or run_id,
                     "code": code,
                     "name": str(item.get("name") or "").strip() or code,
                     "symbol": str(item.get("symbol") or "").strip()
@@ -1091,6 +1255,7 @@ class DailyScreeningService:
                 {
                     "run_id": run_id,
                     "scope": scope,
+                    "origin_run_id": snapshot["origin_run_id"],
                     "code": snapshot["code"],
                     "name": snapshot["name"],
                     "symbol": snapshot["symbol"],
@@ -1554,7 +1719,10 @@ class DailyScreeningService:
 
     def _find_pre_pools(self, query: dict) -> list[dict]:
         collection = self.db["stock_pre_pools"]
-        rows = collection.find(query or {})
+        find_rows = getattr(collection, "find", None)
+        if not callable(find_rows):
+            return []
+        rows = find_rows(query or {})
         return [dict(row) for row in list(rows)]
 
     def _find_one_pre_pool(self, query: dict) -> dict | None:
@@ -1586,9 +1754,11 @@ class DailyScreeningService:
         }
 
     def _load_hot_reasons(self, code6: str) -> list[dict]:
-        query_func = globals().get("query_stock_hot_reason_rows")
-        if not callable(query_func):
-            from freshquant.data.gantt_readmodel import query_stock_hot_reason_rows as query_func
+        query_func: Callable[..., Any] | None = globals().get("query_stock_hot_reason_rows")
+        if query_func is None or not callable(query_func):
+            from freshquant.data.gantt_readmodel import (
+                query_stock_hot_reason_rows as query_func,
+            )
 
         try:
             rows = query_func(code6=code6, provider="all", limit=0)
@@ -1630,8 +1800,15 @@ class DailyScreeningService:
         return f"daily-screening:{branch}"
 
     def _scope_extra(self, run_id: str, membership: dict) -> dict:
+        scope_ref = self._resolve_scope_ref(run_id)
+        effective_run_id = str(
+            membership.get("origin_run_id")
+            or membership.get("run_id")
+            or scope_ref["run_id"]
+            or run_id
+        ).strip()
         return {
-            "screening_run_id": run_id,
+            "screening_run_id": effective_run_id,
             "screening_model": str(
                 membership.get("branch") or membership.get("stage") or ""
             ).strip(),
@@ -1645,12 +1822,12 @@ class DailyScreeningService:
                 or membership.get("signal_type")
                 or ""
             ).strip(),
-            "screening_input_mode": "run_scope",
-            "screening_source_scope": self._run_scope(run_id),
+            "screening_input_mode": f"{scope_ref['scope_kind'] or 'run'}_scope",
+            "screening_source_scope": scope_ref["scope"],
             "screening_signal_type": str(membership.get("signal_type") or "").strip(),
             "screening_signal_name": str(membership.get("signal_name") or "").strip(),
             "screening_period": str(membership.get("period") or "").strip(),
-            "screening_params": {"run_id": run_id},
+            "screening_params": {"run_id": effective_run_id, "scope_id": scope_ref["scope_id"]},
         }
 
     def _with_context(self, config: dict, payload: dict) -> dict:
@@ -1724,7 +1901,9 @@ class DailyScreeningService:
         except ValueError:
             return datetime.min
 
-    def _format_sse(self, event: str, payload: dict, *, sse_id: int | None = None) -> str:
+    def _format_sse(
+        self, event: str, payload: dict, *, sse_id: int | None = None
+    ) -> str:
         return (
             f"id: {sse_id if sse_id is not None else payload.get('seq', '')}\n"
             f"event: {event}\n"
