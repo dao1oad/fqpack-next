@@ -179,8 +179,8 @@ class DailyScreeningRepository:
             if trade_date is None:
                 raise ValueError("trade_date required")
 
-            self._delete_many(self.stock_snapshots, {"scope_id": effective_scope_id})
             if not raw_items:
+                self._delete_many(self.stock_snapshots, {"scope_id": effective_scope_id})
                 return []
 
             payloads = [
@@ -196,6 +196,8 @@ class DailyScreeningRepository:
                 for payload in payloads
             ):
                 raise ValueError("code required")
+
+            self._delete_many(self.stock_snapshots, {"scope_id": effective_scope_id})
             for payload in payloads:
                 snapshot_query = self._snapshot_scope_query(
                     payload, scope_id=effective_scope_id
@@ -214,11 +216,10 @@ class DailyScreeningRepository:
         if effective_scope_id is None:
             return []
 
-        query = {"scope_id": effective_scope_id}
-        self._delete_many(self.stock_snapshots, query)
-
         if not raw_items:
+            self._delete_many(self.stock_snapshots, {"scope_id": effective_scope_id})
             return []
+
         payloads = [
             self._normalize_snapshot(
                 item, scope_id=effective_scope_id
@@ -230,6 +231,8 @@ class DailyScreeningRepository:
             for payload in payloads
         ):
             raise ValueError("code required")
+
+        self._delete_many(self.stock_snapshots, {"scope_id": effective_scope_id})
         for payload in payloads:
             snapshot_query = self._snapshot_scope_query(
                 payload, scope_id=effective_scope_id
@@ -380,6 +383,7 @@ class DailyScreeningRepository:
         code = self._primary_value(payload, "code", "symbol")
         if code is not None:
             payload.setdefault("code", code)
+        self._strip_legacy_membership_fields(payload)
         return payload
 
     def _normalize_condition_membership(
@@ -402,6 +406,7 @@ class DailyScreeningRepository:
         code = self._primary_value(payload, "code", "symbol")
         if code is not None:
             payload.setdefault("code", code)
+        self._strip_legacy_snapshot_fields(payload)
         return payload
 
     def _normalize_condition_snapshot(
@@ -415,6 +420,14 @@ class DailyScreeningRepository:
         if trade_date is not None:
             payload.setdefault("trade_date", trade_date)
         return payload
+
+    def _strip_legacy_membership_fields(self, payload: dict[str, Any]) -> None:
+        for key in ("run_id", "scope", "stage", "model_key", "period", "fire_time"):
+            payload.pop(key, None)
+
+    def _strip_legacy_snapshot_fields(self, payload: dict[str, Any]) -> None:
+        for key in ("run_id", "scope"):
+            payload.pop(key, None)
 
     def _snapshot_query(
         self,
