@@ -266,11 +266,11 @@ def test_repository_uses_scope_in_identity_for_same_run():
         ("code", 1),
     ]
     assert sorted(
-        (row.get("scope"), row.get("code"))
+        (row.get("scope_id"), row.get("condition_key"), row.get("code"))
         for row in fake_db["daily_screening_memberships"].docs
-    ) == [("scope-a", "000001"), ("scope-b", "000001")]
+    ) == [("scope-a", "clxs", "000001"), ("scope-b", "clxs", "000001")]
     assert sorted(
-        (row.get("scope"), row.get("code"))
+        (row.get("scope_id"), row.get("code"))
         for row in fake_db["daily_screening_stock_snapshots"].docs
     ) == [("scope-a", "000001"), ("scope-b", "000001")]
 
@@ -302,7 +302,7 @@ def test_repository_upsert_stock_snapshots_replaces_scope_rows():
     )
 
     assert sorted(
-        (row.get("scope"), row.get("code"))
+        (row.get("scope_id"), row.get("code"))
         for row in fake_db["daily_screening_stock_snapshots"].docs
     ) == [("scope-a", "000001")]
 
@@ -316,16 +316,16 @@ def test_repository_requires_membership_identity_keys():
         repo.replace_stage_memberships(stage="clxs", memberships=[{"code": "000001"}])
 
     with pytest.raises(ValueError):
-        repo.replace_stage_memberships(
-            run_id="run-1",
-            memberships=[{"code": "000001"}],
+        repo.replace_condition_memberships(
+            scope_id="scope-a",
+            condition_key="clxs",
+            codes=[{"name": "alpha"}],
         )
 
     with pytest.raises(ValueError):
         repo.replace_stage_memberships(
-            run_id="run-1",
             stage="clxs",
-            memberships=[{"name": "alpha"}],
+            memberships=[{"scope_id": "scope-a"}],
         )
 
 
@@ -335,10 +335,17 @@ def test_repository_requires_snapshot_identity_keys():
     repo = DailyScreeningRepository(db=FakeDB())
 
     with pytest.raises(ValueError):
-        repo.upsert_stock_snapshots(snapshots=[{"code": "000001"}])
+        repo.upsert_stock_snapshots(
+            trade_date="2026-03-18",
+            snapshots=[{"code": "000001"}],
+        )
 
     with pytest.raises(ValueError):
-        repo.upsert_stock_snapshots(run_id="run-1", snapshots=[{"name": "alpha"}])
+        repo.upsert_stock_snapshots(
+            scope_id="scope-a",
+            trade_date="2026-03-18",
+            snapshots=[{"name": "alpha"}],
+        )
 
 
 def test_repository_summary_stage_filter_only_affects_memberships():
@@ -374,7 +381,7 @@ def test_repository_summary_stage_filter_only_affects_memberships():
         ],
     )
 
-    summary = repo.query_scope_summary(run_id="run-1", stage="clxs")
+    summary = repo.query_scope_summary(scope="scope-a", stage="clxs")
 
     assert summary["membership_count"] == 1
     assert summary["stage_counts"] == {"clxs": 1}
@@ -421,21 +428,18 @@ def test_repository_empty_membership_list_clears_target_stage():
             "daily_screening_memberships",
             docs=[
                 {
-                    "run_id": "run-1",
-                    "stage": "clxs",
-                    "scope": "scope-a",
+                    "scope_id": "run-1",
+                    "condition_key": "clxs",
                     "code": "000001",
                 },
                 {
-                    "run_id": "run-1",
-                    "stage": "clxs",
-                    "scope": "scope-b",
+                    "scope_id": "run-1",
+                    "condition_key": "clxs",
                     "code": "000002",
                 },
                 {
-                    "run_id": "run-1",
-                    "stage": "chanlun",
-                    "scope": "scope-a",
+                    "scope_id": "run-1",
+                    "condition_key": "chanlun",
                     "code": "000003",
                 },
             ],
@@ -453,9 +457,9 @@ def test_repository_empty_membership_list_clears_target_stage():
     )
 
     assert [
-        (row["stage"], row["scope"], row["code"])
+        (row["condition_key"], row["scope_id"], row["code"])
         for row in fake_db["daily_screening_memberships"].docs
-    ] == [("chanlun", "scope-a", "000003")]
+    ] == [("chanlun", "run-1", "000003")]
 
 
 def test_repository_rejects_mixed_scope_memberships():
@@ -465,11 +469,10 @@ def test_repository_rejects_mixed_scope_memberships():
 
     with pytest.raises(ValueError):
         repo.replace_stage_memberships(
-            run_id="run-1",
             stage="clxs",
             memberships=[
-                {"code": "000001", "scope": "scope-a"},
-                {"code": "000002", "scope": "scope-b"},
+                {"code": "000001", "scope_id": "scope-a"},
+                {"code": "000002", "scope_id": "scope-b"},
             ],
         )
 
@@ -481,10 +484,9 @@ def test_repository_rejects_mixed_scope_snapshots():
 
     with pytest.raises(ValueError):
         repo.upsert_stock_snapshots(
-            run_id="run-1",
             snapshots=[
-                {"code": "000001", "scope": "scope-a"},
-                {"code": "000002", "scope": "scope-b"},
+                {"code": "000001", "scope_id": "scope-a"},
+                {"code": "000002", "scope_id": "scope-b"},
             ],
         )
 
@@ -498,9 +500,8 @@ def test_repository_rejects_mixed_stage_memberships_without_mutating_existing_ro
             "daily_screening_memberships",
             docs=[
                 {
-                    "run_id": "run-1",
-                    "stage": "clxs",
-                    "scope": "scope-a",
+                    "scope_id": "scope-a",
+                    "condition_key": "clxs",
                     "code": "000001",
                 }
             ],
@@ -513,19 +514,17 @@ def test_repository_rejects_mixed_stage_memberships_without_mutating_existing_ro
 
     with pytest.raises(ValueError):
         repo.replace_stage_memberships(
-            run_id="run-1",
             scope="scope-a",
             memberships=[
-                {"stage": "clxs", "code": "000001"},
-                {"stage": "chanlun", "code": "000002"},
+                {"condition_key": "clxs", "code": "000001"},
+                {"condition_key": "chanlun", "code": "000002"},
             ],
         )
 
     assert fake_db["daily_screening_memberships"].docs == [
         {
-            "run_id": "run-1",
-            "stage": "clxs",
-            "scope": "scope-a",
+            "scope_id": "scope-a",
+            "condition_key": "clxs",
             "code": "000001",
         }
     ]
@@ -540,9 +539,8 @@ def test_repository_rejects_mixed_run_id_memberships_without_mutating_existing_r
             "daily_screening_memberships",
             docs=[
                 {
-                    "run_id": "run-1",
-                    "stage": "clxs",
-                    "scope": "scope-a",
+                    "scope_id": "scope-a",
+                    "condition_key": "clxs",
                     "code": "000001",
                 }
             ],
@@ -556,18 +554,16 @@ def test_repository_rejects_mixed_run_id_memberships_without_mutating_existing_r
     with pytest.raises(ValueError):
         repo.replace_stage_memberships(
             stage="clxs",
-            scope="scope-a",
             memberships=[
-                {"run_id": "run-1", "code": "000001"},
-                {"run_id": "run-2", "code": "000002"},
+                {"scope_id": "scope-a", "code": "000001"},
+                {"scope_id": "scope-b", "code": "000002"},
             ],
         )
 
     assert fake_db["daily_screening_memberships"].docs == [
         {
-            "run_id": "run-1",
-            "stage": "clxs",
-            "scope": "scope-a",
+            "scope_id": "scope-a",
+            "condition_key": "clxs",
             "code": "000001",
         }
     ]
@@ -582,9 +578,8 @@ def test_repository_invalid_membership_batch_does_not_clear_existing_rows():
             "daily_screening_memberships",
             docs=[
                 {
-                    "run_id": "run-1",
-                    "stage": "clxs",
-                    "scope": "scope-a",
+                    "scope_id": "scope-a",
+                    "condition_key": "clxs",
                     "code": "000001",
                 }
             ],
@@ -599,15 +594,13 @@ def test_repository_invalid_membership_batch_does_not_clear_existing_rows():
         repo.replace_stage_memberships(
             run_id="run-1",
             stage="clxs",
-            scope="scope-a",
             memberships=[{"name": "alpha"}],
         )
 
     assert fake_db["daily_screening_memberships"].docs == [
         {
-            "run_id": "run-1",
-            "stage": "clxs",
-            "scope": "scope-a",
+            "scope_id": "scope-a",
+            "condition_key": "clxs",
             "code": "000001",
         }
     ]
@@ -623,8 +616,7 @@ def test_repository_rejects_mixed_run_id_snapshots_without_mutating_existing_row
             "daily_screening_stock_snapshots",
             docs=[
                 {
-                    "run_id": "run-1",
-                    "scope": "scope-a",
+                    "scope_id": "scope-a",
                     "code": "000001",
                 }
             ],
@@ -634,17 +626,15 @@ def test_repository_rejects_mixed_run_id_snapshots_without_mutating_existing_row
 
     with pytest.raises(ValueError):
         repo.upsert_stock_snapshots(
-            scope="scope-a",
             snapshots=[
-                {"run_id": "run-1", "code": "000001"},
-                {"run_id": "run-2", "code": "000002"},
+                {"scope_id": "scope-a", "code": "000001"},
+                {"scope_id": "scope-b", "code": "000002"},
             ],
         )
 
     assert fake_db["daily_screening_stock_snapshots"].docs == [
         {
-            "run_id": "run-1",
-            "scope": "scope-a",
+            "scope_id": "scope-a",
             "code": "000001",
         }
     ]
@@ -686,7 +676,7 @@ def test_repository_round_trips_run_scope_documents():
     )
 
     assert saved_run["run_id"] == "run-1"
-    assert [item["stage"] for item in memberships] == ["clxs", "clxs"]
+    assert [item["condition_key"] for item in memberships] == ["clxs", "clxs"]
     assert [item["code"] for item in snapshots] == ["000001", "000002"]
     assert summary["run_id"] == "run-1"
     assert summary["membership_count"] == 2
@@ -696,7 +686,7 @@ def test_repository_round_trips_run_scope_documents():
     assert [item["code"] for item in detail_memberships] == ["000001"]
 
 
-def test_repository_allows_multiple_memberships_for_same_code_and_stage():
+def test_repository_allows_multiple_memberships_for_same_code_and_condition_key():
     from freshquant.daily_screening.repository import DailyScreeningRepository
 
     fake_db = FakeDB(
@@ -708,40 +698,28 @@ def test_repository_allows_multiple_memberships_for_same_code_and_stage():
     )
     repo = DailyScreeningRepository(db=fake_db)
 
-    memberships = repo.replace_stage_memberships(
-        run_id="run-1",
-        stage="chanlun",
-        scope="scope-a",
-        memberships=[
-            {
-                "code": "000001",
-                "name": "alpha",
-                "model_key": "buy_zs_huila",
-                "period": "30m",
-                "fire_time": "2026-03-18T09:30:00+08:00",
-            },
-            {
-                "code": "000001",
-                "name": "alpha",
-                "model_key": "buy_zs_huila",
-                "period": "60m",
-                "fire_time": "2026-03-18T10:30:00+08:00",
-            },
-            {
-                "code": "000001",
-                "name": "alpha",
-                "model_key": "macd_bullish_divergence",
-                "period": "1d",
-                "fire_time": "2026-03-18T15:00:00+08:00",
-            },
-        ],
+    repo.replace_condition_memberships(
+        scope_id="scope-a",
+        condition_key="buy_zs_huila_30m",
+        codes=[{"code": "000001", "name": "alpha"}],
+    )
+    repo.replace_condition_memberships(
+        scope_id="scope-a",
+        condition_key="buy_zs_huila_60m",
+        codes=[{"code": "000001", "name": "alpha"}],
+    )
+    repo.replace_condition_memberships(
+        scope_id="scope-a",
+        condition_key="macd_bullish_divergence",
+        codes=[{"code": "000001", "name": "alpha"}],
     )
 
-    assert [
-        (item["code"], item["model_key"], item["period"]) for item in memberships
-    ] == [
-        ("000001", "buy_zs_huila", "30m"),
-        ("000001", "buy_zs_huila", "60m"),
-        ("000001", "macd_bullish_divergence", "1d"),
+    assert sorted(
+        (item["code"], item["condition_key"])
+        for item in fake_db["daily_screening_memberships"].docs
+    ) == [
+        ("000001", "buy_zs_huila_30m"),
+        ("000001", "buy_zs_huila_60m"),
+        ("000001", "macd_bullish_divergence"),
     ]
     assert len(fake_db["daily_screening_memberships"].docs) == 3
