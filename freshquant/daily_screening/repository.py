@@ -27,23 +27,15 @@ class DailyScreeningRepository:
             ],
             "daily_screening_memberships": [
                 {
-                    "name": "daily_screening_memberships_run_scope_stage_code_model_period_fire_time",
-                    "keys": [
-                        ("run_id", 1),
-                        ("scope", 1),
-                        ("stage", 1),
-                        ("code", 1),
-                        ("model_key", 1),
-                        ("period", 1),
-                        ("fire_time", 1),
-                    ],
+                    "name": "daily_screening_memberships_scope_id_code_condition_key",
+                    "keys": [("scope_id", 1), ("code", 1), ("condition_key", 1)],
                     "unique": True,
                 }
             ],
             "daily_screening_stock_snapshots": [
                 {
-                    "name": "daily_screening_stock_snapshots_run_scope_code",
-                    "keys": [("run_id", 1), ("scope", 1), ("code", 1)],
+                    "name": "daily_screening_stock_snapshots_scope_id_code",
+                    "keys": [("scope_id", 1), ("code", 1)],
                     "unique": True,
                 }
             ],
@@ -123,13 +115,97 @@ class DailyScreeningRepository:
             self._insert_many(self.memberships, payloads)
         return payloads
 
+    def replace_condition_memberships(
+        self,
+        *,
+        scope_id: str,
+        condition_key: str,
+        codes: list[dict],
+    ) -> None:
+        raw_items = list(codes or [])
+        if not raw_items:
+            self._delete_many(
+                self.memberships,
+                {"scope_id": scope_id, "condition_key": condition_key},
+            )
+            return None
+
+        effective_scope_id = self._resolve_single_identity(
+            scope_id, raw_items, field_name="scope_id"
+        )
+        effective_condition_key = self._resolve_single_identity(
+            condition_key, raw_items, field_name="condition_key"
+        )
+        if effective_scope_id is None:
+            raise ValueError("scope_id required")
+        if effective_condition_key is None:
+            raise ValueError("condition_key required")
+
+        payloads = [
+            self._normalize_condition_membership(
+                item,
+                scope_id=effective_scope_id,
+                condition_key=effective_condition_key,
+            )
+            for item in raw_items
+        ]
+        if any(
+            self._primary_value(payload, "code", "symbol") is None
+            for payload in payloads
+        ):
+            raise ValueError("code required")
+
+        self._delete_many(
+            self.memberships,
+            {"scope_id": effective_scope_id, "condition_key": effective_condition_key},
+        )
+        self._insert_many(self.memberships, payloads)
+        return None
+
     def upsert_stock_snapshots(
         self,
         run_id=None,
         snapshots=None,
         scope=None,
+        *,
+        scope_id=None,
+        trade_date=None,
         **document,
     ):
+        if scope_id is not None or trade_date is not None:
+            raw_items = list(snapshots or [])
+            effective_scope_id = self._resolve_single_identity(
+                scope_id, raw_items, field_name="scope_id"
+            )
+            if effective_scope_id is None:
+                raise ValueError("scope_id required")
+            if trade_date is None:
+                raise ValueError("trade_date required")
+
+            self._delete_many(self.stock_snapshots, {"scope_id": effective_scope_id})
+            if not raw_items:
+                return []
+
+            payloads = [
+                self._normalize_condition_snapshot(
+                    item,
+                    scope_id=effective_scope_id,
+                    trade_date=trade_date,
+                )
+                for item in raw_items
+            ]
+            if any(
+                self._primary_value(payload, "code", "symbol") is None
+                for payload in payloads
+            ):
+                raise ValueError("code required")
+            for payload in payloads:
+                snapshot_query = self._snapshot_scope_query(
+                    payload, scope_id=effective_scope_id
+                )
+                self._upsert_one(self.stock_snapshots, snapshot_query, payload)
+            return payloads
+
         raw_items = list(snapshots or [])
         effective_run_id = self._resolve_single_identity(
             run_id, raw_items, field_name="run_id"
@@ -301,6 +377,23 @@ class DailyScreeningRepository:
             payload.setdefault("code", code)
         return payload
 
+    def _normalize_condition_membership(
+        self,
+        item: Any,
+        *,
+        scope_id=None,
+        condition_key=None,
+    ) -> dict[str, Any]:
+        payload = dict(item or {})
+        if scope_id is not None:
+            payload.setdefault("scope_id", scope_id)
+        if condition_key is not None:
+            payload.setdefault("condition_key", condition_key)
+        code = self._primary_value(payload, "code", "symbol")
+        if code is not None:
+            payload.setdefault("code", code)
+        return payload
+
     def _normalize_snapshot(
         self, item: Any, *, run_id=None, scope=None
     ) -> dict[str, Any]:
@@ -314,6 +407,23 @@ class DailyScreeningRepository:
             payload.setdefault("code", code)
         return payload
 
+    def _normalize_condition_snapshot(
+        self,
+        item: Any,
+        *,
+        scope_id=None,
+        trade_date=None,
+    ) -> dict[str, Any]:
+        payload = dict(item or {})
+        if scope_id is not None:
+            payload.setdefault("scope_id", scope_id)
+        if trade_date is not None:
+            payload.setdefault("trade_date", trade_date)
+        code = self._primary_value(payload, "code", "symbol")
+        if code is not None:
+            payload.setdefault("code", code)
+        return payload
+
     def _snapshot_query(
         self,
         payload: dict[str, Any],
@@ -322,6 +432,20 @@ class DailyScreeningRepository:
         scope=None,
     ) -> dict[str, Any]:
         query = self._scope_query(run_id=run_id, scope=scope)
+        code = self._primary_value(payload, "code", "symbol")
+        if code is not None:
+            query["code"] = code
+        return query
+
+    def _snapshot_scope_query(
+        self,
+        payload: dict[str, Any],
+        *,
+        scope_id=None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {}
+        if scope_id is not None:
+            query["scope_id"] = scope_id
         code = self._primary_value(payload, "code", "symbol")
         if code is not None:
             query["code"] = code

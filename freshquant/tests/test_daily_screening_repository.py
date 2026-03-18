@@ -111,43 +111,66 @@ def test_repository_uses_fqscreening_collections():
     assert repo.stock_snapshots.name == "daily_screening_stock_snapshots"
 
 
-def test_repository_builds_expected_indexes():
+def test_repository_builds_condition_key_indexes():
     from freshquant.daily_screening.repository import DailyScreeningRepository
 
     repo = DailyScreeningRepository(db=FakeDB())
     specs = repo.index_specs()
 
-    assert specs == {
-        "daily_screening_runs": [
-            {
-                "name": "daily_screening_runs_run_id",
-                "keys": [("run_id", 1)],
-                "unique": True,
-            }
-        ],
-        "daily_screening_memberships": [
-            {
-                "name": "daily_screening_memberships_run_scope_stage_code_model_period_fire_time",
-                "keys": [
-                    ("run_id", 1),
-                    ("scope", 1),
-                    ("stage", 1),
-                    ("code", 1),
-                    ("model_key", 1),
-                    ("period", 1),
-                    ("fire_time", 1),
-                ],
-                "unique": True,
-            }
-        ],
-        "daily_screening_stock_snapshots": [
-            {
-                "name": "daily_screening_stock_snapshots_run_scope_code",
-                "keys": [("run_id", 1), ("scope", 1), ("code", 1)],
-                "unique": True,
-            }
-        ],
-    }
+    assert specs["daily_screening_memberships"][0]["keys"] == [
+        ("scope_id", 1),
+        ("code", 1),
+        ("condition_key", 1),
+    ]
+
+
+def test_repository_upserts_snapshot_metrics_by_scope_and_code():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots"
+        )
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.upsert_stock_snapshots(
+        scope_id="trade_date:2026-03-18",
+        trade_date="2026-03-18",
+        snapshots=[{"code": "000001", "higher_multiple": 2.5}],
+    )
+
+    assert fake_db["daily_screening_stock_snapshots"].docs[0]["higher_multiple"] == 2.5
+    assert fake_db["daily_screening_stock_snapshots"].docs[0]["scope_id"] == (
+        "trade_date:2026-03-18"
+    )
+    assert fake_db["daily_screening_stock_snapshots"].docs[0]["trade_date"] == (
+        "2026-03-18"
+    )
+
+
+def test_repository_replaces_condition_memberships_by_scope_and_condition_key():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships")
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.replace_condition_memberships(
+        scope_id="trade_date:2026-03-18",
+        condition_key="clxs",
+        codes=[{"code": "000001", "name": "alpha"}],
+    )
+
+    assert fake_db["daily_screening_memberships"].docs == [
+        {
+            "scope_id": "trade_date:2026-03-18",
+            "condition_key": "clxs",
+            "code": "000001",
+            "name": "alpha",
+        }
+    ]
 
 
 def test_repository_ensure_indexes_calls_create_index_with_expected_contract():
@@ -172,25 +195,13 @@ def test_repository_ensure_indexes_calls_create_index_with_expected_contract():
     ]
     assert repo.memberships.created_indexes == [
         (
-            [
-                ("run_id", 1),
-                ("scope", 1),
-                ("stage", 1),
-                ("code", 1),
-                ("model_key", 1),
-                ("period", 1),
-                ("fire_time", 1),
-            ],
+            [("scope_id", 1), ("code", 1), ("condition_key", 1)],
             True,
-            "daily_screening_memberships_run_scope_stage_code_model_period_fire_time",
+            "daily_screening_memberships_scope_id_code_condition_key",
         )
     ]
     assert repo.stock_snapshots.created_indexes == [
-        (
-            [("run_id", 1), ("scope", 1), ("code", 1)],
-            True,
-            "daily_screening_stock_snapshots_run_scope_code",
-        )
+        ([("scope_id", 1), ("code", 1)], True, "daily_screening_stock_snapshots_scope_id_code")
     ]
 
 
@@ -246,17 +257,12 @@ def test_repository_uses_scope_in_identity_for_same_run():
     )
 
     assert repo.index_specs()["daily_screening_memberships"][0]["keys"] == [
-        ("run_id", 1),
-        ("scope", 1),
-        ("stage", 1),
+        ("scope_id", 1),
         ("code", 1),
-        ("model_key", 1),
-        ("period", 1),
-        ("fire_time", 1),
+        ("condition_key", 1),
     ]
     assert repo.index_specs()["daily_screening_stock_snapshots"][0]["keys"] == [
-        ("run_id", 1),
-        ("scope", 1),
+        ("scope_id", 1),
         ("code", 1),
     ]
     assert sorted(
