@@ -1,4 +1,7 @@
+import os
+
 import pytest
+from requests.exceptions import SSLError  # type: ignore[import-untyped]
 
 from freshquant.data.gantt_source_jygs import normalize_jygs_action_field_row
 
@@ -629,3 +632,48 @@ def test_sync_jygs_action_for_date_replaces_stale_rows(monkeypatch):
             ],
         }
     ]
+
+
+def test_fetch_action_count_retries_transient_ssl_error_without_proxy(monkeypatch):
+    from freshquant.data import gantt_source_jygs as svc
+
+    monkeypatch.setenv("JYGS_SESSION", "session-from-env")
+    proxy_values = {
+        "ALL_PROXY": "socks5://127.0.0.1:10808",
+        "HTTP_PROXY": "http://127.0.0.1:10809",
+        "HTTPS_PROXY": "http://127.0.0.1:10809",
+    }
+    for key, value in proxy_values.items():
+        monkeypatch.setenv(key, value)
+
+    seen_proxy_values = []
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, json=None, data=None, headers=None, cookies=None, timeout=None):
+        calls.append((url, json, data, timeout))
+        seen_proxy_values.append(
+            {key: os.environ.get(key) for key in proxy_values}
+        )
+        if len(calls) == 1:
+            raise SSLError("temporary ssl failure")
+        return FakeResponse({"errCode": "0", "data": {"date": "2026-03-05"}})
+
+    monkeypatch.setattr(svc.requests, "post", fake_post)
+
+    payload = svc.fetch_action_count("2026-03-05")
+
+    assert payload == {"errCode": "0", "data": {"date": "2026-03-05"}}
+    assert len(calls) == 2
+    assert seen_proxy_values == [{key: None for key in proxy_values}] * 2
+    for key, value in proxy_values.items():
+        assert os.environ.get(key) == value

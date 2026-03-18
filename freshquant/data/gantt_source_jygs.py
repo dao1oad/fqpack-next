@@ -10,8 +10,10 @@ import urllib.parse
 from typing import Any
 
 import requests  # type: ignore[import-untyped]
+from requests.exceptions import RequestException  # type: ignore[import-untyped]
 
 from freshquant.db import DBGantt
+from freshquant.runtime.network import without_proxy_env
 
 COL_JYGS_YIDONG = "jygs_yidong"
 COL_JYGS_ACTION_FIELDS = "jygs_action_fields"
@@ -27,6 +29,7 @@ EMPTY_RESULT_REASON_NO_THEME_FIELDS = "no_theme_fields"
 EMPTY_RESULT_REASON_INVALID_THEME_FIELDS = "invalid_theme_fields"
 EMPTY_RESULT_BOARD_KEY = "__empty__"
 EMPTY_RESULT_STOCK_CODE = "__empty__"
+_HTTP_REQUEST_RETRIES = 3
 
 _BOARD_SUFFIX_PATTERNS = (
     re.compile(r"[\*xX]\s*\d+\s*$"),
@@ -40,6 +43,19 @@ def _to_str(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _request_with_retry(fetcher, retries: int = _HTTP_REQUEST_RETRIES):
+    last_error: RequestException | None = None
+    for _ in range(max(retries, 1)):
+        try:
+            with without_proxy_env():
+                return fetcher()
+        except RequestException as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("jygs request failed without exception")
 
 
 def normalize_board_key(name: Any) -> str:
@@ -206,26 +222,30 @@ def get_auth_cookies() -> dict[str, str]:
 
 def _post_json(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     cookies = get_auth_cookies() or None
-    response = requests.post(
-        f"{BASE_URL}{path}",
-        json=payload,
-        headers=_build_action_headers("application/json"),
-        cookies=cookies,
-        timeout=15,
+    response = _request_with_retry(
+        lambda: requests.post(
+            f"{BASE_URL}{path}",
+            json=payload,
+            headers=_build_action_headers("application/json"),
+            cookies=cookies,
+            timeout=15,
+        )
     )
     response.raise_for_status()
     result = response.json()
     if not isinstance(result, dict):
         raise RuntimeError(f"unexpected jygs payload type: {type(result)!r}")
     if result.get("errCode") in {"1", "9", 1, 9}:
-        response = requests.post(
-            f"{BASE_URL}{path}",
-            data=payload,
-            headers=_build_action_headers(
-                "application/x-www-form-urlencoded;charset=utf-8"
-            ),
-            cookies=cookies,
-            timeout=15,
+        response = _request_with_retry(
+            lambda: requests.post(
+                f"{BASE_URL}{path}",
+                data=payload,
+                headers=_build_action_headers(
+                    "application/x-www-form-urlencoded;charset=utf-8"
+                ),
+                cookies=cookies,
+                timeout=15,
+            )
         )
         response.raise_for_status()
         result = response.json()

@@ -5,19 +5,35 @@ from datetime import datetime
 from typing import Any
 
 import requests  # type: ignore[import-untyped]
+from requests.exceptions import RequestException  # type: ignore[import-untyped]
 
 from freshquant.db import DBGantt
+from freshquant.runtime.network import without_proxy_env
 
 COL_XGB_TOP_GAINER_HISTORY = "xgb_top_gainer_history"
 BASE_URL = "https://flash-api.xuangubao.cn/api"
 XGB_EXCLUDE_PLATE_IDS = {-1}
 XGB_EXCLUDE_PLATE_NAMES = {"其他"}
+_HTTP_REQUEST_RETRIES = 3
 
 
 def _to_str(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _request_with_retry(fetcher, retries: int = _HTTP_REQUEST_RETRIES):
+    last_error: RequestException | None = None
+    for _ in range(max(retries, 1)):
+        try:
+            with without_proxy_env():
+                return fetcher()
+        except RequestException as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("xgb request failed without exception")
 
 
 def normalize_xgb_history_row(raw: dict[str, Any]) -> dict[str, Any]:
@@ -53,7 +69,9 @@ def normalize_xgb_history_row(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _fetch_json(url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    response = requests.get(url, params=params, timeout=15)
+    response = _request_with_retry(
+        lambda: requests.get(url, params=params, timeout=15)
+    )
     response.raise_for_status()
     payload = response.json()
     if not isinstance(payload, dict):
