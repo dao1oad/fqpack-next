@@ -61,8 +61,12 @@
 - context pack 产物根目录：`D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs`
 - Deploy 后运维面检查脚本：`runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1`
 - 共享部署计划脚本：`script/freshquant_deploy_plan.py`
+- selective deploy 正式执行入口：`script/fq_apply_deploy_plan.ps1`
 - 正式自动部署 orchestrator：`script/ci/run_formal_deploy.py`
 - 宿主机运行时控制脚本：`script/fqnext_host_runtime_ctl.ps1`
+- 仓库级本地预检正式入口：`script/fq_local_preflight.ps1`
+- 本地开 PR 的正式入口：`script/fq_open_pr.ps1`
+- 仓库 `git push` 会通过 `.githooks/pre-push` 调用本地预检；首次接入或 hook 丢失时，用 `script/install_repo_hooks.ps1` 恢复 `core.hooksPath`
 - FQNext 宿主机 Supervisor service：`fqnext-supervisord`
 - FQNext 宿主机 Supervisor RPC：`http://127.0.0.1:10011/RPC2`
 - FQNext 宿主机 Supervisor 配置：`D:/fqpack/config/supervisord.fqnext.conf`
@@ -138,6 +142,7 @@
 - mirror 同步完成后，workflow 直接在 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 目录执行 `py -3.12 -m uv sync --frozen`，然后调用 `run_formal_deploy.py`。
 - 该 workflow 中的 PowerShell steps 固定带 `-ExecutionPolicy Bypass`，避免 self-hosted Windows runner 的本机执行策略在 step 启动前拦截临时脚本
 - 该 workflow 也会显式设置 `$ErrorActionPreference = 'Stop'`，确保 PowerShell cmdlet 的 non-terminating error 仍然按 fail-fast 方式中断正式 deploy
+- `script/docker_parallel_compose.ps1` 会优先读取 `FQ_DOCKER_BUILD_CACHE_ROOT`；未显式设置时，Docker BuildKit 本地缓存默认落到仓库 `.artifacts/docker-build-cache`
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - `docker/compose.parallel.yaml` 会为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`，避免容器误继承宿主机默认 `27027`
@@ -193,6 +198,19 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status
+```
+
+### 跑本地预检并开 PR
+
+```powershell
+powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ensure
+powershell -ExecutionPolicy Bypass -File script/fq_open_pr.ps1 -- --fill
+```
+
+### 按变更面执行 selective deploy
+
+```powershell
+powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGitDiff origin/main...HEAD
 ```
 
 ## 当前阶段的运行风险

@@ -33,3 +33,18 @@ def test_compose_apiserver_mounts_tdx_sync_dir() -> None:
 def test_ci_uses_uv_sync() -> None:
     text = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "uv sync --frozen" in text
+
+
+def test_compose_uses_buildkit_local_cache_for_build_services() -> None:
+    text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
+
+    assert "cache_from:" in text
+    assert "cache_to:" in text
+    assert "FQ_DOCKER_BUILD_CACHE_ROOT" in text
+
+
+def test_docker_parallel_compose_enables_buildkit_environment() -> None:
+    text = Path("script/docker_parallel_compose.ps1").read_text(encoding="utf-8")
+
+    assert "DOCKER_BUILDKIT" in text
+    assert "COMPOSE_BAKE" in text

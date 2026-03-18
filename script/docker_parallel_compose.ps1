@@ -11,6 +11,10 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $env:DOCKER_BUILDKIT = "1"
 $env:COMPOSE_DOCKER_CLI_BUILD = "1"
+$env:COMPOSE_BAKE = "true"
+Set-Item -Path "Env:DOCKER_BUILDKIT" -Value "1"
+Set-Item -Path "Env:COMPOSE_DOCKER_CLI_BUILD" -Value "1"
+Set-Item -Path "Env:COMPOSE_BAKE" -Value "true"
 
 if (-not $env:FQ_RUNTIME_LOG_HOST_DIR) {
     $resolvedRuntimeLogHostDir = & py -3.12 "$repoRoot\script\docker_parallel_runtime.py" --repo-root $repoRoot --kind runtime-log-dir
@@ -28,12 +32,20 @@ if (-not $env:FQ_COMPOSE_ENV_FILE) {
     $env:FQ_COMPOSE_ENV_FILE = $resolvedComposeEnvFile.Trim()
 }
 
+if (-not $env:FQ_DOCKER_BUILD_CACHE_ROOT) {
+    Set-Item -Path "Env:FQ_DOCKER_BUILD_CACHE_ROOT" -Value (Join-Path $repoRoot ".artifacts\docker-build-cache")
+}
+
 if (-not (Test-Path $env:FQ_RUNTIME_LOG_HOST_DIR)) {
     New-Item -ItemType Directory -Path $env:FQ_RUNTIME_LOG_HOST_DIR -Force | Out-Null
 }
 
 if (-not (Test-Path $env:FQ_COMPOSE_ENV_FILE)) {
     throw "FQ_COMPOSE_ENV_FILE does not exist: $($env:FQ_COMPOSE_ENV_FILE)"
+}
+
+if (-not (Test-Path $env:FQ_DOCKER_BUILD_CACHE_ROOT)) {
+    New-Item -ItemType Directory -Path $env:FQ_DOCKER_BUILD_CACHE_ROOT -Force | Out-Null
 }
 
 $currentRevision = (& git -C $repoRoot rev-parse HEAD).Trim()
@@ -50,6 +62,7 @@ if ($Detached.IsPresent -and $resolvedComposeArgs -and $resolvedComposeArgs -not
     }
     $resolvedComposeArgs = $reconstructedComposeArgs
 }
+
 $fallbackComposeArgs = @($resolvedComposeArgs)
 if ($resolvedComposeArgs.Count -gt 0) {
     try {
@@ -63,6 +76,7 @@ if ($resolvedComposeArgs.Count -gt 0) {
         foreach ($composeArg in $resolvedComposeArgs) {
             $helperArgs += "--compose-arg=$([string]$composeArg)"
         }
+
         $smartBuildJson = & py -3.12 @helperArgs
         if ($LASTEXITCODE -eq 0 -and $smartBuildJson) {
             $smartBuild = $smartBuildJson | ConvertFrom-Json
@@ -110,8 +124,10 @@ if ($resolvedComposeArgs) {
 
 Write-Host "FQ_RUNTIME_LOG_HOST_DIR=$($env:FQ_RUNTIME_LOG_HOST_DIR)"
 Write-Host "FQ_COMPOSE_ENV_FILE=$($env:FQ_COMPOSE_ENV_FILE)"
+Write-Host "FQ_DOCKER_BUILD_CACHE_ROOT=$($env:FQ_DOCKER_BUILD_CACHE_ROOT)"
 Write-Host "FQ_IMAGE_GIT_SHA=$($env:FQ_IMAGE_GIT_SHA)"
 Write-Host "DOCKER_BUILDKIT=$($env:DOCKER_BUILDKIT)"
+Write-Host "COMPOSE_BAKE=$($env:COMPOSE_BAKE)"
 Write-Host "DOCKER_ARGS=$($dockerArgs -join ' ')"
 & docker @dockerArgs
 exit $LASTEXITCODE
