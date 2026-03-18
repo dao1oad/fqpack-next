@@ -1157,6 +1157,18 @@ def test_daily_screening_service_all_mode_runs_chanlun_against_current_clxs_univ
             **service._make_strategy_hooks(run_id, config),
         ),
     )
+    monkeypatch.setattr(
+        service,
+        "_run_shouban30_agg90_stage",
+        lambda run_id, config: [],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_market_flags_stage",
+        lambda run_id, config: [],
+        raising=False,
+    )
 
     snapshot = service.start_run(
         {

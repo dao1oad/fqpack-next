@@ -7,10 +7,13 @@ from freshquant.daily_screening.service import DailyScreeningService
 daily_screening_bp = Blueprint(
     "daily_screening", __name__, url_prefix="/api/daily-screening"
 )
-_daily_screening_service = DailyScreeningService()
+_daily_screening_service: DailyScreeningService | None = None
 
 
 def _get_daily_screening_service() -> DailyScreeningService:
+    global _daily_screening_service
+    if _daily_screening_service is None:
+        _daily_screening_service = DailyScreeningService()
     return _daily_screening_service
 
 
