@@ -408,7 +408,8 @@ def trading_main_loop():
 
             except (Exception, KeyboardInterrupt, SystemExit) as e:
                 if isinstance(e, KeyboardInterrupt) or isinstance(e, SystemExit):
-                    break
+                    logger.info("xtquant broker 收到退出信号，停止 trading_main_loop")
+                    return
                 logger.error(traceback.format_exc())
 
 

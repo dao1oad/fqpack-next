@@ -736,6 +736,38 @@ def test_broker_main_runs_trading_loop_without_http_server(monkeypatch):
     assert observed == {"loop_called": True}
 
 
+def test_broker_trading_loop_exits_cleanly_on_keyboard_interrupt(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_interrupt_exit", BROKER_PATH)
+
+    observed = {"brpop_calls": 0, "shuffle_calls": 0}
+
+    monkeypatch.setattr(
+        broker,
+        "resolve_broker_submit_mode",
+        lambda settings_provider=None: "observe_only",
+    )
+
+    def fake_shuffle(_values):
+        observed["shuffle_calls"] += 1
+        if observed["shuffle_calls"] > 1:
+            raise AssertionError("trading loop should exit after keyboard interrupt")
+
+    monkeypatch.setattr(broker.random, "shuffle", fake_shuffle)
+    monkeypatch.setattr(broker, "tool_trade_date_seconds_to_start", lambda: 1)
+
+    def fake_brpop(_queues, _timeout):
+        observed["brpop_calls"] += 1
+        raise KeyboardInterrupt()
+
+    broker.redis_db = types.SimpleNamespace(brpop=fake_brpop)
+
+    broker.trading_main_loop()
+
+    assert observed["brpop_calls"] == 1
+    assert observed["shuffle_calls"] == 1
+
+
 def test_broker_observe_only_helper_is_defined_before_script_entrypoint():
     broker_source = BROKER_PATH.read_text(encoding="utf-8")
 
