@@ -157,9 +157,9 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
             return {
                 "items": [
                     {
-                        "run_id": "run-1",
-                        "scope": "run:run-1",
-                        "label": "run-1",
+                        "run_id": "trade_date:2026-03-18",
+                        "scope": "trade_date:2026-03-18",
+                        "label": "正式 2026-03-18",
                         "is_latest": True,
                     }
                 ]
@@ -168,23 +168,23 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
         def get_latest_scope(self):
             captured["latest"] = True
             return {
-                "run_id": "run-1",
-                "scope": "run:run-1",
-                "label": "run-1",
+                "run_id": "trade_date:2026-03-18",
+                "scope": "trade_date:2026-03-18",
+                "label": "正式 2026-03-18",
                 "is_latest": True,
             }
 
         def get_scope_summary(self, run_id):
             captured["summary"] = run_id
-            return {"run_id": run_id, "scope": f"run:{run_id}", "stock_count": 1}
+            return {"run_id": run_id, "scope": run_id, "stock_count": 1}
 
         def query_scope(self, run_id, payload):
             captured["query"] = (run_id, payload)
-            return {"run_id": run_id, "scope": f"run:{run_id}", "rows": [{"code": "000001"}], "total": 1}
+            return {"run_id": run_id, "scope": run_id, "rows": [{"code": "000001"}], "total": 1}
 
         def get_stock_detail(self, run_id, code):
             captured["detail"] = (run_id, code)
-            return {"run_id": run_id, "scope": f"run:{run_id}", "snapshot": {"code": code}, "memberships": []}
+            return {"run_id": run_id, "scope": run_id, "snapshot": {"code": code}, "memberships": []}
 
         def add_to_pre_pool(self, payload):
             captured["add_to_pre_pool"] = payload
@@ -198,51 +198,71 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
 
     scopes_response = client.get("/api/daily-screening/scopes")
     latest_response = client.get("/api/daily-screening/scopes/latest")
-    summary_response = client.get("/api/daily-screening/scopes/run-1/summary")
+    summary_response = client.get(
+        "/api/daily-screening/scopes/trade_date:2026-03-18/summary"
+    )
     query_response = client.post(
         "/api/daily-screening/query",
-        data=json.dumps({"run_id": "run-1", "selected_sets": ["clxs", "chanlun"]}),
+        data=json.dumps(
+            {
+                "run_id": "trade_date:2026-03-18",
+                "selected_sets": ["clxs", "chanlun"],
+            }
+        ),
         content_type="application/json",
     )
-    detail_response = client.get("/api/daily-screening/stocks/000001/detail?run_id=run-1")
+    detail_response = client.get(
+        "/api/daily-screening/stocks/000001/detail?run_id=trade_date:2026-03-18"
+    )
     add_to_pre_pool_response = client.post(
         "/api/daily-screening/actions/add-to-pre-pool",
-        data=json.dumps({"run_id": "run-1", "code": "000001"}),
+        data=json.dumps({"run_id": "trade_date:2026-03-18", "code": "000001"}),
         content_type="application/json",
     )
     add_batch_to_pre_pool_response = client.post(
         "/api/daily-screening/actions/add-batch-to-pre-pool",
-        data=json.dumps({"run_id": "run-1", "selected_sets": ["clxs"]}),
+        data=json.dumps(
+            {"run_id": "trade_date:2026-03-18", "selected_sets": ["clxs"]}
+        ),
         content_type="application/json",
     )
 
     assert scopes_response.status_code == 200
-    assert scopes_response.get_json()["items"][0]["run_id"] == "run-1"
+    assert scopes_response.get_json()["items"][0]["run_id"] == "trade_date:2026-03-18"
     assert captured["scopes"] is True
 
     assert latest_response.status_code == 200
-    assert latest_response.get_json()["run_id"] == "run-1"
+    assert latest_response.get_json()["run_id"] == "trade_date:2026-03-18"
     assert captured["latest"] is True
 
     assert summary_response.status_code == 200
-    assert summary_response.get_json()["scope"] == "run:run-1"
-    assert captured["summary"] == "run-1"
+    assert summary_response.get_json()["scope"] == "trade_date:2026-03-18"
+    assert captured["summary"] == "trade_date:2026-03-18"
 
     assert query_response.status_code == 200
     assert query_response.get_json()["rows"] == [{"code": "000001"}]
-    assert captured["query"] == ("run-1", {"run_id": "run-1", "selected_sets": ["clxs", "chanlun"]})
+    assert captured["query"] == (
+        "trade_date:2026-03-18",
+        {
+            "run_id": "trade_date:2026-03-18",
+            "selected_sets": ["clxs", "chanlun"],
+        },
+    )
 
     assert detail_response.status_code == 200
     assert detail_response.get_json()["snapshot"]["code"] == "000001"
-    assert captured["detail"] == ("run-1", "000001")
+    assert captured["detail"] == ("trade_date:2026-03-18", "000001")
 
     assert add_to_pre_pool_response.status_code == 200
     assert add_to_pre_pool_response.get_json()["code"] == "000001"
-    assert captured["add_to_pre_pool"] == {"run_id": "run-1", "code": "000001"}
+    assert captured["add_to_pre_pool"] == {
+        "run_id": "trade_date:2026-03-18",
+        "code": "000001",
+    }
 
     assert add_batch_to_pre_pool_response.status_code == 200
     assert add_batch_to_pre_pool_response.get_json()["codes"] == ["000001"]
     assert captured["add_batch_to_pre_pool"] == {
-        "run_id": "run-1",
+        "run_id": "trade_date:2026-03-18",
         "selected_sets": ["clxs"],
     }
