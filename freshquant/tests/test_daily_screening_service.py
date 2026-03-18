@@ -742,6 +742,18 @@ def test_daily_screening_service_runs_all_pipeline_and_persists_model_metadata(
             **service._make_strategy_hooks(run_id, config),
         ),
     )
+    monkeypatch.setattr(
+        service,
+        "_run_shouban30_agg90_stage",
+        lambda run_id, config: [],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_market_flags_stage",
+        lambda run_id, config: [],
+        raising=False,
+    )
 
     snapshot = service.start_run(
         {
@@ -878,6 +890,18 @@ def test_daily_screening_service_all_mode_keeps_intermediate_pre_pool_writes(
         lambda run_id, config: FakeChanlunStrategy(
             **service._make_strategy_hooks(run_id, config),
         ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_shouban30_agg90_stage",
+        lambda run_id, config: [],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_market_flags_stage",
+        lambda run_id, config: [],
+        raising=False,
     )
 
     snapshot = service.start_run(
@@ -1020,4 +1044,156 @@ def test_daily_screening_service_all_mode_runs_chanlun_against_current_clxs_univ
             "symbol": "sz000002",
             "pre_pool_query": None,
         },
+    ]
+
+
+def test_daily_screening_service_all_mode_executes_special_stage_handlers(
+    monkeypatch,
+):
+    service = _make_service()
+
+    captured = {"special_stages": []}
+    monkeypatch.setattr(
+        "freshquant.daily_screening.service._save_database_outputs",
+        lambda results, config: None,
+    )
+    monkeypatch.setattr(
+        "freshquant.daily_screening.service._save_pre_pool",
+        lambda **kwargs: None,
+    )
+
+    class FakeClxsStrategy:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def screen(self, **_kwargs):
+            payload = {
+                "strategy": "clxs",
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "period": "1d",
+                "fire_time": datetime(2026, 3, 17, 15, 0),
+                "price": 10.5,
+                "stop_loss_price": 9.8,
+                "signal_type": "CLXS_10001",
+                "position": "BUY_LONG",
+                "remark": "",
+                "category": "",
+                "tags": [],
+            }
+            self.kwargs["on_result_accepted"](payload)
+            return [
+                SimpleNamespace(
+                    code="000001",
+                    name="alpha",
+                    symbol="sz000001",
+                    period="1d",
+                    fire_time=datetime(2026, 3, 17, 15, 0),
+                    price=10.5,
+                    stop_loss_price=9.8,
+                    signal_type="CLXS_10001",
+                    position="BUY_LONG",
+                    remark="",
+                    category="",
+                )
+            ]
+
+    class FakeChanlunStrategy:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def screen(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr(
+        service,
+        "_make_clxs_strategy",
+        lambda run_id, config: FakeClxsStrategy(
+            **service._make_strategy_hooks(run_id, config),
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_make_chanlun_strategy",
+        lambda run_id, config: FakeChanlunStrategy(
+            **service._make_strategy_hooks(run_id, config),
+        ),
+    )
+
+    def fake_shouban30_handler(run_id, config):
+        captured["special_stages"].append(config["model"])
+        return [
+            SimpleNamespace(
+                code="000002",
+                name="beta",
+                symbol="sz000002",
+                period="90d",
+                fire_time=datetime(2026, 3, 17, 15, 0),
+                price=None,
+                stop_loss_price=None,
+                signal_type="agg90",
+                position="BUY_LONG",
+                remark="90日聚合",
+                category="shouban30_agg90",
+            )
+        ]
+
+    def fake_market_flags_handler(run_id, config):
+        captured["special_stages"].append(config["model"])
+        return [
+            SimpleNamespace(
+                code="000003",
+                name="gamma",
+                symbol="sz000003",
+                period="1d",
+                fire_time=datetime(2026, 3, 17, 15, 0),
+                price=None,
+                stop_loss_price=None,
+                signal_type="credit_subject",
+                position="BUY_LONG",
+                remark="融资标的",
+                category="credit_subject",
+            )
+        ]
+
+    monkeypatch.setattr(
+        service,
+        "_run_shouban30_agg90_stage",
+        fake_shouban30_handler,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_market_flags_stage",
+        fake_market_flags_handler,
+        raising=False,
+    )
+
+    snapshot = service.start_run(
+        {
+            "model": "all",
+            "days": 1,
+            "clxs_model_opts": [10001],
+            "chanlun_signal_types": ["buy_zs_huila"],
+            "save_pre_pools": False,
+        },
+        run_async=False,
+    )
+
+    run = service.get_run(snapshot["id"])
+
+    assert run["status"] == "completed"
+    assert captured["special_stages"] == ["shouban30_agg90", "market_flags"]
+    assert set(run["stage_summaries"]) == {
+        "clxs",
+        "chanlun",
+        "shouban30_agg90",
+        "market_flags",
+    }
+    assert run["progress"]["accepted"] == 3
+    assert [item["branch"] for item in run["results"]] == [
+        "clxs",
+        "shouban30_agg90",
+        "market_flags",
     ]

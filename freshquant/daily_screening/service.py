@@ -4,6 +4,7 @@ import asyncio
 import json
 import threading
 from datetime import date, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pendulum
@@ -270,14 +271,20 @@ class DailyScreeningService:
         config: dict,
     ) -> tuple[list[Any], int]:
         stage_config = {**config, "_pipeline_stage": stage_name}
-        if stage_name in {"shouban30_agg90", "market_flags"}:
-            return [], 0
         if stage_name == "chanlun" and stage_config.get("_pipeline_parent_model") == "all":
             if stage_config.get("input_mode") != "single_code":
                 stage_config["_input_codes"] = self._current_clxs_run_codes(run_id)
                 stage_config["input_mode"] = "current_clxs_run"
                 stage_config["pre_pool_run_id"] = None
-        results = asyncio.run(self._run_model(run_id, stage_config))
+        if stage_name == "shouban30_agg90":
+            results = self._run_shouban30_agg90_stage(run_id, stage_config)
+        elif stage_name == "market_flags":
+            results = self._run_market_flags_stage(run_id, stage_config)
+        else:
+            results = asyncio.run(self._run_model(run_id, stage_config))
+        if stage_name in {"shouban30_agg90", "market_flags"}:
+            for result in results:
+                self._publish_manual_result_accepted(run_id, stage_config, result)
         _save_database_outputs(results, stage_config)
         persisted_count = self._persist_results(run_id, stage_config, results)
         return results, persisted_count
@@ -396,6 +403,284 @@ class DailyScreeningService:
                 ),
             )
         return results
+
+    def _run_shouban30_agg90_stage(self, run_id: str, config: dict) -> list[Any]:
+        stage = str(config.get("_pipeline_stage") or config["model"]).strip()
+        rows = self._load_shouban30_agg90_rows(config)
+        total = len(rows)
+        self.session_store.publish_event(
+            run_id,
+            "stage_progress",
+            self._jsonable(
+                {
+                    "stage": stage,
+                    "kind": "universe",
+                    "strategy": "shouban30_agg90",
+                    "total": total,
+                    "trade_date": config.get("trade_date"),
+                    "providers": list(config.get("providers") or []),
+                }
+            ),
+        )
+        grouped: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            code = self._normalize_code(row.get("code6"))
+            if not code:
+                continue
+            entry = grouped.setdefault(
+                code,
+                {
+                    "code": code,
+                    "name": str(row.get("name") or row.get("code6") or code),
+                    "providers": set(),
+                    "plate_refs": set(),
+                    "latest_trade_date": None,
+                },
+            )
+            provider = str(row.get("provider") or "").strip()
+            plate_key = str(row.get("plate_key") or "").strip()
+            if provider:
+                entry["providers"].add(provider)
+            if provider and plate_key:
+                entry["plate_refs"].add(f"{provider}:{plate_key}")
+            latest_trade_date = str(row.get("latest_trade_date") or row.get("as_of_date") or "").strip()
+            if latest_trade_date and (
+                entry["latest_trade_date"] is None or latest_trade_date > entry["latest_trade_date"]
+            ):
+                entry["latest_trade_date"] = latest_trade_date
+
+        results: list[Any] = []
+        total_codes = len(grouped)
+        for processed, item in enumerate(grouped.values(), start=1):
+            providers = sorted(item["providers"])
+            label = " / ".join(providers) if providers else "90日聚合"
+            result = SimpleNamespace(
+                code=item["code"],
+                name=item["name"],
+                symbol=self._infer_symbol(item["code"]),
+                period="90d",
+                fire_time=self._trade_date_to_datetime(
+                    item["latest_trade_date"] or config.get("trade_date")
+                ),
+                price=None,
+                stop_loss_price=None,
+                signal_type="agg90",
+                position="BUY_LONG",
+                remark=label,
+                category="shouban30_agg90",
+                providers=providers,
+                plate_refs=sorted(item["plate_refs"]),
+            )
+            results.append(result)
+            self.session_store.publish_event(
+                run_id,
+                "stage_progress",
+                self._jsonable(
+                    {
+                        "stage": stage,
+                        "kind": "stock_progress",
+                        "strategy": "shouban30_agg90",
+                        "processed": processed,
+                        "total": total_codes,
+                        "code": result.code,
+                        "symbol": result.symbol,
+                        "result_count": 1,
+                        "status": "ok",
+                    }
+                ),
+            )
+        return results
+
+    def _run_market_flags_stage(self, run_id: str, config: dict) -> list[Any]:
+        from freshquant.data.gantt_readmodel import (
+            _load_shouban30_credit_subject_lookup,
+            _load_shouban30_quality_subject_lookup,
+            _resolve_shouban30_extra_filter_result,
+        )
+        from freshquant.instrument.stock import fq_inst_fetch_stock_list
+
+        stage = str(config.get("_pipeline_stage") or config["model"]).strip()
+        stock_rows = list(fq_inst_fetch_stock_list() or [])
+        self.session_store.publish_event(
+            run_id,
+            "stage_progress",
+            self._jsonable(
+                {
+                    "stage": stage,
+                    "kind": "universe",
+                    "strategy": "market_flags",
+                    "total": len(stock_rows),
+                    "trade_date": config.get("trade_date"),
+                }
+            ),
+        )
+        credit_subject_lookup, credit_subject_snapshot_ready = (
+            _load_shouban30_credit_subject_lookup()
+        )
+        (
+            quality_subject_lookup,
+            quality_subject_snapshot_ready,
+            quality_subject_source_version,
+        ) = _load_shouban30_quality_subject_lookup()
+        filter_cache: dict[str, dict[str, Any]] = {}
+        results: list[Any] = []
+        total = len(stock_rows)
+        for processed, row in enumerate(stock_rows, start=1):
+            code = self._normalize_code(row.get("code"))
+            if not code:
+                continue
+            filter_result = _resolve_shouban30_extra_filter_result(
+                code,
+                as_of_date=str(config.get("trade_date") or ""),
+                filter_result_cache=filter_cache,
+                credit_subject_lookup=credit_subject_lookup,
+                credit_subject_snapshot_ready=credit_subject_snapshot_ready,
+                quality_subject_lookup=quality_subject_lookup,
+                quality_subject_snapshot_ready=quality_subject_snapshot_ready,
+                quality_subject_source_version=quality_subject_source_version,
+            )
+            stock_results: list[Any] = []
+            if config.get("include_credit_subject") and filter_result.get("is_credit_subject"):
+                stock_results.append(
+                    self._build_market_flag_result(
+                        code=code,
+                        name=row.get("name"),
+                        trade_date=config.get("trade_date"),
+                        signal_type="credit_subject",
+                        remark="融资标的",
+                        category="credit_subject",
+                    )
+                )
+            if config.get("include_quality_subject") and filter_result.get("is_quality_subject"):
+                stock_results.append(
+                    self._build_market_flag_result(
+                        code=code,
+                        name=row.get("name"),
+                        trade_date=config.get("trade_date"),
+                        signal_type="quality_subject",
+                        remark="优质标的",
+                        category="quality_subject",
+                    )
+                )
+            if config.get("include_near_long_term_ma") and filter_result.get(
+                "near_long_term_ma_passed"
+            ):
+                basis = str(filter_result.get("near_long_term_ma_basis") or "").strip()
+                stock_results.append(
+                    self._build_market_flag_result(
+                        code=code,
+                        name=row.get("name"),
+                        trade_date=config.get("trade_date"),
+                        signal_type="near_long_term_ma",
+                        remark=f"均线附近 {basis}" if basis else "均线附近",
+                        category="near_long_term_ma",
+                    )
+            )
+            results.extend(stock_results)
+            self.session_store.publish_event(
+                run_id,
+                "stage_progress",
+                self._jsonable(
+                    {
+                        "stage": stage,
+                        "kind": "stock_progress",
+                        "strategy": "market_flags",
+                        "processed": processed,
+                        "total": total,
+                        "code": code,
+                        "symbol": self._infer_symbol(code),
+                        "result_count": len(stock_results),
+                        "status": "ok" if stock_results else "empty",
+                    }
+                ),
+            )
+        return results
+
+    def _load_shouban30_agg90_rows(self, config: dict) -> list[dict[str, Any]]:
+        from freshquant.data.gantt_readmodel import COL_SHOUBAN30_STOCKS
+        from freshquant.db import DBGantt
+
+        providers = [
+            str(item).strip()
+            for item in (config.get("providers") or [])
+            if str(item).strip()
+        ]
+        trade_date = str(config.get("trade_date") or "").strip()
+        if not providers or not trade_date:
+            return []
+        collection = DBGantt[COL_SHOUBAN30_STOCKS]
+        rows = list(
+            collection.find(
+                {
+                    "provider": {"$in": providers},
+                    "stock_window_days": int(config.get("window_days") or 90),
+                    "as_of_date": {"$lte": trade_date},
+                }
+            )
+        )
+        if not rows:
+            return []
+        latest_as_of_date = max(
+            str(row.get("as_of_date") or "").strip() for row in rows if row.get("as_of_date")
+        )
+        return [
+            dict(row)
+            for row in rows
+            if str(row.get("as_of_date") or "").strip() == latest_as_of_date
+        ]
+
+    def _build_market_flag_result(
+        self,
+        *,
+        code: str,
+        name: Any,
+        trade_date: Any,
+        signal_type: str,
+        remark: str,
+        category: str,
+    ) -> Any:
+        return SimpleNamespace(
+            code=code,
+            name=str(name or code),
+            symbol=self._infer_symbol(code),
+            period="1d",
+            fire_time=self._trade_date_to_datetime(trade_date),
+            price=None,
+            stop_loss_price=None,
+            signal_type=signal_type,
+            position="BUY_LONG",
+            remark=remark,
+            category=category,
+        )
+
+    def _publish_manual_result_accepted(self, run_id: str, config: dict, result: Any) -> None:
+        stage = str(config.get("_pipeline_stage") or config["model"]).strip()
+        payload = {
+            **self._with_context(
+                config,
+                {
+                    "code": getattr(result, "code", None),
+                    "name": getattr(result, "name", None),
+                    "symbol": getattr(result, "symbol", None),
+                    "period": getattr(result, "period", None),
+                    "fire_time": getattr(result, "fire_time", None),
+                    "price": getattr(result, "price", None),
+                    "stop_loss_price": getattr(result, "stop_loss_price", None),
+                    "signal_type": getattr(result, "signal_type", None),
+                    "position": getattr(result, "position", None),
+                    "remark": getattr(result, "remark", None),
+                    "category": getattr(result, "category", None),
+                },
+            ),
+            "stage": stage,
+            "kind": "accepted",
+            "accepted_delta": 1,
+        }
+        self.session_store.publish_event(
+            run_id,
+            "stage_progress",
+            self._jsonable(payload),
+        )
 
     async def _run_all_pipeline(
         self, run_id: str, config: dict
@@ -892,7 +1177,7 @@ class DailyScreeningService:
         else:
             signal_type = str(getattr(item, "signal_type", "") or "").strip()
             label = str(getattr(item, "remark", "") or "").strip()
-        branch = "clxs" if config["model"] == "clxs" else "chanlun"
+        branch = str(config.get("model") or "").strip() or "chanlun"
         model_key = signal_type or (
             f"CLXS_{config['model_opt']}" if branch == "clxs" else branch
         )
@@ -909,6 +1194,18 @@ class DailyScreeningService:
                 "model_key": model_key,
                 "model_label": model_label or label or model_key,
             }
+        if branch == "shouban30_agg90":
+            return {
+                "branch": branch,
+                "model_key": model_key or "agg90",
+                "model_label": label or "90日聚合",
+            }
+        if branch == "market_flags":
+            return {
+                "branch": branch,
+                "model_key": model_key or "market_flags",
+                "model_label": label or model_key or "市场属性",
+            }
         return {
             "branch": branch,
             "model_key": model_key,
@@ -921,6 +1218,19 @@ class DailyScreeningService:
         if isinstance(value, date):
             return datetime.combine(value, datetime.min.time())
         return datetime.min
+
+    def _trade_date_to_datetime(self, value: Any) -> datetime:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, date):
+            return datetime.combine(value, datetime.min.time())
+        text = str(value or "").strip()
+        if not text:
+            return datetime.min
+        try:
+            return datetime.combine(date.fromisoformat(text), datetime.min.time())
+        except ValueError:
+            return datetime.min
 
     def _format_sse(self, event: str, payload: dict, *, sse_id: int | None = None) -> str:
         return (
