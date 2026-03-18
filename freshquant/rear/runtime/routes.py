@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request
 from freshquant.runtime_observability.assembler import assemble_traces
 from freshquant.runtime_observability.health import build_health_summary
 from freshquant.runtime_observability.logger import (
+    _collect_runtime_date_directories,
     get_runtime_log_root,
     prune_runtime_log_dirs,
     runtime_node_path,
@@ -31,7 +32,12 @@ def list_components():
 
 @runtime_bp.get("/health/summary")
 def health_summary():
-    events = load_runtime_events(limit=_limit_arg(default=2000, cap=10000))
+    start_time, end_time = _request_time_window()
+    events = load_runtime_events(
+        limit=_limit_arg(default=2000, cap=10000),
+        start_time=start_time,
+        end_time=end_time,
+    )
     return jsonify(
         {"components": build_health_summary(events, now=request.args.get("now"))}
     )
@@ -39,10 +45,13 @@ def health_summary():
 
 @runtime_bp.get("/traces")
 def list_traces():
+    start_time, end_time = _request_time_window()
     events = load_runtime_events(
         limit=0,
         filters=_request_filters(),
         require_trace_key=True,
+        start_time=start_time,
+        end_time=end_time,
     )
     return jsonify(
         {"traces": assemble_traces(events, include_symbol_name=_include_symbol_name())}
@@ -51,10 +60,13 @@ def list_traces():
 
 @runtime_bp.get("/traces/<trace_id>")
 def get_trace(trace_id: str):
+    start_time, end_time = _request_time_window()
     events = load_runtime_events(
         limit=0,
         filters={"trace_id": str(trace_id or "").strip()},
         require_trace_key=True,
+        start_time=start_time,
+        end_time=end_time,
     )
     traces = assemble_traces(events, include_symbol_name=_include_symbol_name())
     if not traces:
@@ -64,9 +76,12 @@ def get_trace(trace_id: str):
 
 @runtime_bp.get("/events")
 def list_events():
+    start_time, end_time = _request_time_window()
     events = load_runtime_events(
         limit=_limit_arg(default=2000, cap=10000),
         filters=_request_filters(),
+        start_time=start_time,
+        end_time=end_time,
     )
     return jsonify({"events": events})
 
@@ -193,11 +208,19 @@ def load_runtime_events(
     limit: int = 2000,
     filters: dict | None = None,
     require_trace_key: bool = False,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
 ) -> list[dict]:
     matched = []
-    for path in _iter_jsonl_files():
+    for path in _iter_jsonl_files(start_time=start_time, end_time=end_time):
         for event in _iter_jsonl_records(path):
             if require_trace_key and not _has_trace_key(event):
+                continue
+            if not _event_matches_time_window(
+                event,
+                start_time=start_time,
+                end_time=end_time,
+            ):
                 continue
             if _event_matches(event, filters or {}):
                 matched.append(event)
@@ -225,6 +248,13 @@ def _request_filters() -> dict:
     return filters
 
 
+def _request_time_window() -> tuple[datetime | None, datetime | None]:
+    return (
+        _parse_request_datetime(request.args.get("start_time")),
+        _parse_request_datetime(request.args.get("end_time")),
+    )
+
+
 def _include_symbol_name() -> bool:
     value = str(request.args.get("include_symbol_name") or "").strip().lower()
     return value in {"1", "true", "yes", "on"}
@@ -245,12 +275,54 @@ def _has_trace_key(event: dict) -> bool:
     return False
 
 
-def _iter_jsonl_files():
+def _event_matches_time_window(
+    event: dict,
+    *,
+    start_time: datetime | None,
+    end_time: datetime | None,
+) -> bool:
+    if start_time is None and end_time is None:
+        return True
+    event_dt = _parse_request_datetime(event.get("ts"))
+    if event_dt is None:
+        return False
+    if start_time is not None and event_dt < start_time:
+        return False
+    if end_time is not None and event_dt > end_time:
+        return False
+    return True
+
+
+def _iter_jsonl_files(
+    *, start_time: datetime | None = None, end_time: datetime | None = None
+):
     root = get_runtime_log_root()
     if not root.exists():
         return []
     prune_runtime_log_dirs(root_dir=root)
-    return sorted(root.rglob("*.jsonl"))
+    if start_time is None and end_time is None:
+        return sorted(root.rglob("*.jsonl"))
+    allowed_days = _collect_requested_days(
+        root=root,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    if not allowed_days:
+        return []
+    paths = []
+    for runtime_dir in root.iterdir():
+        if not runtime_dir.is_dir():
+            continue
+        for component_dir in runtime_dir.iterdir():
+            if not component_dir.is_dir():
+                continue
+            for date_dir in component_dir.iterdir():
+                if not date_dir.is_dir() or date_dir.name not in allowed_days:
+                    continue
+                for path in date_dir.iterdir():
+                    if path.is_file() and path.suffix == ".jsonl":
+                        paths.append(path)
+    return sorted(paths)
 
 
 def _iter_jsonl_records(path: Path):
@@ -334,3 +406,32 @@ def _event_sort_key(event: dict) -> str:
         return datetime.fromisoformat(ts).astimezone().isoformat()
     except ValueError:
         return ts
+
+
+def _parse_request_datetime(raw) -> datetime | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text).astimezone()
+    except ValueError:
+        return None
+
+
+def _collect_requested_days(
+    *,
+    root: Path,
+    start_time: datetime | None,
+    end_time: datetime | None,
+) -> set[str]:
+    start_day = start_time.astimezone().strftime("%Y-%m-%d") if start_time else None
+    end_day = end_time.astimezone().strftime("%Y-%m-%d") if end_time else None
+    existing_days = set(_collect_runtime_date_directories(root))
+    if not existing_days:
+        return set()
+    return {
+        day
+        for day in existing_days
+        if (start_day is None or day >= start_day)
+        and (end_day is None or day <= end_day)
+    }

@@ -198,7 +198,7 @@ class TpslService:
                 tiers=profile.get("tiers") or [],
                 armed_levels=state.get("armed_levels") or {},
             )
-            if hit is not None:
+            if hit:
                 trace_id_value = str(trace_id or "").strip() or new_trace_id()
             self._emit_runtime(
                 "trigger_eval",
@@ -210,7 +210,7 @@ class TpslService:
                     "triggered": bool(hit),
                 },
             )
-            if hit is None:
+            if not hit:
                 return None
 
             open_slices = self.order_repository.list_open_slices(base_symbol)
