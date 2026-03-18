@@ -166,6 +166,7 @@
 - pytest 默认通过临时 `FQ_RUNTIME_LOG_DIR` 与 logger cache reset 隔离测试运行日志，避免污染正式 `logs/runtime`
 - CI `pytest-shards` 当前按 `script/ci/pytest_file_durations.json` 的文件级耗时权重做 shard 分配，不再只按文件序号轮询
 - FQNext 宿主机 Supervisor 仍托管 `fqnext_realtime_xtdata_producer`、`fqnext_realtime_xtdata_consumer`、`fqnext_guardian_event`、`fqnext_position_management_worker`、`fqnext_tpsl_worker`、`fqnext_xtquant_broker`、`fqnext_credit_subjects_worker`、`fqnext_xtdata_adj_refresh_worker`
+- `fqnext_xtquant_broker` 当前为 worker-only 进程，不再暴露本地 Tornado HTTP 接口或 `10088` 端口；运行健康以 supervisor 进程状态和 broker 日志为准
 
 ## 常见运行模式
 

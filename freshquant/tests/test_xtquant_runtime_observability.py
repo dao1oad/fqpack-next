@@ -686,6 +686,56 @@ def test_broker_submit_emits_runtime_error_when_executor_raises(monkeypatch):
     assert collector.events[-1]["payload"]["error_message"] == "broker submit failed"
 
 
+def test_broker_main_runs_trading_loop_without_http_server(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_worker_only", BROKER_PATH)
+
+    observed = {}
+
+    class ForbiddenThread:
+        def __init__(self, target=None, daemon=None):
+            observed["thread_created"] = True
+
+        def start(self):
+            observed["thread_started"] = True
+
+    monkeypatch.setattr(
+        broker,
+        "threading",
+        types.SimpleNamespace(Thread=ForbiddenThread),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        broker,
+        "ThreadPoolExecutor",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("thread pool should not be created")
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        broker,
+        "tornado",
+        types.SimpleNamespace(
+            web=types.SimpleNamespace(
+                Application=lambda *args, **kwargs: (_ for _ in ()).throw(
+                    AssertionError("HTTP server should not be created")
+                )
+            )
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        broker,
+        "trading_main_loop",
+        lambda: observed.setdefault("loop_called", True),
+    )
+
+    broker.main()
+
+    assert observed == {"loop_called": True}
+
+
 def test_broker_observe_only_helper_is_defined_before_script_entrypoint():
     broker_source = BROKER_PATH.read_text(encoding="utf-8")
 

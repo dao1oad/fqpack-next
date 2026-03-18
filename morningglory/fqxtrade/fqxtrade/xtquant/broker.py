@@ -1,13 +1,10 @@
 import json
 import random
-import threading
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor
 
 import fqxtrade.xtquant.puppet as puppet
 import pydash
-import tornado.web
 from fqxtrade import ORDER_QUEUE
 from fqxtrade.database.redis import redis_db
 from fqxtrade.util.trade_date_hist import tool_trade_date_seconds_to_start
@@ -25,7 +22,6 @@ from fqxtrade.xtquant.fqtype import (
     FqXtSmtAppointmentResponse,
     FqXtTrade,
 )
-from fqxtrade.xtquant.handlers import handlers
 
 # 导入新的单例 TradingManager 和 ConnectionManager（从 xtquant/base 子目录中导入）
 from fqxtrade.xtquant.trading_manager import TradingManager
@@ -417,22 +413,8 @@ def trading_main_loop():
 
 
 def main():
-    trading_thread = threading.Thread(target=trading_main_loop, daemon=True)
-    trading_thread.start()
-
-    thread_pool = ThreadPoolExecutor(max_workers=4)
-    # 配置 Tornado
-    app = tornado.web.Application(
-        handlers, autoreload=True, compress_response=True, thread_pool=thread_pool
-    )
-
-    app.listen(10088)
-    logger.info("服务已启动，REST API 端口: 10088")
-    try:
-        tornado.ioloop.IOLoop.current().start()
-    except KeyboardInterrupt:
-        thread_pool.shutdown()
-        logger.info("服务正常退出")
+    logger.info("xtquant broker 以 worker-only 模式启动，不再暴露本地 HTTP 端口")
+    trading_main_loop()
 
 
 def _runtime_context_from_order_message(order):
