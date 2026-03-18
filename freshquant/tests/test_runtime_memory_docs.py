@@ -139,6 +139,46 @@ def test_cold_memory_deploy_surfaces_cover_current_release_matrix() -> None:
     )
 
 
+def test_additional_cold_memory_files_capture_current_project_facts() -> None:
+    topology_text = Path(".codex/memory/system-topology.md").read_text(encoding="utf-8")
+    runtime_text = Path(".codex/memory/runtime-surfaces.md").read_text(encoding="utf-8")
+    data_text = Path(".codex/memory/data-truth-sources.md").read_text(encoding="utf-8")
+    guardrails_text = Path(".codex/memory/repo-guardrails.md").read_text(
+        encoding="utf-8"
+    )
+    product_text = Path(".codex/memory/product-surfaces.md").read_text(encoding="utf-8")
+
+    assert "系统拓扑" in topology_text
+    assert "daily_screening" in topology_text
+    assert "origin/main" in topology_text
+    assert "记忆编译链" in topology_text
+
+    assert "运行面与入口" in runtime_text
+    assert "fq-symphony-orchestrator" in runtime_text
+    assert "fqnext-supervisord" in runtime_text
+    assert "fq_local_preflight.ps1" in runtime_text
+    assert "stdio://" in runtime_text
+
+    assert "数据真值与存储边界" in data_text
+    assert "freshquant_order_management" in data_text
+    assert "fqscreening" in data_text
+    assert "fq_memory" in data_text
+    assert "STOCK_ORDER_QUEUE" in data_text
+
+    assert "仓库交付护栏" in guardrails_text
+    assert "fq_local_preflight.ps1" in guardrails_text
+    assert "script/fq_open_pr.ps1" in guardrails_text
+    assert "main-deploy-production" in guardrails_text
+    assert "review threads" in guardrails_text
+
+    assert "产品与模块面" in product_text
+    assert "/daily-screening" in product_text
+    assert "/runtime-observability" in product_text
+    assert "subject-management" in product_text
+    assert "trace_id" in product_text
+    assert "5 个交易日" in product_text
+
+
 def test_current_deployment_docs_reference_selective_deploy_and_build_cache() -> None:
     deployment_text = Path("docs/current/deployment.md").read_text(encoding="utf-8")
 

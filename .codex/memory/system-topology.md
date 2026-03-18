@@ -1,0 +1,27 @@
+# 系统拓扑
+
+- FreshQuant 当前阶段已经从迁移治理转到“现状收敛、边界修复、部署与排障可维护”。
+- 当前总体分层固定为：
+  - 行情层：`freshquant.market_data.xtdata.*`
+  - 策略层：`freshquant.signal.*` 与 `freshquant.strategy.guardian`
+  - 交易执行层：`freshquant.order_management.*`、`freshquant.position_management.*`、`freshquant.tpsl.*`、`fqxtrade.xtquant.broker`
+  - 展示层：`freshquant.rear.*` 与 `morningglory/fqwebui`
+  - 盘后选股工作台层：`freshquant.daily_screening.*`
+  - 数据处理层：`freshquant.data.gantt_readmodel`、`freshquant.shouban30_pool_service`、`morningglory/fqdagster`
+  - 观测层：`freshquant.runtime_observability.*`
+  - 记忆层：`freshquant.runtime.memory.*`
+- 实时交易主链固定是：
+  - `XTData producer -> Redis tick/bar queue -> XTData consumer -> Guardian -> PositionManagement gate -> OrderManagement submit -> Redis STOCK_ORDER_QUEUE -> broker/puppet gateway -> XT 回报 ingest`
+- 止盈止损链固定是：
+  - `XTData producer -> Redis TICK_QUOTE queue -> TpslTickConsumer -> TpslService -> OrderSubmitService -> broker -> XT 回报 ingest`
+- 每日选股正式链固定是：
+  - `DailyScreening.vue -> /api/daily-screening/* -> DailyScreeningService -> CLXS / chanlun / shouban30_agg90 / market_flags -> fqscreening`
+- 运行观测链固定是：
+  - `RuntimeEventLogger -> logs/runtime/<runtime_node>/<component>/<date>/*.jsonl -> /api/runtime/* -> RuntimeObservability.vue`
+- 记忆编译链固定是：
+  - `reference_ref:.codex/memory/** + reference_ref:docs/current/modules/*.md + cleanup/deploy artifacts -> fq_memory -> context pack markdown`
+- 当前正式真值面固定分三层：
+  - 代码真值：远程 `origin/main`
+  - 文档真值：`docs/current/**`
+  - 运行交付真值：deploy + health check + cleanup
+- 记忆层是旁路摘要系统，只减少 agent 重复探索，不覆盖 GitHub、`docs/current/**` 或部署证据。

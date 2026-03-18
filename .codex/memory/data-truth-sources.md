@@ -1,0 +1,33 @@
+# 数据真值与存储边界
+
+- `freshquant` 是基础业务库，当前承载 `xt_*`、`stock_pre_pools`、`stock_pools`、`must_pool`、`stock_signals`、`realtime_screen_multi_period` 等集合。
+- `freshquant_order_management` 才是订单主事实库，正式事实集合包括：
+  - `om_order_requests`
+  - `om_orders`
+  - `om_order_events`
+  - `om_trade_facts`
+  - `om_buy_lots`
+  - `om_lot_slices`
+  - `om_sell_allocations`
+  - `om_stoploss_bindings`
+  - `om_takeprofit_profiles`
+  - `om_takeprofit_states`
+- `xt_orders / xt_trades / xt_positions / xt_assets` 是外部账户与回报视角事实，不是内部订单账本真值。
+- `freshquant_position_management` 是仓位门禁状态库，核心集合是 `pm_configs`、`pm_current_state`、`pm_credit_asset_snapshots`、`pm_strategy_decisions`。
+- `gantt` 是 Gantt / Shouban30 读模型库，不参与交易账本。
+- `fqscreening` 是每日选股正式结果库，真值集合固定是：
+  - `daily_screening_runs`
+  - `daily_screening_memberships`
+  - `daily_screening_stock_snapshots`
+- `stock_pre_pools / stock_pools / must_pool` 现在只是共享工作区与订阅范围集合，不再承担每日选股正式结果真值。
+- 每日选股只在显式 `add-to-pre-pool` / `add-batch-to-pre-pool` 动作时把 `fqscreening` 结果复制到工作区。
+- `fq_memory` 是 agent 旁路热记忆库，保存 `task_state`、`task_events`、`deploy_runs`、`health_results`、`knowledge_items`、`module_status`、`context_packs`。
+- Redis 当前只承担运行队列与缓存角色，不承担正式持久化真值：
+  - XTData tick/bar queue
+  - `STOCK_ORDER_QUEUE`
+  - 冷却锁 / 节流键
+  - Kline / 分钟结构缓存
+- 查交易链问题时，优先顺序固定是：
+  - 先看 `om_*`
+  - 再看 `xt_*`
+  - 最后再看旧兼容集合
