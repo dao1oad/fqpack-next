@@ -4,14 +4,18 @@ import atexit
 import json
 import os
 import queue
+import shutil
 import threading
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import TextIO
 
 from freshquant.bootstrap_config import bootstrap_config
+from freshquant.data.trade_date_hist import tool_trade_date_hist_sina
 from freshquant.runtime_observability.runtime_node import resolve_runtime_node
 from freshquant.runtime_observability.schema import normalize_event
+
+_RUNTIME_DATE_SEGMENT_LENGTH = 10
 
 
 def get_runtime_log_root() -> Path:
@@ -33,6 +37,167 @@ def _sanitize_path_segment(value: str, default: str) -> str:
         ch if ch.isalnum() or ch in {"_", "-", "."} else "_" for ch in text
     ).strip("._")
     return safe or default
+
+
+def prune_runtime_log_dirs(
+    *,
+    root_dir: str | os.PathLike[str] | None = None,
+    retain_trade_days: int = 5,
+    today: date | datetime | str | None = None,
+    trade_dates: (
+        list[date | datetime | str] | tuple[date | datetime | str, ...] | None
+    ) = None,
+) -> list[str]:
+    root = Path(root_dir) if root_dir is not None else get_runtime_log_root()
+    if not root.exists():
+        return []
+
+    date_directories = _collect_runtime_date_directories(root)
+    retain_count = max(int(retain_trade_days or 0), 0)
+    if len(date_directories) <= retain_count:
+        return []
+
+    keep_dates = _resolve_retained_trade_days(
+        date_directories=date_directories,
+        retain_trade_days=retain_count,
+        today=today,
+        trade_dates=trade_dates,
+    )
+    removed = []
+    for day, paths in sorted(date_directories.items()):
+        if day in keep_dates:
+            continue
+        for path in paths:
+            try:
+                shutil.rmtree(path)
+                _cleanup_empty_runtime_parents(path.parent, root)
+            except OSError:
+                continue
+        removed.append(day)
+    return removed
+
+
+def _collect_runtime_date_directories(root: Path) -> dict[str, list[Path]]:
+    directories: dict[str, list[Path]] = {}
+    for runtime_dir in root.iterdir():
+        if not runtime_dir.is_dir():
+            continue
+        for component_dir in runtime_dir.iterdir():
+            if not component_dir.is_dir():
+                continue
+            for date_dir in component_dir.iterdir():
+                if not date_dir.is_dir():
+                    continue
+                day = str(date_dir.name or "").strip()
+                if len(day) != _RUNTIME_DATE_SEGMENT_LENGTH:
+                    continue
+                try:
+                    datetime.strptime(day, "%Y-%m-%d")
+                except ValueError:
+                    continue
+                directories.setdefault(day, []).append(date_dir)
+    return directories
+
+
+def _resolve_retained_trade_days(
+    *,
+    date_directories: dict[str, list[Path]],
+    retain_trade_days: int,
+    today: date | datetime | str | None,
+    trade_dates: list[date | datetime | str] | tuple[date | datetime | str, ...] | None,
+) -> set[str]:
+    if trade_dates is not None:
+        normalized = _normalize_trade_day_texts(trade_dates, today=today)
+        if normalized:
+            return set(normalized[-retain_trade_days:])
+
+    try:
+        normalized = _normalize_trade_day_texts(
+            _extract_trade_day_values(tool_trade_date_hist_sina()),
+            today=today,
+        )
+        if normalized:
+            return set(normalized[-retain_trade_days:])
+    except Exception:
+        pass
+
+    return set(sorted(date_directories)[-retain_trade_days:])
+
+
+def _extract_trade_day_values(raw) -> list[date | datetime | str]:
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        return _extract_trade_day_values(raw.get("trade_date"))
+    columns = getattr(raw, "columns", None)
+    if columns is not None and "trade_date" in columns:
+        try:
+            return list(raw["trade_date"])
+        except Exception:
+            return []
+    if isinstance(raw, (list, tuple, set)):
+        return list(raw)
+    if hasattr(raw, "tolist") and not isinstance(raw, (str, bytes)):
+        try:
+            values = raw.tolist()
+        except Exception:
+            values = None
+        if isinstance(values, list):
+            return values
+        if isinstance(values, tuple):
+            return list(values)
+    return [raw]
+
+
+def _normalize_trade_day_texts(
+    trade_dates: list[date | datetime | str] | tuple[date | datetime | str, ...],
+    *,
+    today: date | datetime | str | None,
+) -> list[str]:
+    normalized_today = _normalize_trade_day(today) if today is not None else None
+    values = []
+    seen = set()
+    for item in trade_dates or []:
+        day_text = _normalize_trade_day(item)
+        if not day_text:
+            continue
+        if normalized_today and day_text > normalized_today:
+            continue
+        if day_text in seen:
+            continue
+        seen.add(day_text)
+        values.append(day_text)
+    values.sort()
+    return values
+
+
+def _normalize_trade_day(value: date | datetime | str | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().strftime("%Y-%m-%d")
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%d")
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _cleanup_empty_runtime_parents(path: Path, root: Path) -> None:
+    current = path
+    while current != root:
+        try:
+            next(current.iterdir())
+            return
+        except StopIteration:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
 
 
 class RuntimeEventLogger:
@@ -161,6 +326,7 @@ class RuntimeEventLogger:
             return
 
         self._close_file()
+        prune_runtime_log_dirs(root_dir=self.root_dir)
 
         runtime_dir = runtime_node_path(self.runtime_node)
         base_dir = self.root_dir / runtime_dir / self.component / day

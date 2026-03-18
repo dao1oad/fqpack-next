@@ -10,7 +10,6 @@ from freshquant.runtime_observability.failures import (
     is_exception_emitted,
     mark_exception_emitted,
 )
-from freshquant.runtime_observability.ids import new_trace_id
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.tpsl.pools import load_active_tpsl_codes
 from freshquant.tpsl.service import TpslService
@@ -56,7 +55,6 @@ class TpslTickConsumer:
             return None
 
         symbol = normalize_to_base_code(event.code)
-        trace_id = new_trace_id()
         try:
             active_codes = self.refresh_universe()
             if event.code not in active_codes:
@@ -64,7 +62,6 @@ class TpslTickConsumer:
             self._emit_runtime(
                 "tick_match",
                 symbol=symbol,
-                trace_id=trace_id,
                 payload={"code": event.code, "tick_time": event.tick_time},
             )
             takeprofit_batch = self.service.evaluate_takeprofit(
@@ -74,7 +71,6 @@ class TpslTickConsumer:
                 bid1=event.bid1,
                 last_price=event.last_price,
                 tick_time=event.tick_time,
-                trace_id=trace_id,
             )
             if takeprofit_batch:
                 if takeprofit_batch.get("status") == "blocked":
@@ -88,7 +84,6 @@ class TpslTickConsumer:
                 ask1=event.ask1,
                 last_price=event.last_price,
                 tick_time=event.tick_time,
-                trace_id=trace_id,
             )
             if stoploss_batch:
                 if stoploss_batch.get("status") == "blocked":
@@ -100,7 +95,6 @@ class TpslTickConsumer:
                 self._emit_runtime(
                     "tick_match",
                     symbol=symbol,
-                    trace_id=trace_id,
                     status="error",
                     payload=build_exception_payload(exc),
                 )
