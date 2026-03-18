@@ -270,13 +270,11 @@ class DailyScreeningService:
         config: dict,
     ) -> tuple[list[Any], int]:
         stage_config = {**config, "_pipeline_stage": stage_name}
-        if (
-            stage_name == "chanlun"
-            and stage_config.get("_pipeline_parent_model") == "all"
-            and stage_config.get("input_mode") != "single_code"
-            and not stage_config.get("pre_pool_run_id")
-        ):
-            stage_config["pre_pool_run_id"] = run_id
+        if stage_name == "chanlun" and stage_config.get("_pipeline_parent_model") == "all":
+            if stage_config.get("input_mode") != "single_code":
+                stage_config["_input_codes"] = self._current_clxs_run_codes(run_id)
+                stage_config["input_mode"] = "current_clxs_run"
+                stage_config["pre_pool_run_id"] = None
         results = asyncio.run(self._run_model(run_id, stage_config))
         _save_database_outputs(results, stage_config)
         persisted_count = self._persist_results(run_id, stage_config, results)
@@ -285,6 +283,12 @@ class DailyScreeningService:
     async def _run_model(self, run_id: str, config: dict) -> list[Any]:
         if config["model"] == "clxs":
             return await self._run_clxs_models(run_id, config)
+        if config.get("_input_codes") is not None:
+            return await self._run_chanlun_current_clxs_universe(
+                run_id,
+                config,
+                config.get("_input_codes") or [],
+            )
         strategy = self._make_chanlun_strategy(run_id, config)
         kwargs = {
             "days": config["days"],
@@ -298,6 +302,98 @@ class DailyScreeningService:
             if query:
                 kwargs["pre_pool_query"] = query
         return await strategy.screen(**kwargs)
+
+    async def _run_chanlun_current_clxs_universe(
+        self,
+        run_id: str,
+        config: dict,
+        codes: list[str],
+    ) -> list[Any]:
+        normalized_codes = []
+        seen_codes = set()
+        for code in codes or []:
+            normalized = self._normalize_code(code)
+            if not normalized or normalized in seen_codes:
+                continue
+            seen_codes.add(normalized)
+            normalized_codes.append(normalized)
+        if not normalized_codes:
+            return []
+
+        stage = str(config.get("_pipeline_stage") or config["model"]).strip()
+        self.session_store.publish_event(
+            run_id,
+            "stage_progress",
+            self._jsonable(
+                {
+                    "stage": stage,
+                    "kind": "universe",
+                    "strategy": "chanlun_service",
+                    "total": len(normalized_codes),
+                    "mode": "current_clxs_run",
+                    "code": None,
+                }
+            ),
+        )
+
+        strategy = self._make_chanlun_strategy(
+            run_id,
+            {
+                **config,
+                "_suppress_strategy_universe": True,
+                "_suppress_strategy_stock_progress": True,
+            },
+        )
+        results = []
+        period = None if config["period_mode"] == "all" else config["periods"][0]
+        total = len(normalized_codes)
+
+        for processed, code in enumerate(normalized_codes, start=1):
+            symbol = self._infer_symbol(code)
+            try:
+                stock_results = await strategy.screen(
+                    symbol=symbol,
+                    code=code,
+                    period=period,
+                    days=config["days"],
+                )
+            except Exception as exc:
+                self.session_store.publish_event(
+                    run_id,
+                    "stage_progress",
+                    self._jsonable(
+                        {
+                            "stage": stage,
+                            "kind": "error",
+                            "code": code,
+                            "symbol": symbol,
+                            "error": str(exc),
+                        }
+                    ),
+                )
+                stock_results = []
+                status = "error"
+            else:
+                status = "ok" if stock_results else "empty"
+            results.extend(stock_results)
+            self.session_store.publish_event(
+                run_id,
+                "stage_progress",
+                self._jsonable(
+                    {
+                        "stage": stage,
+                        "kind": "stock_progress",
+                        "strategy": "chanlun_service",
+                        "processed": processed,
+                        "total": total,
+                        "code": code,
+                        "symbol": symbol,
+                        "result_count": len(stock_results),
+                        "status": status,
+                    }
+                ),
+            )
+        return results
 
     async def _run_all_pipeline(
         self, run_id: str, config: dict
@@ -375,28 +471,38 @@ class DailyScreeningService:
 
     def _make_strategy_hooks(self, run_id: str, config: dict) -> dict:
         stage = str(config.get("_pipeline_stage") or config["model"]).strip()
+        suppress_universe = bool(config.get("_suppress_strategy_universe"))
+        suppress_stock_progress = bool(config.get("_suppress_strategy_stock_progress"))
         return {
-            "on_universe": lambda payload: self.session_store.publish_event(
-                run_id,
-                "stage_progress",
-                self._jsonable(
-                    {
-                        **self._with_context(config, payload),
-                        "stage": stage,
-                        "kind": "universe",
-                    }
-                ),
+            "on_universe": (
+                None
+                if suppress_universe
+                else lambda payload: self.session_store.publish_event(
+                    run_id,
+                    "stage_progress",
+                    self._jsonable(
+                        {
+                            **self._with_context(config, payload),
+                            "stage": stage,
+                            "kind": "universe",
+                        }
+                    ),
+                )
             ),
-            "on_stock_progress": lambda payload: self.session_store.publish_event(
-                run_id,
-                "stage_progress",
-                self._jsonable(
-                    {
-                        **self._with_context(config, payload),
-                        "stage": stage,
-                        "kind": "stock_progress",
-                    }
-                ),
+            "on_stock_progress": (
+                None
+                if suppress_stock_progress
+                else lambda payload: self.session_store.publish_event(
+                    run_id,
+                    "stage_progress",
+                    self._jsonable(
+                        {
+                            **self._with_context(config, payload),
+                            "stage": stage,
+                            "kind": "stock_progress",
+                        }
+                    ),
+                )
             ),
             "on_hit_raw": lambda payload: self.session_store.publish_event(
                 run_id,
@@ -565,6 +671,20 @@ class DailyScreeningService:
         if mode == "remark_filtered_pre_pools":
             return f"pre_pool_remark:{config['pre_pool_remark']}"
         return mode
+
+    def _current_clxs_run_codes(self, run_id: str) -> list[str]:
+        snapshot = self.session_store.get_run(run_id)
+        codes = []
+        seen_codes = set()
+        for item in snapshot.get("results") or []:
+            if str(item.get("branch") or "").strip() != "clxs":
+                continue
+            code = self._normalize_code(item.get("code"))
+            if not code or code in seen_codes:
+                continue
+            seen_codes.add(code)
+            codes.append(code)
+        return codes
 
     def _normalize_start_payload(self, payload: dict) -> dict:
         model = str(payload.get("model") or "").strip().lower()

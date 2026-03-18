@@ -23,6 +23,40 @@ class FakeDB(dict):
         return dict.__getitem__(self, name)
 
 
+class FakeScreeningRepository:
+    def __init__(self) -> None:
+        self.runs: dict[str, dict] = {}
+
+    def save_run(self, run=None, **document):
+        payload = dict(run or {})
+        payload.update(document)
+        run_id = payload["run_id"]
+        existing = dict(self.runs.get(run_id, {}))
+        existing.update(payload)
+        self.runs[run_id] = existing
+        return dict(existing)
+
+    def get_run(self, run_id):
+        row = self.runs.get(run_id)
+        return dict(row) if row is not None else None
+
+
+def _make_service(*, fake_db=None, session_store=None):
+    from freshquant.daily_screening.pipeline_service import (
+        DailyScreeningPipelineService,
+    )
+    from freshquant.daily_screening.service import DailyScreeningService
+    from freshquant.daily_screening.session_store import DailyScreeningSessionStore
+
+    return DailyScreeningService(
+        session_store=session_store or DailyScreeningSessionStore(),
+        db=fake_db or FakeDB(stock_pre_pools=FakeCollection([])),
+        pipeline_service=DailyScreeningPipelineService(
+            repository=FakeScreeningRepository()
+        ),
+    )
+
+
 FULL_CLXS_MODEL_OPTS = list(range(10001, 10013))
 FULL_CLXS_MODEL_LABELS = [f"S{i:04d}" for i in range(1, 13)]
 
@@ -59,10 +93,7 @@ def test_daily_screening_schema_exposes_dynamic_pre_pool_options():
         )
     )
 
-    service = DailyScreeningService(
-        session_store=DailyScreeningSessionStore(),
-        db=fake_db,
-    )
+    service = _make_service(fake_db=fake_db)
 
     schema = service.get_schema()
 
@@ -96,10 +127,7 @@ def test_daily_screening_service_normalizes_all_mode_to_full_clxs_model_set():
     from freshquant.daily_screening.service import DailyScreeningService
     from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 
-    service = DailyScreeningService(
-        session_store=DailyScreeningSessionStore(),
-        db=FakeDB(stock_pre_pools=FakeCollection([])),
-    )
+    service = _make_service()
 
     config = service._normalize_start_payload({"model": "all"})
 
@@ -115,10 +143,7 @@ def test_daily_screening_service_runs_clxs_and_persists_results_with_remark(
     from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 
     fake_db = FakeDB(stock_pre_pools=FakeCollection([]))
-    service = DailyScreeningService(
-        session_store=DailyScreeningSessionStore(),
-        db=fake_db,
-    )
+    service = _make_service(fake_db=fake_db)
 
     persisted = []
     monkeypatch.setattr(
@@ -252,10 +277,7 @@ def test_daily_screening_service_streams_stage_events(monkeypatch):
     from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 
     fake_db = FakeDB(stock_pre_pools=FakeCollection([]))
-    service = DailyScreeningService(
-        session_store=DailyScreeningSessionStore(),
-        db=fake_db,
-    )
+    service = _make_service(fake_db=fake_db)
 
     monkeypatch.setattr(
         "freshquant.daily_screening.service._save_database_outputs",
@@ -316,10 +338,7 @@ def test_daily_screening_service_iter_sse_keeps_new_internal_events_and_streams_
     from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 
     store = DailyScreeningSessionStore()
-    service = DailyScreeningService(
-        session_store=store,
-        db=FakeDB(stock_pre_pools=FakeCollection([])),
-    )
+    service = _make_service(session_store=store)
     store.create_run(
         run_id="run-1",
         model="clxs",
@@ -470,10 +489,7 @@ def test_daily_screening_service_iter_sse_resume_after_internal_event_replays_pe
     from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 
     store = DailyScreeningSessionStore()
-    service = DailyScreeningService(
-        session_store=store,
-        db=FakeDB(stock_pre_pools=FakeCollection([])),
-    )
+    service = _make_service(session_store=store)
     store.create_run(
         run_id="run-3",
         model="clxs",
@@ -508,10 +524,7 @@ def test_daily_screening_service_iter_sse_maps_run_failed_to_legacy_error_and_co
     from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 
     store = DailyScreeningSessionStore()
-    service = DailyScreeningService(
-        session_store=store,
-        db=FakeDB(stock_pre_pools=FakeCollection([])),
-    )
+    service = _make_service(session_store=store)
     store.create_run(
         run_id="run-2",
         model="clxs",
@@ -561,10 +574,7 @@ def test_daily_screening_service_passes_filtered_pre_pool_query_to_chanlun(
     from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 
     fake_db = FakeDB(stock_pre_pools=FakeCollection([]))
-    service = DailyScreeningService(
-        session_store=DailyScreeningSessionStore(),
-        db=fake_db,
-    )
+    service = _make_service(fake_db=fake_db)
 
     captured = {}
     monkeypatch.setattr(
@@ -612,10 +622,7 @@ def test_daily_screening_service_runs_all_pipeline_and_persists_model_metadata(
     from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 
     fake_db = FakeDB(stock_pre_pools=FakeCollection([]))
-    service = DailyScreeningService(
-        session_store=DailyScreeningSessionStore(),
-        db=fake_db,
-    )
+    service = _make_service(fake_db=fake_db)
 
     persisted = []
     captured = {}
@@ -673,7 +680,13 @@ def test_daily_screening_service_runs_all_pipeline_and_persists_model_metadata(
             self.kwargs = kwargs
 
         async def screen(self, **kwargs):
-            captured["pre_pool_query"] = kwargs.get("pre_pool_query")
+            captured.setdefault("chanlun_calls", []).append(
+                {
+                    "code": kwargs.get("code"),
+                    "symbol": kwargs.get("symbol"),
+                    "pre_pool_query": kwargs.get("pre_pool_query"),
+                }
+            )
             results = []
             labels = {
                 "buy_zs_huila": "回拉中枢上涨",
@@ -748,10 +761,13 @@ def test_daily_screening_service_runs_all_pipeline_and_persists_model_metadata(
     assert run["status"] == "completed"
     assert run["progress"]["accepted"] == 14
     assert run["progress"]["persisted"] == 14
-    assert captured["pre_pool_query"] == {
-        "remark": "daily-screening:clxs",
-        "extra.screening_run_id": run["id"],
-    }
+    assert captured["chanlun_calls"] == [
+        {
+            "code": "000001",
+            "symbol": "sz000001",
+            "pre_pool_query": None,
+        }
+    ]
     assert [item["model_key"] for item in run["results"][:12]] == [
         f"CLXS_{model_opt}" for model_opt in FULL_CLXS_MODEL_OPTS
     ]
@@ -784,10 +800,7 @@ def test_daily_screening_service_all_mode_keeps_intermediate_pre_pool_writes(
     from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 
     fake_db = FakeDB(stock_pre_pools=FakeCollection([]))
-    service = DailyScreeningService(
-        session_store=DailyScreeningSessionStore(),
-        db=fake_db,
-    )
+    service = _make_service(fake_db=fake_db)
 
     persisted = []
     captured = {}
@@ -844,7 +857,11 @@ def test_daily_screening_service_all_mode_keeps_intermediate_pre_pool_writes(
             self.kwargs = kwargs
 
         async def screen(self, **kwargs):
-            captured["pre_pool_query"] = kwargs.get("pre_pool_query")
+            captured["chanlun_call"] = {
+                "code": kwargs.get("code"),
+                "symbol": kwargs.get("symbol"),
+                "pre_pool_query": kwargs.get("pre_pool_query"),
+            }
             return []
 
     monkeypatch.setattr(
@@ -877,9 +894,10 @@ def test_daily_screening_service_all_mode_keeps_intermediate_pre_pool_writes(
     assert run["status"] == "completed"
     assert run["params"]["clxs"]["save_pre_pools"] is True
     assert run["params"]["chanlun"]["save_pre_pools"] is True
-    assert captured["pre_pool_query"] == {
-        "remark": "daily-screening:clxs",
-        "extra.screening_run_id": run["id"],
+    assert captured["chanlun_call"] == {
+        "code": "000001",
+        "symbol": "sz000001",
+        "pre_pool_query": None,
     }
     assert len(persisted) == 12
     assert {item["remark"] for item in persisted} == {"daily-screening:clxs"}
@@ -887,3 +905,119 @@ def test_daily_screening_service_all_mode_keeps_intermediate_pre_pool_writes(
         f"CLXS_{model_opt}" for model_opt in FULL_CLXS_MODEL_OPTS
     ]
     assert [item["screening_model_label"] for item in persisted] == FULL_CLXS_MODEL_LABELS
+
+
+def test_daily_screening_service_all_mode_runs_chanlun_against_current_clxs_universe(
+    monkeypatch,
+):
+    from freshquant.daily_screening.service import DailyScreeningService
+    from freshquant.daily_screening.session_store import DailyScreeningSessionStore
+
+    service = _make_service()
+
+    captured = {"chanlun_calls": []}
+    monkeypatch.setattr(
+        "freshquant.daily_screening.service._save_database_outputs",
+        lambda results, config: None,
+    )
+    monkeypatch.setattr(
+        "freshquant.daily_screening.service._save_pre_pool",
+        lambda **kwargs: None,
+    )
+
+    class FakeClxsStrategy:
+        def __init__(self, model_opt, **kwargs):
+            self.model_opt = model_opt
+            self.kwargs = kwargs
+
+        async def screen(self, **_kwargs):
+            code = "000001" if self.model_opt == 10001 else "000002"
+            signal_type = f"CLXS_{self.model_opt}"
+            payload = {
+                "strategy": "clxs",
+                "code": code,
+                "name": f"name-{code}",
+                "symbol": f"sz{code}",
+                "period": "1d",
+                "fire_time": datetime(2026, 3, 17, 15, 0),
+                "price": 10.5,
+                "stop_loss_price": 9.8,
+                "signal_type": signal_type,
+                "position": "BUY_LONG",
+                "remark": "",
+                "category": "",
+                "tags": [],
+            }
+            self.kwargs["on_result_accepted"](payload)
+            return [
+                SimpleNamespace(
+                    code=code,
+                    name=f"name-{code}",
+                    symbol=f"sz{code}",
+                    period="1d",
+                    fire_time=datetime(2026, 3, 17, 15, 0),
+                    price=10.5,
+                    stop_loss_price=9.8,
+                    signal_type=signal_type,
+                    position="BUY_LONG",
+                    remark="",
+                    category="",
+                )
+            ]
+
+    class FakeChanlunStrategy:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def screen(self, **kwargs):
+            captured["chanlun_calls"].append(
+                {
+                    "code": kwargs.get("code"),
+                    "symbol": kwargs.get("symbol"),
+                    "pre_pool_query": kwargs.get("pre_pool_query"),
+                }
+            )
+            return []
+
+    monkeypatch.setattr(
+        service,
+        "_make_clxs_strategy",
+        lambda run_id, config: FakeClxsStrategy(
+            model_opt=config["model_opt"],
+            **service._make_strategy_hooks(run_id, config),
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_make_chanlun_strategy",
+        lambda run_id, config: FakeChanlunStrategy(
+            **service._make_strategy_hooks(run_id, config),
+        ),
+    )
+
+    snapshot = service.start_run(
+        {
+            "model": "all",
+            "days": 1,
+            "clxs_model_opts": [10001, 10002],
+            "chanlun_signal_types": ["buy_zs_huila"],
+            "save_pre_pools": False,
+        },
+        run_async=False,
+    )
+
+    run = service.get_run(snapshot["id"])
+
+    assert run["status"] == "completed"
+    assert captured["chanlun_calls"] == [
+        {
+            "code": "000001",
+            "symbol": "sz000001",
+            "pre_pool_query": None,
+        },
+        {
+            "code": "000002",
+            "symbol": "sz000002",
+            "pre_pool_query": None,
+        },
+    ]
