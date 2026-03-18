@@ -42,3 +42,32 @@ def isolate_runtime_logs(
     monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path / "runtime"))
     yield
     _reset_runtime_logger_cache()
+
+
+@pytest.fixture(autouse=True)
+def isolate_runtime_observability_external_dependencies(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Generator[None, None, None]:
+    module_name = getattr(getattr(request, "module", None), "__name__", "")
+    if "runtime_observability" not in module_name:
+        yield
+        return
+
+    import freshquant.runtime_observability.assembler as assembler_module
+    import freshquant.runtime_observability.logger as logger_module
+
+    assembler_module._lookup_symbol_name_cached.cache_clear()
+    monkeypatch.setattr(
+        assembler_module,
+        "query_instrument_info",
+        lambda symbol: (_ for _ in ()).throw(
+            AssertionError(f"unexpected runtime observability symbol lookup: {symbol}")
+        ),
+    )
+    monkeypatch.setattr(
+        logger_module,
+        "tool_trade_date_hist_sina",
+        lambda: ["2026-03-07", "2026-03-10", "2026-03-11"],
+    )
+    yield
+    assembler_module._lookup_symbol_name_cached.cache_clear()

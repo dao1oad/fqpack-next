@@ -67,6 +67,7 @@
 - 仓库级本地预检正式入口：`script/fq_local_preflight.ps1`
 - 本地开 PR 的正式入口：`script/fq_open_pr.ps1`
 - 仓库 `git push` 会通过 `.githooks/pre-push` 调用本地预检；首次接入或 hook 丢失时，用 `script/install_repo_hooks.ps1` 恢复 `core.hooksPath`
+- 当前本地预检会缓存 docs guard / pre-commit / pytest / review-thread 检查结果；当前分支已有关联 PR 且 `gh` 已登录时，会直接阻断 unresolved review threads
 - FQNext 宿主机 Supervisor service：`fqnext-supervisord`
 - FQNext 宿主机 Supervisor RPC：`http://127.0.0.1:10011/RPC2`
 - FQNext 宿主机 Supervisor 配置：`D:/fqpack/config/supervisord.fqnext.conf`
@@ -162,6 +163,7 @@
 - `xt_producer` / `xt_consumer` 会向 `logs/runtime` 固定每 5 分钟写 1 次 heartbeat，供 `/runtime-observability` 的组件 Event / health 视图聚合；这些 heartbeat 不进入业务 Trace
 - `logs/runtime` 当前只保留最近 5 个交易日；runtime logger 会在写新文件前清理更旧日期目录，因此排障时不要再假设该目录长期累积历史 Trace
 - pytest 默认通过临时 `FQ_RUNTIME_LOG_DIR` 与 logger cache reset 隔离测试运行日志，避免污染正式 `logs/runtime`
+- CI `pytest-shards` 当前按 `script/ci/pytest_file_durations.json` 的文件级耗时权重做 shard 分配，不再只按文件序号轮询
 - FQNext 宿主机 Supervisor 仍托管 `fqnext_realtime_xtdata_producer`、`fqnext_realtime_xtdata_consumer`、`fqnext_guardian_event`、`fqnext_position_management_worker`、`fqnext_tpsl_worker`、`fqnext_xtquant_broker`、`fqnext_credit_subjects_worker`、`fqnext_xtdata_adj_refresh_worker`
 
 ## 常见运行模式

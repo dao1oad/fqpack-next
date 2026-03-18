@@ -144,14 +144,6 @@ def test_runtime_traces_route_keeps_tracked_events_when_heartbeats_exceed_limit(
 
 
 def test_runtime_traces_route_filters_against_full_matched_set(monkeypatch, tmp_path):
-    import freshquant.runtime_observability.assembler as assembler
-
-    assembler._lookup_symbol_name_cached.cache_clear()
-    monkeypatch.setattr(
-        assembler,
-        "query_instrument_info",
-        lambda symbol: {"name": f"Name-{symbol}"},
-    )
     records = [
         {
             "event_type": "trace_step",
@@ -181,6 +173,91 @@ def test_runtime_traces_route_filters_against_full_matched_set(monkeypatch, tmp_
     assert resp.status_code == 200
     assert len(body["traces"]) == 2105
     assert body["traces"][-1]["trace_id"] == "trc_fullset_0000"
+
+
+def test_runtime_traces_route_skips_symbol_name_lookup_without_opt_in(
+    monkeypatch, tmp_path
+):
+    import freshquant.runtime_observability.assembler as assembler
+
+    assembler._lookup_symbol_name_cached.cache_clear()
+    monkeypatch.setattr(
+        assembler,
+        "query_instrument_info",
+        lambda symbol: (_ for _ in ()).throw(AssertionError(symbol)),
+    )
+    _write_events(
+        tmp_path,
+        runtime_node_path="host_guardian",
+        component="guardian_strategy",
+        date="2026-03-09",
+        file_name="guardian_strategy_2026-03-09_1.jsonl",
+        records=[
+            {
+                "event_type": "trace_step",
+                "trace_id": "trc_symbol_name_default",
+                "component": "guardian_strategy",
+                "runtime_node": "host:guardian",
+                "node": "receive_signal",
+                "symbol": "sz000001",
+                "ts": "2026-03-09T10:00:00+08:00",
+            }
+        ],
+    )
+    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+    client = _make_runtime_client()
+
+    resp = client.get("/api/runtime/traces")
+
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["traces"][0]["symbol"] == "000001"
+    assert body["traces"][0]["symbol_name"] is None
+
+
+def test_runtime_traces_route_supports_explicit_symbol_name_opt_in(
+    monkeypatch, tmp_path
+):
+    import freshquant.runtime_observability.assembler as assembler
+
+    assembler._lookup_symbol_name_cached.cache_clear()
+    monkeypatch.setattr(
+        assembler,
+        "query_instrument_info",
+        lambda symbol: {"name": "平安银行"} if symbol == "000001" else None,
+    )
+    _write_events(
+        tmp_path,
+        runtime_node_path="host_guardian",
+        component="guardian_strategy",
+        date="2026-03-09",
+        file_name="guardian_strategy_2026-03-09_1.jsonl",
+        records=[
+            {
+                "event_type": "trace_step",
+                "trace_id": "trc_symbol_name_opt_in",
+                "component": "guardian_strategy",
+                "runtime_node": "host:guardian",
+                "node": "receive_signal",
+                "symbol": "sz000001",
+                "ts": "2026-03-09T10:00:00+08:00",
+            }
+        ],
+    )
+    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+    client = _make_runtime_client()
+
+    traces_resp = client.get("/api/runtime/traces?include_symbol_name=1")
+    detail_resp = client.get(
+        "/api/runtime/traces/trc_symbol_name_opt_in?include_symbol_name=1"
+    )
+
+    traces_body = traces_resp.get_json()
+    detail_body = detail_resp.get_json()
+    assert traces_resp.status_code == 200
+    assert detail_resp.status_code == 200
+    assert traces_body["traces"][0]["symbol_name"] == "平安银行"
+    assert detail_body["trace"]["symbol_name"] == "平安银行"
 
 
 def test_runtime_raw_file_tail_route(monkeypatch, tmp_path):

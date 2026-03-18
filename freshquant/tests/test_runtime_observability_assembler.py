@@ -306,7 +306,33 @@ def test_assemble_traces_marks_last_exception_step_as_failed():
     assert traces[0]["exit_node"] == "timing_check"
 
 
-def test_assemble_traces_resolves_symbol_name_from_instrument_query(monkeypatch):
+def test_assemble_traces_does_not_backfill_symbol_name_by_default(monkeypatch):
+    assembler_module._lookup_symbol_name_cached.cache_clear()
+    monkeypatch.setattr(
+        "freshquant.runtime_observability.assembler.query_instrument_info",
+        lambda symbol: (_ for _ in ()).throw(AssertionError(symbol)),
+    )
+
+    traces = assemble_traces(
+        [
+            {
+                "trace_id": "trc_symbol_name_1",
+                "component": "order_submit",
+                "node": "tracking_create",
+                "status": "info",
+                "symbol": "sz000001",
+                "ts": "2026-03-09T10:00:00+08:00",
+            }
+        ]
+    )
+
+    assert len(traces) == 1
+    assert traces[0]["symbol"] == "000001"
+    assert traces[0]["symbol_name"] is None
+    assembler_module._lookup_symbol_name_cached.cache_clear()
+
+
+def test_assemble_traces_resolves_symbol_name_when_explicitly_enabled(monkeypatch):
     assembler_module._lookup_symbol_name_cached.cache_clear()
     monkeypatch.setattr(
         "freshquant.runtime_observability.assembler.query_instrument_info",
@@ -323,7 +349,8 @@ def test_assemble_traces_resolves_symbol_name_from_instrument_query(monkeypatch)
                 "symbol": "sz000001",
                 "ts": "2026-03-09T10:00:00+08:00",
             }
-        ]
+        ],
+        include_symbol_name=True,
     )
 
     assert len(traces) == 1
@@ -349,7 +376,8 @@ def test_assemble_traces_retries_symbol_name_lookup_after_cache_miss(monkeypatch
                 "symbol": "sz000001",
                 "ts": "2026-03-09T10:00:00+08:00",
             }
-        ]
+        ],
+        include_symbol_name=True,
     )
 
     assert len(traces) == 1
@@ -370,7 +398,8 @@ def test_assemble_traces_retries_symbol_name_lookup_after_cache_miss(monkeypatch
                 "symbol": "sz000001",
                 "ts": "2026-03-09T10:00:01+08:00",
             }
-        ]
+        ],
+        include_symbol_name=True,
     )
 
     assert len(traces) == 1

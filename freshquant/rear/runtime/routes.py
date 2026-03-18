@@ -44,7 +44,9 @@ def list_traces():
         filters=_request_filters(),
         require_trace_key=True,
     )
-    return jsonify({"traces": assemble_traces(events)})
+    return jsonify(
+        {"traces": assemble_traces(events, include_symbol_name=_include_symbol_name())}
+    )
 
 
 @runtime_bp.get("/traces/<trace_id>")
@@ -54,7 +56,7 @@ def get_trace(trace_id: str):
         filters={"trace_id": str(trace_id or "").strip()},
         require_trace_key=True,
     )
-    traces = assemble_traces(events)
+    traces = assemble_traces(events, include_symbol_name=_include_symbol_name())
     if not traces:
         return jsonify({"error": "trace not found"}), 404
     return jsonify({"trace": traces[0]})
@@ -221,6 +223,11 @@ def _request_filters() -> dict:
         if value:
             filters[field] = value
     return filters
+
+
+def _include_symbol_name() -> bool:
+    value = str(request.args.get("include_symbol_name") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 def _event_matches(event: dict, filters: dict) -> bool:
