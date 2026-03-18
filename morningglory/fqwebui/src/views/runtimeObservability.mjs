@@ -124,6 +124,8 @@ const GUARDIAN_CONTEXT_LABELS = {
   position_management: '仓位管理',
 }
 const BEIJING_TIMEZONE = 'Asia/Shanghai'
+const BEIJING_OFFSET_SUFFIX = '+08:00'
+const TRACE_DETAIL_MARKER = '__fq_trace_detail'
 const TIMESTAMP_LABEL_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
   timeZone: BEIJING_TIMEZONE,
   year: 'numeric',
@@ -133,6 +135,12 @@ const TIMESTAMP_LABEL_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
   minute: '2-digit',
   second: '2-digit',
   hourCycle: 'h23',
+})
+const SHANGHAI_DAY_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: BEIJING_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
 })
 const TRACE_SYMBOL_NAME_FIELDS = [
   'symbol_name',
@@ -182,6 +190,39 @@ const parseTimestampMs = (value) => {
   if (!text) return null
   const parsed = Date.parse(text)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+const formatShanghaiDay = (value = new Date()) => {
+  const parsedMs = parseTimestampMs(value instanceof Date ? value.toISOString() : value)
+  if (parsedMs === null) return ''
+  const formatted = Object.fromEntries(
+    SHANGHAI_DAY_FORMATTER
+      .formatToParts(new Date(parsedMs))
+      .filter((item) => item.type !== 'literal')
+      .map((item) => [item.type, item.value]),
+  )
+  return `${formatted.year}-${formatted.month}-${formatted.day}`
+}
+
+const normalizeTimeRangeValue = (value) => {
+  if (value instanceof Date) return value.toISOString()
+  return toText(value)
+}
+
+export const buildTodayTimeRange = (now = new Date()) => {
+  const day = formatShanghaiDay(now)
+  if (!day) return ['', '']
+  return [`${day}T00:00:00${BEIJING_OFFSET_SUFFIX}`, `${day}T23:59:59${BEIJING_OFFSET_SUFFIX}`]
+}
+
+export const buildTimeRangeQuery = (timeRange = []) => {
+  const [startRaw, endRaw] = Array.isArray(timeRange) ? timeRange : []
+  const startTime = normalizeTimeRangeValue(startRaw)
+  const endTime = normalizeTimeRangeValue(endRaw)
+  const query = {}
+  if (startTime) query.start_time = startTime
+  if (endTime) query.end_time = endTime
+  return query
 }
 
 export const formatTimestampLabel = (value) => {
@@ -673,17 +714,20 @@ export const pickDefaultTraceKind = (
   return 'all'
 }
 
-export const buildTraceQuery = (form = {}) => {
+export const buildTraceQuery = (form = {}, timeRange = []) => {
   const query = {}
   for (const key of TRACE_QUERY_FIELDS) {
     const value = toText(form[key])
     if (value) query[key] = value
   }
-  return query
+  return {
+    ...query,
+    ...buildTimeRangeQuery(timeRange),
+  }
 }
 
-export const buildBoardScopedQuery = (form = {}, boardFilter = {}) => {
-  const query = buildTraceQuery(form)
+export const buildBoardScopedQuery = (form = {}, boardFilter = {}, timeRange = []) => {
+  const query = buildTraceQuery(form, timeRange)
   const component = toText(boardFilter?.component)
   const runtimeNode = toText(boardFilter?.runtime_node)
   if (component) query.component = component
@@ -1073,6 +1117,7 @@ export const hasMatchingRawSelection = (selectionKey, record = {}, view = 'trace
 }
 
 export const buildTraceDetail = (trace = {}) => {
+  if (trace && trace[TRACE_DETAIL_MARKER]) return trace
   const sourceSteps = Array.isArray(trace.steps) ? trace.steps : []
   let previousTsMs = null
   const steps = sourceSteps.map((step, index) => {
@@ -1124,6 +1169,7 @@ export const buildTraceDetail = (trace = {}) => {
         .filter((item) => Number.isFinite(item?.delta_from_prev_ms))
         .sort((left, right) => Number(right.delta_from_prev_ms || 0) - Number(left.delta_from_prev_ms || 0))[0] || null
   return {
+    [TRACE_DETAIL_MARKER]: true,
     trace_key: toText(trace?.trace_key) || null,
     trace_id: toText(trace?.trace_id) || null,
     trace_kind: toText(trace?.trace_kind) || 'unknown',

@@ -68,6 +68,11 @@ class EmptyPriceTakeprofitService:
         raise AssertionError("mark_level_triggered should not be called")
 
 
+class FalsyHit(dict):
+    def __bool__(self):
+        return False
+
+
 class FakeOrderRepository:
     def list_open_slices(self, symbol=None, buy_lot_ids=None):
         return [
@@ -255,3 +260,77 @@ def test_evaluate_takeprofit_ignores_empty_tier_price_without_trace_ids():
         "trigger_eval",
     ]
     assert all(not event.get("trace_id") for event in runtime_logger.events)
+
+
+def test_evaluate_takeprofit_ignores_falsey_hit_objects_without_trace_ids(
+    monkeypatch,
+):
+    runtime_logger = FakeRuntimeLogger()
+    service = TpslService(
+        takeprofit_service=FakeTakeprofitService(),
+        order_submit_service=FakeOrderSubmitService(),
+        order_repository=FakeOrderRepository(),
+        position_reader=FixedPositionReader(),
+        lock_client=AlwaysAvailableLockClient(),
+        runtime_logger=runtime_logger,
+    )
+    monkeypatch.setattr(
+        "freshquant.tpsl.service.choose_takeprofit_level",
+        lambda **_kwargs: FalsyHit({"level": 2, "price": 10.8}),
+    )
+
+    batch = service.evaluate_takeprofit(
+        symbol="000001",
+        code="sz000001",
+        ask1=10.8,
+        bid1=10.7,
+        last_price=10.8,
+        tick_time=1710000000,
+    )
+
+    assert batch is None
+    assert [event["node"] for event in runtime_logger.events] == [
+        "profile_load",
+        "trigger_eval",
+    ]
+    assert runtime_logger.events[-1]["payload"]["triggered"] is False
+    assert all(not event.get("trace_id") for event in runtime_logger.events)
+
+
+def test_tpsl_tick_consumer_without_takeprofit_hit_does_not_create_global_trace():
+    runtime_logger = FakeRuntimeLogger()
+    service = TpslService(
+        takeprofit_service=FakeTakeprofitService(),
+        order_submit_service=FakeOrderSubmitService(),
+        order_repository=FakeOrderRepository(),
+        position_reader=FixedPositionReader(),
+        lock_client=AlwaysAvailableLockClient(),
+        runtime_logger=runtime_logger,
+    )
+    consumer = TpslTickConsumer(
+        service=service,
+        universe_loader=lambda: ['sz000001'],
+        refresh_interval_s=999,
+        runtime_logger=runtime_logger,
+    )
+
+    result = consumer.handle_tick(
+        {
+            'code': 'sz000001',
+            'ask1': 10.0,
+            'bid1': 9.9,
+            'lastPrice': 10.0,
+            'time': 1710000000,
+        }
+    )
+
+    assert result is None
+    assert [event['node'] for event in runtime_logger.events] == [
+        'tick_match',
+        'profile_load',
+        'trigger_eval',
+        'trigger_eval',
+    ]
+    assert runtime_logger.events[2]['payload']['kind'] == 'takeprofit'
+    assert runtime_logger.events[2]['payload']['triggered'] is False
+    assert all(not event.get('trace_id') for event in runtime_logger.events)

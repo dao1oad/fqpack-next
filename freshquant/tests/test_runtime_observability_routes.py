@@ -175,6 +175,69 @@ def test_runtime_traces_route_filters_against_full_matched_set(monkeypatch, tmp_
     assert body["traces"][-1]["trace_id"] == "trc_fullset_0000"
 
 
+def test_runtime_routes_support_explicit_time_window(monkeypatch, tmp_path):
+    _write_events(
+        tmp_path,
+        runtime_node_path="host_guardian",
+        component="guardian_strategy",
+        date="2026-03-08",
+        file_name="guardian_strategy_2026-03-08_1.jsonl",
+        records=[
+            {
+                "event_type": "trace_step",
+                "trace_id": "trc_prev_day",
+                "component": "guardian_strategy",
+                "runtime_node": "host:guardian",
+                "node": "receive_signal",
+                "ts": "2026-03-08T23:55:00+08:00",
+            }
+        ],
+    )
+    _write_events(
+        tmp_path,
+        runtime_node_path="host_guardian",
+        component="guardian_strategy",
+        date="2026-03-09",
+        file_name="guardian_strategy_2026-03-09_1.jsonl",
+        records=[
+            {
+                "event_type": "trace_step",
+                "trace_id": "trc_today",
+                "component": "guardian_strategy",
+                "runtime_node": "host:guardian",
+                "node": "receive_signal",
+                "ts": "2026-03-09T10:00:00+08:00",
+            },
+            {
+                "event_type": "heartbeat",
+                "component": "xt_producer",
+                "runtime_node": "host:xt_producer",
+                "node": "heartbeat",
+                "status": "info",
+                "ts": "2026-03-09T10:05:00+08:00",
+            },
+        ],
+    )
+    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+    client = _make_runtime_client()
+    query = (
+        "start_time=2026-03-09T00:00:00%2B08:00" "&end_time=2026-03-09T23:59:59%2B08:00"
+    )
+
+    traces_resp = client.get(f"/api/runtime/traces?{query}")
+    events_resp = client.get(f"/api/runtime/events?{query}")
+
+    traces_body = traces_resp.get_json()
+    events_body = events_resp.get_json()
+    assert traces_resp.status_code == 200
+    assert events_resp.status_code == 200
+    assert [item["trace_id"] for item in traces_body["traces"]] == ["trc_today"]
+    assert [item["ts"] for item in events_body["events"]] == [
+        "2026-03-09T10:00:00+08:00",
+        "2026-03-09T10:05:00+08:00",
+    ]
+
+
 def test_runtime_traces_route_skips_symbol_name_lookup_without_opt_in(
     monkeypatch, tmp_path
 ):
