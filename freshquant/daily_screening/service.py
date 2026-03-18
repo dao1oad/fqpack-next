@@ -287,6 +287,7 @@ class DailyScreeningService:
                 self._publish_manual_result_accepted(run_id, stage_config, result)
         _save_database_outputs(results, stage_config)
         persisted_count = self._persist_results(run_id, stage_config, results)
+        self._persist_run_scope_read_model(run_id, stage_name, stage_config, results)
         return results, persisted_count
 
     async def _run_model(self, run_id: str, config: dict) -> list[Any]:
@@ -681,6 +682,166 @@ class DailyScreeningService:
             "stage_progress",
             self._jsonable(payload),
         )
+
+    def _persist_run_scope_read_model(
+        self,
+        run_id: str,
+        stage_name: str,
+        config: dict,
+        results: list[Any],
+    ) -> None:
+        repository = getattr(self.pipeline_service, "repository", None)
+        if repository is None:
+            return
+        replace_stage_memberships = getattr(repository, "replace_stage_memberships", None)
+        upsert_stock_snapshots = getattr(repository, "upsert_stock_snapshots", None)
+        get_stock_detail_memberships = getattr(repository, "get_stock_detail_memberships", None)
+        if not callable(replace_stage_memberships) or not callable(
+            upsert_stock_snapshots
+        ) or not callable(get_stock_detail_memberships):
+            return
+        scope = self._run_scope(run_id)
+        memberships = [
+            self._build_run_scope_membership(
+                run_id=run_id,
+                scope=scope,
+                stage_name=stage_name,
+                config=config,
+                result=result,
+            )
+            for result in (results or [])
+        ]
+        replace_stage_memberships(
+            run_id=run_id,
+            stage=stage_name,
+            scope=scope,
+            memberships=memberships,
+        )
+        all_memberships = get_stock_detail_memberships(run_id=run_id, scope=scope)
+        snapshots = self._build_run_scope_snapshots(
+            run_id=run_id,
+            scope=scope,
+            memberships=all_memberships,
+        )
+        upsert_stock_snapshots(run_id=run_id, scope=scope, snapshots=snapshots)
+
+    def _run_scope(self, run_id: str) -> str:
+        return f"run:{run_id}"
+
+    def _build_run_scope_membership(
+        self,
+        *,
+        run_id: str,
+        scope: str,
+        stage_name: str,
+        config: dict,
+        result: Any,
+    ) -> dict[str, Any]:
+        model_meta = self._result_model_meta(config, result)
+        return {
+            "run_id": run_id,
+            "scope": scope,
+            "stage": stage_name,
+            "code": self._normalize_code(getattr(result, "code", None)),
+            "name": str(getattr(result, "name", "") or "").strip(),
+            "symbol": str(getattr(result, "symbol", "") or "").strip(),
+            "branch": model_meta["branch"],
+            "model_key": model_meta["model_key"],
+            "model_label": model_meta["model_label"],
+            "signal_type": str(getattr(result, "signal_type", "") or "").strip(),
+            "period": str(getattr(result, "period", "") or "").strip() or None,
+            "fire_time": getattr(result, "fire_time", None),
+            "stop_loss_price": getattr(result, "stop_loss_price", None),
+            "category": str(getattr(result, "category", "") or "").strip() or None,
+            "source_remark": str(config.get("remark") or "").strip() or None,
+            "providers": sorted(
+                {
+                    str(item).strip()
+                    for item in list(getattr(result, "providers", []) or [])
+                    if str(item).strip()
+                }
+            ),
+        }
+
+    def _build_run_scope_snapshots(
+        self,
+        *,
+        run_id: str,
+        scope: str,
+        memberships: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        grouped: dict[str, dict[str, Any]] = {}
+        for item in memberships or []:
+            code = self._normalize_code(item.get("code"))
+            if not code:
+                continue
+            snapshot = grouped.setdefault(
+                code,
+                {
+                    "run_id": run_id,
+                    "scope": scope,
+                    "code": code,
+                    "name": str(item.get("name") or "").strip() or code,
+                    "symbol": str(item.get("symbol") or "").strip()
+                    or self._infer_symbol(code),
+                    "selected_by": {
+                        "clxs": False,
+                        "chanlun": False,
+                        "shouban30_agg90": False,
+                        "credit_subject": False,
+                        "quality_subject": False,
+                        "near_long_term_ma": False,
+                    },
+                    "clxs_models": set(),
+                    "chanlun_variants": set(),
+                    "shouban30_providers": set(),
+                },
+            )
+            if not snapshot["name"] and item.get("name"):
+                snapshot["name"] = str(item.get("name") or "").strip() or code
+            stage = str(item.get("stage") or "").strip()
+            signal_type = str(item.get("signal_type") or "").strip()
+            period = str(item.get("period") or "").strip()
+            if stage == "clxs":
+                snapshot["selected_by"]["clxs"] = True
+                if item.get("model_key"):
+                    snapshot["clxs_models"].add(str(item["model_key"]))
+            elif stage == "chanlun":
+                snapshot["selected_by"]["chanlun"] = True
+                snapshot["chanlun_variants"].add((signal_type, period))
+            elif stage == "shouban30_agg90":
+                snapshot["selected_by"]["shouban30_agg90"] = True
+                for provider in list(item.get("providers") or []):
+                    provider_text = str(provider).strip()
+                    if provider_text:
+                        snapshot["shouban30_providers"].add(provider_text)
+            elif stage == "market_flags":
+                if signal_type == "credit_subject":
+                    snapshot["selected_by"]["credit_subject"] = True
+                elif signal_type == "quality_subject":
+                    snapshot["selected_by"]["quality_subject"] = True
+                elif signal_type == "near_long_term_ma":
+                    snapshot["selected_by"]["near_long_term_ma"] = True
+        snapshots: list[dict[str, Any]] = []
+        for snapshot in grouped.values():
+            snapshots.append(
+                {
+                    "run_id": run_id,
+                    "scope": scope,
+                    "code": snapshot["code"],
+                    "name": snapshot["name"],
+                    "symbol": snapshot["symbol"],
+                    "selected_by": dict(snapshot["selected_by"]),
+                    "clxs_models": sorted(snapshot["clxs_models"]),
+                    "chanlun_variants": [
+                        {"signal_type": signal_type, "period": period}
+                        for signal_type, period in sorted(snapshot["chanlun_variants"])
+                    ],
+                    "shouban30_providers": sorted(snapshot["shouban30_providers"]),
+                }
+            )
+        snapshots.sort(key=lambda item: item["code"])
+        return snapshots
 
     async def _run_all_pipeline(
         self, run_id: str, config: dict

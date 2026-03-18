@@ -18,6 +18,30 @@ class FakeCollection:
         ]
 
 
+class ScreeningCollection(FakeCollection):
+    def find_one(self, query=None):
+        rows = self.find(query)
+        return rows[0] if rows else None
+
+    def replace_one(self, query, document, upsert=False):
+        for index, doc in enumerate(self.docs):
+            if all(doc.get(key) == value for key, value in query.items()):
+                self.docs[index] = dict(document)
+                return
+        if upsert:
+            self.docs.append(dict(document))
+
+    def delete_many(self, query):
+        self.docs = [
+            dict(doc)
+            for doc in self.docs
+            if not all(doc.get(key) == value for key, value in query.items())
+        ]
+
+    def insert_many(self, documents, ordered=False):
+        self.docs.extend(dict(doc) for doc in documents)
+
+
 class FakeDB(dict):
     def __getitem__(self, name):
         return dict.__getitem__(self, name)
@@ -55,6 +79,28 @@ def _make_service(*, fake_db=None, session_store=None):
             repository=FakeScreeningRepository()
         ),
     )
+
+
+def _make_service_with_screening_repo(*, fake_db=None, screening_db=None, session_store=None):
+    from freshquant.daily_screening.pipeline_service import (
+        DailyScreeningPipelineService,
+    )
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+    from freshquant.daily_screening.service import DailyScreeningService
+    from freshquant.daily_screening.session_store import DailyScreeningSessionStore
+
+    target_screening_db = screening_db or FakeDB(
+        daily_screening_runs=ScreeningCollection([]),
+        daily_screening_memberships=ScreeningCollection([]),
+        daily_screening_stock_snapshots=ScreeningCollection([]),
+    )
+    repository = DailyScreeningRepository(db=target_screening_db)
+    service = DailyScreeningService(
+        session_store=session_store or DailyScreeningSessionStore(),
+        db=fake_db or FakeDB(stock_pre_pools=FakeCollection([])),
+        pipeline_service=DailyScreeningPipelineService(repository=repository),
+    )
+    return service, repository, target_screening_db
 
 
 FULL_CLXS_MODEL_OPTS = list(range(10001, 10013))
@@ -1197,3 +1243,226 @@ def test_daily_screening_service_all_mode_executes_special_stage_handlers(
         "shouban30_agg90",
         "market_flags",
     ]
+
+
+def test_daily_screening_service_persists_run_scope_read_model_for_all_pipeline(
+    monkeypatch,
+):
+    service, repository, _screening_db = _make_service_with_screening_repo()
+
+    monkeypatch.setattr(
+        "freshquant.daily_screening.service._save_database_outputs",
+        lambda results, config: None,
+    )
+    monkeypatch.setattr(
+        "freshquant.daily_screening.service._save_pre_pool",
+        lambda **kwargs: None,
+    )
+
+    class FakeClxsStrategy:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def screen(self, **_kwargs):
+            payload = {
+                "strategy": "clxs",
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "period": "1d",
+                "fire_time": datetime(2026, 3, 17, 15, 0),
+                "price": 10.5,
+                "stop_loss_price": 9.8,
+                "signal_type": "CLXS_10001",
+                "position": "BUY_LONG",
+                "remark": "",
+                "category": "",
+                "tags": [],
+            }
+            self.kwargs["on_result_accepted"](payload)
+            return [
+                SimpleNamespace(
+                    code="000001",
+                    name="alpha",
+                    symbol="sz000001",
+                    period="1d",
+                    fire_time=datetime(2026, 3, 17, 15, 0),
+                    price=10.5,
+                    stop_loss_price=9.8,
+                    signal_type="CLXS_10001",
+                    position="BUY_LONG",
+                    remark="",
+                    category="",
+                )
+            ]
+
+    class FakeChanlunStrategy:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def screen(self, **_kwargs):
+            payload = {
+                "strategy": "chanlun_service",
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "period": "30m",
+                "fire_time": datetime(2026, 3, 17, 15, 0),
+                "price": 10.8,
+                "stop_loss_price": 9.6,
+                "signal_type": "buy_zs_huila",
+                "position": "BUY_LONG",
+                "remark": "回拉中枢上涨",
+                "category": "chanlun_service",
+                "tags": [],
+            }
+            self.kwargs["on_result_accepted"](payload)
+            return [
+                SimpleNamespace(
+                    code="000001",
+                    name="alpha",
+                    symbol="sz000001",
+                    period="30m",
+                    fire_time=datetime(2026, 3, 17, 15, 0),
+                    price=10.8,
+                    stop_loss_price=9.6,
+                    signal_type="buy_zs_huila",
+                    position="BUY_LONG",
+                    remark="回拉中枢上涨",
+                    category="chanlun_service",
+                )
+            ]
+
+    monkeypatch.setattr(
+        service,
+        "_make_clxs_strategy",
+        lambda run_id, config: FakeClxsStrategy(
+            **service._make_strategy_hooks(run_id, config),
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_make_chanlun_strategy",
+        lambda run_id, config: FakeChanlunStrategy(
+            **service._make_strategy_hooks(run_id, config),
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_shouban30_agg90_stage",
+        lambda run_id, config: [
+            SimpleNamespace(
+                code="000001",
+                name="alpha",
+                symbol="sz000001",
+                period="90d",
+                fire_time=datetime(2026, 3, 17, 15, 0),
+                price=None,
+                stop_loss_price=None,
+                signal_type="agg90",
+                position="BUY_LONG",
+                remark="90日聚合",
+                category="shouban30_agg90",
+                providers=["xgb", "jygs"],
+            )
+        ],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_market_flags_stage",
+        lambda run_id, config: [
+            SimpleNamespace(
+                code="000001",
+                name="alpha",
+                symbol="sz000001",
+                period="1d",
+                fire_time=datetime(2026, 3, 17, 15, 0),
+                price=None,
+                stop_loss_price=None,
+                signal_type="credit_subject",
+                position="BUY_LONG",
+                remark="融资标的",
+                category="credit_subject",
+            ),
+            SimpleNamespace(
+                code="000001",
+                name="alpha",
+                symbol="sz000001",
+                period="1d",
+                fire_time=datetime(2026, 3, 17, 15, 0),
+                price=None,
+                stop_loss_price=None,
+                signal_type="quality_subject",
+                position="BUY_LONG",
+                remark="优质标的",
+                category="quality_subject",
+            ),
+            SimpleNamespace(
+                code="000001",
+                name="alpha",
+                symbol="sz000001",
+                period="1d",
+                fire_time=datetime(2026, 3, 17, 15, 0),
+                price=None,
+                stop_loss_price=None,
+                signal_type="near_long_term_ma",
+                position="BUY_LONG",
+                remark="均线附近 ma250",
+                category="near_long_term_ma",
+            ),
+        ],
+        raising=False,
+    )
+
+    snapshot = service.start_run(
+        {
+            "model": "all",
+            "days": 1,
+            "clxs_model_opts": [10001],
+            "chanlun_signal_types": ["buy_zs_huila"],
+            "save_pre_pools": False,
+        },
+        run_async=False,
+    )
+
+    run = service.get_run(snapshot["id"])
+    scope = f"run:{run['id']}"
+
+    summary = repository.query_scope_summary(run_id=run["id"], scope=scope)
+    memberships = repository.get_stock_detail_memberships(
+        run_id=run["id"],
+        scope=scope,
+        code="000001",
+    )
+    snapshots = repository.query_scope_stocks(run_id=run["id"], scope=scope)
+
+    assert run["status"] == "completed"
+    assert summary["stage_counts"] == {
+        "chanlun": 1,
+        "clxs": 1,
+        "market_flags": 3,
+        "shouban30_agg90": 1,
+    }
+    assert {(item["stage"], item["signal_type"]) for item in memberships} == {
+        ("clxs", "CLXS_10001"),
+        ("chanlun", "buy_zs_huila"),
+        ("shouban30_agg90", "agg90"),
+        ("market_flags", "credit_subject"),
+        ("market_flags", "quality_subject"),
+        ("market_flags", "near_long_term_ma"),
+    }
+    assert len(snapshots) == 1
+    assert snapshots[0]["selected_by"] == {
+        "clxs": True,
+        "chanlun": True,
+        "shouban30_agg90": True,
+        "credit_subject": True,
+        "quality_subject": True,
+        "near_long_term_ma": True,
+    }
+    assert snapshots[0]["clxs_models"] == ["CLXS_10001"]
+    assert snapshots[0]["chanlun_variants"] == [
+        {"signal_type": "buy_zs_huila", "period": "30m"}
+    ]
+    assert snapshots[0]["shouban30_providers"] == ["jygs", "xgb"]
