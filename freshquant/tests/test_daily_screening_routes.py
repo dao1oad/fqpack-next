@@ -180,15 +180,29 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
 
         def query_scope(self, run_id, payload):
             captured["query"] = (run_id, payload)
-            return {"run_id": run_id, "scope": run_id, "rows": [{"code": "000001"}], "total": 1}
+            return {
+                "run_id": run_id,
+                "scope": run_id,
+                "rows": [{"code": "000001"}],
+                "total": 1,
+            }
 
         def get_stock_detail(self, run_id, code):
             captured["detail"] = (run_id, code)
-            return {"run_id": run_id, "scope": run_id, "snapshot": {"code": code}, "memberships": []}
+            return {
+                "run_id": run_id,
+                "scope": run_id,
+                "snapshot": {"code": code},
+                "memberships": [],
+            }
 
         def add_to_pre_pool(self, payload):
             captured["add_to_pre_pool"] = payload
-            return {"code": "000001", "category": "CLXS_10001", "remark": "daily-screening:clxs"}
+            return {
+                "code": "000001",
+                "category": "CLXS_10001",
+                "remark": "daily-screening:clxs",
+            }
 
         def add_batch_to_pre_pool(self, payload):
             captured["add_batch_to_pre_pool"] = payload
@@ -221,9 +235,7 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
     )
     add_batch_to_pre_pool_response = client.post(
         "/api/daily-screening/actions/add-batch-to-pre-pool",
-        data=json.dumps(
-            {"run_id": "trade_date:2026-03-18", "selected_sets": ["clxs"]}
-        ),
+        data=json.dumps({"run_id": "trade_date:2026-03-18", "selected_sets": ["clxs"]}),
         content_type="application/json",
     )
 

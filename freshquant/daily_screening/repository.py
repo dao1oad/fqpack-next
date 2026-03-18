@@ -177,7 +177,9 @@ class DailyScreeningRepository:
         memberships = self._find_many(self.memberships, membership_query)
         stocks = self._find_many(self.stock_snapshots, stock_query)
         stage_counts = Counter(
-            str(item.get("stage") or "").strip() for item in memberships if item.get("stage")
+            str(item.get("stage") or "").strip()
+            for item in memberships
+            if item.get("stage")
         )
         return {
             "run_id": run_id,
@@ -197,7 +199,9 @@ class DailyScreeningRepository:
         stocks = self._find_many(self.stock_snapshots, query)
         return sorted(stocks, key=self._stock_sort_key)
 
-    def get_stock_detail_memberships(self, run_id=None, code=None, scope=None, **filters):
+    def get_stock_detail_memberships(
+        self, run_id=None, code=None, scope=None, **filters
+    ):
         query = self._scope_query(run_id=run_id, scope=scope)
         if code is not None:
             query["code"] = code
@@ -291,7 +295,9 @@ class DailyScreeningRepository:
             payload.setdefault("code", code)
         return payload
 
-    def _normalize_snapshot(self, item: Any, *, run_id=None, scope=None) -> dict[str, Any]:
+    def _normalize_snapshot(
+        self, item: Any, *, run_id=None, scope=None
+    ) -> dict[str, Any]:
         payload = dict(item or {})
         if run_id is not None:
             payload.setdefault("run_id", run_id)

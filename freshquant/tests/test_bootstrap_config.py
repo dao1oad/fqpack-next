@@ -134,6 +134,7 @@ def test_load_bootstrap_config_reads_screening_db(monkeypatch, tmp_path):
     monkeypatch.setenv("FRESHQUANT_BOOTSTRAP_FILE", str(bootstrap_file))
 
     import importlib
+
     import freshquant.bootstrap_config as bootstrap_module
 
     bootstrap_module = importlib.reload(bootstrap_module)

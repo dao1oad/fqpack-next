@@ -98,9 +98,7 @@ def test_repository_uses_fqscreening_collections():
 
     fake_db = FakeDB(
         daily_screening_runs=SimpleCollection("daily_screening_runs"),
-        daily_screening_memberships=SimpleCollection(
-            "daily_screening_memberships"
-        ),
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships"),
         daily_screening_stock_snapshots=SimpleCollection(
             "daily_screening_stock_snapshots"
         ),
@@ -202,9 +200,7 @@ def test_repository_ensure_indexes_skips_fake_collections_without_create_index()
     repo = DailyScreeningRepository(
         db=FakeDB(
             daily_screening_runs=SimpleCollection("daily_screening_runs"),
-            daily_screening_memberships=SimpleCollection(
-                "daily_screening_memberships"
-            ),
+            daily_screening_memberships=SimpleCollection("daily_screening_memberships"),
             daily_screening_stock_snapshots=SimpleCollection(
                 "daily_screening_stock_snapshots"
             ),
@@ -219,9 +215,7 @@ def test_repository_uses_scope_in_identity_for_same_run():
 
     fake_db = FakeDB(
         daily_screening_runs=SimpleCollection("daily_screening_runs"),
-        daily_screening_memberships=SimpleCollection(
-            "daily_screening_memberships"
-        ),
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships"),
         daily_screening_stock_snapshots=SimpleCollection(
             "daily_screening_stock_snapshots"
         ),
@@ -314,9 +308,7 @@ def test_repository_summary_stage_filter_only_affects_memberships():
 
     fake_db = FakeDB(
         daily_screening_runs=SimpleCollection("daily_screening_runs"),
-        daily_screening_memberships=SimpleCollection(
-            "daily_screening_memberships"
-        ),
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships"),
         daily_screening_stock_snapshots=SimpleCollection(
             "daily_screening_stock_snapshots"
         ),
@@ -357,9 +349,7 @@ def test_repository_summary_keeps_run_id_empty_when_only_scope_is_provided():
 
     fake_db = FakeDB(
         daily_screening_runs=SimpleCollection("daily_screening_runs"),
-        daily_screening_memberships=SimpleCollection(
-            "daily_screening_memberships"
-        ),
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships"),
         daily_screening_stock_snapshots=SimpleCollection(
             "daily_screening_stock_snapshots"
         ),
@@ -392,9 +382,24 @@ def test_repository_empty_membership_list_clears_target_stage():
         daily_screening_memberships=SimpleCollection(
             "daily_screening_memberships",
             docs=[
-                {"run_id": "run-1", "stage": "clxs", "scope": "scope-a", "code": "000001"},
-                {"run_id": "run-1", "stage": "clxs", "scope": "scope-b", "code": "000002"},
-                {"run_id": "run-1", "stage": "chanlun", "scope": "scope-a", "code": "000003"},
+                {
+                    "run_id": "run-1",
+                    "stage": "clxs",
+                    "scope": "scope-a",
+                    "code": "000001",
+                },
+                {
+                    "run_id": "run-1",
+                    "stage": "clxs",
+                    "scope": "scope-b",
+                    "code": "000002",
+                },
+                {
+                    "run_id": "run-1",
+                    "stage": "chanlun",
+                    "scope": "scope-a",
+                    "code": "000003",
+                },
             ],
         ),
         daily_screening_stock_snapshots=SimpleCollection(
@@ -575,9 +580,7 @@ def test_repository_rejects_mixed_run_id_snapshots_without_mutating_existing_row
 
     fake_db = FakeDB(
         daily_screening_runs=SimpleCollection("daily_screening_runs"),
-        daily_screening_memberships=SimpleCollection(
-            "daily_screening_memberships"
-        ),
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships"),
         daily_screening_stock_snapshots=SimpleCollection(
             "daily_screening_stock_snapshots",
             docs=[
@@ -614,9 +617,7 @@ def test_repository_round_trips_run_scope_documents():
 
     fake_db = FakeDB(
         daily_screening_runs=SimpleCollection("daily_screening_runs"),
-        daily_screening_memberships=SimpleCollection(
-            "daily_screening_memberships"
-        ),
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships"),
         daily_screening_stock_snapshots=SimpleCollection(
             "daily_screening_stock_snapshots"
         ),
@@ -662,9 +663,7 @@ def test_repository_allows_multiple_memberships_for_same_code_and_stage():
 
     fake_db = FakeDB(
         daily_screening_runs=SimpleCollection("daily_screening_runs"),
-        daily_screening_memberships=SimpleCollection(
-            "daily_screening_memberships"
-        ),
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships"),
         daily_screening_stock_snapshots=SimpleCollection(
             "daily_screening_stock_snapshots"
         ),
@@ -700,7 +699,9 @@ def test_repository_allows_multiple_memberships_for_same_code_and_stage():
         ],
     )
 
-    assert [(item["code"], item["model_key"], item["period"]) for item in memberships] == [
+    assert [
+        (item["code"], item["model_key"], item["period"]) for item in memberships
+    ] == [
         ("000001", "buy_zs_huila", "30m"),
         ("000001", "buy_zs_huila", "60m"),
         ("000001", "macd_bullish_divergence", "1d"),
