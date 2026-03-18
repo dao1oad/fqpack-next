@@ -328,6 +328,7 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - `end_date` 对应快照还没生成。
 - `days` 不在 `30|45|60|90`。
 - 交易日日历源瞬时失败；当前实现会在移除 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量后自动重试 3 次，但连续失败时仍拿不到最新完成交易日。
+- XGB / JYGS 上游 HTTPS 瞬时抖动；当前实现会在移除 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量后自动重试 3 次，但连续失败时仍会让当天 Dagster 作业失败。
 - `jygs` 最近历史存在缺口，最近 `90` 个交易日 hole scan 还没补齐。
 - 上游 `jygs` 某个交易日确实没有热点；此时原始集合会保留 `is_empty_result=true` marker，但 gantt `series` 不会有点位。
 - 上游返回了别的 `trade_date`；此时会落 `empty_reason=upstream_trade_date_mismatch` marker，但该日期仍应继续进入 hole scan 重试。
@@ -338,6 +339,7 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 重跑 Dagster 作业
 - 确认读模型索引与快照日期
 - 在任务运行环境检查 `ALL_PROXY`、`all_proxy`、`HTTP_PROXY`、`http_proxy`、`HTTPS_PROXY`、`https_proxy`、`NO_PROXY`、`no_proxy` 是否被错误注入，再确认 AkShare 到 Sina 可访问
+- 若日志里是 `flash-api.xuangubao.cn` / `app.jiuyangongshe.com` 的 `SSLError`、`ConnectionError`、`ReadTimeout` 一类请求异常，先确认当天自动 3 次重试后是否仍失败；仍失败时再补跑 Dagster
 - 若 `/api/gantt/plates?provider=jygs&days=15/30/45/60/90` 的 `dates` 轴完整但 `series` 很少，先看 `jygs_action_fields` / `jygs_yidong`
 - 若 marker 是 `empty_reason=upstream_trade_date_mismatch`，不要当成已补完；继续补跑 Dagster，等待上游返回目标交易日
 - 若日志里出现 `skipping invalid jygs theme rows`，说明是上游单条主题缺 `reason`；先核对该 trade_date 其他主题是否已正常落库，再确认是否需要人工补录该主题说明

@@ -1,3 +1,7 @@
+import os
+
+from requests.exceptions import SSLError  # type: ignore[import-untyped]
+
 from freshquant.data.gantt_source_xgb import normalize_xgb_history_row
 
 
@@ -279,3 +283,44 @@ def test_sync_xgb_history_for_date_replaces_stale_rows(monkeypatch):
             "provider": "xgb",
         }
     ]
+
+
+def test_fetch_json_retries_transient_ssl_error_without_proxy(monkeypatch):
+    from freshquant.data import gantt_source_xgb as svc
+
+    proxy_values = {
+        "ALL_PROXY": "socks5://127.0.0.1:10808",
+        "HTTP_PROXY": "http://127.0.0.1:10809",
+        "HTTPS_PROXY": "http://127.0.0.1:10809",
+    }
+    for key, value in proxy_values.items():
+        monkeypatch.setenv(key, value)
+
+    seen_proxy_values = []
+    attempts = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": {"items": []}}
+
+    def fake_get(url, params=None, timeout=None):
+        attempts.append((url, params, timeout))
+        seen_proxy_values.append({key: os.environ.get(key) for key in proxy_values})
+        if len(attempts) == 1:
+            raise SSLError("temporary ssl failure")
+        return FakeResponse()
+
+    monkeypatch.setattr(svc.requests, "get", fake_get)
+
+    payload = svc._fetch_json(
+        "https://example.com/api", params={"trade_date": "2026-03-18"}
+    )
+
+    assert payload == {"data": {"items": []}}
+    assert len(attempts) == 2
+    assert seen_proxy_values == [{key: None for key in proxy_values}] * 2
+    for key, value in proxy_values.items():
+        assert os.environ.get(key) == value
