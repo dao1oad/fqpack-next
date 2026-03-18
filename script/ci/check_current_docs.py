@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 
@@ -52,6 +53,18 @@ def git_diff_name_only(base_ref: str, head_ref: str) -> list[str]:
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
+def load_changed_files_from_args(
+    changed_files_json: str | None, changed_files: list[str]
+) -> list[str]:
+    resolved = list(changed_files)
+    if changed_files_json:
+        payload = json.loads(changed_files_json)
+        if not isinstance(payload, list):
+            raise ValueError("--changed-files-json must decode to a JSON list")
+        resolved.extend(str(item) for item in payload)
+    return [item.strip() for item in resolved if item and item.strip()]
+
+
 def any_matches_prefix(path: str, prefixes: tuple[str, ...]) -> bool:
     return any(path.startswith(prefix) for prefix in prefixes)
 
@@ -60,15 +73,38 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="CI check: current docs must be updated when system facts change."
     )
-    parser.add_argument("--base-ref", required=True)
-    parser.add_argument("--head-ref", required=True)
+    parser.add_argument("--base-ref")
+    parser.add_argument("--head-ref")
+    parser.add_argument(
+        "--changed-file",
+        action="append",
+        default=[],
+        help="Changed file relative to repo root; repeat for multiple files.",
+    )
+    parser.add_argument(
+        "--changed-files-json",
+        help="JSON array of changed file paths relative to repo root.",
+    )
     args = parser.parse_args()
 
-    try:
-        changed_files = git_diff_name_only(args.base_ref, args.head_ref)
-    except subprocess.CalledProcessError as exc:
-        sys.stderr.write(exc.stderr.decode("utf-8", errors="replace"))
-        return 2
+    if args.base_ref:
+        if not args.head_ref:
+            parser.error("--head-ref is required when --base-ref is provided")
+        try:
+            changed_files = git_diff_name_only(args.base_ref, args.head_ref)
+        except subprocess.CalledProcessError as exc:
+            sys.stderr.write(exc.stderr.decode("utf-8", errors="replace"))
+            return 2
+    else:
+        if args.head_ref:
+            parser.error("--base-ref is required when --head-ref is provided")
+        try:
+            changed_files = load_changed_files_from_args(
+                args.changed_files_json, args.changed_file
+            )
+        except ValueError as exc:
+            sys.stderr.write(f"{exc}\n")
+            return 2
 
     if not changed_files:
         print("docs-current-guard: no changes detected; OK")

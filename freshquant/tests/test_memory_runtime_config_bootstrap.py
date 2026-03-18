@@ -15,6 +15,7 @@ def test_memory_runtime_config_reads_bootstrap_file(tmp_path, monkeypatch):
                 "    db: fq_memory_bootstrap",
                 "  cold_root: .memory/cold",
                 "  artifact_root: artifacts/bootstrap-memory",
+                "  reference_ref: upstream/release-main",
             ]
         ),
         encoding="utf-8",
@@ -38,3 +39,4 @@ def test_memory_runtime_config_reads_bootstrap_file(tmp_path, monkeypatch):
     assert config.mongo_db == "fq_memory_bootstrap"
     assert config.cold_memory_root.as_posix().endswith(".memory/cold")
     assert config.artifact_root.as_posix().endswith("artifacts/bootstrap-memory")
+    assert config.reference_ref == "upstream/release-main"

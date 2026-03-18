@@ -9,10 +9,34 @@ docker compose -f docker/compose.parallel.yaml ps
 py -3.12 script/freshquant_health_check.py --surface api --format summary
 py -3.12 script/freshquant_health_check.py --surface symphony --format summary
 Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime -Descending | Select-Object -First 20 FullName,LastWriteTime
+powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Check
+powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGitDiff origin/main...HEAD
 ```
 
 - 需要页面层健康检查时，优先执行 `py -3.12 script/freshquant_health_check.py --surface web --format summary`
 - 这个入口会忽略系统代理环境，优先用于 deploy 后健康检查和日常排障；当前忽略键包括 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量
+
+## 本地 preflight 没有自动生效
+
+现象：
+- `git push` 前没有触发本地预检
+- 明明当前 `HEAD` 没跑过预检，但 push 还是直接发出去了
+
+先检查：
+- `git config --get core.hooksPath`
+- `Get-ChildItem .githooks`
+- `powershell -ExecutionPolicy Bypass -File script/install_repo_hooks.ps1`
+- `powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Check`
+
+常见根因：
+- 仓库 `core.hooksPath` 没指到 `.githooks`
+- 当前会话没跑过 `install.bat`
+- 本机没有可用的 `powershell.exe` 或 `pwsh`
+
+处理：
+- 重新执行 `powershell -ExecutionPolicy Bypass -File script/install_repo_hooks.ps1`
+- 确认 `.githooks/pre-push` 存在
+- 手动执行一次 `powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ensure`
 
 ## 运行面被代理污染
 
@@ -57,7 +81,8 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 常见根因：
 - `run_freshquant_codex_session.ps1` 启动前没有成功执行 memory refresh / compile。
 - `run_freshquant_codex_session.ps1` 为当前 issue state 解析错了 role，导致 `Global Stewardship` 仍拿到普通 `codex` context pack。
-- 直接在 Codex app 中打开仓库时，没有先执行 `bootstrap_freshquant_memory.py`，就开始做通用 repo 扫描。
+- 直接在 Codex app 中打开仓库时，没有走 `codex_run/start_codex_cli.bat`，且也没有手动执行 `bootstrap_freshquant_memory.py`，就开始做通用 repo 扫描。
+- 直接双击 `codex_run/start_codex_app_server.bat` 后误以为“没有持续输出就是没启动”；实际上 `codex app-server` 默认走 `stdio://`，没有客户端接入前可以保持静默。
 - `fq_memory` 不可写，导致热记忆集合为空。
 - `cleanup-requests/<issue>.json` 缺失或字段不全，导致 context pack 无法显示 PR / branch / repository 元数据。
 - `deployment-comment.md` 或 `cleanup-results/<issue>.json` 缺失，导致 deploy / health / cleanup 摘要只能回退为 `unavailable`
@@ -66,7 +91,8 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 处理：
 - 先手动重跑 `refresh_freshquant_memory.py` 和 `compile_freshquant_context_pack.py`
-- 对自由会话，优先直接运行 `bootstrap_freshquant_memory.py`，读取返回的 `context_pack_path`
+- 对自由会话，优先通过 `codex_run/start_codex_cli.bat` 或 `codex_run/start_codex_app_server.bat` 进入；如果当前已经在会话里，再直接运行 `bootstrap_freshquant_memory.py`
+- `start_codex_app_server.bat` 正常启动后会先打印 memory context 摘要；如果窗口仍在，就说明前台 app-server 仍在运行。关闭窗口或按 `Ctrl+C` 会停止它。
 - 确认 `D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs/<issue>/<role>.md` 已更新
 - 确认 Mongo `fq_memory` 中至少有 `task_state`、`knowledge_items`、`context_packs`
 - 如果 memory context 和正式真值冲突，优先修正式真值或刷新 memory，不要反向手改 context pack
@@ -87,6 +113,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 
 处理：
 - 重建 API：`docker compose -f docker/compose.parallel.yaml up -d --build fq_apiserver`
+- 或优先使用 `powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -ChangedPath freshquant/rear/api_server.py -RunHealthChecks`
 
 ## ETF 前复权错误
 
@@ -478,6 +505,7 @@ Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Sort-Object LastWriteTime 
 - 需要 Symphony 接管的新建 GitHub issue 时默认只打 `symphony` 与 `in-progress`
 - 如果日志里反复只有通用 repo 扫描而没有 issue 标识、标题、描述，先检查 `WORKFLOW.freshquant.md` 是否仍包含 issue placeholders；`sync_freshquant_symphony_service.ps1` / `start_freshquant_symphony.ps1` 现在会对这份 prompt 做合约校验
 - 如果会话一开始就回到全仓扫描，先看 `FQ_MEMORY_CONTEXT_PATH` 是否存在，以及 `runtime/memory/scripts/refresh_freshquant_memory.py` / `compile_freshquant_context_pack.py` 最近一次是否执行成功
+- 对自由会话，再补查是否绕过了 `codex_run/*.bat`，或 `codex_run/start_freshquant_codex.ps1` 在 bootstrap 阶段提前失败
 - 如果 `Merging` 很慢，先看 session 里是否出现 `gh pr checks --watch`、`gh run watch` 或 `Start-Sleep` 轮询；正式 prompt 现在要求只做一次性检查后结束当前 turn，让 orchestrator 下一轮继续
 - 如果 PR 无法 merge，先看 required checks、unresolved review threads、`mergeStateStatus` 和 ruleset，不要先看评论里的 `APPROVED`
 - 如果 required checks 还在 pending，保持在 `Merging`，不要提前打回 `Rework`

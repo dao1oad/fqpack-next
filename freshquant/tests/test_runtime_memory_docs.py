@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 def test_current_docs_describe_memory_layer_contract() -> None:
+    readme_text = Path("README.md").read_text(encoding="utf-8")
     runtime_text = Path("docs/current/runtime.md").read_text(encoding="utf-8")
     architecture_text = Path("docs/current/architecture.md").read_text(encoding="utf-8")
     interfaces_text = Path("docs/current/interfaces.md").read_text(encoding="utf-8")
@@ -19,10 +20,12 @@ def test_current_docs_describe_memory_layer_contract() -> None:
     assert "fq_memory" in runtime_text
     assert ".codex/memory" in runtime_text
     assert "cleanup-requests" in runtime_text
+    assert "origin/main" in runtime_text
 
     assert "冷记忆" in architecture_text
     assert "热记忆" in architecture_text
     assert "context pack" in architecture_text
+    assert "origin/main" in architecture_text
     assert "Issue-managed 任务的 GitHub Issue" in architecture_text
     assert "所有代码更新的 PR+CI" in architecture_text
     assert "Draft PR" not in architecture_text
@@ -32,13 +35,28 @@ def test_current_docs_describe_memory_layer_contract() -> None:
     assert "bootstrap_freshquant_memory.py" in architecture_text
     assert "bootstrap_freshquant_memory.py" in runtime_text
     assert "bootstrap_freshquant_memory.py" in interfaces_text
+    assert "codex_run/start_codex_cli.bat" in runtime_text
+    assert "codex_run/start_codex_app_server.bat" in runtime_text
+    assert "stdio://" in runtime_text
+    assert "Ctrl+C" in runtime_text
+    assert "codex_run/start_codex_cli.bat" in interfaces_text
+    assert "关闭该窗口即停止服务" in interfaces_text
+    assert "codex_run/start_codex_cli.bat" in interfaces_text
 
     assert "refresh_freshquant_memory.py" in troubleshooting_text
     assert "compile_freshquant_context_pack.py" in troubleshooting_text
     assert "bootstrap_freshquant_memory.py" in troubleshooting_text
+    assert "codex_run/start_codex_cli.bat" in troubleshooting_text
+    assert "没有客户端接入前可以保持静默" in troubleshooting_text
     assert "FQ_MEMORY_CONTEXT_PATH" in troubleshooting_text
     assert "FQ_MEMORY_CONTEXT_ROLE" in troubleshooting_text
     assert "cleanup-requests" in troubleshooting_text
+    assert "fq_local_preflight.ps1" in readme_text
+    assert "fq_open_pr.ps1" in readme_text
+    assert "fq_local_preflight.ps1" in runtime_text
+    assert ".githooks/pre-push" in runtime_text
+    assert "fq_apply_deploy_plan.ps1" in runtime_text
+    assert "fq_apply_deploy_plan.ps1" in troubleshooting_text
 
 
 def test_global_governance_allows_direct_pr_without_mandatory_issue() -> None:
@@ -56,6 +74,7 @@ def test_global_governance_allows_direct_pr_without_mandatory_issue() -> None:
     assert "轻量更新允许直接走 `feature branch -> PR`" in overview_text
     assert "Issue-managed" in overview_text
     assert "bootstrap_freshquant_memory.py" in agents_text
+    assert "codex_run/start_codex_cli.bat" in agents_text
     assert "FQ_MEMORY_CONTEXT_PATH" in agents_text
 
 
@@ -118,3 +137,11 @@ def test_cold_memory_deploy_surfaces_cover_current_release_matrix() -> None:
         "`freshquant/tpsl/**` -> 重部署 API，并重启 `tpsl` 宿主机运行面。"
         in deploy_text
     )
+
+
+def test_current_deployment_docs_reference_selective_deploy_and_build_cache() -> None:
+    deployment_text = Path("docs/current/deployment.md").read_text(encoding="utf-8")
+
+    assert "fq_apply_deploy_plan.ps1" in deployment_text
+    assert "FQ_DOCKER_BUILD_CACHE_ROOT" in deployment_text
+    assert "fq_local_preflight.ps1" in deployment_text

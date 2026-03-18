@@ -10,9 +10,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  governance:
-    name: governance
+  changes:
+    name: changes
     runs-on: ubuntu-latest
+    outputs:
+      base_ref: ${{ steps.collect.outputs.base_ref }}
+      changed_files_json: ${{ steps.collect.outputs.changed_files_json }}
+      has_changes: ${{ steps.collect.outputs.has_changes }}
+      docs_only: ${{ steps.collect.outputs.docs_only }}
+      deployment_required: ${{ steps.collect.outputs.deployment_required }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,32 +34,108 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install uv
-        run: python -m pip install --upgrade pip uv
+      - name: Collect CI context
+        id: collect
+        run: python script/ci/collect_ci_context.py --base-ref origin/${{ github.base_ref || 'main' }} --head-ref HEAD --github-output "$GITHUB_OUTPUT"
 
-      - name: Sync locked environment
-        run: uv sync --frozen
+  governance:
+    name: governance
+    needs: changes
+    if: needs.changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Current docs guard
-        run: uv run python script/ci/check_current_docs.py --base-ref origin/${{ github.base_ref || 'main' }} --head-ref HEAD
+        run: python script/ci/check_current_docs.py --changed-files-json '${{ needs.changes.outputs.changed_files_json }}'
 
   pre-commit:
     name: pre-commit
+    needs: changes
+    if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Fetch base branch
-        run: git fetch origin ${{ github.base_ref || 'main' }} --no-tags --prune
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Cache pre-commit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Install pre-commit
+        run: python -m pip install --upgrade pip pre-commit
+
+      - name: Run pre-commit (changed files only)
+        env:
+          CHANGED_FILES_JSON: ${{ needs.changes.outputs.changed_files_json }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          changed_files = json.loads(os.environ["CHANGED_FILES_JSON"])
+          if not changed_files:
+              print("No changed files; skipping pre-commit.")
+              raise SystemExit(0)
+
+          command = [
+              "pre-commit",
+              "run",
+              "--show-diff-on-failure",
+              "--color=always",
+              "--files",
+              *changed_files,
+          ]
+          raise SystemExit(subprocess.call(command))
+          PY
+
+  pytest-shards:
+    name: pytest-shard (${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
 
       - name: Install uv
         run: python -m pip install --upgrade pip uv
@@ -61,29 +143,29 @@ jobs:
       - name: Sync locked environment
         run: uv sync --frozen
 
-      - name: Run pre-commit (PR diff only)
-        run: uv tool run pre-commit run --show-diff-on-failure --color=always --from-ref origin/${{ github.base_ref || 'main' }} --to-ref HEAD
+      - name: Select pytest shard
+        id: shard
+        run: python script/ci/select_pytest_shard.py --shard-index ${{ matrix.shard }} --shard-count 3 --github-output "$GITHUB_OUTPUT"
+
+      - name: Run pytest shard (unit tests only, xdist loadfile)
+        if: steps.shard.outputs.selected_count != '0'
+        run: uv run pytest -q ${{ steps.shard.outputs.pytest_args }} -n auto --dist loadfile
 
   pytest:
     name: pytest
+    needs:
+      - changes
+      - pytest-shards
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        run: python -m pip install --upgrade pip uv
-
-      - name: Sync locked environment
-        run: uv sync --frozen
-
-      - name: Run pytest (unit tests only, xdist loadfile)
-        run: uv run pytest -q freshquant/tests -n auto --dist loadfile
+      - name: Finalize pytest gate
+        run: |
+          if [ "${{ needs.changes.outputs.docs_only }}" = "true" ]; then
+            echo "Docs-only change; pytest shard fan-out skipped."
+            exit 0
+          fi
+          if [ "${{ needs.pytest-shards.result }}" != "success" ]; then
+            echo "pytest shards failed or were cancelled."
+            exit 1
+          fi
