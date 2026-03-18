@@ -175,6 +175,14 @@ class DailyScreeningPipelineService:
                 **dict(config["chanlun"]),
                 "_pipeline_parent_model": "all",
             }
+            yield "shouban30_agg90", {
+                **dict(config["shouban30_agg90"]),
+                "_pipeline_parent_model": "all",
+            }
+            yield "market_flags", {
+                **dict(config["market_flags"]),
+                "_pipeline_parent_model": "all",
+            }
             return
         yield model, dict(config)
 

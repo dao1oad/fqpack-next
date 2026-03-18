@@ -270,6 +270,8 @@ class DailyScreeningService:
         config: dict,
     ) -> tuple[list[Any], int]:
         stage_config = {**config, "_pipeline_stage": stage_name}
+        if stage_name in {"shouban30_agg90", "market_flags"}:
+            return [], 0
         if stage_name == "chanlun" and stage_config.get("_pipeline_parent_model") == "all":
             if stage_config.get("input_mode") != "single_code":
                 stage_config["_input_codes"] = self._current_clxs_run_codes(run_id)
@@ -692,6 +694,7 @@ class DailyScreeningService:
             raise ValueError("model must be all, clxs or chanlun")
         if model == "all":
             code = self._normalize_code(payload.get("code"))
+            trade_date = str(payload.get("trade_date") or date.today().isoformat())
             clxs_model_opts = self._normalize_int_list(
                 payload.get("clxs_model_opts"),
                 default=DEFAULT_CLXS_MODEL_OPTS,
@@ -711,6 +714,7 @@ class DailyScreeningService:
             return {
                 "model": "all",
                 "days": max(int(payload.get("days") or 1), 1),
+                "trade_date": trade_date,
                 "code": code,
                 "save_pre_pools": True,
                 "clxs": {
@@ -753,6 +757,19 @@ class DailyScreeningService:
                     "pool_expire_days": 10,
                     "output_category": "",
                     "remark": "daily-screening:chanlun",
+                },
+                "shouban30_agg90": {
+                    "model": "shouban30_agg90",
+                    "trade_date": trade_date,
+                    "window_days": 90,
+                    "providers": ["xgb", "jygs"],
+                },
+                "market_flags": {
+                    "model": "market_flags",
+                    "trade_date": trade_date,
+                    "include_credit_subject": True,
+                    "include_quality_subject": True,
+                    "include_near_long_term_ma": True,
                 },
             }
         if model == "clxs":
