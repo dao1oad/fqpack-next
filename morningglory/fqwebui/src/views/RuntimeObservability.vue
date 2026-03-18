@@ -442,7 +442,7 @@
                       </table>
                     </section>
 
-                    <section v-if="selectedStepGuardianRows.length" class="detail-ledger-section">
+                    <section v-if="selectedStep?.guardian_step && selectedStepGuardianRows.length" class="detail-ledger-section">
                       <div class="detail-ledger-section__title">Guardian 判断</div>
                       <table class="detail-kv-table">
                         <tbody>
@@ -454,7 +454,7 @@
                       </table>
                     </section>
 
-                    <section v-if="selectedStepSignalRows.length" class="detail-ledger-section">
+                    <section v-if="selectedStep?.guardian_step && selectedStepSignalRows.length" class="detail-ledger-section">
                       <div class="detail-ledger-section__title">Guardian 信号</div>
                       <table class="detail-kv-table">
                         <tbody>
@@ -1008,7 +1008,10 @@ const normalizeTimeRangeState = (value) => {
 }
 
 const buildEventRequestParams = () => buildBoardScopedQuery(query, boardFilter, timeRange.value)
-const buildEventRequestKey = () => JSON.stringify(buildEventRequestParams())
+const buildEventRequestKey = () => JSON.stringify({
+  ...buildEventRequestParams(),
+  include_symbol_name: 1,
+})
 
 const hydratedTraces = computed(() => traces.value.map((trace) => buildTraceDetail(trace)))
 const visibleTraces = computed(() => {
@@ -1469,8 +1472,7 @@ const eventMetaRows = computed(() =>
     {
       key: 'symbol',
       label: 'Symbol',
-      value: selectedEvent.value?.symbol,
-      mono: true,
+      value: selectedEvent.value?.symbol_display,
       always: true,
     },
     {
@@ -1584,7 +1586,10 @@ const loadTraces = async (options = {}) => {
   loading.traces = true
   try {
     if (!suppressError) pageError.value = ''
-    const response = await runtimeObservabilityApi.listTraces(buildTraceQuery(query, timeRange.value))
+    const response = await runtimeObservabilityApi.listTraces({
+      ...buildTraceQuery(query, timeRange.value),
+      include_symbol_name: 1,
+    })
     traces.value = readApiPayload(response, 'traces', [])
     const currentTraceRow = {
       trace_key: selectedTrace.value?.trace_key,
@@ -1604,7 +1609,10 @@ const loadTraces = async (options = {}) => {
 const loadEvents = async (options = {}) => {
   const suppressError = Boolean(options?.suppressError)
   const loadToken = eventLoadToken + 1
-  const params = buildEventRequestParams()
+  const params = {
+    ...buildEventRequestParams(),
+    include_symbol_name: 1,
+  }
   const requestKey = JSON.stringify(params)
   eventLoadToken = loadToken
   try {
@@ -1674,6 +1682,7 @@ const handleComponentFilter = (target) => {
   if (!normalizedComponent) return
   boardFilter.component = normalizedComponent
   boardFilter.runtime_node = ''
+  activeView.value = 'events'
 }
 
 const clearFilterChip = async (chip) => {
@@ -2968,16 +2977,17 @@ onBeforeUnmount(() => {
 
 :deep(.workspace-tabs .el-tabs__content) {
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
 
 :deep(.workspace-tabs .el-tab-pane) {
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .detail-pane-grid {
@@ -3171,6 +3181,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .runtime-detail-panel--steps {

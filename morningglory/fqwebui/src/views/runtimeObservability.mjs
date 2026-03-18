@@ -1168,6 +1168,8 @@ export const buildTraceDetail = (trace = {}) => {
     : [...steps]
         .filter((item) => Number.isFinite(item?.delta_from_prev_ms))
         .sort((left, right) => Number(right.delta_from_prev_ms || 0) - Number(left.delta_from_prev_ms || 0))[0] || null
+  const symbol = findTraceSymbol(trace, steps)
+  const symbolName = findTraceSymbolName(trace, steps)
   return {
     [TRACE_DETAIL_MARKER]: true,
     trace_key: toText(trace?.trace_key) || null,
@@ -1189,8 +1191,9 @@ export const buildTraceDetail = (trace = {}) => {
     intent_ids: Array.isArray(trace.intent_ids) ? trace.intent_ids : [],
     request_ids: Array.isArray(trace.request_ids) ? trace.request_ids : [],
     internal_order_ids: Array.isArray(trace.internal_order_ids) ? trace.internal_order_ids : [],
-    symbol: findTraceSymbol(trace, steps),
-    symbol_name: findTraceSymbolName(trace, steps),
+    symbol,
+    symbol_name: symbolName,
+    symbol_display: buildSymbolDisplay(symbol, symbolName),
     steps,
     step_count: steps.length,
     issue_count: issueSteps.length,
@@ -1313,11 +1316,17 @@ export const buildRawRecordSummary = (record = {}) => {
     ['trace_id', 'trace'],
     ['request_id', 'request'],
     ['internal_order_id', 'order'],
-    ['symbol', 'symbol'],
   ]) {
     const value = toText(record?.[key])
     if (!value) continue
     badges.push(`${label} ${value}`)
+  }
+  const symbolDisplay = buildSymbolDisplay(
+    toText(record?.symbol),
+    resolveSymbolNameFromRecord(record),
+  )
+  if (symbolDisplay !== '-') {
+    badges.push(`symbol ${symbolDisplay}`)
   }
   return {
     title: `${toText(record?.component) || 'runtime'}.${toText(record?.node) || 'event'}`,
