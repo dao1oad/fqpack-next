@@ -1,0 +1,48 @@
+# 运行面与入口
+
+- Windows 宿主机承担：
+  - XTQuant / XTData 连接
+  - `fqnext-supervisord` 及其托管进程
+  - Guardian monitor
+  - Position worker
+  - TPSL worker
+  - Symphony 正式服务
+- Docker 并行环境承担：
+  - Mongo：`27027 -> 27017`
+  - Redis：`6380 -> 6379`
+  - API：`15000 -> 5000`
+  - TDXHQ：`15001 -> 5001`
+  - Dagster：`11003 -> 10003`
+  - QAWebServer：`18010 -> 8010`
+  - Web UI：`18080 -> 80`
+  - TradingAgents backend/frontend：`13000 / 13080`
+- 正式宿主机服务名固定为：
+  - `fq-symphony-orchestrator`
+  - `fqnext-supervisord`
+- 运行面常用正式入口固定为：
+  - Docker：`script/docker_parallel_compose.ps1`
+  - 宿主机进程控制：`script/fqnext_host_runtime_ctl.ps1`
+  - 共享部署计划：`script/freshquant_deploy_plan.py`
+  - selective deploy：`script/fq_apply_deploy_plan.ps1`
+  - 本地预检：`script/fq_local_preflight.ps1`
+  - 本地开 PR：`script/fq_open_pr.ps1`
+- 自由 Codex 会话硬入口固定为：
+  - `codex_run/start_codex_cli.bat`
+  - `codex_run/start_codex_app_server.bat`
+  - 两者都会先执行 `bootstrap_freshquant_memory.py`
+- `codex app-server` 默认走 `stdio://` 前台模式；窗口关闭或 `Ctrl+C` 即停止服务。
+- 当前 memory 默认从 `origin/main` 读取 `.codex/memory/**` 与 `docs/current/modules/*.md`，再写入 `fq_memory` 和 context pack。
+- 调主交易链的最小可用运行面至少需要：
+  - Mongo
+  - Redis
+  - API
+  - XTData producer / consumer
+  - Guardian
+  - Position worker
+  - Order submit / broker / XT 回报 ingest
+  - TPSL
+- 调前端展示时，还要额外确认：
+  - Web UI
+  - Gantt / Shouban30 读模型
+  - `logs/runtime`
+  - `/runtime-observability` 的 heartbeat 与组件 Event

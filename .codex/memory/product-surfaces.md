@@ -1,0 +1,47 @@
+# 产品与模块面
+
+- 当前主要前端工作台路由固定包括：
+  - `/stock-control`
+  - `/gantt`
+  - `/gantt/shouban30`
+  - `/daily-screening`
+  - `/kline-slim`
+  - `/order-management`
+  - `/position-management`
+  - `/subject-management`
+  - `/system-settings`
+  - `/tpsl`
+  - `/runtime-observability`
+- 每日选股是“股票视角的统一盘后筛选工作台”，它把 `CLXS`、`chanlun`、`shouban30_agg90`、`market_flags` 收口到 `/daily-screening`。
+- 每日选股正式 scope 只有两类：
+  - `trade_date:<YYYY-MM-DD>`
+  - `run:<run_id>`
+- 每日选股页面当前通过 SSE 消费：
+  - `run_started`
+  - `stage_started`
+  - `stage_progress`
+  - `stage_completed`
+  - `run_completed`
+  - `run_failed`
+  - `heartbeat`
+- 标的管理 `/subject-management` 当前是单标的工作台，统一收口：
+  - `must_pool`
+  - Guardian 阶梯买入价
+  - 标的级止盈
+  - buy lot 级止损
+  - 只读运行态与仓位门禁摘要
+- 运行观测 `/runtime-observability` 是排障页，不是业务事实页。
+- Runtime Trace 当前只按强关联键组装：
+  - `trace_id`
+  - `intent_id`
+  - `request_id`
+  - `internal_order_id`
+- `heartbeat`、`bootstrap`、`config_resolve`、`subscription_load` 这类事件只进 Event / health 视图，不进 Trace 列表。
+- `/api/runtime/health/summary` 固定返回核心组件全集；无数据组件也不会消失，而是 `status=unknown`、`is_placeholder=true`。
+- Runtime 日志当前只保留最近 5 个交易日，不要把 `logs/runtime` 当长期历史仓库。
+- 当前模块文档清单里要特别注意最近新增或变化较大的模块：
+  - `daily-screening`
+  - `runtime-observability`
+  - `subject-management`
+  - `market-data-xtdata`
+  - `order-management`

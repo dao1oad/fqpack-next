@@ -1,0 +1,30 @@
+# 仓库交付护栏
+
+- 正式工作流已经收口为 GitHub-first：
+  - 代码交付真值是 `PR + CI + merge gate`
+  - 高影响任务可走 GitHub Issue
+  - 轻量更新允许直接 `feature branch -> PR`
+- 当前 `Done` 固定不是“merge 即完成”，而是：
+  - `merge + ci + docs sync + deploy + health check + cleanup`
+- `Merging` 只负责 merge 与 handoff，不负责 deploy、health check 或 cleanup。
+- `Global Stewardship` 固定负责：
+  - deploy
+  - health check
+  - runtime ops check
+  - cleanup
+  - follow-up issue
+- 当前提交前正式预检入口是：
+  - `powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ensure`
+- 当前仓库 `git push` 通过 `.githooks/pre-push` 自动触发本地预检；hook 丢失时用 `script/install_repo_hooks.ps1` 恢复。
+- 本地预检当前会阻断：
+  - docs guard 失败
+  - pre-commit 失败
+  - pytest 失败
+  - 当前分支关联 PR 上存在 unresolved review threads
+- 当前开 PR 的正式入口是：
+  - `powershell -ExecutionPolicy Bypass -File script/fq_open_pr.ps1 -- --fill`
+- 正式 deploy 已改为本机 mirror 路径：
+  - canonical repo root：`D:\fqpack\freshquant-2026.2.23`
+  - deploy mirror：`D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
+- 正式 deploy workflow 会先校验目标 SHA 仍是 `main` tip，再在 mirror 中执行本地构建，不再依赖下载 zipball 或把 GHCR 当正式前置。
+- 任何 memory context 与 GitHub、`docs/current/**` 或 deploy 证据冲突时，正式真值优先。
