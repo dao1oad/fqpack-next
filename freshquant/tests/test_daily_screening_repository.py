@@ -137,16 +137,24 @@ def test_repository_upserts_snapshot_metrics_by_scope_and_code():
     repo.upsert_stock_snapshots(
         scope_id="trade_date:2026-03-18",
         trade_date="2026-03-18",
-        snapshots=[{"code": "000001", "higher_multiple": 2.5}],
+        snapshots=[
+            {
+                "code": "000001",
+                "symbol": "sz000001",
+                "name": "alpha",
+                "higher_multiple": 2.5,
+            }
+        ],
     )
 
-    assert fake_db["daily_screening_stock_snapshots"].docs[0]["higher_multiple"] == 2.5
-    assert fake_db["daily_screening_stock_snapshots"].docs[0]["scope_id"] == (
-        "trade_date:2026-03-18"
-    )
-    assert fake_db["daily_screening_stock_snapshots"].docs[0]["trade_date"] == (
-        "2026-03-18"
-    )
+    assert fake_db["daily_screening_stock_snapshots"].docs[0] == {
+        "scope_id": "trade_date:2026-03-18",
+        "trade_date": "2026-03-18",
+        "code": "000001",
+        "symbol": "sz000001",
+        "name": "alpha",
+        "higher_multiple": 2.5,
+    }
 
 
 def test_repository_replaces_condition_memberships_by_scope_and_condition_key():
@@ -169,6 +177,69 @@ def test_repository_replaces_condition_memberships_by_scope_and_condition_key():
             "condition_key": "clxs",
             "code": "000001",
             "name": "alpha",
+        }
+    ]
+
+
+def test_repository_preserves_legacy_membership_metadata_while_replacing_by_scope_and_condition_key():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships")
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.replace_stage_memberships(
+        run_id="run-1",
+        stage="clxs",
+        scope="scope-a",
+        memberships=[
+            {
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "branch": "clxs",
+                "model_key": "buy_zs_huila",
+                "signal_type": "buy_zs_huila",
+                "signal_name": "buy_zs_huila",
+                "period": "30m",
+                "fire_time": "2026-03-18T09:30:00+08:00",
+            }
+        ],
+    )
+    repo.replace_stage_memberships(
+        run_id="run-1",
+        stage="clxs",
+        scope="scope-a",
+        memberships=[
+            {
+                "code": "000001",
+                "name": "alpha-2",
+                "symbol": "sz000001",
+                "branch": "clxs",
+                "model_key": "buy_zs_huila_v2",
+                "signal_type": "buy_zs_huila",
+                "signal_name": "buy_zs_huila_v2",
+                "period": "60m",
+                "fire_time": "2026-03-18T10:30:00+08:00",
+            }
+        ],
+    )
+
+    assert fake_db["daily_screening_memberships"].docs == [
+        {
+            "scope_id": "scope-a",
+            "condition_key": "clxs",
+            "code": "000001",
+            "stage": "clxs",
+            "name": "alpha-2",
+            "symbol": "sz000001",
+            "branch": "clxs",
+            "model_key": "buy_zs_huila_v2",
+            "signal_type": "buy_zs_huila",
+            "signal_name": "buy_zs_huila_v2",
+            "period": "60m",
+            "fire_time": "2026-03-18T10:30:00+08:00",
         }
     ]
 
