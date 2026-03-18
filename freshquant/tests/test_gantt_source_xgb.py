@@ -308,16 +308,16 @@ def test_fetch_json_retries_transient_ssl_error_without_proxy(monkeypatch):
 
     def fake_get(url, params=None, timeout=None):
         attempts.append((url, params, timeout))
-        seen_proxy_values.append(
-            {key: os.environ.get(key) for key in proxy_values}
-        )
+        seen_proxy_values.append({key: os.environ.get(key) for key in proxy_values})
         if len(attempts) == 1:
             raise SSLError("temporary ssl failure")
         return FakeResponse()
 
     monkeypatch.setattr(svc.requests, "get", fake_get)
 
-    payload = svc._fetch_json("https://example.com/api", params={"trade_date": "2026-03-18"})
+    payload = svc._fetch_json(
+        "https://example.com/api", params={"trade_date": "2026-03-18"}
+    )
 
     assert payload == {"data": {"items": []}}
     assert len(attempts) == 2

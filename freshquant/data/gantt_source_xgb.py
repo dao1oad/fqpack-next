@@ -69,9 +69,7 @@ def normalize_xgb_history_row(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _fetch_json(url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    response = _request_with_retry(
-        lambda: requests.get(url, params=params, timeout=15)
-    )
+    response = _request_with_retry(lambda: requests.get(url, params=params, timeout=15))
     response.raise_for_status()
     payload = response.json()
     if not isinstance(payload, dict):

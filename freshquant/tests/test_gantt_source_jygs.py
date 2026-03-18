@@ -661,9 +661,7 @@ def test_fetch_action_count_retries_transient_ssl_error_without_proxy(monkeypatc
 
     def fake_post(url, json=None, data=None, headers=None, cookies=None, timeout=None):
         calls.append((url, json, data, timeout))
-        seen_proxy_values.append(
-            {key: os.environ.get(key) for key in proxy_values}
-        )
+        seen_proxy_values.append({key: os.environ.get(key) for key in proxy_values})
         if len(calls) == 1:
             raise SSLError("temporary ssl failure")
         return FakeResponse({"errCode": "0", "data": {"date": "2026-03-05"}})
