@@ -2,6 +2,7 @@ from datetime import datetime
 
 from dagster import Output, graph, op
 
+from freshquant.config import cfg
 from freshquant.daily_screening.service import DailyScreeningService
 from freshquant.data.trade_date_hist import tool_trade_date_hist_sina
 
@@ -14,7 +15,7 @@ def _query_latest_trade_date() -> str:
     if not trade_dates:
         raise RuntimeError("no trade dates available")
 
-    now = datetime.now()
+    now = datetime.now(cfg.TZ)
     today = now.date()
     cutoff = now.replace(
         hour=POSTCLOSE_CUTOFF_HOUR,
@@ -47,11 +48,15 @@ def op_run_daily_screening_postclose(context):
         trigger_type="dagster_schedule",
     )
     run_id = str(run.get("id") or run.get("run_id") or "").strip()
+    status = str(run.get("status") or "").strip()
+    if status != "completed":
+        error = str(run.get("error") or status or "unknown failure").strip()
+        raise RuntimeError(f"daily screening run failed: {error}")
     context.log.info(
         "completed daily_screening postclose trade_date=%s run_id=%s status=%s",
         trade_date,
         run_id,
-        run.get("status"),
+        status,
     )
     return Output(
         {

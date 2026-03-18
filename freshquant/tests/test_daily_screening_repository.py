@@ -269,6 +269,38 @@ def test_repository_uses_scope_in_identity_for_same_run():
     ) == [("scope-a", "000001"), ("scope-b", "000001")]
 
 
+def test_repository_upsert_stock_snapshots_replaces_scope_rows():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_runs=SimpleCollection("daily_screening_runs"),
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships"),
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots"
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.upsert_stock_snapshots(
+        run_id="run-1",
+        scope="scope-a",
+        snapshots=[
+            {"code": "000001", "name": "alpha"},
+            {"code": "000002", "name": "beta"},
+        ],
+    )
+    repo.upsert_stock_snapshots(
+        run_id="run-1",
+        scope="scope-a",
+        snapshots=[{"code": "000001", "name": "alpha"}],
+    )
+
+    assert sorted(
+        (row.get("scope"), row.get("code"))
+        for row in fake_db["daily_screening_stock_snapshots"].docs
+    ) == [("scope-a", "000001")]
+
+
 def test_repository_requires_membership_identity_keys():
     from freshquant.daily_screening.repository import DailyScreeningRepository
 

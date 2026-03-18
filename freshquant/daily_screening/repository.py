@@ -139,6 +139,12 @@ class DailyScreeningRepository:
         )
         if effective_run_id is None and raw_items:
             raise ValueError("run_id required")
+        if effective_run_id is None:
+            return []
+
+        query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
+        self._delete_many(self.stock_snapshots, query)
+
         if not raw_items:
             return []
         payloads = [
@@ -153,12 +159,12 @@ class DailyScreeningRepository:
         ):
             raise ValueError("code required")
         for payload in payloads:
-            query = self._snapshot_query(
+            snapshot_query = self._snapshot_query(
                 payload,
                 run_id=effective_run_id,
                 scope=effective_scope,
             )
-            self._upsert_one(self.stock_snapshots, query, payload)
+            self._upsert_one(self.stock_snapshots, snapshot_query, payload)
         return payloads
 
     def query_scope_summary(

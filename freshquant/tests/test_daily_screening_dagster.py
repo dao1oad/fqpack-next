@@ -1,8 +1,11 @@
 import importlib
 import inspect
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+
+import pytest
 
 
 def _build_dagster_stub():
@@ -173,6 +176,73 @@ def test_daily_screening_dagster_op_runs_full_pipeline(monkeypatch):
     output = ops_module.op_run_daily_screening_postclose(context)
 
     assert output.value == {"run_id": "run-1900", "trade_date": "2026-03-18"}
+    assert captured["call"] == {
+        "payload": {"model": "all", "trade_date": "2026-03-18"},
+        "run_async": False,
+        "trigger_type": "dagster_schedule",
+    }
+
+
+def test_daily_screening_dagster_op_uses_execution_timezone(monkeypatch):
+    _prepare_fqdagster_import(monkeypatch)
+
+    ops_module = importlib.import_module("fqdagster.defs.ops.daily_screening")
+    monkeypatch.setattr(
+        ops_module,
+        "tool_trade_date_hist_sina",
+        lambda: {
+            "trade_date": [
+                datetime(2026, 3, 17).date(),
+                datetime(2026, 3, 18).date(),
+            ]
+        },
+    )
+    captured = {}
+
+    class FakeDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            captured["tz"] = tz
+            return datetime(2026, 3, 18, 19, 0, tzinfo=tz)
+
+    monkeypatch.setattr(ops_module, "datetime", FakeDateTime)
+
+    assert ops_module._query_latest_trade_date() == "2026-03-18"
+    assert str(captured["tz"]) == "Asia/Shanghai"
+
+
+def test_daily_screening_dagster_op_raises_on_failed_run(monkeypatch):
+    _prepare_fqdagster_import(monkeypatch)
+
+    captured = {}
+
+    class FakeService:
+        def start_run(self, payload, run_async=True, trigger_type="manual_api"):
+            captured["call"] = {
+                "payload": dict(payload),
+                "run_async": run_async,
+                "trigger_type": trigger_type,
+            }
+            return {"id": "run-1900", "status": "failed", "error": "boom"}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "freshquant.daily_screening.service",
+        SimpleNamespace(DailyScreeningService=lambda: FakeService()),
+    )
+
+    ops_module = importlib.import_module("fqdagster.defs.ops.daily_screening")
+    monkeypatch.setattr(
+        ops_module,
+        "_query_latest_trade_date",
+        lambda: "2026-03-18",
+    )
+
+    context = SimpleNamespace(log=SimpleNamespace(info=lambda *args, **kwargs: None))
+
+    with pytest.raises(RuntimeError, match="daily screening run failed: boom"):
+        ops_module.op_run_daily_screening_postclose(context)
+
     assert captured["call"] == {
         "payload": {"model": "all", "trade_date": "2026-03-18"},
         "run_async": False,
