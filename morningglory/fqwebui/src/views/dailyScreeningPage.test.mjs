@@ -8,6 +8,7 @@ import {
   buildDailyScreeningCliPreview,
   buildDailyScreeningForms,
   getDailyScreeningGuide,
+  readDailyScreeningPayload,
   resolveDailyScreeningFields,
 } from './dailyScreeningPage.mjs'
 
@@ -121,6 +122,30 @@ test('buildDailyScreeningForms seeds defaults from schema', () => {
   })
   assert.equal(forms.chanlun.input_mode, 'all_pre_pools')
   assert.equal(forms.chanlun.period_mode, 'all')
+})
+
+test('readDailyScreeningPayload supports both axios envelopes and interceptor-unwrapped payloads', () => {
+  assert.deepEqual(
+    readDailyScreeningPayload({
+      data: {
+        run: { id: 'run-1' },
+      },
+    }),
+    {
+      run: { id: 'run-1' },
+    },
+  )
+
+  assert.deepEqual(
+    readDailyScreeningPayload({
+      run: { id: 'run-2' },
+    }),
+    {
+      run: { id: 'run-2' },
+    },
+  )
+
+  assert.deepEqual(readDailyScreeningPayload(null), {})
 })
 
 test('resolveDailyScreeningFields hides and expands chanlun fields by mode', () => {

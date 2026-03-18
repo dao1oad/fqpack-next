@@ -1,5 +1,21 @@
 const toArray = (value) => Array.isArray(value) ? value : []
 
+export const readDailyScreeningPayload = (response, fallback = {}) => {
+  if (response && typeof response === 'object') {
+    if (
+      Object.prototype.hasOwnProperty.call(response, 'data') &&
+      response.data &&
+      typeof response.data === 'object'
+    ) {
+      return response.data
+    }
+    if (response.config || response.headers || response.run || response.rows || response.models || response.options) {
+      return response
+    }
+  }
+  return fallback
+}
+
 const normalizeOptions = (options = []) => {
   return toArray(options).map((item) => {
     if (typeof item === 'object' && item !== null) {

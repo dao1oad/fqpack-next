@@ -70,7 +70,7 @@
               <el-radio-button
                 v-for="model in models"
                 :key="model.id"
-                :label="model.id"
+                :value="model.id"
               >
                 {{ model.label || model.id }}
               </el-radio-button>
@@ -215,21 +215,21 @@
 
             <div class="daily-filter-bar">
               <el-radio-group v-model="resultBranchFilter" size="small">
-                <el-radio-button label="all">全部分支</el-radio-button>
+                <el-radio-button value="all">全部分支</el-radio-button>
                 <el-radio-button
                   v-for="item in filterOptions.branches"
                   :key="item.key"
-                  :label="item.key"
+                  :value="item.key"
                 >
                   {{ item.label }} · {{ item.count }}
                 </el-radio-button>
               </el-radio-group>
               <el-radio-group v-model="resultModelFilter" size="small">
-                <el-radio-button label="all">全部模型</el-radio-button>
+                <el-radio-button value="all">全部模型</el-radio-button>
                 <el-radio-button
                   v-for="item in filterOptions.models"
                   :key="item.key"
-                  :label="item.key"
+                  :value="item.key"
                 >
                   {{ item.label }} · {{ item.count }}
                 </el-radio-button>
@@ -269,8 +269,8 @@
               </div>
               <div class="workbench-panel__meta">
                 <el-radio-group v-model="prePoolScope" size="small" @change="refreshPrePools">
-                  <el-radio-button label="run" :disabled="!activeRunId">本次 run</el-radio-button>
-                  <el-radio-button label="source">当前来源</el-radio-button>
+                  <el-radio-button value="run" :disabled="!activeRunId">本次 run</el-radio-button>
+                  <el-radio-button value="source">当前来源</el-radio-button>
                 </el-radio-group>
               </div>
             </div>
@@ -326,6 +326,7 @@ import {
   buildDailyScreeningCliPreview,
   buildDailyScreeningForms,
   buildDailyScreeningModelFilters,
+  readDailyScreeningPayload,
   buildDailyScreeningSourceQueries,
   getDailyScreeningGuide,
   mergeDailyScreeningRows,
@@ -420,8 +421,8 @@ const applyForms = (nextForms = {}) => {
 const loadSchema = async () => {
   loadingSchema.value = true
   try {
-    const { data } = await dailyScreeningApi.getSchema()
-    schema.value = data || { models: [], options: {} }
+    const payload = readDailyScreeningPayload(await dailyScreeningApi.getSchema())
+    schema.value = payload || { models: [], options: {} }
     applyForms(buildDailyScreeningForms(schema.value))
     if (!models.value.find((model) => model.id === selectedModel.value)) {
       selectedModel.value = models.value[0]?.id || 'all'
@@ -438,8 +439,8 @@ const loadSchema = async () => {
 const hydrateCurrentRun = async () => {
   if (!activeRunId.value) return
   try {
-    const { data } = await dailyScreeningApi.getRun(activeRunId.value)
-    runSnapshot.value = data?.run || null
+    const payload = readDailyScreeningPayload(await dailyScreeningApi.getRun(activeRunId.value))
+    runSnapshot.value = payload?.run || null
     acceptedRows.value = Array.isArray(runSnapshot.value?.results) ? runSnapshot.value.results : []
   } catch (error) {
     pageError.value = error?.response?.data?.error || error?.message || '加载运行状态失败'
@@ -455,11 +456,11 @@ const refreshPrePools = async () => {
   loadingPrePools.value = true
   try {
     if (prePoolScope.value === 'run' && activeRunId.value) {
-      const { data } = await dailyScreeningApi.getPrePools({
+      const payload = readDailyScreeningPayload(await dailyScreeningApi.getPrePools({
         limit: 200,
         run_id: activeRunId.value,
-      })
-      prePoolRows.value = Array.isArray(data?.rows) ? data.rows : []
+      }))
+      prePoolRows.value = Array.isArray(payload?.rows) ? payload.rows : []
       return
     }
 
@@ -472,7 +473,7 @@ const refreshPrePools = async () => {
       queries.map((params) => dailyScreeningApi.getPrePools(params)),
     )
     prePoolRows.value = mergeDailyScreeningRows(
-      ...responses.map((response) => response?.data?.rows),
+      ...responses.map((response) => readDailyScreeningPayload(response)?.rows),
     )
   } catch (error) {
     pageError.value = error?.response?.data?.error || error?.message || '加载预选池失败'
@@ -638,8 +639,8 @@ const startRun = async () => {
   resultModelFilter.value = 'all'
   closeStream()
   try {
-    const { data } = await dailyScreeningApi.startRun(buildStartPayload())
-    runSnapshot.value = data?.run || null
+    const payload = readDailyScreeningPayload(await dailyScreeningApi.startRun(buildStartPayload()))
+    runSnapshot.value = payload?.run || null
     activeRunId.value = runSnapshot.value?.id || ''
     streamState.value = 'starting'
     if (activeRunId.value) {
