@@ -236,10 +236,12 @@ def test_sync_script_references_global_runtime_ops_check_script() -> None:
 
 def test_global_stewardship_prompt_references_shared_deploy_scripts() -> None:
     prompt_content = GLOBAL_STEWARDSHIP_PROMPT.read_text(encoding="utf-8")
+    validator_content = GLOBAL_STEWARDSHIP_VALIDATOR.read_text(encoding="utf-8")
 
     assert "freshquant_deploy_plan.py" in prompt_content
-    assert "freshquant_health_check.py" in prompt_content
+    assert "fq_apply_deploy_plan.ps1" in prompt_content
     assert "fqnext_host_runtime_ctl.ps1" in prompt_content
+    assert "fq_apply_deploy_plan\\.ps1" in validator_content
 
 
 def test_sync_and_start_scripts_reference_merging_prompt_validator() -> None:

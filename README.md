@@ -34,12 +34,17 @@ cd D:\fqpack\freshquant-2026.2.23
 uv run fqctl --help
 uv run pytest freshquant/tests -q
 uv run python -m freshquant.rear.api_server --port 5000
+powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ensure
+powershell -ExecutionPolicy Bypass -File script/fq_open_pr.ps1 -- --fill
 ```
+
+本地默认通过 `.githooks/pre-push` 在 `git push` 前执行 `script/fq_local_preflight.ps1`。若当前 `HEAD` 没有命中有效 preflight 记录，会自动补跑 `governance + pre-commit + pytest`。
 
 ## Docker 并行部署
 
 ```powershell
 docker compose -f docker/compose.parallel.yaml up -d --build
+powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGitDiff origin/main...HEAD
 ```
 
 常用并行端口：
@@ -60,6 +65,8 @@ $env:FQNEXT_TA_BACKEND_IMAGE="fqnext_ta_backend:<tag>"
 $env:FQNEXT_TA_FRONTEND_IMAGE="fqnext_ta_frontend:<tag>"
 docker compose -f docker/compose.parallel.yaml up -d --build
 ```
+
+Docker 并行构建默认通过 `FQ_DOCKER_BUILD_CACHE_ROOT` 使用本地 BuildKit cache；`script/docker_parallel_compose.ps1` 会在未显式配置时自动落到仓库 `.artifacts/docker-build-cache`。
 
 ## Supervisor
 
