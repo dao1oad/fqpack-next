@@ -14,6 +14,11 @@
 
 页面既支持手动发起全链路扫描，也支持在最新正式结果或某次手动 run 上做交集筛选、查看详情，并按需把结果复制到共享工作区。
 
+其中：
+
+- `最新正式结果` 对应 `trade_date:<YYYY-MM-DD>` scope，由 `19:00` Dagster 自动任务物化
+- `手动 run` 对应 `run:<run_id>` scope，由页面手动触发时物化
+
 ## 入口
 
 - 前端路由
@@ -73,6 +78,7 @@
   - 支持 `全链路 / CLXS / chanlun`
   - 参数由 `/schema` 动态下发
   - 启动后通过 SSE 实时显示阶段事件
+  - 默认优先切到最新 `trade_date` 正式 scope
 - 交集筛选区
   - 来源集合之间做交集
   - 来源内部维度做并集
@@ -108,7 +114,7 @@
 - `/api/daily-screening/runs/<run_id>/stream`
 - `/api/daily-screening/scopes`
 - `/api/daily-screening/scopes/latest`
-- `/api/daily-screening/scopes/<run_id>/summary`
+- `/api/daily-screening/scopes/<scope_id>/summary`
 - `/api/daily-screening/query`
 - `/api/daily-screening/stocks/<code>/detail`
 - `/api/daily-screening/actions/add-to-pre-pool`
@@ -125,6 +131,11 @@
 - `daily_screening_runs`
 - `daily_screening_memberships`
 - `daily_screening_stock_snapshots`
+
+其中 scope 目前有两类：
+
+- `trade_date:<YYYY-MM-DD>`
+- `run:<run_id>`
 
 共享工作区仍保留在 `freshquant.stock_pre_pools / stock_pools / must_pool`，只作为人工动作的目标集合。
 
@@ -169,8 +180,8 @@
 ### 页面能打开但 scope / 结果为空
 
 - 先看 `/api/daily-screening/scopes/latest`
-- 再看 `/api/daily-screening/scopes/<run_id>/summary`
-- 再看 `fqscreening.daily_screening_stock_snapshots` 是否已有该 `run_id`
+- 再看 `/api/daily-screening/scopes/<scope_id>/summary`
+- 再看 `fqscreening.daily_screening_stock_snapshots` 是否已有对应 `scope`
 
 ### 手动启动成功但没有后续结果
 

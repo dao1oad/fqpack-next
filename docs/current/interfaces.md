@@ -39,7 +39,7 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/daily-screening/runs/<run_id>/stream`
 - `/api/daily-screening/scopes`
 - `/api/daily-screening/scopes/latest`
-- `/api/daily-screening/scopes/<run_id>/summary`
+- `/api/daily-screening/scopes/<scope_id>/summary`
 - `/api/daily-screening/query`
 - `/api/daily-screening/stocks/<code>/detail`
 - `/api/daily-screening/actions/add-to-pre-pool`
