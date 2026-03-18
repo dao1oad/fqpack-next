@@ -33,7 +33,7 @@
             当前运行 <strong>{{ activeRunId || '-' }}</strong>
           </span>
           <span class="workbench-summary-chip workbench-summary-chip--muted">
-            当前 scope <strong>{{ selectedRunId || '-' }}</strong>
+            当前 scope <strong>{{ selectedScopeLabel }}</strong>
           </span>
           <span class="workbench-summary-chip workbench-summary-chip--success">
             stock_count <strong>{{ scopeSummary?.stock_count ?? resultRows.length }}</strong>
@@ -138,7 +138,7 @@
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">Scope</div>
-                <p class="workbench-panel__desc">可以切换查看最新 run scope 或历史 run scope。</p>
+                <p class="workbench-panel__desc">可以切换查看最新正式交易日结果，或任意历史 run scope。</p>
               </div>
             </div>
             <el-select
@@ -583,6 +583,10 @@ const visibleFields = computed(() => resolveDailyScreeningFields(schema.value, s
 const setOptions = computed(() => buildDailyScreeningSetOptions(scopeSummary.value))
 const orderedLogEvents = computed(() => [...logEvents.value].reverse())
 const detailSnapshot = computed(() => detail.value?.snapshot || null)
+const selectedScopeLabel = computed(() => {
+  const matched = scopeItems.value.find((item) => item.runId === selectedRunId.value)
+  return matched?.label || selectedRunId.value || '-'
+})
 const clxsModelOptions = computed(() => {
   const allModel = models.value.find((item) => item.id === 'all')
   const field = allModel?.fields?.find((item) => item.name === 'clxs_model_opts')
