@@ -347,6 +347,65 @@ def test_chanlun_strategy_emits_hooks_for_universe_progress_and_results(monkeypa
     assert events["error"] == []
 
 
+def test_chanlun_strategy_can_preserve_sell_short_results(monkeypatch):
+    fake_db = FakeDB(
+        stock_pre_pools=FakePrePoolCollection(
+            [{"code": "000001", "category": "daily-screening:clxs"}]
+        )
+    )
+    _, chanlun_service = _import_strategy_modules_with_stubs(monkeypatch, fake_db)
+    monkeypatch.setattr(
+        chanlun_service,
+        "fq_fetch_a_stock_basic",
+        lambda code: {"code": code, "name": "alpha", "sse": "sz"},
+    )
+    monkeypatch.setattr(
+        chanlun_service,
+        "get_data_v2",
+        lambda symbol, period, current_day: {
+            "sell_zs_huila": {
+                "datetime": [datetime(2026, 3, 17, 11, 0)],
+                "price": [10.1],
+                "stop_lose_price": [10.5],
+                "tag": ["sell-tag"],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        chanlun_service, "tool_trade_date_last", lambda: date(2026, 3, 17)
+    )
+    monkeypatch.setattr(
+        chanlun_service,
+        "fq_util_datetime_localize",
+        lambda value: value,
+    )
+    monkeypatch.setattr(
+        chanlun_service.DatabaseOutput,
+        "save_all",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        chanlun_service.ReportOutput, "print_table", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        chanlun_service.ReportOutput, "save_html", lambda *args, **kwargs: None
+    )
+
+    strategy = chanlun_service.ChanlunServiceStrategy(
+        periods=["30m"],
+        days=1,
+        output_html=False,
+        save_pre_pools=False,
+        include_sell_short=True,
+    )
+
+    results = asyncio.run(strategy.screen())
+
+    assert len(results) == 1
+    assert results[0].signal_type == "sell_zs_huila"
+    assert results[0].position == "SELL_SHORT"
+
+
 def test_chanlun_strategy_supports_filtered_pre_pool_query(monkeypatch):
     fake_db = FakeDB(
         stock_pre_pools=FakePrePoolCollection(

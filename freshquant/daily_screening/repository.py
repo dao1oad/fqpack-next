@@ -287,6 +287,19 @@ class DailyScreeningRepository:
         stocks = self._find_many(self.stock_snapshots, query)
         return sorted(stocks, key=self._stock_sort_key)
 
+    def list_scope_ids(self, *, prefix: str | None = None) -> list[str]:
+        scope_ids: set[str] = set()
+        for collection in (self.memberships, self.stock_snapshots):
+            values = self._distinct_values(collection, "scope_id")
+            for value in values:
+                text = str(value or "").strip()
+                if not text:
+                    continue
+                if prefix and not text.startswith(prefix):
+                    continue
+                scope_ids.add(text)
+        return sorted(scope_ids, reverse=True)
+
     def get_stock_detail_memberships(
         self, run_id=None, code=None, scope=None, **filters
     ):
@@ -396,9 +409,10 @@ class DailyScreeningRepository:
         scope_id=None,
         condition_key=None,
     ) -> dict[str, Any]:
-        return self._normalize_membership(
+        payload = self._normalize_membership(
             item, scope_id=scope_id, condition_key=condition_key
         )
+        return self._apply_legacy_condition_identity(payload)
 
     def _normalize_snapshot(
         self, item: Any, *, scope_id=None
@@ -422,6 +436,77 @@ class DailyScreeningRepository:
         if trade_date is not None:
             payload.setdefault("trade_date", trade_date)
         return payload
+
+    def _apply_legacy_condition_identity(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        scope_id = str(payload.get("scope_id") or "").strip()
+        if scope_id:
+            payload.setdefault("scope", scope_id)
+            payload.setdefault("run_id", self._legacy_run_id_from_scope_id(scope_id))
+
+        condition_key = str(payload.get("condition_key") or "").strip()
+        if not condition_key:
+            return payload
+
+        namespace, _, raw_value = condition_key.partition(":")
+        value = raw_value.strip()
+        stage = None
+        model_key = None
+        period = None
+        signal_type = None
+        signal_name = None
+        branch = None
+
+        if namespace == "cls":
+            stage = "clxs"
+            model_key = value or condition_key
+            signal_type = value or condition_key
+            signal_name = value or condition_key
+            branch = "clxs"
+        elif namespace == "hot":
+            stage = "shouban30_agg90"
+            model_key = "hot"
+            period = value or None
+        elif namespace == "flag":
+            stage = "market_flags"
+            model_key = value or condition_key
+            signal_type = value or condition_key
+            signal_name = value or condition_key
+        elif namespace == "chanlun_period":
+            stage = "chanlun"
+            model_key = "period"
+            period = value or None
+        elif namespace == "chanlun_signal":
+            stage = "chanlun"
+            model_key = value or condition_key
+            signal_type = value or condition_key
+            signal_name = value or condition_key
+        elif condition_key == "base:union":
+            stage = "base_union"
+            model_key = "union"
+        else:
+            stage = condition_key
+
+        if stage:
+            payload.setdefault("stage", stage)
+        if model_key:
+            payload.setdefault("model_key", model_key)
+        if period:
+            payload.setdefault("period", period)
+        if signal_type:
+            payload.setdefault("signal_type", signal_type)
+        if signal_name:
+            payload.setdefault("signal_name", signal_name)
+        if branch:
+            payload.setdefault("branch", branch)
+        return payload
+
+    def _legacy_run_id_from_scope_id(self, scope_id: str) -> str:
+        normalized = str(scope_id or "").strip()
+        if normalized.startswith("run:"):
+            return normalized.split(":", 1)[1].strip() or normalized
+        return normalized
 
     def _snapshot_query(
         self,
@@ -469,10 +554,10 @@ class DailyScreeningRepository:
     def _find_many(self, collection, query: dict[str, Any]) -> list[dict[str, Any]]:
         if hasattr(collection, "find"):
             rows = collection.find(query or {})
-            return [dict(row) for row in list(rows)]
+            return [self._plain_document(row) for row in list(rows)]
         rows = self._collection_rows(collection)
         return [
-            dict(row)
+            self._plain_document(row)
             for row in rows
             if all(row.get(key) == value for key, value in (query or {}).items())
         ]
@@ -480,9 +565,29 @@ class DailyScreeningRepository:
     def _find_one(self, collection, query: dict[str, Any]):
         if hasattr(collection, "find_one"):
             row = collection.find_one(query)
-            return dict(row) if row is not None else None
+            return self._plain_document(row) if row is not None else None
         rows = self._find_many(collection, query)
         return rows[0] if rows else None
+
+    def _distinct_values(self, collection, field_name: str) -> list[Any]:
+        if hasattr(collection, "distinct"):
+            return list(collection.distinct(field_name))
+        rows = self._collection_rows(collection) or []
+        values = []
+        seen = set()
+        for row in rows:
+            value = row.get(field_name)
+            marker = repr(value)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            values.append(value)
+        return values
+
+    def _plain_document(self, row: Any) -> dict[str, Any]:
+        payload = dict(row or {})
+        payload.pop("_id", None)
+        return payload
 
     def _upsert_one(self, collection, query: dict[str, Any], document: dict[str, Any]):
         if hasattr(collection, "replace_one"):

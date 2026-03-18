@@ -11,83 +11,66 @@ import pytest
 def _build_dagster_stub():
     module = ModuleType("dagster")
     module.__path__ = []
-    builder_stack = []
 
-    class Output:
-        def __init__(self, value, output_name="result", metadata=None):
-            self.value = value
-            self.output_name = output_name
-            self.metadata = metadata or {}
-
-    class _FakeValue:
-        def __init__(self, producer_name=None):
-            self.producer_name = producer_name
-
-    class _FakeBuilder:
-        def __init__(self, owner):
-            self.owner = owner
-            self.node_defs = []
-
-        def add_node(self, node_def):
-            if node_def not in self.node_defs:
-                self.node_defs.append(node_def)
-
-        def finalize(self):
-            self.owner.node_defs = list(self.node_defs)
-
-    class _FakeNodeDef:
-        def __init__(self, fn, name):
+    class _FakeAssetDef:
+        def __init__(self, fn, name, group_name=None):
             self._fn = fn
             self.name = name
+            self.group_name = group_name
+            self.dependency_names = list(inspect.signature(fn).parameters)
 
         def __call__(self, *args, **kwargs):
-            if not builder_stack:
-                return self._fn(*args, **kwargs)
-            builder = builder_stack[-1]
-            builder.add_node(self)
-            return _FakeValue(self.name)
+            return self._fn(*args, **kwargs)
 
-    class _FakeOpDef(_FakeNodeDef):
-        pass
+    class _FakeAssetSelection:
+        def __init__(self, asset_names=None, group_names=None):
+            self.asset_names = tuple(asset_names or ())
+            self.group_names = tuple(group_names or ())
 
-    class _FakeGraphDef(_FakeNodeDef):
-        def __init__(self, fn, name):
-            super().__init__(fn, name)
-            self.node_defs = []
+        @classmethod
+        def assets(cls, *assets):
+            asset_names = [
+                getattr(asset, "name", str(asset)).strip() for asset in assets
+            ]
+            return cls(asset_names=asset_names)
 
-        def _ensure_built(self):
-            if self.node_defs:
-                return
-            builder = _FakeBuilder(self)
-            builder_stack.append(builder)
-            try:
-                params = inspect.signature(self._fn).parameters
-                args = [_FakeValue(f"input_{name}") for name in params]
-                self._fn(*args)
-            finally:
-                builder_stack.pop()
-            builder.finalize()
+        @classmethod
+        def groups(cls, *groups):
+            return cls(group_names=[str(group).strip() for group in groups])
 
-        def to_job(self, name=None):
-            self._ensure_built()
-            return _FakeJobDef(name or self.name, self)
+        def downstream(self):
+            return self
+
+        def __sub__(self, other):
+            return self
 
     class _FakeJobDef:
-        def __init__(self, name, graph_def):
+        def __init__(self, name, selection=None, description=None, tags=None):
             self.name = name
-            self.graph = graph_def
+            self.selection = selection
+            self.description = description
+            self.tags = tags or {}
 
-    def op(fn=None, **kwargs):
+    def asset(fn=None, **kwargs):
         if fn is None:
-            return lambda inner: _FakeOpDef(inner, kwargs.get("name") or inner.__name__)
-        return _FakeOpDef(fn, kwargs.get("name") or fn.__name__)
-
-    def graph(fn=None, **kwargs):
-        if fn is None:
-            return lambda inner: _FakeGraphDef(
-                inner, kwargs.get("name") or inner.__name__
+            return lambda inner: _FakeAssetDef(
+                inner,
+                kwargs.get("name") or inner.__name__,
+                group_name=kwargs.get("group_name"),
             )
-        return _FakeGraphDef(fn, kwargs.get("name") or fn.__name__)
+        return _FakeAssetDef(
+            fn,
+            kwargs.get("name") or fn.__name__,
+            group_name=kwargs.get("group_name"),
+        )
+
+    def define_asset_job(name, selection=None, description=None, tags=None):
+        return _FakeJobDef(
+            name,
+            selection=selection,
+            description=description,
+            tags=tags,
+        )
 
     class ScheduleDefinition:
         def __init__(self, **kwargs):
@@ -95,9 +78,9 @@ def _build_dagster_stub():
             self.job = kwargs.get("job")
             self.cron_schedule = kwargs.get("cron_schedule")
 
-    module.graph = graph
-    module.op = op
-    module.Output = Output
+    module.asset = asset
+    module.AssetSelection = _FakeAssetSelection
+    module.define_asset_job = define_asset_job
     module.ScheduleDefinition = ScheduleDefinition
     module.DefaultScheduleStatus = SimpleNamespace(RUNNING="RUNNING")
     return module
@@ -114,9 +97,12 @@ def _prepare_fqdagster_import(monkeypatch):
     )
     monkeypatch.syspath_prepend(str(project_src))
     _install_dagster_stub(monkeypatch)
+    assets_dir = project_src / "fqdagster" / "defs" / "assets"
+    assets_package = ModuleType("fqdagster.defs.assets")
+    assets_package.__path__ = [str(assets_dir)]
+    monkeypatch.setitem(sys.modules, "fqdagster.defs.assets", assets_package)
     for module_name in [
-        "fqdagster.defs.ops.daily_screening",
-        "fqdagster.defs.jobs.daily_screening",
+        "fqdagster.defs.assets.daily_screening",
         "fqdagster.defs.schedules.daily_screening",
     ]:
         sys.modules.pop(module_name, None)
@@ -125,70 +111,66 @@ def _prepare_fqdagster_import(monkeypatch):
 def test_daily_screening_dagster_modules_import(monkeypatch):
     _prepare_fqdagster_import(monkeypatch)
 
-    ops_module = importlib.import_module("fqdagster.defs.ops.daily_screening")
-    jobs_module = importlib.import_module("fqdagster.defs.jobs.daily_screening")
+    assets_module = importlib.import_module("fqdagster.defs.assets.daily_screening")
     schedules_module = importlib.import_module(
         "fqdagster.defs.schedules.daily_screening"
     )
 
-    assert hasattr(ops_module, "op_run_daily_screening_postclose")
-    assert hasattr(ops_module, "graph_daily_screening_postclose")
-    assert hasattr(jobs_module, "job_daily_screening_postclose")
+    assert hasattr(assets_module, "daily_screening_context")
+    assert hasattr(assets_module, "daily_screening_base_union")
+    assert hasattr(assets_module, "daily_screening_publish_scope")
+    assert hasattr(schedules_module, "daily_screening_postclose_job")
     assert hasattr(schedules_module, "daily_screening_postclose_schedule")
+    assert schedules_module.daily_screening_postclose_job.name == (
+        "daily_screening_postclose_job"
+    )
     assert (
         schedules_module.daily_screening_postclose_schedule.cron_schedule
         == "0 19 * * 1-5"
     )
-    assert (
-        jobs_module.job_daily_screening_postclose.name
-        == "job_daily_screening_postclose"
-    )
 
 
-def test_daily_screening_dagster_op_runs_full_pipeline(monkeypatch):
+def test_daily_screening_assets_keep_publish_as_terminal_node(monkeypatch):
     _prepare_fqdagster_import(monkeypatch)
 
-    captured = {}
+    assets_module = importlib.import_module("fqdagster.defs.assets.daily_screening")
+    cls_asset_names = [
+        f"daily_screening_cls_s{index:04d}" for index in range(1, 13)
+    ]
 
-    class FakeService:
-        def start_run(self, payload, run_async=True, trigger_type="manual_api"):
-            captured["call"] = {
-                "payload": dict(payload),
-                "run_async": run_async,
-                "trigger_type": trigger_type,
-            }
-            return {"id": "run-1900", "status": "completed"}
-
-    monkeypatch.setitem(
-        sys.modules,
-        "freshquant.daily_screening.service",
-        SimpleNamespace(DailyScreeningService=lambda: FakeService()),
-    )
-
-    ops_module = importlib.import_module("fqdagster.defs.ops.daily_screening")
-    monkeypatch.setattr(
-        ops_module,
-        "_query_latest_trade_date",
-        lambda: "2026-03-18",
-    )
-
-    context = SimpleNamespace(log=SimpleNamespace(info=lambda *args, **kwargs: None))
-    output = ops_module.op_run_daily_screening_postclose(context)
-
-    assert output.value == {"run_id": "run-1900", "trade_date": "2026-03-18"}
-    assert captured["call"] == {
-        "payload": {"model": "all", "trade_date": "2026-03-18"},
-        "run_async": False,
-        "trigger_type": "dagster_schedule",
-    }
+    assert assets_module.daily_screening_universe.dependency_names == [
+        "daily_screening_upstream_guard"
+    ]
+    assert assets_module.DAILY_SCREENING_CLS_MODEL_ASSET_NAMES == cls_asset_names
+    assert len(assets_module.DAILY_SCREENING_CLS_MODEL_ASSETS) == len(cls_asset_names)
+    assert assets_module.daily_screening_cls.dependency_names == cls_asset_names
+    assert assets_module.daily_screening_base_union.dependency_names == [
+        "daily_screening_cls",
+        "daily_screening_hot_30",
+        "daily_screening_hot_45",
+        "daily_screening_hot_60",
+        "daily_screening_hot_90",
+    ]
+    assert assets_module.daily_screening_snapshot_assemble.dependency_names == [
+        "daily_screening_context",
+        "daily_screening_base_union",
+        "daily_screening_flag_near_long_term_ma",
+        "daily_screening_flag_quality_subject",
+        "daily_screening_flag_credit_subject",
+        "daily_screening_shouban30_chanlun_metrics",
+        "daily_screening_chanlun_variants",
+    ]
+    assert assets_module.daily_screening_publish_scope.dependency_names == [
+        "daily_screening_snapshot_assemble"
+    ]
 
 
-def test_daily_screening_dagster_op_uses_execution_timezone(monkeypatch):
+def test_daily_screening_asset_helper_uses_execution_timezone(monkeypatch):
     _prepare_fqdagster_import(monkeypatch)
 
-    ops_module = importlib.import_module("fqdagster.defs.ops.daily_screening")
+    assets_module = importlib.import_module("fqdagster.defs.assets.daily_screening")
     monkeypatch.setattr(
-        ops_module,
+        assets_module,
         "tool_trade_date_hist_sina",
         lambda: {
             "trade_date": [
@@ -205,46 +187,11 @@ def test_daily_screening_dagster_op_uses_execution_timezone(monkeypatch):
             captured["tz"] = tz
             return datetime(2026, 3, 18, 19, 0, tzinfo=tz)
 
-    monkeypatch.setattr(ops_module, "datetime", FakeDateTime)
+    monkeypatch.setattr(assets_module, "datetime", FakeDateTime)
 
-    assert ops_module._query_latest_trade_date() == "2026-03-18"
+    assert assets_module._query_latest_trade_date() == "2026-03-18"
     assert str(captured["tz"]) == "Asia/Shanghai"
-
-
-def test_daily_screening_dagster_op_raises_on_failed_run(monkeypatch):
-    _prepare_fqdagster_import(monkeypatch)
-
-    captured = {}
-
-    class FakeService:
-        def start_run(self, payload, run_async=True, trigger_type="manual_api"):
-            captured["call"] = {
-                "payload": dict(payload),
-                "run_async": run_async,
-                "trigger_type": trigger_type,
-            }
-            return {"id": "run-1900", "status": "failed", "error": "boom"}
-
-    monkeypatch.setitem(
-        sys.modules,
-        "freshquant.daily_screening.service",
-        SimpleNamespace(DailyScreeningService=lambda: FakeService()),
-    )
-
-    ops_module = importlib.import_module("fqdagster.defs.ops.daily_screening")
-    monkeypatch.setattr(
-        ops_module,
-        "_query_latest_trade_date",
-        lambda: "2026-03-18",
-    )
-
-    context = SimpleNamespace(log=SimpleNamespace(info=lambda *args, **kwargs: None))
-
-    with pytest.raises(RuntimeError, match="daily screening run failed: boom"):
-        ops_module.op_run_daily_screening_postclose(context)
-
-    assert captured["call"] == {
-        "payload": {"model": "all", "trade_date": "2026-03-18"},
-        "run_async": False,
-        "trigger_type": "dagster_schedule",
+    assert assets_module.daily_screening_context() == {
+        "trade_date": "2026-03-18",
+        "scope_id": "trade_date:2026-03-18",
     }

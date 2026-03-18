@@ -28,6 +28,16 @@ DEFAULT_CHANLUN_SIGNAL_TYPES: list[str] = [
     "sell_v_reverse",
     "macd_bearish_divergence",
 ]
+MARKET_FLAG_LABELS: dict[str, str] = {
+    "near_long_term_ma": "年线附近",
+    "quality_subject": "优质标的",
+    "credit_subject": "融资标的",
+}
+CHANLUN_PERIOD_ORDER: dict[str, int] = {"30m": 0, "60m": 1, "1d": 2}
+CHANLUN_SIGNAL_ORDER: dict[str, int] = {
+    signal_type: index
+    for index, signal_type in enumerate(DEFAULT_CHANLUN_SIGNAL_TYPES)
+}
 
 
 def _save_pre_pool(**kwargs) -> None:
@@ -69,6 +79,10 @@ def _save_database_outputs(results: list[Any], config: dict) -> None:
 
 
 def _resolve_clxs_model_label(model_opt: Any) -> str | None:
+    if isinstance(model_opt, str):
+        text = model_opt.strip()
+        if text.startswith("CLXS_"):
+            model_opt = text.removeprefix("CLXS_")
     try:
         calc_type = int(model_opt) % 10000
     except (TypeError, ValueError):
@@ -96,6 +110,12 @@ class DailyScreeningService:
         ensure_indexes = getattr(repository, "ensure_indexes", None)
         if callable(ensure_indexes):
             ensure_indexes()
+
+    def _publish_event(self, run_id: str, event: str, payload: dict | None = None):
+        try:
+            return self.session_store.publish_event(run_id, event, payload)
+        except KeyError:
+            return None
 
     def get_schema(self) -> dict:
         categories = sorted(
@@ -156,29 +176,65 @@ class DailyScreeningService:
         latest_marked = False
         seen_trade_dates: set[str] = set()
         repository_runs = self._list_repository_runs()
-
+        repository = self._screening_repository()
+        run_by_trade_date: dict[str, dict[str, Any]] = {}
         for run in repository_runs:
             if not self._is_official_completed_run(run):
                 continue
             trade_date = self._run_trade_date(run)
-            if not trade_date or trade_date in seen_trade_dates:
+            if not trade_date:
                 continue
-            scope_id = self._trade_date_scope(trade_date)
-            seen_trade_dates.add(trade_date)
-            items.append(
-                {
-                    "run_id": scope_id,
-                    "scope": scope_id,
-                    "label": f"正式 {trade_date}",
-                    "is_latest": not latest_marked,
-                    "scope_kind": "trade_date",
-                    "trade_date": trade_date,
-                    "source_run_id": str(
-                        run.get("run_id") or run.get("id") or ""
-                    ).strip(),
-                }
-            )
-            latest_marked = True
+            run_by_trade_date.setdefault(trade_date, run)
+
+        materialized_trade_scopes = (
+            repository.list_scope_ids(prefix="trade_date:")
+            if repository is not None
+            else []
+        )
+        if materialized_trade_scopes:
+            for scope_id in materialized_trade_scopes:
+                trade_date = scope_id.split(":", 1)[1].strip()
+                if not trade_date or trade_date in seen_trade_dates:
+                    continue
+                seen_trade_dates.add(trade_date)
+                source_run = run_by_trade_date.get(trade_date) or {}
+                items.append(
+                    {
+                        "run_id": scope_id,
+                        "scope": scope_id,
+                        "label": f"正式 {trade_date}",
+                        "is_latest": not latest_marked,
+                        "scope_kind": "trade_date",
+                        "trade_date": trade_date,
+                        "source_run_id": str(
+                            source_run.get("run_id") or source_run.get("id") or ""
+                        ).strip(),
+                    }
+                )
+                latest_marked = True
+        else:
+            for run in repository_runs:
+                if not self._is_official_completed_run(run):
+                    continue
+                trade_date = self._run_trade_date(run)
+                if not trade_date or trade_date in seen_trade_dates:
+                    continue
+                scope_id = self._trade_date_scope(trade_date)
+                seen_trade_dates.add(trade_date)
+                items.append(
+                    {
+                        "run_id": scope_id,
+                        "scope": scope_id,
+                        "label": f"正式 {trade_date}",
+                        "is_latest": not latest_marked,
+                        "scope_kind": "trade_date",
+                        "trade_date": trade_date,
+                        "source_run_id": str(
+                            run.get("run_id") or run.get("id") or ""
+                        ).strip(),
+                    }
+                )
+                latest_marked = True
 
         for run in repository_runs:
             run_id = str(run.get("run_id") or run.get("id") or "").strip()
@@ -226,6 +282,269 @@ class DailyScreeningService:
             scope=scope_ref["scope"],
         )
 
+    def get_filter_catalog(self, run_id: str) -> dict:
+        scope_ref = self._resolve_scope_ref(run_id)
+        repository = self._screening_repository()
+        if repository is None:
+            return {
+                "scope_id": scope_ref["scope_id"],
+                "run_id": scope_ref["scope_id"],
+                "scope": scope_ref["scope"],
+                "condition_keys": [],
+                "groups": self._empty_filter_catalog_groups(),
+            }
+        memberships = repository.get_stock_detail_memberships(
+            run_id=scope_ref["run_id"],
+            scope=scope_ref["scope"],
+        )
+        condition_codes: dict[str, set[str]] = {}
+        for item in memberships:
+            condition_key = str(item.get("condition_key") or "").strip()
+            code = self._normalize_code(item.get("code") or item.get("symbol"))
+            if not condition_key or not code:
+                continue
+            condition_codes.setdefault(condition_key, set()).add(code)
+        return {
+            "scope_id": scope_ref["scope_id"],
+            "run_id": scope_ref["scope_id"],
+            "scope": scope_ref["scope"],
+            "condition_keys": sorted(condition_codes),
+            "groups": self._build_filter_catalog_groups(condition_codes),
+        }
+
+    def build_universe(self, trade_date: str) -> list[str]:
+        from freshquant.instrument.stock import fq_inst_fetch_stock_list
+
+        codes: list[str] = []
+        seen_codes: set[str] = set()
+        for row in list(fq_inst_fetch_stock_list() or []):
+            code = self._normalize_code(
+                row.get("code") or row.get("code6") or row.get("symbol")
+            )
+            if not code or code in seen_codes:
+                continue
+            if self._is_bj_exchange_code(code):
+                continue
+            if self._is_st_stock_name(row.get("name")):
+                continue
+            seen_codes.add(code)
+            codes.append(code)
+        return codes
+
+    def build_cls_memberships(
+        self,
+        trade_date: str,
+        candidate_codes: list[str],
+        *,
+        model_opts: list[int] | None = None,
+    ) -> list[dict[str, Any]]:
+        candidate_set = self._normalize_candidate_code_set(candidate_codes)
+        if not candidate_set:
+            return []
+        base_config = dict(self._normalize_start_payload({"model": "all"})["clxs"])
+        selected_model_opts = self._normalize_int_list(
+            model_opts,
+            default=list(base_config.get("model_opts") or [10001]),
+        )
+        memberships: dict[tuple[str, str], dict[str, Any]] = {}
+        for model_opt in selected_model_opts:
+            step_config = {
+                **base_config,
+                "code": None,
+                "model_opt": model_opt,
+                "model_opts": [model_opt],
+            }
+            strategy = self._make_clxs_strategy("dagster-clxs", step_config)
+            results = asyncio.run(
+                strategy.screen(days=step_config["days"], code=step_config["code"])
+            )
+            for result in results or []:
+                result_code = self._normalize_code(getattr(result, "code", None))
+                model_label = _resolve_clxs_model_label(
+                    getattr(result, "signal_type", None) or model_opt
+                )
+                if not result_code or result_code not in candidate_set or not model_label:
+                    continue
+                payload = self._build_condition_membership_doc(
+                    condition_key=f"cls:{model_label}",
+                    code=result_code,
+                    name=getattr(result, "name", None),
+                    symbol=getattr(result, "symbol", None)
+                    or self._infer_symbol(result_code),
+                    trade_date=trade_date,
+                )
+                memberships[(payload["condition_key"], payload["code"])] = payload
+        return sorted(
+            memberships.values(),
+            key=lambda item: (str(item["condition_key"]), str(item["code"])),
+        )
+
+    def build_hot_window_memberships(
+        self,
+        trade_date: str,
+        *,
+        days: int,
+        candidate_codes: list[str],
+    ) -> list[dict[str, Any]]:
+        candidate_set = self._normalize_candidate_code_set(candidate_codes)
+        rows = self._load_shouban30_agg90_rows(
+            {
+                "trade_date": trade_date,
+                "providers": ["xgb", "jygs"],
+                "window_days": int(days),
+            }
+        )
+        grouped: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            code = self._normalize_code(row.get("code6") or row.get("code"))
+            if not code:
+                continue
+            if candidate_set and code not in candidate_set:
+                continue
+            entry = grouped.setdefault(
+                code,
+                {
+                    "code": code,
+                    "name": str(row.get("name") or code),
+                    "symbol": self._infer_symbol(code),
+                    "providers": set(),
+                },
+            )
+            provider = str(row.get("provider") or "").strip()
+            if provider:
+                entry["providers"].add(provider)
+        memberships = []
+        for item in grouped.values():
+            memberships.append(
+                self._build_condition_membership_doc(
+                    condition_key=f"hot:{int(days)}d",
+                    code=item["code"],
+                    name=item["name"],
+                    symbol=item["symbol"],
+                    providers=sorted(item["providers"]),
+                    trade_date=trade_date,
+                )
+            )
+        memberships.sort(key=lambda item: str(item["code"]))
+        return memberships
+
+    def build_market_flag_memberships(
+        self, trade_date: str, candidate_codes: list[str]
+    ) -> list[dict[str, Any]]:
+        candidate_set = self._normalize_candidate_code_set(candidate_codes)
+        results = self._run_market_flags_stage(
+            "dagster-market-flags",
+            {
+                "model": "market_flags",
+                "trade_date": trade_date,
+                "include_credit_subject": True,
+                "include_quality_subject": True,
+                "include_near_long_term_ma": True,
+            },
+        )
+        memberships: dict[tuple[str, str], dict[str, Any]] = {}
+        for result in results or []:
+            code = self._normalize_code(getattr(result, "code", None))
+            signal_type = str(getattr(result, "signal_type", "") or "").strip()
+            if not code or not signal_type:
+                continue
+            if candidate_set and code not in candidate_set:
+                continue
+            payload = self._build_condition_membership_doc(
+                condition_key=f"flag:{signal_type}",
+                code=code,
+                name=getattr(result, "name", None),
+                symbol=getattr(result, "symbol", None) or self._infer_symbol(code),
+                trade_date=trade_date,
+            )
+            memberships[(payload["condition_key"], payload["code"])] = payload
+        return sorted(
+            memberships.values(),
+            key=lambda item: (str(item["condition_key"]), str(item["code"])),
+        )
+
+    def build_chanlun_variant_memberships(
+        self, trade_date: str, candidate_codes: list[str]
+    ) -> list[dict[str, Any]]:
+        codes = sorted(self._normalize_candidate_code_set(candidate_codes))
+        if not codes:
+            return []
+        config = {
+            **self._normalize_start_payload({"model": "chanlun"}),
+            "include_sell_short": True,
+        }
+        results = asyncio.run(
+            self._run_chanlun_current_clxs_universe(
+                "dagster-chanlun",
+                config,
+                codes,
+            )
+        )
+        memberships: dict[tuple[str, str], dict[str, Any]] = {}
+        for result in results or []:
+            code = self._normalize_code(getattr(result, "code", None))
+            period = str(getattr(result, "period", "") or "").strip()
+            signal_type = str(getattr(result, "signal_type", "") or "").strip()
+            name = getattr(result, "name", None)
+            symbol = getattr(result, "symbol", None) or (
+                self._infer_symbol(code) if code else None
+            )
+            if not code:
+                continue
+            if period:
+                payload = self._build_condition_membership_doc(
+                    condition_key=f"chanlun_period:{period}",
+                    code=code,
+                    name=name,
+                    symbol=symbol,
+                    trade_date=trade_date,
+                )
+                memberships[(payload["condition_key"], payload["code"])] = payload
+            if signal_type:
+                payload = self._build_condition_membership_doc(
+                    condition_key=f"chanlun_signal:{signal_type}",
+                    code=code,
+                    name=name,
+                    symbol=symbol,
+                    trade_date=trade_date,
+                )
+                memberships[(payload["condition_key"], payload["code"])] = payload
+        return sorted(
+            memberships.values(),
+            key=lambda item: (str(item["condition_key"]), str(item["code"])),
+        )
+
+    def build_shouban30_chanlun_metrics(
+        self, trade_date: str, candidate_codes: list[str]
+    ) -> list[dict[str, Any]]:
+        from freshquant.data.gantt_readmodel import _resolve_shouban30_chanlun_result
+
+        codes = sorted(self._normalize_candidate_code_set(candidate_codes))
+        if not codes:
+            return []
+        cache: dict[str, dict[str, Any]] = {}
+        snapshots = []
+        for code in codes:
+            result = _resolve_shouban30_chanlun_result(
+                code,
+                as_of_date=trade_date,
+                chanlun_result_cache=cache,
+            )
+            snapshots.append(
+                {
+                    "code": code,
+                    "name": code,
+                    "symbol": self._infer_symbol(code),
+                    "trade_date": trade_date,
+                    "higher_multiple": result.get("higher_multiple"),
+                    "segment_multiple": result.get("segment_multiple"),
+                    "bi_gain_percent": result.get("bi_gain_percent"),
+                    "chanlun_reason": result.get("reason"),
+                }
+            )
+        snapshots.sort(key=lambda item: str(item["code"]))
+        return snapshots
+
     def query_scope(self, run_id: str, payload: dict | None = None) -> dict:
         repository = self._screening_repository()
         scope_ref = self._resolve_scope_ref(run_id)
@@ -242,7 +561,40 @@ class DailyScreeningService:
             run_id=scope_ref["run_id"],
             scope=scope,
         )
+        base_union_codes = self._scope_condition_codes(
+            scope_ref, condition_key="base:union"
+        )
+        if base_union_codes:
+            rows = [
+                row
+                for row in rows
+                if self._normalize_code(row.get("code") or row.get("symbol"))
+                in base_union_codes
+            ]
         filters = payload or {}
+        condition_keys = self._normalize_text_list(
+            filters.get("condition_keys"), default=[]
+        )
+        if condition_keys:
+            matched_codes: set[str] | None = None
+            for condition_key in condition_keys:
+                codes = self._scope_condition_codes(
+                    scope_ref, condition_key=condition_key
+                )
+                if matched_codes is None:
+                    matched_codes = set(codes)
+                else:
+                    matched_codes &= codes
+            rows = [
+                row
+                for row in rows
+                if self._normalize_code(row.get("code") or row.get("symbol"))
+                in (matched_codes or set())
+            ]
+        metric_filters = dict(filters.get("metric_filters") or {})
+        rows = [
+            row for row in rows if self._matches_metric_filters(row, metric_filters)
+        ]
         filtered_rows = [
             row for row in rows if self._matches_scope_filters(row, filters)
         ]
@@ -478,7 +830,7 @@ class DailyScreeningService:
 
     def _execute_run(self, run_id: str, config: dict) -> None:
         def _forward_event(event: str, payload: dict) -> None:
-            self.session_store.publish_event(
+            self._publish_event(
                 run_id,
                 event,
                 self._jsonable(payload),
@@ -563,7 +915,7 @@ class DailyScreeningService:
             return []
 
         stage = str(config.get("_pipeline_stage") or config["model"]).strip()
-        self.session_store.publish_event(
+        self._publish_event(
             run_id,
             "stage_progress",
             self._jsonable(
@@ -600,7 +952,7 @@ class DailyScreeningService:
                     days=config["days"],
                 )
             except Exception as exc:
-                self.session_store.publish_event(
+                self._publish_event(
                     run_id,
                     "stage_progress",
                     self._jsonable(
@@ -618,7 +970,7 @@ class DailyScreeningService:
             else:
                 status = "ok" if stock_results else "empty"
             results.extend(stock_results)
-            self.session_store.publish_event(
+            self._publish_event(
                 run_id,
                 "stage_progress",
                 self._jsonable(
@@ -641,7 +993,7 @@ class DailyScreeningService:
         stage = str(config.get("_pipeline_stage") or config["model"]).strip()
         rows = self._load_shouban30_agg90_rows(config)
         total = len(rows)
-        self.session_store.publish_event(
+        self._publish_event(
             run_id,
             "stage_progress",
             self._jsonable(
@@ -708,7 +1060,7 @@ class DailyScreeningService:
                 plate_refs=sorted(item["plate_refs"]),
             )
             results.append(result)
-            self.session_store.publish_event(
+            self._publish_event(
                 run_id,
                 "stage_progress",
                 self._jsonable(
@@ -737,7 +1089,7 @@ class DailyScreeningService:
 
         stage = str(config.get("_pipeline_stage") or config["model"]).strip()
         stock_rows = list(fq_inst_fetch_stock_list() or [])
-        self.session_store.publish_event(
+        self._publish_event(
             run_id,
             "stage_progress",
             self._jsonable(
@@ -817,7 +1169,7 @@ class DailyScreeningService:
                     )
                 )
             results.extend(stock_results)
-            self.session_store.publish_event(
+            self._publish_event(
                 run_id,
                 "stage_progress",
                 self._jsonable(
@@ -923,7 +1275,7 @@ class DailyScreeningService:
             "kind": "accepted",
             "accepted_delta": 1,
         }
-        self.session_store.publish_event(
+        self._publish_event(
             run_id,
             "stage_progress",
             self._jsonable(payload),
@@ -1155,6 +1507,213 @@ class DailyScreeningService:
 
         return True
 
+    def _matches_metric_filters(
+        self, row: dict[str, Any], metric_filters: dict[str, Any]
+    ) -> bool:
+        if not metric_filters:
+            return True
+        for raw_key, raw_threshold in metric_filters.items():
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            threshold = self._coerce_float(raw_threshold)
+            if threshold is None:
+                continue
+            field_name = ""
+            operator = ""
+            if key.endswith("_lte"):
+                field_name = key[: -len("_lte")]
+                operator = "lte"
+            elif key.endswith("_gte"):
+                field_name = key[: -len("_gte")]
+                operator = "gte"
+            if not field_name or not operator:
+                continue
+            value = self._coerce_float(row.get(field_name))
+            if value is None:
+                return False
+            if operator == "lte" and value > threshold:
+                return False
+            if operator == "gte" and value < threshold:
+                return False
+        return True
+
+    def _normalize_candidate_code_set(self, candidate_codes: list[str]) -> set[str]:
+        return {
+            code
+            for code in (
+                self._normalize_code(item) for item in list(candidate_codes or [])
+            )
+            if code
+        }
+
+    def _is_bj_exchange_code(self, code: str) -> bool:
+        normalized = self._normalize_code(code)
+        if not normalized:
+            return False
+        return normalized.startswith(("4", "8", "92"))
+
+    def _is_st_stock_name(self, name: Any) -> bool:
+        text = str(name or "").strip().upper().replace(" ", "")
+        return any(text.startswith(prefix) for prefix in ("ST", "*ST", "SST", "S*ST"))
+
+    def _build_condition_membership_doc(
+        self,
+        *,
+        condition_key: str,
+        code: str,
+        name: Any = None,
+        symbol: Any = None,
+        trade_date: str | None = None,
+        providers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        normalized_code = self._normalize_code(code)
+        if not normalized_code:
+            raise ValueError("code required")
+        payload = {
+            "condition_key": str(condition_key or "").strip(),
+            "code": normalized_code,
+            "name": str(name or normalized_code).strip() or normalized_code,
+            "symbol": str(symbol or self._infer_symbol(normalized_code)).strip(),
+        }
+        if trade_date:
+            payload["trade_date"] = str(trade_date).strip()
+        if providers:
+            payload["providers"] = [
+                str(item).strip() for item in list(providers or []) if str(item).strip()
+            ]
+        return payload
+
+    def _scope_condition_codes(
+        self, scope_ref: dict[str, str], *, condition_key: str
+    ) -> set[str]:
+        repository = self._screening_repository()
+        if repository is None:
+            return set()
+        memberships = repository.get_stock_detail_memberships(
+            run_id=scope_ref["run_id"],
+            scope=scope_ref["scope"],
+            condition_key=condition_key,
+        )
+        codes = {
+            self._normalize_code(item.get("code") or item.get("symbol"))
+            for item in memberships
+        }
+        return {code for code in codes if code}
+
+    def _empty_filter_catalog_groups(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "cls_models": [],
+            "hot_windows": [],
+            "market_flags": [],
+            "chanlun_periods": [],
+            "chanlun_signals": [],
+        }
+
+    def _build_filter_catalog_groups(
+        self, condition_codes: dict[str, set[str]]
+    ) -> dict[str, list[dict[str, Any]]]:
+        groups = self._empty_filter_catalog_groups()
+        groups["cls_models"] = [
+            self._filter_catalog_entry(
+                key=f"cls:{str(item['label'])}",
+                condition_codes=condition_codes,
+                label_getter=self._filter_catalog_cls_label,
+            )
+            for item in CLXS_MODEL_OPTIONS
+        ]
+        groups["hot_windows"] = [
+            self._filter_catalog_entry(
+                key=f"hot:{days}d",
+                condition_codes=condition_codes,
+                label_getter=self._filter_catalog_hot_label,
+            )
+            for days in (30, 45, 60, 90)
+        ]
+        groups["market_flags"] = [
+            self._filter_catalog_entry(
+                key=f"flag:{flag}",
+                condition_codes=condition_codes,
+                label_getter=self._filter_catalog_flag_label,
+            )
+            for flag in MARKET_FLAG_LABELS
+        ]
+        groups["chanlun_periods"] = [
+            self._filter_catalog_entry(
+                key=f"chanlun_period:{period}",
+                condition_codes=condition_codes,
+                label_getter=self._filter_catalog_period_label,
+            )
+            for period in CHANLUN_PERIOD_ORDER
+        ]
+        groups["chanlun_signals"] = [
+            self._filter_catalog_entry(
+                key=f"chanlun_signal:{signal_type}",
+                condition_codes=condition_codes,
+                label_getter=self._filter_catalog_signal_label,
+            )
+            for signal_type in DEFAULT_CHANLUN_SIGNAL_TYPES
+        ]
+        return groups
+
+    def _filter_catalog_entry(
+        self,
+        *,
+        key: str,
+        condition_codes: dict[str, set[str]],
+        label_getter,
+    ) -> dict[str, Any]:
+        return {
+            "key": key,
+            "label": label_getter(key),
+            "count": len(condition_codes.get(key) or set()),
+        }
+
+    def _filter_catalog_hot_label(self, condition_key: str) -> str:
+        suffix = condition_key.split(":", 1)[1].strip()
+        if suffix.endswith("d") and suffix[:-1].isdigit():
+            return f"{suffix[:-1]}天热门"
+        return suffix or condition_key
+
+    def _filter_catalog_flag_label(self, condition_key: str) -> str:
+        suffix = condition_key.split(":", 1)[1].strip()
+        return MARKET_FLAG_LABELS.get(suffix, suffix or condition_key)
+
+    def _filter_catalog_period_label(self, condition_key: str) -> str:
+        suffix = condition_key.split(":", 1)[1].strip()
+        return suffix or condition_key
+
+    def _filter_catalog_signal_label(self, condition_key: str) -> str:
+        suffix = condition_key.split(":", 1)[1].strip()
+        return CHANLUN_SIGNAL_TYPES.get(suffix, {}).get("name", suffix or condition_key)
+
+    def _filter_catalog_cls_label(self, condition_key: str) -> str:
+        suffix = condition_key.split(":", 1)[1].strip()
+        return suffix or condition_key
+
+    def _filter_catalog_hot_sort_key(self, item: dict[str, Any]) -> tuple[int, str]:
+        key = str(item.get("key") or "")
+        suffix = key.split(":", 1)[1].strip() if ":" in key else key
+        if suffix.endswith("d") and suffix[:-1].isdigit():
+            return (int(suffix[:-1]), key)
+        return (10_000, key)
+
+    def _filter_catalog_flag_sort_key(self, item: dict[str, Any]) -> tuple[int, str]:
+        key = str(item.get("key") or "")
+        suffix = key.split(":", 1)[1].strip() if ":" in key else key
+        order = list(MARKET_FLAG_LABELS).index(suffix) if suffix in MARKET_FLAG_LABELS else 10_000
+        return (order, key)
+
+    def _filter_catalog_period_sort_key(self, item: dict[str, Any]) -> tuple[int, str]:
+        key = str(item.get("key") or "")
+        suffix = key.split(":", 1)[1].strip() if ":" in key else key
+        return (CHANLUN_PERIOD_ORDER.get(suffix, 10_000), key)
+
+    def _filter_catalog_signal_sort_key(self, item: dict[str, Any]) -> tuple[int, str]:
+        key = str(item.get("key") or "")
+        suffix = key.split(":", 1)[1].strip() if ":" in key else key
+        return (CHANLUN_SIGNAL_ORDER.get(suffix, 10_000), key)
+
     def _build_run_scope_membership(
         self,
         *,
@@ -1336,6 +1895,7 @@ class DailyScreeningService:
         return ChanlunServiceStrategy(
             periods=config["periods"],
             signal_types=config.get("signal_types"),
+            include_sell_short=bool(config.get("include_sell_short", False)),
             preserve_signal_variants=bool(
                 config.get("preserve_signal_variants", False)
             ),
@@ -1357,7 +1917,7 @@ class DailyScreeningService:
             "on_universe": (
                 None
                 if suppress_universe
-                else lambda payload: self.session_store.publish_event(
+                else lambda payload: self._publish_event(
                     run_id,
                     "stage_progress",
                     self._jsonable(
@@ -1372,7 +1932,7 @@ class DailyScreeningService:
             "on_stock_progress": (
                 None
                 if suppress_stock_progress
-                else lambda payload: self.session_store.publish_event(
+                else lambda payload: self._publish_event(
                     run_id,
                     "stage_progress",
                     self._jsonable(
@@ -1384,7 +1944,7 @@ class DailyScreeningService:
                     ),
                 )
             ),
-            "on_hit_raw": lambda payload: self.session_store.publish_event(
+            "on_hit_raw": lambda payload: self._publish_event(
                 run_id,
                 "stage_progress",
                 self._jsonable(
@@ -1395,7 +1955,7 @@ class DailyScreeningService:
                     }
                 ),
             ),
-            "on_result_accepted": lambda payload: self.session_store.publish_event(
+            "on_result_accepted": lambda payload: self._publish_event(
                 run_id,
                 "stage_progress",
                 self._jsonable(
@@ -1407,7 +1967,7 @@ class DailyScreeningService:
                     }
                 ),
             ),
-            "on_error": lambda payload: self.session_store.publish_event(
+            "on_error": lambda payload: self._publish_event(
                 run_id,
                 "stage_progress",
                 self._jsonable(
@@ -1450,7 +2010,7 @@ class DailyScreeningService:
             }
             _save_pre_pool(**payload)
             persisted_count += 1
-            self.session_store.publish_event(
+            self._publish_event(
                 run_id,
                 "stage_progress",
                 self._jsonable(
@@ -2080,6 +2640,14 @@ class DailyScreeningService:
             items = [str(value).strip()]
         normalized = [item for item in items if item]
         return normalized or list(default)
+
+    def _coerce_float(self, value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     def _normalize_int_list(self, value: Any, *, default: list[int]) -> list[int]:
         raw_items = self._normalize_text_list(

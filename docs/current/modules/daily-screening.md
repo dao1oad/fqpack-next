@@ -2,22 +2,17 @@
 
 ## 职责
 
-每日选股模块是“股票视角的统一盘后筛选工作台”。它不替代 `/gantt/shouban30` 的板块工作台职责，而是把多条盘后筛选来源统一收口到一个可执行、可解释、可交集筛选的页面：
+每日选股模块现在是“盘后预计算 + 前端自由交集查询”的工作台，不再是页面手动触发执行的扫描器。
 
-- `CLXS` 全模型
-- `chanlun` 全周期全信号
-- `Shouban30` 90 天聚合结果
-- 全市场属性集合
-  - `融资标的`
-  - `均线附近`
-  - `优质标的`
+模块职责拆成两层：
 
-页面既支持手动发起全链路扫描，也支持在最新正式结果或某次手动 run 上做交集筛选、查看详情，并按需把结果复制到共享工作区。
-
-其中：
-
-- `最新正式结果` 对应 `trade_date:<YYYY-MM-DD>` scope，由 `19:00` Dagster 自动任务物化
-- `手动 run` 对应 `run:<run_id>` scope，由页面手动触发时物化
+- Dagster
+  - 负责按交易日生成条件集合与指标快照
+  - 把正式结果落到 `fqscreening`
+- 前端 `/daily-screening`
+  - 只读取正式 scope
+  - 让用户自由勾选条件并取交集
+  - 展示交集列表和单标的详情
 
 ## 入口
 
@@ -25,172 +20,183 @@
   - `/daily-screening`
 - 前端页面
   - `morningglory/fqwebui/src/views/DailyScreening.vue`
+- 前端状态/API
+  - `morningglory/fqwebui/src/views/dailyScreeningPage.mjs`
+  - `morningglory/fqwebui/src/api/dailyScreeningApi.js`
 - 后端服务
   - `freshquant.daily_screening.service.DailyScreeningService`
-  - `freshquant.daily_screening.pipeline_service.DailyScreeningPipelineService`
   - `freshquant.daily_screening.repository.DailyScreeningRepository`
 - Dagster
-  - `fqdagster.defs.ops.daily_screening`
-  - `fqdagster.defs.jobs.daily_screening`
+  - `fqdagster.defs.assets.daily_screening`
   - `fqdagster.defs.schedules.daily_screening`
 
 ## 正式链路
 
-### 手动执行链
+### Dagster 盘后链路
 
-`DailyScreening.vue -> /api/daily-screening/runs -> DailyScreeningService -> CLXS / chanlun / shouban30_agg90 / market_flags -> fqscreening -> /api/daily-screening/query + /stocks/<code>/detail`
+`daily_screening_context -> upstream_guard -> universe -> cls / hot_30 / hot_45 / hot_60 / hot_90 -> base_union -> near_long_term_ma / quality_subject / credit_subject / shouban30_chanlun_metrics / chanlun_variants -> snapshot_assemble -> publish_scope`
 
-### 自动执行链
+### 页面查询链路
 
-`job_daily_screening_postclose -> 19:00 schedule -> DailyScreeningService.start_run(run_async=false, trigger_type=dagster_schedule) -> fqscreening`
-
-### 页面交互链
-
-`scope summary + stock snapshots + memberships -> 交集筛选 -> 结果列表 -> 统一详情 -> add-to-pre-pool / add-batch-to-pre-pool`
+`scopes/latest + filters + scope_summary -> 条件组合 -> /api/daily-screening/query -> 结果列表 -> /api/daily-screening/stocks/<code>/detail`
 
 ## 当前实现
 
-### 全链路模式
+### 条件模型
 
-`model=all` 会按固定四段顺序执行：
+前端统一使用 `condition_key` 做交集，不再使用旧的“来源之间交集、来源内并集”页面语义。
 
-1. `CLXS`
-   - 默认跑 `10001 ~ 10012`
-   - 页面标签显示为 `S0001 ~ S0012`
-2. `chanlun`
-   - 默认只消费“本次 CLXS run 命中的股票集合”
-   - 默认跑 `30m / 60m / 1d`
-   - 默认跑 6 个固定信号
-3. `shouban30_agg90`
-   - 读取 `shouban30_stocks` 的 `90` 天快照
-   - 聚合 `xgb + jygs`
-4. `market_flags`
-   - 对全市场打标：
-     - `credit_subject`
-     - `near_long_term_ma`
-     - `quality_subject`
+当前条件分组：
 
-### 前端工作台
+- `CLS`
+  - 每个模型独立一个条件
+  - 例如：`cls:S0001`
+- 热门窗口
+  - `hot:30d`
+  - `hot:45d`
+  - `hot:60d`
+  - `hot:90d`
+  - 口径是 `xgb + jygs` 聚合
+- 市场属性
+  - `flag:near_long_term_ma`
+  - `flag:quality_subject`
+  - `flag:credit_subject`
+- `chanlun` 周期
+  - `chanlun_period:30m`
+  - `chanlun_period:60m`
+  - `chanlun_period:1d`
+- `chanlun` 信号
+  - `chanlun_signal:buy_zs_huila`
+  - `chanlun_signal:buy_v_reverse`
+  - `chanlun_signal:macd_bullish_divergence`
+  - `chanlun_signal:sell_zs_huila`
+  - `chanlun_signal:sell_v_reverse`
+  - `chanlun_signal:macd_bearish_divergence`
 
-页面分成三块：
+`Shouban30` 缠论指标不作为普通 membership 存储，而是作为快照数值字段落库：
 
-- 执行区
-  - 支持 `全链路 / CLXS / chanlun`
-  - 参数由 `/schema` 动态下发
-  - 启动后通过 SSE 实时显示阶段事件
-  - 默认优先切到最新 `trade_date` 正式 scope
-- 交集筛选区
-  - 来源集合之间做交集
-  - 来源内部维度做并集
-  - 当前支持：
-    - `CLXS`
-    - `chanlun`
-    - `90天聚合`
-    - `融资标的`
-    - `均线附近`
-    - `优质标的`
-- 详情区
-  - 展示股票统一画像
-  - 展示 `CLXS 命中模型`
-  - 展示 `chanlun 命中信号 + 周期`
-  - 展示 `90天聚合 / 属性`
-  - 复用 `Shouban30` 的历史热门理由展示方式
+- `higher_multiple`
+- `segment_multiple`
+- `bi_gain_percent`
+- `chanlun_reason`
 
-### 手动工作区动作
+### 基础池语义
 
-页面不会把 `fqscreening` 正式结果自动混写到共享工作区。只有显式动作才会复制到：
+查询始终锚定 `base:union`。
 
-- `stock_pre_pools`
-  - `/api/daily-screening/actions/add-to-pre-pool`
-  - `/api/daily-screening/actions/add-batch-to-pre-pool`
-- `stock_pools`
-  - 仍由既有工作区链路承接
+也就是：
+
+- 无条件查询：返回 `A ∪ B`
+- 有条件查询：返回 `base:union ∩ condition_keys ∩ metric_filters`
+
+其中：
+
+- `A` = `CLS` 各模型结果并集
+- `B` = `hot:30/45/60/90` 各窗口结果并集
+
+### 前端页面
+
+页面已经移除：
+
+- 手动运行表单
+- `/schema` 驱动的执行区
+- `SSE` 事件流显示
+- “开始扫描”入口
+
+页面只保留：
+
+- scope 选择
+- 条件分组勾选
+- `Shouban30` 缠论数值阈值输入
+- 交集结果表格
+- 单标的条件画像与热门理由
+
+### Dagster 节点 helper
+
+`DailyScreeningService` 现在暴露可供 asset 调用的显式方法：
+
+- `build_universe()`
+- `build_cls_memberships()`
+- `build_hot_window_memberships()`
+- `build_market_flag_memberships()`
+- `build_chanlun_variant_memberships()`
+- `build_shouban30_chanlun_metrics()`
 
 ## 当前接口
+
+前端主路径使用：
+
+- `/api/daily-screening/scopes`
+- `/api/daily-screening/scopes/latest`
+- `/api/daily-screening/filters`
+- `/api/daily-screening/scopes/<scope_id>/summary`
+- `/api/daily-screening/query`
+- `/api/daily-screening/stocks/<code>/detail`
+
+已禁用的旧手动执行入口：
 
 - `/api/daily-screening/schema`
 - `/api/daily-screening/runs`
 - `/api/daily-screening/runs/<run_id>`
 - `/api/daily-screening/runs/<run_id>/stream`
-- `/api/daily-screening/scopes`
-- `/api/daily-screening/scopes/latest`
-- `/api/daily-screening/scopes/<scope_id>/summary`
-- `/api/daily-screening/query`
-- `/api/daily-screening/stocks/<code>/detail`
+
+保留的辅助动作接口：
+
 - `/api/daily-screening/actions/add-to-pre-pool`
 - `/api/daily-screening/actions/add-batch-to-pre-pool`
-- 兼容保留的工作区接口
-  - `/api/daily-screening/pre-pools`
-  - `/api/daily-screening/pre-pools/stock-pools`
-  - `/api/daily-screening/pre-pools/delete`
+- `/api/daily-screening/pre-pools`
+- `/api/daily-screening/pre-pools/stock-pools`
+- `/api/daily-screening/pre-pools/delete`
 
 ## 存储
 
-正式结果已经不再以 `stock_pre_pools` 为真值，而是使用独立 `fqscreening` 数据库：
+正式真值在 `fqscreening`：
 
 - `daily_screening_runs`
+  - 运行审计
 - `daily_screening_memberships`
+  - 唯一键：`scope_id + code + condition_key`
 - `daily_screening_stock_snapshots`
+  - 唯一键：`scope_id + code`
 
-其中 scope 目前有两类：
-
-- `trade_date:<YYYY-MM-DD>`
-- `run:<run_id>`
-
-共享工作区仍保留在 `freshquant.stock_pre_pools / stock_pools / must_pool`，只作为人工动作的目标集合。
-
-## SSE 事件
-
-当前页面消费这些事件：
-
-- `run_started`
-- `stage_started`
-- `stage_progress`
-- `stage_completed`
-- `run_completed`
-- `run_failed`
-- `heartbeat`
-
-页面会把阶段级事件汇总成可读日志，不把全量 membership 明细直接推到浏览器。
+页面正式只读取 `trade_date:<YYYY-MM-DD>` scope。
 
 ## 自动任务
 
-- Dagster job：`job_daily_screening_postclose`
+- Dagster job：`daily_screening_postclose_job`
 - Schedule：`daily_screening_postclose_schedule`
 - Cron：工作日 `19:00`
 
-这条任务负责执行正式全链路，不替代现有 `16:40` 的 Gantt / Shouban30 读模型构建任务。
+这条任务负责生成每日选股正式结果，不再依赖页面手动触发；旧图任务 `job_daily_screening_postclose` 已从 Dagster definitions 移除。
 
 ## 当前边界
 
-- `/gantt/shouban30` 继续是板块工作台；每日选股不接管 `.blk` 同步和 `must_pool` 工作区语义。
-- `DailyScreeningService` 仍直接调用底层 `CLXS / chanlun` 策略，不重新实现策略逻辑。
-- 页面“交集筛选”基于 `fqscreening` 快照做查询，不会重新触发算法计算。
-- SSE 会话仍保留在 API 进程内存；正式结果真值在 `fqscreening`，不是 session store。
+- `/gantt/shouban30` 仍是板块工作台；每日选股只消费其读模型与缠论快照语义。
+- 页面查询不会重新触发算法运行。
+- API 仍保留旧执行接口，但当前页面不再使用。
+- `market_flags` 仍基于全市场能力构建，但前端查询始终锚定 `base:union`。
 
 ## 部署/运行
 
 - `freshquant/daily_screening/**` 改动后，重建 API Server。
-- `morningglory/fqwebui/**` 改动后，重建 Web UI。
 - `morningglory/fqdagster/**` 改动后，重启 Dagster Webserver / Daemon。
-- 如果全链路要实际执行，运行环境必须具备原 `clxs / chanlun_service / fqcopilot / fqchan04` 依赖。
+- `morningglory/fqwebui/**` 改动后，重新构建 Web UI。
 
 ## 排障
 
-### 页面能打开但 scope / 结果为空
+### 页面能打开但没有条件目录
 
-- 先看 `/api/daily-screening/scopes/latest`
-- 再看 `/api/daily-screening/scopes/<scope_id>/summary`
-- 再看 `fqscreening.daily_screening_stock_snapshots` 是否已有对应 `scope`
+- 看 `/api/daily-screening/filters?scope_id=trade_date:<date>`
+- 再看 `fqscreening.daily_screening_memberships` 是否已有对应 `scope_id`
 
-### 手动启动成功但没有后续结果
+### 页面有条件但查询为空
 
-- 看 `/api/daily-screening/runs/<run_id>` 的 `status`
-- 看 SSE 是否有 `stage_started`
-- 如果停在 `CLXS` 或 `chanlun` 阶段，优先检查底层策略依赖是否可用
+- 看 `/api/daily-screening/scopes/<scope_id>/summary`
+- 再看 `daily_screening_stock_snapshots` 是否已有 `base:union` 对应股票快照
+- 再确认是否设置了过严的 `higher_multiple / segment_multiple / bi_gain_percent` 阈值
 
-### 自动任务没有出最新正式结果
+### Dagster 没出正式结果
 
 - 看 Dagster 中 `daily_screening_postclose_schedule` 是否在运行
-- 看 `job_daily_screening_postclose` 最近一次 run 是否成功
-- 再确认 `16:40` 的 Gantt / Shouban30 读模型任务是否先完成
+- 看 `daily_screening_postclose_job` 最近一次 run 是否成功
+- 再确认 `Shouban30` / Gantt 上游快照是否已就绪

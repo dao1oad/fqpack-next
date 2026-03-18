@@ -56,6 +56,35 @@ class IndexableCollection(SimpleCollection):
         self.created_indexes.append((list(keys), bool(unique), name))
 
 
+class DistinctableCollection(SimpleCollection):
+    def distinct(self, field_name):
+        return sorted({doc.get(field_name) for doc in self.docs})
+
+
+class LegacyIndexedCollection(SimpleCollection):
+    LEGACY_KEY_FIELDS = (
+        "run_id",
+        "scope",
+        "stage",
+        "code",
+        "model_key",
+        "period",
+        "fire_time",
+    )
+
+    def insert_many(self, documents, ordered=False):
+        existing = {
+            tuple(doc.get(field) for field in self.LEGACY_KEY_FIELDS)
+            for doc in self.docs
+        }
+        for document in documents:
+            key = tuple(document.get(field) for field in self.LEGACY_KEY_FIELDS)
+            if key in existing:
+                raise AssertionError(f"legacy duplicate key: {key}")
+            existing.add(key)
+        return super().insert_many(documents, ordered=ordered)
+
+
 class FakeDB(dict):
     def __getitem__(self, name):
         return dict.__getitem__(self, name)
@@ -174,10 +203,160 @@ def test_repository_replaces_condition_memberships_by_scope_and_condition_key():
     assert fake_db["daily_screening_memberships"].docs == [
         {
             "scope_id": "trade_date:2026-03-18",
+            "scope": "trade_date:2026-03-18",
+            "run_id": "trade_date:2026-03-18",
             "condition_key": "clxs",
+            "code": "000001",
+            "stage": "clxs",
+            "name": "alpha",
+        }
+    ]
+
+
+def test_repository_condition_memberships_fill_legacy_identity_from_condition_key():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_memberships=SimpleCollection("daily_screening_memberships")
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.replace_condition_memberships(
+        scope_id="trade_date:2026-03-18",
+        condition_key="hot:45d",
+        codes=[{"code": "000001", "name": "alpha"}],
+    )
+    repo.replace_condition_memberships(
+        scope_id="trade_date:2026-03-18",
+        condition_key="flag:quality_subject",
+        codes=[{"code": "000002", "name": "beta"}],
+    )
+    repo.replace_condition_memberships(
+        scope_id="trade_date:2026-03-18",
+        condition_key="chanlun_period:30m",
+        codes=[{"code": "000003", "name": "gamma"}],
+    )
+
+    assert fake_db["daily_screening_memberships"].docs == [
+        {
+            "scope_id": "trade_date:2026-03-18",
+            "scope": "trade_date:2026-03-18",
+            "run_id": "trade_date:2026-03-18",
+            "condition_key": "hot:45d",
+            "code": "000001",
+            "name": "alpha",
+            "stage": "shouban30_agg90",
+            "model_key": "hot",
+            "period": "45d",
+        },
+        {
+            "scope_id": "trade_date:2026-03-18",
+            "scope": "trade_date:2026-03-18",
+            "run_id": "trade_date:2026-03-18",
+            "condition_key": "flag:quality_subject",
+            "code": "000002",
+            "name": "beta",
+            "stage": "market_flags",
+            "model_key": "quality_subject",
+            "signal_type": "quality_subject",
+            "signal_name": "quality_subject",
+        },
+        {
+            "scope_id": "trade_date:2026-03-18",
+            "scope": "trade_date:2026-03-18",
+            "run_id": "trade_date:2026-03-18",
+            "condition_key": "chanlun_period:30m",
+            "code": "000003",
+            "name": "gamma",
+            "stage": "chanlun",
+            "model_key": "period",
+            "period": "30m",
+        },
+    ]
+
+
+def test_repository_condition_memberships_do_not_conflict_with_legacy_unique_identity():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_memberships=LegacyIndexedCollection(
+            "daily_screening_memberships"
+        )
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.replace_condition_memberships(
+        scope_id="trade_date:2026-03-18",
+        condition_key="cls:S0001",
+        codes=[{"code": "000010", "name": "alpha"}],
+    )
+    repo.replace_condition_memberships(
+        scope_id="trade_date:2026-03-18",
+        condition_key="hot:45d",
+        codes=[{"code": "000010", "name": "alpha"}],
+    )
+    repo.replace_condition_memberships(
+        scope_id="trade_date:2026-03-18",
+        condition_key="hot:60d",
+        codes=[{"code": "000010", "name": "alpha"}],
+    )
+
+    assert len(fake_db["daily_screening_memberships"].docs) == 3
+
+
+def test_repository_query_scope_stocks_strips_mongo_internal_id():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_stock_snapshots=SimpleCollection(
+            "daily_screening_stock_snapshots",
+            docs=[
+                {
+                    "_id": object(),
+                    "scope_id": "trade_date:2026-03-18",
+                    "code": "000001",
+                    "name": "alpha",
+                }
+            ],
+        )
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    rows = repo.query_scope_stocks(scope="trade_date:2026-03-18")
+
+    assert rows == [
+        {
+            "scope_id": "trade_date:2026-03-18",
             "code": "000001",
             "name": "alpha",
         }
+    ]
+
+
+def test_repository_lists_distinct_scope_ids_from_memberships_and_snapshots():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_memberships=DistinctableCollection(
+            "daily_screening_memberships",
+            docs=[
+                {"scope_id": "trade_date:2026-03-18", "code": "000001"},
+                {"scope_id": "trade_date:2026-03-17", "code": "000002"},
+            ],
+        ),
+        daily_screening_stock_snapshots=DistinctableCollection(
+            "daily_screening_stock_snapshots",
+            docs=[
+                {"scope_id": "trade_date:2026-03-18", "code": "000001"},
+                {"scope_id": "run:legacy", "code": "000003"},
+            ],
+        ),
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    assert repo.list_scope_ids(prefix="trade_date:") == [
+        "trade_date:2026-03-18",
+        "trade_date:2026-03-17",
     ]
 
 

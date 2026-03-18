@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, Response, jsonify, request, stream_with_context
+from flask import Blueprint, jsonify, request
 
 from freshquant.daily_screening.service import DailyScreeningService
 
@@ -37,51 +37,43 @@ def _as_int(value, default: int = 0) -> int:
         return default
 
 
+def _coalesce_scope_id(*values) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
 @daily_screening_bp.get("/schema")
 def get_schema():
-    return jsonify(_get_daily_screening_service().get_schema())
+    return (
+        jsonify({"error": "manual daily-screening schema disabled; use Dagster scope query APIs"}),
+        410,
+    )
 
 
 @daily_screening_bp.post("/runs")
 def start_run():
-    try:
-        run = _get_daily_screening_service().start_run(
-            _request_json_payload(), run_async=True
-        )
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    return jsonify({"run": run}), 202
+    return (
+        jsonify({"error": "manual daily-screening run disabled; use Dagster schedule/job"}),
+        410,
+    )
 
 
 @daily_screening_bp.get("/runs/<run_id>")
 def get_run(run_id: str):
-    try:
-        run = _get_daily_screening_service().get_run(run_id)
-    except KeyError:
-        return jsonify({"error": "run not found"}), 404
-    return jsonify({"run": run})
+    return (
+        jsonify({"error": "manual run inspection disabled; use Dagster and scope query APIs"}),
+        410,
+    )
 
 
 @daily_screening_bp.get("/runs/<run_id>/stream")
 def stream_run(run_id: str):
-    service = _get_daily_screening_service()
-    after = _as_int(request.args.get("after"))
-    if after <= 0:
-        after = _as_int(request.headers.get("Last-Event-ID"))
-    once = _as_bool(request.args.get("once"))
-
-    try:
-        service.get_run(run_id)
-    except KeyError:
-        return jsonify({"error": "run not found"}), 404
-
-    return Response(
-        stream_with_context(service.iter_sse(run_id, after=after, once=once)),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+    return (
+        jsonify({"error": "daily-screening SSE disabled; use Dagster assets and scope query APIs"}),
+        410,
     )
 
 
@@ -95,6 +87,21 @@ def get_latest_scope():
     return jsonify(_get_daily_screening_service().get_latest_scope())
 
 
+@daily_screening_bp.get("/filters")
+def get_filters():
+    service = _get_daily_screening_service()
+    scope_id = _coalesce_scope_id(request.args.get("scope_id"))
+    if not scope_id:
+        latest = service.get_latest_scope()
+        scope_id = _coalesce_scope_id(
+            latest.get("scope"),
+            latest.get("run_id"),
+        )
+    if not scope_id:
+        return jsonify({"error": "scope_id required"}), 400
+    return jsonify(service.get_filter_catalog(scope_id))
+
+
 @daily_screening_bp.get("/scopes/<run_id>/summary")
 def get_scope_summary(run_id: str):
     return jsonify(_get_daily_screening_service().get_scope_summary(run_id))
@@ -103,19 +110,22 @@ def get_scope_summary(run_id: str):
 @daily_screening_bp.post("/query")
 def query_scope():
     payload = _request_json_payload()
-    run_id = str(payload.get("run_id") or "").strip()
-    if not run_id:
-        return jsonify({"error": "run_id required"}), 400
-    return jsonify(_get_daily_screening_service().query_scope(run_id, payload))
+    scope_id = _coalesce_scope_id(payload.get("scope_id"), payload.get("run_id"))
+    if not scope_id:
+        return jsonify({"error": "scope_id required"}), 400
+    return jsonify(_get_daily_screening_service().query_scope(scope_id, payload))
 
 
 @daily_screening_bp.get("/stocks/<code>/detail")
 def get_stock_detail(code: str):
-    run_id = str(request.args.get("run_id") or "").strip()
-    if not run_id:
-        return jsonify({"error": "run_id required"}), 400
+    scope_id = _coalesce_scope_id(
+        request.args.get("scope_id"),
+        request.args.get("run_id"),
+    )
+    if not scope_id:
+        return jsonify({"error": "scope_id required"}), 400
     try:
-        payload = _get_daily_screening_service().get_stock_detail(run_id, code)
+        payload = _get_daily_screening_service().get_stock_detail(scope_id, code)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 404
     return jsonify(payload)

@@ -1,5 +1,10 @@
 const toArray = (value) => Array.isArray(value) ? value : []
 const toText = (value) => String(value ?? '').trim()
+const toFiniteNumber = (value) => {
+  if (value == null || value === '') return null
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
 
 const SET_LABELS = {
   clxs: 'CLXS',
@@ -106,11 +111,26 @@ export const resolveDailyScreeningFields = (schema = {}, modelId, form = {}) => 
 }
 
 export const buildDailyScreeningWorkbenchState = (schema = {}, latestScope = null) => {
-  const firstModelId = toArray(schema.models)[0]?.id || 'all'
-  const latestRunId = toText(latestScope?.run_id || latestScope?.runId)
+  const resolvedSchema = maybeSchemaLike(schema) ? schema : {}
+  const resolvedLatestScope = maybeSchemaLike(schema) ? latestScope : schema
+  const firstModelId = toArray(resolvedSchema.models)[0]?.id || 'all'
+  const latestRunId = toText(
+    resolvedLatestScope?.scope_id ||
+      resolvedLatestScope?.scopeId ||
+      resolvedLatestScope?.scope ||
+      resolvedLatestScope?.run_id ||
+      resolvedLatestScope?.runId,
+  )
   return {
     selectedModel: firstModelId,
+    scopeId: latestRunId,
     selectedRunId: latestRunId,
+    conditionKeys: [],
+    metricFilters: {
+      higherMultipleLte: null,
+      segmentMultipleLte: null,
+      biGainPercentLte: null,
+    },
     selectedSets: ['clxs', 'chanlun'],
     clxsModels: [],
     chanlunSignalTypes: [],
@@ -123,12 +143,41 @@ export const normalizeDailyScreeningScopeItems = (payload = {}) => {
   const items = toArray(payload.items)
   return items
     .map((item) => ({
+      scopeId: toText(item.scope_id || item.scopeId || item.scope || item.run_id || item.runId || item.id),
       runId: toText(item.run_id || item.runId || item.id),
       scope: toText(item.scope),
       label: toText(item.label || item.run_id || item.runId || item.scope),
       isLatest: Boolean(item.is_latest || item.isLatest),
     }))
-    .filter((item) => item.runId)
+    .filter((item) => item.scopeId || item.runId)
+}
+
+const normalizeConditionOption = (item = {}) => ({
+  key: toText(item.key),
+  label: toText(item.label || item.key),
+  count: Number(item.count || 0),
+})
+
+export const normalizeDailyScreeningFilterCatalog = (payload = {}) => {
+  const groups = payload.groups || {}
+  return {
+    scopeId: toText(payload.scope_id || payload.scopeId || payload.scope),
+    conditionKeys: toArray(payload.condition_keys || payload.conditionKeys)
+      .map((item) => toText(item))
+      .filter(Boolean),
+    groups: {
+      clsModels: toArray(groups.cls_models || groups.clsModels).map(normalizeConditionOption),
+      hotWindows: toArray(groups.hot_windows || groups.hotWindows).map(normalizeConditionOption),
+      marketFlags: toArray(groups.market_flags || groups.marketFlags).map(normalizeConditionOption),
+      chanlunPeriods: toArray(groups.chanlun_periods || groups.chanlunPeriods).map(normalizeConditionOption),
+      chanlunSignals: toArray(groups.chanlun_signals || groups.chanlunSignals).map(normalizeConditionOption),
+    },
+    metricFilters: {
+      higherMultipleLte: null,
+      segmentMultipleLte: null,
+      biGainPercentLte: null,
+    },
+  }
 }
 
 export const buildDailyScreeningSetOptions = (summary = {}) => {
@@ -145,6 +194,9 @@ export const buildDailyScreeningSetOptions = (summary = {}) => {
 }
 
 export const buildDailyScreeningQueryPayload = ({
+  scopeId,
+  conditionKeys = [],
+  metricFilters = {},
   runId,
   selectedSets = [],
   clxsModels = [],
@@ -152,8 +204,26 @@ export const buildDailyScreeningQueryPayload = ({
   chanlunPeriods = [],
   shouban30Providers = [],
 } = {}) => {
-  const payload = {
-    run_id: toText(runId),
+  const resolvedScopeId = toText(scopeId || runId)
+  const payload = {}
+  if (resolvedScopeId) payload.scope_id = resolvedScopeId
+  const normalizedConditionKeys = toArray(conditionKeys).map((item) => toText(item)).filter(Boolean)
+  if (normalizedConditionKeys.length) payload.condition_keys = normalizedConditionKeys
+
+  const normalizedMetricFilters = {}
+  const higherMultipleLte = toFiniteNumber(metricFilters.higherMultipleLte)
+  const segmentMultipleLte = toFiniteNumber(metricFilters.segmentMultipleLte)
+  const biGainPercentLte = toFiniteNumber(metricFilters.biGainPercentLte)
+  if (higherMultipleLte != null) normalizedMetricFilters.higher_multiple_lte = higherMultipleLte
+  if (segmentMultipleLte != null) normalizedMetricFilters.segment_multiple_lte = segmentMultipleLte
+  if (biGainPercentLte != null) normalizedMetricFilters.bi_gain_percent_lte = biGainPercentLte
+  if (Object.keys(normalizedMetricFilters).length) {
+    payload.metric_filters = normalizedMetricFilters
+  }
+
+  // 兼容旧页面，直到组件完成切换。
+  if (!Object.prototype.hasOwnProperty.call(payload, 'scope_id')) {
+    payload.run_id = toText(runId)
   }
   if (toArray(selectedSets).length) payload.selected_sets = [...selectedSets]
   if (toArray(clxsModels).length) {
@@ -206,25 +276,71 @@ export const normalizeDailyScreeningResultRows = (rows = []) => {
       chanlunCount: chanlunVariants.length,
       shouban30Providers,
       selectedBy: normalizeSelectedBy(row.selected_by),
+      higherMultiple: toFiniteNumber(row.higher_multiple),
+      segmentMultiple: toFiniteNumber(row.segment_multiple),
+      biGainPercent: toFiniteNumber(row.bi_gain_percent),
+      chanlunReason: toText(row.chanlun_reason),
     }
   })
 }
 
+const normalizeMembership = (item = {}) => ({
+  ...item,
+  conditionKey: toText(item.condition_key || item.conditionKey),
+  code: toText(item.code),
+  name: toText(item.name),
+  symbol: toText(item.symbol),
+  period: toText(item.period),
+  signalType: toText(item.signal_type || item.signalType),
+  modelLabel: toText(item.model_label || item.modelLabel),
+})
+
 export const normalizeDailyScreeningDetail = (payload = {}) => {
   const snapshot = payload.snapshot || null
+  const memberships = toArray(payload.memberships).map(normalizeMembership)
   return {
     ...payload,
     snapshot: snapshot
       ? normalizeDailyScreeningResultRows([snapshot])[0]
       : null,
+    memberships,
     clxs_memberships: toArray(payload.clxs_memberships),
     chanlun_memberships: toArray(payload.chanlun_memberships),
     agg90_memberships: toArray(payload.agg90_memberships),
     market_flag_memberships: toArray(payload.market_flag_memberships),
     hot_reasons: toArray(payload.hot_reasons),
+    clsMemberships: memberships.filter((item) => item.conditionKey.startsWith('cls:')),
+    hotMemberships: memberships.filter((item) => item.conditionKey.startsWith('hot:')),
+    marketFlagMemberships: memberships.filter((item) => item.conditionKey.startsWith('flag:')),
+    chanlunPeriodMemberships: memberships.filter((item) => item.conditionKey.startsWith('chanlun_period:')),
+    chanlunSignalMemberships: memberships.filter((item) => item.conditionKey.startsWith('chanlun_signal:')),
   }
 }
 
 export const formatDailyScreeningSetLabel = (key) => {
   return SET_LABELS[toText(key)] || toText(key)
+}
+
+export const formatDailyScreeningConditionLabel = (key) => {
+  const text = toText(key)
+  if (!text.includes(':')) return text
+  const [prefix, suffix] = text.split(':', 2)
+  if (prefix === 'hot' && suffix.endsWith('d')) {
+    return `${suffix.slice(0, -1)}天热门`
+  }
+  if (prefix === 'flag') {
+    return {
+      near_long_term_ma: '年线附近',
+      quality_subject: '优质标的',
+      credit_subject: '融资标的',
+    }[suffix] || suffix
+  }
+  if (prefix === 'chanlun_period') return suffix
+  if (prefix === 'chanlun_signal') return suffix
+  if (prefix === 'cls') return suffix
+  return text
+}
+
+function maybeSchemaLike (value) {
+  return Boolean(value) && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'models')
 }
