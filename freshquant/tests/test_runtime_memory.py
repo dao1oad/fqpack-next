@@ -11,6 +11,9 @@ from freshquant.runtime.memory import (
     bootstrap_memory_context,
     compile_context_pack,
     derive_issue_identifier,
+)
+from freshquant.runtime.memory import refresh as refresh_module
+from freshquant.runtime.memory import (
     refresh_memory,
 )
 
@@ -18,6 +21,85 @@ from freshquant.runtime.memory import (
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _seed_origin_main_reference_repo(
+    tmp_path: Path, *, cold_root_relative: str = ".codex/memory"
+) -> Path:
+    remote_path = tmp_path / "remote.git"
+    init_remote = _run_git("init", "--bare", str(remote_path), cwd=tmp_path)
+    assert init_remote.returncode == 0, init_remote.stderr
+
+    seed_path = tmp_path / "seed"
+    clone_remote = _run_git("clone", str(remote_path), str(seed_path), cwd=tmp_path)
+    assert clone_remote.returncode == 0, clone_remote.stderr
+    assert (
+        _run_git("config", "user.email", "test@example.com", cwd=seed_path).returncode
+        == 0
+    )
+    assert _run_git("config", "user.name", "Test User", cwd=seed_path).returncode == 0
+
+    _write(
+        seed_path / Path(cold_root_relative) / "workflow-rules.md",
+        "# Workflow Rules\n\n- Read memory from origin/main.\n",
+    )
+    _write(
+        seed_path / "docs" / "current" / "modules" / "runtime-observability.md",
+        "# Runtime Observability\n\nMain branch module facts.\n",
+    )
+
+    assert _run_git("add", cold_root_relative, "docs", cwd=seed_path).returncode == 0
+    commit_result = _run_git("commit", "-m", "seed memory reference", cwd=seed_path)
+    assert commit_result.returncode == 0, commit_result.stderr
+
+    push_result = _run_git("push", "origin", "HEAD:main", cwd=seed_path)
+    assert push_result.returncode == 0, push_result.stderr
+
+    repo_root = tmp_path / "repo"
+    clone_worktree = _run_git("clone", str(remote_path), str(repo_root), cwd=tmp_path)
+    assert clone_worktree.returncode == 0, clone_worktree.stderr
+    checkout_result = _run_git("checkout", "-b", "feature/local-drift", cwd=repo_root)
+    assert checkout_result.returncode == 0, checkout_result.stderr
+
+    return repo_root
+
+
+def _advance_origin_main_reference_repo(tmp_path: Path) -> str:
+    seed_path = tmp_path / "seed"
+    _write(
+        seed_path / ".codex" / "memory" / "workflow-rules.md",
+        "# Workflow Rules\n\n- Updated from the latest origin/main.\n",
+    )
+    _write(
+        seed_path / "docs" / "current" / "modules" / "runtime-observability.md",
+        "# Runtime Observability Updated\n\nLatest main branch module facts.\n",
+    )
+
+    assert _run_git("add", ".codex", "docs", cwd=seed_path).returncode == 0
+    commit_result = _run_git(
+        "commit",
+        "-m",
+        "advance memory reference",
+        cwd=seed_path,
+    )
+    assert commit_result.returncode == 0, commit_result.stderr
+
+    push_result = _run_git("push", "origin", "HEAD:main", cwd=seed_path)
+    assert push_result.returncode == 0, push_result.stderr
+
+    remote_head = _run_git("rev-parse", "HEAD", cwd=seed_path)
+    assert remote_head.returncode == 0, remote_head.stderr
+    return remote_head.stdout.strip()
 
 
 def test_refresh_memory_populates_core_collections(tmp_path: Path) -> None:
@@ -45,6 +127,7 @@ def test_refresh_memory_populates_core_collections(tmp_path: Path) -> None:
         service_root=service_root,
         cold_memory_root=cold_root,
         artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
         mongo_host="127.0.0.1",
         mongo_port=27027,
         mongo_db="fq_memory",
@@ -80,6 +163,316 @@ def test_refresh_memory_populates_core_collections(tmp_path: Path) -> None:
 
     knowledge_titles = {item["title"] for item in store.find("knowledge_items")}
     assert knowledge_titles == {"Deploy Surfaces", "Workflow Rules", "Pitfalls"}
+
+
+def test_refresh_memory_uses_origin_main_reference_snapshot_instead_of_working_tree(
+    tmp_path: Path,
+) -> None:
+    repo_root = _seed_origin_main_reference_repo(tmp_path)
+    service_root = tmp_path / "service"
+
+    _write(
+        repo_root / ".codex" / "memory" / "feature-only.md",
+        "# Feature Only\n\n- Local branch drift.\n",
+    )
+    _write(
+        repo_root / "docs" / "current" / "modules" / "subject-management.md",
+        "# Subject Management\n\nFeature branch only.\n",
+    )
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=repo_root / ".codex" / "memory",
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+
+    summary = refresh_memory(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-origin-main",
+        issue_state="Local Session",
+        branch_name="feature/local-drift",
+        git_status="M docs/current/modules/subject-management.md",
+    )
+
+    assert summary["knowledge_items"] == 1
+    assert summary["module_status"] == 1
+
+    output_path = compile_context_pack(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-origin-main",
+        role="codex",
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "Workflow Rules" in content
+    assert "Feature Only" not in content
+    assert "runtime-observability" in content
+    assert "- `subject-management`:" not in content
+
+
+def test_refresh_memory_uses_configured_cold_root_from_reference_snapshot(
+    tmp_path: Path,
+) -> None:
+    repo_root = _seed_origin_main_reference_repo(
+        tmp_path,
+        cold_root_relative=".memory/cold",
+    )
+    service_root = tmp_path / "service"
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=repo_root / ".memory" / "cold",
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+
+    summary = refresh_memory(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-configured-cold-root",
+        issue_state="Local Session",
+        branch_name="feature/local-drift",
+        git_status="clean",
+    )
+
+    assert summary["knowledge_items"] == 1
+
+    output_path = compile_context_pack(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-configured-cold-root",
+        role="codex",
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "Workflow Rules" in content
+    knowledge_item = store.find("knowledge_items")[0]
+    assert knowledge_item["source_path"] == "origin/main:.memory/cold/workflow-rules.md"
+
+
+def test_compile_context_pack_ignores_stale_module_records_from_other_worktrees(
+    tmp_path: Path,
+) -> None:
+    repo_root = _seed_origin_main_reference_repo(tmp_path)
+    service_root = tmp_path / "service"
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=repo_root / ".codex" / "memory",
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+    store.upsert_many(
+        "module_status",
+        [
+            {
+                "module_id": "subject-management",
+                "title": "标的管理",
+                "source_path": "D:/fqpack/freshquant-2026.2.23/.worktrees/legacy/docs/current/modules/subject-management.md",
+                "status": "documented",
+                "generated_at": "2026-03-16T17:49:20+00:00",
+            }
+        ],
+        key_fields=("module_id",),
+    )
+
+    refresh_memory(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-origin-main",
+        issue_state="Local Session",
+        branch_name="feature/local-drift",
+        git_status="clean",
+    )
+
+    output_path = compile_context_pack(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-origin-main",
+        role="codex",
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "runtime-observability" in content
+    assert "- `subject-management`:" not in content
+
+
+def test_refresh_memory_updates_origin_main_remote_tracking_ref_before_reading(
+    tmp_path: Path,
+) -> None:
+    repo_root = _seed_origin_main_reference_repo(tmp_path)
+    service_root = tmp_path / "service"
+    latest_main_commit = _advance_origin_main_reference_repo(tmp_path)
+
+    stale_origin_main = _run_git("rev-parse", "origin/main", cwd=repo_root)
+    assert stale_origin_main.returncode == 0, stale_origin_main.stderr
+    assert stale_origin_main.stdout.strip() != latest_main_commit
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=repo_root / ".codex" / "memory",
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+
+    refresh_memory(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-origin-main-latest",
+        issue_state="Local Session",
+        branch_name="feature/local-drift",
+        git_status="clean",
+    )
+
+    refreshed_origin_main = _run_git("rev-parse", "origin/main", cwd=repo_root)
+    assert refreshed_origin_main.returncode == 0, refreshed_origin_main.stderr
+    assert refreshed_origin_main.stdout.strip() == latest_main_commit
+
+    output_path = compile_context_pack(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-origin-main-latest",
+        role="codex",
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "Updated from the latest origin/main." in content
+    assert "Runtime Observability Updated" in content
+
+
+def test_fetch_reference_ref_updates_remote_tracking_ref_explicitly(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run_git(repo_root: Path, *args: str):
+        calls.append(args)
+
+        class _Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _Result()
+
+    monkeypatch.setattr(refresh_module, "_run_git", fake_run_git)
+
+    assert refresh_module._fetch_reference_ref(tmp_path, "origin/main") is True
+
+    assert calls == [
+        (
+            "fetch",
+            "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+        )
+    ]
+
+
+def test_fetch_reference_ref_returns_false_when_git_fetch_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    def fake_run_git(repo_root: Path, *args: str):
+        class _Result:
+            returncode = 1
+            stdout = ""
+            stderr = "fetch failed"
+
+        return _Result()
+
+    monkeypatch.setattr(refresh_module, "_run_git", fake_run_git)
+
+    assert refresh_module._fetch_reference_ref(tmp_path, "origin/main") is False
+
+
+def test_refresh_memory_falls_back_to_working_tree_when_reference_fetch_fails(
+    tmp_path: Path,
+) -> None:
+    repo_root = _seed_origin_main_reference_repo(tmp_path)
+    service_root = tmp_path / "service"
+    checkout_seed_result = _run_git(
+        "checkout",
+        "origin/main",
+        "--",
+        ".codex",
+        "docs",
+        cwd=repo_root,
+    )
+    assert checkout_seed_result.returncode == 0, checkout_seed_result.stderr
+
+    _write(
+        repo_root / ".codex" / "memory" / "feature-only.md",
+        "# Feature Only\n\n- Local fallback when fetch fails.\n",
+    )
+    _write(
+        repo_root / "docs" / "current" / "modules" / "subject-management.md",
+        "# Subject Management\n\nFeature branch fallback.\n",
+    )
+    set_remote_result = _run_git(
+        "remote",
+        "set-url",
+        "origin",
+        str(tmp_path / "missing-remote.git"),
+        cwd=repo_root,
+    )
+    assert set_remote_result.returncode == 0, set_remote_result.stderr
+
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=repo_root / ".codex" / "memory",
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+
+    summary = refresh_memory(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-fetch-fallback",
+        issue_state="Local Session",
+        branch_name="feature/local-drift",
+        git_status="M docs/current/modules/subject-management.md",
+    )
+
+    assert summary["knowledge_items"] == 2
+    assert summary["module_status"] == 2
+
+    output_path = compile_context_pack(
+        config,
+        store,
+        issue_identifier="LOCAL-memory-fetch-fallback",
+        role="codex",
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "Feature Only" in content
+    assert "- `subject-management`:" in content
 
 
 def test_refresh_memory_reads_deployment_comment_and_cleanup_result_artifacts(
@@ -133,6 +526,7 @@ def test_refresh_memory_reads_deployment_comment_and_cleanup_result_artifacts(
         service_root=service_root,
         cold_memory_root=cold_root,
         artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
         mongo_host="127.0.0.1",
         mongo_port=27027,
         mongo_db="fq_memory",
@@ -208,6 +602,7 @@ def test_refresh_memory_reads_cleanup_request_metadata_into_task_state(
         service_root=service_root,
         cold_memory_root=cold_root,
         artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
         mongo_host="127.0.0.1",
         mongo_port=27027,
         mongo_db="fq_memory",
@@ -256,6 +651,7 @@ def test_compile_context_pack_writes_markdown_and_persists_pack_record(
         service_root=service_root,
         cold_memory_root=cold_root,
         artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
         mongo_host="127.0.0.1",
         mongo_port=27027,
         mongo_db="fq_memory",
@@ -346,6 +742,7 @@ def test_compile_context_pack_includes_recent_task_events(tmp_path: Path) -> Non
         service_root=service_root,
         cold_memory_root=cold_root,
         artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
         mongo_host="127.0.0.1",
         mongo_port=27027,
         mongo_db="fq_memory",
@@ -391,6 +788,7 @@ def test_compile_context_pack_orders_recent_task_events_by_actual_timestamp(
         service_root=service_root,
         cold_memory_root=cold_root,
         artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
         mongo_host="127.0.0.1",
         mongo_port=27027,
         mongo_db="fq_memory",
@@ -456,6 +854,7 @@ def test_compile_context_pack_uses_latest_deploy_run_for_runtime_snapshot(
         service_root=service_root,
         cold_memory_root=cold_root,
         artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
         mongo_host="127.0.0.1",
         mongo_port=27027,
         mongo_db="fq_memory",
@@ -530,6 +929,7 @@ def test_refresh_memory_marks_failed_health_checks_from_deployment_comment(
         service_root=service_root,
         cold_memory_root=cold_root,
         artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
         mongo_host="127.0.0.1",
         mongo_port=27027,
         mongo_db="fq_memory",
@@ -583,6 +983,7 @@ def test_compile_context_pack_includes_pr_metadata_from_cleanup_request(
         service_root=service_root,
         cold_memory_root=cold_root,
         artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
         mongo_host="127.0.0.1",
         mongo_port=27027,
         mongo_db="fq_memory",
@@ -619,12 +1020,14 @@ def test_repo_declares_memory_runtime_defaults() -> None:
     assert "memory:" in config_text
     assert "db: fq_memory" in config_text
     assert "cold_root: .codex/memory" in config_text
+    assert "reference_ref: origin/main" in config_text
     assert (
         "artifact_root: D:/fqpack/runtime/symphony-service/artifacts/memory"
         in config_text
     )
 
     assert "FRESHQUANT_MEMORY__MONGODB__DB=fq_memory" in env_text
+    assert "FRESHQUANT_MEMORY__REFERENCE_REF=origin/main" in env_text
     assert (
         "FRESHQUANT_MEMORY__ARTIFACT_ROOT=D:/fqpack/runtime/symphony-service/artifacts/memory"
         in env_text
@@ -703,6 +1106,7 @@ def test_bootstrap_memory_context_refreshes_and_compiles_pack(tmp_path: Path) ->
         service_root=service_root,
         cold_memory_root=cold_root,
         artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
         mongo_host="127.0.0.1",
         mongo_port=27027,
         mongo_db="fq_memory",

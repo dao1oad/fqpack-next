@@ -46,18 +46,27 @@
 - Symphony 运行模板：`runtime/symphony/WORKFLOW.freshquant.md`
 - 全局 Codex 自动化提示词模板：`runtime/symphony/prompts/global_stewardship.md`
 - Symphony / Global Stewardship 会在启动 `codex` 前通过 `runtime/memory/scripts/refresh_freshquant_memory.py` + `runtime/memory/scripts/compile_freshquant_context_pack.py` 刷新全局记忆并编译 context pack
-- 直接在 Codex app 中打开仓库的自由会话，如果没有现成 `FQ_MEMORY_CONTEXT_PATH`，应先执行 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 自举 memory refresh / compile，再读取返回的 `context_pack_path`
-- memory refresh 当前会汇总 `.codex/memory/**`、`docs/current/modules/*.md`、`artifacts/cleanup-requests/<issue>.json`、`artifacts/<issue>/deployment-comment.md`、`artifacts/cleanup-results/<issue>.json`，把 PR / deploy / health / cleanup 摘要写入 `fq_memory`
+- 自由会话的正式硬入口位于 `codex_run/start_codex_cli.bat` 与 `codex_run/start_codex_app_server.bat`；它们会先执行 `codex_run/start_freshquant_codex.ps1`，由该 wrapper 调 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 自举 memory refresh / compile，再启动 `codex`
+- `codex_run/start_codex_app_server.bat` 启动的是前台 `codex app-server`；wrapper 会先打印 memory bootstrap 和 context pack 摘要，再让当前窗口承载服务
+- `codex app-server` 默认走 `stdio://`，所以在客户端接入前可以没有持续输出；只要窗口仍在，前台服务就还活着
+- 关闭 `start_codex_app_server.bat` 的窗口，或在窗口里按 `Ctrl+C`，都会停止当前 `codex app-server`
+- 如果是直接在 Codex app 中打开仓库、没有走 `codex_run/*.bat`，且当前会话没有现成 `FQ_MEMORY_CONTEXT_PATH`，仍应先执行 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 再继续仓库探索
+- memory refresh 会先同步远程 `origin/main`，再从该 ref 的 `.codex/memory/**` 与 `docs/current/modules/*.md` 汇总开发参考记忆；同时继续读取 `artifacts/cleanup-requests/<issue>.json`、`artifacts/<issue>/deployment-comment.md`、`artifacts/cleanup-results/<issue>.json`，把 PR / deploy / health / cleanup 摘要写入 `fq_memory`
 - 会话通过环境变量 `FQ_MEMORY_CONTEXT_PATH` 注入本轮 context pack，并通过 `FQ_MEMORY_CONTEXT_ROLE` 暴露当前角色；`Global Stewardship` 默认编译 `global-stewardship` pack，其它工作区会话默认编译 `codex` pack
 - `bootstrap_freshquant_memory.py` 会为自由会话推导 `issue_identifier`：优先用显式参数，其次用 workspace 目录名或 branch 中的 issue id，最后回退到 `LOCAL-<workspace-name>`
 - agent 应先读该文件，再回到 GitHub / `docs/current/**` / deploy 结果确认正式真值
 - 冷记忆目录：`.codex/memory`
+- 开发参考默认引用：`origin/main`（可通过 `FRESHQUANT_MEMORY__REFERENCE_REF` 覆盖）
 - 热记忆 Mongo database：`fq_memory`
 - context pack 产物根目录：`D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs`
 - Deploy 后运维面检查脚本：`runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1`
 - 共享部署计划脚本：`script/freshquant_deploy_plan.py`
+- selective deploy 正式执行入口：`script/fq_apply_deploy_plan.ps1`
 - 正式自动部署 orchestrator：`script/ci/run_formal_deploy.py`
 - 宿主机运行时控制脚本：`script/fqnext_host_runtime_ctl.ps1`
+- 仓库级本地预检正式入口：`script/fq_local_preflight.ps1`
+- 本地开 PR 的正式入口：`script/fq_open_pr.ps1`
+- 仓库 `git push` 会通过 `.githooks/pre-push` 调用本地预检；首次接入或 hook 丢失时，用 `script/install_repo_hooks.ps1` 恢复 `core.hooksPath`
 - FQNext 宿主机 Supervisor service：`fqnext-supervisord`
 - FQNext 宿主机 Supervisor RPC：`http://127.0.0.1:10011/RPC2`
 - FQNext 宿主机 Supervisor 配置：`D:/fqpack/config/supervisord.fqnext.conf`
@@ -133,6 +142,7 @@
 - mirror 同步完成后，workflow 直接在 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 目录执行 `py -3.12 -m uv sync --frozen`，然后调用 `run_formal_deploy.py`。
 - 该 workflow 中的 PowerShell steps 固定带 `-ExecutionPolicy Bypass`，避免 self-hosted Windows runner 的本机执行策略在 step 启动前拦截临时脚本
 - 该 workflow 也会显式设置 `$ErrorActionPreference = 'Stop'`，确保 PowerShell cmdlet 的 non-terminating error 仍然按 fail-fast 方式中断正式 deploy
+- `script/docker_parallel_compose.ps1` 会优先读取 `FQ_DOCKER_BUILD_CACHE_ROOT`；未显式设置时，Docker BuildKit 本地缓存默认落到仓库 `.artifacts/docker-build-cache`
 - 宿主机 FreshQuant / FQXTrade / vendored QUANTAXIS 默认统一解析到 `127.0.0.1:27027`
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - `docker/compose.parallel.yaml` 会为 `fq_apiserver`、`fq_tdxhq`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver` 显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`MONGODB=fq_mongodb`、`MONGODB_PORT=27017`，避免容器误继承宿主机默认 `27027`
@@ -189,6 +199,19 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:40123/api/v1/state
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status
+```
+
+### 跑本地预检并开 PR
+
+```powershell
+powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ensure
+powershell -ExecutionPolicy Bypass -File script/fq_open_pr.ps1 -- --fill
+```
+
+### 按变更面执行 selective deploy
+
+```powershell
+powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGitDiff origin/main...HEAD
 ```
 
 ## 当前阶段的运行风险
