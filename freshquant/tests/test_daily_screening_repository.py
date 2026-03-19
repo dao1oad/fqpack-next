@@ -48,21 +48,45 @@ class SimpleCollection:
 
 
 class IndexableCollection(SimpleCollection):
-    def __init__(self, name: str, docs: list[dict] | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        docs: list[dict] | None = None,
+        existing_indexes: dict[str, dict] | None = None,
+    ) -> None:
         super().__init__(name, docs)
         self.created_indexes: list[dict] = []
+        self.dropped_indexes: list[str] = []
+        self.existing_indexes: dict[str, dict] = {
+            index_name: dict(index_info)
+            for index_name, index_info in (existing_indexes or {}).items()
+        }
 
     def create_index(self, keys, **kwargs):
-        self.created_indexes.append(
-            {
-                "keys": list(keys),
+        payload = {
+            "keys": list(keys),
+            "unique": bool(kwargs.get("unique", False)),
+            "name": kwargs.get("name"),
+            "partial_filter_expression": kwargs.get("partialFilterExpression"),
+        }
+        self.created_indexes.append(payload)
+        index_name = kwargs.get("name")
+        if index_name:
+            self.existing_indexes[index_name] = {
+                "key": list(keys),
                 "unique": bool(kwargs.get("unique", False)),
-                "name": kwargs.get("name"),
-                "partial_filter_expression": kwargs.get(
-                    "partialFilterExpression"
-                ),
+                "partialFilterExpression": kwargs.get("partialFilterExpression"),
             }
-        )
+
+    def index_information(self):
+        return {
+            index_name: dict(index_info)
+            for index_name, index_info in self.existing_indexes.items()
+        }
+
+    def drop_index(self, name):
+        self.dropped_indexes.append(name)
+        self.existing_indexes.pop(name, None)
 
 
 class DistinctableCollection(SimpleCollection):
@@ -456,6 +480,69 @@ def test_repository_ensure_indexes_calls_create_index_with_expected_contract():
             "name": "daily_screening_runs_run_id",
             "partial_filter_expression": None,
         }
+    ]
+    assert repo.memberships.created_indexes == [
+        {
+            "keys": [("scope_id", 1), ("code", 1), ("condition_key", 1)],
+            "unique": True,
+            "name": "daily_screening_memberships_scope_id_code_condition_key",
+            "partial_filter_expression": {
+                "scope_id": {"$exists": True},
+                "code": {"$exists": True},
+                "condition_key": {"$exists": True},
+            },
+        }
+    ]
+    assert repo.stock_snapshots.created_indexes == [
+        {
+            "keys": [("scope_id", 1), ("code", 1)],
+            "unique": True,
+            "name": "daily_screening_stock_snapshots_scope_id_code",
+            "partial_filter_expression": {
+                "scope_id": {"$exists": True},
+                "code": {"$exists": True},
+            },
+        }
+    ]
+    assert repo.runs.dropped_indexes == []
+    assert repo.memberships.dropped_indexes == []
+    assert repo.stock_snapshots.dropped_indexes == []
+
+
+def test_repository_ensure_indexes_rebuilds_stale_named_indexes():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    repo = DailyScreeningRepository(
+        db=FakeDB(
+            daily_screening_runs=IndexableCollection("daily_screening_runs"),
+            daily_screening_memberships=IndexableCollection(
+                "daily_screening_memberships",
+                existing_indexes={
+                    "daily_screening_memberships_scope_id_code_condition_key": {
+                        "key": [("scope_id", 1), ("code", 1), ("condition_key", 1)],
+                        "unique": True,
+                    }
+                },
+            ),
+            daily_screening_stock_snapshots=IndexableCollection(
+                "daily_screening_stock_snapshots",
+                existing_indexes={
+                    "daily_screening_stock_snapshots_scope_id_code": {
+                        "key": [("scope_id", 1), ("code", 1)],
+                        "unique": True,
+                    }
+                },
+            ),
+        )
+    )
+
+    repo.ensure_indexes()
+
+    assert repo.memberships.dropped_indexes == [
+        "daily_screening_memberships_scope_id_code_condition_key"
+    ]
+    assert repo.stock_snapshots.dropped_indexes == [
+        "daily_screening_stock_snapshots_scope_id_code"
     ]
     assert repo.memberships.created_indexes == [
         {

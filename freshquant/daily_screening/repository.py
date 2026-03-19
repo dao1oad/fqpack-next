@@ -4,6 +4,8 @@ from collections import Counter
 from types import SimpleNamespace
 from typing import Any
 
+from pymongo.errors import OperationFailure
+
 from freshquant.db import DBScreening
 
 
@@ -65,7 +67,15 @@ class DailyScreeningRepository:
                     kwargs["partialFilterExpression"] = spec[
                         "partial_filter_expression"
                     ]
-                collection.create_index(spec["keys"], **kwargs)
+                if self._named_index_requires_rebuild(collection, spec):
+                    collection.drop_index(spec["name"])
+                try:
+                    collection.create_index(spec["keys"], **kwargs)
+                except OperationFailure as exc:
+                    if not self._is_named_index_conflict(exc, spec):
+                        raise
+                    collection.drop_index(spec["name"])
+                    collection.create_index(spec["keys"], **kwargs)
 
     def save_run(self, run=None, **document):
         payload = self._merge_document(run, document)
@@ -339,6 +349,47 @@ class DailyScreeningRepository:
             "daily_screening_stock_snapshots": "stock_snapshots",
         }
         return mapping[collection_name]
+
+    def _named_index_requires_rebuild(
+        self, collection, spec: dict[str, Any]
+    ) -> bool:
+        index_name = str(spec.get("name") or "").strip()
+        if (
+            not index_name
+            or not hasattr(collection, "index_information")
+            or not hasattr(collection, "drop_index")
+        ):
+            return False
+        existing = collection.index_information().get(index_name)
+        if not existing:
+            return False
+        return self._normalized_existing_index(existing) != self._normalized_spec_index(
+            spec
+        )
+
+    def _normalized_spec_index(self, spec: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "key": list(spec.get("keys") or []),
+            "unique": bool(spec.get("unique", False)),
+            "partialFilterExpression": spec.get("partial_filter_expression"),
+        }
+
+    def _normalized_existing_index(self, index_info: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "key": list(index_info.get("key") or []),
+            "unique": bool(index_info.get("unique", False)),
+            "partialFilterExpression": index_info.get("partialFilterExpression"),
+        }
+
+    def _is_named_index_conflict(
+        self, exc: Exception, spec: dict[str, Any]
+    ) -> bool:
+        if not isinstance(exc, OperationFailure):
+            return False
+        index_name = str(spec.get("name") or "").strip()
+        if not index_name:
+            return False
+        return int(getattr(exc, "code", 0) or 0) == 86
 
     def _resolve_collection(self, name: str):
         try:
