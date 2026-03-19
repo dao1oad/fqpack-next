@@ -6,7 +6,7 @@
 - Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
 - FreshQuant / QUANTAXIS 相关 Docker 服务在 `docker/compose.parallel.yaml` 内部固定使用 `fq_mongodb:27017`；不要只覆写 host 而保留宿主机默认 `27027`
 - 仓库根目录 legacy 批处理部署脚本 `deploy.bat` / `deploy_rear.bat` 已移除；当前只保留 `docker compose` + `script/fqnext_host_runtime_ctl.ps1` 这套正式入口。
-- Docker 侧正式入口优先使用 `powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 ...`；该脚本会自动解析主工作树 `.env` / runtime log 目录、注入当前 `HEAD` 到镜像 label、开启 BuildKit。正式自动 deploy 会额外设置 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，强制 production 机基于本机 deploy mirror 本地构建，而不是优先拉 GHCR。
+- Docker 侧正式入口优先使用 `powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 ...`；该脚本会自动解析主工作树 `.env` / runtime log 目录、注入当前 `HEAD` 到镜像 label、开启 BuildKit。当前默认只使用本地缓存 / 本机构建；只有显式设置 `FQ_ENABLE_REMOTE_CACHE_PULL=1` 时，才允许回到 GHCR 远端缓存 pull 路径。正式自动 deploy 会额外设置 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，强制 production 机基于本机 deploy mirror 本地构建。
 - `.github/workflows/docker-images.yml` 仍会在 `main` push 后发布镜像到 GHCR，但它不再是正式 deploy 的前置条件；正式 deploy 真值改为本机 deploy mirror。
 - `.github/workflows/deploy-production.yml` 当前由 `push main` 直接触发，并在 `[self-hosted, windows, production]` runner 上执行。
 - 正式 deploy mirror 固定目录是 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`；该目录使用专用本地分支 `deploy-production-main` fast-forward 到远程 `main`，再由正式 workflow 从这个目录构建和部署。
@@ -23,6 +23,7 @@
 - 当前 `health check` 的执行口径包含接口层检查；如果本轮实际发生 deploy，还必须追加一轮 deploy 后 `runtime ops check`。
 - 正式收口前先用 `py -3.12 script/freshquant_deploy_plan.py` 生成部署计划；不要在会话内临场重新推理 Docker / 宿主机边界。
 - 正式执行部署时，优先通过 `powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1` 消费共享部署计划；不要把 Docker 与宿主机动作拆成临时命令。
+- `script/fq_apply_deploy_plan.ps1` 当前会为每次正式 deploy 记录阶段状态文件，分阶段收口 `baseline -> docker -> host -> health -> verify`；任一阶段失败后保留已完成阶段与 artifacts，后续应优先用 resume 继续，而不是整轮重跑。
 - 提交前应先执行 `powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ensure`，并保持 `.githooks/pre-push` 已安装，避免把明显失败留到 PR CI。
 - 当前 `script/fq_local_preflight.ps1` 除了 docs guard、pre-commit、pytest 外，还会在当前分支已有关联 PR 且 `gh` 已登录时阻断 unresolved review threads。
 
@@ -36,6 +37,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 - 这条命令只用于显式全量重建；日常 selective deploy 统一优先走 `script/fq_apply_deploy_plan.ps1`
 - Docker 构建默认启用 BuildKit 本地缓存；未显式设置时，`script/docker_parallel_compose.ps1` 会把 `FQ_DOCKER_BUILD_CACHE_ROOT` 设为仓库下的 `.artifacts/docker-build-cache`
+- 当前默认不会主动拉取 GHCR 远端缓存；只有显式设置 `FQ_ENABLE_REMOTE_CACHE_PULL=1` 时，`docker_parallel_compose.ps1` 才会进入 `remote_cached` 分支并执行 `docker pull`
 - `main` 合并后的镜像发布 workflow：`.github/workflows/docker-images.yml`
 - `main` 合并后的正式自动部署 workflow：`.github/workflows/deploy-production.yml`
 - 正式 deploy canonical repo root：`D:\fqpack\freshquant-2026.2.23`
@@ -50,6 +52,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - workflow 本身会先从 canonical repo root bootstrap/同步本机 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` mirror，再在该目录下执行 `py -3.12 -m uv sync --frozen` 与 `run_formal_deploy.py`。
 - 正式 deploy 要求 production runner 宿主机已安装的 Python 3.12 与 uv；缺任一工具都会在 deploy 前直接失败。
 - 本轮正式 deploy 会显式导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，避免 `docker_parallel_compose.py` 把 `--build` 改写成 GHCR pull 路径。
+- 如需临时恢复 GHCR 远端缓存试验，可在人工会话显式设置 `FQ_ENABLE_REMOTE_CACHE_PULL=1`；正式 production deploy 默认不使用该路径。
 
 ### 共享部署计划解析
 
@@ -62,6 +65,19 @@ py -3.12 script/freshquant_deploy_plan.py --changed-path freshquant/rear/api_ser
 ```powershell
 powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGitDiff origin/main...HEAD
 ```
+
+### 从失败阶段继续选择性部署
+
+```powershell
+powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -ResumeLatest
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -ResumeFromStatePath D:\fqpack\freshquant-2026.2.23\.artifacts\manual-deploy\deploy-state-20260319-120000.json
+```
+
+- `fq_apply_deploy_plan.ps1` 也支持 `-StatePath <path>`，可把当前 deploy 状态文件固定到指定位置
+- resume 只会从第一个未完成阶段继续；已完成阶段不会重复执行
 
 ### 按变更路径执行选择性部署
 
@@ -149,6 +165,8 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `third_party/tradingagents-cn/**` | TradingAgents-CN | 重建 `ta_backend` 与 `ta_frontend` |
 | `runtime/symphony/**` | 正式 orchestrator | 已预装计划任务时执行 `sync_freshquant_symphony_service.ps1` + `invoke_freshquant_symphony_restart_task.ps1`；否则使用 `reinstall_freshquant_symphony_service.ps1` 或激活脚本 |
 
+- `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` 当前会先做 surface reconcile；若首次重启失败且启用了 `-BridgeIfServiceUnavailable`，即使 `fqnext-supervisord` service 仍是 `Running`，也允许触发一次管理员桥接并重试一次
+
 ## 健康检查
 
 ### API
@@ -193,7 +211,8 @@ powershell -ExecutionPolicy Bypass -File runtime/symphony/scripts/check_freshqua
 - 按本轮部署面追加检查容器：`fq_apiserver`、`fq_webui`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver`、`ta_backend`、`ta_frontend`
 - 固定记录宿主机服务：`fq-symphony-orchestrator`、`fqnext-supervisord`；只有命中对应宿主机部署面时，`Running` 才是 deploy 通过前提
 - 关键进程语义固定为：deploy 前已运行的不能在 deploy 后消失；本轮明确要求恢复的必须恢复；deploy 前本来就没运行且本轮未涉及的只记 warning
-- 脚本支持 `-DockerSnapshotPath`、`-ServiceSnapshotPath`、`-ProcessSnapshotPath`，供手工回放或测试复现使用
+- 对 `fqnext-supervisord` 托管的已知宿主机进程，脚本会优先读取 supervisor 真值；只有 supervisor 不可用或没有映射关系时，才回退到 `Win32_Process.CommandLine`
+- 脚本支持 `-DockerSnapshotPath`、`-ServiceSnapshotPath`、`-ProcessSnapshotPath`、`-SupervisorSnapshotPath`，供手工回放或测试复现使用
 
 ### 运维面辅助命令
 

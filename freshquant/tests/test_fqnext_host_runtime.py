@@ -116,6 +116,30 @@ def test_resolve_effective_timeout_applies_market_data_floor() -> None:
     assert effective_timeout == 180.0
 
 
+def test_resolve_effective_timeout_applies_tpsl_floor() -> None:
+    module = load_module()
+
+    effective_timeout = module.resolve_effective_timeout_seconds(
+        "restart-surfaces",
+        ["tpsl"],
+        45,
+    )
+
+    assert effective_timeout == 90.0
+
+
+def test_resolve_effective_timeout_applies_order_management_floor() -> None:
+    module = load_module()
+
+    effective_timeout = module.resolve_effective_timeout_seconds(
+        "restart-surfaces",
+        ["order_management"],
+        45,
+    )
+
+    assert effective_timeout == 120.0
+
+
 def test_resolve_effective_timeout_keeps_requested_timeout_for_non_market_data() -> (
     None
 ):
@@ -286,3 +310,74 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
             "pid": 22,
         }
     ]
+
+
+def test_restart_programs_reconciles_remaining_programs_before_raising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_module()
+    start_calls: list[tuple[str, bool]] = []
+    process_infos = {
+        "fqnext_xtquant_broker": {"statename": "RUNNING", "pid": 11},
+        "fqnext_credit_subjects_worker": {"statename": "RUNNING", "pid": 22},
+    }
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(
+            stopProcess=lambda _name, _wait: True,
+            startProcess=None,
+        )
+    )
+
+    def fake_start_process(name: str, wait: bool) -> bool:
+        start_calls.append((name, wait))
+        return True
+
+    def fake_get_process_info(_server, name):
+        return process_infos[name]
+
+    def fake_wait_for_state(_server, name, expected_state, timeout_seconds=0):
+        if expected_state == "STOPPED":
+            return {"statename": "EXITED", "pid": 0}
+        if name == "fqnext_xtquant_broker":
+            raise RuntimeError(
+                "Program fqnext_xtquant_broker did not reach RUNNING; last state=Exited"
+            )
+        return {"statename": "RUNNING", "pid": 222}
+
+    def fake_wait_for_programs_settled(
+        _server,
+        programs,
+        timeout_seconds=0,
+        settle_seconds=0,
+        poll_interval_seconds=0,
+    ):
+        return {
+            program: {
+                "statename": (
+                    "EXITED" if program == "fqnext_xtquant_broker" else "RUNNING"
+                ),
+                "pid": 0 if program == "fqnext_xtquant_broker" else 222,
+            }
+            for program in programs
+        }
+
+    server.supervisor.startProcess = fake_start_process
+    monkeypatch.setattr(module, "get_process_info", fake_get_process_info)
+    monkeypatch.setattr(module, "wait_for_state", fake_wait_for_state)
+    monkeypatch.setattr(
+        module, "wait_for_programs_settled", fake_wait_for_programs_settled
+    )
+
+    with pytest.raises(RuntimeError, match="fqnext_xtquant_broker") as excinfo:
+        module.restart_programs(
+            server,
+            ["fqnext_xtquant_broker", "fqnext_credit_subjects_worker"],
+            timeout_seconds=5,
+        )
+
+    assert start_calls == [
+        ("fqnext_xtquant_broker", False),
+        ("fqnext_xtquant_broker", False),
+        ("fqnext_credit_subjects_worker", False),
+    ]
+    assert "fqnext_credit_subjects_worker" in str(excinfo.value)

@@ -15,6 +15,7 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 
 - 需要页面层健康检查时，优先执行 `py -3.12 script/freshquant_health_check.py --surface web --format summary`
 - 这个入口会忽略系统代理环境，优先用于 deploy 后健康检查和日常排障；当前忽略键包括 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量
+- 如果上一轮 `fq_apply_deploy_plan.ps1` 已经产生 `deploy-state-*.json`，优先执行 `powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -ResumeLatest`，不要把已完成的 Docker / baseline 阶段整轮重跑
 
 ## 本地 preflight 没有自动生效
 
@@ -441,10 +442,12 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 本轮明确要求恢复的 `market_data` / `guardian` / `position_management` / `tpsl` 进程没有重启成功
 - 本轮明确要求恢复的 `order_management` broker / worker 没重启成功
 - 自动化漏采 baseline，导致无法按“deploy 前已运行 -> deploy 后仍需存在”的规则判断
+- 旧版 verify 依赖 `Win32_Process.CommandLine`，在当前宿主机上可能对 Python 进程产生假阴性；当前脚本已改成 supervisor-first，如果仍失败，优先怀疑 `fqnext-supervisord` 控制面本身而不是业务进程已退出
 
 处理：
 - 先按 `verify.json` 的 `docker_checks` / `service_checks` / `process_checks` 定位失败项，不要直接 cleanup
 - 如果宿主机 service 本身没起来，优先用 `script/invoke_fqnext_supervisord_restart_task.ps1` 恢复底座，再重新执行 host runtime control
+- 如果 `fqnext-supervisord` service 仍是 `Running`，但 `EnsureServiceAndRestartSurfaces` 首次重启失败，优先复核脚本是否已经自动触发过一次管理员桥接；当前正式入口会在这种“service 存活但 control plane 脏掉”的场景下自动 bridge 一次
 - 如果是代码问题，只创建或复用 follow-up issue，由下一轮 `Symphony` 接手
 - 如果是外部环境问题，在原 issue 记录 blocker / clear condition / evidence / target recovery state
 - 修复后重新执行 deploy、health check 和 runtime ops check，只有全部通过后才允许 cleanup / close
@@ -467,6 +470,7 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
   - `powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_restart_task.ps1`
 - 如果 service 已安装但普通会话无权恢复，走 `fqnext-supervisord-restart` 管理员桥接任务
 - 恢复后再执行 `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface <surfaces> -BridgeIfServiceUnavailable`
+- 当前正式入口在 `restart-surfaces` 首次失败后会自动做一次 bridge retry；如果仍失败，再按业务日志继续定位，不要无界重复 bridge
 
 ## Symphony / Global Stewardship（Issue-managed）卡住
 
