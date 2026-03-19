@@ -77,7 +77,7 @@
 
 ### 每日筛选自动任务链
 
-`Dagster 19:00 schedule -> job_daily_screening_postclose -> DailyScreeningService.start_run(trigger_type=dagster_schedule) -> fqscreening`
+`Dagster 19:00 schedule -> daily_screening_postclose_job (asset graph) -> DailyScreeningService DAG helpers -> fqscreening`
 
 ### 运行观测链
 

@@ -4,6 +4,8 @@ from collections import Counter
 from types import SimpleNamespace
 from typing import Any
 
+from pymongo.errors import OperationFailure
+
 from freshquant.db import DBScreening
 
 
@@ -27,24 +29,25 @@ class DailyScreeningRepository:
             ],
             "daily_screening_memberships": [
                 {
-                    "name": "daily_screening_memberships_run_scope_stage_code_model_period_fire_time",
-                    "keys": [
-                        ("run_id", 1),
-                        ("scope", 1),
-                        ("stage", 1),
-                        ("code", 1),
-                        ("model_key", 1),
-                        ("period", 1),
-                        ("fire_time", 1),
-                    ],
+                    "name": "daily_screening_memberships_scope_id_code_condition_key",
+                    "keys": [("scope_id", 1), ("code", 1), ("condition_key", 1)],
                     "unique": True,
+                    "partial_filter_expression": {
+                        "scope_id": {"$exists": True},
+                        "code": {"$exists": True},
+                        "condition_key": {"$exists": True},
+                    },
                 }
             ],
             "daily_screening_stock_snapshots": [
                 {
-                    "name": "daily_screening_stock_snapshots_run_scope_code",
-                    "keys": [("run_id", 1), ("scope", 1), ("code", 1)],
+                    "name": "daily_screening_stock_snapshots_scope_id_code",
+                    "keys": [("scope_id", 1), ("code", 1)],
                     "unique": True,
+                    "partial_filter_expression": {
+                        "scope_id": {"$exists": True},
+                        "code": {"$exists": True},
+                    },
                 }
             ],
         }
@@ -60,7 +63,19 @@ class DailyScreeningRepository:
                     kwargs["unique"] = bool(spec["unique"])
                 if spec.get("name"):
                     kwargs["name"] = spec["name"]
-                collection.create_index(spec["keys"], **kwargs)
+                if spec.get("partial_filter_expression"):
+                    kwargs["partialFilterExpression"] = spec[
+                        "partial_filter_expression"
+                    ]
+                if self._named_index_requires_rebuild(collection, spec):
+                    collection.drop_index(spec["name"])
+                try:
+                    collection.create_index(spec["keys"], **kwargs)
+                except OperationFailure as exc:
+                    if not self._is_named_index_conflict(exc, spec):
+                        raise
+                    collection.drop_index(spec["name"])
+                    collection.create_index(spec["keys"], **kwargs)
 
     def save_run(self, run=None, **document):
         payload = self._merge_document(run, document)
@@ -84,30 +99,31 @@ class DailyScreeningRepository:
         **document,
     ):
         raw_items = list(memberships or [])
-        effective_run_id = self._resolve_single_identity(
-            run_id, raw_items, field_name="run_id"
+        effective_scope_id = self._resolve_scope_id(run_id=run_id, scope=scope)
+        if effective_scope_id is None:
+            effective_scope_id = self._resolve_single_identity(
+                None, raw_items, field_name="scope_id"
+            )
+        effective_condition_key = self._resolve_single_identity(
+            stage, raw_items, field_name="condition_key"
         )
-        effective_stage = self._resolve_single_identity(
-            stage, raw_items, field_name="stage"
-        )
-        effective_scope = self._resolve_single_identity(
-            scope, raw_items, field_name="scope"
-        )
-        if effective_run_id is None:
-            raise ValueError("run_id required")
-        if effective_stage is None:
-            raise ValueError("stage required")
+        if effective_scope_id is None:
+            raise ValueError("scope_id required")
+        if effective_condition_key is None:
+            raise ValueError("condition_key required")
         if not raw_items:
-            query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
-            query["stage"] = effective_stage
+            query = {
+                "scope_id": effective_scope_id,
+                "condition_key": effective_condition_key,
+            }
             self._delete_many(self.memberships, query)
             return []
         payloads = [
             self._normalize_membership(
                 item,
-                run_id=effective_run_id,
-                stage=effective_stage,
-                scope=effective_scope,
+                scope_id=effective_scope_id,
+                condition_key=effective_condition_key,
+                stage=stage,
             )
             for item in raw_items
         ]
@@ -116,41 +132,128 @@ class DailyScreeningRepository:
             for payload in payloads
         ):
             raise ValueError("code required")
-        query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
-        query["stage"] = effective_stage
+        query = {
+            "scope_id": effective_scope_id,
+            "condition_key": effective_condition_key,
+        }
         self._delete_many(self.memberships, query)
         if payloads:
             self._insert_many(self.memberships, payloads)
         return payloads
+
+    def replace_condition_memberships(
+        self,
+        *,
+        scope_id: str,
+        condition_key: str,
+        codes: list[dict],
+    ) -> None:
+        raw_items = list(codes or [])
+        effective_scope_id = self._resolve_scope_id(scope_id=scope_id)
+        effective_condition_key = self._resolve_single_identity(
+            condition_key, raw_items, field_name="condition_key"
+        )
+        if effective_scope_id is None:
+            raise ValueError("scope_id required")
+        if effective_condition_key is None:
+            raise ValueError("condition_key required")
+        if not raw_items:
+            self._delete_many(
+                self.memberships,
+                {
+                    "scope_id": effective_scope_id,
+                    "condition_key": effective_condition_key,
+                },
+            )
+            return None
+
+        payloads = [
+            self._normalize_condition_membership(
+                item,
+                scope_id=effective_scope_id,
+                condition_key=effective_condition_key,
+            )
+            for item in raw_items
+        ]
+        if any(
+            self._primary_value(payload, "code", "symbol") is None
+            for payload in payloads
+        ):
+            raise ValueError("code required")
+
+        self._delete_many(
+            self.memberships,
+            {
+                "scope_id": effective_scope_id,
+                "condition_key": effective_condition_key,
+            },
+        )
+        self._insert_many(self.memberships, payloads)
+        return None
 
     def upsert_stock_snapshots(
         self,
         run_id=None,
         snapshots=None,
         scope=None,
+        *,
+        scope_id=None,
+        trade_date=None,
         **document,
     ):
-        raw_items = list(snapshots or [])
-        effective_run_id = self._resolve_single_identity(
-            run_id, raw_items, field_name="run_id"
-        )
-        effective_scope = self._resolve_single_identity(
-            scope, raw_items, field_name="scope"
-        )
-        if effective_run_id is None and raw_items:
-            raise ValueError("run_id required")
-        if effective_run_id is None:
-            return []
+        if scope_id is not None or trade_date is not None:
+            raw_items = list(snapshots or [])
+            effective_scope_id = self._resolve_scope_id(scope_id=scope_id)
+            if effective_scope_id is None:
+                raise ValueError("scope_id required")
+            if trade_date is None:
+                raise ValueError("trade_date required")
 
-        query = self._scope_query(run_id=effective_run_id, scope=effective_scope)
-        self._delete_many(self.stock_snapshots, query)
+            if not raw_items:
+                self._delete_many(
+                    self.stock_snapshots, {"scope_id": effective_scope_id}
+                )
+                return []
+
+            payloads = [
+                self._normalize_condition_snapshot(
+                    item,
+                    scope_id=effective_scope_id,
+                    trade_date=trade_date,
+                )
+                for item in raw_items
+            ]
+            if any(
+                self._primary_value(payload, "code", "symbol") is None
+                for payload in payloads
+            ):
+                raise ValueError("code required")
+
+            self._delete_many(self.stock_snapshots, {"scope_id": effective_scope_id})
+            for payload in payloads:
+                snapshot_query = self._snapshot_scope_query(
+                    payload, scope_id=effective_scope_id
+                )
+                self._upsert_one(self.stock_snapshots, snapshot_query, payload)
+            return payloads
+
+        raw_items = list(snapshots or [])
+        effective_scope_id = self._resolve_scope_id(run_id=run_id, scope=scope)
+        if effective_scope_id is None and raw_items:
+            effective_scope_id = self._resolve_single_identity(
+                None, raw_items, field_name="scope_id"
+            )
+        if effective_scope_id is None and raw_items:
+            raise ValueError("scope_id required")
+        if effective_scope_id is None:
+            return []
 
         if not raw_items:
+            self._delete_many(self.stock_snapshots, {"scope_id": effective_scope_id})
             return []
+
         payloads = [
-            self._normalize_snapshot(
-                item, run_id=effective_run_id, scope=effective_scope
-            )
+            self._normalize_snapshot(item, scope_id=effective_scope_id)
             for item in raw_items
         ]
         if any(
@@ -158,11 +261,11 @@ class DailyScreeningRepository:
             for payload in payloads
         ):
             raise ValueError("code required")
+
+        self._delete_many(self.stock_snapshots, {"scope_id": effective_scope_id})
         for payload in payloads:
-            snapshot_query = self._snapshot_query(
-                payload,
-                run_id=effective_run_id,
-                scope=effective_scope,
+            snapshot_query = self._snapshot_scope_query(
+                payload, scope_id=effective_scope_id
             )
             self._upsert_one(self.stock_snapshots, snapshot_query, payload)
         return payloads
@@ -174,18 +277,23 @@ class DailyScreeningRepository:
         stage=None,
         **filters,
     ) -> dict[str, Any]:
-        membership_query = self._scope_query(run_id=run_id, scope=scope)
+        scope_id = self._resolve_scope_id(run_id=run_id, scope=scope)
+        membership_query = {}
+        if scope_id is not None:
+            membership_query["scope_id"] = scope_id
         membership_query.update(filters)
-        stock_query = self._scope_query(run_id=run_id, scope=scope)
+        stock_query = {}
+        if scope_id is not None:
+            stock_query["scope_id"] = scope_id
         stock_query.update(filters)
         if stage is not None:
-            membership_query["stage"] = stage
+            membership_query["condition_key"] = stage
         memberships = self._find_many(self.memberships, membership_query)
         stocks = self._find_many(self.stock_snapshots, stock_query)
         stage_counts = Counter(
-            str(item.get("stage") or "").strip()
+            str(item.get("condition_key") or "").strip()
             for item in memberships
-            if item.get("stage")
+            if item.get("condition_key")
         )
         return {
             "run_id": run_id,
@@ -200,15 +308,34 @@ class DailyScreeningRepository:
         }
 
     def query_scope_stocks(self, run_id=None, scope=None, **filters):
-        query = self._scope_query(run_id=run_id, scope=scope)
+        scope_id = self._resolve_scope_id(run_id=run_id, scope=scope)
+        query = {}
+        if scope_id is not None:
+            query["scope_id"] = scope_id
         query.update(filters)
         stocks = self._find_many(self.stock_snapshots, query)
         return sorted(stocks, key=self._stock_sort_key)
 
+    def list_scope_ids(self, *, prefix: str | None = None) -> list[str]:
+        scope_ids: set[str] = set()
+        for collection in (self.memberships, self.stock_snapshots):
+            values = self._distinct_values(collection, "scope_id")
+            for value in values:
+                text = str(value or "").strip()
+                if not text:
+                    continue
+                if prefix and not text.startswith(prefix):
+                    continue
+                scope_ids.add(text)
+        return sorted(scope_ids, reverse=True)
+
     def get_stock_detail_memberships(
         self, run_id=None, code=None, scope=None, **filters
     ):
-        query = self._scope_query(run_id=run_id, scope=scope)
+        scope_id = self._resolve_scope_id(run_id=run_id, scope=scope)
+        query = {}
+        if scope_id is not None:
+            query["scope_id"] = scope_id
         if code is not None:
             query["code"] = code
         query.update(filters)
@@ -222,6 +349,43 @@ class DailyScreeningRepository:
             "daily_screening_stock_snapshots": "stock_snapshots",
         }
         return mapping[collection_name]
+
+    def _named_index_requires_rebuild(self, collection, spec: dict[str, Any]) -> bool:
+        index_name = str(spec.get("name") or "").strip()
+        if (
+            not index_name
+            or not hasattr(collection, "index_information")
+            or not hasattr(collection, "drop_index")
+        ):
+            return False
+        existing = collection.index_information().get(index_name)
+        if not existing:
+            return False
+        return self._normalized_existing_index(existing) != self._normalized_spec_index(
+            spec
+        )
+
+    def _normalized_spec_index(self, spec: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "key": list(spec.get("keys") or []),
+            "unique": bool(spec.get("unique", False)),
+            "partialFilterExpression": spec.get("partial_filter_expression"),
+        }
+
+    def _normalized_existing_index(self, index_info: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "key": list(index_info.get("key") or []),
+            "unique": bool(index_info.get("unique", False)),
+            "partialFilterExpression": index_info.get("partialFilterExpression"),
+        }
+
+    def _is_named_index_conflict(self, exc: Exception, spec: dict[str, Any]) -> bool:
+        if not isinstance(exc, OperationFailure):
+            return False
+        index_name = str(spec.get("name") or "").strip()
+        if not index_name:
+            return False
+        return int(getattr(exc, "code", 0) or 0) == 86
 
     def _resolve_collection(self, name: str):
         try:
@@ -281,38 +445,132 @@ class DailyScreeningRepository:
             query["scope"] = scope
         return query
 
+    def _resolve_scope_id(self, *, scope_id=None, run_id=None, scope=None):
+        return self._first_non_empty(scope_id, scope, run_id)
+
     def _normalize_membership(
         self,
         item: Any,
         *,
-        run_id=None,
+        scope_id=None,
+        condition_key=None,
         stage=None,
-        scope=None,
     ) -> dict[str, Any]:
         payload = dict(item or {})
-        if run_id is not None:
-            payload.setdefault("run_id", run_id)
+        if scope_id is not None:
+            payload.setdefault("scope_id", scope_id)
+        if condition_key is not None:
+            payload.setdefault("condition_key", condition_key)
         if stage is not None:
             payload.setdefault("stage", stage)
-        if scope is not None:
-            payload.setdefault("scope", scope)
         code = self._primary_value(payload, "code", "symbol")
         if code is not None:
             payload.setdefault("code", code)
         return payload
 
-    def _normalize_snapshot(
-        self, item: Any, *, run_id=None, scope=None
+    def _normalize_condition_membership(
+        self,
+        item: Any,
+        *,
+        scope_id=None,
+        condition_key=None,
     ) -> dict[str, Any]:
+        payload = self._normalize_membership(
+            item, scope_id=scope_id, condition_key=condition_key
+        )
+        return self._apply_legacy_condition_identity(payload)
+
+    def _normalize_snapshot(self, item: Any, *, scope_id=None) -> dict[str, Any]:
         payload = dict(item or {})
-        if run_id is not None:
-            payload.setdefault("run_id", run_id)
-        if scope is not None:
-            payload.setdefault("scope", scope)
+        if scope_id is not None:
+            payload.setdefault("scope_id", scope_id)
         code = self._primary_value(payload, "code", "symbol")
         if code is not None:
             payload.setdefault("code", code)
         return payload
+
+    def _normalize_condition_snapshot(
+        self,
+        item: Any,
+        *,
+        scope_id=None,
+        trade_date=None,
+    ) -> dict[str, Any]:
+        payload = self._normalize_snapshot(item, scope_id=scope_id)
+        if trade_date is not None:
+            payload.setdefault("trade_date", trade_date)
+        return payload
+
+    def _apply_legacy_condition_identity(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        scope_id = str(payload.get("scope_id") or "").strip()
+        if scope_id:
+            payload.setdefault("scope", scope_id)
+            payload.setdefault("run_id", self._legacy_run_id_from_scope_id(scope_id))
+
+        condition_key = str(payload.get("condition_key") or "").strip()
+        if not condition_key:
+            return payload
+
+        namespace, _, raw_value = condition_key.partition(":")
+        value = raw_value.strip()
+        stage = None
+        model_key = None
+        period = None
+        signal_type = None
+        signal_name = None
+        branch = None
+
+        if namespace == "cls":
+            stage = "clxs"
+            model_key = value or condition_key
+            signal_type = value or condition_key
+            signal_name = value or condition_key
+            branch = "clxs"
+        elif namespace == "hot":
+            stage = "shouban30_agg90"
+            model_key = "hot"
+            period = value or None
+        elif namespace == "flag":
+            stage = "market_flags"
+            model_key = value or condition_key
+            signal_type = value or condition_key
+            signal_name = value or condition_key
+        elif namespace == "chanlun_period":
+            stage = "chanlun"
+            model_key = "period"
+            period = value or None
+        elif namespace == "chanlun_signal":
+            stage = "chanlun"
+            model_key = value or condition_key
+            signal_type = value or condition_key
+            signal_name = value or condition_key
+        elif condition_key == "base:union":
+            stage = "base_union"
+            model_key = "union"
+        else:
+            stage = condition_key
+
+        if stage:
+            payload.setdefault("stage", stage)
+        if model_key:
+            payload.setdefault("model_key", model_key)
+        if period:
+            payload.setdefault("period", period)
+        if signal_type:
+            payload.setdefault("signal_type", signal_type)
+        if signal_name:
+            payload.setdefault("signal_name", signal_name)
+        if branch:
+            payload.setdefault("branch", branch)
+        return payload
+
+    def _legacy_run_id_from_scope_id(self, scope_id: str) -> str:
+        normalized = str(scope_id or "").strip()
+        if normalized.startswith("run:"):
+            return normalized.split(":", 1)[1].strip() or normalized
+        return normalized
 
     def _snapshot_query(
         self,
@@ -322,6 +580,20 @@ class DailyScreeningRepository:
         scope=None,
     ) -> dict[str, Any]:
         query = self._scope_query(run_id=run_id, scope=scope)
+        code = self._primary_value(payload, "code", "symbol")
+        if code is not None:
+            query["code"] = code
+        return query
+
+    def _snapshot_scope_query(
+        self,
+        payload: dict[str, Any],
+        *,
+        scope_id=None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {}
+        if scope_id is not None:
+            query["scope_id"] = scope_id
         code = self._primary_value(payload, "code", "symbol")
         if code is not None:
             query["code"] = code
@@ -346,10 +618,10 @@ class DailyScreeningRepository:
     def _find_many(self, collection, query: dict[str, Any]) -> list[dict[str, Any]]:
         if hasattr(collection, "find"):
             rows = collection.find(query or {})
-            return [dict(row) for row in list(rows)]
+            return [self._plain_document(row) for row in list(rows)]
         rows = self._collection_rows(collection)
         return [
-            dict(row)
+            self._plain_document(row)
             for row in rows
             if all(row.get(key) == value for key, value in (query or {}).items())
         ]
@@ -357,9 +629,29 @@ class DailyScreeningRepository:
     def _find_one(self, collection, query: dict[str, Any]):
         if hasattr(collection, "find_one"):
             row = collection.find_one(query)
-            return dict(row) if row is not None else None
+            return self._plain_document(row) if row is not None else None
         rows = self._find_many(collection, query)
         return rows[0] if rows else None
+
+    def _distinct_values(self, collection, field_name: str) -> list[Any]:
+        if hasattr(collection, "distinct"):
+            return list(collection.distinct(field_name))
+        rows = self._collection_rows(collection) or []
+        values = []
+        seen = set()
+        for row in rows:
+            value = row.get(field_name)
+            marker = repr(value)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            values.append(value)
+        return values
+
+    def _plain_document(self, row: Any) -> dict[str, Any]:
+        payload = dict(row or {})
+        payload.pop("_id", None)
+        return payload
 
     def _upsert_one(self, collection, query: dict[str, Any], document: dict[str, Any]):
         if hasattr(collection, "replace_one"):

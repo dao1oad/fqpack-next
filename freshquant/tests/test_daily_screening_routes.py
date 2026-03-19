@@ -15,79 +15,40 @@ def _make_client(monkeypatch, fake_service):
     return app.test_client()
 
 
-def test_daily_screening_schema_route_returns_schema(monkeypatch):
-    class FakeService:
-        def get_schema(self):
-            return {"models": [{"id": "clxs"}], "options": {"pre_pool_categories": []}}
-
-    client = _make_client(monkeypatch, FakeService())
+def test_daily_screening_schema_route_is_disabled(monkeypatch):
+    client = _make_client(monkeypatch, object())
     response = client.get("/api/daily-screening/schema")
 
-    assert response.status_code == 200
-    assert response.get_json()["models"] == [{"id": "clxs"}]
+    assert response.status_code == 410
+    assert "disabled" in response.get_json()["error"]
 
 
-def test_daily_screening_runs_route_starts_scan(monkeypatch):
-    captured = {}
-
-    class FakeService:
-        def start_run(self, payload, run_async=True):
-            captured["call"] = (payload, run_async)
-            return {"id": "run-1", "status": "queued"}
-
-    client = _make_client(monkeypatch, FakeService())
+def test_daily_screening_runs_route_is_disabled(monkeypatch):
+    client = _make_client(monkeypatch, object())
     response = client.post(
         "/api/daily-screening/runs",
         data=json.dumps({"model": "clxs", "days": 1}),
         content_type="application/json",
     )
 
-    assert response.status_code == 202
-    assert captured["call"] == ({"model": "clxs", "days": 1}, True)
-    assert response.get_json()["run"]["id"] == "run-1"
+    assert response.status_code == 410
+    assert "Dagster" in response.get_json()["error"]
 
 
-def test_daily_screening_stream_route_returns_sse(monkeypatch):
-    class FakeService:
-        def get_run(self, run_id):
-            assert run_id == "run-1"
-            return {"id": run_id, "status": "running", "event_count": 1}
+def test_daily_screening_run_detail_route_is_disabled(monkeypatch):
+    client = _make_client(monkeypatch, object())
+    response = client.get("/api/daily-screening/runs/run-1")
 
-        def iter_sse(self, run_id, *, after=0, once=False):
-            assert run_id == "run-1"
-            assert after == 0
-            assert once is True
-            yield 'id: 1\nevent: started\ndata: {"seq": 1}\n\n'
+    assert response.status_code == 410
+    assert "disabled" in response.get_json()["error"]
 
-    client = _make_client(monkeypatch, FakeService())
+
+def test_daily_screening_stream_route_is_disabled(monkeypatch):
+    client = _make_client(monkeypatch, object())
     response = client.get("/api/daily-screening/runs/run-1/stream?once=1")
 
-    assert response.status_code == 200
-    assert response.mimetype == "text/event-stream"
-    assert 'event: started' in response.get_data(as_text=True)
-
-
-def test_daily_screening_stream_route_uses_last_event_id_header(monkeypatch):
-    class FakeService:
-        def get_run(self, run_id):
-            assert run_id == "run-1"
-            return {"id": run_id, "status": "running", "event_count": 4}
-
-        def iter_sse(self, run_id, *, after=0, once=False):
-            assert run_id == "run-1"
-            assert after == 3
-            assert once is False
-            yield 'id: 4\nevent: progress\ndata: {"seq": 4}\n\n'
-
-    client = _make_client(monkeypatch, FakeService())
-    response = client.get(
-        "/api/daily-screening/runs/run-1/stream",
-        headers={"Last-Event-ID": "3"},
-    )
-
-    assert response.status_code == 200
-    assert response.mimetype == "text/event-stream"
-    assert 'event: progress' in response.get_data(as_text=True)
+    assert response.status_code == 410
+    assert "SSE disabled" in response.get_json()["error"]
 
 
 def test_daily_screening_pre_pools_routes_delegate_to_service(monkeypatch):
@@ -146,6 +107,26 @@ def test_daily_screening_pre_pools_routes_delegate_to_service(monkeypatch):
     assert captured["add"]["code"] == "000001"
     assert delete_response.status_code == 200
     assert captured["delete"]["remark"] == "daily-screening:clxs"
+
+
+def test_daily_screening_filters_route_returns_catalog(monkeypatch):
+    captured = {}
+
+    class FakeService:
+        def get_filter_catalog(self, scope_id):
+            captured["scope_id"] = scope_id
+            return {
+                "scope_id": scope_id,
+                "groups": {"hot_windows": []},
+                "condition_keys": [],
+            }
+
+    client = _make_client(monkeypatch, FakeService())
+    response = client.get("/api/daily-screening/filters?scope_id=trade_date:2026-03-18")
+
+    assert response.status_code == 200
+    assert response.get_json()["groups"] == {"hot_windows": []}
+    assert captured["scope_id"] == "trade_date:2026-03-18"
 
 
 def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
@@ -219,14 +200,15 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
         "/api/daily-screening/query",
         data=json.dumps(
             {
-                "run_id": "trade_date:2026-03-18",
-                "selected_sets": ["clxs", "chanlun"],
+                "scope_id": "trade_date:2026-03-18",
+                "condition_keys": ["hot:30d"],
+                "metric_filters": {"higher_multiple_lte": 2.5},
             }
         ),
         content_type="application/json",
     )
     detail_response = client.get(
-        "/api/daily-screening/stocks/000001/detail?run_id=trade_date:2026-03-18"
+        "/api/daily-screening/stocks/000001/detail?scope_id=trade_date:2026-03-18"
     )
     add_to_pre_pool_response = client.post(
         "/api/daily-screening/actions/add-to-pre-pool",
@@ -256,8 +238,9 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
     assert captured["query"] == (
         "trade_date:2026-03-18",
         {
-            "run_id": "trade_date:2026-03-18",
-            "selected_sets": ["clxs", "chanlun"],
+            "scope_id": "trade_date:2026-03-18",
+            "condition_keys": ["hot:30d"],
+            "metric_filters": {"higher_multiple_lte": 2.5},
         },
     )
 

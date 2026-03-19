@@ -1,25 +1,6 @@
 import http from '@/http'
 
 export const dailyScreeningApi = {
-  getSchema () {
-    return http({
-      url: '/api/daily-screening/schema',
-      method: 'get',
-    })
-  },
-  startRun (data) {
-    return http({
-      url: '/api/daily-screening/runs',
-      method: 'post',
-      data,
-    })
-  },
-  getRun (runId) {
-    return http({
-      url: `/api/daily-screening/runs/${runId}`,
-      method: 'get',
-    })
-  },
   getScopes () {
     return http({
       url: '/api/daily-screening/scopes',
@@ -32,9 +13,18 @@ export const dailyScreeningApi = {
       method: 'get',
     })
   },
-  getScopeSummary (runId) {
+  getFilters (scopeId) {
     return http({
-      url: `/api/daily-screening/scopes/${runId}/summary`,
+      url: '/api/daily-screening/filters',
+      method: 'get',
+      params: {
+        scope_id: scopeId,
+      },
+    })
+  },
+  getScopeSummary (scopeId) {
+    return http({
+      url: `/api/daily-screening/scopes/${scopeId}/summary`,
       method: 'get',
     })
   },
@@ -45,12 +35,12 @@ export const dailyScreeningApi = {
       data,
     })
   },
-  getStockDetail (runId, code) {
+  getStockDetail (scopeId, code) {
     return http({
       url: `/api/daily-screening/stocks/${code}/detail`,
       method: 'get',
       params: {
-        run_id: runId,
+        scope_id: scopeId,
       },
     })
   },
@@ -68,16 +58,4 @@ export const dailyScreeningApi = {
       data,
     })
   },
-}
-
-export const createDailyScreeningStream = (
-  runId,
-  { after = 0, once = false } = {},
-) => {
-  const params = new URLSearchParams()
-  if (after) params.set('after', String(after))
-  if (once) params.set('once', '1')
-  const query = params.toString()
-  const suffix = query ? `?${query}` : ''
-  return new EventSource(`/api/daily-screening/runs/${runId}/stream${suffix}`)
 }

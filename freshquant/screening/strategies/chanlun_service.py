@@ -42,6 +42,7 @@ class ChanlunServiceStrategy(ScreenStrategy):
         self,
         periods: list[str] | None = None,
         signal_types: list[str] | None = None,
+        include_sell_short: bool = False,
         preserve_signal_variants: bool = False,
         pool_expire_days: int = 10,
         save_signal: bool = False,
@@ -61,6 +62,7 @@ class ChanlunServiceStrategy(ScreenStrategy):
         Args:
             periods: 周期列表，默认 ['30m', '60m', '1d']
             signal_types: 指定信号类型集合，默认使用监控链路固定的 6 个信号
+            include_sell_short: 是否保留 SELL_SHORT 方向，默认 False
             preserve_signal_variants: 是否保留 signal_type + period 维度，不按 code + date 压缩
             pool_expire_days: 股票池过期天数
             save_signal: 是否保存到 stock_signals
@@ -70,7 +72,7 @@ class ChanlunServiceStrategy(ScreenStrategy):
             days: 扫描最近 N 天的信号，默认 1
             output_html: 是否输出 HTML 报表，默认 True
         """
-        self.periods = periods or ['30m', '60m', '1d']
+        self.periods = periods or ["30m", "60m", "1d"]
         self.pool_expire_days = pool_expire_days
         self.save_signal = save_signal
         self.save_pools = save_pools
@@ -78,6 +80,7 @@ class ChanlunServiceStrategy(ScreenStrategy):
         self.max_concurrent = max_concurrent
         self.days = days
         self.output_html = output_html
+        self.include_sell_short = include_sell_short
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._preserve_signal_variants = bool(preserve_signal_variants)
         self._on_universe = on_universe
@@ -297,16 +300,20 @@ class ChanlunServiceStrategy(ScreenStrategy):
                     )
 
                 before_count = len(batch_valid_results)
-                # 筛选日期和信号方向（只保留 BUY_LONG）
+                # 默认仅保留 BUY_LONG；每日筛选工作台会显式放开 SELL_SHORT。
                 batch_valid_results = [
                     r
                     for r in batch_valid_results
-                    if r.fire_time >= cutoff_date and r.position == "BUY_LONG"
+                    if r.fire_time >= cutoff_date
+                    and (self.include_sell_short or r.position == "BUY_LONG")
                 ]
                 after_count = len(batch_valid_results)
                 if before_count > after_count:
+                    filter_label = (
+                        "过滤超窗信号" if self.include_sell_short else "过滤 SELL_SHORT"
+                    )
                     logger.debug(
-                        f"批次 {batch_num} 筛选: {before_count} → {after_count}（过滤 SELL_SHORT）"
+                        f"批次 {batch_num} 筛选: {before_count} → {after_count}（{filter_label}）"
                     )
 
             # 添加到总结果

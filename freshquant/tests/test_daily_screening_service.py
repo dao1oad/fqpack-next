@@ -1889,6 +1889,320 @@ def test_daily_screening_service_get_scopes_and_latest_scope_from_repository_run
     assert latest["source_run_id"] == "run-3"
 
 
+def test_daily_screening_service_get_latest_scope_prefers_materialized_trade_date_scope():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    repository.upsert_stock_snapshots(
+        scope_id="trade_date:2026-03-18",
+        trade_date="2026-03-18",
+        snapshots=[{"code": "000001", "name": "alpha"}],
+    )
+    repository.upsert_stock_snapshots(
+        scope_id="trade_date:2026-03-17",
+        trade_date="2026-03-17",
+        snapshots=[{"code": "000002", "name": "beta"}],
+    )
+    repository.save_run(
+        run_id="run-1",
+        id="run-1",
+        status="completed",
+        started_at="2026-03-16T19:00:00",
+    )
+
+    scopes = service.get_scopes()
+    latest = service.get_latest_scope()
+
+    assert [item["run_id"] for item in scopes["items"][:2]] == [
+        "trade_date:2026-03-18",
+        "trade_date:2026-03-17",
+    ]
+    assert latest["run_id"] == "trade_date:2026-03-18"
+    assert latest["scope_kind"] == "trade_date"
+
+
+def _seed_condition_scope_fixture(
+    repository,
+    *,
+    scope_id="trade_date:2026-03-18",
+    trade_date="2026-03-18",
+):
+    repository.replace_condition_memberships(
+        scope_id=scope_id,
+        condition_key="cls:S0001",
+        codes=[{"code": "000001", "name": "alpha", "symbol": "sz000001"}],
+    )
+    repository.replace_condition_memberships(
+        scope_id=scope_id,
+        condition_key="base:union",
+        codes=[
+            {"code": "000001", "name": "alpha", "symbol": "sz000001"},
+            {"code": "000002", "name": "beta", "symbol": "sz000002"},
+        ],
+    )
+    repository.replace_condition_memberships(
+        scope_id=scope_id,
+        condition_key="hot:30d",
+        codes=[{"code": "000001", "name": "alpha", "symbol": "sz000001"}],
+    )
+    repository.replace_condition_memberships(
+        scope_id=scope_id,
+        condition_key="flag:quality_subject",
+        codes=[{"code": "000002", "name": "beta", "symbol": "sz000002"}],
+    )
+    repository.replace_condition_memberships(
+        scope_id=scope_id,
+        condition_key="chanlun_period:30m",
+        codes=[{"code": "000001", "name": "alpha", "symbol": "sz000001"}],
+    )
+    repository.replace_condition_memberships(
+        scope_id=scope_id,
+        condition_key="chanlun_signal:buy_zs_huila",
+        codes=[{"code": "000001", "name": "alpha", "symbol": "sz000001"}],
+    )
+    repository.upsert_stock_snapshots(
+        scope_id=scope_id,
+        trade_date=trade_date,
+        snapshots=[
+            {"code": "000001", "name": "alpha", "symbol": "sz000001"},
+            {"code": "000002", "name": "beta", "symbol": "sz000002"},
+            {"code": "000003", "name": "gamma", "symbol": "sz000003"},
+        ],
+    )
+    return scope_id
+
+
+def _seed_condition_scope_with_metrics_fixture(
+    repository,
+    *,
+    scope_id="trade_date:2026-03-19",
+    trade_date="2026-03-19",
+):
+    repository.replace_condition_memberships(
+        scope_id=scope_id,
+        condition_key="base:union",
+        codes=[
+            {"code": "000001", "name": "alpha", "symbol": "sz000001"},
+            {"code": "000002", "name": "beta", "symbol": "sz000002"},
+        ],
+    )
+    repository.replace_condition_memberships(
+        scope_id=scope_id,
+        condition_key="flag:credit_subject",
+        codes=[
+            {"code": "000001", "name": "alpha", "symbol": "sz000001"},
+            {"code": "000003", "name": "gamma", "symbol": "sz000003"},
+        ],
+    )
+    repository.replace_condition_memberships(
+        scope_id=scope_id,
+        condition_key="chanlun_period:30m",
+        codes=[
+            {"code": "000001", "name": "alpha", "symbol": "sz000001"},
+            {"code": "000002", "name": "beta", "symbol": "sz000002"},
+        ],
+    )
+    repository.replace_condition_memberships(
+        scope_id=scope_id,
+        condition_key="chanlun_signal:buy_zs_huila",
+        codes=[
+            {"code": "000001", "name": "alpha", "symbol": "sz000001"},
+            {"code": "000003", "name": "gamma", "symbol": "sz000003"},
+        ],
+    )
+    repository.upsert_stock_snapshots(
+        scope_id=scope_id,
+        trade_date=trade_date,
+        snapshots=[
+            {
+                "code": "000001",
+                "name": "alpha",
+                "symbol": "sz000001",
+                "higher_multiple": 2.4,
+                "segment_multiple": 2.7,
+                "bi_gain_percent": 18.0,
+            },
+            {
+                "code": "000002",
+                "name": "beta",
+                "symbol": "sz000002",
+                "higher_multiple": 3.6,
+                "segment_multiple": 3.1,
+                "bi_gain_percent": 25.0,
+            },
+            {
+                "code": "000003",
+                "name": "gamma",
+                "symbol": "sz000003",
+                "higher_multiple": 1.8,
+                "segment_multiple": 1.6,
+                "bi_gain_percent": 12.0,
+            },
+        ],
+    )
+    return scope_id
+
+
+def test_daily_screening_service_returns_unified_filter_catalog():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    _seed_condition_scope_fixture(repository)
+
+    payload = service.get_filter_catalog("trade_date:2026-03-18")
+
+    assert payload["scope_id"] == "trade_date:2026-03-18"
+    assert "base:union" in payload["condition_keys"]
+    hot_windows = {
+        item["key"]: item["count"] for item in payload["groups"]["hot_windows"]
+    }
+    market_flags = {
+        item["key"]: item["count"] for item in payload["groups"]["market_flags"]
+    }
+    chanlun_periods = {
+        item["key"]: item["count"] for item in payload["groups"]["chanlun_periods"]
+    }
+    chanlun_signals = {
+        item["key"]: item["count"] for item in payload["groups"]["chanlun_signals"]
+    }
+    cls_models = {
+        item["key"]: item["count"] for item in payload["groups"]["cls_models"]
+    }
+
+    assert hot_windows == {
+        "hot:30d": 1,
+        "hot:45d": 0,
+        "hot:60d": 0,
+        "hot:90d": 0,
+    }
+    assert market_flags == {
+        "flag:near_long_term_ma": 0,
+        "flag:quality_subject": 1,
+        "flag:credit_subject": 0,
+    }
+    assert chanlun_periods == {
+        "chanlun_period:30m": 1,
+        "chanlun_period:60m": 0,
+        "chanlun_period:1d": 0,
+    }
+    assert chanlun_signals["chanlun_signal:buy_zs_huila"] == 1
+    assert chanlun_signals["chanlun_signal:macd_bullish_divergence"] == 0
+    assert cls_models["cls:S0001"] == 1
+    assert cls_models["cls:S0002"] == 0
+
+
+def test_query_scope_defaults_to_base_union_when_no_filters_selected():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    _seed_condition_scope_fixture(repository)
+
+    result = service.query_scope("trade_date:2026-03-18", {})
+
+    assert result["run_id"] == "trade_date:2026-03-18"
+    assert result["scope"] == "trade_date:2026-03-18"
+    assert [row["code"] for row in result["rows"]] == ["000001", "000002"]
+    assert result["total"] == 2
+
+
+def test_query_scope_applies_numeric_thresholds_inside_base_union():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    _seed_condition_scope_with_metrics_fixture(repository)
+
+    result = service.query_scope(
+        "trade_date:2026-03-19",
+        {
+            "condition_keys": ["flag:credit_subject"],
+            "metric_filters": {"higher_multiple_lte": 2.5},
+        },
+    )
+
+    assert [row["code"] for row in result["rows"]] == ["000001"]
+
+
+def test_query_scope_intersects_chanlun_period_and_signal_independently():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    _seed_condition_scope_with_metrics_fixture(repository)
+
+    result = service.query_scope(
+        "trade_date:2026-03-19",
+        {
+            "condition_keys": [
+                "chanlun_period:30m",
+                "chanlun_signal:buy_zs_huila",
+            ]
+        },
+    )
+
+    assert [row["code"] for row in result["rows"]] == ["000001"]
+
+
+def test_daily_screening_service_builds_universe_without_st_and_bj(monkeypatch):
+    service = _make_service()
+
+    import freshquant.instrument.stock as stock_module
+
+    monkeypatch.setattr(
+        stock_module,
+        "fq_inst_fetch_stock_list",
+        lambda: [
+            {"code": "000001", "name": "alpha"},
+            {"code": "430001", "name": "bj-alpha"},
+            {"code": "000002", "name": "*ST beta"},
+            {"code": "600000", "name": "gamma"},
+        ],
+    )
+
+    universe = service.build_universe("2026-03-18")
+
+    assert universe == ["000001", "600000"]
+
+
+def test_daily_screening_service_builds_hot_window_memberships_from_aggregated_sources(
+    monkeypatch,
+):
+    service = _make_service()
+
+    monkeypatch.setattr(
+        service,
+        "_load_shouban30_agg90_rows",
+        lambda config: [
+            {
+                "code6": "000001",
+                "name": "alpha",
+                "provider": "xgb",
+                "plate_key": "p1",
+                "as_of_date": "2026-03-18",
+            },
+            {
+                "code6": "000001",
+                "name": "alpha",
+                "provider": "jygs",
+                "plate_key": "p2",
+                "as_of_date": "2026-03-18",
+            },
+            {
+                "code6": "000002",
+                "name": "beta",
+                "provider": "xgb",
+                "plate_key": "p3",
+                "as_of_date": "2026-03-18",
+            },
+        ],
+    )
+
+    memberships = service.build_hot_window_memberships(
+        "2026-03-18",
+        days=30,
+        candidate_codes=["000001"],
+    )
+
+    assert memberships == [
+        {
+            "condition_key": "hot:30d",
+            "code": "000001",
+            "name": "alpha",
+            "symbol": "sz000001",
+            "providers": ["jygs", "xgb"],
+            "trade_date": "2026-03-18",
+        }
+    ]
+
+
 def test_daily_screening_service_query_scope_applies_intersection_and_source_filters():
     service, repository, _screening_db = _make_service_with_screening_repo()
     _seed_run_scope_snapshot_fixture(repository)
@@ -2065,3 +2379,216 @@ def test_daily_screening_service_add_batch_to_pre_pool_uses_query_filters():
     assert result == {"created_count": 1, "codes": ["000001"]}
     assert len(persisted) == 1
     assert persisted[0]["code"] == "000001"
+
+
+def test_daily_screening_service_builds_market_flag_memberships_without_run_session(
+    monkeypatch,
+):
+    service = _make_service()
+
+    monkeypatch.setattr(
+        "freshquant.instrument.stock.fq_inst_fetch_stock_list",
+        lambda: [{"code": "000001", "name": "alpha"}],
+    )
+    monkeypatch.setattr(
+        "freshquant.data.gantt_readmodel._load_shouban30_credit_subject_lookup",
+        lambda: ({}, True),
+    )
+    monkeypatch.setattr(
+        "freshquant.data.gantt_readmodel._load_shouban30_quality_subject_lookup",
+        lambda: ({}, True, "v1"),
+    )
+    monkeypatch.setattr(
+        "freshquant.data.gantt_readmodel._resolve_shouban30_extra_filter_result",
+        lambda *args, **kwargs: {
+            "is_credit_subject": True,
+            "is_quality_subject": False,
+            "near_long_term_ma_passed": False,
+        },
+    )
+
+    memberships = service.build_market_flag_memberships(
+        "2026-03-18",
+        ["000001"],
+    )
+
+    assert memberships == [
+        {
+            "code": "000001",
+            "condition_key": "flag:credit_subject",
+            "name": "alpha",
+            "symbol": "sz000001",
+            "trade_date": "2026-03-18",
+        }
+    ]
+
+
+def test_daily_screening_service_builds_cls_memberships_for_all_models(
+    monkeypatch,
+):
+    service = _make_service()
+
+    class FakeClxsStrategy:
+        def __init__(self, *, model_opt):
+            self.model_opt = model_opt
+
+        async def screen(self, **kwargs):
+            return [
+                SimpleNamespace(
+                    code="000001",
+                    name="alpha",
+                    symbol="sz000001",
+                    signal_type=f"CLXS_{self.model_opt}",
+                )
+            ]
+
+    monkeypatch.setattr(
+        service,
+        "_make_clxs_strategy",
+        lambda run_id, config: FakeClxsStrategy(model_opt=config["model_opt"]),
+    )
+
+    memberships = service.build_cls_memberships("2026-03-18", ["000001"])
+
+    assert [item["condition_key"] for item in memberships] == [
+        f"cls:{label}" for label in FULL_CLXS_MODEL_LABELS
+    ]
+    assert {item["code"] for item in memberships} == {"000001"}
+
+
+def test_daily_screening_service_builds_cls_memberships_with_one_market_scan_per_model(
+    monkeypatch,
+):
+    service = _make_service()
+    calls = []
+
+    class FakeClxsStrategy:
+        def __init__(self, *, model_opt):
+            self.model_opt = model_opt
+
+        async def screen(self, **kwargs):
+            calls.append({"model_opt": self.model_opt, **kwargs})
+            return [
+                SimpleNamespace(
+                    code="000001",
+                    name="alpha",
+                    symbol="sz000001",
+                    signal_type=f"CLXS_{self.model_opt}",
+                ),
+                SimpleNamespace(
+                    code="000002",
+                    name="beta",
+                    symbol="sz000002",
+                    signal_type=f"CLXS_{self.model_opt}",
+                ),
+            ]
+
+    monkeypatch.setattr(
+        service,
+        "_make_clxs_strategy",
+        lambda run_id, config: FakeClxsStrategy(model_opt=config["model_opt"]),
+    )
+
+    memberships = service.build_cls_memberships("2026-03-18", ["000001", "000002"])
+
+    assert len(calls) == len(FULL_CLXS_MODEL_OPTS)
+    assert all(call["code"] is None for call in calls)
+    assert len(memberships) == len(FULL_CLXS_MODEL_OPTS) * 2
+
+
+def test_daily_screening_service_builds_cls_memberships_for_requested_model_subset(
+    monkeypatch,
+):
+    service = _make_service()
+    calls = []
+
+    class FakeClxsStrategy:
+        def __init__(self, *, model_opt):
+            self.model_opt = model_opt
+
+        async def screen(self, **kwargs):
+            calls.append(self.model_opt)
+            return [
+                SimpleNamespace(
+                    code="000001",
+                    name="alpha",
+                    symbol="sz000001",
+                    signal_type=f"CLXS_{self.model_opt}",
+                )
+            ]
+
+    monkeypatch.setattr(
+        service,
+        "_make_clxs_strategy",
+        lambda run_id, config: FakeClxsStrategy(model_opt=config["model_opt"]),
+    )
+
+    memberships = service.build_cls_memberships(
+        "2026-03-18",
+        ["000001"],
+        model_opts=[10001, 10002],
+    )
+
+    assert calls == [10001, 10002]
+    assert [item["condition_key"] for item in memberships] == [
+        "cls:S0001",
+        "cls:S0002",
+    ]
+
+
+def test_daily_screening_service_builds_chanlun_variant_memberships_without_run_session(
+    monkeypatch,
+):
+    service = _make_service()
+    captured = {}
+
+    class FakeChanlunStrategy:
+        async def screen(self, **kwargs):
+            return [
+                SimpleNamespace(
+                    code="000001",
+                    name="alpha",
+                    symbol="sz000001",
+                    period="30m",
+                    signal_type="buy_zs_huila",
+                )
+            ]
+
+    def fake_make_chanlun_strategy(run_id, config):
+        captured["strategy"] = {
+            "run_id": run_id,
+            "include_sell_short": config.get("include_sell_short"),
+        }
+        return FakeChanlunStrategy()
+
+    monkeypatch.setattr(
+        service,
+        "_make_chanlun_strategy",
+        fake_make_chanlun_strategy,
+    )
+
+    memberships = service.build_chanlun_variant_memberships(
+        "2026-03-18",
+        ["000001"],
+    )
+
+    assert captured["strategy"] == {
+        "run_id": "dagster-chanlun",
+        "include_sell_short": True,
+    }
+    assert memberships == [
+        {
+            "code": "000001",
+            "condition_key": "chanlun_period:30m",
+            "name": "alpha",
+            "symbol": "sz000001",
+            "trade_date": "2026-03-18",
+        },
+        {
+            "code": "000001",
+            "condition_key": "chanlun_signal:buy_zs_huila",
+            "name": "alpha",
+            "symbol": "sz000001",
+            "trade_date": "2026-03-18",
+        },
+    ]
