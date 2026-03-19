@@ -999,6 +999,14 @@ test('RuntimeObservability.vue keeps toolbar actions in the left title block and
   assert.match(content, /buildBoardScopedQuery\(query,\s*boardFilter,\s*timeRange\.value\)/)
 })
 
+test('RuntimeObservability.vue defaults to auto refresh and hides the manual auto-refresh switch', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /const autoRefresh = ref\(true\)/)
+  assert.doesNotMatch(content, /v-model="autoRefresh"/)
+  assert.match(content, /onMounted\(\(\) => \{[\s\S]*resetOverviewTimer\(\)[\s\S]*loadOverview\(\)[\s\S]*\}\)/)
+})
+
 test('RuntimeObservability.vue reuses trace list payload for detail selection instead of refetching trace detail', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
