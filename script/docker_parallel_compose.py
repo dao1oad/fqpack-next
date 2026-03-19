@@ -8,6 +8,7 @@ from pathlib import Path
 
 LABEL_KEY = "io.freshquant.git_sha"
 DEFAULT_GHCR_NAMESPACE = os.environ.get("FQ_GHCR_NAMESPACE", "ghcr.io/dao1oad")
+REMOTE_CACHE_ENV = "FQ_ENABLE_REMOTE_CACHE_PULL"
 
 SERVICE_IMAGE_ENV_VARS = {
     "fq_apiserver": "FQNEXT_REAR_IMAGE",
@@ -305,6 +306,7 @@ def compute_rewrite_result(
         dirty_paths, target_services
     )
     force_local_build = env_flag("FQ_DOCKER_FORCE_LOCAL_BUILD")
+    enable_remote_cache_pull = env_flag(REMOTE_CACHE_ENV)
 
     mode = "build_required"
     rewritten = list(compose_args)
@@ -312,19 +314,31 @@ def compute_rewrite_result(
     pull_images: list[str] = []
 
     if not dirty_affects_target and not force_local_build:
-        remote_rewritten = rewrite_compose_args_for_cached_images(
-            args=compose_args,
-            all_services=all_services,
-            service_images=registry_service_images,
-            image_revisions=remote_image_revisions,
-            current_revision=current_revision,
-        )
-        if remote_rewritten != compose_args:
-            mode = "remote_cached"
-            rewritten = remote_rewritten
-            image_overrides, pull_images = build_image_overrides(
-                target_services, registry_service_images
+        if enable_remote_cache_pull:
+            remote_rewritten = rewrite_compose_args_for_cached_images(
+                args=compose_args,
+                all_services=all_services,
+                service_images=registry_service_images,
+                image_revisions=remote_image_revisions,
+                current_revision=current_revision,
             )
+            if remote_rewritten != compose_args:
+                mode = "remote_cached"
+                rewritten = remote_rewritten
+                image_overrides, pull_images = build_image_overrides(
+                    target_services, registry_service_images
+                )
+            else:
+                local_rewritten = rewrite_compose_args_for_cached_images(
+                    args=compose_args,
+                    all_services=all_services,
+                    service_images=service_images,
+                    image_revisions=local_image_revisions,
+                    current_revision=current_revision,
+                )
+                if local_rewritten != compose_args:
+                    mode = "local_cached"
+                    rewritten = local_rewritten
         else:
             local_rewritten = rewrite_compose_args_for_cached_images(
                 args=compose_args,
@@ -344,6 +358,11 @@ def compute_rewrite_result(
         reason = "all target local images already match current HEAD"
     elif force_local_build:
         reason = "local build forced by FQ_DOCKER_FORCE_LOCAL_BUILD"
+    elif not enable_remote_cache_pull:
+        reason = (
+            "build required, target local cache missing or dirty inputs present; "
+            f"remote cache disabled by default ({REMOTE_CACHE_ENV})"
+        )
     else:
         reason = "build required, dirty paths affect target build inputs, or cache metadata unavailable"
 

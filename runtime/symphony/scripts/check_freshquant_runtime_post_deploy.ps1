@@ -8,10 +8,13 @@ param(
     [string[]]$DeploymentSurface = @(),
     [string]$DockerSnapshotPath,
     [string]$ServiceSnapshotPath,
-    [string]$ProcessSnapshotPath
+    [string]$ProcessSnapshotPath,
+    [string]$SupervisorSnapshotPath,
+    [string]$SupervisorConfigPath = 'D:\fqpack\config\supervisord.fqnext.conf'
 )
 
 $ErrorActionPreference = 'Stop'
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 
 function Write-Utf8NoBomFile {
     param(
@@ -154,41 +157,49 @@ $processSpecs = @(
         Id = 'market_data_producer'
         Surface = 'market_data'
         Pattern = 'python -m freshquant.market_data.xtdata.market_producer'
+        SupervisorProgram = 'fqnext_realtime_xtdata_producer'
     },
     [pscustomobject]@{
         Id = 'market_data_consumer'
         Surface = 'market_data'
         Pattern = 'python -m freshquant.market_data.xtdata.strategy_consumer --prewarm'
+        SupervisorProgram = 'fqnext_realtime_xtdata_consumer'
     },
     [pscustomobject]@{
         Id = 'guardian_monitor'
         Surface = 'guardian'
         Pattern = 'python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event'
+        SupervisorProgram = 'fqnext_guardian_event'
     },
     [pscustomobject]@{
         Id = 'xtdata_adj_refresh_worker'
         Surface = 'market_data'
         Pattern = 'python -m freshquant.market_data.xtdata.adj_refresh_worker'
+        SupervisorProgram = 'fqnext_xtdata_adj_refresh_worker'
     },
     [pscustomobject]@{
         Id = 'position_management_worker'
         Surface = 'position_management'
         Pattern = 'python -m freshquant.position_management.worker'
+        SupervisorProgram = 'fqnext_position_management_worker'
     },
     [pscustomobject]@{
         Id = 'tpsl_tick_listener'
         Surface = 'tpsl'
         Pattern = 'python -m freshquant.tpsl.tick_listener'
+        SupervisorProgram = 'fqnext_tpsl_worker'
     },
     [pscustomobject]@{
         Id = 'xtquant_broker'
         Surface = 'order_management'
         Pattern = 'python -m fqxtrade.xtquant.broker'
+        SupervisorProgram = 'fqnext_xtquant_broker'
     },
     [pscustomobject]@{
         Id = 'credit_subjects_worker'
         Surface = 'order_management'
         Pattern = 'python -m freshquant.order_management.credit_subjects.worker'
+        SupervisorProgram = 'fqnext_credit_subjects_worker'
     }
 )
 
@@ -359,6 +370,57 @@ function Get-ServiceSnapshot {
     return $services
 }
 
+function Get-SupervisorProgramSnapshot {
+    if (-not [string]::IsNullOrWhiteSpace($SupervisorSnapshotPath)) {
+        return [pscustomobject]@{
+            available = $true
+            source = 'snapshot'
+            programs = @(Convert-ToObjectArray (Read-JsonFile -Path $SupervisorSnapshotPath))
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ServiceSnapshotPath) -or -not [string]::IsNullOrWhiteSpace($ProcessSnapshotPath)) {
+        return [pscustomobject]@{
+            available = $false
+            source = 'disabled_for_test_snapshots'
+            programs = @()
+        }
+    }
+
+    $statusScript = Join-Path $repoRoot 'script\fqnext_host_runtime.py'
+    if (-not (Test-Path $statusScript)) {
+        return [pscustomobject]@{
+            available = $false
+            source = 'missing_host_runtime_script'
+            programs = @()
+        }
+    }
+
+    $command = @(
+        'py',
+        '-3.12',
+        $statusScript,
+        '--config-path',
+        $SupervisorConfigPath,
+        'status'
+    )
+    $result = & $command[0] $command[1..($command.Count - 1)] 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($result | Out-String))) {
+        return [pscustomobject]@{
+            available = $false
+            source = 'live_query_failed'
+            programs = @()
+        }
+    }
+
+    $payload = $result | ConvertFrom-Json
+    return [pscustomobject]@{
+        available = $true
+        source = 'live_query'
+        programs = @(Convert-ToObjectArray $payload.programs)
+    }
+}
+
 function Get-ProcessSnapshot {
     if (-not [string]::IsNullOrWhiteSpace($ProcessSnapshotPath)) {
         return Convert-ToObjectArray (Read-JsonFile -Path $ProcessSnapshotPath)
@@ -460,7 +522,10 @@ function Normalize-ServiceBaseline {
 }
 
 function Normalize-ProcessBaseline {
-    param([object[]]$Snapshot)
+    param(
+        [object[]]$Snapshot,
+        [object]$SupervisorState
+    )
 
     $normalizedSnapshot = foreach ($entry in @($Snapshot)) {
         [pscustomobject]@{
@@ -470,7 +535,61 @@ function Normalize-ProcessBaseline {
         }
     }
 
+    $supervisorLookup = @{}
+    $supervisorAvailable = $false
+    if ($null -ne $SupervisorState -and $null -ne $SupervisorState.PSObject.Properties['available']) {
+        $supervisorAvailable = [bool]$SupervisorState.available
+    }
+    foreach ($entry in @(Convert-ToObjectArray $SupervisorState.programs)) {
+        $programName = Get-StringProperty -Object $entry -PropertyNames @('name', 'Name')
+        if ([string]::IsNullOrWhiteSpace($programName)) {
+            continue
+        }
+
+        $supervisorLookup[$programName] = $entry
+    }
+
     $baseline = foreach ($processSpec in $processSpecs) {
+        $supervisorProgram = if ($null -ne $processSpec.PSObject.Properties['SupervisorProgram']) {
+            [string]$processSpec.SupervisorProgram
+        }
+        else {
+            $null
+        }
+
+        if ($supervisorAvailable -and -not [string]::IsNullOrWhiteSpace($supervisorProgram)) {
+            $supervisorEntry = $supervisorLookup[$supervisorProgram]
+            $supervisorStateName = if ($null -ne $supervisorEntry) {
+                Get-StringProperty -Object $supervisorEntry -PropertyNames @('statename', 'state', 'State')
+            }
+            else {
+                'Missing'
+            }
+            $supervisorRunning = ((Normalize-Text -Value $supervisorStateName) -eq 'running')
+            $matches = @()
+            if ($supervisorRunning) {
+                $matches = @(
+                    [pscustomobject]@{
+                        process_id = Get-StringProperty -Object $supervisorEntry -PropertyNames @('pid', 'process_id', 'ProcessId')
+                        name = $supervisorProgram
+                        command_line = $processSpec.Pattern
+                        source = 'supervisor'
+                    }
+                )
+            }
+
+            [pscustomobject]@{
+                id = $processSpec.Id
+                surface = $processSpec.Surface
+                pattern = $processSpec.Pattern
+                source = 'supervisor'
+                running = $supervisorRunning
+                match_count = $matches.Count
+                matches = @($matches)
+            }
+            continue
+        }
+
         $pattern = Normalize-Text -Value $processSpec.Pattern
         $matches = @(
             $normalizedSnapshot |
@@ -484,6 +603,7 @@ function Normalize-ProcessBaseline {
             id = $processSpec.Id
             surface = $processSpec.Surface
             pattern = $processSpec.Pattern
+            source = 'process_snapshot'
             running = ($matches.Count -gt 0)
             match_count = $matches.Count
             matches = @($matches)
@@ -708,10 +828,11 @@ $deploymentSurfaces = @(Resolve-DeploymentSurfaces -Values $DeploymentSurface)
 $allContainerNames = @(Get-AllKnownContainerNames)
 $dockerSnapshot = @(Get-DockerSnapshot -ContainerNames $allContainerNames)
 $serviceSnapshot = @(Get-ServiceSnapshot)
+$supervisorState = Get-SupervisorProgramSnapshot
 $processSnapshot = @(Get-ProcessSnapshot)
 $dockerBaseline = @(Normalize-DockerBaseline -Snapshot $dockerSnapshot -ContainerNames $allContainerNames)
 $serviceBaseline = @(Normalize-ServiceBaseline -Snapshot $serviceSnapshot)
-$processBaseline = @(Normalize-ProcessBaseline -Snapshot $processSnapshot)
+$processBaseline = @(Normalize-ProcessBaseline -Snapshot $processSnapshot -SupervisorState $supervisorState)
 
 $result = [ordered]@{
     mode = $Mode

@@ -129,6 +129,25 @@ function Invoke-HostRuntimePython {
     }
 }
 
+function Invoke-AdminBridgeRecovery {
+    param(
+        [string]$ServiceName,
+        [string]$TaskName,
+        [double]$TimeoutSeconds
+    )
+
+    if (-not (Test-Path $invokeBridgeScript)) {
+        throw "Admin bridge script not found: $invokeBridgeScript"
+    }
+
+    & $invokeBridgeScript -TaskName $TaskName -ServiceName $ServiceName -TimeoutSeconds ([int][Math]::Ceiling($TimeoutSeconds))
+    if ($LASTEXITCODE -ne 0) {
+        throw "Admin bridge failed for service '$ServiceName'."
+    }
+
+    return Wait-ServiceRunning -ServiceName $ServiceName -TimeoutSeconds $TimeoutSeconds
+}
+
 switch ($Mode) {
     'Status' {
         $service = Get-SupervisorService -ServiceName $SupervisorServiceName
@@ -165,14 +184,31 @@ switch ($Mode) {
         if ($result.WasRecovered) {
             Invoke-HostRuntimePython -Command 'wait-settled' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
         }
-        Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
+        $bridgeRetried = $false
+        try {
+            Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
+        } catch {
+            if (-not $BridgeIfServiceUnavailable) {
+                throw
+            }
+            if ($bridgeRetried) {
+                throw
+            }
+
+            $bridgeRetried = $true
+            $originalMessage = $_.Exception.Message
+            Invoke-AdminBridgeRecovery -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds | Out-Null
+            Invoke-HostRuntimePython -Command 'wait-settled' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
+            try {
+                Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
+            } catch {
+                throw "fqnext host runtime restart failed after admin bridge retry. initial_error=$originalMessage retry_error=$($_.Exception.Message)"
+            }
+        }
         exit 0
     }
     'InvokeAdminBridge' {
-        if (-not (Test-Path $invokeBridgeScript)) {
-            throw "Admin bridge script not found: $invokeBridgeScript"
-        }
-        & $invokeBridgeScript -TaskName $RestartTaskName -ServiceName $SupervisorServiceName -TimeoutSeconds ([int][Math]::Ceiling($TimeoutSeconds))
-        exit $LASTEXITCODE
+        Invoke-AdminBridgeRecovery -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds | Out-Null
+        exit 0
     }
 }
