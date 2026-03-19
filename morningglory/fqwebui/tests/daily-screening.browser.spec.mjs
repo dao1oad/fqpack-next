@@ -188,6 +188,8 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
     appendPrePoolBodies: [],
   }
 
+  await page.setViewportSize({ width: 1600, height: 900 })
+
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     const pathname = url.pathname
@@ -340,13 +342,14 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
   await page.goto(TARGET_URL)
 
   await expect(page.locator('.workbench-page-title').getByText('每日选股')).toBeVisible()
+  await expect(page.locator('.workbench-toolbar .daily-toolbar-guide')).toBeVisible()
+  await expect(page.locator('.daily-filter-panel .daily-guide-block')).toHaveCount(0)
   const filterPanelMetrics = await page.locator('.daily-filter-panel').evaluate((element) => ({
     overflowY: window.getComputedStyle(element).overflowY,
     scrollHeight: element.scrollHeight,
     clientHeight: element.clientHeight,
   }))
-  expect(filterPanelMetrics.overflowY).toBe('auto')
-  expect(filterPanelMetrics.scrollHeight).toBeGreaterThan(filterPanelMetrics.clientHeight)
+  expect(filterPanelMetrics.overflowY).toBe('visible')
   await expect(page.getByText('前端只做组合查询，不再触发运行，不再展示 SSE。')).toBeVisible()
   await expect(page.getByText('上游范围：全市场股票，排除 ST 和北交所')).toBeVisible()
   await expect(page.getByText('基础池：CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成')).toBeVisible()
@@ -361,14 +364,16 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
   await expect(page.getByRole('button', { name: '查询结果' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '参与筛选' })).toBeVisible()
 
-  await page.getByRole('button', { name: '查看热门窗口说明' }).hover()
+  await page.getByRole('button', { name: '查看热门窗口说明' }).dispatchEvent('mouseenter')
   await expect(page.getByText('来源于 /gantt/shouban30 同口径的热门标的结果，聚合选股通和韭研公式的 30/45/60/90 天窗口命中股票。')).toBeVisible()
+  await page.getByRole('button', { name: '查看CLS 模型分组说明' }).dispatchEvent('mouseenter')
+  await expect(page.getByText('分组内多个 CLS 模型取并集；不同 CLS 分组之间多选也取并集；CLS 分组结果与热门窗口、市场属性、chanlun、日线缠论涨幅等其他条件之间再取交集。')).toBeVisible()
 
   await page.getByRole('button', { name: '背驰 · 2', exact: true }).click()
   await page.getByRole('button', { name: '30天热门 · 1' }).click()
 
   await expect(page.getByText('当前结果 1')).toBeVisible()
-  await expect(page.getByText('背驰 ∩ 30天热门')).toBeVisible()
+  await expect(page.getByText('CLS 分组并集（背驰） ∩ 30天热门')).toBeVisible()
   await expect(page.getByRole('cell', { name: '平安银行' })).toBeVisible()
 
   const lastQuery = requestLog.queryBodies.at(-1)
@@ -393,7 +398,7 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
     replace_scope: 'daily_screening_intersection',
     end_date: '2026-03-18',
     selected_extra_filters: ['cls_group:beichi', 'hot:30d'],
-    remark: '背驰 ∩ 30天热门',
+    remark: 'CLS 分组并集（背驰） ∩ 30天热门',
   })
 
   await page.locator('.daily-results-panel .el-table__body-wrapper tbody tr').first().dispatchEvent('click')
