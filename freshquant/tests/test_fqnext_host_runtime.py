@@ -353,7 +353,9 @@ def test_restart_programs_reconciles_remaining_programs_before_raising(
     ):
         return {
             program: {
-                "statename": "EXITED" if program == "fqnext_xtquant_broker" else "RUNNING",
+                "statename": (
+                    "EXITED" if program == "fqnext_xtquant_broker" else "RUNNING"
+                ),
                 "pid": 0 if program == "fqnext_xtquant_broker" else 222,
             }
             for program in programs
@@ -362,7 +364,9 @@ def test_restart_programs_reconciles_remaining_programs_before_raising(
     server.supervisor.startProcess = fake_start_process
     monkeypatch.setattr(module, "get_process_info", fake_get_process_info)
     monkeypatch.setattr(module, "wait_for_state", fake_wait_for_state)
-    monkeypatch.setattr(module, "wait_for_programs_settled", fake_wait_for_programs_settled)
+    monkeypatch.setattr(
+        module, "wait_for_programs_settled", fake_wait_for_programs_settled
+    )
 
     with pytest.raises(RuntimeError, match="fqnext_xtquant_broker") as excinfo:
         module.restart_programs(

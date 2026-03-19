@@ -296,14 +296,14 @@ def restart_programs(
                     settled = get_process_info(server, program)
                     latest_state = str(settled.get("statename", "")).upper()
                     try:
-                        settled_infos = wait_for_programs_settled(
+                        retry_settled_infos = wait_for_programs_settled(
                             server,
                             [program],
                             timeout_seconds=min(timeout_seconds, 15.0),
                             settle_seconds=2.0,
                             poll_interval_seconds=1.0,
                         )
-                        settled = settled_infos[program]
+                        settled = retry_settled_infos[program]
                         latest_state = str(settled.get("statename", "")).upper()
                     except RuntimeError:
                         pass
@@ -353,7 +353,9 @@ def restart_programs(
             settle_error = str(exc)
 
     if settled_infos is None:
-        settled_infos = {program: get_process_info(server, program) for program in programs}
+        settled_infos = {
+            program: get_process_info(server, program) for program in programs
+        }
 
     details: list[dict[str, object]] = []
     unresolved = bool(errors)
