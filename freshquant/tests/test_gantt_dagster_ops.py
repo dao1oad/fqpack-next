@@ -1227,7 +1227,7 @@ def test_job_gantt_postclose_uses_multi_op_graph(monkeypatch):
 
     assert "op_run_gantt_postclose_incremental" not in node_names
     assert "op_resolve_pending_gantt_trade_dates" in node_names
-    assert "op_refresh_quality_stock_universe_daily" in node_names
+    assert "op_mark_gantt_postclose_ready" in node_names
 
 
 def test_op_resolve_pending_gantt_trade_dates_yields_dynamic_outputs(monkeypatch):
@@ -1264,11 +1264,11 @@ def test_job_gantt_postclose_daily_pipeline_dependencies(monkeypatch):
     }
     assert dependency_map["op_build_gantt_daily"] == {"op_build_plate_reason_daily"}
     assert dependency_map["op_build_stock_hot_reason_daily"] == {"op_build_gantt_daily"}
-    assert dependency_map["op_refresh_quality_stock_universe_daily"] == {
+    assert dependency_map["op_build_shouban30_daily"] == {
         "op_build_stock_hot_reason_daily"
     }
-    assert dependency_map["op_build_shouban30_daily"] == {
-        "op_refresh_quality_stock_universe_daily"
+    assert dependency_map["op_mark_gantt_postclose_ready"] == {
+        "op_build_shouban30_daily"
     }
 
 
@@ -1287,6 +1287,49 @@ def test_op_refresh_quality_stock_universe_daily_calls_refresh_once(monkeypatch)
 
     assert _collect_output_value(result) == "2026-03-09"
     assert calls == ["called"]
+
+
+def test_op_mark_gantt_postclose_ready_writes_marker(monkeypatch):
+    ops = _load_ops_module(monkeypatch)
+    context = _build_context()
+    calls = []
+
+    monkeypatch.setattr(
+        ops,
+        "upsert_postclose_marker",
+        lambda pipeline_key, trade_date, **kwargs: calls.append(
+            {
+                "pipeline_key": pipeline_key,
+                "trade_date": trade_date,
+                **kwargs,
+            }
+        )
+        or {
+            "pipeline_key": pipeline_key,
+            "trade_date": trade_date,
+            "status": kwargs.get("status", "success"),
+        },
+    )
+
+    result = list(
+        ops.op_mark_gantt_postclose_ready(
+            context,
+            {
+                "trade_date": "2026-03-19",
+                "windows": [30, 45, 60, 90],
+            },
+        )
+    )
+
+    assert _collect_output_value(result) == "2026-03-19"
+    assert calls == [
+        {
+            "pipeline_key": "gantt_postclose_ready",
+            "trade_date": "2026-03-19",
+            "run_id": "",
+            "payload": {"windows": [30, 45, 60, 90]},
+        }
+    ]
 
 
 def test_op_resolve_pending_gantt_trade_dates_logs_pending_summary(monkeypatch):

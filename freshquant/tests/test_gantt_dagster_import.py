@@ -198,7 +198,7 @@ def _build_dagster_stub():
     module.EngineEventData = EngineEventData
     module.Output = Output
     module.ScheduleDefinition = ScheduleDefinition
-    module.DefaultScheduleStatus = SimpleNamespace(RUNNING="RUNNING")
+    module.DefaultScheduleStatus = SimpleNamespace(RUNNING="RUNNING", STOPPED="STOPPED")
     return module
 
 

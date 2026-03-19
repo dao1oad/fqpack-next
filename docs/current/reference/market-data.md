@@ -37,6 +37,22 @@ FreshQuant 当前同时使用三类行情来源：
 - endDate 为空时，可优先命中 Redis realtime cache
 - 指定 `endDate` 时，以历史查询为准
 
+Dagster 盘后桥接口径当前新增两条 ready asset：
+
+- `stock_postclose_ready_asset`
+  - 依赖股票日线与 `quality_stock_universe` 快照刷新
+  - 成功后写入 `dagster_pipeline_markers.stock_postclose_ready`
+- `etf_postclose_ready_asset`
+  - 依赖 `etf_adj`
+  - 成功后写入 `dagster_pipeline_markers.etf_postclose_ready`
+
+其中：
+
+- `stock_data_job` 仍由工作日 `16:00` schedule 驱动
+- `etf_data_job` 仍由工作日 `16:00` schedule 驱动
+- `stock_postclose_ready` 是 Gantt / Daily Screening 盘后链路的正式股票侧就绪信号
+- `etf_postclose_ready` 当前仅保留给 ETF 扩展链路，不是每日选股硬门禁
+
 ## 当前常见字段语义
 
 - `symbol`

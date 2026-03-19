@@ -17,7 +17,11 @@ def _build_dagster_stub():
             self._fn = fn
             self.name = name
             self.group_name = group_name
-            self.dependency_names = list(inspect.signature(fn).parameters)
+            self.dependency_names = [
+                name
+                for name in inspect.signature(fn).parameters
+                if name != "context"
+            ]
 
         def __call__(self, *args, **kwargs):
             return self._fn(*args, **kwargs)
@@ -78,11 +82,42 @@ def _build_dagster_stub():
             self.job = kwargs.get("job")
             self.cron_schedule = kwargs.get("cron_schedule")
 
+    class RunRequest:
+        def __init__(self, run_key=None, run_config=None, tags=None):
+            self.run_key = run_key
+            self.run_config = run_config or {}
+            self.tags = tags or {}
+
+    class SkipReason:
+        def __init__(self, skip_message):
+            self.skip_message = skip_message
+
+    class _FakeSensorDef:
+        def __init__(self, fn, name=None, job=None):
+            self._fn = fn
+            self.name = name or fn.__name__
+            self.job = job
+
+        def __call__(self, *args, **kwargs):
+            return self._fn(*args, **kwargs)
+
+    def sensor(fn=None, **kwargs):
+        if fn is None:
+            return lambda inner: _FakeSensorDef(
+                inner,
+                name=kwargs.get("name"),
+                job=kwargs.get("job"),
+            )
+        return _FakeSensorDef(fn, name=kwargs.get("name"), job=kwargs.get("job"))
+
     module.asset = asset
     module.AssetSelection = _FakeAssetSelection
     module.define_asset_job = define_asset_job
     module.ScheduleDefinition = ScheduleDefinition
-    module.DefaultScheduleStatus = SimpleNamespace(RUNNING="RUNNING")
+    module.RunRequest = RunRequest
+    module.SkipReason = SkipReason
+    module.sensor = sensor
+    module.DefaultScheduleStatus = SimpleNamespace(RUNNING="RUNNING", STOPPED="STOPPED")
     return module
 
 
@@ -103,7 +138,9 @@ def _prepare_fqdagster_import(monkeypatch):
     monkeypatch.setitem(sys.modules, "fqdagster.defs.assets", assets_package)
     for module_name in [
         "fqdagster.defs.assets.daily_screening",
+        "fqdagster.defs.jobs.daily_screening",
         "fqdagster.defs.schedules.daily_screening",
+        "fqdagster.defs.sensors.postclose",
     ]:
         sys.modules.pop(module_name, None)
 
@@ -112,16 +149,19 @@ def test_daily_screening_dagster_modules_import(monkeypatch):
     _prepare_fqdagster_import(monkeypatch)
 
     assets_module = importlib.import_module("fqdagster.defs.assets.daily_screening")
+    jobs_module = importlib.import_module("fqdagster.defs.jobs.daily_screening")
     schedules_module = importlib.import_module(
         "fqdagster.defs.schedules.daily_screening"
     )
+    sensors_module = importlib.import_module("fqdagster.defs.sensors.postclose")
 
     assert hasattr(assets_module, "daily_screening_context")
     assert hasattr(assets_module, "daily_screening_base_union")
     assert hasattr(assets_module, "daily_screening_publish_scope")
-    assert hasattr(schedules_module, "daily_screening_postclose_job")
+    assert hasattr(jobs_module, "daily_screening_postclose_job")
     assert hasattr(schedules_module, "daily_screening_postclose_schedule")
-    assert schedules_module.daily_screening_postclose_job.name == (
+    assert hasattr(sensors_module, "daily_screening_postclose_sensor")
+    assert jobs_module.daily_screening_postclose_job.name == (
         "daily_screening_postclose_job"
     )
     assert (
@@ -148,6 +188,18 @@ def test_daily_screening_assets_keep_publish_as_terminal_node(monkeypatch):
         "daily_screening_hot_45",
         "daily_screening_hot_60",
         "daily_screening_hot_90",
+    ]
+    assert assets_module.daily_screening_market_flags_snapshot.dependency_names == [
+        "daily_screening_base_union"
+    ]
+    assert assets_module.daily_screening_flag_near_long_term_ma.dependency_names == [
+        "daily_screening_market_flags_snapshot"
+    ]
+    assert assets_module.daily_screening_flag_quality_subject.dependency_names == [
+        "daily_screening_market_flags_snapshot"
+    ]
+    assert assets_module.daily_screening_flag_credit_subject.dependency_names == [
+        "daily_screening_market_flags_snapshot"
     ]
     assert assets_module.daily_screening_snapshot_assemble.dependency_names == [
         "daily_screening_context",
@@ -192,6 +244,18 @@ def test_daily_screening_asset_helper_uses_execution_timezone(monkeypatch):
     assert assets_module.daily_screening_context() == {
         "trade_date": "2026-03-18",
         "scope_id": "trade_date:2026-03-18",
+    }
+
+
+def test_daily_screening_context_prefers_sensor_trade_date_tag(monkeypatch):
+    _prepare_fqdagster_import(monkeypatch)
+    assets_module = importlib.import_module("fqdagster.defs.assets.daily_screening")
+
+    context = SimpleNamespace(run=SimpleNamespace(tags={"fq_trade_date": "2026-03-19"}))
+
+    assert assets_module.daily_screening_context(context) == {
+        "trade_date": "2026-03-19",
+        "scope_id": "trade_date:2026-03-19",
     }
 
 
@@ -287,3 +351,96 @@ def test_daily_screening_membership_persistence_clears_missing_expected_keys(
             "codes": [],
         },
     ]
+
+
+def test_daily_screening_market_flags_snapshot_scans_once_for_2026_03_19(
+    monkeypatch,
+):
+    _prepare_fqdagster_import(monkeypatch)
+    assets_module = importlib.import_module("fqdagster.defs.assets.daily_screening")
+    calls = []
+
+    class FakeService:
+        def build_market_flag_memberships(self, trade_date, candidate_codes):
+            calls.append(
+                {
+                    "trade_date": trade_date,
+                    "candidate_codes": list(candidate_codes),
+                }
+            )
+            return [
+                {
+                    "condition_key": "flag:quality_subject",
+                    "code": "000001",
+                    "name": "alpha",
+                    "symbol": "sz000001",
+                },
+                {
+                    "condition_key": "flag:credit_subject",
+                    "code": "000002",
+                    "name": "beta",
+                    "symbol": "sz000002",
+                },
+            ]
+
+    monkeypatch.setattr(assets_module, "_make_service", lambda: FakeService())
+
+    payload = assets_module.daily_screening_market_flags_snapshot(
+        {
+            "trade_date": "2026-03-19",
+            "scope_id": "trade_date:2026-03-19",
+            "candidate_codes": ["000001", "000002"],
+        }
+    )
+    near_ma = assets_module.daily_screening_flag_near_long_term_ma(payload)
+    quality = assets_module.daily_screening_flag_quality_subject(payload)
+    credit = assets_module.daily_screening_flag_credit_subject(payload)
+
+    assert calls == [
+        {"trade_date": "2026-03-19", "candidate_codes": ["000001", "000002"]}
+    ]
+    assert near_ma["memberships"] == []
+    assert [item["code"] for item in quality["memberships"]] == ["000001"]
+    assert [item["code"] for item in credit["memberships"]] == ["000002"]
+
+
+def test_daily_screening_publish_scope_marks_trade_date_ready(monkeypatch):
+    _prepare_fqdagster_import(monkeypatch)
+    assets_module = importlib.import_module("fqdagster.defs.assets.daily_screening")
+    calls = []
+
+    monkeypatch.setattr(
+        assets_module,
+        "upsert_postclose_marker",
+        lambda pipeline_key, trade_date, **kwargs: calls.append(
+            {
+                "pipeline_key": pipeline_key,
+                "trade_date": trade_date,
+                **kwargs,
+            }
+        )
+        or {
+            "pipeline_key": pipeline_key,
+            "trade_date": trade_date,
+            "status": kwargs.get("status", "success"),
+        },
+    )
+
+    payload = assets_module.daily_screening_publish_scope(
+        {
+            "trade_date": "2026-03-19",
+            "scope_id": "trade_date:2026-03-19",
+            "stage": "snapshot_assemble",
+            "snapshots": [],
+        }
+    )
+
+    assert calls == [
+        {
+            "pipeline_key": "daily_screening_ready",
+            "trade_date": "2026-03-19",
+            "run_id": "",
+            "payload": {"scope_id": "trade_date:2026-03-19"},
+        }
+    ]
+    assert payload["published"] is True

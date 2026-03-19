@@ -34,6 +34,12 @@ from QUANTAXIS.QAUtil import QA_util_to_json_from_pandas
 from freshquant.data.etf_adj_sync import sync_etf_adj_all, sync_etf_xdxr_all
 from freshquant.db import DBQuantAxis
 
+from ..postclose_markers import (
+    resolve_latest_completed_trade_date,
+    upsert_postclose_marker,
+)
+from .postclose_ready import refresh_quality_stock_universe_snapshot
+
 market_data_alert = signal("market_data_alert")
 LOCAL_TDX_INFOHARBOR_SOURCE = "tdx_infoharbor"
 STOCK_BLOCK_SOURCES = ("tdx", "tushare")
@@ -417,6 +423,33 @@ def stock_xdxr(context: AssetExecutionContext, stock_day: str) -> str:
     return pendulum.now().format("YYYY-MM-DD HH:mm:ss")
 
 
+@asset(group_name="stock_data")
+def stock_postclose_ready_asset(
+    context: AssetExecutionContext,
+    refresh_quality_stock_universe_snapshot: dict,
+) -> dict:
+    trade_date = str(
+        refresh_quality_stock_universe_snapshot.get("trade_date") or ""
+    ) or resolve_latest_completed_trade_date()
+    payload = {
+        "count": int(refresh_quality_stock_universe_snapshot.get("count") or 0),
+        "source_version": str(
+            refresh_quality_stock_universe_snapshot.get("source_version") or ""
+        ).strip(),
+    }
+    upsert_postclose_marker(
+        "stock_postclose_ready",
+        trade_date,
+        run_id=getattr(context, "run_id", None),
+        payload=payload,
+    )
+    return {
+        "pipeline_key": "stock_postclose_ready",
+        "trade_date": trade_date,
+        "payload": payload,
+    }
+
+
 # Future Assets
 @asset(group_name="future_data")
 def future_list(context: AssetExecutionContext) -> str:
@@ -545,6 +578,25 @@ def etf_adj(context: AssetExecutionContext, etf_day: str, etf_xdxr: str) -> str:
         },
     )
     return pendulum.now().format("YYYY-MM-DD HH:mm:ss")
+
+
+@asset(group_name="etf_data")
+def etf_postclose_ready_asset(
+    context: AssetExecutionContext, etf_adj: str
+) -> dict:
+    trade_date = resolve_latest_completed_trade_date()
+    payload: dict[str, str] = {}
+    upsert_postclose_marker(
+        "etf_postclose_ready",
+        trade_date,
+        run_id=getattr(context, "run_id", None),
+        payload=payload,
+    )
+    return {
+        "pipeline_key": "etf_postclose_ready",
+        "trade_date": trade_date,
+        "payload": payload,
+    }
 
 
 # Bond Assets

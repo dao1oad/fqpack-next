@@ -15,6 +15,11 @@ from freshquant.daily_screening.service import (
 )
 from freshquant.data.trade_date_hist import tool_trade_date_hist_sina
 
+from ..postclose_markers import (
+    has_success_postclose_marker,
+    upsert_postclose_marker,
+)
+
 POSTCLOSE_CUTOFF_HOUR = 15
 POSTCLOSE_CUTOFF_MINUTE = 5
 DAILY_SCREENING_GROUP = "daily_screening"
@@ -58,6 +63,14 @@ def _merge_stage_payload(primary: dict[str, Any], **extra: Any) -> dict[str, Any
 
 def _make_service() -> DailyScreeningService:
     return DailyScreeningService()
+
+
+def _context_run_tags(context) -> dict[str, Any]:
+    run = getattr(context, "run", None)
+    tags = getattr(run, "tags", None)
+    if isinstance(tags, dict):
+        return dict(tags)
+    return {}
 
 
 def _screening_repository(service: DailyScreeningService):
@@ -206,8 +219,10 @@ def _build_cls_aggregate_asset(dependency_names: list[str]):
 
 
 @asset(group_name=DAILY_SCREENING_GROUP)
-def daily_screening_context() -> dict[str, str]:
-    trade_date = _query_latest_trade_date()
+def daily_screening_context(context=None) -> dict[str, str]:
+    trade_date = str(_context_run_tags(context).get("fq_trade_date") or "").strip()
+    if not trade_date:
+        trade_date = _query_latest_trade_date()
     return {
         "trade_date": trade_date,
         "scope_id": f"trade_date:{trade_date}",
@@ -218,6 +233,11 @@ def daily_screening_context() -> dict[str, str]:
 def daily_screening_upstream_guard(
     daily_screening_context: dict[str, str],
 ) -> dict[str, Any]:
+    trade_date = str(daily_screening_context.get("trade_date") or "").strip()
+    if not has_success_postclose_marker("stock_postclose_ready", trade_date):
+        raise RuntimeError(f"stock_postclose_ready missing for {trade_date}")
+    if not has_success_postclose_marker("gantt_postclose_ready", trade_date):
+        raise RuntimeError(f"gantt_postclose_ready missing for {trade_date}")
     return _merge_stage_payload(daily_screening_context, guard_status="ready")
 
 
@@ -395,17 +415,30 @@ def daily_screening_base_union(
 
 
 @asset(group_name=DAILY_SCREENING_GROUP)
-def daily_screening_flag_near_long_term_ma(
+def daily_screening_market_flags_snapshot(
     daily_screening_base_union: dict[str, Any],
 ) -> dict[str, Any]:
     service = _make_service()
     trade_date = str(daily_screening_base_union.get("trade_date") or "")
-    scope_id = str(daily_screening_base_union.get("scope_id") or "")
+    memberships = service.build_market_flag_memberships(
+        trade_date,
+        list(daily_screening_base_union.get("candidate_codes") or []),
+    )
+    return _merge_stage_payload(
+        daily_screening_base_union,
+        stage="market_flags",
+        memberships=memberships,
+    )
+
+
+@asset(group_name=DAILY_SCREENING_GROUP)
+def daily_screening_flag_near_long_term_ma(
+    daily_screening_market_flags_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    service = _make_service()
+    scope_id = str(daily_screening_market_flags_snapshot.get("scope_id") or "")
     memberships = _filter_memberships_by_condition(
-        service.build_market_flag_memberships(
-            trade_date,
-            list(daily_screening_base_union.get("candidate_codes") or []),
-        ),
+        list(daily_screening_market_flags_snapshot.get("memberships") or []),
         "flag:near_long_term_ma",
     )
     _persist_condition_memberships(
@@ -415,7 +448,7 @@ def daily_screening_flag_near_long_term_ma(
         expected_condition_keys=["flag:near_long_term_ma"],
     )
     return _merge_stage_payload(
-        daily_screening_base_union,
+        daily_screening_market_flags_snapshot,
         stage="flag:near_long_term_ma",
         memberships=memberships,
     )
@@ -423,16 +456,12 @@ def daily_screening_flag_near_long_term_ma(
 
 @asset(group_name=DAILY_SCREENING_GROUP)
 def daily_screening_flag_quality_subject(
-    daily_screening_base_union: dict[str, Any],
+    daily_screening_market_flags_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
     service = _make_service()
-    trade_date = str(daily_screening_base_union.get("trade_date") or "")
-    scope_id = str(daily_screening_base_union.get("scope_id") or "")
+    scope_id = str(daily_screening_market_flags_snapshot.get("scope_id") or "")
     memberships = _filter_memberships_by_condition(
-        service.build_market_flag_memberships(
-            trade_date,
-            list(daily_screening_base_union.get("candidate_codes") or []),
-        ),
+        list(daily_screening_market_flags_snapshot.get("memberships") or []),
         "flag:quality_subject",
     )
     _persist_condition_memberships(
@@ -442,7 +471,7 @@ def daily_screening_flag_quality_subject(
         expected_condition_keys=["flag:quality_subject"],
     )
     return _merge_stage_payload(
-        daily_screening_base_union,
+        daily_screening_market_flags_snapshot,
         stage="flag:quality_subject",
         memberships=memberships,
     )
@@ -450,16 +479,12 @@ def daily_screening_flag_quality_subject(
 
 @asset(group_name=DAILY_SCREENING_GROUP)
 def daily_screening_flag_credit_subject(
-    daily_screening_base_union: dict[str, Any],
+    daily_screening_market_flags_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
     service = _make_service()
-    trade_date = str(daily_screening_base_union.get("trade_date") or "")
-    scope_id = str(daily_screening_base_union.get("scope_id") or "")
+    scope_id = str(daily_screening_market_flags_snapshot.get("scope_id") or "")
     memberships = _filter_memberships_by_condition(
-        service.build_market_flag_memberships(
-            trade_date,
-            list(daily_screening_base_union.get("candidate_codes") or []),
-        ),
+        list(daily_screening_market_flags_snapshot.get("memberships") or []),
         "flag:credit_subject",
     )
     _persist_condition_memberships(
@@ -469,7 +494,7 @@ def daily_screening_flag_credit_subject(
         expected_condition_keys=["flag:credit_subject"],
     )
     return _merge_stage_payload(
-        daily_screening_base_union,
+        daily_screening_market_flags_snapshot,
         stage="flag:credit_subject",
         memberships=memberships,
     )
@@ -586,6 +611,14 @@ def daily_screening_snapshot_assemble(
 def daily_screening_publish_scope(
     daily_screening_snapshot_assemble: dict[str, Any],
 ) -> dict[str, Any]:
+    trade_date = str(daily_screening_snapshot_assemble.get("trade_date") or "").strip()
+    scope_id = str(daily_screening_snapshot_assemble.get("scope_id") or "").strip()
+    upsert_postclose_marker(
+        "daily_screening_ready",
+        trade_date,
+        run_id="",
+        payload={"scope_id": scope_id},
+    )
     return _merge_stage_payload(
         daily_screening_snapshot_assemble,
         stage="publish_scope",

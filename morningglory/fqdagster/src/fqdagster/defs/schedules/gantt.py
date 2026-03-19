@@ -9,5 +9,5 @@ gantt_postclose_schedule = ScheduleDefinition(
     job=job_gantt_postclose,
     cron_schedule="40 16 * * 1-5",
     execution_timezone=cfg.TIME_ZONE,
-    default_status=DefaultScheduleStatus.RUNNING,
+    default_status=DefaultScheduleStatus.STOPPED,
 )
