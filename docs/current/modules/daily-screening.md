@@ -51,6 +51,7 @@
 - `CLS 形态分组`
   - 后端 membership 仍按 `cls:S0001` 到 `cls:S0012` 落库
   - 页面把 12 个模型收敛成 5 个中文分组，组内取并集、和其他条件继续取交集
+  - 正式 `trade_date:<YYYY-MM-DD>` scope 下，CLS 分组数量和分组筛选都基于 `daily_screening_memberships` 中的 `cls:S0001` 到 `cls:S0012` 真值聚合，不依赖快照里的旧 `clxs_models` 字段
   - 分组映射：
     - `二买`
       - `类2买`

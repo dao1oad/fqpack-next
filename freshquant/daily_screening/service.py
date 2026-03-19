@@ -643,7 +643,9 @@ class DailyScreeningService:
             row for row in rows if self._matches_metric_filters(row, metric_filters)
         ]
         filtered_rows = [
-            row for row in rows if self._matches_scope_filters(row, effective_scope_filters)
+            row
+            for row in rows
+            if self._matches_scope_filters(row, effective_scope_filters)
         ]
         return {
             "run_id": scope_ref["scope_id"],
