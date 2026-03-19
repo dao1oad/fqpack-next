@@ -9,6 +9,7 @@ from dagster import asset
 from freshquant.config import cfg
 from freshquant.daily_screening.service import (
     FULL_CLXS_MODEL_OPTS,
+    DEFAULT_CHANLUN_SIGNAL_TYPES,
     DailyScreeningService,
     _resolve_clxs_model_label,
 )
@@ -17,6 +18,14 @@ from freshquant.data.trade_date_hist import tool_trade_date_hist_sina
 POSTCLOSE_CUTOFF_HOUR = 15
 POSTCLOSE_CUTOFF_MINUTE = 5
 DAILY_SCREENING_GROUP = "daily_screening"
+DAILY_SCREENING_CHANLUN_PERIOD_KEYS = [
+    "chanlun_period:30m",
+    "chanlun_period:60m",
+    "chanlun_period:1d",
+]
+DAILY_SCREENING_CHANLUN_SIGNAL_KEYS = [
+    f"chanlun_signal:{signal_type}" for signal_type in DEFAULT_CHANLUN_SIGNAL_TYPES
+]
 
 
 def _query_latest_trade_date() -> str:
@@ -64,6 +73,7 @@ def _persist_condition_memberships(
     *,
     scope_id: str,
     memberships: list[dict[str, Any]],
+    expected_condition_keys: list[str] | None = None,
 ) -> None:
     repository = _screening_repository(service)
     replace_condition_memberships = getattr(
@@ -79,11 +89,16 @@ def _persist_condition_memberships(
         payload = dict(item)
         payload.pop("condition_key", None)
         grouped.setdefault(condition_key, []).append(payload)
-    for condition_key, codes in grouped.items():
+    target_condition_keys = [
+        str(item or "").strip()
+        for item in (expected_condition_keys or grouped.keys())
+        if str(item or "").strip()
+    ]
+    for condition_key in target_condition_keys:
         replace_condition_memberships(
             scope_id=scope_id,
             condition_key=condition_key,
-            codes=codes,
+            codes=grouped.get(condition_key, []),
         )
 
 
@@ -141,6 +156,7 @@ def _build_cls_model_asset(model_opt: int):
             service,
             scope_id=scope_id,
             memberships=memberships,
+            expected_condition_keys=[f"cls:{model_label}"],
         )
         return _merge_stage_payload(
             daily_screening_universe,
@@ -243,7 +259,12 @@ def daily_screening_hot_30(
         days=30,
         candidate_codes=list(daily_screening_universe.get("candidate_codes") or []),
     )
-    _persist_condition_memberships(service, scope_id=scope_id, memberships=memberships)
+    _persist_condition_memberships(
+        service,
+        scope_id=scope_id,
+        memberships=memberships,
+        expected_condition_keys=["hot:30d"],
+    )
     return _merge_stage_payload(
         daily_screening_universe,
         stage="hot:30d",
@@ -263,7 +284,12 @@ def daily_screening_hot_45(
         days=45,
         candidate_codes=list(daily_screening_universe.get("candidate_codes") or []),
     )
-    _persist_condition_memberships(service, scope_id=scope_id, memberships=memberships)
+    _persist_condition_memberships(
+        service,
+        scope_id=scope_id,
+        memberships=memberships,
+        expected_condition_keys=["hot:45d"],
+    )
     return _merge_stage_payload(
         daily_screening_universe,
         stage="hot:45d",
@@ -283,7 +309,12 @@ def daily_screening_hot_60(
         days=60,
         candidate_codes=list(daily_screening_universe.get("candidate_codes") or []),
     )
-    _persist_condition_memberships(service, scope_id=scope_id, memberships=memberships)
+    _persist_condition_memberships(
+        service,
+        scope_id=scope_id,
+        memberships=memberships,
+        expected_condition_keys=["hot:60d"],
+    )
     return _merge_stage_payload(
         daily_screening_universe,
         stage="hot:60d",
@@ -303,7 +334,12 @@ def daily_screening_hot_90(
         days=90,
         candidate_codes=list(daily_screening_universe.get("candidate_codes") or []),
     )
-    _persist_condition_memberships(service, scope_id=scope_id, memberships=memberships)
+    _persist_condition_memberships(
+        service,
+        scope_id=scope_id,
+        memberships=memberships,
+        expected_condition_keys=["hot:90d"],
+    )
     return _merge_stage_payload(
         daily_screening_universe,
         stage="hot:90d",
@@ -338,7 +374,12 @@ def daily_screening_base_union(
         }
         for item in code_rows
     ]
-    _persist_condition_memberships(service, scope_id=scope_id, memberships=memberships)
+    _persist_condition_memberships(
+        service,
+        scope_id=scope_id,
+        memberships=memberships,
+        expected_condition_keys=["base:union"],
+    )
     return _merge_stage_payload(
         daily_screening_cls,
         stage="base:union",
@@ -367,7 +408,12 @@ def daily_screening_flag_near_long_term_ma(
         ),
         "flag:near_long_term_ma",
     )
-    _persist_condition_memberships(service, scope_id=scope_id, memberships=memberships)
+    _persist_condition_memberships(
+        service,
+        scope_id=scope_id,
+        memberships=memberships,
+        expected_condition_keys=["flag:near_long_term_ma"],
+    )
     return _merge_stage_payload(
         daily_screening_base_union,
         stage="flag:near_long_term_ma",
@@ -389,7 +435,12 @@ def daily_screening_flag_quality_subject(
         ),
         "flag:quality_subject",
     )
-    _persist_condition_memberships(service, scope_id=scope_id, memberships=memberships)
+    _persist_condition_memberships(
+        service,
+        scope_id=scope_id,
+        memberships=memberships,
+        expected_condition_keys=["flag:quality_subject"],
+    )
     return _merge_stage_payload(
         daily_screening_base_union,
         stage="flag:quality_subject",
@@ -411,7 +462,12 @@ def daily_screening_flag_credit_subject(
         ),
         "flag:credit_subject",
     )
-    _persist_condition_memberships(service, scope_id=scope_id, memberships=memberships)
+    _persist_condition_memberships(
+        service,
+        scope_id=scope_id,
+        memberships=memberships,
+        expected_condition_keys=["flag:credit_subject"],
+    )
     return _merge_stage_payload(
         daily_screening_base_union,
         stage="flag:credit_subject",
@@ -446,7 +502,15 @@ def daily_screening_chanlun_variants(
         trade_date,
         list(daily_screening_base_union.get("candidate_codes") or []),
     )
-    _persist_condition_memberships(service, scope_id=scope_id, memberships=memberships)
+    _persist_condition_memberships(
+        service,
+        scope_id=scope_id,
+        memberships=memberships,
+        expected_condition_keys=[
+            *DAILY_SCREENING_CHANLUN_PERIOD_KEYS,
+            *DAILY_SCREENING_CHANLUN_SIGNAL_KEYS,
+        ],
+    )
     return _merge_stage_payload(
         daily_screening_base_union,
         stage="chanlun_variants",

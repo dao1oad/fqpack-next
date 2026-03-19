@@ -30,6 +30,11 @@ class DailyScreeningRepository:
                     "name": "daily_screening_memberships_scope_id_code_condition_key",
                     "keys": [("scope_id", 1), ("code", 1), ("condition_key", 1)],
                     "unique": True,
+                    "partial_filter_expression": {
+                        "scope_id": {"$exists": True},
+                        "code": {"$exists": True},
+                        "condition_key": {"$exists": True},
+                    },
                 }
             ],
             "daily_screening_stock_snapshots": [
@@ -37,6 +42,10 @@ class DailyScreeningRepository:
                     "name": "daily_screening_stock_snapshots_scope_id_code",
                     "keys": [("scope_id", 1), ("code", 1)],
                     "unique": True,
+                    "partial_filter_expression": {
+                        "scope_id": {"$exists": True},
+                        "code": {"$exists": True},
+                    },
                 }
             ],
         }
@@ -52,6 +61,10 @@ class DailyScreeningRepository:
                     kwargs["unique"] = bool(spec["unique"])
                 if spec.get("name"):
                     kwargs["name"] = spec["name"]
+                if spec.get("partial_filter_expression"):
+                    kwargs["partialFilterExpression"] = spec[
+                        "partial_filter_expression"
+                    ]
                 collection.create_index(spec["keys"], **kwargs)
 
     def save_run(self, run=None, **document):

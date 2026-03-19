@@ -50,10 +50,19 @@ class SimpleCollection:
 class IndexableCollection(SimpleCollection):
     def __init__(self, name: str, docs: list[dict] | None = None) -> None:
         super().__init__(name, docs)
-        self.created_indexes: list[tuple[list[tuple[str, int]], bool, str | None]] = []
+        self.created_indexes: list[dict] = []
 
-    def create_index(self, keys, unique=False, name=None):
-        self.created_indexes.append((list(keys), bool(unique), name))
+    def create_index(self, keys, **kwargs):
+        self.created_indexes.append(
+            {
+                "keys": list(keys),
+                "unique": bool(kwargs.get("unique", False)),
+                "name": kwargs.get("name"),
+                "partial_filter_expression": kwargs.get(
+                    "partialFilterExpression"
+                ),
+            }
+        )
 
 
 class DistinctableCollection(SimpleCollection):
@@ -441,21 +450,35 @@ def test_repository_ensure_indexes_calls_create_index_with_expected_contract():
     repo.ensure_indexes()
 
     assert repo.runs.created_indexes == [
-        ([("run_id", 1)], True, "daily_screening_runs_run_id")
+        {
+            "keys": [("run_id", 1)],
+            "unique": True,
+            "name": "daily_screening_runs_run_id",
+            "partial_filter_expression": None,
+        }
     ]
     assert repo.memberships.created_indexes == [
-        (
-            [("scope_id", 1), ("code", 1), ("condition_key", 1)],
-            True,
-            "daily_screening_memberships_scope_id_code_condition_key",
-        )
+        {
+            "keys": [("scope_id", 1), ("code", 1), ("condition_key", 1)],
+            "unique": True,
+            "name": "daily_screening_memberships_scope_id_code_condition_key",
+            "partial_filter_expression": {
+                "scope_id": {"$exists": True},
+                "code": {"$exists": True},
+                "condition_key": {"$exists": True},
+            },
+        }
     ]
     assert repo.stock_snapshots.created_indexes == [
-        (
-            [("scope_id", 1), ("code", 1)],
-            True,
-            "daily_screening_stock_snapshots_scope_id_code",
-        )
+        {
+            "keys": [("scope_id", 1), ("code", 1)],
+            "unique": True,
+            "name": "daily_screening_stock_snapshots_scope_id_code",
+            "partial_filter_expression": {
+                "scope_id": {"$exists": True},
+                "code": {"$exists": True},
+            },
+        }
     ]
 
 

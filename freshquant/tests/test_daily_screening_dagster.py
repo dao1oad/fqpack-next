@@ -193,3 +193,97 @@ def test_daily_screening_asset_helper_uses_execution_timezone(monkeypatch):
         "trade_date": "2026-03-18",
         "scope_id": "trade_date:2026-03-18",
     }
+
+
+def test_daily_screening_membership_persistence_clears_expected_empty_condition(
+    monkeypatch,
+):
+    _prepare_fqdagster_import(monkeypatch)
+    assets_module = importlib.import_module("fqdagster.defs.assets.daily_screening")
+    calls = []
+
+    class FakeRepository:
+        def ensure_indexes(self):
+            return None
+
+        def replace_condition_memberships(self, *, scope_id, condition_key, codes):
+            calls.append(
+                {
+                    "scope_id": scope_id,
+                    "condition_key": condition_key,
+                    "codes": list(codes),
+                }
+            )
+
+    fake_service = SimpleNamespace(
+        pipeline_service=SimpleNamespace(repository=FakeRepository())
+    )
+
+    assets_module._persist_condition_memberships(
+        fake_service,
+        scope_id="trade_date:2026-03-18",
+        memberships=[],
+        expected_condition_keys=["flag:near_long_term_ma"],
+    )
+
+    assert calls == [
+        {
+            "scope_id": "trade_date:2026-03-18",
+            "condition_key": "flag:near_long_term_ma",
+            "codes": [],
+        }
+    ]
+
+
+def test_daily_screening_membership_persistence_clears_missing_expected_keys(
+    monkeypatch,
+):
+    _prepare_fqdagster_import(monkeypatch)
+    assets_module = importlib.import_module("fqdagster.defs.assets.daily_screening")
+    calls = []
+
+    class FakeRepository:
+        def ensure_indexes(self):
+            return None
+
+        def replace_condition_memberships(self, *, scope_id, condition_key, codes):
+            calls.append(
+                {
+                    "scope_id": scope_id,
+                    "condition_key": condition_key,
+                    "codes": list(codes),
+                }
+            )
+
+    fake_service = SimpleNamespace(
+        pipeline_service=SimpleNamespace(repository=FakeRepository())
+    )
+
+    assets_module._persist_condition_memberships(
+        fake_service,
+        scope_id="trade_date:2026-03-18",
+        memberships=[
+            {
+                "condition_key": "chanlun_signal:buy_zs_huila",
+                "code": "000001",
+                "name": "alpha",
+            }
+        ],
+        expected_condition_keys=[
+            "chanlun_signal:buy_zs_huila",
+            "chanlun_signal:sell_zs_huila",
+        ],
+    )
+
+    assert calls == [
+        {
+            "scope_id": "trade_date:2026-03-18",
+            "condition_key": "chanlun_signal:buy_zs_huila",
+            "codes": [{"code": "000001", "name": "alpha"}],
+        },
+        {
+            "scope_id": "trade_date:2026-03-18",
+            "condition_key": "chanlun_signal:sell_zs_huila",
+            "codes": [],
+        },
+    ]
