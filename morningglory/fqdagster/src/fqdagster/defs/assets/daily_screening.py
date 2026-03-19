@@ -7,12 +7,10 @@ from typing import Any, cast
 from dagster import asset
 
 from freshquant.config import cfg
-from freshquant.daily_screening.service import (
-    FULL_CLXS_MODEL_OPTS,
-    DEFAULT_CHANLUN_SIGNAL_TYPES,
-    DailyScreeningService,
-    _resolve_clxs_model_label,
-)
+from freshquant.daily_screening.service import (DEFAULT_CHANLUN_SIGNAL_TYPES,
+                                                FULL_CLXS_MODEL_OPTS,
+                                                DailyScreeningService,
+                                                _resolve_clxs_model_label)
 from freshquant.data.trade_date_hist import tool_trade_date_hist_sina
 
 POSTCLOSE_CUTOFF_HOUR = 15

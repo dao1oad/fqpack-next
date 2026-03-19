@@ -350,9 +350,7 @@ class DailyScreeningRepository:
         }
         return mapping[collection_name]
 
-    def _named_index_requires_rebuild(
-        self, collection, spec: dict[str, Any]
-    ) -> bool:
+    def _named_index_requires_rebuild(self, collection, spec: dict[str, Any]) -> bool:
         index_name = str(spec.get("name") or "").strip()
         if (
             not index_name
@@ -381,9 +379,7 @@ class DailyScreeningRepository:
             "partialFilterExpression": index_info.get("partialFilterExpression"),
         }
 
-    def _is_named_index_conflict(
-        self, exc: Exception, spec: dict[str, Any]
-    ) -> bool:
+    def _is_named_index_conflict(self, exc: Exception, spec: dict[str, Any]) -> bool:
         if not isinstance(exc, OperationFailure):
             return False
         index_name = str(spec.get("name") or "").strip()
