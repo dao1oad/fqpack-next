@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 
 import {
   buildDailyScreeningAppendPrePoolPayload,
@@ -213,4 +214,12 @@ test('buildDailyScreeningWorkspaceTabs reuses shared workspace tab structure', (
   assert.equal(tabs[0].rows[0].provider, 'daily_screening')
   assert.equal(tabs[1].label, 'stock_pools')
   assert.equal(tabs[1].rows[0].primary_action_label, '加入 must_pools')
+})
+
+test('DailyScreening.vue keeps the left filter workbench scrollable at full browser zoom', async () => {
+  const content = await readFile(new URL('./DailyScreening.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /\.daily-screening-grid\s*\{[\s\S]*min-height:\s*0;/)
+  assert.match(content, /\.daily-filter-panel,\s*[\s\S]*\.daily-center-stack,\s*[\s\S]*\.daily-detail-stack\s*\{[\s\S]*min-height:\s*0;/)
+  assert.match(content, /\.daily-filter-panel\s*\{[\s\S]*overflow-y:\s*auto;/)
 })

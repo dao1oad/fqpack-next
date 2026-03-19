@@ -1018,15 +1018,24 @@ onMounted(async () => {
 
 .daily-screening-grid {
   display: grid;
+  flex: 1 1 auto;
   grid-template-columns: 360px minmax(520px, 1fr) 420px;
   gap: 16px;
-  align-items: start;
+  min-height: 0;
+  overflow: hidden;
+  align-items: stretch;
 }
 
 .daily-filter-panel,
 .daily-center-stack,
 .daily-detail-stack {
-  min-height: 240px;
+  min-height: 0;
+  max-height: 100%;
+}
+
+.daily-filter-panel {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .daily-center-stack {

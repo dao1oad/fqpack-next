@@ -28,12 +28,6 @@
                 <el-radio-button label="events">组件 Event</el-radio-button>
               </el-radio-group>
               <el-switch
-                v-model="autoRefresh"
-                inline-prompt
-                active-text="自动刷新"
-                inactive-text="手动"
-              />
-              <el-switch
                 v-model="onlyIssues"
                 inline-prompt
                 active-text="仅异常"
@@ -935,7 +929,7 @@ const selectedStep = ref(null)
 const selectedEvent = ref(null)
 const activeView = ref('traces')
 const onlyIssues = ref(false)
-const autoRefresh = ref(false)
+const autoRefresh = ref(true)
 const advancedFilterVisible = ref(false)
 const selectedTraceKind = ref('')
 const activeTraceDetailTab = ref('steps')
@@ -2159,6 +2153,7 @@ watch(autoRefresh, () => {
 })
 
 onMounted(() => {
+  resetOverviewTimer()
   loadOverview()
 })
 

@@ -328,6 +328,13 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
   await page.goto(TARGET_URL)
 
   await expect(page.locator('.workbench-page-title').getByText('每日选股')).toBeVisible()
+  const filterPanelMetrics = await page.locator('.daily-filter-panel').evaluate((element) => ({
+    overflowY: window.getComputedStyle(element).overflowY,
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+  }))
+  expect(filterPanelMetrics.overflowY).toBe('auto')
+  expect(filterPanelMetrics.scrollHeight).toBeGreaterThan(filterPanelMetrics.clientHeight)
   await expect(page.getByText('前端只做组合查询，不再触发运行，不再展示 SSE。')).toBeVisible()
   await expect(page.getByText('上游范围：全市场股票，排除 ST 和北交所')).toBeVisible()
   await expect(page.getByText('基础池：CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成')).toBeVisible()
