@@ -38,6 +38,7 @@ import {
   filterTraceSteps,
   formatTimestampLabel,
   formatDurationMs,
+  formatTimeRangeLabel,
   groupStepsByComponent,
   hasMatchingRawSelection,
   pickDefaultSidebarComponent,
@@ -237,6 +238,14 @@ test('buildTodayTimeRange returns current Beijing day bounds', () => {
       end_time: '2026-03-18T23:59:59+08:00',
     },
   )
+})
+
+test('formatTimeRangeLabel surfaces the selected display range with absolute timestamps', () => {
+  assert.equal(
+    formatTimeRangeLabel(['2026-03-18T00:00:00+08:00', '2026-03-18T23:59:59+08:00']),
+    '2026-03-18 00:00:00 至 2026-03-18 23:59:59',
+  )
+  assert.equal(formatTimeRangeLabel([]), '')
 })
 
 test('buildBoardScopedQuery merges sidebar filter into event query without mutating the base query', () => {
@@ -556,6 +565,92 @@ test('buildComponentEventFeed keeps heartbeat and bootstrap events for component
       display: 'yes',
     },
   )
+})
+
+test('buildComponentEventFeed hydrates event detail fields and guardian insight for component inspector', () => {
+  const feed = buildComponentEventFeed(
+    [
+      {
+        component: 'guardian_strategy',
+        runtime_node: 'host:guardian',
+        node: 'price_threshold_check',
+        event_type: 'trace_step',
+        status: 'skipped',
+        ts: '2026-03-09T10:00:01+08:00',
+        trace_id: 'trc_guardian_evt',
+        request_id: 'req_guardian_evt',
+        intent_id: 'intent_guardian_evt',
+        signal_summary: {
+          code: '000001',
+          name: 'Ping An Bank',
+          position: 'BUY_LONG',
+          period: '1m',
+          price: 9.8,
+        },
+        decision_branch: 'holding_add_threshold',
+        decision_expr: 'current_price <= bot_river_price',
+        reason_code: 'price_threshold_not_met',
+        decision_context: {
+          threshold: {
+            current_price: 9.8,
+            bot_river_price: 9.5,
+          },
+        },
+        payload: {
+          action: 'BUY',
+        },
+      },
+    ],
+    {
+      component: 'guardian_strategy',
+    },
+  )
+
+  assert.equal(feed.length, 1)
+  assert.equal(feed[0].symbol_display, '000001 / Ping An Bank')
+  assert.equal(feed[0].identity, 'trace trc_guardian_evt')
+  assert.equal(feed[0].is_issue, true)
+  assert.equal(feed[0].guardian_step?.node_label, '价格阈值判断')
+  assert.equal(feed[0].guardian_step?.signal?.title, '000001 Ping An Bank')
+  assert.equal(feed[0].guardian_step?.outcome?.reason_code, 'price_threshold_not_met')
+  assert.deepEqual(
+    feed[0].detail_fields.map((item) => [item.key, item.value]),
+    [
+      ['trace_id', 'trc_guardian_evt'],
+      ['intent_id', 'intent_guardian_evt'],
+      ['request_id', 'req_guardian_evt'],
+      ['symbol', '000001'],
+      ['action', 'BUY'],
+    ],
+  )
+})
+
+test('buildComponentEventFeed recovers symbol display from nested payload fields when top-level symbol is absent', () => {
+  const feed = buildComponentEventFeed(
+    [
+      {
+        component: 'order_submit',
+        runtime_node: 'host:rear',
+        node: 'submit_intent',
+        event_type: 'trace_step',
+        status: 'success',
+        ts: '2026-03-09T10:00:02+08:00',
+        payload: {
+          symbol: '600000',
+          symbol_name: '浦发银行',
+          quantity: 300,
+        },
+      },
+    ],
+    {
+      component: 'order_submit',
+    },
+  )
+
+  assert.equal(feed.length, 1)
+  assert.equal(feed[0].symbol, '600000')
+  assert.equal(feed[0].symbol_name, '浦发银行')
+  assert.equal(feed[0].symbol_display, '600000 / 浦发银行')
 })
 
 test('buildIdentityStrip preserves all strong ids without dropping symbol and trace metadata', () => {
@@ -932,6 +1027,27 @@ test('RuntimeObservability.vue requests explicit symbol-name enrichment for trac
   assert.match(content, /runtimeObservabilityApi\.listTraces\(\{[\s\S]*include_symbol_name:\s*1[\s\S]*\}\)/)
   assert.match(content, /const params = \{[\s\S]*buildEventRequestParams\(\)[\s\S]*include_symbol_name:\s*1[\s\S]*\}/)
   assert.match(content, /value: selectedEvent\.value\?\.symbol_display/)
+})
+
+test('RuntimeObservability.vue surfaces the selected time range as a visible summary chip', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /formatTimeRangeLabel/)
+  assert.match(content, /const timeRangeDisplayLabel = computed\(\(\) => formatTimeRangeLabel\(timeRange\.value\)\)/)
+  assert.match(content, /展示范围 <strong>{{ timeRangeDisplayLabel }}<\/strong>/)
+})
+
+test('RuntimeObservability.vue enriches component event detail with decision fields guardian signal and context sections', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<section class="detail-ledger-section">\s*<div class="detail-ledger-section__title">事件摘要<\/div>/)
+  assert.match(content, /<section v-if="eventDecisionRows\.length \|\| eventDetailFieldRows\.length" class="detail-ledger-section">/)
+  assert.match(content, /<div class="detail-ledger-section__title">判断与关联字段<\/div>/)
+  assert.match(content, /<section v-if="selectedEvent\?\.guardian_step && eventGuardianRows\.length" class="detail-ledger-section">/)
+  assert.match(content, /<section v-if="selectedEvent\?\.guardian_step && eventSignalRows\.length" class="detail-ledger-section">/)
+  assert.match(content, /<section v-if="eventContextRows\.length" class="detail-ledger-section detail-ledger-section--full">/)
+  assert.match(content, /<div class="detail-ledger-section__title">上下文<\/div>/)
+  assert.match(content, /<div class="detail-ledger-section__title">Payload \/ Metrics<\/div>/)
 })
 
 test('buildRecentTraceFeed exposes flow nodes with guardian decision detail and generic fallback summary', () => {

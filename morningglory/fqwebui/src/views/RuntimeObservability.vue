@@ -64,6 +64,9 @@
           <span class="workbench-summary-chip workbench-summary-chip--danger">
             异常节点 <strong>{{ traceListSummary.issue_step_count }}</strong>
           </span>
+          <span v-if="timeRangeDisplayLabel" class="workbench-summary-chip workbench-summary-chip--muted">
+            展示范围 <strong>{{ timeRangeDisplayLabel }}</strong>
+          </span>
           <div class="runtime-filter-chips">
             <button
               v-for="chip in filterChips"
@@ -614,35 +617,19 @@
                   </el-tabs>
 
                 <section v-show="activeEventDetailTab === 'event'" class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
-                  <div class="detail-pane-grid">
+                  <div class="detail-pane-grid detail-pane-grid--step">
                     <section class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">事件元数据</div>
+                      <div class="detail-ledger-section__title">事件摘要</div>
                       <table class="detail-kv-table">
                         <tbody>
                           <tr v-for="row in eventMetaRows" :key="`event-meta-${row.key}`">
                             <th>{{ row.label }}</th>
                             <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
                           </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">摘要与标签</div>
-                      <table class="detail-kv-table">
-                        <tbody>
                           <tr v-for="row in eventSummaryRows" :key="`event-summary-${row.key}`">
                             <th>{{ row.label }}</th>
                             <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
                           </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section v-if="eventMetricRows.length" class="detail-ledger-section detail-ledger-section--full">
-                      <div class="detail-ledger-section__title">Metrics 摘要</div>
-                      <table class="detail-kv-table detail-kv-table--full">
-                        <tbody>
                           <tr v-for="row in eventMetricRows" :key="`event-metric-${row.key}`">
                             <th>{{ row.label }}</th>
                             <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
@@ -650,6 +637,103 @@
                         </tbody>
                       </table>
                     </section>
+
+                    <section v-if="eventDecisionRows.length || eventDetailFieldRows.length" class="detail-ledger-section">
+                      <div class="detail-ledger-section__title">判断与关联字段</div>
+                      <table class="detail-kv-table">
+                        <tbody>
+                          <tr v-for="row in eventDecisionRows" :key="`event-decision-${row.key}`">
+                            <th>{{ row.label }}</th>
+                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                          </tr>
+                          <tr v-for="row in eventDetailFieldRows" :key="`event-field-${row.key}`">
+                            <th>{{ row.label }}</th>
+                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </section>
+
+                    <section v-if="selectedEvent?.guardian_step && eventGuardianRows.length" class="detail-ledger-section">
+                      <div class="detail-ledger-section__title">Guardian 判断</div>
+                      <table class="detail-kv-table">
+                        <tbody>
+                          <tr v-for="row in eventGuardianRows" :key="`event-guardian-${row.key}`">
+                            <th>{{ row.label }}</th>
+                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </section>
+
+                    <section v-if="selectedEvent?.guardian_step && eventSignalRows.length" class="detail-ledger-section">
+                      <div class="detail-ledger-section__title">Guardian 信号</div>
+                      <table class="detail-kv-table">
+                        <tbody>
+                          <tr v-for="row in eventSignalRows" :key="`event-signal-${row.key}`">
+                            <th>{{ row.label }}</th>
+                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </section>
+
+                    <section v-if="eventContextRows.length" class="detail-ledger-section detail-ledger-section--full">
+                      <div class="detail-ledger-section__title">上下文</div>
+                      <table class="detail-kv-table detail-kv-table--full">
+                        <tbody>
+                          <tr v-for="row in eventContextRows" :key="`event-context-${row.key}`">
+                            <th>{{ row.label }}</th>
+                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </section>
+
+                    <section class="detail-ledger-section detail-ledger-section--full">
+                      <div class="detail-ledger-section__title">Payload / Metrics</div>
+                      <div class="detail-pane-grid detail-pane-grid--nested">
+                        <table class="detail-kv-table">
+                          <tbody>
+                            <tr v-if="!eventPayloadRows.length">
+                              <th>payload</th>
+                              <td>-</td>
+                            </tr>
+                            <tr v-for="row in eventPayloadRows" :key="`event-payload-inline-${row.key}`">
+                              <th>{{ row.label }}</th>
+                              <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        <table class="detail-kv-table">
+                          <tbody>
+                            <tr v-if="!eventMetricsRows.length">
+                              <th>metrics</th>
+                              <td>-</td>
+                            </tr>
+                            <tr v-for="row in eventMetricsRows" :key="`event-metrics-inline-${row.key}`">
+                              <th>{{ row.label }}</th>
+                              <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw">
+                        <section v-if="selectedEvent.payload_text" class="detail-json-section">
+                          <div class="detail-ledger-section__title">Payload JSON</div>
+                          <pre class="detail-json-view">{{ selectedEvent.payload_text }}</pre>
+                        </section>
+
+                        <section v-if="selectedEvent.metrics_text" class="detail-json-section">
+                          <div class="detail-ledger-section__title">Metrics JSON</div>
+                          <pre class="detail-json-view">{{ selectedEvent.metrics_text }}</pre>
+                        </section>
+                      </div>
+                    </section>
+                  </div>
+                  <div class="step-inspector-actions">
+                    <el-button type="primary" plain @click="openRawFromStep(selectedEvent)">查看 Raw</el-button>
+                    <el-button text @click="copyText(buildEventCopyText(selectedEvent))">复制事件摘要</el-button>
                   </div>
                 </section>
 
@@ -802,6 +886,7 @@ import {
   buildEventLedgerRows,
   buildComponentSidebarItems,
   buildTodayTimeRange,
+  formatTimeRangeLabel,
   buildTimeRangeQuery,
   buildIssuePriorityCards,
   buildTraceKindOptions,
@@ -1012,6 +1097,7 @@ const buildEventRequestKey = () => JSON.stringify({
   ...buildEventRequestParams(),
   include_symbol_name: 1,
 })
+const timeRangeDisplayLabel = computed(() => formatTimeRangeLabel(timeRange.value))
 
 const hydratedTraces = computed(() => traces.value.map((trace) => buildTraceDetail(trace)))
 const visibleTraces = computed(() => {
@@ -1505,6 +1591,12 @@ const eventSummaryRows = computed(() =>
       always: true,
     },
     {
+      key: 'message',
+      label: '消息',
+      value: selectedEvent.value?.message,
+      always: true,
+    },
+    {
       key: 'metrics_summary',
       label: 'Metrics',
       value: (selectedEvent.value?.summary_metrics || []).map((metric) => `${metric.label} ${metric.display}`),
@@ -1521,6 +1613,101 @@ const eventMetricRows = computed(() =>
     })),
   ),
 )
+const eventDecisionRows = computed(() =>
+  buildDetailRows([
+    {
+      key: 'decision_outcome',
+      label: '判断结果',
+      value:
+        selectedEvent.value?.guardian_step?.outcome?.label ||
+        selectedEvent.value?.decision_outcome?.label ||
+        selectedEvent.value?.decision_outcome?.outcome,
+      always: true,
+    },
+    ...((selectedEvent.value?.tags || []).map((tag) => ({
+      key: `decision-${tag.key}`,
+      label: tag.label,
+      value: tag.value,
+    }))),
+  ]),
+)
+const eventDetailFieldRows = computed(() =>
+  buildDetailRows(
+    (selectedEvent.value?.detail_fields || []).map((field) => ({
+      key: field.key,
+      label: field.key,
+      value: field.value,
+      mono: true,
+    })),
+  ),
+)
+const eventGuardianRows = computed(() =>
+  buildDetailRows([
+    {
+      key: 'guardian_node',
+      label: 'Guardian 节点',
+      value: selectedEvent.value?.guardian_step?.node_label,
+      always: true,
+    },
+    {
+      key: 'guardian_outcome',
+      label: '判断结果',
+      value: selectedEvent.value?.guardian_step?.outcome?.label,
+      always: true,
+    },
+    {
+      key: 'guardian_branch',
+      label: '分支',
+      value: selectedEvent.value?.guardian_step?.outcome?.branch,
+      always: true,
+    },
+    {
+      key: 'guardian_reason',
+      label: '原因',
+      value: selectedEvent.value?.guardian_step?.outcome?.reason_code,
+      always: true,
+    },
+    {
+      key: 'guardian_expr',
+      label: '条件',
+      value: selectedEvent.value?.guardian_step?.outcome?.expr,
+      always: true,
+    },
+  ]),
+)
+const eventSignalRows = computed(() =>
+  buildDetailRows([
+    {
+      key: 'signal_title',
+      label: '信号',
+      value: selectedEvent.value?.guardian_step?.signal?.title,
+      always: true,
+    },
+    {
+      key: 'signal_subtitle',
+      label: '摘要',
+      value: selectedEvent.value?.guardian_step?.signal?.subtitle,
+      always: true,
+    },
+    {
+      key: 'signal_tags',
+      label: '标签',
+      value: selectedEvent.value?.guardian_step?.signal?.tags || [],
+      always: true,
+    },
+    ...((selectedEvent.value?.guardian_step?.signal?.items || []).map((item) => ({
+      key: `signal-${item.key}`,
+      label: item.label,
+      value: item.value,
+    }))),
+  ]),
+)
+const eventContextRows = computed(() => {
+  if (selectedEvent.value?.guardian_step?.context_blocks?.length) {
+    return buildContextRows(selectedEvent.value.guardian_step.context_blocks)
+  }
+  return buildStructuredRows(selectedEvent.value?.decision_context_text, 'context')
+})
 const eventPayloadRows = computed(() => buildStructuredRows(selectedEvent.value?.payload_text, 'payload'))
 const eventMetricsRows = computed(() => buildStructuredRows(selectedEvent.value?.metrics_text, 'metrics'))
 const embeddedRawLedgerRows = computed(() =>

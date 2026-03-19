@@ -126,6 +126,7 @@ const GUARDIAN_CONTEXT_LABELS = {
 const BEIJING_TIMEZONE = 'Asia/Shanghai'
 const BEIJING_OFFSET_SUFFIX = '+08:00'
 const TRACE_DETAIL_MARKER = '__fq_trace_detail'
+const EVENT_DETAIL_MARKER = '__fq_event_detail'
 const TIMESTAMP_LABEL_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
   timeZone: BEIJING_TIMEZONE,
   year: 'numeric',
@@ -151,6 +152,15 @@ const TRACE_SYMBOL_NAME_FIELDS = [
   'code_name',
   'name',
 ]
+const TRACE_SYMBOL_FIELDS = [
+  'symbol',
+  'code',
+  'stock_code',
+  'security_code',
+  'ticker',
+  'instrument',
+  'instrument_id',
+]
 
 const resolveComponentLabel = (component) => {
   const normalized = toText(component)
@@ -166,13 +176,31 @@ const resolveNodeLabel = (component, node) => {
   return COMMON_NODE_LABELS[normalizedNode] || normalizedNode || '事件'
 }
 
-const resolveSymbolNameFromRecord = (record = {}) => {
-  for (const key of TRACE_SYMBOL_NAME_FIELDS) {
-    const value = toText(record?.[key])
-    if (value) return value
+const buildSymbolLookupCandidates = (record = {}) => [
+  record,
+  record?.payload,
+  record?.signal_summary,
+  record?.payload?.signal_summary,
+  record?.metrics,
+]
+
+const resolveSymbolFromRecord = (record = {}) => {
+  for (const candidate of buildSymbolLookupCandidates(record)) {
+    for (const key of TRACE_SYMBOL_FIELDS) {
+      const value = toText(candidate?.[key])
+      if (value) return value
+    }
   }
-  const signalSummaryName = toText(record?.signal_summary?.name)
-  if (signalSummaryName) return signalSummaryName
+  return ''
+}
+
+const resolveSymbolNameFromRecord = (record = {}) => {
+  for (const candidate of buildSymbolLookupCandidates(record)) {
+    for (const key of TRACE_SYMBOL_NAME_FIELDS) {
+      const value = toText(candidate?.[key])
+      if (value) return value
+    }
+  }
   return ''
 }
 
@@ -237,6 +265,14 @@ export const formatTimestampLabel = (value) => {
       .map((item) => [item.type, item.value]),
   )
   return `${formatted.year}-${formatted.month}-${formatted.day} ${formatted.hour}:${formatted.minute}:${formatted.second}`
+}
+
+export const formatTimeRangeLabel = (timeRange = []) => {
+  const [startTime, endTime] = Array.isArray(timeRange) ? timeRange : []
+  const startLabel = formatTimestampLabel(startTime)
+  const endLabel = formatTimestampLabel(endTime)
+  if (!startLabel || !endLabel) return ''
+  return `${startLabel} 至 ${endLabel}`
 }
 
 export const formatDurationMs = (value) => {
@@ -563,6 +599,78 @@ const buildEventBadges = (event = {}) => {
     badges.push(`${label} ${value}`)
   }
   return badges
+}
+
+const resolveDetailFieldValue = (record = {}, key) => {
+  if (key === 'symbol') return resolveSymbolFromRecord(record)
+  if (key === 'action') return toText(record?.action) || toText(record?.payload?.action)
+  return toText(record?.[key])
+}
+
+const buildDetailFields = (record = {}) => {
+  return DETAIL_FIELDS
+    .map((key) => ({
+      key,
+      value: resolveDetailFieldValue(record, key),
+    }))
+    .filter((item) => item.value)
+}
+
+const buildEventIdentity = (event = {}) => {
+  return (
+    buildCompactIdentityLabel(event) ||
+    [
+      normalizeRuntimeNode(event?.runtime_node),
+      toText(event?.component),
+      toText(event?.node),
+    ].filter(Boolean).join(' · ') ||
+    '-'
+  )
+}
+
+const hydrateRuntimeEvent = (event = {}, index = 0) => {
+  if (event && event[EVENT_DETAIL_MARKER]) return event
+  const component = toText(event?.component) || 'runtime'
+  const runtimeNode = normalizeRuntimeNode(event?.runtime_node)
+  const node = toText(event?.node) || 'event'
+  const status = toText(event?.status) || 'info'
+  const symbol = resolveSymbolFromRecord(event)
+  const symbolName = resolveSymbolNameFromRecord(event)
+  const normalizedEvent = {
+    ...event,
+    [EVENT_DETAIL_MARKER]: true,
+    key: [
+      component,
+      runtimeNode,
+      node,
+      toText(event?.ts),
+      index,
+    ].join('|'),
+    component,
+    runtime_node: runtimeNode,
+    node,
+    event_type: toText(event?.event_type) || 'trace_step',
+    status,
+    ts: toText(event?.ts) || '',
+    ts_label: formatTimestampLabel(event?.ts),
+    symbol,
+    symbol_name: symbolName,
+    symbol_display: buildSymbolDisplay(symbol, symbolName),
+    summary_metrics: buildHealthHighlights(event?.metrics || {}),
+  }
+  return {
+    ...normalizedEvent,
+    identity: buildEventIdentity(normalizedEvent),
+    badges: buildEventBadges(normalizedEvent),
+    summary: buildEventSummary(normalizedEvent),
+    payload_text: buildJsonBlock(event?.payload),
+    metrics_text: buildJsonBlock(event?.metrics),
+    decision_context_text: buildJsonBlock(event?.decision_context),
+    detail_fields: buildDetailFields(normalizedEvent),
+    tags: buildStepTags(event),
+    guardian_step: buildGuardianStepInsight(normalizedEvent),
+    is_issue: ISSUE_STATUSES.has(status.toLowerCase()),
+  }
 }
 
 const buildStepOutcomeLabel = (step = {}) => {
@@ -937,30 +1045,33 @@ const buildEventMetricsSummary = (event = {}) => {
 }
 
 export const buildEventLedgerRows = (events = []) => {
-  return normalizeEvents(events).map((event, index) => ({
-    event_key: [
-      toText(event?.ts),
-      normalizeRuntimeNode(event?.runtime_node),
-      toText(event?.component),
-      toText(event?.node),
-      index,
-    ].join('|'),
-    ts: toText(event?.ts),
-    ts_label: formatTimestampLabel(event?.ts),
-    runtime_node: normalizeRuntimeNode(event?.runtime_node),
-    runtime_node_label: normalizeRuntimeNode(event?.runtime_node),
-    component: toText(event?.component) || 'runtime',
-    component_label: resolveComponentLabel(event?.component),
-    node: toText(event?.node) || 'event',
-    node_label: resolveNodeLabel(event?.component, event?.node),
-    status: toText(event?.status) || 'info',
-    symbol: toText(event?.symbol),
-    symbol_name: resolveSymbolNameFromRecord(event),
-    symbol_display: buildSymbolDisplay(toText(event?.symbol), resolveSymbolNameFromRecord(event)),
-    summary: buildEventSummary(event),
-    metrics_summary: buildEventMetricsSummary(event),
-    is_issue: ISSUE_STATUSES.has(toText(event?.status).toLowerCase()),
-  }))
+  return normalizeEvents(events).map((event, index) => {
+    const detail = hydrateRuntimeEvent(event, index)
+    return {
+      event_key: [
+        detail.ts,
+        detail.runtime_node,
+        detail.component,
+        detail.node,
+        index,
+      ].join('|'),
+      ts: detail.ts,
+      ts_label: detail.ts_label,
+      runtime_node: detail.runtime_node,
+      runtime_node_label: detail.runtime_node,
+      component: detail.component,
+      component_label: resolveComponentLabel(detail.component),
+      node: detail.node,
+      node_label: resolveNodeLabel(detail.component, detail.node),
+      status: detail.status,
+      symbol: detail.symbol,
+      symbol_name: detail.symbol_name,
+      symbol_display: detail.symbol_display,
+      summary: detail.summary,
+      metrics_summary: buildEventMetricsSummary(detail),
+      is_issue: detail.is_issue,
+    }
+  })
 }
 
 export const buildComponentEventFeed = (events = [], options = {}) => {
@@ -977,28 +1088,7 @@ export const buildComponentEventFeed = (events = [], options = {}) => {
     })
     .sort((left, right) => toText(right?.ts).localeCompare(toText(left?.ts)))
     .slice(0, limit)
-    .map((event, index) => ({
-      ...event,
-      key: [
-        toText(event?.component),
-        toText(event?.runtime_node),
-        toText(event?.node),
-        toText(event?.ts),
-        index,
-      ].join('|'),
-      component: toText(event?.component) || 'runtime',
-      runtime_node: normalizeRuntimeNode(event?.runtime_node),
-      node: toText(event?.node) || 'event',
-      event_type: toText(event?.event_type) || 'trace_step',
-      status: toText(event?.status) || 'info',
-      ts: toText(event?.ts) || '',
-      ts_label: formatTimestampLabel(event?.ts),
-      badges: buildEventBadges(event),
-      summary: toText(event?.message) || summarizeInlineValue(event?.payload) || summarizeInlineValue(event?.metrics),
-      summary_metrics: buildHealthHighlights(event?.metrics || {}),
-      payload_text: buildJsonBlock(event?.payload),
-      metrics_text: buildJsonBlock(event?.metrics),
-    }))
+    .map((event, index) => hydrateRuntimeEvent(event, index))
 }
 
 export const findTraceByRow = (traces = [], row = {}) => {
@@ -1128,12 +1218,7 @@ export const buildTraceDetail = (trace = {}) => {
       : explicitDeltaFromPrevMs
     if (tsMs !== null) previousTsMs = tsMs
     const status = toText(step?.status) || 'info'
-    const detailFields = DETAIL_FIELDS
-      .map((key) => ({
-        key,
-        value: toText(step?.[key]),
-      }))
-      .filter((item) => item.value)
+    const detailFields = buildDetailFields(step)
     return {
       ...step,
       index,
