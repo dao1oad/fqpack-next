@@ -52,6 +52,8 @@ SURFACE_PROGRAMS = {
 
 SURFACE_MIN_TIMEOUT_SECONDS = {
     "market_data": 180.0,
+    "tpsl": 90.0,
+    "order_management": 120.0,
 }
 
 
@@ -260,51 +262,129 @@ def restart_programs(
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
+    result_lookup: dict[str, dict[str, object]] = {}
+    errors: dict[str, str] = {}
+
     for program in programs:
         before = get_process_info(server, program)
         before_state = str(before.get("statename", "")).upper()
-        if before_state == "RUNNING":
-            server.supervisor.stopProcess(program, True)
-            wait_for_state(server, program, "STOPPED", timeout_seconds=timeout_seconds)
-        after: dict[str, object] | None = None
-        for attempt in range(2):
-            server.supervisor.startProcess(program, False)
-            try:
-                after = wait_for_state(
-                    server, program, "RUNNING", timeout_seconds=timeout_seconds
+        result_entry = {
+            "name": program,
+            "before_state": before.get("statename"),
+            "after_state": before.get("statename"),
+            "pid": before.get("pid"),
+        }
+
+        try:
+            if before_state == "RUNNING":
+                server.supervisor.stopProcess(program, True)
+                wait_for_state(
+                    server, program, "STOPPED", timeout_seconds=timeout_seconds
                 )
-                break
-            except RuntimeError:
+
+            after: dict[str, object] | None = None
+            last_error: RuntimeError | None = None
+            for attempt in range(2):
+                server.supervisor.startProcess(program, False)
+                try:
+                    after = wait_for_state(
+                        server, program, "RUNNING", timeout_seconds=timeout_seconds
+                    )
+                    break
+                except RuntimeError as exc:
+                    last_error = exc
+                    settled = get_process_info(server, program)
+                    latest_state = str(settled.get("statename", "")).upper()
+                    try:
+                        settled_infos = wait_for_programs_settled(
+                            server,
+                            [program],
+                            timeout_seconds=min(timeout_seconds, 15.0),
+                            settle_seconds=2.0,
+                            poll_interval_seconds=1.0,
+                        )
+                        settled = settled_infos[program]
+                        latest_state = str(settled.get("statename", "")).upper()
+                    except RuntimeError:
+                        pass
+
+                    if latest_state == "RUNNING":
+                        after = settled
+                        break
+                    if attempt >= 1 or latest_state not in RETRYABLE_START_STATES:
+                        break
+
+            if after is None:
                 latest = get_process_info(server, program)
                 latest_state = str(latest.get("statename", "")).upper()
-                if attempt >= 1 or latest_state not in RETRYABLE_START_STATES:
-                    raise
-                settled = latest
-                try:
-                    settled_infos = wait_for_programs_settled(
-                        server,
-                        [program],
-                        timeout_seconds=min(timeout_seconds, 15.0),
-                        settle_seconds=2.0,
-                        poll_interval_seconds=1.0,
-                    )
-                    settled = settled_infos[program]
-                    latest_state = str(settled.get("statename", "")).upper()
-                except RuntimeError:
-                    pass
-                if latest_state == "RUNNING":
-                    after = settled
-                    break
-        if after is None:
-            raise RuntimeError(f"Program {program} did not reach RUNNING after retry")
-        results.append(
-            {
-                "name": program,
-                "before_state": before.get("statename"),
-                "after_state": after.get("statename"),
-                "pid": after.get("pid"),
-            }
+                error_message = (
+                    str(last_error)
+                    if last_error is not None
+                    else f"Program {program} did not reach RUNNING after retry"
+                )
+                errors[program] = error_message
+                result_entry["after_state"] = latest.get("statename")
+                result_entry["pid"] = latest.get("pid")
+            else:
+                result_entry["after_state"] = after.get("statename")
+                result_entry["pid"] = after.get("pid")
+        except Exception as exc:
+            latest = get_process_info(server, program)
+            errors[program] = str(exc)
+            result_entry["after_state"] = latest.get("statename")
+            result_entry["pid"] = latest.get("pid")
+
+        results.append(result_entry)
+        result_lookup[program] = result_entry
+
+    if not errors and len(programs) == 1:
+        return results
+
+    settled_infos: dict[str, dict[str, object]] | None = None
+    settle_error: str | None = None
+    if len(programs) > 1 or errors:
+        try:
+            settled_infos = wait_for_programs_settled(
+                server,
+                programs,
+                timeout_seconds=timeout_seconds,
+            )
+        except RuntimeError as exc:
+            settle_error = str(exc)
+
+    if settled_infos is None:
+        settled_infos = {program: get_process_info(server, program) for program in programs}
+
+    details: list[dict[str, object]] = []
+    unresolved = bool(errors)
+    for program in programs:
+        latest = settled_infos.get(program) or get_process_info(server, program)
+        result_entry = result_lookup[program]
+        result_entry["after_state"] = latest.get("statename")
+        result_entry["pid"] = latest.get("pid")
+        final_state = str(latest.get("statename", "")).upper()
+        if final_state != "RUNNING":
+            unresolved = True
+
+        detail: dict[str, object] = {
+            "name": program,
+            "before_state": result_entry["before_state"],
+            "final_state": latest.get("statename"),
+            "pid": latest.get("pid"),
+        }
+        if program in errors:
+            detail["error"] = errors[program]
+        details.append(detail)
+
+    if settle_error is not None:
+        unresolved = True
+        details.append({"name": "__settle__", "error": settle_error})
+
+    if unresolved:
+        raise RuntimeError(
+            "Programs failed to reconcile: " + json.dumps(details, ensure_ascii=False)
         )
+
     return results
 
 

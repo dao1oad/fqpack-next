@@ -24,3 +24,18 @@ def test_apply_deploy_plan_supports_changed_paths_and_git_diff() -> None:
     assert "ChangedPath" in text
     assert "FromGitDiff" in text
     assert "DeploymentSurface" in text
+
+
+def test_apply_deploy_plan_supports_resume_state_tracking() -> None:
+    text = (REPO_ROOT / "script" / "fq_apply_deploy_plan.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "StatePath" in text
+    assert "ResumeFromStatePath" in text
+    assert "ResumeLatest" in text
+    assert "baseline" in text.lower()
+    assert "docker" in text.lower()
+    assert "host" in text.lower()
+    assert "health" in text.lower()
+    assert "verify" in text.lower()

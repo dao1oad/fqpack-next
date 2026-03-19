@@ -594,3 +594,95 @@ def test_verify_requires_fqnext_supervisord_for_host_managed_surfaces(
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["passed"] is False
     assert any("fqnext-supervisord" in failure for failure in payload["failures"])
+
+
+def test_verify_prefers_supervisor_snapshot_for_host_managed_programs(
+    tmp_path: Path,
+) -> None:
+    baseline_path = _write_json(
+        tmp_path / "baseline.json",
+        {
+            "baseline": {
+                "docker": [],
+                "services": [{"name": "fqnext-supervisord", "status": "Running"}],
+                "processes": [
+                    {"id": "xtquant_broker", "running": False},
+                    {"id": "credit_subjects_worker", "running": False},
+                ],
+            }
+        },
+    )
+    docker_path = _write_json(
+        tmp_path / "docker.json",
+        [
+            {
+                "Name": "fq_mongodb",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+            {
+                "Name": "fq_redis",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+        ],
+    )
+    service_path = _write_json(
+        tmp_path / "services.json",
+        [{"Name": "fqnext-supervisord", "Status": "Running"}],
+    )
+    process_path = _write_json(
+        tmp_path / "processes.json",
+        [
+            {"ProcessId": 701, "Name": "python.exe", "CommandLine": ""},
+            {"ProcessId": 702, "Name": "python.exe", "CommandLine": ""},
+        ],
+    )
+    supervisor_path = _write_json(
+        tmp_path / "supervisor.json",
+        [
+            {
+                "name": "fqnext_xtquant_broker",
+                "statename": "RUNNING",
+                "pid": 1701,
+                "description": "pid 1701, uptime 0:01:00",
+            },
+            {
+                "name": "fqnext_credit_subjects_worker",
+                "statename": "RUNNING",
+                "pid": 1702,
+                "description": "pid 1702, uptime 0:01:00",
+            },
+        ],
+    )
+    output_path = tmp_path / "verify.json"
+
+    result = _run_powershell(
+        SCRIPT,
+        "-Mode",
+        "Verify",
+        "-BaselinePath",
+        str(baseline_path),
+        "-OutputPath",
+        str(output_path),
+        "-DeploymentSurface",
+        "order_management",
+        "-DockerSnapshotPath",
+        str(docker_path),
+        "-ServiceSnapshotPath",
+        str(service_path),
+        "-ProcessSnapshotPath",
+        str(process_path),
+        "-SupervisorSnapshotPath",
+        str(supervisor_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["passed"] is True
+    assert any(
+        check["id"] == "xtquant_broker" and check["passed"] is True
+        for check in payload["process_checks"]
+    )
+    assert any(
+        check["id"] == "credit_subjects_worker" and check["passed"] is True
+        for check in payload["process_checks"]
+    )

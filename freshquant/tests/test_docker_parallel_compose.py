@@ -104,9 +104,54 @@ def test_parser_collects_repeated_compose_args() -> None:
     assert parsed.compose_arg == ["up", "-d", "--build", "fq_webui"]
 
 
-def test_compute_rewrite_result_prefers_remote_cached_images(monkeypatch) -> None:
+def test_compute_rewrite_result_ignores_remote_cached_images_by_default(
+    monkeypatch,
+) -> None:
     module = load_module()
 
+    monkeypatch.setattr(module, "load_current_revision", lambda _: "abc123")
+    monkeypatch.setattr(
+        module,
+        "load_compose_service_images",
+        lambda _: (
+            ["fq_webui"],
+            {"fq_webui": "fqnext_webui:2026.2.23"},
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "load_local_image_revisions",
+        lambda _: {},
+    )
+    monkeypatch.setattr(
+        module,
+        "load_remote_image_revisions",
+        lambda _: {"ghcr.io/dao1oad/fqnext-webui:abc123": "abc123"},
+    )
+    monkeypatch.setattr(
+        module,
+        "build_registry_service_images",
+        lambda revision: {"fq_webui": f"ghcr.io/dao1oad/fqnext-webui:{revision}"},
+    )
+    monkeypatch.setattr(module, "load_dirty_paths", lambda _: [])
+
+    result = module.compute_rewrite_result(
+        repo_root=Path("."),
+        compose_file=Path("docker/compose.parallel.yaml"),
+        compose_args=["up", "-d", "--build", "fq_webui"],
+    )
+
+    assert result["skip_build"] is False
+    assert result["mode"] == "build_required"
+    assert result["compose_args"] == ["up", "-d", "--build", "fq_webui"]
+    assert result["pull_images"] == []
+    assert result["image_overrides"] == {}
+
+
+def test_compute_rewrite_result_can_opt_in_remote_cached_images(monkeypatch) -> None:
+    module = load_module()
+
+    monkeypatch.setenv("FQ_ENABLE_REMOTE_CACHE_PULL", "1")
     monkeypatch.setattr(module, "load_current_revision", lambda _: "abc123")
     monkeypatch.setattr(
         module,
