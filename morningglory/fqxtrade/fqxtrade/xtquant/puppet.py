@@ -66,9 +66,16 @@ def saveTrades(trades):
         DBfreshquant["xt_trades"].bulk_write(batch)
     for trade in trades:
         trade_dict = FqXtTrade(trade).to_dict()
-        reconciled = external_reconcile_service.reconcile_trade_reports([trade_dict])
-        if not reconciled:
-            try_ingest_xt_trade_dict(trade_dict)
+        if hasattr(external_reconcile_service, "reconcile_trade_report"):
+            outcome = external_reconcile_service.reconcile_trade_report(trade_dict)
+            if not outcome.handled:
+                try_ingest_xt_trade_dict(trade_dict)
+        else:
+            reconciled = external_reconcile_service.reconcile_trade_reports(
+                [trade_dict]
+            )
+            if not reconciled:
+                try_ingest_xt_trade_dict(trade_dict)
     trades = pydash.filter_(trades, lambda x: x.order_type in BUY_ORDER_TYPES)
     trades = pydash.uniq_by(trades, lambda x: x.stock_code)
     for trade in trades:

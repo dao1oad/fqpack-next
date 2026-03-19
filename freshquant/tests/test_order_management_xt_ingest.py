@@ -124,6 +124,59 @@ def _bootstrap_service():
     return repository, ingest_service
 
 
+def _stub_ingest_side_effects(monkeypatch):
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_tpsl_service",
+        lambda: type(
+            "FakeTpslService",
+            (),
+            {"on_new_buy_trade": lambda self, symbol, buy_price: None},
+        )(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_guardian_buy_grid_service",
+        lambda: type(
+            "FakeGuardianBuyGridService",
+            (),
+            {"reset_after_sell_trade": lambda self, symbol: None},
+        )(),
+        raising=False,
+    )
+
+
+def _buy_report(broker_trade_id="T-100"):
+    return {
+        "internal_order_id": "ord_test_1",
+        "broker_trade_id": broker_trade_id,
+        "symbol": "000001",
+        "side": "buy",
+        "quantity": 900,
+        "price": 10.0,
+        "trade_time": 1710000000,
+        "date": 20240102,
+        "time": "09:31:00",
+        "source": "xt_trade_callback",
+    }
+
+
+def _sell_report(broker_trade_id="T-101"):
+    return {
+        "internal_order_id": "ord_test_1",
+        "broker_trade_id": broker_trade_id,
+        "symbol": "000001",
+        "side": "sell",
+        "quantity": 500,
+        "price": 10.8,
+        "trade_time": 1710003600,
+        "date": 20240103,
+        "time": "10:00:00",
+        "source": "xt_trade_callback",
+    }
+
+
 def test_normalize_xt_trade_report_extracts_side_symbol_and_timestamp():
     normalized = normalize_xt_trade_report(
         {
@@ -268,18 +321,7 @@ def test_trade_report_creates_trade_fact_buy_lot_and_slices():
     repository, ingest_service = _bootstrap_service()
 
     result = ingest_service.ingest_trade_report(
-        {
-            "internal_order_id": "ord_test_1",
-            "broker_trade_id": "T-100",
-            "symbol": "000001",
-            "side": "buy",
-            "quantity": 900,
-            "price": 10.0,
-            "trade_time": 1710000000,
-            "date": 20240102,
-            "time": "09:31:00",
-            "source": "xt_trade_callback",
-        },
+        _buy_report(),
         lot_amount=3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
@@ -301,18 +343,7 @@ def test_trade_report_marks_holding_projection_updated(monkeypatch):
     )
 
     ingest_service.ingest_trade_report(
-        {
-            "internal_order_id": "ord_test_1",
-            "broker_trade_id": "T-100-mark",
-            "symbol": "000001",
-            "side": "buy",
-            "quantity": 900,
-            "price": 10.0,
-            "trade_time": 1710000000,
-            "date": 20240102,
-            "time": "09:31:00",
-            "source": "xt_trade_callback",
-        },
+        _buy_report("T-100-mark"),
         lot_amount=3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
@@ -323,35 +354,13 @@ def test_trade_report_marks_holding_projection_updated(monkeypatch):
 def test_sell_trade_report_creates_sell_allocations_and_updates_projection():
     repository, ingest_service = _bootstrap_service()
     ingest_service.ingest_trade_report(
-        {
-            "internal_order_id": "ord_test_1",
-            "broker_trade_id": "T-100",
-            "symbol": "000001",
-            "side": "buy",
-            "quantity": 900,
-            "price": 10.0,
-            "trade_time": 1710000000,
-            "date": 20240102,
-            "time": "09:31:00",
-            "source": "xt_trade_callback",
-        },
+        _buy_report(),
         lot_amount=3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
 
     result = ingest_service.ingest_trade_report(
-        {
-            "internal_order_id": "ord_test_1",
-            "broker_trade_id": "T-101",
-            "symbol": "000001",
-            "side": "sell",
-            "quantity": 500,
-            "price": 10.8,
-            "trade_time": 1710003600,
-            "date": 20240103,
-            "time": "10:00:00",
-            "source": "xt_trade_callback",
-        },
+        _sell_report(),
         lot_amount=3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
@@ -369,18 +378,7 @@ def test_sell_trade_report_resets_guardian_buy_grid_state(monkeypatch):
     repository, ingest_service = _bootstrap_service()
     resets = []
     ingest_service.ingest_trade_report(
-        {
-            "internal_order_id": "ord_test_1",
-            "broker_trade_id": "T-100-reset",
-            "symbol": "000001",
-            "side": "buy",
-            "quantity": 900,
-            "price": 10.0,
-            "trade_time": 1710000000,
-            "date": 20240102,
-            "time": "09:31:00",
-            "source": "xt_trade_callback",
-        },
+        _buy_report("T-100-reset"),
         lot_amount=3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
@@ -395,18 +393,7 @@ def test_sell_trade_report_resets_guardian_buy_grid_state(monkeypatch):
     )
 
     ingest_service.ingest_trade_report(
-        {
-            "internal_order_id": "ord_test_1",
-            "broker_trade_id": "T-101-reset",
-            "symbol": "000001",
-            "side": "sell",
-            "quantity": 500,
-            "price": 10.8,
-            "trade_time": 1710003600,
-            "date": 20240103,
-            "time": "10:00:00",
-            "source": "xt_trade_callback",
-        },
+        _sell_report("T-101-reset"),
         lot_amount=3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
@@ -416,18 +403,7 @@ def test_sell_trade_report_resets_guardian_buy_grid_state(monkeypatch):
 
 def test_repeated_callback_does_not_duplicate_trade_fact_or_projection():
     repository, ingest_service = _bootstrap_service()
-    report = {
-        "internal_order_id": "ord_test_1",
-        "broker_trade_id": "T-100",
-        "symbol": "000001",
-        "side": "buy",
-        "quantity": 900,
-        "price": 10.0,
-        "trade_time": 1710000000,
-        "date": 20240102,
-        "time": "09:31:00",
-        "source": "xt_trade_callback",
-    }
+    report = _buy_report()
 
     ingest_service.ingest_trade_report(
         report,
@@ -443,6 +419,38 @@ def test_repeated_callback_does_not_duplicate_trade_fact_or_projection():
     assert len(repository.trade_facts) == 1
     assert len(repository.buy_lots) == 1
     assert len(repository.list_open_slices("000001")) == 4
+
+
+def test_repeated_sell_callback_does_not_duplicate_sell_allocations(monkeypatch):
+    _stub_ingest_side_effects(monkeypatch)
+    repository, ingest_service = _bootstrap_service()
+    ingest_service.ingest_trade_report(
+        _buy_report(),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    report = _sell_report()
+
+    first = ingest_service.ingest_trade_report(
+        report,
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    second = ingest_service.ingest_trade_report(
+        report,
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    arranged_fills = build_arranged_fills_view(repository.list_open_slices("000001"))
+
+    assert len(first["sell_allocations"]) == 2
+    assert second["sell_allocations"] == []
+    assert len(repository.sell_allocations) == 2
+    assert [(item["price"], item["quantity"]) for item in arranged_fills] == [
+        (10.93, 200),
+        (10.61, 200),
+    ]
 
 
 def test_order_report_updates_existing_order_state():

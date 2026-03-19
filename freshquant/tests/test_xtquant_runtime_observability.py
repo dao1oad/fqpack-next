@@ -571,6 +571,42 @@ def test_puppet_sell_keeps_duplicate_check_and_submit_inside_trading_lock(
     assert puppet.sell("600000", 11, 10.0, 300) == 654321
 
 
+def test_puppet_save_trades_skips_direct_ingest_when_reconcile_handles_trade(
+    monkeypatch,
+):
+    _install_puppet_stubs(monkeypatch, xt_trader=types.SimpleNamespace())
+    puppet = _load_module("test_runtime_puppet_save_trades", PUPPET_PATH)
+    observed = {"reconcile": 0, "direct_ingest": 0}
+
+    puppet.external_reconcile_service = types.SimpleNamespace(
+        reconcile_trade_report=lambda report: (
+            observed.__setitem__("reconcile", observed["reconcile"] + 1)
+            or types.SimpleNamespace(
+                handled=True,
+                action="already_known_internal_order",
+                result=None,
+            )
+        )
+    )
+    puppet.try_ingest_xt_trade_dict = lambda payload: observed.__setitem__(
+        "direct_ingest", observed["direct_ingest"] + 1
+    )
+
+    puppet.saveTrades(
+        [
+            types.SimpleNamespace(
+                account_id="acct-1",
+                traded_id="T-1",
+                stock_code="600000.SH",
+                order_type=23,
+                strategy_name=None,
+            )
+        ]
+    )
+
+    assert observed == {"reconcile": 1, "direct_ingest": 0}
+
+
 def test_broker_trade_callback_emits_resolved_runtime_context(monkeypatch):
     _install_broker_stubs(monkeypatch)
     broker = _load_module("test_runtime_broker", BROKER_PATH)

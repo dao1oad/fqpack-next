@@ -77,47 +77,66 @@ class OrderManagementXtIngestService:
                 "report_receive", report, extra_payload={"report_type": "trade"}
             )
             current_node = "trade_match"
-            trade_fact = self.tracking_service.ingest_trade_report(report)
+            if hasattr(self.tracking_service, "ingest_trade_report_with_meta"):
+                ingest_result = self.tracking_service.ingest_trade_report_with_meta(
+                    report
+                )
+            else:
+                ingest_result = {
+                    "trade_fact": self.tracking_service.ingest_trade_report(report),
+                    "created": True,
+                }
+            trade_fact = ingest_result["trade_fact"]
+            created = bool(ingest_result.get("created"))
             symbol = trade_fact["symbol"]
             buy_lot = None
             lot_slices = []
             sell_allocations = []
             holdings_changed = False
 
-            if trade_fact["side"] == "buy":
+            if created:
+                if trade_fact["side"] == "buy":
+                    buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
+                        trade_fact["trade_fact_id"]
+                    )
+                    if buy_lot is None:
+                        buy_lot = build_buy_lot_from_trade_fact(trade_fact)
+                        self.repository.insert_buy_lot(buy_lot)
+                        lot_slices = arrange_buy_lot(
+                            buy_lot,
+                            lot_amount=lot_amount,
+                            grid_interval=grid_interval_lookup(symbol, trade_fact),
+                        )
+                        self.repository.replace_lot_slices_for_lot(
+                            buy_lot["buy_lot_id"],
+                            lot_slices,
+                        )
+                        holdings_changed = True
+                        self._notify_new_buy_trade(
+                            symbol=symbol,
+                            price=trade_fact["price"],
+                        )
+                    else:
+                        lot_slices = self.repository.list_open_slices(symbol)
+                elif trade_fact["side"] == "sell":
+                    buy_lots = self.repository.list_buy_lots(symbol)
+                    open_slices = self.repository.list_open_slices(symbol)
+                    sell_allocations = allocate_sell_to_slices(
+                        buy_lots=buy_lots,
+                        open_slices=open_slices,
+                        sell_trade_fact=trade_fact,
+                    )
+                    for item in buy_lots:
+                        self.repository.replace_buy_lot(item)
+                    self.repository.replace_open_slices(open_slices)
+                    self.repository.insert_sell_allocations(sell_allocations)
+                    holdings_changed = bool(sell_allocations)
+                    self._reset_guardian_buy_grid_after_sell(symbol)
+            elif trade_fact["side"] == "buy":
                 buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
                     trade_fact["trade_fact_id"]
                 )
-                if buy_lot is None:
-                    buy_lot = build_buy_lot_from_trade_fact(trade_fact)
-                    self.repository.insert_buy_lot(buy_lot)
-                    lot_slices = arrange_buy_lot(
-                        buy_lot,
-                        lot_amount=lot_amount,
-                        grid_interval=grid_interval_lookup(symbol, trade_fact),
-                    )
-                    self.repository.replace_lot_slices_for_lot(
-                        buy_lot["buy_lot_id"],
-                        lot_slices,
-                    )
-                    holdings_changed = True
-                    self._notify_new_buy_trade(symbol=symbol, price=trade_fact["price"])
-                else:
-                    lot_slices = self.repository.list_open_slices(symbol)
-            elif trade_fact["side"] == "sell":
-                buy_lots = self.repository.list_buy_lots(symbol)
-                open_slices = self.repository.list_open_slices(symbol)
-                sell_allocations = allocate_sell_to_slices(
-                    buy_lots=buy_lots,
-                    open_slices=open_slices,
-                    sell_trade_fact=trade_fact,
-                )
-                for item in buy_lots:
-                    self.repository.replace_buy_lot(item)
-                self.repository.replace_open_slices(open_slices)
-                self.repository.insert_sell_allocations(sell_allocations)
-                holdings_changed = bool(sell_allocations)
-                self._reset_guardian_buy_grid_after_sell(symbol)
+                lot_slices = self.repository.list_open_slices(symbol)
 
             buy_lots = self.repository.list_buy_lots(symbol)
             open_slices = self.repository.list_open_slices(symbol)
@@ -127,10 +146,14 @@ class OrderManagementXtIngestService:
                 "trade_match",
                 report,
                 internal_order_id=trade_fact["internal_order_id"],
+                status="info" if created else "skipped",
+                reason_code="" if created else "duplicate_trade_report",
                 extra_payload={
                     "side": trade_fact["side"],
                     "quantity": trade_fact["quantity"],
                     "holdings_changed": holdings_changed,
+                    "created": created,
+                    "dedup_hit": not created,
                 },
             )
 
@@ -139,6 +162,7 @@ class OrderManagementXtIngestService:
                 "buy_lot": buy_lot,
                 "lot_slices": lot_slices,
                 "sell_allocations": sell_allocations,
+                "created": created,
                 "projections": {
                     "raw_fills": build_raw_fills_view([trade_fact]),
                     "open_buy_fills": build_open_buy_fills_view(buy_lots),

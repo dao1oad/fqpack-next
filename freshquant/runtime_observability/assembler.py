@@ -447,13 +447,16 @@ def _normalized_text(value) -> str:
 class _DisjointSet:
     def __init__(self, size: int) -> None:
         self.parent = list(range(size))
+        self.rank = [0] * size
 
     def find(self, index: int) -> int:
-        parent = self.parent[index]
-        if parent == index:
-            return index
-        root = self.find(parent)
-        self.parent[index] = root
+        root = index
+        while self.parent[root] != root:
+            root = self.parent[root]
+        while self.parent[index] != index:
+            parent = self.parent[index]
+            self.parent[index] = root
+            index = parent
         return root
 
     def union(self, left: int, right: int) -> None:
@@ -461,4 +464,8 @@ class _DisjointSet:
         right_root = self.find(right)
         if left_root == right_root:
             return
+        if self.rank[left_root] < self.rank[right_root]:
+            left_root, right_root = right_root, left_root
         self.parent[right_root] = left_root
+        if self.rank[left_root] == self.rank[right_root]:
+            self.rank[left_root] += 1

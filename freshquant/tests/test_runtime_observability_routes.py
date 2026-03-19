@@ -444,6 +444,46 @@ def test_runtime_events_route_keeps_xt_component_heartbeats_visible(
     assert body["events"][-1]["metrics"]["connected"] == 1
 
 
+def test_runtime_traces_route_handles_large_repeated_strong_id_groups(
+    monkeypatch, tmp_path
+):
+    tz = timezone(timedelta(hours=8))
+    base_ts = datetime(2026, 3, 20, 9, 30, tzinfo=tz)
+    repeated_request_id = "req_repeated_depth_guard"
+    repeated_order_id = "ord_repeated_depth_guard"
+    records = [
+        {
+            "event_type": "trace_step",
+            "component": "xt_report_ingest",
+            "runtime_node": "host:xt_report_ingest",
+            "node": "report_receive" if index % 2 == 0 else "order_match",
+            "request_id": repeated_request_id,
+            "internal_order_id": repeated_order_id,
+            "ts": (base_ts + timedelta(milliseconds=index)).isoformat(),
+        }
+        for index in range(1500)
+    ]
+    _write_events(
+        tmp_path,
+        runtime_node_path="host_xt_report_ingest",
+        component="xt_report_ingest",
+        date="2026-03-20",
+        file_name="xt_report_ingest_2026-03-20_1.jsonl",
+        records=records,
+    )
+    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+    client = _make_runtime_client()
+
+    resp = client.get("/api/runtime/traces")
+
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert len(body["traces"]) == 1
+    assert body["traces"][0]["request_ids"] == [repeated_request_id]
+    assert body["traces"][0]["internal_order_ids"] == [repeated_order_id]
+    assert body["traces"][0]["step_count"] == 1500
+
+
 def _write_events(
     root: Path,
     *,

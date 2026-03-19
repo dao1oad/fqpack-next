@@ -181,6 +181,9 @@ class OrderTrackingService:
         )
 
     def ingest_trade_report(self, report):
+        return self.ingest_trade_report_with_meta(report)["trade_fact"]
+
+    def ingest_trade_report_with_meta(self, report):
         trade_fact = {
             "trade_fact_id": report.get("trade_fact_id") or new_trade_fact_id(),
             "internal_order_id": report["internal_order_id"],
@@ -210,7 +213,10 @@ class OrderTrackingService:
                     "created_at": _utc_now_iso(),
                 }
             )
-        return saved_trade_fact
+        return {
+            "trade_fact": saved_trade_fact,
+            "created": created,
+        }
 
 
 def _utc_now_iso():

@@ -114,7 +114,31 @@ class InMemoryRepository:
         return allocations
 
 
-def test_ingest_trade_report_emits_runtime_events():
+def _stub_ingest_side_effects(monkeypatch):
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_tpsl_service",
+        lambda: type(
+            "FakeTpslService",
+            (),
+            {"on_new_buy_trade": lambda self, symbol, buy_price: None},
+        )(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_guardian_buy_grid_service",
+        lambda: type(
+            "FakeGuardianBuyGridService",
+            (),
+            {"reset_after_sell_trade": lambda self, symbol: None},
+        )(),
+        raising=False,
+    )
+
+
+def test_ingest_trade_report_emits_runtime_events(monkeypatch):
+    _stub_ingest_side_effects(monkeypatch)
     runtime_logger = FakeRuntimeLogger()
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)
@@ -168,6 +192,68 @@ def test_ingest_trade_report_emits_runtime_events():
     ]
     assert runtime_logger.events[0]["trace_id"] == "trc_xt_1"
     assert runtime_logger.events[1]["internal_order_id"] == "ord_xt_1"
+
+
+def test_duplicate_trade_report_emits_skipped_trade_match_runtime_event(monkeypatch):
+    _stub_ingest_side_effects(monkeypatch)
+    runtime_logger = FakeRuntimeLogger()
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 300,
+            "source": "strategy",
+            "internal_order_id": "ord_xt_dup_1",
+            "request_id": "req_xt_dup_1",
+            "trace_id": "trc_xt_dup_1",
+            "intent_id": "int_xt_dup_1",
+        }
+    )
+    repository.update_order(
+        "ord_xt_dup_1",
+        {"broker_order_id": "90003", "state": "SUBMITTED"},
+    )
+    service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+        runtime_logger=runtime_logger,
+    )
+    report = {
+        "internal_order_id": "ord_xt_dup_1",
+        "broker_order_id": "90003",
+        "broker_trade_id": "T-90003",
+        "symbol": "000001",
+        "side": "buy",
+        "quantity": 300,
+        "price": 10.0,
+        "trade_time": 1710000000,
+        "date": 20240102,
+        "time": "09:31:00",
+        "source": "xt_trade_callback",
+        "trace_id": "trc_xt_dup_1",
+        "intent_id": "int_xt_dup_1",
+        "request_id": "req_xt_dup_1",
+    }
+
+    service.ingest_trade_report(
+        report,
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    service.ingest_trade_report(
+        report,
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert runtime_logger.events[-1]["node"] == "trade_match"
+    assert runtime_logger.events[-1]["status"] == "skipped"
+    assert runtime_logger.events[-1]["reason_code"] == "duplicate_trade_report"
+    assert runtime_logger.events[-1]["payload"]["created"] is False
+    assert runtime_logger.events[-1]["payload"]["dedup_hit"] is True
 
 
 def test_ingest_order_report_emits_runtime_events():
