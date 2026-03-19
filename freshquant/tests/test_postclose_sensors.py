@@ -52,7 +52,9 @@ def _import_sensor_module(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "fqdagster.defs.jobs.gantt",
-        SimpleNamespace(job_gantt_postclose=SimpleNamespace(name="job_gantt_postclose")),
+        SimpleNamespace(
+            job_gantt_postclose=SimpleNamespace(name="job_gantt_postclose")
+        ),
     )
     monkeypatch.setitem(
         sys.modules,
@@ -70,7 +72,9 @@ def _import_sensor_module(monkeypatch):
 def test_gantt_postclose_sensor_skips_without_stock_ready(monkeypatch):
     module = _import_sensor_module(monkeypatch)
 
-    monkeypatch.setattr(module, "resolve_latest_completed_trade_date", lambda: "2026-03-19")
+    monkeypatch.setattr(
+        module, "resolve_latest_completed_trade_date", lambda: "2026-03-19"
+    )
     monkeypatch.setattr(
         module,
         "has_success_postclose_marker",
@@ -89,11 +93,15 @@ def test_gantt_postclose_sensor_triggers_with_pending_trade_date(monkeypatch):
         ("stock_postclose_ready", "2026-03-19"): True,
         ("gantt_postclose_ready", "2026-03-19"): False,
     }
-    monkeypatch.setattr(module, "resolve_latest_completed_trade_date", lambda: "2026-03-19")
+    monkeypatch.setattr(
+        module, "resolve_latest_completed_trade_date", lambda: "2026-03-19"
+    )
     monkeypatch.setattr(
         module,
         "has_success_postclose_marker",
-        lambda pipeline_key, trade_date: marker_lookup.get((pipeline_key, trade_date), False),
+        lambda pipeline_key, trade_date: marker_lookup.get(
+            (pipeline_key, trade_date), False
+        ),
     )
 
     result = module.gantt_postclose_sensor(SimpleNamespace())
@@ -109,11 +117,15 @@ def test_daily_screening_postclose_sensor_skips_without_gantt_ready(monkeypatch)
         ("stock_postclose_ready", "2026-03-19"): True,
         ("gantt_postclose_ready", "2026-03-19"): False,
     }
-    monkeypatch.setattr(module, "resolve_latest_completed_trade_date", lambda: "2026-03-19")
+    monkeypatch.setattr(
+        module, "resolve_latest_completed_trade_date", lambda: "2026-03-19"
+    )
     monkeypatch.setattr(
         module,
         "has_success_postclose_marker",
-        lambda pipeline_key, trade_date: marker_lookup.get((pipeline_key, trade_date), False),
+        lambda pipeline_key, trade_date: marker_lookup.get(
+            (pipeline_key, trade_date), False
+        ),
     )
 
     result = module.daily_screening_postclose_sensor(SimpleNamespace())
@@ -129,11 +141,15 @@ def test_daily_screening_postclose_sensor_triggers_with_trade_date_tag(monkeypat
         ("gantt_postclose_ready", "2026-03-19"): True,
         ("daily_screening_ready", "2026-03-19"): False,
     }
-    monkeypatch.setattr(module, "resolve_latest_completed_trade_date", lambda: "2026-03-19")
+    monkeypatch.setattr(
+        module, "resolve_latest_completed_trade_date", lambda: "2026-03-19"
+    )
     monkeypatch.setattr(
         module,
         "has_success_postclose_marker",
-        lambda pipeline_key, trade_date: marker_lookup.get((pipeline_key, trade_date), False),
+        lambda pipeline_key, trade_date: marker_lookup.get(
+            (pipeline_key, trade_date), False
+        ),
     )
 
     result = module.daily_screening_postclose_sensor(SimpleNamespace())
@@ -150,11 +166,15 @@ def test_daily_screening_postclose_sensor_skips_when_marker_already_exists(monke
         ("gantt_postclose_ready", "2026-03-19"): True,
         ("daily_screening_ready", "2026-03-19"): True,
     }
-    monkeypatch.setattr(module, "resolve_latest_completed_trade_date", lambda: "2026-03-19")
+    monkeypatch.setattr(
+        module, "resolve_latest_completed_trade_date", lambda: "2026-03-19"
+    )
     monkeypatch.setattr(
         module,
         "has_success_postclose_marker",
-        lambda pipeline_key, trade_date: marker_lookup.get((pipeline_key, trade_date), False),
+        lambda pipeline_key, trade_date: marker_lookup.get(
+            (pipeline_key, trade_date), False
+        ),
     )
 
     result = module.daily_screening_postclose_sensor(SimpleNamespace())

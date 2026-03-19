@@ -64,11 +64,14 @@ def test_upsert_and_get_postclose_marker(monkeypatch):
         "run_id": "run-1",
         "payload": {"rows": 12},
     }
-    assert module.get_postclose_marker(
-        "stock_postclose_ready",
-        "2026-03-19",
-        collection=collection,
-    ) == marker
+    assert (
+        module.get_postclose_marker(
+            "stock_postclose_ready",
+            "2026-03-19",
+            collection=collection,
+        )
+        == marker
+    )
     assert (
         module.has_success_postclose_marker(
             "stock_postclose_ready",

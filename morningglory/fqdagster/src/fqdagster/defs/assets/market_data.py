@@ -428,9 +428,10 @@ def stock_postclose_ready_asset(
     context: AssetExecutionContext,
     refresh_quality_stock_universe_snapshot: dict,
 ) -> dict:
-    trade_date = str(
-        refresh_quality_stock_universe_snapshot.get("trade_date") or ""
-    ) or resolve_latest_completed_trade_date()
+    trade_date = (
+        str(refresh_quality_stock_universe_snapshot.get("trade_date") or "")
+        or resolve_latest_completed_trade_date()
+    )
     payload = {
         "count": int(refresh_quality_stock_universe_snapshot.get("count") or 0),
         "source_version": str(
@@ -581,9 +582,7 @@ def etf_adj(context: AssetExecutionContext, etf_day: str, etf_xdxr: str) -> str:
 
 
 @asset(group_name="etf_data")
-def etf_postclose_ready_asset(
-    context: AssetExecutionContext, etf_adj: str
-) -> dict:
+def etf_postclose_ready_asset(context: AssetExecutionContext, etf_adj: str) -> dict:
     trade_date = resolve_latest_completed_trade_date()
     payload: dict[str, str] = {}
     upsert_postclose_marker(

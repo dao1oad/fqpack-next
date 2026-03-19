@@ -18,9 +18,7 @@ def _build_dagster_stub():
             self.name = name
             self.group_name = group_name
             self.dependency_names = [
-                name
-                for name in inspect.signature(fn).parameters
-                if name != "context"
+                name for name in inspect.signature(fn).parameters if name != "context"
             ]
 
         def __call__(self, *args, **kwargs):
