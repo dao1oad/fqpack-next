@@ -37,6 +37,33 @@ CHANLUN_PERIOD_ORDER: dict[str, int] = {"30m": 0, "60m": 1, "1d": 2}
 CHANLUN_SIGNAL_ORDER: dict[str, int] = {
     signal_type: index for index, signal_type in enumerate(DEFAULT_CHANLUN_SIGNAL_TYPES)
 }
+CLS_GROUP_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "key": "cls_group:erbai",
+        "label": "二买",
+        "model_keys": ["S0001", "S0002", "S0003", "S0005"],
+    },
+    {
+        "key": "cls_group:sanmai",
+        "label": "三买",
+        "model_keys": ["S0004"],
+    },
+    {
+        "key": "cls_group:yali_support",
+        "label": "压力支撑",
+        "model_keys": ["S0006", "S0007"],
+    },
+    {
+        "key": "cls_group:beichi",
+        "label": "背驰",
+        "model_keys": ["S0008", "S0009"],
+    },
+    {
+        "key": "cls_group:break_pullback",
+        "label": "突破回调",
+        "model_keys": ["S0010", "S0011", "S0012"],
+    },
+]
 
 
 def _save_pre_pool(**kwargs) -> None:
@@ -80,6 +107,8 @@ def _save_database_outputs(results: list[Any], config: dict) -> None:
 def _resolve_clxs_model_label(model_opt: Any) -> str | None:
     if isinstance(model_opt, str):
         text = model_opt.strip()
+        if text.startswith("S") and len(text) == 5 and text[1:].isdigit():
+            return text
         if text.startswith("CLXS_"):
             model_opt = text.removeprefix("CLXS_")
     try:
@@ -575,6 +604,7 @@ class DailyScreeningService:
                 in base_union_codes
             ]
         filters = payload or {}
+        effective_scope_filters = dict(filters)
         condition_keys = self._normalize_text_list(
             filters.get("condition_keys"), default=[]
         )
@@ -594,12 +624,26 @@ class DailyScreeningService:
                 if self._normalize_code(row.get("code") or row.get("symbol"))
                 in (matched_codes or set())
             ]
+        cls_condition_keys = self._resolve_cls_condition_keys(
+            filters.get("clxs_models")
+        )
+        if cls_condition_keys and scope_ref["scope_kind"] == "trade_date":
+            cls_codes = self._scope_union_condition_codes(
+                scope_ref, condition_keys=cls_condition_keys
+            )
+            rows = [
+                row
+                for row in rows
+                if self._normalize_code(row.get("code") or row.get("symbol"))
+                in cls_codes
+            ]
+            effective_scope_filters.pop("clxs_models", None)
         metric_filters = dict(filters.get("metric_filters") or {})
         rows = [
             row for row in rows if self._matches_metric_filters(row, metric_filters)
         ]
         filtered_rows = [
-            row for row in rows if self._matches_scope_filters(row, filters)
+            row for row in rows if self._matches_scope_filters(row, effective_scope_filters)
         ]
         return {
             "run_id": scope_ref["scope_id"],
@@ -1604,9 +1648,34 @@ class DailyScreeningService:
         }
         return {code for code in codes if code}
 
+    def _scope_union_condition_codes(
+        self, scope_ref: dict[str, str], *, condition_keys: list[str]
+    ) -> set[str]:
+        matched_codes: set[str] = set()
+        for condition_key in list(condition_keys or []):
+            matched_codes |= self._scope_condition_codes(
+                scope_ref, condition_key=condition_key
+            )
+        return matched_codes
+
+    def _resolve_cls_condition_keys(self, values: Any) -> list[str]:
+        keys: list[str] = []
+        seen: set[str] = set()
+        for raw_value in self._normalize_text_list(values, default=[]):
+            model_label = _resolve_clxs_model_label(raw_value)
+            if not model_label:
+                continue
+            condition_key = f"cls:{model_label}"
+            if condition_key in seen:
+                continue
+            seen.add(condition_key)
+            keys.append(condition_key)
+        return keys
+
     def _empty_filter_catalog_groups(self) -> dict[str, list[dict[str, Any]]]:
         return {
             "cls_models": [],
+            "cls_groups": [],
             "hot_windows": [],
             "market_flags": [],
             "chanlun_periods": [],
@@ -1624,6 +1693,15 @@ class DailyScreeningService:
                 label_getter=self._filter_catalog_cls_label,
             )
             for item in CLXS_MODEL_OPTIONS
+        ]
+        groups["cls_groups"] = [
+            self._filter_catalog_group_entry(
+                key=str(group["key"]),
+                label=str(group["label"]),
+                member_keys=[f"cls:{model_key}" for model_key in group["model_keys"]],
+                condition_codes=condition_codes,
+            )
+            for group in CLS_GROUP_DEFINITIONS
         ]
         groups["hot_windows"] = [
             self._filter_catalog_entry(
@@ -1670,6 +1748,23 @@ class DailyScreeningService:
             "key": key,
             "label": label_getter(key),
             "count": len(condition_codes.get(key) or set()),
+        }
+
+    def _filter_catalog_group_entry(
+        self,
+        *,
+        key: str,
+        label: str,
+        member_keys: list[str],
+        condition_codes: dict[str, set[str]],
+    ) -> dict[str, Any]:
+        matched_codes: set[str] = set()
+        for member_key in list(member_keys or []):
+            matched_codes |= set(condition_codes.get(member_key) or set())
+        return {
+            "key": key,
+            "label": label,
+            "count": len(matched_codes),
         }
 
     def _filter_catalog_hot_label(self, condition_key: str) -> str:

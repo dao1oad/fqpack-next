@@ -2064,6 +2064,9 @@ def test_daily_screening_service_returns_unified_filter_catalog():
     cls_models = {
         item["key"]: item["count"] for item in payload["groups"]["cls_models"]
     }
+    cls_groups = {
+        item["key"]: item["count"] for item in payload["groups"]["cls_groups"]
+    }
 
     assert hot_windows == {
         "hot:30d": 1,
@@ -2085,6 +2088,13 @@ def test_daily_screening_service_returns_unified_filter_catalog():
     assert chanlun_signals["chanlun_signal:macd_bullish_divergence"] == 0
     assert cls_models["cls:S0001"] == 1
     assert cls_models["cls:S0002"] == 0
+    assert cls_groups == {
+        "cls_group:erbai": 1,
+        "cls_group:sanmai": 0,
+        "cls_group:yali_support": 0,
+        "cls_group:beichi": 0,
+        "cls_group:break_pullback": 0,
+    }
 
 
 def test_query_scope_defaults_to_base_union_when_no_filters_selected():
@@ -2125,6 +2135,20 @@ def test_query_scope_intersects_chanlun_period_and_signal_independently():
                 "chanlun_period:30m",
                 "chanlun_signal:buy_zs_huila",
             ]
+        },
+    )
+
+    assert [row["code"] for row in result["rows"]] == ["000001"]
+
+
+def test_query_scope_filters_cls_groups_from_memberships_when_snapshots_lack_cls_models():
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    _seed_condition_scope_fixture(repository)
+
+    result = service.query_scope(
+        "trade_date:2026-03-18",
+        {
+            "clxs_models": ["S0001"],
         },
     )
 
