@@ -168,6 +168,7 @@
 - CI `pytest-shards` 当前按 `script/ci/pytest_file_durations.json` 的文件级耗时权重做 shard 分配，不再只按文件序号轮询
 - FQNext 宿主机 Supervisor 仍托管 `fqnext_realtime_xtdata_producer`、`fqnext_realtime_xtdata_consumer`、`fqnext_guardian_event`、`fqnext_xt_account_sync_worker`、`fqnext_tpsl_worker`、`fqnext_xtquant_broker`、`fqnext_xtdata_adj_refresh_worker`
 - `fqnext_xt_account_sync_worker` 当前是唯一 XT 主动查询进程；它串行执行持仓、成交、委托、资产、信用账户与 `credit_subjects` 补偿同步
+- 宿主机当前不再保留独立的 `position_management.worker` 或 `credit_subjects.worker` 入口；相关账户同步职责统一收敛到 `fqnext_xt_account_sync_worker`
 - `fqnext_xtquant_broker` 当前为 worker-only 进程，不再暴露本地 Tornado HTTP 接口或 `10088` 端口；运行健康以 supervisor 进程状态和 broker 日志为准
 - `observe_only` 现在只绕过 broker 的真实提交/撤单，不会停掉 XT 连接、callback ingest 或 `fqnext_xt_account_sync_worker`
 

@@ -35,7 +35,7 @@ uv run fqctl --help
 uv run pytest freshquant/tests -q
 uv run python -m freshquant.rear.api_server --port 5000
 uv run python -m freshquant.market_data.xtdata.market_producer
-uv run python -m freshquant.position_management.worker --once
+uv run python -m freshquant.xt_account_sync.worker --once
 uv run python -m freshquant.tpsl.tick_listener
 docker compose -f docker/compose.parallel.yaml up -d --build
 ```

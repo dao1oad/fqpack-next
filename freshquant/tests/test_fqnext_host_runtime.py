@@ -319,7 +319,7 @@ def test_restart_programs_reconciles_remaining_programs_before_raising(
     start_calls: list[tuple[str, bool]] = []
     process_infos = {
         "fqnext_xtquant_broker": {"statename": "RUNNING", "pid": 11},
-        "fqnext_credit_subjects_worker": {"statename": "RUNNING", "pid": 22},
+        "fqnext_xt_account_sync_worker": {"statename": "RUNNING", "pid": 22},
     }
     server = types.SimpleNamespace(
         supervisor=types.SimpleNamespace(
@@ -371,13 +371,13 @@ def test_restart_programs_reconciles_remaining_programs_before_raising(
     with pytest.raises(RuntimeError, match="fqnext_xtquant_broker") as excinfo:
         module.restart_programs(
             server,
-            ["fqnext_xtquant_broker", "fqnext_credit_subjects_worker"],
+            ["fqnext_xtquant_broker", "fqnext_xt_account_sync_worker"],
             timeout_seconds=5,
         )
 
     assert start_calls == [
         ("fqnext_xtquant_broker", False),
         ("fqnext_xtquant_broker", False),
-        ("fqnext_credit_subjects_worker", False),
+        ("fqnext_xt_account_sync_worker", False),
     ]
-    assert "fqnext_credit_subjects_worker" in str(excinfo.value)
+    assert "fqnext_xt_account_sync_worker" in str(excinfo.value)

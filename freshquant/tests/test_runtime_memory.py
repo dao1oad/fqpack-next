@@ -492,7 +492,7 @@ def test_refresh_memory_reads_deployment_comment_and_cleanup_result_artifacts(
 ## 部署范围
 
 - Docker：`fq_apiserver`、`fq_webui`
-- 宿主机：`position_management.worker`
+- 宿主机：`xt_account_sync.worker`
 
 ## 健康检查
 
@@ -549,7 +549,7 @@ def test_refresh_memory_reads_deployment_comment_and_cleanup_result_artifacts(
     deploy_run = store.find("deploy_runs", filters={"issue_identifier": "GH-166"})[0]
     assert deploy_run["status"] == "documented"
     assert "fq_apiserver" in deploy_run["summary"]
-    assert "position_management.worker" in deploy_run["summary"]
+    assert "xt_account_sync.worker" in deploy_run["summary"]
 
     health_result = store.find(
         "health_results", filters={"issue_identifier": "GH-166"}
