@@ -58,13 +58,18 @@
   - 中列展示“stock_pools模型信号”
   - 右列展示“must_pools买入信号”
   - 原“持仓股列表”已从该页移除
+  - 三个列表当前统一使用 `/runtime-observability` 全局 Trace 同款 dense ledger，面板内滚动、sticky 表头
 - `/stock-control` 的 Guardian 信号列表
   - `stock_signals` 当前会补齐 `created_at` 展示字段；历史缺失时回退 `fire_time`
-  - 列结构与模型信号统一为 `信号时间 / 入库时间 / 标的代码 / 标的名称 / 价格`
-  - 价格列统一为单行 `触发价 / 止损价 / 止损%`，价格数值保留三位小数
+  - 列结构当前为 `信号时间 / 入库时间 / 标的代码 / 标的名称 / 方向 / 类型 / 触发价/止损价/止损%`
+  - `方向` 直接由 `position` 派生，`类型` 优先展示 `remark`，缺失时回退 `category`
+  - 时间列统一压缩显示为 `MM-DD HH:mm`
+  - 价格列统一为单行 `触发价/止损价/止损%` 顺序的紧凑值串，价格数值保留三位小数
+  - `100%` 浏览器缩放下页面不再出现横向滚动，左右价格列按单行完整显示
 - `/stock-control` 的 `stock_pools模型信号`
   - `realtime_screen_multi_period`
-  - 当前与另外两个列表统一展示 `datetime`、`created_at`、`code`、`name` 与单行价格摘要
+  - 当前展示 `datetime`、`created_at`、`code`、`name`、`period`、`source` 与单行价格摘要
+  - `分组 / 模型` 当前复用 `/daily-screening` 对 CLX 12 模型的中文映射与分组真值
 
 ## 当前高频操作
 

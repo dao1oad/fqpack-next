@@ -9,54 +9,59 @@
 .stock-control-body
   display flex
   flex 1 1 auto
+  min-width 0
   min-height 0
   overflow hidden
   padding 12px 16px 16px
 
 .stock-control-grid
   display grid
-  grid-template-columns repeat(3, minmax(320px, 1fr))
+  grid-template-columns minmax(0, 0.84fr) minmax(0, 1.32fr) minmax(0, 0.84fr)
   gap 12px
   flex 1 1 auto
+  min-width 0
   min-height 0
   overflow hidden
 
 .panel-card
   display flex
   flex-direction column
+  min-width 0
   min-height 0
   overflow hidden
-  padding 12px
-  background #fff
-  border 1px solid #ebeef5
-  border-radius 8px
+  padding 14px
+  background linear-gradient(180deg, #fbfdff 0%, #f4f8fc 100%)
+  border 1px solid #dfe7f3
+  border-radius 14px
 
 .panel-card-header
   display flex
   align-items center
   justify-content space-between
-  margin-bottom 8px
+  margin-bottom 10px
   font-size 15px
   font-weight 600
-  color #303133
+  color #21405e
 
 .panel-table
   display flex
   flex 1 1 auto
+  min-width 0
   min-height 0
   overflow hidden
 
 @media (max-width: 1440px)
   .stock-control-grid
-    grid-template-columns repeat(2, minmax(280px, 1fr))
-    overflow auto
+    grid-template-columns minmax(0, 0.9fr) minmax(0, 1.1fr)
+    overflow hidden
 
   .stock-control-grid > :last-child
     grid-column 1 / -1
 
 @media (max-width: 960px)
   .stock-control-body
-    overflow auto
+    overflow-x hidden
+    overflow-y auto
 
   .stock-control-grid
     grid-template-columns 1fr

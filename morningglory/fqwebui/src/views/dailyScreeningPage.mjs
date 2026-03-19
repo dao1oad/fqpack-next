@@ -47,7 +47,7 @@ export const CLS_MODEL_LABELS = Object.freeze({
   S0012: 'V反',
 })
 
-const CLS_GROUP_DEFINITIONS = Object.freeze([
+export const CLS_GROUP_DEFINITIONS = Object.freeze([
   { key: 'cls_group:erbai', label: '二买', modelKeys: ['S0001', 'S0002', 'S0003', 'S0005'] },
   { key: 'cls_group:sanmai', label: '三买', modelKeys: ['S0004'] },
   { key: 'cls_group:yali_support', label: '压力支撑', modelKeys: ['S0006', 'S0007'] },
@@ -64,6 +64,37 @@ const normalizeClxsModelKey = (value) => {
     return `CLXS_${Math.trunc(numeric)}`
   }
   return text
+}
+
+export const normalizeDailyScreeningClsModelKey = (value) => {
+  const text = toText(value).toUpperCase()
+  if (!text) return ''
+
+  const directMatch = text.match(/^S(\d{1,4})$/)
+  if (directMatch) {
+    return `S${directMatch[1].padStart(4, '0')}`
+  }
+
+  const numericMatch = text.match(/^(?:CLXS?_?|CLX_?|)(\d{4,5})$/)
+  if (numericMatch) {
+    return `S${numericMatch[1].slice(-4).padStart(4, '0')}`
+  }
+
+  return text
+}
+
+export const resolveDailyScreeningClsModelPresentation = (value) => {
+  const rawModel = toText(value)
+  const modelKey = normalizeDailyScreeningClsModelKey(rawModel)
+  const group = CLS_GROUP_DEFINITIONS.find((item) => item.modelKeys.includes(modelKey))
+
+  return {
+    rawModel,
+    modelKey,
+    modelLabel: CLS_MODEL_LABELS[modelKey] || rawModel || '--',
+    groupKey: group?.key || '',
+    groupLabel: group?.label || '--',
+  }
 }
 
 export const readDailyScreeningPayload = (response, fallback = {}) => {
