@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 import {
   buildDailyScreeningAppendPrePoolPayload,
+  buildDailyScreeningCurrentExpression,
   buildDailyScreeningQueryPayload,
   buildDailyScreeningWorkspaceTabs,
   buildDailyScreeningWorkbenchState,
@@ -137,7 +138,7 @@ test('normalizeDailyScreeningFilterCatalog attaches section-level help metadata'
 
   assert.deepEqual(catalog.sectionHelp.clsGroups, {
     source: '来源于 Dagster 每日落库的 CLS 12 个模型结果，页面按业务语义归并成 5 个中文分组。',
-    rule: '组内多个 CLS 模型按并集命中；和其他筛选条件组合时再继续取交集。',
+    rule: '分组内多个 CLS 模型取并集；不同 CLS 分组之间多选也取并集；CLS 分组结果与热门窗口、市场属性、chanlun、日线缠论涨幅等其他条件之间再取交集。',
     scopeNote: '这些分组只在“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”上缩小结果。',
   })
   assert.deepEqual(catalog.sectionHelp.hotWindows, {
@@ -204,6 +205,22 @@ test('formatDailyScreeningConditionLabel maps cls model keys to chinese names', 
   assert.equal(formatDailyScreeningConditionLabel('cls:S0001'), '类2买')
   assert.equal(formatDailyScreeningConditionLabel('cls:S0008'), '盘整或趋势背驰')
   assert.equal(formatDailyScreeningConditionLabel('cls:S0012'), 'V反')
+})
+
+test('buildDailyScreeningCurrentExpression makes cls-group unions explicit before intersecting other filters', () => {
+  assert.equal(
+    buildDailyScreeningCurrentExpression({
+      clsGroupKeys: ['cls_group:erbai', 'cls_group:beichi'],
+      conditionKeys: ['hot:30d', 'flag:credit_subject'],
+      dayChanlunEnabled: true,
+      metricFilters: {
+        higherMultipleLte: 3,
+        segmentMultipleLte: 2,
+        biGainPercentLte: 20,
+      },
+    }),
+    'CLS 分组并集（二买 ∪ 背驰） ∩ 30天热门 ∩ 融资标的 ∩ 日线缠论涨幅（高级段倍数 <= 3 / 段倍数 <= 2 / 笔涨幅% <= 20）',
+  )
 })
 
 test('buildDailyScreeningAppendPrePoolPayload converts current intersection rows into shared pre-pool payload', () => {
@@ -275,13 +292,13 @@ test('buildDailyScreeningWorkspaceTabs reuses shared workspace tab structure', (
   assert.equal(tabs[1].rows[0].primary_action_label, '加入 must_pools')
 })
 
-test('DailyScreening.vue keeps the left filter workbench scrollable at full browser zoom', async () => {
+test('DailyScreening.vue moves the guide to the toolbar and no longer forces left-panel scrolling', async () => {
   const content = await readFile(new URL('./DailyScreening.vue', import.meta.url), 'utf8')
 
   assert.match(content, /\.daily-screening-grid\s*\{[\s\S]*grid-template-columns:\s*360px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/)
-  assert.match(content, /\.daily-screening-grid\s*\{[\s\S]*min-height:\s*0;/)
-  assert.match(content, /\.daily-filter-panel,\s*[\s\S]*\.daily-center-stack,\s*[\s\S]*\.daily-detail-stack\s*\{[\s\S]*min-height:\s*0;/)
-  assert.match(content, /\.daily-filter-panel\s*\{[\s\S]*overflow-y:\s*auto;/)
+  assert.match(content, /<section class="workbench-toolbar">[\s\S]*工作台说明[\s\S]*<\/section>/)
+  assert.doesNotMatch(content, /<section class="workbench-panel daily-filter-panel"[\s\S]*daily-guide-block/)
+  assert.match(content, /\.daily-filter-panel\s*\{[\s\S]*overflow-y:\s*visible;/)
   assert.match(content, /日线缠论涨幅/)
   assert.match(content, /全部加入pre_pools/)
   assert.doesNotMatch(content, />查询结果</)

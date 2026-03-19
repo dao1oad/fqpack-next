@@ -4,7 +4,7 @@
 
     <div class="workbench-body daily-screening-body" v-loading="pageLoading">
       <section class="workbench-toolbar">
-        <div class="workbench-toolbar__header">
+        <div class="workbench-toolbar__header daily-toolbar-header">
           <div class="workbench-title-group">
             <div class="workbench-page-title">每日选股</div>
             <div class="workbench-page-meta">
@@ -15,6 +15,12 @@
               <span>基础池由 CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成</span>
             </div>
           </div>
+          <article class="daily-toolbar-guide">
+            <div class="daily-toolbar-guide__title">工作台说明</div>
+            <ul class="daily-guide-list daily-guide-list--toolbar">
+              <li v-for="line in workbenchGuideLines" :key="line">{{ line }}</li>
+            </ul>
+          </article>
           <div class="workbench-toolbar__actions">
             <el-button @click="loadScopes">刷新 scopes</el-button>
             <el-button @click="refreshCurrentScope">刷新结果</el-button>
@@ -54,13 +60,6 @@
               <p class="workbench-panel__desc">前端只做组合查询，不再触发运行，不再展示 SSE。</p>
             </div>
           </div>
-
-          <article class="workbench-block daily-guide-block">
-            <div class="workbench-panel__title">工作台说明</div>
-            <ul class="daily-guide-list">
-              <li v-for="line in workbenchGuideLines" :key="line">{{ line }}</li>
-            </ul>
-          </article>
 
           <article class="workbench-block">
             <div class="workbench-panel__title">Scope</div>
@@ -594,6 +593,7 @@ import {
 import {
   DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
   buildDailyScreeningAppendPrePoolPayload,
+  buildDailyScreeningCurrentExpression,
   buildDailyScreeningQueryPayload,
   buildDailyScreeningWorkspaceTabs,
   buildDailyScreeningWorkbenchState,
@@ -706,19 +706,12 @@ const activeConditionCount = computed(() => {
   return conditionKeys.value.length + clsGroupKeys.value.length + (dayChanlunEnabled.value ? 1 : 0)
 })
 const currentExpression = computed(() => {
-  if (!conditionKeys.value.length && activeConditionCount.value === 0) {
-    return '默认展示“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”'
-  }
-  const labels = [
-    ...resolveDailyScreeningClsGroupLabels(clsGroupKeys.value),
-    ...conditionKeys.value.map((item) => formatDailyScreeningConditionLabel(item)),
-  ]
-  if (dayChanlunEnabled.value) {
-    labels.push(
-      `日线缠论涨幅（高级段倍数 <= ${metricFilters.higherMultipleLte} / 段倍数 <= ${metricFilters.segmentMultipleLte} / 笔涨幅% <= ${metricFilters.biGainPercentLte}）`,
-    )
-  }
-  return labels.join(' ∩ ') || '默认展示“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”'
+  return buildDailyScreeningCurrentExpression({
+    clsGroupKeys: clsGroupKeys.value,
+    conditionKeys: conditionKeys.value,
+    dayChanlunEnabled: dayChanlunEnabled.value,
+    metricFilters,
+  })
 })
 const workspaceTabs = computed(() => {
   return buildDailyScreeningWorkspaceTabs({
@@ -1148,13 +1141,36 @@ onMounted(async () => {
   padding: 24px;
 }
 
+.daily-toolbar-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.daily-toolbar-guide {
+  flex: 1 1 420px;
+  min-width: 320px;
+  padding: 12px 14px;
+  border: 1px solid #dbe5f0;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.daily-toolbar-guide__title {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
 .daily-screening-grid {
   display: grid;
   flex: 1 1 auto;
   grid-template-columns: 360px minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   align-items: stretch;
 }
 
@@ -1166,8 +1182,7 @@ onMounted(async () => {
 }
 
 .daily-filter-panel {
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  overflow-y: visible;
 }
 
 .daily-center-stack {
@@ -1188,6 +1203,11 @@ onMounted(async () => {
   color: var(--el-text-color-secondary);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.daily-guide-list--toolbar {
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .daily-chip-grid {
@@ -1372,8 +1392,19 @@ onMounted(async () => {
 }
 
 @media (max-width: 1480px) {
+  .daily-toolbar-guide {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
   .daily-screening-grid {
     grid-template-columns: 320px minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+@media (max-height: 640px) {
+  .daily-filter-panel {
+    overflow-y: auto;
   }
 }
 
