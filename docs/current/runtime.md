@@ -8,7 +8,7 @@
 - Mongo 通过 `127.0.0.1:27027` 接入 Docker `fq_mongodb`；宿主机链路不要再使用 `127.0.0.1:27017`。
 - `fqnext-supervisord` 宿主机底座与其托管的交易/运行链 Python 进程。
 - Guardian monitor。
-- Position management worker（刷新账户级状态；启动时做一次单标的实时仓位 fallback 种子刷新）。
+- XT account sync worker（统一刷新 `xt_positions / xt_orders / xt_trades / xt_assets / pm_* / om_credit_subjects`，并在启动时做一次单标的实时仓位 fallback 种子刷新）。
 - TPSL tick listener。
 - Symphony 正式单实例 orchestrator。
 - 需要直接访问券商、终端、`TDX_HOME` 或 Windows 本地目录的组件。
@@ -117,7 +117,7 @@
 - XTData producer
 - XTData consumer
 - Guardian monitor
-- Position worker
+- XT account sync worker
 - Order submit / broker / XT 回报 ingest
 - TPSL worker（如果验证退出逻辑）
 
@@ -156,7 +156,7 @@
 
 - XTData producer 依赖 `XTQUANT_PORT`，默认 `58610`
 - XTData producer / consumer / TPSL / Order Management 共享 Redis
-- Guardian、Position worker、Order Management、TPSL 共享 Mongo 基础库与运行时事件日志
+- Guardian、XT account sync worker、Order Management、TPSL 共享 Mongo 基础库与运行时事件日志
 - XTData `StrategyConsumer` 依赖 Redis `QUEUE:BAR_CLOSE:*` 消费最新 `1m` 收盘价，并同步刷新 `pm_symbol_position_snapshots`
 - Shouban30 的 `.blk` 同步依赖宿主机 `bootstrap_config.tdx.home or TDX_HOME`
 - Docker 并行环境下，Shouban30 的 API 同步链路依赖 `fq_apiserver` 挂载 `/opt/tdx`
@@ -166,8 +166,10 @@
 - `/runtime-observability` 页面默认只请求北京时间“今日”时间窗口；如果需要回看历史中断，需要显式调整顶部时间区间框，页面会把 `start_time/end_time` 透传到 runtime API
 - pytest 默认通过临时 `FQ_RUNTIME_LOG_DIR` 与 logger cache reset 隔离测试运行日志，避免污染正式 `logs/runtime`
 - CI `pytest-shards` 当前按 `script/ci/pytest_file_durations.json` 的文件级耗时权重做 shard 分配，不再只按文件序号轮询
-- FQNext 宿主机 Supervisor 仍托管 `fqnext_realtime_xtdata_producer`、`fqnext_realtime_xtdata_consumer`、`fqnext_guardian_event`、`fqnext_position_management_worker`、`fqnext_tpsl_worker`、`fqnext_xtquant_broker`、`fqnext_credit_subjects_worker`、`fqnext_xtdata_adj_refresh_worker`
+- FQNext 宿主机 Supervisor 仍托管 `fqnext_realtime_xtdata_producer`、`fqnext_realtime_xtdata_consumer`、`fqnext_guardian_event`、`fqnext_xt_account_sync_worker`、`fqnext_tpsl_worker`、`fqnext_xtquant_broker`、`fqnext_xtdata_adj_refresh_worker`
+- `fqnext_xt_account_sync_worker` 当前是唯一 XT 主动查询进程；它串行执行持仓、成交、委托、资产、信用账户与 `credit_subjects` 补偿同步
 - `fqnext_xtquant_broker` 当前为 worker-only 进程，不再暴露本地 Tornado HTTP 接口或 `10088` 端口；运行健康以 supervisor 进程状态和 broker 日志为准
+- `observe_only` 现在只绕过 broker 的真实提交/撤单，不会停掉 XT 连接、callback ingest 或 `fqnext_xt_account_sync_worker`
 
 ## 常见运行模式
 
@@ -183,7 +185,7 @@ powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 up -
 python -m freshquant.market_data.xtdata.market_producer
 python -m freshquant.market_data.xtdata.strategy_consumer --prewarm
 python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
-python -m freshquant.position_management.worker
+python -m freshquant.xt_account_sync.worker --interval 3
 python -m freshquant.tpsl.tick_listener
 ```
 

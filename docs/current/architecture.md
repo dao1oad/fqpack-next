@@ -101,9 +101,9 @@
 - XTData consumer
   - `python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`
   - 唯一负责 bar 队列消费、结构计算与缓存回写。
-- Position worker
-  - `python -m freshquant.position_management.worker --interval 3`
-  - 定期刷新仓位门禁状态。
+- XT account sync worker
+  - `python -m freshquant.xt_account_sync.worker --interval 3`
+  - 唯一负责 XT 主动查询；串行刷新 `xt_positions / xt_orders / xt_trades / xt_assets / pm_* / om_credit_subjects`。
 - TPSL worker
   - `python -m freshquant.tpsl.tick_listener`
   - 消费 tick 队列并触发止盈止损。

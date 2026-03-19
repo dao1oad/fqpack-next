@@ -747,6 +747,15 @@ def test_broker_trading_loop_exits_cleanly_on_keyboard_interrupt(monkeypatch):
         "resolve_broker_submit_mode",
         lambda settings_provider=None: "observe_only",
     )
+    monkeypatch.setattr(
+        broker,
+        "connect",
+        lambda session_id=100: (
+            "xt-trader",
+            types.SimpleNamespace(account_id="acct-1"),
+            True,
+        ),
+    )
 
     def fake_shuffle(_values):
         observed["shuffle_calls"] += 1
@@ -766,6 +775,47 @@ def test_broker_trading_loop_exits_cleanly_on_keyboard_interrupt(monkeypatch):
 
     assert observed["brpop_calls"] == 1
     assert observed["shuffle_calls"] == 1
+
+
+def test_broker_trading_loop_still_connects_in_observe_only_mode(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_observe_only_connect", BROKER_PATH)
+
+    observed = {"connect_calls": 0, "brpop_calls": 0}
+
+    monkeypatch.setattr(
+        broker,
+        "resolve_broker_submit_mode",
+        lambda settings_provider=None: "observe_only",
+    )
+    monkeypatch.setattr(broker.random, "shuffle", lambda _values: None)
+    monkeypatch.setattr(broker, "tool_trade_date_seconds_to_start", lambda: 1)
+
+    def fake_connect(session_id=100):
+        observed["connect_calls"] += 1
+        return "xt-trader", types.SimpleNamespace(account_id="acct-1"), True
+
+    def fake_brpop(_queues, _timeout):
+        observed["brpop_calls"] += 1
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(broker, "connect", fake_connect)
+    broker.redis_db = types.SimpleNamespace(brpop=fake_brpop)
+
+    broker.trading_main_loop()
+
+    assert observed["connect_calls"] == 1
+    assert observed["brpop_calls"] == 1
+
+
+def test_broker_source_no_longer_contains_sync_maintenance_actions():
+    broker_source = BROKER_PATH.read_text(encoding="utf-8")
+
+    assert "sync-positions" not in broker_source
+    assert "sync-orders" not in broker_source
+    assert "sync-trades" not in broker_source
+    assert "sync-summary" not in broker_source
+    assert "sync-all" not in broker_source
 
 
 def test_broker_observe_only_helper_is_defined_before_script_entrypoint():

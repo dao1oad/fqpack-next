@@ -32,9 +32,9 @@ FreshQuant 当前已经完成第一阶段的模块收口，现阶段进入第二
 
 ## 运行拓扑
 
-- Windows 宿主机承担 XTQuant、XTData、Guardian、position worker、TPSL worker 与 Symphony 正式服务。
+- Windows 宿主机承担 XTQuant、XTData、Guardian、XT account sync worker、TPSL worker 与 Symphony 正式服务。
 - Docker 并行环境承担 Mongo、Redis、API Server、TDXHQ、Dagster、Web UI、TradingAgents-CN。
-- API Server 提供对外 HTTP 面；Guardian、TPSL、position worker 等后台进程依赖相同的 Mongo/Redis。
+- API Server 提供对外 HTTP 面；Guardian、TPSL、XT account sync worker 等后台进程依赖相同的 Mongo/Redis。
 - Runtime Observability 以旁路方式记录事件，不参与主交易决策。
 
 ## 当前真相源

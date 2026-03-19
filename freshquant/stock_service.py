@@ -63,15 +63,16 @@ def get_stock_signal_list(page=1, size=1000, category="candidates"):
             .limit(size)
         )
 
-    if len(data) > 0:
-        df = pd.DataFrame(data)
-        df = df.drop(columns=["_id"])
-        df["fire_time"] = df["fire_time"].apply(
-            lambda x: _format_datetime(x, "%Y-%m-%d %H:%M")
+    out = []
+    for doc in data:
+        item = dict(doc)
+        item.pop("_id", None)
+        item["fire_time"] = _format_datetime(doc.get("fire_time"), "%Y-%m-%d %H:%M")
+        item["created_at"] = _format_datetime(
+            doc.get("created_at") or doc.get("fire_time"), "%Y-%m-%d %H:%M"
         )
-        return df.to_dict("records")
-    else:
-        return []
+        out.append(item)
+    return out
 
 
 def get_stock_model_signal_list(page=1, size=1000):

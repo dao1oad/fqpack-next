@@ -154,6 +154,7 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `freshquant/rear/**` | API Server | 重建 `fq_apiserver` 容器或重启 API 进程 |
 | `freshquant/order_management/**` | 订单管理、API、broker/ingest 相关宿主机进程 | 重建 API；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/position_management/**` | 仓位管理 | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -BridgeIfServiceUnavailable` |
+| `freshquant/xt_account_sync/**` | XT 主动查询统一 worker（仓位管理 + 订单管理） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/tpsl/**` | TPSL | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface tpsl -BridgeIfServiceUnavailable` |
 | `freshquant/market_data/**` | XTData producer / consumer | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data -BridgeIfServiceUnavailable`；必要时重新 prewarm |
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface guardian -BridgeIfServiceUnavailable` |
@@ -230,7 +231,7 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 - 如果本轮改了 Shouban30 工作区或 `sync-to-tdx` 语义，确认 `fq_apiserver` 已挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}`，并实测 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk` 被更新。
 - XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积。
 - 如果改了运行观测或 XTData runtime 埋点，确认 `/runtime-observability` 页面能看到 `xt_producer` / `xt_consumer` 的 5 分钟 heartbeat 与关键指标，而不是只看到启动事件。
-- TPSL / Position worker 修改后，进程没有“启动即退”。
+- TPSL / XT account sync worker 修改后，进程没有“启动即退”。
 - 宿主机 deployment surface 修改后，`fqnext-supervisord` 保持 `Running`，且 `script/fqnext_host_runtime_ctl.ps1 -Mode Status` 能返回目标 program 为 `RUNNING`。
 - Symphony 修改后，`Merging -> Global Stewardship` handoff、批量 deploy 判定和 follow-up issue only 规则仍然可用。
 - 如果本轮有实际 deploy，`check_freshquant_runtime_post_deploy.ps1` 的 verify 结果必须 `passed=true`，且 `failures` 为空。

@@ -25,7 +25,7 @@ def test_order_management_paths_expand_to_api_and_host_runtime() -> None:
     assert plan["docker_services"] == ["fq_apiserver"]
     assert plan["host_surfaces"] == ["order_management"]
     assert "fqnext_xtquant_broker" in plan["host_programs"]
-    assert "fqnext_credit_subjects_worker" in plan["host_programs"]
+    assert "fqnext_xt_account_sync_worker" in plan["host_programs"]
 
 
 def test_runtime_symphony_paths_emit_sync_restart_step() -> None:
@@ -106,6 +106,7 @@ def test_shared_runtime_paths_expand_to_all_affected_surfaces() -> None:
     ]
     assert "fqnext_realtime_xtdata_consumer" in plan["host_programs"]
     assert "fqnext_xtquant_broker" in plan["host_programs"]
+    assert "fqnext_xt_account_sync_worker" in plan["host_programs"]
 
 
 def test_dagster_surface_requires_shared_rear_build_target() -> None:

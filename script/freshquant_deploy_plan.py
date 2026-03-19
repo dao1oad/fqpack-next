@@ -68,11 +68,11 @@ HOST_SURFACE_PROGRAMS = {
         "fqnext_xtdata_adj_refresh_worker",
     ],
     "guardian": ["fqnext_guardian_event"],
-    "position_management": ["fqnext_position_management_worker"],
+    "position_management": ["fqnext_xt_account_sync_worker"],
     "tpsl": ["fqnext_tpsl_worker"],
     "order_management": [
         "fqnext_xtquant_broker",
-        "fqnext_credit_subjects_worker",
+        "fqnext_xt_account_sync_worker",
     ],
 }
 
@@ -192,6 +192,11 @@ PATH_RULES: tuple[PathRule, ...] = (
         label="order-management",
         prefix="freshquant/order_management/",
         surfaces=("api", "order_management"),
+    ),
+    PrefixRule(
+        label="xt-account-sync",
+        prefix="freshquant/xt_account_sync/",
+        surfaces=("position_management", "order_management"),
     ),
     PrefixRule(
         label="position-management",

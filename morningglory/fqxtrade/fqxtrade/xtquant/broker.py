@@ -208,9 +208,7 @@ def connect(session_id: int = 100):
             logger.error("请在配置文件中设置 xtquant.path 参数")
             return None, None, False
         xt_trader = XtQuantTrader(path, session_id)
-        acc, account, account_type = resolve_stock_account(
-            settings_provider=system_settings
-        )
+        acc, account, account_type = _resolve_stock_account_compat()
         if not account:
             logger.error("请在配置文件中设置 xtquant.account 参数")
             return None, None, False
@@ -253,16 +251,14 @@ def trading_main_loop():
     broker_submit_mode = resolve_broker_submit_mode(settings_provider=system_settings)
     if _is_observe_only_mode(broker_submit_mode):
         logger.info(
-            "broker submit mode is observe_only; skip xtquant connect and broker sync"
+            "broker submit mode is observe_only; execution requests will be bypassed"
         )
     while True:
         session_ids = [i for i in range(100, 200)]
         random.shuffle(session_ids)
         for session_id in session_ids:
             try:
-                if not connection_manager.connected and not _is_observe_only_mode(
-                    broker_submit_mode
-                ):
+                if not connection_manager.connected:
                     xt_trader, acc, success = connect(session_id)
                     if not success:
                         delay = connection_manager.get_retry_delay()
@@ -377,34 +373,8 @@ def trading_main_loop():
                                 order,
                                 broker_submit_mode=broker_submit_mode,
                             )
-                        elif order["action"] in {
-                            "sync-trades",
-                            "sync-orders",
-                            "sync-summary",
-                            "sync-positions",
-                            "sync-all",
-                        }:
-                            _handle_maintenance_action(
-                                order,
-                                broker_submit_mode=broker_submit_mode,
-                            )
                     else:
                         logger.info("非交易时间，不执行交易下单")
-                else:
-                    if nextStart <= 0 and not _is_observe_only_mode(broker_submit_mode):
-                        # 开市期间查询账户状态
-                        # 查询持仓情况
-                        puppet.sync_positions()
-                        # 查询委托记录
-                        puppet.sync_orders()
-                        # 查询当日成交记录
-                        puppet.sync_trades()
-                        # 查询资金情况
-                        summary = puppet.sync_summary()
-                        if summary is None:
-                            # 查询不到资产就认为连接已经不正常了
-                            connection_manager.mark_disconnected()
-                            logger.warning("资产查询失败，标记连接为断开状态")
 
             except (Exception, KeyboardInterrupt, SystemExit) as e:
                 if isinstance(e, KeyboardInterrupt) or isinstance(e, SystemExit):
@@ -432,6 +402,24 @@ def _runtime_context_from_order_message(order):
 
 def _is_observe_only_mode(broker_submit_mode):
     return broker_submit_mode == BROKER_SUBMIT_MODE_OBSERVE_ONLY
+
+
+def _resolve_stock_account_compat():
+    try:
+        return resolve_stock_account(settings_provider=system_settings)
+    except TypeError:
+        return resolve_stock_account(
+            lambda key, default=None: _legacy_query_param_value(key, default)
+        )
+
+
+def _legacy_query_param_value(key, default=None):
+    xtquant_settings = getattr(system_settings, "xtquant", None)
+    if key == "xtquant.account":
+        return getattr(xtquant_settings, "account", default)
+    if key == "xtquant.account_type":
+        return getattr(xtquant_settings, "account_type", default)
+    return default
 
 
 def _emit_broker_bypass(order, *, action=None):
@@ -560,27 +548,6 @@ def _handle_cancel_action(order, *, broker_submit_mode):
             )
             mark_exception_emitted(exc)
         raise
-
-
-def _handle_maintenance_action(order, *, broker_submit_mode):
-    action = order.get("action")
-    if _is_observe_only_mode(broker_submit_mode):
-        _emit_broker_bypass(order, action=action)
-        return {"status": "broker_bypassed"}
-    if action == "sync-trades":
-        puppet.sync_trades()
-    elif action == "sync-orders":
-        puppet.sync_orders()
-    elif action == "sync-summary":
-        puppet.sync_summary()
-    elif action == "sync-positions":
-        puppet.sync_positions()
-    elif action == "sync-all":
-        puppet.sync_positions()
-        puppet.sync_orders()
-        puppet.sync_trades()
-        puppet.sync_summary()
-    return {"status": "executed", "action": action}
 
 
 def _resolve_runtime_context_by_broker_order_id(broker_order_id):

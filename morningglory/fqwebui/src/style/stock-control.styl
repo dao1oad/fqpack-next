@@ -7,59 +7,60 @@
   background #f5f7fa
 
 .stock-control-body
+  display flex
+  flex 1 1 auto
+  min-height 0
+  overflow hidden
+  padding 12px 16px 16px
+
+.stock-control-grid
   display grid
-  grid-template-columns minmax(0, 1fr) minmax(0, 1fr)
+  grid-template-columns repeat(3, minmax(320px, 1fr))
   gap 12px
   flex 1 1 auto
   min-height 0
   overflow hidden
-  padding 0 16px 16px
 
-.monitor-column
+.panel-card
   display flex
   flex-direction column
-  gap 12px
   min-height 0
   overflow hidden
-
-.monitor-panel
-  display flex
-  flex-direction column
-  min-height 0
+  padding 12px
+  background #fff
   border 1px solid #ebeef5
   border-radius 8px
-  background #fff
 
-.monitor-panel--full
-  flex 1 1 auto
+.panel-card-header
+  display flex
+  align-items center
+  justify-content space-between
+  margin-bottom 8px
+  font-size 15px
+  font-weight 600
+  color #303133
 
-.monitor-column--signals .monitor-panel
-  flex 1 1 50%
-
-.monitor-panel__head
-  padding 12px 14px 8px
-  border-bottom 1px solid #f0f2f5
-
-  h2
-    margin 0
-    font-size 15px
-    font-weight 600
-    color #303133
-
-  p
-    margin 4px 0 0
-    color #909399
-    font-size 12px
-
-.monitor-panel__body
+.panel-table
+  display flex
   flex 1 1 auto
   min-height 0
-  overflow auto
+  overflow hidden
 
-@media (max-width: 1280px)
-  .stock-control-body
-    grid-template-columns 1fr
+@media (max-width: 1440px)
+  .stock-control-grid
+    grid-template-columns repeat(2, minmax(280px, 1fr))
     overflow auto
 
-  .monitor-column--signals .monitor-panel
-    flex 1 1 auto
+  .stock-control-grid > :last-child
+    grid-column 1 / -1
+
+@media (max-width: 960px)
+  .stock-control-body
+    overflow auto
+
+  .stock-control-grid
+    grid-template-columns 1fr
+    grid-auto-rows minmax(360px, auto)
+
+  .stock-control-grid > :last-child
+    grid-column auto

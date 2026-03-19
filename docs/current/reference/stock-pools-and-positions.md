@@ -54,14 +54,17 @@
   - `stock_signals`
   - 条件是 `position=BUY_LONG`、`is_holding=False`，且 code 当前仍在 `must_pool`
 - `/stock-control` 当前页面布局
-  - 左侧上半区展示“持仓股信号”
-  - 左侧下半区展示“must_pools买入信号”
-  - 右侧展示“stock_pools模型信号”
+  - 左列展示“持仓股信号”
+  - 中列展示“stock_pools模型信号”
+  - 右列展示“must_pools买入信号”
   - 原“持仓股列表”已从该页移除
+- `/stock-control` 的 Guardian 信号列表
+  - `stock_signals` 当前会补齐 `created_at` 展示字段；历史缺失时回退 `fire_time`
+  - 列结构与模型信号统一为 `信号时间 / 入库时间 / 标的代码 / 标的名称 / 价格`
+  - 价格列统一为单行 `触发价 / 止损价 / 止损%`，价格数值保留三位小数
 - `/stock-control` 的 `stock_pools模型信号`
   - `realtime_screen_multi_period`
-  - 展示 `datetime`、`created_at`、`code`、`name`、`period`、`model`、`source`
-  - 价格列当前按两行展示 `触发价 / 止损价`，列宽显式放大，并统一保留三位小数
+  - 当前与另外两个列表统一展示 `datetime`、`created_at`、`code`、`name` 与单行价格摘要
 
 ## 当前高频操作
 

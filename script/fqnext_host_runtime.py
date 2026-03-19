@@ -42,11 +42,11 @@ SURFACE_PROGRAMS = {
         "fqnext_xtdata_adj_refresh_worker",
     ],
     "guardian": ["fqnext_guardian_event"],
-    "position_management": ["fqnext_position_management_worker"],
+    "position_management": ["fqnext_xt_account_sync_worker"],
     "tpsl": ["fqnext_tpsl_worker"],
     "order_management": [
         "fqnext_xtquant_broker",
-        "fqnext_credit_subjects_worker",
+        "fqnext_xt_account_sync_worker",
     ],
 }
 

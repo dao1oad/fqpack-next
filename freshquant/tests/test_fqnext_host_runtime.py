@@ -47,7 +47,7 @@ def test_resolve_surface_programs_expands_market_and_order_management() -> None:
         "fqnext_realtime_xtdata_consumer",
         "fqnext_xtdata_adj_refresh_worker",
         "fqnext_xtquant_broker",
-        "fqnext_credit_subjects_worker",
+        "fqnext_xt_account_sync_worker",
     ]
 
 
