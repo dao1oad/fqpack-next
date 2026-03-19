@@ -178,10 +178,10 @@ $processSpecs = @(
         SupervisorProgram = 'fqnext_xtdata_adj_refresh_worker'
     },
     [pscustomobject]@{
-        Id = 'position_management_worker'
-        Surface = 'position_management'
-        Pattern = 'python -m freshquant.position_management.worker'
-        SupervisorProgram = 'fqnext_position_management_worker'
+        Id = 'xt_account_sync_worker'
+        Surfaces = @('position_management', 'order_management')
+        Pattern = 'python -m freshquant.xt_account_sync.worker'
+        SupervisorProgram = 'fqnext_xt_account_sync_worker'
     },
     [pscustomobject]@{
         Id = 'tpsl_tick_listener'
@@ -194,12 +194,6 @@ $processSpecs = @(
         Surface = 'order_management'
         Pattern = 'python -m fqxtrade.xtquant.broker'
         SupervisorProgram = 'fqnext_xtquant_broker'
-    },
-    [pscustomobject]@{
-        Id = 'credit_subjects_worker'
-        Surface = 'order_management'
-        Pattern = 'python -m freshquant.order_management.credit_subjects.worker'
-        SupervisorProgram = 'fqnext_credit_subjects_worker'
     }
 )
 
@@ -775,14 +769,15 @@ function Get-ProcessChecks {
         }
 
         $currentRunning = ($null -ne $current -and [bool]$current.running)
-        $required = $baselineRunning -or ($DeploymentSurfaces -contains $processSpec.Surface)
-        $requiredReason = if ($baselineRunning -and ($DeploymentSurfaces -contains $processSpec.Surface)) {
+        $targetsDeploymentSurfaces = Test-SpecTargetsDeploymentSurfaces -Spec $processSpec -DeploymentSurfaces $DeploymentSurfaces
+        $required = $baselineRunning -or $targetsDeploymentSurfaces
+        $requiredReason = if ($baselineRunning -and $targetsDeploymentSurfaces) {
             'baseline running and targeted by this deploy'
         }
         elseif ($baselineRunning) {
             'baseline running before deploy'
         }
-        elseif ($DeploymentSurfaces -contains $processSpec.Surface) {
+        elseif ($targetsDeploymentSurfaces) {
             'targeted surface must be restored'
         }
         else {
@@ -805,7 +800,7 @@ function Get-ProcessChecks {
 
         $checks += [pscustomobject]@{
             id = $processSpec.Id
-            surface = $processSpec.Surface
+            surfaces = if ($null -ne $processSpec.PSObject.Properties['Surfaces']) { @($processSpec.Surfaces) } else { @([string]$processSpec.Surface) }
             pattern = $processSpec.Pattern
             required = $required
             required_reason = $requiredReason

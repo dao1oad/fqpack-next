@@ -148,8 +148,8 @@ python -m freshquant.initialize
   - `python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`
 - Guardian monitor
   - `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event`
-- Position worker
-  - `python -m freshquant.position_management.worker --interval 3`
+- XT account sync worker
+  - `python -m freshquant.xt_account_sync.worker --interval 3`
 - TPSL worker
   - `python -m freshquant.tpsl.tick_listener`
 - Symphony 正式服务
@@ -170,8 +170,8 @@ python -m freshquant.initialize
 
 - `/stock-control`
   - 持仓股信号
-  - `must_pools买入信号`
   - `stock_pools模型信号`
+  - `must_pools买入信号`
 - 顶部导航按钮当前使用浏览器新标签页打开路由，并通过 `tabTitle` 驱动浏览器标签标题
 - `/kline-slim`
 - `/gantt`
@@ -192,7 +192,17 @@ python -m freshquant.initialize
   - `/api/get_stock_signal_list`
   - `/api/get_stock_model_signal_list`
 - `/stock-control` 当前只展示信号列表，不再承载持仓股列表
-- `/stock-control` 的 `stock_pools模型信号` 当前把价格列整理成 `触发价 / 止损价` 两行语义，并统一保留三位小数
+- `/stock-control` 当前按 `/gantt/shouban30` 的 panel-table 语法展示三个并行列表：
+  - 左列 `持仓股信号`
+  - 中列 `stock_pools模型信号`
+  - 右列 `must_pools买入信号`
+- `/stock-control` 三个列表当前统一列结构为：
+  - `信号时间`
+  - `入库时间`
+  - `标的代码`
+  - `标的名称`
+  - `价格`
+- `/stock-control` 的价格列当前统一展示为单行 `触发价 / 止损价 / 止损%`，价格数值保留三位小数，分页默认 `100` 条/页
 - 系统设置页只维护新系统正式配置，不再承载旧 SMTP / 邮件收件人或旧 `code + value` 通用参数模式
 - Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面
 - `/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 当前正式时间参数是 `days` 与 `end_date`

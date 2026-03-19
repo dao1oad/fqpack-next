@@ -81,16 +81,7 @@ def test_capture_baseline_records_runtime_state_from_snapshots(tmp_path: Path) -
             {
                 "ProcessId": 202,
                 "Name": "python.exe",
-                "CommandLine": (
-                    "python -m freshquant.position_management.worker --interval 3"
-                ),
-            },
-            {
-                "ProcessId": 303,
-                "Name": "python.exe",
-                "CommandLine": (
-                    "python -m freshquant.order_management.credit_subjects.worker"
-                ),
+                "CommandLine": "python -m freshquant.xt_account_sync.worker --interval 3",
             },
         ],
     )
@@ -125,8 +116,7 @@ def test_capture_baseline_records_runtime_state_from_snapshots(tmp_path: Path) -
     assert service_entries["fq-symphony-orchestrator"]["status"] == "Running"
     assert service_entries["fqnext-supervisord"]["status"] == "Running"
     assert process_entries["market_data_producer"]["running"] is True
-    assert process_entries["position_management_worker"]["running"] is True
-    assert process_entries["credit_subjects_worker"]["running"] is True
+    assert process_entries["xt_account_sync_worker"]["running"] is True
     assert process_entries["guardian_monitor"]["running"] is False
 
 
@@ -198,10 +188,9 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
                     {"id": "xtdata_adj_refresh_worker", "running": False},
                     {"id": "market_data_consumer", "running": False},
                     {"id": "guardian_monitor", "running": False},
-                    {"id": "position_management_worker", "running": True},
+                    {"id": "xt_account_sync_worker", "running": True},
                     {"id": "tpsl_tick_listener", "running": False},
                     {"id": "xtquant_broker", "running": False},
-                    {"id": "credit_subjects_worker", "running": False},
                 ],
             }
         },
@@ -267,11 +256,8 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
         "xtdata_adj_refresh_worker" in failure for failure in payload["failures"]
     )
     assert any("market_data_consumer" in failure for failure in payload["failures"])
-    assert any(
-        "position_management_worker" in failure for failure in payload["failures"]
-    )
+    assert any("xt_account_sync_worker" in failure for failure in payload["failures"])
     assert any("xtquant_broker" in failure for failure in payload["failures"])
-    assert any("credit_subjects_worker" in failure for failure in payload["failures"])
     assert any("guardian_monitor" in warning for warning in payload["warnings"])
 
 
@@ -287,10 +273,9 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
                     {"id": "xtdata_adj_refresh_worker", "running": False},
                     {"id": "market_data_consumer", "running": False},
                     {"id": "guardian_monitor", "running": False},
-                    {"id": "position_management_worker", "running": False},
+                    {"id": "xt_account_sync_worker", "running": False},
                     {"id": "tpsl_tick_listener", "running": False},
                     {"id": "xtquant_broker", "running": False},
-                    {"id": "credit_subjects_worker", "running": False},
                 ],
             }
         },
@@ -352,9 +337,7 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
             {
                 "ProcessId": 405,
                 "Name": "python.exe",
-                "CommandLine": (
-                    "python -m freshquant.order_management.credit_subjects.worker"
-                ),
+                "CommandLine": "python -m freshquant.xt_account_sync.worker",
             },
         ],
     )
@@ -392,7 +375,7 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
         for check in payload["process_checks"]
     )
     assert any(
-        check["id"] == "credit_subjects_worker" and check["passed"] is True
+        check["id"] == "xt_account_sync_worker" and check["passed"] is True
         for check in payload["process_checks"]
     )
 
@@ -449,7 +432,7 @@ def test_verify_rejects_unknown_deployment_surface(tmp_path: Path) -> None:
     assert "unknown deployment surface" in error_text.lower()
 
 
-def test_verify_matches_position_worker_without_explicit_interval_flag(
+def test_verify_matches_xt_account_sync_worker_without_explicit_interval_flag(
     tmp_path: Path,
 ) -> None:
     baseline_path = _write_json(
@@ -459,7 +442,7 @@ def test_verify_matches_position_worker_without_explicit_interval_flag(
                 "docker": [],
                 "services": [{"name": "fqnext-supervisord", "status": "Running"}],
                 "processes": [
-                    {"id": "position_management_worker", "running": False},
+                    {"id": "xt_account_sync_worker", "running": False},
                 ],
             }
         },
@@ -487,7 +470,7 @@ def test_verify_matches_position_worker_without_explicit_interval_flag(
             {
                 "ProcessId": 501,
                 "Name": "python.exe",
-                "CommandLine": "python -m freshquant.position_management.worker",
+                "CommandLine": "python -m freshquant.xt_account_sync.worker",
             }
         ],
     )
@@ -515,7 +498,7 @@ def test_verify_matches_position_worker_without_explicit_interval_flag(
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["passed"] is True
     assert any(
-        check["id"] == "position_management_worker" and check["passed"] is True
+        check["id"] == "xt_account_sync_worker" and check["passed"] is True
         for check in payload["process_checks"]
     )
 
@@ -531,7 +514,7 @@ def test_verify_requires_fqnext_supervisord_for_host_managed_surfaces(
                 "services": [{"name": "fqnext-supervisord", "status": "Running"}],
                 "processes": [
                     {"id": "xtquant_broker", "running": False},
-                    {"id": "credit_subjects_worker", "running": False},
+                    {"id": "xt_account_sync_worker", "running": False},
                 ],
             }
         },
@@ -564,9 +547,7 @@ def test_verify_requires_fqnext_supervisord_for_host_managed_surfaces(
             {
                 "ProcessId": 602,
                 "Name": "python.exe",
-                "CommandLine": (
-                    "python -m freshquant.order_management.credit_subjects.worker"
-                ),
+                "CommandLine": "python -m freshquant.xt_account_sync.worker",
             },
         ],
     )
@@ -607,7 +588,7 @@ def test_verify_prefers_supervisor_snapshot_for_host_managed_programs(
                 "services": [{"name": "fqnext-supervisord", "status": "Running"}],
                 "processes": [
                     {"id": "xtquant_broker", "running": False},
-                    {"id": "credit_subjects_worker", "running": False},
+                    {"id": "xt_account_sync_worker", "running": False},
                 ],
             }
         },
@@ -646,7 +627,7 @@ def test_verify_prefers_supervisor_snapshot_for_host_managed_programs(
                 "description": "pid 1701, uptime 0:01:00",
             },
             {
-                "name": "fqnext_credit_subjects_worker",
+                "name": "fqnext_xt_account_sync_worker",
                 "statename": "RUNNING",
                 "pid": 1702,
                 "description": "pid 1702, uptime 0:01:00",
@@ -683,6 +664,6 @@ def test_verify_prefers_supervisor_snapshot_for_host_managed_programs(
         for check in payload["process_checks"]
     )
     assert any(
-        check["id"] == "credit_subjects_worker" and check["passed"] is True
+        check["id"] == "xt_account_sync_worker" and check["passed"] is True
         for check in payload["process_checks"]
     )

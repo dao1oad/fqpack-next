@@ -7,7 +7,7 @@
 ## 入口
 
 - worker
-  - `python -m freshquant.position_management.worker --interval 3`
+  - 正式宿主机入口：`python -m freshquant.xt_account_sync.worker --interval 3`
 - 核心服务
   - `freshquant.position_management.snapshot_service.PositionSnapshotService`
   - `freshquant.position_management.service.PositionManagementService`
@@ -34,7 +34,7 @@
 
 账户级链路：
 
-`XT credit detail -> snapshot_service.refresh_once -> pm_credit_asset_snapshots / pm_current_state -> evaluate_strategy_order -> allow/reject`
+`XT credit detail -> xt_account_sync.worker -> pm_credit_asset_snapshots / pm_current_state -> evaluate_strategy_order -> allow/reject`
 
 单标的链路：
 
@@ -134,17 +134,17 @@
 - 改动后至少重启 worker：
 
 ```powershell
-python -m freshquant.position_management.worker --interval 3
+python -m freshquant.xt_account_sync.worker --interval 3
 ```
 
-- 当前 worker 只负责账户级快照刷新；单标的实时仓位快照由 XTData `StrategyConsumer` 在消费 `1m BAR_CLOSE` 时同步刷新，worker 启动时只做一次 fallback 种子刷新。
+- 当前正式宿主机 worker 由 `xt_account_sync.worker` 承担；它负责账户级快照与 `xt_positions` 刷新。单标的实时仓位快照仍由 XTData `StrategyConsumer` 在消费 `1m BAR_CLOSE` 时同步刷新，worker 启动时只做一次 fallback 种子刷新。
 - 涉及门禁语义时，必须同时验证 Guardian 策略单与手工/API 单。
 
 ## 排障点
 
 ### 仓位状态一直不刷新
 
-- 检查 worker 是否在跑
+- 检查 `xt_account_sync.worker` 是否在跑
 - 检查 XT 资产接口是否可读
 - 检查 `pm_credit_asset_snapshots` 最近更新时间
 
@@ -158,7 +158,7 @@ python -m freshquant.position_management.worker --interval 3
 
 ### 单标的实时仓位不刷新
 
-- 检查 `position_management.worker` 是否在跑
+- 检查 `xt_account_sync.worker` 是否在跑
 - 检查 XTData `StrategyConsumer` 是否正常消费 `QUEUE:BAR_CLOSE:*` 的 `1m` 事件
 - 检查 `pm_symbol_position_snapshots` 最近更新时间
 - 检查目标 symbol 是否能从 `xt_positions` 或 projected positions 解析到数量

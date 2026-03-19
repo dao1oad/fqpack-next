@@ -260,6 +260,7 @@ def test_get_stock_signal_list_for_must_pool_buys_filters_current_non_holding_mu
             "period": "1m",
             "remark": "回拉中枢上涨",
             "fire_time": "2026-03-15 09:31",
+            "created_at": "2026-03-15 09:31",
             "price": 10.2,
             "stop_lose_price": 9.7,
             "position": "BUY_LONG",
@@ -273,6 +274,49 @@ def test_get_stock_signal_list_for_must_pool_buys_filters_current_non_holding_mu
     }
     assert fake_db["stock_signals"].last_skip == 0
     assert fake_db["stock_signals"].last_limit == 1000
+
+
+def test_get_stock_signal_list_exposes_created_at_with_fire_time_fallback(monkeypatch):
+    stock_service = _import_stock_service_with_stubs(monkeypatch)
+
+    fake_db = FakeDB(
+        stock_signals=FakeCollection(
+            [
+                {
+                    "_id": "1",
+                    "symbol": "sz000001",
+                    "code": "000001",
+                    "name": "alpha",
+                    "period": "30m",
+                    "remark": "回拉中枢上涨",
+                    "fire_time": datetime(2026, 3, 15, 9, 31),
+                    "price": 10.2,
+                    "stop_lose_price": 9.7,
+                    "position": "BUY_LONG",
+                    "is_holding": True,
+                }
+            ]
+        )
+    )
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+
+    result = stock_service.get_stock_signal_list(page=1, size=1000, category="holdings")
+
+    assert result == [
+        {
+            "symbol": "sz000001",
+            "code": "000001",
+            "name": "alpha",
+            "period": "30m",
+            "remark": "回拉中枢上涨",
+            "fire_time": "2026-03-15 09:31",
+            "created_at": "2026-03-15 09:31",
+            "price": 10.2,
+            "stop_lose_price": 9.7,
+            "position": "BUY_LONG",
+            "is_holding": True,
+        }
+    ]
 
 
 def test_get_stock_model_signal_list_returns_sorted_realtime_screen_docs(monkeypatch):

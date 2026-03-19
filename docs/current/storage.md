@@ -122,7 +122,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - 兼容旧值 `clx_15_30`，运行时会归一到联合模式。
 - Guardian event monitor 写 `stock_signals`。
 - Guardian 读 `xt_positions`、`must_pool`、Guardian grid 集合，写订单请求。
-- Position worker 读 XT 资产/持仓，写 `pm_*` 集合。
+- XT account sync worker 读 XT 资产/持仓/成交/委托，写 `xt_*`、`pm_*` 与 `om_credit_subjects`。
 - Order submit 写 `om_order_requests`、`om_orders`、`om_order_events`，并把 broker payload 推到 Redis。
 - XT 回报 ingest 写 `om_trade_facts`、`om_buy_lots`、`om_lot_slices`、`om_sell_allocations` 等。
 - TPSL 读 `xt_positions` 与 `om_*`，写 `om_takeprofit_*` / `om_exit_trigger_events`。

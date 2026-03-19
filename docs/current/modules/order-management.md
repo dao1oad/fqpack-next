@@ -37,6 +37,7 @@
 - Redis
 - Position Management
 - XT broker / puppet gateway
+- XT account sync worker
 - XT 回报 ingest
 - Runtime Observability
 
@@ -57,6 +58,8 @@
 ### 回报
 
 `XT order/trade callback -> OrderManagementXtIngestService -> om_orders / om_trade_facts / om_buy_lots / om_sell_allocations -> projection update`
+
+`XT account sync worker(query_stock_orders/query_stock_trades/query_stock_positions) -> saveOrders/saveTrades/reconcile_account -> xt_* / om_* / external candidates`
 
 `om_trade_facts` 当前会保留 `trade_time` 以及同一笔成交对应的 `date/time`；旧的 `external_inferred` 历史 lot / slice 如果缺少 `date/time`，投影读取时会按已有 `trade_time` 回填，避免 Guardian 和持仓视图在消费投影时拿到 `None/None`。
 
@@ -104,13 +107,13 @@
 - broker `observe_only`
 - account type / credit mode
 
-`observe_only` 语义是“只建内部账本和事件，不真正向 broker 发单”；排障时必须确认当前是否误开该模式。
+`observe_only` 语义当前只是不真正向 broker 发单/撤单；它不会停掉 broker 的 XT 连接、callback ingest，也不会停掉 `xt_account_sync.worker` 的主动查询。
 
 ## 部署/运行
 
 - 路由改动至少重建 `fq_apiserver`
 - `morningglory/fqwebui` 改动后要重建 `fqwebui`
-- submit / ingest / reconcile 逻辑改动时，要同步重启相关宿主机进程
+- submit / ingest / reconcile 逻辑改动时，要同步重启 `fqnext_xtquant_broker` 与 `fqnext_xt_account_sync_worker`
 - 交易链改动后至少验证一次：
   - submit
   - XT 回报 ingest
@@ -135,6 +138,7 @@
 
 - 检查 `om_trade_facts`
 - 检查 `om_buy_lots` 和投影是否更新
+- 检查 `xt_positions` 最近一次刷新时间与 `fqnext_xt_account_sync_worker` 是否正常运行
 - 检查 reconcile 是否把外部成交匹配成内部单
 - 如果是 external reconcile 落账，还要检查 lot amount / grid interval 是否可解析；当前解析失败会直接报错，不再静默使用 `3000 / 1.03`
 

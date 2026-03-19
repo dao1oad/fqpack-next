@@ -47,3 +47,51 @@ def test_xtquant_buy_command_delegates_to_order_submit_service(monkeypatch):
     assert captured["action"] == "buy"
     assert captured["symbol"] == "600000"
     assert "ord_xt_1" in result.output
+
+
+def test_xtquant_sync_positions_command_uses_xt_account_sync_service(monkeypatch):
+    _install_xt_cli_import_stubs(monkeypatch)
+    from morningglory.fqxtrade.fqxtrade.xtquant.cli_commands import xtquant
+
+    observed = []
+
+    class FakeService:
+        def sync_positions(self):
+            observed.append("positions")
+            return {"count": 2}
+
+    monkeypatch.setattr(
+        "morningglory.fqxtrade.fqxtrade.xtquant.cli_commands._get_xt_account_sync_service",
+        lambda: FakeService(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(xtquant, ["sync-positions"])
+
+    assert result.exit_code == 0
+    assert observed == ["positions"]
+    assert '"count": 2' in result.output
+
+
+def test_xtquant_sync_trades_command_uses_xt_account_sync_service(monkeypatch):
+    _install_xt_cli_import_stubs(monkeypatch)
+    from morningglory.fqxtrade.fqxtrade.xtquant.cli_commands import xtquant
+
+    observed = []
+
+    class FakeService:
+        def sync_trades(self):
+            observed.append("trades")
+            return {"count": 3}
+
+    monkeypatch.setattr(
+        "morningglory.fqxtrade.fqxtrade.xtquant.cli_commands._get_xt_account_sync_service",
+        lambda: FakeService(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(xtquant, ["sync-trades"])
+
+    assert result.exit_code == 0
+    assert observed == ["trades"]
+    assert '"count": 3' in result.output

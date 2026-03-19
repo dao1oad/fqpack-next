@@ -32,6 +32,7 @@ from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.trade.trade import calculateTradeFee, saveInstrumentStrategy
 from freshquant.util.code import fq_util_code_append_market_code_suffix
 from freshquant.util.xtquant import translate_account_type, translate_order_type
+from freshquant.xt_account_sync.persistence import persist_assets, persist_positions
 
 trading_manager = TradingManager()
 external_reconcile_service = ExternalOrderReconcileService()
@@ -385,19 +386,7 @@ def sync_orders():
 
 
 def saveAssets(assets):
-    batch = []
-    for asset in assets:
-        batch.append(
-            UpdateOne(
-                {
-                    "account_id": asset.account_id,
-                },
-                {"$set": FqXtAsset(asset).to_dict()},
-                upsert=True,
-            )
-        )
-    if len(batch) > 0:
-        DBfreshquant["xt_assets"].bulk_write(batch)
+    persist_assets(assets, collection=DBfreshquant["xt_assets"])
 
 
 def sync_summary():
@@ -465,23 +454,20 @@ def sync_summary():
 
 
 def savePositions(positions):
-    batch = []
-    stockCodes = []
-    for position in positions:
-        batch.append(
-            UpdateOne(
-                {
-                    "account_id": position.account_id,
-                    "stock_code": position.stock_code,
-                },
-                {"$set": FqXtPosition(position).to_dict()},
-                upsert=True,
+    account_id = ""
+    if positions:
+        account_id = str(
+            getattr(positions[0], "account_id", "")
+            or (
+                positions[0].get("account_id") if isinstance(positions[0], dict) else ""
             )
-        )
-        stockCodes.append(position.stock_code)
-    if len(batch) > 0:
-        DBfreshquant["xt_positions"].bulk_write(batch)
-        DBfreshquant["xt_positions"].delete_many({"stock_code": {"$nin": stockCodes}})
+            or ""
+        ).strip()
+    persist_positions(
+        positions,
+        account_id=account_id,
+        collection=DBfreshquant["xt_positions"],
+    )
 
 
 def sync_positions():

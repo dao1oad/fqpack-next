@@ -1,0 +1,311 @@
+# -*- coding: utf-8 -*-
+
+from datetime import datetime, timezone
+
+import pytest
+
+
+class FakeSyncService:
+    def __init__(self, result=None):
+        self.calls = []
+        self.result = result or {"positions": {"count": 1}}
+
+    def sync_once(self, *, include_credit_subjects=False, seed_symbol_snapshots=False):
+        self.calls.append(
+            {
+                "include_credit_subjects": include_credit_subjects,
+                "seed_symbol_snapshots": seed_symbol_snapshots,
+            }
+        )
+        return dict(self.result)
+
+
+class FakeSymbolPositionService:
+    def __init__(self):
+        self.calls = 0
+
+    def refresh_all_from_positions(self):
+        self.calls += 1
+        return [{"symbol": "600570"}]
+
+
+def test_sync_service_runs_expected_tasks_in_order_and_optionally_credit_subjects():
+    from freshquant.xt_account_sync.service import XtAccountSyncService
+
+    observed = []
+    service = XtAccountSyncService(
+        sync_assets=lambda: observed.append("assets") or {"count": 1},
+        sync_credit_detail=lambda: observed.append("credit_detail")
+        or {"state": "ALLOW_OPEN"},
+        sync_positions=lambda: observed.append("positions") or {"count": 2},
+        seed_symbol_snapshots=lambda: observed.append("seed") or {"count": 3},
+        sync_orders=lambda: observed.append("orders") or {"count": 4},
+        sync_trades=lambda: observed.append("trades") or {"count": 5},
+        sync_credit_subjects=lambda: observed.append("credit_subjects") or {"count": 6},
+    )
+
+    result = service.sync_once(
+        include_credit_subjects=True,
+        seed_symbol_snapshots=True,
+    )
+
+    assert observed == [
+        "assets",
+        "credit_detail",
+        "positions",
+        "seed",
+        "orders",
+        "trades",
+        "credit_subjects",
+    ]
+    assert result["assets"]["count"] == 1
+    assert result["credit_subjects"]["count"] == 6
+
+
+def test_worker_run_once_calls_sync_service_without_credit_subjects_by_default():
+    from freshquant.xt_account_sync.worker import run_once
+
+    service = FakeSyncService()
+
+    result = run_once(service=service)
+
+    assert result["positions"]["count"] == 1
+    assert service.calls == [
+        {
+            "include_credit_subjects": False,
+            "seed_symbol_snapshots": True,
+        }
+    ]
+
+
+def test_worker_main_once_returns_zero():
+    from freshquant.xt_account_sync.worker import main
+
+    service = FakeSyncService()
+
+    result = main(argv=["--once"], service=service)
+
+    assert result == 0
+    assert service.calls == [
+        {
+            "include_credit_subjects": False,
+            "seed_symbol_snapshots": True,
+        }
+    ]
+
+
+def test_worker_run_forever_schedules_credit_subjects_and_only_seeds_once():
+    from freshquant.xt_account_sync.worker import run_forever
+
+    service = FakeSyncService()
+    symbol_position_service = FakeSymbolPositionService()
+    moments = iter(
+        [
+            datetime(2026, 3, 19, 9, 19, tzinfo=timezone.utc),
+            datetime(2026, 3, 19, 9, 20, tzinfo=timezone.utc),
+        ]
+    )
+    sleep_calls = []
+
+    def fake_now():
+        return next(moments)
+
+    def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_forever(
+            service=service,
+            interval_seconds=3,
+            sleep_fn=fake_sleep,
+            now_provider=fake_now,
+            scheduled_hour=9,
+            scheduled_minute=20,
+            symbol_position_service=symbol_position_service,
+        )
+
+    assert symbol_position_service.calls == 1
+    assert service.calls == [
+        {
+            "include_credit_subjects": True,
+            "seed_symbol_snapshots": True,
+        },
+        {
+            "include_credit_subjects": True,
+            "seed_symbol_snapshots": False,
+        },
+    ]
+    assert sleep_calls == [3]
+
+
+def test_persist_positions_clears_only_current_account_and_invalidates_holdings():
+    from freshquant.xt_account_sync.persistence import persist_positions
+
+    class FakeCollection:
+        def __init__(self):
+            self.docs = [
+                {"account_id": "acct-a", "stock_code": "600000.SH", "volume": 10},
+                {"account_id": "acct-a", "stock_code": "600570.SH", "volume": 20},
+                {"account_id": "acct-b", "stock_code": "000001.SZ", "volume": 30},
+            ]
+
+        def bulk_write(self, operations):
+            for operation in operations:
+                query = dict(operation._filter)
+                payload = dict(operation._doc["$set"])
+                updated = False
+                for index, document in enumerate(self.docs):
+                    if all(document.get(key) == value for key, value in query.items()):
+                        self.docs[index] = dict(document, **payload)
+                        updated = True
+                        break
+                if not updated:
+                    self.docs.append(payload)
+
+        def delete_many(self, query):
+            account_id = query.get("account_id")
+            stock_filter = query.get("stock_code")
+            if isinstance(stock_filter, dict) and "$nin" in stock_filter:
+                excluded = set(stock_filter["$nin"])
+                self.docs = [
+                    document
+                    for document in self.docs
+                    if document.get("account_id") != account_id
+                    or document.get("stock_code") in excluded
+                ]
+            else:
+                self.docs = [
+                    document
+                    for document in self.docs
+                    if document.get("account_id") != account_id
+                ]
+            return None
+
+    invalidation_calls = []
+    collection = FakeCollection()
+
+    result = persist_positions(
+        [
+            {"account_id": "acct-a", "stock_code": "600570.SH", "volume": 200},
+            {"account_id": "acct-a", "stock_code": "688111.SH", "volume": 300},
+        ],
+        account_id="acct-a",
+        collection=collection,
+        invalidator=lambda: invalidation_calls.append("bumped"),
+    )
+
+    assert result["count"] == 2
+    assert invalidation_calls == ["bumped"]
+    assert collection.docs == [
+        {"account_id": "acct-a", "stock_code": "600570.SH", "volume": 200},
+        {"account_id": "acct-b", "stock_code": "000001.SZ", "volume": 30},
+        {"account_id": "acct-a", "stock_code": "688111.SH", "volume": 300},
+    ]
+
+
+def test_persist_positions_deletes_current_account_when_snapshot_is_empty():
+    from freshquant.xt_account_sync.persistence import persist_positions
+
+    class FakeCollection:
+        def __init__(self):
+            self.docs = [
+                {"account_id": "acct-a", "stock_code": "600570.SH", "volume": 20},
+                {"account_id": "acct-b", "stock_code": "000001.SZ", "volume": 30},
+            ]
+
+        def bulk_write(self, operations):
+            raise AssertionError("bulk_write should not be called for empty snapshots")
+
+        def delete_many(self, query):
+            account_id = query.get("account_id")
+            self.docs = [
+                document
+                for document in self.docs
+                if document.get("account_id") != account_id
+            ]
+            return None
+
+    invalidation_calls = []
+    collection = FakeCollection()
+
+    result = persist_positions(
+        [],
+        account_id="acct-a",
+        collection=collection,
+        invalidator=lambda: invalidation_calls.append("bumped"),
+    )
+
+    assert result["count"] == 0
+    assert invalidation_calls == ["bumped"]
+    assert collection.docs == [
+        {"account_id": "acct-b", "stock_code": "000001.SZ", "volume": 30},
+    ]
+
+
+def test_refresh_credit_detail_uses_force_profit_reduce_below_holding_threshold():
+    from freshquant.position_management.models import FORCE_PROFIT_REDUCE
+    from freshquant.xt_account_sync.persistence import refresh_credit_detail
+
+    class FakeRepository:
+        def __init__(self):
+            self.snapshots = []
+            self.current_state = None
+
+        def get_config(self):
+            return {
+                "thresholds": {
+                    "allow_open_min_bail": 800000.0,
+                    "holding_only_min_bail": 100000.0,
+                }
+            }
+
+        def insert_snapshot(self, snapshot):
+            self.snapshots.append(dict(snapshot))
+
+        def upsert_current_state(self, current_state):
+            self.current_state = dict(current_state)
+
+    repository = FakeRepository()
+
+    result = refresh_credit_detail(
+        {"m_dEnableBailBalance": 50000},
+        account_id="068000076370",
+        account_type="CREDIT",
+        repository=repository,
+        now_provider=lambda: datetime(2026, 3, 19, tzinfo=timezone.utc),
+    )
+
+    assert result["state"] == FORCE_PROFIT_REDUCE
+    assert repository.current_state["state"] == FORCE_PROFIT_REDUCE
+
+
+def test_sync_credit_subjects_does_not_delete_existing_rows_when_snapshot_missing():
+    from freshquant.xt_account_sync.persistence import sync_credit_subjects
+
+    class FakeRepository:
+        def __init__(self):
+            self.upserts = []
+            self.delete_calls = []
+
+        def upsert_subject(self, document):
+            self.upserts.append(dict(document))
+
+        def delete_missing_subjects(self, account_id, instrument_ids):
+            self.delete_calls.append((account_id, list(instrument_ids)))
+            return 3
+
+    repository = FakeRepository()
+
+    result = sync_credit_subjects(
+        None,
+        account_id="068000076370",
+        account_type="CREDIT",
+        repository=repository,
+        now_provider=lambda: datetime(2026, 3, 19, tzinfo=timezone.utc),
+    )
+
+    assert result["count"] == 0
+    assert result["deleted_count"] == 0
+    assert repository.upserts == []
+    assert repository.delete_calls == []

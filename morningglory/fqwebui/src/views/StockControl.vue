@@ -2,39 +2,34 @@
   <div class="stock-control-shell">
     <MyHeader />
     <div class="stock-control-body">
-      <section class="monitor-column monitor-column--signals">
-        <article class="monitor-panel">
-          <div class="monitor-panel__head">
-            <h2>持仓监控</h2>
-            <p>持仓股信号</p>
+      <div class="stock-control-grid">
+        <section class="panel-card">
+          <div class="panel-card-header">
+            <span>持仓股信号</span>
           </div>
-          <div class="monitor-panel__body">
+          <div class="panel-table">
             <SignalList title="持仓股信号" category="holdings" />
           </div>
-        </article>
+        </section>
 
-        <article class="monitor-panel">
-          <div class="monitor-panel__head">
-            <h2>买入监控</h2>
-            <p>must_pools买入信号</p>
+        <section class="panel-card">
+          <div class="panel-card-header">
+            <span>stock_pools模型信号</span>
           </div>
-          <div class="monitor-panel__body">
-            <SignalList title="must_pools买入信号" category="must_pool_buys" />
-          </div>
-        </article>
-      </section>
-
-      <section class="monitor-column monitor-column--model">
-        <article class="monitor-panel monitor-panel--full">
-          <div class="monitor-panel__head">
-            <h2>模型监控</h2>
-            <p>stock_pools模型信号</p>
-          </div>
-          <div class="monitor-panel__body">
+          <div class="panel-table">
             <ModelSignalList title="stock_pools模型信号" />
           </div>
-        </article>
-      </section>
+        </section>
+
+        <section class="panel-card">
+          <div class="panel-card-header">
+            <span>must_pools买入信号</span>
+          </div>
+          <div class="panel-table">
+            <SignalList title="must_pools买入信号" category="must_pool_buys" />
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </template>
@@ -53,6 +48,7 @@ export default {
   }
 }
 </script>
+
 <style lang="stylus" scoped>
 @import '../style/stock-control.styl';
 </style>

@@ -1,45 +1,52 @@
 <template>
-  <div style="padding: 4px;" class="model-signal-list-main">
-    <el-divider content-position="center">{{ title }}</el-divider>
-    <el-table
-      v-loading="isLoading"
-      :data="signalList"
-      size="small"
-      fit
-      :stripe="true"
-      :border="true"
-    >
-      <el-table-column prop="datetime" label="信号时间" width="140" />
-      <el-table-column prop="created_at" label="入库时间" width="160" />
-      <el-table-column label="标的" min-width="140">
-        <template #default="{ row }">
-          <div>{{ row.name || '--' }}</div>
-          <div>{{ row.code || '--' }}</div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="period" label="周期" width="80" />
-      <el-table-column prop="model" label="模型" width="90" />
-      <el-table-column label="价格" width="160">
-        <template #default="{ row }">
-          <div class="price-cell-line">触发价: {{ formatPrice(row.close) }}</div>
-          <div class="price-cell-line">止损价: {{ formatPrice(row.stop_loss_price) }}</div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="source" label="来源" min-width="120" />
-    </el-table>
-    <el-row>
+  <div class="model-signal-list-table">
+    <div class="model-signal-list-table__main">
+      <el-table
+        v-loading="isLoading"
+        :data="signalList"
+        size="small"
+        border
+        height="100%"
+      >
+        <el-table-column prop="datetime" label="信号时间" min-width="140">
+          <template #default="{ row }">
+            <span class="mono">{{ formatText(row.datetime) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="入库时间" min-width="140">
+          <template #default="{ row }">
+            <span class="mono">{{ formatText(row.created_at) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="标的代码" min-width="104">
+          <template #default="{ row }">
+            <span class="mono">{{ formatText(row.code) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="标的名称" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ formatText(row.name) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="价格" min-width="268">
+          <template #default="{ row }">
+            <span class="price-summary mono">{{ formatPriceSummary(row.close, row.stop_loss_price) }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+    <div class="model-signal-list-table__pagination">
       <el-pagination
         background
         layout="total,sizes,prev,pager,next"
         v-model:current-page="listQuery.current"
         :page-size="listQuery.size"
         :total="listQuery.total"
-        :page-sizes="[10, 50, 100]"
+        :page-sizes="[100, 200, 500]"
         @current-change="handlePageChange"
         @size-change="handleSizeChange"
-        class="mt-5"
       />
-    </el-row>
+    </div>
   </div>
 </template>
 
@@ -59,21 +66,21 @@ export default {
   },
   setup () {
     const listQuery = reactive({
-      size: 10,
+      size: 100,
       total: 0,
       current: 1
     })
     const { isLoading, data: signalList } = useQuery({
       queryKey: ['stockModelSignalList'],
       queryFn: async () => {
-        const signalList = await stockApi.getStockModelSignalList({
+        const rows = await stockApi.getStockModelSignalList({
           page: 1,
           size: 1000
         })
-        listQuery.total = _.size(signalList)
+        listQuery.total = _.size(rows)
         const start = (listQuery.current - 1) * listQuery.size
         const end = start + listQuery.size
-        return _.slice(signalList, start, end)
+        return _.slice(rows, start, end)
       },
       refetchInterval: 30000,
       staleTime: 5000
@@ -84,11 +91,16 @@ export default {
   methods: {
     handleSizeChange (currentSize) {
       this.listQuery.size = currentSize
+      this.listQuery.current = 1
       this.queryClient.invalidateQueries({ queryKey: ['stockModelSignalList'] })
     },
     handlePageChange (currentPage) {
       this.listQuery.current = currentPage
       this.queryClient.invalidateQueries({ queryKey: ['stockModelSignalList'] })
+    },
+    formatText (value) {
+      const normalized = String(value ?? '').trim()
+      return normalized || '--'
     },
     formatPrice (value) {
       if (value === null || value === undefined || value === '') {
@@ -99,19 +111,50 @@ export default {
         return '--'
       }
       return parsed.toFixed(3)
+    },
+    formatStopLossRate (price, stopLossPrice) {
+      const firePrice = Number(price)
+      const stopPrice = Number(stopLossPrice)
+      if (!Number.isFinite(firePrice) || !Number.isFinite(stopPrice) || firePrice === 0) {
+        return '--'
+      }
+      return `${(((stopPrice - firePrice) / firePrice) * 100).toFixed(3)}%`
+    },
+    formatPriceSummary (price, stopLossPrice) {
+      return `触发价 ${this.formatPrice(price)} / 止损价 ${this.formatPrice(stopLossPrice)} / 止损% ${this.formatStopLossRate(price, stopLossPrice)}`
     }
   }
 }
 </script>
 
 <style lang="stylus" scoped>
-.model-signal-list-main :deep() {
-  .el-table .el-table__cell {
-    vertical-align: top
-  }
-}
+.model-signal-list-table
+  display flex
+  flex 1 1 auto
+  flex-direction column
+  min-height 0
+  overflow hidden
 
-.price-cell-line {
-  white-space: nowrap
-}
+.model-signal-list-table__main
+  flex 1 1 auto
+  min-height 0
+  overflow hidden
+
+.model-signal-list-table__pagination
+  display flex
+  justify-content flex-end
+  padding-top 8px
+
+.price-summary
+  display inline-block
+  white-space nowrap
+
+.mono
+  font-family Consolas, Monaco, 'Courier New', monospace
+
+.model-signal-list-table :deep(.el-table)
+  height 100%
+
+.model-signal-list-table :deep(.el-table .el-table__cell)
+  vertical-align top
 </style>
