@@ -55,6 +55,29 @@
 
             <div class="extra-filter-buttons">
               <span class="extra-filter-buttons__label">条件筛选</span>
+              <el-popover
+                trigger="hover"
+                placement="right"
+                :width="360"
+              >
+                <template #reference>
+                  <button
+                    type="button"
+                    class="filter-help-trigger"
+                    aria-label="查看条件筛选说明"
+                  >
+                    i
+                  </button>
+                </template>
+                <div class="filter-help-card">
+                  <div class="filter-help-card__title">条件筛选说明</div>
+                  <div class="filter-help-card__section">
+                    <p>当前“缠论通过”基于日线（1d）结构计算。</p>
+                    <p>默认规则：高级段倍数 <= 3、段倍数 <= 2、笔涨幅% <= 20。</p>
+                    <p>融资标的、均线附近、优质标的筛选会先保留通过这组日线缠论涨幅规则的标的，再继续取交集。</p>
+                  </div>
+                </div>
+              </el-popover>
               <el-button
                 v-for="option in EXTRA_FILTER_OPTIONS"
                 :key="option.key"
@@ -1492,6 +1515,47 @@ onMounted(() => {
   font-size: 12px;
   font-weight: 600;
   color: #6b7280;
+}
+
+.filter-help-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.filter-help-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-help-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.filter-help-card__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.filter-help-card__section p {
+  margin: 0;
 }
 
 .panel-summary {

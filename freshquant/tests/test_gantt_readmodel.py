@@ -274,7 +274,7 @@ def test_persist_shouban30_for_date_uses_calendar_days_window(monkeypatch):
             "stocks_count": 1,
             "candidate_stocks_count": 1,
             "failed_stocks_count": 0,
-            "chanlun_filter_version": "30m_v1",
+            "chanlun_filter_version": "1d_v1",
             "stock_window_from": "2026-03-05",
             "stock_window_to": "2026-03-05",
             "reason_text": "canonical reason",
@@ -301,7 +301,7 @@ def test_persist_shouban30_for_date_uses_calendar_days_window(monkeypatch):
             "chanlun_higher_multiple": 2.0,
             "chanlun_segment_multiple": 2.0,
             "chanlun_bi_gain_percent": 10.0,
-            "chanlun_filter_version": "30m_v1",
+            "chanlun_filter_version": "1d_v1",
             "is_credit_subject": False,
             "credit_subject_snapshot_ready": False,
             "near_long_term_ma_passed": False,
@@ -1307,7 +1307,7 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
             "stocks_count": 1,
             "candidate_stocks_count": 1,
             "failed_stocks_count": 0,
-            "chanlun_filter_version": "30m_v1",
+            "chanlun_filter_version": "1d_v1",
             "stock_window_from": "2026-02-10",
             "stock_window_to": "2026-03-05",
             "reason_text": "canonical reason",
@@ -1334,7 +1334,7 @@ def test_persist_shouban30_for_date_joins_plate_reason(monkeypatch):
             "chanlun_higher_multiple": 2.0,
             "chanlun_segment_multiple": 2.0,
             "chanlun_bi_gain_percent": 10.0,
-            "chanlun_filter_version": "30m_v1",
+            "chanlun_filter_version": "1d_v1",
             "is_credit_subject": False,
             "credit_subject_snapshot_ready": False,
             "near_long_term_ma_passed": False,
@@ -1473,7 +1473,7 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
     monkeypatch.setattr(svc, "DBGantt", fake_db)
 
     def get_chanlun_structure_stub(symbol, period, end_date):
-        assert period == "30m"
+        assert period == "1d"
         assert end_date == "2026-03-05"
         if symbol == "sz000001":
             return {
@@ -1572,10 +1572,10 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
             "seg_from": "2026-03-04",
             "seg_to": "2026-03-05",
             "hit_trade_dates_30": ["2026-03-04", "2026-03-05"],
-            "stocks_count": 1,
+            "stocks_count": 0,
             "candidate_stocks_count": 2,
-            "failed_stocks_count": 1,
-            "chanlun_filter_version": "30m_v1",
+            "failed_stocks_count": 2,
+            "chanlun_filter_version": "1d_v1",
             "stock_window_from": "2026-03-04",
             "stock_window_to": "2026-03-05",
             "reason_text": "canonical reason",
@@ -1597,12 +1597,12 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
             "hit_trade_dates_window": ["2026-03-04", "2026-03-05"],
             "latest_trade_date": "2026-03-05",
             "latest_reason": "alpha reason",
-            "chanlun_passed": True,
-            "chanlun_reason": "passed",
+            "chanlun_passed": False,
+            "chanlun_reason": "segment_multiple_exceed",
             "chanlun_higher_multiple": 2.0,
             "chanlun_segment_multiple": 2.5,
             "chanlun_bi_gain_percent": 20.0,
-            "chanlun_filter_version": "30m_v1",
+            "chanlun_filter_version": "1d_v1",
             "is_credit_subject": True,
             "credit_subject_snapshot_ready": True,
             "near_long_term_ma_passed": True,
@@ -1637,7 +1637,7 @@ def test_persist_shouban30_for_date_writes_chanlun_snapshot_fields_and_filters_b
             "chanlun_higher_multiple": 3.1,
             "chanlun_segment_multiple": 2.0,
             "chanlun_bi_gain_percent": 20.0,
-            "chanlun_filter_version": "30m_v1",
+            "chanlun_filter_version": "1d_v1",
             "is_credit_subject": False,
             "credit_subject_snapshot_ready": True,
             "near_long_term_ma_passed": False,
@@ -1769,7 +1769,7 @@ def test_persist_shouban30_for_date_marks_extra_filter_sources_not_ready(
             "chanlun_higher_multiple": 2.0,
             "chanlun_segment_multiple": 2.0,
             "chanlun_bi_gain_percent": 10.0,
-            "chanlun_filter_version": "30m_v1",
+            "chanlun_filter_version": "1d_v1",
             "is_credit_subject": False,
             "credit_subject_snapshot_ready": False,
             "near_long_term_ma_passed": False,
@@ -1982,7 +1982,7 @@ def test_persist_shouban30_for_date_excludes_bj_stocks_and_empty_plates(
         "stocks": 1,
         "stock_window_days": 30,
     }
-    assert calls == [("sz000001", "30m", "2026-03-05")]
+    assert calls == [("sz000001", "1d", "2026-03-05")]
     assert fake_db[svc.COL_SHOUBAN30_PLATES].docs == [
         {
             "provider": "jygs",
@@ -1997,7 +1997,7 @@ def test_persist_shouban30_for_date_excludes_bj_stocks_and_empty_plates(
             "stocks_count": 1,
             "candidate_stocks_count": 1,
             "failed_stocks_count": 0,
-            "chanlun_filter_version": "30m_v1",
+            "chanlun_filter_version": "1d_v1",
             "stock_window_from": "2026-03-05",
             "stock_window_to": "2026-03-05",
             "reason_text": "gas reason",
@@ -2024,7 +2024,7 @@ def test_persist_shouban30_for_date_excludes_bj_stocks_and_empty_plates(
             "chanlun_higher_multiple": 2.0,
             "chanlun_segment_multiple": 2.0,
             "chanlun_bi_gain_percent": 10.0,
-            "chanlun_filter_version": "30m_v1",
+            "chanlun_filter_version": "1d_v1",
             "is_credit_subject": False,
             "credit_subject_snapshot_ready": False,
             "near_long_term_ma_passed": False,
@@ -2134,9 +2134,9 @@ def test_persist_shouban30_for_date_reuses_chanlun_result_cache_across_windows(
         chanlun_result_cache=cache,
     )
 
-    assert calls == [("sz000001", "30m", "2026-03-05")]
+    assert calls == [("sz000001", "1d", "2026-03-05")]
     assert cache == {
-        "000001|2026-03-05|30m": {
+        "000001|2026-03-05|1d": {
             "passed": True,
             "reason": "passed",
             "higher_multiple": 2.0,
@@ -2362,3 +2362,96 @@ def test_persist_stock_hot_reason_daily_for_date_joins_and_queries(monkeypatch):
             "stock_reason": "jygs stock reason",
         },
     ]
+
+
+def test_shouban30_chanlun_period_defaults_to_daily():
+    from freshquant.data import gantt_readmodel as svc
+
+    assert svc.SHOUBAN30_CHANLUN_PERIOD == "1d"
+
+
+def test_build_default_shouban30_chanlun_result_uses_daily_limits():
+    from freshquant.data import gantt_readmodel as svc
+
+    assert svc._build_default_shouban30_chanlun_result(
+        {
+            "ok": True,
+            "structure": {
+                "higher_segment": {"start_price": 10, "end_price": 30},
+                "segment": {"start_price": 10, "end_price": 20},
+                "bi": {"price_change_pct": 20},
+            },
+        }
+    ) == {
+        "passed": True,
+        "reason": "passed",
+        "higher_multiple": 3.0,
+        "segment_multiple": 2.0,
+        "bi_gain_percent": 20.0,
+    }
+
+    assert (
+        svc._build_default_shouban30_chanlun_result(
+            {
+                "ok": True,
+                "structure": {
+                    "higher_segment": {"start_price": 10, "end_price": 30},
+                    "segment": {"start_price": 10, "end_price": 20.1},
+                    "bi": {"price_change_pct": 20},
+                },
+            }
+        )["reason"]
+        == "segment_multiple_exceed"
+    )
+    assert (
+        svc._build_default_shouban30_chanlun_result(
+            {
+                "ok": True,
+                "structure": {
+                    "higher_segment": {"start_price": 10, "end_price": 30},
+                    "segment": {"start_price": 10, "end_price": 20},
+                    "bi": {"price_change_pct": 20.1},
+                },
+            }
+        )["reason"]
+        == "bi_gain_exceed"
+    )
+
+
+def test_resolve_shouban30_chanlun_result_uses_daily_period(monkeypatch):
+    from freshquant.data import gantt_readmodel as svc
+
+    captured: dict[str, str] = {}
+
+    def fake_get_chanlun_structure(symbol, period, as_of_date):
+        captured["symbol"] = symbol
+        captured["period"] = period
+        captured["as_of_date"] = as_of_date
+        return {
+            "ok": True,
+            "structure": {
+                "higher_segment": {"start_price": 10, "end_price": 20},
+                "segment": {"start_price": 10, "end_price": 18},
+                "bi": {"price_change_pct": 12},
+            },
+        }
+
+    monkeypatch.setattr(
+        svc,
+        "get_chanlun_structure",
+        fake_get_chanlun_structure,
+        raising=False,
+    )
+
+    result = svc._resolve_shouban30_chanlun_result(
+        "000001",
+        as_of_date="2026-03-05",
+        chanlun_result_cache={},
+    )
+
+    assert captured == {
+        "symbol": "sz000001",
+        "period": "1d",
+        "as_of_date": "2026-03-05",
+    }
+    assert result["passed"] is True

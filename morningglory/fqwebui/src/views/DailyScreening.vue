@@ -12,7 +12,7 @@
               <span>/</span>
               <span>统一条件池交集</span>
               <span>/</span>
-              <span>基础池固定锚定 A ∪ B</span>
+              <span>基础池由 CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成</span>
             </div>
           </div>
           <div class="workbench-toolbar__actions">
@@ -85,7 +85,39 @@
             :key="section.key"
             class="workbench-block"
           >
-            <div class="workbench-panel__title">{{ section.title }}</div>
+            <div class="daily-section-header">
+              <div class="workbench-panel__title">{{ section.title }}</div>
+              <el-popover
+                trigger="hover"
+                placement="right"
+                :width="360"
+              >
+                <template #reference>
+                  <button
+                    type="button"
+                    class="daily-info-trigger"
+                    :aria-label="`查看${section.title}说明`"
+                  >
+                    i
+                  </button>
+                </template>
+                <div class="daily-help-card">
+                  <div class="daily-help-card__title">{{ section.title }}</div>
+                  <div class="daily-help-card__section">
+                    <div class="daily-help-card__label">上游数据来源</div>
+                    <p>{{ section.help?.source || '-' }}</p>
+                  </div>
+                  <div class="daily-help-card__section">
+                    <div class="daily-help-card__label">筛选规则</div>
+                    <p>{{ section.help?.rule || '-' }}</p>
+                  </div>
+                  <div class="daily-help-card__section">
+                    <div class="daily-help-card__label">结果作用范围</div>
+                    <p>{{ section.help?.scopeNote || '-' }}</p>
+                  </div>
+                </div>
+              </el-popover>
+            </div>
             <div class="daily-chip-grid">
               <div
                 v-for="item in section.items"
@@ -94,87 +126,68 @@
               >
                 <el-button
                   size="small"
-                  :type="conditionKeys.includes(item.key) ? 'primary' : 'default'"
-                  :plain="!conditionKeys.includes(item.key)"
-                  @click="toggleCondition(item.key)"
+                  :type="isSectionItemSelected(section, item) ? 'primary' : 'default'"
+                  :plain="!isSectionItemSelected(section, item)"
+                  @click="toggleSectionItem(section, item)"
                 >
-                  {{ item.label }} · {{ item.count }}
+                  {{ formatSectionItemLabel(section, item) }}
                 </el-button>
-                <el-popover
-                  trigger="click"
-                  placement="right"
-                  :width="360"
-                >
-                  <template #reference>
-                    <button
-                      type="button"
-                      class="daily-info-trigger"
-                      :aria-label="`查看 ${item.label}说明`"
-                    >
-                      ?
-                    </button>
-                  </template>
-                  <div class="daily-help-card">
-                    <div class="daily-help-card__title">{{ item.label }}</div>
-                    <div class="daily-help-card__section">
-                      <div class="daily-help-card__label">上游数据来源</div>
-                      <p>{{ item.help?.source || '-' }}</p>
-                    </div>
-                    <div class="daily-help-card__section">
-                      <div class="daily-help-card__label">筛选规则</div>
-                      <p>{{ item.help?.rule || '-' }}</p>
-                    </div>
-                    <div class="daily-help-card__section">
-                      <div class="daily-help-card__label">结果作用范围</div>
-                      <p>{{ item.help?.scopeNote || '-' }}</p>
-                    </div>
-                  </div>
-                </el-popover>
               </div>
             </div>
           </article>
 
           <article class="workbench-block">
-            <div class="workbench-panel__title">Shouban30 缠论指标</div>
+            <div class="daily-section-header">
+              <div class="workbench-panel__title">日线缠论涨幅</div>
+              <el-popover
+                trigger="hover"
+                placement="right"
+                :width="360"
+              >
+                <template #reference>
+                  <button
+                    type="button"
+                    class="daily-info-trigger"
+                    aria-label="查看日线缠论涨幅说明"
+                  >
+                    i
+                  </button>
+                </template>
+                <div class="daily-help-card">
+                  <div class="daily-help-card__title">日线缠论涨幅</div>
+                  <div class="daily-help-card__section">
+                    <div class="daily-help-card__label">上游数据来源</div>
+                    <p>{{ dailyChanlunHelp?.source || '-' }}</p>
+                  </div>
+                  <div class="daily-help-card__section">
+                    <div class="daily-help-card__label">筛选规则</div>
+                    <p>{{ dailyChanlunHelp?.rule || '-' }}</p>
+                  </div>
+                  <div class="daily-help-card__section">
+                    <div class="daily-help-card__label">结果作用范围</div>
+                    <p>{{ dailyChanlunHelp?.scopeNote || '-' }}</p>
+                  </div>
+                </div>
+              </el-popover>
+            </div>
+            <div class="daily-metric-toggle-row">
+              <el-button
+                size="small"
+                :type="dayChanlunEnabled ? 'primary' : 'default'"
+                :plain="!dayChanlunEnabled"
+                @click="toggleDayChanlunFilter"
+              >
+                {{ dayChanlunEnabled ? '已参与筛选' : '参与筛选' }}
+              </el-button>
+              <span class="daily-metric-toggle-note">默认值：高级段倍数 3 / 段倍数 2 / 笔涨幅% 20</span>
+            </div>
             <div class="daily-metric-grid">
               <el-form-item
                 v-for="item in metricFieldConfigs"
                 :key="item.key"
               >
                 <template #label>
-                  <span class="daily-form-label">
-                    <span>{{ item.label }}</span>
-                    <el-popover
-                      trigger="click"
-                      placement="right"
-                      :width="360"
-                    >
-                      <template #reference>
-                        <button
-                          type="button"
-                          class="daily-info-trigger"
-                          :aria-label="`查看 ${item.label.replace(' ≤', '')}说明`"
-                        >
-                          ?
-                        </button>
-                      </template>
-                      <div class="daily-help-card">
-                        <div class="daily-help-card__title">{{ item.label }}</div>
-                        <div class="daily-help-card__section">
-                          <div class="daily-help-card__label">上游数据来源</div>
-                          <p>{{ item.help?.source || '-' }}</p>
-                        </div>
-                        <div class="daily-help-card__section">
-                          <div class="daily-help-card__label">筛选规则</div>
-                          <p>{{ item.help?.rule || '-' }}</p>
-                        </div>
-                        <div class="daily-help-card__section">
-                          <div class="daily-help-card__label">结果作用范围</div>
-                          <p>{{ item.help?.scopeNote || '-' }}</p>
-                        </div>
-                      </div>
-                    </el-popover>
-                  </span>
+                  <span class="daily-form-label">{{ item.label }}</span>
                 </template>
                 <el-input-number
                   v-model="metricFilters[item.key]"
@@ -190,7 +203,6 @@
           <div class="daily-filter-actions">
             <span class="daily-expression">{{ currentExpression }}</span>
             <div class="daily-action-buttons">
-              <el-button type="primary" @click="queryRows">查询结果</el-button>
               <el-button @click="resetFilters">重置筛选</el-button>
             </div>
           </div>
@@ -198,13 +210,8 @@
 
         <div class="daily-center-stack">
           <section class="workbench-panel daily-results-panel" v-loading="queryLoading">
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">交集列表</div>
-                <p class="workbench-panel__desc">无条件时默认显示基础池，勾选后统一取交集。</p>
-              </div>
-              <div class="workbench-panel__meta daily-results-meta">
-                <span>{{ resultRows.length }} 条</span>
+            <div class="workbench-panel__header daily-results-header">
+              <div class="daily-results-header__action">
                 <el-button
                   size="small"
                   type="primary"
@@ -213,8 +220,15 @@
                   :loading="isWorkspaceActionRunning('workspace:append-intersection')"
                   @click="handleAppendIntersectionToPrePool"
                 >
-                  全部加入 pre_pools
+                  全部加入pre_pools
                 </el-button>
+              </div>
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">交集列表</div>
+                <p class="workbench-panel__desc">无条件时默认显示基础池，勾选后统一取交集。</p>
+              </div>
+              <div class="workbench-panel__meta daily-results-meta">
+                <span>{{ resultRows.length }} 条</span>
               </div>
             </div>
 
@@ -410,7 +424,7 @@
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">标的详情</div>
-                <p class="workbench-panel__desc">展示命中条件画像和 Shouban30 缠论指标。</p>
+                <p class="workbench-panel__desc">展示命中条件画像和日线缠论涨幅。</p>
               </div>
             </div>
 
@@ -508,7 +522,7 @@
           <section class="workbench-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
-                <div class="workbench-panel__title">Shouban30 缠论指标</div>
+                <div class="workbench-panel__title">日线缠论涨幅</div>
               </div>
             </div>
 
@@ -557,7 +571,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import MyHeader from './MyHeader.vue'
@@ -578,6 +592,7 @@ import {
   syncShouban30StockPoolToTdx,
 } from '@/api/ganttShouban30.js'
 import {
+  DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
   buildDailyScreeningAppendPrePoolPayload,
   buildDailyScreeningQueryPayload,
   buildDailyScreeningWorkspaceTabs,
@@ -588,6 +603,8 @@ import {
   normalizeDailyScreeningResultRows,
   normalizeDailyScreeningScopeItems,
   readDailyScreeningPayload,
+  resolveDailyScreeningClsGroupLabels,
+  resolveDailyScreeningClsGroupModels,
   toggleDailyScreeningSelection,
 } from './dailyScreeningPage.mjs'
 
@@ -612,41 +629,67 @@ const activeWorkspaceTab = ref('pre_pool')
 const workspaceActionKey = ref('')
 
 const conditionKeys = ref([])
+const clsGroupKeys = ref([])
+const dayChanlunEnabled = ref(false)
 const metricFilters = reactive({
-  higherMultipleLte: null,
-  segmentMultipleLte: null,
-  biGainPercentLte: null,
+  ...DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
 })
+
+let metricFilterDebounceTimer = null
+let suppressMetricFilterAutoQuery = false
 
 const pageLoading = computed(() => loadingScopes.value || loadingFilters.value)
 const detailSnapshot = computed(() => detail.value?.snapshot || null)
 const filterGroups = computed(() => filterCatalog.value.groups || {})
-const metricHints = computed(() => filterCatalog.value.metricHints || {})
+const sectionHelp = computed(() => filterCatalog.value.sectionHelp || {})
 const conditionSections = computed(() => ([
-  { key: 'clsModels', title: 'CLS 模型', items: filterGroups.value.clsModels || [] },
-  { key: 'hotWindows', title: '热门窗口', items: filterGroups.value.hotWindows || [] },
-  { key: 'marketFlags', title: '市场属性', items: filterGroups.value.marketFlags || [] },
-  { key: 'chanlunPeriods', title: 'chanlun 周期', items: filterGroups.value.chanlunPeriods || [] },
-  { key: 'chanlunSignals', title: 'chanlun 信号', items: filterGroups.value.chanlunSignals || [] },
+  {
+    key: 'clsGroups',
+    title: 'CLS 模型分组',
+    items: filterGroups.value.clsGroups || [],
+    help: sectionHelp.value.clsGroups,
+  },
+  {
+    key: 'hotWindows',
+    title: '热门窗口',
+    items: filterGroups.value.hotWindows || [],
+    help: sectionHelp.value.hotWindows,
+  },
+  {
+    key: 'marketFlags',
+    title: '市场属性',
+    items: filterGroups.value.marketFlags || [],
+    help: sectionHelp.value.marketFlags,
+  },
+  {
+    key: 'chanlunPeriods',
+    title: 'chanlun 周期',
+    items: filterGroups.value.chanlunPeriods || [],
+    help: sectionHelp.value.chanlunPeriods,
+  },
+  {
+    key: 'chanlunSignals',
+    title: 'chanlun 信号',
+    items: filterGroups.value.chanlunSignals || [],
+    help: sectionHelp.value.chanlunSignals,
+  },
 ]))
+const dailyChanlunHelp = computed(() => sectionHelp.value.dailyChanlun || {})
 const metricFieldConfigs = computed(() => ([
   {
     key: 'higherMultipleLte',
     label: '高级段倍数 ≤',
     step: 0.1,
-    help: metricHints.value.higherMultipleLte,
   },
   {
     key: 'segmentMultipleLte',
     label: '段倍数 ≤',
     step: 0.1,
-    help: metricHints.value.segmentMultipleLte,
   },
   {
     key: 'biGainPercentLte',
     label: '笔涨幅% ≤',
     step: 0.1,
-    help: metricHints.value.biGainPercentLte,
   },
 ]))
 const workbenchGuideLines = [
@@ -660,19 +703,22 @@ const selectedScopeLabel = computed(() => {
   return matched?.label || selectedScopeId.value || '-'
 })
 const activeConditionCount = computed(() => {
-  const metricCount = Object.values(metricFilters).filter((value) => value != null).length
-  return conditionKeys.value.length + metricCount
+  return conditionKeys.value.length + clsGroupKeys.value.length + (dayChanlunEnabled.value ? 1 : 0)
 })
 const currentExpression = computed(() => {
   if (!conditionKeys.value.length && activeConditionCount.value === 0) {
     return '默认展示“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”'
   }
-  const labels = conditionKeys.value.map((item) => formatDailyScreeningConditionLabel(item))
-  const metricLabels = []
-  if (metricFilters.higherMultipleLte != null) metricLabels.push(`高级段倍数 <= ${metricFilters.higherMultipleLte}`)
-  if (metricFilters.segmentMultipleLte != null) metricLabels.push(`段倍数 <= ${metricFilters.segmentMultipleLte}`)
-  if (metricFilters.biGainPercentLte != null) metricLabels.push(`笔涨幅% <= ${metricFilters.biGainPercentLte}`)
-  return [...labels, ...metricLabels].join(' ∩ ') || '默认展示“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”'
+  const labels = [
+    ...resolveDailyScreeningClsGroupLabels(clsGroupKeys.value),
+    ...conditionKeys.value.map((item) => formatDailyScreeningConditionLabel(item)),
+  ]
+  if (dayChanlunEnabled.value) {
+    labels.push(
+      `日线缠论涨幅（高级段倍数 <= ${metricFilters.higherMultipleLte} / 段倍数 <= ${metricFilters.segmentMultipleLte} / 笔涨幅% <= ${metricFilters.biGainPercentLte}）`,
+    )
+  }
+  return labels.join(' ∩ ') || '默认展示“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”'
 })
 const workspaceTabs = computed(() => {
   return buildDailyScreeningWorkspaceTabs({
@@ -688,9 +734,9 @@ const formatNumber = (value) => {
 }
 
 const resetMetricFilters = () => {
-  metricFilters.higherMultipleLte = null
-  metricFilters.segmentMultipleLte = null
-  metricFilters.biGainPercentLte = null
+  metricFilters.higherMultipleLte = DEFAULT_DAILY_CHANLUN_METRIC_FILTERS.higherMultipleLte
+  metricFilters.segmentMultipleLte = DEFAULT_DAILY_CHANLUN_METRIC_FILTERS.segmentMultipleLte
+  metricFilters.biGainPercentLte = DEFAULT_DAILY_CHANLUN_METRIC_FILTERS.biGainPercentLte
 }
 
 const readSharedWorkspacePayload = (response) => {
@@ -705,13 +751,52 @@ const readSharedWorkspacePayload = (response) => {
 
 const isWorkspaceActionRunning = (key) => workspaceActionKey.value === key
 
+const buildSelectedFilterKeys = () => {
+  const keys = [
+    ...clsGroupKeys.value,
+    ...conditionKeys.value,
+  ]
+  if (dayChanlunEnabled.value) {
+    keys.push('metric:daily_chanlun')
+  }
+  return keys
+}
+
+const isSectionItemSelected = (section, item) => {
+  if (section?.key === 'clsGroups') {
+    return clsGroupKeys.value.includes(item?.key)
+  }
+  return conditionKeys.value.includes(item?.key)
+}
+
+const formatSectionItemLabel = (section, item) => {
+  if (section?.key === 'clsGroups') {
+    return item?.label || ''
+  }
+  return `${item?.label || ''} · ${Number(item?.count || 0)}`
+}
+
+const scheduleMetricFilterQuery = () => {
+  if (metricFilterDebounceTimer) {
+    clearTimeout(metricFilterDebounceTimer)
+  }
+  metricFilterDebounceTimer = setTimeout(() => {
+    metricFilterDebounceTimer = null
+    void queryRows()
+  }, 250)
+}
+
 const applyStateDefaults = (latestScope = null) => {
   const state = buildDailyScreeningWorkbenchState(latestScope)
   if (!selectedScopeId.value) {
     selectedScopeId.value = state.scopeId
   }
+  suppressMetricFilterAutoQuery = true
   conditionKeys.value = [...state.conditionKeys]
+  clsGroupKeys.value = [...state.clsGroupKeys]
+  dayChanlunEnabled.value = Boolean(state.dayChanlunEnabled)
   resetMetricFilters()
+  suppressMetricFilterAutoQuery = false
 }
 
 const loadScopes = async () => {
@@ -730,7 +815,7 @@ const loadScopes = async () => {
         latestScope?.scope || latestScope?.run_id || '',
       ).trim()
     }
-    if (!conditionKeys.value.length) {
+    if (!conditionKeys.value.length && !clsGroupKeys.value.length && !dayChanlunEnabled.value) {
       applyStateDefaults(latestScope)
     }
     pageError.value = ''
@@ -797,6 +882,8 @@ const queryRows = async () => {
         buildDailyScreeningQueryPayload({
           scopeId: selectedScopeId.value,
           conditionKeys: conditionKeys.value,
+          clxsModels: resolveDailyScreeningClsGroupModels(clsGroupKeys.value),
+          metricFiltersEnabled: dayChanlunEnabled.value,
           metricFilters,
         }),
       ),
@@ -842,13 +929,36 @@ const refreshCurrentScope = async () => {
   }
 }
 
-const toggleCondition = (key) => {
+const toggleCondition = async (key) => {
   conditionKeys.value = toggleDailyScreeningSelection(conditionKeys.value, key)
+  await queryRows()
 }
 
 const resetFilters = async () => {
+  suppressMetricFilterAutoQuery = true
   conditionKeys.value = []
+  clsGroupKeys.value = []
+  dayChanlunEnabled.value = false
   resetMetricFilters()
+  suppressMetricFilterAutoQuery = false
+  await queryRows()
+}
+
+const toggleClsGroup = async (key) => {
+  clsGroupKeys.value = toggleDailyScreeningSelection(clsGroupKeys.value, key)
+  await queryRows()
+}
+
+const toggleSectionItem = async (section, item) => {
+  if (section?.key === 'clsGroups') {
+    await toggleClsGroup(item?.key)
+    return
+  }
+  await toggleCondition(item?.key)
+}
+
+const toggleDayChanlunFilter = async () => {
+  dayChanlunEnabled.value = !dayChanlunEnabled.value
   await queryRows()
 }
 
@@ -891,7 +1001,7 @@ const handleAppendIntersectionToPrePool = async () => {
   const payload = buildDailyScreeningAppendPrePoolPayload({
     scopeId: selectedScopeId.value,
     rows: resultRows.value,
-    conditionKeys: conditionKeys.value,
+    conditionKeys: buildSelectedFilterKeys(),
     expression: currentExpression.value,
   })
   if (!payload.items.length) {
@@ -993,13 +1103,38 @@ const handleClearStockPool = async () => {
   })
 }
 
+watch(
+  () => [
+    metricFilters.higherMultipleLte,
+    metricFilters.segmentMultipleLte,
+    metricFilters.biGainPercentLte,
+  ],
+  () => {
+    if (suppressMetricFilterAutoQuery || !dayChanlunEnabled.value || !selectedScopeId.value) {
+      return
+    }
+    scheduleMetricFilterQuery()
+  },
+)
+
 watch(selectedScopeId, async (scopeId) => {
   if (!scopeId) return
   selectedCode.value = ''
   detail.value = normalizeDailyScreeningDetail({})
+  suppressMetricFilterAutoQuery = true
   conditionKeys.value = []
+  clsGroupKeys.value = []
+  dayChanlunEnabled.value = false
   resetMetricFilters()
+  suppressMetricFilterAutoQuery = false
   await refreshCurrentScope()
+})
+
+onBeforeUnmount(() => {
+  if (metricFilterDebounceTimer) {
+    clearTimeout(metricFilterDebounceTimer)
+    metricFilterDebounceTimer = null
+  }
 })
 
 onMounted(async () => {
@@ -1019,7 +1154,7 @@ onMounted(async () => {
 .daily-screening-grid {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: 360px minmax(520px, 1fr) 420px;
+  grid-template-columns: 360px minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
   min-height: 0;
   overflow: hidden;
@@ -1064,10 +1199,25 @@ onMounted(async () => {
   gap: 8px;
 }
 
+.daily-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .daily-condition-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.daily-metric-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
 }
 
 .daily-metric-grid {
@@ -1097,6 +1247,19 @@ onMounted(async () => {
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.daily-results-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.daily-results-header__action {
+  display: flex;
+  align-items: center;
 }
 
 .daily-expression {
@@ -1108,7 +1271,12 @@ onMounted(async () => {
 .daily-form-label {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+}
+
+.daily-metric-toggle-note {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .daily-info-trigger {
@@ -1208,9 +1376,11 @@ onMounted(async () => {
 
 @media (max-width: 1480px) {
   .daily-screening-grid {
-    grid-template-columns: 320px minmax(420px, 1fr);
+    grid-template-columns: 320px minmax(0, 1fr) minmax(0, 1fr);
   }
+}
 
+@media (max-width: 1280px) {
   .daily-detail-stack {
     grid-column: 1 / -1;
   }
