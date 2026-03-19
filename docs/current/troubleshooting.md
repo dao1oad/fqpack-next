@@ -394,6 +394,46 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 清空筛选后刷新页面
 - 如果 API 有数据但页面统计卡、recent feed、component board 全空，优先重建并重新部署 `fq_webui`，然后强刷浏览器缓存
 
+## Runtime Observability Trace 列表 500
+
+现象：
+- 点击 `/runtime-observability` 左侧组件卡片后，前端提示 `Trace 列表加载失败：Request failed with status code 500`
+
+先检查：
+- 直接访问 `/api/runtime/traces`
+- 目标时间窗里是否存在大量重复的 `request_id` / `internal_order_id` / `broker_trade_id` 关联链
+
+常见根因：
+- 旧版 runtime assembler 对强关联 ID 分组仍使用递归 union-find；当 `xt_report_ingest` 因重复回放把链路拉得很深时，会触发 `RecursionError`
+- API 已更新，但 `fq_webui` 仍在跑旧静态资源或浏览器缓存没刷新
+
+处理：
+- 优先重建并部署 `fq_apiserver`
+- 如果 API 已恢复 `200` 但前端仍报错，再重建 `fq_webui` 并强刷浏览器缓存
+- 如果同一时间窗里 `XT 回报接入.trade_match` 明显按 `3` 秒节奏重复刷，继续看下一节排查 replay 根因
+
+## XT 回报接入.trade_match 高频
+
+现象：
+- `/runtime-observability` 中 `XT 回报接入.trade_match` 高频出现，看起来像“每秒都在新增成交”
+
+先检查：
+- 同一 `broker_trade_id` 是否反复出现
+- 事件是否集中在约 `3` 秒轮询节奏
+- `trade_match` 的 `status` 是否为 `skipped`
+- `trade_match.payload.created` / `trade_match.payload.dedup_hit` 是什么
+- 对照 `om_trade_facts`、`om_sell_allocations`、Guardian open slices，确认是否真的重复写入
+
+常见根因：
+- `fqnext_xt_account_sync_worker` 每 `3` 秒轮询一次 XT 当日全部成交
+- 同一 `broker_trade_id` 的成交回报被重复回放
+- 旧版代码把 `reconcile_trade_reports()` 的空结果误判成“未处理”，导致同一笔成交反复进入 `xt_report_ingest`
+
+处理：
+- 如果 `status=skipped` 且 `payload.created=false`、`payload.dedup_hit=true`，说明重复回放已被当前代码拦截；这不是新成交
+- 如果重复事件仍是 `status=info`，或 `om_sell_allocations` / Guardian open slices 仍被重复改写，优先确认 `order_management`、`xt_account_sync`、`xtquant_broker` 是否已部署到包含幂等修复的最新代码
+- 真实成交次数以 `om_trade_facts` 中唯一 `broker_trade_id` 数量为准，不要只看 runtime event 次数
+
 ## 初始化程序第 3 步提示未连接到交易系统或账户信息缺失
 
 现象：

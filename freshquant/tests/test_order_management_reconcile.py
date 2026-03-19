@@ -337,6 +337,42 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
     assert repository.trade_facts[0]["internal_order_id"] == "ord_internal_1"
 
 
+def test_reconcile_trade_report_marks_existing_internal_order_as_handled(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_internal_known_1",
+        }
+    )
+    repository.update_order(
+        "ord_internal_known_1",
+        {"broker_order_id": "90011", "state": "SUBMITTED"},
+    )
+
+    outcome = service.reconcile_trade_report(
+        {
+            "order_id": 90011,
+            "traded_id": "T90011",
+            "stock_code": "000001.SZ",
+            "order_type": 23,
+            "traded_volume": 200,
+            "traded_price": 10.5,
+            "traded_time": 1_030,
+        }
+    )
+
+    assert outcome.handled is True
+    assert outcome.action == "already_known_internal_order"
+    assert outcome.result is None
+    assert repository.trade_facts == []
+
+
 def test_inferred_pending_auto_confirms_after_120_seconds(monkeypatch):
     marks = []
     repository, service = _build_service(

@@ -168,9 +168,13 @@
 - CI `pytest-shards` 当前按 `script/ci/pytest_file_durations.json` 的文件级耗时权重做 shard 分配，不再只按文件序号轮询
 - FQNext 宿主机 Supervisor 仍托管 `fqnext_realtime_xtdata_producer`、`fqnext_realtime_xtdata_consumer`、`fqnext_guardian_event`、`fqnext_xt_account_sync_worker`、`fqnext_tpsl_worker`、`fqnext_xtquant_broker`、`fqnext_xtdata_adj_refresh_worker`
 - `fqnext_xt_account_sync_worker` 当前是唯一 XT 主动查询进程；它串行执行持仓、成交、委托、资产、信用账户与 `credit_subjects` 补偿同步
+- `fqnext_xt_account_sync_worker` 默认每 `3` 秒轮询一次 XT 当日成交；`xt_trades` 或 runtime 事件按约 `3` 秒节奏刷新，不等于每次都是新成交
 - 宿主机当前不再保留独立的 `position_management.worker` 或 `credit_subjects.worker` 入口；相关账户同步职责统一收敛到 `fqnext_xt_account_sync_worker`
 - `fqnext_xtquant_broker` 当前为 worker-only 进程，不再暴露本地 Tornado HTTP 接口或 `10088` 端口；运行健康以 supervisor 进程状态和 broker 日志为准
 - `observe_only` 现在只绕过 broker 的真实提交/撤单，不会停掉 XT 连接、callback ingest 或 `fqnext_xt_account_sync_worker`
+- `xt_report_ingest.trade_match` 当前表示“该笔成交回报已进入订单域 ingest 处理”；它不是“新增成交事实”的直接真值
+- 如果 `xt_report_ingest.trade_match` 的 `status=skipped` 且 `payload.created=false`、`payload.dedup_hit=true`，表示同一 `broker_trade_id` 的重复回放已被幂等拦截，不会再次改写持仓投影或 `sell_allocations`
+- 同一笔成交是否真实新增，以 `om_trade_facts` 按 `broker_trade_id` 去重后的结果为准，而不是只看 runtime event 次数
 
 ## 常见运行模式
 
