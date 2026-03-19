@@ -79,7 +79,7 @@ test('normalizeDailyScreeningScopeItems preserves scope identity and latest mark
   ])
 })
 
-test('normalizeDailyScreeningFilterCatalog exposes grouped cls options with chinese labels', () => {
+test('normalizeDailyScreeningFilterCatalog exposes grouped cls options with chinese labels and counts', () => {
   const catalog = normalizeDailyScreeningFilterCatalog({
     scope_id: 'trade_date:2026-03-18',
     condition_keys: ['cls:S0001', 'cls:S0002', 'cls:S0008', 'hot:30d', 'flag:quality_subject'],
@@ -101,6 +101,7 @@ test('normalizeDailyScreeningFilterCatalog exposes grouped cls options with chin
   assert.deepEqual(catalog.groups.clsGroups[0], {
     key: 'cls_group:erbai',
     label: '二买',
+    count: 20,
     modelKeys: ['S0001', 'S0002', 'S0003', 'S0005'],
     modelLabels: ['类2买', '类2买分型', '复杂类2买', '2买及类2买'],
     hasActiveModel: true,
@@ -108,6 +109,7 @@ test('normalizeDailyScreeningFilterCatalog exposes grouped cls options with chin
   assert.deepEqual(catalog.groups.clsGroups[3], {
     key: 'cls_group:beichi',
     label: '背驰',
+    count: 4,
     modelKeys: ['S0008', 'S0009'],
     modelLabels: ['盘整或趋势背驰', '下盘下'],
     hasActiveModel: true,

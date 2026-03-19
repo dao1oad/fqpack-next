@@ -34,6 +34,13 @@ function buildFilterCatalog() {
     scope_id: 'trade_date:2026-03-18',
     condition_keys: ['base:union', 'cls:S0008', 'cls:S0009', 'hot:30d', 'flag:credit_subject'],
     groups: {
+      cls_groups: [
+        { key: 'cls_group:erbai', label: '二买', count: 0 },
+        { key: 'cls_group:sanmai', label: '三买', count: 0 },
+        { key: 'cls_group:yali_support', label: '压力支撑', count: 0 },
+        { key: 'cls_group:beichi', label: '背驰', count: 2 },
+        { key: 'cls_group:break_pullback', label: '突破回调', count: 0 },
+      ],
       cls_models: [
         { key: 'cls:S0008', label: 'S0008', count: 1 },
         { key: 'cls:S0009', label: 'S0009', count: 1 },
@@ -357,7 +364,7 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
   await page.getByRole('button', { name: '查看热门窗口说明' }).hover()
   await expect(page.getByText('来源于 /gantt/shouban30 同口径的热门标的结果，聚合选股通和韭研公式的 30/45/60/90 天窗口命中股票。')).toBeVisible()
 
-  await page.getByRole('button', { name: '背驰', exact: true }).click()
+  await page.getByRole('button', { name: '背驰 · 2', exact: true }).click()
   await page.getByRole('button', { name: '30天热门 · 1' }).click()
 
   await expect(page.getByText('当前结果 1')).toBeVisible()

@@ -770,9 +770,6 @@ const isSectionItemSelected = (section, item) => {
 }
 
 const formatSectionItemLabel = (section, item) => {
-  if (section?.key === 'clsGroups') {
-    return item?.label || ''
-  }
   return `${item?.label || ''} · ${Number(item?.count || 0)}`
 }
 

@@ -307,15 +307,27 @@ const withConditionHelp = (items = []) => {
   })
 }
 
-const buildClsGroupOptions = (items = []) => {
+const buildClsGroupOptions = ({ groupItems = [], modelItems = [] } = {}) => {
   const keys = new Set(
-    toArray(items)
+    toArray(modelItems)
       .map((item) => toText(item?.key).split(':', 2)[1] || '')
       .filter(Boolean),
+  )
+  const groupCountMap = new Map(
+    toArray(groupItems).map((item) => [toText(item?.key), Number(item?.count || 0)]),
+  )
+  const modelCountMap = new Map(
+    toArray(modelItems).map((item) => [
+      toText(item?.key).split(':', 2)[1] || '',
+      Number(item?.count || 0),
+    ]),
   )
   return CLS_GROUP_DEFINITIONS.map((group) => ({
     key: group.key,
     label: group.label,
+    count: groupCountMap.has(group.key)
+      ? Number(groupCountMap.get(group.key) || 0)
+      : group.modelKeys.reduce((sum, item) => sum + Number(modelCountMap.get(item) || 0), 0),
     modelKeys: [...group.modelKeys],
     modelLabels: group.modelKeys.map((item) => CLS_MODEL_LABELS[item] || item),
     hasActiveModel: group.modelKeys.some((item) => keys.has(item)),
@@ -352,7 +364,10 @@ export const normalizeDailyScreeningFilterCatalog = (payload = {}) => {
       .map((item) => toText(item))
       .filter(Boolean),
     groups: {
-      clsGroups: buildClsGroupOptions(groups.cls_models || groups.clsModels),
+      clsGroups: buildClsGroupOptions({
+        groupItems: groups.cls_groups || groups.clsGroups,
+        modelItems: groups.cls_models || groups.clsModels,
+      }),
       hotWindows: withConditionHelp(groups.hot_windows || groups.hotWindows),
       marketFlags: withConditionHelp(groups.market_flags || groups.marketFlags),
       chanlunPeriods: withConditionHelp(groups.chanlun_periods || groups.chanlunPeriods),
