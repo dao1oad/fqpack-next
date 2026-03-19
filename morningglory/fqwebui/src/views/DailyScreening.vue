@@ -55,6 +55,13 @@
             </div>
           </div>
 
+          <article class="workbench-block daily-guide-block">
+            <div class="workbench-panel__title">工作台说明</div>
+            <ul class="daily-guide-list">
+              <li v-for="line in workbenchGuideLines" :key="line">{{ line }}</li>
+            </ul>
+          </article>
+
           <article class="workbench-block">
             <div class="workbench-panel__title">Scope</div>
             <el-select
@@ -73,113 +80,107 @@
             </el-select>
           </article>
 
-          <article class="workbench-block">
-            <div class="workbench-panel__title">CLS 模型</div>
+          <article
+            v-for="section in conditionSections"
+            :key="section.key"
+            class="workbench-block"
+          >
+            <div class="workbench-panel__title">{{ section.title }}</div>
             <div class="daily-chip-grid">
-              <el-button
-                v-for="item in filterGroups.clsModels"
+              <div
+                v-for="item in section.items"
                 :key="item.key"
-                size="small"
-                :type="conditionKeys.includes(item.key) ? 'primary' : 'default'"
-                :plain="!conditionKeys.includes(item.key)"
-                @click="toggleCondition(item.key)"
+                class="daily-condition-chip"
               >
-                {{ item.label }} · {{ item.count }}
-              </el-button>
-            </div>
-          </article>
-
-          <article class="workbench-block">
-            <div class="workbench-panel__title">热门窗口</div>
-            <div class="daily-chip-grid">
-              <el-button
-                v-for="item in filterGroups.hotWindows"
-                :key="item.key"
-                size="small"
-                :type="conditionKeys.includes(item.key) ? 'primary' : 'default'"
-                :plain="!conditionKeys.includes(item.key)"
-                @click="toggleCondition(item.key)"
-              >
-                {{ item.label }} · {{ item.count }}
-              </el-button>
-            </div>
-          </article>
-
-          <article class="workbench-block">
-            <div class="workbench-panel__title">市场属性</div>
-            <div class="daily-chip-grid">
-              <el-button
-                v-for="item in filterGroups.marketFlags"
-                :key="item.key"
-                size="small"
-                :type="conditionKeys.includes(item.key) ? 'primary' : 'default'"
-                :plain="!conditionKeys.includes(item.key)"
-                @click="toggleCondition(item.key)"
-              >
-                {{ item.label }} · {{ item.count }}
-              </el-button>
-            </div>
-          </article>
-
-          <article class="workbench-block">
-            <div class="workbench-panel__title">chanlun 周期</div>
-            <div class="daily-chip-grid">
-              <el-button
-                v-for="item in filterGroups.chanlunPeriods"
-                :key="item.key"
-                size="small"
-                :type="conditionKeys.includes(item.key) ? 'primary' : 'default'"
-                :plain="!conditionKeys.includes(item.key)"
-                @click="toggleCondition(item.key)"
-              >
-                {{ item.label }} · {{ item.count }}
-              </el-button>
-            </div>
-          </article>
-
-          <article class="workbench-block">
-            <div class="workbench-panel__title">chanlun 信号</div>
-            <div class="daily-chip-grid">
-              <el-button
-                v-for="item in filterGroups.chanlunSignals"
-                :key="item.key"
-                size="small"
-                :type="conditionKeys.includes(item.key) ? 'primary' : 'default'"
-                :plain="!conditionKeys.includes(item.key)"
-                @click="toggleCondition(item.key)"
-              >
-                {{ item.label }} · {{ item.count }}
-              </el-button>
+                <el-button
+                  size="small"
+                  :type="conditionKeys.includes(item.key) ? 'primary' : 'default'"
+                  :plain="!conditionKeys.includes(item.key)"
+                  @click="toggleCondition(item.key)"
+                >
+                  {{ item.label }} · {{ item.count }}
+                </el-button>
+                <el-popover
+                  trigger="click"
+                  placement="right"
+                  :width="360"
+                >
+                  <template #reference>
+                    <button
+                      type="button"
+                      class="daily-info-trigger"
+                      :aria-label="`查看 ${item.label}说明`"
+                    >
+                      ?
+                    </button>
+                  </template>
+                  <div class="daily-help-card">
+                    <div class="daily-help-card__title">{{ item.label }}</div>
+                    <div class="daily-help-card__section">
+                      <div class="daily-help-card__label">上游数据来源</div>
+                      <p>{{ item.help?.source || '-' }}</p>
+                    </div>
+                    <div class="daily-help-card__section">
+                      <div class="daily-help-card__label">筛选规则</div>
+                      <p>{{ item.help?.rule || '-' }}</p>
+                    </div>
+                    <div class="daily-help-card__section">
+                      <div class="daily-help-card__label">结果作用范围</div>
+                      <p>{{ item.help?.scopeNote || '-' }}</p>
+                    </div>
+                  </div>
+                </el-popover>
+              </div>
             </div>
           </article>
 
           <article class="workbench-block">
             <div class="workbench-panel__title">Shouban30 缠论指标</div>
             <div class="daily-metric-grid">
-              <el-form-item label="高级段倍数 ≤">
+              <el-form-item
+                v-for="item in metricFieldConfigs"
+                :key="item.key"
+              >
+                <template #label>
+                  <span class="daily-form-label">
+                    <span>{{ item.label }}</span>
+                    <el-popover
+                      trigger="click"
+                      placement="right"
+                      :width="360"
+                    >
+                      <template #reference>
+                        <button
+                          type="button"
+                          class="daily-info-trigger"
+                          :aria-label="`查看 ${item.label.replace(' ≤', '')}说明`"
+                        >
+                          ?
+                        </button>
+                      </template>
+                      <div class="daily-help-card">
+                        <div class="daily-help-card__title">{{ item.label }}</div>
+                        <div class="daily-help-card__section">
+                          <div class="daily-help-card__label">上游数据来源</div>
+                          <p>{{ item.help?.source || '-' }}</p>
+                        </div>
+                        <div class="daily-help-card__section">
+                          <div class="daily-help-card__label">筛选规则</div>
+                          <p>{{ item.help?.rule || '-' }}</p>
+                        </div>
+                        <div class="daily-help-card__section">
+                          <div class="daily-help-card__label">结果作用范围</div>
+                          <p>{{ item.help?.scopeNote || '-' }}</p>
+                        </div>
+                      </div>
+                    </el-popover>
+                  </span>
+                </template>
                 <el-input-number
-                  v-model="metricFilters.higherMultipleLte"
+                  v-model="metricFilters[item.key]"
                   controls-position="right"
                   :min="0"
-                  :step="0.1"
-                  class="daily-field-control"
-                />
-              </el-form-item>
-              <el-form-item label="段倍数 ≤">
-                <el-input-number
-                  v-model="metricFilters.segmentMultipleLte"
-                  controls-position="right"
-                  :min="0"
-                  :step="0.1"
-                  class="daily-field-control"
-                />
-              </el-form-item>
-              <el-form-item label="笔涨幅% ≤">
-                <el-input-number
-                  v-model="metricFilters.biGainPercentLte"
-                  controls-position="right"
-                  :min="0"
-                  :step="0.1"
+                  :step="item.step"
                   class="daily-field-control"
                 />
               </el-form-item>
@@ -195,44 +196,214 @@
           </div>
         </section>
 
-        <section class="workbench-panel daily-results-panel" v-loading="queryLoading">
-          <div class="workbench-panel__header">
-            <div class="workbench-title-group">
-              <div class="workbench-panel__title">交集列表</div>
-              <p class="workbench-panel__desc">无条件时默认显示基础池，勾选后统一取交集。</p>
+        <div class="daily-center-stack">
+          <section class="workbench-panel daily-results-panel" v-loading="queryLoading">
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">交集列表</div>
+                <p class="workbench-panel__desc">无条件时默认显示基础池，勾选后统一取交集。</p>
+              </div>
+              <div class="workbench-panel__meta daily-results-meta">
+                <span>{{ resultRows.length }} 条</span>
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :disabled="!resultRows.length"
+                  :loading="isWorkspaceActionRunning('workspace:append-intersection')"
+                  @click="handleAppendIntersectionToPrePool"
+                >
+                  全部加入 pre_pools
+                </el-button>
+              </div>
             </div>
-            <div class="workbench-panel__meta">
-              <span>{{ resultRows.length }} 条</span>
-            </div>
-          </div>
 
-          <el-table
-            :data="resultRows"
-            size="small"
-            border
-            height="640"
-            @row-click="handleRowClick"
-          >
-            <el-table-column prop="code" label="代码" width="92" />
-            <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
-            <el-table-column label="高级段倍数" width="116">
-              <template #default="{ row }">
-                {{ formatNumber(row.higherMultiple) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="段倍数" width="96">
-              <template #default="{ row }">
-                {{ formatNumber(row.segmentMultiple) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="笔涨幅%" width="96">
-              <template #default="{ row }">
-                {{ formatNumber(row.biGainPercent) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="chanlunReason" label="缠论原因" min-width="150" show-overflow-tooltip />
-          </el-table>
-        </section>
+            <el-table
+              :data="resultRows"
+              size="small"
+              border
+              height="380"
+              @row-click="handleRowClick"
+            >
+              <el-table-column prop="code" label="代码" width="92" />
+              <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
+              <el-table-column label="高级段倍数" width="116">
+                <template #default="{ row }">
+                  {{ formatNumber(row.higherMultiple) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="段倍数" width="96">
+                <template #default="{ row }">
+                  {{ formatNumber(row.segmentMultiple) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="笔涨幅%" width="96">
+                <template #default="{ row }">
+                  {{ formatNumber(row.biGainPercent) }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="chanlunReason" label="缠论原因" min-width="150" show-overflow-tooltip />
+            </el-table>
+          </section>
+
+          <section class="workbench-panel daily-workspace-panel" v-loading="workspaceLoading">
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">工作区</div>
+                <p class="workbench-panel__desc">和 /gantt/shouban30 共用同一套 pre_pools / stock_pools / must_pools。</p>
+              </div>
+              <div class="workbench-panel__meta">
+                <span>pre_pools {{ prePoolItems.length }}</span>
+                <span>/</span>
+                <span>stock_pools {{ stockPoolItems.length }}</span>
+              </div>
+            </div>
+
+            <el-alert
+              v-if="workspaceError"
+              class="workbench-alert"
+              type="error"
+              :title="workspaceError"
+              :closable="false"
+              show-icon
+            />
+
+            <el-tabs v-model="activeWorkspaceTab" class="daily-workspace-tabs">
+              <el-tab-pane
+                v-for="tab in workspaceTabs"
+                :key="tab.key"
+                :name="tab.key"
+              >
+                <template #label>
+                  <div class="daily-workspace-tab-label">
+                    <span>{{ tab.label }}</span>
+                    <span>{{ tab.rows.length }}</span>
+                  </div>
+                </template>
+
+                <div class="daily-workspace-actions">
+                  <template v-if="tab.key === 'pre_pool'">
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      :loading="isWorkspaceActionRunning('workspace:pre:sync-stock')"
+                      @click="handleSyncPrePoolToStockPool"
+                    >
+                      {{ tab.batch_action_label }}
+                    </el-button>
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      :loading="isWorkspaceActionRunning('workspace:pre:sync-tdx')"
+                      @click="handleSyncPrePoolToTdx"
+                    >
+                      {{ tab.sync_action_label }}
+                    </el-button>
+                    <el-button
+                      size="small"
+                      type="danger"
+                      plain
+                      :loading="isWorkspaceActionRunning('workspace:pre:clear')"
+                      @click="handleClearPrePool"
+                    >
+                      {{ tab.clear_action_label }}
+                    </el-button>
+                  </template>
+
+                  <template v-else>
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      :loading="isWorkspaceActionRunning('workspace:stock:sync-must')"
+                      @click="handleSyncStockPoolToMustPool"
+                    >
+                      {{ tab.batch_action_label }}
+                    </el-button>
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      :loading="isWorkspaceActionRunning('workspace:stock:sync-tdx')"
+                      @click="handleSyncStockPoolToTdx"
+                    >
+                      {{ tab.sync_action_label }}
+                    </el-button>
+                    <el-button
+                      size="small"
+                      type="danger"
+                      plain
+                      :loading="isWorkspaceActionRunning('workspace:stock:clear')"
+                      @click="handleClearStockPool"
+                    >
+                      {{ tab.clear_action_label }}
+                    </el-button>
+                  </template>
+                </div>
+
+                <el-table
+                  :data="tab.rows"
+                  size="small"
+                  border
+                  height="260"
+                >
+                  <el-table-column prop="code6" label="代码" width="92" />
+                  <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
+                  <el-table-column prop="provider" label="来源" width="120" show-overflow-tooltip />
+                  <el-table-column prop="plate_name" label="上下文" min-width="140" show-overflow-tooltip />
+                  <el-table-column label="操作" min-width="180">
+                    <template #default="{ row }">
+                      <div class="daily-workspace-row-actions">
+                        <template v-if="tab.key === 'pre_pool'">
+                          <el-button
+                            size="small"
+                            type="primary"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:pre:add:${row.code6}`)"
+                            @click.stop="handleAddPrePoolToStockPools(row)"
+                          >
+                            {{ row.primary_action_label }}
+                          </el-button>
+                          <el-button
+                            size="small"
+                            type="danger"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:pre:delete:${row.code6}`)"
+                            @click.stop="handleDeletePrePoolRow(row)"
+                          >
+                            {{ row.secondary_action_label }}
+                          </el-button>
+                        </template>
+                        <template v-else>
+                          <el-button
+                            size="small"
+                            type="primary"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:stock:add-must:${row.code6}`)"
+                            @click.stop="handleAddStockPoolToMustPools(row)"
+                          >
+                            {{ row.primary_action_label }}
+                          </el-button>
+                          <el-button
+                            size="small"
+                            type="danger"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:stock:delete:${row.code6}`)"
+                            @click.stop="handleDeleteStockPoolRow(row)"
+                          >
+                            {{ row.secondary_action_label }}
+                          </el-button>
+                        </template>
+                      </div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </el-tab-pane>
+            </el-tabs>
+          </section>
+        </div>
 
         <aside class="daily-detail-stack" v-loading="detailLoading">
           <section class="workbench-panel">
@@ -387,11 +558,29 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 
 import MyHeader from './MyHeader.vue'
 import { dailyScreeningApi } from '@/api/dailyScreeningApi.js'
 import {
+  addShouban30PrePoolToStockPool,
+  addShouban30StockPoolToMustPool,
+  appendShouban30PrePool,
+  clearShouban30PrePool,
+  clearShouban30StockPool,
+  deleteShouban30PrePoolItem,
+  deleteShouban30StockPoolItem,
+  getShouban30PrePool,
+  getShouban30StockPool,
+  syncShouban30PrePoolToStockPool,
+  syncShouban30PrePoolToTdx,
+  syncShouban30StockPoolToMustPool,
+  syncShouban30StockPoolToTdx,
+} from '@/api/ganttShouban30.js'
+import {
+  buildDailyScreeningAppendPrePoolPayload,
   buildDailyScreeningQueryPayload,
+  buildDailyScreeningWorkspaceTabs,
   buildDailyScreeningWorkbenchState,
   formatDailyScreeningConditionLabel,
   normalizeDailyScreeningDetail,
@@ -406,7 +595,9 @@ const loadingScopes = ref(false)
 const loadingFilters = ref(false)
 const queryLoading = ref(false)
 const detailLoading = ref(false)
+const workspaceLoading = ref(false)
 const pageError = ref('')
+const workspaceError = ref('')
 
 const scopeItems = ref([])
 const selectedScopeId = ref('')
@@ -415,6 +606,10 @@ const filterCatalog = ref(normalizeDailyScreeningFilterCatalog({}))
 const resultRows = ref([])
 const selectedCode = ref('')
 const detail = ref(normalizeDailyScreeningDetail({}))
+const prePoolItems = ref([])
+const stockPoolItems = ref([])
+const activeWorkspaceTab = ref('pre_pool')
+const workspaceActionKey = ref('')
 
 const conditionKeys = ref([])
 const metricFilters = reactive({
@@ -426,6 +621,40 @@ const metricFilters = reactive({
 const pageLoading = computed(() => loadingScopes.value || loadingFilters.value)
 const detailSnapshot = computed(() => detail.value?.snapshot || null)
 const filterGroups = computed(() => filterCatalog.value.groups || {})
+const metricHints = computed(() => filterCatalog.value.metricHints || {})
+const conditionSections = computed(() => ([
+  { key: 'clsModels', title: 'CLS 模型', items: filterGroups.value.clsModels || [] },
+  { key: 'hotWindows', title: '热门窗口', items: filterGroups.value.hotWindows || [] },
+  { key: 'marketFlags', title: '市场属性', items: filterGroups.value.marketFlags || [] },
+  { key: 'chanlunPeriods', title: 'chanlun 周期', items: filterGroups.value.chanlunPeriods || [] },
+  { key: 'chanlunSignals', title: 'chanlun 信号', items: filterGroups.value.chanlunSignals || [] },
+]))
+const metricFieldConfigs = computed(() => ([
+  {
+    key: 'higherMultipleLte',
+    label: '高级段倍数 ≤',
+    step: 0.1,
+    help: metricHints.value.higherMultipleLte,
+  },
+  {
+    key: 'segmentMultipleLte',
+    label: '段倍数 ≤',
+    step: 0.1,
+    help: metricHints.value.segmentMultipleLte,
+  },
+  {
+    key: 'biGainPercentLte',
+    label: '笔涨幅% ≤',
+    step: 0.1,
+    help: metricHints.value.biGainPercentLte,
+  },
+]))
+const workbenchGuideLines = [
+  '上游范围：全市场股票，排除 ST 和北交所',
+  '基础池：CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成',
+  '交集规则：用户勾选的条件会在当前结果上继续取交集',
+  '工作区用途：交集结果可加入 pre_pools，再同步到 stock_pools / must_pools',
+]
 const selectedScopeLabel = computed(() => {
   const matched = scopeItems.value.find((item) => item.scopeId === selectedScopeId.value)
   return matched?.label || selectedScopeId.value || '-'
@@ -436,14 +665,20 @@ const activeConditionCount = computed(() => {
 })
 const currentExpression = computed(() => {
   if (!conditionKeys.value.length && activeConditionCount.value === 0) {
-    return '默认展示基础池 A ∪ B'
+    return '默认展示“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”'
   }
   const labels = conditionKeys.value.map((item) => formatDailyScreeningConditionLabel(item))
   const metricLabels = []
   if (metricFilters.higherMultipleLte != null) metricLabels.push(`高级段倍数 <= ${metricFilters.higherMultipleLte}`)
   if (metricFilters.segmentMultipleLte != null) metricLabels.push(`段倍数 <= ${metricFilters.segmentMultipleLte}`)
   if (metricFilters.biGainPercentLte != null) metricLabels.push(`笔涨幅% <= ${metricFilters.biGainPercentLte}`)
-  return [...labels, ...metricLabels].join(' ∩ ') || '默认展示基础池 A ∪ B'
+  return [...labels, ...metricLabels].join(' ∩ ') || '默认展示“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”'
+})
+const workspaceTabs = computed(() => {
+  return buildDailyScreeningWorkspaceTabs({
+    prePoolItems: prePoolItems.value,
+    stockPoolItems: stockPoolItems.value,
+  })
 })
 
 const formatNumber = (value) => {
@@ -457,6 +692,18 @@ const resetMetricFilters = () => {
   metricFilters.segmentMultipleLte = null
   metricFilters.biGainPercentLte = null
 }
+
+const readSharedWorkspacePayload = (response) => {
+  if (response && typeof response === 'object') {
+    if (response.data && typeof response.data === 'object') {
+      return response.data
+    }
+    return response
+  }
+  return {}
+}
+
+const isWorkspaceActionRunning = (key) => workspaceActionKey.value === key
 
 const applyStateDefaults = (latestScope = null) => {
   const state = buildDailyScreeningWorkbenchState(latestScope)
@@ -491,6 +738,23 @@ const loadScopes = async () => {
     pageError.value = error?.response?.data?.error || error?.message || '加载 scopes 失败'
   } finally {
     loadingScopes.value = false
+  }
+}
+
+const loadWorkspace = async () => {
+  workspaceLoading.value = true
+  workspaceError.value = ''
+  try {
+    const [prePoolResponse, stockPoolResponse] = await Promise.all([
+      getShouban30PrePool(),
+      getShouban30StockPool(),
+    ])
+    prePoolItems.value = readSharedWorkspacePayload(prePoolResponse)?.items || []
+    stockPoolItems.value = readSharedWorkspacePayload(stockPoolResponse)?.items || []
+  } catch (error) {
+    workspaceError.value = error?.response?.data?.error || error?.message || '加载工作区失败'
+  } finally {
+    workspaceLoading.value = false
   }
 }
 
@@ -593,6 +857,142 @@ const handleRowClick = async (row) => {
   await loadDetail(row.code)
 }
 
+const runWorkspaceAction = async ({
+  actionKey,
+  action,
+  successMessage,
+  refreshWorkspace = true,
+} = {}) => {
+  workspaceActionKey.value = actionKey || ''
+  workspaceError.value = ''
+  try {
+    const response = await action()
+    if (refreshWorkspace) {
+      await loadWorkspace()
+    }
+    const resolvedMessage = typeof successMessage === 'function'
+      ? successMessage(readSharedWorkspacePayload(response))
+      : successMessage
+    if (resolvedMessage) {
+      ElMessage.success(resolvedMessage)
+    }
+    return response
+  } catch (error) {
+    const message = error?.response?.data?.error || error?.message || '工作区操作失败'
+    workspaceError.value = message
+    ElMessage.error(message)
+    return null
+  } finally {
+    workspaceActionKey.value = ''
+  }
+}
+
+const handleAppendIntersectionToPrePool = async () => {
+  const payload = buildDailyScreeningAppendPrePoolPayload({
+    scopeId: selectedScopeId.value,
+    rows: resultRows.value,
+    conditionKeys: conditionKeys.value,
+    expression: currentExpression.value,
+  })
+  if (!payload.items.length) {
+    ElMessage.warning('当前交集结果没有可加入的标的')
+    return
+  }
+  await runWorkspaceAction({
+    actionKey: 'workspace:append-intersection',
+    action: () => appendShouban30PrePool(payload),
+    successMessage: `已将当前交集结果 ${payload.items.length} 条加入 pre_pools`,
+  })
+}
+
+const handleAddPrePoolToStockPools = async (row) => {
+  await runWorkspaceAction({
+    actionKey: `workspace:pre:add:${String(row?.code6 || '').trim()}`,
+    action: () => addShouban30PrePoolToStockPool({ code6: row?.code6 }),
+    successMessage: `${String(row?.code6 || '').trim()} 已加入 stock_pools`,
+  })
+}
+
+const handleDeletePrePoolRow = async (row) => {
+  await runWorkspaceAction({
+    actionKey: `workspace:pre:delete:${String(row?.code6 || '').trim()}`,
+    action: () => deleteShouban30PrePoolItem({ code6: row?.code6 }),
+    successMessage: `${String(row?.code6 || '').trim()} 已从 pre_pools 删除`,
+  })
+}
+
+const handleSyncPrePoolToStockPool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:pre:sync-stock',
+    action: () => syncShouban30PrePoolToStockPool(),
+    successMessage: '已将 pre_pools 同步到 stock_pools',
+  })
+}
+
+const handleSyncPrePoolToTdx = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:pre:sync-tdx',
+    action: () => syncShouban30PrePoolToTdx(),
+    successMessage: `已将 pre_pools ${prePoolItems.value.length} 条同步到通达信`,
+    refreshWorkspace: false,
+  })
+}
+
+const handleClearPrePool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:pre:clear',
+    action: () => clearShouban30PrePool(),
+    successMessage: '已清空 pre_pools',
+  })
+}
+
+const handleAddStockPoolToMustPools = async (row) => {
+  await runWorkspaceAction({
+    actionKey: `workspace:stock:add-must:${String(row?.code6 || '').trim()}`,
+    action: () => addShouban30StockPoolToMustPool({ code6: row?.code6 }),
+    successMessage: (payload) => {
+      const status = String(payload?.status || '').trim()
+      const suffix = status === 'updated' ? '已更新 must_pools' : '已加入 must_pools'
+      return `${String(row?.code6 || '').trim()} ${suffix}`
+    },
+    refreshWorkspace: false,
+  })
+}
+
+const handleDeleteStockPoolRow = async (row) => {
+  await runWorkspaceAction({
+    actionKey: `workspace:stock:delete:${String(row?.code6 || '').trim()}`,
+    action: () => deleteShouban30StockPoolItem({ code6: row?.code6 }),
+    successMessage: `${String(row?.code6 || '').trim()} 已从 stock_pools 删除`,
+  })
+}
+
+const handleSyncStockPoolToMustPool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:stock:sync-must',
+    action: () => syncShouban30StockPoolToMustPool(),
+    successMessage: (payload) => `已同步 ${payload.total_count ?? 0} 条到 must_pools（created ${payload.created_count ?? 0} / updated ${payload.updated_count ?? 0}）`,
+    refreshWorkspace: false,
+  })
+}
+
+const handleSyncStockPoolToTdx = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:stock:sync-tdx',
+    action: () => syncShouban30StockPoolToTdx(),
+    successMessage: `已将 stock_pools ${stockPoolItems.value.length} 条同步到通达信`,
+    refreshWorkspace: false,
+  })
+}
+
+const handleClearStockPool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:stock:clear',
+    action: () => clearShouban30StockPool(),
+    successMessage: '已清空 stock_pools',
+  })
+}
+
 watch(selectedScopeId, async (scopeId) => {
   if (!scopeId) return
   selectedCode.value = ''
@@ -604,9 +1004,10 @@ watch(selectedScopeId, async (scopeId) => {
 
 onMounted(async () => {
   await loadScopes()
-  if (selectedScopeId.value) {
-    await refreshCurrentScope()
-  }
+  await Promise.all([
+    selectedScopeId.value ? refreshCurrentScope() : Promise.resolve(),
+    loadWorkspace(),
+  ])
 })
 </script>
 
@@ -623,9 +1024,15 @@ onMounted(async () => {
 }
 
 .daily-filter-panel,
-.daily-results-panel,
+.daily-center-stack,
 .daily-detail-stack {
   min-height: 240px;
+}
+
+.daily-center-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .daily-detail-stack {
@@ -634,10 +1041,24 @@ onMounted(async () => {
   gap: 16px;
 }
 
+.daily-guide-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .daily-chip-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.daily-condition-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .daily-metric-grid {
@@ -662,10 +1083,69 @@ onMounted(async () => {
   gap: 8px;
 }
 
+.daily-results-meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .daily-expression {
   color: var(--el-text-color-secondary);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.daily-form-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.daily-info-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.daily-help-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.daily-help-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.daily-help-card__section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.daily-help-card__section p {
+  margin: 0;
+}
+
+.daily-help-card__label {
+  font-weight: 600;
+  color: #111827;
 }
 
 .daily-detail-summary {
@@ -696,6 +1176,25 @@ onMounted(async () => {
 .daily-empty-inline {
   color: var(--el-text-color-secondary);
   font-size: 13px;
+}
+
+.daily-workspace-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.daily-workspace-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.daily-workspace-row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 1480px) {

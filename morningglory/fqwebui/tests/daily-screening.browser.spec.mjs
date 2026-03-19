@@ -176,6 +176,7 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
   const requestLog = {
     queryBodies: [],
     detailRequests: [],
+    appendPrePoolBodies: [],
   }
 
   await page.route('**/api/**', async (route) => {
@@ -254,6 +255,69 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
       return
     }
 
+    if (pathname === '/api/gantt/shouban30/pre-pool' && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            items: [
+              {
+                code: '000333',
+                code6: '000333',
+                name: '美的集团',
+                category: '三十涨停Pro预选',
+                extra: {
+                  shouban30_provider: 'daily_screening',
+                  shouban30_plate_name: '每日选股交集',
+                },
+              },
+            ],
+          },
+        }),
+      })
+      return
+    }
+
+    if (pathname === '/api/gantt/shouban30/stock-pool' && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            items: [
+              {
+                code: '000651',
+                code6: '000651',
+                name: '格力电器',
+                category: '三十涨停Pro自选',
+                extra: {
+                  shouban30_provider: 'daily_screening',
+                  shouban30_plate_name: '每日选股交集',
+                },
+              },
+            ],
+          },
+        }),
+      })
+      return
+    }
+
+    if (pathname === '/api/gantt/shouban30/pre-pool/append' && method === 'POST') {
+      requestLog.appendPrePoolBodies.push(body)
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            appended_count: Array.isArray(body.items) ? body.items.length : 0,
+            skipped_count: 0,
+          },
+        }),
+      })
+      return
+    }
+
     await route.fulfill({
       status: 404,
       contentType: 'application/json',
@@ -263,11 +327,21 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
 
   await page.goto(TARGET_URL)
 
-  await expect(page.getByText('每日选股')).toBeVisible()
+  await expect(page.locator('.workbench-page-title').getByText('每日选股')).toBeVisible()
   await expect(page.getByText('前端只做组合查询，不再触发运行，不再展示 SSE。')).toBeVisible()
+  await expect(page.getByText('上游范围：全市场股票，排除 ST 和北交所')).toBeVisible()
+  await expect(page.getByText('基础池：CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成')).toBeVisible()
+  await expect(page.getByText('交集规则：用户勾选的条件会在当前结果上继续取交集')).toBeVisible()
+  await expect(page.getByText('工作区用途：交集结果可加入 pre_pools，再同步到 stock_pools / must_pools')).toBeVisible()
   await expect(page.getByText('基础池 2')).toBeVisible()
   await expect(page.getByText('当前结果 2')).toBeVisible()
   await expect(page.getByRole('button', { name: '开始扫描' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '全部加入 pre_pools' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /pre_pools/ })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /stock_pools/ })).toBeVisible()
+
+  await page.getByRole('button', { name: '查看 30天热门说明' }).click()
+  await expect(page.getByText('来源于 /gantt/shouban30 同口径的热门标的结果，聚合选股通和韭研公式的 30 天窗口命中股票。')).toBeVisible()
 
   await page.getByRole('button', { name: 'S0008 · 1' }).click()
   await page.getByRole('button', { name: '30天热门 · 1' }).click()
@@ -283,14 +357,33 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
     condition_keys: ['cls:S0008', 'hot:30d'],
   })
 
+  await page.getByRole('button', { name: '全部加入 pre_pools' }).click()
+  await expect(page.getByText('已将当前交集结果 1 条加入 pre_pools')).toBeVisible()
+  expect(requestLog.appendPrePoolBodies.at(-1)).toEqual({
+    items: [
+      {
+        code6: '000001',
+        name: '平安银行',
+        plate_key: 'trade_date:2026-03-18',
+        plate_name: '每日选股交集',
+        provider: 'daily_screening',
+      },
+    ],
+    replace_scope: 'daily_screening_intersection',
+    end_date: '2026-03-18',
+    selected_extra_filters: ['cls:S0008', 'hot:30d'],
+    remark: 'S0008 ∩ 30天热门',
+  })
+
   await page.getByRole('cell', { name: '平安银行' }).click()
 
+  const detailPane = page.locator('.daily-detail-stack')
   await expect(page.getByText('标的详情')).toBeVisible()
-  await expect(page.getByText('平安银行')).toBeVisible()
-  await expect(page.getByText('融资标的')).toBeVisible()
-  await expect(page.getByText('30m')).toBeVisible()
-  await expect(page.getByText('回拉中枢上涨')).toBeVisible()
-  await expect(page.getByText('回拉中枢下跌')).toBeVisible()
-  await expect(page.getByText('龙头地位明确')).toBeVisible()
+  await expect(page.locator('.daily-detail-title').getByText('平安银行')).toBeVisible()
+  await expect(detailPane.getByText('融资标的', { exact: true })).toBeVisible()
+  await expect(detailPane.getByText('30m', { exact: true })).toBeVisible()
+  await expect(detailPane.getByText('回拉中枢上涨', { exact: true })).toBeVisible()
+  await expect(detailPane.getByText('回拉中枢下跌', { exact: true })).toBeVisible()
+  await expect(detailPane.getByText('龙头地位明确')).toBeVisible()
   expect(requestLog.detailRequests).toEqual(['trade_date:2026-03-18'])
 })

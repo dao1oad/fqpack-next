@@ -1,3 +1,5 @@
+import { buildWorkspaceTabs } from './shouban30PoolWorkspace.mjs'
+
 const toArray = (value) => Array.isArray(value) ? value : []
 const toText = (value) => String(value ?? '').trim()
 const toFiniteNumber = (value) => {
@@ -13,6 +15,15 @@ const SET_LABELS = {
   credit_subject: '融资标的',
   near_long_term_ma: '均线附近',
   quality_subject: '优质标的',
+}
+
+const CHANLUN_SIGNAL_LABELS = {
+  buy_zs_huila: '回拉中枢上涨',
+  buy_v_reverse: 'V反上涨',
+  macd_bullish_divergence: 'MACD看涨背驰',
+  sell_zs_huila: '回拉中枢下跌',
+  sell_v_reverse: 'V反下跌',
+  macd_bearish_divergence: 'MACD看跌背驰',
 }
 
 const normalizeClxsModelKey = (value) => {
@@ -158,6 +169,104 @@ const normalizeConditionOption = (item = {}) => ({
   count: Number(item.count || 0),
 })
 
+const CONDITION_SCOPE_NOTE_BASE = '该条件只在“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”上继续取交集。'
+const CONDITION_SCOPE_NOTE_NARROW = '该条件不会回到全市场重新筛选，只会缩小当前结果。'
+
+const buildConditionHelp = (key) => {
+  const text = toText(key)
+  if (text.startsWith('cls:')) {
+    const modelLabel = text.split(':', 2)[1] || text
+    return {
+      source: '来源于 Dagster 每日落库的 CLS 各模型筛选结果。',
+      rule: `命中 CLS 模型 ${modelLabel} 的股票会进入该条件集合。`,
+      scopeNote: CONDITION_SCOPE_NOTE_BASE,
+    }
+  }
+  if (text.startsWith('hot:')) {
+    const windowLabel = formatDailyScreeningConditionLabel(text)
+    const windowDays = text.split(':', 2)[1]?.replace(/d$/i, '') || ''
+    return {
+      source: `来源于 /gantt/shouban30 同口径的热门标的结果，聚合选股通和韭研公式的 ${windowDays} 天窗口命中股票。`,
+      rule: `命中 ${windowDays} 天热门结果的股票会进入该条件集合。`,
+      scopeNote: CONDITION_SCOPE_NOTE_BASE,
+    }
+  }
+  if (text === 'flag:quality_subject') {
+    return {
+      source: '由 Dagster 在基础池上继续计算优质标的标签。',
+      rule: '满足优质标的规则的股票会进入该条件集合。',
+      scopeNote: CONDITION_SCOPE_NOTE_NARROW,
+    }
+  }
+  if (text === 'flag:credit_subject') {
+    return {
+      source: '由 Dagster 在基础池上继续计算融资标的标签。',
+      rule: '满足融资标的规则的股票会进入该条件集合。',
+      scopeNote: CONDITION_SCOPE_NOTE_NARROW,
+    }
+  }
+  if (text === 'flag:near_long_term_ma') {
+    return {
+      source: '由 Dagster 在基础池上继续计算年线附近标签。',
+      rule: '满足年线附近规则的股票会进入该条件集合。',
+      scopeNote: CONDITION_SCOPE_NOTE_NARROW,
+    }
+  }
+  if (text.startsWith('chanlun_period:')) {
+    const period = text.split(':', 2)[1] || text
+    return {
+      source: '来源于 Dagster 产出的 chanlun 周期命中结果。',
+      rule: `命中 ${period} 周期的股票会进入该条件集合。`,
+      scopeNote: CONDITION_SCOPE_NOTE_NARROW,
+    }
+  }
+  if (text.startsWith('chanlun_signal:')) {
+    const signal = formatDailyScreeningConditionLabel(text)
+    return {
+      source: '来源于 Dagster 产出的 chanlun 六个信号命中结果。',
+      rule: `命中 ${signal} 信号的股票会进入该条件集合。`,
+      scopeNote: CONDITION_SCOPE_NOTE_NARROW,
+    }
+  }
+  return {
+    source: '来源于 Dagster 每日选股正式结果。',
+    rule: '命中该条件的股票会进入当前条件集合。',
+    scopeNote: CONDITION_SCOPE_NOTE_NARROW,
+  }
+}
+
+const withConditionHelp = (items = []) => {
+  return toArray(items).map((item) => {
+    const normalized = normalizeConditionOption(item)
+    return {
+      ...normalized,
+      help: buildConditionHelp(normalized.key),
+    }
+  })
+}
+
+const resolveMetricHint = (key) => ({
+  higherMultipleLte: {
+    source: '来源于 /gantt/shouban30 页面同口径的缠论指标结果。',
+    rule: '按“高级段倍数 <= 用户输入阈值”过滤当前结果。',
+    scopeNote: '该条件是数值过滤，不是固定命中标签，并且只作用于当前结果。',
+  },
+  segmentMultipleLte: {
+    source: '来源于 /gantt/shouban30 页面同口径的缠论指标结果。',
+    rule: '按“段倍数 <= 用户输入阈值”过滤当前结果。',
+    scopeNote: '该条件是数值过滤，不是固定命中标签，并且只作用于当前结果。',
+  },
+  biGainPercentLte: {
+    source: '来源于 /gantt/shouban30 页面同口径的缠论指标结果。',
+    rule: '按“笔涨幅% <= 用户输入阈值”过滤当前结果。',
+    scopeNote: '该条件是数值过滤，不是固定命中标签，并且只作用于当前结果。',
+  },
+}[key] || {
+  source: '来源于每日选股数值指标结果。',
+  rule: '按用户输入阈值过滤当前结果。',
+  scopeNote: '该条件只作用于当前结果。',
+})
+
 export const normalizeDailyScreeningFilterCatalog = (payload = {}) => {
   const groups = payload.groups || {}
   return {
@@ -166,16 +275,21 @@ export const normalizeDailyScreeningFilterCatalog = (payload = {}) => {
       .map((item) => toText(item))
       .filter(Boolean),
     groups: {
-      clsModels: toArray(groups.cls_models || groups.clsModels).map(normalizeConditionOption),
-      hotWindows: toArray(groups.hot_windows || groups.hotWindows).map(normalizeConditionOption),
-      marketFlags: toArray(groups.market_flags || groups.marketFlags).map(normalizeConditionOption),
-      chanlunPeriods: toArray(groups.chanlun_periods || groups.chanlunPeriods).map(normalizeConditionOption),
-      chanlunSignals: toArray(groups.chanlun_signals || groups.chanlunSignals).map(normalizeConditionOption),
+      clsModels: withConditionHelp(groups.cls_models || groups.clsModels),
+      hotWindows: withConditionHelp(groups.hot_windows || groups.hotWindows),
+      marketFlags: withConditionHelp(groups.market_flags || groups.marketFlags),
+      chanlunPeriods: withConditionHelp(groups.chanlun_periods || groups.chanlunPeriods),
+      chanlunSignals: withConditionHelp(groups.chanlun_signals || groups.chanlunSignals),
     },
     metricFilters: {
       higherMultipleLte: null,
       segmentMultipleLte: null,
       biGainPercentLte: null,
+    },
+    metricHints: {
+      higherMultipleLte: resolveMetricHint('higherMultipleLte'),
+      segmentMultipleLte: resolveMetricHint('segmentMultipleLte'),
+      biGainPercentLte: resolveMetricHint('biGainPercentLte'),
     },
   }
 }
@@ -235,6 +349,51 @@ export const buildDailyScreeningQueryPayload = ({
   if (toArray(chanlunPeriods).length) payload.chanlun_periods = [...chanlunPeriods]
   if (toArray(shouban30Providers).length) payload.shouban30_providers = [...shouban30Providers]
   return payload
+}
+
+const resolveScopeTradeDate = (scopeId) => {
+  const text = toText(scopeId)
+  if (text.startsWith('trade_date:')) return text.slice('trade_date:'.length)
+  return ''
+}
+
+export const buildDailyScreeningAppendPrePoolPayload = ({
+  scopeId = '',
+  rows = [],
+  conditionKeys = [],
+  expression = '',
+} = {}) => {
+  const items = []
+  const seen = new Set()
+  for (const row of toArray(rows)) {
+    const code6 = toText(row?.code6 || row?.code)
+    if (!code6 || seen.has(code6)) continue
+    seen.add(code6)
+    items.push({
+      code6,
+      name: toText(row?.name) || code6,
+      plate_key: toText(scopeId),
+      plate_name: '每日选股交集',
+      provider: 'daily_screening',
+    })
+  }
+  return {
+    items,
+    replace_scope: 'daily_screening_intersection',
+    end_date: resolveScopeTradeDate(scopeId),
+    selected_extra_filters: toArray(conditionKeys).map((item) => toText(item)).filter(Boolean),
+    remark: toText(expression),
+  }
+}
+
+export const buildDailyScreeningWorkspaceTabs = ({
+  prePoolItems = [],
+  stockPoolItems = [],
+} = {}) => {
+  return buildWorkspaceTabs({
+    prePoolItems,
+    stockPoolItems,
+  })
 }
 
 export const toggleDailyScreeningSelection = (values = [], target) => {
@@ -336,7 +495,7 @@ export const formatDailyScreeningConditionLabel = (key) => {
     }[suffix] || suffix
   }
   if (prefix === 'chanlun_period') return suffix
-  if (prefix === 'chanlun_signal') return suffix
+  if (prefix === 'chanlun_signal') return CHANLUN_SIGNAL_LABELS[suffix] || suffix
   if (prefix === 'cls') return suffix
   return text
 }

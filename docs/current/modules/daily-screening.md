@@ -106,10 +106,23 @@
 页面只保留：
 
 - scope 选择
+- 工作台总说明
 - 条件分组勾选
+- 每个条件和数值指标的点击式说明提示
 - `Shouban30` 缠论数值阈值输入
 - 交集结果表格
+- `全部加入 pre_pools`
+- 共享工作区
+  - `pre_pools`
+  - `stock_pools`
 - 单标的条件画像与热门理由
+
+页面中的说明文案固定解释：
+
+- 上游范围是全市场，排除 `ST` 和北交所
+- 基础池由 `CLS` 各模型结果和热门 `30/45/60/90` 天结果先取并集形成
+- 用户勾选条件后，对当前结果继续取交集
+- 交集结果可以沉淀到共享工作区
 
 ### Dagster 节点 helper
 
@@ -133,6 +146,22 @@
 - `/api/daily-screening/query`
 - `/api/daily-screening/stocks/<code>/detail`
 
+页面工作区直接复用：
+
+- `/api/gantt/shouban30/pre-pool`
+- `/api/gantt/shouban30/pre-pool/append`
+- `/api/gantt/shouban30/pre-pool/add-to-stock-pools`
+- `/api/gantt/shouban30/pre-pool/sync-to-stock-pool`
+- `/api/gantt/shouban30/pre-pool/sync-to-tdx`
+- `/api/gantt/shouban30/pre-pool/clear`
+- `/api/gantt/shouban30/pre-pool/delete`
+- `/api/gantt/shouban30/stock-pool`
+- `/api/gantt/shouban30/stock-pool/add-to-must-pool`
+- `/api/gantt/shouban30/stock-pool/sync-to-must-pool`
+- `/api/gantt/shouban30/stock-pool/sync-to-tdx`
+- `/api/gantt/shouban30/stock-pool/clear`
+- `/api/gantt/shouban30/stock-pool/delete`
+
 已禁用的旧手动执行入口：
 
 - `/api/daily-screening/schema`
@@ -140,7 +169,7 @@
 - `/api/daily-screening/runs/<run_id>`
 - `/api/daily-screening/runs/<run_id>/stream`
 
-保留的辅助动作接口：
+仍保留但当前页面不再使用的旧辅助接口：
 
 - `/api/daily-screening/actions/add-to-pre-pool`
 - `/api/daily-screening/actions/add-batch-to-pre-pool`
@@ -171,7 +200,7 @@
 
 ## 当前边界
 
-- `/gantt/shouban30` 仍是板块工作台；每日选股只消费其读模型与缠论快照语义。
+- `/gantt/shouban30` 仍是板块工作台；每日选股除了消费其读模型与缠论快照语义，也直接复用其共享工作区接口。
 - 页面查询不会重新触发算法运行。
 - API 仍保留旧执行接口，但当前页面不再使用。
 - `market_flags` 仍基于全市场能力构建，但前端查询始终锚定 `base:union`。
