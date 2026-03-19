@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises'
 
 import {
   buildDailyScreeningAppendPrePoolPayload,
+  buildDailyScreeningAppendSinglePrePoolPayload,
+  buildDailyScreeningConditionSectionGroups,
   buildDailyScreeningCurrentExpression,
   buildDailyScreeningQueryPayload,
   buildDailyScreeningWorkspaceTabs,
@@ -49,7 +51,7 @@ test('buildDailyScreeningWorkbenchState defaults to grouped query mode with dail
   assert.equal(state.selectedRunId, 'trade_date:2026-03-18')
   assert.deepEqual(state.conditionKeys, [])
   assert.deepEqual(state.clsGroupKeys, [])
-  assert.equal(state.dayChanlunEnabled, false)
+  assert.equal(state.dayChanlunEnabled, true)
   assert.deepEqual(state.metricFilters, {
     higherMultipleLte: 3,
     segmentMultipleLte: 2,
@@ -158,6 +160,39 @@ test('normalizeDailyScreeningFilterCatalog attaches section-level help metadata'
   })
 })
 
+test('buildDailyScreeningConditionSectionGroups separates base pool unions from intersection filters', () => {
+  const catalog = normalizeDailyScreeningFilterCatalog({
+    scope_id: 'trade_date:2026-03-18',
+    groups: {
+      cls_models: [{ key: 'cls:S0001', label: 'S0001', count: 12 }],
+      hot_windows: [{ key: 'hot:30d', label: '30天热门', count: 12 }],
+      market_flags: [{ key: 'flag:quality_subject', label: '优质标的', count: 8 }],
+      chanlun_periods: [{ key: 'chanlun_period:30m', label: '30m', count: 6 }],
+      chanlun_signals: [{ key: 'chanlun_signal:buy_v_reverse', label: 'V反上涨', count: 2 }],
+    },
+  })
+
+  assert.deepEqual(
+    buildDailyScreeningConditionSectionGroups(catalog).map((group) => ({
+      key: group.key,
+      title: group.title,
+      sectionKeys: group.sections.map((section) => section.key),
+    })),
+    [
+      {
+        key: 'base_pool',
+        title: '基础池（并集）',
+        sectionKeys: ['clsGroups', 'hotWindows'],
+      },
+      {
+        key: 'intersection',
+        title: '交集条件',
+        sectionKeys: ['marketFlags', 'chanlunPeriods', 'chanlunSignals'],
+      },
+    ],
+  )
+})
+
 test('buildDailyScreeningQueryPayload emits cls group unions and enabled daily chanlun metrics', () => {
   const payload = buildDailyScreeningQueryPayload({
     scopeId: 'trade_date:2026-03-18',
@@ -259,6 +294,31 @@ test('buildDailyScreeningAppendPrePoolPayload converts current intersection rows
   })
 })
 
+test('buildDailyScreeningAppendSinglePrePoolPayload converts a single row into shared pre-pool payload', () => {
+  const payload = buildDailyScreeningAppendSinglePrePoolPayload({
+    scopeId: 'trade_date:2026-03-18',
+    expression: '基础池（并集） ∩ 日线缠论涨幅',
+    conditionKeys: ['metric:daily_chanlun'],
+    row: { code: '000001', name: '平安银行' },
+  })
+
+  assert.deepEqual(payload, {
+    items: [
+      {
+        code6: '000001',
+        name: '平安银行',
+        plate_key: 'trade_date:2026-03-18',
+        plate_name: '每日选股交集',
+        provider: 'daily_screening',
+      },
+    ],
+    replace_scope: 'daily_screening_intersection',
+    end_date: '2026-03-18',
+    selected_extra_filters: ['metric:daily_chanlun'],
+    remark: '基础池（并集） ∩ 日线缠论涨幅',
+  })
+})
+
 test('buildDailyScreeningWorkspaceTabs reuses shared workspace tab structure', () => {
   const tabs = buildDailyScreeningWorkspaceTabs({
     prePoolItems: [
@@ -292,14 +352,16 @@ test('buildDailyScreeningWorkspaceTabs reuses shared workspace tab structure', (
   assert.equal(tabs[1].rows[0].primary_action_label, '加入 must_pools')
 })
 
-test('DailyScreening.vue moves the guide to the toolbar and no longer forces left-panel scrolling', async () => {
+test('DailyScreening.vue renders grouped filters and denser detail layout hooks', async () => {
   const content = await readFile(new URL('./DailyScreening.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /\.daily-screening-grid\s*\{[\s\S]*grid-template-columns:\s*360px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/)
-  assert.match(content, /<section class="workbench-toolbar">[\s\S]*工作台说明[\s\S]*<\/section>/)
-  assert.doesNotMatch(content, /<section class="workbench-panel daily-filter-panel"[\s\S]*daily-guide-block/)
-  assert.match(content, /\.daily-filter-panel\s*\{[\s\S]*overflow-y:\s*visible;/)
-  assert.match(content, /日线缠论涨幅/)
+  assert.match(content, /conditionSectionGroups/)
+  assert.match(content, /group\.key === 'base_pool'/)
+  assert.match(content, /加入 pre_pools/)
+  assert.match(content, /@row-click="handleWorkspaceRowClick"/)
+  assert.match(content, /daily-detail-card-grid/)
+  assert.match(content, /daily-detail-history-panel/)
+  assert.doesNotMatch(content, /<aside class="daily-detail-stack"[\s\S]*<div class="workbench-panel__title">日线缠论涨幅<\/div>/)
   assert.match(content, /全部加入pre_pools/)
-  assert.doesNotMatch(content, />查询结果</)
+  assert.match(content, /dayChanlunEnabled \? 'primary' : 'default'/)
 })

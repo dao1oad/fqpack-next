@@ -198,7 +198,7 @@ export const buildDailyScreeningWorkbenchState = (schema = {}, latestScope = nul
     selectedRunId: latestRunId,
     conditionKeys: [],
     clsGroupKeys: [],
-    dayChanlunEnabled: false,
+    dayChanlunEnabled: true,
     metricFilters: {
       ...DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
     },
@@ -423,6 +423,55 @@ export const normalizeDailyScreeningFilterCatalog = (payload = {}) => {
   }
 }
 
+export const buildDailyScreeningConditionSectionGroups = (catalog = {}) => {
+  const groups = catalog?.groups || {}
+  const sectionHelp = catalog?.sectionHelp || {}
+  return [
+    {
+      key: 'base_pool',
+      title: '基础池（并集）',
+      sections: [
+        {
+          key: 'clsGroups',
+          title: 'CLS 模型分组',
+          items: groups.clsGroups || [],
+          help: sectionHelp.clsGroups,
+        },
+        {
+          key: 'hotWindows',
+          title: '热门窗口',
+          items: groups.hotWindows || [],
+          help: sectionHelp.hotWindows,
+        },
+      ],
+    },
+    {
+      key: 'intersection',
+      title: '交集条件',
+      sections: [
+        {
+          key: 'marketFlags',
+          title: '市场属性',
+          items: groups.marketFlags || [],
+          help: sectionHelp.marketFlags,
+        },
+        {
+          key: 'chanlunPeriods',
+          title: 'chanlun 周期',
+          items: groups.chanlunPeriods || [],
+          help: sectionHelp.chanlunPeriods,
+        },
+        {
+          key: 'chanlunSignals',
+          title: 'chanlun 信号',
+          items: groups.chanlunSignals || [],
+          help: sectionHelp.chanlunSignals,
+        },
+      ],
+    },
+  ]
+}
+
 export const buildDailyScreeningSetOptions = (summary = {}) => {
   const stageCounts = summary.stage_counts || {}
   const marketFlagCount = Number(stageCounts.market_flags || 0)
@@ -514,6 +563,20 @@ export const buildDailyScreeningAppendPrePoolPayload = ({
     selected_extra_filters: toArray(conditionKeys).map((item) => toText(item)).filter(Boolean),
     remark: toText(expression),
   }
+}
+
+export const buildDailyScreeningAppendSinglePrePoolPayload = ({
+  scopeId = '',
+  row = null,
+  conditionKeys = [],
+  expression = '',
+} = {}) => {
+  return buildDailyScreeningAppendPrePoolPayload({
+    scopeId,
+    rows: row ? [row] : [],
+    conditionKeys,
+    expression,
+  })
 }
 
 export const buildDailyScreeningWorkspaceTabs = ({
