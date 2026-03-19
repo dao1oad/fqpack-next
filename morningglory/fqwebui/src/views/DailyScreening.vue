@@ -15,12 +15,18 @@
               <span>基础池由 CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成</span>
             </div>
           </div>
-          <article class="daily-toolbar-guide">
-            <div class="daily-toolbar-guide__title">工作台说明</div>
-            <ul class="daily-guide-list daily-guide-list--toolbar">
-              <li v-for="line in workbenchGuideLines" :key="line">{{ line }}</li>
-            </ul>
-          </article>
+          <div class="daily-toolbar-guide">
+            <span class="daily-toolbar-guide__title">工作台说明</span>
+            <div class="workbench-inline-tags daily-toolbar-guide__tags">
+              <span
+                v-for="line in workbenchGuideLines"
+                :key="line"
+                class="workbench-summary-chip workbench-summary-chip--muted daily-toolbar-guide__tag"
+              >
+                {{ line }}
+              </span>
+            </div>
+          </div>
           <div class="workbench-toolbar__actions">
             <el-button @click="loadScopes">刷新 scopes</el-button>
             <el-button @click="refreshCurrentScope">刷新结果</el-button>
@@ -80,58 +86,72 @@
           </article>
 
           <article
-            v-for="section in conditionSections"
-            :key="section.key"
+            v-for="group in conditionSectionGroups"
+            :key="group.key"
             class="workbench-block"
           >
-            <div class="daily-section-header">
-              <div class="workbench-panel__title">{{ section.title }}</div>
-              <el-popover
-                trigger="hover"
-                placement="right"
-                :width="360"
+            <div class="daily-filter-group__header">
+              <div class="workbench-panel__title">{{ group.title }}</div>
+              <span class="workbench-muted">
+                {{ group.key === 'base_pool' ? '这组条件先取并集形成基础池' : '这组条件在基础池上继续取交集' }}
+              </span>
+            </div>
+            <div class="daily-filter-group__sections">
+              <article
+                v-for="section in group.sections"
+                :key="section.key"
+                class="daily-filter-subsection"
               >
-                <template #reference>
-                  <button
-                    type="button"
-                    class="daily-info-trigger"
-                    :aria-label="`查看${section.title}说明`"
+                <div class="daily-section-header">
+                  <div class="workbench-panel__title">{{ section.title }}</div>
+                  <el-popover
+                    trigger="hover"
+                    placement="right"
+                    :width="360"
                   >
-                    i
-                  </button>
-                </template>
-                <div class="daily-help-card">
-                  <div class="daily-help-card__title">{{ section.title }}</div>
-                  <div class="daily-help-card__section">
-                    <div class="daily-help-card__label">上游数据来源</div>
-                    <p>{{ section.help?.source || '-' }}</p>
-                  </div>
-                  <div class="daily-help-card__section">
-                    <div class="daily-help-card__label">筛选规则</div>
-                    <p>{{ section.help?.rule || '-' }}</p>
-                  </div>
-                  <div class="daily-help-card__section">
-                    <div class="daily-help-card__label">结果作用范围</div>
-                    <p>{{ section.help?.scopeNote || '-' }}</p>
+                    <template #reference>
+                      <button
+                        type="button"
+                        class="daily-info-trigger"
+                        :aria-label="`查看${section.title}说明`"
+                      >
+                        i
+                      </button>
+                    </template>
+                    <div class="daily-help-card">
+                      <div class="daily-help-card__title">{{ section.title }}</div>
+                      <div class="daily-help-card__section">
+                        <div class="daily-help-card__label">上游数据来源</div>
+                        <p>{{ section.help?.source || '-' }}</p>
+                      </div>
+                      <div class="daily-help-card__section">
+                        <div class="daily-help-card__label">筛选规则</div>
+                        <p>{{ section.help?.rule || '-' }}</p>
+                      </div>
+                      <div class="daily-help-card__section">
+                        <div class="daily-help-card__label">结果作用范围</div>
+                        <p>{{ section.help?.scopeNote || '-' }}</p>
+                      </div>
+                    </div>
+                  </el-popover>
+                </div>
+                <div class="daily-chip-grid">
+                  <div
+                    v-for="item in section.items"
+                    :key="item.key"
+                    class="daily-condition-chip"
+                  >
+                    <el-button
+                      size="small"
+                      :type="isSectionItemSelected(section, item) ? 'primary' : 'default'"
+                      :plain="!isSectionItemSelected(section, item)"
+                      @click="toggleSectionItem(section, item)"
+                    >
+                      {{ formatSectionItemLabel(section, item) }}
+                    </el-button>
                   </div>
                 </div>
-              </el-popover>
-            </div>
-            <div class="daily-chip-grid">
-              <div
-                v-for="item in section.items"
-                :key="item.key"
-                class="daily-condition-chip"
-              >
-                <el-button
-                  size="small"
-                  :type="isSectionItemSelected(section, item) ? 'primary' : 'default'"
-                  :plain="!isSectionItemSelected(section, item)"
-                  @click="toggleSectionItem(section, item)"
-                >
-                  {{ formatSectionItemLabel(section, item) }}
-                </el-button>
-              </div>
+              </article>
             </div>
           </article>
 
@@ -231,32 +251,47 @@
               </div>
             </div>
 
-            <el-table
-              :data="resultRows"
-              size="small"
-              border
-              height="380"
-              @row-click="handleRowClick"
-            >
-              <el-table-column prop="code" label="代码" width="92" />
-              <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
-              <el-table-column label="高级段倍数" width="116">
-                <template #default="{ row }">
-                  {{ formatNumber(row.higherMultiple) }}
-                </template>
-              </el-table-column>
-              <el-table-column label="段倍数" width="96">
-                <template #default="{ row }">
-                  {{ formatNumber(row.segmentMultiple) }}
-                </template>
-              </el-table-column>
-              <el-table-column label="笔涨幅%" width="96">
-                <template #default="{ row }">
-                  {{ formatNumber(row.biGainPercent) }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="chanlunReason" label="缠论原因" min-width="150" show-overflow-tooltip />
-            </el-table>
+            <div class="workbench-table-wrap daily-results-table-wrap">
+              <el-table
+                :data="resultRows"
+                size="small"
+                border
+                height="100%"
+                @row-click="handleRowClick"
+              >
+                <el-table-column prop="code" label="代码" width="92" />
+                <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
+                <el-table-column label="操作" width="126">
+                  <template #default="{ row }">
+                    <el-button
+                      size="small"
+                      type="primary"
+                      link
+                      :loading="isWorkspaceActionRunning(`workspace:append-single:${row.code}`)"
+                      @click.stop="handleAppendSingleRowToPrePool(row)"
+                    >
+                      加入 pre_pools
+                    </el-button>
+                  </template>
+                </el-table-column>
+                <el-table-column label="高级段倍数" width="116">
+                  <template #default="{ row }">
+                    {{ formatNumber(row.higherMultiple) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="段倍数" width="96">
+                  <template #default="{ row }">
+                    {{ formatNumber(row.segmentMultiple) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="笔涨幅%" width="96">
+                  <template #default="{ row }">
+                    {{ formatNumber(row.biGainPercent) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="chanlunReason" label="缠论原因" min-width="150" show-overflow-tooltip />
+              </el-table>
+            </div>
           </section>
 
           <section class="workbench-panel daily-workspace-panel" v-loading="workspaceLoading">
@@ -356,74 +391,77 @@
                   </template>
                 </div>
 
-                <el-table
-                  :data="tab.rows"
-                  size="small"
-                  border
-                  height="260"
-                >
-                  <el-table-column prop="code6" label="代码" width="92" />
-                  <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
-                  <el-table-column prop="provider" label="来源" width="120" show-overflow-tooltip />
-                  <el-table-column prop="plate_name" label="上下文" min-width="140" show-overflow-tooltip />
-                  <el-table-column label="操作" min-width="180">
-                    <template #default="{ row }">
-                      <div class="daily-workspace-row-actions">
-                        <template v-if="tab.key === 'pre_pool'">
-                          <el-button
-                            size="small"
-                            type="primary"
-                            link
-                            :loading="isWorkspaceActionRunning(`workspace:pre:add:${row.code6}`)"
-                            @click.stop="handleAddPrePoolToStockPools(row)"
-                          >
-                            {{ row.primary_action_label }}
-                          </el-button>
-                          <el-button
-                            size="small"
-                            type="danger"
-                            link
-                            :loading="isWorkspaceActionRunning(`workspace:pre:delete:${row.code6}`)"
-                            @click.stop="handleDeletePrePoolRow(row)"
-                          >
-                            {{ row.secondary_action_label }}
-                          </el-button>
-                        </template>
-                        <template v-else>
-                          <el-button
-                            size="small"
-                            type="primary"
-                            link
-                            :loading="isWorkspaceActionRunning(`workspace:stock:add-must:${row.code6}`)"
-                            @click.stop="handleAddStockPoolToMustPools(row)"
-                          >
-                            {{ row.primary_action_label }}
-                          </el-button>
-                          <el-button
-                            size="small"
-                            type="danger"
-                            link
-                            :loading="isWorkspaceActionRunning(`workspace:stock:delete:${row.code6}`)"
-                            @click.stop="handleDeleteStockPoolRow(row)"
-                          >
-                            {{ row.secondary_action_label }}
-                          </el-button>
-                        </template>
-                      </div>
-                    </template>
-                  </el-table-column>
-                </el-table>
+                <div class="workbench-table-wrap daily-workspace-table-wrap">
+                  <el-table
+                    :data="tab.rows"
+                    size="small"
+                    border
+                    height="100%"
+                    @row-click="handleWorkspaceRowClick"
+                  >
+                    <el-table-column prop="code6" label="代码" width="92" />
+                    <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
+                    <el-table-column prop="provider" label="来源" width="120" show-overflow-tooltip />
+                    <el-table-column prop="plate_name" label="上下文" min-width="140" show-overflow-tooltip />
+                    <el-table-column label="操作" min-width="180">
+                      <template #default="{ row }">
+                        <div class="daily-workspace-row-actions">
+                          <template v-if="tab.key === 'pre_pool'">
+                            <el-button
+                              size="small"
+                              type="primary"
+                              link
+                              :loading="isWorkspaceActionRunning(`workspace:pre:add:${row.code6}`)"
+                              @click.stop="handleAddPrePoolToStockPools(row)"
+                            >
+                              {{ row.primary_action_label }}
+                            </el-button>
+                            <el-button
+                              size="small"
+                              type="danger"
+                              link
+                              :loading="isWorkspaceActionRunning(`workspace:pre:delete:${row.code6}`)"
+                              @click.stop="handleDeletePrePoolRow(row)"
+                            >
+                              {{ row.secondary_action_label }}
+                            </el-button>
+                          </template>
+                          <template v-else>
+                            <el-button
+                              size="small"
+                              type="primary"
+                              link
+                              :loading="isWorkspaceActionRunning(`workspace:stock:add-must:${row.code6}`)"
+                              @click.stop="handleAddStockPoolToMustPools(row)"
+                            >
+                              {{ row.primary_action_label }}
+                            </el-button>
+                            <el-button
+                              size="small"
+                              type="danger"
+                              link
+                              :loading="isWorkspaceActionRunning(`workspace:stock:delete:${row.code6}`)"
+                              @click.stop="handleDeleteStockPoolRow(row)"
+                            >
+                              {{ row.secondary_action_label }}
+                            </el-button>
+                          </template>
+                        </div>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
               </el-tab-pane>
             </el-tabs>
           </section>
         </div>
 
         <aside class="daily-detail-stack" v-loading="detailLoading">
-          <section class="workbench-panel">
+          <section class="workbench-panel daily-detail-overview-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">标的详情</div>
-                <p class="workbench-panel__desc">展示命中条件画像和日线缠论涨幅。</p>
+                <p class="workbench-panel__desc">工作区和交集列表都复用同一套详情接口。</p>
               </div>
             </div>
 
@@ -434,19 +472,30 @@
                 <span>/</span>
                 <span>{{ selectedScopeLabel }}</span>
               </div>
+              <div class="daily-detail-metrics">
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  高级段倍数 {{ formatNumber(detailSnapshot.higherMultiple) }}
+                </span>
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  段倍数 {{ formatNumber(detailSnapshot.segmentMultiple) }}
+                </span>
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  笔涨幅% {{ formatNumber(detailSnapshot.biGainPercent) }}
+                </span>
+              </div>
             </div>
             <div v-else class="daily-empty">请先选择一只股票。</div>
           </section>
 
-          <section class="workbench-panel">
+          <section class="workbench-panel daily-detail-condition-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">命中条件</div>
               </div>
             </div>
 
-            <div v-if="detailSnapshot" class="daily-condition-stack">
-              <article class="workbench-block">
+            <div v-if="detailSnapshot" class="daily-detail-card-grid">
+              <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">CLS 模型</div>
                 <div class="daily-chip-grid">
                   <span
@@ -460,7 +509,7 @@
                 </div>
               </article>
 
-              <article class="workbench-block">
+              <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">热门窗口</div>
                 <div class="daily-chip-grid">
                   <span
@@ -474,7 +523,7 @@
                 </div>
               </article>
 
-              <article class="workbench-block">
+              <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">市场属性</div>
                 <div class="daily-chip-grid">
                   <span
@@ -488,7 +537,7 @@
                 </div>
               </article>
 
-              <article class="workbench-block">
+              <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">chanlun 周期</div>
                 <div class="daily-chip-grid">
                   <span
@@ -502,7 +551,7 @@
                 </div>
               </article>
 
-              <article class="workbench-block">
+              <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">chanlun 信号</div>
                 <div class="daily-chip-grid">
                   <span
@@ -515,53 +564,38 @@
                   <span v-if="detail.chanlunSignalMemberships.length === 0" class="daily-empty-inline">暂无</span>
                 </div>
               </article>
+
+              <article class="workbench-block daily-detail-card">
+                <div class="workbench-panel__title">缠论原因</div>
+                <div class="daily-detail-reason">{{ detailSnapshot.chanlunReason || '-' }}</div>
+              </article>
             </div>
+            <div v-else class="daily-empty">请先选择一只股票。</div>
           </section>
 
-          <section class="workbench-panel">
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">日线缠论涨幅</div>
-              </div>
-            </div>
-
-            <el-descriptions v-if="detailSnapshot" :column="1" border size="small">
-              <el-descriptions-item label="高级段倍数">
-                {{ formatNumber(detailSnapshot.higherMultiple) }}
-              </el-descriptions-item>
-              <el-descriptions-item label="段倍数">
-                {{ formatNumber(detailSnapshot.segmentMultiple) }}
-              </el-descriptions-item>
-              <el-descriptions-item label="笔涨幅%">
-                {{ formatNumber(detailSnapshot.biGainPercent) }}
-              </el-descriptions-item>
-              <el-descriptions-item label="缠论原因">
-                {{ detailSnapshot.chanlunReason || '-' }}
-              </el-descriptions-item>
-            </el-descriptions>
-          </section>
-
-          <section class="workbench-panel">
+          <section class="workbench-panel daily-detail-history-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">历史热门理由</div>
               </div>
             </div>
 
-            <el-table
-              :data="detail.hot_reasons"
-              size="small"
-              border
-              height="280"
-              empty-text="暂无热门理由"
-            >
-              <el-table-column prop="date" label="日期" width="108" />
-              <el-table-column prop="time" label="时间" width="72" />
-              <el-table-column prop="provider" label="来源" width="80" />
-              <el-table-column prop="plate_name" label="板块" width="120" show-overflow-tooltip />
-              <el-table-column prop="stock_reason" label="标的理由" min-width="180" show-overflow-tooltip />
-              <el-table-column prop="plate_reason" label="板块理由" min-width="180" show-overflow-tooltip />
-            </el-table>
+            <div class="workbench-table-wrap">
+              <el-table
+                :data="detail.hot_reasons"
+                size="small"
+                border
+                height="100%"
+                empty-text="暂无热门理由"
+              >
+                <el-table-column prop="date" label="日期" width="108" />
+                <el-table-column prop="time" label="时间" width="72" />
+                <el-table-column prop="provider" label="来源" width="80" />
+                <el-table-column prop="plate_name" label="板块" width="120" show-overflow-tooltip />
+                <el-table-column prop="stock_reason" label="标的理由" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="plate_reason" label="板块理由" min-width="180" show-overflow-tooltip />
+              </el-table>
+            </div>
           </section>
         </aside>
       </div>
@@ -593,6 +627,8 @@ import {
 import {
   DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
   buildDailyScreeningAppendPrePoolPayload,
+  buildDailyScreeningAppendSinglePrePoolPayload,
+  buildDailyScreeningConditionSectionGroups,
   buildDailyScreeningCurrentExpression,
   buildDailyScreeningQueryPayload,
   buildDailyScreeningWorkspaceTabs,
@@ -640,40 +676,10 @@ let suppressMetricFilterAutoQuery = false
 
 const pageLoading = computed(() => loadingScopes.value || loadingFilters.value)
 const detailSnapshot = computed(() => detail.value?.snapshot || null)
-const filterGroups = computed(() => filterCatalog.value.groups || {})
 const sectionHelp = computed(() => filterCatalog.value.sectionHelp || {})
-const conditionSections = computed(() => ([
-  {
-    key: 'clsGroups',
-    title: 'CLS 模型分组',
-    items: filterGroups.value.clsGroups || [],
-    help: sectionHelp.value.clsGroups,
-  },
-  {
-    key: 'hotWindows',
-    title: '热门窗口',
-    items: filterGroups.value.hotWindows || [],
-    help: sectionHelp.value.hotWindows,
-  },
-  {
-    key: 'marketFlags',
-    title: '市场属性',
-    items: filterGroups.value.marketFlags || [],
-    help: sectionHelp.value.marketFlags,
-  },
-  {
-    key: 'chanlunPeriods',
-    title: 'chanlun 周期',
-    items: filterGroups.value.chanlunPeriods || [],
-    help: sectionHelp.value.chanlunPeriods,
-  },
-  {
-    key: 'chanlunSignals',
-    title: 'chanlun 信号',
-    items: filterGroups.value.chanlunSignals || [],
-    help: sectionHelp.value.chanlunSignals,
-  },
-]))
+const conditionSectionGroups = computed(() => (
+  buildDailyScreeningConditionSectionGroups(filterCatalog.value)
+))
 const dailyChanlunHelp = computed(() => sectionHelp.value.dailyChanlun || {})
 const metricFieldConfigs = computed(() => ([
   {
@@ -693,10 +699,10 @@ const metricFieldConfigs = computed(() => ([
   },
 ]))
 const workbenchGuideLines = [
-  '上游范围：全市场股票，排除 ST 和北交所',
-  '基础池：CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成',
-  '交集规则：用户勾选的条件会在当前结果上继续取交集',
-  '工作区用途：交集结果可加入 pre_pools，再同步到 stock_pools / must_pools',
+  '上游：全市场，排除 ST / 北交所',
+  '基础池：CLS 分组 + 热门窗口先取并集',
+  '交集：其他条件在基础池结果上继续收敛',
+  '工作区：结果可加入 pre_pools / stock_pools / must_pools',
 ]
 const selectedScopeLabel = computed(() => {
   const matched = scopeItems.value.find((item) => item.scopeId === selectedScopeId.value)
@@ -928,7 +934,7 @@ const resetFilters = async () => {
   suppressMetricFilterAutoQuery = true
   conditionKeys.value = []
   clsGroupKeys.value = []
-  dayChanlunEnabled.value = false
+  dayChanlunEnabled.value = true
   resetMetricFilters()
   suppressMetricFilterAutoQuery = false
   await queryRows()
@@ -953,8 +959,17 @@ const toggleDayChanlunFilter = async () => {
 }
 
 const handleRowClick = async (row) => {
-  selectedCode.value = row.code
-  await loadDetail(row.code)
+  const code = String(row?.code || '').trim()
+  if (!code) return
+  selectedCode.value = code
+  await loadDetail(code)
+}
+
+const handleWorkspaceRowClick = async (row) => {
+  const code = String(row?.code6 || '').trim()
+  if (!code) return
+  selectedCode.value = code
+  await loadDetail(code)
 }
 
 const runWorkspaceAction = async ({
@@ -1002,6 +1017,35 @@ const handleAppendIntersectionToPrePool = async () => {
     actionKey: 'workspace:append-intersection',
     action: () => appendShouban30PrePool(payload),
     successMessage: `已将当前交集结果 ${payload.items.length} 条加入 pre_pools`,
+  })
+}
+
+const handleAppendSingleRowToPrePool = async (row) => {
+  const code = String(row?.code || '').trim()
+  const payload = buildDailyScreeningAppendSinglePrePoolPayload({
+    scopeId: selectedScopeId.value,
+    row,
+    conditionKeys: buildSelectedFilterKeys(),
+    expression: currentExpression.value,
+  })
+  if (!payload.items.length || !code) {
+    ElMessage.warning('当前标的没有可加入的记录')
+    return
+  }
+  await runWorkspaceAction({
+    actionKey: `workspace:append-single:${code}`,
+    action: () => appendShouban30PrePool(payload),
+    successMessage: (result) => {
+      const appendedCount = Number(result?.appended_count ?? 0)
+      const skippedCount = Number(result?.skipped_count ?? 0)
+      if (appendedCount > 0 && skippedCount > 0) {
+        return `${code} 已加入 pre_pools（追加 ${appendedCount} / 跳过 ${skippedCount}）`
+      }
+      if (appendedCount > 0) {
+        return `${code} 已加入 pre_pools`
+      }
+      return `${code} 已在 pre_pools 中`
+    },
   })
 }
 
@@ -1114,7 +1158,7 @@ watch(selectedScopeId, async (scopeId) => {
   suppressMetricFilterAutoQuery = true
   conditionKeys.value = []
   clsGroupKeys.value = []
-  dayChanlunEnabled.value = false
+  dayChanlunEnabled.value = true
   resetMetricFilters()
   suppressMetricFilterAutoQuery = false
   await refreshCurrentScope()
@@ -1149,25 +1193,32 @@ onMounted(async () => {
 }
 
 .daily-toolbar-guide {
-  flex: 1 1 420px;
-  min-width: 320px;
-  padding: 12px 14px;
-  border: 1px solid #dbe5f0;
-  border-radius: 12px;
-  background: #f8fbff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 720px;
+  min-width: 0;
 }
 
 .daily-toolbar-guide__title {
-  margin-bottom: 6px;
+  flex: 0 0 auto;
   font-size: 13px;
   font-weight: 600;
   color: #0f172a;
 }
 
+.daily-toolbar-guide__tags {
+  flex: 1 1 auto;
+}
+
+.daily-toolbar-guide__tag {
+  max-width: 100%;
+}
+
 .daily-screening-grid {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: 360px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 336px minmax(0, 1.18fr) minmax(0, 1fr);
   gap: 16px;
   min-height: 0;
   overflow: visible;
@@ -1186,34 +1237,51 @@ onMounted(async () => {
 }
 
 .daily-center-stack {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: minmax(0, 1.08fr) minmax(0, 0.92fr);
   gap: 16px;
+  min-height: 0;
 }
 
 .daily-detail-stack {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 16px;
-}
-
-.daily-guide-list {
-  margin: 0;
-  padding-left: 18px;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.daily-guide-list--toolbar {
-  font-size: 12px;
-  line-height: 1.5;
+  min-height: 0;
 }
 
 .daily-chip-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.daily-filter-group__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.daily-filter-group__sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.daily-filter-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #eef2f7;
+}
+
+.daily-filter-subsection:first-child {
+  padding-top: 0;
+  border-top: none;
 }
 
 .daily-section-header {
@@ -1277,6 +1345,20 @@ onMounted(async () => {
 .daily-results-header__action {
   display: flex;
   align-items: center;
+}
+
+.daily-results-panel,
+.daily-workspace-panel,
+.daily-detail-overview-panel,
+.daily-detail-condition-panel,
+.daily-detail-history-panel {
+  min-height: 0;
+}
+
+.daily-results-table-wrap,
+.daily-workspace-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .daily-expression {
@@ -1360,10 +1442,33 @@ onMounted(async () => {
   font-size: 13px;
 }
 
-.daily-condition-stack {
+.daily-detail-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-height: 0;
+}
+
+.daily-detail-card {
+  min-height: 0;
+}
+
+.daily-detail-reason {
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.daily-detail-metrics {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.daily-detail-history-panel .workbench-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .daily-empty,
@@ -1376,6 +1481,26 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.daily-workspace-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.daily-workspace-tabs :deep(.el-tabs__content) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.daily-workspace-tabs :deep(.el-tab-pane) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .daily-workspace-actions {
@@ -1392,13 +1517,8 @@ onMounted(async () => {
 }
 
 @media (max-width: 1480px) {
-  .daily-toolbar-guide {
-    flex-basis: 100%;
-    min-width: 0;
-  }
-
   .daily-screening-grid {
-    grid-template-columns: 320px minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: 320px minmax(0, 1fr) minmax(360px, 0.92fr);
   }
 }
 
@@ -1409,8 +1529,14 @@ onMounted(async () => {
 }
 
 @media (max-width: 1280px) {
+  .daily-filter-panel,
+  .daily-center-stack,
   .daily-detail-stack {
     grid-column: 1 / -1;
+  }
+
+  .daily-detail-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -1419,8 +1545,20 @@ onMounted(async () => {
     padding: 16px;
   }
 
+  .daily-toolbar-guide {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .daily-screening-grid {
     grid-template-columns: 1fr;
+  }
+
+  .daily-center-stack,
+  .daily-detail-stack,
+  .daily-detail-card-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
   }
 }
 </style>
