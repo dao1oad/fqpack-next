@@ -117,6 +117,22 @@ class LegacyIndexedCollection(SimpleCollection):
             existing.add(key)
         return super().insert_many(documents, ordered=ordered)
 
+    def replace_one(self, query, document, upsert=False):
+        for index, doc in enumerate(self.docs):
+            if all(doc.get(key) == value for key, value in query.items()):
+                self.docs[index] = dict(document)
+                return SimpleNamespace(matched_count=1, modified_count=1)
+        if upsert:
+            key = tuple(document.get(field) for field in self.LEGACY_KEY_FIELDS)
+            existing = {
+                tuple(doc.get(field) for field in self.LEGACY_KEY_FIELDS)
+                for doc in self.docs
+            }
+            if key in existing:
+                raise AssertionError(f"legacy duplicate key: {key}")
+            self.docs.append(dict(document))
+        return SimpleNamespace(matched_count=0, modified_count=0)
+
 
 class FakeDB(dict):
     def __getitem__(self, name):
@@ -211,6 +227,8 @@ def test_repository_upserts_snapshot_metrics_by_scope_and_code():
 
     assert fake_db["daily_screening_stock_snapshots"].docs[0] == {
         "scope_id": "trade_date:2026-03-18",
+        "scope": "trade_date:2026-03-18",
+        "run_id": "trade_date:2026-03-18",
         "trade_date": "2026-03-18",
         "code": "000001",
         "symbol": "sz000001",
@@ -335,6 +353,46 @@ def test_repository_condition_memberships_do_not_conflict_with_legacy_unique_ide
     )
 
     assert len(fake_db["daily_screening_memberships"].docs) == 3
+
+
+def test_repository_condition_snapshots_fill_legacy_identity_from_scope_id():
+    from freshquant.daily_screening.repository import DailyScreeningRepository
+
+    fake_db = FakeDB(
+        daily_screening_stock_snapshots=LegacyIndexedCollection(
+            "daily_screening_stock_snapshots"
+        )
+    )
+    repo = DailyScreeningRepository(db=fake_db)
+
+    repo.upsert_stock_snapshots(
+        scope_id="trade_date:2026-03-18",
+        trade_date="2026-03-18",
+        snapshots=[{"code": "000010", "name": "alpha"}],
+    )
+    repo.upsert_stock_snapshots(
+        scope_id="trade_date:2026-03-19",
+        trade_date="2026-03-19",
+        snapshots=[{"code": "000010", "name": "alpha"}],
+    )
+
+    assert sorted(
+        (row.get("scope_id"), row.get("run_id"), row.get("scope"), row.get("code"))
+        for row in fake_db["daily_screening_stock_snapshots"].docs
+    ) == [
+        (
+            "trade_date:2026-03-18",
+            "trade_date:2026-03-18",
+            "trade_date:2026-03-18",
+            "000010",
+        ),
+        (
+            "trade_date:2026-03-19",
+            "trade_date:2026-03-19",
+            "trade_date:2026-03-19",
+            "000010",
+        ),
+    ]
 
 
 def test_repository_query_scope_stocks_strips_mongo_internal_id():
