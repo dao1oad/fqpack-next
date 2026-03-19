@@ -137,7 +137,9 @@ def _prepare_fqdagster_import(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "fqdagster.defs.jobs.gantt",
-        SimpleNamespace(job_gantt_postclose=SimpleNamespace(name="job_gantt_postclose")),
+        SimpleNamespace(
+            job_gantt_postclose=SimpleNamespace(name="job_gantt_postclose")
+        ),
     )
     for module_name in [
         "fqdagster.defs.assets.daily_screening",
