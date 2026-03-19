@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+import runpy
+import sys
+import types
 from datetime import datetime, timezone
 
 import pytest
@@ -94,6 +97,61 @@ def test_worker_main_once_returns_zero():
     ]
 
 
+def test_worker_module_runs_main_when_executed_as_module(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    calls = []
+
+    class FakeDefaultService:
+        def sync_once(
+            self,
+            *,
+            include_credit_subjects=False,
+            seed_symbol_snapshots=False,
+        ):
+            calls.append(
+                {
+                    "include_credit_subjects": include_credit_subjects,
+                    "seed_symbol_snapshots": seed_symbol_snapshots,
+                }
+            )
+            return {"positions": {"count": 1}}
+
+    fake_service_module = types.ModuleType("freshquant.xt_account_sync.service")
+    setattr(
+        fake_service_module,
+        "XtAccountSyncService",
+        type(
+            "FakeXtAccountSyncService",
+            (),
+            {"build_default": staticmethod(lambda: FakeDefaultService())},
+        ),
+    )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "freshquant.xt_account_sync.service",
+        fake_service_module,
+    )
+    monkeypatch.delitem(
+        sys.modules,
+        "freshquant.xt_account_sync.worker",
+        raising=False,
+    )
+    monkeypatch.setattr(sys, "argv", ["worker", "--once"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_module("freshquant.xt_account_sync.worker", run_name="__main__")
+
+    assert excinfo.value.code == 0
+    assert calls == [
+        {
+            "include_credit_subjects": False,
+            "seed_symbol_snapshots": True,
+        }
+    ]
+
+
 def test_worker_run_forever_schedules_credit_subjects_and_only_seeds_once():
     from freshquant.xt_account_sync.worker import run_forever
 
@@ -140,7 +198,29 @@ def test_worker_run_forever_schedules_credit_subjects_and_only_seeds_once():
 
 
 def test_persist_positions_clears_only_current_account_and_invalidates_holdings():
-    from freshquant.xt_account_sync.persistence import persist_positions
+    from freshquant.xt_account_sync.persistence import persist_assets, persist_positions
+
+    class FakeAssetCollection:
+        def __init__(self):
+            self.operations = []
+
+        def __bool__(self):
+            raise NotImplementedError(
+                "Collection objects do not implement truth value testing"
+            )
+
+        def bulk_write(self, operations):
+            self.operations.extend(operations)
+
+    asset_collection = FakeAssetCollection()
+
+    asset_result = persist_assets(
+        [{"account_id": "acct-a", "cash": 100.0}],
+        collection=asset_collection,
+    )
+
+    assert asset_result["count"] == 1
+    assert len(asset_collection.operations) == 1
 
     class FakeCollection:
         def __init__(self):
@@ -149,6 +229,11 @@ def test_persist_positions_clears_only_current_account_and_invalidates_holdings(
                 {"account_id": "acct-a", "stock_code": "600570.SH", "volume": 20},
                 {"account_id": "acct-b", "stock_code": "000001.SZ", "volume": 30},
             ]
+
+        def __bool__(self):
+            raise NotImplementedError(
+                "Collection objects do not implement truth value testing"
+            )
 
         def bulk_write(self, operations):
             for operation in operations:
@@ -213,6 +298,11 @@ def test_persist_positions_deletes_current_account_when_snapshot_is_empty():
                 {"account_id": "acct-a", "stock_code": "600570.SH", "volume": 20},
                 {"account_id": "acct-b", "stock_code": "000001.SZ", "volume": 30},
             ]
+
+        def __bool__(self):
+            raise NotImplementedError(
+                "Collection objects do not implement truth value testing"
+            )
 
         def bulk_write(self, operations):
             raise AssertionError("bulk_write should not be called for empty snapshots")

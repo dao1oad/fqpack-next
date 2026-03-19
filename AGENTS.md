@@ -201,7 +201,7 @@ Issue body 至少应包含：
 
 - `freshquant/rear/**`：重部署 API server
 - `freshquant/order_management/**`：重部署后端/API，必要时重启相关 worker
-- `freshquant/position_management/**`：重部署后端并重启 `position_management.worker`
+- `freshquant/position_management/**`：重部署后端并重启 `xt_account_sync.worker`
 - `freshquant/tpsl/**`：重部署后端并重启 `tpsl.tick_listener`
 - `freshquant/market_data/**`：重启 producer / consumer / reference-data worker
 - `freshquant/data/**` 中影响 Gantt / Shouban30 的改动：重部署 API / Dagster

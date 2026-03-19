@@ -29,7 +29,8 @@ from freshquant.position_management.snapshot_service import (
 
 
 def persist_assets(assets, *, collection=None):
-    collection = collection or _load_freshquant_collection("xt_assets")
+    if collection is None:
+        collection = _load_freshquant_collection("xt_assets")
     documents = [_normalize_xt_asset(asset) for asset in list(assets or [])]
     batch = []
     for document in documents:
@@ -55,7 +56,8 @@ def persist_positions(
     collection=None,
     invalidator=None,
 ):
-    collection = collection or _load_freshquant_collection("xt_positions")
+    if collection is None:
+        collection = _load_freshquant_collection("xt_positions")
     invalidator = invalidator or mark_stock_holdings_projection_updated
     documents = [_normalize_xt_position(position) for position in list(positions or [])]
     resolved_account_id = str(

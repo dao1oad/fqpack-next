@@ -118,3 +118,7 @@ def _is_schedule_due(current_time, scheduled_hour, scheduled_minute):
 
 def _shanghai_now():
     return datetime.now(SHANGHAI_TZ)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
