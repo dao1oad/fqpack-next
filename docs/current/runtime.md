@@ -129,6 +129,7 @@
 - `/stock-control` 的 Guardian 信号依赖 `stock_signals`
 - `/stock-control` 的 stock_pools 模型信号依赖 `realtime_screen_multi_period`
 - `/runtime-observability` 当前固定是 `全局 Trace + 组件 Event` 双视图
+- `/runtime-observability` 默认固定每 15 秒自动刷新最新运行状态，不再暴露单独的自动刷新开关；手动刷新按钮仍保留
 - Guardian 排障时优先看全局 Trace 中的 `guardian_signal` 链路；组件侧栏主要用于切到对应组件的 Event 视图
 
 ## 并行环境的默认口径
