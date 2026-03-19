@@ -499,7 +499,7 @@ class DailyScreeningRepository:
         payload = self._normalize_snapshot(item, scope_id=scope_id)
         if trade_date is not None:
             payload.setdefault("trade_date", trade_date)
-        return payload
+        return self._apply_legacy_condition_identity(payload)
 
     def _apply_legacy_condition_identity(
         self, payload: dict[str, Any]
