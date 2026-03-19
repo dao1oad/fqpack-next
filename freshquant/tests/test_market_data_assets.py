@@ -1,4 +1,4 @@
-import importlib.util
+import importlib
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -7,13 +7,35 @@ from types import ModuleType, SimpleNamespace
 def _build_dagster_stub():
     module = ModuleType("dagster")
 
+    class _FakeAssetDef:
+        def __init__(self, fn, name, group_name=None):
+            self._fn = fn
+            self.name = name
+            self.group_name = group_name
+            self.dependency_names = [
+                name
+                for name in fn.__code__.co_varnames[: fn.__code__.co_argcount]
+                if name != "context"
+            ]
+
+        def __call__(self, *args, **kwargs):
+            return self._fn(*args, **kwargs)
+
     class AssetExecutionContext:  # pragma: no cover - test stub only
         pass
 
     def asset(fn=None, **kwargs):
         if fn is None:
-            return lambda inner: inner
-        return fn
+            return lambda inner: _FakeAssetDef(
+                inner,
+                kwargs.get("name") or inner.__name__,
+                group_name=kwargs.get("group_name"),
+            )
+        return _FakeAssetDef(
+            fn,
+            kwargs.get("name") or fn.__name__,
+            group_name=kwargs.get("group_name"),
+        )
 
     module.AssetExecutionContext = AssetExecutionContext
     module.asset = asset
@@ -61,6 +83,8 @@ def _build_etf_adj_sync_stub():
 def _import_market_data_module(monkeypatch):
     project_root = Path(__file__).resolve().parents[2]
     monkeypatch.syspath_prepend(str(project_root))
+    project_src = project_root / "morningglory" / "fqdagster" / "src"
+    monkeypatch.syspath_prepend(str(project_src))
 
     dagster_module = _build_dagster_stub()
     qasu_main_module = _build_qasu_main_stub()
@@ -80,26 +104,13 @@ def _import_market_data_module(monkeypatch):
         "freshquant.data.etf_adj_sync",
         _build_etf_adj_sync_stub(),
     )
-
-    module_path = (
-        project_root
-        / "morningglory"
-        / "fqdagster"
-        / "src"
-        / "fqdagster"
-        / "defs"
-        / "assets"
-        / "market_data.py"
-    )
-    spec = importlib.util.spec_from_file_location(
-        "test_market_data_assets_module",
-        module_path,
-    )
-    module = importlib.util.module_from_spec(spec)
-    assert spec is not None
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+    assets_dir = project_src / "fqdagster" / "defs" / "assets"
+    assets_package = ModuleType("fqdagster.defs.assets")
+    assets_package.__path__ = [str(assets_dir)]
+    monkeypatch.setitem(sys.modules, "fqdagster.defs.assets", assets_package)
+    sys.modules.pop("fqdagster.defs.assets.market_data", None)
+    sys.modules.pop("fqdagster.defs.assets.postclose_ready", None)
+    return importlib.import_module("fqdagster.defs.assets.market_data")
 
 
 class FakeLog:
@@ -428,3 +439,99 @@ def test_etf_adj_asset_calls_sync_function(monkeypatch):
 
     assert captured == {"etf_adj": True}
     assert isinstance(result, str)
+
+
+def test_stock_postclose_ready_asset_depends_on_quality_snapshot(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+
+    assert module.stock_postclose_ready_asset.dependency_names == [
+        "refresh_quality_stock_universe_snapshot"
+    ]
+
+
+def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    calls = []
+
+    monkeypatch.setattr(
+        module,
+        "upsert_postclose_marker",
+        lambda pipeline_key, trade_date, **kwargs: calls.append(
+            {
+                "pipeline_key": pipeline_key,
+                "trade_date": trade_date,
+                **kwargs,
+            }
+        )
+        or {
+            "pipeline_key": pipeline_key,
+            "trade_date": trade_date,
+            "status": kwargs.get("status", "success"),
+        },
+    )
+
+    context = SimpleNamespace(run_id="run-stock-1", log=FakeLog())
+    payload = module.stock_postclose_ready_asset(
+        context,
+        {
+            "trade_date": "2026-03-19",
+            "source_version": "xgt_hot_blocks_v1",
+            "count": 18,
+        },
+    )
+
+    assert calls == [
+        {
+            "pipeline_key": "stock_postclose_ready",
+            "trade_date": "2026-03-19",
+            "run_id": "run-stock-1",
+            "payload": {
+                "count": 18,
+                "source_version": "xgt_hot_blocks_v1",
+            },
+        }
+    ]
+    assert payload["trade_date"] == "2026-03-19"
+    assert payload["pipeline_key"] == "stock_postclose_ready"
+
+
+def test_etf_postclose_ready_asset_writes_marker(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    calls = []
+
+    monkeypatch.setattr(
+        module,
+        "resolve_latest_completed_trade_date",
+        lambda: "2026-03-19",
+    )
+    monkeypatch.setattr(
+        module,
+        "upsert_postclose_marker",
+        lambda pipeline_key, trade_date, **kwargs: calls.append(
+            {
+                "pipeline_key": pipeline_key,
+                "trade_date": trade_date,
+                **kwargs,
+            }
+        )
+        or {
+            "pipeline_key": pipeline_key,
+            "trade_date": trade_date,
+            "status": kwargs.get("status", "success"),
+        },
+    )
+
+    context = SimpleNamespace(run_id="run-etf-1", log=FakeLog())
+    payload = module.etf_postclose_ready_asset(context, "2026-03-19 16:05:00")
+
+    assert module.etf_postclose_ready_asset.dependency_names == ["etf_adj"]
+    assert calls == [
+        {
+            "pipeline_key": "etf_postclose_ready",
+            "trade_date": "2026-03-19",
+            "run_id": "run-etf-1",
+            "payload": {},
+        }
+    ]
+    assert payload["trade_date"] == "2026-03-19"
+    assert payload["pipeline_key"] == "etf_postclose_ready"

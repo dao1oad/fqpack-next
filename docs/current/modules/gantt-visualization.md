@@ -24,6 +24,8 @@
 - `gantt_stock_daily`
 - `stock_hot_reason_daily`
 - Dagster 读模型更新
+- `dagster_pipeline_markers.stock_postclose_ready`
+- `dagster_pipeline_markers.gantt_postclose_ready`
 - 交易日历来源 `freshquant.data.trade_date_hist -> freshquant.trading.dt -> AkShare Sina`
 - XGB / JYGS 上游抓取当前会临时移除 `ALL_PROXY`、`all_proxy`、`HTTP_PROXY`、`http_proxy`、`HTTPS_PROXY`、`https_proxy`、`NO_PROXY`、`no_proxy`，并对 `requests` 类瞬时失败自动重试 3 次，再决定是否中断盘后流水线
 
@@ -71,6 +73,8 @@
 
 Gantt 读模型当前还依赖以下盘后事实：
 
+- `gantt_postclose_sensor` 只会在同一 `trade_date` 的 `stock_postclose_ready` 已成功时触发 `job_gantt_postclose`
+- `job_gantt_postclose` 成功跑完 `xgb / jygs -> plate_reason -> gantt -> stock_hot_reason -> shouban30` 后，会写入 `gantt_postclose_ready`
 - Dagster 在最新交易日追平后，会额外扫描最近 `90` 个交易日的 `jygs` 原始集合与 gantt 读模型，发现旧缺口就重新补跑
 - `jygs_action_fields` / `jygs_yidong` 在目标交易日无上游热点时，会写入 `is_empty_result=true` 的 zero-fill marker，保持请求的 `trade_date`，不再漂移到别的交易日
 - 如果 zero-fill marker 的 `empty_reason=upstream_trade_date_mismatch`，该日期仍会被 recent hole scan 继续重试，不算“已补完”
@@ -89,6 +93,7 @@ Gantt 读模型当前还依赖以下盘后事实：
 - 后端逻辑改动：重建 `fq_apiserver`
 - 页面改动：重建 `fq_webui`
 - 读模型改动：必要时重跑 Dagster
+- `gantt_postclose_schedule` 当前默认 `STOPPED`；正式盘后入口是 `gantt_postclose_sensor`
 
 ## 排障点
 
@@ -97,6 +102,7 @@ Gantt 读模型当前还依赖以下盘后事实：
 - 检查 `/api/gantt/plates?provider=xgb`
 - 检查 `gantt_plate_daily` 是否有窗口内数据
 - 检查返回里的 `dates` 是否完整；如果日期轴完整但 `series=[]`，说明窗口内没有热点，而不是窗口参数失效
+- 若是最新交易日整页为空，先看 `dagster_pipeline_markers` 中是否已有同日 `stock_postclose_ready` / `gantt_postclose_ready`
 
 ### `jygs` 大窗口仍收敛到同一小段日期
 

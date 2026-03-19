@@ -35,6 +35,8 @@ from freshquant.data.trade_date_hist import (
 )
 from freshquant.db import DBGantt
 
+from ..postclose_markers import upsert_postclose_marker
+
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
 COL_SHOUBAN30_PLATES = "shouban30_plates"
 COL_SHOUBAN30_STOCKS = "shouban30_stocks"
@@ -858,6 +860,23 @@ def op_build_shouban30_daily(context, trade_date: str) -> Generator[object, None
 
 
 @op
+def op_mark_gantt_postclose_ready(
+    context, shouban30_payload: dict[str, Any]
+) -> Generator[object, None, None]:
+    trade_date = _to_str((shouban30_payload or {}).get("trade_date"))
+    if not trade_date:
+        raise RuntimeError("missing trade_date in shouban30 payload")
+    payload = {"windows": list((shouban30_payload or {}).get("windows") or [])}
+    upsert_postclose_marker(
+        "gantt_postclose_ready",
+        trade_date,
+        run_id=str(getattr(context, "run_id", "") or ""),
+        payload=payload,
+    )
+    yield Output(trade_date)
+
+
+@op
 def op_run_gantt_postclose_incremental(context) -> list[str]:
     return run_gantt_backfill(context)
 
@@ -869,10 +888,8 @@ def graph_gantt_postclose_for_trade_date(trade_date):
     agreed_trade_date = op_build_plate_reason_daily(xgb_trade_date, jygs_trade_date)
     gantt_trade_date = op_build_gantt_daily(agreed_trade_date)
     hot_reason_trade_date = op_build_stock_hot_reason_daily(gantt_trade_date)
-    quality_stock_trade_date = op_refresh_quality_stock_universe_daily(
-        hot_reason_trade_date
-    )
-    op_build_shouban30_daily(quality_stock_trade_date)
+    shouban30_payload = op_build_shouban30_daily(hot_reason_trade_date)
+    op_mark_gantt_postclose_ready(shouban30_payload)
 
 
 @graph

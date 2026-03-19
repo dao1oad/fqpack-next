@@ -28,13 +28,15 @@
   - `freshquant.daily_screening.repository.DailyScreeningRepository`
 - Dagster
   - `fqdagster.defs.assets.daily_screening`
+  - `fqdagster.defs.jobs.daily_screening`
   - `fqdagster.defs.schedules.daily_screening`
+  - `fqdagster.defs.sensors.postclose`
 
 ## 正式链路
 
 ### Dagster 盘后链路
 
-`daily_screening_context -> upstream_guard -> universe -> cls / hot_30 / hot_45 / hot_60 / hot_90 -> base_union -> near_long_term_ma / quality_subject / credit_subject / shouban30_chanlun_metrics / chanlun_variants -> snapshot_assemble -> publish_scope`
+`stock_postclose_ready + gantt_postclose_ready -> daily_screening_postclose_sensor -> daily_screening_context(fq_trade_date) -> upstream_guard -> universe -> cls / hot_30 / hot_45 / hot_60 / hot_90 -> base_union -> market_flags_snapshot -> near_long_term_ma / quality_subject / credit_subject / shouban30_chanlun_metrics / chanlun_variants -> snapshot_assemble -> publish_scope -> daily_screening_ready`
 
 ### 页面查询链路
 
@@ -168,6 +170,11 @@
 - `build_chanlun_variant_memberships()`
 - `build_shouban30_chanlun_metrics()`
 
+盘后资产当前额外具备两条编排约束：
+
+- `daily_screening_context` 优先读取 sensor 注入的 `fq_trade_date`
+- `daily_screening_upstream_guard` 只接受同一 `trade_date` 的 `stock_postclose_ready` 和 `gantt_postclose_ready`
+
 ## 当前接口
 
 前端主路径使用：
@@ -226,10 +233,15 @@
 ## 自动任务
 
 - Dagster job：`daily_screening_postclose_job`
-- Schedule：`daily_screening_postclose_schedule`
-- Cron：工作日 `19:00`
+- Sensor：`daily_screening_postclose_sensor`
+- 触发条件：
+  - `stock_postclose_ready(trade_date)` 已成功
+  - `gantt_postclose_ready(trade_date)` 已成功
+  - `daily_screening_ready(trade_date)` 尚未存在
+- Legacy schedule：`daily_screening_postclose_schedule`
+  - 仍保留定义，但默认 `STOPPED`，只作手工兜底，不参与正式链路
 
-这条任务负责生成每日选股正式结果，不再依赖页面手动触发；旧图任务 `job_daily_screening_postclose` 已从 Dagster definitions 移除。
+这条任务负责生成每日选股正式结果，不再依赖页面手动触发；运行成功后会写入 `dagster_pipeline_markers.daily_screening_ready`。
 
 ## 当前边界
 
@@ -259,6 +271,7 @@
 
 ### Dagster 没出正式结果
 
-- 看 Dagster 中 `daily_screening_postclose_schedule` 是否在运行
-- 看 `daily_screening_postclose_job` 最近一次 run 是否成功
+- 先看 `daily_screening_postclose_sensor` 最近一次 evaluation 是否命中目标 `trade_date`
+- 看 `dagster_pipeline_markers` 里是否已有同一 `trade_date` 的 `stock_postclose_ready` / `gantt_postclose_ready`
+- 看 `daily_screening_postclose_job` 最近一次 run 的 tag 是否带 `fq_trade_date`
 - 再确认 `Shouban30` / Gantt 上游快照是否已就绪
