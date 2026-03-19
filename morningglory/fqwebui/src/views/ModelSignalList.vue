@@ -1,41 +1,41 @@
 <template>
-  <div class="model-signal-list-table">
-    <div class="model-signal-list-table__main">
-      <el-table
-        v-loading="isLoading"
-        :data="signalList"
-        size="small"
-        border
-        height="100%"
-      >
-        <el-table-column prop="datetime" label="信号时间" min-width="140">
-          <template #default="{ row }">
-            <span class="mono">{{ formatText(row.datetime) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="入库时间" min-width="140">
-          <template #default="{ row }">
-            <span class="mono">{{ formatText(row.created_at) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="标的代码" min-width="104">
-          <template #default="{ row }">
-            <span class="mono">{{ formatText(row.code) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="标的名称" min-width="120" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span>{{ formatText(row.name) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="价格" min-width="268">
-          <template #default="{ row }">
-            <span class="price-summary mono">{{ formatPriceSummary(row.close, row.stop_loss_price) }}</span>
-          </template>
-        </el-table-column>
-      </el-table>
+  <div class="stock-control-list stock-control-list--model">
+    <div class="stock-control-ledger-shell">
+      <div v-loading="isLoading" class="stock-control-ledger stock-control-ledger--model">
+        <div class="stock-control-ledger__header stock-control-model-ledger__grid">
+          <span>信号时间</span>
+          <span>入库时间</span>
+          <span>标的代码</span>
+          <span>标的名称</span>
+          <span>周期</span>
+          <span>分组</span>
+          <span>模型</span>
+          <span>来源</span>
+          <span>触发价/止损价/止损%</span>
+        </div>
+        <div class="stock-control-ledger__viewport">
+          <div
+            v-for="(row, rowIndex) in signalRows"
+            :key="`${formatText(row.code)}-${formatText(row.datetime)}-${rowIndex}`"
+            class="stock-control-ledger__row stock-control-model-ledger__grid"
+          >
+            <span class="stock-control-ledger__cell stock-control-ledger__cell--mono stock-control-ledger__cell--time">{{ formatDateTime(row.datetime) }}</span>
+            <span class="stock-control-ledger__cell stock-control-ledger__cell--mono stock-control-ledger__cell--time">{{ formatDateTime(row.created_at) }}</span>
+            <span class="stock-control-ledger__cell stock-control-ledger__cell--mono stock-control-ledger__cell--strong">{{ formatText(row.code) }}</span>
+            <span class="stock-control-ledger__cell stock-control-ledger__cell--strong" :title="formatText(row.name)">{{ formatText(row.name) }}</span>
+            <span class="stock-control-ledger__cell stock-control-ledger__cell--mono">{{ formatText(row.period) }}</span>
+            <span class="stock-control-ledger__cell" :title="formatModelGroup(row.model)">{{ formatModelGroup(row.model) }}</span>
+            <span class="stock-control-ledger__cell" :title="formatModelLabel(row.model)">{{ formatModelLabel(row.model) }}</span>
+            <span class="stock-control-ledger__cell" :title="formatText(row.source)">{{ formatText(row.source) }}</span>
+            <span class="stock-control-ledger__cell stock-control-ledger__cell--mono stock-control-ledger__cell--strong stock-control-ledger__cell--price">{{ formatPriceSummary(row.close, row.stop_loss_price) }}</span>
+          </div>
+          <div v-if="!isLoading && signalRows.length === 0" class="stock-control-ledger__empty">
+            暂无数据
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="model-signal-list-table__pagination">
+    <div class="stock-control-list__pagination">
       <el-pagination
         background
         layout="total,sizes,prev,pager,next"
@@ -52,9 +52,10 @@
 
 <script>
 import { stockApi } from '@/api/stockApi'
+import { resolveDailyScreeningClsModelPresentation } from './dailyScreeningPage.mjs'
 import _ from 'lodash'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 
 export default {
   name: 'ModelSignalList',
@@ -85,8 +86,9 @@ export default {
       refetchInterval: 30000,
       staleTime: 5000
     })
+    const signalRows = computed(() => signalList.value || [])
     const queryClient = useQueryClient()
-    return { isLoading, signalList, listQuery, queryClient }
+    return { isLoading, signalList, signalRows, listQuery, queryClient }
   },
   methods: {
     handleSizeChange (currentSize) {
@@ -101,6 +103,23 @@ export default {
     formatText (value) {
       const normalized = String(value ?? '').trim()
       return normalized || '--'
+    },
+    formatDateTime (value) {
+      const normalized = this.formatText(value)
+      const matched = normalized.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/)
+      if (!matched) {
+        return normalized
+      }
+      return `${matched[2]}-${matched[3]} ${matched[4]}:${matched[5]}`
+    },
+    resolveModelPresentation (value) {
+      return resolveDailyScreeningClsModelPresentation(value)
+    },
+    formatModelGroup (value) {
+      return this.resolveModelPresentation(value).groupLabel
+    },
+    formatModelLabel (value) {
+      return this.resolveModelPresentation(value).modelLabel
     },
     formatPrice (value) {
       if (value === null || value === undefined || value === '') {
@@ -121,40 +140,23 @@ export default {
       return `${(((stopPrice - firePrice) / firePrice) * 100).toFixed(3)}%`
     },
     formatPriceSummary (price, stopLossPrice) {
-      return `触发价 ${this.formatPrice(price)} / 止损价 ${this.formatPrice(stopLossPrice)} / 止损% ${this.formatStopLossRate(price, stopLossPrice)}`
+      return `${this.formatPrice(price)}/${this.formatPrice(stopLossPrice)}/${this.formatStopLossRate(price, stopLossPrice)}`
     }
   }
 }
 </script>
 
 <style lang="stylus" scoped>
-.model-signal-list-table
+@import '../style/stock-control-ledger.styl';
+
+.stock-control-list
   display flex
   flex 1 1 auto
   flex-direction column
+  min-width 0
   min-height 0
   overflow hidden
 
-.model-signal-list-table__main
-  flex 1 1 auto
-  min-height 0
-  overflow hidden
-
-.model-signal-list-table__pagination
-  display flex
-  justify-content flex-end
-  padding-top 8px
-
-.price-summary
-  display inline-block
-  white-space nowrap
-
-.mono
-  font-family Consolas, Monaco, 'Courier New', monospace
-
-.model-signal-list-table :deep(.el-table)
-  height 100%
-
-.model-signal-list-table :deep(.el-table .el-table__cell)
-  vertical-align top
+.stock-control-model-ledger__grid
+  grid-template-columns 72px 72px 56px minmax(0, 1fr) 80px 100px 120px 46px 160px
 </style>

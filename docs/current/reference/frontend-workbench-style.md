@@ -2,7 +2,7 @@
 
 ## 职责
 
-本页记录 FreshQuant 当前业务页的前端组织方式真值。它不是设计提案，而是当前代码已经采用的页面语法：以 `/gantt/shouban30` 为来源页，把高密度工作台（workbench）风格统一到其余业务管理页。
+本页记录 FreshQuant 当前业务页的前端组织方式真值。它不是设计提案，而是当前代码已经采用的页面语法：以 `/gantt/shouban30` 的 workbench 页面壳和 `/runtime-observability` 的 dense ledger 为来源，把高密度工作台风格统一到其余业务管理页。
 
 ## 当前采用范围
 
@@ -10,6 +10,7 @@
 
 - `/gantt`
 - `/gantt/shouban30`
+- `/runtime-observability`
 
 当前已采用统一 workbench 风格的业务页：
 
@@ -66,7 +67,7 @@
 
 - 摘要条
 - 标签组
-- 表格
+- dense ledger
 - 紧凑列表
 
 ## 列表与表格

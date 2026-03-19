@@ -1,0 +1,87 @@
+.stock-control-ledger-shell
+  display flex
+  flex 1 1 auto
+  flex-direction column
+  min-width 0
+  min-height 0
+  overflow hidden
+
+.stock-control-ledger
+  display flex
+  flex 1 1 auto
+  flex-direction column
+  min-width 0
+  min-height 0
+  overflow auto
+  border 1px solid #e5edf5
+  border-radius 12px
+  background #fff
+  scrollbar-gutter stable
+
+.stock-control-ledger__header,
+.stock-control-ledger__row
+  display grid
+  align-items center
+  gap 6px
+  padding 8px
+  font-size 11px
+  line-height 1.35
+
+.stock-control-ledger__header
+  position sticky
+  top 0
+  z-index 1
+  background #f6f9fc
+  color #68839d
+  border-bottom 1px solid #e5edf5
+
+.stock-control-ledger__viewport
+  display flex
+  flex 1 1 auto
+  flex-direction column
+  min-height 0
+
+.stock-control-ledger__row
+  border-top 1px solid #eef3f8
+  color #35506c
+
+.stock-control-ledger__row:hover
+  background #eef6ff
+
+.stock-control-ledger__cell
+  min-width 0
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.stock-control-ledger__cell--mono
+  font-family Consolas, 'Courier New', monospace
+  font-size 11px
+
+.stock-control-ledger__cell--strong
+  color #21405e
+  font-weight 600
+
+.stock-control-ledger__cell--price
+  overflow visible
+  text-overflow clip
+  text-align right
+  font-variant-numeric tabular-nums
+
+.stock-control-ledger__empty
+  display flex
+  align-items center
+  justify-content center
+  min-height 104px
+  padding 16px
+  color #68839d
+  font-size 12px
+
+.stock-control-list__pagination
+  display flex
+  justify-content flex-end
+  padding-top 8px
+
+.stock-control-list :deep(.el-pagination)
+  flex-wrap wrap
+  justify-content flex-end

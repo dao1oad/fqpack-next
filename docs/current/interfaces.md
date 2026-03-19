@@ -192,17 +192,27 @@ python -m freshquant.initialize
   - `/api/get_stock_signal_list`
   - `/api/get_stock_model_signal_list`
 - `/stock-control` 当前只展示信号列表，不再承载持仓股列表
-- `/stock-control` 当前按 `/gantt/shouban30` 的 panel-table 语法展示三个并行列表：
+- `/stock-control` 当前沿用 workbench 三列页面壳，并把三个列表统一改成 `/runtime-observability` 的全局 Trace dense ledger 语法：
   - 左列 `持仓股信号`
   - 中列 `stock_pools模型信号`
   - 右列 `must_pools买入信号`
-- `/stock-control` 三个列表当前统一列结构为：
+- `/stock-control` 的 `持仓股信号` 与 `must_pools买入信号` 当前列结构为：
   - `信号时间`
   - `入库时间`
   - `标的代码`
   - `标的名称`
-  - `价格`
-- `/stock-control` 的价格列当前统一展示为单行 `触发价 / 止损价 / 止损%`，价格数值保留三位小数，分页默认 `100` 条/页
+  - `方向`
+  - `类型`
+  - `触发价/止损价/止损%`
+- `/stock-control` 的 `stock_pools模型信号` 在公共列之外，额外展示：
+  - `周期`
+  - `分组`
+  - `模型`
+  - `来源`
+- `/stock-control` 的 `stock_pools模型信号` 当前复用 `/daily-screening` 对 CLX 12 模型的中文映射与分组真值
+- `/stock-control` 的价格列当前统一展示为单行 `触发价/止损价/止损%` 顺序的紧凑值串，价格数值保留三位小数，分页默认 `100` 条/页
+- `/stock-control` 的时间列当前统一压缩显示为 `MM-DD HH:mm`
+- `/stock-control` 的三个 ledger 当前都固定在面板内滚动，表头 sticky，浏览器 `100%` 缩放下不再出现页面横向滚动
 - 系统设置页只维护新系统正式配置，不再承载旧 SMTP / 邮件收件人或旧 `code + value` 通用参数模式
 - Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面
 - `/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 当前正式时间参数是 `days` 与 `end_date`
