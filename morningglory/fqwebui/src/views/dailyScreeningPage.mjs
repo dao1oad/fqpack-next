@@ -26,6 +26,35 @@ const CHANLUN_SIGNAL_LABELS = {
   macd_bearish_divergence: 'MACD看跌背驰',
 }
 
+export const DEFAULT_DAILY_CHANLUN_METRIC_FILTERS = Object.freeze({
+  higherMultipleLte: 3,
+  segmentMultipleLte: 2,
+  biGainPercentLte: 20,
+})
+
+export const CLS_MODEL_LABELS = Object.freeze({
+  S0001: '类2买',
+  S0002: '类2买分型',
+  S0003: '复杂类2买',
+  S0004: '3买或中枢3买',
+  S0005: '2买及类2买',
+  S0006: '低点反弹',
+  S0007: '顶底互换',
+  S0008: '盘整或趋势背驰',
+  S0009: '下盘下',
+  S0010: '突破回调',
+  S0011: '突破回踩',
+  S0012: 'V反',
+})
+
+const CLS_GROUP_DEFINITIONS = Object.freeze([
+  { key: 'cls_group:erbai', label: '二买', modelKeys: ['S0001', 'S0002', 'S0003', 'S0005'] },
+  { key: 'cls_group:sanmai', label: '三买', modelKeys: ['S0004'] },
+  { key: 'cls_group:yali_support', label: '压力支撑', modelKeys: ['S0006', 'S0007'] },
+  { key: 'cls_group:beichi', label: '背驰', modelKeys: ['S0008', 'S0009'] },
+  { key: 'cls_group:break_pullback', label: '突破回调', modelKeys: ['S0010', 'S0011', 'S0012'] },
+])
+
 const normalizeClxsModelKey = (value) => {
   const text = toText(value)
   if (!text) return ''
@@ -137,10 +166,10 @@ export const buildDailyScreeningWorkbenchState = (schema = {}, latestScope = nul
     scopeId: latestRunId,
     selectedRunId: latestRunId,
     conditionKeys: [],
+    clsGroupKeys: [],
+    dayChanlunEnabled: false,
     metricFilters: {
-      higherMultipleLte: null,
-      segmentMultipleLte: null,
-      biGainPercentLte: null,
+      ...DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
     },
     selectedSets: ['clxs', 'chanlun'],
     clxsModels: [],
@@ -171,6 +200,39 @@ const normalizeConditionOption = (item = {}) => ({
 
 const CONDITION_SCOPE_NOTE_BASE = '该条件只在“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”上继续取交集。'
 const CONDITION_SCOPE_NOTE_NARROW = '该条件不会回到全市场重新筛选，只会缩小当前结果。'
+
+const FILTER_SECTION_HELP = Object.freeze({
+  clsGroups: {
+    source: '来源于 Dagster 每日落库的 CLS 12 个模型结果，页面按业务语义归并成 5 个中文分组。',
+    rule: '组内多个 CLS 模型按并集命中；和其他筛选条件组合时再继续取交集。',
+    scopeNote: '这些分组只在“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”上缩小结果。',
+  },
+  hotWindows: {
+    source: '来源于 /gantt/shouban30 同口径的热门标的结果，聚合选股通和韭研公式的 30/45/60/90 天窗口命中股票。',
+    rule: '命中对应时间窗口热门结果的股票会进入该条件集合。',
+    scopeNote: CONDITION_SCOPE_NOTE_BASE,
+  },
+  marketFlags: {
+    source: '由 Dagster 在“CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成的基础池”上继续计算市场属性标签。',
+    rule: '满足对应市场属性规则的股票会进入该条件集合。',
+    scopeNote: CONDITION_SCOPE_NOTE_NARROW,
+  },
+  chanlunPeriods: {
+    source: '来源于 Dagster 产出的 chanlun 周期命中结果。',
+    rule: '命中对应周期的股票会进入该条件集合；和其他筛选条件组合时继续取交集。',
+    scopeNote: CONDITION_SCOPE_NOTE_NARROW,
+  },
+  chanlunSignals: {
+    source: '来源于 Dagster 产出的 chanlun 六个信号命中结果。',
+    rule: '命中对应信号的股票会进入该条件集合；和其他筛选条件组合时继续取交集。',
+    scopeNote: CONDITION_SCOPE_NOTE_NARROW,
+  },
+  dailyChanlun: {
+    source: '来源于 /gantt/shouban30 页面同口径的日线（1d）缠论涨幅结果。',
+    rule: '选中后按“高级段倍数 <= 3、段倍数 <= 2、笔涨幅% <= 20”的默认规则过滤当前结果，阈值可调整。',
+    scopeNote: '该筛选不会回到全市场，只会在当前结果上继续收敛。',
+  },
+})
 
 const buildConditionHelp = (key) => {
   const text = toText(key)
@@ -245,6 +307,21 @@ const withConditionHelp = (items = []) => {
   })
 }
 
+const buildClsGroupOptions = (items = []) => {
+  const keys = new Set(
+    toArray(items)
+      .map((item) => toText(item?.key).split(':', 2)[1] || '')
+      .filter(Boolean),
+  )
+  return CLS_GROUP_DEFINITIONS.map((group) => ({
+    key: group.key,
+    label: group.label,
+    modelKeys: [...group.modelKeys],
+    modelLabels: group.modelKeys.map((item) => CLS_MODEL_LABELS[item] || item),
+    hasActiveModel: group.modelKeys.some((item) => keys.has(item)),
+  }))
+}
+
 const resolveMetricHint = (key) => ({
   higherMultipleLte: {
     source: '来源于 /gantt/shouban30 页面同口径的缠论指标结果。',
@@ -275,16 +352,22 @@ export const normalizeDailyScreeningFilterCatalog = (payload = {}) => {
       .map((item) => toText(item))
       .filter(Boolean),
     groups: {
-      clsModels: withConditionHelp(groups.cls_models || groups.clsModels),
+      clsGroups: buildClsGroupOptions(groups.cls_models || groups.clsModels),
       hotWindows: withConditionHelp(groups.hot_windows || groups.hotWindows),
       marketFlags: withConditionHelp(groups.market_flags || groups.marketFlags),
       chanlunPeriods: withConditionHelp(groups.chanlun_periods || groups.chanlunPeriods),
       chanlunSignals: withConditionHelp(groups.chanlun_signals || groups.chanlunSignals),
     },
+    sectionHelp: {
+      clsGroups: FILTER_SECTION_HELP.clsGroups,
+      hotWindows: FILTER_SECTION_HELP.hotWindows,
+      marketFlags: FILTER_SECTION_HELP.marketFlags,
+      chanlunPeriods: FILTER_SECTION_HELP.chanlunPeriods,
+      chanlunSignals: FILTER_SECTION_HELP.chanlunSignals,
+      dailyChanlun: FILTER_SECTION_HELP.dailyChanlun,
+    },
     metricFilters: {
-      higherMultipleLte: null,
-      segmentMultipleLte: null,
-      biGainPercentLte: null,
+      ...DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
     },
     metricHints: {
       higherMultipleLte: resolveMetricHint('higherMultipleLte'),
@@ -311,6 +394,7 @@ export const buildDailyScreeningQueryPayload = ({
   scopeId,
   conditionKeys = [],
   metricFilters = {},
+  metricFiltersEnabled = false,
   runId,
   selectedSets = [],
   clxsModels = [],
@@ -328,10 +412,10 @@ export const buildDailyScreeningQueryPayload = ({
   const higherMultipleLte = toFiniteNumber(metricFilters.higherMultipleLte)
   const segmentMultipleLte = toFiniteNumber(metricFilters.segmentMultipleLte)
   const biGainPercentLte = toFiniteNumber(metricFilters.biGainPercentLte)
-  if (higherMultipleLte != null) normalizedMetricFilters.higher_multiple_lte = higherMultipleLte
-  if (segmentMultipleLte != null) normalizedMetricFilters.segment_multiple_lte = segmentMultipleLte
-  if (biGainPercentLte != null) normalizedMetricFilters.bi_gain_percent_lte = biGainPercentLte
-  if (Object.keys(normalizedMetricFilters).length) {
+  if (metricFiltersEnabled && higherMultipleLte != null) normalizedMetricFilters.higher_multiple_lte = higherMultipleLte
+  if (metricFiltersEnabled && segmentMultipleLte != null) normalizedMetricFilters.segment_multiple_lte = segmentMultipleLte
+  if (metricFiltersEnabled && biGainPercentLte != null) normalizedMetricFilters.bi_gain_percent_lte = biGainPercentLte
+  if (metricFiltersEnabled && Object.keys(normalizedMetricFilters).length) {
     payload.metric_filters = normalizedMetricFilters
   }
 
@@ -394,6 +478,25 @@ export const buildDailyScreeningWorkspaceTabs = ({
     prePoolItems,
     stockPoolItems,
   })
+}
+
+export const resolveDailyScreeningClsGroupModels = (groupKeys = []) => {
+  const selected = new Set(toArray(groupKeys).map((item) => toText(item)).filter(Boolean))
+  const modelKeys = new Set()
+  for (const group of CLS_GROUP_DEFINITIONS) {
+    if (!selected.has(group.key)) continue
+    for (const modelKey of group.modelKeys) {
+      modelKeys.add(modelKey)
+    }
+  }
+  return [...modelKeys]
+}
+
+export const resolveDailyScreeningClsGroupLabels = (groupKeys = []) => {
+  const selected = new Set(toArray(groupKeys).map((item) => toText(item)).filter(Boolean))
+  return CLS_GROUP_DEFINITIONS
+    .filter((group) => selected.has(group.key))
+    .map((group) => group.label)
 }
 
 export const toggleDailyScreeningSelection = (values = [], target) => {
@@ -496,7 +599,7 @@ export const formatDailyScreeningConditionLabel = (key) => {
   }
   if (prefix === 'chanlun_period') return suffix
   if (prefix === 'chanlun_signal') return CHANLUN_SIGNAL_LABELS[suffix] || suffix
-  if (prefix === 'cls') return suffix
+  if (prefix === 'cls') return CLS_MODEL_LABELS[suffix] || suffix
   return text
 }
 

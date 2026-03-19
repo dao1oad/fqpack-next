@@ -58,6 +58,8 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 - 额外条件筛选
   - 条件按钮只改变待应用筛选条件
   - 点击“筛选”后才把条件应用到当前页面结果
+  - “条件筛选”表头悬浮说明当前会明确提示：缠论通过口径已切到日线 `1d`
+  - 当前默认缠论规则为：高级段倍数 `<= 3`、段倍数 `<= 2`、笔涨幅% `<= 20`
   - “筛选”不再写 `pre_pool`，也不再写通达信
   - “全部加入 pre_pools”会把当前已应用多条件筛选后的页面结果按页面顺序 append 到 `pre_pool`
   - 该批量 append 继续按 `code6` 去重；已存在标的不覆盖、不重排
@@ -108,7 +110,7 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 - 工作区 extra 会同时写入 `shouban30_days/shouban30_end_date` 与兼容别名 `shouban30_stock_window_days/shouban30_as_of_date`
 - `pre_pool` 与 `stock_pool` 都使用 `extra.shouban30_order` 作为页面顺序与 `.blk` 输出顺序真值
   - 历史 `stock_pool` 记录缺失该字段时，读取顺序兼容回退到 `datetime desc`
-- 当前缠论过滤版本是 `30m_v1`
+- 当前缠论过滤版本是 `1d_v1`
 - 通达信目录解析口径固定为：先读 `bootstrap_config.tdx.home`，未配置时回退 `TDX_HOME`
 - Docker 并行部署下，`fq_apiserver` 当前必须挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}` 到 `/opt/tdx`
 - 默认分类：

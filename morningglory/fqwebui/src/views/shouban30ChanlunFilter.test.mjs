@@ -35,21 +35,21 @@ test('computes price multiple from segment prices', () => {
   assert.equal(getSegmentGainMultiple({ start_price: null, end_price: 10 }), null)
 })
 
-test('passes default 30m chanlun filter only when higher segment, segment, bi all satisfy limits', () => {
+test('passes default 1d chanlun filter only when higher segment, segment, bi all satisfy limits', () => {
   assert.deepEqual(
     passesDefaultChanlunFilter({
       ok: true,
       structure: {
-        higher_segment: { start_price: 10, end_price: 29.9 },
-        segment: { start_price: 8, end_price: 23.6 },
-        bi: { price_change_pct: 29.8 },
+        higher_segment: { start_price: 10, end_price: 30 },
+        segment: { start_price: 8, end_price: 16 },
+        bi: { price_change_pct: 20 },
       },
     }),
     {
       passed: true,
-      higher_multiple: 2.99,
-      segment_multiple: 2.95,
-      bi_gain_percent: 29.8,
+      higher_multiple: 3,
+      segment_multiple: 2,
+      bi_gain_percent: 20,
       reason: 'passed',
     },
   )
@@ -59,8 +59,8 @@ test('passes default 30m chanlun filter only when higher segment, segment, bi al
       ok: true,
       structure: {
         higher_segment: { start_price: 10, end_price: 30.1 },
-        segment: { start_price: 8, end_price: 23.6 },
-        bi: { price_change_pct: 29.8 },
+        segment: { start_price: 8, end_price: 16 },
+        bi: { price_change_pct: 20 },
       },
     }).reason,
     'higher_multiple_exceed',
@@ -69,9 +69,9 @@ test('passes default 30m chanlun filter only when higher segment, segment, bi al
     passesDefaultChanlunFilter({
       ok: true,
       structure: {
-        higher_segment: { start_price: 10, end_price: 29.9 },
-        segment: { start_price: 8, end_price: 24.4 },
-        bi: { price_change_pct: 29.8 },
+        higher_segment: { start_price: 10, end_price: 30 },
+        segment: { start_price: 8, end_price: 16.08 },
+        bi: { price_change_pct: 20 },
       },
     }).reason,
     'segment_multiple_exceed',
@@ -80,9 +80,9 @@ test('passes default 30m chanlun filter only when higher segment, segment, bi al
     passesDefaultChanlunFilter({
       ok: true,
       structure: {
-        higher_segment: { start_price: 10, end_price: 29.9 },
-        segment: { start_price: 8, end_price: 23.6 },
-        bi: { price_change_pct: 30.1 },
+        higher_segment: { start_price: 10, end_price: 30 },
+        segment: { start_price: 8, end_price: 16 },
+        bi: { price_change_pct: 20.1 },
       },
     }).reason,
     'bi_gain_exceed',
@@ -132,6 +132,8 @@ test('page binds to postclose chanlun snapshot presentation', () => {
   assert.match(pageSource, /缠论通过/)
   assert.match(pageSource, /未通过\/不可用/)
   assert.match(pageSource, /首板缠论快照未构建完成/)
+  assert.match(pageSource, /当前“缠论通过”基于日线（1d）结构计算/)
+  assert.match(pageSource, /默认规则：高级段倍数 <= 3、段倍数 <= 2、笔涨幅% <= 20/)
 })
 
 test('page no longer uses default overflow tooltip for reason columns and uses reason popover component', () => {

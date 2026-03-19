@@ -62,11 +62,11 @@ export const passesDefaultChanlunFilter = (response) => {
     result.reason = 'higher_multiple_exceed'
     return result
   }
-  if (segmentMultiple > 3.0) {
+  if (segmentMultiple > 2.0) {
     result.reason = 'segment_multiple_exceed'
     return result
   }
-  if (biGainPercent > 30) {
+  if (biGainPercent > 20) {
     result.reason = 'bi_gain_exceed'
     return result
   }

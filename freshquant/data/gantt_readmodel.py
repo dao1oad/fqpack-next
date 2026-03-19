@@ -37,8 +37,8 @@ COL_STOCK_HOT_REASON_DAILY = "stock_hot_reason_daily"
 COL_SHOUBAN30_PLATES = "shouban30_plates"
 COL_SHOUBAN30_STOCKS = "shouban30_stocks"
 SHOUBAN30_STOCK_WINDOWS = (30, 45, 60, 90)
-SHOUBAN30_CHANLUN_PERIOD = "30m"
-SHOUBAN30_CHANLUN_FILTER_VERSION = "30m_v1"
+SHOUBAN30_CHANLUN_PERIOD = "1d"
+SHOUBAN30_CHANLUN_FILTER_VERSION = "1d_v1"
 SHOUBAN30_EXCLUDED_PLATE_NAMES = frozenset({"其他", "公告", "ST股", "ST板块"})
 CN_TZ = ZoneInfo("Asia/Shanghai")
 LEGACY_SHOUBAN30_PLATES_INDEX = "provider_1_plate_key_1_as_of_date_1"
@@ -957,10 +957,10 @@ def _build_default_shouban30_chanlun_result(
     if higher_multiple > 3.0:
         result["reason"] = "higher_multiple_exceed"
         return result
-    if segment_multiple > 3.0:
+    if segment_multiple > 2.0:
         result["reason"] = "segment_multiple_exceed"
         return result
-    if bi_gain_percent > 30:
+    if bi_gain_percent > 20:
         result["reason"] = "bi_gain_exceed"
         return result
     result["passed"] = True

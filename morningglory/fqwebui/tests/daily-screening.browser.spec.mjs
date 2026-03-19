@@ -32,11 +32,11 @@ async function runBuild() {
 function buildFilterCatalog() {
   return {
     scope_id: 'trade_date:2026-03-18',
-    condition_keys: ['base:union', 'cls:S0008', 'hot:30d', 'flag:credit_subject'],
+    condition_keys: ['base:union', 'cls:S0008', 'cls:S0009', 'hot:30d', 'flag:credit_subject'],
     groups: {
       cls_models: [
         { key: 'cls:S0008', label: 'S0008', count: 1 },
-        { key: 'cls:S0009', label: 'S0009', count: 0 },
+        { key: 'cls:S0009', label: 'S0009', count: 1 },
       ],
       hot_windows: [
         { key: 'hot:30d', label: '30天热门', count: 1 },
@@ -82,10 +82,12 @@ function buildSummaryPayload() {
   }
 }
 
-function buildQueryPayload(conditionKeys = []) {
-  const matchedSingle = conditionKeys.length === 2 &&
-    conditionKeys.includes('cls:S0008') &&
-    conditionKeys.includes('hot:30d')
+function buildQueryPayload({ conditionKeys = [], clxsModels = [] } = {}) {
+  const matchedSingle = conditionKeys.length === 1 &&
+    conditionKeys.includes('hot:30d') &&
+    clxsModels.length === 2 &&
+    clxsModels.includes('S0008') &&
+    clxsModels.includes('S0009')
 
   return {
     run_id: 'trade_date:2026-03-18',
@@ -240,7 +242,10 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(buildQueryPayload(body.condition_keys || [])),
+        body: JSON.stringify(buildQueryPayload({
+          conditionKeys: body.condition_keys || [],
+          clxsModels: body.clxs_models || [],
+        })),
       })
       return
     }
@@ -343,28 +348,30 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
   await expect(page.getByText('基础池 2')).toBeVisible()
   await expect(page.getByText('当前结果 2')).toBeVisible()
   await expect(page.getByRole('button', { name: '开始扫描' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '全部加入 pre_pools' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '全部加入pre_pools' })).toBeVisible()
   await expect(page.getByRole('tab', { name: /pre_pools/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: /stock_pools/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: '查询结果' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '参与筛选' })).toBeVisible()
 
-  await page.getByRole('button', { name: '查看 30天热门说明' }).click()
-  await expect(page.getByText('来源于 /gantt/shouban30 同口径的热门标的结果，聚合选股通和韭研公式的 30 天窗口命中股票。')).toBeVisible()
+  await page.getByRole('button', { name: '查看热门窗口说明' }).hover()
+  await expect(page.getByText('来源于 /gantt/shouban30 同口径的热门标的结果，聚合选股通和韭研公式的 30/45/60/90 天窗口命中股票。')).toBeVisible()
 
-  await page.getByRole('button', { name: 'S0008 · 1' }).click()
+  await page.getByRole('button', { name: '背驰', exact: true }).click()
   await page.getByRole('button', { name: '30天热门 · 1' }).click()
-  await page.getByRole('button', { name: '查询结果' }).click()
 
   await expect(page.getByText('当前结果 1')).toBeVisible()
-  await expect(page.getByText('S0008 ∩ 30天热门')).toBeVisible()
+  await expect(page.getByText('背驰 ∩ 30天热门')).toBeVisible()
   await expect(page.getByRole('cell', { name: '平安银行' })).toBeVisible()
 
   const lastQuery = requestLog.queryBodies.at(-1)
   expect(lastQuery).toEqual({
     scope_id: 'trade_date:2026-03-18',
-    condition_keys: ['cls:S0008', 'hot:30d'],
+    condition_keys: ['hot:30d'],
+    clxs_models: ['S0008', 'S0009'],
   })
 
-  await page.getByRole('button', { name: '全部加入 pre_pools' }).click()
+  await page.getByRole('button', { name: '全部加入pre_pools' }).click()
   await expect(page.getByText('已将当前交集结果 1 条加入 pre_pools')).toBeVisible()
   expect(requestLog.appendPrePoolBodies.at(-1)).toEqual({
     items: [
@@ -378,17 +385,17 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
     ],
     replace_scope: 'daily_screening_intersection',
     end_date: '2026-03-18',
-    selected_extra_filters: ['cls:S0008', 'hot:30d'],
-    remark: 'S0008 ∩ 30天热门',
+    selected_extra_filters: ['cls_group:beichi', 'hot:30d'],
+    remark: '背驰 ∩ 30天热门',
   })
 
-  await page.getByRole('cell', { name: '平安银行' }).click()
+  await page.locator('.daily-results-panel .el-table__body-wrapper tbody tr').first().dispatchEvent('click')
 
   const detailPane = page.locator('.daily-detail-stack')
   await expect(page.getByText('标的详情')).toBeVisible()
   await expect(page.locator('.daily-detail-title').getByText('平安银行')).toBeVisible()
   await expect(detailPane.getByText('融资标的', { exact: true })).toBeVisible()
-  await expect(detailPane.getByText('30m', { exact: true })).toBeVisible()
+  await expect(detailPane.getByText('盘整或趋势背驰', { exact: true })).toBeVisible()
   await expect(detailPane.getByText('回拉中枢上涨', { exact: true })).toBeVisible()
   await expect(detailPane.getByText('回拉中枢下跌', { exact: true })).toBeVisible()
   await expect(detailPane.getByText('龙头地位明确')).toBeVisible()
