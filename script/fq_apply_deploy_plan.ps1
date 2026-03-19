@@ -199,7 +199,7 @@ function Sync-PhaseStatuses {
             continue
         }
 
-        if ([string]::IsNullOrWhiteSpace($status) -or $status -eq "skipped" -or $status -eq "running") {
+        if ([string]::IsNullOrWhiteSpace($status) -or $status -eq "skipped" -or $status -eq "running" -or $status -eq "failed") {
             $phaseState.status = "pending"
             if ($status -eq "running") {
                 $phaseState.error = "reset to pending during resume"

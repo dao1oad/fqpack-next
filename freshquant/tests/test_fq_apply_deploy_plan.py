@@ -39,3 +39,12 @@ def test_apply_deploy_plan_supports_resume_state_tracking() -> None:
     assert "host" in text.lower()
     assert "health" in text.lower()
     assert "verify" in text.lower()
+
+
+def test_apply_deploy_plan_resets_failed_phases_to_pending_on_resume() -> None:
+    text = (REPO_ROOT / "script" / "fq_apply_deploy_plan.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert '$status -eq "failed"' in text
+    assert '$phaseState.status = "pending"' in text
