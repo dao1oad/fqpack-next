@@ -5,6 +5,7 @@ import {
   buildInitialKlineSlimPricePanelState,
   createKlineSlimPricePanelActions,
   loadSubjectPriceDetail,
+  saveAndActivatePriceGuides,
   saveGuardianPriceGuides,
   saveTakeprofitPriceGuides,
   shouldReloadSubjectPriceDetail,
@@ -164,6 +165,75 @@ test('saveTakeprofitPriceGuides validates, saves, reloads and triggers render ca
   assert.deepEqual(calls, [
     ['getDetail', '600000'],
     ['saveTakeprofitProfile', '600000', [10.8, 11.2, 11.9]],
+    ['getDetail', '600000'],
+  ])
+  assert.equal(result.ok, true)
+  assert.equal(renderCount, 1)
+})
+
+test('saveAndActivatePriceGuides saves all six prices, enables them and re-arms active state', async () => {
+  const calls = []
+  const actions = createKlineSlimPricePanelActions({
+    async getDetail(symbol) {
+      calls.push(['getDetail', symbol])
+      return makeDetail(symbol)
+    },
+    async saveGuardianBuyGrid(symbol, payload) {
+      calls.push(['saveGuardianBuyGrid', symbol, payload.buy_enabled, payload.enabled])
+      return { symbol, ...payload }
+    },
+    async saveGuardianBuyGridState(symbol, payload) {
+      calls.push(['saveGuardianBuyGridState', symbol, payload.buy_active, payload.last_reset_reason])
+      return { symbol, ...payload }
+    },
+    async saveTakeprofitProfile(symbol, payload) {
+      calls.push([
+        'saveTakeprofitProfile',
+        symbol,
+        payload.tiers.map((row) => ({
+          level: row.level,
+          price: row.price,
+          manual_enabled: row.manual_enabled,
+        })),
+      ])
+      return { symbol, ...payload }
+    },
+    async rearmTakeprofit(symbol) {
+      calls.push(['rearmTakeprofit', symbol])
+      return { symbol }
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+  let renderCount = 0
+
+  await loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '600000',
+    force: true,
+  })
+  state.guardianDraft.buy_enabled = [true, false, false]
+  state.takeprofitDrafts[1].manual_enabled = false
+  state.takeprofitDrafts[2].manual_enabled = false
+
+  const result = await saveAndActivatePriceGuides(state, {
+    actions,
+    symbol: '600000',
+    notify: {},
+    afterRefresh() {
+      renderCount += 1
+    },
+  })
+
+  assert.deepEqual(calls, [
+    ['getDetail', '600000'],
+    ['saveGuardianBuyGrid', '600000', [true, true, true], true],
+    ['saveGuardianBuyGridState', '600000', [true, true, true], 'manual_activate'],
+    ['saveTakeprofitProfile', '600000', [
+      { level: 1, price: 10.8, manual_enabled: true },
+      { level: 2, price: 11.2, manual_enabled: true },
+      { level: 3, price: 11.8, manual_enabled: true },
+    ]],
+    ['rearmTakeprofit', '600000'],
     ['getDetail', '600000'],
   ])
   assert.equal(result.ok, true)

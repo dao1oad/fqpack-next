@@ -195,6 +195,15 @@
               </div>
             </div>
             <div class="price-panel-actions">
+              <el-button
+                size="small"
+                type="primary"
+                :loading="savingPriceGuideActivation"
+                :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                @click="handleSaveAndActivatePriceGuides"
+              >
+                保存并激活
+              </el-button>
               <el-button size="small" :loading="subjectDetailLoading" @click="loadSubjectPriceDetail({ force: true })">
                 刷新
               </el-button>
@@ -282,6 +291,7 @@
                     size="small"
                     type="primary"
                     :loading="savingGuardianPriceGuides"
+                    :disabled="priceGuideEditLocked || !subjectPriceDetail"
                     @click="handleSaveGuardianPriceGuides"
                   >
                     保存 Guardian
@@ -352,6 +362,7 @@
                     size="small"
                     type="primary"
                     :loading="savingTakeprofitGuides"
+                    :disabled="priceGuideEditLocked || !subjectPriceDetail"
                     @click="handleSaveTakeprofitPriceGuides"
                   >
                     保存止盈
@@ -464,13 +475,11 @@ export default klineSlim
 @import "../style/kline-big.styl";
 
 .kline-slim-main
-  display block
+  display flex
+  flex-direction column
 
 .kline-slim-toolbar
-  position absolute
-  top 0
-  left 0
-  right 0
+  position relative
   min-height 52px
   padding 8px 12px
   z-index 10
@@ -513,12 +522,9 @@ export default klineSlim
   border-color rgba(248, 113, 113, 0.4)
 
 .kline-slim-body
-  position absolute
-  top 60px
-  left 0
-  right 0
-  bottom 0
+  position relative
   display flex
+  flex 1
   min-height 0
 
 .kline-slim-sidebar
@@ -1151,9 +1157,6 @@ export default klineSlim
 
   .toolbar-right
     justify-content flex-start
-
-  .kline-slim-body
-    top 120px
 
   .kline-slim-price-panel
     width 332px

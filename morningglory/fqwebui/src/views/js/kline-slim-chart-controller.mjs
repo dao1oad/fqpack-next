@@ -4,6 +4,7 @@ import {
   resolveKlineSlimGridRect,
   resolveKlineSlimCrosshairFromPixel
 } from './kline-slim-chart-renderer.mjs'
+import { getPriceGuideLegendName } from './subject-price-guides.mjs'
 
 const DEFAULT_X_RANGE = {
   start: 70,
@@ -85,6 +86,24 @@ function pickVisibleWindow(scene, xRange) {
   }
 }
 
+function isPriceGuideVisible(scene, group) {
+  const legendName = getPriceGuideLegendName(group)
+  if (!legendName) {
+    return true
+  }
+  if (!scene?.legendSelected || !Object.prototype.hasOwnProperty.call(scene.legendSelected, legendName)) {
+    return true
+  }
+  return !!scene.legendSelected[legendName]
+}
+
+function shouldIncludePriceGuideInYRange(scene, line) {
+  if (!line || line.active === false || line.manual_enabled === false) {
+    return false
+  }
+  return isPriceGuideVisible(scene, line.group)
+}
+
 function collectVisibleValues(scene, windowBounds) {
   const values = []
 
@@ -114,6 +133,9 @@ function collectVisibleValues(scene, windowBounds) {
   })
 
   ;(Array.isArray(scene?.priceGuideLines) ? scene.priceGuideLines : []).forEach((line) => {
+    if (!shouldIncludePriceGuideInYRange(scene, line)) {
+      return
+    }
     const price = Number(line?.price)
     if (Number.isFinite(price)) {
       values.push(price)

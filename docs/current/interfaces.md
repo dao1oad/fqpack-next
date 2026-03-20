@@ -15,6 +15,7 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/stock_data`
 - `/api/stock_data_v2`
 - `/api/stock_data_chanlun_structure`
+- `/api/guardian_buy_grid_state`
 - `/api/get_stock_pools_list`
 - `/api/get_stock_pre_pools_list`
 - `/api/get_stock_must_pools_list`

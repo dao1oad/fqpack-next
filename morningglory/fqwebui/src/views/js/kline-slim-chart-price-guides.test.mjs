@@ -73,12 +73,42 @@ test('buildKlineSlimChartScene carries guardian and takeprofit price guides', ()
   assert.equal(scene.priceGuideLines[0].id, 'guardian-buy_1')
 })
 
-test('deriveViewportStateForScene includes price guide values in y range', () => {
+test('deriveViewportStateForScene ignores disabled or hidden price guide values in y range', () => {
   const scene = buildKlineSlimChartScene({
     mainData: makeMainData(),
     currentPeriod: '30m',
     visiblePeriods: ['30m'],
-    priceGuides: makePriceGuides(),
+    legendSelected: {
+      'Guardian 价格线': true,
+      '止盈价格线': false,
+    },
+    priceGuides: {
+      lines: [
+        {
+          id: 'guardian-buy_1',
+          key: 'buy_1',
+          price: 12.5,
+          color: '#3b82f6',
+          label: 'G-B1 12.50',
+          lineStyle: 'dashed',
+          group: 'guardian',
+          active: false,
+          manual_enabled: false,
+        },
+        {
+          id: 'takeprofit-l1',
+          key: 'l1',
+          price: 8.5,
+          color: '#3b82f6',
+          label: 'TP-L1 8.50',
+          lineStyle: 'dashed',
+          group: 'takeprofit',
+          active: true,
+          manual_enabled: true,
+        },
+      ],
+      bands: [],
+    },
   })
 
   const viewport = deriveViewportStateForScene({
@@ -89,8 +119,8 @@ test('deriveViewportStateForScene includes price guide values in y range', () =>
     },
   })
 
-  assert.equal(viewport.yRange.max > 12.5, true)
-  assert.equal(viewport.yRange.min < 8.5, true)
+  assert.equal(viewport.yRange.max < 11, true)
+  assert.equal(viewport.yRange.min > 9, true)
 })
 
 test('buildKlineSlimChartOption renders price lines without background bands and exposes legend toggles', () => {

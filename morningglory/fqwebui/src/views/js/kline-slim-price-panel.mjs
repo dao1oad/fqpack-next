@@ -40,6 +40,19 @@ export const cloneTakeprofitDrafts = (rows = []) => {
   }))
 }
 
+const buildActivatedGuardianDraft = (draft = {}) => ({
+  ...cloneGuardianDraft(draft),
+  buy_enabled: [true, true, true],
+  enabled: true,
+})
+
+const buildActivatedTakeprofitDrafts = (rows = []) => {
+  return cloneTakeprofitDrafts(rows).map((row) => ({
+    ...row,
+    manual_enabled: true,
+  }))
+}
+
 const buildEmptySubjectPriceDetailState = () => ({
   subjectDetailError: '',
   subjectPriceDetail: null,
@@ -60,6 +73,7 @@ export const buildInitialKlineSlimPricePanelState = () => ({
   subjectDetailLoading: false,
   savingGuardianPriceGuides: false,
   savingTakeprofitGuides: false,
+  savingPriceGuideActivation: false,
   subjectDetailRequestId: 0,
   ...buildEmptySubjectPriceDetailState(),
 })
@@ -101,6 +115,7 @@ export const resetSubjectPriceDetailState = (state) => {
   state.subjectDetailLoading = false
   state.savingGuardianPriceGuides = false
   state.savingTakeprofitGuides = false
+  state.savingPriceGuideActivation = false
   state.subjectDetailRequestId = 0
   clearSubjectPriceDetailState(state)
 }
@@ -123,6 +138,17 @@ export const createKlineSlimPricePanelActions = (api) => ({
   async saveGuardian(symbol, draft) {
     return api.saveGuardianBuyGrid(symbol, cloneGuardianDraft(draft))
   },
+  async saveGuardianState(symbol, payload) {
+    return api.saveGuardianBuyGridState(symbol, {
+      buy_active: Array.isArray(payload?.buy_active) && payload.buy_active.length >= 3
+        ? payload.buy_active.slice(0, 3).map((item) => item !== false)
+        : [true, true, true],
+      last_hit_level: payload?.last_hit_level ?? null,
+      last_hit_price: payload?.last_hit_price ?? null,
+      last_hit_signal_time: payload?.last_hit_signal_time ?? null,
+      last_reset_reason: payload?.last_reset_reason ?? null,
+    })
+  },
   async saveTakeprofit(symbol, drafts) {
     return api.saveTakeprofitProfile(symbol, {
       tiers: cloneTakeprofitDrafts(drafts).map((row) => ({
@@ -131,6 +157,9 @@ export const createKlineSlimPricePanelActions = (api) => ({
         manual_enabled: Boolean(row.manual_enabled),
       })),
     })
+  },
+  async rearmTakeprofit(symbol) {
+    return api.rearmTakeprofit(symbol)
   },
 })
 
@@ -267,5 +296,72 @@ export const saveTakeprofitPriceGuides = async (
     }
   } finally {
     state.savingTakeprofitGuides = false
+  }
+}
+
+export const saveAndActivatePriceGuides = async (
+  state,
+  {
+    actions,
+    symbol,
+    notify,
+    afterRefresh,
+    notifySuccess = true,
+  } = {},
+) => {
+  const guardianDraft = buildActivatedGuardianDraft(state?.guardianDraft || {})
+  const takeprofitDrafts = buildActivatedTakeprofitDrafts(state?.takeprofitDrafts || [])
+
+  const guardianValidation = validateGuardianGuideDraft(guardianDraft)
+  if (!guardianValidation.valid) {
+    emitNotify(notify, 'warning', guardianValidation.message)
+    return {
+      ok: false,
+      reason: 'validation',
+      message: guardianValidation.message,
+    }
+  }
+
+  const takeprofitValidation = validateTakeprofitDrafts(takeprofitDrafts)
+  if (!takeprofitValidation.valid) {
+    emitNotify(notify, 'warning', takeprofitValidation.message)
+    return {
+      ok: false,
+      reason: 'validation',
+      message: takeprofitValidation.message,
+    }
+  }
+
+  state.savingPriceGuideActivation = true
+  try {
+    await actions.saveGuardian(symbol, guardianDraft)
+    await actions.saveGuardianState(symbol, {
+      buy_active: [true, true, true],
+      last_hit_level: null,
+      last_hit_price: null,
+      last_hit_signal_time: null,
+      last_reset_reason: 'manual_activate',
+    })
+    await actions.saveTakeprofit(symbol, takeprofitDrafts)
+    await actions.rearmTakeprofit(symbol)
+    await loadSubjectPriceDetail(state, {
+      actions,
+      symbol,
+      force: true,
+    })
+    afterRefresh?.()
+    if (notifySuccess) {
+      emitNotify(notify, 'success', 'Guardian / 止盈价格层级已保存并激活')
+    }
+    return { ok: true }
+  } catch (error) {
+    state.subjectDetailError = errorMessage(error)
+    return {
+      ok: false,
+      reason: 'error',
+      message: state.subjectDetailError,
+    }
+  } finally {
+    state.savingPriceGuideActivation = false
   }
 }
