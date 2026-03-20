@@ -341,23 +341,7 @@ class DailyScreeningService:
         }
 
     def build_universe(self, trade_date: str) -> list[str]:
-        from freshquant.instrument.stock import fq_inst_fetch_stock_list
-
-        codes: list[str] = []
-        seen_codes: set[str] = set()
-        for row in list(fq_inst_fetch_stock_list() or []):
-            code = self._normalize_code(
-                row.get("code") or row.get("code6") or row.get("symbol")
-            )
-            if not code or code in seen_codes:
-                continue
-            if self._is_bj_exchange_code(code):
-                continue
-            if self._is_st_stock_name(row.get("name")):
-                continue
-            seen_codes.add(code)
-            codes.append(code)
-        return codes
+        return [item["code"] for item in self._list_market_stocks()]
 
     def build_cls_memberships(
         self,
@@ -662,19 +646,28 @@ class DailyScreeningService:
         scope_ref = self._resolve_scope_ref(run_id)
         repository = self._screening_repository()
         scope = scope_ref["scope"]
-        if repository is None:
-            raise ValueError("stock detail not found")
-        snapshots = repository.query_scope_stocks(
-            run_id=scope_ref["run_id"],
-            scope=scope,
-            code=normalized_code,
-        )
-        memberships = repository.get_stock_detail_memberships(
-            run_id=scope_ref["run_id"],
-            scope=scope,
-            code=normalized_code,
-        )
-        if not snapshots and not memberships:
+        snapshots = []
+        memberships = []
+        if repository is not None:
+            snapshots = repository.query_scope_stocks(
+                run_id=scope_ref["run_id"],
+                scope=scope,
+                code=normalized_code,
+            )
+            memberships = repository.get_stock_detail_memberships(
+                run_id=scope_ref["run_id"],
+                scope=scope,
+                code=normalized_code,
+            )
+        hot_reasons = self._load_hot_reasons(normalized_code)
+        base_pool_status = self._build_base_pool_status(scope_ref, normalized_code)
+        snapshot = snapshots[0] if snapshots else None
+        if snapshot is None:
+            snapshot = self._build_market_stock_snapshot(
+                normalized_code,
+                trade_date=self._scope_trade_date(scope_ref),
+            )
+        if snapshot is None and not memberships and not hot_reasons:
             raise ValueError("stock detail not found")
         clxs_memberships = [item for item in memberships if item.get("stage") == "clxs"]
         chanlun_memberships = [
@@ -689,13 +682,52 @@ class DailyScreeningService:
         return {
             "run_id": scope_ref["scope_id"],
             "scope": scope,
-            "snapshot": snapshots[0] if snapshots else None,
+            "snapshot": snapshot,
             "memberships": memberships,
             "clxs_memberships": clxs_memberships,
             "chanlun_memberships": chanlun_memberships,
             "agg90_memberships": agg90_memberships,
             "market_flag_memberships": market_flag_memberships,
-            "hot_reasons": self._load_hot_reasons(normalized_code),
+            "hot_reasons": hot_reasons,
+            "base_pool_status": base_pool_status,
+        }
+
+    def search_market_stocks(
+        self, run_id: str, query: Any, *, limit: int = 20
+    ) -> dict[str, Any]:
+        scope_ref = self._resolve_scope_ref(run_id)
+        query_text = str(query or "").strip()
+        effective_limit = max(int(limit or 0), 0)
+        if not query_text:
+            return {
+                "run_id": scope_ref["scope_id"],
+                "scope_id": scope_ref["scope_id"],
+                "scope": scope_ref["scope"],
+                "query": "",
+                "total": 0,
+                "rows": [],
+            }
+        snapshot_map = self._scope_snapshot_map(scope_ref)
+        matched_rows: list[dict[str, Any]] = []
+        for stock in self._list_market_stocks():
+            if not self._matches_market_stock_query(stock, query_text):
+                continue
+            row = self._merge_market_stock_row(
+                stock,
+                snapshot_map.get(stock["code"]),
+            )
+            matched_rows.append(row)
+        matched_rows.sort(
+            key=lambda item: self._market_stock_match_rank(item, query_text)
+        )
+        limited_rows = matched_rows[:effective_limit] if effective_limit else []
+        return {
+            "run_id": scope_ref["scope_id"],
+            "scope_id": scope_ref["scope_id"],
+            "scope": scope_ref["scope"],
+            "query": query_text,
+            "total": len(matched_rows),
+            "rows": [self._jsonable(item) for item in limited_rows],
         }
 
     def add_to_pre_pool(self, payload: dict | None) -> dict:
@@ -2721,6 +2753,182 @@ class DailyScreeningService:
         if not digits:
             return None
         return digits[-6:].zfill(6)
+
+    def _list_market_stocks(self, *, code: str | None = None) -> list[dict[str, Any]]:
+        from freshquant.instrument.stock import fq_inst_fetch_stock_list
+
+        normalized_code = self._normalize_code(code)
+        rows = list(
+            (
+                fq_inst_fetch_stock_list(code=normalized_code)
+                if normalized_code
+                else fq_inst_fetch_stock_list()
+            )
+            or []
+        )
+        stocks: list[dict[str, Any]] = []
+        seen_codes: set[str] = set()
+        for row in rows:
+            stock_code = self._normalize_code(
+                row.get("code") or row.get("code6") or row.get("symbol")
+            )
+            if not stock_code or stock_code in seen_codes:
+                continue
+            name = str(row.get("name") or stock_code).strip() or stock_code
+            if self._is_bj_exchange_code(stock_code):
+                continue
+            if self._is_st_stock_name(name):
+                continue
+            seen_codes.add(stock_code)
+            stocks.append(
+                {
+                    "code": stock_code,
+                    "name": name,
+                    "symbol": self._stock_symbol_from_market_row(row, stock_code),
+                }
+            )
+        return stocks
+
+    def _stock_symbol_from_market_row(self, row: dict[str, Any], code: str) -> str:
+        prefix = str(row.get("sse") or row.get("exchange") or "").strip().lower()
+        if prefix in {"sh", "sz", "bj"}:
+            return f"{prefix}{code}"
+        return self._infer_symbol(code)
+
+    def _scope_snapshot_map(self, scope_ref: dict[str, str]) -> dict[str, dict[str, Any]]:
+        repository = self._screening_repository()
+        if repository is None:
+            return {}
+        rows = repository.query_scope_stocks(
+            run_id=scope_ref["run_id"],
+            scope=scope_ref["scope"],
+        )
+        snapshot_map: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            code = self._normalize_code(row.get("code") or row.get("symbol"))
+            if not code or code in snapshot_map:
+                continue
+            snapshot_map[code] = dict(row)
+        return snapshot_map
+
+    def _matches_market_stock_query(self, stock: dict[str, Any], query: str) -> bool:
+        query_text = str(query or "").strip()
+        if not query_text:
+            return False
+        query_lower = query_text.casefold()
+        code = str(stock.get("code") or "")
+        name = str(stock.get("name") or "")
+        symbol = str(stock.get("symbol") or "")
+        return (
+            query_text in code
+            or query_lower in name.casefold()
+            or query_lower in symbol.casefold()
+        )
+
+    def _market_stock_match_rank(
+        self, row: dict[str, Any], query: str
+    ) -> tuple[int, int, str, str]:
+        query_text = str(query or "").strip()
+        query_lower = query_text.casefold()
+        code = str(row.get("code") or "")
+        name = str(row.get("name") or "")
+        symbol = str(row.get("symbol") or "")
+        rank = 4
+        if code == query_text:
+            rank = 0
+        elif code.startswith(query_text):
+            rank = 1
+        elif name.casefold().startswith(query_lower):
+            rank = 2
+        elif symbol.casefold().startswith(query_lower):
+            rank = 3
+        return (rank, len(code), code, name)
+
+    def _merge_market_stock_row(
+        self, stock: dict[str, Any], snapshot: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        row = dict(snapshot or {})
+        row.setdefault("code", stock["code"])
+        row.setdefault("name", stock["name"])
+        row.setdefault("symbol", stock["symbol"])
+        return row
+
+    def _build_market_stock_snapshot(
+        self, code: str, *, trade_date: str = ""
+    ) -> dict[str, Any] | None:
+        for stock in self._list_market_stocks(code=code):
+            return {
+                "code": stock["code"],
+                "name": stock["name"],
+                "symbol": stock["symbol"],
+                "trade_date": trade_date,
+            }
+        return None
+
+    def _build_base_pool_status(
+        self, scope_ref: dict[str, str], code: str
+    ) -> dict[str, Any]:
+        repository = self._screening_repository()
+        if repository is None:
+            return {
+                "in_base_pool": False,
+                "last_seen_scope_id": "",
+                "last_seen_trade_date": "",
+            }
+        current_memberships = repository.get_stock_detail_memberships(
+            run_id=scope_ref["run_id"],
+            scope=scope_ref["scope"],
+            code=code,
+            condition_key="base:union",
+        )
+        if current_memberships:
+            trade_date = self._scope_trade_date(scope_ref) or str(
+                current_memberships[0].get("trade_date") or ""
+            ).strip()
+            return {
+                "in_base_pool": True,
+                "last_seen_scope_id": scope_ref["scope_id"],
+                "last_seen_trade_date": trade_date,
+            }
+        list_scope_ids = getattr(repository, "list_scope_ids", None)
+        if not callable(list_scope_ids):
+            return {
+                "in_base_pool": False,
+                "last_seen_scope_id": "",
+                "last_seen_trade_date": "",
+            }
+        for scope_id in list_scope_ids(prefix="trade_date:"):
+            if scope_id == scope_ref["scope_id"]:
+                continue
+            memberships = repository.get_stock_detail_memberships(
+                run_id=scope_id,
+                scope=scope_id,
+                code=code,
+                condition_key="base:union",
+            )
+            if not memberships:
+                continue
+            return {
+                "in_base_pool": False,
+                "last_seen_scope_id": scope_id,
+                "last_seen_trade_date": self._trade_date_from_scope_id(scope_id),
+            }
+        return {
+            "in_base_pool": False,
+            "last_seen_scope_id": "",
+            "last_seen_trade_date": "",
+        }
+
+    def _scope_trade_date(self, scope_ref: dict[str, str]) -> str:
+        if str(scope_ref.get("scope_kind") or "").strip() == "trade_date":
+            return self._trade_date_from_scope_id(scope_ref.get("scope_id"))
+        return ""
+
+    def _trade_date_from_scope_id(self, value: Any) -> str:
+        text = str(value or "").strip()
+        if text.startswith("trade_date:"):
+            return text.split(":", 1)[1].strip()
+        return ""
 
     def _infer_symbol(self, code: Any) -> str:
         base = self._normalize_code(code)
