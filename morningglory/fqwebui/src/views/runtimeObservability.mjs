@@ -852,6 +852,20 @@ export const summarizeTrace = (trace = {}) => {
   const summaryMeta = buildTraceSummaryMeta(detail)
   const guardianTrace = buildGuardianTraceSummary(detail)
   const lastStep = detail.steps[detail.steps.length - 1] || {}
+  const flowNodes = detail.steps.length > 0
+    ? buildTraceFlowNodes(detail.steps)
+    : [
+        {
+          component: detail.entry_component,
+          label: `${resolveComponentLabel(detail.entry_component)}.${resolveNodeLabel(detail.entry_component, detail.entry_node)}`,
+        },
+        detail.exit_component && detail.exit_node
+          ? {
+              component: detail.exit_component,
+              label: `${resolveComponentLabel(detail.exit_component)}.${resolveNodeLabel(detail.exit_component, detail.exit_node)}`,
+            }
+          : null,
+      ].filter(Boolean)
   const traceKind = toText(trace?.trace_kind) || 'unknown'
   const traceStatus = toText(trace?.trace_status) || (detail.issue_count > 0 ? 'broken' : 'open')
   return {
@@ -885,9 +899,15 @@ export const summarizeTrace = (trace = {}) => {
     slowest_step_label: summaryMeta.slowest_step?.delta_from_prev_label || '-',
     last_node: toText(lastStep.node) || '-',
     last_status: toText(lastStep.status) || 'info',
-    path_nodes: buildTracePathNodes(detail.steps),
-    path_summary: buildTracePathSummary(detail.steps),
-    flow_nodes: buildTraceFlowNodes(detail.steps),
+    path_nodes: detail.steps.length > 0
+      ? buildTracePathNodes(detail.steps)
+      : detail.affected_components.length > 0
+        ? detail.affected_components
+        : [detail.entry_component, detail.exit_component].filter(Boolean),
+    path_summary: detail.steps.length > 0
+      ? buildTracePathSummary(detail.steps)
+      : flowNodes.map((item) => item.label).join(' -> ') || '-',
+    flow_nodes: flowNodes,
     guardian_signal: guardianTrace?.signal || null,
     guardian_outcome: guardianTrace?.conclusion || null,
   }
@@ -961,7 +981,20 @@ export const buildTraceLedgerRows = (traces = [], options = {}) => {
   const rows = normalizeTraces(traces)
     .map((trace) => {
       const detail = buildTraceDetail(trace)
-      const flowNodes = buildTraceFlowNodes(detail?.steps || [])
+      const flowNodes = detail.steps.length > 0
+        ? buildTraceFlowNodes(detail.steps)
+        : [
+            {
+              component: detail.entry_component,
+              label: `${resolveComponentLabel(detail.entry_component)}.${resolveNodeLabel(detail.entry_component, detail.entry_node)}`,
+            },
+            detail.exit_component && detail.exit_node
+              ? {
+                  component: detail.exit_component,
+                  label: `${resolveComponentLabel(detail.exit_component)}.${resolveNodeLabel(detail.exit_component, detail.exit_node)}`,
+                }
+              : null,
+          ].filter(Boolean)
       return {
         trace_key: toText(detail?.trace_key) || null,
         trace_id: toText(detail?.trace_id) || null,
@@ -1255,6 +1288,15 @@ export const buildTraceDetail = (trace = {}) => {
         .sort((left, right) => Number(right.delta_from_prev_ms || 0) - Number(left.delta_from_prev_ms || 0))[0] || null
   const symbol = findTraceSymbol(trace, steps)
   const symbolName = findTraceSymbolName(trace, steps)
+  const summaryStepCount = Number.isFinite(trace?.step_count) ? Number(trace.step_count) : steps.length
+  const summaryIssueCount = Number.isFinite(trace?.issue_count) ? Number(trace.issue_count) : issueSteps.length
+  const affectedComponents = Array.isArray(trace?.affected_components)
+    ? trace.affected_components.map((item) => toText(item)).filter(Boolean)
+    : [...new Set(
+        (issueSteps.length > 0 ? issueSteps : steps)
+          .map((step) => toText(step?.component))
+          .filter(Boolean),
+      )]
   return {
     [TRACE_DETAIL_MARKER]: true,
     trace_key: toText(trace?.trace_key) || null,
@@ -1280,14 +1322,15 @@ export const buildTraceDetail = (trace = {}) => {
     symbol_name: symbolName,
     symbol_display: buildSymbolDisplay(symbol, symbolName),
     steps,
-    step_count: steps.length,
-    issue_count: issueSteps.length,
+    step_count: steps.length > 0 ? steps.length : summaryStepCount,
+    issue_count: issueSteps.length > 0 || steps.length > 0 ? issueSteps.length : summaryIssueCount,
     first_issue: issueSteps[0] || null,
     total_duration_ms: totalDurationMs,
     total_duration_label: totalDurationMs === null ? '-' : formatDurationMs(totalDurationMs),
     last_status: toText(lastStep?.status) || 'info',
     last_node: toText(lastStep?.node) || '-',
     last_ts: toText(trace?.last_ts) || toText(lastStep?.ts) || '',
+    affected_components: affectedComponents,
     guardian_trace: buildGuardianTraceSummary({ steps }),
   }
 }
@@ -1317,7 +1360,7 @@ export const buildTraceSummaryMeta = (detail = {}) => {
     first_issue: issueSteps[0] || null,
     last_issue: issueSteps[issueSteps.length - 1] || null,
     slowest_step: slowestStep,
-    affected_components: affectedComponents,
+    affected_components: affectedComponents.length > 0 ? affectedComponents : (Array.isArray(detail?.affected_components) ? detail.affected_components : []),
   }
 }
 
@@ -1352,6 +1395,13 @@ export const buildIssueSummary = (detail = {}) => {
   const steps = Array.isArray(detail?.steps) ? detail.steps : []
   const issueSteps = steps.filter((step) => step?.is_issue)
   if (issueSteps.length === 0) {
+    if (Number(detail?.issue_count || 0) > 0) {
+      const label = toText(detail?.break_reason) || 'unknown_issue'
+      return {
+        headline: `${Number(detail.issue_count)} 个异常节点，主要原因：${label}`,
+        items: [{ label, count: Number(detail.issue_count) }],
+      }
+    }
     return {
       headline: '无异常节点',
       items: [],
@@ -1433,15 +1483,24 @@ export const buildTraceListSummary = (traces = []) => {
     issueStepCount += detail.issue_count
 
     const componentTraceMarks = new Set()
-    for (const step of detail.steps) {
-      if (!step?.is_issue) continue
-      const component = toText(step?.component) || 'runtime'
+    const affectedComponents = detail.steps.length > 0
+      ? [...new Set(
+          detail.steps
+            .filter((step) => step?.is_issue)
+            .map((step) => toText(step?.component))
+            .filter(Boolean),
+        )]
+      : Array.isArray(detail?.affected_components) ? detail.affected_components : []
+    for (const component of affectedComponents) {
+      const componentIssueCount = detail.steps.length > 0
+        ? detail.steps.filter((step) => step?.is_issue && toText(step?.component) === component).length
+        : Number(detail.issue_count || 0)
       const current = issueComponents.get(component) || {
         component,
         issue_count: 0,
         trace_count: 0,
       }
-      current.issue_count += 1
+      current.issue_count += componentIssueCount
       if (!componentTraceMarks.has(component)) {
         current.trace_count += 1
         componentTraceMarks.add(component)
@@ -1469,15 +1528,20 @@ export const buildIssuePriorityCards = (traces = [], options = {}) => {
   return normalizeTraces(traces)
     .map((trace) => {
       const detail = buildTraceDetail(trace)
-      const meta = buildTraceSummaryMeta(detail)
       const summary = buildIssueSummary(detail)
+      const headline = detail.steps.length > 0
+        ? findTraceNode(detail.steps, 'first-issue')
+        : `${toText(detail.exit_component) || '-'}${toText(detail.exit_node) ? `.${toText(detail.exit_node)}` : ''}`
+      const subline = detail.steps.length > 0
+        ? findTraceNode(detail.steps, 'last')
+        : `${toText(detail.entry_component) || '-'}${toText(detail.entry_node) ? `.${toText(detail.entry_node)}` : ''}`
       return {
         trace_key: detail.trace_key,
         trace_id: detail.trace_id,
         symbol: detail.symbol,
         status: summarizeIssueStatus(detail),
-        headline: findTraceNode(detail.steps, 'first-issue'),
-        subline: findTraceNode(detail.steps, 'last'),
+        headline,
+        subline,
         issue_count: detail.issue_count,
         total_duration_ms: detail.total_duration_ms || 0,
         total_duration_label: detail.total_duration_label,
@@ -1570,8 +1634,8 @@ export const buildComponentBoard = (traces = [], components = []) => {
           component_issue_steps: componentIssueSteps,
         }
       })
-      const issueTraceCount = componentDetails.filter((item) => item.component_issue_steps.length > 0).length
-      const issueStepCount = componentDetails.reduce(
+      const derivedIssueTraceCount = componentDetails.filter((item) => item.component_issue_steps.length > 0).length
+      const derivedIssueStepCount = componentDetails.reduce(
         (total, item) => total + item.component_issue_steps.length,
         0,
       )
@@ -1591,8 +1655,11 @@ export const buildComponentBoard = (traces = [], components = []) => {
               normalizeRuntimeNode(item?.runtime_node) === runtimeNode,
             ) || null
           : null)
+      const issueTraceCount = derivedIssueTraceCount || Number(healthCard?.issue_trace_count || 0)
+      const issueStepCount = derivedIssueStepCount || Number(healthCard?.issue_step_count || 0)
+      const traceCount = matchingTraces.length || Number(healthCard?.trace_count || 0)
 
-      if (!healthCard && matchingTraces.length === 0) continue
+      if (!healthCard && traceCount === 0) continue
 
       cards.push({
         component,
@@ -1602,8 +1669,8 @@ export const buildComponentBoard = (traces = [], components = []) => {
         heartbeat_label: healthCard?.heartbeat_label || 'no data',
         issue_trace_count: issueTraceCount,
         issue_step_count: issueStepCount,
-        last_issue_ts: toText(lastIssueTrace?.last_ts) || '',
-        trace_count: matchingTraces.length,
+        last_issue_ts: toText(healthCard?.last_issue_ts) || toText(lastIssueTrace?.last_ts) || '',
+        trace_count: traceCount,
         is_placeholder: Boolean(healthCard?.is_placeholder),
         highlights: Array.isArray(healthCard?.highlights) ? healthCard.highlights : [],
       })

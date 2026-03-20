@@ -1,366 +1,262 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import Flask
 
 
-def test_runtime_components_route(monkeypatch, tmp_path):
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_guardian",
-        component="guardian_strategy",
-        date="2026-03-09",
-        file_name="guardian_strategy_2026-03-09_1.jsonl",
-        records=[
-            {
-                "event_type": "heartbeat",
-                "component": "guardian_strategy",
-                "runtime_node": "host:guardian",
-                "node": "heartbeat",
-                "ts": "2026-03-09T10:00:00+08:00",
-            }
-        ],
-    )
-    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+class _FakeRuntimeQueryService:
+    def list_components(self):
+        return {
+            "root": "D:/fqpack/logs/runtime",
+            "runtime_nodes": ["host:guardian", "host:xt_report_ingest"],
+            "components": ["guardian_strategy", "xt_report_ingest", "order_submit"],
+        }
+
+    def get_health_summary(self, **kwargs):
+        assert kwargs["start_time"] is None
+        assert kwargs["end_time"] is None
+        return {
+            "components": [
+                {
+                    "component": "guardian_strategy",
+                    "runtime_node": "host:guardian",
+                    "status": "warning",
+                    "heartbeat_age_s": 5.0,
+                    "heartbeat_label": "5s",
+                    "issue_trace_count": 2,
+                    "issue_step_count": 3,
+                    "trace_count": 7,
+                    "last_issue_ts": "2026-03-20T10:20:00+08:00",
+                    "is_placeholder": False,
+                    "highlights": [{"key": "queue", "label": "queue", "display": "3"}],
+                }
+            ]
+        }
+
+    def list_traces(self, **kwargs):
+        assert kwargs["filters"]["component"] == "guardian_strategy"
+        assert kwargs["limit"] == 2
+        return {
+            "items": [
+                {
+                    "trace_key": "trace__trc_1",
+                    "trace_id": "trc_1",
+                    "trace_kind": "guardian_signal",
+                    "trace_status": "failed",
+                    "break_reason": "unexpected_exception@order_submit.queue_payload_build:ValueError",
+                    "first_ts": "2026-03-20T10:00:00+08:00",
+                    "last_ts": "2026-03-20T10:00:02+08:00",
+                    "duration_ms": 2000,
+                    "entry_component": "guardian_strategy",
+                    "entry_node": "receive_signal",
+                    "exit_component": "order_submit",
+                    "exit_node": "queue_payload_build",
+                    "step_count": 4,
+                    "issue_count": 1,
+                    "symbol": "000001",
+                    "symbol_name": "平安银行",
+                    "intent_ids": ["int_1"],
+                    "request_ids": ["req_1"],
+                    "internal_order_ids": ["ord_1"],
+                }
+            ],
+            "next_cursor": {
+                "ts": "2026-03-20T09:59:59+08:00",
+                "trace_key": "trace__trc_0",
+            },
+        }
+
+    def get_trace_detail(self, trace_key: str, **kwargs):
+        assert trace_key == "trace__trc_1"
+        assert kwargs["step_limit"] == 3
+        return {
+            "trace": {
+                "trace_key": trace_key,
+                "trace_id": "trc_1",
+                "trace_kind": "guardian_signal",
+                "trace_status": "failed",
+                "break_reason": "unexpected_exception@order_submit.queue_payload_build:ValueError",
+                "first_ts": "2026-03-20T10:00:00+08:00",
+                "last_ts": "2026-03-20T10:00:02+08:00",
+                "duration_ms": 2000,
+                "entry_component": "guardian_strategy",
+                "entry_node": "receive_signal",
+                "exit_component": "order_submit",
+                "exit_node": "queue_payload_build",
+                "step_count": 4,
+                "issue_count": 1,
+                "symbol": "000001",
+                "symbol_name": "平安银行",
+                "intent_ids": ["int_1"],
+                "request_ids": ["req_1"],
+                "internal_order_ids": ["ord_1"],
+            },
+            "steps": [
+                {
+                    "event_id": "evt_1",
+                    "ts": "2026-03-20T10:00:00+08:00",
+                    "runtime_node": "host:guardian",
+                    "component": "guardian_strategy",
+                    "node": "receive_signal",
+                    "status": "info",
+                    "event_type": "trace_step",
+                },
+                {
+                    "event_id": "evt_2",
+                    "ts": "2026-03-20T10:00:01+08:00",
+                    "runtime_node": "host:rear",
+                    "component": "order_submit",
+                    "node": "queue_payload_build",
+                    "status": "failed",
+                    "event_type": "trace_step",
+                    "error_type": "ValueError",
+                    "error_message": "bad payload",
+                },
+            ],
+            "steps_next_cursor": {
+                "ts": "2026-03-20T09:59:58+08:00",
+                "event_id": "evt_0",
+            },
+        }
+
+    def list_trace_steps(self, trace_key: str, **kwargs):
+        assert trace_key == "trace__trc_1"
+        assert kwargs["limit"] == 2
+        assert kwargs["cursor_ts"] == "2026-03-20T09:59:58+08:00"
+        assert kwargs["cursor_event_id"] == "evt_0"
+        return {
+            "items": [
+                {
+                    "event_id": "evt_3",
+                    "ts": "2026-03-20T09:59:57+08:00",
+                    "runtime_node": "host:rear",
+                    "component": "order_submit",
+                    "node": "tracking_create",
+                    "status": "info",
+                    "event_type": "trace_step",
+                }
+            ],
+            "next_cursor": None,
+        }
+
+    def list_events(self, **kwargs):
+        assert kwargs["filters"]["component"] == "xt_report_ingest"
+        assert kwargs["limit"] == 1
+        return {
+            "items": [
+                {
+                    "event_id": "evt_ingest_1",
+                    "session_key": "request__req_1__m__202603201010",
+                    "ts": "2026-03-20T10:10:00+08:00",
+                    "runtime_node": "host:xt_report_ingest",
+                    "component": "xt_report_ingest",
+                    "node": "report_receive",
+                    "status": "info",
+                    "event_type": "trace_step",
+                    "trace_id": "",
+                    "intent_id": "",
+                    "request_id": "req_1",
+                    "internal_order_id": "ord_1",
+                    "symbol": "000001",
+                    "symbol_name": "平安银行",
+                    "message": "",
+                    "reason_code": "",
+                    "payload": {},
+                    "metrics": {},
+                    "raw_file": "host_xt_report_ingest/xt_report_ingest/2026-03-20/xt_report_ingest_2026-03-20_1.jsonl",
+                    "raw_line": 1,
+                }
+            ],
+            "next_cursor": None,
+        }
+
+
+def test_runtime_components_route_reads_from_query_service(monkeypatch):
+    service = _FakeRuntimeQueryService()
+    _patch_runtime_query_service(monkeypatch, service)
     client = _make_runtime_client()
 
     resp = client.get("/api/runtime/components")
 
     body = resp.get_json()
     assert resp.status_code == 200
-    assert "guardian_strategy" in body["components"]
-    assert "broker_gateway" in body["components"]
-
-
-def test_runtime_traces_and_detail_routes(monkeypatch, tmp_path):
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_guardian",
-        component="guardian_strategy",
-        date="2026-03-09",
-        file_name="guardian_strategy_2026-03-09_1.jsonl",
-        records=[
-            {
-                "event_type": "trace_step",
-                "trace_id": "trc_1",
-                "component": "guardian_strategy",
-                "runtime_node": "host:guardian",
-                "node": "receive_signal",
-                "ts": "2026-03-09T10:00:00+08:00",
-            },
-            {
-                "event_type": "trace_step",
-                "trace_id": "trc_1",
-                "request_id": "req_1",
-                "component": "order_submit",
-                "runtime_node": "host:rear",
-                "node": "tracking_create",
-                "ts": "2026-03-09T10:00:01+08:00",
-            },
-        ],
-    )
-    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
-    client = _make_runtime_client()
-
-    traces_resp = client.get("/api/runtime/traces")
-    detail_resp = client.get("/api/runtime/traces/trc_1")
-
-    traces_body = traces_resp.get_json()
-    detail_body = detail_resp.get_json()
-    assert traces_resp.status_code == 200
-    assert traces_body["traces"][0]["trace_id"] == "trc_1"
-    assert traces_body["traces"][0]["trace_kind"] == "guardian_signal"
-    assert traces_body["traces"][0]["trace_status"] == "broken"
-    assert (
-        traces_body["traces"][0]["break_reason"]
-        == "missing_downstream_after_order_submit"
-    )
-    assert traces_body["traces"][0]["entry_component"] == "guardian_strategy"
-    assert traces_body["traces"][0]["exit_component"] == "order_submit"
-    assert traces_body["traces"][0]["duration_ms"] == 1000
-    assert detail_resp.status_code == 200
-    assert [step["node"] for step in detail_body["trace"]["steps"]] == [
-        "receive_signal",
-        "tracking_create",
-    ]
-    assert detail_body["trace"]["steps"][1]["offset_ms"] == 1000
-    assert detail_body["trace"]["steps"][1]["delta_prev_ms"] == 1000
-
-
-def test_runtime_traces_route_keeps_tracked_events_when_heartbeats_exceed_limit(
-    monkeypatch, tmp_path
-):
-    tz = timezone(timedelta(hours=8))
-    base_ts = datetime(2026, 3, 9, 9, 30, tzinfo=tz)
-    records = [
-        {
-            "event_type": "trace_step",
-            "trace_id": "trc_heartbeat_window",
-            "component": "guardian_strategy",
-            "runtime_node": "host:guardian",
-            "node": "receive_signal",
-            "ts": base_ts.isoformat(),
-        },
-        {
-            "event_type": "trace_step",
-            "trace_id": "trc_heartbeat_window",
-            "request_id": "req_heartbeat_window",
-            "component": "order_submit",
-            "runtime_node": "host:rear",
-            "node": "tracking_create",
-            "ts": (base_ts + timedelta(seconds=1)).isoformat(),
-        },
-    ]
-    records.extend(
-        {
-            "event_type": "heartbeat",
-            "component": "xt_consumer",
-            "runtime_node": "host:xt_consumer",
-            "node": "heartbeat",
-            "status": "info",
-            "ts": (base_ts + timedelta(seconds=10 + index)).isoformat(),
-        }
-        for index in range(2200)
-    )
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_mixed",
-        component="runtime_mix",
-        date="2026-03-09",
-        file_name="runtime_mix_2026-03-09_1.jsonl",
-        records=records,
-    )
-    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
-    client = _make_runtime_client()
-
-    resp = client.get("/api/runtime/traces")
-
-    body = resp.get_json()
-    assert resp.status_code == 200
-    assert [trace["trace_id"] for trace in body["traces"]] == ["trc_heartbeat_window"]
-
-
-def test_runtime_traces_route_filters_against_full_matched_set(monkeypatch, tmp_path):
-    records = [
-        {
-            "event_type": "trace_step",
-            "trace_id": f"trc_fullset_{index:04d}",
-            "component": "guardian_strategy",
-            "runtime_node": "host:guardian",
-            "node": "receive_signal",
-            "symbol": "000001",
-            "ts": f"2026-03-09T10:{index // 60:02d}:{index % 60:02d}+08:00",
-        }
-        for index in range(2105)
-    ]
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_guardian",
-        component="guardian_strategy",
-        date="2026-03-09",
-        file_name="guardian_strategy_2026-03-09_1.jsonl",
-        records=records,
-    )
-    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
-    client = _make_runtime_client()
-
-    resp = client.get("/api/runtime/traces?symbol=000001")
-
-    body = resp.get_json()
-    assert resp.status_code == 200
-    assert len(body["traces"]) == 2105
-    assert body["traces"][-1]["trace_id"] == "trc_fullset_0000"
-
-
-def test_runtime_routes_support_explicit_time_window(monkeypatch, tmp_path):
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_guardian",
-        component="guardian_strategy",
-        date="2026-03-08",
-        file_name="guardian_strategy_2026-03-08_1.jsonl",
-        records=[
-            {
-                "event_type": "trace_step",
-                "trace_id": "trc_prev_day",
-                "component": "guardian_strategy",
-                "runtime_node": "host:guardian",
-                "node": "receive_signal",
-                "ts": "2026-03-08T23:55:00+08:00",
-            }
-        ],
-    )
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_guardian",
-        component="guardian_strategy",
-        date="2026-03-09",
-        file_name="guardian_strategy_2026-03-09_1.jsonl",
-        records=[
-            {
-                "event_type": "trace_step",
-                "trace_id": "trc_today",
-                "component": "guardian_strategy",
-                "runtime_node": "host:guardian",
-                "node": "receive_signal",
-                "ts": "2026-03-09T10:00:00+08:00",
-            },
-            {
-                "event_type": "heartbeat",
-                "component": "xt_producer",
-                "runtime_node": "host:xt_producer",
-                "node": "heartbeat",
-                "status": "info",
-                "ts": "2026-03-09T10:05:00+08:00",
-            },
-        ],
-    )
-    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
-    client = _make_runtime_client()
-    query = (
-        "start_time=2026-03-09T00:00:00%2B08:00" "&end_time=2026-03-09T23:59:59%2B08:00"
-    )
-
-    traces_resp = client.get(f"/api/runtime/traces?{query}")
-    events_resp = client.get(f"/api/runtime/events?{query}")
-
-    traces_body = traces_resp.get_json()
-    events_body = events_resp.get_json()
-    assert traces_resp.status_code == 200
-    assert events_resp.status_code == 200
-    assert [item["trace_id"] for item in traces_body["traces"]] == ["trc_today"]
-    assert [item["ts"] for item in events_body["events"]] == [
-        "2026-03-09T10:00:00+08:00",
-        "2026-03-09T10:05:00+08:00",
+    assert body["components"] == [
+        "guardian_strategy",
+        "xt_report_ingest",
+        "order_submit",
     ]
 
 
-def test_runtime_traces_route_skips_symbol_name_lookup_without_opt_in(
-    monkeypatch, tmp_path
-):
-    import freshquant.runtime_observability.assembler as assembler
-
-    assembler._lookup_symbol_name_cached.cache_clear()
-    monkeypatch.setattr(
-        assembler,
-        "query_instrument_info",
-        lambda symbol: (_ for _ in ()).throw(AssertionError(symbol)),
-    )
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_guardian",
-        component="guardian_strategy",
-        date="2026-03-09",
-        file_name="guardian_strategy_2026-03-09_1.jsonl",
-        records=[
-            {
-                "event_type": "trace_step",
-                "trace_id": "trc_symbol_name_default",
-                "component": "guardian_strategy",
-                "runtime_node": "host:guardian",
-                "node": "receive_signal",
-                "symbol": "sz000001",
-                "ts": "2026-03-09T10:00:00+08:00",
-            }
-        ],
-    )
-    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+def test_runtime_health_summary_route_returns_component_summary(monkeypatch):
+    service = _FakeRuntimeQueryService()
+    _patch_runtime_query_service(monkeypatch, service)
     client = _make_runtime_client()
 
-    resp = client.get("/api/runtime/traces")
+    resp = client.get("/api/runtime/health/summary")
 
     body = resp.get_json()
     assert resp.status_code == 200
-    assert body["traces"][0]["symbol"] == "000001"
-    assert body["traces"][0]["symbol_name"] is None
+    assert body["components"][0]["component"] == "guardian_strategy"
+    assert body["components"][0]["issue_trace_count"] == 2
 
 
-def test_runtime_traces_route_supports_explicit_symbol_name_opt_in(
-    monkeypatch, tmp_path
-):
-    import freshquant.runtime_observability.assembler as assembler
-
-    assembler._lookup_symbol_name_cached.cache_clear()
-    monkeypatch.setattr(
-        assembler,
-        "query_instrument_info",
-        lambda symbol: {"name": "平安银行"} if symbol == "000001" else None,
-    )
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_guardian",
-        component="guardian_strategy",
-        date="2026-03-09",
-        file_name="guardian_strategy_2026-03-09_1.jsonl",
-        records=[
-            {
-                "event_type": "trace_step",
-                "trace_id": "trc_symbol_name_opt_in",
-                "component": "guardian_strategy",
-                "runtime_node": "host:guardian",
-                "node": "receive_signal",
-                "symbol": "sz000001",
-                "ts": "2026-03-09T10:00:00+08:00",
-            }
-        ],
-    )
-    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
+def test_runtime_traces_route_returns_summary_page(monkeypatch):
+    service = _FakeRuntimeQueryService()
+    _patch_runtime_query_service(monkeypatch, service)
     client = _make_runtime_client()
 
-    traces_resp = client.get("/api/runtime/traces?include_symbol_name=1")
-    detail_resp = client.get(
-        "/api/runtime/traces/trc_symbol_name_opt_in?include_symbol_name=1"
-    )
-
-    traces_body = traces_resp.get_json()
-    detail_body = detail_resp.get_json()
-    assert traces_resp.status_code == 200
-    assert detail_resp.status_code == 200
-    assert traces_body["traces"][0]["symbol_name"] == "平安银行"
-    assert detail_body["trace"]["symbol_name"] == "平安银行"
-
-
-def test_runtime_events_route_supports_explicit_symbol_name_opt_in(
-    monkeypatch, tmp_path
-):
-    import freshquant.runtime_observability.assembler as assembler
-
-    assembler._lookup_symbol_name_cached.cache_clear()
-    monkeypatch.setattr(
-        assembler,
-        "query_instrument_info",
-        lambda symbol: {"name": "平安银行"} if symbol == "000001" else None,
-    )
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_rear",
-        component="order_submit",
-        date="2026-03-09",
-        file_name="order_submit_2026-03-09_1.jsonl",
-        records=[
-            {
-                "event_type": "trace_step",
-                "trace_id": "trc_event_symbol_name_opt_in",
-                "component": "order_submit",
-                "runtime_node": "host:rear",
-                "node": "tracking_create",
-                "symbol": "sz000001",
-                "ts": "2026-03-09T10:00:00+08:00",
-            }
-        ],
-    )
-    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
-    client = _make_runtime_client()
-
-    resp = client.get("/api/runtime/events?include_symbol_name=1")
+    resp = client.get("/api/runtime/traces?component=guardian_strategy&limit=2")
 
     body = resp.get_json()
     assert resp.status_code == 200
-    assert body["events"][0]["symbol"] == "sz000001"
-    assert body["events"][0]["symbol_name"] == "平安银行"
+    assert body["items"][0]["trace_key"] == "trace__trc_1"
+    assert body["items"][0]["trace_status"] == "failed"
+    assert body["next_cursor"]["trace_key"] == "trace__trc_0"
+
+
+def test_runtime_trace_detail_route_returns_summary_and_first_step_page(monkeypatch):
+    service = _FakeRuntimeQueryService()
+    _patch_runtime_query_service(monkeypatch, service)
+    client = _make_runtime_client()
+
+    resp = client.get("/api/runtime/traces/trace__trc_1?step_limit=3")
+
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["trace"]["trace_id"] == "trc_1"
+    assert body["steps"][1]["error_type"] == "ValueError"
+    assert body["steps_next_cursor"]["event_id"] == "evt_0"
+
+
+def test_runtime_trace_steps_route_returns_paged_steps(monkeypatch):
+    service = _FakeRuntimeQueryService()
+    _patch_runtime_query_service(monkeypatch, service)
+    client = _make_runtime_client()
+
+    resp = client.get(
+        "/api/runtime/traces/trace__trc_1/steps"
+        "?limit=2&cursor_ts=2026-03-20T09:59:58%2B08:00&cursor_event_id=evt_0"
+    )
+
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["items"][0]["event_id"] == "evt_3"
+    assert body["next_cursor"] is None
+
+
+def test_runtime_events_route_returns_event_page(monkeypatch):
+    service = _FakeRuntimeQueryService()
+    _patch_runtime_query_service(monkeypatch, service)
+    client = _make_runtime_client()
+
+    resp = client.get("/api/runtime/events?component=xt_report_ingest&limit=1")
+
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["items"][0]["session_key"] == "request__req_1__m__202603201010"
+    assert body["items"][0]["raw_line"] == 1
 
 
 def test_runtime_raw_file_tail_route(monkeypatch, tmp_path):
@@ -395,93 +291,10 @@ def test_runtime_raw_file_tail_route(monkeypatch, tmp_path):
     assert body["records"][0]["trace_id"] == "trc_1"
 
 
-def test_runtime_events_route_keeps_xt_component_heartbeats_visible(
-    monkeypatch, tmp_path
-):
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_xt_producer",
-        component="xt_producer",
-        date="2026-03-09",
-        file_name="xt_producer_2026-03-09_1.jsonl",
-        records=[
-            {
-                "event_type": "trace_step",
-                "component": "order_submit",
-                "runtime_node": "host:rear",
-                "node": "tracking_create",
-                "trace_id": "trc_ignore",
-                "ts": "2026-03-09T09:59:59+08:00",
-            },
-            {
-                "event_type": "bootstrap",
-                "component": "xt_producer",
-                "runtime_node": "host:xt_producer",
-                "node": "bootstrap",
-                "status": "info",
-                "ts": "2026-03-09T10:00:00+08:00",
-            },
-            {
-                "event_type": "heartbeat",
-                "component": "xt_producer",
-                "runtime_node": "host:xt_producer",
-                "node": "heartbeat",
-                "status": "info",
-                "metrics": {"connected": 1, "subscribed_codes": 20},
-                "ts": "2026-03-09T10:00:10+08:00",
-            },
-        ],
-    )
-    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
-    client = _make_runtime_client()
+def _patch_runtime_query_service(monkeypatch, service):
+    import freshquant.rear.runtime.routes as routes
 
-    resp = client.get("/api/runtime/events?component=xt_producer")
-
-    body = resp.get_json()
-    assert resp.status_code == 200
-    assert [event["node"] for event in body["events"]] == ["bootstrap", "heartbeat"]
-    assert body["events"][-1]["event_type"] == "heartbeat"
-    assert body["events"][-1]["metrics"]["connected"] == 1
-
-
-def test_runtime_traces_route_handles_large_repeated_strong_id_groups(
-    monkeypatch, tmp_path
-):
-    tz = timezone(timedelta(hours=8))
-    base_ts = datetime(2026, 3, 20, 9, 30, tzinfo=tz)
-    repeated_request_id = "req_repeated_depth_guard"
-    repeated_order_id = "ord_repeated_depth_guard"
-    records = [
-        {
-            "event_type": "trace_step",
-            "component": "xt_report_ingest",
-            "runtime_node": "host:xt_report_ingest",
-            "node": "report_receive" if index % 2 == 0 else "order_match",
-            "request_id": repeated_request_id,
-            "internal_order_id": repeated_order_id,
-            "ts": (base_ts + timedelta(milliseconds=index)).isoformat(),
-        }
-        for index in range(1500)
-    ]
-    _write_events(
-        tmp_path,
-        runtime_node_path="host_xt_report_ingest",
-        component="xt_report_ingest",
-        date="2026-03-20",
-        file_name="xt_report_ingest_2026-03-20_1.jsonl",
-        records=records,
-    )
-    monkeypatch.setenv("FQ_RUNTIME_LOG_DIR", str(tmp_path))
-    client = _make_runtime_client()
-
-    resp = client.get("/api/runtime/traces")
-
-    body = resp.get_json()
-    assert resp.status_code == 200
-    assert len(body["traces"]) == 1
-    assert body["traces"][0]["request_ids"] == [repeated_request_id]
-    assert body["traces"][0]["internal_order_ids"] == [repeated_order_id]
-    assert body["traces"][0]["step_count"] == 1500
+    monkeypatch.setattr(routes, "get_runtime_query_service", lambda: service)
 
 
 def _write_events(

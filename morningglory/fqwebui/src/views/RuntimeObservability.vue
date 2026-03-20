@@ -200,6 +200,9 @@
                   <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.break_reason || '-'">{{ row.break_reason || '-' }}</span>
                 </button>
               </div>
+              <div v-if="traceNextCursor" class="runtime-load-more">
+                <el-button plain :loading="loading.traces" @click="loadMoreTraces">加载更多 Trace</el-button>
+              </div>
               <div v-else class="runtime-empty-panel">
                 <strong>暂无最近 Trace</strong>
               </div>
@@ -248,6 +251,9 @@
                 <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.summary || '-'">{{ row.summary || '-' }}</span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.metrics_summary || '-'">{{ row.metrics_summary || '-' }}</span>
               </button>
+            </div>
+            <div v-if="eventNextCursor" class="runtime-load-more">
+              <el-button plain :loading="loading.events" @click="loadMoreEvents">加载更多 Event</el-button>
             </div>
             <div v-else class="runtime-empty-panel">
               <strong>{{ activeComponent ? `${activeComponent} 暂无最近事件` : '先选择组件查看 Event' }}</strong>
@@ -396,6 +402,9 @@
                   <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.context_summary || '-' }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.error_summary || '-' }}</span>
                 </button>
+              </div>
+              <div v-if="traceStepsNextCursor" class="runtime-load-more runtime-load-more--detail">
+                <el-button plain :loading="loading.traceSteps" @click="loadMoreTraceSteps">加载更早步骤</el-button>
               </div>
               <div v-else class="trace-empty">当前过滤条件下没有节点</div>
 
@@ -914,17 +923,30 @@ import {
 const loading = reactive({
   overview: false,
   traces: false,
+  events: false,
+  traceDetail: false,
+  traceSteps: false,
   raw: false,
 })
+
+const TRACE_PAGE_SIZE = 60
+const EVENT_PAGE_SIZE = 120
+const TRACE_STEP_PAGE_SIZE = 160
 
 const query = reactive(createTraceQueryState())
 const draftQuery = reactive(createTraceQueryState())
 
+const healthSummaryItems = ref([])
 const healthCards = ref([])
 const traces = ref([])
+const traceNextCursor = ref(null)
 const events = ref([])
+const eventNextCursor = ref(null)
 const timeRange = ref(buildTodayTimeRange())
 const selectedTrace = ref(null)
+const selectedTracePayload = ref(null)
+const traceSteps = ref([])
+const traceStepsNextCursor = ref(null)
 const selectedStep = ref(null)
 const selectedEvent = ref(null)
 const activeView = ref('traces')
@@ -1086,10 +1108,18 @@ const normalizeTimeRangeState = (value) => {
   return buildTodayTimeRange()
 }
 
-const buildEventRequestParams = () => buildBoardScopedQuery(query, boardFilter, timeRange.value)
+const buildTraceRequestParams = () => ({
+  ...buildTraceQuery(query, timeRange.value),
+  include_symbol_name: 1,
+  limit: TRACE_PAGE_SIZE,
+})
+const buildEventRequestParams = () => ({
+  ...buildBoardScopedQuery(query, boardFilter, timeRange.value),
+  include_symbol_name: 1,
+  limit: EVENT_PAGE_SIZE,
+})
 const buildEventRequestKey = () => JSON.stringify({
   ...buildEventRequestParams(),
-  include_symbol_name: 1,
 })
 const timeRangeDisplayLabel = computed(() => formatTimeRangeLabel(timeRange.value))
 
@@ -1103,7 +1133,7 @@ const traceKindOptions = computed(() => buildTraceKindOptions(hydratedTraces.val
 const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
 const issuePriorityCards = computed(() => buildIssuePriorityCards(visibleTraces.value))
 const traceLedgerRows = computed(() => buildTraceLedgerRows(visibleTraces.value))
-const componentSidebarItems = computed(() => buildComponentSidebarItems(hydratedTraces.value, healthCards.value))
+const componentSidebarItems = computed(() => buildComponentSidebarItems(hydratedTraces.value, healthSummaryItems.value))
 const activeComponent = computed(() => String(boardFilter.component || '').trim())
 const componentEventFeed = computed(() => {
   if (!activeComponent.value) return []
@@ -1144,7 +1174,11 @@ const filterChips = computed(() => {
   return chips
 })
 
-const selectedTraceDetail = computed(() => buildTraceDetail(selectedTrace.value || {}))
+const selectedTraceDetail = computed(() => buildTraceDetail({
+  ...(selectedTrace.value || {}),
+  ...(selectedTracePayload.value?.trace || {}),
+  steps: traceSteps.value,
+}))
 const guardianTrace = computed(() => selectedTraceDetail.value.guardian_trace || null)
 const traceSummaryMeta = computed(() => buildTraceSummaryMeta(selectedTraceDetail.value))
 const issueSummary = computed(() => buildIssueSummary(selectedTraceDetail.value))
@@ -1731,6 +1765,25 @@ const summarizeRequestError = (fallback, error) => {
   return detail ? `${fallback}：${detail}` : fallback
 }
 
+const mergeByKey = (items = [], keyField = 'trace_key') => {
+  const merged = []
+  const seen = new Set()
+  for (const item of items) {
+    const key = String(item?.[keyField] || item?.trace_id || item?.event_id || '').trim()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    merged.push(item)
+  }
+  return merged
+}
+
+const resetSelectedTraceDetailState = () => {
+  selectedTracePayload.value = null
+  traceSteps.value = []
+  traceStepsNextCursor.value = null
+  selectedStep.value = null
+}
+
 const loadOverview = async () => {
   loading.overview = true
   try {
@@ -1744,9 +1797,8 @@ const loadOverview = async () => {
     ])
     const errors = []
     if (healthResult.status === 'fulfilled') {
-      healthCards.value = buildHealthCards(
-        readApiPayload(healthResult.value, 'components', []),
-      )
+      healthSummaryItems.value = readApiPayload(healthResult.value, 'components', [])
+      healthCards.value = buildHealthCards(healthSummaryItems.value)
     } else {
       errors.push(summarizeRequestError('健康摘要加载失败', healthResult.reason))
     }
@@ -1764,19 +1816,33 @@ const loadOverview = async () => {
 
 const loadTraces = async (options = {}) => {
   const suppressError = Boolean(options?.suppressError)
+  const append = Boolean(options?.append)
   loading.traces = true
   try {
     if (!suppressError) pageError.value = ''
+    const cursor = append ? traceNextCursor.value : null
     const response = await runtimeObservabilityApi.listTraces({
-      ...buildTraceQuery(query, timeRange.value),
-      include_symbol_name: 1,
+      ...buildTraceRequestParams(),
+      ...(cursor?.ts ? { cursor_ts: cursor.ts } : {}),
+      ...(cursor?.trace_key ? { cursor_trace_key: cursor.trace_key } : {}),
     })
-    traces.value = readApiPayload(response, 'traces', [])
-    const currentTraceRow = {
-      trace_key: selectedTrace.value?.trace_key,
-      trace_id: selectedTrace.value?.trace_id,
+    const items = readApiPayload(response, 'items', [])
+    const nextCursor = readApiPayload(response, 'next_cursor', null)
+    traces.value = append
+      ? mergeByKey([...traces.value, ...items], 'trace_key')
+      : items
+    traceNextCursor.value = nextCursor
+    if (!append) {
+      const currentTraceRow = {
+        trace_key: selectedTrace.value?.trace_key,
+        trace_id: selectedTrace.value?.trace_id,
+      }
+      const nextSelected = findTraceByRow(traces.value, currentTraceRow) || traces.value[0] || null
+      if ((nextSelected?.trace_key || '') !== (selectedTrace.value?.trace_key || '')) {
+        resetSelectedTraceDetailState()
+      }
+      selectedTrace.value = nextSelected
     }
-    selectedTrace.value = findTraceByRow(hydratedTraces.value, currentTraceRow) || hydratedTraces.value[0] || null
   } catch (error) {
     if (!suppressError) {
       pageError.value = summarizeRequestError('Trace 列表加载失败', error)
@@ -1787,20 +1853,33 @@ const loadTraces = async (options = {}) => {
   }
 }
 
+const loadMoreTraces = async () => {
+  if (!traceNextCursor.value || loading.traces) return
+  await loadTraces({ append: true })
+}
+
 const loadEvents = async (options = {}) => {
   const suppressError = Boolean(options?.suppressError)
+  const append = Boolean(options?.append)
   const loadToken = eventLoadToken + 1
+  const cursor = append ? eventNextCursor.value : null
   const params = {
     ...buildEventRequestParams(),
-    include_symbol_name: 1,
+    ...(cursor?.ts ? { cursor_ts: cursor.ts } : {}),
+    ...(cursor?.event_id ? { cursor_event_id: cursor.event_id } : {}),
   }
-  const requestKey = JSON.stringify(params)
+  const requestKey = JSON.stringify(buildEventRequestParams())
   eventLoadToken = loadToken
+  loading.events = true
   try {
     if (!suppressError) pageError.value = ''
     const response = await runtimeObservabilityApi.listEvents(params)
     if (loadToken !== eventLoadToken) return
-    events.value = readApiPayload(response, 'events', [])
+    const items = readApiPayload(response, 'items', [])
+    events.value = append
+      ? mergeByKey([...events.value, ...items], 'event_id')
+      : items
+    eventNextCursor.value = readApiPayload(response, 'next_cursor', null)
     lastLoadedEventQueryKey.value = requestKey
   } catch (error) {
     if (loadToken !== eventLoadToken) return
@@ -1808,6 +1887,68 @@ const loadEvents = async (options = {}) => {
       pageError.value = summarizeRequestError('Event 列表加载失败', error)
     }
     throw error
+  } finally {
+    if (loadToken === eventLoadToken) {
+      loading.events = false
+    }
+  }
+}
+
+const loadMoreEvents = async () => {
+  if (!eventNextCursor.value || loading.events) return
+  await loadEvents({ append: true })
+}
+
+const loadTraceDetail = async (traceRow, options = {}) => {
+  const suppressError = Boolean(options?.suppressError)
+  const targetTrace = traceRow || selectedTrace.value
+  const traceKey = String(targetTrace?.trace_key || targetTrace?.trace_id || '').trim()
+  if (!traceKey) {
+    resetSelectedTraceDetailState()
+    return
+  }
+  loading.traceDetail = true
+  try {
+    if (!suppressError) pageError.value = ''
+    const response = await runtimeObservabilityApi.getTraceDetail(traceKey, {
+      ...buildTimeRangeQuery(timeRange.value),
+      step_limit: TRACE_STEP_PAGE_SIZE,
+    })
+    const trace = readApiPayload(response, 'trace', null)
+    const steps = readApiPayload(response, 'steps', [])
+    selectedTracePayload.value = { trace }
+    traceSteps.value = Array.isArray(steps) ? steps : []
+    traceStepsNextCursor.value = readApiPayload(response, 'steps_next_cursor', null)
+  } catch (error) {
+    resetSelectedTraceDetailState()
+    if (!suppressError) {
+      pageError.value = summarizeRequestError('Trace 详情加载失败', error)
+    }
+    throw error
+  } finally {
+    loading.traceDetail = false
+  }
+}
+
+const loadMoreTraceSteps = async () => {
+  const targetTraceKey = String(selectedTrace.value?.trace_key || selectedTrace.value?.trace_id || '').trim()
+  if (!targetTraceKey || !traceStepsNextCursor.value || loading.traceSteps) return
+  loading.traceSteps = true
+  try {
+    const response = await runtimeObservabilityApi.listTraceSteps(targetTraceKey, {
+      ...buildTimeRangeQuery(timeRange.value),
+      limit: TRACE_STEP_PAGE_SIZE,
+      cursor_ts: traceStepsNextCursor.value?.ts,
+      cursor_event_id: traceStepsNextCursor.value?.event_id,
+    })
+    const items = readApiPayload(response, 'items', [])
+    traceSteps.value = [...items, ...traceSteps.value]
+    traceStepsNextCursor.value = readApiPayload(response, 'next_cursor', null)
+  } catch (error) {
+    pageError.value = summarizeRequestError('Trace 步骤加载失败', error)
+    throw error
+  } finally {
+    loading.traceSteps = false
   }
 }
 
@@ -1833,8 +1974,13 @@ const resetAdvancedFilter = () => {
 const handleTraceClick = async (row) => {
   const selected = findTraceByRow(hydratedTraces.value, row)
   if (!selected) return
+  const previousTraceKey = selectedTrace.value?.trace_key || selectedTrace.value?.trace_id || ''
   selectedTrace.value = selected
   activeTraceDetailTab.value = 'steps'
+  const nextTraceKey = selected.trace_key || selected.trace_id || ''
+  if (previousTraceKey === nextTraceKey && !selectedTracePayload.value?.trace?.trace_key) {
+    await loadTraceDetail(selected, { suppressError: true })
+  }
 }
 
 const handleIssueCardClick = async (card) => {
@@ -2133,6 +2279,11 @@ watch(activeView, async (view, previousView) => {
 })
 
 watch(visibleTraces, (items) => {
+  if (items.length === 0) {
+    selectedTrace.value = null
+    resetSelectedTraceDetailState()
+    return
+  }
   const currentRow = {
     trace_key: selectedTrace.value?.trace_key,
     trace_id: selectedTrace.value?.trace_id,
@@ -2140,9 +2291,24 @@ watch(visibleTraces, (items) => {
   selectedTrace.value = findTraceByRow(items, currentRow) || items[0] || null
 }, { immediate: true })
 
-watch(() => selectedTrace.value?.trace_id || selectedTrace.value?.trace_key || '', () => {
-  activeTraceDetailTab.value = 'steps'
-})
+watch(
+  () => [
+    selectedTrace.value?.trace_key || selectedTrace.value?.trace_id || '',
+    ...normalizeTimeRangeState(timeRange.value),
+  ],
+  async ([traceKey], [previousTraceKey] = []) => {
+    activeTraceDetailTab.value = 'steps'
+    if (!traceKey) {
+      resetSelectedTraceDetailState()
+      return
+    }
+    if (traceKey === previousTraceKey && selectedTracePayload.value?.trace?.trace_key === traceKey) {
+      return
+    }
+    await loadTraceDetail(selectedTrace.value, { suppressError: true })
+  },
+  { immediate: true },
+)
 
 watch(rawRecords, () => {
   rawRecordRefs.value = {}
@@ -3389,6 +3555,17 @@ onBeforeUnmount(() => {
 
 .runtime-detail-panel__toolbar {
   margin-bottom: 10px;
+}
+
+.runtime-load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.runtime-load-more--detail {
+  margin-top: 0;
+  margin-bottom: 12px;
 }
 
 .trace-ledger-toolbar {

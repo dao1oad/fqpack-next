@@ -4,6 +4,7 @@
 
 - 代码改动后，受影响模块必须重新部署；只合并不部署不算完成。
 - Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
+- Runtime Observability 的热查询当前依赖 `fq_runtime_clickhouse` 与 `fq_runtime_indexer`；只重建 API / Web 但不恢复这两个服务，不算运行观测部署完成。
 - FreshQuant / QUANTAXIS 相关 Docker 服务在 `docker/compose.parallel.yaml` 内部固定使用 `fq_mongodb:27017`；不要只覆写 host 而保留宿主机默认 `27027`
 - 仓库根目录 legacy 批处理部署脚本 `deploy.bat` / `deploy_rear.bat` 已移除；当前只保留 `docker compose` + `script/fqnext_host_runtime_ctl.ps1` 这套正式入口。
 - Docker 侧正式入口优先使用 `powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 ...`；该脚本会自动解析主工作树 `.env` / runtime log 目录、注入当前 `HEAD` 到镜像 label、开启 BuildKit。当前默认只使用本地缓存 / 本机构建；只有显式设置 `FQ_ENABLE_REMOTE_CACHE_PULL=1` 时，才允许回到 GHCR 远端缓存 pull 路径。正式自动 deploy 会额外设置 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，强制 production 机基于本机 deploy mirror 本地构建。
@@ -37,6 +38,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 - 这条命令只用于显式全量重建；日常 selective deploy 统一优先走 `script/fq_apply_deploy_plan.ps1`
 - Docker 构建默认启用 BuildKit 本地缓存；未显式设置时，`script/docker_parallel_compose.ps1` 会把 `FQ_DOCKER_BUILD_CACHE_ROOT` 设为仓库下的 `.artifacts/docker-build-cache`
+- Runtime Observability 的 ClickHouse 默认通过 `FQ_RUNTIME_CLICKHOUSE_USER/FQ_RUNTIME_CLICKHOUSE_PASSWORD` 创建并使用专用查询用户；不要再让 API / indexer 走无凭证 `default`
 - 当前默认不会主动拉取 GHCR 远端缓存；只有显式设置 `FQ_ENABLE_REMOTE_CACHE_PULL=1` 时，`docker_parallel_compose.ps1` 才会进入 `remote_cached` 分支并执行 `docker pull`
 - `main` 合并后的镜像发布 workflow：`.github/workflows/docker-images.yml`
 - `main` 合并后的正式自动部署 workflow：`.github/workflows/deploy-production.yml`
@@ -89,6 +91,12 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -Change
 
 ```powershell
 docker compose -f docker/compose.parallel.yaml up -d --build fq_apiserver fq_webui
+```
+
+### 运行观测查询仓与索引器
+
+```powershell
+docker compose -f docker/compose.parallel.yaml up -d fq_runtime_clickhouse fq_runtime_indexer fq_apiserver fq_webui
 ```
 
 ### 只重建 TradingAgents
@@ -152,6 +160,7 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | 变更路径 | 需要部署的模块 | 最低动作 |
 | --- | --- | --- |
 | `freshquant/rear/**` | API Server | 重建 `fq_apiserver` 容器或重启 API 进程 |
+| `freshquant/runtime_observability/**` | Runtime Observability API / ClickHouse / indexer | 重建 `fq_apiserver`，并确认 `fq_runtime_clickhouse`、`fq_runtime_indexer` 已恢复 |
 | `freshquant/order_management/**` | 订单管理、API、broker/ingest 相关宿主机进程 | 重建 API；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/position_management/**` | 仓位管理（宿主机实际由统一 `xt_account_sync.worker` 承担） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -BridgeIfServiceUnavailable` |
 | `freshquant/xt_account_sync/**` | XT 主动查询统一 worker（仓位管理 + 订单管理） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
@@ -175,6 +184,7 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 ```powershell
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/health/summary
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18123/ping
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/gantt/plates?provider=xgb
 ```
 
@@ -231,6 +241,8 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 - 如果本轮改了 Shouban30 工作区或 `sync-to-tdx` 语义，确认 `fq_apiserver` 已挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}`，并实测 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk` 被更新。
 - XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积。
 - 如果改了运行观测或 XTData runtime 埋点，确认 `/runtime-observability` 页面能看到 `xt_producer` / `xt_consumer` 的 5 分钟 heartbeat 与关键指标，而不是只看到启动事件。
+- 如果改了 `freshquant/runtime_observability/**`、`freshquant/rear/runtime/**` 或运行观测前端，确认 `fq_runtime_clickhouse` 与 `fq_runtime_indexer` 都是 `Running/healthy`，且 `/api/runtime/traces` 能返回分页摘要而不是 5xx。
+- 如果 runtime API/indexer 报 ClickHouse `403`, 先核对 `fq_runtime_clickhouse` 是否带了 `CLICKHOUSE_USER/CLICKHOUSE_PASSWORD`，以及 `fq_apiserver` / `fq_runtime_indexer` 是否注入了同一组 `FQ_RUNTIME_CLICKHOUSE_USER/FQ_RUNTIME_CLICKHOUSE_PASSWORD`
 - TPSL / XT account sync worker 修改后，进程没有“启动即退”。
 - 宿主机 deployment surface 修改后，`fqnext-supervisord` 保持 `Running`，且 `script/fqnext_host_runtime_ctl.ps1 -Mode Status` 能返回目标 program 为 `RUNNING`。
 - Symphony 修改后，`Merging -> Global Stewardship` handoff、批量 deploy 判定和 follow-up issue only 规则仍然可用。

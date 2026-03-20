@@ -27,6 +27,8 @@ Guardian 是当前 A 股实时策略层。它负责把 XTData consumer 产生的
 
 `bar update -> calculate_guardian_signals_latest -> save_a_stock_signal -> stock_signals -> StrategyGuardian.on_signal -> buy/sell decision -> submit_guardian_order -> OrderSubmitService`
 
+当前正式 Guardian 事件链会在入口直接过滤 `buy_zs_huila`。该信号底层仍可被 `calculate_guardian_signals_latest` 计算，但不会继续写入 `stock_signals`、页面展示或 `guardian_strategy` runtime trace。
+
 买入路径分为两类：
 
 - 持仓加仓
