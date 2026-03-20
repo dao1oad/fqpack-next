@@ -22,6 +22,7 @@ from freshquant.util.code import normalize_to_base_code
 from freshquant.util.period import to_backend_period, to_frontend_period
 
 strategy = StrategyGuardian()
+DISABLED_GUARDIAN_SIGNAL_TYPES = {"buy_zs_huila"}
 
 
 def monitor_stock_zh_a_min_event_driven() -> None:
@@ -100,6 +101,8 @@ def monitor_stock_zh_a_min_event_driven() -> None:
                 return
 
             for s in signals:
+                if s.signal_type in DISABLED_GUARDIAN_SIGNAL_TYPES:
+                    continue
                 save_a_stock_signal(
                     code,
                     base_code,
