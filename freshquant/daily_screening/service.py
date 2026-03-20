@@ -12,6 +12,7 @@ import pendulum
 from freshquant.daily_screening.pipeline_service import DailyScreeningPipelineService
 from freshquant.daily_screening.session_store import DailyScreeningSessionStore
 from freshquant.db import DBfreshquant
+from freshquant.pre_pool_service import PrePoolService
 from freshquant.screening.signal_types import CHANLUN_SIGNAL_TYPES
 
 FULL_CLXS_MODEL_OPTS: list[int] = list(range(10001, 10013))
@@ -66,13 +67,39 @@ CLS_GROUP_DEFINITIONS: list[dict[str, Any]] = [
 ]
 
 
-def _save_pre_pool(**kwargs) -> None:
-    from freshquant.signal.a_stock_common import save_a_stock_pre_pools
+def _pre_pool_source_from_remark(remark: Any) -> str:
+    text = str(remark or "").strip()
+    if text.startswith("daily-screening:"):
+        return "daily-screening"
+    return text or "manual"
 
-    expire_at_days = int(kwargs.pop("expire_at_days", 89) or 89)
-    save_a_stock_pre_pools(
+
+def _save_pre_pool(**kwargs) -> None:
+    payload = dict(kwargs)
+    expire_at_days = int(payload.pop("expire_at_days", 89) or 89)
+    code = str(payload.pop("code", "") or "").strip()
+    category = str(payload.pop("category", "") or "").strip()
+    dt = payload.pop("dt", None)
+    name = payload.pop("name", None)
+    symbol = payload.pop("symbol", None)
+    stop_loss_price = payload.pop("stop_loss_price", None)
+    remark = str(payload.pop("remark", "") or "").strip()
+    extra = {key: value for key, value in payload.items() if value is not None}
+    if not code:
+        raise ValueError("code required")
+    if not category:
+        raise ValueError("category required")
+    PrePoolService(db=DBfreshquant).upsert_code(
+        code=code,
+        name=name,
+        symbol=symbol,
+        source=_pre_pool_source_from_remark(remark),
+        category=category,
+        added_at=dt,
         expire_at=pendulum.now().add(days=expire_at_days),
-        **kwargs,
+        stop_loss_price=stop_loss_price,
+        source_remark=remark,
+        extra=extra,
     )
 
 
@@ -146,12 +173,21 @@ class DailyScreeningService:
             return None
 
     def get_schema(self) -> dict:
+        pre_pool_rows = PrePoolService(db=self.db).list_codes()
         categories = sorted(
-            {str(doc.get("category") or "").strip() for doc in self._find_pre_pools({})}
+            {
+                str(category or "").strip()
+                for row in pre_pool_rows
+                for category in (row.get("categories") or [row.get("category")])
+            }
             - {""}
         )
         remarks = sorted(
-            {str(doc.get("remark") or "").strip() for doc in self._find_pre_pools({})}
+            {
+                str(remark or "").strip()
+                for row in pre_pool_rows
+                for remark in self._pre_pool_remarks(row)
+            }
             - {""}
         )
         return {
@@ -772,20 +808,19 @@ class DailyScreeningService:
         run_id: str | None = None,
         limit: int = 200,
     ) -> dict:
-        query = {}
+        rows = PrePoolService(db=self.db).list_codes(
+            category=str(category).strip() or None if category is not None else None
+        )
         if remark:
-            query["remark"] = str(remark).strip()
-        if category:
-            query["category"] = str(category).strip()
-        rows = self._find_pre_pools(query)
-        if run_id:
             rows = [
-                row
-                for row in rows
-                if str((row.get("extra") or {}).get("screening_run_id") or "") == run_id
+                row for row in rows if self._pre_pool_matches_remark(row, str(remark).strip())
             ]
+        if run_id:
+            rows = [row for row in rows if self._pre_pool_matches_run_id(row, run_id)]
         rows.sort(
-            key=lambda item: self._sort_key(item.get("datetime")),
+            key=lambda item: self._sort_key(
+                item.get("updated_at") or item.get("datetime")
+            ),
             reverse=True,
         )
         return {"rows": [self._format_pre_pool_row(row) for row in rows[:limit]]}
@@ -829,20 +864,11 @@ class DailyScreeningService:
             query["category"] = str(payload["category"]).strip()
         if payload.get("remark"):
             query["remark"] = str(payload["remark"]).strip()
-        collection = self.db["stock_pre_pools"]
-        if hasattr(collection, "delete_many"):
-            result = collection.delete_many(query)
-            deleted_count = int(getattr(result, "deleted_count", 0))
+        row = self._find_one_pre_pool(query)
+        if row is None:
+            deleted_count = 0
         else:
-            before = self._find_pre_pools({})
-            remaining = [
-                row
-                for row in before
-                if not all(row.get(key) == value for key, value in query.items())
-            ]
-            deleted_count = len(before) - len(remaining)
-            if hasattr(collection, "docs"):
-                collection.docs = remaining
+            deleted_count = 1 if PrePoolService(db=self.db).delete_code(code) else 0
         return {"deleted_count": deleted_count}
 
     def iter_sse(self, run_id: str, *, after: int = 0, once: bool = False):
@@ -2397,6 +2423,17 @@ class DailyScreeningService:
         return [dict(row) for row in list(rows)]
 
     def _find_one_pre_pool(self, query: dict) -> dict | None:
+        code = self._normalize_code(query.get("code"))
+        if code:
+            row = PrePoolService(db=self.db).get_code(code)
+            if row is not None:
+                category = str(query.get("category") or "").strip()
+                if category and category not in set(row.get("categories") or []):
+                    return None
+                remark = str(query.get("remark") or "").strip()
+                if remark and not self._pre_pool_matches_remark(row, remark):
+                    return None
+                return self._format_pre_pool_row(row)
         collection = self.db["stock_pre_pools"]
         if hasattr(collection, "find_one"):
             row = collection.find_one(query)
@@ -2404,15 +2441,77 @@ class DailyScreeningService:
         rows = self._find_pre_pools(query)
         return rows[0] if rows else None
 
-    def _format_pre_pool_row(self, row: dict) -> dict:
+    def _pre_pool_remarks(self, row: dict) -> list[str]:
+        remarks = {str(row.get("remark") or "").strip()} - {""}
+        for membership in list(row.get("memberships") or []):
+            remark = self._membership_remark(membership)
+            if remark:
+                remarks.add(remark)
+        return sorted(remarks)
+
+    def _membership_remark(self, membership: dict) -> str:
+        source = str(membership.get("source") or "").strip()
+        extra = membership.get("extra") or {}
+        source_remark = str(
+            extra.get("source_remark") or extra.get("remark") or ""
+        ).strip()
+        if source_remark:
+            return source_remark
+        if source == "daily-screening":
+            branch = str(
+                extra.get("screening_branch")
+                or extra.get("screening_model")
+                or membership.get("category")
+                or "screening"
+            ).strip()
+            return f"daily-screening:{branch}"
+        return source
+
+    def _pre_pool_matches_remark(self, row: dict, remark: str) -> bool:
+        return str(remark or "").strip() in set(self._pre_pool_remarks(row))
+
+    def _pre_pool_matches_run_id(self, row: dict, run_id: str) -> bool:
+        target = str(run_id or "").strip()
+        if not target:
+            return True
         extra = row.get("extra") or {}
+        if str(extra.get("screening_run_id") or "").strip() == target:
+            return True
+        for membership in list(row.get("memberships") or []):
+            membership_extra = membership.get("extra") or {}
+            if str(membership_extra.get("screening_run_id") or "").strip() == target:
+                return True
+        return False
+
+    def _primary_pre_pool_membership(self, row: dict) -> dict:
+        memberships = list(row.get("memberships") or [])
+        if not memberships:
+            return {}
+        return sorted(
+            memberships,
+            key=lambda item: (
+                self._sort_key(item.get("added_at")),
+                str(item.get("source") or "").strip(),
+                str(item.get("category") or "").strip(),
+            ),
+            reverse=True,
+        )[0]
+
+    def _format_pre_pool_row(self, row: dict) -> dict:
+        primary = self._primary_pre_pool_membership(row)
+        extra = row.get("extra") or primary.get("extra") or {}
+        remarks = self._pre_pool_remarks(row)
         return {
             "code": row.get("code"),
             "symbol": self._infer_symbol(row.get("code")),
             "name": row.get("name") or "",
-            "category": row.get("category") or "",
-            "remark": row.get("remark") or "",
-            "datetime": self._jsonable(row.get("datetime")),
+            "category": row.get("category") or primary.get("category") or "",
+            "remark": row.get("remark")
+            or self._membership_remark(primary)
+            or (remarks[0] if len(remarks) == 1 else ""),
+            "datetime": self._jsonable(
+                row.get("updated_at") or row.get("datetime") or row.get("created_at")
+            ),
             "expire_at": self._jsonable(row.get("expire_at")),
             "stop_loss_price": row.get("stop_loss_price"),
             "branch": extra.get("screening_branch") or "",
@@ -2421,6 +2520,9 @@ class DailyScreeningService:
             "signal_type": extra.get("screening_signal_type") or "",
             "signal_name": extra.get("screening_signal_name") or "",
             "period": extra.get("screening_period") or "",
+            "sources": list(row.get("sources") or []),
+            "categories": list(row.get("categories") or []),
+            "memberships": self._jsonable(list(row.get("memberships") or [])),
             "extra": self._jsonable(extra),
         }
 

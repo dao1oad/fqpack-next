@@ -99,12 +99,16 @@ def _infer_legacy_category(document: dict) -> str:
 
 
 def _build_legacy_membership(document: dict) -> dict:
+    extra = _deepcopy_dict(document.get("extra"))
+    remark = _to_text(document.get("remark"))
+    if remark:
+        extra.setdefault("source_remark", remark)
     return {
         "source": _infer_legacy_source(document),
         "category": _infer_legacy_category(document),
         "added_at": document.get("updated_at") or document.get("datetime"),
         "expire_at": document.get("expire_at"),
-        "extra": _deepcopy_dict(document.get("extra")),
+        "extra": extra,
     }
 
 
@@ -117,12 +121,14 @@ class PrePoolService:
         self,
         *,
         code: str,
-        name: str,
+        name: str | None = None,
         symbol: str | None = None,
         source: str,
         category: str,
         added_at: Any = None,
         expire_at: Any = None,
+        stop_loss_price: Any = None,
+        source_remark: str | None = None,
         extra: dict | None = None,
         workspace_order: int | None = None,
     ) -> dict:
@@ -141,6 +147,7 @@ class PrePoolService:
             "updated_at": added_at,
             "datetime": added_at,
             "expire_at": expire_at,
+            "stop_loss_price": stop_loss_price,
             "sources": [],
             "categories": [],
             "memberships": [],
@@ -158,12 +165,16 @@ class PrePoolService:
             for item in existing.get("memberships") or []
         }
 
+        membership_extra = _deepcopy_dict(extra)
+        if _to_text(source_remark):
+            membership_extra.setdefault("source_remark", _to_text(source_remark))
+
         membership_map[(source, category)] = {
             "source": source,
             "category": category,
             "added_at": added_at,
             "expire_at": expire_at,
-            "extra": _deepcopy_dict(extra),
+            "extra": membership_extra,
         }
 
         created_at = _pick_earliest(existing.get("created_at"), added_at)
@@ -183,6 +194,11 @@ class PrePoolService:
             "updated_at": updated_at,
             "datetime": created_at,
             "expire_at": _pick_latest(existing.get("expire_at"), expire_at),
+            "stop_loss_price": (
+                stop_loss_price
+                if stop_loss_price is not None
+                else existing.get("stop_loss_price")
+            ),
             "sources": _dedupe_text_list(
                 [item.get("source") for item in memberships]
             ),
@@ -219,6 +235,7 @@ class PrePoolService:
                     "updated_at": None,
                     "datetime": None,
                     "expire_at": None,
+                    "stop_loss_price": None,
                     "workspace_order": None,
                     "_memberships": {},
                 },
@@ -286,6 +303,8 @@ class PrePoolService:
             raw_row.get("updated_at") or raw_row.get("datetime"),
         )
         group["expire_at"] = _pick_latest(group.get("expire_at"), raw_row.get("expire_at"))
+        if raw_row.get("stop_loss_price") is not None:
+            group["stop_loss_price"] = raw_row.get("stop_loss_price")
 
         workspace_order = raw_row.get("workspace_order")
         if workspace_order is None:
@@ -326,6 +345,7 @@ class PrePoolService:
             "updated_at": updated_at,
             "datetime": created_at,
             "expire_at": group.get("expire_at"),
+            "stop_loss_price": group.get("stop_loss_price"),
             "sources": _dedupe_text_list([item.get("source") for item in memberships]),
             "categories": _dedupe_text_list([item.get("category") for item in memberships]),
             "memberships": memberships,
