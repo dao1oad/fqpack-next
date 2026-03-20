@@ -129,6 +129,9 @@ class PrePoolService:
         expire_at: Any = None,
         stop_loss_price: Any = None,
         source_remark: str | None = None,
+        row_category: str | None = None,
+        row_remark: str | None = None,
+        row_extra: dict | None = None,
         extra: dict | None = None,
         workspace_order: int | None = None,
     ) -> dict:
@@ -148,6 +151,9 @@ class PrePoolService:
             "datetime": added_at,
             "expire_at": expire_at,
             "stop_loss_price": stop_loss_price,
+            "category": _to_text(row_category),
+            "remark": _to_text(row_remark),
+            "extra": _deepcopy_dict(row_extra),
             "sources": [],
             "categories": [],
             "memberships": [],
@@ -199,6 +205,9 @@ class PrePoolService:
                 if stop_loss_price is not None
                 else existing.get("stop_loss_price")
             ),
+            "category": _to_text(row_category) or _to_text(existing.get("category")),
+            "remark": _to_text(row_remark) or _to_text(existing.get("remark")),
+            "extra": _deepcopy_dict(row_extra) or _deepcopy_dict(existing.get("extra")),
             "sources": _dedupe_text_list(
                 [item.get("source") for item in memberships]
             ),
@@ -274,6 +283,56 @@ class PrePoolService:
             result = self.collection.delete_one({"code": code})
             return bool(getattr(result, "deleted_count", 0))
         return False
+
+    def remove_membership(
+        self, *, code: str, source: str, category: str | None = None
+    ) -> bool:
+        code = _to_text(code)
+        source = _to_text(source)
+        category = _to_text(category)
+        if not code or not source:
+            return False
+        row = self.get_code(code)
+        if row is None:
+            return False
+
+        remaining = []
+        removed = False
+        for item in row.get("memberships") or []:
+            same_source = _to_text(item.get("source")) == source
+            same_category = not category or _to_text(item.get("category")) == category
+            if same_source and same_category:
+                removed = True
+                continue
+            remaining.append(
+                {
+                    "source": _to_text(item.get("source")) or "manual",
+                    "category": _to_text(item.get("category")) or "uncategorized",
+                    "added_at": item.get("added_at"),
+                    "expire_at": item.get("expire_at"),
+                    "extra": _deepcopy_dict(item.get("extra")),
+                }
+            )
+
+        if not removed:
+            return False
+        if not remaining:
+            return self.delete_code(code)
+
+        document = deepcopy(row)
+        document["memberships"] = sorted(remaining, key=_membership_sort_key)
+        document["sources"] = _dedupe_text_list(
+            [item.get("source") for item in document["memberships"]]
+        )
+        document["categories"] = _dedupe_text_list(
+            [item.get("category") for item in document["memberships"]]
+        )
+        if source == "shouban30":
+            document["workspace_order"] = self._workspace_order_from_memberships(
+                document["memberships"]
+            )
+        self._replace_code_document(code, document)
+        return True
 
     def _load_all_rows(self) -> list[dict]:
         rows = self.collection.find({})
@@ -357,3 +416,15 @@ class PrePoolService:
         if workspace_order is None:
             return (1, item.get("updated_at") or item.get("created_at") or datetime.min, item["code"])
         return (0, workspace_order, item["code"])
+
+    def _workspace_order_from_memberships(self, memberships: list[dict]) -> int | None:
+        orders = []
+        for membership in memberships:
+            value = _deepcopy_dict(membership.get("extra")).get("shouban30_order")
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                continue
+            if parsed >= 0:
+                orders.append(parsed)
+        return min(orders) if orders else None
