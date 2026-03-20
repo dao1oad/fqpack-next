@@ -845,7 +845,9 @@ class DailyScreeningService:
         )
         if remark:
             rows = [
-                row for row in rows if self._pre_pool_matches_remark(row, str(remark).strip())
+                row
+                for row in rows
+                if self._pre_pool_matches_remark(row, str(remark).strip())
             ]
         if run_id:
             rows = [row for row in rows if self._pre_pool_matches_run_id(row, run_id)]

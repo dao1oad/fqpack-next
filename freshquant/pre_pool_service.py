@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterable
 
 from freshquant.db import DBfreshquant
 
@@ -54,7 +54,7 @@ def _membership_sort_key(item: dict) -> tuple[str, str]:
     return (_to_text(item.get("source")), _to_text(item.get("category")))
 
 
-def _dedupe_text_list(values: list[str]) -> list[str]:
+def _dedupe_text_list(values: Iterable[Any]) -> list[str]:
     items = sorted({_to_text(value) for value in values if _to_text(value)})
     return items
 
@@ -208,9 +208,7 @@ class PrePoolService:
             "category": _to_text(row_category) or _to_text(existing.get("category")),
             "remark": _to_text(row_remark) or _to_text(existing.get("remark")),
             "extra": _deepcopy_dict(row_extra) or _deepcopy_dict(existing.get("extra")),
-            "sources": _dedupe_text_list(
-                [item.get("source") for item in memberships]
-            ),
+            "sources": _dedupe_text_list([item.get("source") for item in memberships]),
             "categories": _dedupe_text_list(
                 [item.get("category") for item in memberships]
             ),
@@ -339,14 +337,18 @@ class PrePoolService:
         return [deepcopy(dict(row)) for row in list(rows)]
 
     def _replace_code_document(self, code: str, document: dict) -> None:
-        if hasattr(self.collection, "delete_many") and hasattr(self.collection, "insert_one"):
+        if hasattr(self.collection, "delete_many") and hasattr(
+            self.collection, "insert_one"
+        ):
             self.collection.delete_many({"code": code})
             self.collection.insert_one(document)
             return
         if hasattr(self.collection, "replace_one"):
             self.collection.replace_one({"code": code}, document, upsert=True)
             return
-        raise RuntimeError("stock_pre_pools collection does not support save operations")
+        raise RuntimeError(
+            "stock_pre_pools collection does not support save operations"
+        )
 
     def _merge_row_into_group(self, group: dict, raw_row: dict) -> None:
         group["name"] = _to_text(raw_row.get("name")) or group["name"] or group["code"]
@@ -361,22 +363,27 @@ class PrePoolService:
             group.get("updated_at"),
             raw_row.get("updated_at") or raw_row.get("datetime"),
         )
-        group["expire_at"] = _pick_latest(group.get("expire_at"), raw_row.get("expire_at"))
+        group["expire_at"] = _pick_latest(
+            group.get("expire_at"), raw_row.get("expire_at")
+        )
         if raw_row.get("stop_loss_price") is not None:
             group["stop_loss_price"] = raw_row.get("stop_loss_price")
 
         workspace_order = raw_row.get("workspace_order")
         if workspace_order is None:
-            workspace_order = _deepcopy_dict(raw_row.get("extra")).get("shouban30_order")
+            workspace_order = _deepcopy_dict(raw_row.get("extra")).get(
+                "shouban30_order"
+            )
         if workspace_order is not None and (
             group.get("workspace_order") is None
             or workspace_order < group.get("workspace_order")
         ):
             group["workspace_order"] = workspace_order
 
+        raw_memberships = raw_row.get("memberships")
         memberships = (
-            raw_row.get("memberships")
-            if _looks_like_unified_doc(raw_row)
+            raw_memberships
+            if _looks_like_unified_doc(raw_row) and isinstance(raw_memberships, list)
             else [_build_legacy_membership(raw_row)]
         )
         for membership in memberships:
@@ -389,11 +396,15 @@ class PrePoolService:
             }
             key = (normalized["source"], normalized["category"])
             current = group["_memberships"].get(key)
-            if current is None or _pick_latest(current.get("added_at"), normalized.get("added_at")) == normalized.get("added_at"):
+            if current is None or _pick_latest(
+                current.get("added_at"), normalized.get("added_at")
+            ) == normalized.get("added_at"):
                 group["_memberships"][key] = normalized
 
     def _finalize_group(self, group: dict) -> dict:
-        memberships = sorted(group.pop("_memberships").values(), key=_membership_sort_key)
+        memberships = sorted(
+            group.pop("_memberships").values(), key=_membership_sort_key
+        )
         created_at = group.get("created_at")
         updated_at = group.get("updated_at")
         return {
@@ -406,7 +417,9 @@ class PrePoolService:
             "expire_at": group.get("expire_at"),
             "stop_loss_price": group.get("stop_loss_price"),
             "sources": _dedupe_text_list([item.get("source") for item in memberships]),
-            "categories": _dedupe_text_list([item.get("category") for item in memberships]),
+            "categories": _dedupe_text_list(
+                [item.get("category") for item in memberships]
+            ),
             "memberships": memberships,
             "workspace_order": group.get("workspace_order"),
         }
@@ -414,13 +427,19 @@ class PrePoolService:
     def _list_sort_key(self, item: dict) -> tuple[int, Any, str]:
         workspace_order = item.get("workspace_order")
         if workspace_order is None:
-            return (1, item.get("updated_at") or item.get("created_at") or datetime.min, item["code"])
+            return (
+                1,
+                item.get("updated_at") or item.get("created_at") or datetime.min,
+                item["code"],
+            )
         return (0, workspace_order, item["code"])
 
     def _workspace_order_from_memberships(self, memberships: list[dict]) -> int | None:
         orders = []
         for membership in memberships:
             value = _deepcopy_dict(membership.get("extra")).get("shouban30_order")
+            if value is None:
+                continue
             try:
                 parsed = int(value)
             except (TypeError, ValueError):

@@ -267,8 +267,7 @@ def test_add_to_stock_pools_by_code_uses_unified_pre_pool_provenance(monkeypatch
     assert captured["kwargs"]["sources"] == ["daily-screening", "shouban30"]
     assert captured["kwargs"]["categories"] == ["CLXS_10008", "plate:11"]
     assert {
-        (item["source"], item["category"])
-        for item in captured["kwargs"]["memberships"]
+        (item["source"], item["category"]) for item in captured["kwargs"]["memberships"]
     } == {
         ("daily-screening", "CLXS_10008"),
         ("shouban30", "plate:11"),

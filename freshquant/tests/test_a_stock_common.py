@@ -303,9 +303,7 @@ def test_save_a_stock_pools_merges_pre_pool_provenance_for_existing_doc(monkeypa
     saved = fake_db.stock_pools.docs[0]
     assert saved["sources"] == ["daily-screening", "shouban30"]
     assert saved["categories"] == ["CLXS_10008", "plate:11"]
-    assert {
-        (item["source"], item["category"]) for item in saved["memberships"]
-    } == {
+    assert {(item["source"], item["category"]) for item in saved["memberships"]} == {
         ("daily-screening", "CLXS_10008"),
         ("shouban30", "plate:11"),
     }

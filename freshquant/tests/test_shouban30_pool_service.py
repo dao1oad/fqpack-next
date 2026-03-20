@@ -877,9 +877,7 @@ def test_add_pre_pool_item_to_stock_pool_copies_sources_categories_and_membershi
     )
     assert saved["sources"] == ["daily-screening", "shouban30"]
     assert saved["categories"] == ["CLXS_10008", "plate:11"]
-    assert {
-        (item["source"], item["category"]) for item in saved["memberships"]
-    } == {
+    assert {(item["source"], item["category"]) for item in saved["memberships"]} == {
         ("daily-screening", "CLXS_10008"),
         ("shouban30", "plate:11"),
     }
@@ -1031,9 +1029,7 @@ def test_sync_pre_pool_to_stock_pool_enriches_existing_rows_with_pre_pool_proven
     )
     assert saved["sources"] == ["daily-screening", "shouban30"]
     assert saved["categories"] == ["CLXS_10008", "plate:12"]
-    assert {
-        (item["source"], item["category"]) for item in saved["memberships"]
-    } == {
+    assert {(item["source"], item["category"]) for item in saved["memberships"]} == {
         ("daily-screening", "CLXS_10008"),
         ("shouban30", "plate:12"),
     }

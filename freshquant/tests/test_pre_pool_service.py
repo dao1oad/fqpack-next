@@ -45,7 +45,9 @@ class FakeDB(dict):
 
 class BoollessDB(FakeDB):
     def __bool__(self):
-        raise NotImplementedError("Database objects do not implement truth value testing")
+        raise NotImplementedError(
+            "Database objects do not implement truth value testing"
+        )
 
 
 def _make_service(docs: list[dict] | None = None):
@@ -130,10 +132,7 @@ def test_upsert_pre_pool_merges_new_membership_into_existing_code():
     assert row["sources"] == ["daily-screening", "shouban30"]
     assert row["categories"] == ["CLXS_10008", "plate:trade_date:2026-03-19"]
     assert row["workspace_order"] == 1
-    assert {
-        (item["source"], item["category"])
-        for item in row["memberships"]
-    } == {
+    assert {(item["source"], item["category"]) for item in row["memberships"]} == {
         ("daily-screening", "CLXS_10008"),
         ("shouban30", "plate:trade_date:2026-03-19"),
     }
@@ -256,10 +255,7 @@ def test_list_pre_pool_returns_unique_codes_with_sources_and_categories():
         "plate:trade_date:2026-03-19",
     ]
     assert alpha["workspace_order"] == 0
-    assert {
-        (item["source"], item["category"])
-        for item in alpha["memberships"]
-    } == {
+    assert {(item["source"], item["category"]) for item in alpha["memberships"]} == {
         ("daily-screening", "CLXS_10004"),
         ("daily-screening", "CLXS_10008"),
         ("shouban30", "plate:trade_date:2026-03-19"),

@@ -224,12 +224,8 @@ def save_a_stock_pools(
             item.get("category") for item in incoming_memberships
         )
 
-    existing_sources = _dedupe_text_list(
-        (existing_doc or {}).get("sources", [])
-    )
-    existing_categories = _dedupe_text_list(
-        (existing_doc or {}).get("categories", [])
-    )
+    existing_sources = _dedupe_text_list((existing_doc or {}).get("sources", []))
+    existing_categories = _dedupe_text_list((existing_doc or {}).get("categories", []))
     existing_memberships = _merge_memberships(
         (existing_doc or {}).get("memberships", [])
     )

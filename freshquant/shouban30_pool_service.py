@@ -264,9 +264,11 @@ def _select_pre_pool_membership(doc, *, preferred_source=None):
         memberships,
         key=lambda item: (
             _workspace_order({"extra": item.get("extra") or {}}) is None,
-            _workspace_order({"extra": item.get("extra") or {}})
-            if _workspace_order({"extra": item.get("extra") or {}}) is not None
-            else 10**9,
+            (
+                _workspace_order({"extra": item.get("extra") or {}})
+                if _workspace_order({"extra": item.get("extra") or {}}) is not None
+                else 10**9
+            ),
             item.get("added_at") or datetime.min,
             str(item.get("category") or ""),
         ),
@@ -276,7 +278,10 @@ def _select_pre_pool_membership(doc, *, preferred_source=None):
 def _serialize_pre_pool_doc(doc):
     primary = _select_pre_pool_membership(doc, preferred_source="shouban30")
     extra = dict(primary.get("extra") or {})
-    if doc.get("workspace_order") is not None and extra.get(SHOUBAN30_ORDER_FIELD) is None:
+    if (
+        doc.get("workspace_order") is not None
+        and extra.get(SHOUBAN30_ORDER_FIELD) is None
+    ):
         extra[SHOUBAN30_ORDER_FIELD] = doc.get("workspace_order")
     category = (
         SHOUBAN30_PRE_POOL_CATEGORY
@@ -441,7 +446,8 @@ def replace_pre_pool(items, context=None):
     normalized_items = _normalize_items(items)
     pre_pool_service = _pre_pool_service()
     incoming_memberships = {
-        (item["code"], _shouban30_membership_category(item)) for item in normalized_items
+        (item["code"], _shouban30_membership_category(item))
+        for item in normalized_items
     }
     deleted_count = 0
     for doc in pre_pool_service.list_codes(source="shouban30"):
@@ -518,9 +524,7 @@ def _clear_pool(collection_name, category, syncer):
 
 
 def list_pre_pool():
-    return [
-        _serialize_pre_pool_doc(doc) for doc in _pre_pool_service().list_codes()
-    ]
+    return [_serialize_pre_pool_doc(doc) for doc in _pre_pool_service().list_codes()]
 
 
 def sync_pre_pool_to_blk():
@@ -568,9 +572,11 @@ def add_pre_pool_item_to_stock_pool(code6):
             {
                 "$set": _build_stock_pool_doc_from_source(
                     source,
-                    _workspace_order(existing)
-                    if _workspace_order(existing) is not None
-                    else 0,
+                    (
+                        _workspace_order(existing)
+                        if _workspace_order(existing) is not None
+                        else 0
+                    ),
                     existing_doc=existing,
                 )
             },

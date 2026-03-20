@@ -2624,8 +2624,7 @@ def test_daily_screening_add_pre_pool_to_stock_pool_passes_sources_and_categorie
     assert captured["kwargs"]["sources"] == ["daily-screening", "shouban30"]
     assert captured["kwargs"]["categories"] == ["CLXS_10008", "plate:11"]
     assert {
-        (item["source"], item["category"])
-        for item in captured["kwargs"]["memberships"]
+        (item["source"], item["category"]) for item in captured["kwargs"]["memberships"]
     } == {
         ("daily-screening", "CLXS_10008"),
         ("shouban30", "plate:11"),
