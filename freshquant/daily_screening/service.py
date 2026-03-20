@@ -2795,7 +2795,9 @@ class DailyScreeningService:
             return f"{prefix}{code}"
         return self._infer_symbol(code)
 
-    def _scope_snapshot_map(self, scope_ref: dict[str, str]) -> dict[str, dict[str, Any]]:
+    def _scope_snapshot_map(
+        self, scope_ref: dict[str, str]
+    ) -> dict[str, dict[str, Any]]:
         repository = self._screening_repository()
         if repository is None:
             return {}
@@ -2882,9 +2884,10 @@ class DailyScreeningService:
             condition_key="base:union",
         )
         if current_memberships:
-            trade_date = self._scope_trade_date(scope_ref) or str(
-                current_memberships[0].get("trade_date") or ""
-            ).strip()
+            trade_date = (
+                self._scope_trade_date(scope_ref)
+                or str(current_memberships[0].get("trade_date") or "").strip()
+            )
             return {
                 "in_base_pool": True,
                 "last_seen_scope_id": scope_ref["scope_id"],

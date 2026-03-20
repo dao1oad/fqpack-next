@@ -261,7 +261,9 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
     assert captured["detail"] == ("trade_date:2026-03-18", "000001")
 
     assert search_response.status_code == 200
-    assert search_response.get_json()["rows"] == [{"code": "600917", "name": "渝农商行"}]
+    assert search_response.get_json()["rows"] == [
+        {"code": "600917", "name": "渝农商行"}
+    ]
     assert captured["search"] == ("trade_date:2026-03-18", "600917", 8)
 
     assert add_to_pre_pool_response.status_code == 200

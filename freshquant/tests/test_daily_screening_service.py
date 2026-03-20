@@ -2344,11 +2344,11 @@ def test_daily_screening_service_get_stock_detail_falls_back_to_hot_reasons_and_
 
     monkeypatch.setattr(
         "freshquant.instrument.stock.fq_inst_fetch_stock_list",
-        lambda code=None: [
-            {"code": "600917", "name": "渝农商行", "sse": "sh"}
-        ]
-        if code in {None, "600917"}
-        else [],
+        lambda code=None: (
+            [{"code": "600917", "name": "渝农商行", "sse": "sh"}]
+            if code in {None, "600917"}
+            else []
+        ),
     )
 
     import freshquant.daily_screening.service as service_module
