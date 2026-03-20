@@ -100,7 +100,7 @@
 - Redis `127.0.0.1:6379 db=1`
 - Memory 热库 `fq_memory`
 - 冷目录 `.codex/memory`
-- Artifact 根目录 `D:/fqpack/runtime/symphony-service/artifacts/memory`
+- Artifact 根目录 `D:/fqpack/runtime/artifacts/memory`
 
 ### 订单与仓位数据库
 

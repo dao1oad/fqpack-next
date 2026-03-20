@@ -47,11 +47,11 @@
 - context pack
   - 编译入口：`runtime/memory/scripts/compile_freshquant_context_pack.py`
   - 自由 Codex 会话自举入口：`runtime/memory/scripts/bootstrap_freshquant_memory.py`
-  - 产物目录：`D:/fqpack/runtime/symphony-service/artifacts/memory/context-packs/**`
-  - `Symphony` / `Global Stewardship` 通过 wrapper 预编译并注入 `FQ_MEMORY_CONTEXT_PATH`
+  - 产物目录：`D:/fqpack/runtime/artifacts/memory/context-packs/**`
+  - 本地会话 wrapper 与 formal deploy wrapper 会预编译并注入 `FQ_MEMORY_CONTEXT_PATH`
   - 自由 Codex 会话若没有现成 `FQ_MEMORY_CONTEXT_PATH`，应先执行 bootstrap 脚本再读取生成的 context pack
 
-记忆层是旁路摘要，不替代 Issue-managed 任务的 GitHub Issue、所有代码更新的 PR+CI、以及 deploy+health+cleanup 真值链。
+记忆层是旁路摘要，不替代 GitHub Issue、所有代码更新的 PR + CI、以及最新远程 `main` 的 deploy + health + cleanup 真值链。
 
 ## 核心调用链
 
@@ -73,7 +73,7 @@
 
 ### 记忆编译链
 
-`origin/main:.codex/memory/** + origin/main:docs/current/modules/*.md + artifacts/cleanup-requests/<issue>.json + artifacts/<issue>/deployment-comment.md + artifacts/cleanup-results/<issue>.json -> freshquant.runtime.memory.refresh -> Mongo fq_memory -> freshquant.runtime.memory.compiler -> context pack markdown -> Symphony/Global Stewardship wrapper 或 bootstrap_freshquant_memory.py -> FQ_MEMORY_CONTEXT_PATH`
+`origin/main:.codex/memory/** + origin/main:docs/current/modules/*.md + artifacts/memory/** -> freshquant.runtime.memory.refresh -> Mongo fq_memory -> freshquant.runtime.memory.compiler -> context pack markdown -> local wrapper / formal deploy wrapper 或 bootstrap_freshquant_memory.py -> FQ_MEMORY_CONTEXT_PATH`
 
 ## 进程边界
 

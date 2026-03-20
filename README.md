@@ -81,7 +81,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 兼容人工启动器：
 
 - `D:\fqpack\supervisord\frequant-next.bat`
-- 该 `.bat` 仅保留为兼容入口，不再作为 `Global Stewardship` 正式部署入口
+- 该 `.bat` 仅保留为兼容入口，不再作为正式部署入口
 
 ## 文档入口
 

@@ -26,6 +26,13 @@ def test_shared_codex_wrapper_bootstraps_memory_before_launch() -> None:
     assert "app-server" in content
 
 
+def test_shared_codex_wrapper_uses_neutral_runtime_root() -> None:
+    content = WRAPPER_SCRIPT.read_text(encoding="utf-8")
+
+    assert "D:\\fqpack\\runtime" in content
+    assert "symphony-service" not in content
+
+
 def test_app_server_wrapper_prints_foreground_status_guidance() -> None:
     content = WRAPPER_SCRIPT.read_text(encoding="utf-8")
 

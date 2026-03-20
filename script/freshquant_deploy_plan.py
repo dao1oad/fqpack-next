@@ -12,7 +12,6 @@ SURFACE_ORDER = (
     "dagster",
     "qa",
     "tradingagents",
-    "symphony",
     "market_data",
     "guardian",
     "position_management",
@@ -32,7 +31,6 @@ SURFACE_ALIASES = {
     "qawebserver": "qa",
     "tradingagents": "tradingagents",
     "tradingagents-cn": "tradingagents",
-    "symphony": "symphony",
     "market_data": "market_data",
     "market-data": "market_data",
     "guardian": "guardian",
@@ -82,9 +80,6 @@ HEALTH_CHECK_MAP = {
     "tradingagents": [
         "http://127.0.0.1:13000/api/health",
         "http://127.0.0.1:13080/health",
-    ],
-    "symphony": [
-        "http://127.0.0.1:40123/api/v1/state",
     ],
 }
 
@@ -190,11 +185,6 @@ PATH_RULES: tuple[PathRule, ...] = (
         prefix="third_party/tradingagents-cn/",
         surfaces=("tradingagents",),
     ),
-    PrefixRule(
-        label="runtime-symphony",
-        prefix="runtime/symphony/",
-        surfaces=("symphony",),
-    ),
 )
 
 
@@ -279,16 +269,6 @@ def build_deploy_plan(
             {
                 "kind": "runtime_baseline",
                 "summary": "实际 deploy 前先采 runtime ops baseline。",
-            }
-        )
-    if "symphony" in ordered:
-        pre_deploy_steps.append(
-            {
-                "kind": "symphony_sync_restart",
-                "summary": (
-                    "若命中 runtime/symphony/**，先执行 "
-                    "sync_freshquant_symphony_service.ps1，再通过管理员桥接重启 orchestrator。"
-                ),
             }
         )
     if host_surfaces:

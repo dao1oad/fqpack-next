@@ -13,6 +13,7 @@ from freshquant.runtime.memory import (
     derive_issue_identifier,
     refresh_memory,
 )
+from freshquant.runtime.memory.bootstrap import derive_memory_role
 from freshquant.runtime.memory import refresh as refresh_module
 
 
@@ -106,7 +107,7 @@ def test_refresh_memory_populates_core_collections(tmp_path: Path) -> None:
 
     _write(
         cold_root / "deploy-surfaces.md",
-        "# Deploy Surfaces\n\n- `runtime/symphony/**` -> restart orchestrator\n",
+        "# Deploy Surfaces\n\n- `script/ci/run_formal_deploy.py` -> formal deploy\n",
     )
     _write(
         cold_root / "workflow-rules.md",
@@ -135,8 +136,8 @@ def test_refresh_memory_populates_core_collections(tmp_path: Path) -> None:
         store,
         issue_identifier="GH-166",
         issue_state="In Progress",
-        branch_name="codex/gh-166-symphony-global-stewardship-codex",
-        git_status="?? .symphony-workspace-ready",
+        branch_name="codex/gh-166-remote-main-deploy-codex",
+        git_status="?? .codex-workspace-ready",
     )
 
     assert summary["knowledge_items"] == 3
@@ -151,7 +152,7 @@ def test_refresh_memory_populates_core_collections(tmp_path: Path) -> None:
     task_state = store.find("task_state")[0]
     assert task_state["issue_identifier"] == "GH-166"
     assert task_state["issue_state"] == "In Progress"
-    assert task_state["branch_name"] == "codex/gh-166-symphony-global-stewardship-codex"
+    assert task_state["branch_name"] == "codex/gh-166-remote-main-deploy-codex"
 
     deploy_run = store.find("deploy_runs")[0]
     assert deploy_run["status"] == "unavailable"
@@ -404,7 +405,7 @@ def test_refresh_memory_reads_deployment_comment_and_cleanup_result_artifacts(
         config,
         store,
         issue_identifier="GH-166",
-        issue_state="Global Stewardship",
+        issue_state="Formal Deploy",
         branch_name="main",
         git_status="clean",
     )
@@ -530,7 +531,7 @@ def test_compile_context_pack_writes_markdown_and_persists_pack_record(
         store,
         issue_identifier="GH-166",
         issue_state="In Progress",
-        branch_name="codex/gh-166-symphony-global-stewardship-codex",
+        branch_name="codex/gh-166-remote-main-deploy-codex",
         git_status="clean",
     )
 
@@ -620,7 +621,7 @@ def test_compile_context_pack_includes_recent_task_events(tmp_path: Path) -> Non
         config,
         store,
         issue_identifier="GH-166",
-        issue_state="Global Stewardship",
+        issue_state="Formal Deploy",
         branch_name="main",
         git_status="clean",
     )
@@ -629,7 +630,7 @@ def test_compile_context_pack_includes_recent_task_events(tmp_path: Path) -> Non
         config,
         store,
         issue_identifier="GH-166",
-        role="global-stewardship",
+        role="codex",
     )
 
     content = output_path.read_text(encoding="utf-8")
@@ -807,7 +808,7 @@ def test_refresh_memory_marks_failed_health_checks_from_deployment_comment(
         config,
         store,
         issue_identifier="GH-166",
-        issue_state="Global Stewardship",
+        issue_state="Formal Deploy",
         branch_name="main",
         git_status="clean",
     )
@@ -889,14 +890,14 @@ def test_repo_declares_memory_runtime_defaults() -> None:
     assert "cold_root: .codex/memory" in config_text
     assert "reference_ref: origin/main" in config_text
     assert (
-        "artifact_root: D:/fqpack/runtime/symphony-service/artifacts/memory"
+        "artifact_root: D:/fqpack/runtime/artifacts/memory"
         in config_text
     )
 
     assert "FRESHQUANT_MEMORY__MONGODB__DB=fq_memory" in env_text
     assert "FRESHQUANT_MEMORY__REFERENCE_REF=origin/main" in env_text
     assert (
-        "FRESHQUANT_MEMORY__ARTIFACT_ROOT=D:/fqpack/runtime/symphony-service/artifacts/memory"
+        "FRESHQUANT_MEMORY__ARTIFACT_ROOT=D:/fqpack/runtime/artifacts/memory"
         in env_text
     )
 
@@ -928,7 +929,7 @@ def test_memory_smoke_script_runs_from_repo_without_installed_package(
 
 def test_derive_issue_identifier_prefers_workspace_issue_directory() -> None:
     issue_identifier = derive_issue_identifier(
-        workspace_path=Path("D:/fqpack/runtime/symphony-service/workspaces/GH-166"),
+        workspace_path=Path("D:/fqpack/runtime/workspaces/GH-166"),
         branch_name="main",
     )
 
@@ -938,7 +939,7 @@ def test_derive_issue_identifier_prefers_workspace_issue_directory() -> None:
 def test_derive_issue_identifier_falls_back_to_issue_number_in_branch_name() -> None:
     issue_identifier = derive_issue_identifier(
         workspace_path=Path("D:/fqpack/freshquant-2026.2.23"),
-        branch_name="codex/gh-166-symphony-global-stewardship-codex",
+        branch_name="codex/gh-166-remote-main-deploy-codex",
     )
 
     assert issue_identifier == "GH-166"
@@ -951,6 +952,19 @@ def test_derive_issue_identifier_falls_back_to_local_workspace_name() -> None:
     )
 
     assert issue_identifier == "LOCAL-freshquant-2026.2.23"
+
+
+def test_memory_runtime_config_defaults_to_neutral_runtime_root(
+    tmp_path: Path,
+) -> None:
+    config = MemoryRuntimeConfig.from_settings(repo_root=tmp_path, environ={})
+
+    assert config.service_root == Path("D:/fqpack/runtime").resolve()
+    assert config.artifact_root == Path("D:/fqpack/runtime/artifacts/memory").resolve()
+
+
+def test_derive_memory_role_defaults_to_codex_for_retired_issue_states() -> None:
+    assert derive_memory_role(issue_state="Global Stewardship", environ={}) == "codex"
 
 
 def test_bootstrap_memory_context_refreshes_and_compiles_pack(tmp_path: Path) -> None:

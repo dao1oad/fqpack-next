@@ -18,6 +18,11 @@ BOOTSTRAP_FILE_NAMES = (
     "freshquant_bootstrap.yml",
     "freshquant_bootstrap.json",
 )
+DEFAULT_RUNTIME_ROOT = Path("D:/fqpack/runtime")
+RETIRED_MEMORY_ARTIFACT_ROOT = Path(
+    "D:/fqpack/runtime/symphony-service/artifacts/memory"
+)
+DEFAULT_MEMORY_ARTIFACT_ROOT = DEFAULT_RUNTIME_ROOT / "artifacts" / "memory"
 
 
 @dataclass(frozen=True)
@@ -47,7 +52,7 @@ class MemoryMongoBootstrapConfig:
 class MemoryBootstrapConfig:
     mongodb: MemoryMongoBootstrapConfig = MemoryMongoBootstrapConfig()
     cold_root: str = ".codex/memory"
-    artifact_root: str = "D:/fqpack/runtime/symphony-service/artifacts/memory"
+    artifact_root: str = "D:/fqpack/runtime/artifacts/memory"
     reference_ref: str = "origin/main"
 
 
@@ -144,6 +149,13 @@ def _as_int(value, default: int) -> int:
         return default
 
 
+def _normalize_memory_artifact_root(value: str) -> str:
+    path = Path(value).resolve()
+    if path == RETIRED_MEMORY_ARTIFACT_ROOT.resolve():
+        return str(DEFAULT_MEMORY_ARTIFACT_ROOT)
+    return value
+
+
 def load_bootstrap_config() -> BootstrapConfig:
     settings = _load_raw_settings()
     mongodb = MongoBootstrapConfig(
@@ -165,9 +177,11 @@ def load_bootstrap_config() -> BootstrapConfig:
             db=_as_str(get(settings, "memory.mongodb.db"), "fq_memory"),
         ),
         cold_root=_as_str(get(settings, "memory.cold_root"), ".codex/memory"),
-        artifact_root=_as_str(
-            get(settings, "memory.artifact_root"),
-            "D:/fqpack/runtime/symphony-service/artifacts/memory",
+        artifact_root=_normalize_memory_artifact_root(
+            _as_str(
+                get(settings, "memory.artifact_root"),
+                "D:/fqpack/runtime/artifacts/memory",
+            )
         ),
         reference_ref=_as_str(get(settings, "memory.reference_ref"), "origin/main"),
     )

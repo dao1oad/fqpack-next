@@ -28,17 +28,17 @@ def test_order_management_paths_expand_to_api_and_host_runtime() -> None:
     assert "fqnext_credit_subjects_worker" in plan["host_programs"]
 
 
-def test_runtime_symphony_paths_emit_sync_restart_step() -> None:
+def test_retired_runtime_paths_no_longer_emit_deploy_surface() -> None:
     module = load_module()
 
     plan = module.build_deploy_plan(
-        changed_paths=["runtime/symphony/prompts/global_stewardship.md"]
+        changed_paths=["runtime/retired/workflow.md"]
     )
 
     summaries = [item["summary"] for item in plan["pre_deploy_steps"]]
-    assert plan["deployment_surfaces"] == ["symphony"]
-    assert any("sync_freshquant_symphony_service.ps1" in item for item in summaries)
-    assert "http://127.0.0.1:40123/api/v1/state" in plan["health_checks"]
+    assert plan["deployment_surfaces"] == []
+    assert all("sync_freshquant_" not in item for item in summaries)
+    assert "http://127.0.0.1:40123/api/v1/state" not in plan["health_checks"]
 
 
 def test_webui_paths_use_web_surface_and_correct_port() -> None:
