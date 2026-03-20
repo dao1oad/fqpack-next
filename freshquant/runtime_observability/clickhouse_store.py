@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from freshquant.runtime_observability.logger import get_runtime_log_root
 from freshquant.runtime_observability.node_catalog import COMPONENTS
@@ -30,7 +30,10 @@ def build_clickhouse_event_row(
     ingest_ts: datetime | None = None,
 ) -> dict[str, Any]:
     payload = dict(event or {})
-    payload_body = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    payload_body_raw = payload.get("payload")
+    payload_body: dict[str, Any] = (
+        payload_body_raw if isinstance(payload_body_raw, dict) else {}
+    )
     session_identity = build_session_identity(payload)
     ts = _parse_datetime(payload.get("ts"))
     raw_json = _to_json_text(payload)
@@ -66,8 +69,16 @@ def build_clickhouse_event_row(
         "decision_outcome": _normalized_text(decision_outcome),
         "error_type": _normalized_text(payload_body.get("error_type")),
         "error_message": _normalized_text(payload_body.get("error_message")),
-        "is_issue": 1 if _normalized_text(payload.get("status")).lower() in _ISSUE_STATUSES else 0,
-        "is_health": 1 if _normalized_text(payload.get("event_type")) in _HEALTH_EVENT_TYPES else 0,
+        "is_issue": (
+            1
+            if _normalized_text(payload.get("status")).lower() in _ISSUE_STATUSES
+            else 0
+        ),
+        "is_health": (
+            1
+            if _normalized_text(payload.get("event_type")) in _HEALTH_EVENT_TYPES
+            else 0
+        ),
         "payload_json": _to_json_text(
             payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
         ),
@@ -77,7 +88,9 @@ def build_clickhouse_event_row(
         "raw_json": raw_json,
         "raw_file": raw_file,
         "raw_line": int(raw_line),
-        "ingest_ts": _format_clickhouse_datetime(ingest_ts or datetime.now().astimezone()),
+        "ingest_ts": _format_clickhouse_datetime(
+            ingest_ts or datetime.now().astimezone()
+        ),
     }
 
 
@@ -92,7 +105,9 @@ class RuntimeObservabilityClickHouseStore:
         timeout_s: float = 10.0,
     ) -> None:
         self.base_url = str(
-            base_url or os.environ.get("FQ_RUNTIME_CLICKHOUSE_URL") or "http://127.0.0.1:8123"
+            base_url
+            or os.environ.get("FQ_RUNTIME_CLICKHOUSE_URL")
+            or "http://127.0.0.1:8123"
         ).rstrip("/")
         self.database = str(
             database or os.environ.get("FQ_RUNTIME_CLICKHOUSE_DATABASE") or "default"
@@ -100,7 +115,9 @@ class RuntimeObservabilityClickHouseStore:
         self.username = str(
             username or os.environ.get("FQ_RUNTIME_CLICKHOUSE_USER") or "default"
         ).strip()
-        self.password = str(password or os.environ.get("FQ_RUNTIME_CLICKHOUSE_PASSWORD") or "")
+        self.password = str(
+            password or os.environ.get("FQ_RUNTIME_CLICKHOUSE_PASSWORD") or ""
+        )
         self.timeout_s = float(timeout_s)
         self._schema_ready = False
 
@@ -188,16 +205,24 @@ class RuntimeObservabilityClickHouseStore:
                     "offset_bytes": int(offset_bytes),
                     "file_size": int(file_size or 0),
                     "mtime": float(mtime or 0.0),
-                    "updated_at": _format_clickhouse_datetime(datetime.now().astimezone()),
+                    "updated_at": _format_clickhouse_datetime(
+                        datetime.now().astimezone()
+                    ),
                 }
             ],
         )
 
-    def insert_events(self, events: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> None:
+    def insert_events(
+        self, events: list[dict[str, Any]] | tuple[dict[str, Any], ...]
+    ) -> None:
         self.ensure_schema()
         rows = []
         for event in events or []:
-            raw_file = _normalized_text(event.get("raw_file")) if isinstance(event, dict) else ""
+            raw_file = (
+                _normalized_text(event.get("raw_file"))
+                if isinstance(event, dict)
+                else ""
+            )
             if not raw_file:
                 continue
             rows.append(
@@ -256,7 +281,11 @@ class RuntimeObservabilityClickHouseStore:
         ORDER BY component ASC, runtime_node ASC
         """
         rows = self._select_rows(query)
-        reference_time = end_time.astimezone(_CLICKHOUSE_TIMEZONE) if end_time else datetime.now(_CLICKHOUSE_TIMEZONE)
+        reference_time = (
+            end_time.astimezone(_CLICKHOUSE_TIMEZONE)
+            if end_time
+            else datetime.now(_CLICKHOUSE_TIMEZONE)
+        )
         items = []
         for row in rows:
             heartbeat_ts = _clickhouse_ts_to_datetime(row.get("heartbeat_ts"))
@@ -265,14 +294,19 @@ class RuntimeObservabilityClickHouseStore:
                     "component": _normalized_text(row.get("component")),
                     "runtime_node": _normalized_text(row.get("runtime_node")),
                     "status": _normalized_text(row.get("latest_status")) or "unknown",
-                    "heartbeat_age_s": None
-                    if heartbeat_ts is None
-                    else round(max(0.0, (reference_time - heartbeat_ts).total_seconds()), 3),
+                    "heartbeat_age_s": (
+                        None
+                        if heartbeat_ts is None
+                        else round(
+                            max(0.0, (reference_time - heartbeat_ts).total_seconds()), 3
+                        )
+                    ),
                     "metrics": _decode_json_text(row.get("metrics_json")),
                     "trace_count": int(row.get("trace_count") or 0),
                     "issue_trace_count": int(row.get("issue_trace_count") or 0),
                     "issue_step_count": int(row.get("issue_step_count") or 0),
-                    "last_issue_ts": _clickhouse_ts_to_iso(row.get("last_issue_ts")) or None,
+                    "last_issue_ts": _clickhouse_ts_to_iso(row.get("last_issue_ts"))
+                    or None,
                     "is_placeholder": False,
                 }
             )
@@ -521,7 +555,9 @@ def _format_clickhouse_datetime(value: datetime) -> str:
 
 def _to_json_text(value: Any) -> str:
     try:
-        return json.dumps(value if value is not None else {}, ensure_ascii=False, sort_keys=True)
+        return json.dumps(
+            value if value is not None else {}, ensure_ascii=False, sort_keys=True
+        )
     except TypeError:
         return "{}"
 
@@ -653,9 +689,13 @@ def _build_where_conditions(
             continue
         conditions.append(f"{field} = {_sql_string(normalized)}")
     if start_time is not None:
-        conditions.append(f"ts >= toDateTime64({_sql_string(_format_clickhouse_datetime(start_time))}, 3, 'Asia/Shanghai')")
+        conditions.append(
+            f"ts >= toDateTime64({_sql_string(_format_clickhouse_datetime(start_time))}, 3, 'Asia/Shanghai')"
+        )
     if end_time is not None:
-        conditions.append(f"ts <= toDateTime64({_sql_string(_format_clickhouse_datetime(end_time))}, 3, 'Asia/Shanghai')")
+        conditions.append(
+            f"ts <= toDateTime64({_sql_string(_format_clickhouse_datetime(end_time))}, 3, 'Asia/Shanghai')"
+        )
     return " AND ".join(conditions)
 
 
@@ -716,7 +756,9 @@ def _serialize_trace_summary_row(row: dict[str, Any]) -> dict[str, Any]:
         "request_ids": list(row.get("request_ids") or []),
         "internal_order_ids": list(row.get("internal_order_ids") or []),
         "affected_components": [
-            _normalized_text(item) for item in affected_components if _normalized_text(item)
+            _normalized_text(item)
+            for item in affected_components
+            if _normalized_text(item)
         ],
     }
 

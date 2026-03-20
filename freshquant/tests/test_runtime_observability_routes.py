@@ -182,7 +182,11 @@ def test_runtime_components_route_reads_from_query_service(monkeypatch):
 
     body = resp.get_json()
     assert resp.status_code == 200
-    assert body["components"] == ["guardian_strategy", "xt_report_ingest", "order_submit"]
+    assert body["components"] == [
+        "guardian_strategy",
+        "xt_report_ingest",
+        "order_submit",
+    ]
 
 
 def test_runtime_health_summary_route_returns_component_summary(monkeypatch):
@@ -316,4 +320,3 @@ def _make_runtime_client():
     app = Flask("test_runtime_routes")
     app.register_blueprint(runtime_bp)
     return app.test_client()
-

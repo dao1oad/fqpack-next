@@ -50,7 +50,9 @@ def test_build_session_key_prefers_trace_then_intent_then_request_minute_bucket(
 
 
 def test_build_clickhouse_event_row_extracts_runtime_query_fields():
-    from freshquant.runtime_observability.clickhouse_store import build_clickhouse_event_row
+    from freshquant.runtime_observability.clickhouse_store import (
+        build_clickhouse_event_row,
+    )
 
     row = build_clickhouse_event_row(
         normalize_event(
@@ -104,7 +106,13 @@ def test_runtime_jsonl_indexer_reads_incremental_lines(monkeypatch, tmp_path):
             inserted_batches.append(list(events))
 
     runtime_root = tmp_path / "runtime"
-    path = runtime_root / "host_guardian" / "guardian_strategy" / "2026-03-20" / "guardian_strategy_2026-03-20_1.jsonl"
+    path = (
+        runtime_root
+        / "host_guardian"
+        / "guardian_strategy"
+        / "2026-03-20"
+        / "guardian_strategy_2026-03-20_1.jsonl"
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
@@ -230,7 +238,9 @@ def test_clickhouse_store_list_events_decodes_payloads_and_builds_cursor(monkeyp
     }
 
 
-def test_clickhouse_store_get_trace_detail_combines_summary_and_first_step_page(monkeypatch):
+def test_clickhouse_store_get_trace_detail_combines_summary_and_first_step_page(
+    monkeypatch,
+):
     from freshquant.runtime_observability.clickhouse_store import (
         RuntimeObservabilityClickHouseStore,
     )
@@ -323,7 +333,10 @@ def test_clickhouse_store_get_trace_detail_combines_summary_and_first_step_page(
 
     assert len(queries) == 2
     assert payload["trace"]["trace_key"] == "trace__trc_1"
-    assert payload["trace"]["affected_components"] == ["guardian_strategy", "order_submit"]
+    assert payload["trace"]["affected_components"] == [
+        "guardian_strategy",
+        "order_submit",
+    ]
     assert payload["steps"][0]["event_id"] == "evt_2"
     assert payload["steps"][0]["payload"] == {
         "error_type": "ValueError",
@@ -335,7 +348,9 @@ def test_clickhouse_store_get_trace_detail_combines_summary_and_first_step_page(
     }
 
 
-def test_clickhouse_store_health_summary_preserves_missing_heartbeat_as_null(monkeypatch):
+def test_clickhouse_store_health_summary_preserves_missing_heartbeat_as_null(
+    monkeypatch,
+):
     from freshquant.runtime_observability.clickhouse_store import (
         RuntimeObservabilityClickHouseStore,
     )

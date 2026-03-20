@@ -3,20 +3,27 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from typing import Any
-
+from zoneinfo import ZoneInfo
 
 _SESSION_SEGMENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+_SESSION_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 def build_session_identity(event: dict[str, Any] | None) -> dict[str, str]:
     payload = dict(event or {})
     trace_id = _normalized_text(payload.get("trace_id"))
     if trace_id:
-        return {"session_key": f"trace__{_safe_segment(trace_id)}", "session_type": "trace"}
+        return {
+            "session_key": f"trace__{_safe_segment(trace_id)}",
+            "session_type": "trace",
+        }
 
     intent_id = _normalized_text(payload.get("intent_id"))
     if intent_id:
-        return {"session_key": f"intent__{_safe_segment(intent_id)}", "session_type": "intent"}
+        return {
+            "session_key": f"intent__{_safe_segment(intent_id)}",
+            "session_type": "intent",
+        }
 
     ts = _parse_event_datetime(payload.get("ts"))
     minute_bucket = ts.strftime("%Y%m%d%H%M")
@@ -41,10 +48,13 @@ def _parse_event_datetime(raw: Any) -> datetime:
     text = _normalized_text(raw)
     if text:
         try:
-            return datetime.fromisoformat(text).astimezone()
+            parsed = datetime.fromisoformat(text)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=_SESSION_TIMEZONE)
+            return parsed.astimezone(_SESSION_TIMEZONE)
         except ValueError:
             pass
-    return datetime.now().astimezone()
+    return datetime.now(_SESSION_TIMEZONE)
 
 
 def _safe_segment(value: Any) -> str:
