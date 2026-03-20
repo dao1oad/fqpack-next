@@ -268,7 +268,7 @@ $pythonLauncher = Resolve-PythonLauncher -RepoRoot $repoRoot
 $deployPlanScript = Join-Path $repoRoot "script\freshquant_deploy_plan.py"
 $composeScript = Join-Path $repoRoot "script\docker_parallel_compose.ps1"
 $hostRuntimeScript = Join-Path $repoRoot "script\fqnext_host_runtime_ctl.ps1"
-$runtimeOpsScript = Join-Path $repoRoot "runtime\symphony\scripts\check_freshquant_runtime_post_deploy.ps1"
+$runtimeOpsScript = Join-Path $repoRoot "script\check_freshquant_runtime_post_deploy.ps1"
 
 $stateFilePath = $null
 $state = $null

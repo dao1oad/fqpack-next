@@ -108,7 +108,6 @@ $surfaceAliasMap = @{
     qawebserver = 'qa'
     tradingagents = 'tradingagents'
     'tradingagents-cn' = 'tradingagents'
-    symphony = 'symphony'
     'market_data' = 'market_data'
     'market-data' = 'market_data'
     guardian = 'guardian'
@@ -125,7 +124,6 @@ $knownDeploymentSurfaces = @(
     'dagster',
     'qa',
     'tradingagents',
-    'symphony',
     'market_data',
     'guardian',
     'position_management',
@@ -143,10 +141,6 @@ $dockerSurfaceMap = @{
 
 $baseContainerNames = @('fq_mongodb', 'fq_redis')
 $serviceSpecs = @(
-    [pscustomobject]@{
-        Name = 'fq-symphony-orchestrator'
-        Surfaces = @('symphony')
-    },
     [pscustomobject]@{
         Name = 'fqnext-supervisord'
         Surfaces = @('market_data', 'guardian', 'position_management', 'tpsl', 'order_management')

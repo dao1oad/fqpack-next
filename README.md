@@ -88,7 +88,7 @@ Docker 并行构建默认通过 `FQ_DOCKER_BUILD_CACHE_ROOT` 使用本地 BuildK
 兼容人工启动器：
 
 - `D:\fqpack\supervisord\frequant-next.bat`
-- 该 `.bat` 仅保留为兼容入口，不再作为 `Global Stewardship` 正式部署入口
+- 该 `.bat` 仅保留为兼容入口，不再作为正式部署入口
 
 ## 文档入口
 

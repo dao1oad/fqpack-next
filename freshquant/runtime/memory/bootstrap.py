@@ -51,8 +51,6 @@ def derive_memory_role(
     if env_role and env_role.strip():
         return env_role.strip()
 
-    if (issue_state or "").strip() == "Global Stewardship":
-        return "global-stewardship"
     return "codex"
 
 

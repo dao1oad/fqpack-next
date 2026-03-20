@@ -68,7 +68,6 @@ def test_bootstrap_without_state_deploys_all_surfaces(
         "dagster",
         "qa",
         "tradingagents",
-        "symphony",
         "market_data",
         "guardian",
         "position_management",
@@ -81,7 +80,6 @@ def test_bootstrap_without_state_deploys_all_surfaces(
             "api": ["http://127.0.0.1:15000/api/runtime/health/summary"],
             "web": ["http://127.0.0.1:18080/"],
             "tradingagents": ["http://127.0.0.1:13000/api/health"],
-            "symphony": ["http://127.0.0.1:40123/api/v1/state"],
         },
         build_deploy_plan=lambda changed_paths=None, explicit_surfaces=None: make_plan(
             surfaces=list(explicit_surfaces or []),
@@ -116,7 +114,14 @@ def test_bootstrap_without_state_deploys_all_surfaces(
             ],
         ),
     )
-    monkeypatch.setattr(module, "load_current_revision", lambda _: "newsha")
+    monkeypatch.setattr(
+        module,
+        "load_current_revision",
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("local HEAD should not be used")
+        ),
+    )
+    monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
     monkeypatch.setattr(module, "load_deploy_plan_module", lambda _: fake_plan_module)
     monkeypatch.setattr(
         module,
@@ -134,17 +139,13 @@ def test_bootstrap_without_state_deploys_all_surfaces(
         repo_root=Path("."),
         state_path=state_path,
         runs_root=tmp_path / "runs",
-        head_sha="newsha",
         run_url="https://example.invalid/runs/1",
     )
 
     assert result["bootstrap"] is True
     assert result["plan"]["deployment_surfaces"] == list(surface_order)
     assert read_state(state_path)["last_success_sha"] == "newsha"
-    assert (
-        commands[0][4]
-        == "runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1"
-    )
+    assert commands[0][4] == "script/check_freshquant_runtime_post_deploy.ps1"
 
 
 def test_successful_run_updates_last_success_sha(
@@ -183,7 +184,14 @@ def test_successful_run_updates_last_success_sha(
             ],
         ),
     )
-    monkeypatch.setattr(module, "load_current_revision", lambda _: "newsha")
+    monkeypatch.setattr(
+        module,
+        "load_current_revision",
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("local HEAD should not be used")
+        ),
+    )
+    monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
     monkeypatch.setattr(
         module,
         "load_changed_paths",
@@ -206,7 +214,6 @@ def test_successful_run_updates_last_success_sha(
         repo_root=Path("."),
         state_path=state_path,
         runs_root=tmp_path / "runs",
-        head_sha="newsha",
         run_url="https://example.invalid/runs/2",
     )
 
@@ -262,7 +269,14 @@ def test_failed_health_check_does_not_advance_state(
         if "freshquant_health_check.py" in " ".join(command):
             raise RuntimeError("health check failed")
 
-    monkeypatch.setattr(module, "load_current_revision", lambda _: "newsha")
+    monkeypatch.setattr(
+        module,
+        "load_current_revision",
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("local HEAD should not be used")
+        ),
+    )
+    monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
     monkeypatch.setattr(
         module,
         "load_changed_paths",
@@ -281,7 +295,6 @@ def test_failed_health_check_does_not_advance_state(
             repo_root=Path("."),
             state_path=state_path,
             runs_root=tmp_path / "runs",
-            head_sha="newsha",
             run_url="https://example.invalid/runs/3",
         )
 
@@ -339,7 +352,14 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
             ],
         ),
     )
-    monkeypatch.setattr(module, "load_current_revision", lambda _: "newsha")
+    monkeypatch.setattr(
+        module,
+        "load_current_revision",
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("local HEAD should not be used")
+        ),
+    )
+    monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
     monkeypatch.setattr(
         module,
         "load_changed_paths",
@@ -364,7 +384,6 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         repo_root=Path("."),
         state_path=state_path,
         runs_root=tmp_path / "runs",
-        head_sha="newsha",
         run_url="https://example.invalid/runs/4",
     )
 
@@ -375,7 +394,7 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1",
+        "script/check_freshquant_runtime_post_deploy.ps1",
     ]
     assert commands[1] == [
         "powershell",
@@ -414,7 +433,7 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1",
+        "script/check_freshquant_runtime_post_deploy.ps1",
     ]
     assert verify_command[-1] == "api,market_data"
 
@@ -446,7 +465,14 @@ def test_noop_run_skips_deploy_commands_and_advances_state(
         ),
     )
 
-    monkeypatch.setattr(module, "load_current_revision", lambda _: "newsha")
+    monkeypatch.setattr(
+        module,
+        "load_current_revision",
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("local HEAD should not be used")
+        ),
+    )
+    monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
     monkeypatch.setattr(
         module,
         "load_changed_paths",
@@ -468,7 +494,6 @@ def test_noop_run_skips_deploy_commands_and_advances_state(
         repo_root=Path("."),
         state_path=state_path,
         runs_root=tmp_path / "runs",
-        head_sha="newsha",
         run_url="https://example.invalid/runs/5",
     )
 
@@ -544,3 +569,22 @@ def test_incremental_run_without_git_dir_uses_compare_api_fallback(
     assert result["changed_paths"] == ["morningglory/fqwebui/src/App.vue"]
     assert result["plan"]["deployment_surfaces"] == ["web"]
     assert read_state(state_path)["last_success_sha"] == "newsha"
+
+
+def test_default_artifacts_paths_use_neutral_runtime_root() -> None:
+    module = load_module()
+
+    assert module.DEFAULT_ARTIFACTS_ROOT == Path(r"D:\fqpack\runtime\formal-deploy")
+    assert module.default_state_path(module.DEFAULT_ARTIFACTS_ROOT) == (
+        module.DEFAULT_ARTIFACTS_ROOT / "production-state.json"
+    )
+    assert module.default_runs_root(module.DEFAULT_ARTIFACTS_ROOT) == (
+        module.DEFAULT_ARTIFACTS_ROOT / "runs"
+    )
+
+
+def test_formal_deploy_source_no_longer_references_runtime_symphony() -> None:
+    text = Path("script/ci/run_formal_deploy.py").read_text(encoding="utf-8")
+
+    assert "runtime/symphony" not in text
+    assert "build_symphony_commands" not in text
