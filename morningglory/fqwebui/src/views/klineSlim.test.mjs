@@ -37,3 +37,14 @@ test('KlineSlim toolbar toggles both price guide and chanlun panels from the sam
   assert.match(scriptSource, /this\.showPriceGuidePanel = false/)
   assert.match(scriptSource, /this\.showChanlunStructurePanel = false/)
 })
+
+test('KlineSlim sidebar renders source and category tags for shared pre_pool rows', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const sidebarSource = fs.readFileSync(new URL('./js/kline-slim-sidebar.mjs', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /sidebar-item-tags/)
+  assert.match(viewSource, /item\.sourceLabels/)
+  assert.match(viewSource, /item\.categoryLabels/)
+  assert.match(sidebarSource, /sourceLabels/)
+  assert.match(sidebarSource, /categoryLabels/)
+})
