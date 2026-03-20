@@ -2,6 +2,13 @@ const toText = (value) => String(value || '').trim()
 
 const normalizeList = (value) => (Array.isArray(value) ? value : [])
 
+const normalizeDisplayText = (value, separator = '、') => {
+  if (Array.isArray(value)) {
+    return value.map((item) => toText(item)).filter(Boolean).join(separator)
+  }
+  return toText(value)
+}
+
 const resolvePlateRowKey = (plate) => {
   return toText(plate?.view_key || plate?.plate_key)
 }
@@ -105,14 +112,18 @@ const mapWorkspaceRow = (
   {
     primaryActionLabel = '',
     secondaryActionLabel = '删除',
+    defaultProvider = '',
   } = {},
 ) => {
+  const plateName = toText(item?.plate_name || item?.extra?.shouban30_plate_name)
+  const category = normalizeDisplayText(item?.category)
   return {
     code6: toText(item?.code6 || item?.code),
     name: toText(item?.name),
-    category: toText(item?.category),
-    plate_name: toText(item?.extra?.shouban30_plate_name),
-    provider: toText(item?.extra?.shouban30_provider),
+    category,
+    plate_name: plateName,
+    context_label: plateName || category,
+    provider: toText(item?.provider || item?.extra?.shouban30_provider || defaultProvider),
     primary_action_label: primaryActionLabel,
     secondary_action_label: secondaryActionLabel,
   }
@@ -121,8 +132,10 @@ const mapWorkspaceRow = (
 export const buildWorkspaceTabs = ({
   prePoolItems = [],
   stockPoolItems = [],
+  mustPoolItems = [],
+  showMustPoolTab = false,
 } = {}) => {
-  return [
+  const tabs = [
     {
       key: 'pre_pool',
       label: 'pre_pools',
@@ -144,6 +157,18 @@ export const buildWorkspaceTabs = ({
       })),
     },
   ]
+
+  if (showMustPoolTab || normalizeList(mustPoolItems).length > 0) {
+    tabs.push({
+      key: 'must_pools',
+      label: 'must_pools',
+      rows: normalizeList(mustPoolItems).map((item) => mapWorkspaceRow(item, {
+        defaultProvider: 'must_pool',
+      })),
+    })
+  }
+
+  return tabs
 }
 
 export const resolveSelectedStockDetailContext = ({

@@ -12,6 +12,7 @@ import {
   buildDailyScreeningWorkbenchState,
   formatDailyScreeningConditionLabel,
   normalizeDailyScreeningFilterCatalog,
+  normalizeDailyScreeningDetail,
   normalizeDailyScreeningScopeItems,
   readDailyScreeningPayload,
 } from './dailyScreeningPage.mjs'
@@ -49,7 +50,7 @@ test('buildDailyScreeningWorkbenchState defaults to grouped query mode with dail
 
   assert.equal(state.scopeId, 'trade_date:2026-03-18')
   assert.equal(state.selectedRunId, 'trade_date:2026-03-18')
-  assert.deepEqual(state.conditionKeys, [])
+  assert.deepEqual(state.conditionKeys, ['flag:credit_subject'])
   assert.deepEqual(state.clsGroupKeys, [])
   assert.equal(state.dayChanlunEnabled, true)
   assert.deepEqual(state.metricFilters, {
@@ -343,6 +344,15 @@ test('buildDailyScreeningWorkspaceTabs reuses shared workspace tab structure', (
         },
       },
     ],
+    mustPoolItems: [
+      {
+        code: '000003',
+        name: '国农科技',
+        category: ['短线观察', '机构票'],
+        plate_name: '医药',
+        provider: 'must_pool',
+      },
+    ],
   })
 
   assert.equal(tabs[0].label, 'pre_pools')
@@ -350,6 +360,32 @@ test('buildDailyScreeningWorkspaceTabs reuses shared workspace tab structure', (
   assert.equal(tabs[0].rows[0].provider, 'daily_screening')
   assert.equal(tabs[1].label, 'stock_pools')
   assert.equal(tabs[1].rows[0].primary_action_label, '加入 must_pools')
+  assert.equal(tabs[2].label, 'must_pools')
+  assert.equal(tabs[2].rows[0].category, '短线观察、机构票')
+  assert.equal(tabs[2].rows[0].plate_name, '医药')
+})
+
+test('normalizeDailyScreeningDetail exposes base pool status for fallback detail cards', () => {
+  const detail = normalizeDailyScreeningDetail({
+    snapshot: {
+      code: '600917',
+      name: '渝农商行',
+      higher_multiple: 2.4,
+    },
+    base_pool_status: {
+      in_base_pool: false,
+      last_seen_scope_id: 'trade_date:2026-03-18',
+      last_seen_trade_date: '2026-03-18',
+    },
+  })
+
+  assert.deepEqual(detail.basePoolStatus, {
+    inBasePool: false,
+    lastSeenScopeId: 'trade_date:2026-03-18',
+    lastSeenTradeDate: '2026-03-18',
+  })
+  assert.equal(detail.snapshot.code, '600917')
+  assert.equal(detail.snapshot.higherMultiple, 2.4)
 })
 
 test('DailyScreening.vue renders grouped filters and denser detail layout hooks', async () => {
@@ -358,9 +394,17 @@ test('DailyScreening.vue renders grouped filters and denser detail layout hooks'
   assert.match(content, /conditionSectionGroups/)
   assert.match(content, /group\.key === 'base_pool'/)
   assert.match(content, /加入 pre_pools/)
-  assert.match(content, /@row-click="handleWorkspaceRowClick"/)
+  assert.match(content, /@click="handleWorkspaceRowClick\(row\)"/)
   assert.match(content, /daily-detail-card-grid/)
   assert.match(content, /daily-detail-history-panel/)
+  assert.match(content, /输入代码或名称，全市场模糊搜索/)
+  assert.match(content, /marketSearchKeyword/)
+  assert.match(content, /searchMarketStocks/)
+  assert.match(content, /基础池状态/)
+  assert.match(content, /最近一次在基础池/)
+  assert.match(content, /Shouban30ReasonPopover/)
+  assert.match(content, /runtime-ledger daily-results-ledger/)
+  assert.match(content, /\.daily-filter-panel\s*\{[\s\S]*overflow-y:\s*auto;/)
   assert.doesNotMatch(content, /<aside class="daily-detail-stack"[\s\S]*<div class="workbench-panel__title">日线缠论涨幅<\/div>/)
   assert.match(content, /全部加入pre_pools/)
   assert.match(content, /dayChanlunEnabled \? 'primary' : 'default'/)

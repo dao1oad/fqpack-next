@@ -130,6 +130,24 @@ def query_scope():
     return jsonify(_get_daily_screening_service().query_scope(scope_id, payload))
 
 
+@daily_screening_bp.get("/stocks/search")
+def search_market_stocks():
+    scope_id = _coalesce_scope_id(
+        request.args.get("scope_id"),
+        request.args.get("run_id"),
+    )
+    if not scope_id:
+        return jsonify({"error": "scope_id required"}), 400
+    limit = _as_int(request.args.get("limit"), default=20)
+    return jsonify(
+        _get_daily_screening_service().search_market_stocks(
+            scope_id,
+            request.args.get("q"),
+            limit=limit,
+        )
+    )
+
+
 @daily_screening_bp.get("/stocks/<code>/detail")
 def get_stock_detail(code: str):
     scope_id = _coalesce_scope_id(

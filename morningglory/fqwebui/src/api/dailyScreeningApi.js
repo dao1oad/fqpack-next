@@ -35,6 +35,17 @@ export const dailyScreeningApi = {
       data,
     })
   },
+  searchMarketStocks (scopeId, query, limit = 20) {
+    return http({
+      url: '/api/daily-screening/stocks/search',
+      method: 'get',
+      params: {
+        scope_id: scopeId,
+        q: query,
+        limit,
+      },
+    })
+  },
   getStockDetail (scopeId, code) {
     return http({
       url: `/api/daily-screening/stocks/${code}/detail`,
