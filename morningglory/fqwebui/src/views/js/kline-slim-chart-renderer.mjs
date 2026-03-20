@@ -208,6 +208,44 @@ function resolveCrosshairDateLabel(scene, slotX) {
   return String(labels[index] || '')
 }
 
+function resolveViewportMetrics(scene, viewport) {
+  const visibleWindow = pickViewportWindow(scene, viewport) || scene?.mainWindow
+  const visibleStartTs = Number(visibleWindow?.startTs)
+  const visibleEndTs = Number(visibleWindow?.endTs)
+  const yMin = Number(viewport?.yRange?.min)
+  const yMax = Number(viewport?.yRange?.max)
+  if (
+    !Number.isFinite(visibleStartTs) ||
+    !Number.isFinite(visibleEndTs) ||
+    !Number.isFinite(yMin) ||
+    !Number.isFinite(yMax)
+  ) {
+    return null
+  }
+
+  return {
+    visibleWindow,
+    visibleStartTs,
+    visibleEndTs,
+    visibleXSpan: Math.max(1e-6, visibleEndTs - visibleStartTs),
+    yMin,
+    yMax,
+    visibleYSpan: Math.max(1e-6, yMax - yMin)
+  }
+}
+
+function resolvePricePixelY({ viewportMetrics, gridRect, price } = {}) {
+  const numericPrice = Number(price)
+  if (!viewportMetrics || !gridRect || !Number.isFinite(numericPrice) || gridRect.height <= 0) {
+    return NaN
+  }
+
+  return (
+    gridRect.y +
+    (viewportMetrics.yMax - numericPrice) * (gridRect.height / viewportMetrics.visibleYSpan)
+  )
+}
+
 export function resolveKlineSlimGridRect(chart) {
   const gridModel = chart?.getModel?.()?.getComponent?.('grid', 0)
   const rect = gridModel?.coordinateSystem?.getRect?.()
@@ -299,31 +337,21 @@ export function buildKlineSlimCrosshairGraphics({ chart, scene, viewport, crossh
     return []
   }
 
-  const visibleWindow = pickViewportWindow(scene, viewport) || scene.mainWindow
-  const visibleStartTs = Number(visibleWindow?.startTs)
-  const visibleEndTs = Number(visibleWindow?.endTs)
-  const yMin = Number(viewport?.yRange?.min)
-  const yMax = Number(viewport?.yRange?.max)
-  if (
-    !Number.isFinite(visibleStartTs) ||
-    !Number.isFinite(visibleEndTs) ||
-    !Number.isFinite(yMin) ||
-    !Number.isFinite(yMax) ||
-    gridRect.width <= 0 ||
-    gridRect.height <= 0
-  ) {
+  const viewportMetrics = resolveViewportMetrics(scene, viewport)
+  if (!viewportMetrics || gridRect.width <= 0 || gridRect.height <= 0) {
     return []
   }
 
-  const visibleXSpan = Math.max(1e-6, visibleEndTs - visibleStartTs)
-  const visibleYSpan = Math.max(1e-6, yMax - yMin)
-  const clampedSlotX = clampNumber(crosshair.slotX, visibleStartTs, visibleEndTs)
-  const clampedValueY = clampNumber(crosshair.valueY, yMin, yMax)
+  const clampedSlotX = clampNumber(crosshair.slotX, viewportMetrics.visibleStartTs, viewportMetrics.visibleEndTs)
+  const clampedValueY = clampNumber(crosshair.valueY, viewportMetrics.yMin, viewportMetrics.yMax)
   const xPixel =
     gridRect.x +
-    (clampedSlotX - visibleStartTs) * (gridRect.width / visibleXSpan)
-  const yPixel =
-    gridRect.y + (yMax - clampedValueY) * (gridRect.height / visibleYSpan)
+    (clampedSlotX - viewportMetrics.visibleStartTs) * (gridRect.width / viewportMetrics.visibleXSpan)
+  const yPixel = resolvePricePixelY({
+    viewportMetrics,
+    gridRect,
+    price: clampedValueY
+  })
   if (!Number.isFinite(xPixel) || !Number.isFinite(yPixel)) {
     return []
   }
@@ -435,6 +463,141 @@ export function buildKlineSlimCrosshairGraphics({ chart, scene, viewport, crossh
       height: labelHeight,
       text: dateText,
       fill: '#e5e7eb'
+    })
+  ]
+}
+
+export function buildKlineSlimPriceGuideEditGraphics({
+  chart,
+  scene,
+  viewport,
+  draggingPriceGuideId = ''
+} = {}) {
+  if (
+    !chart ||
+    !scene?.priceGuideEditMode ||
+    scene?.priceGuideEditLocked ||
+    !Array.isArray(scene?.editablePriceGuideLines) ||
+    !scene.editablePriceGuideLines.length
+  ) {
+    return []
+  }
+
+  const gridRect = resolveKlineSlimGridRect(chart)
+  const viewportMetrics = resolveViewportMetrics(scene, viewport)
+  if (!gridRect || !viewportMetrics || gridRect.width <= 0 || gridRect.height <= 0) {
+    return []
+  }
+
+  const labelWidth = 88
+  const labelHeight = 20
+  const handleRadius = 7
+  const lineEndX = gridRect.x + gridRect.width
+  const labelX = Math.max(gridRect.x, lineEndX - labelWidth - 14)
+  const handleX = lineEndX - 10
+
+  return scene.editablePriceGuideLines.flatMap((line) => {
+    const yPixel = resolvePricePixelY({
+      viewportMetrics,
+      gridRect,
+      price: line?.price
+    })
+    if (!Number.isFinite(yPixel) || yPixel < gridRect.y || yPixel > gridRect.y + gridRect.height) {
+      return []
+    }
+
+    const isDragging = String(draggingPriceGuideId || '') === String(line.id || '')
+    const stroke = line.color || '#60a5fa'
+    const opacity = line.placeholder ? 0.46 : line.active ? 0.96 : 0.68
+    const lineWidth = isDragging ? 2.8 : line.placeholder ? 1.2 : 1.8
+    const dash = line.lineStyle === 'dashed' ? [6, 4] : null
+
+    return [
+      {
+        id: `kline-slim-price-guide-edit-line-${line.id}`,
+        name: `kline-slim-price-guide-edit-line-${line.id}`,
+        type: 'line',
+        silent: true,
+        z: 192,
+        shape: {
+          x1: gridRect.x,
+          y1: yPixel,
+          x2: lineEndX,
+          y2: yPixel
+        },
+        style: {
+          stroke,
+          opacity,
+          lineWidth,
+          lineDash: dash || undefined
+        }
+      },
+      {
+        id: `kline-slim-price-guide-edit-label-bg-${line.id}`,
+        name: `kline-slim-price-guide-edit-label-bg-${line.id}`,
+        type: 'rect',
+        silent: true,
+        z: 193,
+        shape: {
+          x: labelX,
+          y: yPixel - labelHeight / 2,
+          width: labelWidth,
+          height: labelHeight
+        },
+        style: {
+          fill: withAlpha(stroke, line.placeholder ? 0.16 : 0.28)
+        }
+      },
+      buildCrosshairTextGraphic({
+        id: `kline-slim-price-guide-edit-label-${line.id}`,
+        x: labelX,
+        y: yPixel - labelHeight / 2,
+        width: labelWidth,
+        height: labelHeight,
+        text: line.label || '',
+        fill: '#e5e7eb'
+      }),
+      {
+        id: `kline-slim-price-guide-edit-handle-${line.id}`,
+        name: `kline-slim-price-guide-edit-handle-${line.id}`,
+        type: 'circle',
+        silent: true,
+        z: 194,
+        shape: {
+          cx: handleX,
+          cy: yPixel,
+          r: isDragging ? handleRadius + 1 : handleRadius
+        },
+        style: {
+          fill: withAlpha(stroke, line.placeholder ? 0.18 : 0.26),
+          stroke,
+          lineWidth: isDragging ? 2.6 : 2,
+          opacity: 1
+        }
+      }
+    ]
+  })
+}
+
+export function buildKlineSlimChartGraphics({
+  chart,
+  scene,
+  viewport,
+  crosshair,
+  draggingPriceGuideId = ''
+} = {}) {
+  return [
+    ...buildKlineSlimPriceGuideEditGraphics({
+      chart,
+      scene,
+      viewport,
+      draggingPriceGuideId
+    }),
+    ...buildKlineSlimCrosshairGraphics({
+      chart,
+      scene,
+      viewport,
+      crosshair
     })
   ]
 }
@@ -746,10 +909,13 @@ function normalizePriceGuideLines(priceGuides) {
         key: String(item?.key || item?.id || `line-${index}`),
         group: String(item?.group || 'price-guide'),
         label: String(item?.label || item?.id || `L${index + 1}`),
+        level: item?.level ?? null,
         price,
         color: item?.color || '#60a5fa',
         lineStyle: item?.lineStyle === 'dashed' ? 'dashed' : 'solid',
-        active: item?.active !== false
+        active: item?.active !== false,
+        manual_enabled: item?.manual_enabled !== false,
+        placeholder: item?.placeholder === true
       }
     })
     .filter(Boolean)
@@ -956,7 +1122,10 @@ export function buildKlineSlimChartScene({
   extraChanlunMap = {},
   visiblePeriods = [],
   legendSelected = null,
-  priceGuides = null
+  priceGuides = null,
+  editablePriceGuides = null,
+  priceGuideEditMode = false,
+  priceGuideEditLocked = false
 } = {}) {
   const normalizedCurrent = normalizeChanlunPeriod(currentPeriod)
   const dates = Array.isArray(mainData?.date) ? mainData.date : []
@@ -977,6 +1146,7 @@ export function buildKlineSlimChartScene({
   const legendNames = [...SUPPORTED_CHANLUN_PERIODS]
   const extras = visiblePeriods.filter((period) => period !== normalizedCurrent && legendNames.includes(period))
   const normalizedPriceGuideLines = normalizePriceGuideLines(priceGuides)
+  const normalizedEditablePriceGuideLines = normalizePriceGuideLines(editablePriceGuides)
   const priceGuideLegendEntries = buildPriceGuideLegendEntries(normalizedPriceGuideLines)
   const resolvedPeriodLegendSelected = buildPeriodLegendSelectionState({
     currentPeriod: normalizedCurrent,
@@ -1023,13 +1193,22 @@ export function buildKlineSlimChartScene({
     tradingAxis,
     mainCandles: buildCandleItems(mainData, normalizedCurrent, tradingAxis),
     priceGuideLines: normalizedPriceGuideLines,
+    editablePriceGuideLines: normalizedEditablePriceGuideLines,
     priceGuideBands: normalizePriceGuideBands(priceGuides),
+    priceGuideEditMode: Boolean(priceGuideEditMode),
+    priceGuideEditLocked: Boolean(priceGuideEditLocked),
     periodScenes,
     structureBoxes: periodScenes.flatMap((periodScene) => periodScene.structureBoxes)
   }
 }
 
-export function buildKlineSlimChartOption({ chart, scene, viewport, crosshair } = {}) {
+export function buildKlineSlimChartOption({
+  chart,
+  scene,
+  viewport,
+  crosshair,
+  draggingPriceGuideId = ''
+} = {}) {
   if (!scene) {
     return null
   }
@@ -1136,11 +1315,12 @@ export function buildKlineSlimChartOption({ chart, scene, viewport, crosshair } 
       }
     ],
     series: buildSceneRenderSeries(scene, viewport),
-    graphic: buildKlineSlimCrosshairGraphics({
+    graphic: buildKlineSlimChartGraphics({
       chart,
       scene,
       viewport,
-      crosshair
+      crosshair,
+      draggingPriceGuideId
     })
   }
 }

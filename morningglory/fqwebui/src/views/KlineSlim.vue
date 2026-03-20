@@ -43,6 +43,14 @@
         </el-button>
         <el-button
           size="small"
+          :type="priceGuideEditMode ? 'warning' : 'default'"
+          :disabled="!routeSymbol"
+          @click="togglePriceGuideEditMode"
+        >
+          画线编辑
+        </el-button>
+        <el-button
+          size="small"
           :type="showChanlunStructurePanel ? 'primary' : 'default'"
           :disabled="!routeSymbol"
           @click="toggleChanlunStructurePanel"
@@ -183,6 +191,7 @@
               </div>
               <div class="price-panel-meta-row">
                 <span>图上默认展示 Guardian / 止盈横线，可在 legend 中关闭</span>
+                <span v-if="priceGuideEditMode">拖拽横线后自动保存</span>
               </div>
             </div>
             <div class="price-panel-actions">
@@ -266,7 +275,9 @@
                 </div>
 
                 <div class="price-panel-footer">
-                  <span class="price-panel-footer-note">保存后会同步刷新图上的 Guardian 横线。</span>
+                  <span class="price-panel-footer-note">
+                    {{ priceGuideEditMode ? '画线编辑已开启，拖拽 Guardian 横线后自动保存。' : '保存后会同步刷新图上的 Guardian 横线。' }}
+                  </span>
                   <el-button
                     size="small"
                     type="primary"
@@ -334,7 +345,9 @@
                 </div>
 
                 <div class="price-panel-footer">
-                  <span class="price-panel-footer-note">保存后会同步刷新图上的止盈横线。</span>
+                  <span class="price-panel-footer-note">
+                    {{ priceGuideEditMode ? '画线编辑已开启，拖拽止盈横线后自动保存。' : '保存后会同步刷新图上的止盈横线。' }}
+                  </span>
                   <el-button
                     size="small"
                     type="primary"

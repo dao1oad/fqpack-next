@@ -48,3 +48,15 @@ test('KlineSlim sidebar renders source and category tags for shared pre_pool row
   assert.match(sidebarSource, /sourceLabels/)
   assert.match(sidebarSource, /categoryLabels/)
 })
+
+test('KlineSlim exposes a dedicated price-guide edit mode with drag-save handlers', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /画线编辑/)
+  assert.match(viewSource, /@click="togglePriceGuideEditMode"/)
+  assert.match(scriptSource, /priceGuideEditMode:/)
+  assert.match(scriptSource, /togglePriceGuideEditMode\(\)/)
+  assert.match(scriptSource, /handlePriceGuideDrag\(/)
+  assert.match(scriptSource, /handlePriceGuideDragEnd\(/)
+})
