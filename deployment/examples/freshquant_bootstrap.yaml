@@ -16,7 +16,7 @@ memory:
     port: 27027
     db: fq_memory
   cold_root: .codex/memory
-  artifact_root: D:/fqpack/runtime/symphony-service/artifacts/memory
+  artifact_root: D:/fqpack/runtime/artifacts/memory
 
 order_management:
   mongo_database: freshquant_order_management

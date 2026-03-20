@@ -152,11 +152,9 @@ python -m freshquant.initialize
   - `python -m freshquant.xt_account_sync.worker --interval 3`
 - TPSL worker
   - `python -m freshquant.tpsl.tick_listener`
-- Symphony 正式服务
-  - `runtime/symphony/scripts/start_freshquant_symphony.ps1`
-  - `runtime/symphony/scripts/activate_github_first_formal_service.ps1`
-  - `runtime/symphony/scripts/install_freshquant_symphony_restart_task.ps1`
-  - `runtime/symphony/scripts/invoke_freshquant_symphony_restart_task.ps1`
+- formal deploy
+  - `script/ci/run_formal_deploy.py`
+  - `script/check_freshquant_runtime_post_deploy.ps1`
 - Codex 自由会话硬入口
   - `codex_run/start_codex_cli.bat`
   - `codex_run/start_codex_app_server.bat`

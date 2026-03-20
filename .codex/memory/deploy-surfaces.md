@@ -11,7 +11,6 @@
 - `morningglory/fqwebui/**` -> 重新构建并重部署 Web UI。
 - `morningglory/fqdagster/**` 或 `morningglory/fqdagsterconfig/**` -> 重启 Dagster webserver 和 daemon。
 - `third_party/tradingagents-cn/**` -> 重新构建 `ta_backend` 和 `ta_frontend`。
-- `runtime/symphony/**` -> 同步正式 Symphony service，并重启 `fq-symphony-orchestrator`。
 - 在决定最终发布批次前，先用 `py -3.12 script/freshquant_deploy_plan.py` 计算正式部署范围。
 - 所有宿主机部署面都应通过 `script/fqnext_host_runtime_ctl.ps1` 执行，不要临时用 ad-hoc 进程重启替代。
 

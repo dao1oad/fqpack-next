@@ -8,13 +8,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = (
-    REPO_ROOT
-    / "runtime"
-    / "symphony"
-    / "scripts"
-    / "check_freshquant_runtime_post_deploy.ps1"
-)
+SCRIPT = REPO_ROOT / "script" / "check_freshquant_runtime_post_deploy.ps1"
 
 
 def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -66,7 +60,6 @@ def test_capture_baseline_records_runtime_state_from_snapshots(tmp_path: Path) -
     service_path = _write_json(
         tmp_path / "services.json",
         [
-            {"Name": "fq-symphony-orchestrator", "Status": "Running"},
             {"Name": "fqnext-supervisord", "Status": "Running"},
         ],
     )
@@ -113,8 +106,8 @@ def test_capture_baseline_records_runtime_state_from_snapshots(tmp_path: Path) -
     assert payload["passed"] is True
     assert docker_entries["fq_mongodb"]["exists"] is True
     assert docker_entries["fq_apiserver"]["health_status"] == "healthy"
-    assert service_entries["fq-symphony-orchestrator"]["status"] == "Running"
     assert service_entries["fqnext-supervisord"]["status"] == "Running"
+    assert "fq-symphony-orchestrator" not in service_entries
     assert process_entries["market_data_producer"]["running"] is True
     assert process_entries["xt_account_sync_worker"]["running"] is True
     assert process_entries["guardian_monitor"]["running"] is False
@@ -182,7 +175,7 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
                     {"name": "fq_redis", "exists": True},
                     {"name": "fq_apiserver", "exists": True},
                 ],
-                "services": [{"name": "fq-symphony-orchestrator", "status": "Running"}],
+                "services": [{"name": "fqnext-supervisord", "status": "Running"}],
                 "processes": [
                     {"id": "market_data_producer", "running": True},
                     {"id": "xtdata_adj_refresh_worker", "running": False},
@@ -215,7 +208,6 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
     service_path = _write_json(
         tmp_path / "services.json",
         [
-            {"Name": "fq-symphony-orchestrator", "Status": "Stopped"},
             {"Name": "fqnext-supervisord", "Status": "Stopped"},
         ],
     )
@@ -234,7 +226,7 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
         "-OutputPath",
         str(output_path),
         "-DeploymentSurface",
-        "api,market_data,position_management,symphony,order_management",
+        "api,market_data,position_management,order_management",
         "-DockerSnapshotPath",
         str(docker_path),
         "-ServiceSnapshotPath",
@@ -249,7 +241,6 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
     assert payload["mode"] == "Verify"
     assert payload["passed"] is False
     assert any("fq_apiserver" in failure for failure in payload["failures"])
-    assert any("fq-symphony-orchestrator" in failure for failure in payload["failures"])
     assert any("fqnext-supervisord" in failure for failure in payload["failures"])
     assert any("market_data_producer" in failure for failure in payload["failures"])
     assert any(
@@ -258,6 +249,10 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
     assert any("market_data_consumer" in failure for failure in payload["failures"])
     assert any("xt_account_sync_worker" in failure for failure in payload["failures"])
     assert any("xtquant_broker" in failure for failure in payload["failures"])
+    assert any("credit_subjects_worker" in failure for failure in payload["failures"])
+    assert all(
+        "fq-symphony-orchestrator" not in failure for failure in payload["failures"]
+    )
     assert any("guardian_monitor" in warning for warning in payload["warnings"])
 
 
@@ -267,7 +262,7 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
         {
             "baseline": {
                 "docker": [],
-                "services": [{"name": "fq-symphony-orchestrator", "status": "Running"}],
+                "services": [{"name": "fqnext-supervisord", "status": "Running"}],
                 "processes": [
                     {"id": "market_data_producer", "running": True},
                     {"id": "xtdata_adj_refresh_worker", "running": False},
@@ -304,7 +299,6 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
     service_path = _write_json(
         tmp_path / "services.json",
         [
-            {"Name": "fq-symphony-orchestrator", "Status": "Running"},
             {"Name": "fqnext-supervisord", "Status": "Running"},
         ],
     )
@@ -352,7 +346,7 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
         "-OutputPath",
         str(output_path),
         "-DeploymentSurface",
-        "api,web,market_data,symphony,order_management",
+        "api,web,market_data,order_management",
         "-DockerSnapshotPath",
         str(docker_path),
         "-ServiceSnapshotPath",

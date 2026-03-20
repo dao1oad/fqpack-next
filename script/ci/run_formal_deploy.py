@@ -22,7 +22,7 @@ from formal_deploy_state import (  # noqa: E402
     write_deploy_state,
 )
 
-DEFAULT_SERVICE_ROOT = Path(r"D:\fqpack\runtime\symphony-service")
+DEFAULT_ARTIFACTS_ROOT = Path(r"D:\fqpack\runtime\formal-deploy")
 
 
 def repo_root_default() -> Path:
@@ -37,17 +37,33 @@ def isoformat(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
-def default_state_path(service_root: Path) -> Path:
-    return service_root / "artifacts" / "formal-deploy" / "production-state.json"
+def default_state_path(artifacts_root: Path) -> Path:
+    return artifacts_root / "production-state.json"
 
 
-def default_runs_root(service_root: Path) -> Path:
-    return service_root / "artifacts" / "formal-deploy" / "runs"
+def default_runs_root(artifacts_root: Path) -> Path:
+    return artifacts_root / "runs"
 
 
 def load_current_revision(repo_root: Path) -> str:
     result = subprocess.run(
         ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def resolve_latest_remote_main_sha(repo_root: Path) -> str:
+    subprocess.run(
+        ["git", "-C", str(repo_root), "fetch", "origin", "main"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "origin/main"],
         check=True,
         capture_output=True,
         text=True,
@@ -171,7 +187,7 @@ def build_capture_baseline_command(output_path: Path) -> list[str]:
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1",
+        "script/check_freshquant_runtime_post_deploy.ps1",
         "-Mode",
         "CaptureBaseline",
         "-OutputPath",
@@ -189,7 +205,7 @@ def build_verify_runtime_command(
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "runtime/symphony/scripts/check_freshquant_runtime_post_deploy.ps1",
+        "script/check_freshquant_runtime_post_deploy.ps1",
         "-Mode",
         "Verify",
         "-BaselinePath",
@@ -266,7 +282,7 @@ def run_formal_deploy(
     lock = acquire_deploy_lock(lock_path)
     try:
         previous_state = load_deploy_state(state_path)
-        current_sha = head_sha or load_current_revision(repo_root)
+        current_sha = head_sha or resolve_latest_remote_main_sha(repo_root)
         attempt_at = utcnow()
         attempt_at_iso = isoformat(attempt_at)
         run_dir = (
@@ -403,10 +419,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run formal FreshQuant production deploy."
     )
     parser.add_argument("--repo-root", default=str(repo_root_default()))
-    parser.add_argument("--service-root", default=str(DEFAULT_SERVICE_ROOT))
+    parser.add_argument("--artifacts-root", default=str(DEFAULT_ARTIFACTS_ROOT))
     parser.add_argument("--state-path")
     parser.add_argument("--runs-root")
-    parser.add_argument("--head-sha")
     parser.add_argument("--run-url")
     parser.add_argument("--github-repository")
     parser.add_argument("--format", choices=("json", "summary"), default="json")
@@ -429,19 +444,18 @@ def render_summary(result: dict[str, Any]) -> str:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     repo_root = Path(args.repo_root)
-    service_root = Path(args.service_root)
+    artifacts_root = Path(args.artifacts_root)
     state_path = (
-        Path(args.state_path) if args.state_path else default_state_path(service_root)
+        Path(args.state_path) if args.state_path else default_state_path(artifacts_root)
     )
     runs_root = (
-        Path(args.runs_root) if args.runs_root else default_runs_root(service_root)
+        Path(args.runs_root) if args.runs_root else default_runs_root(artifacts_root)
     )
     try:
         result = run_formal_deploy(
             repo_root=repo_root,
             state_path=state_path,
             runs_root=runs_root,
-            head_sha=args.head_sha,
             run_url=args.run_url,
             github_repository=args.github_repository,
         )
