@@ -181,6 +181,27 @@ test('buildWorkspaceTabs keeps source and category labels for shared pre_pool ro
   assert.equal(prePoolTab.rows[0].category_labels, 'CLXS_10001 / plate:11')
 })
 
+test('buildWorkspaceTabs keeps source and category labels for shared stock_pool rows', () => {
+  const [, stockPoolTab] = buildWorkspaceTabs({
+    stockPoolItems: [
+      {
+        code6: '000333',
+        name: 'Beta',
+        category: '三十涨停Pro自选',
+        sources: ['daily-screening', 'shouban30'],
+        categories: ['CLXS_10008', 'plate:11'],
+        extra: {
+          shouban30_provider: 'jygs',
+          shouban30_plate_name: 'chip',
+        },
+      },
+    ],
+  })
+
+  assert.equal(stockPoolTab.rows[0].source_labels, 'daily-screening / shouban30')
+  assert.equal(stockPoolTab.rows[0].category_labels, 'CLXS_10008 / plate:11')
+})
+
 test('resolveSelectedStockDetailContext falls back to workspace row when current stocks miss the selected code', () => {
   const detail = resolveSelectedStockDetailContext({
     selectedStockCode6: '000333',

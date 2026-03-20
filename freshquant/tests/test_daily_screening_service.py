@@ -2458,6 +2458,66 @@ def test_daily_screening_list_pre_pools_returns_unique_code_rows():
     assert payload["rows"][0]["categories"] == ["CLXS_10001", "CLXS_10004"]
 
 
+def test_daily_screening_add_pre_pool_to_stock_pool_passes_sources_and_categories(
+    monkeypatch,
+):
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "000001",
+                    "name": "alpha",
+                    "category": "CLXS_10008",
+                    "remark": "daily-screening:clxs",
+                    "datetime": datetime(2026, 3, 20, 9, 31),
+                    "stop_loss_price": 9.8,
+                    "sources": ["daily-screening", "shouban30"],
+                    "categories": ["CLXS_10008", "plate:11"],
+                    "memberships": [
+                        {
+                            "source": "daily-screening",
+                            "category": "CLXS_10008",
+                            "added_at": datetime(2026, 3, 20, 9, 31),
+                            "expire_at": datetime(2026, 6, 16, 0, 0),
+                            "extra": {"screening_run_id": "run-1"},
+                        },
+                        {
+                            "source": "shouban30",
+                            "category": "plate:11",
+                            "added_at": datetime(2026, 3, 20, 9, 35),
+                            "expire_at": None,
+                            "extra": {"shouban30_plate_key": "11"},
+                        },
+                    ],
+                    "extra": {"screening_run_id": "run-1"},
+                }
+            ]
+        )
+    )
+    service = _make_service(fake_db=fake_db)
+    captured = {}
+
+    monkeypatch.setattr(
+        "freshquant.daily_screening.service._save_stock_pool",
+        lambda **kwargs: captured.setdefault("kwargs", kwargs),
+    )
+
+    result = service.add_pre_pool_to_stock_pool(
+        {"code": "000001", "stock_pool_category": "自选股"}
+    )
+
+    assert result == {"code": "000001", "category": "自选股"}
+    assert captured["kwargs"]["sources"] == ["daily-screening", "shouban30"]
+    assert captured["kwargs"]["categories"] == ["CLXS_10008", "plate:11"]
+    assert {
+        (item["source"], item["category"])
+        for item in captured["kwargs"]["memberships"]
+    } == {
+        ("daily-screening", "CLXS_10008"),
+        ("shouban30", "plate:11"),
+    }
+
+
 def test_daily_screening_service_add_batch_to_pre_pool_uses_query_filters():
     service, repository, _screening_db = _make_service_with_screening_repo()
     _seed_run_scope_snapshot_fixture(repository)

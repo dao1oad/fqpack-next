@@ -851,6 +851,9 @@ class DailyScreeningService:
             expire_days=int(payload.get("days") or 30),
             screening_source=row.get("remark"),
             screening_run_id=(row.get("extra") or {}).get("screening_run_id"),
+            sources=list(row.get("sources") or []),
+            categories=list(row.get("categories") or []),
+            memberships=list(row.get("memberships") or []),
         )
         return {"code": code, "category": target_category}
 

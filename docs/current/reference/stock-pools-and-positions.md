@@ -23,6 +23,7 @@
 ### `stock_pools`
 
 - 表示进入进一步跟踪或候选交易的池子
+- 若由 `stock_pre_pools` / `pre_pool` 转入，会保留顶层 `sources / categories / memberships`，用于说明来源和命中分类
 - `load_monitor_codes(mode=guardian_and_clx_15_30)` 会在 Guardian 池之后补充非过期 `stock_pools`
 - 兼容旧值 `clx_15_30`，读取时会按联合模式执行
 
@@ -75,6 +76,7 @@
 
 - 代码加入 `stock_pools`
   - `/api/add_to_stock_pools_by_code`
+  - 会把 `pre_pool` 的 `sources / categories / memberships` 一并写入 `stock_pools`
 - 代码加入 `must_pool`
   - `/api/add_to_must_pool_by_code`
 - 读取 Guardian 信号列表
@@ -83,6 +85,7 @@
   - `/api/get_stock_model_signal_list`
 - Shouban30 预选池转股票池
   - `/api/gantt/shouban30/pre-pool/add-to-stock-pools`
+  - 对已存在 `stock_pool` 的 code，也会补齐 `sources / categories / memberships`
 - Shouban30 预选池批量转股票池
   - `/api/gantt/shouban30/pre-pool/sync-to-stock-pool`
 - Shouban30 同步到通达信

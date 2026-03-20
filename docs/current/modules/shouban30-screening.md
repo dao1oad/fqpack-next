@@ -68,13 +68,15 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
   - append 按 `(code, source=shouban30, category)` 幂等；列表展示仍保持 `code` 唯一
   - 该动作不触发 `.blk` 写入
 - `pre_pool` 保留单条“加入 stock_pools”，并新增批量“同步到 stock_pool”
-  - 批量同步只把 `pre_pool` 中缺失于 `stock_pool` 的标的按当前 `pre_pool` 顺序追加到末尾
+  - 批量同步会把 `pre_pool` 的 `sources / categories / memberships` 一并写入 `stock_pool`
+  - 对已存在于 `stock_pool` 的同 code 标的，接口仍返回 `already_exists / skipped_count`，但会补齐缺失的 provenance 字段，不要求先删后加
 - `stock_pool` 恢复单条“加入 must_pools”，并新增批量“同步到 must_pools”
   - 单条与批量共用同一套 `must_pool` upsert 语义：不存在记为 `created`，已存在记为 `updated`
   - 批量同步返回 `created_count / updated_count / total_count`
   - 批量同步按当前 `stock_pool` 页面顺序执行，但不会改变 `stock_pool` 自身顺序，也不会附带通达信同步
 - 工作区标签显示为 `pre_pools` / `stock_pools`，内部 tab key 仍保持 `pre_pool` / `stockpools`
 - `pre_pools` 当前展示共享去重池子的全量列表，并明确显示 `sources / categories`
+- `stock_pools` 当前也会明确展示并返回 `sources / categories / memberships`，用于说明每只标的是从哪些 `pre_pool` 来源/分类进入工作区
 - `pre_pools` 与 `stock_pools` 标签各自提供“同步到通达信”和“清空”按钮；`pre_pools` 的清空当前会清空整个共享 `stock_pre_pools` 池子并立即完整覆盖 `30RYZT.blk`
 - 两个工作区共享同一个 `30RYZT.blk`，所以最终文件内容始终由最后一次 `pre_pools` / `stock_pools` 的同步或清空动作决定
 - 中间“热点标的”和工作区列表共用同一套“标的详情”联动；点击工作区行也会加载右侧标的详情

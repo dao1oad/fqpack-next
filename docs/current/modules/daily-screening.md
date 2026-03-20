@@ -219,6 +219,8 @@
 
 - `/api/gantt/shouban30/pre-pool` 返回共享 `stock_pre_pools` 的去重列表，不再只看 `category=三十涨停Pro预选`
 - 每行会携带 `sources / categories / memberships`
+- `/api/gantt/shouban30/stock-pool` 也会返回并展示 `sources / categories / memberships`
+- 从 `pre_pools` 加入 `stock_pools` 时会保留来源与分类 provenance；同 code 已存在时会补齐这些字段
 - `/api/gantt/shouban30/pre-pool/delete` 按 `code` 删除整条共享记录
 
 已禁用的旧手动执行入口：

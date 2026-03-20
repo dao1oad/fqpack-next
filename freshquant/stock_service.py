@@ -250,25 +250,34 @@ def add_to_stock_pools_by_code(code, days=30):
         bool: 操作是否成功
     """
     old = DBfreshquant["stock_pools"].find_one({"code": code})
-    if old is not None:
-        return True
-
-    # 从stock_pre_pools中查找记录
-    record = DBfreshquant["stock_pre_pools"].find_one({"code": code})
-
+    record = PrePoolService(db=DBfreshquant).get_code(code)
     if record is None:
         return False
+    target_category = (
+        old.get("category")
+        if old is not None
+        else record.get("category")
+        or next(iter(record.get("categories") or []), "自选股")
+    )
+    extra = dict(record.get("extra") or {})
+    if not extra:
+        memberships = list(record.get("memberships") or [])
+        if memberships:
+            extra = dict((memberships[0].get("extra") or {}))
 
-    # 删除_id字段，因为MongoDB会自动生成新的_id
-    if "_id" in record:
-        del record["_id"]
+    save_a_stock_pools(
+        code=code,
+        category=target_category,
+        dt=record.get("updated_at") or record.get("datetime") or pendulum.now(),
+        stop_loss_price=record.get("stop_loss_price"),
+        expire_at=pendulum.now().add(days=days),
+        sources=list(record.get("sources") or []),
+        categories=list(record.get("categories") or []),
+        memberships=list(record.get("memberships") or []),
+        **extra,
+    )
 
-    record["expire_at"] = pendulum.now().add(days=days)
-
-    # 将记录写入stock_pools
-    result = DBfreshquant["stock_pools"].insert_one(record)
-
-    return result.acknowledged
+    return True
 
 
 def delete_from_stock_pre_pools_by_code(code):

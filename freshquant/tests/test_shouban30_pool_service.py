@@ -724,7 +724,9 @@ def test_add_pre_pool_item_to_stock_pool_writes_shouban30_stock_category(monkeyp
     assert saved["extra"]["shouban30_from_category"] == "三十涨停Pro预选"
 
 
-def test_add_pre_pool_item_to_stock_pool_skips_existing_without_overwrite(monkeypatch):
+def test_add_pre_pool_item_to_stock_pool_enriches_existing_row_with_provenance(
+    monkeypatch,
+):
     service, _ = _import_service_with_stubs(monkeypatch)
     fake_db = FakeDB(
         stock_pre_pools=FakeCollection(
@@ -761,15 +763,16 @@ def test_add_pre_pool_item_to_stock_pool_skips_existing_without_overwrite(monkey
     result = service.add_pre_pool_item_to_stock_pool("600001")
 
     assert result == "already_exists"
-    assert fake_db["stock_pools"].find_one({"code": "600001"}) == {
-        "code": "600001",
-        "name": "legacy-name",
-        "category": "三十涨停Pro自选",
-        "extra": {
-            "shouban30_order": 0,
-            "shouban30_source": "legacy",
-        },
-    }
+    saved = fake_db["stock_pools"].find_one({"code": "600001"})
+    assert saved["name"] == "legacy-name"
+    assert saved["category"] == "三十涨停Pro自选"
+    assert saved["extra"]["shouban30_order"] == 0
+    assert saved["extra"]["shouban30_source"] == "pre_pool"
+    assert saved["extra"]["shouban30_plate_key"] == "11"
+    assert saved["sources"] == ["shouban30"]
+    assert saved["categories"] == ["plate:11"]
+    assert saved["memberships"][0]["source"] == "shouban30"
+    assert saved["memberships"][0]["category"] == "plate:11"
 
 
 def test_add_pre_pool_item_to_stock_pool_appends_after_existing_order_gap(monkeypatch):
@@ -815,6 +818,71 @@ def test_add_pre_pool_item_to_stock_pool_appends_after_existing_order_gap(monkey
     saved_docs = service.list_stock_pool()
     assert [doc["code6"] for doc in saved_docs] == ["600001", "600002", "000333"]
     assert saved_docs[2]["extra"]["shouban30_order"] == 3
+
+
+def test_add_pre_pool_item_to_stock_pool_copies_sources_categories_and_memberships(
+    monkeypatch,
+):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "000333",
+                    "name": "third",
+                    "category": "三十涨停Pro预选",
+                    "datetime": datetime(2026, 3, 20, 7, 39),
+                    "sources": ["daily-screening", "shouban30"],
+                    "categories": ["CLXS_10008", "plate:11"],
+                    "memberships": [
+                        {
+                            "source": "daily-screening",
+                            "category": "CLXS_10008",
+                            "added_at": datetime(2026, 3, 20, 0, 0),
+                            "expire_at": datetime(2026, 6, 16, 0, 0),
+                            "extra": {"screening_run_id": "run-1"},
+                        },
+                        {
+                            "source": "shouban30",
+                            "category": "plate:11",
+                            "added_at": datetime(2026, 3, 20, 7, 39),
+                            "expire_at": None,
+                            "extra": {
+                                "shouban30_order": 0,
+                                "shouban30_provider": "xgb",
+                                "shouban30_plate_key": "11",
+                                "shouban30_plate_name": "robot",
+                            },
+                        },
+                    ],
+                    "workspace_order": 0,
+                    "extra": {
+                        "shouban30_provider": "xgb",
+                        "shouban30_plate_key": "11",
+                        "shouban30_plate_name": "robot",
+                    },
+                }
+            ]
+        ),
+        stock_pools=FakeCollection(),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    result = service.add_pre_pool_item_to_stock_pool("000333")
+
+    assert result == "created"
+    saved = fake_db["stock_pools"].find_one(
+        {"code": "000333", "category": "三十涨停Pro自选"}
+    )
+    assert saved["sources"] == ["daily-screening", "shouban30"]
+    assert saved["categories"] == ["CLXS_10008", "plate:11"]
+    assert {
+        (item["source"], item["category"]) for item in saved["memberships"]
+    } == {
+        ("daily-screening", "CLXS_10008"),
+        ("shouban30", "plate:11"),
+    }
 
 
 def test_sync_pre_pool_to_stock_pool_appends_missing_codes_in_pre_pool_order(
@@ -890,6 +958,85 @@ def test_sync_pre_pool_to_stock_pool_appends_missing_codes_in_pre_pool_order(
     assert by_code["600001"]["extra"]["shouban30_order"] == 1
     assert by_code["000333"]["extra"]["shouban30_order"] == 2
     assert by_code["000333"]["extra"]["shouban30_plate_name"] == "chip"
+
+
+def test_sync_pre_pool_to_stock_pool_enriches_existing_rows_with_pre_pool_provenance(
+    monkeypatch,
+):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "900001",
+                    "name": "exists",
+                    "category": "三十涨停Pro预选",
+                    "datetime": datetime(2026, 3, 20, 7, 39),
+                    "sources": ["daily-screening", "shouban30"],
+                    "categories": ["CLXS_10008", "plate:12"],
+                    "memberships": [
+                        {
+                            "source": "daily-screening",
+                            "category": "CLXS_10008",
+                            "added_at": datetime(2026, 3, 20, 0, 0),
+                            "expire_at": datetime(2026, 6, 16, 0, 0),
+                            "extra": {"screening_run_id": "run-1"},
+                        },
+                        {
+                            "source": "shouban30",
+                            "category": "plate:12",
+                            "added_at": datetime(2026, 3, 20, 7, 39),
+                            "expire_at": None,
+                            "extra": {
+                                "shouban30_order": 1,
+                                "shouban30_provider": "xgb",
+                                "shouban30_plate_key": "12",
+                                "shouban30_plate_name": "bank",
+                            },
+                        },
+                    ],
+                    "workspace_order": 1,
+                    "extra": {
+                        "shouban30_provider": "xgb",
+                        "shouban30_plate_key": "12",
+                        "shouban30_plate_name": "bank",
+                    },
+                }
+            ]
+        ),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "900001",
+                    "name": "exists",
+                    "category": "三十涨停Pro自选",
+                    "datetime": datetime(2026, 3, 20, 8, 0),
+                    "extra": {"shouban30_order": 0},
+                }
+            ]
+        ),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    result = service.sync_pre_pool_to_stock_pool()
+
+    assert result == {
+        "appended_count": 0,
+        "skipped_count": 1,
+        "category": "三十涨停Pro自选",
+    }
+    saved = fake_db["stock_pools"].find_one(
+        {"code": "900001", "category": "三十涨停Pro自选"}
+    )
+    assert saved["sources"] == ["daily-screening", "shouban30"]
+    assert saved["categories"] == ["CLXS_10008", "plate:12"]
+    assert {
+        (item["source"], item["category"]) for item in saved["memberships"]
+    } == {
+        ("daily-screening", "CLXS_10008"),
+        ("shouban30", "plate:12"),
+    }
 
 
 def test_sync_pre_pool_to_stock_pool_appends_after_existing_order_gap(monkeypatch):
@@ -976,6 +1123,43 @@ def test_add_stock_pool_item_to_must_pool_uses_default_arguments(monkeypatch):
 
     assert result == "created"
     assert called["must_pool"] == [("600001", "三十涨停Pro", 0.1, 50000, 50000, True)]
+
+
+def test_list_stock_pool_exposes_sources_categories_and_memberships(monkeypatch):
+    service, _ = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "600001",
+                    "name": "alpha",
+                    "category": "三十涨停Pro自选",
+                    "datetime": datetime(2026, 3, 20, 9, 0),
+                    "extra": {"shouban30_order": 0},
+                    "sources": ["daily-screening", "shouban30"],
+                    "categories": ["CLXS_10008", "plate:11"],
+                    "memberships": [
+                        {
+                            "source": "daily-screening",
+                            "category": "CLXS_10008",
+                            "added_at": datetime(2026, 3, 20, 0, 0),
+                            "expire_at": None,
+                            "extra": {"screening_run_id": "run-1"},
+                        }
+                    ],
+                }
+            ]
+        ),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    items = service.list_stock_pool()
+
+    assert items[0]["sources"] == ["daily-screening", "shouban30"]
+    assert items[0]["categories"] == ["CLXS_10008", "plate:11"]
+    assert items[0]["memberships"][0]["source"] == "daily-screening"
 
 
 def test_add_stock_pool_item_to_must_pool_returns_updated_when_existing(monkeypatch):

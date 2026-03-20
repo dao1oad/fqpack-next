@@ -11,6 +11,46 @@ from freshquant.instrument.general import query_instrument_info
 from freshquant.util.datetime_helper import fq_util_datetime_localize
 
 
+def _to_text(value):
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _dedupe_text_list(values):
+    return sorted({_to_text(value) for value in list(values or []) if _to_text(value)})
+
+
+def _normalize_membership(item):
+    if not isinstance(item, dict):
+        return None
+    source = _to_text(item.get("source"))
+    category = _to_text(item.get("category"))
+    if not source and not category:
+        return None
+    return {
+        "source": source,
+        "category": category,
+        "added_at": item.get("added_at"),
+        "expire_at": item.get("expire_at"),
+        "extra": dict(item.get("extra") or {}),
+    }
+
+
+def _merge_memberships(*groups):
+    merged = {}
+    for group in groups:
+        for item in list(group or []):
+            normalized = _normalize_membership(item)
+            if normalized is None:
+                continue
+            merged[(normalized["source"], normalized["category"])] = normalized
+    return [
+        merged[key]
+        for key in sorted(merged.keys(), key=lambda item: (item[0], item[1]))
+    ]
+
+
 def save_a_stock_signal(
     symbol,
     code,
@@ -172,6 +212,31 @@ def save_a_stock_pools(
         {"code": code, "category": category}
     )
 
+    incoming_sources = _dedupe_text_list(extra_fields.pop("sources", []))
+    incoming_categories = _dedupe_text_list(extra_fields.pop("categories", []))
+    incoming_memberships = _merge_memberships(extra_fields.pop("memberships", []))
+    if not incoming_sources and incoming_memberships:
+        incoming_sources = _dedupe_text_list(
+            item.get("source") for item in incoming_memberships
+        )
+    if not incoming_categories and incoming_memberships:
+        incoming_categories = _dedupe_text_list(
+            item.get("category") for item in incoming_memberships
+        )
+
+    existing_sources = _dedupe_text_list(
+        (existing_doc or {}).get("sources", [])
+    )
+    existing_categories = _dedupe_text_list(
+        (existing_doc or {}).get("categories", [])
+    )
+    existing_memberships = _merge_memberships(
+        (existing_doc or {}).get("memberships", [])
+    )
+    sources = _dedupe_text_list(existing_sources + incoming_sources)
+    categories = _dedupe_text_list(existing_categories + incoming_categories)
+    memberships = _merge_memberships(existing_memberships, incoming_memberships)
+
     # 合并 extra 字段
     extra = existing_doc.get("extra", {}) if existing_doc else {}
     extra.update(extra_fields)
@@ -187,11 +252,21 @@ def save_a_stock_pools(
                 "datetime": dt,
                 "stop_loss_price": stop_loss_price,
                 "extra": extra,
+                "sources": sources,
+                "categories": categories,
+                "memberships": memberships,
             }
         )
     else:
         # 记录存在，构建更新操作
-        update_ops = {"$set": {"extra": extra}}
+        update_ops = {
+            "$set": {
+                "extra": extra,
+                "sources": sources,
+                "categories": categories,
+                "memberships": memberships,
+            }
+        }
 
         # 只有当 stop_loss_price 为空时才更新
         if not existing_doc.get("stop_loss_price"):

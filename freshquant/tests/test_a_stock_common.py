@@ -52,9 +52,33 @@ class FakePrePoolCollection:
         return existing
 
 
+class FakeStockPoolCollection:
+    def __init__(self) -> None:
+        self.docs: list[dict] = []
+
+    def find_one(self, query: dict) -> dict | None:
+        for doc in self.docs:
+            if all(doc.get(key) == value for key, value in query.items()):
+                return doc
+        return None
+
+    def insert_one(self, document: dict):
+        self.docs.append(dict(document))
+        return SimpleNamespace(acknowledged=True)
+
+    def update_one(self, query: dict, update: dict):
+        doc = self.find_one(query)
+        if doc is None:
+            return SimpleNamespace(acknowledged=False)
+        for key, value in update.get("$set", {}).items():
+            doc[key] = value
+        return SimpleNamespace(acknowledged=True)
+
+
 class FakeDB:
     def __init__(self) -> None:
         self.stock_pre_pools = FakePrePoolCollection()
+        self.stock_pools = FakeStockPoolCollection()
 
 
 def _import_a_stock_common_with_stubs(monkeypatch, fake_db: FakeDB):
@@ -184,4 +208,108 @@ def test_save_a_stock_pre_pools_without_remark_does_not_overwrite_remark_rows(
             "category": "chanlun_service",
             "extra": {"screening_run_id": "legacy-run"},
         },
+    }
+
+
+def test_save_a_stock_pools_persists_pre_pool_provenance_top_level(monkeypatch):
+    fake_db = FakeDB()
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+
+    added_at = pendulum.datetime(2026, 3, 20, 9, 31)
+    expire_at = pendulum.datetime(2026, 4, 20, 0, 0)
+    memberships = [
+        {
+            "source": "daily-screening",
+            "category": "CLXS_10008",
+            "added_at": added_at,
+            "expire_at": expire_at,
+            "extra": {"screening_run_id": "run-1"},
+        },
+        {
+            "source": "shouban30",
+            "category": "plate:11",
+            "added_at": added_at,
+            "expire_at": None,
+            "extra": {"shouban30_plate_key": "11"},
+        },
+    ]
+
+    a_stock_common.save_a_stock_pools(
+        code="000001",
+        category="自选股",
+        dt=added_at,
+        expire_at=expire_at,
+        stop_loss_price=9.8,
+        screening_source="daily-screening:clxs",
+        sources=["daily-screening", "shouban30"],
+        categories=["CLXS_10008", "plate:11"],
+        memberships=memberships,
+    )
+
+    assert len(fake_db.stock_pools.docs) == 1
+    saved = fake_db.stock_pools.docs[0]
+    assert saved["sources"] == ["daily-screening", "shouban30"]
+    assert saved["categories"] == ["CLXS_10008", "plate:11"]
+    assert saved["memberships"] == memberships
+    assert saved["extra"] == {"screening_source": "daily-screening:clxs"}
+
+
+def test_save_a_stock_pools_merges_pre_pool_provenance_for_existing_doc(monkeypatch):
+    fake_db = FakeDB()
+    fake_db.stock_pools.docs.append(
+        {
+            "code": "000001",
+            "category": "自选股",
+            "name": "alpha",
+            "datetime": pendulum.datetime(2026, 3, 19, 0, 0),
+            "expire_at": pendulum.datetime(2026, 4, 19, 0, 0),
+            "stop_loss_price": None,
+            "extra": {"screening_source": "daily-screening:clxs"},
+            "sources": ["daily-screening"],
+            "categories": ["CLXS_10008"],
+            "memberships": [
+                {
+                    "source": "daily-screening",
+                    "category": "CLXS_10008",
+                    "added_at": pendulum.datetime(2026, 3, 19, 0, 0),
+                    "expire_at": pendulum.datetime(2026, 4, 19, 0, 0),
+                    "extra": {"screening_run_id": "run-1"},
+                }
+            ],
+        }
+    )
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+
+    a_stock_common.save_a_stock_pools(
+        code="000001",
+        category="自选股",
+        dt=pendulum.datetime(2026, 3, 20, 9, 31),
+        expire_at=pendulum.datetime(2026, 4, 20, 0, 0),
+        stop_loss_price=9.8,
+        shouban30_source="pre_pool",
+        sources=["shouban30"],
+        categories=["plate:11"],
+        memberships=[
+            {
+                "source": "shouban30",
+                "category": "plate:11",
+                "added_at": pendulum.datetime(2026, 3, 20, 9, 31),
+                "expire_at": None,
+                "extra": {"shouban30_plate_key": "11"},
+            }
+        ],
+    )
+
+    saved = fake_db.stock_pools.docs[0]
+    assert saved["sources"] == ["daily-screening", "shouban30"]
+    assert saved["categories"] == ["CLXS_10008", "plate:11"]
+    assert {
+        (item["source"], item["category"]) for item in saved["memberships"]
+    } == {
+        ("daily-screening", "CLXS_10008"),
+        ("shouban30", "plate:11"),
+    }
+    assert saved["extra"] == {
+        "screening_source": "daily-screening:clxs",
+        "shouban30_source": "pre_pool",
     }
