@@ -74,7 +74,7 @@ def test_capture_baseline_records_runtime_state_from_snapshots(tmp_path: Path) -
             {
                 "ProcessId": 202,
                 "Name": "python.exe",
-                "CommandLine": "python -m freshquant.xt_account_sync.worker --interval 3",
+                "CommandLine": "python -m freshquant.xt_account_sync.worker --interval 15",
             },
         ],
     )

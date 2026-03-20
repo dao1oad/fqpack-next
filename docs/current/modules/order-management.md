@@ -59,7 +59,9 @@
 
 `XT order/trade callback -> OrderManagementXtIngestService -> om_orders / om_trade_facts / om_buy_lots / om_sell_allocations -> projection update`
 
-`XT account sync worker(query_stock_orders/query_stock_trades/query_stock_positions) -> saveOrders/saveTrades/reconcile_account -> xt_* / om_* / external candidates`
+`XT account sync worker(query_stock_orders/query_stock_trades/query_stock_positions/query_credit_detail) -> 高频账户状态刷新 + 增量过滤 -> saveOrders/saveTrades/reconcile_account -> xt_* / om_* / external candidates`
+
+其中 `credit_detail` 保持在主循环高频刷新，用于仓位管理门禁；`credit_subjects` 只在启动和每日计划时间做低频同步，不参与每轮增量补偿。
 
 `om_trade_facts` 当前会保留 `trade_time` 以及同一笔成交对应的 `date/time`；旧的 `external_inferred` 历史 lot / slice 如果缺少 `date/time`，投影读取时会按已有 `trade_time` 回填，避免 Guardian 和持仓视图在消费投影时拿到 `None/None`。
 
@@ -107,7 +109,7 @@
 - broker `observe_only`
 - account type / credit mode
 
-`observe_only` 语义当前只是不真正向 broker 发单/撤单；它不会停掉 broker 的 XT 连接、callback ingest，也不会停掉 `xt_account_sync.worker` 的主动查询。
+`observe_only` 语义当前只是不真正向 broker 发单/撤单；它不会停掉 broker 的 XT 连接、callback ingest，也不会停掉 `xt_account_sync.worker` 的增量补偿查询。
 
 ## 部署/运行
 

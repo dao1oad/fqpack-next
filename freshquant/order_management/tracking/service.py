@@ -142,25 +142,35 @@ class OrderTrackingService:
         return self.repository.find_order(internal_order_id)
 
     def ingest_order_report(self, report):
+        return self.ingest_order_report_with_meta(report)["order"]
+
+    def ingest_order_report_with_meta(self, report):
         internal_order_id = report["internal_order_id"]
         current_order = self.repository.find_order(internal_order_id)
         current_state = current_order["state"]
+        updates = {}
+        if report.get("broker_order_id") and not current_order.get("broker_order_id"):
+            updates["broker_order_id"] = report.get("broker_order_id")
+        if report.get("submitted_at") and not current_order.get("submitted_at"):
+            updates["submitted_at"] = report.get("submitted_at")
         if current_state == report["state"]:
-            updates = {}
-            if report.get("broker_order_id") and not current_order.get(
-                "broker_order_id"
-            ):
-                updates["broker_order_id"] = report.get("broker_order_id")
-            if report.get("submitted_at") and not current_order.get("submitted_at"):
-                updates["submitted_at"] = report.get("submitted_at")
             if updates:
                 updates["updated_at"] = _utc_now_iso()
-                return self.repository.update_order(internal_order_id, updates)
-            return current_order
+                return {
+                    "order": self.repository.update_order(internal_order_id, updates),
+                    "changed": True,
+                    "absorbed": False,
+                }
+            return {"order": current_order, "changed": False, "absorbed": False}
+        if _should_absorb_terminal_replay(current_state, report["state"]):
+            if updates:
+                updates["updated_at"] = _utc_now_iso()
+                current_order = self.repository.update_order(internal_order_id, updates)
+            return {"order": current_order, "changed": False, "absorbed": True}
         next_state = self.state_machine.transition(current_state, report["state"])
         now = _utc_now_iso()
 
-        self.repository.update_order(
+        updated_order = self.repository.update_order(
             internal_order_id,
             {
                 "state": next_state,
@@ -179,6 +189,7 @@ class OrderTrackingService:
                 "created_at": now,
             }
         )
+        return {"order": updated_order, "changed": True, "absorbed": False}
 
     def ingest_trade_report(self, report):
         return self.ingest_trade_report_with_meta(report)["trade_fact"]
@@ -221,3 +232,7 @@ class OrderTrackingService:
 
 def _utc_now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _should_absorb_terminal_replay(current_state: str, next_state: str) -> bool:
+    return current_state == "FILLED" and next_state in {"PARTIAL_FILLED", "CANCELED"}

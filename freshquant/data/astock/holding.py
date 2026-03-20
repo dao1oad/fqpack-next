@@ -363,10 +363,8 @@ def get_stock_last_fill(symbol):
 # 1. 持仓数量为正
 # 2. 持仓金额为负
 def get_stock_positions():
-    records = list_stock_positions()
-    if records:
-        return _enrich_position_names(records)
-    return _get_legacy_stock_positions()
+    records = _get_xt_position_positions()
+    return _enrich_position_names(records)
 
 
 def _get_legacy_stock_positions():
@@ -416,6 +414,38 @@ def _get_legacy_stock_positions():
         return []
 
 
+def _get_xt_position_positions():
+    rows = []
+    for item in _load_xt_position_rows():
+        base_code = normalize_to_base_code(
+            item.get("symbol") or item.get("stock_code") or item.get("code")
+        )
+        if not base_code:
+            continue
+        quantity = int(item.get("volume") or 0)
+        market_value = round(float(item.get("market_value") or 0.0), 2)
+        rows.append(
+            {
+                "symbol": fq_util_code_append_market_code(base_code),
+                "stock_code": item.get("stock_code")
+                or fq_util_code_append_market_code_suffix(base_code, upper_case=True),
+                "name": str(
+                    item.get("name") or item.get("instrument_name") or ""
+                ).strip(),
+                "quantity": quantity,
+                "amount": market_value,
+                "amount_adjusted": market_value,
+                "market_value": market_value,
+                "avg_price": item.get("avg_price"),
+                "can_use_volume": item.get("can_use_volume"),
+                "frozen_volume": item.get("frozen_volume"),
+                "source": item.get("source") or "xtquant",
+            }
+        )
+    rows.sort(key=lambda item: item.get("symbol") or "")
+    return rows
+
+
 # 查询股票持仓，包括：
 # 1. 持仓数量为正
 # 2. 持仓金额为负
@@ -427,21 +457,18 @@ def get_stock_holding_codes():
 
 @redis_cache.memoize(expiration=15)
 def _get_stock_holding_codes_cached(_version):
-    codes = set()
-    codes.update(_extract_holding_codes(get_stock_positions()))
-    codes.update(_extract_holding_codes(_get_xt_position_records()))
-    return sorted(codes)
+    return sorted(_extract_holding_codes(_get_xt_position_records()))
 
 
 def _extract_holding_codes(records):
-    codes = []
+    codes = set()
     for record in records or []:
         raw_code = (
             record.get("symbol") or record.get("stock_code") or record.get("code")
         )
         normalized = normalize_to_base_code(raw_code or "")
         if normalized and len(normalized) == 6 and normalized.isdigit():
-            codes.append(normalized)
+            codes.add(normalized)
     return codes
 
 
@@ -449,6 +476,10 @@ def _get_xt_position_records():
     return list(
         DBfreshquant["xt_positions"].find({}, {"stock_code": 1, "code": 1, "symbol": 1})
     )
+
+
+def _load_xt_position_rows():
+    return list(DBfreshquant["xt_positions"].find({}))
 
 
 def get_stock_hold_position(code):

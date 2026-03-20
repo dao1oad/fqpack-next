@@ -23,7 +23,7 @@
 
 - API 入口：`python -m freshquant.rear.api_server --port 5000`
 - Guardian 入口：`python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event`
-- 账户同步 worker：`python -m freshquant.xt_account_sync.worker --interval 3`
+- 账户同步 worker：`python -m freshquant.xt_account_sync.worker --interval 15`
 - TPSL worker：`python -m freshquant.tpsl.tick_listener`
 - XTData producer：`python -m freshquant.market_data.xtdata.market_producer`
 - XTData consumer：`python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`

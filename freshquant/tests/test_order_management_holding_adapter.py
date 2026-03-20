@@ -165,31 +165,22 @@ def test_get_arranged_stock_fill_list_matches_projection_output(monkeypatch):
 
 def test_projection_refresh_invalidates_holding_code_cache(monkeypatch):
     _, holding_module, invalidator_module = _reload_modules(monkeypatch)
-    states = [
-        [{"symbol": "sz000001"}],
-        [{"symbol": "sh600000"}],
-    ]
+    state = {
+        "rows": [{"symbol": "sz000001"}],
+    }
 
     class FakeXtPositionsCollection:
         def find(self, *args, **kwargs):
-            return []
+            return list(state["rows"])
 
     monkeypatch.setattr(
         holding_module,
         "DBfreshquant",
         {"xt_positions": FakeXtPositionsCollection()},
     )
-
-    def fake_positions():
-        return states[0]
-
-    monkeypatch.setattr(holding_module, "get_stock_positions", fake_positions)
     assert holding_module.get_stock_holding_codes() == ["000001"]
 
-    def fake_positions_updated():
-        return states[1]
-
-    monkeypatch.setattr(holding_module, "get_stock_positions", fake_positions_updated)
+    state["rows"] = [{"symbol": "sh600000"}]
     assert holding_module.get_stock_holding_codes() == ["000001"]
 
     invalidator_module.mark_stock_holdings_projection_updated()
@@ -197,7 +188,7 @@ def test_projection_refresh_invalidates_holding_code_cache(monkeypatch):
     assert holding_module.get_stock_holding_codes() == ["600000"]
 
 
-def test_get_stock_holding_codes_merges_projection_and_xt_positions(monkeypatch):
+def test_get_stock_holding_codes_uses_xt_positions_truth_only(monkeypatch):
     _, holding_module, _ = _reload_modules(monkeypatch)
 
     class FakeXtPositionsCollection:
@@ -211,7 +202,7 @@ def test_get_stock_holding_codes_merges_projection_and_xt_positions(monkeypatch)
     monkeypatch.setattr(
         holding_module,
         "get_stock_positions",
-        lambda: [{"symbol": "sz000001"}, {"symbol": "sh600000"}],
+        lambda: [{"symbol": "sz000001"}],
     )
     monkeypatch.setattr(
         holding_module,
@@ -219,7 +210,7 @@ def test_get_stock_holding_codes_merges_projection_and_xt_positions(monkeypatch)
         {"xt_positions": FakeXtPositionsCollection()},
     )
 
-    assert holding_module.get_stock_holding_codes() == ["000001", "300001", "600000"]
+    assert holding_module.get_stock_holding_codes() == ["300001", "600000"]
 
 
 def test_get_stock_holding_codes_cache_has_short_ttl(monkeypatch):
@@ -231,21 +222,20 @@ def test_get_stock_holding_codes_cache_has_short_ttl(monkeypatch):
 def test_get_stock_positions_fills_missing_name_from_instrument_info(monkeypatch):
     _, holding_module, _ = _reload_modules(monkeypatch)
 
+    class FakeXtPositionsCollection:
+        def find(self, *args, **kwargs):
+            return [
+                {
+                    "stock_code": "002262.SZ",
+                    "volume": 100,
+                    "market_value": 1000.0,
+                }
+            ]
+
     monkeypatch.setattr(
         holding_module,
-        "list_stock_positions",
-        lambda: [
-            {
-                "symbol": "sz002262",
-                "stock_code": "002262.SZ",
-                "name": "",
-                "quantity": 100,
-                "amount": -1000.0,
-                "amount_adjusted": -1000.0,
-                "date": 20260115,
-                "time": "10:01:00",
-            }
-        ],
+        "DBfreshquant",
+        {"xt_positions": FakeXtPositionsCollection()},
     )
     monkeypatch.setattr(
         holding_module,
@@ -263,21 +253,22 @@ def test_get_stock_positions_prefers_current_instrument_name_over_stale_position
 ):
     _, holding_module, _ = _reload_modules(monkeypatch)
 
+    class FakeXtPositionsCollection:
+        def find(self, *args, **kwargs):
+            return [
+                {
+                    "symbol": "sz002594",
+                    "stock_code": "002594.SZ",
+                    "name": "旧名称",
+                    "volume": 100,
+                    "market_value": 1000.0,
+                }
+            ]
+
     monkeypatch.setattr(
         holding_module,
-        "list_stock_positions",
-        lambda: [
-            {
-                "symbol": "sz002594",
-                "stock_code": "002594.SZ",
-                "name": "旧名称",
-                "quantity": 100,
-                "amount": -1000.0,
-                "amount_adjusted": -1000.0,
-                "date": 20260115,
-                "time": "10:01:00",
-            }
-        ],
+        "DBfreshquant",
+        {"xt_positions": FakeXtPositionsCollection()},
     )
     monkeypatch.setattr(
         holding_module,
@@ -297,19 +288,26 @@ def test_get_stock_positions_keeps_projection_name_when_instrument_lookup_errors
 
     monkeypatch.setattr(
         holding_module,
-        "list_stock_positions",
-        lambda: [
-            {
-                "symbol": "sz002594",
-                "stock_code": "002594.SZ",
-                "name": "比亚迪旧名",
-                "quantity": 100,
-                "amount": -1000.0,
-                "amount_adjusted": -1000.0,
-                "date": 20260115,
-                "time": "10:01:00",
-            }
-        ],
+        "DBfreshquant",
+        {
+            "xt_positions": type(
+                "FakeXtPositionsCollection",
+                (),
+                {
+                    "find": staticmethod(
+                        lambda *args, **kwargs: [
+                            {
+                                "symbol": "sz002594",
+                                "stock_code": "002594.SZ",
+                                "name": "比亚迪旧名",
+                                "volume": 100,
+                                "market_value": 1000.0,
+                            }
+                        ]
+                    )
+                },
+            )()
+        },
     )
 
     def broken_lookup(code):

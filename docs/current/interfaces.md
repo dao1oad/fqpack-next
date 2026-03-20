@@ -151,7 +151,8 @@ python -m freshquant.initialize
 - Guardian monitor
   - `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event`
 - XT account sync worker
-  - `python -m freshquant.xt_account_sync.worker --interval 3`
+- `python -m freshquant.xt_account_sync.worker --interval 15`
+  - 主循环每 15 秒刷新 `assets / credit_detail / positions / incremental orders / incremental trades`；`credit_subjects` 只做启动 + 每日计划低频同步
 - TPSL worker
   - `python -m freshquant.tpsl.tick_listener`
 - formal deploy

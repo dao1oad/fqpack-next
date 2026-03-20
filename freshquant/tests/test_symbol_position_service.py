@@ -8,13 +8,14 @@ from freshquant.position_management.symbol_position_service import (
 )
 
 
-def test_resolve_snapshot_prefers_xt_volume_and_bar_close():
+def test_resolve_snapshot_prefers_broker_market_value_over_bar_close():
     service = SingleSymbolPositionService(
         xt_position_loader=lambda: [
             {
                 "stock_code": "600000.SH",
                 "volume": 1200,
                 "market_value": 118000.0,
+                "last_price": 98.33,
             }
         ],
         projected_position_loader=lambda: [{"code": "600000", "quantity": 800}],
@@ -33,22 +34,16 @@ def test_resolve_snapshot_prefers_xt_volume_and_bar_close():
     assert snapshot["symbol"] == "600000"
     assert snapshot["quantity"] == 1200
     assert snapshot["quantity_source"] == "xt_positions"
-    assert snapshot["close_price"] == 10.5
-    assert snapshot["price_source"] == "bar_close"
-    assert snapshot["market_value"] == 12600.0
-    assert snapshot["market_value_source"] == "bar_close_x_quantity"
+    assert snapshot["close_price"] == 98.33
+    assert snapshot["price_source"] == "xt_positions_last_price"
+    assert snapshot["market_value"] == 118000.0
+    assert snapshot["market_value_source"] == "xt_positions_market_value"
     assert snapshot["stale"] is False
 
 
-def test_resolve_snapshot_falls_back_to_projected_quantity_when_xt_volume_missing():
+def test_resolve_snapshot_does_not_fallback_to_projected_quantity_when_broker_position_missing():
     service = SingleSymbolPositionService(
-        xt_position_loader=lambda: [
-            {
-                "stock_code": "600000.SH",
-                "volume": None,
-                "market_value": 118000.0,
-            }
-        ],
+        xt_position_loader=lambda: [],
         projected_position_loader=lambda: [{"symbol": "600000", "quantity": 800}],
     )
 
@@ -62,20 +57,21 @@ def test_resolve_snapshot_falls_back_to_projected_quantity_when_xt_volume_missin
         },
     )
 
-    assert snapshot["quantity"] == 800
-    assert snapshot["quantity_source"] == "projected_positions"
-    assert snapshot["market_value"] == 7904.0
-    assert snapshot["market_value_source"] == "bar_close_x_quantity"
+    assert snapshot["quantity"] == 0
+    assert snapshot["quantity_source"] == "xt_positions"
+    assert snapshot["market_value"] == 0.0
+    assert snapshot["market_value_source"] == "no_broker_position"
     assert snapshot["stale"] is False
 
 
-def test_resolve_snapshot_falls_back_to_xt_market_value_when_bar_close_missing():
+def test_resolve_snapshot_uses_broker_market_value_when_bar_close_missing():
     service = SingleSymbolPositionService(
         xt_position_loader=lambda: [
             {
                 "stock_code": "600000.SH",
                 "volume": 1200,
                 "market_value": 118000.0,
+                "last_price": 98.33,
             }
         ],
         projected_position_loader=lambda: [{"symbol": "600000", "quantity": 800}],
@@ -85,33 +81,27 @@ def test_resolve_snapshot_falls_back_to_xt_market_value_when_bar_close_missing()
 
     assert snapshot["quantity"] == 1200
     assert snapshot["quantity_source"] == "xt_positions"
-    assert snapshot["close_price"] is None
-    assert snapshot["price_source"] == "fallback_none"
+    assert snapshot["close_price"] == 98.33
+    assert snapshot["price_source"] == "xt_positions_last_price"
     assert snapshot["market_value"] == 118000.0
     assert snapshot["market_value_source"] == "xt_positions_market_value"
     assert snapshot["stale"] is False
 
 
-def test_resolve_snapshot_marks_unavailable_when_no_bar_close_and_no_xt_market_value():
+def test_resolve_snapshot_returns_zero_position_when_no_broker_snapshot_exists():
     service = SingleSymbolPositionService(
-        xt_position_loader=lambda: [
-            {
-                "stock_code": "600000.SH",
-                "volume": None,
-                "market_value": None,
-            }
-        ],
+        xt_position_loader=lambda: [],
         projected_position_loader=lambda: [{"symbol": "600000", "quantity": 800}],
     )
 
     snapshot = service.resolve_symbol_snapshot("600000", None)
 
-    assert snapshot["quantity"] == 800
-    assert snapshot["quantity_source"] == "projected_positions"
+    assert snapshot["quantity"] == 0
+    assert snapshot["quantity_source"] == "xt_positions"
     assert snapshot["close_price"] is None
-    assert snapshot["market_value"] is None
-    assert snapshot["market_value_source"] == "unavailable"
-    assert snapshot["stale"] is True
+    assert snapshot["market_value"] == 0.0
+    assert snapshot["market_value_source"] == "no_broker_position"
+    assert snapshot["stale"] is False
 
 
 class InMemoryCursor:
@@ -172,6 +162,27 @@ class InMemoryCollection:
                 rows.append(dict(doc))
         return InMemoryCursor(rows)
 
+    def delete_many(self, query=None):
+        query = dict(query or {})
+        remaining = []
+        deleted = 0
+        for doc in self.docs:
+            matched = True
+            for key, value in query.items():
+                if isinstance(value, dict) and "$nin" in value:
+                    if doc.get(key) in set(value["$nin"]):
+                        matched = False
+                        break
+                elif doc.get(key) != value:
+                    matched = False
+                    break
+            if matched:
+                deleted += 1
+                continue
+            remaining.append(doc)
+        self.docs = remaining
+        return deleted
+
 
 class InMemoryDatabase(dict):
     def __getitem__(self, name):
@@ -212,6 +223,35 @@ def test_symbol_snapshot_round_trip_uses_repository_storage():
     rows = service.list_symbol_snapshots(["600000"])
 
     assert saved["symbol"] == "600000"
-    assert saved["market_value"] == 12600.0
-    assert fetched["market_value_source"] == "bar_close_x_quantity"
+    assert saved["market_value"] == 118000.0
+    assert fetched["market_value_source"] == "xt_positions_market_value"
     assert rows[0]["symbol"] == "600000"
+
+
+def test_refresh_all_from_positions_removes_stale_snapshots_missing_from_broker_truth():
+    repository = PositionManagementRepository(database=InMemoryDatabase())
+    repository.upsert_symbol_snapshot(
+        {
+            "symbol": "600000",
+            "quantity": 1200,
+            "market_value": 118000.0,
+            "market_value_source": "xt_positions_market_value",
+        }
+    )
+    service = SingleSymbolPositionService(
+        repository=repository,
+        xt_position_loader=lambda: [
+            {
+                "stock_code": "000001.SZ",
+                "volume": 500,
+                "market_value": 6000.0,
+            }
+        ],
+        projected_position_loader=lambda: [],
+        now_provider=_fixed_now,
+    )
+
+    rows = service.refresh_all_from_positions()
+
+    assert [item["symbol"] for item in rows] == ["000001"]
+    assert repository.get_symbol_snapshot("600000") is None

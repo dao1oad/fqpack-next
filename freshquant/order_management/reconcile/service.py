@@ -39,7 +39,8 @@ class ExternalOrderReconcileService:
         repository=None,
         tracking_service=None,
         ingest_service=None,
-        external_confirm_seconds=120,
+        external_confirm_interval_seconds=15,
+        external_confirm_observations=3,
         runtime_logger=None,
     ):
         self.repository = repository or OrderManagementRepository()
@@ -50,7 +51,12 @@ class ExternalOrderReconcileService:
             repository=self.repository,
             tracking_service=self.tracking_service,
         )
-        self.external_confirm_seconds = external_confirm_seconds
+        self.external_confirm_interval_seconds = max(
+            int(external_confirm_interval_seconds or 15), 1
+        )
+        self.external_confirm_observations = max(
+            int(external_confirm_observations or 3), 1
+        )
         self.runtime_logger = runtime_logger or _get_runtime_logger()
 
     def detect_external_candidates(self, positions, detected_at):
@@ -58,7 +64,13 @@ class ExternalOrderReconcileService:
         internal_by_symbol = _build_internal_remaining_by_symbol(
             self.repository.list_buy_lots()
         )
+        pending_candidates = self.repository.list_external_candidates(
+            "INFERRED_PENDING"
+        )
+        pending_index = _index_pending_candidates_by_symbol_side(pending_candidates)
         created = []
+        observed_keys = set()
+        current_deltas = []
 
         for symbol in sorted(set(positions_by_symbol) | set(internal_by_symbol)):
             position = positions_by_symbol.get(symbol, {})
@@ -69,25 +81,65 @@ class ExternalOrderReconcileService:
                 continue
             side = "buy" if delta > 0 else "sell"
             quantity_delta = abs(delta)
-            existing = _find_pending_candidate(
-                self.repository.list_external_candidates("INFERRED_PENDING"),
-                symbol=symbol,
-                side=side,
-                quantity_delta=quantity_delta,
+            current_deltas.append(
+                {
+                    "symbol": symbol,
+                    "side": side,
+                    "quantity_delta": quantity_delta,
+                    "price_estimate": position.get("avg_price")
+                    or position.get("open_price")
+                    or 0.0,
+                }
             )
-            if existing is not None:
-                continue
 
+        current_index = {
+            (item["symbol"], item["side"]): item for item in current_deltas
+        }
+        for key, candidate in pending_index.items():
+            observed = current_index.get(key)
+            if observed is None:
+                self.repository.update_external_candidate(
+                    candidate["candidate_id"],
+                    {
+                        "state": "INFERRED_DISMISSED",
+                        "dismissed_at": int(detected_at),
+                        "dismissed_reason": "position_delta_resolved",
+                    },
+                )
+                continue
+            observed_keys.add(key)
+            updates = _build_candidate_observation_updates(
+                candidate,
+                observed=observed,
+                detected_at=int(detected_at),
+                confirm_interval_seconds=self.external_confirm_interval_seconds,
+                confirm_observations=self.external_confirm_observations,
+            )
+            self.repository.update_external_candidate(
+                candidate["candidate_id"],
+                updates,
+            )
+
+        for item in current_deltas:
+            key = (item["symbol"], item["side"])
+            if key in observed_keys:
+                continue
             candidate = {
                 "candidate_id": new_candidate_id(),
-                "symbol": symbol,
-                "side": side,
-                "quantity_delta": quantity_delta,
-                "price_estimate": position.get("avg_price")
-                or position.get("open_price")
-                or 0.0,
+                "symbol": item["symbol"],
+                "side": item["side"],
+                "quantity_delta": item["quantity_delta"],
+                "price_estimate": item["price_estimate"],
                 "detected_at": int(detected_at),
-                "pending_until": int(detected_at) + int(self.external_confirm_seconds),
+                "first_detected_at": int(detected_at),
+                "last_detected_at": int(detected_at),
+                "observed_count": 1,
+                "pending_until": _pending_until_for_observation(
+                    detected_at=int(detected_at),
+                    observed_count=1,
+                    confirm_interval_seconds=self.external_confirm_interval_seconds,
+                    confirm_observations=self.external_confirm_observations,
+                ),
                 "state": "INFERRED_PENDING",
                 "source": "position_diff",
                 "matched_order_id": None,
@@ -288,6 +340,10 @@ class ExternalOrderReconcileService:
     def confirm_expired_candidates(self, now):
         confirmed = []
         for candidate in self.repository.list_external_candidates("INFERRED_PENDING"):
+            if int(candidate.get("observed_count") or 1) < int(
+                self.external_confirm_observations
+            ):
+                continue
             if int(candidate["pending_until"]) > int(now):
                 continue
             current_node = "externalize"
@@ -471,6 +527,16 @@ def _find_pending_candidate(candidates, symbol, side, quantity_delta):
     return None
 
 
+def _index_pending_candidates_by_symbol_side(candidates):
+    indexed = {}
+    for item in list(candidates or []):
+        key = (item.get("symbol"), item.get("side"))
+        if not all(key):
+            continue
+        indexed[key] = item
+    return indexed
+
+
 def _find_trade_candidate(candidates, normalized_trade):
     exact_matches = [
         item
@@ -508,6 +574,58 @@ def _build_candidate_trade_updates(candidate, *, normalized_trade, order, trade_
     return {
         "quantity_delta": remaining_quantity,
     }
+
+
+def _build_candidate_observation_updates(
+    candidate,
+    *,
+    observed,
+    detected_at,
+    confirm_interval_seconds,
+    confirm_observations,
+):
+    current_quantity = int(candidate.get("quantity_delta") or 0)
+    observed_quantity = int(observed.get("quantity_delta") or 0)
+    last_detected_at = int(
+        candidate.get("last_detected_at") or candidate.get("detected_at") or 0
+    )
+    observed_count = int(candidate.get("observed_count") or 1)
+    if observed_quantity != current_quantity:
+        observed_count = 1
+    elif int(detected_at) > last_detected_at:
+        observed_count += 1
+    first_detected_at = int(
+        candidate.get("first_detected_at")
+        or candidate.get("detected_at")
+        or detected_at
+    )
+    return {
+        "quantity_delta": observed_quantity,
+        "price_estimate": observed.get("price_estimate") or 0.0,
+        "first_detected_at": first_detected_at,
+        "last_detected_at": int(detected_at),
+        "observed_count": observed_count,
+        "pending_until": _pending_until_for_observation(
+            detected_at=int(detected_at),
+            observed_count=observed_count,
+            confirm_interval_seconds=confirm_interval_seconds,
+            confirm_observations=confirm_observations,
+        ),
+    }
+
+
+def _pending_until_for_observation(
+    *,
+    detected_at,
+    observed_count,
+    confirm_interval_seconds,
+    confirm_observations,
+):
+    remaining_observations = max(
+        int(confirm_observations) - int(observed_count),
+        0,
+    )
+    return int(detected_at) + remaining_observations * int(confirm_interval_seconds)
 
 
 def _build_inferred_trade_report(candidate, internal_order_id):

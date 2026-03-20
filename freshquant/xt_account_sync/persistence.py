@@ -186,6 +186,103 @@ def sync_credit_subjects(
     }
 
 
+def load_sync_cursor(account_id, stream, *, collection=None):
+    if collection is None:
+        collection = _load_freshquant_collection("xt_account_sync_state")
+    document = collection.find_one(
+        {
+            "account_id": str(account_id or "").strip(),
+            "stream": str(stream or "").strip(),
+        }
+    )
+    return {
+        "account_id": str(account_id or "").strip(),
+        "stream": str(stream or "").strip(),
+        "max_timestamp": int((document or {}).get("max_timestamp") or 0),
+        "seen_ids_at_max_timestamp": [
+            str(item)
+            for item in list((document or {}).get("seen_ids_at_max_timestamp") or [])
+            if str(item)
+        ],
+    }
+
+
+def save_sync_cursor(cursor, *, collection=None, now_provider=None):
+    if collection is None:
+        collection = _load_freshquant_collection("xt_account_sync_state")
+    now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+    account_id = str((cursor or {}).get("account_id") or "").strip()
+    stream = str((cursor or {}).get("stream") or "").strip()
+    if not account_id or not stream:
+        raise ValueError("save_sync_cursor requires account_id and stream")
+    document = {
+        "account_id": account_id,
+        "stream": stream,
+        "max_timestamp": int((cursor or {}).get("max_timestamp") or 0),
+        "seen_ids_at_max_timestamp": [
+            str(item)
+            for item in list((cursor or {}).get("seen_ids_at_max_timestamp") or [])
+            if str(item)
+        ],
+        "updated_at": now_provider().isoformat(),
+    }
+    collection.replace_one(
+        {"account_id": account_id, "stream": stream},
+        document,
+        upsert=True,
+    )
+    return document
+
+
+def filter_incremental_snapshot(records, cursor, *, timestamp_key, id_key):
+    current_max_timestamp = int((cursor or {}).get("max_timestamp") or 0)
+    seen_ids_at_max_timestamp = {
+        str(item)
+        for item in list((cursor or {}).get("seen_ids_at_max_timestamp") or [])
+        if str(item)
+    }
+
+    filtered = []
+    snapshot_max_timestamp = None
+    snapshot_ids_at_max_timestamp = set()
+    for record in list(records or []):
+        timestamp = _safe_int(_record_value(record, timestamp_key))
+        record_id = _normalized_text(_record_value(record, id_key))
+        if snapshot_max_timestamp is None or timestamp > snapshot_max_timestamp:
+            snapshot_max_timestamp = timestamp
+            snapshot_ids_at_max_timestamp = {record_id} if record_id else set()
+        elif timestamp == snapshot_max_timestamp and record_id:
+            snapshot_ids_at_max_timestamp.add(record_id)
+
+        if timestamp > current_max_timestamp:
+            filtered.append(record)
+            continue
+        if (
+            timestamp == current_max_timestamp
+            and record_id
+            and record_id not in seen_ids_at_max_timestamp
+        ):
+            filtered.append(record)
+
+    next_cursor = {
+        "account_id": str((cursor or {}).get("account_id") or "").strip(),
+        "stream": str((cursor or {}).get("stream") or "").strip(),
+        "max_timestamp": current_max_timestamp,
+        "seen_ids_at_max_timestamp": sorted(seen_ids_at_max_timestamp),
+    }
+    if snapshot_max_timestamp is None:
+        return filtered, next_cursor
+    if snapshot_max_timestamp > current_max_timestamp:
+        next_cursor["max_timestamp"] = snapshot_max_timestamp
+        next_cursor["seen_ids_at_max_timestamp"] = sorted(snapshot_ids_at_max_timestamp)
+        return filtered, next_cursor
+    if snapshot_max_timestamp == current_max_timestamp:
+        next_cursor["seen_ids_at_max_timestamp"] = sorted(
+            seen_ids_at_max_timestamp | snapshot_ids_at_max_timestamp
+        )
+    return filtered, next_cursor
+
+
 def _state_from_bail(*, repository, available_bail_balance, default_state):
     thresholds = {}
     if hasattr(repository, "get_config"):
@@ -225,3 +322,19 @@ def _load_freshquant_collection(name):
     from fqxtrade.database.mongodb import DBfreshquant
 
     return DBfreshquant[name]
+
+
+def _record_value(record, key):
+    if isinstance(record, dict):
+        return record.get(key)
+    return getattr(record, key, None)
+
+
+def _safe_int(value):
+    if value in (None, ""):
+        return 0
+    return int(value)
+
+
+def _normalized_text(value):
+    return str(value or "").strip()
