@@ -35,12 +35,32 @@ export const subjectManagementApi = {
       },
     })
   },
+  saveGuardianBuyGridState (symbol, payload) {
+    return http({
+      url: '/api/guardian_buy_grid_state',
+      method: 'post',
+      data: {
+        code: normalizeSymbol(symbol),
+        ...payload,
+        updated_by: 'web',
+      },
+    })
+  },
   saveTakeprofitProfile (symbol, payload) {
     return http({
       url: `/api/tpsl/takeprofit/${normalizeSymbol(symbol)}`,
       method: 'post',
       data: {
         ...payload,
+        updated_by: 'web',
+      },
+    })
+  },
+  rearmTakeprofit (symbol) {
+    return http({
+      url: `/api/tpsl/takeprofit/${normalizeSymbol(symbol)}/rearm`,
+      method: 'post',
+      data: {
         updated_by: 'web',
       },
     })

@@ -60,3 +60,34 @@ test('KlineSlim exposes a dedicated price-guide edit mode with drag-save handler
   assert.match(scriptSource, /handlePriceGuideDrag\(/)
   assert.match(scriptSource, /handlePriceGuideDragEnd\(/)
 })
+
+test('KlineSlim price guide panel exposes a save-and-activate action for all six price levels', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /保存并激活/)
+  assert.match(viewSource, /@click="handleSaveAndActivatePriceGuides"/)
+  assert.match(scriptSource, /handleSaveAndActivatePriceGuides\(\)/)
+})
+
+test('KlineSlim lets the body flow below a wrapping toolbar instead of relying on a fixed top offset', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
+  assert.equal(
+    viewSource.includes('.kline-slim-main\n  display flex\n  flex-direction column'),
+    true
+  )
+  assert.equal(
+    viewSource.includes('.kline-slim-toolbar\n  position relative'),
+    true
+  )
+  assert.equal(
+    viewSource.includes('.kline-slim-body\n  position relative\n  display flex\n  flex 1'),
+    true
+  )
+  assert.equal(viewSource.includes('.kline-slim-body\n  top 60px'), false)
+  assert.equal(
+    viewSource.includes('@media (max-width: 1200px)\n  .kline-slim-body\n    top 120px'),
+    false
+  )
+})

@@ -14,6 +14,7 @@ import {
   createKlineSlimPricePanelActions,
   loadSubjectPriceDetail as loadSubjectPriceDetailState,
   resetSubjectPriceDetailState,
+  saveAndActivatePriceGuides,
   saveGuardianPriceGuides,
   saveTakeprofitPriceGuides,
 } from './kline-slim-price-panel.mjs'
@@ -318,6 +319,7 @@ export default {
       return (
         !this.routeSymbol ||
         this.subjectDetailLoading ||
+        this.savingPriceGuideActivation ||
         this.savingGuardianPriceGuides ||
         this.savingTakeprofitGuides
       )
@@ -1029,6 +1031,14 @@ export default {
     },
     async handleSaveTakeprofitPriceGuides() {
       return saveTakeprofitPriceGuides(this, {
+        actions: this.pricePanelActions,
+        symbol: this.routeSymbol,
+        notify: this.$message,
+        afterRefresh: () => this.scheduleRender()
+      })
+    },
+    async handleSaveAndActivatePriceGuides() {
+      return saveAndActivatePriceGuides(this, {
         actions: this.pricePanelActions,
         symbol: this.routeSymbol,
         notify: this.$message,

@@ -2,61 +2,51 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const source = readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
-const lineBreak = '\\r?\\n'
+const source = readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 const mediumLayoutStart = source.indexOf('@media (max-width: 1200px)')
 const mediumLayoutEnd = source.indexOf('@media (max-width: 900px)')
 const mediumLayoutBlock = source.slice(mediumLayoutStart, mediumLayoutEnd)
 
-test('KlineSlim keeps the price panel on the left edge', () => {
-  assert.match(
-    source,
-    new RegExp(`\\.kline-slim-content\\.has-side-panel \\.kline-slim-chart,\\s*${lineBreak}\\.kline-slim-content\\.has-side-panel \\.kline-slim-empty\\s*${lineBreak}\\s+left 384px`)
+test('KlineSlim keeps overlay panels anchored to the chart content without side-panel offsets', () => {
+  assert.equal(
+    source.includes('.kline-slim-content\n  position relative\n  flex 1'),
+    true
   )
-  assert.match(
-    source,
-    new RegExp(`\\.kline-slim-content\\.has-side-panel \\.kline-slim-chanlun-panel\\s*${lineBreak}\\s+left 396px`)
+  assert.equal(
+    source.includes('.kline-slim-overlay-panel\n  position absolute\n  top 12px\n  left 12px'),
+    true
   )
-  assert.match(
-    source,
-    new RegExp(`\\.kline-slim-price-panel\\s*${lineBreak}(?:\\s+.+${lineBreak})*?\\s+left 12px`)
+  assert.equal(
+    source.includes('.kline-slim-chanlun-panel\n  right 12px'),
+    true
   )
+  assert.equal(source.includes('has-side-panel'), false)
 })
 
-test('KlineSlim responsive side-panel offsets stay left-based below 1200px', () => {
-  assert.match(
-    mediumLayoutBlock,
-    new RegExp(`\\.kline-slim-content\\.has-side-panel \\.kline-slim-chart,\\s*${lineBreak}\\s+\\.kline-slim-content\\.has-side-panel \\.kline-slim-empty\\s*${lineBreak}\\s+left 344px`)
+test('KlineSlim medium breakpoint keeps the flow layout and only narrows the price panel', () => {
+  assert.equal(
+    mediumLayoutBlock.includes('.kline-slim-toolbar\n    align-items flex-start\n    flex-direction column'),
+    true
   )
-  assert.match(
-    mediumLayoutBlock,
-    new RegExp(`\\.kline-slim-content\\.has-side-panel \\.kline-slim-chanlun-panel\\s*${lineBreak}\\s+left 356px`)
+  assert.equal(
+    mediumLayoutBlock.includes('.toolbar-right\n    justify-content flex-start'),
+    true
   )
-  assert.doesNotMatch(
-    mediumLayoutBlock,
-    /\.kline-slim-content\.has-side-panel \.kline-slim-chart,[\s\S]*?\s+right 344px/
+  assert.equal(
+    mediumLayoutBlock.includes('.kline-slim-price-panel\n    width 332px'),
+    true
   )
-  assert.doesNotMatch(
-    mediumLayoutBlock,
-    /\.kline-slim-content\.has-side-panel \.kline-slim-chanlun-panel[\s\S]*?\s+right 356px/
-  )
+  assert.equal(mediumLayoutBlock.includes('has-side-panel'), false)
+  assert.equal(mediumLayoutBlock.includes('.kline-slim-body\n    top 120px'), false)
 })
 
 test('KlineSlim price panel titles stay horizontal with ellipsis', () => {
-  assert.match(
-    source,
-    new RegExp(`\\.price-panel-row-title\\s*${lineBreak}(?:\\s+.+${lineBreak})*?\\s+white-space nowrap`)
+  assert.equal(
+    source.includes('.price-panel-row-title\n  font-size 13px\n  color #f8fafc\n  font-weight 600\n  overflow hidden\n  text-overflow ellipsis\n  white-space nowrap'),
+    true
   )
-  assert.match(
-    source,
-    new RegExp(`\\.price-panel-row-title\\s*${lineBreak}(?:\\s+.+${lineBreak})*?\\s+text-overflow ellipsis`)
-  )
-  assert.match(
-    source,
-    new RegExp(`\\.price-panel-row-subtitle\\s*${lineBreak}(?:\\s+.+${lineBreak})*?\\s+white-space nowrap`)
-  )
-  assert.match(
-    source,
-    new RegExp(`\\.price-panel-row-subtitle\\s*${lineBreak}(?:\\s+.+${lineBreak})*?\\s+text-overflow ellipsis`)
+  assert.equal(
+    source.includes('.price-panel-row-subtitle\n  font-size 12px\n  color #94a3b8\n  overflow hidden\n  text-overflow ellipsis\n  white-space nowrap'),
+    true
   )
 })
