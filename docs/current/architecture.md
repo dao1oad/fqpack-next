@@ -81,7 +81,7 @@
 
 ### 运行观测链
 
-`各模块 RuntimeEventLogger -> logs/runtime/<runtime_node>/<component>/<date>/*.jsonl -> runtime assembler -> /api/runtime/* -> RuntimeObservability.vue`
+`各模块 RuntimeEventLogger -> logs/runtime/<runtime_node>/<component>/<date>/*.jsonl -> fq_runtime_indexer -> ClickHouse(runtime_observability.runtime_events) -> /api/runtime/* -> RuntimeObservability.vue`
 
 ### 记忆编译链
 

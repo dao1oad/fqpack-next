@@ -382,6 +382,8 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 业务进程没启用或没走到 runtime logger。
 - 路径被环境变量指到别的目录。
 - 页面筛选条件过严。
+- `fq_runtime_indexer` 没跑，或 ClickHouse 入库已经停住。
+- `fq_runtime_clickhouse` 不可用，导致 API 虽然能起但查询仓为空。
 - 原始事件只有 `heartbeat`，或缺少 `trace_id` / `intent_id` / `request_id` / `internal_order_id`，因此不会进入全局 Trace 列表。
 - 组件卡片是固定核心组件全集；如果显示 `unknown / no data`，说明组件存在但最近没有可聚合的 health 数据。
 - `/api/runtime/traces` 与 `/api/runtime/health/summary` 已有数据，但 `fq_webui` 仍在跑旧静态资源，或页面代码仍按 `response.data.*` 读取而不是读取顶层 `traces/components/trace/files/records`。
@@ -389,10 +391,31 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 
 处理：
 - 直接 tail 原始文件，而不是只看页面
+- 再查 `http://127.0.0.1:18123/ping` 和 `docker compose -f docker/compose.parallel.yaml ps fq_runtime_clickhouse fq_runtime_indexer`
 - 先看 `/api/runtime/events` 或 raw browser，确认最近事件是否带强关联键
 - 如果目标是确认 `xt_producer` / `xt_consumer` 是否还活着，优先切到组件 Event 视图，不要把 heartbeat 当 Trace 缺失
 - 清空筛选后刷新页面
 - 如果 API 有数据但页面统计卡、recent feed、component board 全空，优先重建并重新部署 `fq_webui`，然后强刷浏览器缓存
+
+## Runtime Observability 详情页为空但 Trace 列表有数据
+
+现象：
+- `/runtime-observability` 左侧能看到 Trace 摘要，但右侧 detail/steps 为空或报错。
+
+先检查：
+- `/api/runtime/traces/<trace_key>`
+- `/api/runtime/traces/<trace_key>/steps`
+- `docker compose -f docker/compose.parallel.yaml ps fq_runtime_clickhouse fq_runtime_indexer`
+
+常见根因：
+- Trace 摘要已入库，但 indexer 还没把对应 steps 全部追平。
+- ClickHouse 可读，但 detail API 读到的时间窗过窄。
+- 前端仍在用旧静态资源，没有切到 summary/detail 懒加载版本。
+
+处理：
+- 先确认 `fq_runtime_indexer` 正在推进
+- 再检查请求里 `start_time/end_time`
+- 如果 API 正常但页面仍空，优先重建 `fq_webui`
 
 ## Runtime Observability Trace 列表 500
 
@@ -401,16 +424,20 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 
 先检查：
 - 直接访问 `/api/runtime/traces`
-- 目标时间窗里是否存在大量重复的 `request_id` / `internal_order_id` / `broker_trade_id` 关联链
+- `docker compose -f docker/compose.parallel.yaml ps fq_runtime_clickhouse fq_runtime_indexer`
+- `fq_runtime_indexer` / `fq_apiserver` 日志里是否出现 ClickHouse `403`
 
 常见根因：
-- 旧版 runtime assembler 对强关联 ID 分组仍使用递归 union-find；当 `xt_report_ingest` 因重复回放把链路拉得很深时，会触发 `RecursionError`
+- `fq_runtime_clickhouse` 没有创建可联网查询用户，API / indexer 仍在尝试使用被禁网的 `default`
+- `fq_runtime_indexer` 没跑，或 ClickHouse schema 尚未建好
+- API 时间窗或筛选条件过窄，导致分页摘要为空
 - API 已更新，但 `fq_webui` 仍在跑旧静态资源或浏览器缓存没刷新
 
 处理：
-- 优先重建并部署 `fq_apiserver`
+- 如果日志里是 ClickHouse `403`，先核对 `CLICKHOUSE_USER/CLICKHOUSE_PASSWORD` 与 `FQ_RUNTIME_CLICKHOUSE_USER/FQ_RUNTIME_CLICKHOUSE_PASSWORD`
+- 优先重建并部署 `fq_apiserver` 与 `fq_runtime_indexer`
 - 如果 API 已恢复 `200` 但前端仍报错，再重建 `fq_webui` 并强刷浏览器缓存
-- 如果同一时间窗里 `XT 回报接入.trade_match` 明显按 `3` 秒节奏重复刷，继续看下一节排查 replay 根因
+- 如果 `/api/runtime/traces` 已返回分页摘要，但详情页为空，再回看上一节 detail/steps 排障
 
 ## XT 回报接入.trade_match 高频
 
