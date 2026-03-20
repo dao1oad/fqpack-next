@@ -168,8 +168,7 @@
               <div v-if="traceLedgerRows.length" class="runtime-ledger runtime-trace-ledger">
                 <div class="runtime-ledger__header runtime-trace-ledger__grid">
                   <span>最近时间</span>
-                  <span>标的代码</span>
-                  <span>标的名称</span>
+                  <span>标的</span>
                   <span>链路类型</span>
                   <span>链路状态</span>
                   <span>节点路径</span>
@@ -186,8 +185,7 @@
                   @click="handleRecentTraceClick(row)"
                 >
                   <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.last_ts_label || '-' }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.symbol || '-' }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_name || '-'">{{ row.symbol_name || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
                   <span class="runtime-ledger__cell">{{ row.trace_kind_label }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--status">
                     <span class="runtime-inline-status" :class="statusClass(row.trace_status)">
@@ -1210,15 +1208,8 @@ const traceSummaryRows = computed(() =>
     },
     {
       key: 'symbol',
-      label: '标的代码',
-      value: selectedTraceDetail.value.symbol,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'name',
-      label: '标的名称',
-      value: selectedTraceDetail.value.symbol_name,
+      label: '标的',
+      value: selectedTraceDetail.value.symbol_display,
       always: true,
     },
     {
@@ -2927,8 +2918,7 @@ onBeforeUnmount(() => {
 .runtime-trace-ledger__grid {
   grid-template-columns:
     152px
-    72px
-    112px
+    minmax(220px, 1.15fr)
     104px
     102px
     minmax(480px, 3.6fr)

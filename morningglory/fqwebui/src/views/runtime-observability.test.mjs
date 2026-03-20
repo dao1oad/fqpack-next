@@ -619,7 +619,7 @@ test('buildComponentEventFeed hydrates event detail fields and guardian insight 
       ['trace_id', 'trc_guardian_evt'],
       ['intent_id', 'intent_guardian_evt'],
       ['request_id', 'req_guardian_evt'],
-      ['symbol', '000001'],
+      ['symbol', '000001 / Ping An Bank'],
       ['action', 'BUY'],
     ],
   )
@@ -674,7 +674,7 @@ test('buildIdentityStrip preserves all strong ids without dropping symbol and tr
         { key: 'intent_id', label: 'Intent', value: 'intent_dense_1, intent_dense_2', values: ['intent_dense_1', 'intent_dense_2'] },
         { key: 'request_id', label: 'Request', value: 'req_dense_1, req_dense_2', values: ['req_dense_1', 'req_dense_2'] },
         { key: 'internal_order_id', label: 'Order', value: 'ord_dense_1, ord_dense_2', values: ['ord_dense_1', 'ord_dense_2'] },
-        { key: 'symbol', label: 'Symbol', value: '000001', values: ['000001'] },
+        { key: 'symbol', label: 'Symbol', value: '000001 / 未知名称', values: ['000001 / 未知名称'] },
         { key: 'trace_kind', label: 'Kind', value: 'guardian_signal', values: ['guardian_signal'] },
         { key: 'trace_status', label: 'Status', value: 'failed', values: ['failed'] },
       ],
@@ -777,6 +777,7 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
     trace_id: 'trc_dense_1',
     symbol: '000001',
     symbol_name: '平安银行',
+    symbol_display: '000001 / 平安银行',
     trace_kind: 'guardian_signal',
     trace_kind_label: 'Guardian 信号',
     trace_status: 'failed',
@@ -790,6 +791,46 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
     break_reason: 'unexpected_exception@guardian_strategy.timing_check:ValueError',
     has_issue: true,
   })
+})
+
+test('buildTraceLedgerRows falls back to unknown name when symbol name is unavailable', () => {
+  const rows = buildTraceLedgerRows([
+    {
+      trace_id: 'trc_symbol_missing_name',
+      trace_key: 'trace:trc_symbol_missing_name',
+      trace_kind: 'guardian_signal',
+      trace_status: 'open',
+      first_ts: '2026-03-09T02:00:00Z',
+      last_ts: '2026-03-09T02:00:01Z',
+      duration_ms: 1000,
+      entry_component: 'guardian_strategy',
+      entry_node: 'receive_signal',
+      exit_component: 'guardian_strategy',
+      exit_node: 'finish',
+      symbol: '000001',
+      steps: [
+        {
+          component: 'guardian_strategy',
+          node: 'receive_signal',
+          status: 'info',
+          ts: '2026-03-09T02:00:00Z',
+          trace_id: 'trc_symbol_missing_name',
+          symbol: '000001',
+        },
+        {
+          component: 'guardian_strategy',
+          node: 'finish',
+          status: 'success',
+          ts: '2026-03-09T02:00:01Z',
+          trace_id: 'trc_symbol_missing_name',
+          symbol: '000001',
+        },
+      ],
+    },
+  ])
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].symbol_display, '000001 / 未知名称')
 })
 
 test('buildTraceStepLedgerRows surfaces branch expr reason outcome context and error columns', () => {
@@ -1037,6 +1078,7 @@ test('RuntimeObservability.vue requests explicit symbol-name enrichment for trac
 
   assert.match(content, /const buildTraceRequestParams = \(\) => \(\{[\s\S]*buildTraceQuery\(query,\s*timeRange\.value\)[\s\S]*include_symbol_name:\s*1[\s\S]*\}\)/)
   assert.match(content, /const buildEventRequestParams = \(\) => \(\{[\s\S]*buildBoardScopedQuery\(query,\s*boardFilter,\s*timeRange\.value\)[\s\S]*include_symbol_name:\s*1[\s\S]*\}\)/)
+  assert.match(content, /value: selectedTraceDetail\.value\.symbol_display/)
   assert.match(content, /value: selectedEvent\.value\?\.symbol_display/)
 })
 
@@ -1966,14 +2008,15 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /v-model="selectedTraceKind"/)
   assert.match(content, /traceKindOptions/)
   assert.match(content, /pickDefaultTraceKind/)
-  assert.match(content, /<span>标的名称<\/span>/)
-  assert.match(content, /row\.symbol_name/)
+  assert.match(content, /<span>标的<\/span>/)
+  assert.match(content, /row\.symbol_display/)
+  assert.match(content, /value: selectedTraceDetail\.value\.symbol_display/)
   assert.match(content, /runtime-ledger__cell--entry-exit/)
   assert.match(content, /runtime-ledger__cell--status/)
   assert.match(content, /component-symbol-list/)
   assert.match(content, /component-symbol-card/)
   assert.match(content, /grid-template-columns:\s*minmax\(200px,\s*0\.58fr\)\s*minmax\(820px,\s*2\.42fr\)\s*minmax\(400px,\s*1\.08fr\)/)
-  assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*72px[\s\S]*112px[\s\S]*104px[\s\S]*102px[\s\S]*minmax\(480px,\s*3\.6fr\)[\s\S]*54px[\s\S]*84px[\s\S]*minmax\(160px,\s*0\.9fr\)/)
+  assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*minmax\(220px,\s*1\.15fr\)[\s\S]*104px[\s\S]*102px[\s\S]*minmax\(480px,\s*3\.6fr\)[\s\S]*54px[\s\S]*84px[\s\S]*minmax\(160px,\s*0\.9fr\)/)
   assert.match(content, /步骤/)
   assert.match(content, /摘要/)
   assert.match(content, /原始数据/)

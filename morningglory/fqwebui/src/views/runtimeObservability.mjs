@@ -209,7 +209,7 @@ const buildSymbolDisplay = (symbol, symbolName) => {
   const normalizedSymbolName = toText(symbolName)
   if (!normalizedSymbol && !normalizedSymbolName) return '-'
   if (!normalizedSymbol) return normalizedSymbolName
-  if (!normalizedSymbolName) return normalizedSymbol
+  if (!normalizedSymbolName) return `${normalizedSymbol} / 未知名称`
   return `${normalizedSymbol} / ${normalizedSymbolName}`
 }
 
@@ -489,7 +489,7 @@ const findTraceSymbol = (trace = {}, steps = []) => {
     const symbol = toText(step?.symbol)
     if (symbol) return symbol
   }
-  return '-'
+  return ''
 }
 
 const findTraceSymbolName = (trace = {}, steps = []) => {
@@ -507,7 +507,7 @@ const findTraceSymbolName = (trace = {}, steps = []) => {
     const nestedSignalName = toText(step?.signal_summary?.name)
     if (nestedSignalName) return nestedSignalName
   }
-  return '-'
+  return ''
 }
 
 const findTraceNode = (steps = [], mode = 'last') => {
@@ -602,7 +602,12 @@ const buildEventBadges = (event = {}) => {
 }
 
 const resolveDetailFieldValue = (record = {}, key) => {
-  if (key === 'symbol') return resolveSymbolFromRecord(record)
+  if (key === 'symbol') {
+    return buildSymbolDisplay(
+      resolveSymbolFromRecord(record),
+      resolveSymbolNameFromRecord(record),
+    )
+  }
   if (key === 'action') return toText(record?.action) || toText(record?.payload?.action)
   return toText(record?.[key])
 }
@@ -967,7 +972,11 @@ export const buildIdentityStrip = (record = {}) => {
   pushItem('intent_id', 'Intent', record?.intent_ids, record?.intent_id)
   pushItem('request_id', 'Request', record?.request_ids, record?.request_id)
   pushItem('internal_order_id', 'Order', record?.internal_order_ids, record?.internal_order_id)
-  pushItem('symbol', 'Symbol', record?.symbol)
+  const symbolDisplay = buildSymbolDisplay(
+    resolveSymbolFromRecord(record),
+    resolveSymbolNameFromRecord(record),
+  )
+  if (symbolDisplay !== '-') pushItem('symbol', 'Symbol', symbolDisplay)
   pushItem('trace_kind', 'Kind', record?.trace_kind)
   pushItem('trace_status', 'Status', record?.trace_status)
   return {
@@ -999,7 +1008,8 @@ export const buildTraceLedgerRows = (traces = [], options = {}) => {
         trace_key: toText(detail?.trace_key) || null,
         trace_id: toText(detail?.trace_id) || null,
         symbol: toText(detail?.symbol),
-        symbol_name: toText(detail?.symbol_name) || '-',
+        symbol_name: toText(detail?.symbol_name),
+        symbol_display: buildSymbolDisplay(detail?.symbol, detail?.symbol_name),
         trace_kind: toText(detail?.trace_kind) || 'unknown',
         trace_kind_label: TRACE_KIND_LABELS[toText(detail?.trace_kind)] || toText(detail?.trace_kind) || '未知链路',
         trace_status: toText(detail?.trace_status) || 'open',

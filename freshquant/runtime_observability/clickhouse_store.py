@@ -9,13 +9,27 @@ from zoneinfo import ZoneInfo
 
 import requests  # type: ignore[import-untyped]
 
+from freshquant.runtime_observability.assembler import (
+    _find_inline_symbol_name,
+    _lookup_symbol_name,
+)
 from freshquant.runtime_observability.logger import get_runtime_log_root
 from freshquant.runtime_observability.node_catalog import COMPONENTS
 from freshquant.runtime_observability.sessioning import build_session_identity
+from freshquant.util.code import normalize_to_base_code
 
 _ISSUE_STATUSES = {"warning", "failed", "error", "skipped"}
 _HEALTH_EVENT_TYPES = {"heartbeat", "metric_snapshot"}
 _CLICKHOUSE_TIMEZONE = ZoneInfo("Asia/Shanghai")
+_SYMBOL_FIELDS = (
+    "symbol",
+    "code",
+    "stock_code",
+    "security_code",
+    "ticker",
+    "instrument",
+    "instrument_id",
+)
 
 
 class RuntimeObservabilityStoreError(RuntimeError):
@@ -43,6 +57,8 @@ def build_clickhouse_event_row(
     decision_outcome = payload.get("decision_outcome")
     if isinstance(decision_outcome, (dict, list)):
         decision_outcome = _to_json_text(decision_outcome)
+    symbol = resolve_runtime_symbol(payload)
+    symbol_name = resolve_runtime_symbol_name(payload, symbol=symbol)
     return {
         "event_id": event_id,
         "ts": _format_clickhouse_datetime(ts),
@@ -58,8 +74,8 @@ def build_clickhouse_event_row(
         "internal_order_id": _normalized_text(payload.get("internal_order_id")),
         "session_key": session_identity["session_key"],
         "session_type": session_identity["session_type"],
-        "symbol": _normalized_text(payload.get("symbol")),
-        "symbol_name": _normalized_text(payload.get("symbol_name")),
+        "symbol": symbol,
+        "symbol_name": symbol_name,
         "message": _normalized_text(payload.get("message")),
         "reason_code": _normalized_text(payload.get("reason_code")),
         "source": _normalized_text(payload.get("source")),
@@ -576,6 +592,47 @@ def _request_error_message(exc: Exception) -> str:
     return message
 
 
+def _runtime_symbol_lookup_candidates(record: Any) -> list[dict[str, Any]]:
+    if not isinstance(record, dict):
+        return []
+    candidates: list[dict[str, Any]] = [record]
+    for nested in (
+        record.get("payload"),
+        record.get("signal_summary"),
+        record.get("metrics"),
+    ):
+        if isinstance(nested, dict):
+            candidates.append(nested)
+    payload = record.get("payload")
+    if isinstance(payload, dict):
+        nested_signal_summary = payload.get("signal_summary")
+        if isinstance(nested_signal_summary, dict):
+            candidates.append(nested_signal_summary)
+    return candidates
+
+
+def resolve_runtime_symbol(record: Any) -> str:
+    for candidate in _runtime_symbol_lookup_candidates(record):
+        for field in _SYMBOL_FIELDS:
+            value = _normalized_text(candidate.get(field))
+            if not value:
+                continue
+            normalized = normalize_to_base_code(value)
+            return normalized or value
+    return ""
+
+
+def resolve_runtime_symbol_name(record: Any, *, symbol: str = "") -> str:
+    for candidate in _runtime_symbol_lookup_candidates(record):
+        inline_name = _find_inline_symbol_name(candidate)
+        if inline_name:
+            return inline_name
+    normalized_symbol = _normalized_text(symbol) or resolve_runtime_symbol(record)
+    if not normalized_symbol:
+        return ""
+    return _lookup_symbol_name(normalized_symbol) or ""
+
+
 def _normalized_text(value: Any) -> str:
     return str(value or "").strip()
 
@@ -735,6 +792,8 @@ def _serialize_trace_summary_row(row: dict[str, Any]) -> dict[str, Any]:
     affected_components = row.get("affected_components")
     if not isinstance(affected_components, list):
         affected_components = []
+    symbol = resolve_runtime_symbol(row)
+    symbol_name = resolve_runtime_symbol_name(row, symbol=symbol)
     return {
         "trace_key": _normalized_text(row.get("trace_key")),
         "trace_id": _normalized_text(row.get("trace_id")),
@@ -750,8 +809,8 @@ def _serialize_trace_summary_row(row: dict[str, Any]) -> dict[str, Any]:
         "exit_node": _normalized_text(row.get("exit_node")),
         "step_count": int(row.get("step_count") or 0),
         "issue_count": int(row.get("issue_count") or 0),
-        "symbol": _normalized_text(row.get("symbol")),
-        "symbol_name": _normalized_text(row.get("symbol_name")),
+        "symbol": symbol,
+        "symbol_name": symbol_name,
         "intent_ids": list(row.get("intent_ids") or []),
         "request_ids": list(row.get("request_ids") or []),
         "internal_order_ids": list(row.get("internal_order_ids") or []),
@@ -768,6 +827,15 @@ def _serialize_event_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _serialize_event_row(row: dict[str, Any]) -> dict[str, Any]:
+    payload = _decode_json_text(row.get("payload_json"))
+    metrics = _decode_json_text(row.get("metrics_json"))
+    record = {
+        **row,
+        "payload": payload,
+        "metrics": metrics,
+    }
+    symbol = resolve_runtime_symbol(record)
+    symbol_name = resolve_runtime_symbol_name(record, symbol=symbol)
     return {
         "event_id": _normalized_text(row.get("event_id")),
         "session_key": _normalized_text(row.get("session_key")),
@@ -781,12 +849,12 @@ def _serialize_event_row(row: dict[str, Any]) -> dict[str, Any]:
         "intent_id": _normalized_text(row.get("intent_id")),
         "request_id": _normalized_text(row.get("request_id")),
         "internal_order_id": _normalized_text(row.get("internal_order_id")),
-        "symbol": _normalized_text(row.get("symbol")),
-        "symbol_name": _normalized_text(row.get("symbol_name")),
+        "symbol": symbol,
+        "symbol_name": symbol_name,
         "message": _normalized_text(row.get("message")),
         "reason_code": _normalized_text(row.get("reason_code")),
-        "payload": _decode_json_text(row.get("payload_json")),
-        "metrics": _decode_json_text(row.get("metrics_json")),
+        "payload": payload,
+        "metrics": metrics,
         "raw_file": _normalized_text(row.get("raw_file")),
         "raw_line": int(row.get("raw_line") or 0),
         "error_type": _normalized_text(row.get("error_type")),
