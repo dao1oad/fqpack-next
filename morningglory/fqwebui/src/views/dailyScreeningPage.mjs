@@ -32,6 +32,19 @@ export const DEFAULT_DAILY_CHANLUN_METRIC_FILTERS = Object.freeze({
   biGainPercentLte: 20,
 })
 
+export const DEFAULT_DAILY_SCREENING_CONDITION_KEYS = Object.freeze([
+  'flag:credit_subject',
+])
+
+export const buildDailyScreeningDefaultFilterState = () => ({
+  conditionKeys: [...DEFAULT_DAILY_SCREENING_CONDITION_KEYS],
+  clsGroupKeys: [],
+  dayChanlunEnabled: true,
+  metricFilters: {
+    ...DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
+  },
+})
+
 export const CLS_MODEL_LABELS = Object.freeze({
   S0001: '类2买',
   S0002: '类2买分型',
@@ -192,15 +205,16 @@ export const buildDailyScreeningWorkbenchState = (schema = {}, latestScope = nul
       resolvedLatestScope?.run_id ||
       resolvedLatestScope?.runId,
   )
+  const defaultFilterState = buildDailyScreeningDefaultFilterState()
   return {
     selectedModel: firstModelId,
     scopeId: latestRunId,
     selectedRunId: latestRunId,
-    conditionKeys: [],
-    clsGroupKeys: [],
-    dayChanlunEnabled: true,
+    conditionKeys: [...defaultFilterState.conditionKeys],
+    clsGroupKeys: [...defaultFilterState.clsGroupKeys],
+    dayChanlunEnabled: Boolean(defaultFilterState.dayChanlunEnabled),
     metricFilters: {
-      ...DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
+      ...defaultFilterState.metricFilters,
     },
     selectedSets: ['clxs', 'chanlun'],
     clxsModels: [],
@@ -582,10 +596,13 @@ export const buildDailyScreeningAppendSinglePrePoolPayload = ({
 export const buildDailyScreeningWorkspaceTabs = ({
   prePoolItems = [],
   stockPoolItems = [],
+  mustPoolItems = [],
 } = {}) => {
   return buildWorkspaceTabs({
     prePoolItems,
     stockPoolItems,
+    mustPoolItems,
+    showMustPoolTab: true,
   })
 }
 
@@ -693,6 +710,12 @@ const normalizeMembership = (item = {}) => ({
   modelLabel: toText(item.model_label || item.modelLabel),
 })
 
+const normalizeBasePoolStatus = (value = {}) => ({
+  inBasePool: Boolean(value.in_base_pool ?? value.inBasePool),
+  lastSeenScopeId: toText(value.last_seen_scope_id || value.lastSeenScopeId),
+  lastSeenTradeDate: toText(value.last_seen_trade_date || value.lastSeenTradeDate),
+})
+
 export const normalizeDailyScreeningDetail = (payload = {}) => {
   const snapshot = payload.snapshot || null
   const memberships = toArray(payload.memberships).map(normalizeMembership)
@@ -707,6 +730,7 @@ export const normalizeDailyScreeningDetail = (payload = {}) => {
     agg90_memberships: toArray(payload.agg90_memberships),
     market_flag_memberships: toArray(payload.market_flag_memberships),
     hot_reasons: toArray(payload.hot_reasons),
+    basePoolStatus: normalizeBasePoolStatus(payload.base_pool_status),
     clsMemberships: memberships.filter((item) => item.conditionKey.startsWith('cls:')),
     hotMemberships: memberships.filter((item) => item.conditionKey.startsWith('hot:')),
     marketFlagMemberships: memberships.filter((item) => item.conditionKey.startsWith('flag:')),

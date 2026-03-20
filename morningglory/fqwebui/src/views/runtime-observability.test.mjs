@@ -619,7 +619,7 @@ test('buildComponentEventFeed hydrates event detail fields and guardian insight 
       ['trace_id', 'trc_guardian_evt'],
       ['intent_id', 'intent_guardian_evt'],
       ['request_id', 'req_guardian_evt'],
-      ['symbol', '000001'],
+      ['symbol', '000001 / Ping An Bank'],
       ['action', 'BUY'],
     ],
   )
@@ -674,7 +674,7 @@ test('buildIdentityStrip preserves all strong ids without dropping symbol and tr
         { key: 'intent_id', label: 'Intent', value: 'intent_dense_1, intent_dense_2', values: ['intent_dense_1', 'intent_dense_2'] },
         { key: 'request_id', label: 'Request', value: 'req_dense_1, req_dense_2', values: ['req_dense_1', 'req_dense_2'] },
         { key: 'internal_order_id', label: 'Order', value: 'ord_dense_1, ord_dense_2', values: ['ord_dense_1', 'ord_dense_2'] },
-        { key: 'symbol', label: 'Symbol', value: '000001', values: ['000001'] },
+        { key: 'symbol', label: 'Symbol', value: '000001 / 未知名称', values: ['000001 / 未知名称'] },
         { key: 'trace_kind', label: 'Kind', value: 'guardian_signal', values: ['guardian_signal'] },
         { key: 'trace_status', label: 'Status', value: 'failed', values: ['failed'] },
       ],
@@ -777,6 +777,7 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
     trace_id: 'trc_dense_1',
     symbol: '000001',
     symbol_name: '平安银行',
+    symbol_display: '000001 / 平安银行',
     trace_kind: 'guardian_signal',
     trace_kind_label: 'Guardian 信号',
     trace_status: 'failed',
@@ -790,6 +791,46 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
     break_reason: 'unexpected_exception@guardian_strategy.timing_check:ValueError',
     has_issue: true,
   })
+})
+
+test('buildTraceLedgerRows falls back to unknown name when symbol name is unavailable', () => {
+  const rows = buildTraceLedgerRows([
+    {
+      trace_id: 'trc_symbol_missing_name',
+      trace_key: 'trace:trc_symbol_missing_name',
+      trace_kind: 'guardian_signal',
+      trace_status: 'open',
+      first_ts: '2026-03-09T02:00:00Z',
+      last_ts: '2026-03-09T02:00:01Z',
+      duration_ms: 1000,
+      entry_component: 'guardian_strategy',
+      entry_node: 'receive_signal',
+      exit_component: 'guardian_strategy',
+      exit_node: 'finish',
+      symbol: '000001',
+      steps: [
+        {
+          component: 'guardian_strategy',
+          node: 'receive_signal',
+          status: 'info',
+          ts: '2026-03-09T02:00:00Z',
+          trace_id: 'trc_symbol_missing_name',
+          symbol: '000001',
+        },
+        {
+          component: 'guardian_strategy',
+          node: 'finish',
+          status: 'success',
+          ts: '2026-03-09T02:00:01Z',
+          trace_id: 'trc_symbol_missing_name',
+          symbol: '000001',
+        },
+      ],
+    },
+  ])
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].symbol_display, '000001 / 未知名称')
 })
 
 test('buildTraceStepLedgerRows surfaces branch expr reason outcome context and error columns', () => {
@@ -975,8 +1016,8 @@ test('pickDefaultTraceKind prefers guardian traces and falls back to all when un
 test('RuntimeObservability.vue scopes event reloads with the active sidebar component', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /const buildEventRequestParams = \(\) => buildBoardScopedQuery\(query,\s*boardFilter,\s*timeRange\.value\)/)
-  assert.match(content, /const params = \{[\s\S]*buildEventRequestParams\(\)[\s\S]*include_symbol_name:\s*1[\s\S]*\}/)
+  assert.match(content, /const buildEventRequestParams = \(\) => \(\{[\s\S]*buildBoardScopedQuery\(query,\s*boardFilter,\s*timeRange\.value\)[\s\S]*include_symbol_name:\s*1[\s\S]*limit:\s*EVENT_PAGE_SIZE[\s\S]*\}\)/)
+  assert.match(content, /const params = \{[\s\S]*buildEventRequestParams\(\)[\s\S]*cursor_ts[\s\S]*cursor_event_id[\s\S]*\}/)
   assert.match(content, /runtimeObservabilityApi\.listEvents\(params\)/)
   assert.match(content, /watch\(\s*\(\) => \[boardFilter\.component,\s*boardFilter\.runtime_node\],/)
   assert.match(content, /if \(activeView\.value !== 'events'\) return/)
@@ -1007,11 +1048,14 @@ test('RuntimeObservability.vue defaults to auto refresh and hides the manual aut
   assert.match(content, /onMounted\(\(\) => \{[\s\S]*resetOverviewTimer\(\)[\s\S]*loadOverview\(\)[\s\S]*\}\)/)
 })
 
-test('RuntimeObservability.vue reuses trace list payload for detail selection instead of refetching trace detail', async () => {
+test('RuntimeObservability.vue lazily requests trace detail and older step pages for the selected trace', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
+  assert.match(content, /runtimeObservabilityApi\.getTraceDetail\(/)
+  assert.match(content, /runtimeObservabilityApi\.listTraceSteps\(/)
+  assert.match(content, /const loadTraceDetail = async \(traceRow/)
+  assert.match(content, /const loadMoreTraceSteps = async \(\) => \{/)
   assert.match(content, /const handleTraceClick = async \(row\) => \{[\s\S]*selectedTrace\.value = selected/)
-  assert.doesNotMatch(content, /runtimeObservabilityApi\.getTraceDetail\(/)
 })
 
 test('RuntimeObservability.vue keeps the right detail pane scrollable at full zoom instead of clipping content', async () => {
@@ -1032,8 +1076,9 @@ test('RuntimeObservability.vue only renders guardian step tables when guardian m
 test('RuntimeObservability.vue requests explicit symbol-name enrichment for traces and events', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /runtimeObservabilityApi\.listTraces\(\{[\s\S]*include_symbol_name:\s*1[\s\S]*\}\)/)
-  assert.match(content, /const params = \{[\s\S]*buildEventRequestParams\(\)[\s\S]*include_symbol_name:\s*1[\s\S]*\}/)
+  assert.match(content, /const buildTraceRequestParams = \(\) => \(\{[\s\S]*buildTraceQuery\(query,\s*timeRange\.value\)[\s\S]*include_symbol_name:\s*1[\s\S]*\}\)/)
+  assert.match(content, /const buildEventRequestParams = \(\) => \(\{[\s\S]*buildBoardScopedQuery\(query,\s*boardFilter,\s*timeRange\.value\)[\s\S]*include_symbol_name:\s*1[\s\S]*\}\)/)
+  assert.match(content, /value: selectedTraceDetail\.value\.symbol_display/)
   assert.match(content, /value: selectedEvent\.value\?\.symbol_display/)
 })
 
@@ -1680,6 +1725,98 @@ test('buildTraceDetail derives durations, issue steps and step metadata', () => 
   assert.match(detail.steps[1].payload_text, /"quantity": 300/)
 })
 
+test('buildTraceDetail preserves summary counts before steps are lazily loaded', () => {
+  const detail = buildTraceDetail({
+    trace_key: 'trace__trc_summary_only',
+    trace_id: 'trc_summary_only',
+    trace_kind: 'guardian_signal',
+    trace_status: 'failed',
+    break_reason: 'failed@order_submit.queue_payload_build:ValueError',
+    first_ts: '2026-03-09T10:00:00+08:00',
+    last_ts: '2026-03-09T10:00:02+08:00',
+    duration_ms: 2000,
+    entry_component: 'guardian_strategy',
+    entry_node: 'receive_signal',
+    exit_component: 'order_submit',
+    exit_node: 'queue_payload_build',
+    step_count: 4,
+    issue_count: 1,
+    symbol: '000001',
+    symbol_name: 'Ping An Bank',
+    affected_components: ['guardian_strategy', 'order_submit'],
+  })
+
+  assert.equal(detail.steps.length, 0)
+  assert.equal(detail.step_count, 4)
+  assert.equal(detail.issue_count, 1)
+  assert.equal(detail.duration_label, '2s')
+  assert.deepEqual(detail.affected_components, ['guardian_strategy', 'order_submit'])
+})
+
+test('buildTraceListSummary supports summary-only trace rows', () => {
+  const summary = buildTraceListSummary([
+    {
+      trace_key: 'trace__trc_1',
+      trace_status: 'failed',
+      issue_count: 2,
+      step_count: 5,
+      exit_component: 'broker_gateway',
+      affected_components: ['broker_gateway'],
+    },
+    {
+      trace_key: 'trace__trc_2',
+      trace_status: 'completed',
+      issue_count: 0,
+      step_count: 3,
+      exit_component: 'order_submit',
+      affected_components: [],
+    },
+  ])
+
+  assert.equal(summary.trace_count, 2)
+  assert.equal(summary.issue_trace_count, 1)
+  assert.equal(summary.issue_step_count, 2)
+  assert.deepEqual(summary.components, [
+    { component: 'broker_gateway', issue_count: 2, trace_count: 1 },
+  ])
+})
+
+test('buildComponentSidebarItems uses health summary counters without requiring trace steps', () => {
+  const items = buildComponentSidebarItems(
+    [
+      {
+        trace_key: 'trace__trc_order_submit',
+        trace_status: 'failed',
+        issue_count: 1,
+        step_count: 4,
+        exit_component: 'order_submit',
+        affected_components: ['order_submit'],
+      },
+    ],
+    [
+      {
+        component: 'order_submit',
+        runtime_node: 'host:rear',
+        status: 'warning',
+        heartbeat_age_s: 5,
+        issue_trace_count: 3,
+        issue_step_count: 4,
+        trace_count: 7,
+        last_issue_ts: '2026-03-09T10:00:03+08:00',
+        metrics: { queue_len: 3 },
+      },
+    ],
+  )
+
+  const card = items.find((item) => item.component === 'order_submit')
+  assert.ok(card)
+  assert.equal(card.status, 'warning')
+  assert.equal(card.issue_trace_count, 3)
+  assert.equal(card.issue_step_count, 4)
+  assert.equal(card.trace_count, 7)
+  assert.equal(card.runtime_details[0].runtime_node, 'host:rear')
+})
+
 test('formatTimestampLabel converts timestamps to Beijing time with second precision', () => {
   assert.equal(formatTimestampLabel('2026-03-09T02:05:01.987Z'), '2026-03-09 10:05:01')
   assert.equal(formatTimestampLabel('2026-03-09T10:05:01+08:00'), '2026-03-09 10:05:01')
@@ -1871,14 +2008,15 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /v-model="selectedTraceKind"/)
   assert.match(content, /traceKindOptions/)
   assert.match(content, /pickDefaultTraceKind/)
-  assert.match(content, /<span>标的名称<\/span>/)
-  assert.match(content, /row\.symbol_name/)
+  assert.match(content, /<span>标的<\/span>/)
+  assert.match(content, /row\.symbol_display/)
+  assert.match(content, /value: selectedTraceDetail\.value\.symbol_display/)
   assert.match(content, /runtime-ledger__cell--entry-exit/)
   assert.match(content, /runtime-ledger__cell--status/)
   assert.match(content, /component-symbol-list/)
   assert.match(content, /component-symbol-card/)
   assert.match(content, /grid-template-columns:\s*minmax\(200px,\s*0\.58fr\)\s*minmax\(820px,\s*2\.42fr\)\s*minmax\(400px,\s*1\.08fr\)/)
-  assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*72px[\s\S]*112px[\s\S]*104px[\s\S]*102px[\s\S]*minmax\(480px,\s*3\.6fr\)[\s\S]*54px[\s\S]*84px[\s\S]*minmax\(160px,\s*0\.9fr\)/)
+  assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*minmax\(220px,\s*1\.15fr\)[\s\S]*104px[\s\S]*102px[\s\S]*minmax\(480px,\s*3\.6fr\)[\s\S]*54px[\s\S]*84px[\s\S]*minmax\(160px,\s*0\.9fr\)/)
   assert.match(content, /步骤/)
   assert.match(content, /摘要/)
   assert.match(content, /原始数据/)

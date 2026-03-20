@@ -85,6 +85,21 @@
             </el-select>
           </article>
 
+          <article class="workbench-block">
+            <div class="daily-section-header">
+              <div class="workbench-panel__title">全市场搜索</div>
+              <span class="workbench-muted">输入后直接覆盖中间交集列表，清空后恢复当前筛选结果。</span>
+            </div>
+            <el-input
+              v-model="marketSearchKeyword"
+              class="daily-field-control"
+              clearable
+              placeholder="输入代码或名称，全市场模糊搜索"
+              @input="handleMarketSearchInput"
+              @clear="handleMarketSearchClear"
+            />
+          </article>
+
           <article
             v-for="group in conditionSectionGroups"
             :key="group.key"
@@ -244,53 +259,57 @@
               </div>
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">交集列表</div>
-                <p class="workbench-panel__desc">无条件时默认显示基础池，勾选后统一取交集。</p>
+                <p class="workbench-panel__desc">
+                  {{ isMarketSearchMode ? '当前为全市场搜索覆盖模式，结果直接显示到交集列表。' : '默认勾选融资标的和日线缠论涨幅，其他条件继续取交集。' }}
+                </p>
               </div>
               <div class="workbench-panel__meta daily-results-meta">
-                <span>{{ resultRows.length }} 条</span>
+                <span>{{ resultMetaLabel }}</span>
               </div>
             </div>
 
-            <div class="workbench-table-wrap daily-results-table-wrap">
-              <el-table
-                :data="resultRows"
-                size="small"
-                border
-                height="100%"
-                @row-click="handleRowClick"
+            <div v-if="resultRows.length" class="runtime-ledger daily-results-ledger">
+              <div class="runtime-ledger__header daily-results-ledger__grid">
+                <span>代码</span>
+                <span>名称</span>
+                <span>操作</span>
+                <span>高级段倍数</span>
+                <span>段倍数</span>
+                <span>笔涨幅%</span>
+                <span>缠论原因</span>
+              </div>
+              <div
+                v-for="row in resultRows"
+                :key="row.code"
+                class="runtime-ledger__row daily-results-ledger__grid"
+                :class="{ active: isResultRowActive(row) }"
+                @click="handleRowClick(row)"
               >
-                <el-table-column prop="code" label="代码" width="92" />
-                <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
-                <el-table-column label="操作" width="126">
-                  <template #default="{ row }">
-                    <el-button
-                      size="small"
-                      type="primary"
-                      link
-                      :loading="isWorkspaceActionRunning(`workspace:append-single:${row.code}`)"
-                      @click.stop="handleAppendSingleRowToPrePool(row)"
-                    >
-                      加入 pre_pools
-                    </el-button>
-                  </template>
-                </el-table-column>
-                <el-table-column label="高级段倍数" width="116">
-                  <template #default="{ row }">
-                    {{ formatNumber(row.higherMultiple) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="段倍数" width="96">
-                  <template #default="{ row }">
-                    {{ formatNumber(row.segmentMultiple) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="笔涨幅%" width="96">
-                  <template #default="{ row }">
-                    {{ formatNumber(row.biGainPercent) }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="chanlunReason" label="缠论原因" min-width="150" show-overflow-tooltip />
-              </el-table>
+                <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.code }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.name || '-'">
+                  {{ row.name || '-' }}
+                </span>
+                <span class="runtime-ledger__cell daily-ledger__actions">
+                  <el-button
+                    size="small"
+                    type="primary"
+                    link
+                    :loading="isWorkspaceActionRunning(`workspace:append-single:${row.code}`)"
+                    @click.stop="handleAppendSingleRowToPrePool(row)"
+                  >
+                    加入 pre_pools
+                  </el-button>
+                </span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.higherMultiple) }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.segmentMultiple) }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.biGainPercent) }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.chanlunReason || '-'">
+                  {{ row.chanlunReason || '-' }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="runtime-empty-panel daily-empty-panel">
+              <strong>{{ isMarketSearchMode ? '全市场搜索暂无命中结果' : '当前筛选暂无结果' }}</strong>
             </div>
           </section>
 
@@ -304,6 +323,8 @@
                 <span>pre_pools {{ prePoolItems.length }}</span>
                 <span>/</span>
                 <span>stock_pools {{ stockPoolItems.length }}</span>
+                <span>/</span>
+                <span>must_pools {{ mustPoolItems.length }}</span>
               </div>
             </div>
 
@@ -360,7 +381,7 @@
                     </el-button>
                   </template>
 
-                  <template v-else>
+                  <template v-else-if="tab.key === 'stockpools'">
                     <el-button
                       size="small"
                       type="primary"
@@ -391,65 +412,116 @@
                   </template>
                 </div>
 
-                <div class="workbench-table-wrap daily-workspace-table-wrap">
-                  <el-table
-                    :data="tab.rows"
-                    size="small"
-                    border
-                    height="100%"
-                    @row-click="handleWorkspaceRowClick"
+                <div v-if="tab.rows.length" class="runtime-ledger daily-workspace-ledger">
+                  <div
+                    class="runtime-ledger__header"
+                    :class="tab.key === 'must_pools' ? 'daily-workspace-ledger__grid--must' : 'daily-workspace-ledger__grid'"
                   >
-                    <el-table-column prop="code6" label="代码" width="92" />
-                    <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
-                    <el-table-column prop="source_labels" label="来源" min-width="150" show-overflow-tooltip />
-                    <el-table-column prop="category_labels" label="分类" min-width="180" show-overflow-tooltip />
-                    <el-table-column label="操作" min-width="180">
-                      <template #default="{ row }">
-                        <div class="daily-workspace-row-actions">
-                          <template v-if="tab.key === 'pre_pool'">
-                            <el-button
-                              size="small"
-                              type="primary"
-                              link
-                              :loading="isWorkspaceActionRunning(`workspace:pre:add:${row.code6}`)"
-                              @click.stop="handleAddPrePoolToStockPools(row)"
-                            >
-                              {{ row.primary_action_label }}
-                            </el-button>
-                            <el-button
-                              size="small"
-                              type="danger"
-                              link
-                              :loading="isWorkspaceActionRunning(`workspace:pre:delete:${row.code6}`)"
-                              @click.stop="handleDeletePrePoolRow(row)"
-                            >
-                              {{ row.secondary_action_label }}
-                            </el-button>
-                          </template>
-                          <template v-else>
-                            <el-button
-                              size="small"
-                              type="primary"
-                              link
-                              :loading="isWorkspaceActionRunning(`workspace:stock:add-must:${row.code6}`)"
-                              @click.stop="handleAddStockPoolToMustPools(row)"
-                            >
-                              {{ row.primary_action_label }}
-                            </el-button>
-                            <el-button
-                              size="small"
-                              type="danger"
-                              link
-                              :loading="isWorkspaceActionRunning(`workspace:stock:delete:${row.code6}`)"
-                              @click.stop="handleDeleteStockPoolRow(row)"
-                            >
-                              {{ row.secondary_action_label }}
-                            </el-button>
-                          </template>
-                        </div>
-                      </template>
-                    </el-table-column>
-                  </el-table>
+                    <span>代码</span>
+                    <span>名称</span>
+                    <span>来源</span>
+                    <span>{{ tab.key === 'must_pools' ? '上下文' : '分类 / 上下文' }}</span>
+                    <span v-if="tab.key === 'must_pools'">集合</span>
+                    <span>操作</span>
+                  </div>
+                  <div
+                    v-for="row in tab.rows"
+                    :key="`${tab.key}:${row.code6}:${row.provider}`"
+                    class="runtime-ledger__row"
+                    :class="[
+                      tab.key === 'must_pools' ? 'daily-workspace-ledger__grid--must' : 'daily-workspace-ledger__grid',
+                      { active: isWorkspaceRowActive(row) },
+                    ]"
+                    @click="handleWorkspaceRowClick(row)"
+                  >
+                    <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.code6 }}</span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.name || '-'">
+                      {{ row.name || '-' }}
+                    </span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.source_labels || row.provider || '-'">
+                      {{ row.source_labels || row.provider || '-' }}
+                    </span>
+                    <span class="runtime-ledger__cell daily-workspace-cell">
+                      <span
+                        class="daily-workspace-cell__main runtime-ledger__cell--truncate"
+                        :title="row.category_labels || row.context_label || row.plate_name || '-'"
+                      >
+                        {{ row.category_labels || row.context_label || row.plate_name || '-' }}
+                      </span>
+                      <span
+                        v-if="row.context_detail"
+                        class="daily-workspace-cell__meta runtime-ledger__cell--truncate"
+                        :title="row.context_detail"
+                      >
+                        {{ row.context_detail }}
+                      </span>
+                    </span>
+                    <span
+                      v-if="tab.key === 'must_pools'"
+                      class="runtime-ledger__cell runtime-ledger__cell--truncate"
+                      :title="row.category || '-'"
+                    >
+                      {{ row.category || '-' }}
+                    </span>
+                    <span class="runtime-ledger__cell daily-ledger__actions">
+                      <div class="daily-workspace-row-actions">
+                        <template v-if="tab.key === 'pre_pool'">
+                          <el-button
+                            size="small"
+                            type="primary"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:pre:add:${row.code6}`)"
+                            @click.stop="handleAddPrePoolToStockPools(row)"
+                          >
+                            {{ row.primary_action_label }}
+                          </el-button>
+                          <el-button
+                            size="small"
+                            type="danger"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:pre:delete:${row.code6}`)"
+                            @click.stop="handleDeletePrePoolRow(row)"
+                          >
+                            {{ row.secondary_action_label }}
+                          </el-button>
+                        </template>
+                        <template v-else-if="tab.key === 'stockpools'">
+                          <el-button
+                            size="small"
+                            type="primary"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:stock:add-must:${row.code6}`)"
+                            @click.stop="handleAddStockPoolToMustPools(row)"
+                          >
+                            {{ row.primary_action_label }}
+                          </el-button>
+                          <el-button
+                            size="small"
+                            type="danger"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:stock:delete:${row.code6}`)"
+                            @click.stop="handleDeleteStockPoolRow(row)"
+                          >
+                            {{ row.secondary_action_label }}
+                          </el-button>
+                        </template>
+                        <template v-else-if="tab.key === 'must_pools'">
+                          <el-button
+                            size="small"
+                            type="danger"
+                            link
+                            :loading="isWorkspaceActionRunning(`workspace:must:delete:${row.code6}`)"
+                            @click.stop="handleDeleteMustPoolRow(row)"
+                          >
+                            {{ row.secondary_action_label }}
+                          </el-button>
+                        </template>
+                      </div>
+                    </span>
+                  </div>
+                </div>
+                <div v-else class="runtime-empty-panel daily-empty-panel">
+                  <strong>{{ tab.label }} 暂无记录</strong>
                 </div>
               </el-tab-pane>
             </el-tabs>
@@ -569,6 +641,22 @@
                 <div class="workbench-panel__title">缠论原因</div>
                 <div class="daily-detail-reason">{{ detailSnapshot.chanlunReason || '-' }}</div>
               </article>
+
+              <article class="workbench-block daily-detail-card">
+                <div class="workbench-panel__title">基础池状态</div>
+                <div class="daily-base-pool-status">
+                  <span
+                    class="workbench-summary-chip"
+                    :class="detailBasePoolStatus.inBasePool ? 'workbench-summary-chip--success' : 'workbench-summary-chip--warning'"
+                  >
+                    {{ detailBasePoolStatus.inBasePool ? '当前在基础池' : '当前不在基础池' }}
+                  </span>
+                  <div class="daily-base-pool-status__meta">
+                    最近一次在基础池
+                    <strong>{{ detailBasePoolStatus.lastSeenTradeDate || '未找到历史记录' }}</strong>
+                  </div>
+                </div>
+              </article>
             </div>
             <div v-else class="daily-empty">请先选择一只股票。</div>
           </section>
@@ -580,21 +668,48 @@
               </div>
             </div>
 
-            <div class="workbench-table-wrap">
-              <el-table
-                :data="detail.hot_reasons"
-                size="small"
-                border
-                height="100%"
-                empty-text="暂无热门理由"
+            <div v-if="detail.hot_reasons.length" class="runtime-ledger daily-history-ledger">
+              <div class="runtime-ledger__header daily-history-ledger__grid">
+                <span>日期</span>
+                <span>时间</span>
+                <span>来源</span>
+                <span>板块</span>
+                <span>标的理由</span>
+                <span>板块理由</span>
+              </div>
+              <div
+                v-for="(row, index) in detail.hot_reasons"
+                :key="`${row.date || ''}:${row.time || ''}:${row.provider || ''}:${index}`"
+                class="runtime-ledger__row daily-history-ledger__grid"
               >
-                <el-table-column prop="date" label="日期" width="108" />
-                <el-table-column prop="time" label="时间" width="72" />
-                <el-table-column prop="provider" label="来源" width="80" />
-                <el-table-column prop="plate_name" label="板块" width="120" show-overflow-tooltip />
-                <el-table-column prop="stock_reason" label="标的理由" min-width="180" show-overflow-tooltip />
-                <el-table-column prop="plate_reason" label="板块理由" min-width="180" show-overflow-tooltip />
-              </el-table>
+                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.date || '-' }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.time || '-' }}</span>
+                <span class="runtime-ledger__cell">{{ row.provider || '-' }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.plate_name || '-'">
+                  {{ row.plate_name || '-' }}
+                </span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--truncate">
+                  <Shouban30ReasonPopover
+                    :reference-text="row.stock_reason"
+                    :content-text="row.stock_reason"
+                    :title="`${detailSnapshot?.code || '-'} ${detailSnapshot?.name || ''}`.trim()"
+                    subtitle="历史热门理由"
+                    :width="580"
+                  />
+                </span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--truncate">
+                  <Shouban30ReasonPopover
+                    :reference-text="row.plate_reason"
+                    :content-text="row.plate_reason"
+                    :title="row.plate_name || '板块理由'"
+                    subtitle="历史热门理由"
+                    :width="580"
+                  />
+                </span>
+              </div>
+            </div>
+            <div v-else class="runtime-empty-panel daily-empty-panel">
+              <strong>暂无热门理由</strong>
             </div>
           </section>
         </aside>
@@ -608,7 +723,9 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import MyHeader from './MyHeader.vue'
+import Shouban30ReasonPopover from './components/Shouban30ReasonPopover.vue'
 import { dailyScreeningApi } from '@/api/dailyScreeningApi.js'
+import { stockApi } from '@/api/stockApi.js'
 import {
   addShouban30PrePoolToStockPool,
   addShouban30StockPoolToMustPool,
@@ -630,6 +747,7 @@ import {
   buildDailyScreeningAppendSinglePrePoolPayload,
   buildDailyScreeningConditionSectionGroups,
   buildDailyScreeningCurrentExpression,
+  buildDailyScreeningDefaultFilterState,
   buildDailyScreeningQueryPayload,
   buildDailyScreeningWorkspaceTabs,
   buildDailyScreeningWorkbenchState,
@@ -661,8 +779,11 @@ const selectedCode = ref('')
 const detail = ref(normalizeDailyScreeningDetail({}))
 const prePoolItems = ref([])
 const stockPoolItems = ref([])
+const mustPoolItems = ref([])
 const activeWorkspaceTab = ref('pre_pool')
 const workspaceActionKey = ref('')
+const marketSearchKeyword = ref('')
+const marketSearchTotal = ref(0)
 
 const conditionKeys = ref([])
 const clsGroupKeys = ref([])
@@ -671,11 +792,16 @@ const metricFilters = reactive({
   ...DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
 })
 
-let metricFilterDebounceTimer = null
+let queryDebounceTimer = null
 let suppressMetricFilterAutoQuery = false
 
 const pageLoading = computed(() => loadingScopes.value || loadingFilters.value)
 const detailSnapshot = computed(() => detail.value?.snapshot || null)
+const detailBasePoolStatus = computed(() => detail.value?.basePoolStatus || {
+  inBasePool: false,
+  lastSeenScopeId: '',
+  lastSeenTradeDate: '',
+})
 const sectionHelp = computed(() => filterCatalog.value.sectionHelp || {})
 const conditionSectionGroups = computed(() => (
   buildDailyScreeningConditionSectionGroups(filterCatalog.value)
@@ -708,6 +834,14 @@ const selectedScopeLabel = computed(() => {
   const matched = scopeItems.value.find((item) => item.scopeId === selectedScopeId.value)
   return matched?.label || selectedScopeId.value || '-'
 })
+const normalizedMarketSearchKeyword = computed(() => String(marketSearchKeyword.value || '').trim())
+const isMarketSearchMode = computed(() => Boolean(normalizedMarketSearchKeyword.value))
+const resultMetaLabel = computed(() => {
+  if (isMarketSearchMode.value) {
+    return `${resultRows.value.length} / ${marketSearchTotal.value} 条`
+  }
+  return `${resultRows.value.length} 条`
+})
 const activeConditionCount = computed(() => {
   return conditionKeys.value.length + clsGroupKeys.value.length + (dayChanlunEnabled.value ? 1 : 0)
 })
@@ -723,6 +857,7 @@ const workspaceTabs = computed(() => {
   return buildDailyScreeningWorkspaceTabs({
     prePoolItems: prePoolItems.value,
     stockPoolItems: stockPoolItems.value,
+    mustPoolItems: mustPoolItems.value,
   })
 })
 
@@ -732,10 +867,17 @@ const formatNumber = (value) => {
   return Number.isFinite(numeric) ? numeric.toFixed(2) : '-'
 }
 
-const resetMetricFilters = () => {
-  metricFilters.higherMultipleLte = DEFAULT_DAILY_CHANLUN_METRIC_FILTERS.higherMultipleLte
-  metricFilters.segmentMultipleLte = DEFAULT_DAILY_CHANLUN_METRIC_FILTERS.segmentMultipleLte
-  metricFilters.biGainPercentLte = DEFAULT_DAILY_CHANLUN_METRIC_FILTERS.biGainPercentLte
+const isResultRowActive = (row) => String(row?.code || '').trim() === selectedCode.value
+const isWorkspaceRowActive = (row) => String(row?.code6 || '').trim() === selectedCode.value
+
+const applyDefaultFilterState = () => {
+  const defaults = buildDailyScreeningDefaultFilterState()
+  conditionKeys.value = [...defaults.conditionKeys]
+  clsGroupKeys.value = [...defaults.clsGroupKeys]
+  dayChanlunEnabled.value = Boolean(defaults.dayChanlunEnabled)
+  metricFilters.higherMultipleLte = defaults.metricFilters.higherMultipleLte
+  metricFilters.segmentMultipleLte = defaults.metricFilters.segmentMultipleLte
+  metricFilters.biGainPercentLte = defaults.metricFilters.biGainPercentLte
 }
 
 const readSharedWorkspacePayload = (response) => {
@@ -746,6 +888,13 @@ const readSharedWorkspacePayload = (response) => {
     return response
   }
   return {}
+}
+
+const readWorkspaceItems = (response, itemKey = 'items') => {
+  const payload = readSharedWorkspacePayload(response)
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.[itemKey])) return payload[itemKey]
+  return []
 }
 
 const isWorkspaceActionRunning = (key) => workspaceActionKey.value === key
@@ -772,12 +921,12 @@ const formatSectionItemLabel = (section, item) => {
   return `${item?.label || ''} · ${Number(item?.count || 0)}`
 }
 
-const scheduleMetricFilterQuery = () => {
-  if (metricFilterDebounceTimer) {
-    clearTimeout(metricFilterDebounceTimer)
+const scheduleQueryRows = () => {
+  if (queryDebounceTimer) {
+    clearTimeout(queryDebounceTimer)
   }
-  metricFilterDebounceTimer = setTimeout(() => {
-    metricFilterDebounceTimer = null
+  queryDebounceTimer = setTimeout(() => {
+    queryDebounceTimer = null
     void queryRows()
   }, 250)
 }
@@ -788,10 +937,7 @@ const applyStateDefaults = (latestScope = null) => {
     selectedScopeId.value = state.scopeId
   }
   suppressMetricFilterAutoQuery = true
-  conditionKeys.value = [...state.conditionKeys]
-  clsGroupKeys.value = [...state.clsGroupKeys]
-  dayChanlunEnabled.value = Boolean(state.dayChanlunEnabled)
-  resetMetricFilters()
+  applyDefaultFilterState()
   suppressMetricFilterAutoQuery = false
 }
 
@@ -826,12 +972,14 @@ const loadWorkspace = async () => {
   workspaceLoading.value = true
   workspaceError.value = ''
   try {
-    const [prePoolResponse, stockPoolResponse] = await Promise.all([
+    const [prePoolResponse, stockPoolResponse, mustPoolResponse] = await Promise.all([
       getShouban30PrePool(),
       getShouban30StockPool(),
+      stockApi.getStockMustPoolsList({ page: 1, size: 1000 }),
     ])
-    prePoolItems.value = readSharedWorkspacePayload(prePoolResponse)?.items || []
-    stockPoolItems.value = readSharedWorkspacePayload(stockPoolResponse)?.items || []
+    prePoolItems.value = readWorkspaceItems(prePoolResponse)
+    stockPoolItems.value = readWorkspaceItems(stockPoolResponse)
+    mustPoolItems.value = readWorkspaceItems(mustPoolResponse)
   } catch (error) {
     workspaceError.value = error?.response?.data?.error || error?.message || '加载工作区失败'
   } finally {
@@ -869,25 +1017,36 @@ const loadFilterCatalog = async () => {
 const queryRows = async () => {
   if (!selectedScopeId.value) {
     resultRows.value = []
+    marketSearchTotal.value = 0
     return
   }
   queryLoading.value = true
   try {
-    const payload = readDailyScreeningPayload(
-      await dailyScreeningApi.queryStocks(
-        buildDailyScreeningQueryPayload({
-          scopeId: selectedScopeId.value,
-          conditionKeys: conditionKeys.value,
-          clxsModels: resolveDailyScreeningClsGroupModels(clsGroupKeys.value),
-          metricFiltersEnabled: dayChanlunEnabled.value,
-          metricFilters,
-        }),
-      ),
-    )
+    const payload = isMarketSearchMode.value
+      ? readDailyScreeningPayload(
+        await dailyScreeningApi.searchMarketStocks(
+          selectedScopeId.value,
+          normalizedMarketSearchKeyword.value,
+        ),
+      )
+      : readDailyScreeningPayload(
+        await dailyScreeningApi.queryStocks(
+          buildDailyScreeningQueryPayload({
+            scopeId: selectedScopeId.value,
+            conditionKeys: conditionKeys.value,
+            clxsModels: resolveDailyScreeningClsGroupModels(clsGroupKeys.value),
+            metricFiltersEnabled: dayChanlunEnabled.value,
+            metricFilters,
+          }),
+        ),
+      )
     resultRows.value = normalizeDailyScreeningResultRows(payload?.rows)
+    marketSearchTotal.value = Number(payload?.total || resultRows.value.length || 0)
     pageError.value = ''
   } catch (error) {
-    pageError.value = error?.response?.data?.error || error?.message || '查询交集结果失败'
+    pageError.value = error?.response?.data?.error || error?.message || (
+      isMarketSearchMode.value ? '全市场搜索失败' : '查询交集结果失败'
+    )
   } finally {
     queryLoading.value = false
   }
@@ -932,10 +1091,7 @@ const toggleCondition = async (key) => {
 
 const resetFilters = async () => {
   suppressMetricFilterAutoQuery = true
-  conditionKeys.value = []
-  clsGroupKeys.value = []
-  dayChanlunEnabled.value = true
-  resetMetricFilters()
+  applyDefaultFilterState()
   suppressMetricFilterAutoQuery = false
   await queryRows()
 }
@@ -956,6 +1112,14 @@ const toggleSectionItem = async (section, item) => {
 const toggleDayChanlunFilter = async () => {
   dayChanlunEnabled.value = !dayChanlunEnabled.value
   await queryRows()
+}
+
+const handleMarketSearchInput = () => {
+  scheduleQueryRows()
+}
+
+const handleMarketSearchClear = () => {
+  scheduleQueryRows()
 }
 
 const handleRowClick = async (row) => {
@@ -1120,6 +1284,14 @@ const handleSyncStockPoolToMustPool = async () => {
   })
 }
 
+const handleDeleteMustPoolRow = async (row) => {
+  await runWorkspaceAction({
+    actionKey: `workspace:must:delete:${String(row?.code6 || '').trim()}`,
+    action: () => stockApi.deleteFromStockMustPoolsByCode(String(row?.code6 || '').trim()),
+    successMessage: `${String(row?.code6 || '').trim()} 已从 must_pools 删除`,
+  })
+}
+
 const handleSyncStockPoolToTdx = async () => {
   await runWorkspaceAction({
     actionKey: 'workspace:stock:sync-tdx',
@@ -1147,7 +1319,7 @@ watch(
     if (suppressMetricFilterAutoQuery || !dayChanlunEnabled.value || !selectedScopeId.value) {
       return
     }
-    scheduleMetricFilterQuery()
+    scheduleQueryRows()
   },
 )
 
@@ -1156,18 +1328,15 @@ watch(selectedScopeId, async (scopeId) => {
   selectedCode.value = ''
   detail.value = normalizeDailyScreeningDetail({})
   suppressMetricFilterAutoQuery = true
-  conditionKeys.value = []
-  clsGroupKeys.value = []
-  dayChanlunEnabled.value = true
-  resetMetricFilters()
+  applyDefaultFilterState()
   suppressMetricFilterAutoQuery = false
   await refreshCurrentScope()
 })
 
 onBeforeUnmount(() => {
-  if (metricFilterDebounceTimer) {
-    clearTimeout(metricFilterDebounceTimer)
-    metricFilterDebounceTimer = null
+  if (queryDebounceTimer) {
+    clearTimeout(queryDebounceTimer)
+    queryDebounceTimer = null
   }
 })
 
@@ -1218,10 +1387,10 @@ onMounted(async () => {
 .daily-screening-grid {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: 336px minmax(0, 1.18fr) minmax(0, 1fr);
+  grid-template-columns: 312px minmax(0, 1.2fr) minmax(0, 0.98fr);
   gap: 16px;
   min-height: 0;
-  overflow: visible;
+  overflow: hidden;
   align-items: stretch;
 }
 
@@ -1233,7 +1402,8 @@ onMounted(async () => {
 }
 
 .daily-filter-panel {
-  overflow-y: visible;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .daily-center-stack {
@@ -1355,12 +1525,6 @@ onMounted(async () => {
   min-height: 0;
 }
 
-.daily-results-table-wrap,
-.daily-workspace-table-wrap {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
 .daily-expression {
   color: var(--el-text-color-secondary);
   font-size: 13px;
@@ -1460,21 +1624,32 @@ onMounted(async () => {
   white-space: pre-wrap;
 }
 
+.daily-base-pool-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.daily-base-pool-status__meta {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .daily-detail-metrics {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.daily-detail-history-panel .workbench-table-wrap {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
 .daily-empty,
 .daily-empty-inline {
   color: var(--el-text-color-secondary);
   font-size: 13px;
+}
+
+.daily-empty-panel {
+  min-height: 180px;
 }
 
 .daily-workspace-tab-label {
@@ -1516,15 +1691,148 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 
-@media (max-width: 1480px) {
-  .daily-screening-grid {
-    grid-template-columns: 320px minmax(0, 1fr) minmax(360px, 0.92fr);
-  }
+.runtime-empty-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  border: 1px dashed #d8e2ee;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #5c738c;
+  text-align: center;
 }
 
-@media (max-height: 640px) {
-  .daily-filter-panel {
-    overflow-y: auto;
+.runtime-ledger {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #e5edf5;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.runtime-ledger__header,
+.runtime-ledger__row {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.runtime-ledger__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f6f9fc;
+  color: #68839d;
+  border-bottom: 1px solid #e5edf5;
+}
+
+.runtime-ledger__row {
+  border-top: 1px solid #eef3f8;
+  background: transparent;
+}
+
+.runtime-ledger__row:hover,
+.runtime-ledger__row.active {
+  background: #eef6ff;
+}
+
+.runtime-ledger__cell {
+  min-width: 0;
+  color: #35506c;
+}
+
+.runtime-ledger__cell--strong {
+  color: #21405e;
+  font-weight: 600;
+}
+
+.runtime-ledger__cell--truncate {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.runtime-ledger__cell--mono {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.runtime-ledger__cell--number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-ledger__actions {
+  overflow: visible;
+}
+
+.daily-workspace-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.daily-workspace-cell__main,
+.daily-workspace-cell__meta {
+  display: block;
+  min-width: 0;
+}
+
+.daily-workspace-cell__meta {
+  color: #68839d;
+  font-size: 11px;
+}
+
+.daily-results-ledger__grid {
+  grid-template-columns:
+    76px
+    minmax(132px, 0.95fr)
+    112px
+    104px
+    96px
+    96px
+    minmax(220px, 1.8fr);
+}
+
+.daily-workspace-ledger__grid {
+  grid-template-columns:
+    76px
+    112px
+    104px
+    minmax(180px, 1.45fr)
+    minmax(188px, 1fr);
+}
+
+.daily-workspace-ledger__grid--must {
+  grid-template-columns:
+    76px
+    112px
+    104px
+    minmax(160px, 1.2fr)
+    minmax(160px, 1fr)
+    minmax(128px, 0.85fr);
+}
+
+.daily-history-ledger__grid {
+  grid-template-columns:
+    108px
+    72px
+    76px
+    108px
+    minmax(220px, 1.2fr)
+    minmax(220px, 1.2fr);
+}
+
+@media (max-width: 1480px) {
+  .daily-screening-grid {
+    grid-template-columns: 300px minmax(0, 1fr) minmax(340px, 0.9fr);
   }
 }
 

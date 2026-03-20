@@ -67,7 +67,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 
 ### `fq_memory`
 
-全局记忆热库，面向 `Symphony` / `Global Stewardship` / 自由 Codex 会话保存旁路摘要，当前主要集合：
+全局记忆热库，面向自由 Codex 会话与正式 deploy 收口保存旁路摘要，当前主要集合：
 
 - `task_state`
 - `task_events`

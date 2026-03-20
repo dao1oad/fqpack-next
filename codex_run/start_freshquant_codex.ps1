@@ -4,7 +4,7 @@ param(
     [ValidateSet('cli', 'app-server')]
     [string]$Mode,
 
-    [string]$ServiceRoot = 'D:\fqpack\runtime\symphony-service',
+    [string]$ServiceRoot = 'D:\fqpack\runtime',
 
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$CodexArgs
@@ -86,7 +86,7 @@ function Show-AppServerBanner {
     Write-Host 'Mode: app-server runs in the foreground.'
     Write-Host "Transport: $ListenUrl"
     Write-Host "Repo root: $RepoRoot"
-    Write-Host "Service root: $ServiceRoot"
+    Write-Host "Runtime root: $ServiceRoot"
     Write-Host "Memory context: $($BootstrapPayload.context_pack_path)"
     Write-Host "Memory role: $($BootstrapPayload.role)"
     Write-Host "Issue identifier: $($BootstrapPayload.issue_identifier)"

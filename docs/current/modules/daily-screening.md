@@ -109,7 +109,7 @@
 - 段倍数 `<= 2`
 - 笔涨幅% `<= 20`
 
-页面首次进入和切换 scope 后，这组筛选默认启用；用户仍可手动关闭。
+页面首次进入、切换 scope、点击“重置筛选”后，默认都会启用这组筛选；用户仍可手动关闭。
 
 ### 基础池语义
 
@@ -141,15 +141,20 @@
   - `市场属性`
   - `chanlun 周期`
   - `chanlun 信号`
-- 左侧筛选工作台在桌面场景默认不再独立纵向滚动；极低窗口高度下才回退到面板自身滚动
+- 左侧筛选工作台自带纵向滚动；100% 缩放下如果高度不够，会在面板内部滚动，不再依赖浏览器缩放
+- 全市场搜索框
+  - 支持按标的代码或名称做模糊搜索
+  - 输入后直接覆盖中间交集列表
+  - 清空后恢复当前 scope 下的基础池/交集结果
 - 每个筛选分组表头的悬浮说明提示
 - `日线缠论涨幅` 总开关和默认阈值输入
-- 交集结果表格
+- 交集结果、共享工作区、历史热门理由统一使用 `/runtime-observability` 同风格的 `runtime-ledger` 表格样式
 - 交集列表左侧的 `全部加入pre_pools`
 - 交集列表单行 `加入 pre_pools`
 - 共享工作区
   - `pre_pools`
   - `stock_pools`
+  - `must_pools`
 - 单标的条件画像与热门理由
 
 页面中的说明文案固定解释：
@@ -164,13 +169,21 @@
 - 页面首次进入会自动查询当前正式 scope，不需要再点“查询结果”
 - 点击任意条件按钮后会立即刷新交集结果
 - 修改“日线缠论涨幅”阈值后会经短防抖自动刷新
-- 页面默认带着“日线缠论涨幅”参与筛选
+- 页面默认带着“融资标的 + 日线缠论涨幅”参与筛选
+- 页面首次进入、切换 scope、点击“重置筛选”后，都会回到这组统一默认条件
 - 当前结果表达式会明确展示：CLS 分组内部和分组之间用并集语义，和其他筛选条件再取交集
+- 全市场搜索是覆盖模式，不和左侧勾选条件叠加；搜索结果会直接显示到中间列表中
 - 交集列表支持批量加入 `pre_pools`，也支持单条直接加入 `pre_pools`
-- 工作区 `pre_pools` 当前读取共享去重真值；同一个 `code` 只显示一行，并明确展示 `sources / categories`
+- 工作区 `pre_pools` / `stock_pools` 当前读取共享去重真值；同一个 `code` 只显示一行，并明确展示 `sources / categories`
+- 工作区会额外展示 `must_pools` 页签，并直接复用现有必选池读写接口
+- `must_pools` 页签增加 `集合` 列，显示该标的在必选池中的 `category`
+- `must_pools` 页签支持单条删除，不提供批量同步按钮
+- 工作区 `分类 / 上下文` 列优先展示聚合 `categories`；如果同时存在板块信息，会在同格补充板块上下文
 - 点击交集列表或工作区中的任一标的，右侧都复用 `/api/daily-screening/stocks/<code>/detail` 展示完整详情
 - 右侧详情区删除独立“日线缠论涨幅”卡片，改成紧凑条件卡片区，把更多高度留给“历史热门理由”
-- 页面主工作区改为弹性高度布局，在 100% 缩放下不应再依赖浏览器缩放来完整查看右侧详情
+- 如果当前标的不在基础池，但全市场存在该股票且仍有历史热门理由，详情区仍会展示基础信息、历史热门理由和“最近一次在基础池”的时间
+- `历史热门理由` 的悬浮提示卡复用 `/gantt/shouban30` 的 `Shouban30ReasonPopover` 样式
+- 页面主工作区改为弹性高度布局，在 100% 缩放下不应再依赖浏览器缩放来完整查看左侧筛选工作台或右侧详情
 
 ### Dagster 节点 helper
 
@@ -197,6 +210,7 @@
 - `/api/daily-screening/filters`
 - `/api/daily-screening/scopes/<scope_id>/summary`
 - `/api/daily-screening/query`
+- `/api/daily-screening/stocks/search`
 - `/api/daily-screening/stocks/<code>/detail`
 
 页面工作区直接复用：
@@ -214,6 +228,8 @@
 - `/api/gantt/shouban30/stock-pool/sync-to-tdx`
 - `/api/gantt/shouban30/stock-pool/clear`
 - `/api/gantt/shouban30/stock-pool/delete`
+- `/api/get_stock_must_pools_list`
+- `/api/delete_from_must_pool_by_code`
 
 当前工作区返回口径：
 
@@ -269,7 +285,8 @@
 - `/gantt/shouban30` 仍是板块工作台；每日选股除了消费其读模型与缠论快照语义，也直接复用其共享工作区接口。
 - 页面查询不会重新触发算法运行。
 - API 仍保留旧执行接口，但当前页面不再使用。
-- `market_flags` 仍基于全市场能力构建，但前端查询始终锚定 `base:union`。
+- `market_flags` 仍基于全市场能力构建，但前端交集查询始终锚定 `base:union`。
+- 全市场搜索接口不锚定 `base:union`；它只负责全市场模糊匹配，并在命中当前 scope 快照时叠加当前 scope 的缠论指标与市场属性字段。
 
 ## 部署/运行
 
@@ -289,6 +306,14 @@
 - 看 `/api/daily-screening/scopes/<scope_id>/summary`
 - 再看 `daily_screening_stock_snapshots` 是否已有 `base:union` 对应股票快照
 - 再确认是否设置了过严的 `higher_multiple / segment_multiple / bi_gain_percent` 阈值
+
+### 工作区点开标的详情返回 `stock detail not found`
+
+- 先看 `/api/daily-screening/stocks/<code>/detail?scope_id=trade_date:<date>`
+- 如果该股票当前不在基础池，接口现在会回退到全市场股票主数据，并继续返回 `hot_reasons`
+- 再看返回里的 `base_pool_status.last_seen_trade_date`
+  - 有值：说明只是当前 scope 不在基础池，页面应显示“最近一次在基础池”的时间
+  - 空值：说明既不在当前基础池，也没有命中过往 `trade_date:*` scope 的 `base:union`
 
 ### Dagster 没出正式结果
 

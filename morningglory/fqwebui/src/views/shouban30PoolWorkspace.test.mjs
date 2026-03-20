@@ -128,7 +128,7 @@ test('buildCurrentFilterReplacePrePoolPayload keeps filtered plate order and de-
 })
 
 test('buildWorkspaceTabs exposes must_pool actions for stock pool workspace', () => {
-  const [prePoolTab, stockPoolTab] = buildWorkspaceTabs({
+  const [prePoolTab, stockPoolTab, mustPoolTab] = buildWorkspaceTabs({
     prePoolItems: [
       {
         code6: '600001',
@@ -151,6 +151,15 @@ test('buildWorkspaceTabs exposes must_pool actions for stock pool workspace', ()
         },
       },
     ],
+    mustPoolItems: [
+      {
+        code6: '300001',
+        name: 'Gamma',
+        category: ['集合A', '集合B'],
+        plate_name: 'ai-agent',
+        provider: 'must_pool',
+      },
+    ],
   })
 
   assert.equal(prePoolTab.batch_action_label, '同步到 stock_pool')
@@ -158,6 +167,29 @@ test('buildWorkspaceTabs exposes must_pool actions for stock pool workspace', ()
   assert.equal(stockPoolTab.batch_action_label, '同步到 must_pools')
   assert.equal(stockPoolTab.rows[0].primary_action_label, '加入 must_pools')
   assert.equal(stockPoolTab.rows[0].secondary_action_label, '删除')
+  assert.equal(mustPoolTab.label, 'must_pools')
+  assert.equal(mustPoolTab.rows[0].category, '集合A、集合B')
+  assert.equal(mustPoolTab.rows[0].plate_name, 'ai-agent')
+  assert.equal(mustPoolTab.rows[0].secondary_action_label, '删除')
+})
+
+test('buildWorkspaceTabs prefers row level plate_name over shouban30 extra plate_name', () => {
+  const [prePoolTab] = buildWorkspaceTabs({
+    prePoolItems: [
+      {
+        code6: '600001',
+        name: 'Alpha',
+        category: '三十涨停Pro预选',
+        plate_name: '机器人',
+        extra: {
+          shouban30_provider: 'xgb',
+          shouban30_plate_name: '旧板块',
+        },
+      },
+    ],
+  })
+
+  assert.equal(prePoolTab.rows[0].plate_name, '机器人')
 })
 
 test('buildWorkspaceTabs keeps source and category labels for shared pre_pool rows', () => {
@@ -266,8 +298,9 @@ test('workspace views render source and category columns for shared pre_pool row
     readFile(new URL('./GanttShouban30Phase1.vue', import.meta.url), 'utf8'),
   ])
 
-  assert.match(dailySource, /prop="source_labels"/)
-  assert.match(dailySource, /prop="category_labels"/)
+  assert.match(dailySource, /row\.source_labels \|\| row\.provider/)
+  assert.match(dailySource, /row\.category_labels \|\| row\.context_label \|\| row\.plate_name/)
+  assert.match(dailySource, /分类 \/ 上下文/)
   assert.match(shoubanSource, /prop="source_labels"/)
   assert.match(shoubanSource, /prop="category_labels"/)
 })

@@ -177,6 +177,15 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
                 "memberships": [],
             }
 
+        def search_market_stocks(self, run_id, query, limit=20):
+            captured["search"] = (run_id, query, limit)
+            return {
+                "scope_id": run_id,
+                "query": query,
+                "rows": [{"code": "600917", "name": "渝农商行"}],
+                "total": 1,
+            }
+
         def add_to_pre_pool(self, payload):
             captured["add_to_pre_pool"] = payload
             return {
@@ -209,6 +218,9 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
     )
     detail_response = client.get(
         "/api/daily-screening/stocks/000001/detail?scope_id=trade_date:2026-03-18"
+    )
+    search_response = client.get(
+        "/api/daily-screening/stocks/search?scope_id=trade_date:2026-03-18&q=600917&limit=8"
     )
     add_to_pre_pool_response = client.post(
         "/api/daily-screening/actions/add-to-pre-pool",
@@ -247,6 +259,12 @@ def test_daily_screening_scope_query_routes_delegate_to_service(monkeypatch):
     assert detail_response.status_code == 200
     assert detail_response.get_json()["snapshot"]["code"] == "000001"
     assert captured["detail"] == ("trade_date:2026-03-18", "000001")
+
+    assert search_response.status_code == 200
+    assert search_response.get_json()["rows"] == [
+        {"code": "600917", "name": "渝农商行"}
+    ]
+    assert captured["search"] == ("trade_date:2026-03-18", "600917", 8)
 
     assert add_to_pre_pool_response.status_code == 200
     assert add_to_pre_pool_response.get_json()["code"] == "000001"

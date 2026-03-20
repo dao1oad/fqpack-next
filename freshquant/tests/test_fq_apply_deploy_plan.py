@@ -14,6 +14,7 @@ def test_apply_deploy_plan_script_exists_and_uses_shared_planner() -> None:
     assert "docker_parallel_compose.ps1" in text
     assert "fqnext_host_runtime_ctl.ps1" in text
     assert "check_freshquant_runtime_post_deploy.ps1" in text
+    assert "runtime\\symphony\\scripts" not in text
 
 
 def test_apply_deploy_plan_supports_changed_paths_and_git_diff() -> None:

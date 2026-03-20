@@ -2314,6 +2314,120 @@ def test_daily_screening_service_get_stock_detail_returns_snapshot_and_membershi
     assert detail["hot_reasons"] == hot_reason_rows
 
 
+def test_daily_screening_service_get_stock_detail_falls_back_to_hot_reasons_and_last_base_pool_seen(
+    monkeypatch,
+):
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    repository.upsert_stock_snapshots(
+        scope_id="trade_date:2026-03-20",
+        trade_date="2026-03-20",
+        snapshots=[{"code": "000001", "name": "alpha", "symbol": "sz000001"}],
+    )
+    repository.replace_condition_memberships(
+        scope_id="trade_date:2026-03-18",
+        condition_key="base:union",
+        codes=[{"code": "600917", "name": "渝农商行", "symbol": "sh600917"}],
+    )
+    repository.replace_condition_memberships(
+        scope_id="trade_date:2026-03-18",
+        condition_key="hot:30d",
+        codes=[{"code": "600917", "name": "渝农商行", "symbol": "sh600917"}],
+    )
+    hot_reason_rows = [
+        {
+            "date": "2026-03-18",
+            "time": "09:31",
+            "provider": "xgb",
+            "plate_name": "银行",
+            "stock_reason": "历史热门",
+            "plate_reason": "银行轮动",
+        }
+    ]
+
+    monkeypatch.setattr(
+        "freshquant.instrument.stock.fq_inst_fetch_stock_list",
+        lambda code=None: (
+            [{"code": "600917", "name": "渝农商行", "sse": "sh"}]
+            if code in {None, "600917"}
+            else []
+        ),
+    )
+
+    import freshquant.daily_screening.service as service_module
+
+    original_query_stock_hot_reason_rows = getattr(
+        service_module,
+        "query_stock_hot_reason_rows",
+        None,
+    )
+    service_module.query_stock_hot_reason_rows = (
+        lambda *, code6, provider, limit: hot_reason_rows
+    )
+
+    try:
+        detail = service.get_stock_detail("trade_date:2026-03-20", "600917")
+    finally:
+        if original_query_stock_hot_reason_rows is None:
+            delattr(service_module, "query_stock_hot_reason_rows")
+        else:
+            service_module.query_stock_hot_reason_rows = (
+                original_query_stock_hot_reason_rows
+            )
+
+    assert detail["run_id"] == "trade_date:2026-03-20"
+    assert detail["scope"] == "trade_date:2026-03-20"
+    assert detail["snapshot"]["code"] == "600917"
+    assert detail["snapshot"]["name"] == "渝农商行"
+    assert detail["memberships"] == []
+    assert detail["hot_reasons"] == hot_reason_rows
+    assert detail["base_pool_status"] == {
+        "in_base_pool": False,
+        "last_seen_scope_id": "trade_date:2026-03-18",
+        "last_seen_trade_date": "2026-03-18",
+    }
+
+
+def test_daily_screening_service_search_market_stocks_supports_fuzzy_query_and_scope_overlay(
+    monkeypatch,
+):
+    service, repository, _screening_db = _make_service_with_screening_repo()
+    repository.upsert_stock_snapshots(
+        scope_id="trade_date:2026-03-20",
+        trade_date="2026-03-20",
+        snapshots=[
+            {
+                "code": "600917",
+                "name": "渝农商行",
+                "symbol": "sh600917",
+                "higher_multiple": 2.4,
+                "segment_multiple": 1.8,
+                "bi_gain_percent": 12.0,
+                "selected_by": {"credit_subject": True},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "freshquant.instrument.stock.fq_inst_fetch_stock_list",
+        lambda code=None: [
+            {"code": "600917", "name": "渝农商行", "sse": "sh"},
+            {"code": "600918", "name": "重庆银行", "sse": "sh"},
+            {"code": "430001", "name": "北交样本", "sse": "bj"},
+            {"code": "000002", "name": "*ST beta", "sse": "sz"},
+        ],
+    )
+
+    code_rows = service.search_market_stocks("trade_date:2026-03-20", "6009", limit=10)
+    name_rows = service.search_market_stocks("trade_date:2026-03-20", "渝农", limit=10)
+
+    assert [row["code"] for row in code_rows["rows"]] == ["600917", "600918"]
+    assert code_rows["total"] == 2
+    assert name_rows["rows"][0]["code"] == "600917"
+    assert name_rows["rows"][0]["higher_multiple"] == 2.4
+    assert name_rows["rows"][0]["segment_multiple"] == 1.8
+    assert name_rows["rows"][0]["bi_gain_percent"] == 12.0
+    assert name_rows["rows"][0]["selected_by"] == {"credit_subject": True}
+
+
 def test_daily_screening_service_supports_trade_date_scope_detail_and_pre_pool():
     service, repository, _screening_db = _make_service_with_screening_repo()
     _seed_run_scope_snapshot_fixture(

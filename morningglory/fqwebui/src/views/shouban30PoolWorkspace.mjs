@@ -12,6 +12,13 @@ const joinLabels = (values = []) => {
   return labels.join(' / ')
 }
 
+const normalizeDisplayText = (value, separator = '、') => {
+  if (Array.isArray(value)) {
+    return value.map((item) => toText(item)).filter(Boolean).join(separator)
+  }
+  return toText(value)
+}
+
 const resolvePlateRowKey = (plate) => {
   return toText(plate?.view_key || plate?.plate_key)
 }
@@ -115,16 +122,26 @@ const mapWorkspaceRow = (
   {
     primaryActionLabel = '',
     secondaryActionLabel = '删除',
+    defaultProvider = '',
   } = {},
 ) => {
+  const plateName = toText(item?.plate_name || item?.extra?.shouban30_plate_name)
+  const provider = toText(item?.provider || item?.extra?.shouban30_provider || defaultProvider)
+  const category = normalizeDisplayText(item?.category)
+  const sourceLabels = joinLabels(item?.sources) || provider
+  const categoryLabels = joinLabels(item?.categories)
+  const contextLabel = plateName || category
+  const contextDetail = categoryLabels && contextLabel && categoryLabels !== contextLabel ? contextLabel : ''
   return {
     code6: toText(item?.code6 || item?.code),
     name: toText(item?.name),
-    category: toText(item?.category),
-    plate_name: toText(item?.extra?.shouban30_plate_name || item?.plate_name),
-    provider: toText(item?.extra?.shouban30_provider || item?.provider),
-    source_labels: joinLabels(item?.sources) || toText(item?.provider),
-    category_labels: joinLabels(item?.categories) || toText(item?.category),
+    category,
+    plate_name: plateName,
+    context_label: contextLabel,
+    context_detail: contextDetail,
+    provider,
+    source_labels: sourceLabels,
+    category_labels: categoryLabels,
     primary_action_label: primaryActionLabel,
     secondary_action_label: secondaryActionLabel,
   }
@@ -133,8 +150,10 @@ const mapWorkspaceRow = (
 export const buildWorkspaceTabs = ({
   prePoolItems = [],
   stockPoolItems = [],
+  mustPoolItems = [],
+  showMustPoolTab = false,
 } = {}) => {
-  return [
+  const tabs = [
     {
       key: 'pre_pool',
       label: 'pre_pools',
@@ -156,6 +175,18 @@ export const buildWorkspaceTabs = ({
       })),
     },
   ]
+
+  if (showMustPoolTab || normalizeList(mustPoolItems).length > 0) {
+    tabs.push({
+      key: 'must_pools',
+      label: 'must_pools',
+      rows: normalizeList(mustPoolItems).map((item) => mapWorkspaceRow(item, {
+        defaultProvider: 'must_pool',
+      })),
+    })
+  }
+
+  return tabs
 }
 
 export const resolveSelectedStockDetailContext = ({

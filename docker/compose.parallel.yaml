@@ -30,6 +30,25 @@ services:
       retries: 15
     restart: unless-stopped
 
+  fq_runtime_clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      TZ: Asia/Shanghai
+      CLICKHOUSE_DB: runtime_observability
+      CLICKHOUSE_USER: ${FQ_RUNTIME_CLICKHOUSE_USER:-fq_runtime}
+      CLICKHOUSE_PASSWORD: ${FQ_RUNTIME_CLICKHOUSE_PASSWORD:-fq_runtime}
+    ports:
+      - "18123:8123"
+      - "19000:9000"
+    volumes:
+      - fqnext_runtime_clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   fq_apiserver:
     build:
       context: ..
@@ -47,6 +66,10 @@ services:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
       FQ_RUNTIME_LOG_DIR: /freshquant/logs/runtime
+      FQ_RUNTIME_CLICKHOUSE_URL: http://fq_runtime_clickhouse:8123
+      FQ_RUNTIME_CLICKHOUSE_DATABASE: runtime_observability
+      FQ_RUNTIME_CLICKHOUSE_USER: ${FQ_RUNTIME_CLICKHOUSE_USER:-fq_runtime}
+      FQ_RUNTIME_CLICKHOUSE_PASSWORD: ${FQ_RUNTIME_CLICKHOUSE_PASSWORD:-fq_runtime}
       FRESHQUANT_MONGODB__HOST: fq_mongodb
       FRESHQUANT_MONGODB__PORT: "27017"
       MONGODB: fq_mongodb
@@ -63,6 +86,28 @@ services:
       fq_mongodb:
         condition: service_healthy
       fq_redis:
+        condition: service_healthy
+      fq_runtime_clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fq_runtime_indexer:
+    image: ${FQNEXT_REAR_IMAGE:-fqnext_rear:2026.2.23}
+    env_file:
+      - ${FQ_COMPOSE_ENV_FILE:?Set FQ_COMPOSE_ENV_FILE to the primary worktree .env}
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: "1"
+      FQ_RUNTIME_LOG_DIR: /freshquant/logs/runtime
+      FQ_RUNTIME_CLICKHOUSE_URL: http://fq_runtime_clickhouse:8123
+      FQ_RUNTIME_CLICKHOUSE_DATABASE: runtime_observability
+      FQ_RUNTIME_CLICKHOUSE_USER: ${FQ_RUNTIME_CLICKHOUSE_USER:-fq_runtime}
+      FQ_RUNTIME_CLICKHOUSE_PASSWORD: ${FQ_RUNTIME_CLICKHOUSE_PASSWORD:-fq_runtime}
+    command: ["/freshquant/.venv/bin/python", "-m", "freshquant.runtime_observability.indexer_main", "--poll-interval-s", "2.0"]
+    volumes:
+      - ${FQ_RUNTIME_LOG_HOST_DIR:?Set FQ_RUNTIME_LOG_HOST_DIR to the host runtime log directory}:/freshquant/logs/runtime
+    depends_on:
+      fq_runtime_clickhouse:
         condition: service_healthy
     restart: unless-stopped
 
@@ -300,4 +345,5 @@ services:
 volumes:
   fqnext_mongodb_data:
   fqnext_redis_data:
+  fqnext_runtime_clickhouse_data:
   fqnext_dagster_data:
