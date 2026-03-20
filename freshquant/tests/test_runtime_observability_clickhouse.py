@@ -86,6 +86,34 @@ def test_build_clickhouse_event_row_extracts_runtime_query_fields():
     assert json.loads(row["metrics_json"]) == {"queue_len": 3}
 
 
+def test_build_clickhouse_event_row_backfills_symbol_name_from_nested_payload():
+    from freshquant.runtime_observability.clickhouse_store import (
+        build_clickhouse_event_row,
+    )
+
+    row = build_clickhouse_event_row(
+        normalize_event(
+            {
+                "trace_id": "trc_symbol_1",
+                "component": "order_submit",
+                "runtime_node": "host:rear",
+                "node": "submit_intent",
+                "status": "info",
+                "symbol": "000001",
+                "payload": {
+                    "symbol_name": "平安银行",
+                    "action": "BUY",
+                },
+                "ts": "2026-03-20T10:17:01+08:00",
+            }
+        ),
+        raw_file="host_rear/order_submit/2026-03-20/order_submit_2026-03-20_1.jsonl",
+        raw_line=8,
+    )
+
+    assert row["symbol_name"] == "平安银行"
+
+
 def test_runtime_jsonl_indexer_reads_incremental_lines(monkeypatch, tmp_path):
     from freshquant.runtime_observability.indexer import RuntimeJsonlIndexer
 
@@ -346,6 +374,55 @@ def test_clickhouse_store_get_trace_detail_combines_summary_and_first_step_page(
         "ts": "2026-03-20T10:00:01+08:00",
         "event_id": "evt_1",
     }
+
+
+def test_clickhouse_store_list_traces_backfills_symbol_name_for_legacy_rows(
+    monkeypatch,
+):
+    import freshquant.runtime_observability.clickhouse_store as store_module
+
+    store = store_module.RuntimeObservabilityClickHouseStore(
+        base_url="http://clickhouse.test"
+    )
+
+    def _fake_select_rows(query: str):
+        return [
+            {
+                "trace_key": "trace__trc_legacy_1",
+                "trace_id": "trc_legacy_1",
+                "trace_kind": "guardian_signal",
+                "trace_status": "failed",
+                "break_reason": "failed@guardian_strategy.finish",
+                "first_ts": "2026-03-20 10:00:00.000",
+                "last_ts": "2026-03-20 10:00:02.000",
+                "duration_ms": 2000,
+                "entry_component": "guardian_strategy",
+                "entry_node": "receive_signal",
+                "exit_component": "guardian_strategy",
+                "exit_node": "finish",
+                "step_count": 2,
+                "issue_count": 1,
+                "symbol": "000001",
+                "symbol_name": "",
+                "intent_ids": ["int_legacy_1"],
+                "request_ids": ["req_legacy_1"],
+                "internal_order_ids": ["ord_legacy_1"],
+                "affected_components": ["guardian_strategy"],
+            }
+        ]
+
+    monkeypatch.setattr(store, "ensure_schema", lambda: None)
+    monkeypatch.setattr(store, "_select_rows", _fake_select_rows)
+    monkeypatch.setattr(
+        store_module,
+        "resolve_runtime_symbol_name",
+        lambda record, **kwargs: "平安银行",
+        raising=False,
+    )
+
+    payload = store.list_traces(limit=1)
+
+    assert payload["items"][0]["symbol_name"] == "平安银行"
 
 
 def test_clickhouse_store_health_summary_preserves_missing_heartbeat_as_null(

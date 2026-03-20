@@ -134,6 +134,9 @@ Runtime Observability 当前采用“双存储”：
   - 必要时 `/api/runtime/traces/<trace_key>/steps`
 - Event 与 Trace 列表都走分页 cursor
 - 自动刷新只刷新摘要列表，不自动刷新已打开的 Trace detail
+- 页面内所有标的展示统一为 `symbol / symbol_name`
+- 写入 ClickHouse 与查询返回阶段都会优先复用现有 instrument lookup 补全 `symbol_name`
+- 名称最终仍缺失时，前端兜底显示 `symbol / 未知名称`
 - Raw Browser 继续按 `runtime_node/component/date/file` 直接读 JSONL
 
 ## 组件健康
