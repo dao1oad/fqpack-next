@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 
-from freshquant.runtime_observability.clickhouse_store import RuntimeObservabilityClickHouseStore
+from freshquant.runtime_observability.clickhouse_store import (
+    RuntimeObservabilityClickHouseStore,
+)
 from freshquant.runtime_observability.indexer import RuntimeJsonlIndexer
 
 

@@ -6,9 +6,7 @@ def test_runtime_observability_docs_reference_clickhouse_query_path() -> None:
         encoding="utf-8"
     )
     runtime_doc = Path("docs/current/runtime.md").read_text(encoding="utf-8")
-    deployment_doc = Path("docs/current/deployment.md").read_text(
-        encoding="utf-8"
-    )
+    deployment_doc = Path("docs/current/deployment.md").read_text(encoding="utf-8")
     troubleshooting_doc = Path("docs/current/troubleshooting.md").read_text(
         encoding="utf-8"
     )

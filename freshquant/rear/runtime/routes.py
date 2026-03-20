@@ -13,7 +13,10 @@ from freshquant.runtime_observability.clickhouse_store import (
     RuntimeObservabilityClickHouseStore,
     RuntimeObservabilityStoreError,
 )
-from freshquant.runtime_observability.logger import get_runtime_log_root, runtime_node_path
+from freshquant.runtime_observability.logger import (
+    get_runtime_log_root,
+    runtime_node_path,
+)
 
 runtime_bp = Blueprint("runtime", __name__, url_prefix="/api/runtime")
 

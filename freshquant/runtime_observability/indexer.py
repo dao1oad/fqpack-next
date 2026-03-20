@@ -18,7 +18,9 @@ class RuntimeJsonlIndexer:
         batch_size: int = 500,
     ) -> None:
         self.store = store
-        self.runtime_root = Path(runtime_root) if runtime_root is not None else get_runtime_log_root()
+        self.runtime_root = (
+            Path(runtime_root) if runtime_root is not None else get_runtime_log_root()
+        )
         self.batch_size = max(int(batch_size or 1), 1)
 
     def sync_once(self) -> None:
