@@ -55,6 +55,14 @@ class FakeCollection:
         filtered = [dict(doc) for doc in self.docs if _doc_matches_query(doc, query)]
         return FakeCursor(self, filtered)
 
+    def find_one(self, query):
+        query = query or {}
+        self.last_query = query
+        for doc in self.docs:
+            if _doc_matches_query(doc, query):
+                return dict(doc)
+        return None
+
 
 def _doc_matches_query(doc, query):
     for key, expected in query.items():
@@ -105,7 +113,7 @@ def _import_stock_service_with_stubs(monkeypatch):
     return importlib.reload(stock_service)
 
 
-def test_get_stock_pre_pools_list_without_category_returns_all(monkeypatch):
+def test_get_stock_pre_pools_list_without_category_returns_deduped_rows(monkeypatch):
     stock_service = _import_stock_service_with_stubs(monkeypatch)
 
     fake_db = FakeDB(
@@ -115,15 +123,29 @@ def test_get_stock_pre_pools_list_without_category_returns_all(monkeypatch):
                     "_id": "1",
                     "code": "000001",
                     "name": "alpha",
-                    "category": "first",
-                    "datetime": "2026-03-05 09:31:00",
+                    "category": "CLXS_10001",
+                    "remark": "daily-screening:clxs",
+                    "datetime": datetime(2026, 3, 5, 9, 31),
                 },
                 {
                     "_id": "2",
+                    "code": "000001",
+                    "name": "alpha",
+                    "category": "三十涨停Pro预选",
+                    "datetime": datetime(2026, 3, 6, 9, 31),
+                    "extra": {
+                        "shouban30_order": 0,
+                        "shouban30_plate_key": "11",
+                        "shouban30_provider": "xgb",
+                    },
+                },
+                {
+                    "_id": "3",
                     "code": "000002",
                     "name": "beta",
-                    "category": "second",
-                    "datetime": "2026-03-05 14:08:00",
+                    "category": "CLXS_10004",
+                    "remark": "daily-screening:clxs",
+                    "datetime": datetime(2026, 3, 6, 14, 8),
                 },
             ]
         )
@@ -137,11 +159,13 @@ def test_get_stock_pre_pools_list_without_category_returns_all(monkeypatch):
 
     result = stock_service.get_stock_pre_pools_list(page=1, category="")
 
-    assert [row["code"] for row in result] == ["000002", "000001"]
-    assert [row["symbol"] for row in result] == ["sz000002", "sz000001"]
+    assert [row["code"] for row in result] == ["000001", "000002"]
+    assert result[0]["sources"] == ["daily-screening", "shouban30"]
+    assert result[0]["categories"] == ["CLXS_10001", "plate:11"]
+    assert [row["symbol"] for row in result] == ["sz000001", "sz000002"]
 
 
-def test_get_stock_pre_pools_list_with_category_still_filters(monkeypatch):
+def test_get_stock_pre_pools_list_with_category_filters_unified_categories(monkeypatch):
     stock_service = _import_stock_service_with_stubs(monkeypatch)
 
     fake_db = FakeDB(
@@ -151,15 +175,29 @@ def test_get_stock_pre_pools_list_with_category_still_filters(monkeypatch):
                     "_id": "1",
                     "code": "000001",
                     "name": "alpha",
-                    "category": "first",
-                    "datetime": "2026-03-05 09:31:00",
+                    "category": "CLXS_10001",
+                    "remark": "daily-screening:clxs",
+                    "datetime": datetime(2026, 3, 5, 9, 31),
                 },
                 {
                     "_id": "2",
+                    "code": "000001",
+                    "name": "alpha",
+                    "category": "三十涨停Pro预选",
+                    "datetime": datetime(2026, 3, 6, 9, 31),
+                    "extra": {
+                        "shouban30_order": 0,
+                        "shouban30_plate_key": "11",
+                        "shouban30_provider": "xgb",
+                    },
+                },
+                {
+                    "_id": "3",
                     "code": "000002",
                     "name": "beta",
-                    "category": "second",
-                    "datetime": "2026-03-05 14:08:00",
+                    "category": "CLXS_10004",
+                    "remark": "daily-screening:clxs",
+                    "datetime": datetime(2026, 3, 6, 14, 8),
                 },
             ]
         )
@@ -171,9 +209,69 @@ def test_get_stock_pre_pools_list_with_category_still_filters(monkeypatch):
         lambda code: f"{'sh' if str(code).startswith('6') else 'sz'}{code}",
     )
 
-    result = stock_service.get_stock_pre_pools_list(page=1, category="first")
+    result = stock_service.get_stock_pre_pools_list(page=1, category="plate:11")
 
     assert [row["code"] for row in result] == ["000001"]
+
+
+def test_add_to_stock_pools_by_code_uses_unified_pre_pool_provenance(monkeypatch):
+    stock_service = _import_stock_service_with_stubs(monkeypatch)
+
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(
+            [
+                {
+                    "code": "000001",
+                    "name": "alpha",
+                    "category": "CLXS_10008",
+                    "remark": "daily-screening:clxs",
+                    "datetime": datetime(2026, 3, 20, 9, 31),
+                    "stop_loss_price": 9.8,
+                    "extra": {"screening_run_id": "run-1"},
+                    "sources": ["daily-screening", "shouban30"],
+                    "categories": ["CLXS_10008", "plate:11"],
+                    "memberships": [
+                        {
+                            "source": "daily-screening",
+                            "category": "CLXS_10008",
+                            "added_at": datetime(2026, 3, 20, 9, 31),
+                            "expire_at": datetime(2026, 6, 16, 0, 0),
+                            "extra": {"screening_run_id": "run-1"},
+                        },
+                        {
+                            "source": "shouban30",
+                            "category": "plate:11",
+                            "added_at": datetime(2026, 3, 20, 9, 35),
+                            "expire_at": None,
+                            "extra": {"shouban30_plate_key": "11"},
+                        },
+                    ],
+                }
+            ]
+        ),
+        stock_pools=FakeCollection([]),
+    )
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    captured = {}
+    monkeypatch.setattr(
+        stock_service,
+        "save_a_stock_pools",
+        lambda **kwargs: captured.setdefault("kwargs", kwargs),
+    )
+
+    result = stock_service.add_to_stock_pools_by_code("000001", days=20)
+
+    assert result is True
+    assert captured["kwargs"]["code"] == "000001"
+    assert captured["kwargs"]["category"] == "CLXS_10008"
+    assert captured["kwargs"]["sources"] == ["daily-screening", "shouban30"]
+    assert captured["kwargs"]["categories"] == ["CLXS_10008", "plate:11"]
+    assert {
+        (item["source"], item["category"]) for item in captured["kwargs"]["memberships"]
+    } == {
+        ("daily-screening", "CLXS_10008"),
+        ("shouban30", "plate:11"),
+    }
 
 
 def test_get_stock_signal_list_for_must_pool_buys_filters_current_non_holding_must_pool(

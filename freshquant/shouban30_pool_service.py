@@ -5,6 +5,7 @@ from pathlib import Path
 
 from freshquant.bootstrap_config import bootstrap_config
 from freshquant.db import DBfreshquant
+from freshquant.pre_pool_service import PrePoolService
 
 SHOUBAN30_PRE_POOL_CATEGORY = "三十涨停Pro预选"
 SHOUBAN30_STOCK_POOL_CATEGORY = "三十涨停Pro自选"
@@ -62,6 +63,15 @@ def _sorted_stock_pool_docs():
 
 
 def _workspace_order(doc):
+    value = doc.get("workspace_order")
+    if isinstance(value, int) and value >= 0:
+        return value
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = None
+    if parsed is not None and parsed >= 0:
+        return parsed
     value = doc.get("extra", {}).get(SHOUBAN30_ORDER_FIELD)
     if isinstance(value, int) and value >= 0:
         return value
@@ -144,6 +154,68 @@ def _next_workspace_order(docs):
     )
 
 
+def _dedupe_text_list(*groups):
+    values = set()
+    for group in groups:
+        for value in list(group or []):
+            text = str(value or "").strip()
+            if text:
+                values.add(text)
+    return sorted(values)
+
+
+def _normalize_membership(item):
+    if not isinstance(item, dict):
+        return None
+    source = str(item.get("source") or "").strip()
+    category = str(item.get("category") or "").strip()
+    if not source and not category:
+        return None
+    return {
+        "source": source,
+        "category": category,
+        "added_at": item.get("added_at"),
+        "expire_at": item.get("expire_at"),
+        "extra": dict(item.get("extra") or {}),
+    }
+
+
+def _merge_memberships(*groups):
+    merged = {}
+    for group in groups:
+        for item in list(group or []):
+            normalized = _normalize_membership(item)
+            if normalized is None:
+                continue
+            merged[(normalized["source"], normalized["category"])] = normalized
+    return [
+        merged[key]
+        for key in sorted(merged.keys(), key=lambda item: (item[0], item[1]))
+    ]
+
+
+def _merged_stock_pool_provenance(source_doc, existing_doc=None):
+    memberships = _merge_memberships(
+        (existing_doc or {}).get("memberships", []),
+        source_doc.get("memberships", []),
+    )
+    sources = _dedupe_text_list(
+        (existing_doc or {}).get("sources", []),
+        source_doc.get("sources", []),
+        [item.get("source") for item in memberships],
+    )
+    categories = _dedupe_text_list(
+        (existing_doc or {}).get("categories", []),
+        source_doc.get("categories", []),
+        [item.get("category") for item in memberships],
+    )
+    return {
+        "sources": sources,
+        "categories": categories,
+        "memberships": memberships,
+    }
+
+
 def _serialize_pool_doc(doc):
     extra = dict(doc.get("extra") or {})
     return {
@@ -154,6 +226,80 @@ def _serialize_pool_doc(doc):
         "datetime": doc.get("datetime"),
         "expire_at": doc.get("expire_at"),
         "extra": extra,
+        "sources": list(doc.get("sources") or []),
+        "categories": list(doc.get("categories") or []),
+        "memberships": list(doc.get("memberships") or []),
+        "workspace_order": _workspace_order(doc),
+    }
+
+
+def _pre_pool_service():
+    return PrePoolService(db=DBfreshquant)
+
+
+def _shouban30_membership_category(item):
+    plate_key = str(
+        item.get("plate_key")
+        or (item.get("extra") or {}).get("shouban30_plate_key")
+        or ""
+    ).strip()
+    if plate_key:
+        return f"plate:{plate_key}"
+    return SHOUBAN30_PRE_POOL_CATEGORY
+
+
+def _select_pre_pool_membership(doc, *, preferred_source=None):
+    memberships = list(doc.get("memberships") or [])
+    if preferred_source:
+        preferred = [
+            item
+            for item in memberships
+            if str(item.get("source") or "").strip() == str(preferred_source).strip()
+        ]
+        if preferred:
+            memberships = preferred
+    if not memberships:
+        return {}
+    return sorted(
+        memberships,
+        key=lambda item: (
+            _workspace_order({"extra": item.get("extra") or {}}) is None,
+            (
+                _workspace_order({"extra": item.get("extra") or {}})
+                if _workspace_order({"extra": item.get("extra") or {}}) is not None
+                else 10**9
+            ),
+            item.get("added_at") or datetime.min,
+            str(item.get("category") or ""),
+        ),
+    )[0]
+
+
+def _serialize_pre_pool_doc(doc):
+    primary = _select_pre_pool_membership(doc, preferred_source="shouban30")
+    extra = dict(primary.get("extra") or {})
+    if (
+        doc.get("workspace_order") is not None
+        and extra.get(SHOUBAN30_ORDER_FIELD) is None
+    ):
+        extra[SHOUBAN30_ORDER_FIELD] = doc.get("workspace_order")
+    category = (
+        SHOUBAN30_PRE_POOL_CATEGORY
+        if "shouban30" in set(doc.get("sources") or [])
+        else next(iter(doc.get("categories") or []), "")
+    )
+    return {
+        "code": doc.get("code"),
+        "code6": doc.get("code"),
+        "name": doc.get("name"),
+        "category": category,
+        "datetime": doc.get("updated_at") or doc.get("datetime"),
+        "expire_at": doc.get("expire_at"),
+        "extra": extra,
+        "sources": list(doc.get("sources") or []),
+        "categories": list(doc.get("categories") or []),
+        "memberships": list(doc.get("memberships") or []),
+        "workspace_order": doc.get("workspace_order"),
     }
 
 
@@ -225,42 +371,104 @@ def _build_pre_pool_doc(item, context):
     }
 
 
+def _upsert_pre_pool_item(pre_pool_service, item, context, *, order):
+    next_item = dict(item)
+    next_item["order"] = order
+    compat_doc = _build_pre_pool_doc(next_item, context)
+    pre_pool_service.upsert_code(
+        code=next_item["code"],
+        name=next_item["name"],
+        source="shouban30",
+        category=_shouban30_membership_category(next_item),
+        added_at=compat_doc["datetime"],
+        stop_loss_price=None,
+        source_remark="shouban30",
+        row_category=SHOUBAN30_PRE_POOL_CATEGORY,
+        row_extra=compat_doc["extra"],
+        extra=compat_doc["extra"],
+        workspace_order=order,
+    )
+
+
+def _safe_sync_pre_pool_to_blk():
+    try:
+        return sync_pre_pool_to_blk()
+    except RuntimeError as exc:
+        return {"success": False, "message": str(exc)}
+
+
 def _build_stock_pool_doc(source_doc, order):
+    return _build_stock_pool_doc_from_source(source_doc, order)
+
+
+def _build_stock_pool_doc_from_source(source_doc, order, existing_doc=None):
     source_extra = dict(source_doc.get("extra") or {})
+    existing_extra = dict((existing_doc or {}).get("extra") or {})
+    extra = dict(existing_extra)
+    extra[SHOUBAN30_ORDER_FIELD] = (
+        _workspace_order(existing_doc)
+        if existing_doc is not None and _workspace_order(existing_doc) is not None
+        else order
+    )
+    extra["shouban30_source"] = "pre_pool"
+    extra["shouban30_from_category"] = SHOUBAN30_PRE_POOL_CATEGORY
+    for key in (
+        "shouban30_provider",
+        "shouban30_plate_key",
+        "shouban30_plate_name",
+        "shouban30_hit_count_window",
+        "shouban30_latest_trade_date",
+    ):
+        value = source_extra.get(key)
+        if value not in (None, ""):
+            extra[key] = value
+    provenance = _merged_stock_pool_provenance(source_doc, existing_doc)
     return {
         "code": source_doc.get("code"),
-        "name": source_doc.get("name") or source_doc.get("code"),
+        "name": (existing_doc or {}).get("name")
+        or source_doc.get("name")
+        or source_doc.get("code"),
         "category": SHOUBAN30_STOCK_POOL_CATEGORY,
-        "datetime": datetime.now(),
-        "extra": {
-            SHOUBAN30_ORDER_FIELD: order,
-            "shouban30_source": "pre_pool",
-            "shouban30_from_category": SHOUBAN30_PRE_POOL_CATEGORY,
-            "shouban30_provider": source_extra.get("shouban30_provider"),
-            "shouban30_plate_key": source_extra.get("shouban30_plate_key"),
-            "shouban30_plate_name": source_extra.get("shouban30_plate_name"),
-            "shouban30_hit_count_window": source_extra.get(
-                "shouban30_hit_count_window"
-            ),
-            "shouban30_latest_trade_date": source_extra.get(
-                "shouban30_latest_trade_date"
-            ),
-        },
+        "datetime": (existing_doc or {}).get("datetime") or datetime.now(),
+        "expire_at": (existing_doc or {}).get("expire_at")
+        or source_doc.get("expire_at"),
+        "stop_loss_price": (existing_doc or {}).get("stop_loss_price")
+        or source_doc.get("stop_loss_price"),
+        "extra": extra,
+        "sources": provenance["sources"],
+        "categories": provenance["categories"],
+        "memberships": provenance["memberships"],
     }
 
 
 def replace_pre_pool(items, context=None):
     context = dict(context or {})
     normalized_items = _normalize_items(items)
-    delete_result = DBfreshquant["stock_pre_pools"].delete_many(
-        {"category": SHOUBAN30_PRE_POOL_CATEGORY}
-    )
-    for item in normalized_items:
-        DBfreshquant["stock_pre_pools"].insert_one(_build_pre_pool_doc(item, context))
-    blk_sync = sync_pre_pool_to_blk()
+    pre_pool_service = _pre_pool_service()
+    incoming_memberships = {
+        (item["code"], _shouban30_membership_category(item))
+        for item in normalized_items
+    }
+    deleted_count = 0
+    for doc in pre_pool_service.list_codes(source="shouban30"):
+        for membership in list(doc.get("memberships") or []):
+            if str(membership.get("source") or "").strip() != "shouban30":
+                continue
+            membership_key = (doc.get("code"), membership.get("category"))
+            if membership_key in incoming_memberships:
+                continue
+            if pre_pool_service.remove_membership(
+                code=doc.get("code"),
+                source="shouban30",
+                category=membership.get("category"),
+            ):
+                deleted_count += 1
+    for index, item in enumerate(normalized_items):
+        _upsert_pre_pool_item(pre_pool_service, item, context, order=index)
+    blk_sync = _safe_sync_pre_pool_to_blk()
     return {
         "saved_count": len(normalized_items),
-        "deleted_count": delete_result.deleted_count,
+        "deleted_count": deleted_count,
         "category": SHOUBAN30_PRE_POOL_CATEGORY,
         "blk_sync": blk_sync,
     }
@@ -269,23 +477,33 @@ def replace_pre_pool(items, context=None):
 def append_pre_pool(items, context=None):
     context = dict(context or {})
     normalized_items = _normalize_items(items)
-    existing_docs = _ensure_pre_pool_orders()
-    existing_codes = {doc.get("code") for doc in existing_docs}
+    pre_pool_service = _pre_pool_service()
+    existing_docs = pre_pool_service.list_codes()
+    existing_memberships = {
+        (doc.get("code"), membership.get("category"))
+        for doc in pre_pool_service.list_codes(source="shouban30")
+        for membership in list(doc.get("memberships") or [])
+        if str(membership.get("source") or "").strip() == "shouban30"
+    }
     next_order = _next_workspace_order(existing_docs)
     appended_count = 0
     skipped_count = 0
 
     for item in normalized_items:
-        if item["code"] in existing_codes:
+        membership_key = (item["code"], _shouban30_membership_category(item))
+        if membership_key in existing_memberships:
             skipped_count += 1
             continue
-        next_item = dict(item)
-        next_item["order"] = next_order
-        DBfreshquant["stock_pre_pools"].insert_one(
-            _build_pre_pool_doc(next_item, context)
+        existing_doc = pre_pool_service.get_code(item["code"])
+        assigned_order = (
+            _workspace_order(existing_doc)
+            if existing_doc is not None and _workspace_order(existing_doc) is not None
+            else next_order
         )
-        existing_codes.add(item["code"])
-        next_order += 1
+        _upsert_pre_pool_item(pre_pool_service, item, context, order=assigned_order)
+        existing_memberships.add(membership_key)
+        if assigned_order == next_order:
+            next_order += 1
         appended_count += 1
 
     return {
@@ -306,11 +524,11 @@ def _clear_pool(collection_name, category, syncer):
 
 
 def list_pre_pool():
-    return [_serialize_pool_doc(doc) for doc in _sorted_pre_pool_docs()]
+    return [_serialize_pre_pool_doc(doc) for doc in _pre_pool_service().list_codes()]
 
 
 def sync_pre_pool_to_blk():
-    return _write_blk(_sorted_pre_pool_docs())
+    return _write_blk(list_pre_pool())
 
 
 def sync_stock_pool_to_blk():
@@ -318,11 +536,17 @@ def sync_stock_pool_to_blk():
 
 
 def clear_pre_pool():
-    return _clear_pool(
-        "stock_pre_pools",
-        SHOUBAN30_PRE_POOL_CATEGORY,
-        sync_pre_pool_to_blk,
-    )
+    deleted_count = 0
+    pre_pool_service = _pre_pool_service()
+    for doc in list_pre_pool():
+        if pre_pool_service.delete_code(doc.get("code")):
+            deleted_count += 1
+    blk_sync = _safe_sync_pre_pool_to_blk()
+    return {
+        "deleted_count": deleted_count,
+        "category": SHOUBAN30_PRE_POOL_CATEGORY,
+        "blk_sync": blk_sync,
+    }
 
 
 def clear_stock_pool():
@@ -335,9 +559,7 @@ def clear_stock_pool():
 
 def add_pre_pool_item_to_stock_pool(code6):
     code6 = _normalize_code6(code6)
-    source = DBfreshquant["stock_pre_pools"].find_one(
-        {"code": code6, "category": SHOUBAN30_PRE_POOL_CATEGORY}
-    )
+    source = next((doc for doc in list_pre_pool() if doc.get("code") == code6), None)
     if source is None:
         raise ValueError("pre_pool item not found")
 
@@ -345,6 +567,20 @@ def add_pre_pool_item_to_stock_pool(code6):
         {"code": code6, "category": SHOUBAN30_STOCK_POOL_CATEGORY}
     )
     if existing is not None:
+        DBfreshquant["stock_pools"].update_one(
+            {"code": code6, "category": SHOUBAN30_STOCK_POOL_CATEGORY},
+            {
+                "$set": _build_stock_pool_doc_from_source(
+                    source,
+                    (
+                        _workspace_order(existing)
+                        if _workspace_order(existing) is not None
+                        else 0
+                    ),
+                    existing_doc=existing,
+                )
+            },
+        )
         return "already_exists"
 
     stock_docs = _ensure_stock_pool_orders()
@@ -355,9 +591,10 @@ def add_pre_pool_item_to_stock_pool(code6):
 
 
 def sync_pre_pool_to_stock_pool():
-    pre_pool_docs = _ensure_pre_pool_orders()
+    pre_pool_docs = list_pre_pool()
     stock_pool_docs = _ensure_stock_pool_orders()
-    existing_codes = {doc.get("code") for doc in stock_pool_docs}
+    existing_docs_by_code = {doc.get("code"): doc for doc in stock_pool_docs}
+    existing_codes = set(existing_docs_by_code)
     next_order = _next_workspace_order(stock_pool_docs)
     appended_count = 0
     skipped_count = 0
@@ -365,6 +602,21 @@ def sync_pre_pool_to_stock_pool():
     for source_doc in pre_pool_docs:
         code = source_doc.get("code")
         if code in existing_codes:
+            existing_doc = existing_docs_by_code.get(code)
+            DBfreshquant["stock_pools"].update_one(
+                {"code": code, "category": SHOUBAN30_STOCK_POOL_CATEGORY},
+                {
+                    "$set": _build_stock_pool_doc_from_source(
+                        source_doc,
+                        (
+                            _workspace_order(existing_doc)
+                            if _workspace_order(existing_doc) is not None
+                            else 0
+                        ),
+                        existing_doc=existing_doc,
+                    )
+                },
+            )
             skipped_count += 1
             continue
         DBfreshquant["stock_pools"].insert_one(
@@ -383,11 +635,9 @@ def sync_pre_pool_to_stock_pool():
 
 def delete_pre_pool_item(code6):
     code6 = _normalize_code6(code6)
-    deleted = DBfreshquant["stock_pre_pools"].delete_one(
-        {"code": code6, "category": SHOUBAN30_PRE_POOL_CATEGORY}
-    )
-    blk_sync = sync_pre_pool_to_blk()
-    return {"deleted": deleted.deleted_count > 0, "blk_sync": blk_sync}
+    deleted = _pre_pool_service().delete_code(code6)
+    blk_sync = _safe_sync_pre_pool_to_blk()
+    return {"deleted": bool(deleted), "blk_sync": blk_sync}
 
 
 def list_stock_pool():

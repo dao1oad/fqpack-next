@@ -438,6 +438,8 @@
                       </template>
                     </el-table-column>
                     <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
+                    <el-table-column prop="source_labels" label="来源" min-width="150" show-overflow-tooltip />
+                    <el-table-column prop="category_labels" label="分类" min-width="180" show-overflow-tooltip />
                     <el-table-column label="操作" min-width="188">
                       <template #default="{ row }">
                         <div class="workspace-row-actions">

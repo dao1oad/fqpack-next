@@ -192,6 +192,48 @@ test('buildWorkspaceTabs prefers row level plate_name over shouban30 extra plate
   assert.equal(prePoolTab.rows[0].plate_name, '机器人')
 })
 
+test('buildWorkspaceTabs keeps source and category labels for shared pre_pool rows', () => {
+  const [prePoolTab] = buildWorkspaceTabs({
+    prePoolItems: [
+      {
+        code6: '600001',
+        name: 'Alpha',
+        category: '三十涨停Pro预选',
+        sources: ['daily-screening', 'shouban30'],
+        categories: ['CLXS_10001', 'plate:11'],
+        extra: {
+          shouban30_provider: 'xgb',
+          shouban30_plate_name: 'robot',
+        },
+      },
+    ],
+  })
+
+  assert.equal(prePoolTab.rows[0].source_labels, 'daily-screening / shouban30')
+  assert.equal(prePoolTab.rows[0].category_labels, 'CLXS_10001 / plate:11')
+})
+
+test('buildWorkspaceTabs keeps source and category labels for shared stock_pool rows', () => {
+  const [, stockPoolTab] = buildWorkspaceTabs({
+    stockPoolItems: [
+      {
+        code6: '000333',
+        name: 'Beta',
+        category: '三十涨停Pro自选',
+        sources: ['daily-screening', 'shouban30'],
+        categories: ['CLXS_10008', 'plate:11'],
+        extra: {
+          shouban30_provider: 'jygs',
+          shouban30_plate_name: 'chip',
+        },
+      },
+    ],
+  })
+
+  assert.equal(stockPoolTab.rows[0].source_labels, 'daily-screening / shouban30')
+  assert.equal(stockPoolTab.rows[0].category_labels, 'CLXS_10008 / plate:11')
+})
+
 test('resolveSelectedStockDetailContext falls back to workspace row when current stocks miss the selected code', () => {
   const detail = resolveSelectedStockDetailContext({
     selectedStockCode6: '000333',
@@ -248,6 +290,19 @@ test('resolveSelectedStockDetailContext prefers current stock row when both curr
     provider: 'agg',
     plate_name: '',
   })
+})
+
+test('workspace views render source and category columns for shared pre_pool rows', async () => {
+  const [dailySource, shoubanSource] = await Promise.all([
+    readFile(new URL('./DailyScreening.vue', import.meta.url), 'utf8'),
+    readFile(new URL('./GanttShouban30Phase1.vue', import.meta.url), 'utf8'),
+  ])
+
+  assert.match(dailySource, /row\.source_labels \|\| row\.provider/)
+  assert.match(dailySource, /row\.category_labels \|\| row\.context_label \|\| row\.plate_name/)
+  assert.match(dailySource, /分类 \/ 上下文/)
+  assert.match(shoubanSource, /prop="source_labels"/)
+  assert.match(shoubanSource, /prop="category_labels"/)
 })
 
 test('gantt tabs use 韭研公社 label and shouban30 keeps fixed workspace layout markers', async () => {

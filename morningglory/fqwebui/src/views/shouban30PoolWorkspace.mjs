@@ -2,6 +2,16 @@ const toText = (value) => String(value || '').trim()
 
 const normalizeList = (value) => (Array.isArray(value) ? value : [])
 
+const joinLabels = (values = []) => {
+  const labels = []
+  for (const value of normalizeList(values)) {
+    const text = toText(value)
+    if (!text || labels.includes(text)) continue
+    labels.push(text)
+  }
+  return labels.join(' / ')
+}
+
 const normalizeDisplayText = (value, separator = '、') => {
   if (Array.isArray(value)) {
     return value.map((item) => toText(item)).filter(Boolean).join(separator)
@@ -116,14 +126,22 @@ const mapWorkspaceRow = (
   } = {},
 ) => {
   const plateName = toText(item?.plate_name || item?.extra?.shouban30_plate_name)
+  const provider = toText(item?.provider || item?.extra?.shouban30_provider || defaultProvider)
   const category = normalizeDisplayText(item?.category)
+  const sourceLabels = joinLabels(item?.sources) || provider
+  const categoryLabels = joinLabels(item?.categories)
+  const contextLabel = plateName || category
+  const contextDetail = categoryLabels && contextLabel && categoryLabels !== contextLabel ? contextLabel : ''
   return {
     code6: toText(item?.code6 || item?.code),
     name: toText(item?.name),
     category,
     plate_name: plateName,
-    context_label: plateName || category,
-    provider: toText(item?.provider || item?.extra?.shouban30_provider || defaultProvider),
+    context_label: contextLabel,
+    context_detail: contextDetail,
+    provider,
+    source_labels: sourceLabels,
+    category_labels: categoryLabels,
     primary_action_label: primaryActionLabel,
     secondary_action_label: secondaryActionLabel,
   }

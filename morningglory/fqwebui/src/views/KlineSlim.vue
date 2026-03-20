@@ -109,6 +109,10 @@
                         <span class="sidebar-item-meta">
                           <span class="sidebar-item-title">{{ item.name || item.code6 }}</span>
                           <span class="sidebar-item-subtitle">{{ item.code6 }}</span>
+                          <span v-if="item.sourceLabels || item.categoryLabels" class="sidebar-item-tags">
+                            <span v-if="item.sourceLabels" class="sidebar-item-tag">{{ item.sourceLabels }}</span>
+                            <span v-if="item.categoryLabels" class="sidebar-item-tag sidebar-item-tag--muted">{{ item.categoryLabels }}</span>
+                          </span>
                         </span>
                       </button>
                     </template>
@@ -610,6 +614,20 @@ export default klineSlim
   font-size 12px
   line-height 1.3
   color #93c5fd
+
+.sidebar-item-tags
+  display flex
+  flex-direction column
+  gap 4px
+  margin-top 6px
+
+.sidebar-item-tag
+  font-size 11px
+  line-height 1.45
+  color rgba(191, 219, 254, 0.9)
+
+.sidebar-item-tag--muted
+  color rgba(148, 163, 184, 0.92)
 
 .sidebar-item-delete
   align-self center

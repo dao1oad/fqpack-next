@@ -15,14 +15,15 @@
 
 ### `stock_pre_pools`
 
-- 用于暂存筛选结果
-- Shouban30 会把单个板块结果 append 进这个集合
-- 允许有 `category` 和 `expire_at`
-- Shouban30 当前使用 `extra.shouban30_order` 作为页面与 `.blk` 输出顺序真值
+- 用于共享预选池 / 工作区真值
+- 当前正式口径是“同一个 `code` 只保留一条记录”
+- `sources / categories / memberships` 用于区分 `daily-screening`、`shouban30` 等来源和分类
+- 顶层 `workspace_order` 是共享页面与 `.blk` 输出顺序真值；兼容字段 `extra.shouban30_order` 仍保留用于旧页面桥接
 
 ### `stock_pools`
 
 - 表示进入进一步跟踪或候选交易的池子
+- 若由 `stock_pre_pools` / `pre_pool` 转入，会保留顶层 `sources / categories / memberships`，用于说明来源和命中分类
 - `load_monitor_codes(mode=guardian_and_clx_15_30)` 会在 Guardian 池之后补充非过期 `stock_pools`
 - 兼容旧值 `clx_15_30`，读取时会按联合模式执行
 
@@ -75,6 +76,7 @@
 
 - 代码加入 `stock_pools`
   - `/api/add_to_stock_pools_by_code`
+  - 会把 `pre_pool` 的 `sources / categories / memberships` 一并写入 `stock_pools`
 - 代码加入 `must_pool`
   - `/api/add_to_must_pool_by_code`
 - 读取 Guardian 信号列表
@@ -83,6 +85,7 @@
   - `/api/get_stock_model_signal_list`
 - Shouban30 预选池转股票池
   - `/api/gantt/shouban30/pre-pool/add-to-stock-pools`
+  - 对已存在 `stock_pool` 的 code，也会补齐 `sources / categories / memberships`
 - Shouban30 预选池批量转股票池
   - `/api/gantt/shouban30/pre-pool/sync-to-stock-pool`
 - Shouban30 同步到通达信

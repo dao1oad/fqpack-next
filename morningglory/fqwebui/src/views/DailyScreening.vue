@@ -420,7 +420,7 @@
                     <span>代码</span>
                     <span>名称</span>
                     <span>来源</span>
-                    <span>上下文</span>
+                    <span>{{ tab.key === 'must_pools' ? '上下文' : '分类 / 上下文' }}</span>
                     <span v-if="tab.key === 'must_pools'">集合</span>
                     <span>操作</span>
                   </div>
@@ -438,11 +438,23 @@
                     <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.name || '-'">
                       {{ row.name || '-' }}
                     </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.provider || '-'">
-                      {{ row.provider || '-' }}
+                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.source_labels || row.provider || '-'">
+                      {{ row.source_labels || row.provider || '-' }}
                     </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.context_label || row.plate_name || '-'">
-                      {{ row.context_label || row.plate_name || '-' }}
+                    <span class="runtime-ledger__cell daily-workspace-cell">
+                      <span
+                        class="daily-workspace-cell__main runtime-ledger__cell--truncate"
+                        :title="row.category_labels || row.context_label || row.plate_name || '-'"
+                      >
+                        {{ row.category_labels || row.context_label || row.plate_name || '-' }}
+                      </span>
+                      <span
+                        v-if="row.context_detail"
+                        class="daily-workspace-cell__meta runtime-ledger__cell--truncate"
+                        :title="row.context_detail"
+                      >
+                        {{ row.context_detail }}
+                      </span>
                     </span>
                     <span
                       v-if="tab.key === 'must_pools'"
@@ -1758,6 +1770,24 @@ onMounted(async () => {
 
 .daily-ledger__actions {
   overflow: visible;
+}
+
+.daily-workspace-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.daily-workspace-cell__main,
+.daily-workspace-cell__meta {
+  display: block;
+  min-width: 0;
+}
+
+.daily-workspace-cell__meta {
+  color: #68839d;
+  font-size: 11px;
 }
 
 .daily-results-ledger__grid {

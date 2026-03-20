@@ -13,6 +13,7 @@ test('DailyScreening renders dense workbench layout for grouped filters and work
   assert.ok(source.includes('加入 pre_pools'))
   assert.ok(source.includes('must_pools'))
   assert.ok(source.includes('集合'))
+  assert.ok(source.includes('分类 / 上下文'))
   assert.ok(source.includes('历史热门理由'))
   assert.ok(source.includes('输入代码或名称，全市场模糊搜索'))
   assert.ok(source.includes('searchMarketStocks'))

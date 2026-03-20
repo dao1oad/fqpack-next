@@ -9,6 +9,7 @@ import pymongo
 import freshquant.util.df_helper as df_helper
 from freshquant.data.astock import must_pool
 from freshquant.db import DBfreshquant
+from freshquant.pre_pool_service import PrePoolService
 from freshquant.signal.a_stock_common import save_a_stock_pools
 from freshquant.strategy.toolkit.grid import plan_grid_distribution
 from freshquant.util.code import fq_util_code_append_market_code
@@ -187,33 +188,38 @@ def plan_stock_grid_trade(
 
 
 def get_stock_pre_pools_category():
-    category_list = list(
-        DBfreshquant["stock_pre_pools"].distinct(
-            "category", {"category": {"$not": re.compile("超级赛道")}}
-        )
+    category_list = sorted(
+        {
+            str(category or "").strip()
+            for row in PrePoolService(db=DBfreshquant).list_codes()
+            for category in row.get("categories") or []
+            if category and not re.search("超级赛道", str(category))
+        }
     )
     return {"code": 0, "data": category_list}
 
 
 def get_stock_pre_pools_list(page=1, category=""):
-    query = {}
+    page, size = _normalize_page_size(page, 1000)
     normalized_category = str(category or "").strip()
-    if normalized_category:
-        query["category"] = normalized_category
-    data = list(
-        DBfreshquant["stock_pre_pools"]
-        .find(query)
-        .sort("datetime", pymongo.DESCENDING)
-        .skip((page - 1) * 1000)
-        .limit(1000)
+    rows = PrePoolService(db=DBfreshquant).list_codes(
+        category=normalized_category or None
     )
-    if len(data) > 0:
-        df = pd.DataFrame(data)
-        df = df.drop(columns=["_id"])
-        df["symbol"] = df["code"].apply(lambda x: fq_util_code_append_market_code(x))
-        return df_helper.to_dict(df)
-    else:
-        return []
+    start = (page - 1) * size
+    data = rows[start : start + size]
+    out = []
+    for row in data:
+        item = dict(row)
+        item["symbol"] = fq_util_code_append_market_code(item.get("code"))
+        item["datetime"] = _format_datetime(
+            item.get("updated_at") or item.get("datetime"), "%Y-%m-%d %H:%M"
+        )
+        item["created_at"] = _format_datetime(
+            item.get("created_at") or item.get("datetime"), "%Y-%m-%d %H:%M"
+        )
+        item.setdefault("category", next(iter(item.get("categories") or []), ""))
+        out.append(item)
+    return out
 
 
 def get_stock_must_pools_list(page=1):
@@ -244,25 +250,34 @@ def add_to_stock_pools_by_code(code, days=30):
         bool: 操作是否成功
     """
     old = DBfreshquant["stock_pools"].find_one({"code": code})
-    if old is not None:
-        return True
-
-    # 从stock_pre_pools中查找记录
-    record = DBfreshquant["stock_pre_pools"].find_one({"code": code})
-
+    record = PrePoolService(db=DBfreshquant).get_code(code)
     if record is None:
         return False
+    target_category = (
+        old.get("category")
+        if old is not None
+        else record.get("category")
+        or next(iter(record.get("categories") or []), "自选股")
+    )
+    extra = dict(record.get("extra") or {})
+    if not extra:
+        memberships = list(record.get("memberships") or [])
+        if memberships:
+            extra = dict((memberships[0].get("extra") or {}))
 
-    # 删除_id字段，因为MongoDB会自动生成新的_id
-    if "_id" in record:
-        del record["_id"]
+    save_a_stock_pools(
+        code=code,
+        category=target_category,
+        dt=record.get("updated_at") or record.get("datetime") or pendulum.now(),
+        stop_loss_price=record.get("stop_loss_price"),
+        expire_at=pendulum.now().add(days=days),
+        sources=list(record.get("sources") or []),
+        categories=list(record.get("categories") or []),
+        memberships=list(record.get("memberships") or []),
+        **extra,
+    )
 
-    record["expire_at"] = pendulum.now().add(days=days)
-
-    # 将记录写入stock_pools
-    result = DBfreshquant["stock_pools"].insert_one(record)
-
-    return result.acknowledged
+    return True
 
 
 def delete_from_stock_pre_pools_by_code(code):

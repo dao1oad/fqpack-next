@@ -103,6 +103,8 @@ python -m freshquant.rear.api_server --port 5000
 - 标的管理页面使用独立 `/api/subject-management/*` 聚合接口，把 `must_pool / guardian_buy_grid / takeprofit / buy lot stoploss / 运行态摘要` 收口到同一页；账户级仓位门禁只读联动展示，不在该页写入
 - 系统设置页面使用独立 `/api/system-config/*` 接口，明确区分 Bootstrap 文件配置与 Mongo 系统设置
 - 每日选股页面的查询主链路使用 `/api/daily-screening/*`；共享工作区操作直接复用 `/api/gantt/shouban30/pre-pool/*` 与 `/api/gantt/shouban30/stock-pool/*`
+- `/api/get_stock_pre_pools_list` 与 `/api/gantt/shouban30/pre-pool` 当前都返回共享 `stock_pre_pools` 的去重列表，每行携带 `sources / categories / memberships`
+- `/api/get_stock_pools_list`、`/api/gantt/shouban30/stock-pool` 与 `/api/add_to_stock_pools_by_code` 当前会保留来自 `pre_pool` 的 `sources / categories / memberships`，不会在转入 `stock_pools` 时丢失来源和分类
 - Runtime API 只读原始日志与聚合视图，不承担修复动作
 - `/api/runtime/traces` 与 `/api/runtime/traces/<trace_id>` 默认只用事件内已有字段组装 `symbol_name`；只有显式传 `include_symbol_name=1` 才会按需补查 instrument 信息
 
@@ -217,3 +219,4 @@ python -m freshquant.initialize
 - `/api/daily-screening/query` 的语义是“先锚定 base union，再对所选条件统一取交集”
 - `/api/daily-screening/stocks/<code>/detail` 会返回统一详情：snapshot、memberships、CLXS 命中、chanlun 命中、90 天聚合、市场属性与热门理由
 - `/daily-screening` 页面当前会展示条件说明提示，并允许把当前交集结果直接追加到共享 `pre_pools`
+- 共享 `pre_pools` 当前按 `code` 整条删除，不支持只删除某个来源/分类标签
