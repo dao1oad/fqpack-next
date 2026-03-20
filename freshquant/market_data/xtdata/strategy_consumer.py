@@ -1123,7 +1123,6 @@ class StrategyConsumer:
             )
         except Exception as e:
             logger.error(f"[Consumer] save realtime failed {code} {period}: {e}")
-        self._refresh_symbol_position_snapshot(ev)
 
         key = (code, period)
 

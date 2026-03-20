@@ -13,8 +13,11 @@ from freshquant.position_management.symbol_position_service import (
 )
 from freshquant.xt_account_sync.client import XtAccountQueryClient
 from freshquant.xt_account_sync.persistence import (
+    filter_incremental_snapshot,
+    load_sync_cursor,
     persist_positions,
     refresh_credit_detail,
+    save_sync_cursor,
     sync_credit_subjects,
 )
 
@@ -70,6 +73,7 @@ class XtAccountSyncService:
         reconcile_service=None,
         credit_subject_repository=None,
         now_provider=None,
+        sync_state_collection=None,
     ):
         query_client = client or XtAccountQueryClient()
         position_repository = position_repository or PositionManagementRepository()
@@ -142,10 +146,28 @@ class XtAccountSyncService:
         def sync_orders_once():
             puppet = _load_puppet_module()
             orders = list(query_client.query_stock_orders() or [])
+            cursor = load_sync_cursor(
+                query_client.account_id,
+                "orders",
+                collection=sync_state_collection,
+            )
+            incremental_orders, next_cursor = filter_incremental_snapshot(
+                orders,
+                cursor,
+                timestamp_key="order_time",
+                id_key="order_id",
+            )
+            if incremental_orders:
+                puppet.saveOrders(incremental_orders)
             if orders:
-                puppet.saveOrders(orders)
+                save_sync_cursor(
+                    next_cursor,
+                    collection=sync_state_collection,
+                    now_provider=now_provider,
+                )
             return {
-                "count": len(orders),
+                "count": len(incremental_orders),
+                "snapshot_count": len(orders),
                 "account_id": query_client.account_id,
                 "account_type": query_client.account_type,
             }
@@ -153,10 +175,28 @@ class XtAccountSyncService:
         def sync_trades_once():
             puppet = _load_puppet_module()
             trades = list(query_client.query_stock_trades() or [])
+            cursor = load_sync_cursor(
+                query_client.account_id,
+                "trades",
+                collection=sync_state_collection,
+            )
+            incremental_trades, next_cursor = filter_incremental_snapshot(
+                trades,
+                cursor,
+                timestamp_key="traded_time",
+                id_key="traded_id",
+            )
+            if incremental_trades:
+                puppet.saveTrades(incremental_trades)
             if trades:
-                puppet.saveTrades(trades)
+                save_sync_cursor(
+                    next_cursor,
+                    collection=sync_state_collection,
+                    now_provider=now_provider,
+                )
             return {
-                "count": len(trades),
+                "count": len(incremental_trades),
+                "snapshot_count": len(trades),
                 "account_id": query_client.account_id,
                 "account_type": query_client.account_type,
             }

@@ -238,14 +238,23 @@ def test_confirm_expired_candidates_emits_externalize_event(monkeypatch):
         repository=repository,
         tracking_service=OrderTrackingService(repository=repository),
         runtime_logger=runtime_logger,
-        external_confirm_seconds=120,
+        external_confirm_interval_seconds=15,
+        external_confirm_observations=3,
     )
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
         detected_at=1000,
     )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1030,
+    )
 
-    service.confirm_expired_candidates(now=1121)
+    service.confirm_expired_candidates(now=1030)
 
     assert [event["node"] for event in runtime_logger.events] == [
         "externalize",

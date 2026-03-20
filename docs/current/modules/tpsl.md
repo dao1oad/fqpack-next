@@ -142,8 +142,8 @@ python -m freshquant.tpsl.tick_listener
 ### 管理页仓位金额不对
 
 - 检查 `pm_symbol_position_snapshots.market_value`
-- 检查对应 symbol 最近是否收到 `1m BAR_CLOSE`
-- 缺少 `1m close` 时，检查 `xt_positions.market_value` 是否存在
+- 检查 `xt_positions.market_value` 是否与券商查询一致
+- 检查 `xt_account_sync.worker` 最近一次 `positions` 同步是否成功
 
 ### 触发事件落了但批次无单
 

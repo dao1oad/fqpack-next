@@ -225,6 +225,41 @@ def test_ingest_order_report_is_idempotent_when_state_is_unchanged():
     assert len(repository.order_events) == existing_event_count
 
 
+def test_ingest_order_report_absorbs_terminal_replay_snapshots():
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "000001",
+            "price": 12.34,
+            "quantity": 100,
+            "source": "strategy",
+            "internal_order_id": "ord_terminal_replay_1",
+        }
+    )
+    repository.update_order(
+        "ord_terminal_replay_1",
+        {
+            "state": "FILLED",
+            "broker_order_id": "B-terminal-1",
+        },
+    )
+    existing_event_count = len(repository.order_events)
+
+    current_order = service.ingest_order_report(
+        {
+            "internal_order_id": "ord_terminal_replay_1",
+            "broker_order_id": "B-terminal-1",
+            "state": "CANCELED",
+            "event_type": "xt_order_reported",
+        }
+    )
+
+    assert current_order["state"] == "FILLED"
+    assert len(repository.order_events) == existing_event_count
+
+
 def test_order_state_machine_rejects_invalid_transition():
     state_machine = OrderStateMachine()
 

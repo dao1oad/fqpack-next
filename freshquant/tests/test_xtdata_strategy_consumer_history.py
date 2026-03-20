@@ -300,7 +300,9 @@ def test_handle_bar_close_stores_stock_realtime_as_raw_bar(monkeypatch):
     assert captured["records"][0]["close"] == 10.5
 
 
-def test_handle_bar_close_refreshes_symbol_position_snapshot_on_1min(monkeypatch):
+def test_handle_bar_close_does_not_refresh_symbol_position_snapshot_on_1min(
+    monkeypatch,
+):
     now_dt = datetime.now(tz=cfg.TZ).replace(second=0, microsecond=0)
 
     class DummyScheduler:
@@ -351,8 +353,7 @@ def test_handle_bar_close_refreshes_symbol_position_snapshot_on_1min(monkeypatch
         )
     )
 
-    assert len(consumer._symbol_position_service.calls) == 1
-    assert consumer._symbol_position_service.calls[0].period == "1min"
+    assert consumer._symbol_position_service.calls == []
 
 
 def test_load_window_from_db_reads_index_like_history_without_external_quantaxis(

@@ -21,7 +21,7 @@ def run_once(service=None):
 def run_forever(
     service=None,
     symbol_position_service=None,
-    interval_seconds=3,
+    interval_seconds=15,
     sleep_fn=time.sleep,
     now_provider=None,
     scheduled_hour=9,
@@ -32,6 +32,8 @@ def run_forever(
     now_provider = now_provider or _shanghai_now
     startup_time = now_provider()
 
+    # credit_detail stays on the main sync loop because margin state gates
+    # position management. Only credit_subjects is reduced to startup/daily sync.
     if symbol_position_service is not None:
         symbol_position_service.refresh_all_from_positions()
     sync_service.sync_once(
@@ -65,25 +67,33 @@ def run_forever(
 
 
 def main(argv=None, service=None):
-    parser = argparse.ArgumentParser(description="XT account sync worker")
+    parser = argparse.ArgumentParser(
+        description=(
+            "XT account sync worker "
+            "(credit detail stays on the main loop; credit subjects sync daily)"
+        )
+    )
     parser.add_argument("--once", action="store_true", help="sync once and exit")
     parser.add_argument(
         "--interval",
         type=float,
-        default=3.0,
-        help="poll interval in seconds when running continuously",
+        default=15.0,
+        help=(
+            "continuous sync interval in seconds for assets / credit_detail / "
+            "positions / incremental orders / incremental trades"
+        ),
     )
     parser.add_argument(
         "--scheduled-hour",
         type=int,
         default=9,
-        help="host local hour for the daily credit subject sync",
+        help="host local hour for the daily low-frequency credit subject sync",
     )
     parser.add_argument(
         "--scheduled-minute",
         type=int,
         default=20,
-        help="host local minute for the daily credit subject sync",
+        help="host local minute for the daily low-frequency credit subject sync",
     )
     args = parser.parse_args(argv)
     if args.once:

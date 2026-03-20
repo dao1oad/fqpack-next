@@ -27,24 +27,28 @@ class SingleSymbolPositionService:
     def resolve_symbol_snapshot(self, symbol, bar_close_event=None):
         normalized_symbol = _normalize_symbol(symbol)
         xt_position = self._xt_position_map().get(normalized_symbol) or {}
-        projected_position = self._projected_position_map().get(normalized_symbol) or {}
-        quantity, quantity_source = _resolve_quantity(xt_position, projected_position)
-        close_price = _resolve_bar_close_price(bar_close_event, normalized_symbol)
+        quantity = _safe_int_or_none(xt_position.get("volume")) or 0
+        quantity_source = "xt_positions"
+        close_price = _safe_float_or_none(xt_position.get("last_price"))
         xt_market_value = _safe_float_or_none(xt_position.get("market_value"))
 
-        if close_price is not None and quantity is not None:
-            market_value = round(quantity * close_price, 4)
-            price_source = "bar_close"
-            market_value_source = "bar_close_x_quantity"
-            stale = False
-        elif xt_market_value is not None:
+        if xt_market_value is not None:
             market_value = xt_market_value
-            price_source = "fallback_none"
+            price_source = (
+                "xt_positions_last_price"
+                if close_price is not None
+                else "broker_snapshot"
+            )
             market_value_source = "xt_positions_market_value"
+            stale = False
+        elif not xt_position or quantity == 0:
+            market_value = 0.0
+            price_source = "broker_snapshot"
+            market_value_source = "no_broker_position"
             stale = False
         else:
             market_value = None
-            price_source = "fallback_none"
+            price_source = "broker_snapshot"
             market_value_source = "unavailable"
             stale = True
 
@@ -63,19 +67,19 @@ class SingleSymbolPositionService:
         }
 
     def refresh_from_bar_close(self, bar_close_event):
-        event_payload = _normalize_bar_close_event(bar_close_event)
-        event_symbol = _normalize_symbol(
-            event_payload.get("symbol") or event_payload.get("code")
+        event = _normalize_bar_close_event(bar_close_event)
+        symbol = _normalize_symbol(
+            event.get("symbol") or event.get("code") or event.get("stock_code")
         )
-        if not event_symbol:
+        if not symbol:
             return None
-        snapshot = self.resolve_symbol_snapshot(event_symbol, event_payload)
+        snapshot = self.resolve_symbol_snapshot(symbol, event)
         return self.save_symbol_snapshot(snapshot)
 
     def refresh_all_from_positions(self):
-        symbols = sorted(
-            set(self._xt_position_map()) | set(self._projected_position_map())
-        )
+        symbols = sorted(set(self._xt_position_map()))
+        if hasattr(self.repository, "delete_symbol_snapshots_missing_symbols"):
+            self.repository.delete_symbol_snapshots_missing_symbols(symbols)
         rows = []
         for symbol in symbols:
             snapshot = self.resolve_symbol_snapshot(symbol, None)

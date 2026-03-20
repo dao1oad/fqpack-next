@@ -97,6 +97,24 @@ def test_worker_main_once_returns_zero():
     ]
 
 
+def test_worker_main_uses_fifteen_second_default_interval(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync import worker as worker_module
+
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        worker_module,
+        "run_forever",
+        lambda **kwargs: observed.update(kwargs),
+    )
+
+    result = worker_module.main(argv=[])
+
+    assert result == 0
+    assert observed["interval_seconds"] == 15.0
+
+
 def test_worker_module_runs_main_when_executed_as_module(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -195,6 +213,139 @@ def test_worker_run_forever_schedules_credit_subjects_and_only_seeds_once():
         },
     ]
     assert sleep_calls == [3]
+
+
+def test_build_default_sync_service_filters_replayed_orders_and_trades_by_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync.service import XtAccountSyncService
+
+    class FakeQueryClient:
+        account_id = "acct-sync"
+        account_type = "STOCK"
+
+        def query_stock_asset(self):
+            return {"account_id": self.account_id, "cash": 1.0}
+
+        def query_credit_detail(self):
+            return []
+
+        def query_stock_positions(self):
+            return []
+
+        def query_stock_orders(self):
+            return [
+                {"account_id": self.account_id, "order_id": "O-1", "order_time": 100},
+                {"account_id": self.account_id, "order_id": "O-2", "order_time": 100},
+            ]
+
+        def query_stock_trades(self):
+            return [
+                {
+                    "account_id": self.account_id,
+                    "traded_id": "T-1",
+                    "traded_time": 101,
+                    "stock_code": "000001.SZ",
+                },
+                {
+                    "account_id": self.account_id,
+                    "traded_id": "T-2",
+                    "traded_time": 101,
+                    "stock_code": "000002.SZ",
+                },
+            ]
+
+        def query_credit_subjects(self):
+            return []
+
+    class FakePositionRepository:
+        def get_config(self):
+            return {}
+
+        def insert_snapshot(self, snapshot):
+            return snapshot
+
+        def upsert_current_state(self, current_state):
+            return current_state
+
+    class FakeCreditSubjectRepository:
+        def upsert_subject(self, document):
+            return document
+
+        def delete_missing_subjects(self, account_id, instrument_ids):
+            return 0
+
+    class FakeStateCollection:
+        def __init__(self):
+            self.docs = {}
+
+        def find_one(self, query):
+            return self.docs.get((query.get("account_id"), query.get("stream")))
+
+        def replace_one(self, query, document, upsert=False):
+            self.docs[(query.get("account_id"), query.get("stream"))] = dict(document)
+            return None
+
+    observed: dict[str, list[list[dict[str, object]]]] = {
+        "orders_batches": [],
+        "trades_batches": [],
+    }
+
+    monkeypatch.setattr(
+        "freshquant.xt_account_sync.service._load_puppet_module",
+        lambda: types.SimpleNamespace(
+            saveAssets=lambda assets: None,
+            saveOrders=lambda orders: observed["orders_batches"].append(
+                [dict(item) for item in orders]
+            ),
+            saveTrades=lambda trades: observed["trades_batches"].append(
+                [dict(item) for item in trades]
+            ),
+        ),
+    )
+
+    state_collection = FakeStateCollection()
+    service = XtAccountSyncService.build_default(
+        client=FakeQueryClient(),
+        position_repository=FakePositionRepository(),
+        reconcile_service=types.SimpleNamespace(
+            reconcile_account=lambda *args, **kwargs: {"confirmed_candidates": []}
+        ),
+        credit_subject_repository=FakeCreditSubjectRepository(),
+        sync_state_collection=state_collection,
+    )
+
+    first_orders = service.sync_orders()
+    second_orders = service.sync_orders()
+    first_trades = service.sync_trades()
+    second_trades = service.sync_trades()
+
+    assert first_orders["count"] == 2
+    assert second_orders["count"] == 0
+    assert first_trades["count"] == 2
+    assert second_trades["count"] == 0
+    assert observed["orders_batches"] == [
+        [
+            {"account_id": "acct-sync", "order_id": "O-1", "order_time": 100},
+            {"account_id": "acct-sync", "order_id": "O-2", "order_time": 100},
+        ]
+    ]
+    assert observed["trades_batches"] == [
+        [
+            {
+                "account_id": "acct-sync",
+                "traded_id": "T-1",
+                "traded_time": 101,
+                "stock_code": "000001.SZ",
+            },
+            {
+                "account_id": "acct-sync",
+                "traded_id": "T-2",
+                "traded_time": 101,
+                "stock_code": "000002.SZ",
+            },
+        ]
+    ]
 
 
 def test_persist_positions_clears_only_current_account_and_invalidates_holdings():

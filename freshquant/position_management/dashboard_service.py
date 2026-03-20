@@ -209,8 +209,8 @@ class PositionManagementDashboardService:
         return {
             "count": len(normalized_codes),
             "codes": sorted(normalized_codes),
-            "source": "projected_positions_plus_xt_positions_union",
-            "description": "与仓位门禁一致，使用 projected positions 与 xt_positions 的并集口径。",
+            "source": "xt_positions_broker_truth",
+            "description": "与仓位门禁一致，使用最新一次券商同步的 xt_positions 作为当前持仓真值。",
         }
 
     def _build_rule_matrix(self, effective_state):

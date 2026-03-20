@@ -194,7 +194,7 @@ def test_ingest_trade_report_emits_runtime_events(monkeypatch):
     assert runtime_logger.events[1]["internal_order_id"] == "ord_xt_1"
 
 
-def test_duplicate_trade_report_emits_skipped_trade_match_runtime_event(monkeypatch):
+def test_duplicate_trade_report_is_silent_in_runtime_observability(monkeypatch):
     _stub_ingest_side_effects(monkeypatch)
     runtime_logger = FakeRuntimeLogger()
     repository = InMemoryRepository()
@@ -243,17 +243,15 @@ def test_duplicate_trade_report_emits_skipped_trade_match_runtime_event(monkeypa
         lot_amount=3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
+    first_event_count = len(runtime_logger.events)
     service.ingest_trade_report(
         report,
         lot_amount=3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
 
-    assert runtime_logger.events[-1]["node"] == "trade_match"
-    assert runtime_logger.events[-1]["status"] == "skipped"
-    assert runtime_logger.events[-1]["reason_code"] == "duplicate_trade_report"
-    assert runtime_logger.events[-1]["payload"]["created"] is False
-    assert runtime_logger.events[-1]["payload"]["dedup_hit"] is True
+    assert first_event_count == 2
+    assert len(runtime_logger.events) == first_event_count
 
 
 def test_ingest_order_report_emits_runtime_events():
@@ -298,6 +296,47 @@ def test_ingest_order_report_emits_runtime_events():
     ]
     assert runtime_logger.events[0]["request_id"] == "req_xt_2"
     assert runtime_logger.events[1]["internal_order_id"] == "ord_xt_2"
+
+
+def test_duplicate_order_snapshot_is_silent_in_runtime_observability():
+    runtime_logger = FakeRuntimeLogger()
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 300,
+            "source": "strategy",
+            "internal_order_id": "ord_xt_dup_order_1",
+            "request_id": "req_xt_dup_order_1",
+            "trace_id": "trc_xt_dup_order_1",
+            "intent_id": "int_xt_dup_order_1",
+        }
+    )
+    repository.update_order(
+        "ord_xt_dup_order_1",
+        {"broker_order_id": "90012", "state": "SUBMITTED"},
+    )
+    service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+        runtime_logger=runtime_logger,
+    )
+    report = {
+        "order_id": 90012,
+        "stock_code": "000001.SZ",
+        "order_time": 1710000000,
+        "order_status": 54,
+    }
+
+    service.ingest_order_report(report)
+    first_event_count = len(runtime_logger.events)
+    service.ingest_order_report(report)
+
+    assert first_event_count == 2
+    assert len(runtime_logger.events) == first_event_count
 
 
 def test_try_ingest_xt_trade_dict_emits_runtime_error_when_wrapper_catches_exception(

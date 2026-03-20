@@ -7,7 +7,7 @@
 ## 入口
 
 - worker
-  - 正式宿主机入口：`python -m freshquant.xt_account_sync.worker --interval 3`
+- 正式宿主机入口：`python -m freshquant.xt_account_sync.worker --interval 15`
 - 核心服务
   - `freshquant.position_management.snapshot_service.PositionSnapshotService`
   - `freshquant.position_management.service.PositionManagementService`
@@ -23,9 +23,7 @@
 ## 依赖
 
 - XT 资产/持仓快照
-- XTData producer `QUEUE:BAR_CLOSE:*`
-- XTData `StrategyConsumer.handle_bar_close`
-- projected positions / open buy lots
+- 内部订单账本（仅用于解释 lot，不再定义当前仓位真值）
 - Mongo
 - Guardian / Order Submit
 - Runtime Observability
@@ -38,9 +36,11 @@
 
 单标的链路：
 
-`StrategyConsumer.handle_bar_close(1m) + xt_positions + projected positions -> SingleSymbolPositionService -> pm_symbol_position_snapshots -> evaluate_strategy_order / tpsl / subject-management`
+`xt_account_sync.worker(15s) -> xt_positions -> SingleSymbolPositionService -> pm_symbol_position_snapshots -> evaluate_strategy_order / tpsl / subject-management`
 
 提交门禁发生在 Order Management 接收策略单时。卖单原则上总是允许；买单先看账户级状态，再看单标的实时仓位上限。
+
+当前 `xt_account_sync.worker` 默认每 15 秒刷新一次 `assets / credit_detail / positions`；其中 `credit_detail` 不是低频任务，因为 `available_bail_balance` 会直接影响 `pm_current_state` 与开仓门禁。低频的只有 `credit_subjects`。
 
 ## 存储
 
@@ -71,9 +71,9 @@
 单标的实时仓位当前统一定义：
 
 - 数量优先 `xt_positions.volume`
-- 缺失时回退 `projected positions.quantity`
-- 价格优先最新 `1m BAR_CLOSE.close`
-- 缺失最新 `1m close` 时回退 `xt_positions.market_value`
+- 价格优先 `xt_positions.last_price`
+- 市值直接使用 `xt_positions.market_value`
+- 缺失券商持仓时，统一视为 `0`
 
 当前页面配置边界：
 
@@ -125,19 +125,20 @@
 
 当前口径：
 
-- `get_stock_positions()` 投影持仓
-- `xt_positions` 外部账户持仓
-- 两者 union 后得到 `get_stock_holding_codes()`
+- `get_stock_positions()` / `get_stock_holding_codes()` 统一基于 `xt_positions`
+- 页面和门禁只认最新一次券商同步快照
+- `projected positions / open buy lots` 继续保留在订单管理里，用于解释成交来源与 lot 结构
 
 ## 部署/运行
 
 - 改动后至少重启 worker：
 
 ```powershell
-python -m freshquant.xt_account_sync.worker --interval 3
+python -m freshquant.xt_account_sync.worker --interval 15
 ```
 
 - 当前正式宿主机 worker 由 `xt_account_sync.worker` 承担；它负责账户级快照与 `xt_positions` 刷新。单标的实时仓位快照仍由 XTData `StrategyConsumer` 在消费 `1m BAR_CLOSE` 时同步刷新，worker 启动时只做一次 fallback 种子刷新。
+- 当前正式宿主机 worker 由 `xt_account_sync.worker` 承担；它负责账户级快照、`xt_positions` 刷新以及 `pm_symbol_position_snapshots` 种子刷新。`StrategyConsumer` 不再用 `1m BAR_CLOSE` 改写当前仓位真值。
 - 涉及门禁语义时，必须同时验证 Guardian 策略单与手工/API 单。
 
 ## 排障点
@@ -159,9 +160,9 @@ python -m freshquant.xt_account_sync.worker --interval 3
 ### 单标的实时仓位不刷新
 
 - 检查 `xt_account_sync.worker` 是否在跑
-- 检查 XTData `StrategyConsumer` 是否正常消费 `QUEUE:BAR_CLOSE:*` 的 `1m` 事件
+- 检查 `xt_positions` 最近是否被同步
 - 检查 `pm_symbol_position_snapshots` 最近更新时间
-- 检查目标 symbol 是否能从 `xt_positions` 或 projected positions 解析到数量
+- 检查目标 symbol 是否能从 `xt_positions` 解析到数量
 
 ### 盈利减仓语义异常
 

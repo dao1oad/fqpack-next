@@ -33,9 +33,11 @@ class FqXtAsset(object):
             "frozen_cash": self.frozen_cash,
             "market_value": self.market_value,
             "total_asset": self.total_asset,
-            "position_pct": self.market_value / self.total_asset * 100
-            if self.total_asset > 0
-            else 0,
+            "position_pct": (
+                self.market_value / self.total_asset * 100
+                if self.total_asset > 0
+                else 0
+            ),
         }
 
 
@@ -128,6 +130,8 @@ class FqXtPosition(object):
         self.on_road_volume = xtPosition.on_road_volume
         self.yesterday_volume = xtPosition.yesterday_volume
         self.avg_price = xtPosition.avg_price
+        self.last_price = getattr(xtPosition, "last_price", None)
+        self.instrument_name = getattr(xtPosition, "instrument_name", None)
 
     def to_dict(self):
         return {
@@ -143,6 +147,8 @@ class FqXtPosition(object):
             "on_road_volume": self.on_road_volume,
             "yesterday_volume": self.yesterday_volume,
             "avg_price": self.avg_price,
+            "last_price": self.last_price,
+            "instrument_name": self.instrument_name,
         }
 
 

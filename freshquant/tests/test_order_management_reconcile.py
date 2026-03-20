@@ -204,7 +204,8 @@ def _build_service(monkeypatch=None, *, marks=None, mark_label="updated"):
     service = ExternalOrderReconcileService(
         repository=repository,
         tracking_service=tracking_service,
-        external_confirm_seconds=120,
+        external_confirm_interval_seconds=15,
+        external_confirm_observations=3,
     )
     return repository, service
 
@@ -248,7 +249,8 @@ def test_detect_external_candidates_from_position_delta():
     assert len(candidates) == 1
     assert candidates[0]["side"] == "buy"
     assert candidates[0]["quantity_delta"] == 200
-    assert candidates[0]["pending_until"] == 1_120
+    assert candidates[0]["observed_count"] == 1
+    assert candidates[0]["pending_until"] == 1_030
 
 
 def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypatch):
@@ -373,7 +375,7 @@ def test_reconcile_trade_report_marks_existing_internal_order_as_handled(monkeyp
     assert repository.trade_facts == []
 
 
-def test_inferred_pending_auto_confirms_after_120_seconds(monkeypatch):
+def test_inferred_pending_auto_confirms_after_three_consistent_syncs(monkeypatch):
     marks = []
     repository, service = _build_service(
         monkeypatch,
@@ -386,8 +388,21 @@ def test_inferred_pending_auto_confirms_after_120_seconds(monkeypatch):
         ],
         detected_at=1_000,
     )[0]
+    assert service.confirm_expired_candidates(now=1_015) == []
+    service.detect_external_candidates(
+        positions=[
+            {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
+        ],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[
+            {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
+        ],
+        detected_at=1_030,
+    )
 
-    confirmed = service.confirm_expired_candidates(now=1_121)
+    confirmed = service.confirm_expired_candidates(now=1_030)
 
     assert len(confirmed) == 1
     assert confirmed[0]["candidate_id"] == candidate["candidate_id"]
@@ -396,6 +411,40 @@ def test_inferred_pending_auto_confirms_after_120_seconds(monkeypatch):
     assert repository.trade_facts[0]["provisional"] is True
     assert len(repository.buy_lots) == 1
     assert marks == ["confirmed"]
+
+
+def test_confirmed_external_candidate_is_not_recreated_for_same_position_delta(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
+    service.detect_external_candidates(
+        positions=[
+            {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
+        ],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[
+            {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
+        ],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[
+            {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
+        ],
+        detected_at=1_030,
+    )
+    service.confirm_expired_candidates(now=1_030)
+
+    recreated = service.detect_external_candidates(
+        positions=[
+            {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
+        ],
+        detected_at=1_045,
+    )
+
+    assert recreated == []
 
 
 def test_partial_trade_shrinks_pending_candidate_before_confirm(monkeypatch):
@@ -437,6 +486,10 @@ def test_partial_trade_shrinks_pending_candidate_before_confirm(monkeypatch):
         positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
         detected_at=1_000,
     )[0]
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
+        detected_at=1_015,
+    )
 
     results = service.reconcile_trade_reports(
         [
@@ -451,7 +504,11 @@ def test_partial_trade_shrinks_pending_candidate_before_confirm(monkeypatch):
             }
         ]
     )
-    confirmed = service.confirm_expired_candidates(now=1_121)
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
+        detected_at=1_030,
+    )
+    confirmed = service.confirm_expired_candidates(now=1_030)
 
     assert len(results) == 1
     assert (
@@ -469,6 +526,26 @@ def test_partial_trade_shrinks_pending_candidate_before_confirm(monkeypatch):
         "external_reported",
         "external_inferred",
     ]
+
+
+def test_pending_candidate_is_dismissed_when_position_delta_resolves(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    candidate = service.detect_external_candidates(
+        positions=[
+            {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
+        ],
+        detected_at=1_000,
+    )[0]
+
+    redetected = service.detect_external_candidates(positions=[], detected_at=1_015)
+    confirmed = service.confirm_expired_candidates(now=1_030)
+
+    assert redetected == []
+    assert confirmed == []
+    assert (
+        repository.external_candidates[0]["candidate_id"] == candidate["candidate_id"]
+    )
+    assert repository.external_candidates[0]["state"] == "INFERRED_DISMISSED"
 
 
 def test_reconcile_trade_reports_raises_when_lot_amount_resolution_fails(monkeypatch):
@@ -526,6 +603,18 @@ def test_confirm_expired_candidates_raises_when_grid_interval_resolution_fails(
         ],
         detected_at=1_000,
     )
+    service.detect_external_candidates(
+        positions=[
+            {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
+        ],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[
+            {"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5},
+        ],
+        detected_at=1_030,
+    )
     monkeypatch.setattr(
         reconcile_service_module,
         "_safe_grid_interval_lookup",
@@ -536,4 +625,4 @@ def test_confirm_expired_candidates_raises_when_grid_interval_resolution_fails(
     )
 
     with pytest.raises(RuntimeError, match="grid interval unavailable"):
-        service.confirm_expired_candidates(now=1_121)
+        service.confirm_expired_candidates(now=1_030)

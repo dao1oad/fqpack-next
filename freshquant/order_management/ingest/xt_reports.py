@@ -71,12 +71,8 @@ class OrderManagementXtIngestService:
         self.runtime_logger = runtime_logger or _get_runtime_logger()
 
     def ingest_trade_report(self, report, lot_amount, grid_interval_lookup):
-        current_node = "report_receive"
+        current_node = "trade_match"
         try:
-            self._emit_runtime(
-                "report_receive", report, extra_payload={"report_type": "trade"}
-            )
-            current_node = "trade_match"
             if hasattr(self.tracking_service, "ingest_trade_report_with_meta"):
                 ingest_result = self.tracking_service.ingest_trade_report_with_meta(
                     report
@@ -94,66 +90,82 @@ class OrderManagementXtIngestService:
             sell_allocations = []
             holdings_changed = False
 
-            if created:
+            if not created:
                 if trade_fact["side"] == "buy":
                     buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
                         trade_fact["trade_fact_id"]
                     )
-                    if buy_lot is None:
-                        buy_lot = build_buy_lot_from_trade_fact(trade_fact)
-                        self.repository.insert_buy_lot(buy_lot)
-                        lot_slices = arrange_buy_lot(
-                            buy_lot,
-                            lot_amount=lot_amount,
-                            grid_interval=grid_interval_lookup(symbol, trade_fact),
-                        )
-                        self.repository.replace_lot_slices_for_lot(
-                            buy_lot["buy_lot_id"],
-                            lot_slices,
-                        )
-                        holdings_changed = True
-                        self._notify_new_buy_trade(
-                            symbol=symbol,
-                            price=trade_fact["price"],
-                        )
-                    else:
-                        lot_slices = self.repository.list_open_slices(symbol)
-                elif trade_fact["side"] == "sell":
-                    buy_lots = self.repository.list_buy_lots(symbol)
-                    open_slices = self.repository.list_open_slices(symbol)
-                    sell_allocations = allocate_sell_to_slices(
-                        buy_lots=buy_lots,
-                        open_slices=open_slices,
-                        sell_trade_fact=trade_fact,
-                    )
-                    for item in buy_lots:
-                        self.repository.replace_buy_lot(item)
-                    self.repository.replace_open_slices(open_slices)
-                    self.repository.insert_sell_allocations(sell_allocations)
-                    holdings_changed = bool(sell_allocations)
-                    self._reset_guardian_buy_grid_after_sell(symbol)
-            elif trade_fact["side"] == "buy":
+                    lot_slices = self.repository.list_open_slices(symbol)
+                buy_lots = self.repository.list_buy_lots(symbol)
+                open_slices = self.repository.list_open_slices(symbol)
+                return {
+                    "trade_fact": trade_fact,
+                    "buy_lot": buy_lot,
+                    "lot_slices": lot_slices,
+                    "sell_allocations": [],
+                    "created": False,
+                    "projections": {
+                        "raw_fills": build_raw_fills_view([trade_fact]),
+                        "open_buy_fills": build_open_buy_fills_view(buy_lots),
+                        "arranged_fills": build_arranged_fills_view(open_slices),
+                    },
+                }
+
+            if trade_fact["side"] == "buy":
                 buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
                     trade_fact["trade_fact_id"]
                 )
-                lot_slices = self.repository.list_open_slices(symbol)
+                if buy_lot is None:
+                    buy_lot = build_buy_lot_from_trade_fact(trade_fact)
+                    self.repository.insert_buy_lot(buy_lot)
+                    lot_slices = arrange_buy_lot(
+                        buy_lot,
+                        lot_amount=lot_amount,
+                        grid_interval=grid_interval_lookup(symbol, trade_fact),
+                    )
+                    self.repository.replace_lot_slices_for_lot(
+                        buy_lot["buy_lot_id"],
+                        lot_slices,
+                    )
+                    holdings_changed = True
+                    self._notify_new_buy_trade(
+                        symbol=symbol,
+                        price=trade_fact["price"],
+                    )
+                else:
+                    lot_slices = self.repository.list_open_slices(symbol)
+            elif trade_fact["side"] == "sell":
+                buy_lots = self.repository.list_buy_lots(symbol)
+                open_slices = self.repository.list_open_slices(symbol)
+                sell_allocations = allocate_sell_to_slices(
+                    buy_lots=buy_lots,
+                    open_slices=open_slices,
+                    sell_trade_fact=trade_fact,
+                )
+                for item in buy_lots:
+                    self.repository.replace_buy_lot(item)
+                self.repository.replace_open_slices(open_slices)
+                self.repository.insert_sell_allocations(sell_allocations)
+                holdings_changed = bool(sell_allocations)
+                self._reset_guardian_buy_grid_after_sell(symbol)
 
             buy_lots = self.repository.list_buy_lots(symbol)
             open_slices = self.repository.list_open_slices(symbol)
             if holdings_changed:
                 mark_stock_holdings_projection_updated()
             self._emit_runtime(
+                "report_receive", report, extra_payload={"report_type": "trade"}
+            )
+            self._emit_runtime(
                 "trade_match",
                 report,
                 internal_order_id=trade_fact["internal_order_id"],
-                status="info" if created else "skipped",
-                reason_code="" if created else "duplicate_trade_report",
                 extra_payload={
                     "side": trade_fact["side"],
                     "quantity": trade_fact["quantity"],
                     "holdings_changed": holdings_changed,
-                    "created": created,
-                    "dedup_hit": not created,
+                    "created": True,
+                    "dedup_hit": False,
                 },
             )
 
@@ -202,15 +214,22 @@ class OrderManagementXtIngestService:
         )
         if normalized_report is None:
             return None
-        current_node = "report_receive"
+        current_node = "order_match"
         try:
+            if hasattr(self.tracking_service, "ingest_order_report_with_meta"):
+                ingest_result = self.tracking_service.ingest_order_report_with_meta(
+                    normalized_report
+                )
+            else:
+                self.tracking_service.ingest_order_report(normalized_report)
+                ingest_result = {"changed": True, "absorbed": False}
+            if not ingest_result.get("changed"):
+                return normalized_report
             self._emit_runtime(
                 "report_receive",
                 normalized_report,
                 extra_payload={"report_type": "order"},
             )
-            current_node = "order_match"
-            self.tracking_service.ingest_order_report(normalized_report)
             self._emit_runtime(
                 "order_match",
                 normalized_report,

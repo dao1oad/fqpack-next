@@ -113,3 +113,10 @@ class PositionManagementRepository:
             }
         cursor = self.symbol_position_snapshots.find(query).sort([("symbol", 1)])
         return list(cursor)
+
+    def delete_symbol_snapshots_missing_symbols(self, symbols):
+        normalized_symbols = [
+            str(item).strip() for item in list(symbols or []) if str(item).strip()
+        ]
+        query = {"symbol": {"$nin": normalized_symbols}} if normalized_symbols else {}
+        return self.symbol_position_snapshots.delete_many(query)
