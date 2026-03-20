@@ -43,10 +43,26 @@ class FakeDB(dict):
         return dict.__getitem__(self, name)
 
 
+class BoollessDB(FakeDB):
+    def __bool__(self):
+        raise NotImplementedError("Database objects do not implement truth value testing")
+
+
 def _make_service(docs: list[dict] | None = None):
     from freshquant.pre_pool_service import PrePoolService
 
     return PrePoolService(db=FakeDB(stock_pre_pools=FakeCollection(docs)))
+
+
+def test_pre_pool_service_accepts_db_objects_without_bool_support():
+    from freshquant.pre_pool_service import PrePoolService
+
+    db = BoollessDB(stock_pre_pools=FakeCollection())
+
+    service = PrePoolService(db=db)
+
+    assert service.db is db
+    assert service.collection is db["stock_pre_pools"]
 
 
 def test_upsert_pre_pool_creates_single_row_for_new_code():

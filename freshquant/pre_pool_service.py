@@ -114,7 +114,7 @@ def _build_legacy_membership(document: dict) -> dict:
 
 class PrePoolService:
     def __init__(self, *, db=None) -> None:
-        self.db = db or DBfreshquant
+        self.db = DBfreshquant if db is None else db
         self.collection = self.db["stock_pre_pools"]
 
     def upsert_code(
