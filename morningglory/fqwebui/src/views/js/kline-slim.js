@@ -41,7 +41,15 @@ import {
   getRealtimeRefreshPeriods,
   normalizeChanlunPeriod
 } from './kline-slim-chanlun-periods.mjs'
-import { buildPriceGuideLegendSelectionState } from './subject-price-guides.mjs'
+import {
+  buildChartPriceGuides,
+  buildEditablePriceGuides,
+  buildPriceGuideLegendSelectionState,
+  clampGuardianGuidePrice,
+  clampTakeprofitGuidePrice,
+  resolveGuardianGuideDraft,
+  resolveTakeprofitGuideDrafts
+} from './subject-price-guides.mjs'
 
 const MAIN_PERIODS = SUPPORTED_CHANLUN_PERIODS
 const DEFAULT_PERIOD = DEFAULT_MAIN_PERIOD
@@ -133,6 +141,41 @@ function isTakeprofitArmedLevel(state, level) {
   return armedLevels[String(level)] !== false && armedLevels[level] !== false
 }
 
+function resolveLatestClosePrice(mainData) {
+  const closeList = Array.isArray(mainData?.close) ? mainData.close : []
+  const lastClose = Number(closeList[closeList.length - 1])
+  return Number.isFinite(lastClose) ? Number(lastClose.toFixed(2)) : null
+}
+
+function buildPriceGuideRenderVersion({
+  chartPriceGuides,
+  editablePriceGuides,
+  priceGuideEditMode,
+  priceGuideEditLocked
+} = {}) {
+  return JSON.stringify({
+    lines: Array.isArray(chartPriceGuides?.lines)
+      ? chartPriceGuides.lines.map((line) => ({
+        id: line.id,
+        price: line.price,
+        active: line.active,
+        manual_enabled: line.manual_enabled
+      }))
+      : [],
+    editableLines: Array.isArray(editablePriceGuides?.lines)
+      ? editablePriceGuides.lines.map((line) => ({
+        id: line.id,
+        price: line.price,
+        active: line.active,
+        manual_enabled: line.manual_enabled,
+        placeholder: line.placeholder
+      }))
+      : [],
+    priceGuideEditMode: Boolean(priceGuideEditMode),
+    priceGuideEditLocked: Boolean(priceGuideEditLocked)
+  })
+}
+
 export default {
   name: 'kline-slim',
   data() {
@@ -165,6 +208,8 @@ export default {
         currentPeriod: DEFAULT_PERIOD
       }),
       priceGuideLegendSelected: buildPriceGuideLegendSelectionState(),
+      priceGuideEditMode: false,
+      priceGuideDragDirty: false,
       holdings: [],
       mustPools: [],
       stockPools: [],
@@ -247,6 +292,42 @@ export default {
           manual_enabled: Boolean(draft.manual_enabled),
           armed: Boolean(draft.manual_enabled) && isTakeprofitArmedLevel(this.takeprofitState, item.level)
         }
+      })
+    },
+    lastMainClosePrice() {
+      return resolveLatestClosePrice(this.mainData)
+    },
+    draftChartPriceGuides() {
+      return buildChartPriceGuides({
+        guardianDraft: this.guardianDraft,
+        guardianState: this.guardianState,
+        takeprofitDrafts: this.takeprofitDrafts,
+        takeprofitState: this.takeprofitState
+      })
+    },
+    editablePriceGuides() {
+      return buildEditablePriceGuides({
+        guardianDraft: this.guardianDraft,
+        guardianState: this.guardianState,
+        takeprofitDrafts: this.takeprofitDrafts,
+        takeprofitState: this.takeprofitState,
+        lastPrice: this.lastMainClosePrice
+      })
+    },
+    priceGuideEditLocked() {
+      return (
+        !this.routeSymbol ||
+        this.subjectDetailLoading ||
+        this.savingGuardianPriceGuides ||
+        this.savingTakeprofitGuides
+      )
+    },
+    priceGuideRenderVersion() {
+      return buildPriceGuideRenderVersion({
+        chartPriceGuides: this.draftChartPriceGuides,
+        editablePriceGuides: this.editablePriceGuides,
+        priceGuideEditMode: this.priceGuideEditMode,
+        priceGuideEditLocked: this.priceGuideEditLocked
       })
     },
     emptyMessage() {
@@ -337,6 +418,9 @@ export default {
       handler() {
         this.handleRouteChange()
       }
+    },
+    priceGuideRenderVersion() {
+      this.scheduleRender()
     }
   },
   created() {
@@ -441,7 +525,9 @@ export default {
       this.chartController = createKlineSlimChartController({
         chart: this.chart,
         onLegendChange: this.handleSlimLegendSelectionChange,
-        onViewportChange: this.handleSlimViewportChange
+        onViewportChange: this.handleSlimViewportChange,
+        onPriceGuideDrag: this.handlePriceGuideDrag,
+        onPriceGuideDragEnd: this.handlePriceGuideDragEnd
       })
       this.publishBrowserTestHooks()
       this.chart.showLoading(echartsConfig.loadingOption)
@@ -508,6 +594,8 @@ export default {
         currentPeriod: this.currentPeriod,
         selected: this.periodLegendSelected
       })
+      this.priceGuideEditMode = false
+      this.priceGuideDragDirty = false
       this.symbolInput = this.routeSymbol
       this.endDateModel = this.$route.query.endDate || ''
       this.resetChanlunStructureState()
@@ -731,6 +819,8 @@ export default {
     },
     closePriceGuidePanel() {
       this.showPriceGuidePanel = false
+      this.priceGuideEditMode = false
+      this.priceGuideDragDirty = false
     },
     async togglePriceGuidePanel() {
       if (!this.routeSymbol) {
@@ -742,6 +832,23 @@ export default {
       }
       this.closeChanlunStructurePanel()
       this.showPriceGuidePanel = true
+      if (!this.subjectPriceDetail && !this.subjectDetailLoading) {
+        await this.loadSubjectPriceDetail({ force: true })
+      }
+    },
+    async togglePriceGuideEditMode() {
+      if (!this.routeSymbol) {
+        return
+      }
+      if (this.priceGuideEditMode) {
+        this.priceGuideEditMode = false
+        this.priceGuideDragDirty = false
+        return
+      }
+      this.closeChanlunStructurePanel()
+      this.showPriceGuidePanel = true
+      this.priceGuideEditMode = true
+      this.priceGuideDragDirty = false
       if (!this.subjectPriceDetail && !this.subjectDetailLoading) {
         await this.loadSubjectPriceDetail({ force: true })
       }
@@ -928,6 +1035,97 @@ export default {
         afterRefresh: () => this.scheduleRender()
       })
     },
+    handlePriceGuideDrag({ line, price } = {}) {
+      if (!line || !Number.isFinite(Number(price))) {
+        return
+      }
+
+      if (line.group === 'guardian' && line.key) {
+        const resolvedGuardianDraft = {
+          ...this.guardianDraft,
+          ...resolveGuardianGuideDraft({
+            guardianDraft: this.guardianDraft,
+            lastPrice: this.lastMainClosePrice
+          })
+        }
+        const nextPrice = clampGuardianGuidePrice({
+          key: line.key,
+          nextPrice: price,
+          draft: resolvedGuardianDraft
+        })
+        if (this.guardianDraft?.[line.key] === nextPrice) {
+          return
+        }
+        this.guardianDraft = {
+          ...this.guardianDraft,
+          [line.key]: nextPrice
+        }
+        this.priceGuideDragDirty = true
+        return
+      }
+
+      if (line.group === 'takeprofit') {
+        const level = Number(line.level)
+        if (!Number.isFinite(level) || level <= 0) {
+          return
+        }
+        const resolvedDrafts = resolveTakeprofitGuideDrafts({
+          takeprofitDrafts: this.takeprofitDrafts,
+          lastPrice: this.lastMainClosePrice
+        })
+        const nextPrice = clampTakeprofitGuidePrice({
+          level,
+          nextPrice: price,
+          drafts: resolvedDrafts
+        })
+        let changed = false
+        const nextDrafts = this.takeprofitDrafts.map((row) => {
+          if (Number(row?.level) !== level) {
+            return row
+          }
+          if (row?.price === nextPrice) {
+            return row
+          }
+          changed = true
+          return {
+            ...row,
+            price: nextPrice
+          }
+        })
+        if (!changed) {
+          return
+        }
+        this.takeprofitDrafts = nextDrafts
+        this.priceGuideDragDirty = true
+      }
+    },
+    async handlePriceGuideDragEnd({ line } = {}) {
+      if (!line || !this.routeSymbol || !this.priceGuideDragDirty) {
+        this.priceGuideDragDirty = false
+        return
+      }
+
+      this.priceGuideDragDirty = false
+      if (line.group === 'guardian') {
+        await saveGuardianPriceGuides(this, {
+          actions: this.pricePanelActions,
+          symbol: this.routeSymbol,
+          notify: this.$message,
+          notifySuccess: false,
+          afterRefresh: () => this.scheduleRender()
+        })
+        return
+      }
+      if (line.group === 'takeprofit') {
+        await saveTakeprofitPriceGuides(this, {
+          actions: this.pricePanelActions,
+          symbol: this.routeSymbol,
+          notify: this.$message,
+          notifySuccess: false,
+          afterRefresh: () => this.scheduleRender()
+        })
+      }
+    },
     async ensureChanlunPeriodLoaded(period, token = this.routeToken, options = {}) {
       const resolvedPeriod = normalizeChanlunPeriod(period)
       const { force = false } = options
@@ -1009,7 +1207,7 @@ export default {
           .map((period) => this.chanlunVersionMap[period] || '')
           .concat(JSON.stringify(this.periodLegendSelected))
           .concat(JSON.stringify(this.priceGuideLegendSelected))
-          .concat(this.priceGuideVersion || '')
+          .concat(this.priceGuideRenderVersion || '')
           .join('__')
         if (
           renderVersion === this.lastRenderedVersion &&
@@ -1032,7 +1230,10 @@ export default {
             ...this.periodLegendSelected,
             ...this.priceGuideLegendSelected
           },
-          priceGuides: this.subjectPriceDetail?.chartPriceGuides || null
+          priceGuides: this.draftChartPriceGuides,
+          editablePriceGuides: this.editablePriceGuides,
+          priceGuideEditMode: this.priceGuideEditMode,
+          priceGuideEditLocked: this.priceGuideEditLocked
         })
         if (!scene) {
           return

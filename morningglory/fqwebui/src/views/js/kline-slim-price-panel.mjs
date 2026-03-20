@@ -187,6 +187,7 @@ export const saveGuardianPriceGuides = async (
     symbol,
     notify,
     afterRefresh,
+    notifySuccess = true,
   } = {},
 ) => {
   const validation = validateGuardianGuideDraft(state?.guardianDraft || {})
@@ -208,7 +209,9 @@ export const saveGuardianPriceGuides = async (
       force: true,
     })
     afterRefresh?.()
-    emitNotify(notify, 'success', 'Guardian 价格层级已保存')
+    if (notifySuccess) {
+      emitNotify(notify, 'success', 'Guardian 价格层级已保存')
+    }
     return { ok: true }
   } catch (error) {
     state.subjectDetailError = errorMessage(error)
@@ -229,6 +232,7 @@ export const saveTakeprofitPriceGuides = async (
     symbol,
     notify,
     afterRefresh,
+    notifySuccess = true,
   } = {},
 ) => {
   const validation = validateTakeprofitDrafts(state?.takeprofitDrafts || [])
@@ -250,7 +254,9 @@ export const saveTakeprofitPriceGuides = async (
       force: true,
     })
     afterRefresh?.()
-    emitNotify(notify, 'success', '止盈价格层级已保存')
+    if (notifySuccess) {
+      emitNotify(notify, 'success', '止盈价格层级已保存')
+    }
     return { ok: true }
   } catch (error) {
     state.subjectDetailError = errorMessage(error)

@@ -1,5 +1,8 @@
 const DEFAULT_BUY_ACTIVE = [true, true, true]
 const DEFAULT_BUY_ENABLED = [true, true, true]
+const DEFAULT_MIN_GUIDE_GAP = 0.01
+const DEFAULT_GUARDIAN_OFFSETS = [0.015, 0.03, 0.045]
+const DEFAULT_TAKEPROFIT_OFFSETS = [0.03, 0.06, 0.09]
 
 const GUIDE_COLORS = ['#3b82f6', '#ef4444', '#22c55e']
 
@@ -31,6 +34,27 @@ const toNullableNumber = (value) => {
   if (value === null || value === undefined || value === '') return null
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+const roundGuidePrice = (value) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+  return Number(parsed.toFixed(2))
+}
+
+const toPositiveGuidePrice = (value) => {
+  const parsed = toNullableNumber(value)
+  if (parsed === null || parsed <= 0) {
+    return null
+  }
+  return roundGuidePrice(parsed)
+}
+
+const resolveGuideReferencePrice = (lastPrice) => {
+  const parsed = toPositiveGuidePrice(lastPrice)
+  return parsed === null ? 1 : parsed
 }
 
 const formatGuidePrice = (value) => {
@@ -102,6 +126,42 @@ export const buildTakeprofitDrafts = (tiers = []) => {
     }
   }
   return rows
+}
+
+export const resolveGuardianGuideDraft = ({
+  guardianDraft = {},
+  lastPrice = null,
+} = {}) => {
+  const referencePrice = resolveGuideReferencePrice(lastPrice)
+  const defaults = DEFAULT_GUARDIAN_OFFSETS.map((offset) =>
+    roundGuidePrice(referencePrice * (1 - offset))
+  )
+  return {
+    buy_1: toPositiveGuidePrice(guardianDraft?.buy_1) ?? defaults[0],
+    buy_2: toPositiveGuidePrice(guardianDraft?.buy_2) ?? defaults[1],
+    buy_3: toPositiveGuidePrice(guardianDraft?.buy_3) ?? defaults[2],
+  }
+}
+
+export const resolveTakeprofitGuideDrafts = ({
+  takeprofitDrafts = [],
+  lastPrice = null,
+} = {}) => {
+  const referencePrice = resolveGuideReferencePrice(lastPrice)
+  const defaults = DEFAULT_TAKEPROFIT_OFFSETS.map((offset, index) => ({
+    level: index + 1,
+    price: roundGuidePrice(referencePrice * (1 + offset)),
+    manual_enabled: true,
+  }))
+  const currentDrafts = buildTakeprofitDrafts(takeprofitDrafts)
+  return defaults.map((row, index) => {
+    const current = currentDrafts[index] || row
+    return {
+      level: row.level,
+      price: toPositiveGuidePrice(current?.price) ?? row.price,
+      manual_enabled: Boolean(current?.manual_enabled ?? true),
+    }
+  })
 }
 
 export const buildGuardianPriceGuides = (config = {}, state = {}) => {
@@ -189,6 +249,108 @@ export const buildChartPriceGuides = ({
     lines: guardianLines.concat(takeprofitLines),
     bands: [],
   }
+}
+
+export const buildEditablePriceGuides = ({
+  guardianDraft = {},
+  guardianState = {},
+  takeprofitDrafts = [],
+  takeprofitState = {},
+  lastPrice = null,
+} = {}) => {
+  const resolvedGuardianDraft = resolveGuardianGuideDraft({
+    guardianDraft,
+    lastPrice,
+  })
+  const resolvedTakeprofitDrafts = resolveTakeprofitGuideDrafts({
+    takeprofitDrafts,
+    lastPrice,
+  })
+  const guardianLines = GUARDIAN_LEVELS.map((item, index) => {
+    const originalPrice = toPositiveGuidePrice(guardianDraft?.[item.key])
+    const manualEnabled = normalizeGuardianBuyEnabled(guardianDraft)[index] !== false
+    return {
+      id: `guardian-${item.key}`,
+      key: item.key,
+      level: `BUY-${index + 1}`,
+      group: 'guardian',
+      price: resolvedGuardianDraft[item.key],
+      color: item.color,
+      label: `G-${item.shortLabel} ${formatGuidePrice(resolvedGuardianDraft[item.key])}`,
+      manual_enabled: manualEnabled,
+      active: manualEnabled && normalizeGuardianState(guardianState).buy_active[index] !== false,
+      lineStyle: 'solid',
+      placeholder: originalPrice === null,
+    }
+  })
+  const armedLevels = (takeprofitState && takeprofitState.armed_levels) || {}
+  const takeprofitLines = resolvedTakeprofitDrafts.map((row) => {
+    const style = TAKEPROFIT_LEVELS[row.level - 1]
+    const originalDraft = buildTakeprofitDrafts(takeprofitDrafts).find((item) => item.level === row.level)
+    return {
+      id: `takeprofit-l${row.level}`,
+      key: `l${row.level}`,
+      level: row.level,
+      group: 'takeprofit',
+      price: row.price,
+      color: style.color,
+      label: `TP-L${row.level} ${formatGuidePrice(row.price)}`,
+      manual_enabled: Boolean(row.manual_enabled),
+      active: Boolean(row.manual_enabled) && armedLevels[String(row.level)] !== false && armedLevels[row.level] !== false,
+      lineStyle: 'dashed',
+      placeholder: toPositiveGuidePrice(originalDraft?.price) === null,
+    }
+  })
+  return {
+    lines: guardianLines.concat(takeprofitLines),
+    bands: [],
+  }
+}
+
+export const clampGuardianGuidePrice = ({
+  key,
+  nextPrice,
+  draft = {},
+  minGap = DEFAULT_MIN_GUIDE_GAP,
+} = {}) => {
+  const gap = Math.max(DEFAULT_MIN_GUIDE_GAP, Number(minGap) || DEFAULT_MIN_GUIDE_GAP)
+  const buy1 = toPositiveGuidePrice(draft?.buy_1) ?? gap * 3
+  const buy2 = toPositiveGuidePrice(draft?.buy_2) ?? gap * 2
+  const buy3 = toPositiveGuidePrice(draft?.buy_3) ?? gap
+  const raw = Math.max(gap, Number(nextPrice) || gap)
+  let clamped = raw
+
+  if (key === 'buy_1') {
+    clamped = Math.max(raw, buy2 + gap)
+  } else if (key === 'buy_2') {
+    clamped = Math.min(Math.max(raw, buy3 + gap), buy1 - gap)
+  } else if (key === 'buy_3') {
+    clamped = Math.min(raw, buy2 - gap)
+  }
+
+  return roundGuidePrice(Math.max(gap, clamped))
+}
+
+export const clampTakeprofitGuidePrice = ({
+  level,
+  nextPrice,
+  drafts = [],
+  minGap = DEFAULT_MIN_GUIDE_GAP,
+} = {}) => {
+  const gap = Math.max(DEFAULT_MIN_GUIDE_GAP, Number(minGap) || DEFAULT_MIN_GUIDE_GAP)
+  const [l1, l2, l3] = resolveTakeprofitGuideDrafts({ takeprofitDrafts: drafts })
+  const raw = Math.max(gap, Number(nextPrice) || gap)
+  let clamped = raw
+
+  if (Number(level) === 1) {
+    clamped = Math.min(raw, l2.price - gap)
+  } else if (Number(level) === 2) {
+    clamped = Math.min(Math.max(raw, l1.price + gap), l3.price - gap)
+  } else if (Number(level) === 3) {
+    clamped = Math.max(raw, l2.price + gap)
+  }
+
+  return roundGuidePrice(Math.max(gap, clamped))
 }
 
 export const buildKlineSubjectPriceDetail = (detail = {}) => {

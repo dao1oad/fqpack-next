@@ -6,6 +6,12 @@ import {
   buildKlineSlimChartOption,
 } from './kline-slim-chart-renderer.mjs'
 import { deriveViewportStateForScene } from './kline-slim-chart-controller.mjs'
+import {
+  buildChartPriceGuides,
+  buildEditablePriceGuides,
+  clampGuardianGuidePrice,
+  clampTakeprofitGuidePrice,
+} from './subject-price-guides.mjs'
 
 const makeMainData = () => ({
   symbol: '600000',
@@ -122,4 +128,88 @@ test('buildKlineSlimChartOption renders price lines without background bands and
   )
   assert.equal(option.legend.selected['Guardian 价格线'], true)
   assert.equal(option.legend.selected['止盈价格线'], true)
+})
+
+test('buildChartPriceGuides uses draft values as the chart source', () => {
+  const guides = buildChartPriceGuides({
+    guardianDraft: {
+      buy_enabled: [true, true, true],
+      buy_1: 10.6,
+      buy_2: 10.1,
+      buy_3: 9.7,
+    },
+    guardianState: {
+      buy_active: [true, true, false],
+    },
+    takeprofitDrafts: [
+      { level: 1, price: 11.1, manual_enabled: true },
+      { level: 2, price: 11.8, manual_enabled: true },
+      { level: 3, price: 12.4, manual_enabled: false },
+    ],
+    takeprofitState: {
+      armed_levels: { 1: true, 2: true, 3: false },
+    },
+  })
+
+  assert.equal(guides.lines.find((item) => item.id === 'guardian-buy_1')?.price, 10.6)
+  assert.equal(guides.lines.find((item) => item.id === 'takeprofit-l2')?.price, 11.8)
+})
+
+test('buildEditablePriceGuides backfills missing prices from the latest close', () => {
+  const guides = buildEditablePriceGuides({
+    guardianDraft: {
+      buy_enabled: [true, true, true],
+      buy_1: null,
+      buy_2: null,
+      buy_3: null,
+    },
+    guardianState: {
+      buy_active: [true, true, true],
+    },
+    takeprofitDrafts: [
+      { level: 1, price: null, manual_enabled: true },
+      { level: 2, price: null, manual_enabled: true },
+      { level: 3, price: null, manual_enabled: true },
+    ],
+    takeprofitState: {
+      armed_levels: { 1: true, 2: true, 3: true },
+    },
+    lastPrice: 10,
+  })
+
+  assert.equal(guides.lines.length, 6)
+  assert.equal(guides.lines.find((item) => item.id === 'guardian-buy_1')?.price, 9.85)
+  assert.equal(guides.lines.find((item) => item.id === 'guardian-buy_1')?.placeholder, true)
+  assert.equal(guides.lines.find((item) => item.id === 'takeprofit-l3')?.price, 10.9)
+  assert.equal(guides.lines.find((item) => item.id === 'takeprofit-l3')?.placeholder, true)
+})
+
+test('clampGuardianGuidePrice keeps BUY-1 > BUY-2 > BUY-3 ordering', () => {
+  const price = clampGuardianGuidePrice({
+    key: 'buy_2',
+    nextPrice: 10.8,
+    draft: {
+      buy_1: 10.5,
+      buy_2: 10.0,
+      buy_3: 9.5,
+    },
+    minGap: 0.01,
+  })
+
+  assert.equal(price, 10.49)
+})
+
+test('clampTakeprofitGuidePrice keeps L1 < L2 < L3 ordering', () => {
+  const price = clampTakeprofitGuidePrice({
+    level: 2,
+    nextPrice: 10.0,
+    drafts: [
+      { level: 1, price: 10.0, manual_enabled: true },
+      { level: 2, price: 10.5, manual_enabled: true },
+      { level: 3, price: 11.0, manual_enabled: true },
+    ],
+    minGap: 0.01,
+  })
+
+  assert.equal(price, 10.01)
 })
