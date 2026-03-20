@@ -422,11 +422,12 @@ def _get_xt_position_positions():
         )
         if not base_code:
             continue
+        prefixed_symbol = _resolve_xt_position_symbol(item, base_code)
         quantity = int(item.get("volume") or 0)
         market_value = round(float(item.get("market_value") or 0.0), 2)
         rows.append(
             {
-                "symbol": fq_util_code_append_market_code(base_code),
+                "symbol": prefixed_symbol,
                 "stock_code": item.get("stock_code")
                 or fq_util_code_append_market_code_suffix(base_code, upper_case=True),
                 "name": str(
@@ -444,6 +445,22 @@ def _get_xt_position_positions():
         )
     rows.sort(key=lambda item: item.get("symbol") or "")
     return rows
+
+
+def _resolve_xt_position_symbol(item, base_code):
+    raw_symbol = str(item.get("symbol") or "").strip().lower()
+    if raw_symbol.startswith(("sh", "sz", "bj")) and len(raw_symbol) >= 8:
+        return raw_symbol
+
+    stock_code = str(item.get("stock_code") or "").strip()
+    if "." in stock_code:
+        code_part, market = stock_code.split(".", 1)
+        normalized_code = normalize_to_base_code(code_part)
+        normalized_market = str(market or "").strip().lower()
+        if normalized_code and normalized_market in {"sh", "sz", "bj"}:
+            return f"{normalized_market}{normalized_code}"
+
+    return fq_util_code_append_market_code(base_code)
 
 
 # 查询股票持仓，包括：
