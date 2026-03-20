@@ -10,9 +10,7 @@ from freshquant.bootstrap_config import bootstrap_config
 DEFAULT_RUNTIME_ROOT = Path("D:/fqpack/runtime").resolve()
 RETIRED_RUNTIME_ROOT = Path("D:/fqpack/runtime/symphony-service").resolve()
 DEFAULT_MEMORY_ARTIFACT_ROOT = (DEFAULT_RUNTIME_ROOT / "artifacts" / "memory").resolve()
-RETIRED_MEMORY_ARTIFACT_ROOT = (
-    RETIRED_RUNTIME_ROOT / "artifacts" / "memory"
-).resolve()
+RETIRED_MEMORY_ARTIFACT_ROOT = (RETIRED_RUNTIME_ROOT / "artifacts" / "memory").resolve()
 
 
 def _resolve_rooted_path(value: str | Path, *, root: Path) -> Path:

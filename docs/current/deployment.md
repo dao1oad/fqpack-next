@@ -26,7 +26,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `main` 合并后的镜像发布 workflow：`.github/workflows/docker-images.yml`
 - `main` 合并后的正式自动部署 workflow：`.github/workflows/deploy-production.yml`
 - 正式 deploy canonical repo root：`D:\fqpack\freshquant-2026.2.23`
-- 正式 deploy mirror：`D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
+- 本机 deploy mirror：`D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
 - 正式收口时由 `FQ_DOCKER_FORCE_LOCAL_BUILD=1` 强制本机构建；GHCR 不再是正式 deploy 前置
 
 ### 自动正式部署
@@ -34,8 +34,10 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - 如果触发事件里的 SHA 已经不是当前 main tip，`deploy-production.yml` 会直接失败，不会对过时 push 继续 deploy。
-- workflow 本身会先从 canonical repo root bootstrap/同步本机 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` mirror，再在该目录下执行 `py -3.12 -m uv sync --frozen` 与 `run_formal_deploy.py`。
-- 正式 deploy 要求 production runner 宿主机已安装的 Python 3.12 与 uv；缺任一工具都会在 deploy 前直接失败。
+- workflow 本身会先从 canonical repo root bootstrap/同步本机 deploy mirror `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`，再在该目录下执行 `py -3.12 -m uv sync --frozen` 与 `run_formal_deploy.py`。
+- workflow 会显式把 canonical repo root 与本机 deploy mirror 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
+- 正式 deploy 要求 production runner 宿主机已安装的 Python 3.12；缺失时会在 deploy 前直接失败。
+- 正式 deploy 要求 production runner 宿主机已安装的 uv；缺失时会在 deploy 前直接失败。
 - 本轮正式 deploy 会显式导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，避免 `docker_parallel_compose.py` 把 `--build` 改写成 GHCR pull 路径。
 - 如需临时恢复 GHCR 远端缓存试验，可在人工会话显式设置 `FQ_ENABLE_REMOTE_CACHE_PULL=1`；正式 production deploy 默认不使用该路径。
 

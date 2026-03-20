@@ -31,9 +31,7 @@ def test_order_management_paths_expand_to_api_and_host_runtime() -> None:
 def test_retired_runtime_paths_no_longer_emit_deploy_surface() -> None:
     module = load_module()
 
-    plan = module.build_deploy_plan(
-        changed_paths=["runtime/retired/workflow.md"]
-    )
+    plan = module.build_deploy_plan(changed_paths=["runtime/retired/workflow.md"])
 
     summaries = [item["summary"] for item in plan["pre_deploy_steps"]]
     assert plan["deployment_surfaces"] == []

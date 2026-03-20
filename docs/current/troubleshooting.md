@@ -60,6 +60,25 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 重新启动受影响宿主机进程或执行 `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces`
 - 若仍有失败，优先看 stderr 是否是业务级 HTTP 拒绝，而不是代理错误
 
+## Runtime Observability / ClickHouse 查询异常
+
+现象：
+
+- `/runtime-observability` 页面可打开，但查询结果为空或明显落后。
+- `fq_runtime_indexer` 在运行，但 ClickHouse 查询报认证或连接失败。
+
+先检查：
+
+- `docker compose -f docker/compose.parallel.yaml ps fq_runtime_clickhouse fq_runtime_indexer`
+- `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components`
+- `Get-ChildItem logs/runtime -Recurse -Filter *.jsonl | Select-String -Pattern "ClickHouse|runtime indexer" -SimpleMatch`
+
+处理：
+
+- 确认 `fq_runtime_clickhouse` 与 `fq_runtime_indexer` 都已恢复。
+- 核对 `FQ_RUNTIME_CLICKHOUSE_USER` / `FQ_RUNTIME_CLICKHOUSE_PASSWORD` 是否与 API / indexer 使用的一致。
+- 若 ClickHouse 已恢复但页面仍无数据，优先排查 indexer backlog 与 runtime event 写入链路。
+
 ## Memory context 缺失或过期
 
 现象：

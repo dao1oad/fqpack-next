@@ -96,7 +96,10 @@ def test_cold_memory_workflow_rules_match_current_governance() -> None:
     assert "GitHub Issue" in workflow_text
     assert "GitHub PR + CI + merge gate" in workflow_text
     assert "最新远程 `main`" in workflow_text
-    assert "local session -> feature branch -> PR -> merge remote main -> deploy" in workflow_text
+    assert (
+        "local session -> feature branch -> PR -> merge remote main -> deploy"
+        in workflow_text
+    )
     assert "正式真值" in workflow_text
 
     assert "Design Review" not in workflow_text

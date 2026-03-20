@@ -117,7 +117,9 @@ def test_bootstrap_without_state_deploys_all_surfaces(
     monkeypatch.setattr(
         module,
         "load_current_revision",
-        lambda _: (_ for _ in ()).throw(AssertionError("local HEAD should not be used")),
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("local HEAD should not be used")
+        ),
     )
     monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
     monkeypatch.setattr(module, "load_deploy_plan_module", lambda _: fake_plan_module)
@@ -143,10 +145,7 @@ def test_bootstrap_without_state_deploys_all_surfaces(
     assert result["bootstrap"] is True
     assert result["plan"]["deployment_surfaces"] == list(surface_order)
     assert read_state(state_path)["last_success_sha"] == "newsha"
-    assert (
-        commands[0][4]
-        == "script/check_freshquant_runtime_post_deploy.ps1"
-    )
+    assert commands[0][4] == "script/check_freshquant_runtime_post_deploy.ps1"
 
 
 def test_successful_run_updates_last_success_sha(
@@ -188,7 +187,9 @@ def test_successful_run_updates_last_success_sha(
     monkeypatch.setattr(
         module,
         "load_current_revision",
-        lambda _: (_ for _ in ()).throw(AssertionError("local HEAD should not be used")),
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("local HEAD should not be used")
+        ),
     )
     monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
     monkeypatch.setattr(
@@ -271,7 +272,9 @@ def test_failed_health_check_does_not_advance_state(
     monkeypatch.setattr(
         module,
         "load_current_revision",
-        lambda _: (_ for _ in ()).throw(AssertionError("local HEAD should not be used")),
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("local HEAD should not be used")
+        ),
     )
     monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
     monkeypatch.setattr(
@@ -352,7 +355,9 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
     monkeypatch.setattr(
         module,
         "load_current_revision",
-        lambda _: (_ for _ in ()).throw(AssertionError("local HEAD should not be used")),
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("local HEAD should not be used")
+        ),
     )
     monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
     monkeypatch.setattr(
@@ -463,7 +468,9 @@ def test_noop_run_skips_deploy_commands_and_advances_state(
     monkeypatch.setattr(
         module,
         "load_current_revision",
-        lambda _: (_ for _ in ()).throw(AssertionError("local HEAD should not be used")),
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("local HEAD should not be used")
+        ),
     )
     monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
     monkeypatch.setattr(
@@ -568,13 +575,11 @@ def test_default_artifacts_paths_use_neutral_runtime_root() -> None:
     module = load_module()
 
     assert module.DEFAULT_ARTIFACTS_ROOT == Path(r"D:\fqpack\runtime\formal-deploy")
-    assert (
-        module.default_state_path(module.DEFAULT_ARTIFACTS_ROOT)
-        == Path(r"D:\fqpack\runtime\formal-deploy\production-state.json")
+    assert module.default_state_path(module.DEFAULT_ARTIFACTS_ROOT) == Path(
+        r"D:\fqpack\runtime\formal-deploy\production-state.json"
     )
-    assert (
-        module.default_runs_root(module.DEFAULT_ARTIFACTS_ROOT)
-        == Path(r"D:\fqpack\runtime\formal-deploy\runs")
+    assert module.default_runs_root(module.DEFAULT_ARTIFACTS_ROOT) == Path(
+        r"D:\fqpack\runtime\formal-deploy\runs"
     )
 
 

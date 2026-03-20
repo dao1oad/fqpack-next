@@ -12,11 +12,11 @@ from freshquant.runtime.memory import (
     compile_context_pack,
     derive_issue_identifier,
 )
-from freshquant.runtime.memory.bootstrap import derive_memory_role
 from freshquant.runtime.memory import refresh as refresh_module
 from freshquant.runtime.memory import (
     refresh_memory,
 )
+from freshquant.runtime.memory.bootstrap import derive_memory_role
 
 
 def _write(path: Path, content: str) -> None:
@@ -1022,10 +1022,7 @@ def test_repo_declares_memory_runtime_defaults() -> None:
     assert "db: fq_memory" in config_text
     assert "cold_root: .codex/memory" in config_text
     assert "reference_ref: origin/main" in config_text
-    assert (
-        "artifact_root: D:/fqpack/runtime/artifacts/memory"
-        in config_text
-    )
+    assert "artifact_root: D:/fqpack/runtime/artifacts/memory" in config_text
 
     assert "FRESHQUANT_MEMORY__MONGODB__DB=fq_memory" in env_text
     assert "FRESHQUANT_MEMORY__REFERENCE_REF=origin/main" in env_text

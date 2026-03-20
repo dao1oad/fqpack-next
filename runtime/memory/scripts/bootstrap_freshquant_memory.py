@@ -66,9 +66,7 @@ def main() -> int:
 
     repo_root = Path(args.repo_root).resolve()
     issue_state = (
-        args.issue_state
-        or os.environ.get("FRESHQUANT_ISSUE_STATE")
-        or "Local Session"
+        args.issue_state or os.environ.get("FRESHQUANT_ISSUE_STATE") or "Local Session"
     )
     branch_name = _resolve_branch_name(repo_root, args.branch_name)
     git_status = _resolve_git_status(repo_root, args.git_status)

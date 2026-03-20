@@ -92,6 +92,9 @@
 - GHCR 预构建镜像仅用于加速 Docker 部署，不改变运行真值；实际运行真值仍来自当前 `main`、deploy 结果与 health/runtime ops evidence
 - `deploy-production.yml` 在正式 Windows self-hosted runner 上把 deploy state / logs 固化到 `formal-deploy` artifacts 目录，但正式 deploy 真值已经改为本机 mirror，不再依赖下载部署归档或把 Docker Images 作为前置。
 - 该 workflow 不走 `actions/checkout`，也不再下载 `zipball/<sha>`；它会先调用 GitHub API 校验 `main` tip，再确保 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 这个本机 deploy mirror worktree 存在并 fast-forward 到目标 SHA。
+- 正式 production runner 宿主机已安装的 Python 3.12 是硬前置；缺失时不会进入 formal deploy。
+- 正式 production runner 宿主机已安装的 uv 是硬前置；缺失时不会进入 formal deploy。
+- 正式 deploy 固定导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，确保 mirror 上的 Docker 镜像来自本机构建而不是 GHCR pull。
 - 对已经有 `last_success_sha` 的增量正式 deploy，`run_formal_deploy.py` 现在直接在 mirror 的 `.git` 工作树里计算 `last_success_sha..HEAD` changed paths，不再依赖 compare API 作为正式路径。
 - mirror 同步完成后，workflow 直接在 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 目录执行 `py -3.12 -m uv sync --frozen`，然后调用 `run_formal_deploy.py`。
 - 该 workflow 中的 PowerShell steps 固定带 `-ExecutionPolicy Bypass`，避免 self-hosted Windows runner 的本机执行策略在 step 启动前拦截临时脚本
