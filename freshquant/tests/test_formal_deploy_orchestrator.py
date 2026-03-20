@@ -575,11 +575,11 @@ def test_default_artifacts_paths_use_neutral_runtime_root() -> None:
     module = load_module()
 
     assert module.DEFAULT_ARTIFACTS_ROOT == Path(r"D:\fqpack\runtime\formal-deploy")
-    assert module.default_state_path(module.DEFAULT_ARTIFACTS_ROOT) == Path(
-        r"D:\fqpack\runtime\formal-deploy\production-state.json"
+    assert module.default_state_path(module.DEFAULT_ARTIFACTS_ROOT) == (
+        module.DEFAULT_ARTIFACTS_ROOT / "production-state.json"
     )
-    assert module.default_runs_root(module.DEFAULT_ARTIFACTS_ROOT) == Path(
-        r"D:\fqpack\runtime\formal-deploy\runs"
+    assert module.default_runs_root(module.DEFAULT_ARTIFACTS_ROOT) == (
+        module.DEFAULT_ARTIFACTS_ROOT / "runs"
     )
 
 

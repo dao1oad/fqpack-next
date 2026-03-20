@@ -41,6 +41,7 @@
 - 仓库 `git push` 会通过 `.githooks/pre-push` 调用本地预检；首次接入或 hook 丢失时，用 `script/install_repo_hooks.ps1` 恢复 `core.hooksPath`
 - 当前本地预检会缓存 docs guard / pre-commit / pytest / review-thread 检查结果；当前分支已有关联 PR 且 `gh` 已登录时，会直接阻断 unresolved review threads
 - FQNext 宿主机 Supervisor service：`fqnext-supervisord`
+- Supervisor XML-RPC 入口：`http://127.0.0.1:10011/RPC2`
 - formal deploy 状态根目录：`D:/fqpack/runtime/formal-deploy`
 - memory context pack 产物根目录：`D:/fqpack/runtime/artifacts/memory/context-packs`
 - 冷记忆目录：`.codex/memory`

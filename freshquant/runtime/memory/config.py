@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
@@ -11,12 +12,13 @@ DEFAULT_RUNTIME_ROOT = Path("D:/fqpack/runtime").resolve()
 RETIRED_RUNTIME_ROOT = Path("D:/fqpack/runtime/symphony-service").resolve()
 DEFAULT_MEMORY_ARTIFACT_ROOT = (DEFAULT_RUNTIME_ROOT / "artifacts" / "memory").resolve()
 RETIRED_MEMORY_ARTIFACT_ROOT = (RETIRED_RUNTIME_ROOT / "artifacts" / "memory").resolve()
+WINDOWS_DRIVE_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def _resolve_rooted_path(value: str | Path, *, root: Path) -> Path:
     path = Path(value)
-    if path.is_absolute():
-        return path
+    if path.is_absolute() or WINDOWS_DRIVE_ABSOLUTE_RE.match(str(value)):
+        return path.resolve()
     return (root / path).resolve()
 
 

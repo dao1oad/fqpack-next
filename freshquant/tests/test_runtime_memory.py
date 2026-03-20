@@ -1091,6 +1091,7 @@ def test_memory_runtime_config_defaults_to_neutral_runtime_root(
 
     assert config.service_root == Path("D:/fqpack/runtime").resolve()
     assert config.artifact_root == Path("D:/fqpack/runtime/artifacts/memory").resolve()
+    assert config.artifact_root.as_posix().count("D:/fqpack/runtime") == 1
 
 
 def test_derive_memory_role_defaults_to_codex_for_retired_issue_states() -> None:
