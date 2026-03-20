@@ -28,6 +28,16 @@ const toText = (value) => {
   return String(value).trim()
 }
 
+const joinLabels = (values = []) => {
+  const labels = []
+  for (const value of Array.isArray(values) ? values : []) {
+    const text = toText(value)
+    if (!text || labels.includes(text)) continue
+    labels.push(text)
+  }
+  return labels.join(' / ')
+}
+
 export const getSidebarCode6 = (item = {}) => {
   const rawCode = toText(item.code || item.code6)
   const symbol = toText(item.symbol)
@@ -48,6 +58,8 @@ export const normalizeSidebarItem = (item = {}) => {
     code6,
     symbol: toText(item.symbol) || buildSymbolFromCode6(code6),
     name: toText(item.name || item.stock_name || code6),
+    sourceLabels: joinLabels(item.sources) || toText(item.provider),
+    categoryLabels: joinLabels(item.categories) || toText(item.category),
     raw: item
   }
 }

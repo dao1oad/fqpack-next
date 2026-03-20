@@ -401,8 +401,8 @@
                   >
                     <el-table-column prop="code6" label="代码" width="92" />
                     <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
-                    <el-table-column prop="provider" label="来源" width="120" show-overflow-tooltip />
-                    <el-table-column prop="plate_name" label="上下文" min-width="140" show-overflow-tooltip />
+                    <el-table-column prop="source_labels" label="来源" min-width="150" show-overflow-tooltip />
+                    <el-table-column prop="category_labels" label="分类" min-width="180" show-overflow-tooltip />
                     <el-table-column label="操作" min-width="180">
                       <template #default="{ row }">
                         <div class="daily-workspace-row-actions">

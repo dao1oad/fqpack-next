@@ -15,10 +15,10 @@
 
 ### `stock_pre_pools`
 
-- 用于暂存筛选结果
-- Shouban30 会把单个板块结果 append 进这个集合
-- 允许有 `category` 和 `expire_at`
-- Shouban30 当前使用 `extra.shouban30_order` 作为页面与 `.blk` 输出顺序真值
+- 用于共享预选池 / 工作区真值
+- 当前正式口径是“同一个 `code` 只保留一条记录”
+- `sources / categories / memberships` 用于区分 `daily-screening`、`shouban30` 等来源和分类
+- 顶层 `workspace_order` 是共享页面与 `.blk` 输出顺序真值；兼容字段 `extra.shouban30_order` 仍保留用于旧页面桥接
 
 ### `stock_pools`
 

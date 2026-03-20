@@ -105,7 +105,7 @@ def _import_stock_service_with_stubs(monkeypatch):
     return importlib.reload(stock_service)
 
 
-def test_get_stock_pre_pools_list_without_category_returns_all(monkeypatch):
+def test_get_stock_pre_pools_list_without_category_returns_deduped_rows(monkeypatch):
     stock_service = _import_stock_service_with_stubs(monkeypatch)
 
     fake_db = FakeDB(
@@ -115,15 +115,29 @@ def test_get_stock_pre_pools_list_without_category_returns_all(monkeypatch):
                     "_id": "1",
                     "code": "000001",
                     "name": "alpha",
-                    "category": "first",
-                    "datetime": "2026-03-05 09:31:00",
+                    "category": "CLXS_10001",
+                    "remark": "daily-screening:clxs",
+                    "datetime": datetime(2026, 3, 5, 9, 31),
                 },
                 {
                     "_id": "2",
+                    "code": "000001",
+                    "name": "alpha",
+                    "category": "三十涨停Pro预选",
+                    "datetime": datetime(2026, 3, 6, 9, 31),
+                    "extra": {
+                        "shouban30_order": 0,
+                        "shouban30_plate_key": "11",
+                        "shouban30_provider": "xgb",
+                    },
+                },
+                {
+                    "_id": "3",
                     "code": "000002",
                     "name": "beta",
-                    "category": "second",
-                    "datetime": "2026-03-05 14:08:00",
+                    "category": "CLXS_10004",
+                    "remark": "daily-screening:clxs",
+                    "datetime": datetime(2026, 3, 6, 14, 8),
                 },
             ]
         )
@@ -137,11 +151,13 @@ def test_get_stock_pre_pools_list_without_category_returns_all(monkeypatch):
 
     result = stock_service.get_stock_pre_pools_list(page=1, category="")
 
-    assert [row["code"] for row in result] == ["000002", "000001"]
-    assert [row["symbol"] for row in result] == ["sz000002", "sz000001"]
+    assert [row["code"] for row in result] == ["000001", "000002"]
+    assert result[0]["sources"] == ["daily-screening", "shouban30"]
+    assert result[0]["categories"] == ["CLXS_10001", "plate:11"]
+    assert [row["symbol"] for row in result] == ["sz000001", "sz000002"]
 
 
-def test_get_stock_pre_pools_list_with_category_still_filters(monkeypatch):
+def test_get_stock_pre_pools_list_with_category_filters_unified_categories(monkeypatch):
     stock_service = _import_stock_service_with_stubs(monkeypatch)
 
     fake_db = FakeDB(
@@ -151,15 +167,29 @@ def test_get_stock_pre_pools_list_with_category_still_filters(monkeypatch):
                     "_id": "1",
                     "code": "000001",
                     "name": "alpha",
-                    "category": "first",
-                    "datetime": "2026-03-05 09:31:00",
+                    "category": "CLXS_10001",
+                    "remark": "daily-screening:clxs",
+                    "datetime": datetime(2026, 3, 5, 9, 31),
                 },
                 {
                     "_id": "2",
+                    "code": "000001",
+                    "name": "alpha",
+                    "category": "三十涨停Pro预选",
+                    "datetime": datetime(2026, 3, 6, 9, 31),
+                    "extra": {
+                        "shouban30_order": 0,
+                        "shouban30_plate_key": "11",
+                        "shouban30_provider": "xgb",
+                    },
+                },
+                {
+                    "_id": "3",
                     "code": "000002",
                     "name": "beta",
-                    "category": "second",
-                    "datetime": "2026-03-05 14:08:00",
+                    "category": "CLXS_10004",
+                    "remark": "daily-screening:clxs",
+                    "datetime": datetime(2026, 3, 6, 14, 8),
                 },
             ]
         )
@@ -171,7 +201,7 @@ def test_get_stock_pre_pools_list_with_category_still_filters(monkeypatch):
         lambda code: f"{'sh' if str(code).startswith('6') else 'sz'}{code}",
     )
 
-    result = stock_service.get_stock_pre_pools_list(page=1, category="first")
+    result = stock_service.get_stock_pre_pools_list(page=1, category="plate:11")
 
     assert [row["code"] for row in result] == ["000001"]
 

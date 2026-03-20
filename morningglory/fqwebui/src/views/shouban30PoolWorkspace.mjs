@@ -2,6 +2,16 @@ const toText = (value) => String(value || '').trim()
 
 const normalizeList = (value) => (Array.isArray(value) ? value : [])
 
+const joinLabels = (values = []) => {
+  const labels = []
+  for (const value of normalizeList(values)) {
+    const text = toText(value)
+    if (!text || labels.includes(text)) continue
+    labels.push(text)
+  }
+  return labels.join(' / ')
+}
+
 const resolvePlateRowKey = (plate) => {
   return toText(plate?.view_key || plate?.plate_key)
 }
@@ -111,8 +121,10 @@ const mapWorkspaceRow = (
     code6: toText(item?.code6 || item?.code),
     name: toText(item?.name),
     category: toText(item?.category),
-    plate_name: toText(item?.extra?.shouban30_plate_name),
-    provider: toText(item?.extra?.shouban30_provider),
+    plate_name: toText(item?.extra?.shouban30_plate_name || item?.plate_name),
+    provider: toText(item?.extra?.shouban30_provider || item?.provider),
+    source_labels: joinLabels(item?.sources) || toText(item?.provider),
+    category_labels: joinLabels(item?.categories) || toText(item?.category),
     primary_action_label: primaryActionLabel,
     secondary_action_label: secondaryActionLabel,
   }

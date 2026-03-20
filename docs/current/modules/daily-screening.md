@@ -167,6 +167,7 @@
 - 页面默认带着“日线缠论涨幅”参与筛选
 - 当前结果表达式会明确展示：CLS 分组内部和分组之间用并集语义，和其他筛选条件再取交集
 - 交集列表支持批量加入 `pre_pools`，也支持单条直接加入 `pre_pools`
+- 工作区 `pre_pools` 当前读取共享去重真值；同一个 `code` 只显示一行，并明确展示 `sources / categories`
 - 点击交集列表或工作区中的任一标的，右侧都复用 `/api/daily-screening/stocks/<code>/detail` 展示完整详情
 - 右侧详情区删除独立“日线缠论涨幅”卡片，改成紧凑条件卡片区，把更多高度留给“历史热门理由”
 - 页面主工作区改为弹性高度布局，在 100% 缩放下不应再依赖浏览器缩放来完整查看右侧详情
@@ -213,6 +214,12 @@
 - `/api/gantt/shouban30/stock-pool/sync-to-tdx`
 - `/api/gantt/shouban30/stock-pool/clear`
 - `/api/gantt/shouban30/stock-pool/delete`
+
+当前工作区返回口径：
+
+- `/api/gantt/shouban30/pre-pool` 返回共享 `stock_pre_pools` 的去重列表，不再只看 `category=三十涨停Pro预选`
+- 每行会携带 `sources / categories / memberships`
+- `/api/gantt/shouban30/pre-pool/delete` 按 `code` 删除整条共享记录
 
 已禁用的旧手动执行入口：
 
