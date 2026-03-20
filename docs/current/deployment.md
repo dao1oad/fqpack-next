@@ -48,6 +48,13 @@ py -3.12 script/freshquant_deploy_plan.py --changed-path freshquant/rear/api_ser
 ### 本地预检查
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ensure
+```
+
+- `script/fq_local_preflight.ps1` 是本地会话同步到远程 `main` 前的标准预检查入口；默认会对最新远程 `main` 做 fetch，并验证 governance / pre-commit / pytest / review threads。
+- `script/fq_apply_deploy_plan.ps1` 仍然保留，用于手工 selective deploy 或断点续跑 deploy phase。
+
+```powershell
 powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGitDiff origin/main...HEAD
 ```
 

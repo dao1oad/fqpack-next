@@ -249,7 +249,9 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
     assert any("market_data_consumer" in failure for failure in payload["failures"])
     assert any("xt_account_sync_worker" in failure for failure in payload["failures"])
     assert any("xtquant_broker" in failure for failure in payload["failures"])
-    assert any("credit_subjects_worker" in failure for failure in payload["failures"])
+    assert not any(
+        "credit_subjects_worker" in failure for failure in payload["failures"]
+    )
     assert all(
         "fq-symphony-orchestrator" not in failure for failure in payload["failures"]
     )

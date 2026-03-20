@@ -4,5 +4,5 @@
   "freshquant/tests/test_runtime_network.py": 12.0,
   "freshquant/tests/test_stock_data_fetch.py": 11.0,
   "freshquant/tests/test_xtdata_strategy_consumer_history.py": 10.0,
-  "freshquant/tests/test_symphony_runtime_post_deploy_check.py": 9.0
+  "freshquant/tests/test_runtime_post_deploy_check.py": 9.0
 }

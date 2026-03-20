@@ -138,6 +138,7 @@ def test_cold_memory_deploy_surfaces_cover_current_release_matrix() -> None:
 
 
 def test_additional_cold_memory_files_capture_current_project_facts() -> None:
+    pitfalls_text = Path(".codex/memory/pitfalls.md").read_text(encoding="utf-8")
     topology_text = Path(".codex/memory/system-topology.md").read_text(encoding="utf-8")
     runtime_text = Path(".codex/memory/runtime-surfaces.md").read_text(encoding="utf-8")
     data_text = Path(".codex/memory/data-truth-sources.md").read_text(encoding="utf-8")
@@ -152,10 +153,11 @@ def test_additional_cold_memory_files_capture_current_project_facts() -> None:
     assert "记忆编译链" in topology_text
 
     assert "运行面与入口" in runtime_text
-    assert "fq-symphony-orchestrator" in runtime_text
+    assert "fq-symphony-orchestrator" not in runtime_text
     assert "fqnext-supervisord" in runtime_text
     assert "fq_local_preflight.ps1" in runtime_text
     assert "stdio://" in runtime_text
+    assert "Symphony" not in runtime_text
 
     assert "数据真值与存储边界" in data_text
     assert "freshquant_order_management" in data_text
@@ -168,6 +170,7 @@ def test_additional_cold_memory_files_capture_current_project_facts() -> None:
     assert "script/fq_open_pr.ps1" in guardrails_text
     assert "main-deploy-production" in guardrails_text
     assert "review threads" in guardrails_text
+    assert "Symphony" not in pitfalls_text
 
     assert "产品与模块面" in product_text
     assert "/daily-screening" in product_text
@@ -183,3 +186,4 @@ def test_current_deployment_docs_reference_selective_deploy_and_build_cache() ->
     assert "fq_apply_deploy_plan.ps1" in deployment_text
     assert "FQ_DOCKER_BUILD_CACHE_ROOT" in deployment_text
     assert "fq_local_preflight.ps1" in deployment_text
+    assert "check_freshquant_runtime_post_deploy.ps1" in deployment_text

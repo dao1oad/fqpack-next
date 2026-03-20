@@ -576,3 +576,10 @@ def test_default_artifacts_paths_use_neutral_runtime_root() -> None:
         module.default_runs_root(module.DEFAULT_ARTIFACTS_ROOT)
         == Path(r"D:\fqpack\runtime\formal-deploy\runs")
     )
+
+
+def test_formal_deploy_source_no_longer_references_runtime_symphony() -> None:
+    text = Path("script/ci/run_formal_deploy.py").read_text(encoding="utf-8")
+
+    assert "runtime/symphony" not in text
+    assert "build_symphony_commands" not in text

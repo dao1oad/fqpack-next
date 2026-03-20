@@ -217,25 +217,6 @@ def build_verify_runtime_command(
     ]
 
 
-def build_symphony_commands() -> list[list[str]]:
-    return [
-        [
-            "powershell",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            "runtime/symphony/scripts/sync_freshquant_symphony_service.ps1",
-        ],
-        [
-            "powershell",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            "runtime/symphony/scripts/invoke_freshquant_symphony_restart_task.ps1",
-        ],
-    ]
-
-
 def build_health_commands(plan: dict[str, Any], plan_module) -> list[list[str]]:
     commands: list[list[str]] = []
     health_surface_map = getattr(plan_module, "HEALTH_CHECK_MAP", {})
@@ -331,17 +312,6 @@ def run_formal_deploy(
                 repo_root=repo_root,
                 output_path=run_dir / "01-runtime-baseline.log",
             )
-
-            if "symphony" in plan["deployment_surfaces"]:
-                for index, symphony_command in enumerate(
-                    build_symphony_commands(), start=2
-                ):
-                    commands.append(symphony_command)
-                    execute_command(
-                        symphony_command,
-                        repo_root=repo_root,
-                        output_path=run_dir / f"{index:02d}-symphony.log",
-                    )
 
             if plan["docker_command"]:
                 commands.append(list(plan["docker_command"]))

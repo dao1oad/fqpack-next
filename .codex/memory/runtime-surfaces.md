@@ -4,9 +4,8 @@
   - XTQuant / XTData 连接
   - `fqnext-supervisord` 及其托管进程
   - Guardian monitor
-  - Position worker
+  - XT account sync worker
   - TPSL worker
-  - Symphony 正式服务
 - Docker 并行环境承担：
   - Mongo：`27027 -> 27017`
   - Redis：`6380 -> 6379`
@@ -17,7 +16,6 @@
   - Web UI：`18080 -> 80`
   - TradingAgents backend/frontend：`13000 / 13080`
 - 正式宿主机服务名固定为：
-  - `fq-symphony-orchestrator`
   - `fqnext-supervisord`
 - 运行面常用正式入口固定为：
   - Docker：`script/docker_parallel_compose.ps1`

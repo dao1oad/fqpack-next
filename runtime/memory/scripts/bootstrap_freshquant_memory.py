@@ -67,7 +67,6 @@ def main() -> int:
     repo_root = Path(args.repo_root).resolve()
     issue_state = (
         args.issue_state
-        or os.environ.get("SYMPHONY_ISSUE_STATE")
         or os.environ.get("FRESHQUANT_ISSUE_STATE")
         or "Local Session"
     )
