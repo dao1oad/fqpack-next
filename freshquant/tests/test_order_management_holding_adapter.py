@@ -239,8 +239,8 @@ def test_get_stock_positions_fills_missing_name_from_instrument_info(monkeypatch
     )
     monkeypatch.setattr(
         holding_module,
-        "query_instrument_info",
-        lambda code: {"name": "恩华药业"} if code in {"sz002262", "002262"} else None,
+        "_resolve_position_name",
+        lambda record: "恩华药业",
     )
 
     result = holding_module.get_stock_positions()
@@ -272,8 +272,8 @@ def test_get_stock_positions_prefers_current_instrument_name_over_stale_position
     )
     monkeypatch.setattr(
         holding_module,
-        "query_instrument_info",
-        lambda code: {"name": "比亚迪"} if code in {"sz002594", "002594"} else None,
+        "_resolve_position_name",
+        lambda record: "比亚迪",
     )
 
     result = holding_module.get_stock_positions()
@@ -310,10 +310,11 @@ def test_get_stock_positions_keeps_projection_name_when_instrument_lookup_errors
         },
     )
 
-    def broken_lookup(code):
-        raise RuntimeError(f"instrument lookup unavailable for {code}")
-
-    monkeypatch.setattr(holding_module, "query_instrument_info", broken_lookup)
+    monkeypatch.setattr(
+        holding_module,
+        "_resolve_position_name",
+        lambda record: str(record.get("name") or "").strip(),
+    )
 
     result = holding_module.get_stock_positions()
 
