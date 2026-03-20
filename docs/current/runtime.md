@@ -17,11 +17,14 @@
 
 - MongoDB：宿主机 `27027 ->` 容器内 `27017`
 - Redis：`6380 -> 6379`
+- ClickHouse HTTP：`18123 -> 8123`
+- ClickHouse native：`19000 -> 9000`
 - API Server：`15000 -> 5000`
 - TDXHQ：`15001 -> 5001`
 - Dagster Webserver：`11003 -> 10003`
 - QAWebServer：`18010 -> 8010`
 - Web UI：`18080 -> 80`
+- Runtime indexer：`fq_runtime_indexer`
 - TradingAgents backend：`13000 -> 8000`
 - TradingAgents frontend：`13080 -> 80`
 
@@ -126,10 +129,12 @@
 - Web UI
 - Gantt/Shouban30 对应读模型数据
 - Runtime Observability 原始日志目录
+- Runtime Observability ClickHouse 热查询仓
+- Runtime Observability runtime indexer
 - `/stock-control` 的 Guardian 信号依赖 `stock_signals`
 - `/stock-control` 的 stock_pools 模型信号依赖 `realtime_screen_multi_period`
 - `/runtime-observability` 当前固定是 `全局 Trace + 组件 Event` 双视图
-- `/runtime-observability` 默认固定每 15 秒自动刷新最新运行状态，不再暴露单独的自动刷新开关；手动刷新按钮仍保留
+- `/runtime-observability` 默认固定每 15 秒自动刷新 summary 列表；已打开的 Trace detail 不参与自动刷新
 - Guardian 排障时优先看全局 Trace 中的 `guardian_signal` 链路；组件侧栏主要用于切到对应组件的 Event 视图
 
 ## 并行环境的默认口径
@@ -162,6 +167,9 @@
 - Docker 并行环境下，Shouban30 的 API 同步链路依赖 `fq_apiserver` 挂载 `/opt/tdx`
 - 当通达信根目录配置为 `D:\tdx_biduan` 时，Shouban30 会写入 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`
 - `xt_producer` / `xt_consumer` 会向 `logs/runtime` 固定每 5 分钟写 1 次 heartbeat，供 `/runtime-observability` 的组件 Event / health 视图聚合；这些 heartbeat 不进入业务 Trace
+- `fq_runtime_indexer` 会把 `logs/runtime/**/*.jsonl` 增量写入 ClickHouse；Trace/Event/Health 热查询不再直扫 JSONL
+- `fq_apiserver` 当前通过 `FQ_RUNTIME_CLICKHOUSE_URL`、`FQ_RUNTIME_CLICKHOUSE_USER`、`FQ_RUNTIME_CLICKHOUSE_PASSWORD` 连接 ClickHouse；Raw Browser 仍直接读取原始 JSONL
+- `docker/compose.parallel.yaml` 默认会为 `fq_runtime_clickhouse` 创建 `FQ_RUNTIME_CLICKHOUSE_USER/FQ_RUNTIME_CLICKHOUSE_PASSWORD` 这组查询用户；不要再依赖 ClickHouse 镜像里被禁掉网络访问的 `default` 用户
 - `logs/runtime` 当前只保留最近 5 个交易日；runtime logger 会在写新文件前清理更旧日期目录，因此排障时不要再假设该目录长期累积历史 Trace
 - `/runtime-observability` 页面默认只请求北京时间“今日”时间窗口；如果需要回看历史中断，需要显式调整顶部时间区间框，页面会把 `start_time/end_time` 透传到 runtime API
 - pytest 默认通过临时 `FQ_RUNTIME_LOG_DIR` 与 logger cache reset 隔离测试运行日志，避免污染正式 `logs/runtime`

@@ -48,3 +48,13 @@ def test_docker_parallel_compose_enables_buildkit_environment() -> None:
 
     assert "DOCKER_BUILDKIT" in text
     assert "COMPOSE_BAKE" in text
+
+
+def test_compose_includes_runtime_clickhouse_and_indexer_services() -> None:
+    text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
+
+    assert "fq_runtime_clickhouse:" in text
+    assert "fq_runtime_indexer:" in text
+    assert "FQ_RUNTIME_CLICKHOUSE_URL" in text
+    assert "CLICKHOUSE_USER" in text
+    assert "FQ_RUNTIME_CLICKHOUSE_USER" in text

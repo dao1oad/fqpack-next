@@ -28,6 +28,13 @@ export const runtimeObservabilityApi = {
       params
     })
   },
+  listTraceSteps (traceId, params = {}) {
+    return axios({
+      url: `/api/runtime/traces/${traceId}/steps`,
+      method: 'get',
+      params
+    })
+  },
   listEvents (params = {}) {
     return axios({
       url: '/api/runtime/events',
