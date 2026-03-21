@@ -137,6 +137,17 @@ Runtime Observability 当前采用“双存储”：
 - 页面内所有标的展示统一为 `symbol / symbol_name`
 - 写入 ClickHouse 与查询返回阶段都会优先复用现有 instrument lookup 补全 `symbol_name`
 - 名称最终仍缺失时，前端兜底显示 `symbol / 未知名称`
+- 顶部 `异常链路` 与 `异常节点` 摘要当前可直接跳转到异常 Trace/异常步骤浏览态
+- 左侧组件卡片里的异常摘要当前拆成：
+  - `异常链路`
+  - `异常节点`
+  两个直接入口，分别用于快速定位组件异常 Trace 与组件异常 Event
+- Trace 详情步骤区当前支持：
+  - `首个异常`
+  - `上一个异常`
+  - `下一个异常`
+  - `最慢节点`
+  并在跳转后自动滚动到当前选中步骤
 - Raw Browser 继续按 `runtime_node/component/date/file` 直接读 JSONL
 
 ## 组件健康
