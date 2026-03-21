@@ -187,10 +187,19 @@ class PositionManagementService:
         if not allowed or self.symbol_position_loader is None:
             return allowed, reason_code, reason_text, {}
         snapshot = dict(self.symbol_position_loader(symbol) or {})
-        limit = self._resolve_single_symbol_position_limit()
+        (
+            default_limit,
+            override_limit,
+            effective_limit,
+        ) = self._resolve_single_symbol_position_limit(symbol)
         market_value = _safe_float_or_none(snapshot.get("market_value"))
+        blocked = market_value is None or market_value >= effective_limit
         meta = {
-            "symbol_position_limit": limit,
+            "symbol_position_limit": effective_limit,
+            "symbol_position_limit_default": default_limit,
+            "symbol_position_limit_override": override_limit,
+            "symbol_position_limit_effective": effective_limit,
+            "symbol_position_limit_blocked": blocked,
             "symbol_market_value": market_value,
             "symbol_market_value_source": snapshot.get("market_value_source"),
             "symbol_quantity_source": snapshot.get("quantity_source"),
@@ -202,7 +211,7 @@ class PositionManagementService:
                 "单标的实时仓位不可用，当前禁止买入",
                 meta,
             )
-        if market_value >= limit:
+        if market_value >= effective_limit:
             return (
                 False,
                 "symbol_position_limit_blocked",
@@ -211,19 +220,30 @@ class PositionManagementService:
             )
         return allowed, reason_code, reason_text, meta
 
-    def _resolve_single_symbol_position_limit(self):
+    def _resolve_single_symbol_position_limit(self, symbol):
         config = (
             self.repository.get_config()
             if hasattr(self.repository, "get_config")
             else {}
         )
         thresholds = (config or {}).get("thresholds", {}) or {}
-        resolved_limit = _safe_float_or_none(
+        default_limit = _safe_float_or_none(
             thresholds.get("single_symbol_position_limit")
         )
-        if resolved_limit is None:
-            return self.default_single_symbol_position_limit
-        return resolved_limit
+        if default_limit is None:
+            default_limit = self.default_single_symbol_position_limit
+        overrides = ((config or {}).get("symbol_position_limits") or {}).get(
+            "overrides", {}
+        ) or {}
+        normalized_symbol = _normalize_symbol(symbol)
+        override = overrides.get(normalized_symbol)
+        override_limit = _safe_float_or_none(
+            override.get("limit") if isinstance(override, dict) else override
+        )
+        effective_limit = (
+            override_limit if override_limit is not None else default_limit
+        )
+        return default_limit, override_limit, effective_limit
 
     def _emit_runtime(
         self,

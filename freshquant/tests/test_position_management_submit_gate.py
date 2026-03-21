@@ -5,6 +5,7 @@ import pytest
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.position_management.errors import PositionManagementRejectedError
 from freshquant.position_management.models import PositionDecision
+from freshquant.position_management.service import PositionManagementService
 
 
 class FakeQueueClient:
@@ -244,3 +245,63 @@ def test_default_position_management_service_injects_symbol_position_loader(
     assert captured["repository"] is not None
     assert captured["runtime_logger"] == "runtime-logger"
     assert callable(captured["symbol_position_loader"])
+
+
+def test_position_gate_prefers_symbol_override_limit_over_default_limit():
+    class FakeRepository:
+        def __init__(self):
+            self.decisions = []
+
+        def get_current_state(self):
+            return {
+                "state": "ALLOW_OPEN",
+                "evaluated_at": "2026-03-22T10:00:00+08:00",
+            }
+
+        def get_config(self):
+            return {
+                "thresholds": {
+                    "single_symbol_position_limit": 800000.0,
+                },
+                "symbol_position_limits": {
+                    "overrides": {
+                        "600000": {
+                            "limit": 500000.0,
+                        }
+                    }
+                },
+            }
+
+        def insert_decision(self, document):
+            self.decisions.append(document)
+            return document
+
+    repository = FakeRepository()
+    service = PositionManagementService(
+        repository=repository,
+        holding_codes_provider=lambda: [],
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 520000.0,
+            "market_value_source": "xt_positions.market_value",
+        },
+    )
+
+    decision = service.evaluate_strategy_order(
+        {
+            "action": "buy",
+            "symbol": "600000",
+            "source": "strategy",
+        },
+        current_state={
+            "state": "ALLOW_OPEN",
+            "evaluated_at": "2099-03-22T10:00:00+08:00",
+        },
+    )
+
+    assert decision.allowed is False
+    assert decision.reason_code == "symbol_position_limit_blocked"
+    assert decision.meta["symbol_position_limit_default"] == 800000.0
+    assert decision.meta["symbol_position_limit_override"] == 500000.0
+    assert decision.meta["symbol_position_limit_effective"] == 500000.0
+    assert decision.meta["symbol_position_limit_blocked"] is True

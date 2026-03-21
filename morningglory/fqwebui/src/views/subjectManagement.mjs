@@ -64,6 +64,27 @@ const normalizePositionManagementSummary = (row = {}) => ({
   holding_only_min_bail: toNullableNumber(row?.holding_only_min_bail),
 })
 
+const normalizePositionLimitSummary = (row = {}) => {
+  const defaultLimit = toNullableNumber(row?.default_limit)
+  const overrideLimit = toNullableNumber(row?.override_limit)
+  const effectiveLimit = toNullableNumber(row?.effective_limit) ?? defaultLimit
+  const marketValue = toNullableNumber(row?.market_value)
+  const blocked = Boolean(row?.blocked)
+  return {
+    default_limit: defaultLimit,
+    override_limit: overrideLimit,
+    effective_limit: effectiveLimit,
+    market_value: marketValue,
+    using_override: Boolean(row?.using_override ?? overrideLimit !== null),
+    blocked,
+    blocked_reason: toText(row?.blocked_reason),
+  }
+}
+
+const formatPositionLimitSource = (summary = {}) => (
+  summary?.using_override ? '单独设置' : '默认值'
+)
+
 const cloneTakeprofitDraft = (row = {}) => ({
   level: toNumber(row?.level),
   price: toNullableNumber(row?.price),
@@ -105,6 +126,7 @@ export const buildOverviewRows = (rows = []) => {
       const stoploss = row?.stoploss || {}
       const runtime = row?.runtime || {}
       const takeprofitSummary = buildTakeprofitSummary(row?.takeprofit?.tiers || [])
+      const positionLimitSummary = normalizePositionLimitSummary(row?.position_limit_summary || {})
       const activeStoplossCount = toNumber(stoploss?.active_count)
       const openBuyLotCount = toNumber(stoploss?.open_buy_lot_count)
       const hasMustPoolConfig = Boolean(
@@ -137,6 +159,13 @@ export const buildOverviewRows = (rows = []) => {
           mustPool.forever ? '永久' : '普通',
         ].join(' / '),
         stoplossSummaryLabel: `${activeStoplossCount} / ${openBuyLotCount}`,
+        positionLimitSummary,
+        positionLimitSummaryLabel: [
+          formatAmountWan(positionLimitSummary.market_value),
+          formatAmountWan(positionLimitSummary.effective_limit),
+          formatPositionLimitSource(positionLimitSummary),
+          positionLimitSummary.blocked ? '已阻断' : '允许',
+        ].join(' / '),
         runtimeSummaryLabel: [
           formatAmountWan(runtime?.position_amount),
           `${toNumber(runtime?.position_quantity)} 股`,
@@ -175,6 +204,7 @@ export const buildDetailViewModel = (detail = {}) => {
   const positionManagementSummary = normalizePositionManagementSummary(
     detail?.position_management_summary || {},
   )
+  const positionLimitSummary = normalizePositionLimitSummary(detail?.position_limit_summary || {})
 
   return {
     ...detail,
@@ -192,6 +222,7 @@ export const buildDetailViewModel = (detail = {}) => {
     buyLots: buildBuyLots(detail?.buy_lots || []),
     runtimeSummary,
     positionManagementSummary,
+    positionLimitSummary,
   }
 }
 
@@ -209,10 +240,7 @@ const buildGuardianRuntimeNote = (guardianState = {}) => {
 
 export const buildDenseConfigRows = (detail = {}) => {
   const mustPool = detail?.mustPool || {}
-  const guardianConfig = detail?.guardianConfig || {}
-  const guardianState = detail?.guardianState || {}
-  const buyActive = Array.isArray(guardianState.buy_active) ? guardianState.buy_active : []
-  const guardianRuntimeNote = buildGuardianRuntimeNote(guardianState)
+  const positionLimitSummary = detail?.positionLimitSummary || {}
 
   return [
     {
@@ -261,40 +289,27 @@ export const buildDenseConfigRows = (detail = {}) => {
       note: mustPool.forever ? '持续跟踪' : '普通标的',
     },
     {
-      group: 'Guardian',
-      key: 'guardian_enabled',
-      label: '启用',
-      currentLabel: formatBooleanLabel(Boolean(guardianConfig.enabled), { truthy: '开启', falsy: '关闭' }),
-      editor: 'switch',
-      statusLabel: guardianConfig.enabled ? '已启用' : '已关闭',
-      note: guardianRuntimeNote,
+      group: '仓位上限',
+      key: 'position_limit_mode',
+      label: '来源',
+      currentLabel: formatPositionLimitSource(positionLimitSummary),
+      editor: 'position-limit-mode',
+      statusLabel: formatPositionLimitSource(positionLimitSummary),
+      note: positionLimitSummary.blocked
+        ? '当前已触发禁止买入'
+        : `当前市值 ${formatAmountWan(positionLimitSummary.market_value)}`,
     },
     {
-      group: 'Guardian',
-      key: 'buy_1',
-      label: 'BUY-1',
-      currentLabel: formatPrice(guardianConfig.buy_1),
-      editor: 'number',
-      statusLabel: `当前 B1:${buyActive[0] ? '开' : '关'}`,
-      note: guardianRuntimeNote,
-    },
-    {
-      group: 'Guardian',
-      key: 'buy_2',
-      label: 'BUY-2',
-      currentLabel: formatPrice(guardianConfig.buy_2),
-      editor: 'number',
-      statusLabel: `当前 B2:${buyActive[1] ? '开' : '关'}`,
-      note: guardianRuntimeNote,
-    },
-    {
-      group: 'Guardian',
-      key: 'buy_3',
-      label: 'BUY-3',
-      currentLabel: formatPrice(guardianConfig.buy_3),
-      editor: 'number',
-      statusLabel: `当前 B3:${buyActive[2] ? '开' : '关'}`,
-      note: guardianRuntimeNote,
+      group: '仓位上限',
+      key: 'position_limit_value',
+      label: '有效上限',
+      currentLabel: formatAmountWan(positionLimitSummary.effective_limit),
+      editor: 'position-limit-value',
+      statusLabel: positionLimitSummary.blocked ? '已阻断' : '允许',
+      note: [
+        `当前市值 ${formatAmountWan(positionLimitSummary.market_value)}`,
+        `默认 ${formatAmountWan(positionLimitSummary.default_limit)}`,
+      ].join(' / '),
     },
   ]
 }
@@ -326,6 +341,16 @@ export const buildDetailSummaryChips = (detail = {}) => {
       label: '持仓',
       value: `${positionQuantity} 股 / ${formatAmountWan(detail?.runtimeSummary?.position_amount)}`,
       tone: positionQuantity > 0 ? 'success' : 'muted',
+    },
+    {
+      key: 'position_limit',
+      label: '仓位上限',
+      value: `${formatAmountWan(detail?.positionLimitSummary?.effective_limit)} / ${formatPositionLimitSource(detail?.positionLimitSummary || {})}`,
+      tone: detail?.positionLimitSummary?.blocked
+        ? 'danger'
+        : detail?.positionLimitSummary?.using_override
+          ? 'warning'
+          : 'muted',
     },
     {
       key: 'guardian_enabled',
@@ -379,6 +404,9 @@ export const createSubjectManagementActions = (api) => ({
   },
   async saveMustPool (symbol, payload) {
     return api.saveMustPool(symbol, payload)
+  },
+  async savePositionLimit (symbol, payload) {
+    return api.saveSymbolPositionLimit(symbol, payload)
   },
   async saveGuardianBuyGrid (symbol, payload) {
     return api.saveGuardianBuyGrid(symbol, payload)

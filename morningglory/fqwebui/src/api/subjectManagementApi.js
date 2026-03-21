@@ -25,6 +25,16 @@ export const subjectManagementApi = {
       },
     })
   },
+  saveSymbolPositionLimit (symbol, payload) {
+    return http({
+      url: `/api/position-management/symbol-limits/${normalizeSymbol(symbol)}`,
+      method: 'post',
+      data: {
+        ...payload,
+        updated_by: 'web',
+      },
+    })
+  },
   saveGuardianBuyGrid (symbol, payload) {
     return http({
       url: `/api/subject-management/${normalizeSymbol(symbol)}/guardian-buy-grid`,

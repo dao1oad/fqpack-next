@@ -20,6 +20,10 @@ test('KlineSlim keeps overlay panels anchored to the chart content without side-
     source.includes('.kline-slim-chanlun-panel\n  right 12px'),
     true
   )
+  assert.equal(
+    source.includes('.kline-slim-subject-panel\n  left 12px'),
+    true
+  )
   assert.equal(source.includes('has-side-panel'), false)
 })
 
@@ -34,6 +38,10 @@ test('KlineSlim medium breakpoint keeps the flow layout and only narrows the pri
   )
   assert.equal(
     mediumLayoutBlock.includes('.kline-slim-price-panel\n    width 332px'),
+    true
+  )
+  assert.equal(
+    mediumLayoutBlock.includes('.kline-slim-subject-panel\n    width 372px'),
     true
   )
   assert.equal(mediumLayoutBlock.includes('has-side-panel'), false)

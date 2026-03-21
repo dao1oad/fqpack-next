@@ -42,6 +42,14 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
         last_hit_level: 'BUY-2',
         last_trigger_time: '2026-03-16T10:40:00+08:00',
       },
+      position_limit_summary: {
+        market_value: 123456,
+        default_limit: 800000,
+        override_limit: 500000,
+        effective_limit: 500000,
+        using_override: true,
+        blocked: false,
+      },
     },
   ])
 
@@ -52,6 +60,8 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
   assert.equal(rows[0].stoplossSummaryLabel, '2 / 5')
   assert.equal(rows[0].runtimeSummaryLabel.includes('12.35 万'), true)
   assert.equal(rows[0].runtimeSummaryLabel.includes('500'), true)
+  assert.equal(rows[0].positionLimitSummaryLabel.includes('50.00 万'), true)
+  assert.equal(rows[0].positionLimitSummaryLabel.includes('单独设置'), true)
 })
 
 test('buildDetailViewModel keeps right-panel fields and at least three takeprofit drafts', () => {
@@ -110,6 +120,14 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
       allow_open_min_bail: 800000,
       holding_only_min_bail: 100000,
     },
+    position_limit_summary: {
+      market_value: 123456,
+      default_limit: 800000,
+      override_limit: 500000,
+      effective_limit: 500000,
+      using_override: true,
+      blocked: false,
+    },
   })
 
   assert.equal(detail.symbol, '600000')
@@ -119,9 +137,11 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.equal(detail.takeprofitDrafts[1].price, null)
   assert.equal(detail.buyLots[0].stoplossLabel, '9.2')
   assert.equal(detail.positionManagementSummary.effective_state, 'HOLDING_ONLY')
+  assert.equal(detail.positionLimitSummary.effective_limit, 500000)
+  assert.equal(detail.positionLimitSummary.using_override, true)
 })
 
-test('buildDenseConfigRows flattens must-pool and guardian fields into one dense editor table', () => {
+test('buildDenseConfigRows flattens must-pool and symbol limit fields into one dense editor table', () => {
   const detail = buildDetailViewModel({
     subject: {
       symbol: '600000',
@@ -147,20 +167,28 @@ test('buildDenseConfigRows flattens must-pool and guardian fields into one dense
       last_hit_price: 9.88,
       last_hit_signal_time: '2026-03-16T10:40:00+08:00',
     },
+    position_limit_summary: {
+      market_value: 123456,
+      default_limit: 800000,
+      override_limit: 500000,
+      effective_limit: 500000,
+      using_override: true,
+      blocked: false,
+    },
   })
 
   const rows = buildDenseConfigRows(detail)
 
   assert.deepEqual(
     rows.map((row) => row.key),
-    ['category', 'stop_loss_price', 'initial_lot_amount', 'lot_amount', 'forever', 'guardian_enabled', 'buy_1', 'buy_2', 'buy_3'],
+    ['category', 'stop_loss_price', 'initial_lot_amount', 'lot_amount', 'forever', 'position_limit_mode', 'position_limit_value'],
   )
   assert.equal(rows[0].currentLabel, '银行')
   assert.equal(rows[1].group, '基础')
-  assert.equal(rows[5].group, 'Guardian')
-  assert.equal(rows[6].statusLabel, '当前 B1:开')
-  assert.equal(rows[7].statusLabel, '当前 B2:关')
-  assert.equal(rows[8].note.includes('BUY-2'), true)
+  assert.equal(rows[5].group, '仓位上限')
+  assert.equal(rows[5].statusLabel, '单独设置')
+  assert.equal(rows[6].currentLabel, '50.00 万')
+  assert.equal(rows[6].note.includes('当前市值'), true)
 })
 
 test('buildDenseConfigRows keeps category row bound to must-pool category instead of subject category', () => {
@@ -213,18 +241,27 @@ test('buildDetailSummaryChips compresses subject, runtime and pm state into head
     position_management_summary: {
       effective_state: 'HOLDING_ONLY',
     },
+    position_limit_summary: {
+      market_value: 123456,
+      default_limit: 800000,
+      override_limit: 500000,
+      effective_limit: 500000,
+      using_override: true,
+      blocked: false,
+    },
   })
 
   const chips = buildDetailSummaryChips(detail)
 
   assert.deepEqual(
     chips.map((chip) => chip.key),
-    ['category', 'must_pool', 'position_quantity', 'guardian_enabled', 'takeprofit_enabled_count', 'stoploss_active_count', 'pm_state'],
+    ['category', 'must_pool', 'position_quantity', 'position_limit', 'guardian_enabled', 'takeprofit_enabled_count', 'stoploss_active_count', 'pm_state'],
   )
   assert.equal(chips[1].value, '永久跟踪')
   assert.equal(chips[2].value, '500 股 / 12.35 万')
-  assert.equal(chips[4].value, '1 / 3')
-  assert.equal(chips[5].value, '1 / 2')
+  assert.equal(chips[3].value, '50.00 万 / 单独设置')
+  assert.equal(chips[5].value, '1 / 3')
+  assert.equal(chips[6].value, '1 / 2')
 })
 
 test('buildTakeprofitDrafts preserves existing tiers beyond level 3 while keeping first three visible', () => {
@@ -244,7 +281,7 @@ test('buildTakeprofitDrafts preserves existing tiers beyond level 3 while keepin
   )
 })
 
-test('createSubjectManagementActions calls subject, guardian, takeprofit and stoploss apis', async () => {
+test('createSubjectManagementActions calls subject, position-limit and stoploss apis', async () => {
   const calls = []
   const api = {
     async getOverview() {
@@ -264,14 +301,21 @@ test('createSubjectManagementActions calls subject, guardian, takeprofit and sto
         buy_lots: [],
         runtime_summary: {},
         position_management_summary: {},
+        position_limit_summary: {
+          effective_limit: 800000,
+          default_limit: 800000,
+          override_limit: null,
+          using_override: false,
+          blocked: false,
+        },
       }
     },
     async saveMustPool(symbol, payload) {
       calls.push(['saveMustPool', symbol, payload.category])
       return { symbol, ...payload }
     },
-    async saveGuardianBuyGrid(symbol, payload) {
-      calls.push(['saveGuardianBuyGrid', symbol, payload.buy_1])
+    async saveSymbolPositionLimit(symbol, payload) {
+      calls.push(['saveSymbolPositionLimit', symbol, payload.limit ?? null, !!payload.use_default])
       return { symbol, ...payload }
     },
     async saveTakeprofitProfile(symbol, payload) {
@@ -288,35 +332,35 @@ test('createSubjectManagementActions calls subject, guardian, takeprofit and sto
   const overview = await actions.loadOverview()
   const detail = await actions.loadSubjectDetail('600000')
   const mustPool = await actions.saveMustPool('600000', { category: '银行' })
-  const guardian = await actions.saveGuardianBuyGrid('600000', { buy_1: 10.2 })
-  const takeprofit = await actions.saveTakeprofit('600000', [
-    { level: 1, price: 10.8, manual_enabled: true },
-  ])
+  const positionLimit = await actions.savePositionLimit('600000', { limit: 500000 })
   const stoploss = await actions.saveStoploss('lot_1', { stop_price: 9.2, enabled: true })
 
   assert.equal(overview[0].symbol, '600000')
   assert.equal(detail.symbol, '600000')
   assert.equal(mustPool.category, '银行')
-  assert.equal(guardian.buy_1, 10.2)
-  assert.equal(takeprofit.symbol, '600000')
+  assert.equal(positionLimit.limit, 500000)
   assert.equal(stoploss.buy_lot_id, 'lot_1')
   assert.deepEqual(calls, [
     ['getOverview'],
     ['getDetail', '600000'],
     ['saveMustPool', '600000', '银行'],
-    ['saveGuardianBuyGrid', '600000', 10.2],
-    ['saveTakeprofitProfile', '600000', 1],
+    ['saveSymbolPositionLimit', '600000', 500000, false],
     ['bindStoploss', 'lot_1', 9.2, true],
   ])
 })
 
-test('SubjectManagement view uses dense table editor layout instead of form blocks', () => {
+test('SubjectManagement view uses symbol-limit editor layout and leaves guardian and takeprofit editing to kline-slim', () => {
   const source = fs.readFileSync(new URL('./SubjectManagement.vue', import.meta.url), 'utf8')
 
   assert.match(source, /subject-editor-summarybar/)
   assert.match(source, /subject-editor-table-panel/)
   assert.match(source, /subject-editor-config-table/)
   assert.match(source, /subject-editor-stoploss-table/)
+  assert.match(source, /基础配置 \+ 单标的仓位上限/)
+  assert.match(source, /仓位上限/)
+  assert.match(source, /positionLimitDraft/)
   assert.doesNotMatch(source, /subject-form-grid/)
   assert.doesNotMatch(source, /subject-runtime-grid/)
+  assert.doesNotMatch(source, /保存基础与 Guardian/)
+  assert.doesNotMatch(source, /保存止盈/)
 })

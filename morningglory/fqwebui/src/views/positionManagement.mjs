@@ -104,6 +104,9 @@ const numberFormatter = new Intl.NumberFormat('en-US', {
 const toText = (value) => String(value ?? '').trim()
 
 const toNumber = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
 }
@@ -210,7 +213,7 @@ export const readDashboardPayload = (response, fallback = {}) => {
     ) {
       return response.data
     }
-    if (response.config || response.state || response.recent_decisions) return response
+    if (Object.keys(response).length > 0) return response
   }
   return fallback
 }
@@ -305,6 +308,29 @@ export const buildHoldingScopeView = (dashboard = {}) => {
     source: toText(holdingScope?.source) || '-',
     description: toText(holdingScope?.description) || '当前无 holding scope 说明。',
   }
+}
+
+export const buildSymbolLimitRows = (dashboard = {}) => {
+  const payload = readDashboardPayload(dashboard)
+  const rows = Array.isArray(payload?.symbol_position_limits?.rows)
+    ? payload.symbol_position_limits.rows
+    : []
+  return [...rows]
+    .sort((left, right) => (
+      Number(Boolean(right?.using_override)) - Number(Boolean(left?.using_override)) ||
+      toText(left?.symbol).localeCompare(toText(right?.symbol))
+    ))
+    .map((row) => ({
+      ...row,
+      symbol: toText(row?.symbol) || '-',
+      name: toText(row?.name) || '-',
+      market_value_label: formatAmount(row?.market_value),
+      default_limit_label: formatAmount(row?.default_limit),
+      override_limit_label: formatAmount(row?.override_limit),
+      effective_limit_label: formatAmount(row?.effective_limit),
+      source_label: row?.using_override ? '单独设置' : '默认值',
+      blocked_label: row?.blocked ? '已阻断' : '允许',
+    }))
 }
 
 export const buildRuleMatrix = (dashboard = {}) => {
