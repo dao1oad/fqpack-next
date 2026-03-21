@@ -19,7 +19,10 @@ def test_current_docs_cover_host_runtime_dependency_drift() -> None:
     )
 
     assert "site-packages" in deployment_text
-    assert "resolve_stock_account() got an unexpected keyword argument 'settings_provider'" in troubleshooting_text
+    assert (
+        "resolve_stock_account() got an unexpected keyword argument 'settings_provider'"
+        in troubleshooting_text
+    )
     assert "fqxtrade" in troubleshooting_text
 
 

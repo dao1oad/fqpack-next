@@ -127,8 +127,9 @@ class XtAccountQueryClient:
             try:
                 return self.account_resolver(settings_provider=self.settings_provider)
             except TypeError as error:
-                if supports_settings_provider or not _is_legacy_settings_provider_type_error(
-                    error
+                if (
+                    supports_settings_provider
+                    or not _is_legacy_settings_provider_type_error(error)
                 ):
                     raise
         return self.account_resolver(
