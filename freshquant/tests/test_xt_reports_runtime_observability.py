@@ -339,6 +339,28 @@ def test_duplicate_order_snapshot_is_silent_in_runtime_observability():
     assert len(runtime_logger.events) == first_event_count
 
 
+def test_unknown_order_snapshot_is_ignored_in_runtime_observability():
+    runtime_logger = FakeRuntimeLogger()
+    repository = InMemoryRepository()
+    service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=OrderTrackingService(repository=repository),
+        runtime_logger=runtime_logger,
+    )
+
+    result = service.ingest_order_report(
+        {
+            "order_id": 99901,
+            "stock_code": "000001.SZ",
+            "order_time": 1710000000,
+            "order_status": 54,
+        }
+    )
+
+    assert result is None
+    assert runtime_logger.events == []
+
+
 def test_try_ingest_xt_trade_dict_emits_runtime_error_when_wrapper_catches_exception(
     monkeypatch,
 ):

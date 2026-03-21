@@ -2,6 +2,7 @@ import pytest
 
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.order_management.tracking.service import OrderTrackingService
+from freshquant.position_management.errors import PositionManagementRejectedError
 from freshquant.position_management.models import PositionDecision
 
 
@@ -91,6 +92,18 @@ class AllowingPositionService:
         )
 
 
+class RejectingPositionService:
+    def evaluate_strategy_order(self, payload, is_profitable=False):
+        return PositionDecision(
+            allowed=False,
+            state="HOLDING_ONLY",
+            reason_code="new_position_blocked",
+            reason_text="当前状态禁止策略开新仓",
+            decision_id="pmd_reject_1",
+            meta={"force_profit_reduce": False},
+        )
+
+
 def test_submit_order_emits_runtime_trace_steps():
     runtime_logger = FakeRuntimeLogger()
     repository = InMemoryRepository()
@@ -163,6 +176,49 @@ def test_submit_order_emits_runtime_error_when_queue_push_fails():
     assert error_event["intent_id"] == "int_queue_error"
     assert error_event["payload"]["error_type"] == "RuntimeError"
     assert error_event["payload"]["error_message"] == "queue unavailable"
+
+
+def test_submit_order_emits_failed_runtime_event_for_position_management_rejection():
+    runtime_logger = FakeRuntimeLogger()
+    repository = InMemoryRepository()
+    service = OrderSubmitService(
+        repository=repository,
+        queue_client=FakeQueueClient(),
+        position_management_service=RejectingPositionService(),
+        account_type_loader=lambda: "STOCK",
+        runtime_logger=runtime_logger,
+    )
+
+    with pytest.raises(
+        PositionManagementRejectedError,
+        match="position management rejected: new_position_blocked",
+    ):
+        service.submit_order(
+            {
+                "action": "buy",
+                "symbol": "000001",
+                "price": 10.0,
+                "quantity": 100,
+                "source": "strategy",
+                "strategy_name": "Guardian",
+                "trace_id": "trc_pm_reject",
+                "intent_id": "int_pm_reject",
+            }
+        )
+
+    assert [event["node"] for event in runtime_logger.events] == [
+        "intent_normalize",
+        "credit_mode_resolve",
+        "credit_mode_resolve",
+    ]
+    rejection_event = runtime_logger.events[-1]
+    assert rejection_event["status"] == "failed"
+    assert rejection_event["reason_code"] == "position_management_rejected"
+    assert rejection_event["trace_id"] == "trc_pm_reject"
+    assert rejection_event["intent_id"] == "int_pm_reject"
+    assert rejection_event["payload"]["reason"] == (
+        "position management rejected: new_position_blocked"
+    )
 
 
 def test_cancel_order_emits_runtime_trace_steps():
