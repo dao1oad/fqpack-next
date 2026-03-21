@@ -34,6 +34,7 @@ Runtime Observability 当前采用“双存储”：
 - `intent_id`
 - `request_id`
 - `internal_order_id`
+- `trace_kind`
 - `symbol`
 - `component`
 - `runtime_node`
@@ -133,6 +134,7 @@ Runtime Observability 当前采用“双存储”：
   - `/api/runtime/traces/<trace_key>`
   - 必要时 `/api/runtime/traces/<trace_key>/steps`
 - Event 与 Trace 列表都走分页 cursor
+- 全局 Trace 顶部的类型按钮会带 `trace_kind` 重新请求最新 Trace；不是在当前已加载列表上做本地筛选
 - 自动刷新只刷新摘要列表，不自动刷新已打开的 Trace detail
 - 页面内所有标的展示统一为 `symbol / symbol_name`
 - 写入 ClickHouse 与查询返回阶段都会优先复用现有 instrument lookup 补全 `symbol_name`

@@ -216,6 +216,49 @@ def test_runtime_traces_route_returns_summary_page(monkeypatch):
     assert body["next_cursor"]["trace_key"] == "trace__trc_0"
 
 
+def test_runtime_traces_route_passes_trace_kind_filter(monkeypatch):
+    class _TraceKindService(_FakeRuntimeQueryService):
+        def list_traces(self, **kwargs):
+            assert kwargs["filters"]["trace_kind"] == "takeprofit"
+            assert kwargs["limit"] == 1
+            return {
+                "items": [
+                    {
+                        "trace_key": "trace__tp_1",
+                        "trace_id": "tp_1",
+                        "trace_kind": "takeprofit",
+                        "trace_status": "completed",
+                        "break_reason": "",
+                        "first_ts": "2026-03-20T10:00:00+08:00",
+                        "last_ts": "2026-03-20T10:00:01+08:00",
+                        "duration_ms": 1000,
+                        "entry_component": "tpsl_worker",
+                        "entry_node": "submit_intent",
+                        "exit_component": "broker_gateway",
+                        "exit_node": "submit_result",
+                        "step_count": 2,
+                        "issue_count": 0,
+                        "symbol": "000001",
+                        "symbol_name": "平安银行",
+                        "intent_ids": [],
+                        "request_ids": [],
+                        "internal_order_ids": [],
+                    }
+                ],
+                "next_cursor": None,
+            }
+
+    service = _TraceKindService()
+    _patch_runtime_query_service(monkeypatch, service)
+    client = _make_runtime_client()
+
+    resp = client.get("/api/runtime/traces?trace_kind=takeprofit&limit=1")
+
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["items"][0]["trace_kind"] == "takeprofit"
+
+
 def test_runtime_trace_detail_route_returns_summary_and_first_step_page(monkeypatch):
     service = _FakeRuntimeQueryService()
     _patch_runtime_query_service(monkeypatch, service)

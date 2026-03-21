@@ -33,6 +33,18 @@
                 active-text="仅异常"
                 inactive-text="全部"
               />
+              <div v-if="activeView === 'traces'" class="runtime-trace-kind-actions">
+                <el-button
+                  v-for="option in traceKindOptions"
+                  :key="option.value"
+                  size="small"
+                  :type="selectedTraceKind === option.value ? 'primary' : 'default'"
+                  :plain="selectedTraceKind !== option.value"
+                  @click="handleTraceKindClick(option.value)"
+                >
+                  {{ option.label }}
+                </el-button>
+              </div>
               <el-button @click="openAdvancedFilter">高级筛选</el-button>
               <el-button type="primary" :loading="loading.overview" @click="loadOverview">刷新</el-button>
             </div>
@@ -159,17 +171,9 @@
               <div class="runtime-home-head">
                 <div>
                   <h2>全局 Trace</h2>
-                  <p>主表直接展示链路类型、中文节点路径和断裂原因，并支持按 kind 快速筛选。</p>
+                  <p>主表直接展示链路类型、中文节点路径和断裂原因，并支持按类型重新加载最新 Trace。</p>
                 </div>
                 <div class="runtime-home-actions">
-                  <el-select v-model="selectedTraceKind" size="small" class="runtime-kind-filter">
-                    <el-option
-                      v-for="option in traceKindOptions"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
                   <span class="runtime-home-meta">当前显示 {{ traceLedgerRows.length }} 条</span>
                 </div>
               </div>
@@ -938,12 +942,10 @@ import {
   filterTracesByIssueComponent,
   findTraceByRow,
   findRawRecordIndex,
-  filterTracesByKind,
   filterTraceSteps,
   pickTraceAnchorStep,
   hasMatchingRawSelection,
   pickDefaultSidebarComponent,
-  pickDefaultTraceKind,
   pickDefaultTraceStep,
   readApiPayload,
   stopPollingTimer,
@@ -984,7 +986,7 @@ const activeView = ref('traces')
 const onlyIssues = ref(false)
 const autoRefresh = ref(true)
 const advancedFilterVisible = ref(false)
-const selectedTraceKind = ref('')
+const selectedTraceKind = ref('all')
 const activeTraceDetailTab = ref('steps')
 const activeEventDetailTab = ref('event')
 const rawDrawerVisible = ref(false)
@@ -1145,6 +1147,9 @@ const normalizeTimeRangeState = (value) => {
 
 const buildTraceRequestParams = () => ({
   ...buildTraceQuery(query, timeRange.value),
+  ...(selectedTraceKind.value && selectedTraceKind.value !== 'all'
+    ? { trace_kind: selectedTraceKind.value }
+    : {}),
   include_symbol_name: 1,
   limit: TRACE_PAGE_SIZE,
 })
@@ -1163,9 +1168,8 @@ const visibleTraces = computed(() => {
   const issueFocused = traceIssueFocus.component
     ? filterTracesByIssueComponent(hydratedTraces.value, traceIssueFocus.component)
     : hydratedTraces.value
-  const kindFiltered = filterTracesByKind(issueFocused, selectedTraceKind.value)
-  if (!onlyIssues.value) return kindFiltered
-  return kindFiltered.filter((trace) => trace.issue_count > 0)
+  if (!onlyIssues.value) return issueFocused
+  return issueFocused.filter((trace) => trace.issue_count > 0)
 })
 const traceKindOptions = computed(() => buildTraceKindOptions(hydratedTraces.value))
 const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
@@ -2048,6 +2052,12 @@ const handleTimeRangeChange = async (value) => {
   await loadOverview()
 }
 
+const handleTraceKindClick = async (kind) => {
+  const normalizedKind = String(kind || '').trim() || 'all'
+  selectedTraceKind.value = normalizedKind
+  await loadTraces()
+}
+
 const handleComponentFilter = (target) => {
   const normalizedComponent =
     typeof target === 'string'
@@ -2060,24 +2070,28 @@ const handleComponentFilter = (target) => {
   activeView.value = 'events'
 }
 
-const handleSummaryJump = (target) => {
+const handleSummaryJump = async (target) => {
   if (target === 'issue-traces' && traceListSummary.value.issue_trace_count <= 0) return
   if (target === 'issue-steps' && traceListSummary.value.issue_step_count <= 0) return
   traceIssueFocus.component = ''
-  selectedTraceKind.value = 'all'
   onlyIssues.value = true
   activeView.value = 'traces'
   activeTraceDetailTab.value = 'steps'
+  if (selectedTraceKind.value !== 'all') {
+    await handleTraceKindClick('all')
+  }
 }
 
-const handleComponentIssueTraceJump = (item) => {
+const handleComponentIssueTraceJump = async (item) => {
   const normalizedComponent = String(item?.component || '').trim()
   if (!normalizedComponent || Number(item?.issue_trace_count || 0) <= 0) return
   traceIssueFocus.component = normalizedComponent
-  selectedTraceKind.value = 'all'
   onlyIssues.value = true
   activeView.value = 'traces'
   activeTraceDetailTab.value = 'steps'
+  if (selectedTraceKind.value !== 'all') {
+    await handleTraceKindClick('all')
+  }
 }
 
 const handleComponentIssueEventJump = (item) => {
@@ -2097,7 +2111,7 @@ const clearFilterChip = async (chip) => {
     return
   }
   if (chip.kind === 'trace-kind') {
-    selectedTraceKind.value = 'all'
+    await handleTraceKindClick('all')
     return
   }
   if (chip.kind === 'trace-issue-focus') {
@@ -2356,10 +2370,6 @@ watch(componentEventFeed, (items) => {
   selectedEvent.value = items.find((item) => item.key === currentKey) || items[0] || null
 }, { immediate: true })
 
-watch(hydratedTraces, (items) => {
-  selectedTraceKind.value = pickDefaultTraceKind(items, selectedTraceKind.value)
-}, { immediate: true })
-
 watch(componentSidebarItems, (items) => {
   if (items.length === 0) {
     boardFilter.component = ''
@@ -2509,6 +2519,13 @@ onBeforeUnmount(() => {
   margin-right: 4px;
 }
 
+.runtime-trace-kind-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
 .runtime-summary-row {
   justify-content: space-between;
 }
@@ -2597,10 +2614,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.runtime-kind-filter {
-  width: 160px;
 }
 
 .runtime-browse-layout {

@@ -425,6 +425,27 @@ def test_clickhouse_store_list_traces_backfills_symbol_name_for_legacy_rows(
     assert payload["items"][0]["symbol_name"] == "平安银行"
 
 
+def test_clickhouse_store_list_traces_accepts_trace_kind_filter(monkeypatch):
+    from freshquant.runtime_observability.clickhouse_store import (
+        RuntimeObservabilityClickHouseStore,
+    )
+
+    store = RuntimeObservabilityClickHouseStore(base_url="http://clickhouse.test")
+    queries = []
+
+    def _fake_select_rows(query: str):
+        queries.append(query)
+        return []
+
+    monkeypatch.setattr(store, "ensure_schema", lambda: None)
+    monkeypatch.setattr(store, "_select_rows", _fake_select_rows)
+
+    payload = store.list_traces(filters={"trace_kind": "takeprofit"}, limit=1)
+
+    assert payload["items"] == []
+    assert "trace_kind = 'takeprofit'" in queries[0]
+
+
 def test_clickhouse_store_health_summary_preserves_missing_heartbeat_as_null(
     monkeypatch,
 ):

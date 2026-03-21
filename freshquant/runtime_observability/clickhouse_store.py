@@ -650,6 +650,7 @@ def _build_trace_summary_query(
     trace_key: str = "",
 ) -> str:
     matched_filters = dict(filters or {})
+    trace_kind_filter = _normalized_text(matched_filters.pop("trace_kind", ""))
     if trace_key:
         matched_filters["session_key"] = trace_key
     matched_conditions = _build_where_conditions(
@@ -662,6 +663,11 @@ def _build_trace_summary_query(
         start_time=start_time,
         end_time=end_time,
         include_session_key=True,
+    )
+    having_clause = (
+        f"\n    HAVING trace_kind = {_sql_string(trace_kind_filter)}"
+        if trace_kind_filter
+        else ""
     )
     return f"""
     SELECT
@@ -715,6 +721,7 @@ def _build_trace_summary_query(
     )
       AND {outer_conditions}
     GROUP BY session_key
+    {having_clause}
     """
 
 
