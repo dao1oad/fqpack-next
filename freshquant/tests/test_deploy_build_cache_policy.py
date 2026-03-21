@@ -88,6 +88,13 @@ def test_dagster_config_sync_overwrites_existing_files() -> None:
     )
 
 
+def test_dagster_services_override_container_home_paths() -> None:
+    text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
+
+    assert text.count("DAGSTER_HOME: /opt/dagster/home") >= 2
+    assert text.count("FRESHQUANT_DAGSTER__HOME: /opt/dagster/home") >= 2
+
+
 def test_docker_images_workflow_publishes_to_ghcr() -> None:
     text = Path(".github/workflows/docker-images.yml").read_text(encoding="utf-8")
 
