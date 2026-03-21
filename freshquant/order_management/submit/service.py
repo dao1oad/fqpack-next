@@ -122,9 +122,30 @@ class OrderSubmitService:
                     )
                 )
                 if not position_decision.allowed:
-                    raise PositionManagementRejectedError(
+                    rejection_reason = (
                         f"position management rejected: {position_decision.reason_code}"
                     )
+                    self._emit_runtime(
+                        current_node,
+                        payload=payload,
+                        action=action,
+                        symbol=symbol,
+                        status="failed",
+                        reason_code="position_management_rejected",
+                        extra_payload={
+                            "reason": rejection_reason,
+                            "position_management_state": position_decision.state,
+                            "position_management_reason_code": (
+                                position_decision.reason_code
+                            ),
+                            "position_management_decision_id": (
+                                position_decision.decision_id
+                            ),
+                        },
+                    )
+                    exc = PositionManagementRejectedError(rejection_reason)
+                    mark_exception_emitted(exc)
+                    raise exc
 
             current_node = "tracking_create"
             request_id = self.tracking_service.submit_order(

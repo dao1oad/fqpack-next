@@ -335,6 +335,8 @@ def normalize_xt_order_report(report, repository=None):
             repository.find_order(internal_order_id) if repository is not None else None
         )
     if internal_order_id is None:
+        if repository is not None:
+            return None
         internal_order_id = str(broker_order_id)
         order = None
 

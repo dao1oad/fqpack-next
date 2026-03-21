@@ -303,6 +303,22 @@ def test_normalize_xt_order_report_maps_broker_order_back_to_internal_order():
     assert normalized["state"] == "CANCELED"
 
 
+def test_normalize_xt_order_report_returns_none_for_unknown_broker_order():
+    repository = InMemoryRepository()
+
+    normalized = normalize_xt_order_report(
+        {
+            "order_id": 89991,
+            "stock_code": "000001.SZ",
+            "order_time": 1710000000,
+            "order_status": 54,
+        },
+        repository=repository,
+    )
+
+    assert normalized is None
+
+
 def test_normalize_xt_order_report_keeps_cancel_requested_state_for_pending_cancel():
     normalized = normalize_xt_order_report(
         {

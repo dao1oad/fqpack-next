@@ -49,6 +49,8 @@
 
 `submit / ingest / reconcile` 当前要求在 unexpected exception 时，直接在当前 runtime node 发 `status=error`、`reason_code=unexpected_exception` 的 trace step，而不是只记日志或靠下游兜底。这样全局 Trace 会停在真实失败节点，并保留 `payload.error_type/error_message`。
 
+策略单若在下单前被仓位管理门禁拒绝，`OrderSubmitService` 当前会在 `credit_mode_resolve` 发出 `status=failed`、`reason_code=position_management_rejected` 的 runtime step，并继续向上抛 `PositionManagementRejectedError`。
+
 ### 撤单
 
 `cancel_order -> internal_order_id 校验 -> cancel queue payload -> broker`
@@ -66,6 +68,8 @@
 `om_trade_facts` 当前会保留 `trade_time` 以及同一笔成交对应的 `date/time`；旧的 `external_inferred` 历史 lot / slice 如果缺少 `date/time`，投影读取时会按已有 `trade_time` 回填，避免 Guardian 和持仓视图在消费投影时拿到 `None/None`。
 
 如果 XT callback 在进入标准 ingest 前就抛异常，`try_ingest_xt_trade_dict` / `try_ingest_xt_order_dict` 现在也会在 `xt_report_ingest.report_receive` 发出异常 step，不再只留下普通日志后直接吞掉。
+
+XT `order callback` 若只带 `broker_order_id` 且无法命中内部订单，当前会在归一化阶段直接忽略；外部单仍通过 `reconcile_trade_report` 或 `reconcile_account -> externalize` 正式落账。
 
 ### 对账
 
