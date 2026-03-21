@@ -223,6 +223,7 @@ def _request_filters() -> dict:
         "request_id",
         "internal_order_id",
         "intent_id",
+        "trace_kind",
         "symbol",
         "component",
         "event_type",

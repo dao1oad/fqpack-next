@@ -33,6 +33,18 @@
                 active-text="仅异常"
                 inactive-text="全部"
               />
+              <div v-if="activeView === 'traces'" class="runtime-trace-kind-actions">
+                <el-button
+                  v-for="option in traceKindOptions"
+                  :key="option.value"
+                  size="small"
+                  :type="selectedTraceKind === option.value ? 'primary' : 'default'"
+                  :plain="selectedTraceKind !== option.value"
+                  @click="handleTraceKindClick(option.value)"
+                >
+                  {{ option.label }}
+                </el-button>
+              </div>
               <el-button @click="openAdvancedFilter">高级筛选</el-button>
               <el-button type="primary" :loading="loading.overview" @click="loadOverview">刷新</el-button>
             </div>
@@ -137,17 +149,9 @@
               <div class="runtime-home-head">
                 <div>
                   <h2>全局 Trace</h2>
-                  <p>主表直接展示链路类型、中文节点路径和断裂原因，并支持按 kind 快速筛选。</p>
+                  <p>主表直接展示链路类型、中文节点路径和断裂原因，并支持按类型重新加载最新 Trace。</p>
                 </div>
                 <div class="runtime-home-actions">
-                  <el-select v-model="selectedTraceKind" size="small" class="runtime-kind-filter">
-                    <el-option
-                      v-for="option in traceKindOptions"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
                   <span class="runtime-home-meta">当前显示 {{ traceLedgerRows.length }} 条</span>
                 </div>
               </div>
@@ -906,11 +910,9 @@ import {
   createTraceQueryState,
   findTraceByRow,
   findRawRecordIndex,
-  filterTracesByKind,
   filterTraceSteps,
   hasMatchingRawSelection,
   pickDefaultSidebarComponent,
-  pickDefaultTraceKind,
   pickDefaultTraceStep,
   readApiPayload,
   stopPollingTimer,
@@ -951,7 +953,7 @@ const activeView = ref('traces')
 const onlyIssues = ref(false)
 const autoRefresh = ref(true)
 const advancedFilterVisible = ref(false)
-const selectedTraceKind = ref('')
+const selectedTraceKind = ref('all')
 const activeTraceDetailTab = ref('steps')
 const activeEventDetailTab = ref('event')
 const rawDrawerVisible = ref(false)
@@ -1108,6 +1110,9 @@ const normalizeTimeRangeState = (value) => {
 
 const buildTraceRequestParams = () => ({
   ...buildTraceQuery(query, timeRange.value),
+  ...(selectedTraceKind.value && selectedTraceKind.value !== 'all'
+    ? { trace_kind: selectedTraceKind.value }
+    : {}),
   include_symbol_name: 1,
   limit: TRACE_PAGE_SIZE,
 })
@@ -1123,9 +1128,8 @@ const timeRangeDisplayLabel = computed(() => formatTimeRangeLabel(timeRange.valu
 
 const hydratedTraces = computed(() => traces.value.map((trace) => buildTraceDetail(trace)))
 const visibleTraces = computed(() => {
-  const kindFiltered = filterTracesByKind(hydratedTraces.value, selectedTraceKind.value)
-  if (!onlyIssues.value) return kindFiltered
-  return kindFiltered.filter((trace) => trace.issue_count > 0)
+  if (!onlyIssues.value) return hydratedTraces.value
+  return hydratedTraces.value.filter((trace) => trace.issue_count > 0)
 })
 const traceKindOptions = computed(() => buildTraceKindOptions(hydratedTraces.value))
 const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
@@ -1992,6 +1996,12 @@ const handleTimeRangeChange = async (value) => {
   await loadOverview()
 }
 
+const handleTraceKindClick = async (kind) => {
+  const normalizedKind = String(kind || '').trim() || 'all'
+  selectedTraceKind.value = normalizedKind
+  await loadTraces()
+}
+
 const handleComponentFilter = (target) => {
   const normalizedComponent =
     typeof target === 'string'
@@ -2010,7 +2020,7 @@ const clearFilterChip = async (chip) => {
     return
   }
   if (chip.kind === 'trace-kind') {
-    selectedTraceKind.value = 'all'
+    await handleTraceKindClick('all')
     return
   }
   if (chip.kind === 'query' && chip.field) {
@@ -2237,10 +2247,6 @@ watch(componentEventFeed, (items) => {
   selectedEvent.value = items.find((item) => item.key === currentKey) || items[0] || null
 }, { immediate: true })
 
-watch(hydratedTraces, (items) => {
-  selectedTraceKind.value = pickDefaultTraceKind(items, selectedTraceKind.value)
-}, { immediate: true })
-
 watch(componentSidebarItems, (items) => {
   if (items.length === 0) {
     boardFilter.component = ''
@@ -2376,6 +2382,13 @@ onBeforeUnmount(() => {
   margin-right: 4px;
 }
 
+.runtime-trace-kind-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
 .runtime-summary-row {
   justify-content: space-between;
 }
@@ -2451,10 +2464,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.runtime-kind-filter {
-  width: 160px;
 }
 
 .runtime-browse-layout {
