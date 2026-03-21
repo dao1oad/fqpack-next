@@ -993,24 +993,53 @@ test('buildTraceKindOptions returns chinese labels for available trace kinds', (
     { value: 'all', label: '全部链路' },
     { value: 'guardian_signal', label: 'Guardian 信号' },
     { value: 'takeprofit', label: '止盈链路' },
+    { value: 'stoploss', label: '止损链路' },
+    { value: 'external_reported', label: '外部上报' },
+    { value: 'external_inferred', label: '外部推断' },
+    { value: 'manual_api_order', label: '手动下单' },
+    { value: 'unknown', label: '未知链路' },
   ])
 })
 
-test('pickDefaultTraceKind prefers guardian traces and falls back to all when unavailable', () => {
+test('pickDefaultTraceKind keeps a valid current kind and otherwise falls back to all', () => {
+  assert.equal(
+    pickDefaultTraceKind([
+      { trace_id: 'trc_guardian', trace_kind: 'guardian_signal', steps: [] },
+      { trace_id: 'trc_takeprofit', trace_kind: 'takeprofit', steps: [] },
+    ], 'takeprofit'),
+    'takeprofit',
+  )
+
   assert.equal(
     pickDefaultTraceKind([
       { trace_id: 'trc_guardian', trace_kind: 'guardian_signal', steps: [] },
       { trace_id: 'trc_takeprofit', trace_kind: 'takeprofit', steps: [] },
     ]),
-    'guardian_signal',
+    'all',
   )
 
   assert.equal(
     pickDefaultTraceKind([
       { trace_id: 'trc_takeprofit', trace_kind: 'takeprofit', steps: [] },
-    ]),
-    'all',
+    ], 'stoploss'),
+    'stoploss',
   )
+})
+
+test('RuntimeObservability.vue reloads traces from the server when a trace-kind button is clicked', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<div v-if="activeView === 'traces'" class="runtime-trace-kind-actions">[\s\S]*v-for="option in traceKindOptions"[\s\S]*@click="handleTraceKindClick\(option.value\)"/)
+  assert.match(content, /const buildTraceRequestParams = \(\) => \(\{[\s\S]*buildTraceQuery\(query,\s*timeRange\.value\)[\s\S]*selectedTraceKind\.value && selectedTraceKind\.value !== 'all'[\s\S]*trace_kind:\s*selectedTraceKind\.value[\s\S]*\}\)/)
+  assert.match(content, /const handleTraceKindClick = async \(kind\) => \{[\s\S]*selectedTraceKind\.value = normalizedKind[\s\S]*await loadTraces\(\)/)
+  assert.match(content, /if \(chip\.kind === 'trace-kind'\) \{[\s\S]*await handleTraceKindClick\('all'\)/)
+})
+
+test('RuntimeObservability.vue uses trace-kind buttons instead of a trace-kind select dropdown', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(content, /<el-select v-model="selectedTraceKind"/)
+  assert.doesNotMatch(content, /pickDefaultTraceKind/)
 })
 
 test('RuntimeObservability.vue scopes event reloads with the active sidebar component', async () => {
@@ -2005,9 +2034,7 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /<section v-show="activeTraceDetailTab === 'steps'" class="runtime-detail-panel runtime-detail-panel--steps">/)
   assert.match(content, /buildTraceLedgerRows/)
   assert.match(content, /buildTraceStepLedgerRows/)
-  assert.match(content, /v-model="selectedTraceKind"/)
   assert.match(content, /traceKindOptions/)
-  assert.match(content, /pickDefaultTraceKind/)
   assert.match(content, /<span>标的<\/span>/)
   assert.match(content, /row\.symbol_display/)
   assert.match(content, /value: selectedTraceDetail\.value\.symbol_display/)
