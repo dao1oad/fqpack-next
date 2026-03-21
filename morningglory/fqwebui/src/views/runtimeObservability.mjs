@@ -1345,9 +1345,33 @@ export const filterTraceSteps = (steps = [], options = {}) => {
   return (steps || []).filter((step) => !onlyIssues || step?.is_issue)
 }
 
+const resolveStepIndex = (step = {}) => (Number.isFinite(step?.index) ? Number(step.index) : null)
+
 export const pickDefaultTraceStep = (steps = []) => {
   const normalized = Array.isArray(steps) ? steps : []
   return normalized.find((step) => step?.is_issue) || normalized[0] || null
+}
+
+export const pickTraceAnchorStep = (detail = {}, currentStep = null, mode = 'first-issue') => {
+  const steps = Array.isArray(detail?.steps) ? detail.steps : []
+  if (steps.length === 0) return null
+  if (mode === 'slowest-step') {
+    return [...steps]
+      .filter((step) => Number.isFinite(step?.delta_from_prev_ms))
+      .sort((left, right) => Number(right?.delta_from_prev_ms || 0) - Number(left?.delta_from_prev_ms || 0))[0] || null
+  }
+  const issueSteps = steps.filter((step) => step?.is_issue)
+  if (issueSteps.length === 0) return null
+  if (mode === 'first-issue') return issueSteps[0]
+  const currentIndex = resolveStepIndex(currentStep)
+  if (currentIndex === null) return issueSteps[0]
+  if (mode === 'previous-issue') {
+    return [...issueSteps].reverse().find((step) => resolveStepIndex(step) < currentIndex) || null
+  }
+  if (mode === 'next-issue') {
+    return issueSteps.find((step) => resolveStepIndex(step) > currentIndex) || null
+  }
+  return null
 }
 
 export const buildTraceSummaryMeta = (detail = {}) => {
@@ -1590,6 +1614,23 @@ export const applyBoardFilter = (traces = [], filter = {}) => {
   return normalizeTraces(traces).filter((trace) =>
     Array.isArray(trace?.steps) && trace.steps.some((step) => stepMatchesBoardFilter(step, filter)),
   )
+}
+
+export const filterTracesByIssueComponent = (traces = [], component = '') => {
+  const normalizedComponent = toText(component)
+  if (!normalizedComponent) return normalizeTraces(traces)
+  return normalizeTraces(traces).filter((trace) => {
+    const detail = buildTraceDetail(trace)
+    if (detail.steps.length > 0) {
+      return detail.steps.some(
+        (step) => step?.is_issue && toText(step?.component) === normalizedComponent,
+      )
+    }
+    if (Number(detail?.issue_count || 0) <= 0) return false
+    return (Array.isArray(detail?.affected_components) ? detail.affected_components : [])
+      .map((item) => toText(item))
+      .includes(normalizedComponent)
+  })
 }
 
 export const buildComponentBoard = (traces = [], components = []) => {

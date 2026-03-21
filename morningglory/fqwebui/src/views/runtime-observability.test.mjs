@@ -24,6 +24,7 @@ import {
   buildIssueSummary,
   buildRawRecordSummary,
   buildRecentTraceFeed,
+  filterTracesByIssueComponent,
   buildTraceLedgerRows,
   buildTraceStepLedgerRows,
   buildTraceSummaryMeta,
@@ -41,6 +42,7 @@ import {
   formatTimeRangeLabel,
   groupStepsByComponent,
   hasMatchingRawSelection,
+  pickTraceAnchorStep,
   pickDefaultSidebarComponent,
   pickDefaultTraceKind,
   pickDefaultTraceStep,
@@ -2016,6 +2018,77 @@ test('buildTraceListSummary respects already filtered component slices', () => {
   ])
 })
 
+test('filterTracesByIssueComponent keeps only traces where the target component actually raised issues', () => {
+  const traces = [
+    {
+      trace_id: 'trc_guardian_issue',
+      steps: [
+        { component: 'guardian_strategy', node: 'receive_signal', status: 'warning' },
+        { component: 'order_submit', node: 'queue_write', status: 'success' },
+      ],
+    },
+    {
+      trace_id: 'trc_guardian_clean',
+      steps: [
+        { component: 'guardian_strategy', node: 'receive_signal', status: 'success' },
+        { component: 'order_submit', node: 'submit_result', status: 'failed' },
+      ],
+    },
+    {
+      trace_id: 'trc_summary_only',
+      issue_count: 3,
+      affected_components: ['guardian_strategy'],
+      steps: [],
+    },
+  ]
+
+  assert.deepEqual(
+    filterTracesByIssueComponent(traces, 'guardian_strategy').map((trace) => trace.trace_id),
+    ['trc_guardian_issue', 'trc_summary_only'],
+  )
+  assert.deepEqual(
+    filterTracesByIssueComponent(traces, 'order_submit').map((trace) => trace.trace_id),
+    ['trc_guardian_clean'],
+  )
+})
+
+test('pickTraceAnchorStep locates first previous next issue steps and the slowest step', () => {
+  const detail = buildTraceDetail({
+    steps: [
+      {
+        component: 'guardian_strategy',
+        node: 'receive_signal',
+        status: 'info',
+        ts: '2026-03-09T10:00:00+08:00',
+      },
+      {
+        component: 'guardian_strategy',
+        node: 'price_threshold_check',
+        status: 'warning',
+        ts: '2026-03-09T10:00:00.500+08:00',
+      },
+      {
+        component: 'order_submit',
+        node: 'queue_write',
+        status: 'success',
+        ts: '2026-03-09T10:00:01.100+08:00',
+      },
+      {
+        component: 'broker_gateway',
+        node: 'submit_result',
+        status: 'failed',
+        ts: '2026-03-09T10:00:02.500+08:00',
+      },
+    ],
+  })
+
+  assert.equal(pickTraceAnchorStep(detail, null, 'first-issue')?.index, 1)
+  assert.equal(pickTraceAnchorStep(detail, detail.steps[2], 'previous-issue')?.index, 1)
+  assert.equal(pickTraceAnchorStep(detail, detail.steps[2], 'next-issue')?.index, 3)
+  assert.equal(pickTraceAnchorStep(detail, detail.steps[3], 'next-issue'), null)
+  assert.equal(pickTraceAnchorStep(detail, detail.steps[0], 'slowest-step')?.index, 3)
+})
+
 test('runtime observability trace mode uses dense ledger layout instead of trace feed cards', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
@@ -2035,6 +2108,15 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /buildTraceLedgerRows/)
   assert.match(content, /buildTraceStepLedgerRows/)
   assert.match(content, /traceKindOptions/)
+  assert.match(content, /handleSummaryJump\('issue-traces'\)/)
+  assert.match(content, /handleSummaryJump\('issue-steps'\)/)
+  assert.match(content, /handleComponentIssueTraceJump\(item\)/)
+  assert.match(content, /handleComponentIssueEventJump\(item\)/)
+  assert.match(content, /trace-ledger-toolbar__actions/)
+  assert.match(content, /首个异常/)
+  assert.match(content, /上一个异常/)
+  assert.match(content, /下一个异常/)
+  assert.match(content, /最慢节点/)
   assert.match(content, /<span>标的<\/span>/)
   assert.match(content, /row\.symbol_display/)
   assert.match(content, /value: selectedTraceDetail\.value\.symbol_display/)

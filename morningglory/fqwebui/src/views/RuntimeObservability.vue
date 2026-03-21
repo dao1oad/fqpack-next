@@ -64,12 +64,22 @@
           <span class="workbench-summary-chip">
             可见 Trace <strong>{{ traceListSummary.trace_count }}</strong>
           </span>
-          <span class="workbench-summary-chip workbench-summary-chip--warning">
+          <button
+            type="button"
+            class="workbench-summary-chip workbench-summary-chip--warning runtime-summary-chip-button"
+            :class="{ 'is-disabled': traceListSummary.issue_trace_count === 0 }"
+            @click="handleSummaryJump('issue-traces')"
+          >
             异常链路 <strong>{{ traceListSummary.issue_trace_count }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--danger">
+          </button>
+          <button
+            type="button"
+            class="workbench-summary-chip workbench-summary-chip--danger runtime-summary-chip-button"
+            :class="{ 'is-disabled': traceListSummary.issue_step_count === 0 }"
+            @click="handleSummaryJump('issue-steps')"
+          >
             异常节点 <strong>{{ traceListSummary.issue_step_count }}</strong>
-          </span>
+          </button>
           <span v-if="timeRangeDisplayLabel" class="workbench-summary-chip workbench-summary-chip--muted">
             展示范围 <strong>{{ timeRangeDisplayLabel }}</strong>
           </span>
@@ -104,10 +114,9 @@
           </div>
 
           <div class="component-symbol-list">
-            <button
+            <div
               v-for="item in componentSidebarItems"
               :key="item.component"
-              type="button"
               class="component-symbol-card"
               :class="{ active: activeComponent === item.component }"
               @click="handleComponentFilter(item.component)"
@@ -129,9 +138,22 @@
                 <span class="workbench-summary-chip workbench-summary-chip--muted">
                   Trace {{ item.trace_count }}
                 </span>
-                <span class="workbench-summary-chip workbench-summary-chip--warning">
-                  异常 {{ item.issue_trace_count }}/{{ item.issue_step_count }}
-                </span>
+                <button
+                  type="button"
+                  class="workbench-summary-chip workbench-summary-chip--warning component-symbol-card__action"
+                  :class="{ 'is-disabled': item.issue_trace_count === 0 }"
+                  @click.stop="handleComponentIssueTraceJump(item)"
+                >
+                  异常链路 {{ item.issue_trace_count }}
+                </button>
+                <button
+                  type="button"
+                  class="workbench-summary-chip workbench-summary-chip--danger component-symbol-card__action"
+                  :class="{ 'is-disabled': item.issue_step_count === 0 }"
+                  @click.stop="handleComponentIssueEventJump(item)"
+                >
+                  异常节点 {{ item.issue_step_count }}
+                </button>
               </div>
 
               <div class="component-symbol-card__foot">
@@ -140,7 +162,7 @@
                   {{ item.runtime_details[0]?.runtime_node || '-' }}
                 </span>
               </div>
-            </button>
+            </div>
           </div>
         </aside>
 
@@ -362,8 +384,16 @@
 
             <section v-show="activeTraceDetailTab === 'steps'" class="runtime-detail-panel runtime-detail-panel--steps">
               <div class="trace-ledger-toolbar">
-                <span>{{ onlyIssues ? '仅显示异常节点' : '显示全部节点' }}</span>
-                <span>可见 {{ traceStepLedgerRows.length }} / {{ selectedTraceDetail.step_count }}</span>
+                <div class="trace-ledger-toolbar__meta">
+                  <span>{{ onlyIssues ? '仅显示异常节点' : '显示全部节点' }}</span>
+                  <span>可见 {{ traceStepLedgerRows.length }} / {{ selectedTraceDetail.step_count }}</span>
+                </div>
+                <div class="trace-ledger-toolbar__actions">
+                  <el-button text size="small" :disabled="!firstIssueTraceStep" @click="handleTraceAnchorJump('first-issue')">首个异常</el-button>
+                  <el-button text size="small" :disabled="!previousIssueTraceStep" @click="handleTraceAnchorJump('previous-issue')">上一个异常</el-button>
+                  <el-button text size="small" :disabled="!nextIssueTraceStep" @click="handleTraceAnchorJump('next-issue')">下一个异常</el-button>
+                  <el-button text size="small" :disabled="!slowestTraceStep" @click="handleTraceAnchorJump('slowest-step')">最慢节点</el-button>
+                </div>
               </div>
 
               <div v-if="traceStepLedgerRows.length" class="trace-step-ledger">
@@ -383,6 +413,7 @@
                 <button
                   v-for="(row, rowIndex) in traceStepLedgerRows"
                   :key="row.step_key"
+                  :ref="(el) => setStepRowRef(el, row.step_key)"
                   type="button"
                   class="trace-step-ledger__row trace-step-ledger__grid"
                   :class="[statusClass(row.status), { active: isActiveStep(filteredSteps[rowIndex]), 'is-issue': row.is_issue }]"
@@ -908,9 +939,11 @@ import {
   buildBoardScopedQuery,
   buildTraceQuery,
   createTraceQueryState,
+  filterTracesByIssueComponent,
   findTraceByRow,
   findRawRecordIndex,
   filterTraceSteps,
+  pickTraceAnchorStep,
   hasMatchingRawSelection,
   pickDefaultSidebarComponent,
   pickDefaultTraceStep,
@@ -962,10 +995,14 @@ const rawRecords = ref([])
 const rawFocusedIndex = ref(-1)
 const rawSelectionKey = ref('')
 const rawRecordRefs = ref({})
+const stepRowRefs = ref({})
 const pageError = ref('')
 const boardFilter = reactive({
   component: '',
   runtime_node: '',
+})
+const traceIssueFocus = reactive({
+  component: '',
 })
 const lastLoadedEventQueryKey = ref('')
 let eventLoadToken = 0
@@ -1128,8 +1165,11 @@ const timeRangeDisplayLabel = computed(() => formatTimeRangeLabel(timeRange.valu
 
 const hydratedTraces = computed(() => traces.value.map((trace) => buildTraceDetail(trace)))
 const visibleTraces = computed(() => {
-  if (!onlyIssues.value) return hydratedTraces.value
-  return hydratedTraces.value.filter((trace) => trace.issue_count > 0)
+  const issueFocused = traceIssueFocus.component
+    ? filterTracesByIssueComponent(hydratedTraces.value, traceIssueFocus.component)
+    : hydratedTraces.value
+  if (!onlyIssues.value) return issueFocused
+  return issueFocused.filter((trace) => trace.issue_count > 0)
 })
 const traceKindOptions = computed(() => buildTraceKindOptions(hydratedTraces.value))
 const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
@@ -1137,6 +1177,11 @@ const issuePriorityCards = computed(() => buildIssuePriorityCards(visibleTraces.
 const traceLedgerRows = computed(() => buildTraceLedgerRows(visibleTraces.value))
 const componentSidebarItems = computed(() => buildComponentSidebarItems(hydratedTraces.value, healthSummaryItems.value))
 const activeComponent = computed(() => String(boardFilter.component || '').trim())
+const traceIssueFocusLabel = computed(() => {
+  const component = String(traceIssueFocus.component || '').trim()
+  if (!component) return ''
+  return componentSidebarItems.value.find((item) => item.component === component)?.component_label || component
+})
 const componentEventFeed = computed(() => {
   if (!activeComponent.value) return []
   return buildComponentEventFeed(events.value, {
@@ -1173,6 +1218,13 @@ const filterChips = computed(() => {
       kind: 'trace-kind',
     })
   }
+  if (traceIssueFocusLabel.value) {
+    chips.push({
+      key: 'trace-issue-focus',
+      label: `异常组件: ${traceIssueFocusLabel.value}`,
+      kind: 'trace-issue-focus',
+    })
+  }
   return chips
 })
 
@@ -1187,6 +1239,10 @@ const issueSummary = computed(() => buildIssueSummary(selectedTraceDetail.value)
 const filteredSteps = computed(() => {
   return filterTraceSteps(selectedTraceDetail.value.steps, { onlyIssues: onlyIssues.value })
 })
+const firstIssueTraceStep = computed(() => pickTraceAnchorStep(selectedTraceDetail.value, null, 'first-issue'))
+const previousIssueTraceStep = computed(() => pickTraceAnchorStep(selectedTraceDetail.value, selectedStep.value, 'previous-issue'))
+const nextIssueTraceStep = computed(() => pickTraceAnchorStep(selectedTraceDetail.value, selectedStep.value, 'next-issue'))
+const slowestTraceStep = computed(() => pickTraceAnchorStep(selectedTraceDetail.value, selectedStep.value, 'slowest-step'))
 const traceStepLedgerRows = computed(() =>
   buildTraceStepLedgerRows({
     ...selectedTraceDetail.value,
@@ -2008,8 +2064,43 @@ const handleComponentFilter = (target) => {
       ? String(target || '').trim()
       : String(target?.component || '').trim()
   if (!normalizedComponent) return
+  traceIssueFocus.component = ''
   boardFilter.component = normalizedComponent
   boardFilter.runtime_node = ''
+  activeView.value = 'events'
+}
+
+const handleSummaryJump = async (target) => {
+  if (target === 'issue-traces' && traceListSummary.value.issue_trace_count <= 0) return
+  if (target === 'issue-steps' && traceListSummary.value.issue_step_count <= 0) return
+  traceIssueFocus.component = ''
+  onlyIssues.value = true
+  activeView.value = 'traces'
+  activeTraceDetailTab.value = 'steps'
+  if (selectedTraceKind.value !== 'all') {
+    await handleTraceKindClick('all')
+  }
+}
+
+const handleComponentIssueTraceJump = async (item) => {
+  const normalizedComponent = String(item?.component || '').trim()
+  if (!normalizedComponent || Number(item?.issue_trace_count || 0) <= 0) return
+  traceIssueFocus.component = normalizedComponent
+  onlyIssues.value = true
+  activeView.value = 'traces'
+  activeTraceDetailTab.value = 'steps'
+  if (selectedTraceKind.value !== 'all') {
+    await handleTraceKindClick('all')
+  }
+}
+
+const handleComponentIssueEventJump = (item) => {
+  const normalizedComponent = String(item?.component || '').trim()
+  if (!normalizedComponent || Number(item?.issue_step_count || 0) <= 0) return
+  traceIssueFocus.component = ''
+  boardFilter.component = normalizedComponent
+  boardFilter.runtime_node = ''
+  onlyIssues.value = true
   activeView.value = 'events'
 }
 
@@ -2021,6 +2112,10 @@ const clearFilterChip = async (chip) => {
   }
   if (chip.kind === 'trace-kind') {
     await handleTraceKindClick('all')
+    return
+  }
+  if (chip.kind === 'trace-issue-focus') {
+    traceIssueFocus.component = ''
     return
   }
   if (chip.kind === 'query' && chip.field) {
@@ -2036,6 +2131,17 @@ const clearFilterChip = async (chip) => {
 
 const handleStepSelect = (step) => {
   selectedStep.value = step || null
+}
+
+const handleTraceAnchorJump = async (mode) => {
+  const target = pickTraceAnchorStep(selectedTraceDetail.value, selectedStep.value, mode)
+  if (!target) return
+  if (mode === 'slowest-step') {
+    onlyIssues.value = false
+  }
+  activeTraceDetailTab.value = 'steps'
+  selectedStep.value = target
+  await scrollToSelectedStep()
 }
 
 const buildIdentityCopyValue = (item = {}) => {
@@ -2115,9 +2221,9 @@ const loadRawTail = async (
 
 const stepKey = (step) => {
   return [
-    step?.ts || '',
     step?.component || '',
     step?.node || '',
+    step?.ts || '',
     step?.index ?? '',
   ].join('|')
 }
@@ -2132,6 +2238,23 @@ const isFirstIssueStep = (step) => {
 
 const isSlowestStep = (step) => {
   return stepKey(traceSummaryMeta.value.slowest_step) === stepKey(step)
+}
+
+const setStepRowRef = (element, key) => {
+  stepRowRefs.value = {
+    ...stepRowRefs.value,
+    [key]: element || null,
+  }
+}
+
+const scrollToSelectedStep = async () => {
+  const key = stepKey(selectedStep.value)
+  if (!key) return
+  await nextTick()
+  stepRowRefs.value[key]?.scrollIntoView({
+    block: 'nearest',
+    behavior: 'smooth',
+  })
 }
 
 const statusClass = (status) => {
@@ -2311,6 +2434,20 @@ watch(rawRecords, () => {
   rawRecordRefs.value = {}
 })
 
+watch(traceStepLedgerRows, () => {
+  stepRowRefs.value = {}
+})
+
+watch(selectedStep, () => {
+  scrollToSelectedStep()
+})
+
+watch(activeTraceDetailTab, (tab) => {
+  if (tab === 'steps') {
+    scrollToSelectedStep()
+  }
+})
+
 watch(autoRefresh, () => {
   resetOverviewTimer()
 })
@@ -2391,6 +2528,19 @@ onBeforeUnmount(() => {
 
 .runtime-summary-row {
   justify-content: space-between;
+}
+
+.runtime-summary-chip-button,
+.component-symbol-card__action {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.runtime-summary-chip-button.is-disabled,
+.component-symbol-card__action.is-disabled {
+  cursor: default;
+  opacity: 0.58;
 }
 
 .runtime-filter-chips {
@@ -2553,6 +2703,10 @@ onBeforeUnmount(() => {
 
 .component-symbol-card__badges {
   margin-top: 10px;
+}
+
+.component-symbol-card__action {
+  text-align: left;
 }
 
 .component-sidebar-highlights,
@@ -3569,6 +3723,14 @@ onBeforeUnmount(() => {
 
 .trace-ledger-toolbar {
   margin-bottom: 10px;
+}
+
+.trace-ledger-toolbar__meta,
+.trace-ledger-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
 }
 
 .trace-step-ledger {
