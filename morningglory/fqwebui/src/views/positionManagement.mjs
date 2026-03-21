@@ -55,6 +55,47 @@ const ACTION_LABELS = {
   sell: '卖出',
 }
 
+const SOURCE_LABELS = {
+  strategy: '策略下单',
+  api: 'API 手工下单',
+  manual: '人工下单',
+}
+
+const DECISION_DETAIL_LABELS = {
+  decision_id: '决策 ID',
+  evaluated_at: '触发时间（北京时间）',
+  source_module: '触发来源模块',
+  source: '触发通道',
+  strategy_name: '触发策略',
+  action: '动作',
+  allowed: '决策结果',
+  state: '门禁状态',
+  reason_code: '原因码',
+  reason_text: '中文说明',
+  symbol: '标的代码',
+  symbol_name: '标的名称',
+  is_holding_symbol: '是否当前持仓标的',
+  symbol_market_value: '标的实时仓位市值',
+  symbol_position_limit: '单标的仓位上限',
+  symbol_market_value_source: '实时仓位来源',
+  symbol_quantity_source: '持仓数量来源',
+  force_profit_reduce: '是否命中强制盈利减仓',
+  profit_reduce_mode: '盈利减仓模式',
+  trace_id: 'Trace ID',
+  intent_id: 'Intent ID',
+}
+
+const BEIJING_DATE_TIME_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+})
+
 const numberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -72,9 +113,74 @@ const formatAmount = (value) => {
   return parsed === null ? '-' : numberFormatter.format(parsed)
 }
 
+const formatBooleanLabel = (value) => {
+  if (value === true) return '是'
+  if (value === false) return '否'
+  return '-'
+}
+
+const formatJsonValue = (value) => {
+  if (Array.isArray(value)) {
+    return value.length ? value.map((item) => formatJsonValue(item)).join(' / ') : '-'
+  }
+  if (value && typeof value === 'object') {
+    return JSON.stringify(value)
+  }
+  if (typeof value === 'boolean') {
+    return formatBooleanLabel(value)
+  }
+  if (typeof value === 'number') {
+    return numberFormatter.format(value)
+  }
+  return toText(value) || '-'
+}
+
 const formatStateLabel = (value) => STATE_LABELS[toText(value)] || toText(value) || '-'
 
 const formatStateTone = (value) => STATE_TONES[toText(value)] || 'neutral'
+
+const formatSourceLabel = (value) => SOURCE_LABELS[toText(value)] || toText(value) || '-'
+
+const joinLabels = (...values) => values.filter((item) => toText(item)).join(' / ')
+
+const formatBeijingDateTime = (value) => {
+  const rawValue = toText(value)
+  if (!rawValue) return '-'
+  const parsed = new Date(rawValue)
+  if (Number.isNaN(parsed.getTime())) return rawValue
+  const parts = Object.fromEntries(
+    BEIJING_DATE_TIME_FORMATTER
+      .formatToParts(parsed)
+      .filter((item) => item.type !== 'literal')
+      .map((item) => [item.type, item.value]),
+  )
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`
+}
+
+const buildDecisionSelectionKey = (row = {}) => (
+  toText(row?.decision_id) ||
+  joinLabels(row?.symbol, row?.evaluated_at, row?.reason_code, row?.action)
+)
+
+const buildSourceModuleLabel = (row = {}) => {
+  const sourceLabel = formatSourceLabel(row?.source)
+  const sourceModule = (
+    toText(row?.source_module) ||
+    toText(row?.strategy_name) ||
+    toText(row?.meta?.source_module)
+  )
+  if (sourceModule && sourceLabel !== '-' && sourceModule !== sourceLabel) {
+    return `${sourceModule} / ${sourceLabel}`
+  }
+  if (sourceModule) return sourceModule
+  return sourceLabel
+}
+
+const pushDecisionDetailRow = (rows, label, value) => {
+  const text = formatJsonValue(value)
+  if (text === '-') return
+  rows.push({ label, value: text })
+}
 
 const formatInventoryValue = (item = {}) => {
   const key = toText(item?.key)
@@ -104,7 +210,7 @@ export const readDashboardPayload = (response, fallback = {}) => {
     ) {
       return response.data
     }
-    if (response.config || response.state) return response
+    if (response.config || response.state || response.recent_decisions) return response
   }
   return fallback
 }
@@ -218,6 +324,7 @@ export const buildRecentDecisionRows = (dashboard = {}) => {
   const rows = Array.isArray(payload?.recent_decisions) ? payload.recent_decisions : []
   return rows.map((row) => ({
     ...row,
+    selection_key: buildDecisionSelectionKey(row),
     action_label: ACTION_LABELS[toText(row?.action)] || toText(row?.action) || '-',
     state_label: formatStateLabel(row?.state),
     allowed_label: row?.allowed ? '允许' : '拒绝',
@@ -231,7 +338,92 @@ export const buildRecentDecisionRows = (dashboard = {}) => {
       '-'
     ),
     strategy_label: toText(row?.strategy_name) || '-',
-    evaluated_at_label: toText(row?.evaluated_at) || '-',
+    source_label: formatSourceLabel(row?.source || row?.meta?.source),
+    source_module_label: buildSourceModuleLabel(row),
+    evaluated_at_label: formatBeijingDateTime(
+      row?.evaluated_at || row?.meta?.evaluated_at,
+    ),
     reason_text: toText(row?.reason_text) || toText(row?.reason_code) || '-',
   }))
+}
+
+export const buildRecentDecisionDetailRows = (decision = null) => {
+  if (!decision || typeof decision !== 'object') return []
+  const meta = decision?.meta && typeof decision.meta === 'object' ? decision.meta : {}
+  const rows = []
+  const consumedMetaKeys = new Set([
+    'symbol_name',
+    'name',
+    'source',
+    'source_module',
+    'evaluated_at',
+    'trace_id',
+    'intent_id',
+    'is_holding_symbol',
+    'symbol_market_value',
+    'symbol_position_limit',
+    'symbol_market_value_source',
+    'symbol_quantity_source',
+    'force_profit_reduce',
+    'profit_reduce_mode',
+  ])
+
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.decision_id, decision?.decision_id)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.evaluated_at, decision?.evaluated_at_label)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.source_module, decision?.source_module_label)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.source, decision?.source_label)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.strategy_name, decision?.strategy_label)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.action, decision?.action_label)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.allowed, decision?.allowed_label)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.state, decision?.state_label)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.reason_code, decision?.reason_code)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.reason_text, decision?.reason_text)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.symbol, decision?.symbol_label)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.symbol_name, decision?.symbol_name_label)
+  pushDecisionDetailRow(
+    rows,
+    DECISION_DETAIL_LABELS.is_holding_symbol,
+    formatBooleanLabel(meta?.is_holding_symbol),
+  )
+  pushDecisionDetailRow(
+    rows,
+    DECISION_DETAIL_LABELS.symbol_market_value,
+    formatAmount(meta?.symbol_market_value),
+  )
+  pushDecisionDetailRow(
+    rows,
+    DECISION_DETAIL_LABELS.symbol_position_limit,
+    formatAmount(meta?.symbol_position_limit),
+  )
+  pushDecisionDetailRow(
+    rows,
+    DECISION_DETAIL_LABELS.symbol_market_value_source,
+    meta?.symbol_market_value_source,
+  )
+  pushDecisionDetailRow(
+    rows,
+    DECISION_DETAIL_LABELS.symbol_quantity_source,
+    meta?.symbol_quantity_source,
+  )
+  pushDecisionDetailRow(
+    rows,
+    DECISION_DETAIL_LABELS.force_profit_reduce,
+    formatBooleanLabel(meta?.force_profit_reduce),
+  )
+  pushDecisionDetailRow(
+    rows,
+    DECISION_DETAIL_LABELS.profit_reduce_mode,
+    meta?.profit_reduce_mode,
+  )
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.trace_id, decision?.trace_id)
+  pushDecisionDetailRow(rows, DECISION_DETAIL_LABELS.intent_id, decision?.intent_id)
+
+  Object.keys(meta)
+    .sort()
+    .forEach((key) => {
+      if (consumedMetaKeys.has(key)) return
+      pushDecisionDetailRow(rows, `附加上下文字段（${key}）`, meta[key])
+    })
+
+  return rows
 }
