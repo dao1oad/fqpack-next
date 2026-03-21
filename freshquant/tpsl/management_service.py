@@ -124,9 +124,7 @@ class TpslManagementService:
             takeprofit = self.takeprofit_service.get_profile_with_state(
                 normalized_symbol
             )
-        stock_fills = _normalize_stock_fills(
-            self.stock_fills_loader(normalized_symbol)
-        )
+        stock_fills = _normalize_stock_fills(self.stock_fills_loader(normalized_symbol))
 
         bindings = {
             item["buy_lot_id"]: item
@@ -396,10 +394,7 @@ def _normalize_stock_fills(rows):
     normalized = []
     for item in list(rows or []):
         normalized.append(
-            {
-                key: _coerce_json_scalar(value)
-                for key, value in dict(item).items()
-            }
+            {key: _coerce_json_scalar(value) for key, value in dict(item).items()}
         )
     return normalized
 

@@ -239,6 +239,7 @@ def test_management_overview_unions_holdings_and_configured_symbols():
             }
         ],
         symbol_position_loader=lambda symbol: None,
+        stock_fills_loader=lambda symbol: [],
     )
 
     rows = service.get_overview()
@@ -600,6 +601,7 @@ def test_management_detail_prefers_symbol_snapshot_market_value():
             "market_value": 234567.0,
             "market_value_source": "bar_close_x_quantity",
         },
+        stock_fills_loader=lambda symbol: [],
     )
 
     detail = service.get_symbol_detail("600000")
@@ -760,6 +762,7 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
             }
         ],
         symbol_position_loader=lambda symbol: None,
+        stock_fills_loader=lambda symbol: [],
     )
 
     detail = service.get_symbol_detail("sh600000", history_limit=10)
