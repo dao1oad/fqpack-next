@@ -1,43 +1,46 @@
 ---
-description: FreshQuant 正式部署与重部署 - 当用户要求部署、重部署、同步 main 后 formal deploy、排查 deploy 失败、核对 runtime verify 时使用
-trigger:
-  - "部署"
-  - "重部署"
-  - "formal deploy"
-  - "deploy main"
-  - "runtime verify"
+name: fq-deploy
+description: Use when FreshQuant needs formal deployment, redeployment, deploy failure triage, or production verification against the main deploy mirror
 ---
 
-用户请求 FreshQuant 部署相关操作。
+# fq-deploy
 
-## 正式部署前置
+## Overview
 
-- 代码真值必须是最新远程 `origin/main`
-- 如果需要修复 deploy 阻塞项，先走 `feature branch -> PR -> merge remote main`
-- 合并后把本地 `main` 同步到 `origin/main`
-- 正式 deploy 只从 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 执行
+FreshQuant 的正式部署只认最新远程 `origin/main`，并且只从 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 执行。完成判定只看 formal deploy artifacts、health check 和 runtime verify，不看口头状态。
 
-## 正式部署命令
+## When to Use
+
+- 用户要求部署、重部署、同步 `main` 后上线
+- formal deploy 失败，需要继续排障直到恢复
+- runtime verify 或宿主机 surface restart 失败
+
+## Formal Flow
+
+先在 canonical repo root 同步真值：
 
 ```powershell
 git fetch origin --prune
 git checkout main
 git pull --ff-only origin main
+```
+
+再同步 deploy mirror：
+
+```powershell
 git -C D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production fetch origin main
 git -C D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production checkout deploy-production-main
 git -C D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production merge --ff-only origin/main
-py -3.12 -m uv sync --frozen
-py -3.12 script/ci/run_formal_deploy.py --repo-root . --format summary
 ```
 
-在 deploy mirror 目录 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 中执行：
+在 deploy mirror 中执行：
 
 ```powershell
 py -3.12 -m uv sync --frozen
 py -3.12 script/ci/run_formal_deploy.py --repo-root . --format summary
 ```
 
-## 必查证据
+## Required Evidence
 
 - `D:/fqpack/runtime/formal-deploy/production-state.json`
 - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`
@@ -45,24 +48,43 @@ py -3.12 script/ci/run_formal_deploy.py --repo-root . --format summary
 - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/runtime-verify.json`
 - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/result.json`
 
-## 健康检查与运维核对
+## Runtime Verification
 
 - API：`py -3.12 script/freshquant_health_check.py --surface api --format summary`
 - Web：`py -3.12 script/freshquant_health_check.py --surface web --format summary`
 - TradingAgents：`py -3.12 script/freshquant_health_check.py --surface tradingagents --format summary`
+- 宿主机状态：`powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status`
 - Runtime verify：`powershell -ExecutionPolicy Bypass -File script/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface <surfaces>`
 
-## 关键纪律
+## Failure Triage
 
-- 不要把开发 worktree 直接当正式 deploy 来源
+### Dagster 容器重启循环
+
+- 如果容器日志出现 `DAGSTER_HOME "D:/fqpack/dagster"`，说明 Windows 路径泄漏进 Linux 容器
+- `docker/compose.parallel.yaml` 中 `fq_dagster_webserver` / `fq_dagster_daemon` 必须显式覆盖：
+  - `DAGSTER_HOME=/opt/dagster/home`
+  - `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`
+
+### 宿主机 vendored 依赖漂移
+
+- 如果 `fqnext_xt_account_sync_worker` 为 `Fatal`，先看 `D:/fqdata/log/fqnext_xt_account_sync_worker_err.log`
+- 如果 traceback 出现 `resolve_stock_account() got an unexpected keyword argument 'settings_provider'`，先确认实际 import 源，而不是只看仓库里的 vendored 代码
+- 用下面的命令确认 `fqxtrade` 是否来自 `.venv\Lib\site-packages`：
+
+```powershell
+@'
+import inspect
+from fqxtrade.xtquant.account import resolve_stock_account
+print(inspect.getsourcefile(resolve_stock_account))
+print(inspect.signature(resolve_stock_account))
+'@ | py -3.12 -m uv run -
+```
+
+- 如果源文件落在 `.venv\Lib\site-packages\fqxtrade\xtquant\account.py`，说明宿主机运行时仍在使用已安装包；先确认正式 deploy 是否已经切到包含最新兼容修复的远程 `main`
+
+## Discipline
+
+- 不要在开发 worktree 上直接 formal deploy
 - 不要跳过 `CaptureBaseline -> deploy -> health check -> Verify`
-- 不要只看命令退出码，必须读 formal deploy artifacts
-- 如果本轮没有代码变化但用户要求重部署，仍以 formal deploy 产物判断是 no-op 还是实际部署
-
-## Dagster 特殊项
-
-- Dagster Linux 容器内必须使用 `DAGSTER_HOME=/opt/dagster/home`
-- Dagster Linux 容器内必须使用 `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`
-- 如果容器日志出现 `DAGSTER_HOME "D:/fqpack/dagster"`，说明主工作树 `.env` 的 Windows 路径泄漏进了容器；优先修 `docker/compose.parallel.yaml` 的 Dagster `environment` 覆盖，再重跑 formal deploy
-
-请按上述顺序执行，并以 formal deploy artifacts + health check + runtime verify 作为是否完成的唯一依据。
+- 不要只看 `fqnext-supervisord` service 是否存活；宿主机 surface 还要看 `fqnext_host_runtime_ctl.ps1 -Mode Status` 和 stderr 日志
+- 如果为了修 deploy 阻塞项改了代码，必须先走 `feature branch -> PR -> merge remote main`，再回到 formal deploy

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import inspect
 import time
 
 
@@ -19,6 +20,23 @@ def _load_default_account_resolver():
     from fqxtrade.xtquant.account import resolve_stock_account
 
     return resolve_stock_account
+
+
+def _resolver_accepts_settings_provider(account_resolver):
+    try:
+        signature = inspect.signature(account_resolver)
+    except (TypeError, ValueError):
+        return None
+    if "settings_provider" in signature.parameters:
+        return True
+    return any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
+
+
+def _is_legacy_settings_provider_type_error(error):
+    return "unexpected keyword argument 'settings_provider'" in str(error)
 
 
 class XtAccountQueryClient:
@@ -82,9 +100,7 @@ class XtAccountQueryClient:
         if not self.path:
             raise ValueError("xtquant.path is required")
 
-        account, account_id, account_type = self.account_resolver(
-            settings_provider=self.settings_provider
-        )
+        account, account_id, account_type = self._resolve_account()
         if account is None or not account_id:
             raise ValueError("xtquant.account is required")
 
@@ -102,3 +118,27 @@ class XtAccountQueryClient:
         self._trader = trader
         self._account = account
         return self._trader, self._account
+
+    def _resolve_account(self):
+        supports_settings_provider = _resolver_accepts_settings_provider(
+            self.account_resolver
+        )
+        if supports_settings_provider is not False:
+            try:
+                return self.account_resolver(settings_provider=self.settings_provider)
+            except TypeError as error:
+                if supports_settings_provider or not _is_legacy_settings_provider_type_error(
+                    error
+                ):
+                    raise
+        return self.account_resolver(
+            lambda key, default=None: self._legacy_query_param_value(key, default)
+        )
+
+    def _legacy_query_param_value(self, key, default=None):
+        xtquant_settings = getattr(self.settings_provider, "xtquant", None)
+        if key == "xtquant.account":
+            return getattr(xtquant_settings, "account", default)
+        if key == "xtquant.account_type":
+            return getattr(xtquant_settings, "account_type", default)
+        return default

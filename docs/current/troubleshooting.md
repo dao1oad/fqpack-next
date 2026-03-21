@@ -163,6 +163,38 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 重新执行命中的 Docker deploy 或整轮 formal deploy
 - 再次执行 `check_freshquant_runtime_post_deploy.ps1 -Mode Verify`，确认 Dagster 容器从 `Restarting` 恢复为 `running`
 
+## xt_account_sync worker 启动即 Fatal
+
+现象：
+
+- `script/fqnext_host_runtime_ctl.ps1 -Mode Status` 显示 `fqnext_xt_account_sync_worker` 为 `Fatal`
+- `D:/fqdata/log/fqnext_xt_account_sync_worker_err.log` 出现 `resolve_stock_account() got an unexpected keyword argument 'settings_provider'`
+- formal deploy 卡在 `EnsureServiceAndRestartSurfaces` 或 deploy 后 verify 阶段
+
+先检查：
+
+- `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status`
+- `Get-Content D:/fqdata/log/fqnext_xt_account_sync_worker_err.log -Tail 200`
+- `@'
+import inspect
+from fqxtrade.xtquant.account import resolve_stock_account
+print(inspect.getsourcefile(resolve_stock_account))
+print(inspect.signature(resolve_stock_account))
+'@ | py -3.12 -m uv run -`
+
+常见根因：
+
+- 宿主机进程实际导入的是 `.venv\\Lib\\site-packages\\fqxtrade\\xtquant\\account.py`
+- 该已安装 `fqxtrade` 仍是旧签名，只接受 `query_param=None, stock_account_cls=None`
+- 会话误以为仓库里的 `morningglory/fqxtrade/fqxtrade/xtquant/account.py` 已自动成为宿主机运行时真值
+
+处理：
+
+- 先确认正式 deploy 来源已经是最新远程 `main` 已合并 SHA
+- 当前仓库中的 `freshquant/xt_account_sync/client.py` 已兼容新旧 `resolve_stock_account` 签名；如果仍报这个错误，说明宿主机还没跑到最新已合并代码，先重新同步 deploy mirror 并重跑 formal deploy
+- 若仍需继续定位，优先以 `inspect.getsourcefile()` 与 `inspect.signature()` 的结果确认宿主机实际 import 源，而不是继续凭仓库文件内容猜测
+- worker 恢复后，再重新执行命中的 host runtime surface restart 或整轮 formal deploy，并确认 runtime verify 通过
+
 ## API 无响应
 
 现象：
