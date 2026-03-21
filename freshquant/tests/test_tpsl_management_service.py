@@ -565,6 +565,7 @@ def test_management_detail_assembles_buy_lots_and_order_timeline():
             }
         ],
         symbol_position_loader=lambda symbol: None,
+        stock_fills_loader=lambda symbol: [],
     )
 
     detail = service.get_symbol_detail("sh600000", history_limit=10)

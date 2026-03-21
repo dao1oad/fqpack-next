@@ -143,4 +143,3 @@ Expected: PASS
 
 Run: `git status --short`
 Expected: only the planned files are modified in this worktree
-
