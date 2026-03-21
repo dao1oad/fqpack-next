@@ -8,6 +8,8 @@ sys.modules.setdefault("freshquant.message", types.ModuleType("freshquant.messag
 
 from freshquant.strategy.guardian_buy_grid import GuardianBuyGridService
 
+sys.modules.pop("freshquant.message", None)
+
 
 @dataclass
 class _UpdateResult:
