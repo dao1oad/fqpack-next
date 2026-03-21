@@ -51,11 +51,17 @@ test('buildOverviewRows exposes position amount labels in chinese wan with two d
       name: '浦发银行',
       position_quantity: 500,
       position_amount: 123456.789,
+      takeprofit_tiers: [
+        { level: 1, price: 10.2, manual_enabled: true },
+        { level: 2, price: 10.8, manual_enabled: true },
+        { level: 3, price: 11.5, manual_enabled: false },
+      ],
     },
   ])
 
   assert.equal(rows[0].position_amount, 123456.789)
   assert.equal(rows[0].position_amount_label, '12.35 万')
+  assert.deepEqual(rows[0].takeprofitSummary, ['L1 10.2', 'L2 10.8', 'L3 11.5'])
 })
 
 test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstream order facts', () => {
@@ -88,6 +94,17 @@ test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstr
         sell_history: [{ allocated_quantity: 100 }],
       },
     ],
+    stock_fills: [
+      {
+        date: 20260312,
+        time: '09:31:00',
+        op: '买',
+        quantity: 300,
+        price: 10,
+        amount: 3000,
+        source: 'legacy_stock_fills',
+      },
+    ],
     history: [
       {
         event_id: 'evt_1',
@@ -108,6 +125,8 @@ test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstr
   assert.equal(detail.positionAmountLabel, '23.46 万')
   assert.equal(detail.buyLots[0].stoplossLabel, '9.2')
   assert.equal(detail.buyLots[0].sellHistoryLabel, '1 次卖出分配')
+  assert.equal(detail.stockFills[0].op, '买')
+  assert.equal(detail.stockFills[0].source, 'legacy_stock_fills')
   assert.equal(detail.historyRows[0].batch_id, 'sl_batch_1')
   assert.equal(detail.historyRows[0].triggerLabel, '9.2')
   assert.equal(detail.historyRows[0].triggerPriceLabel, '9.1')
@@ -339,6 +358,8 @@ test('TpslManagement view keeps symbol list scrollable inside the fixed viewport
   const filePath = path.resolve(import.meta.dirname, 'TpslManagement.vue')
   const source = fs.readFileSync(filePath, 'utf8')
 
+  assert.ok(!source.includes('标的止盈层次'))
+  assert.ok(source.includes('stock_fills 对照视图'))
   assert.match(source, /\.symbol-list,\s*[\r\n]+\s*\.tpsl-main-stack\s*\{/)
   assert.match(source, /\.symbol-list[\s\S]*?overflow:\s*auto;/)
   assert.match(source, /\.symbol-list[\s\S]*?flex:\s*1 1 auto;/)

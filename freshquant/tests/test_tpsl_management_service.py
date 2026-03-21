@@ -177,7 +177,11 @@ def test_management_overview_unions_holdings_and_configured_symbols():
     tpsl_repository = InMemoryTpslRepository()
     tpsl_repository.profiles["600000"] = {
         "symbol": "600000",
-        "tiers": [{"level": 1, "price": 10.8, "manual_enabled": True}],
+        "tiers": [
+            {"level": 1, "price": 10.2, "manual_enabled": True},
+            {"level": 2, "price": 10.8, "manual_enabled": True},
+            {"level": 3, "price": 11.5, "manual_enabled": False},
+        ],
     }
     tpsl_repository.profiles["000001"] = {
         "symbol": "000001",
@@ -235,6 +239,7 @@ def test_management_overview_unions_holdings_and_configured_symbols():
             }
         ],
         symbol_position_loader=lambda symbol: None,
+        stock_fills_loader=lambda symbol: [],
     )
 
     rows = service.get_overview()
@@ -244,6 +249,11 @@ def test_management_overview_unions_holdings_and_configured_symbols():
     assert rows_by_symbol["600000"]["name"] == "浦发银行"
     assert rows_by_symbol["600000"]["position_quantity"] == 500
     assert rows_by_symbol["600000"]["takeprofit_configured"] is True
+    assert rows_by_symbol["600000"]["takeprofit_tiers"] == [
+        {"level": 1, "price": 10.2, "manual_enabled": True},
+        {"level": 2, "price": 10.8, "manual_enabled": True},
+        {"level": 3, "price": 11.5, "manual_enabled": False},
+    ]
     assert rows_by_symbol["600000"]["active_stoploss_buy_lot_count"] == 1
     assert rows_by_symbol["600000"]["last_trigger"]["kind"] == "stoploss"
     assert rows_by_symbol["000001"]["position_quantity"] == 0
@@ -555,6 +565,7 @@ def test_management_detail_assembles_buy_lots_and_order_timeline():
             }
         ],
         symbol_position_loader=lambda symbol: None,
+        stock_fills_loader=lambda symbol: [],
     )
 
     detail = service.get_symbol_detail("sh600000", history_limit=10)
@@ -591,12 +602,57 @@ def test_management_detail_prefers_symbol_snapshot_market_value():
             "market_value": 234567.0,
             "market_value_source": "bar_close_x_quantity",
         },
+        stock_fills_loader=lambda symbol: [],
     )
 
     detail = service.get_symbol_detail("600000")
 
     assert detail["position"]["quantity"] == 500
     assert detail["position"]["amount"] == 234567.0
+
+
+def test_management_detail_includes_stock_fills_comparison_rows():
+    service = TpslManagementService(
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 500,
+                "amount": 5010.0,
+                "amount_adjusted": 4800.0,
+            }
+        ],
+        symbol_position_loader=lambda symbol: None,
+        stock_fills_loader=lambda symbol: [
+            {
+                "symbol": symbol,
+                "date": 20260312,
+                "time": "09:31:00",
+                "op": "买",
+                "quantity": 300,
+                "price": 10.0,
+                "amount": 3000.0,
+                "source": "legacy_stock_fills",
+            },
+            {
+                "symbol": symbol,
+                "date": 20260313,
+                "time": "09:35:00",
+                "op": "卖",
+                "quantity": 100,
+                "price": 10.8,
+                "amount": 1080.0,
+                "source": "legacy_stock_fills",
+            },
+        ],
+    )
+
+    detail = service.get_symbol_detail("600000")
+
+    assert [item["op"] for item in detail["stock_fills"]] == ["买", "卖"]
+    assert detail["stock_fills"][0]["source"] == "legacy_stock_fills"
 
 
 def test_management_detail_is_json_serializable_with_mongo_object_ids():
@@ -707,6 +763,7 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
             }
         ],
         symbol_position_loader=lambda symbol: None,
+        stock_fills_loader=lambda symbol: [],
     )
 
     detail = service.get_symbol_detail("sh600000", history_limit=10)

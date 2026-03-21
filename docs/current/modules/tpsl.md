@@ -47,7 +47,7 @@ TPSL 与 Runtime Observability 的当前口径：
 
 `/api/tpsl/management/overview -> TpslManagementService -> 当前持仓数量 + 单标的实时仓位 + takeprofit profile + stoploss 绑定 + 最近触发事件`
 
-`/api/tpsl/management/<symbol> -> TpslManagementService -> takeprofit profile/state + open buy lots + 单标的实时仓位 + stoploss bindings + 统一历史`
+`/api/tpsl/management/<symbol> -> TpslManagementService -> takeprofit profile/state + stock_fills 对照视图 + open buy lots + 单标的实时仓位 + stoploss bindings + 统一历史`
 
 `/api/tpsl/history -> TpslManagementService -> om_exit_trigger_events + om_order_requests + om_orders + om_order_events + om_trade_facts`
 
@@ -94,16 +94,19 @@ TPSL 还会读取：
 
 当前页面支持：
 
-- symbol 级止盈层次编辑
+- 左侧标的卡片只读展示 symbol 级三层止盈价格
 - buy lot 级 stop_price 设置与启停
+- 同页查看 `stock_fills` 对照视图
 - 同页查看 takeprofit / stoploss 触发历史及后续 request/order/trade
 
 当前 `/tpsl` 页面已切到统一的 workbench density 语法：
 
 - 顶部使用紧凑 toolbar 承载标题、摘要和刷新动作
-- 左侧保留 symbol 导航，列表在单屏内独立滚动，卡片摘要展示统一单标的实时仓位（万元）
+- 左侧保留 symbol 导航，列表在单屏内独立滚动，卡片摘要展示统一单标的实时仓位（万元）和三层止盈价格
 - 右侧保留详情工作台
 - 右侧标题摘要同时展示持仓股数和统一实时仓位
+- 右侧不再提供 symbol 级止盈层次编辑；止盈设置真值入口以 `KlineSlim` 为主
+- 右侧新增 `stock_fills` 对照表
 - 统一历史改成高密度表格，继续同屏展示 request/order/trade 明细
 
 ## 部署/运行
