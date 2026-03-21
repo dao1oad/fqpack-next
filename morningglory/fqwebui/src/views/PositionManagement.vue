@@ -256,6 +256,28 @@
               <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
             </div>
           </section>
+
+          <section class="workbench-panel">
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">单标的仓位上限覆盖</div>
+                <p class="workbench-panel__desc">这里展示默认值、单独设置值、有效值和当前是否已触发禁止买入。具体编辑入口放在标的管理和行情图表页。</p>
+              </div>
+            </div>
+
+            <el-table v-if="symbolLimitRows.length" :data="symbolLimitRows" size="small" border>
+              <el-table-column prop="symbol" label="标的代码" width="100" />
+              <el-table-column prop="name" label="标的名称" min-width="140" />
+              <el-table-column prop="market_value_label" label="当前市值" min-width="120" />
+              <el-table-column prop="default_limit_label" label="默认值" min-width="120" />
+              <el-table-column prop="override_limit_label" label="覆盖值" min-width="120" />
+              <el-table-column prop="effective_limit_label" label="有效值" min-width="120" />
+              <el-table-column prop="source_label" label="来源" width="92" />
+              <el-table-column prop="blocked_label" label="门禁" width="92" />
+            </el-table>
+
+            <div v-else class="workbench-empty">当前没有可展示的单标的仓位上限行。</div>
+          </section>
         </div>
 
         <div class="position-lower-column position-lower-column--stacked">
@@ -339,6 +361,7 @@ import {
   buildRecentDecisionRows,
   buildRuleMatrix,
   buildStatePanel,
+  buildSymbolLimitRows,
   readDashboardPayload,
 } from './positionManagement.mjs'
 
@@ -355,6 +378,7 @@ const editableForm = reactive({
 })
 
 const inventoryRows = computed(() => buildInventoryRows(dashboard.value))
+const symbolLimitRows = computed(() => buildSymbolLimitRows(dashboard.value))
 const statePanel = computed(() => buildStatePanel(dashboard.value))
 const holdingScope = computed(() => buildHoldingScopeView(dashboard.value))
 const ruleMatrix = computed(() => buildRuleMatrix(dashboard.value))

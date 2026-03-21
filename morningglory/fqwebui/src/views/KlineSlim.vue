@@ -43,6 +43,14 @@
         </el-button>
         <el-button
           size="small"
+          :type="showSubjectPanel ? 'primary' : 'default'"
+          :disabled="!routeSymbol"
+          @click="toggleSubjectPanel"
+        >
+          标的设置
+        </el-button>
+        <el-button
+          size="small"
           :type="priceGuideEditMode ? 'warning' : 'default'"
           :disabled="!routeSymbol"
           @click="togglePriceGuideEditMode"
@@ -180,6 +188,264 @@
       </aside>
 
       <section class="kline-slim-content">
+        <div v-if="showSubjectPanel" class="kline-slim-subject-panel kline-slim-overlay-panel">
+          <div class="price-panel-header">
+            <div class="price-panel-header-main">
+              <div class="price-panel-title-row">
+                <span class="price-panel-title">标的设置</span>
+                <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
+                <span v-if="subjectPanelState.subjectDetailLoading" class="price-panel-chip">同步中</span>
+              </div>
+              <div class="price-panel-meta-row">
+                <span>基础配置 / 单标的仓位上限 / 按 buy lot 止损</span>
+                <span v-if="subjectPanelState.subjectPanelDetail">
+                  {{ subjectPanelState.subjectPanelDetail.name || subjectPanelState.subjectPanelDetail.symbol }}
+                </span>
+              </div>
+            </div>
+            <div class="price-panel-actions">
+              <el-button
+                size="small"
+                type="primary"
+                :loading="subjectPanelState.savingSubjectConfigBundle"
+                :disabled="!subjectPanelState.subjectPanelDetail"
+                @click="handleSaveSubjectConfigBundle"
+              >
+                保存基础配置与仓位上限
+              </el-button>
+              <el-button
+                size="small"
+                :loading="subjectPanelState.subjectDetailLoading"
+                @click="loadSubjectPanelDetail({ force: true })"
+              >
+                刷新
+              </el-button>
+              <el-button size="small" @click="closeSubjectPanel">关闭</el-button>
+            </div>
+          </div>
+
+          <div class="price-panel-body">
+            <div v-if="subjectPanelState.pageError" class="price-panel-inline-error">
+              {{ subjectPanelState.pageError }}
+            </div>
+            <div v-if="!routeSymbol" class="price-panel-state">请先从左侧选择标的</div>
+            <div v-else-if="subjectPanelState.subjectDetailLoading && !subjectPanelState.subjectPanelDetail" class="price-panel-state">
+              加载中...
+            </div>
+            <div v-else-if="!subjectPanelState.subjectPanelDetail" class="price-panel-state">
+              暂无标的设置
+            </div>
+            <div v-else class="price-panel-sections">
+              <section class="price-panel-section">
+                <div class="price-panel-section-header">
+                  <div class="price-panel-section-title-wrap">
+                    <span class="price-panel-section-title">基础配置</span>
+                    <span class="price-panel-section-note">must_pool</span>
+                  </div>
+                  <div class="subject-panel-inline-chips">
+                    <span class="price-panel-summary-chip">
+                      当前止损 {{ formatPriceGuideValue(subjectPanelState.subjectPanelDetail.mustPool.stop_loss_price) }}
+                    </span>
+                    <span class="price-panel-summary-chip">
+                      当前分类 {{ subjectPanelState.subjectPanelDetail.mustPool.category || '-' }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="subject-panel-grid">
+                  <label class="subject-panel-field">
+                    <span class="subject-panel-field__label">分类</span>
+                    <span class="subject-panel-field__note">右侧直接改 must_pool.category</span>
+                    <el-input
+                      v-model.trim="subjectPanelState.mustPoolDraft.category"
+                      size="small"
+                      placeholder="如：银行 / 守护池"
+                    />
+                  </label>
+
+                  <label class="subject-panel-field">
+                    <span class="subject-panel-field__label">止损价</span>
+                    <span class="subject-panel-field__note">当前 {{ formatPriceGuideValue(subjectPanelState.subjectPanelDetail.mustPool.stop_loss_price) }}</span>
+                    <el-input-number
+                      v-model="subjectPanelState.mustPoolDraft.stop_loss_price"
+                      size="small"
+                      :min="0"
+                      :step="0.01"
+                      controls-position="right"
+                    />
+                  </label>
+
+                  <div class="subject-panel-limit-row">
+                    <label class="subject-panel-field">
+                      <span class="subject-panel-field__label">首笔金额</span>
+                      <span class="subject-panel-field__note">当前 {{ formatIntegerValue(subjectPanelState.subjectPanelDetail.mustPool.initial_lot_amount) }}</span>
+                      <el-input-number
+                        v-model="subjectPanelState.mustPoolDraft.initial_lot_amount"
+                        size="small"
+                        :min="0"
+                        :step="1000"
+                        controls-position="right"
+                      />
+                    </label>
+
+                    <label class="subject-panel-field">
+                      <span class="subject-panel-field__label">常规金额</span>
+                      <span class="subject-panel-field__note">当前 {{ formatIntegerValue(subjectPanelState.subjectPanelDetail.mustPool.lot_amount) }}</span>
+                      <el-input-number
+                        v-model="subjectPanelState.mustPoolDraft.lot_amount"
+                        size="small"
+                        :min="0"
+                        :step="1000"
+                        controls-position="right"
+                      />
+                    </label>
+                  </div>
+
+                  <div class="subject-panel-field">
+                    <div class="subject-panel-switch-row">
+                      <span class="subject-panel-field__label">永久跟踪</span>
+                      <el-switch
+                        v-model="subjectPanelState.mustPoolDraft.forever"
+                        size="small"
+                        inline-prompt
+                        active-text="开"
+                        inactive-text="关"
+                      />
+                    </div>
+                    <span class="subject-panel-field__note">
+                      {{ subjectPanelState.mustPoolDraft.forever ? '当前作为永久跟踪标的' : '当前作为普通标的' }}
+                    </span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="price-panel-section">
+                <div class="price-panel-section-header">
+                  <div class="price-panel-section-title-wrap">
+                    <span class="price-panel-section-title">单标的仓位上限</span>
+                    <span class="price-panel-section-note">position management override</span>
+                  </div>
+                  <div class="subject-panel-inline-chips">
+                    <span class="price-panel-summary-chip">
+                      市值 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.market_value) }}
+                    </span>
+                    <span class="price-panel-summary-chip" :class="{ active: subjectPanelState.subjectPanelDetail.positionLimit.blocked }">
+                      {{ subjectPanelState.subjectPanelDetail.positionLimit.blocked ? '已阻断买入' : '允许买入' }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="subject-panel-grid">
+                  <div class="subject-panel-inline-chips">
+                    <span class="price-panel-summary-chip">
+                      默认 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.default_limit) }}
+                    </span>
+                    <span class="price-panel-summary-chip">
+                      有效 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.effective_limit) }}
+                    </span>
+                    <span class="price-panel-summary-chip">
+                      来源 {{ subjectPanelState.subjectPanelDetail.positionLimit.using_override ? '单独设置' : '默认值' }}
+                    </span>
+                  </div>
+
+                  <div class="subject-panel-limit-row">
+                    <div class="subject-panel-field">
+                      <div class="subject-panel-switch-row">
+                        <span class="subject-panel-field__label">来源</span>
+                        <el-switch
+                          v-model="subjectPanelState.positionLimitDraft.use_default"
+                          size="small"
+                          inline-prompt
+                          active-text="默认"
+                          inactive-text="单独"
+                        />
+                      </div>
+                      <span class="subject-panel-field__note">
+                        {{ subjectPanelState.positionLimitDraft.use_default ? '沿用仓位管理默认值' : '改为当前标的单独仓位上限' }}
+                      </span>
+                    </div>
+
+                    <label class="subject-panel-field">
+                      <span class="subject-panel-field__label">覆盖值</span>
+                      <span class="subject-panel-field__note">关闭“默认”后生效</span>
+                      <el-input-number
+                        v-model="subjectPanelState.positionLimitDraft.limit"
+                        size="small"
+                        :min="0"
+                        :step="10000"
+                        :disabled="subjectPanelState.positionLimitDraft.use_default"
+                        controls-position="right"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <section class="price-panel-section">
+                <div class="price-panel-section-header">
+                  <div class="price-panel-section-title-wrap">
+                    <span class="price-panel-section-title">按 buy lot 止损</span>
+                    <span class="price-panel-section-note">只对 open buy lot 生效，按行保存</span>
+                  </div>
+                  <span class="price-panel-summary-chip">
+                    {{ (subjectPanelState.subjectPanelDetail.buyLots || []).length }} 条
+                  </span>
+                </div>
+
+                <div v-if="!(subjectPanelState.subjectPanelDetail.buyLots || []).length" class="subject-panel-empty">
+                  暂无 open buy lot
+                </div>
+                <div v-else class="subject-panel-stoploss-list">
+                  <div
+                    v-for="row in subjectPanelState.subjectPanelDetail.buyLots"
+                    :key="row.buy_lot_id"
+                    class="subject-panel-stoploss-row"
+                  >
+                    <div class="subject-panel-stoploss-main">
+                      <span class="subject-panel-field__label">{{ row.buy_lot_id }}</span>
+                      <span class="subject-panel-field__note">
+                        买入 {{ formatPriceGuideValue(row.buy_price_real) }} / 数量 {{ row.original_quantity }} / 剩余 {{ row.remaining_quantity }}
+                      </span>
+                    </div>
+
+                    <div class="subject-panel-stoploss-editor">
+                      <el-input-number
+                        v-model="subjectPanelState.stoplossDrafts[row.buy_lot_id].stop_price"
+                        size="small"
+                        :min="0"
+                        :step="0.01"
+                        controls-position="right"
+                      />
+                      <el-switch
+                        v-model="subjectPanelState.stoplossDrafts[row.buy_lot_id].enabled"
+                        size="small"
+                        inline-prompt
+                        active-text="开"
+                        inactive-text="关"
+                      />
+                    </div>
+
+                    <div class="subject-panel-stoploss-actions">
+                      <span class="price-panel-state-chip" :class="{ active: subjectPanelState.stoplossDrafts[row.buy_lot_id].enabled }">
+                        {{ subjectPanelState.stoplossDrafts[row.buy_lot_id].enabled ? '生效中' : '未启用' }}
+                      </span>
+                      <el-button
+                        size="small"
+                        type="primary"
+                        text
+                        :loading="subjectPanelState.savingStoploss[row.buy_lot_id]"
+                        @click="handleSaveSubjectStoploss(row.buy_lot_id)"
+                      >
+                        保存
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+
         <div v-if="showPriceGuidePanel" class="kline-slim-price-panel kline-slim-overlay-panel">
           <div class="price-panel-header">
             <div class="price-panel-header-main">
@@ -707,6 +973,17 @@ export default klineSlim
   border-radius 18px
   background linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(10, 14, 20, 0.96))
 
+.kline-slim-subject-panel
+  left 12px
+  width 372px
+  max-width calc(100% - 24px)
+  max-height calc(100% - 24px)
+  display flex
+  flex-direction column
+  border 1px solid rgba(148, 163, 184, 0.24)
+  border-radius 18px
+  background linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(10, 14, 20, 0.96))
+
 .price-panel-header
   display flex
   align-items flex-start
@@ -961,6 +1238,91 @@ export default klineSlim
   line-height 1.5
   color #94a3b8
 
+.subject-panel-grid
+  display flex
+  flex-direction column
+  gap 10px
+
+.subject-panel-field
+  display flex
+  flex-direction column
+  gap 6px
+  padding 12px
+  border 1px solid rgba(127, 127, 122, 0.16)
+  border-radius 14px
+  background rgba(15, 23, 42, 0.44)
+
+.subject-panel-field__label
+  font-size 12px
+  font-weight 600
+  color #f8fafc
+
+.subject-panel-field__note
+  font-size 12px
+  line-height 1.5
+  color #94a3b8
+
+.subject-panel-inline-chips
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+
+.subject-panel-switch-row
+  display flex
+  align-items center
+  justify-content space-between
+  gap 12px
+
+.subject-panel-limit-row
+  display grid
+  grid-template-columns repeat(2, minmax(0, 1fr))
+  gap 10px
+
+.subject-panel-empty
+  padding 10px 12px
+  border 1px dashed rgba(148, 163, 184, 0.2)
+  border-radius 12px
+  color #94a3b8
+  font-size 12px
+  background rgba(15, 23, 42, 0.32)
+
+.subject-panel-stoploss-list
+  display flex
+  flex-direction column
+  gap 10px
+
+.subject-panel-stoploss-row
+  display grid
+  grid-template-columns minmax(0, 1fr) minmax(148px, 0.9fr) auto
+  gap 10px
+  align-items center
+  padding 12px
+  border 1px solid rgba(127, 127, 122, 0.16)
+  border-radius 14px
+  background rgba(15, 23, 42, 0.44)
+
+.subject-panel-stoploss-main
+  display flex
+  flex-direction column
+  gap 6px
+  min-width 0
+
+.subject-panel-stoploss-editor
+  display grid
+  grid-template-columns minmax(0, 1fr) auto
+  gap 8px
+  align-items center
+
+.subject-panel-stoploss-actions
+  display flex
+  align-items center
+  gap 8px
+
+.subject-panel-field :deep(.el-input-number),
+.subject-panel-stoploss-editor :deep(.el-input-number)
+  width 100%
+
 .kline-slim-chanlun-panel
   right 12px
   max-height calc(100% - 24px)
@@ -1161,7 +1523,14 @@ export default klineSlim
   .kline-slim-price-panel
     width 332px
 
+  .kline-slim-subject-panel
+    width 372px
+
   .price-panel-row
+    grid-template-columns 1fr
+
+  .subject-panel-limit-row,
+  .subject-panel-stoploss-row
     grid-template-columns 1fr
 
 @media (max-width: 900px)
@@ -1188,6 +1557,11 @@ export default klineSlim
   .kline-slim-price-panel
     right 8px
     bottom 8px
+    width auto
+    max-height calc(100% - 16px)
+
+  .kline-slim-subject-panel
+    right 8px
     width auto
     max-height calc(100% - 16px)
 

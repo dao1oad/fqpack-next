@@ -206,6 +206,14 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
             "allow_open_min_bail": 800000.0,
             "holding_only_min_bail": 100000.0,
         },
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": 500000.0,
+            "effective_limit": 500000.0,
+            "using_override": True,
+            "blocked": False,
+        },
     )
 
     rows = service.get_overview()
@@ -225,6 +233,8 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["runtime"]["position_quantity"] == 500
     assert rows[0]["runtime"]["position_amount"] == 0.0
     assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:40:00+08:00"
+    assert rows[0]["position_limit_summary"]["effective_limit"] == 500000.0
+    assert rows[0]["position_limit_summary"]["using_override"] is True
 
 
 def test_subject_management_overview_prefers_symbol_snapshot_market_value():
@@ -246,6 +256,14 @@ def test_subject_management_overview_prefers_symbol_snapshot_market_value():
             "market_value_source": "bar_close_x_quantity",
         },
         pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
     )
 
     rows = service.get_overview()
@@ -298,6 +316,14 @@ def test_subject_management_overview_normalizes_must_pool_codes_before_grouping(
         ],
         symbol_position_loader=lambda symbol: None,
         pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
     )
 
     rows = service.get_overview()
@@ -405,6 +431,14 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lot
             "allow_open_min_bail": 800000.0,
             "holding_only_min_bail": 100000.0,
         },
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": 500000.0,
+            "effective_limit": 500000.0,
+            "using_override": True,
+            "blocked": True,
+        },
     )
 
     detail = service.get_detail("600000.SH")
@@ -420,6 +454,8 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lot
     assert detail["buy_lots"][0]["stoploss"]["stop_price"] == 9.2
     assert detail["runtime_summary"]["position_quantity"] == 500
     assert detail["position_management_summary"]["effective_state"] == "HOLDING_ONLY"
+    assert detail["position_limit_summary"]["effective_limit"] == 500000.0
+    assert detail["position_limit_summary"]["blocked"] is True
 
 
 def test_subject_management_detail_prefers_symbol_snapshot_market_value():
@@ -441,6 +477,14 @@ def test_subject_management_detail_prefers_symbol_snapshot_market_value():
             "market_value_source": "bar_close_x_quantity",
         },
         pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
     )
 
     detail = service.get_detail("600000")
@@ -489,6 +533,14 @@ def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
         position_loader=lambda: [],
         symbol_position_loader=lambda symbol: None,
         pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
     )
 
     detail = service.get_detail("002262")
@@ -522,6 +574,14 @@ def test_subject_management_uses_default_position_loader_when_not_injected(monke
         order_repository=InMemoryOrderManagementRepository(),
         symbol_position_loader=lambda symbol: None,
         pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
     )
 
     rows = service.get_overview()

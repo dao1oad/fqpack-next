@@ -83,3 +83,59 @@ def test_position_management_config_routes_forward_reads_and_validation_errors(
         post_response.get_json()["error"]
         == "allow_open_min_bail must be greater than holding_only_min_bail"
     )
+
+
+def test_position_management_symbol_limit_routes_forward_reads_and_updates(
+    monkeypatch,
+):
+    captured = {}
+
+    class FakeService:
+        def get_symbol_limits(self):
+            return {
+                "rows": [
+                    {
+                        "symbol": "600000",
+                        "effective_limit": 500000.0,
+                    }
+                ]
+            }
+
+        def get_symbol_limit(self, symbol):
+            return {
+                "symbol": symbol,
+                "effective_limit": 500000.0,
+            }
+
+        def update_symbol_limit(self, symbol, payload):
+            captured["call"] = (symbol, payload)
+            return {
+                "symbol": symbol,
+                "effective_limit": payload.get("limit", 800000.0),
+                "using_override": not payload.get("use_default"),
+            }
+
+    monkeypatch.setattr(
+        "freshquant.rear.position_management.routes._get_position_management_dashboard_service",
+        lambda: FakeService(),
+    )
+
+    client = _make_client()
+
+    list_response = client.get("/api/position-management/symbol-limits")
+    detail_response = client.get("/api/position-management/symbol-limits/600000")
+    post_response = client.post(
+        "/api/position-management/symbol-limits/600000",
+        data=json.dumps({"limit": 500000, "updated_by": "pytest"}),
+        content_type="application/json",
+    )
+
+    assert list_response.status_code == 200
+    assert list_response.get_json()["rows"][0]["symbol"] == "600000"
+    assert detail_response.status_code == 200
+    assert detail_response.get_json()["effective_limit"] == 500000.0
+    assert post_response.status_code == 200
+    assert captured["call"] == (
+        "600000",
+        {"limit": 500000, "updated_by": "pytest"},
+    )

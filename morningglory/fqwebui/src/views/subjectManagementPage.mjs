@@ -1,5 +1,12 @@
 import { cloneSubjectManagementTakeprofitDrafts } from './subjectManagement.mjs'
 
+const clonePositionLimitDraft = (draft = {}) => ({
+  use_default: Boolean(
+    draft?.use_default ?? !(draft?.using_override ?? (draft?.override_limit !== null && draft?.override_limit !== undefined))
+  ),
+  limit: draft?.limit ?? draft?.override_limit ?? null,
+})
+
 const errorMessage = (error) => {
   return error?.response?.data?.error || error?.message || String(error || 'unknown error')
 }
@@ -17,13 +24,6 @@ const cloneMustPoolDraft = (draft = {}) => ({
   initial_lot_amount: draft?.initial_lot_amount ?? null,
   lot_amount: draft?.lot_amount ?? null,
   forever: Boolean(draft?.forever),
-})
-
-const cloneGuardianDraft = (draft = {}) => ({
-  enabled: Boolean(draft?.enabled),
-  buy_1: draft?.buy_1 ?? null,
-  buy_2: draft?.buy_2 ?? null,
-  buy_3: draft?.buy_3 ?? null,
 })
 
 const cloneStoplossDrafts = (drafts = {}) => {
@@ -49,9 +49,18 @@ const hasMustPoolDraftChanges = (detail, draft) => {
   return JSON.stringify(cloneMustPoolDraft(draft)) !== JSON.stringify(baseline)
 }
 
-const hasGuardianDraftChanges = (detail, draft) => {
-  const baseline = cloneGuardianDraft(detail?.guardianConfig || {})
-  return JSON.stringify(cloneGuardianDraft(draft)) !== JSON.stringify(baseline)
+const hasPositionLimitDraftChanges = (detail, draft) => {
+  const baseline = clonePositionLimitDraft(detail?.positionLimitSummary || {})
+  return JSON.stringify(clonePositionLimitDraft(draft)) !== JSON.stringify(baseline)
+}
+
+const buildPositionLimitPayload = (draft = {}) => {
+  if (draft?.use_default) {
+    return { use_default: true }
+  }
+  return {
+    limit: draft?.limit ?? null,
+  }
 }
 
 export const createSubjectManagementPageController = ({
@@ -69,8 +78,6 @@ export const createSubjectManagementPageController = ({
     loadingDetail: false,
     savingConfigBundle: false,
     savingMustPool: false,
-    savingGuardian: false,
-    savingTakeprofit: false,
     pageError: '',
     overviewRows: [],
     selectedSymbol: '',
@@ -82,11 +89,9 @@ export const createSubjectManagementPageController = ({
       lot_amount: null,
       forever: false,
     },
-    guardianDraft: {
-      enabled: false,
-      buy_1: null,
-      buy_2: null,
-      buy_3: null,
+    positionLimitDraft: {
+      use_default: true,
+      limit: null,
     },
     takeprofitDrafts: [],
     stoplossDrafts: {},
@@ -118,31 +123,26 @@ export const createSubjectManagementPageController = ({
       lot_amount: detail.mustPool?.lot_amount,
       forever: detail.mustPool?.forever,
     })
-    state.guardianDraft = cloneGuardianDraft(detail.guardianConfig)
-    state.takeprofitDrafts = cloneSubjectManagementTakeprofitDrafts(detail.takeprofitDrafts)
+    state.positionLimitDraft = clonePositionLimitDraft(detail.positionLimitSummary)
+    state.takeprofitDrafts = cloneSubjectManagementTakeprofitDrafts(detail.takeprofitDrafts || [])
     syncStoplossDrafts(detail.buyLots)
   }
 
   const hydrateDetail = async (
     symbol,
     {
-      preserveTakeprofitDrafts = false,
-      preserveGuardianDraft = false,
+      preservePositionLimitDraft = false,
       preserveStoplossDrafts = false,
     } = {},
   ) => {
-    const previousTakeprofitDrafts = cloneSubjectManagementTakeprofitDrafts(state.takeprofitDrafts)
-    const previousGuardianDraft = cloneGuardianDraft(state.guardianDraft)
+    const previousPositionLimitDraft = clonePositionLimitDraft(state.positionLimitDraft)
     const previousStoplossDrafts = cloneStoplossDrafts(state.stoplossDrafts)
     state.loadingDetail = true
     try {
       const detail = await actions.loadSubjectDetail(symbol)
       applyDetail(detail)
-      if (preserveTakeprofitDrafts) {
-        state.takeprofitDrafts = previousTakeprofitDrafts
-      }
-      if (preserveGuardianDraft) {
-        state.guardianDraft = previousGuardianDraft
+      if (preservePositionLimitDraft) {
+        state.positionLimitDraft = previousPositionLimitDraft
       }
       if (preserveStoplossDrafts) {
         for (const [buyLotId, payload] of Object.entries(previousStoplossDrafts)) {
@@ -204,8 +204,7 @@ export const createSubjectManagementPageController = ({
       await actions.saveMustPool(state.selectedSymbol, cloneMustPoolDraft(state.mustPoolDraft))
       emitNotify(notify, 'success', '基础设置已保存')
       await hydrateDetail(state.selectedSymbol, {
-        preserveGuardianDraft: true,
-        preserveTakeprofitDrafts: true,
+        preservePositionLimitDraft: true,
         preserveStoplossDrafts: true,
       })
       await reloadOverviewOnly()
@@ -219,8 +218,8 @@ export const createSubjectManagementPageController = ({
   const handleSaveConfigBundle = async () => {
     if (!state.selectedSymbol) return
     const mustPoolChanged = hasMustPoolDraftChanges(state.detail, state.mustPoolDraft)
-    const guardianChanged = hasGuardianDraftChanges(state.detail, state.guardianDraft)
-    if (!mustPoolChanged && !guardianChanged) {
+    const positionLimitChanged = hasPositionLimitDraftChanges(state.detail, state.positionLimitDraft)
+    if (!mustPoolChanged && !positionLimitChanged) {
       return
     }
     state.savingConfigBundle = true
@@ -230,29 +229,30 @@ export const createSubjectManagementPageController = ({
         await actions.saveMustPool(state.selectedSymbol, cloneMustPoolDraft(state.mustPoolDraft))
         mustPoolSaved = true
       }
-      if (guardianChanged) {
-        await actions.saveGuardianBuyGrid(state.selectedSymbol, cloneGuardianDraft(state.guardianDraft))
+      if (positionLimitChanged) {
+        await actions.savePositionLimit(
+          state.selectedSymbol,
+          buildPositionLimitPayload(state.positionLimitDraft),
+        )
       }
       emitNotify(
         notify,
         'success',
-        mustPoolChanged && guardianChanged
-          ? '基础与 Guardian 已保存'
+        mustPoolChanged && positionLimitChanged
+          ? '基础设置与仓位上限已保存'
           : mustPoolChanged
             ? '基础设置已保存'
-            : 'Guardian 设置已保存',
+            : '仓位上限已保存',
       )
       await hydrateDetail(state.selectedSymbol, {
-        preserveTakeprofitDrafts: true,
         preserveStoplossDrafts: true,
       })
       await reloadOverviewOnly()
     } catch (error) {
       if (mustPoolSaved) {
-        emitNotify(notify, 'warning', '基础设置已保存，Guardian 保存失败')
+        emitNotify(notify, 'warning', '基础设置已保存，仓位上限保存失败')
         await hydrateDetail(state.selectedSymbol, {
-          preserveGuardianDraft: true,
-          preserveTakeprofitDrafts: true,
+          preservePositionLimitDraft: true,
           preserveStoplossDrafts: true,
         })
         await reloadOverviewOnly()
@@ -263,45 +263,6 @@ export const createSubjectManagementPageController = ({
     }
   }
 
-  const handleSaveGuardian = async () => {
-    if (!state.selectedSymbol) return
-    state.savingGuardian = true
-    try {
-      await actions.saveGuardianBuyGrid(state.selectedSymbol, cloneGuardianDraft(state.guardianDraft))
-      emitNotify(notify, 'success', 'Guardian 设置已保存')
-      await hydrateDetail(state.selectedSymbol, {
-        preserveTakeprofitDrafts: true,
-        preserveStoplossDrafts: true,
-      })
-      await reloadOverviewOnly()
-    } catch (error) {
-      state.pageError = errorMessage(error)
-    } finally {
-      state.savingGuardian = false
-    }
-  }
-
-  const handleSaveTakeprofit = async () => {
-    if (!state.selectedSymbol) return
-    state.savingTakeprofit = true
-    try {
-      await actions.saveTakeprofit(
-        state.selectedSymbol,
-        cloneSubjectManagementTakeprofitDrafts(state.takeprofitDrafts),
-      )
-      emitNotify(notify, 'success', '止盈层级已保存')
-      await hydrateDetail(state.selectedSymbol, {
-        preserveGuardianDraft: true,
-        preserveStoplossDrafts: true,
-      })
-      await reloadOverviewOnly()
-    } catch (error) {
-      state.pageError = errorMessage(error)
-    } finally {
-      state.savingTakeprofit = false
-    }
-  }
-
   const handleSaveStoploss = async (buyLotId) => {
     if (!buyLotId) return
     state.savingStoploss[buyLotId] = true
@@ -309,8 +270,7 @@ export const createSubjectManagementPageController = ({
       await actions.saveStoploss(buyLotId, state.stoplossDrafts[buyLotId] || {})
       emitNotify(notify, 'success', `止损已更新 ${buyLotId}`)
       await hydrateDetail(state.selectedSymbol, {
-        preserveGuardianDraft: true,
-        preserveTakeprofitDrafts: true,
+        preservePositionLimitDraft: true,
         preserveStoplossDrafts: true,
       })
       await reloadOverviewOnly()
@@ -331,8 +291,6 @@ export const createSubjectManagementPageController = ({
     selectSymbol,
     handleSaveConfigBundle,
     handleSaveMustPool,
-    handleSaveGuardian,
-    handleSaveTakeprofit,
     handleSaveStoploss,
   }
 }

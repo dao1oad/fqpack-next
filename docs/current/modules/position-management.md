@@ -19,6 +19,9 @@
   - `GET /api/position-management/dashboard`
   - `GET /api/position-management/config`
   - `POST /api/position-management/config`
+  - `GET /api/position-management/symbol-limits`
+  - `GET /api/position-management/symbol-limits/<symbol>`
+  - `POST /api/position-management/symbol-limits/<symbol>`
 
 ## 依赖
 
@@ -68,6 +71,13 @@
 - 仅允许持仓内操作的最低保证金默认约 `100000`
 - 单标的实时仓位上限默认约 `800000`
 
+当前同时支持“全局默认值 + 单标的覆盖值”：
+
+- 默认值仍写在 `pm_configs.thresholds.single_symbol_position_limit`
+- 单标的覆盖值写在 `pm_configs.symbol_position_limits.overrides.<symbol>`
+- 买入门禁按 `override_limit ?? default_limit` 计算有效上限
+- Dashboard 会同时返回 `default_limit / override_limit / effective_limit / market_value / blocked`
+
 单标的实时仓位当前统一定义：
 
 - 数量优先 `xt_positions.volume`
@@ -103,11 +113,12 @@
 - 配置 inventory
 - 当前 `raw_state` / `effective_state` / `stale`
 - 最新资产摘要
+- 单标的仓位上限摘要行
 - holding scope
 - 当前规则矩阵
 - 最近决策摘要（包含 `decision_id / symbol / symbol_name / source / source_module / trace_id / intent_id`，以及单标的实时仓位来源）
 
-其中 `effective_state`、`stale` 和规则说明均由服务端按真实 `PositionPolicy` 计算；最近决策还会带出单标的实时仓位、上限来源与 trace 上下文。
+其中 `effective_state`、`stale` 和规则说明均由服务端按真实 `PositionPolicy` 计算；最近决策会带出单标的实时仓位、上限来源与 trace 上下文，单标的仓位上限摘要会带出默认值、覆盖值和当前阻断状态。
 
 ## 页面组织
 
@@ -120,8 +131,16 @@
 - 页面下半区改成左中右三栏：左栏当前仓位状态，中栏参数 inventory，右栏持仓范围与规则矩阵
 - 参数 inventory 维持“可编辑阈值 + 只读参数”边界，但当前统一合并为一张紧凑表格，列包含 `分组 / 参数 / 当前值 / 编辑值 / 说明`
 - 可编辑阈值当前包含账户级阈值和单标的实时仓位上限
+- 新增“单标的仓位上限覆盖”表，集中展示 `默认值 / 覆盖值 / 有效值 / 门禁`
 - 当前仓位状态改成摘要条、指标块和元数据块，不再使用大 hero
 - holding scope、规则矩阵继续保持高密度列表/表格表达
+
+单标的覆盖值的编辑真值不放在本页，当前统一从：
+
+- `/subject-management` 的右侧“基础配置 + 单标的仓位上限”编辑表
+- `/kline-slim` 的“标的设置”浮层
+
+进入。
 
 ## holding scope 口径
 

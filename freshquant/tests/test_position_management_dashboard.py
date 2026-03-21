@@ -17,6 +17,7 @@ class FakeRepository:
         self.upserted_config = None
         self.snapshots = []
         self.decision_docs = []
+        self.symbol_snapshot_docs = []
 
     def get_config(self):
         return self.config_doc
@@ -48,6 +49,13 @@ class FakeRepository:
 
     def list_recent_decisions(self, limit=10):
         return list(self.decision_docs[:limit])
+
+    def list_symbol_snapshots(self, symbols=None):
+        rows = list(self.symbol_snapshot_docs)
+        if symbols:
+            allowed = set(symbols)
+            rows = [item for item in rows if item.get("symbol") in allowed]
+        return rows
 
 
 class SuccessfulCreditClient:
@@ -345,3 +353,128 @@ def test_dashboard_marks_threshold_change_as_pending_refresh_when_state_is_fresh
     )
     assert "下一次 snapshot 刷新" in payload["state"]["matched_rule"]["detail"]
     assert rules["buy_new"]["allowed"] is True
+
+
+def test_dashboard_exposes_symbol_limit_rows_with_default_and_override_values():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    repository = FakeRepository()
+    repository.config_doc = {
+        "code": "default",
+        "enabled": True,
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
+        },
+        "symbol_position_limits": {
+            "overrides": {
+                "600000": {
+                    "limit": 500000.0,
+                    "updated_at": "2026-03-22T10:00:00+08:00",
+                    "updated_by": "pytest",
+                }
+            }
+        },
+    }
+    repository.symbol_snapshot_docs = [
+        {
+            "symbol": "600000",
+            "market_value": 520000.0,
+            "market_value_source": "xt_positions.market_value",
+            "name": "浦发银行",
+        },
+        {
+            "symbol": "000001",
+            "market_value": 200000.0,
+            "market_value_source": "xt_positions.market_value",
+            "name": "平安银行",
+        },
+    ]
+
+    service = PositionManagementDashboardService(
+        repository=repository,
+        holding_codes_provider=lambda: ["600000", "000001"],
+        settings_provider=_system_settings_provider(),
+        now_provider=_fixed_now,
+    )
+
+    payload = service.get_dashboard()
+    rows = payload["symbol_position_limits"]["rows"]
+
+    assert [row["symbol"] for row in rows] == ["600000", "000001"]
+    assert rows[0]["override_limit"] == 500000.0
+    assert rows[0]["effective_limit"] == 500000.0
+    assert rows[0]["using_override"] is True
+    assert rows[0]["blocked"] is True
+    assert rows[1]["override_limit"] is None
+    assert rows[1]["effective_limit"] == 800000.0
+    assert rows[1]["using_override"] is False
+    assert rows[1]["blocked"] is False
+
+
+def test_update_symbol_limit_persists_override_and_supports_reset_to_default():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    repository = FakeRepository()
+    repository.config_doc = {
+        "code": "default",
+        "enabled": True,
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
+        },
+        "symbol_position_limits": {"overrides": {}},
+    }
+    repository.symbol_snapshot_docs = [
+        {
+            "symbol": "600000",
+            "market_value": 480000.0,
+            "market_value_source": "xt_positions.market_value",
+            "name": "浦发银行",
+        }
+    ]
+
+    service = PositionManagementDashboardService(
+        repository=repository,
+        holding_codes_provider=lambda: ["600000"],
+        settings_provider=_system_settings_provider(),
+        now_provider=_fixed_now,
+    )
+
+    detail = service.update_symbol_limit(
+        "600000.SH",
+        {
+            "limit": 500000,
+            "updated_by": "pytest",
+        },
+    )
+
+    assert detail["symbol"] == "600000"
+    assert detail["override_limit"] == 500000.0
+    assert detail["effective_limit"] == 500000.0
+    assert detail["using_override"] is True
+    assert (
+        repository.upserted_config["symbol_position_limits"]["overrides"]["600000"][
+            "limit"
+        ]
+        == 500000.0
+    )
+
+    reset_detail = service.update_symbol_limit(
+        "600000",
+        {
+            "use_default": True,
+            "updated_by": "pytest",
+        },
+    )
+
+    assert reset_detail["override_limit"] is None
+    assert reset_detail["effective_limit"] == 800000.0
+    assert reset_detail["using_override"] is False
+    assert repository.upserted_config["symbol_position_limits"]["overrides"] == {}

@@ -6,6 +6,7 @@ import {
   buildInventoryRows,
   buildRecentDecisionDetailRows,
   buildRecentDecisionRows,
+  buildSymbolLimitRows,
 } from './positionManagement.mjs'
 
 test('buildInventoryRows keeps single symbol position limit editable inside merged table', () => {
@@ -52,17 +53,64 @@ test('buildInventoryRows keeps single symbol position limit editable inside merg
   assert.equal(singleSymbolLimit.editable, true)
 })
 
+test('buildSymbolLimitRows exposes default and override rows for position limits', () => {
+  const rows = buildSymbolLimitRows({
+    symbol_position_limits: {
+      rows: [
+        {
+          symbol: '600000',
+          name: '浦发银行',
+          market_value: 520000,
+          default_limit: 800000,
+          override_limit: 500000,
+          effective_limit: 500000,
+          using_override: true,
+          blocked: true,
+        },
+        {
+          symbol: '000001',
+          name: '平安银行',
+          market_value: 200000,
+          default_limit: 800000,
+          override_limit: null,
+          effective_limit: 800000,
+          using_override: false,
+          blocked: false,
+        },
+      ],
+    },
+  })
+
+  assert.deepEqual(
+    rows.map((row) => row.symbol),
+    ['600000', '000001'],
+  )
+  assert.equal(rows[0].market_value_label, '520,000.00')
+  assert.equal(rows[0].source_label, '单独设置')
+  assert.equal(rows[0].blocked_label, '已阻断')
+  assert.equal(rows[1].source_label, '默认值')
+  assert.equal(rows[1].override_limit_label, '-')
+  assert.equal(rows[1].blocked_label, '允许')
+})
+
 test('PositionManagement view renders merged inventory table and symbol name column', () => {
   const source = fs.readFileSync(new URL('./PositionManagement.vue', import.meta.url), 'utf8')
 
   assert.match(source, /inventoryRows/)
+  assert.match(source, /symbolLimitRows/)
   assert.match(source, /prop="group_label" label="分组"/)
   assert.match(source, /prop="description" label="说明"/)
   assert.match(source, /position-decision-grid/)
   assert.match(source, /position-decision-list/)
+  assert.match(source, /position-decision-card__symbol/)
+  assert.match(source, /row\.symbol_name_label/)
   assert.match(source, /selectedDecision/)
   assert.match(source, /decisionDetailRows/)
   assert.match(source, /position-lower-grid/)
+  assert.match(source, /单标的仓位上限覆盖/)
+  assert.match(source, /prop="name" label="标的名称"/)
+  assert.match(source, /prop="source_label" label="来源"/)
+  assert.match(source, /prop="blocked_label" label="门禁"/)
   assert.match(source, /single_symbol_position_limit/)
   assert.match(source, /v-model="editableForm\.single_symbol_position_limit"/)
   assert.doesNotMatch(source, /<el-table v-if="recentDecisionRows.length"/)

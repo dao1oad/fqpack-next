@@ -8,7 +8,7 @@
           <div class="workbench-title-group">
             <div class="workbench-page-title">标的管理</div>
             <div class="workbench-page-meta">
-              <span>左侧高密度汇总当前配置，右侧集中编辑基础设置、Guardian、止盈三层与 buy lot 止损。</span>
+              <span>左侧高密度汇总当前配置，右侧集中编辑基础设置、单标的仓位上限与 buy lot 止损。</span>
               <template v-if="detail">
                 <span>/</span>
                 <span>当前标的 <span class="workbench-code">{{ detail.symbol }}</span> {{ detail.name }}</span>
@@ -133,6 +133,20 @@
                   </div>
                 </template>
               </el-table-column>
+              <el-table-column label="仓位上限" min-width="182">
+                <template #default="{ row }">
+                  <div class="subject-summary-stack">
+                    <div class="subject-summary-line">市值 {{ formatWanAmount(row.positionLimitSummary.market_value) }}</div>
+                    <div class="subject-summary-line">上限 {{ formatWanAmount(row.positionLimitSummary.effective_limit) }}</div>
+                    <div class="subject-summary-line">{{ row.positionLimitSummary.using_override ? '单独设置' : '默认值' }}</div>
+                    <div class="subject-summary-line">
+                      <span class="subject-inline-state" :class="{ active: !row.positionLimitSummary.blocked }">
+                        {{ row.positionLimitSummary.blocked ? '阻断' : '允许' }}
+                      </span>
+                    </div>
+                  </div>
+                </template>
+              </el-table-column>
               <el-table-column label="止盈" min-width="188">
                 <template #default="{ row }">
                   <div class="subject-takeprofit-grid">
@@ -214,8 +228,8 @@
             <section class="workbench-panel subject-editor-table-panel">
               <div class="subject-editor-table-header">
                 <div class="subject-editor-table-heading">
-                  <div class="subject-editor-table-title">基础配置 + Guardian</div>
-                  <div class="subject-editor-table-subtitle">must_pool / guardian_buy_grid_config</div>
+                  <div class="subject-editor-table-title">基础配置 + 单标的仓位上限</div>
+                  <div class="subject-editor-table-subtitle">must_pool / position_management symbol limit</div>
                 </div>
                 <el-button
                   size="small"
@@ -223,7 +237,7 @@
                   :loading="savingConfigBundle"
                   @click="handleSaveConfigBundleClick"
                 >
-                  保存基础与 Guardian
+                  保存基础设置与仓位上限
                 </el-button>
               </div>
 
@@ -237,7 +251,7 @@
                 <el-table-column prop="label" label="项" width="108" />
                 <el-table-column label="当前值" min-width="110">
                   <template #default="{ row }">
-                    <span :class="['subject-editor-current', row.group === 'Guardian' ? 'workbench-code' : '']">
+                    <span class="subject-editor-current">
                       {{ row.currentLabel }}
                     </span>
                   </template>
@@ -284,38 +298,20 @@
                       inactive-text="关"
                     />
                     <el-switch
-                      v-else-if="row.key === 'guardian_enabled'"
-                      v-model="guardianDraft.enabled"
+                      v-else-if="row.key === 'position_limit_mode'"
+                      v-model="positionLimitDraft.use_default"
                       size="small"
                       inline-prompt
-                      active-text="开"
-                      inactive-text="关"
+                      active-text="默认"
+                      inactive-text="单独"
                     />
                     <el-input-number
-                      v-else-if="row.key === 'buy_1'"
-                      v-model="guardianDraft.buy_1"
+                      v-else-if="row.key === 'position_limit_value'"
+                      v-model="positionLimitDraft.limit"
                       size="small"
                       :min="0"
-                      :step="0.01"
-                      :precision="2"
-                      controls-position="right"
-                    />
-                    <el-input-number
-                      v-else-if="row.key === 'buy_2'"
-                      v-model="guardianDraft.buy_2"
-                      size="small"
-                      :min="0"
-                      :step="0.01"
-                      :precision="2"
-                      controls-position="right"
-                    />
-                    <el-input-number
-                      v-else-if="row.key === 'buy_3'"
-                      v-model="guardianDraft.buy_3"
-                      size="small"
-                      :min="0"
-                      :step="0.01"
-                      :precision="2"
+                      :step="10000"
+                      :disabled="positionLimitDraft.use_default"
                       controls-position="right"
                     />
                   </template>
@@ -329,80 +325,8 @@
                 </el-table-column>
                 <el-table-column label="说明" min-width="180" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <span class="subject-editor-note" :class="{ 'workbench-code': row.group === 'Guardian' }">
-                      {{ row.note }}
-                    </span>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </section>
-
-            <section class="workbench-panel subject-editor-table-panel">
-              <div class="subject-editor-table-header">
-                <div class="subject-editor-table-heading">
-                  <div class="subject-editor-table-title">止盈设置</div>
-                  <div class="subject-editor-table-subtitle">固定三层，默认直接显示开关</div>
-                </div>
-                <el-button
-                  size="small"
-                  type="primary"
-                  :loading="savingTakeprofit"
-                  @click="handleSaveTakeprofitClick"
-                >
-                  保存止盈
-                </el-button>
-              </div>
-
-              <el-table
-                :data="takeprofitDrafts"
-                size="small"
-                border
-                class="subject-table subject-editor-takeprofit-table"
-              >
-                <el-table-column label="层级" width="80">
-                  <template #default="{ row }">
-                    <span class="workbench-code">L{{ row.level }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="当前值" width="96">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ formatPrice(takeprofitCurrentMap[row.level]?.price) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="编辑价" min-width="156">
-                  <template #default="{ row }">
-                    <el-input-number
-                      v-model="row.price"
-                      size="small"
-                      :min="0"
-                      :step="0.01"
-                      :precision="2"
-                      controls-position="right"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column label="启用" width="96">
-                  <template #default="{ row }">
-                    <el-switch
-                      v-model="row.manual_enabled"
-                      size="small"
-                      inline-prompt
-                      active-text="开"
-                      inactive-text="关"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column label="Armed" width="88">
-                  <template #default="{ row }">
-                    <el-tag size="small" :type="armedLevels[String(row.level)] ? 'success' : 'info'">
-                      {{ armedLevels[String(row.level)] ? '已布防' : '未布防' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="说明" min-width="140">
-                  <template #default="{ row }">
                     <span class="subject-editor-note">
-                      {{ row.manual_enabled ? '参与止盈' : '仅展示，不触发' }}
+                      {{ row.note }}
                     </span>
                   </template>
                 </el-table-column>
@@ -555,7 +479,6 @@ const {
   reloadCurrentSymbol,
   selectSymbol,
   handleSaveConfigBundle,
-  handleSaveTakeprofit,
   handleSaveStoploss,
 } = createSubjectManagementPageController({
   actions,
@@ -568,14 +491,12 @@ const {
   loadingOverview,
   loadingDetail,
   savingConfigBundle,
-  savingTakeprofit,
   pageError,
   overviewRows,
   selectedSymbol,
   detail,
   mustPoolDraft,
-  guardianDraft,
-  takeprofitDrafts,
+  positionLimitDraft,
   stoplossDrafts,
   savingStoploss,
 } = toRefs(state)
@@ -607,6 +528,7 @@ const filteredOverviewRows = computed(() => {
       row.symbol,
       row.name,
       row.category,
+      row.positionLimitSummaryLabel,
       row.guardianSummaryLabel,
       row.takeprofitSummaryLabel,
     ]
@@ -627,26 +549,22 @@ const pmStateChipClass = computed(() => resolveStateChipClass(pmSummary.value.ef
 const detailSummaryChips = computed(() => buildDetailSummaryChips(detail.value || {}))
 const configEditorRows = computed(() => buildDenseConfigRows(detail.value || {}))
 
-const armedLevels = computed(() => detail.value?.takeprofit?.state?.armed_levels || {})
-const takeprofitCurrentMap = computed(() => {
-  return Object.fromEntries(
-    (Array.isArray(detail.value?.takeprofit?.tiers) ? detail.value.takeprofit.tiers : []).map((row) => [Number(row.level), row]),
-  )
-})
-
 const overviewRowClassName = ({ row }) => {
   return row?.symbol === selectedSymbol.value ? 'subject-table-row--active' : ''
 }
 
 const resolveConfigRowTagType = (row) => {
-  if (row?.group === 'Guardian') {
-    return row?.statusLabel?.includes(':开') || row?.statusLabel === '已启用' ? 'warning' : 'info'
-  }
   if (row?.key === 'forever') {
     return row?.statusLabel === '永久' ? 'success' : 'info'
   }
   if (row?.key === 'stop_loss_price') {
     return 'danger'
+  }
+  if (row?.key === 'position_limit_mode') {
+    return row?.statusLabel === '单独设置' ? 'warning' : 'info'
+  }
+  if (row?.key === 'position_limit_value') {
+    return row?.statusLabel === '已阻断' ? 'danger' : 'success'
   }
   return 'info'
 }
@@ -656,19 +574,14 @@ const handleRowClick = async (row) => {
 }
 
 const handleSaveConfigBundleClick = async () => {
-  await handleSaveConfigBundle()
-}
-
-const handleSaveTakeprofitClick = async () => {
-  const invalidLevel = (takeprofitDrafts.value || []).find((row) => {
-    const parsed = Number(row?.price)
-    return !Number.isFinite(parsed) || parsed <= 0
-  })
-  if (invalidLevel) {
-    ElMessage.warning(`请先填写 L${invalidLevel.level} 的止盈价`)
-    return
+  if (!positionLimitDraft.value?.use_default) {
+    const parsed = Number(positionLimitDraft.value?.limit)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      ElMessage.warning('请先填写有效的仓位上限')
+      return
+    }
   }
-  await handleSaveTakeprofit()
+  await handleSaveConfigBundle()
 }
 
 const handleSaveStoplossClick = async (buyLotId) => {

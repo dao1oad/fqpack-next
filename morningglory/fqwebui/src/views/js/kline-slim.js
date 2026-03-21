@@ -19,6 +19,10 @@ import {
   saveTakeprofitPriceGuides,
 } from './kline-slim-price-panel.mjs'
 import {
+  buildInitialKlineSlimSubjectPanelState,
+  createKlineSlimSubjectPanelActions,
+} from './kline-slim-subject-panel.mjs'
+import {
   buildResolvedKlineSlimQuery,
   canApplyResolvedKlineSlimRoute,
   getKlineSlimEmptyMessage,
@@ -177,9 +181,93 @@ function buildPriceGuideRenderVersion({
   })
 }
 
+function cloneSubjectPanelMustPoolDraft(draft = {}) {
+  return {
+    category: String(draft?.category || '').trim(),
+    stop_loss_price: draft?.stop_loss_price ?? null,
+    initial_lot_amount: draft?.initial_lot_amount ?? null,
+    lot_amount: draft?.lot_amount ?? null,
+    forever: Boolean(draft?.forever)
+  }
+}
+
+function cloneSubjectPanelPositionLimitDraft(draft = {}) {
+  return {
+    use_default: Boolean(draft?.use_default ?? !draft?.using_override),
+    limit: draft?.limit ?? null
+  }
+}
+
+function cloneSubjectPanelStoplossDrafts(rows = []) {
+  return Object.fromEntries(
+    (Array.isArray(rows) ? rows : []).map((row) => [
+      row.buy_lot_id,
+      {
+        stop_price: row?.stoploss?.stop_price ?? null,
+        enabled: Boolean(row?.stoploss?.enabled)
+      }
+    ])
+  )
+}
+
+function applySubjectPanelDetailState(state, detail) {
+  state.subjectPanelDetail = detail
+  state.lastSubjectSymbol = detail?.symbol || ''
+  state.mustPoolDraft = cloneSubjectPanelMustPoolDraft(detail?.mustPool || {})
+  state.positionLimitDraft = cloneSubjectPanelPositionLimitDraft(detail?.positionLimit || {})
+  state.stoplossDrafts = cloneSubjectPanelStoplossDrafts(detail?.buyLots || [])
+}
+
+function resetSubjectPanelState(state, { preserveOpen = false } = {}) {
+  const nextState = buildInitialKlineSlimSubjectPanelState()
+  Object.assign(state, nextState)
+  state.showSubjectPanel = preserveOpen
+}
+
+function resolvePanelErrorMessage(error, fallback = '保存失败') {
+  return error?.response?.data?.error || error?.message || fallback
+}
+
+function hasSubjectPanelMustPoolChanges(detail, draft) {
+  const baseline = cloneSubjectPanelMustPoolDraft(detail?.mustPool || {})
+  return JSON.stringify(cloneSubjectPanelMustPoolDraft(draft)) !== JSON.stringify(baseline)
+}
+
+function hasSubjectPanelPositionLimitChanges(detail, draft) {
+  const baseline = cloneSubjectPanelPositionLimitDraft(detail?.positionLimit || {})
+  return JSON.stringify(cloneSubjectPanelPositionLimitDraft(draft)) !== JSON.stringify(baseline)
+}
+
+function buildSubjectPanelPositionLimitPayload(draft = {}) {
+  if (draft?.use_default) {
+    return { use_default: true }
+  }
+  return {
+    limit: draft?.limit ?? null
+  }
+}
+
+function formatWanAmountLabel(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return '--'
+  }
+  return `${(number / 10000).toFixed(2)} 万`
+}
+
+function formatIntegerLabel(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return '--'
+  }
+  return String(Math.trunc(number))
+}
+
 export default {
   name: 'kline-slim',
   data() {
+    const pricePanelState = buildInitialKlineSlimPricePanelState()
+    const subjectPanelState = buildInitialKlineSlimSubjectPanelState()
     return {
       chart: null,
       chartController: null,
@@ -237,7 +325,12 @@ export default {
       chanlunStructureError: '',
       chanlunStructureRefreshError: '',
       chanlunStructureData: null,
-      ...buildInitialKlineSlimPricePanelState()
+      showSubjectPanel: false,
+      subjectPanelState: {
+        ...subjectPanelState,
+        showSubjectPanel: false
+      },
+      ...pricePanelState
     }
   },
   computed: {
@@ -427,6 +520,7 @@ export default {
   },
   created() {
     this.pricePanelActions = createKlineSlimPricePanelActions(subjectManagementApi)
+    this.subjectPanelActions = createKlineSlimSubjectPanelActions(subjectManagementApi)
     this.loadSidebarData()
   },
   mounted() {
@@ -601,6 +695,10 @@ export default {
       this.symbolInput = this.routeSymbol
       this.endDateModel = this.$route.query.endDate || ''
       this.resetChanlunStructureState()
+      if (!this.routeSymbol) {
+        this.closeSubjectPanel()
+        resetSubjectPanelState(this.subjectPanelState)
+      }
 
       if (!this.routeSymbol && shouldResolveDefaultSymbol(this.$route.query)) {
         this.routeToken += 1
@@ -638,8 +736,12 @@ export default {
       this.resetSlimDataState()
       this.stopPolling()
       const shouldClearPricePanel = this.lastSubjectDetailSymbol && this.lastSubjectDetailSymbol !== this.routeSymbol
+      const shouldClearSubjectPanel = this.subjectPanelState.lastSubjectSymbol && this.subjectPanelState.lastSubjectSymbol !== this.routeSymbol
       if (shouldClearPricePanel) {
         clearSubjectPriceDetailState(this)
+      }
+      if (shouldClearSubjectPanel) {
+        resetSubjectPanelState(this.subjectPanelState, { preserveOpen: this.showSubjectPanel })
       }
 
       if (this.chart && this.routeSymbol) {
@@ -660,6 +762,11 @@ export default {
       this.loadSubjectPriceDetail({
         force: shouldClearPricePanel || this.lastSubjectDetailSymbol !== this.routeSymbol || !this.subjectPriceDetail
       })
+      if (this.showSubjectPanel) {
+        this.loadSubjectPanelDetail({
+          force: shouldClearSubjectPanel || this.subjectPanelState.lastSubjectSymbol !== this.routeSymbol || !this.subjectPanelState.subjectPanelDetail
+        })
+      }
       this.refreshVisibleChanlunPeriods(this.routeToken)
       if (this.isRealtimeMode && document.visibilityState === 'visible') {
         this.chanlunRefreshTimer = window.setInterval(
@@ -832,6 +939,7 @@ export default {
         this.closePriceGuidePanel()
         return
       }
+      this.closeSubjectPanel()
       this.closeChanlunStructurePanel()
       this.showPriceGuidePanel = true
       if (!this.subjectPriceDetail && !this.subjectDetailLoading) {
@@ -847,12 +955,158 @@ export default {
         this.priceGuideDragDirty = false
         return
       }
+      this.closeSubjectPanel()
       this.closeChanlunStructurePanel()
       this.showPriceGuidePanel = true
       this.priceGuideEditMode = true
       this.priceGuideDragDirty = false
       if (!this.subjectPriceDetail && !this.subjectDetailLoading) {
         await this.loadSubjectPriceDetail({ force: true })
+      }
+    },
+    closeSubjectPanel() {
+      this.showSubjectPanel = false
+      this.subjectPanelState.showSubjectPanel = false
+    },
+    async toggleSubjectPanel() {
+      if (!this.routeSymbol) {
+        return
+      }
+      if (this.showSubjectPanel) {
+        this.closeSubjectPanel()
+        return
+      }
+      this.closePriceGuidePanel()
+      this.closeChanlunStructurePanel()
+      this.showSubjectPanel = true
+      this.subjectPanelState.showSubjectPanel = true
+      if (!this.subjectPanelState.subjectPanelDetail || this.subjectPanelState.lastSubjectSymbol !== this.routeSymbol) {
+        await this.loadSubjectPanelDetail({ force: true })
+      }
+    },
+    async loadSubjectPanelDetail({ force = false, symbol } = {}) {
+      const nextSymbol = (symbol || this.routeSymbol || '').trim()
+      if (!nextSymbol) {
+        return false
+      }
+      if (
+        !force &&
+        this.subjectPanelState.subjectPanelDetail &&
+        this.subjectPanelState.lastSubjectSymbol === nextSymbol
+      ) {
+        return false
+      }
+
+      const requestToken = this.routeToken
+      this.subjectPanelState.subjectDetailLoading = true
+      try {
+        const detail = await this.subjectPanelActions.loadSubjectDetail(nextSymbol)
+        if (requestToken !== this.routeToken) {
+          return false
+        }
+        applySubjectPanelDetailState(this.subjectPanelState, detail)
+        this.subjectPanelState.pageError = ''
+        this.subjectPanelState.showSubjectPanel = this.showSubjectPanel
+        return true
+      } catch (error) {
+        if (requestToken !== this.routeToken) {
+          return false
+        }
+        this.subjectPanelState.pageError = resolvePanelErrorMessage(error, '标的设置加载失败')
+        return false
+      } finally {
+        if (requestToken === this.routeToken) {
+          this.subjectPanelState.subjectDetailLoading = false
+        }
+      }
+    },
+    async handleSaveSubjectConfigBundle() {
+      if (!this.routeSymbol || !this.subjectPanelState.subjectPanelDetail) {
+        return
+      }
+
+      if (!this.subjectPanelState.positionLimitDraft.use_default) {
+        const parsedLimit = Number(this.subjectPanelState.positionLimitDraft.limit)
+        if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+          this.$message?.warning?.('请先填写有效的仓位上限')
+          return
+        }
+      }
+
+      const mustPoolChanged = hasSubjectPanelMustPoolChanges(
+        this.subjectPanelState.subjectPanelDetail,
+        this.subjectPanelState.mustPoolDraft
+      )
+      const positionLimitChanged = hasSubjectPanelPositionLimitChanges(
+        this.subjectPanelState.subjectPanelDetail,
+        this.subjectPanelState.positionLimitDraft
+      )
+      if (!mustPoolChanged && !positionLimitChanged) {
+        return
+      }
+
+      this.subjectPanelState.savingSubjectConfigBundle = true
+      let mustPoolSaved = false
+      try {
+        if (mustPoolChanged) {
+          await this.subjectPanelActions.saveMustPool(
+            this.routeSymbol,
+            cloneSubjectPanelMustPoolDraft(this.subjectPanelState.mustPoolDraft)
+          )
+          mustPoolSaved = true
+        }
+        if (positionLimitChanged) {
+          await this.subjectPanelActions.savePositionLimit(
+            this.routeSymbol,
+            buildSubjectPanelPositionLimitPayload(this.subjectPanelState.positionLimitDraft)
+          )
+        }
+        await this.loadSubjectPanelDetail({ force: true })
+        this.$message?.success?.(
+          mustPoolChanged && positionLimitChanged
+            ? '基础配置与仓位上限已保存'
+            : mustPoolChanged
+              ? '基础配置已保存'
+              : '仓位上限已保存'
+        )
+      } catch (error) {
+        if (mustPoolSaved) {
+          await this.loadSubjectPanelDetail({ force: true })
+          this.$message?.warning?.('基础配置已保存，仓位上限保存失败')
+        }
+        this.subjectPanelState.pageError = resolvePanelErrorMessage(error, '标的设置保存失败')
+      } finally {
+        this.subjectPanelState.savingSubjectConfigBundle = false
+      }
+    },
+    async handleSaveSubjectStoploss(buyLotId) {
+      if (!buyLotId) {
+        return
+      }
+      const draft = this.subjectPanelState.stoplossDrafts?.[buyLotId] || {}
+      if (draft.enabled) {
+        const parsedPrice = Number(draft.stop_price)
+        if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+          this.$message?.warning?.(`开启止损前请先填写 ${buyLotId} 的 stop_price`)
+          return
+        }
+      }
+
+      this.subjectPanelState.savingStoploss = {
+        ...this.subjectPanelState.savingStoploss,
+        [buyLotId]: true
+      }
+      try {
+        await this.subjectPanelActions.saveStoploss(buyLotId, draft)
+        await this.loadSubjectPanelDetail({ force: true })
+        this.$message?.success?.(`止损已更新 ${buyLotId}`)
+      } catch (error) {
+        this.subjectPanelState.pageError = resolvePanelErrorMessage(error, '止损保存失败')
+      } finally {
+        this.subjectPanelState.savingStoploss = {
+          ...this.subjectPanelState.savingStoploss,
+          [buyLotId]: false
+        }
       }
     },
     resetChanlunStructureState() {
@@ -871,6 +1125,7 @@ export default {
         return
       }
       this.closePriceGuidePanel()
+      this.closeSubjectPanel()
       await this.openChanlunStructurePanel()
     },
     async openChanlunStructurePanel() {
@@ -1323,6 +1578,12 @@ export default {
           ...(this.endDateModel ? { endDate: this.endDateModel } : {})
         }
       })
+    },
+    formatWanAmountValue(value) {
+      return formatWanAmountLabel(value)
+    },
+    formatIntegerValue(value) {
+      return formatIntegerLabel(value)
     },
     formatPriceGuideValue(value) {
       return formatPriceValue(value)

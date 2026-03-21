@@ -19,6 +19,7 @@ class SubjectManagementDashboardService:
         position_loader=None,
         symbol_position_loader=None,
         pm_summary_loader=None,
+        symbol_limit_loader=None,
     ):
         if database is None:
             from freshquant.db import DBfreshquant
@@ -32,6 +33,7 @@ class SubjectManagementDashboardService:
             symbol_position_loader or _default_symbol_position_loader
         )
         self.pm_summary_loader = pm_summary_loader or _default_pm_summary_loader
+        self.symbol_limit_loader = symbol_limit_loader or _default_symbol_limit_loader
 
     def get_overview(self):
         must_pool_rows = self._must_pool_map()
@@ -62,6 +64,7 @@ class SubjectManagementDashboardService:
                 {"active_count": 0, "open_buy_lot_count": 0},
             )
             latest_event = latest_events.get(symbol) or {}
+            position_limit_summary = dict(self.symbol_limit_loader(symbol) or {})
 
             rows.append(
                 {
@@ -93,6 +96,13 @@ class SubjectManagementDashboardService:
                         ),
                         "last_hit_level": guardian_state.get("last_hit_level"),
                         "last_trigger_time": latest_event.get("created_at"),
+                    },
+                    "position_limit_summary": {
+                        **position_limit_summary,
+                        "market_value": _resolve_position_amount(
+                            symbol_position,
+                            position,
+                        ),
                     },
                 }
             )
@@ -159,6 +169,7 @@ class SubjectManagementDashboardService:
             self._latest_trigger_map({normalized_symbol}).get(normalized_symbol) or {}
         )
         pm_summary = dict(self.pm_summary_loader() or {})
+        position_limit_summary = dict(self.symbol_limit_loader(normalized_symbol) or {})
 
         return _json_safe_payload(
             {
@@ -187,6 +198,13 @@ class SubjectManagementDashboardService:
                     "market_value_source": symbol_position.get("market_value_source"),
                 },
                 "position_management_summary": pm_summary,
+                "position_limit_summary": {
+                    **position_limit_summary,
+                    "market_value": _resolve_position_amount(
+                        symbol_position,
+                        position,
+                    ),
+                },
             }
         )
 
@@ -402,6 +420,14 @@ def _default_pm_summary_loader():
         "allow_open_min_bail": thresholds.get("allow_open_min_bail"),
         "holding_only_min_bail": thresholds.get("holding_only_min_bail"),
     }
+
+
+def _default_symbol_limit_loader(symbol):
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    return PositionManagementDashboardService().get_symbol_limit(symbol)
 
 
 def _default_position_loader():

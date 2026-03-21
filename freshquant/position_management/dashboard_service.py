@@ -54,11 +54,13 @@ class PositionManagementDashboardService:
             "holding_scope": holding_scope,
             "rule_matrix": self._build_rule_matrix(state_view["effective_state"]),
             "recent_decisions": self._build_recent_decisions(limit=10),
+            "symbol_position_limits": self.get_symbol_limits(),
         }
 
     def get_config(self):
         raw_config = self.repository.get_config() or {}
         thresholds = self._resolve_thresholds(raw_config)
+        symbol_position_limits = self._resolve_symbol_position_limits(raw_config)
         policy_defaults = {
             "state_stale_after_seconds": DEFAULT_STATE_STALE_AFTER_SECONDS,
             "default_state": DEFAULT_FALLBACK_STATE,
@@ -76,6 +78,7 @@ class PositionManagementDashboardService:
             "updated_at": raw_config.get("updated_at"),
             "updated_by": raw_config.get("updated_by"),
             "thresholds": thresholds,
+            "symbol_position_limits": symbol_position_limits,
             "policy_defaults": policy_defaults,
             "xtquant": xtquant,
             "inventory": self._build_inventory(
@@ -127,6 +130,122 @@ class PositionManagementDashboardService:
         self.repository.upsert_config(document)
         return self.get_config()
 
+    def get_symbol_limits(self):
+        config_view = self.get_config()
+        default_limit = config_view["thresholds"]["single_symbol_position_limit"]
+        overrides = (config_view.get("symbol_position_limits") or {}).get(
+            "overrides"
+        ) or {}
+        holding_codes = {
+            normalize_to_base_code(code)
+            for code in (self.holding_codes_provider() or [])
+            if normalize_to_base_code(code)
+        }
+        snapshots = (
+            self.repository.list_symbol_snapshots()
+            if hasattr(self.repository, "list_symbol_snapshots")
+            else []
+        )
+        snapshot_map = {
+            normalize_to_base_code(item.get("symbol")): item
+            for item in snapshots
+            if normalize_to_base_code(item.get("symbol"))
+        }
+        symbols = (
+            set(overrides)
+            | set(snapshot_map)
+            | {
+                normalize_to_base_code(code)
+                for code in holding_codes
+                if normalize_to_base_code(code)
+            }
+        )
+        rows = [
+            self._build_symbol_limit_row(
+                symbol,
+                default_limit=default_limit,
+                override=overrides.get(symbol),
+                snapshot=snapshot_map.get(symbol),
+                is_holding_symbol=symbol in holding_codes,
+            )
+            for symbol in symbols
+        ]
+        rows.sort(
+            key=lambda item: (
+                -int(bool(item.get("using_override"))),
+                item.get("symbol") or "",
+            )
+        )
+        return {"rows": rows}
+
+    def get_symbol_limit(self, symbol):
+        normalized_symbol = normalize_to_base_code(symbol)
+        if not normalized_symbol:
+            raise ValueError("symbol is required")
+        config_view = self.get_config()
+        default_limit = config_view["thresholds"]["single_symbol_position_limit"]
+        overrides = (config_view.get("symbol_position_limits") or {}).get(
+            "overrides"
+        ) or {}
+        snapshot = None
+        if hasattr(self.repository, "get_symbol_snapshot"):
+            snapshot = self.repository.get_symbol_snapshot(normalized_symbol)
+        if snapshot is None and hasattr(self.repository, "list_symbol_snapshots"):
+            rows = self.repository.list_symbol_snapshots(symbols=[normalized_symbol])
+            snapshot = rows[0] if rows else None
+        holding_codes = {
+            normalize_to_base_code(code)
+            for code in (self.holding_codes_provider() or [])
+            if normalize_to_base_code(code)
+        }
+        return self._build_symbol_limit_row(
+            normalized_symbol,
+            default_limit=default_limit,
+            override=overrides.get(normalized_symbol),
+            snapshot=snapshot,
+            is_holding_symbol=normalized_symbol in holding_codes,
+        )
+
+    def update_symbol_limit(self, symbol, payload):
+        normalized_symbol = normalize_to_base_code(symbol)
+        if not normalized_symbol:
+            raise ValueError("symbol is required")
+
+        current_raw = self.repository.get_config() or {}
+        document = dict(current_raw)
+        document.pop("_id", None)
+        document["code"] = str(document.get("code") or "default")
+        document["enabled"] = True
+        document["thresholds"] = self._resolve_thresholds(document)
+        symbol_position_limits = self._resolve_symbol_position_limits(document)
+        overrides = dict(symbol_position_limits.get("overrides") or {})
+        updated_by = str(payload.get("updated_by") or "api").strip() or "api"
+        updated_at = self.now_provider().isoformat()
+
+        if bool(payload.get("use_default")):
+            overrides.pop(normalized_symbol, None)
+        else:
+            limit = _require_finite_float(
+                payload.get("limit"),
+                None,
+                field_name="limit",
+            )
+            if limit <= 0:
+                raise ValueError("limit must be greater than 0")
+            overrides[normalized_symbol] = {
+                "limit": limit,
+                "updated_at": updated_at,
+                "updated_by": updated_by,
+            }
+
+        document["symbol_position_limits"] = {
+            "overrides": overrides,
+        }
+        document["updated_at"] = updated_at
+        document["updated_by"] = updated_by
+        self.repository.upsert_config(document)
+        return self.get_symbol_limit(normalized_symbol)
+
     def _resolve_thresholds(self, raw_config):
         thresholds = (raw_config or {}).get("thresholds", {}) or {}
         return {
@@ -142,6 +261,77 @@ class PositionManagementDashboardService:
                 thresholds.get("single_symbol_position_limit"),
                 DEFAULT_SINGLE_SYMBOL_POSITION_LIMIT,
             ),
+        }
+
+    def _resolve_symbol_position_limits(self, raw_config):
+        raw_limits = (raw_config or {}).get("symbol_position_limits", {}) or {}
+        raw_overrides = raw_limits.get("overrides", {}) or {}
+        overrides = {}
+        for raw_symbol, raw_detail in raw_overrides.items():
+            normalized_symbol = normalize_to_base_code(raw_symbol)
+            if not normalized_symbol:
+                continue
+            detail = (
+                raw_detail if isinstance(raw_detail, dict) else {"limit": raw_detail}
+            )
+            limit = _coerce_float(detail.get("limit"), None)
+            if limit is None:
+                continue
+            overrides[normalized_symbol] = {
+                "limit": limit,
+                "updated_at": detail.get("updated_at"),
+                "updated_by": detail.get("updated_by"),
+            }
+        return {
+            "override_count": len(overrides),
+            "overrides": overrides,
+        }
+
+    def _build_symbol_limit_row(
+        self,
+        symbol,
+        *,
+        default_limit,
+        override=None,
+        snapshot=None,
+        is_holding_symbol=False,
+    ):
+        snapshot = snapshot or {}
+        override_limit = _coerce_float((override or {}).get("limit"), None)
+        effective_limit = (
+            override_limit if override_limit is not None else float(default_limit)
+        )
+        market_value = _coerce_float(snapshot.get("market_value"), None)
+        market_value_available = market_value is not None
+        blocked = (
+            True
+            if not market_value_available
+            else bool(market_value >= effective_limit)
+        )
+        if not market_value_available:
+            blocked_reason = "symbol_position_unavailable"
+        elif blocked:
+            blocked_reason = "symbol_position_limit_blocked"
+        else:
+            blocked_reason = "buy_allowed"
+        name = _normalize_optional_text(
+            snapshot.get("name")
+        ) or _resolve_instrument_name(symbol)
+        return {
+            "symbol": symbol,
+            "name": name,
+            "market_value": market_value,
+            "market_value_source": snapshot.get("market_value_source"),
+            "market_value_available": market_value_available,
+            "default_limit": float(default_limit),
+            "override_limit": override_limit,
+            "effective_limit": effective_limit,
+            "using_override": override_limit is not None,
+            "blocked": blocked,
+            "blocked_reason": blocked_reason,
+            "updated_at": (override or {}).get("updated_at"),
+            "updated_by": (override or {}).get("updated_by"),
+            "is_holding_symbol": bool(is_holding_symbol),
         }
 
     def _build_policy(self, config_view):
@@ -478,15 +668,21 @@ def _normalize_optional_text(value):
 
 
 def _coerce_float(value, default):
+    if value is None and default is None:
+        return None
     try:
         candidate = float(default if value is None else value)
     except (TypeError, ValueError):
-        return float(default)
-    return candidate if math.isfinite(candidate) else float(default)
+        return None if default is None else float(default)
+    if math.isfinite(candidate):
+        return candidate
+    return None if default is None else float(default)
 
 
 def _require_finite_float(value, default, *, field_name):
     if value is None:
+        if default is None:
+            raise ValueError(f"{field_name} must be a finite number")
         return float(default)
     try:
         candidate = float(value)

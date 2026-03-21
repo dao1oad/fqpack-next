@@ -112,3 +112,28 @@ def test_subject_management_guardian_route_returns_400_for_validation_error(
 
     assert response.status_code == 400
     assert response.get_json()["error"] == "buy_1 must be numeric"
+
+
+def test_subject_management_detail_route_can_return_position_limit_summary(
+    monkeypatch,
+):
+    class FakeDashboardService:
+        def get_detail(self, symbol):
+            return {
+                "subject": {"symbol": symbol, "name": "浦发银行"},
+                "position_limit_summary": {
+                    "effective_limit": 500000.0,
+                    "using_override": True,
+                },
+            }
+
+    monkeypatch.setattr(
+        "freshquant.rear.subject_management.routes._get_dashboard_service",
+        lambda: FakeDashboardService(),
+    )
+
+    client = _make_client()
+    response = client.get("/api/subject-management/600000")
+
+    assert response.status_code == 200
+    assert response.get_json()["position_limit_summary"]["effective_limit"] == 500000.0

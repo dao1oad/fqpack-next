@@ -29,12 +29,15 @@ test('KlineSlim toolbar toggles both price guide and chanlun panels from the sam
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
   assert.match(viewSource, /@click="togglePriceGuidePanel"/)
+  assert.match(viewSource, /@click="toggleSubjectPanel"/)
   assert.match(viewSource, /@click="toggleChanlunStructurePanel"/)
   assert.match(viewSource, /:type="showChanlunStructurePanel \? 'primary' : 'default'"/)
 
   assert.match(scriptSource, /togglePriceGuidePanel\(\)/)
+  assert.match(scriptSource, /toggleSubjectPanel\(\)/)
   assert.match(scriptSource, /toggleChanlunStructurePanel\(\)/)
   assert.match(scriptSource, /this\.showPriceGuidePanel = false/)
+  assert.match(scriptSource, /this\.showSubjectPanel = false/)
   assert.match(scriptSource, /this\.showChanlunStructurePanel = false/)
 })
 
@@ -90,4 +93,22 @@ test('KlineSlim lets the body flow below a wrapping toolbar instead of relying o
     viewSource.includes('@media (max-width: 1200px)\n  .kline-slim-body\n    top 120px'),
     false
   )
+})
+
+test('KlineSlim exposes a subject settings overlay next to price guides', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /标的设置/)
+  assert.match(viewSource, /kline-slim-subject-panel/)
+  assert.match(viewSource, /基础配置/)
+  assert.match(viewSource, /单标的仓位上限/)
+  assert.match(viewSource, /按 buy lot 止损/)
+  assert.equal(
+    viewSource.indexOf('class="kline-slim-subject-panel kline-slim-overlay-panel"') <
+      viewSource.indexOf('Guardian 倍量价格'),
+    true
+  )
+  assert.match(scriptSource, /showSubjectPanel:/)
+  assert.match(scriptSource, /subjectPanelState/)
 })

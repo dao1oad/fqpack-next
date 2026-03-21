@@ -30,8 +30,17 @@ const makeOverviewRows = () => buildOverviewRows([
     },
     runtime: {
       position_quantity: 500,
+      position_amount: 5010,
       last_hit_level: 'BUY-2',
       last_trigger_time: '2026-03-16T10:40:00+08:00',
+    },
+    position_limit_summary: {
+      market_value: 5010,
+      default_limit: 800000,
+      override_limit: 500000,
+      effective_limit: 500000,
+      using_override: true,
+      blocked: false,
     },
   },
   {
@@ -59,8 +68,17 @@ const makeOverviewRows = () => buildOverviewRows([
     },
     runtime: {
       position_quantity: 0,
+      position_amount: 0,
       last_hit_level: null,
       last_trigger_time: '-',
+    },
+    position_limit_summary: {
+      market_value: 0,
+      default_limit: 800000,
+      override_limit: null,
+      effective_limit: 800000,
+      using_override: false,
+      blocked: false,
     },
   },
 ])
@@ -118,6 +136,14 @@ const makeDetail = (symbol = '600000', overrides = {}) => buildDetailViewModel({
     allow_open_min_bail: 800000,
     holding_only_min_bail: 100000,
   },
+  position_limit_summary: {
+    market_value: 5010,
+    default_limit: 800000,
+    override_limit: symbol === '600000' ? 500000 : null,
+    effective_limit: symbol === '600000' ? 500000 : 800000,
+    using_override: symbol === '600000',
+    blocked: false,
+  },
   ...overrides,
 })
 
@@ -137,8 +163,8 @@ test('page controller loads overview first, then detail, switches rows and refre
       calls.push(['saveMustPool', symbol, payload.category, payload.stop_loss_price])
       return { symbol, ...payload }
     },
-    async saveGuardianBuyGrid(symbol, payload) {
-      calls.push(['saveGuardianBuyGrid', symbol, payload.buy_1])
+    async savePositionLimit(symbol, payload) {
+      calls.push(['savePositionLimit', symbol, payload.limit ?? null, !!payload.use_default])
       return { symbol, ...payload }
     },
     async saveTakeprofit(symbol, tiers) {
@@ -183,7 +209,7 @@ test('page controller loads overview first, then detail, switches rows and refre
   assert.deepEqual(messages, [['success', '基础设置已保存']])
 })
 
-test('page controller saves dense config table via must-pool and guardian apis with one refresh cycle', async () => {
+test('page controller saves dense config table via must-pool and symbol-limit apis with one refresh cycle', async () => {
   const calls = []
   const messages = []
   const actions = {
@@ -199,8 +225,8 @@ test('page controller saves dense config table via must-pool and guardian apis w
       calls.push(['saveMustPool', symbol, payload.category, payload.stop_loss_price])
       return { symbol, ...payload }
     },
-    async saveGuardianBuyGrid(symbol, payload) {
-      calls.push(['saveGuardianBuyGrid', symbol, payload.enabled, payload.buy_1])
+    async savePositionLimit(symbol, payload) {
+      calls.push(['savePositionLimit', symbol, payload.limit ?? null, !!payload.use_default])
       return { symbol, ...payload }
     },
     async saveTakeprofit(symbol, tiers) {
@@ -225,8 +251,8 @@ test('page controller saves dense config table via must-pool and guardian apis w
   await controller.refreshOverview()
   controller.state.mustPoolDraft.category = '核心银行'
   controller.state.mustPoolDraft.stop_loss_price = 9.1
-  controller.state.guardianDraft.enabled = false
-  controller.state.guardianDraft.buy_1 = 10.1
+  controller.state.positionLimitDraft.use_default = false
+  controller.state.positionLimitDraft.limit = 460000
 
   await controller.handleSaveConfigBundle()
 
@@ -234,11 +260,11 @@ test('page controller saves dense config table via must-pool and guardian apis w
     ['loadOverview'],
     ['loadSubjectDetail', '600000'],
     ['saveMustPool', '600000', '核心银行', 9.1],
-    ['saveGuardianBuyGrid', '600000', false, 10.1],
+    ['savePositionLimit', '600000', 460000, false],
     ['loadSubjectDetail', '600000'],
     ['loadOverview'],
   ])
-  assert.deepEqual(messages, [['success', '基础与 Guardian 已保存']])
+  assert.deepEqual(messages, [['success', '基础设置与仓位上限已保存']])
 })
 
 test('page controller uses must-pool category draft instead of subject category fallback', async () => {
@@ -265,7 +291,7 @@ test('page controller uses must-pool category draft instead of subject category 
     async saveMustPool() {
       throw new Error('should not save')
     },
-    async saveGuardianBuyGrid() {
+    async savePositionLimit() {
       throw new Error('should not save')
     },
     async saveTakeprofit() {
@@ -285,7 +311,7 @@ test('page controller uses must-pool category draft instead of subject category 
   assert.equal(controller.state.mustPoolDraft.category, '守护池')
 })
 
-test('page controller reloads persisted state and warns when guardian save fails after must-pool save', async () => {
+test('page controller reloads persisted state and warns when position-limit save fails after must-pool save', async () => {
   const calls = []
   const messages = []
   let detailVersion = 'initial'
@@ -305,6 +331,14 @@ test('page controller reloads persisted state and warns when guardian save fails
             lot_amount: 50000,
             forever: true,
           },
+          position_limit_summary: {
+            market_value: 5010,
+            default_limit: 800000,
+            override_limit: 500000,
+            effective_limit: 500000,
+            using_override: true,
+            blocked: false,
+          },
         })
         : makeDetail(symbol, {
           must_pool: {
@@ -314,6 +348,14 @@ test('page controller reloads persisted state and warns when guardian save fails
             lot_amount: 50000,
             forever: true,
           },
+          position_limit_summary: {
+            market_value: 5010,
+            default_limit: 800000,
+            override_limit: 500000,
+            effective_limit: 500000,
+            using_override: true,
+            blocked: false,
+          },
         })
     },
     async saveMustPool(symbol, payload) {
@@ -321,9 +363,9 @@ test('page controller reloads persisted state and warns when guardian save fails
       detailVersion = 'must-pool-saved'
       return { symbol, ...payload }
     },
-    async saveGuardianBuyGrid(symbol, payload) {
-      calls.push(['saveGuardianBuyGrid', symbol, payload.enabled, payload.buy_1])
-      throw new Error('guardian failed')
+    async savePositionLimit(symbol, payload) {
+      calls.push(['savePositionLimit', symbol, payload.limit ?? null, !!payload.use_default])
+      throw new Error('position limit failed')
     },
     async saveTakeprofit() {
       throw new Error('should not save')
@@ -348,22 +390,22 @@ test('page controller reloads persisted state and warns when guardian save fails
   await controller.refreshOverview()
   controller.state.mustPoolDraft.category = '核心银行'
   controller.state.mustPoolDraft.stop_loss_price = 9.1
-  controller.state.guardianDraft.enabled = false
-  controller.state.guardianDraft.buy_1 = 10.1
+  controller.state.positionLimitDraft.use_default = false
+  controller.state.positionLimitDraft.limit = 460000
 
   await controller.handleSaveConfigBundle()
 
   assert.equal(controller.state.mustPoolDraft.category, '核心银行')
   assert.equal(controller.state.mustPoolDraft.stop_loss_price, 9.1)
-  assert.equal(controller.state.guardianDraft.enabled, false)
-  assert.equal(controller.state.guardianDraft.buy_1, 10.1)
-  assert.equal(controller.state.pageError, 'guardian failed')
-  assert.deepEqual(messages, [['warning', '基础设置已保存，Guardian 保存失败']])
+  assert.equal(controller.state.positionLimitDraft.use_default, false)
+  assert.equal(controller.state.positionLimitDraft.limit, 460000)
+  assert.equal(controller.state.pageError, 'position limit failed')
+  assert.deepEqual(messages, [['warning', '基础设置已保存，仓位上限保存失败']])
   assert.deepEqual(calls, [
     ['loadOverview'],
     ['loadSubjectDetail', '600000', 'initial'],
     ['saveMustPool', '600000', '核心银行', 9.1],
-    ['saveGuardianBuyGrid', '600000', false, 10.1],
+    ['savePositionLimit', '600000', 460000, false],
     ['loadSubjectDetail', '600000', 'must-pool-saved'],
     ['loadOverview'],
   ])
