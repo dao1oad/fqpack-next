@@ -246,10 +246,15 @@ class PositionManagementDashboardService:
             meta = item.get("meta") or {}
             rows.append(
                 {
+                    "decision_id": item.get("decision_id"),
                     "strategy_name": item.get("strategy_name"),
                     "action": item.get("action"),
                     "symbol": item.get("symbol"),
                     "symbol_name": _resolve_recent_decision_symbol_name(
+                        item, meta=meta
+                    ),
+                    "source": item.get("source") or meta.get("source"),
+                    "source_module": _resolve_recent_decision_source_module(
                         item, meta=meta
                     ),
                     "state": item.get("state"),
@@ -257,6 +262,8 @@ class PositionManagementDashboardService:
                     "reason_code": item.get("reason_code"),
                     "reason_text": item.get("reason_text"),
                     "evaluated_at": item.get("evaluated_at"),
+                    "trace_id": item.get("trace_id") or meta.get("trace_id"),
+                    "intent_id": item.get("intent_id") or meta.get("intent_id"),
                     "meta": meta,
                 }
             )
@@ -430,6 +437,21 @@ def _resolve_recent_decision_symbol_name(item, *, meta=None):
         normalized_meta.get("symbol_name"),
         normalized_meta.get("name"),
         _resolve_instrument_name(item.get("symbol")),
+    ):
+        text = _normalize_optional_text(candidate)
+        if text:
+            return text
+    return None
+
+
+def _resolve_recent_decision_source_module(item, *, meta=None):
+    normalized_meta = meta if isinstance(meta, dict) else {}
+    for candidate in (
+        item.get("source_module"),
+        normalized_meta.get("source_module"),
+        item.get("strategy_name"),
+        item.get("source"),
+        normalized_meta.get("source"),
     ):
         text = _normalize_optional_text(candidate)
         if text:

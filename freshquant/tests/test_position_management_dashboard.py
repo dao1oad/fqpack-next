@@ -119,6 +119,7 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
     }
     repository.decision_docs = [
         {
+            "decision_id": "pmd_1",
             "strategy_name": "Guardian",
             "action": "buy",
             "symbol": "000001",
@@ -126,7 +127,11 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
             "allowed": True,
             "reason_code": "holding_buy_allowed",
             "reason_text": "当前状态允许买入已持仓标的",
+            "source": "strategy",
+            "source_module": "Guardian",
             "evaluated_at": "2026-03-07T12:00:00+08:00",
+            "trace_id": "trc_1",
+            "intent_id": "int_1",
             "meta": {
                 "symbol_name": "平安银行",
             },
@@ -157,7 +162,12 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
     assert inventory["single_symbol_position_limit"]["value"] == 800000.0
     assert inventory["state_stale_after_seconds"]["editable"] is False
     assert inventory["xtquant.account_type"]["value"] == "CREDIT"
+    assert payload["recent_decisions"][0]["decision_id"] == "pmd_1"
     assert payload["recent_decisions"][0]["symbol_name"] == "平安银行"
+    assert payload["recent_decisions"][0]["source"] == "strategy"
+    assert payload["recent_decisions"][0]["source_module"] == "Guardian"
+    assert payload["recent_decisions"][0]["trace_id"] == "trc_1"
+    assert payload["recent_decisions"][0]["intent_id"] == "int_1"
 
 
 def test_update_config_persists_thresholds_that_snapshot_service_consumes():

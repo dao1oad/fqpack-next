@@ -108,6 +108,10 @@ class PositionManagementService:
             meta = {
                 "is_holding_symbol": is_holding_symbol,
                 "evaluated_at": self.now_provider().isoformat(),
+                "source": _normalize_optional_text(payload.get("source")),
+                "source_module": _resolve_source_module(payload),
+                "trace_id": _normalize_optional_text(payload.get("trace_id")),
+                "intent_id": _normalize_optional_text(payload.get("intent_id")),
             }
             meta.update(symbol_position_meta)
             if (
@@ -125,12 +129,16 @@ class PositionManagementService:
                 "strategy_name": payload.get("strategy_name"),
                 "action": action,
                 "symbol": symbol,
+                "source": meta.get("source"),
+                "source_module": meta.get("source_module"),
                 "is_holding_symbol": is_holding_symbol,
                 "state": effective_state,
                 "allowed": allowed,
                 "reason_code": reason_code,
                 "reason_text": reason_text,
                 "evaluated_at": meta["evaluated_at"],
+                "trace_id": meta.get("trace_id"),
+                "intent_id": meta.get("intent_id"),
                 "meta": meta,
             }
             self.repository.insert_decision(decision_document)
@@ -264,6 +272,25 @@ def _evaluate_action(state, action, is_holding_symbol):
 def _normalize_symbol(symbol):
     normalized = normalize_to_base_code(symbol)
     return normalized or symbol
+
+
+def _normalize_optional_text(value):
+    text = str(value or "").strip()
+    return text or None
+
+
+def _resolve_source_module(payload):
+    resolved_payload = payload or {}
+    for candidate in (
+        resolved_payload.get("source_module"),
+        resolved_payload.get("module"),
+        resolved_payload.get("strategy_name"),
+        resolved_payload.get("source"),
+    ):
+        text = _normalize_optional_text(candidate)
+        if text:
+            return text
+    return None
 
 
 def _build_decision_id():
