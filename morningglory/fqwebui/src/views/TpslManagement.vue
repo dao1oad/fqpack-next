@@ -8,7 +8,7 @@
           <div class="workbench-title-group">
             <div class="workbench-page-title">股票止盈止损管理</div>
             <div class="workbench-page-meta">
-              <span>按标的维护止盈层次，按买入 lot 维护止损，并在同页追触发后的订单与成交。</span>
+              <span>左侧只读展示三层止盈价格，右侧按买入 lot 维护止损，并同页对照 stock_fills 与触发后订单成交。</span>
               <template v-if="detail">
                 <span>/</span>
                 <span>当前标的 <span class="workbench-code">{{ detail.symbol }}</span></span>
@@ -47,6 +47,9 @@
             open buy lot <strong>{{ detail.buyLots.length }}</strong>
           </span>
           <span v-if="detail" class="workbench-summary-chip workbench-summary-chip--muted">
+            stock_fills <strong>{{ detail.stockFills.length }}</strong>
+          </span>
+          <span v-if="detail" class="workbench-summary-chip workbench-summary-chip--muted">
             历史 <strong>{{ detail.historyRows.length }}</strong>
           </span>
         </div>
@@ -57,7 +60,7 @@
           <div class="workbench-panel__header">
             <div class="workbench-title-group">
               <div class="workbench-panel__title">标的列表</div>
-              <p class="workbench-panel__desc">按标的切换止盈层次、stoploss buy lot 和统一触发历史。</p>
+              <p class="workbench-panel__desc">按标的切换只读止盈三层、stoploss buy lot、stock_fills 对照和统一触发历史。</p>
             </div>
             <div class="workbench-panel__meta">
               <span>{{ overviewRows.length }} 个标的</span>
@@ -99,6 +102,16 @@
                 </span>
               </div>
 
+              <div class="symbol-card-tiers">
+                <span
+                  v-for="tierLabel in row.takeprofitSummary"
+                  :key="`${row.symbol}-${tierLabel}`"
+                  class="workbench-summary-chip workbench-summary-chip--muted"
+                >
+                  {{ tierLabel }}
+                </span>
+              </div>
+
               <div class="symbol-card-foot">
                 <span>止损 lot {{ row.active_stoploss_buy_lot_count || 0 }}</span>
                 <span>{{ row.last_trigger_label }} · {{ row.last_trigger_time }}</span>
@@ -128,61 +141,9 @@
 
               <div class="workbench-toolbar__actions">
                 <el-button :loading="loadingDetail" @click="reloadCurrentSymbol">刷新详情</el-button>
+                <el-button type="warning" :disabled="!detail.takeprofitTierCount" @click="handleRearm">Rearm</el-button>
               </div>
             </div>
-          </section>
-
-          <section v-if="detail" class="workbench-panel">
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">标的止盈层次</div>
-                <p class="workbench-panel__desc">编辑价位，或直接按层级启停并 rearm。</p>
-              </div>
-              <div class="workbench-panel__actions">
-                <el-button @click="addTier">新增层级</el-button>
-                <el-button type="warning" :disabled="!selectedSymbol" @click="handleRearm">Rearm</el-button>
-                <el-button type="primary" :loading="savingTakeprofit" :disabled="!selectedSymbol" @click="handleSaveTakeprofit">
-                  保存层级
-                </el-button>
-              </div>
-            </div>
-
-            <el-empty v-if="takeprofitDrafts.length === 0" description="还没有止盈层次，先新增一层。" />
-            <el-table v-else :data="takeprofitDrafts" stripe size="small" border>
-              <el-table-column label="Level" width="84">
-                <template #default="{ row }">
-                  <strong>L{{ row.level }}</strong>
-                </template>
-              </el-table-column>
-              <el-table-column label="Price" min-width="160">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.price" :min="0" :step="0.01" :precision="2" controls-position="right" />
-                </template>
-              </el-table-column>
-              <el-table-column label="Manual" width="124">
-                <template #default="{ row }">
-                  <el-switch
-                    :model-value="Boolean(row.manual_enabled)"
-                    inline-prompt
-                    active-text="开"
-                    inactive-text="关"
-                    @change="(value) => handleToggleTier(row.level, value)"
-                  />
-                </template>
-              </el-table-column>
-              <el-table-column label="Armed" width="100">
-                <template #default="{ row }">
-                  <el-tag :type="armedLevels[String(row.level)] ? 'success' : 'info'">
-                    {{ armedLevels[String(row.level)] ? '已布防' : '未布防' }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="84">
-                <template #default="{ row }">
-                  <el-button text type="danger" @click="removeTier(row.level)">删除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
           </section>
 
           <section v-if="detail" class="workbench-panel">
@@ -248,6 +209,26 @@
                   </el-button>
                 </template>
               </el-table-column>
+            </el-table>
+          </section>
+
+          <section v-if="detail" class="workbench-panel">
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">stock_fills 对照视图</div>
+                <p class="workbench-panel__desc">展示旧 stock_fills 集合的该标的内容，方便和 buy lot / 历史事件对照。</p>
+              </div>
+            </div>
+
+            <el-empty v-if="detail.stockFills.length === 0" description="当前没有 stock_fills 记录。" />
+            <el-table v-else :data="detail.stockFills" stripe size="small" border>
+              <el-table-column prop="date" label="日期" width="98" />
+              <el-table-column prop="time" label="时间" width="96" />
+              <el-table-column prop="op" label="方向" width="72" />
+              <el-table-column prop="quantity" label="数量" width="92" />
+              <el-table-column prop="price" label="价格" width="92" />
+              <el-table-column prop="amount" label="金额" min-width="108" />
+              <el-table-column prop="source" label="来源" min-width="140" />
             </el-table>
           </section>
 
@@ -329,14 +310,9 @@ const {
   state,
   holdingCount,
   activeStoplossCount,
-  armedLevels,
   refreshOverview,
   selectSymbol,
   reloadCurrentSymbol,
-  addTier,
-  removeTier,
-  handleSaveTakeprofit,
-  handleToggleTier,
   handleRearm,
   handleSaveStoploss,
   loadHistory,
@@ -349,12 +325,10 @@ const {
   loadingOverview,
   loadingDetail,
   loadingHistory,
-  savingTakeprofit,
   pageError,
   overviewRows,
   selectedSymbol,
   detail,
-  takeprofitDrafts,
   historyKind,
   stoplossDrafts,
   savingStoploss,
@@ -446,6 +420,7 @@ onMounted(async () => {
 }
 
 .symbol-card-badges,
+.symbol-card-tiers,
 .history-chip-row {
   display: flex;
   flex-wrap: wrap;

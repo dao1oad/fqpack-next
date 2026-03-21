@@ -24,6 +24,7 @@ class TpslManagementService:
         order_repository=None,
         position_loader=None,
         symbol_position_loader=None,
+        stock_fills_loader=None,
     ):
         self.tpsl_repository = tpsl_repository or TpslRepository()
         self.takeprofit_service = takeprofit_service or TakeprofitService(
@@ -34,6 +35,7 @@ class TpslManagementService:
         self.symbol_position_loader = (
             symbol_position_loader or _default_symbol_position_loader
         )
+        self.stock_fills_loader = stock_fills_loader or _default_stock_fills_loader
 
     def get_overview(self):
         positions = self._load_positions()
@@ -72,18 +74,22 @@ class TpslManagementService:
         rows = []
         for symbol in symbols:
             position = positions.get(symbol) or {}
+            profile = profile_map.get(symbol) or {}
             symbol_position = dict(self.symbol_position_loader(symbol) or {})
             rows.append(
                 {
                     "symbol": symbol,
                     "name": position.get("name")
-                    or str((profile_map.get(symbol) or {}).get("name") or "").strip(),
+                    or str(profile.get("name") or "").strip(),
                     "position_quantity": int(position.get("quantity") or 0),
                     "position_amount": _resolve_position_amount(
                         symbol_position,
                         position,
                     ),
                     "takeprofit_configured": symbol in profile_map,
+                    "takeprofit_tiers": _normalize_takeprofit_tiers(
+                        profile.get("tiers")
+                    ),
                     "has_active_stoploss": active_stoploss_counts.get(symbol, 0) > 0,
                     "active_stoploss_buy_lot_count": active_stoploss_counts.get(
                         symbol, 0
@@ -118,6 +124,9 @@ class TpslManagementService:
             takeprofit = self.takeprofit_service.get_profile_with_state(
                 normalized_symbol
             )
+        stock_fills = _normalize_stock_fills(
+            self.stock_fills_loader(normalized_symbol)
+        )
 
         bindings = {
             item["buy_lot_id"]: item
@@ -158,6 +167,7 @@ class TpslManagementService:
                     "market_value_source": symbol_position.get("market_value_source"),
                 },
                 "takeprofit": takeprofit,
+                "stock_fills": stock_fills,
                 "buy_lots": buy_lots,
                 "history": self.list_history(
                     symbol=normalized_symbol,
@@ -348,11 +358,50 @@ def _default_symbol_position_loader(symbol):
     return PositionManagementRepository().get_symbol_snapshot(_normalize_symbol(symbol))
 
 
+def _default_stock_fills_loader(symbol):
+    from freshquant.data.astock.holding import get_stock_fills
+
+    return get_stock_fills(_normalize_symbol(symbol))
+
+
 def _resolve_position_amount(symbol_position, position):
     market_value = symbol_position.get("market_value")
     if market_value is not None:
         return float(market_value)
     return float(position.get("amount_adjusted") or position.get("amount") or 0.0)
+
+
+def _normalize_takeprofit_tiers(tiers):
+    rows = []
+    for item in list(tiers or []):
+        level = item.get("level")
+        if level in (None, ""):
+            continue
+        rows.append(
+            {
+                "level": int(level),
+                "price": _coerce_json_scalar(item.get("price")),
+                "manual_enabled": bool(item.get("manual_enabled")),
+            }
+        )
+    rows.sort(key=lambda item: item["level"])
+    return rows[:3]
+
+
+def _normalize_stock_fills(rows):
+    if rows is None:
+        return []
+    if hasattr(rows, "to_dict"):
+        rows = rows.to_dict(orient="records")
+    normalized = []
+    for item in list(rows or []):
+        normalized.append(
+            {
+                key: _coerce_json_scalar(value)
+                for key, value in dict(item).items()
+            }
+        )
+    return normalized
 
 
 def _normalize_event(row):
@@ -419,4 +468,13 @@ def _make_json_safe(value):
         return value.isoformat()
     if ObjectId is not None and isinstance(value, ObjectId):
         return str(value)
+    return _coerce_json_scalar(value)
+
+
+def _coerce_json_scalar(value):
+    if hasattr(value, "item") and callable(value.item):
+        try:
+            return value.item()
+        except Exception:
+            return value
     return value

@@ -18,6 +18,17 @@ const formatAmountWanLabel = (value) => {
   return `${(amount / 10000).toFixed(2)} 万`
 }
 
+const buildTakeprofitSummary = (row = {}) => {
+  const tiers = Array.isArray(row?.takeprofit_tiers) ? row.takeprofit_tiers : []
+  const tierByLevel = new Map(
+    tiers.map((item) => [toNumber(item?.level, 0), item]),
+  )
+  return [1, 2, 3].map((level) => {
+    const priceLabel = formatNumericLabel(tierByLevel.get(level)?.price) || '-'
+    return `L${level} ${priceLabel}`
+  })
+}
+
 const buildBadges = (row = {}) => {
   const badges = []
   if (row.takeprofit_configured) badges.push('止盈')
@@ -62,6 +73,19 @@ const buildTriggerPriceLabel = (row = {}) => {
   return formatNumericLabel(firstTradePrice) || '-'
 }
 
+const buildStockFillRows = (rows = []) => {
+  return (Array.isArray(rows) ? rows : []).map((row) => ({
+    ...row,
+    date: toText(row?.date),
+    time: toText(row?.time),
+    op: toText(row?.op),
+    quantity: toNumber(row?.quantity),
+    price: row?.price,
+    amount: row?.amount,
+    source: toText(row?.source),
+  }))
+}
+
 export const buildOverviewRows = (rows = []) => {
   return [...(Array.isArray(rows) ? rows : [])]
     .map((row) => ({
@@ -73,6 +97,7 @@ export const buildOverviewRows = (rows = []) => {
       position_amount_label: formatAmountWanLabel(row?.position_amount),
       active_stoploss_buy_lot_count: toNumber(row?.active_stoploss_buy_lot_count),
       badges: buildBadges(row),
+      takeprofitSummary: buildTakeprofitSummary(row),
       last_trigger_label: toText(row?.last_trigger?.kind) || '-',
       last_trigger_time: toText(row?.last_trigger?.created_at) || '-',
     }))
@@ -127,6 +152,7 @@ export const buildDetailViewModel = (detail = {}) => {
     positionAmountLabel: formatAmountWanLabel(detail?.position?.amount),
     takeprofit,
     takeprofitTierCount: Array.isArray(takeprofit?.tiers) ? takeprofit.tiers.length : 0,
+    stockFills: buildStockFillRows(detail?.stock_fills),
     buyLots,
     historyRows: buildHistoryRows(detail?.history || detail?.historyRows || []),
   }
