@@ -137,6 +137,8 @@ services:
     environment:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
+      DAGSTER_HOME: /opt/dagster/home
+      FRESHQUANT_DAGSTER__HOME: /opt/dagster/home
       JYGS_ENV_FILE: /run/host-config/envs.conf
       FRESHQUANT_TDX_ROOT: /run/host-tdx
       FRESHQUANT_MONGODB__HOST: fq_mongodb
@@ -175,6 +177,8 @@ services:
     environment:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
+      DAGSTER_HOME: /opt/dagster/home
+      FRESHQUANT_DAGSTER__HOME: /opt/dagster/home
       JYGS_ENV_FILE: /run/host-config/envs.conf
       FRESHQUANT_TDX_ROOT: /run/host-tdx
       FRESHQUANT_MONGODB__HOST: fq_mongodb

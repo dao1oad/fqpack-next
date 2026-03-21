@@ -133,6 +133,36 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 本地未 merge 的 worktree 不能直接当正式 deploy 来源
 - 先 merge，再从 deploy mirror 执行 `script/ci/run_formal_deploy.py`
 
+## Dagster 容器持续重启
+
+现象：
+
+- `check_freshquant_runtime_post_deploy.ps1 -Mode Verify` 只报 `fq_dagster_webserver` / `fq_dagster_daemon` 为 `Restarting`
+- `docker logs fqnext_20260223-fq_dagster_webserver-1` 或 `docker logs fqnext_20260223-fq_dagster_daemon-1` 出现 `DagsterInvariantViolationError`
+- 日志明确提示 `$DAGSTER_HOME "D:/fqpack/dagster" must be an absolute path`
+
+先检查：
+
+- `docker inspect fqnext_20260223-fq_dagster_webserver-1 --format '{{json .Config.Env}}'`
+- `docker logs fqnext_20260223-fq_dagster_webserver-1 --tail 200`
+- `docker logs fqnext_20260223-fq_dagster_daemon-1 --tail 200`
+- `Get-Content .env`
+- `Get-Content docker/compose.parallel.yaml`
+
+常见根因：
+
+- 主工作树 `.env` 里保留了宿主机 Windows 路径 `DAGSTER_HOME=D:/fqpack/dagster`
+- `env_file` 把这个 Windows 路径直接注入了 Linux Dagster 容器
+- Dagster 容器没有在 compose `environment` 中显式覆盖为 `/opt/dagster/home`
+
+处理：
+
+- 保留宿主机 `.env` 的 Windows 路径给本机链路使用，但在 `docker/compose.parallel.yaml` 的 `fq_dagster_webserver` / `fq_dagster_daemon` 下显式覆盖：
+  - `DAGSTER_HOME=/opt/dagster/home`
+  - `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`
+- 重新执行命中的 Docker deploy 或整轮 formal deploy
+- 再次执行 `check_freshquant_runtime_post_deploy.ps1 -Mode Verify`，确认 Dagster 容器从 `Restarting` 恢复为 `running`
+
 ## API 无响应
 
 现象：

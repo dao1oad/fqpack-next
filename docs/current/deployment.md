@@ -69,6 +69,15 @@ py -3.12 script/ci/run_formal_deploy.py --repo-root <deploy-mirror> --format sum
 - formal deploy 会先解析最新远程 `origin/main` SHA，再按 `last_success_sha -> latest origin/main sha` 计算部署范围。
 - 本地未 merge 的 worktree 不能直接当正式 deploy 来源。
 
+### 正式部署最佳实践
+
+- 先确认当前代码真值是最新远程 `origin/main`；如果为了修 deploy 问题需要改代码，必须先走 `feature branch -> PR -> merge remote main`，再回到本地 `main` 与 `origin/main` 对齐。
+- 正式 deploy 统一从 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 执行，不要直接把开发 worktree 当成正式来源。
+- 在 deploy mirror 中先执行 `py -3.12 -m uv sync --frozen`，再执行 `py -3.12 script/ci/run_formal_deploy.py --repo-root . --format summary`。
+- 读取 `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`、`runtime-baseline.json`、`runtime-verify.json` 与 `result.json` 作为正式 deploy 证据，不要只凭终端退出码判断成功。
+- Dagster 容器必须在容器内固定使用 `DAGSTER_HOME=/opt/dagster/home` 与 `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`；不要让主工作树 `.env` 里的 Windows 路径 `D:/fqpack/dagster` 直接透传进 Linux 容器。
+- 只要本轮有实际 deploy，就必须保留 `CaptureBaseline -> deploy -> health check -> Verify` 的顺序；不能跳过 baseline，也不能把 runtime verify 替换成手工肉眼检查。
+
 ### 宿主机同步 Python 依赖
 
 ```powershell

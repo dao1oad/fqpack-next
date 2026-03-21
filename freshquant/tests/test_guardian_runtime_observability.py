@@ -75,6 +75,8 @@ sys.modules.setdefault(
 
 from freshquant.strategy.guardian import StrategyGuardian
 
+sys.modules.pop("freshquant.message", None)
+
 
 class FakeRuntimeLogger:
     def __init__(self):
