@@ -415,6 +415,97 @@ def test_dashboard_exposes_symbol_limit_rows_with_default_and_override_values():
     assert rows[1]["blocked"] is False
 
 
+def test_dashboard_exposes_three_position_views_and_quantity_consistency():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    repository = FakeRepository()
+    repository.config_doc = {
+        "code": "default",
+        "enabled": True,
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
+        },
+    }
+    repository.symbol_snapshot_docs = [
+        {
+            "symbol": "600000",
+            "quantity": 1200,
+            "quantity_source": "xt_positions",
+            "market_value": 520000.0,
+            "market_value_source": "xt_positions_market_value",
+            "name": "浦发银行",
+        },
+        {
+            "symbol": "000001",
+            "quantity": 800,
+            "quantity_source": "xt_positions",
+            "market_value": 200000.0,
+            "market_value_source": "xt_positions_market_value",
+            "name": "平安银行",
+        },
+    ]
+
+    service = PositionManagementDashboardService(
+        repository=repository,
+        holding_codes_provider=lambda: ["600000", "000001"],
+        inferred_position_loader=lambda: [
+            {
+                "symbol": "sh600000",
+                "quantity": 1000,
+                "amount_adjusted": -510000.0,
+                "name": "浦发银行",
+            },
+            {
+                "symbol": "sz000001",
+                "quantity": 800,
+                "amount_adjusted": -195000.0,
+                "name": "平安银行",
+            },
+        ],
+        legacy_position_loader=lambda: [
+            {
+                "symbol": "sh600000",
+                "quantity": 1000,
+                "amount_adjusted": -505000.0,
+                "name": "浦发银行",
+            },
+            {
+                "symbol": "sz000001",
+                "quantity": 800,
+                "amount_adjusted": -190000.0,
+                "name": "平安银行",
+            },
+        ],
+        settings_provider=_system_settings_provider(),
+        now_provider=_fixed_now,
+    )
+
+    payload = service.get_dashboard()
+    rows = {row["symbol"]: row for row in payload["symbol_position_limits"]["rows"]}
+
+    assert rows["600000"]["broker_position"]["quantity"] == 1200
+    assert rows["600000"]["broker_position"]["market_value"] == 520000.0
+    assert rows["600000"]["inferred_position"]["quantity"] == 1000
+    assert rows["600000"]["inferred_position"]["market_value"] == 510000.0
+    assert rows["600000"]["legacy_position"]["quantity"] == 1000
+    assert rows["600000"]["legacy_position"]["market_value"] == 505000.0
+    assert rows["600000"]["position_consistency"]["quantity_values"] == {
+        "broker": 1200,
+        "inferred": 1000,
+        "legacy_stock_fills": 1000,
+    }
+    assert rows["600000"]["position_consistency"]["quantity_consistent"] is False
+
+    assert rows["000001"]["broker_position"]["quantity"] == 800
+    assert rows["000001"]["inferred_position"]["quantity"] == 800
+    assert rows["000001"]["legacy_position"]["quantity"] == 800
+    assert rows["000001"]["position_consistency"]["quantity_consistent"] is True
+
+
 def test_update_symbol_limit_persists_override_and_supports_reset_to_default():
     from freshquant.position_management.dashboard_service import (
         PositionManagementDashboardService,

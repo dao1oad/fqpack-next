@@ -276,14 +276,17 @@
           <section class="workbench-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
-                <div class="workbench-panel__title">单标的仓位上限覆盖</div>
-                <p class="workbench-panel__desc">右栏只保留单标的仓位上限覆盖。可直接编辑“覆盖值”，超限标的会高亮；留空后点“恢复默认”即可撤销单独设置。</p>
+            <div class="workbench-panel__title">单标的仓位上限覆盖</div>
+                <p class="workbench-panel__desc">右栏只保留单标的仓位上限覆盖。并排展示券商同步仓位、订单推断仓位和 stock_fills 视图；覆盖值可直接编辑，数量不一致或超限时高亮。</p>
               </div>
             </div>
 
             <div class="workbench-summary-row">
               <span class="workbench-summary-chip workbench-summary-chip--muted">
                 单独设置 <strong>{{ overrideSymbolCount }}</strong>
+              </span>
+              <span class="workbench-summary-chip workbench-summary-chip--warning">
+                仓位不一致 <strong>{{ mismatchSymbolCount }}</strong>
               </span>
               <span class="workbench-summary-chip workbench-summary-chip--warning">
                 已超限 <strong>{{ blockedSymbolCount }}</strong>
@@ -293,11 +296,13 @@
             <div v-if="symbolLimitRows.length" class="runtime-ledger runtime-position-symbol-limit-ledger">
               <div class="runtime-ledger__header runtime-position-symbol-limit-ledger__grid">
                 <span>标的</span>
-                <span>当前市值</span>
+                <span>券商仓位</span>
+                <span>推断仓位</span>
+                <span>stock_fills仓位</span>
                 <span>默认值</span>
                 <span>覆盖值</span>
                 <span>有效值</span>
-                <span>来源</span>
+                <span>一致性</span>
                 <span>门禁</span>
                 <span>操作</span>
               </div>
@@ -306,13 +311,27 @@
                 v-for="row in symbolLimitRows"
                 :key="row.symbol"
                 class="runtime-ledger__row runtime-position-symbol-limit-ledger__grid"
-                :class="{ 'runtime-ledger__row--blocked': row.blocked }"
+                :class="{
+                  'runtime-ledger__row--blocked': row.blocked,
+                  'runtime-ledger__row--inconsistent': row.quantity_mismatch,
+                }"
               >
                 <div class="runtime-ledger__cell position-limit-symbol">
                   <strong>{{ row.symbol }}</strong>
                   <span>{{ row.name }}</span>
                 </div>
-                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.market_value_label }}</span>
+                <div class="runtime-ledger__cell position-source-cell" :title="row.broker_position_source_label">
+                  <strong>{{ row.broker_position_label }}</strong>
+                  <span>{{ row.broker_position_source_label }}</span>
+                </div>
+                <div class="runtime-ledger__cell position-source-cell" :title="row.inferred_position_source_label">
+                  <strong>{{ row.inferred_position_label }}</strong>
+                  <span>{{ row.inferred_position_source_label }}</span>
+                </div>
+                <div class="runtime-ledger__cell position-source-cell" :title="row.legacy_position_source_label">
+                  <strong>{{ row.legacy_position_label }}</strong>
+                  <span>{{ row.legacy_position_source_label }}</span>
+                </div>
                 <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.default_limit_label }}</span>
                 <div class="runtime-ledger__cell position-symbol-limit-input">
                   <el-input-number
@@ -324,7 +343,11 @@
                   />
                 </div>
                 <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.effective_limit_label }}</span>
-                <span class="runtime-ledger__cell">{{ row.source_label }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--status" :title="row.consistency_detail_label">
+                  <span class="runtime-inline-status" :class="resolvePositionConsistencyStatusClass(row.quantity_mismatch)">
+                    {{ row.consistency_label }}
+                  </span>
+                </span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--status">
                   <span class="runtime-inline-status" :class="resolveSymbolLimitStatusClass(row.blocked)">
                     {{ row.blocked_label }}
@@ -406,6 +429,7 @@ const pagedDecisionRows = computed(() => {
 const configUpdatedAt = computed(() => dashboard.value?.config?.updated_at || '未配置')
 const configUpdatedBy = computed(() => dashboard.value?.config?.updated_by || 'unknown')
 const blockedSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.blocked).length)
+const mismatchSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.quantity_mismatch).length)
 const overrideSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.using_override).length)
 const stateToneChipClass = computed(() => {
   const tone = statePanel.value?.hero?.effective_state_tone
@@ -445,6 +469,10 @@ const resolveRuleStatusClass = (allowed) => (
 
 const resolveSymbolLimitStatusClass = (blocked) => (
   blocked ? 'runtime-inline-status--failed' : 'runtime-inline-status--success'
+)
+
+const resolvePositionConsistencyStatusClass = (quantityMismatch) => (
+  quantityMismatch ? 'runtime-inline-status--warning' : 'runtime-inline-status--success'
 )
 
 const handleDecisionPageChange = (page) => {
@@ -749,6 +777,22 @@ onMounted(() => {
   background: #fff1ed;
 }
 
+.runtime-ledger__row--inconsistent {
+  background: #fff9ed;
+}
+
+.runtime-ledger__row--inconsistent:hover {
+  background: #fff4de;
+}
+
+.runtime-ledger__row--blocked.runtime-ledger__row--inconsistent {
+  background: #fff3ea;
+}
+
+.runtime-ledger__row--blocked.runtime-ledger__row--inconsistent:hover {
+  background: #ffeade;
+}
+
 .runtime-position-decision-ledger {
   --position-decision-ledger-row-height: 40px;
   max-height: calc(var(--position-decision-ledger-row-height) * 11 + 2px);
@@ -789,7 +833,7 @@ onMounted(() => {
 }
 
 .runtime-position-symbol-limit-ledger {
-  --position-symbol-limit-ledger-row-height: 44px;
+  --position-symbol-limit-ledger-row-height: 54px;
   max-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
 }
 
@@ -800,11 +844,13 @@ onMounted(() => {
 .runtime-position-symbol-limit-ledger__grid {
   grid-template-columns:
     170px
-    120px
+    220px
+    220px
+    220px
     120px
     168px
     120px
-    92px
+    108px
     92px
     160px;
 }
@@ -865,6 +911,12 @@ onMounted(() => {
   color: #b42318;
 }
 
+.runtime-inline-status--warning {
+  border-color: #f7d8a8;
+  background: #fff7e8;
+  color: #9a5b00;
+}
+
 .position-ledger-pagination {
   display: flex;
   justify-content: flex-end;
@@ -884,6 +936,23 @@ onMounted(() => {
 .position-limit-symbol span {
   color: #68839d;
   font-size: 12px;
+}
+
+.position-source-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.position-source-cell strong {
+  color: #21405e;
+  line-height: 1.35;
+}
+
+.position-source-cell span {
+  color: #68839d;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .position-symbol-limit-input :deep(.el-input-number) {
