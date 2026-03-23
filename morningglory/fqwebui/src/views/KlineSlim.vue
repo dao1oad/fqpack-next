@@ -457,17 +457,15 @@
                     :key="row.key"
                     class="price-panel-row"
                   >
-                    <div class="price-panel-row-main">
-                      <span
-                        class="price-guide-badge"
-                        :class="['price-guide-badge--guardian', `price-guide-badge--${row.tone}`]"
-                      >
-                        {{ row.lineLabel }}
-                      </span>
-                      <div class="price-panel-row-meta">
-                        <span class="price-panel-row-title">{{ row.label }}</span>
-                        <span class="price-panel-row-subtitle">图上 G-{{ row.shortLabel }} 横线</span>
-                      </div>
+                    <span
+                      class="price-guide-badge"
+                      :class="['price-guide-badge--guardian', `price-guide-badge--${row.tone}`]"
+                    >
+                      {{ row.lineLabel }}
+                    </span>
+                    <div class="price-panel-row-meta">
+                      <span class="price-panel-row-title">{{ row.label }}</span>
+                      <span class="price-panel-row-subtitle">图上 G-{{ row.shortLabel }} 横线</span>
                     </div>
                     <div class="price-panel-row-editor price-panel-row-editor--multi">
                       <el-input-number
@@ -523,17 +521,15 @@
                     :key="row.level"
                     class="price-panel-row price-panel-row--stacked"
                   >
-                    <div class="price-panel-row-main">
-                      <span
-                        class="price-guide-badge"
-                        :class="['price-guide-badge--takeprofit', `price-guide-badge--${row.tone}`]"
-                      >
-                        {{ row.lineLabel }}
-                      </span>
-                      <div class="price-panel-row-meta">
-                        <span class="price-panel-row-title">TP-{{ row.label }}</span>
-                        <span class="price-panel-row-subtitle">图上 TP-{{ row.label }} 横线</span>
-                      </div>
+                    <span
+                      class="price-guide-badge"
+                      :class="['price-guide-badge--takeprofit', `price-guide-badge--${row.tone}`]"
+                    >
+                      {{ row.lineLabel }}
+                    </span>
+                    <div class="price-panel-row-meta">
+                      <span class="price-panel-row-title">TP-{{ row.label }}</span>
+                      <span class="price-panel-row-subtitle">图上 TP-{{ row.label }} 横线</span>
                     </div>
                     <div class="price-panel-row-editor price-panel-row-editor--multi">
                       <el-input-number
@@ -1082,7 +1078,7 @@ export default klineSlim
 
 .price-panel-row
   display grid
-  grid-template-columns minmax(0, 1fr) auto
+  grid-template-columns max-content minmax(0, 1fr) auto
   gap 10px
   align-items center
   padding 12px
@@ -1093,17 +1089,10 @@ export default klineSlim
 .price-panel-row--stacked
   align-items stretch
 
-.price-panel-row-main
-  display flex
-  align-items center
-  gap 10px
-  min-width 0
-
 .price-panel-row-meta
   display flex
   flex-direction column
   gap 4px
-  flex 1
   min-width 0
   overflow hidden
 
@@ -1524,7 +1513,10 @@ export default klineSlim
     width 392px
 
   .price-panel-row
-    grid-template-columns 1fr
+    grid-template-columns max-content minmax(0, 1fr)
+
+  .price-panel-row-editor
+    grid-column 1 / -1
 
   .subject-panel-base-row
     grid-template-columns 1fr

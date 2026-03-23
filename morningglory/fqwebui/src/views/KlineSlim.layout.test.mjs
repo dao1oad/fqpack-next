@@ -50,6 +50,10 @@ test('KlineSlim medium breakpoint keeps the flow layout and only narrows the pri
     mediumLayoutBlock.includes('.subject-panel-base-row\n    grid-template-columns 1fr'),
     true
   )
+  assert.equal(
+    mediumLayoutBlock.includes('.price-panel-row-editor\n    grid-column 1 / -1'),
+    true
+  )
 })
 
 test('KlineSlim price panel titles stay horizontal with ellipsis', () => {
@@ -59,6 +63,13 @@ test('KlineSlim price panel titles stay horizontal with ellipsis', () => {
   )
   assert.equal(
     source.includes('.price-panel-row-subtitle\n  font-size 12px\n  color #94a3b8\n  overflow hidden\n  text-overflow ellipsis\n  white-space nowrap'),
+    true
+  )
+})
+
+test('KlineSlim price rows reserve a dedicated grid column for the color badge', () => {
+  assert.equal(
+    source.includes('.price-panel-row\n  display grid\n  grid-template-columns max-content minmax(0, 1fr) auto'),
     true
   )
 })
