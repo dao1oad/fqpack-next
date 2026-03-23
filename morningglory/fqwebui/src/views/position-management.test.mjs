@@ -1,12 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 
 import {
   buildInventoryRows,
+  buildRecentDecisionLedgerRows,
   buildRecentDecisionRows,
   readDashboardPayload,
   buildRuleMatrix,
   buildStatePanel,
+  buildSymbolLimitRows,
 } from './positionManagement.mjs'
 
 const createDashboard = () => ({
@@ -104,6 +107,7 @@ const createDashboard = () => ({
   ],
   recent_decisions: [
     {
+      decision_id: 'pmd-001',
       strategy_name: 'Guardian',
       action: 'buy',
       symbol: '000001',
@@ -113,11 +117,47 @@ const createDashboard = () => ({
       reason_code: 'holding_buy_allowed',
       reason_text: '',
       evaluated_at: '2026-03-07T12:00:00+08:00',
+      trace_id: 'trace-001',
+      intent_id: 'intent-001',
       meta: {
         symbol_name: '平安银行',
+        source: 'strategy',
+        source_module: 'guardian_strategy',
+        is_holding_symbol: true,
+        symbol_market_value: 123456.78,
+        symbol_position_limit: 500000,
+        symbol_market_value_source: 'xt_positions.market_value',
+        symbol_quantity_source: 'xt_positions.volume',
+        force_profit_reduce: false,
+        profit_reduce_mode: 'off',
+        guardrail_hint: 'stale-window',
       },
     },
   ],
+  symbol_position_limits: {
+    rows: [
+      {
+        symbol: '000001',
+        name: '平安银行',
+        market_value: 530000,
+        default_limit: 800000,
+        override_limit: 500000,
+        effective_limit: 500000,
+        using_override: true,
+        blocked: true,
+      },
+      {
+        symbol: '000002',
+        name: '万科A',
+        market_value: 220000,
+        default_limit: 800000,
+        override_limit: null,
+        effective_limit: 800000,
+        using_override: false,
+        blocked: false,
+      },
+    ],
+  },
 })
 
 test('buildInventoryRows merges three inventory groups into one ordered table', () => {
@@ -170,6 +210,20 @@ test('buildRecentDecisionRows exposes symbol name from payload or meta', () => {
   assert.equal(rows[0].reason_text, 'holding_buy_allowed')
 })
 
+test('buildRecentDecisionLedgerRows merges summary and detail fields into one dense row', () => {
+  const rows = buildRecentDecisionLedgerRows(createDashboard())
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].symbol_display, '000001 / 平安银行')
+  assert.equal(rows[0].source_display, 'guardian_strategy / 策略下单')
+  assert.equal(rows[0].reason_display, 'holding_buy_allowed')
+  assert.equal(rows[0].symbol_market_value_label, '123,456.78')
+  assert.equal(rows[0].symbol_position_limit_label, '500,000.00')
+  assert.equal(rows[0].trace_display, 'trace-001')
+  assert.equal(rows[0].intent_display, 'intent-001')
+  assert.match(rows[0].extra_context_label, /guardrail_hint=stale-window/)
+})
+
 test('buildStatePanel exposes state labels, stale badge and asset metrics', () => {
   const panel = buildStatePanel(createDashboard())
   const stats = Object.fromEntries(panel.stats.map((item) => [item.key, item.value_label]))
@@ -180,6 +234,16 @@ test('buildStatePanel exposes state labels, stale badge and asset metrics', () =
   assert.equal(panel.hero.matched_rule_title, '状态已过期，按默认 HOLDING_ONLY 处理')
   assert.equal(stats.available_bail_balance, '865,432.12')
   assert.equal(stats.total_asset, '1,432,100.00')
+})
+
+test('buildSymbolLimitRows exposes blocked highlight metadata for over-limit symbols', () => {
+  const rows = buildSymbolLimitRows(createDashboard())
+
+  assert.equal(rows[0].symbol, '000001')
+  assert.equal(rows[0].blocked_label, '已阻断')
+  assert.equal(rows[0].row_tone, 'blocked')
+  assert.equal(rows[0].override_limit_label, '500,000.00')
+  assert.equal(rows[1].row_tone, 'normal')
 })
 
 test('buildRuleMatrix keeps decision order and readable allow status', () => {
@@ -223,4 +287,35 @@ test('readDashboardPayload unwraps axios responses instead of treating request c
   }
 
   assert.deepEqual(readDashboardPayload(response), payload)
+})
+
+test('PositionManagement.vue uses dense runtime ledger layout and removes legacy split panels', async () => {
+  const content = await readFile(new URL('./PositionManagement.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /最近决策与上下文/)
+  assert.match(content, /runtime-ledger runtime-position-decision-ledger/)
+  assert.match(content, /runtime-ledger runtime-position-symbol-limit-ledger/)
+  assert.match(content, /<el-pagination[\s\S]*:page-size=/)
+  assert.match(content, /page-sizes="\[100,\s*200,\s*500\]"/)
+  assert.match(content, /runtime-ledger__row--blocked/)
+  assert.match(content, /覆盖值/)
+  assert.match(content, /保存覆盖/)
+  assert.match(content, /恢复默认/)
+  assert.match(content, /positionManagementApi\.updateSymbolLimit/)
+  assert.match(content, /规则矩阵/)
+  assert.match(content, /--position-decision-ledger-row-height:/)
+  assert.match(content, /max-height:\s*calc\(var\(--position-decision-ledger-row-height\)\s*\*\s*11/)
+  assert.doesNotMatch(content, /决策上下文详情/)
+  assert.doesNotMatch(content, /持仓范围/)
+  assert.doesNotMatch(content, /position-decision-card/)
+  assert.doesNotMatch(content, /position-holding-panel/)
+})
+
+test('position-management module doc reflects merged dense decision ledger and editable symbol overrides', async () => {
+  const content = await readFile(new URL('../../../../docs/current/modules/position-management.md', import.meta.url), 'utf8')
+
+  assert.match(content, /最近决策与上下文已合并为一张高密度 ledger/)
+  assert.match(content, /持仓范围卡片已移除/)
+  assert.match(content, /规则矩阵已并入“当前仓位状态”/)
+  assert.match(content, /单标的仓位上限覆盖.*可直接编辑“覆盖值”/)
 })

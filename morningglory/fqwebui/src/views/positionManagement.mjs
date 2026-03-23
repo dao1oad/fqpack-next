@@ -166,11 +166,11 @@ const buildDecisionSelectionKey = (row = {}) => (
 )
 
 const buildSourceModuleLabel = (row = {}) => {
-  const sourceLabel = formatSourceLabel(row?.source)
+  const sourceLabel = formatSourceLabel(row?.source || row?.meta?.source)
   const sourceModule = (
     toText(row?.source_module) ||
-    toText(row?.strategy_name) ||
-    toText(row?.meta?.source_module)
+    toText(row?.meta?.source_module) ||
+    toText(row?.strategy_name)
   )
   if (sourceModule && sourceLabel !== '-' && sourceModule !== sourceLabel) {
     return `${sourceModule} / ${sourceLabel}`
@@ -330,6 +330,8 @@ export const buildSymbolLimitRows = (dashboard = {}) => {
       effective_limit_label: formatAmount(row?.effective_limit),
       source_label: row?.using_override ? '单独设置' : '默认值',
       blocked_label: row?.blocked ? '已阻断' : '允许',
+      override_limit_value: toNumber(row?.override_limit),
+      row_tone: row?.blocked ? 'blocked' : 'normal',
     }))
 }
 
@@ -371,6 +373,73 @@ export const buildRecentDecisionRows = (dashboard = {}) => {
     ),
     reason_text: toText(row?.reason_text) || toText(row?.reason_code) || '-',
   }))
+}
+
+const buildExtraContextLabel = (meta = {}, consumedKeys = new Set()) => {
+  const pairs = Object.keys(meta)
+    .sort()
+    .filter((key) => !consumedKeys.has(key))
+    .map((key) => `${key}=${formatJsonValue(meta[key])}`)
+    .filter((item) => toText(item))
+  return pairs.length ? pairs.join(' | ') : '-'
+}
+
+export const buildRecentDecisionLedgerRows = (dashboard = {}) => {
+  const payload = readDashboardPayload(dashboard)
+  const rows = Array.isArray(payload?.recent_decisions) ? payload.recent_decisions : []
+  return rows.map((row) => {
+    const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {}
+    const consumedMetaKeys = new Set([
+      'symbol_name',
+      'name',
+      'source',
+      'source_module',
+      'evaluated_at',
+      'trace_id',
+      'intent_id',
+      'is_holding_symbol',
+      'symbol_market_value',
+      'symbol_position_limit',
+      'symbol_market_value_source',
+      'symbol_quantity_source',
+      'force_profit_reduce',
+      'profit_reduce_mode',
+    ])
+    return {
+      ...row,
+      selection_key: buildDecisionSelectionKey(row),
+      decision_id_display: toText(row?.decision_id) || '-',
+      evaluated_at_label: formatBeijingDateTime(
+        row?.evaluated_at || row?.meta?.evaluated_at,
+      ),
+      symbol_display: joinLabels(
+        toText(row?.symbol) || '-',
+        toText(row?.symbol_name) ||
+          toText(row?.name) ||
+          toText(meta?.symbol_name) ||
+          toText(meta?.name) ||
+          '-',
+      ),
+      action_label: ACTION_LABELS[toText(row?.action)] || toText(row?.action) || '-',
+      allowed_label: row?.allowed ? '允许' : '拒绝',
+      tone: row?.allowed ? 'allow' : 'reject',
+      state_label: formatStateLabel(row?.state),
+      source_display: buildSourceModuleLabel(row),
+      strategy_label: toText(row?.strategy_name) || '-',
+      reason_code_display: toText(row?.reason_code) || '-',
+      reason_display: toText(row?.reason_text) || toText(row?.reason_code) || '-',
+      holding_symbol_display: formatBooleanLabel(meta?.is_holding_symbol),
+      symbol_market_value_label: formatAmount(meta?.symbol_market_value),
+      symbol_position_limit_label: formatAmount(meta?.symbol_position_limit),
+      market_value_source_display: toText(meta?.symbol_market_value_source) || '-',
+      quantity_source_display: toText(meta?.symbol_quantity_source) || '-',
+      force_profit_reduce_display: formatBooleanLabel(meta?.force_profit_reduce),
+      profit_reduce_mode_display: toText(meta?.profit_reduce_mode) || '-',
+      trace_display: toText(row?.trace_id) || toText(meta?.trace_id) || '-',
+      intent_display: toText(row?.intent_id) || toText(meta?.intent_id) || '-',
+      extra_context_label: buildExtraContextLabel(meta, consumedMetaKeys),
+    }
+  })
 }
 
 export const buildRecentDecisionDetailRows = (decision = null) => {
