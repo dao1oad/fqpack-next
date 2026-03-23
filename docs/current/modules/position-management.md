@@ -127,13 +127,15 @@
 - `stock_fills` 兼容镜像仓位
   - 后端实际读取 `freshquant.stock_fills_compat`，只在 compat 缺失时才兜底原始 `stock_fills`
 
-三套视图都会带出 `quantity / market_value / source`，并额外返回数量一致性判定，便于页面直接高亮不一致标的。
+三套视图都会带出 `quantity / market_value / source`。其中“订单推断仓位”和“`stock_fills` 兼容镜像仓位”在页面展示前会按券商仓位真值对齐，`source` 会保留 `broker_truth` 标记，避免把对齐后的显示视图误当成原始 lot 残量。
 
 ## 页面组织
 
 `/position-management` 当前已切到统一的 workbench density 语法：
 
-- 页面顶部只保留标题、配置更新时间和状态摘要条
+- 页面顶部不再保留“仓位管理”标题卡片
+- 三栏摘要区上移到“最近决策与上下文”上方
+- 三栏摘要区当前固定等高，左中两栏在卡片内滚动以贴齐右栏“单标的仓位上限覆盖”
 - 最近决策与上下文已合并为一张高密度 ledger，复用 `/runtime-observability` 全局 Trace 的表格语法
 - 最近决策 ledger 一次展示 `触发时间 / 标的 / 动作 / 结果 / 门禁状态 / 触发来源 / 仓位上下文 / trace / intent / 附加上下文`
 - 最近决策 ledger 默认分页 `100` 条，表体默认显示约 `10` 行，宽度不足时直接使用横向滚动
@@ -144,6 +146,7 @@
 - 规则矩阵已并入“当前仓位状态”，不再作为独立卡片
 - “单标的仓位上限覆盖”固定放在右栏，集中展示 `券商同步仓位 / 订单推断仓位 / stock_fills 仓位 / 默认值 / 覆盖值 / 有效值 / 一致性 / 门禁`
   - 页面列名仍保留 `stock_fills` 以兼容原有认知，但后端来源是 `stock_fills_compat`
+  - 订单推断仓位与 `stock_fills` 对照视图都会按券商仓位真值对齐，只保留来源语义和 `broker_truth` 标记
 - “单标的仓位上限覆盖”可直接编辑“覆盖值”，并调用 `POST /api/position-management/symbol-limits/<symbol>` 写回真实配置
 - 已超限或三套仓位数量不一致的标的会在右栏覆盖表中高亮，便于缩放后快速定位
 - 当前仓位状态改成摘要条、指标块和元数据块，不再使用大 hero
