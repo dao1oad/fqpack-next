@@ -546,9 +546,7 @@ def test_manual_reset_rebuilds_stock_fills_compat_rows_from_manual_locked_lots(
             if symbol is None:
                 self.rows.clear()
             else:
-                self.rows = [
-                    item for item in self.rows if item.get("symbol") != symbol
-                ]
+                self.rows = [item for item in self.rows if item.get("symbol") != symbol]
             return SimpleNamespace(deleted_count=1)
 
         def insert_many(self, documents):

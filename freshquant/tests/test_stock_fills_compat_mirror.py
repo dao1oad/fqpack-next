@@ -91,6 +91,29 @@ def test_build_compat_stock_fill_records_marks_rows_as_projection_mirror():
     ]
 
 
+def test_build_compat_stock_fill_records_guesses_stock_code_for_common_cn_symbols():
+    import freshquant.order_management.projection.stock_fills_compat as compat_module
+
+    rows = compat_module.build_compat_stock_fill_records(
+        [
+            {
+                "buy_lot_id": "lot_runtime_grid",
+                "symbol": "000001",
+                "remaining_quantity": 300,
+                "date": 20240102,
+                "time": "09:31:00",
+                "buy_price_real": 10.0,
+                "original_quantity": 600,
+                "amount": 6000.0,
+                "amount_adjust": 1.0,
+                "name": "平安银行",
+            }
+        ]
+    )
+
+    assert rows[0]["stock_code"] == "000001.SZ"
+
+
 def test_sync_symbol_replaces_legacy_stock_fills_with_open_buy_lot_mirror():
     from freshquant.order_management.projection.stock_fills_compat import sync_symbol
 

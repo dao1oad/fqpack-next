@@ -9,10 +9,10 @@ from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_info, query_instrument_type
 from freshquant.KlineDataTool import get_stock_data
 from freshquant.order_management.manual.service import OrderManagementManualWriteService
+from freshquant.order_management.projection.stock_fills import build_raw_fills_view
 from freshquant.order_management.projection.stock_fills_compat import (
     StockFillsCompatibilityService,
 )
-from freshquant.order_management.projection.stock_fills import build_raw_fills_view
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.quote.etf import queryEtfCandleSticks
 

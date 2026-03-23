@@ -121,7 +121,11 @@ def _bootstrap_service():
         repository=repository,
         tracking_service=tracking_service,
     )
-    xt_reports_module._sync_stock_fills_compat = lambda symbol, repository: None
+
+    def _noop_sync_stock_fills_compat(symbol, repository):
+        return None
+
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
     return repository, ingest_service
 
 

@@ -2,7 +2,6 @@
 
 from freshquant.db import DBfreshquant
 from freshquant.order_management.repository import OrderManagementRepository
-from freshquant.util.code import fq_util_code_append_market_code_suffix
 from freshquant.util.code import normalize_to_base_code
 
 
@@ -82,10 +81,7 @@ def build_compat_stock_fill_records(buy_lots):
             "date": buy_lot.get("date"),
             "time": buy_lot.get("time"),
             "name": _normalize_text(buy_lot.get("name")),
-            "stock_code": _normalize_text(
-                buy_lot.get("stock_code")
-            )
-            or fq_util_code_append_market_code_suffix(symbol, upper_case=True),
+            "stock_code": _resolve_stock_code(symbol, buy_lot),
             "source": "om_projection_mirror",
         }
         rows.append(row)
@@ -195,6 +191,34 @@ def _normalize_optional_symbol(symbol):
     if symbol in {None, ""}:
         return ""
     return normalize_to_base_code(symbol)
+
+
+def _resolve_stock_code(symbol, buy_lot):
+    raw_stock_code = _normalize_text(buy_lot.get("stock_code"))
+    if raw_stock_code:
+        return raw_stock_code
+
+    raw_symbol = _normalize_text(
+        buy_lot.get("symbol") or buy_lot.get("stock_code") or buy_lot.get("code")
+    ).upper()
+    if "." in raw_symbol:
+        return raw_symbol
+    if len(raw_symbol) >= 8 and raw_symbol[:2] in {"SH", "SZ", "BJ"}:
+        return f"{raw_symbol[2:]}.{raw_symbol[:2]}"
+
+    market = _guess_symbol_market(symbol)
+    return f"{symbol}.{market}" if market else symbol
+
+
+def _guess_symbol_market(symbol):
+    normalized_symbol = _normalize_optional_symbol(symbol)
+    if len(normalized_symbol) != 6 or not normalized_symbol.isdigit():
+        return ""
+    if normalized_symbol.startswith(("4", "8")):
+        return "BJ"
+    if normalized_symbol.startswith(("5", "6", "9")):
+        return "SH"
+    return "SZ"
 
 
 def _aggregate_position_rows(rows):
