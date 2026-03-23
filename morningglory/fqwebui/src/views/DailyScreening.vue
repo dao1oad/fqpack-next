@@ -14,6 +14,23 @@
               <span>/</span>
               <span>基础池由 CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成</span>
             </div>
+            <div class="daily-toolbar-scope">
+              <span class="daily-toolbar-scope__label">Scope</span>
+              <el-select
+                v-model="selectedScopeId"
+                class="daily-toolbar-scope__control daily-field-control"
+                filterable
+                clearable
+                placeholder="请选择 scope"
+              >
+                <el-option
+                  v-for="item in scopeItems"
+                  :key="item.scopeId"
+                  :label="item.isLatest ? `${item.label}（latest）` : item.label"
+                  :value="item.scopeId"
+                />
+              </el-select>
+            </div>
           </div>
           <div class="daily-toolbar-guide">
             <span class="daily-toolbar-guide__title">工作台说明</span>
@@ -60,31 +77,6 @@
 
       <div class="daily-screening-grid">
         <section class="workbench-panel daily-filter-panel" v-loading="loadingFilters">
-          <div class="workbench-panel__header">
-            <div class="workbench-title-group">
-              <div class="workbench-panel__title">筛选工作台</div>
-              <p class="workbench-panel__desc">前端只做组合查询，不再触发运行，不再展示 SSE。</p>
-            </div>
-          </div>
-
-          <article class="workbench-block">
-            <div class="workbench-panel__title">Scope</div>
-            <el-select
-              v-model="selectedScopeId"
-              class="daily-field-control"
-              filterable
-              clearable
-              placeholder="请选择 scope"
-            >
-              <el-option
-                v-for="item in scopeItems"
-                :key="item.scopeId"
-                :label="item.isLatest ? `${item.label}（latest）` : item.label"
-                :value="item.scopeId"
-              />
-            </el-select>
-          </article>
-
           <article class="workbench-block">
             <div class="daily-section-header">
               <div class="workbench-panel__title">全市场搜索</div>
@@ -268,48 +260,62 @@
               </div>
             </div>
 
-            <div v-if="resultRows.length" class="runtime-ledger daily-results-ledger">
-              <div class="runtime-ledger__header daily-results-ledger__grid">
-                <span>代码</span>
-                <span>名称</span>
-                <span>操作</span>
-                <span>高级段倍数</span>
-                <span>段倍数</span>
-                <span>笔涨幅%</span>
-                <span>缠论原因</span>
+            <div class="daily-results-content">
+              <div v-if="resultRows.length" class="runtime-ledger daily-results-ledger">
+                <div class="runtime-ledger__header daily-results-ledger__grid">
+                  <span>代码</span>
+                  <span>名称</span>
+                  <span>操作</span>
+                  <span>高级段倍数</span>
+                  <span>段倍数</span>
+                  <span>笔涨幅%</span>
+                  <span>缠论原因</span>
+                </div>
+                <div
+                  v-for="row in paginatedResultRows"
+                  :key="row.code"
+                  class="runtime-ledger__row daily-results-ledger__grid"
+                  :class="{ active: isResultRowActive(row) }"
+                  @click="handleRowClick(row)"
+                >
+                  <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.code }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.name || '-'">
+                    {{ row.name || '-' }}
+                  </span>
+                  <span class="runtime-ledger__cell daily-ledger__actions">
+                    <el-button
+                      size="small"
+                      type="primary"
+                      link
+                      :loading="isWorkspaceActionRunning(`workspace:append-single:${row.code}`)"
+                      @click.stop="handleAppendSingleRowToPrePool(row)"
+                    >
+                      加入 pre_pools
+                    </el-button>
+                  </span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.higherMultiple) }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.segmentMultiple) }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.biGainPercent) }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.chanlunReason || '-'">
+                    {{ row.chanlunReason || '-' }}
+                  </span>
+                </div>
               </div>
-              <div
-                v-for="row in resultRows"
-                :key="row.code"
-                class="runtime-ledger__row daily-results-ledger__grid"
-                :class="{ active: isResultRowActive(row) }"
-                @click="handleRowClick(row)"
-              >
-                <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.code }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.name || '-'">
-                  {{ row.name || '-' }}
-                </span>
-                <span class="runtime-ledger__cell daily-ledger__actions">
-                  <el-button
-                    size="small"
-                    type="primary"
-                    link
-                    :loading="isWorkspaceActionRunning(`workspace:append-single:${row.code}`)"
-                    @click.stop="handleAppendSingleRowToPrePool(row)"
-                  >
-                    加入 pre_pools
-                  </el-button>
-                </span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.higherMultiple) }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.segmentMultiple) }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.biGainPercent) }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.chanlunReason || '-'">
-                  {{ row.chanlunReason || '-' }}
-                </span>
+              <div v-else class="runtime-empty-panel daily-empty-panel">
+                <strong>{{ isMarketSearchMode ? '全市场搜索暂无命中结果' : '当前筛选暂无结果' }}</strong>
               </div>
-            </div>
-            <div v-else class="runtime-empty-panel daily-empty-panel">
-              <strong>{{ isMarketSearchMode ? '全市场搜索暂无命中结果' : '当前筛选暂无结果' }}</strong>
+              <div v-if="resultPaginationVisible" class="daily-results-pagination">
+                <el-pagination
+                  v-model:current-page="resultPage"
+                  background
+                  small
+                  layout="prev, pager, next"
+                  :page-size="RESULT_PAGE_SIZE"
+                  :pager-count="5"
+                  :total="resultRows.length"
+                  @current-change="handleResultPageChange"
+                />
+              </div>
             </div>
           </section>
 
@@ -762,6 +768,8 @@ import {
   toggleDailyScreeningSelection,
 } from './dailyScreeningPage.mjs'
 
+const RESULT_PAGE_SIZE = 8
+
 const loadingScopes = ref(false)
 const loadingFilters = ref(false)
 const queryLoading = ref(false)
@@ -775,6 +783,7 @@ const selectedScopeId = ref('')
 const scopeSummary = ref({})
 const filterCatalog = ref(normalizeDailyScreeningFilterCatalog({}))
 const resultRows = ref([])
+const resultPage = ref(1)
 const selectedCode = ref('')
 const detail = ref(normalizeDailyScreeningDetail({}))
 const prePoolItems = ref([])
@@ -836,7 +845,21 @@ const selectedScopeLabel = computed(() => {
 })
 const normalizedMarketSearchKeyword = computed(() => String(marketSearchKeyword.value || '').trim())
 const isMarketSearchMode = computed(() => Boolean(normalizedMarketSearchKeyword.value))
+const resultPageCount = computed(() => {
+  return Math.max(1, Math.ceil(resultRows.value.length / RESULT_PAGE_SIZE))
+})
+const paginatedResultRows = computed(() => {
+  const start = (resultPage.value - 1) * RESULT_PAGE_SIZE
+  return resultRows.value.slice(start, start + RESULT_PAGE_SIZE)
+})
+const resultPaginationVisible = computed(() => resultRows.value.length > RESULT_PAGE_SIZE)
 const resultMetaLabel = computed(() => {
+  if (!resultRows.value.length) {
+    return isMarketSearchMode.value ? `0 / ${marketSearchTotal.value} 条` : '0 条'
+  }
+  if (resultPaginationVisible.value) {
+    return `${paginatedResultRows.value.length} / ${resultRows.value.length} 条 · 第 ${resultPage.value} / ${resultPageCount.value} 页`
+  }
   if (isMarketSearchMode.value) {
     return `${resultRows.value.length} / ${marketSearchTotal.value} 条`
   }
@@ -919,6 +942,10 @@ const isSectionItemSelected = (section, item) => {
 
 const formatSectionItemLabel = (section, item) => {
   return `${item?.label || ''} · ${Number(item?.count || 0)}`
+}
+
+const handleResultPageChange = (page) => {
+  resultPage.value = Number(page || 1)
 }
 
 const scheduleQueryRows = () => {
@@ -1017,6 +1044,7 @@ const loadFilterCatalog = async () => {
 const queryRows = async () => {
   if (!selectedScopeId.value) {
     resultRows.value = []
+    resultPage.value = 1
     marketSearchTotal.value = 0
     return
   }
@@ -1041,6 +1069,7 @@ const queryRows = async () => {
         ),
       )
     resultRows.value = normalizeDailyScreeningResultRows(payload?.rows)
+    resultPage.value = 1
     marketSearchTotal.value = Number(payload?.total || resultRows.value.length || 0)
     pageError.value = ''
   } catch (error) {
@@ -1350,22 +1379,47 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.daily-screening-page {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
 .daily-screening-body {
-  padding: 24px;
+  gap: 12px;
+  overflow: hidden;
+  padding: 16px;
 }
 
 .daily-toolbar-header {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
+}
+
+.daily-toolbar-scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.daily-toolbar-scope__label {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.daily-toolbar-scope__control {
+  width: min(100%, 340px);
 }
 
 .daily-toolbar-guide {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex: 1 1 720px;
+  gap: 8px;
+  flex: 1 1 680px;
   min-width: 0;
 }
 
@@ -1409,7 +1463,7 @@ onMounted(async () => {
 
 .daily-center-stack {
   display: grid;
-  grid-template-rows: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  grid-template-rows: minmax(0, 0.82fr) minmax(0, 1.18fr);
   gap: 16px;
   min-height: 0;
 }
@@ -1518,12 +1572,27 @@ onMounted(async () => {
   align-items: center;
 }
 
+.daily-results-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.daily-results-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
 .daily-results-panel,
 .daily-workspace-panel,
 .daily-detail-overview-panel,
 .daily-detail-condition-panel,
 .daily-detail-history-panel {
   min-height: 0;
+  overflow: hidden;
 }
 
 .daily-expression {
@@ -1850,8 +1919,25 @@ onMounted(async () => {
 }
 
 @media (max-width: 960px) {
+  .daily-screening-page {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
   .daily-screening-body {
+    overflow: auto;
     padding: 16px;
+  }
+
+  .daily-toolbar-scope {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .daily-toolbar-scope__control {
+    width: 100%;
   }
 
   .daily-toolbar-guide {
