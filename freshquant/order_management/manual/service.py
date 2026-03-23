@@ -116,6 +116,7 @@ class OrderManagementManualWriteService:
                 self.repository.insert_sell_allocations(sell_allocations)
 
         mark_stock_holdings_projection_updated()
+        _sync_stock_fills_compat(symbol, repository=self.repository)
         return {
             "trade_fact": trade_fact,
             "buy_lot": buy_lot,
@@ -200,6 +201,7 @@ class OrderManagementManualWriteService:
             inserted_count += 1
 
         mark_stock_holdings_projection_updated()
+        _sync_stock_fills_compat(symbol, repository=self.repository)
         return {
             "deleted_count": deleted_count,
             "inserted_count": inserted_count,
@@ -297,3 +299,18 @@ def _get_tpsl_service():
     from freshquant.tpsl.service import TpslService
 
     return TpslService()
+
+
+def _sync_stock_fills_compat(symbol, *, repository):
+    try:
+        from freshquant.order_management.projection.stock_fills_compat import (
+            sync_symbol,
+        )
+    except Exception:
+        logger.exception("failed to import stock_fills compat mirror module")
+        return
+
+    try:
+        sync_symbol(symbol, repository=repository)
+    except Exception:
+        logger.exception("failed to sync stock_fills compat mirror for %s", symbol)

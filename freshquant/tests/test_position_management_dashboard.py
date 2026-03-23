@@ -506,6 +506,47 @@ def test_dashboard_exposes_three_position_views_and_quantity_consistency():
     assert rows["000001"]["position_consistency"]["quantity_consistent"] is True
 
 
+def test_dashboard_legacy_view_reads_compat_loader_not_raw_stock_fills_scan(
+    monkeypatch,
+):
+    import freshquant.db as fq_db
+    from freshquant.position_management import dashboard_service
+    from freshquant.order_management.projection import stock_fills_compat
+
+    class BoomStockFillsCollection:
+        def find(self, *_args, **_kwargs):
+            raise AssertionError("raw stock_fills collection should not be scanned")
+
+    monkeypatch.setattr(
+        stock_fills_compat,
+        "list_compat_stock_positions",
+        lambda repository=None, database=None: [
+            {
+                "symbol": "000001",
+                "quantity": 600,
+                "amount": -6000.0,
+                "amount_adjusted": -6600.0,
+                "name": "平安银行",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        fq_db,
+        "DBfreshquant",
+        {"stock_fills": BoomStockFillsCollection()},
+    )
+
+    assert dashboard_service._default_legacy_position_loader() == [
+        {
+            "symbol": "000001",
+            "quantity": 600,
+            "amount": -6000.0,
+            "amount_adjusted": -6600.0,
+            "name": "平安银行",
+        }
+    ]
+
+
 def test_update_symbol_limit_persists_override_and_supports_reset_to_default():
     from freshquant.position_management.dashboard_service import (
         PositionManagementDashboardService,

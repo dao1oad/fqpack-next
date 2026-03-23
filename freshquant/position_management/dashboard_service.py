@@ -944,40 +944,11 @@ def _default_inferred_position_loader():
 
 
 def _default_legacy_position_loader():
-    from freshquant.db import DBfreshquant
+    from freshquant.order_management.projection.stock_fills_compat import (
+        list_compat_stock_positions,
+    )
 
-    grouped = {}
-    for row in list(DBfreshquant["stock_fills"].find({})):
-        symbol = normalize_to_base_code(
-            row.get("symbol") or row.get("stock_code") or row.get("code")
-        )
-        if not symbol:
-            continue
-        current = grouped.setdefault(
-            symbol,
-            {
-                "symbol": symbol,
-                "name": "",
-                "quantity": 0,
-                "amount": 0.0,
-                "amount_adjusted": 0.0,
-            },
-        )
-        current["name"] = current["name"] or _normalize_optional_text(row.get("name"))
-        direction = -1 if "买" in str(row.get("op") or "") else 1
-        quantity_delta = _coerce_int(row.get("quantity"), 0) * direction * -1
-        amount = _coerce_float(row.get("amount"), 0.0)
-        amount_adjust = _coerce_float(row.get("amount_adjust"), 1.0)
-        amount_delta = amount * direction
-        current["quantity"] += quantity_delta
-        current["amount"] += amount_delta
-        current["amount_adjusted"] += amount_delta * amount_adjust
-
-    return [
-        item
-        for item in grouped.values()
-        if item["amount_adjusted"] < 0 or item["quantity"] > 0
-    ]
+    return list_compat_stock_positions()
 
 
 def _resolve_settings_provider(query_param_loader=None):

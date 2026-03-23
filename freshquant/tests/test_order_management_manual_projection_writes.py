@@ -267,6 +267,112 @@ def test_manual_write_service_reset_symbol_lots_closes_existing_and_creates_manu
     assert all(item["amount_adjust"] == 1.1 for item in manual_locked_lots)
 
 
+def test_manual_reset_rebuilds_stock_fills_compat_rows_from_manual_locked_lots(
+    monkeypatch,
+):
+    from freshquant.order_management.manual.service import (
+        OrderManagementManualWriteService,
+    )
+    from freshquant.order_management.projection import stock_fills_compat
+
+    class FakeStockFillsCollection:
+        def __init__(self, rows=None):
+            self.rows = list(rows or [])
+
+        def find(self, query=None):
+            query = query or {}
+            symbol = query.get("symbol")
+            if symbol is None:
+                return list(self.rows)
+            return [item for item in self.rows if item.get("symbol") == symbol]
+
+        def delete_many(self, query):
+            symbol = query.get("symbol")
+            if symbol is None:
+                self.rows.clear()
+            else:
+                self.rows = [
+                    item for item in self.rows if item.get("symbol") != symbol
+                ]
+            return SimpleNamespace(deleted_count=1)
+
+        def insert_many(self, documents):
+            self.rows.extend(dict(item) for item in documents)
+            return SimpleNamespace(inserted_ids=list(range(len(documents))))
+
+    repository = InMemoryRepository()
+    monkeypatch.setattr(
+        "freshquant.order_management.manual.service.mark_stock_holdings_projection_updated",
+        lambda: 1,
+    )
+    fake_db = SimpleNamespace(
+        stock_fills=FakeStockFillsCollection(
+            [
+                {
+                    "symbol": "000001",
+                    "op": "买",
+                    "quantity": 300,
+                    "price": 10.0,
+                    "amount": 3000.0,
+                    "amount_adjust": 1.0,
+                    "date": 20240101,
+                    "time": "09:30:00",
+                    "name": "旧镜像",
+                    "stock_code": "000001.SZ",
+                }
+            ]
+        )
+    )
+    monkeypatch.setattr(stock_fills_compat, "DBfreshquant", fake_db)
+    service = OrderManagementManualWriteService(repository=repository)
+    service.import_fill(
+        op="buy",
+        code="000001",
+        quantity=600,
+        price=10.0,
+        amount=6000.0,
+        dt="2024-01-02 09:31:00",
+        instrument={"name": "平安银行", "code": "000001", "sse": "SZ"},
+        lot_amount=3000,
+        grid_interval=1.03,
+    )
+
+    result = service.reset_symbol_lots(
+        code="000001",
+        name="平安银行",
+        stock_code="000001.SZ",
+        grid_items=[
+            {
+                "date": 20240103,
+                "time": "09:31:00",
+                "price": 10.0,
+                "quantity": 300,
+                "amount": 3000.0,
+                "amount_adjust": 1.1,
+            },
+            {
+                "date": 20240104,
+                "time": "09:31:00",
+                "price": 9.7,
+                "quantity": 300,
+                "amount": 2910.0,
+                "amount_adjust": 1.1,
+            },
+        ],
+    )
+
+    mirrored_rows = [
+        item for item in fake_db.stock_fills.rows if item["symbol"] == "000001"
+    ]
+    assert result["inserted_count"] == 2
+    assert len(mirrored_rows) == 2
+    assert {item["op"] for item in mirrored_rows} == {"买"}
+    assert {item["amount_adjust"] for item in mirrored_rows} == {1.1}
+    assert {item["stock_code"] for item in mirrored_rows} == {"000001.SZ"}
+    assert {item["name"] for item in mirrored_rows} == {"平安银行"}
+    assert {item["date"] for item in mirrored_rows} == {20240103, 20240104}
+
+
 def test_import_deals_routes_rows_through_manual_write_service(monkeypatch):
     import freshquant.toolkit.import_deals as import_deals
 
