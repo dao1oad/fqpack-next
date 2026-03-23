@@ -27,6 +27,21 @@ def test_deploy_workflow_resolves_entrypoint_from_canonical_root() -> None:
     assert "-File script/ci/run_production_deploy.ps1" not in text
 
 
+def test_run_production_deploy_catches_py_launcher_failures_before_fallback() -> None:
+    text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
+    start = text.index("function Get-PyLauncherPython312")
+    end = text.index("function Get-RegisteredPython312Candidates")
+    py_launcher_block = text[start:end]
+
+    assert (
+        '$pythonExe = & $pyCommand.Source -3.12 -c "import sys; print(sys.executable)" 2>$null'
+        in py_launcher_block
+    )
+    assert "try {" in py_launcher_block
+    assert "catch {" in py_launcher_block
+    assert "return $null" in py_launcher_block
+
+
 def _powershell_executable() -> str:
     executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:

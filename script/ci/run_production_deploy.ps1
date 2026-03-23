@@ -50,7 +50,11 @@ function Get-PyLauncherPython312 {
         return $null
     }
 
-    $pythonExe = & $pyCommand.Source -3.12 -c "import sys; print(sys.executable)" 2>$null
+    try {
+        $pythonExe = & $pyCommand.Source -3.12 -c "import sys; print(sys.executable)" 2>$null
+    } catch {
+        return $null
+    }
     if ($LASTEXITCODE -ne 0) {
         return $null
     }
