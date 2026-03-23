@@ -38,6 +38,18 @@ def test_current_docs_cover_transient_fqchan04_build_failure() -> None:
     assert "原样重跑 1 次" in troubleshooting_text
 
 
+def test_current_docs_cover_noop_formal_deploy_evidence() -> None:
+    deployment_text = Path("docs/current/deployment.md").read_text(encoding="utf-8")
+    troubleshooting_text = Path("docs/current/troubleshooting.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "deployment_required=false" in deployment_text
+    assert "runtime-verify.json 可以不存在" in deployment_text
+    assert "no-op deploy" in troubleshooting_text
+    assert "last_success_sha" in troubleshooting_text
+
+
 def test_project_deploy_skill_exists_and_covers_formal_flow() -> None:
     skill_text = Path(".claude/skills/fq-deploy/SKILL.md").read_text(encoding="utf-8")
 
@@ -50,3 +62,5 @@ def test_project_deploy_skill_exists_and_covers_formal_flow() -> None:
     assert "site-packages" in skill_text
     assert "fqchan04" in skill_text
     assert "原样重跑 1 次" in skill_text
+    assert "deployment_required=false" in skill_text
+    assert "runtime-verify.json 可以不存在" in skill_text
