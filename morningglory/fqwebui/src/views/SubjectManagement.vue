@@ -116,7 +116,6 @@
                   <div class="subject-summary-stack">
                     <div class="subject-summary-line">SL {{ formatPrice(row.must_pool.stop_loss_price) }}</div>
                     <div class="subject-summary-line">首/常 {{ formatInteger(row.must_pool.initial_lot_amount) }} / {{ formatInteger(row.must_pool.lot_amount) }}</div>
-                    <div class="subject-summary-line">{{ row.must_pool.forever ? '永久跟踪' : '普通标的' }}</div>
                   </div>
                 </template>
               </el-table-column>
@@ -288,14 +287,6 @@
                       :min="0"
                       :step="1000"
                       controls-position="right"
-                    />
-                    <el-switch
-                      v-else-if="row.key === 'forever'"
-                      v-model="mustPoolDraft.forever"
-                      size="small"
-                      inline-prompt
-                      active-text="开"
-                      inactive-text="关"
                     />
                     <el-switch
                       v-else-if="row.key === 'position_limit_mode'"
@@ -554,9 +545,6 @@ const overviewRowClassName = ({ row }) => {
 }
 
 const resolveConfigRowTagType = (row) => {
-  if (row?.key === 'forever') {
-    return row?.statusLabel === '永久' ? 'success' : 'info'
-  }
   if (row?.key === 'stop_loss_price') {
     return 'danger'
   }

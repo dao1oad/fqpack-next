@@ -186,8 +186,7 @@ function cloneSubjectPanelMustPoolDraft(draft = {}) {
     category: String(draft?.category || '').trim(),
     stop_loss_price: draft?.stop_loss_price ?? null,
     initial_lot_amount: draft?.initial_lot_amount ?? null,
-    lot_amount: draft?.lot_amount ?? null,
-    forever: Boolean(draft?.forever)
+    lot_amount: draft?.lot_amount ?? null
   }
 }
 

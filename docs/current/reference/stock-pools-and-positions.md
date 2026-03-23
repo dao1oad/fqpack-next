@@ -31,7 +31,8 @@
 
 - 是 Guardian 新开仓范围的重要来源
 - 也是 XTData `guardian_1m` 和 `guardian_and_clx_15_30` 订阅池的一部分
-- 记录止损价、首笔金额、常规 lot 金额、是否 forever
+- 记录止损价、首笔金额、常规 lot 金额
+- `forever` 当前固定写为 `true`，不再作为页面可配置项
 
 ### `xt_positions`
 
@@ -79,6 +80,10 @@
   - 会把 `pre_pool` 的 `sources / categories / memberships` 一并写入 `stock_pools`
 - 代码加入 `must_pool`
   - `/api/add_to_must_pool_by_code`
+  - 当前显式加入后统一固定写 `forever=true`
+- 代码从 `must_pool` 删除
+  - `/api/delete_from_must_pool_by_code`
+  - 当前显式删除只按 `code` 删除，不再看 `forever`
 - 读取 Guardian 信号列表
   - `/api/get_stock_signal_list`
 - 读取 stock_pools 模型信号列表

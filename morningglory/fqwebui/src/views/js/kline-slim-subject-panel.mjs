@@ -5,7 +5,6 @@ const cloneMustPoolDraft = (draft = {}) => ({
   stop_loss_price: draft?.stop_loss_price ?? null,
   initial_lot_amount: draft?.initial_lot_amount ?? null,
   lot_amount: draft?.lot_amount ?? null,
-  forever: Boolean(draft?.forever),
 })
 
 const clonePositionLimitDraft = (draft = {}) => ({
@@ -58,7 +57,6 @@ export const buildInitialKlineSlimSubjectPanelState = () => ({
     stop_loss_price: null,
     initial_lot_amount: null,
     lot_amount: null,
-    forever: false,
   },
   positionLimitDraft: {
     use_default: true,

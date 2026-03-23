@@ -168,8 +168,8 @@ export const stockApi = {
     })
   },
   // 从监控池添加到必选
-  addToStockMustPoolsByCode (code, stop_loss_price, initial_lot_amount, lot_amount, forever) {
-    const url = `/api/add_to_must_pool_by_code?code=${code}&stop_loss_price=${stop_loss_price}&initial_lot_amount=${initial_lot_amount}&lot_amount=${lot_amount}&forever=${forever}`
+  addToStockMustPoolsByCode (code, stop_loss_price, initial_lot_amount, lot_amount) {
+    const url = `/api/add_to_must_pool_by_code?code=${code}&stop_loss_price=${stop_loss_price}&initial_lot_amount=${initial_lot_amount}&lot_amount=${lot_amount}`
     return axios({
       url,
       method: 'get'

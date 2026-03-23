@@ -38,6 +38,7 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
   assert.equal(detail.buyLots[0].buyLotDisplayLabel, '第 1 笔买入')
   assert.equal(detail.buyLots[0].buyLotIdLabel, 'ID 尾号 316d2a')
   assert.equal(detail.buyLots[0].buyLotMetaLabel, '2026-03-16 10:31 · 买入 10.0 · 原始 300 · 剩余 200')
+  assert.equal(Object.hasOwn(detail.mustPool, 'forever'), false)
 })
 
 test('createKlineSlimSubjectPanelActions routes subject and position-limit writes to separate apis', async () => {
@@ -81,4 +82,5 @@ test('buildInitialKlineSlimSubjectPanelState starts closed and idle', () => {
   assert.equal(state.subjectDetailLoading, false)
   assert.equal(state.savingSubjectConfigBundle, false)
   assert.equal(state.subjectPanelDetail, null)
+  assert.equal(Object.hasOwn(state.mustPoolDraft, 'forever'), false)
 })

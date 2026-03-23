@@ -23,7 +23,6 @@ const cloneMustPoolDraft = (draft = {}) => ({
   stop_loss_price: draft?.stop_loss_price ?? null,
   initial_lot_amount: draft?.initial_lot_amount ?? null,
   lot_amount: draft?.lot_amount ?? null,
-  forever: Boolean(draft?.forever),
 })
 
 const cloneStoplossDrafts = (drafts = {}) => {
@@ -44,7 +43,6 @@ const hasMustPoolDraftChanges = (detail, draft) => {
     stop_loss_price: detail?.mustPool?.stop_loss_price,
     initial_lot_amount: detail?.mustPool?.initial_lot_amount,
     lot_amount: detail?.mustPool?.lot_amount,
-    forever: detail?.mustPool?.forever,
   })
   return JSON.stringify(cloneMustPoolDraft(draft)) !== JSON.stringify(baseline)
 }
@@ -87,7 +85,6 @@ export const createSubjectManagementPageController = ({
       stop_loss_price: null,
       initial_lot_amount: null,
       lot_amount: null,
-      forever: false,
     },
     positionLimitDraft: {
       use_default: true,
@@ -121,7 +118,6 @@ export const createSubjectManagementPageController = ({
       stop_loss_price: detail.mustPool?.stop_loss_price,
       initial_lot_amount: detail.mustPool?.initial_lot_amount,
       lot_amount: detail.mustPool?.lot_amount,
-      forever: detail.mustPool?.forever,
     })
     state.positionLimitDraft = clonePositionLimitDraft(detail.positionLimitSummary)
     state.takeprofitDrafts = cloneSubjectManagementTakeprofitDrafts(detail.takeprofitDrafts || [])

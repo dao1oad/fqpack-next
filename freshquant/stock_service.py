@@ -314,7 +314,7 @@ def delete_from_stock_pools_by_code(code):
     return result.acknowledged
 
 
-def add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount, forever):
+def add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount):
     """
     根据code从stock_pools中插入到must_pool中
     Args:
@@ -323,7 +323,6 @@ def add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount, fore
         category: 分类名称
         stop_loss_price: 止损价格
         initial_lot_amount: 首次买入金额 (可选，默认等于lot_amount)
-        forever: 买入后是否删除
     Returns:
         bool: 操作是否成功，如果记录不存在也会返回True
     """
@@ -344,7 +343,7 @@ def add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount, fore
         stop_loss_price,
         initial_lot_amount,
         lot_amount,
-        forever,
+        True,
     )
     return True
 

@@ -429,7 +429,6 @@ def add_to_must_pool_by_code():
         stop_loss_price: 止损价格
         initial_lot_amount: 初始 lot 数量
         lot_amount: 每次 lot 数量
-        forever: 是否永久
     Returns:
         bool: 操作是否成功
     """
@@ -437,11 +436,10 @@ def add_to_must_pool_by_code():
     stop_loss_price = request.args.get("stop_loss_price", type=float)
     initial_lot_amount = request.args.get("initial_lot_amount", type=float)
     lot_amount = request.args.get("lot_amount", type=float)
-    forever = request.args.get("forever", "").lower() == "true"
     if code is None or stop_loss_price < 0 or initial_lot_amount < 0 or lot_amount < 0:
         return jsonify({"code": "1", "msg": "code is None"})
     result = _get_stock_service().add_to_must_pool(
-        code, stop_loss_price, initial_lot_amount, lot_amount, forever
+        code, stop_loss_price, initial_lot_amount, lot_amount
     )
     if result:
         return jsonify({"code": "0", "msg": "操作成功"})

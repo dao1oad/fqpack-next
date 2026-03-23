@@ -304,21 +304,6 @@
                     </label>
                   </div>
 
-                  <div class="subject-panel-field">
-                    <div class="subject-panel-switch-row">
-                      <span class="subject-panel-field__label">永久跟踪</span>
-                      <el-switch
-                        v-model="subjectPanelState.mustPoolDraft.forever"
-                        size="small"
-                        inline-prompt
-                        active-text="开"
-                        inactive-text="关"
-                      />
-                    </div>
-                    <span class="subject-panel-field__note">
-                      {{ subjectPanelState.mustPoolDraft.forever ? '当前作为永久跟踪标的' : '当前作为普通标的' }}
-                    </span>
-                  </div>
                 </div>
               </section>
 

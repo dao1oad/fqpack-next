@@ -31,7 +31,7 @@ class SubjectManagementWriteService:
             "initial_lot_amount",
         )
         lot_amount = _require_non_negative_int(payload.get("lot_amount"), "lot_amount")
-        forever = bool(payload.get("forever"))
+        forever = True
         updated_by = str(payload.get("updated_by") or "api")
 
         from freshquant.instrument.general import query_instrument_info

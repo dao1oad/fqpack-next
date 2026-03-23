@@ -62,6 +62,8 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
   assert.equal(rows[0].runtimeSummaryLabel.includes('500'), true)
   assert.equal(rows[0].positionLimitSummaryLabel.includes('50.00 万'), true)
   assert.equal(rows[0].positionLimitSummaryLabel.includes('单独设置'), true)
+  assert.equal(rows[0].baseSummaryLabel.includes('永久'), false)
+  assert.equal(rows[0].baseSummaryLabel.includes('普通'), false)
 })
 
 test('buildDetailViewModel keeps right-panel fields and at least three takeprofit drafts', () => {
@@ -144,6 +146,7 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
     detail.buyLots[0].buyLotMetaLabel,
     '2026-03-16 10:31 · 买入 10.0 · 原始 300 · 剩余 200'
   )
+  assert.equal(Object.hasOwn(detail.mustPool, 'forever'), false)
   assert.equal(detail.positionManagementSummary.effective_state, 'HOLDING_ONLY')
   assert.equal(detail.positionLimitSummary.effective_limit, 500000)
   assert.equal(detail.positionLimitSummary.using_override, true)
@@ -189,14 +192,14 @@ test('buildDenseConfigRows flattens must-pool and symbol limit fields into one d
 
   assert.deepEqual(
     rows.map((row) => row.key),
-    ['category', 'stop_loss_price', 'initial_lot_amount', 'lot_amount', 'forever', 'position_limit_mode', 'position_limit_value'],
+    ['category', 'stop_loss_price', 'initial_lot_amount', 'lot_amount', 'position_limit_mode', 'position_limit_value'],
   )
   assert.equal(rows[0].currentLabel, '银行')
   assert.equal(rows[1].group, '基础')
-  assert.equal(rows[5].group, '仓位上限')
-  assert.equal(rows[5].statusLabel, '单独设置')
-  assert.equal(rows[6].currentLabel, '50.00 万')
-  assert.equal(rows[6].note.includes('当前市值'), true)
+  assert.equal(rows[4].group, '仓位上限')
+  assert.equal(rows[4].statusLabel, '单独设置')
+  assert.equal(rows[5].currentLabel, '50.00 万')
+  assert.equal(rows[5].note.includes('当前市值'), true)
 })
 
 test('buildDenseConfigRows keeps category row bound to must-pool category instead of subject category', () => {
@@ -263,13 +266,13 @@ test('buildDetailSummaryChips compresses subject, runtime and pm state into head
 
   assert.deepEqual(
     chips.map((chip) => chip.key),
-    ['category', 'must_pool', 'position_quantity', 'position_limit', 'guardian_enabled', 'takeprofit_enabled_count', 'stoploss_active_count', 'pm_state'],
+    ['category', 'position_quantity', 'position_limit', 'guardian_enabled', 'takeprofit_enabled_count', 'stoploss_active_count', 'pm_state'],
   )
-  assert.equal(chips[1].value, '永久跟踪')
-  assert.equal(chips[2].value, '500 股 / 12.35 万')
-  assert.equal(chips[3].value, '50.00 万 / 单独设置')
-  assert.equal(chips[5].value, '1 / 3')
-  assert.equal(chips[6].value, '1 / 2')
+  assert.equal(chips.some((chip) => chip.key === 'must_pool'), false)
+  assert.equal(chips[1].value, '500 股 / 12.35 万')
+  assert.equal(chips[2].value, '50.00 万 / 单独设置')
+  assert.equal(chips[4].value, '1 / 3')
+  assert.equal(chips[5].value, '1 / 2')
 })
 
 test('buildTakeprofitDrafts preserves existing tiers beyond level 3 while keeping first three visible', () => {
