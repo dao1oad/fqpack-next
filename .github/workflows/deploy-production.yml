@@ -25,6 +25,28 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
+          git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT fetch origin main
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to fetch origin/main for production deploy"
+          }
+          $currentBranch = (git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT rev-parse --abbrev-ref HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to resolve canonical repo root branch"
+          }
+          if ($currentBranch -ne 'main') {
+            throw "canonical repo root must be on main before deploy: $currentBranch"
+          }
+          $remoteMainSha = (git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT rev-parse origin/main).Trim()
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to resolve latest origin/main sha"
+          }
+          if ($remoteMainSha -ne "${{ github.sha }}") {
+            throw "stale push deploy trigger: target_sha=${{ github.sha }} current_main=$remoteMainSha"
+          }
+          git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT pull --ff-only origin main
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to fast-forward canonical repo root to origin/main"
+          }
           $entrypoint = Join-Path $env:FQ_DEPLOY_CANONICAL_REPO_ROOT 'script/ci/run_production_deploy.ps1'
           if (-not (Test-Path $entrypoint)) {
             throw "production deploy entrypoint not found: $entrypoint"
