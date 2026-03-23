@@ -16,7 +16,9 @@ def normalize_symbol_position_limit_overrides(repository=None):
     document["code"] = str(document.get("code") or "default").strip() or "default"
     document["enabled"] = True
 
-    thresholds = (document.get("thresholds") or {}) if isinstance(document, dict) else {}
+    thresholds = (
+        (document.get("thresholds") or {}) if isinstance(document, dict) else {}
+    )
     default_limit = _coerce_float(
         thresholds.get("single_symbol_position_limit"),
         DEFAULT_SINGLE_SYMBOL_POSITION_LIMIT,

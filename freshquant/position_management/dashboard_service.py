@@ -47,16 +47,13 @@ class PositionManagementDashboardService:
         self.holding_codes_provider = (
             holding_codes_provider or _default_holding_codes_provider
         )
-        self.tracked_symbol_context_provider = (
-            tracked_symbol_context_provider
-            or (
-                _resolve_default_tracked_symbol_context_provider(
-                    self.holding_codes_provider
-                )
-                if use_default_position_loaders
-                else _resolve_holding_only_tracked_symbol_context_provider(
-                    self.holding_codes_provider
-                )
+        self.tracked_symbol_context_provider = tracked_symbol_context_provider or (
+            _resolve_default_tracked_symbol_context_provider(
+                self.holding_codes_provider
+            )
+            if use_default_position_loaders
+            else _resolve_holding_only_tracked_symbol_context_provider(
+                self.holding_codes_provider
             )
         )
         self.inferred_position_loader = inferred_position_loader or (
@@ -646,11 +643,7 @@ class PositionManagementDashboardService:
         payload.setdefault("force_profit_reduce", False)
         payload.setdefault(
             "profit_reduce_mode",
-            (
-                "guardian_placeholder"
-                if payload.get("force_profit_reduce")
-                else "off"
-            ),
+            ("guardian_placeholder" if payload.get("force_profit_reduce") else "off"),
         )
         payload.setdefault(
             "symbol_limit_source",
