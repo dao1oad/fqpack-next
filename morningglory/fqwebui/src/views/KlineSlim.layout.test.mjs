@@ -73,3 +73,16 @@ test('KlineSlim price rows reserve a dedicated grid column for the color badge',
     true
   )
 })
+
+test('KlineSlim sidebar keeps each item to a title line and one summary line', () => {
+  assert.equal(
+    source.includes('.sidebar-item-meta\n  display flex\n  flex-direction column\n  gap 4px'),
+    true
+  )
+  assert.equal(
+    source.includes('.sidebar-item-subtitle\n  font-size 12px\n  line-height 1.35\n  color #94a3b8'),
+    true
+  )
+  assert.equal(source.includes('.sidebar-item-runtime'), false)
+  assert.equal(source.includes('.sidebar-item-tags'), false)
+})

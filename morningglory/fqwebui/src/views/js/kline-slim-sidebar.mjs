@@ -34,11 +34,6 @@ const toNullableNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-const toInteger = (value) => {
-  const parsed = toNullableNumber(value)
-  return parsed === null ? 0 : Math.trunc(parsed)
-}
-
 const formatWanAmount = (value) => {
   const parsed = toNullableNumber(value)
   if (parsed === null) return '-'
@@ -68,20 +63,40 @@ const buildSymbolFromCode6 = (code6) => {
   return code6.startsWith('6') ? `sh${code6}` : `sz${code6}`
 }
 
-export const normalizeSidebarItem = (item = {}) => {
+const buildSidebarTitle = ({ name = '', code6 = '' } = {}) => {
+  if (name && code6) return `${name}(${code6})`
+  return name || code6
+}
+
+const buildSidebarSecondaryLabel = ({
+  sectionKey = '',
+  amount = null,
+  sourceLabels = '',
+  categoryLabels = '',
+} = {}) => {
+  if (sectionKey === 'holding') {
+    return amount !== null && amount !== undefined ? `仓位 ${formatWanAmount(amount)}` : ''
+  }
+
+  if (sourceLabels && categoryLabels) return `${sourceLabels} · ${categoryLabels}`
+  return sourceLabels || categoryLabels || ''
+}
+
+export const normalizeSidebarItem = (item = {}, { sectionKey = '' } = {}) => {
   const code6 = getSidebarCode6(item)
   const amount = item?.position_amount ?? item?.market_value ?? item?.amount
-  const quantity = item?.position_quantity ?? item?.quantity
-  const hasRuntimeSummary = amount !== null && amount !== undefined || quantity !== null && quantity !== undefined
+  const name = toText(item.name || item.stock_name || code6)
+  const sourceLabels = joinLabels(item.sources) || toText(item.provider)
+  const categoryLabels = joinLabels(item.categories) || toText(item.category)
   return {
     code: toText(item.code || code6),
     code6,
     symbol: toText(item.symbol) || buildSymbolFromCode6(code6),
-    name: toText(item.name || item.stock_name || code6),
-    sourceLabels: joinLabels(item.sources) || toText(item.provider),
-    categoryLabels: joinLabels(item.categories) || toText(item.category),
-    runtimePrimaryLabel: hasRuntimeSummary ? `仓位 ${formatWanAmount(amount)}` : '',
-    runtimeSecondaryLabel: hasRuntimeSummary ? `持仓 ${toInteger(quantity)} 股` : '',
+    name,
+    sourceLabels,
+    categoryLabels,
+    titleLabel: buildSidebarTitle({ name, code6 }),
+    secondaryLabel: buildSidebarSecondaryLabel({ sectionKey, amount, sourceLabels, categoryLabels }),
     raw: item
   }
 }
@@ -97,7 +112,7 @@ export const buildSidebarSections = ({
   return SECTION_DEFS.map((section) => ({
     key: section.key,
     label: section.label,
-    items: (sourceMap[section.source] || []).map(normalizeSidebarItem),
+    items: (sourceMap[section.source] || []).map((item) => normalizeSidebarItem(item, { sectionKey: section.key })),
     deletable: !!section.deletable,
     expanded: section.key === expandedKey,
     deleteConfirmText: DELETE_BEHAVIOR_MAP[section.key]?.confirmText || ''

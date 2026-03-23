@@ -9,24 +9,28 @@ test('normalizeSidebarItem formats holding runtime summary like subject-manageme
     name: '浦发银行',
     quantity: 500,
     amount: 123456.7,
-  })
+  }, { sectionKey: 'holding' })
 
-  assert.equal(item.runtimePrimaryLabel, '仓位 12.35 万')
-  assert.equal(item.runtimeSecondaryLabel, '持仓 500 股')
+  assert.equal(item.titleLabel, '浦发银行(600000)')
+  assert.equal(item.secondaryLabel, '仓位 12.35 万')
 })
 
-test('buildSidebarSections only adds runtime summaries to holding rows', () => {
+test('buildSidebarSections keeps every section to a compact two-line summary', () => {
   const sections = buildSidebarSections({
     holdings: [{ symbol: 'sh600000', name: '浦发银行', quantity: 500, amount: 123456.7 }],
     mustPools: [{ symbol: 'sh601398', name: '工商银行', category: '银行' }],
+    stockPools: [{ symbol: 'sz000001', name: '平安银行', provider: 'xgb' }],
     expandedKey: 'holding',
   })
 
   const holdingSection = sections.find((section) => section.key === 'holding')
   const mustPoolSection = sections.find((section) => section.key === 'must_pool')
+  const stockPoolSection = sections.find((section) => section.key === 'stock_pools')
 
-  assert.equal(holdingSection.items[0].runtimePrimaryLabel, '仓位 12.35 万')
-  assert.equal(holdingSection.items[0].runtimeSecondaryLabel, '持仓 500 股')
-  assert.equal(mustPoolSection.items[0].runtimePrimaryLabel, '')
-  assert.equal(mustPoolSection.items[0].runtimeSecondaryLabel, '')
+  assert.equal(holdingSection.items[0].titleLabel, '浦发银行(600000)')
+  assert.equal(holdingSection.items[0].secondaryLabel, '仓位 12.35 万')
+  assert.equal(mustPoolSection.items[0].titleLabel, '工商银行(601398)')
+  assert.equal(mustPoolSection.items[0].secondaryLabel, '银行')
+  assert.equal(stockPoolSection.items[0].titleLabel, '平安银行(000001)')
+  assert.equal(stockPoolSection.items[0].secondaryLabel, 'xgb')
 })
