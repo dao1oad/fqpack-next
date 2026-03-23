@@ -41,8 +41,10 @@ test('runtime, order, subject, tpsl and daily pages stop clipping the viewport a
   assert.match(tpslSource, /\.tpsl-body \{[^}]*overflow:\s*auto;/)
   assert.doesNotMatch(tpslSource, /\.tpsl-layout \{[^}]*overflow:\s*hidden;/)
 
+  assert.match(dailySource, /\.daily-screening-body \{[\s\S]*overflow:\s*hidden;/)
   assert.doesNotMatch(dailySource, /\.daily-screening-grid \{[^}]*overflow:\s*hidden;/)
   assert.match(dailySource, /@media \(max-width:\s*1440px\)/)
+  assert.match(dailySource, /@media \(max-width:\s*960px\) \{[\s\S]*\.daily-screening-body \{[\s\S]*overflow:\s*auto;/)
 })
 
 test('gantt pages use min-height shells and scrollable bodies instead of fixed viewport clipping', () => {

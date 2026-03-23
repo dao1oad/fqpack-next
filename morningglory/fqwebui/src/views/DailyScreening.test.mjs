@@ -33,3 +33,19 @@ test('DailyScreening renders dense workbench layout for grouped filters and work
   assert.match(source, /watch\(selectedScopeId, async \(scopeId\) => \{[\s\S]*applyDefaultFilterState\(\)/)
   assert.ok(!source.includes('执行全链路'))
 })
+
+test('DailyScreening moves scope into the top guide area and paginates intersection rows', () => {
+  const source = fs.readFileSync(componentPath, 'utf8')
+
+  assert.ok(source.includes('class="daily-toolbar-scope"'))
+  assert.ok(source.includes('const resultPage = ref(1)'))
+  assert.ok(source.includes('paginatedResultRows'))
+  assert.ok(source.includes('class="daily-results-pagination"'))
+  assert.ok(source.includes('<el-pagination'))
+  assert.ok(!source.includes('筛选工作台'))
+  assert.ok(!source.includes('前端只做组合查询，不再触发运行，不再展示 SSE。'))
+  assert.doesNotMatch(
+    source,
+    /<section class="workbench-panel daily-filter-panel"[\s\S]*<div class="workbench-panel__title">Scope<\/div>/,
+  )
+})

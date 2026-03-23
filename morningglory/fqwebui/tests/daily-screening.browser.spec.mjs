@@ -77,10 +77,10 @@ function buildSummaryPayload() {
   return {
     run_id: 'trade_date:2026-03-18',
     scope: 'trade_date:2026-03-18',
-    stock_count: 2,
-    membership_count: 6,
+    stock_count: 12,
+    membership_count: 18,
     stage_counts: {
-      'base:union': 2,
+      'base:union': 12,
       'cls:S0008': 1,
       'hot:30d': 1,
       'hot:90d': 1,
@@ -89,43 +89,50 @@ function buildSummaryPayload() {
   }
 }
 
-function buildQueryPayload({ conditionKeys = [], clxsModels = [] } = {}) {
-  const matchedSingle = conditionKeys.length === 1 &&
+function buildQueryPayload({ conditionKeys = [], clxsModels = [], metricFilters = null } = {}) {
+  const matchedSingle = conditionKeys.length === 2 &&
+    conditionKeys.includes('flag:credit_subject') &&
     conditionKeys.includes('hot:30d') &&
     clxsModels.length === 2 &&
     clxsModels.includes('S0008') &&
-    clxsModels.includes('S0009')
+    clxsModels.includes('S0009') &&
+    Boolean(metricFilters)
+
+  const baseRows = [
+    {
+      code: '000001',
+      name: '平安银行',
+      symbol: 'sz000001',
+      higher_multiple: 1.8,
+      segment_multiple: 1.3,
+      bi_gain_percent: 9.2,
+      chanlun_reason: 'passed',
+    },
+    {
+      code: '000002',
+      name: '万科A',
+      symbol: 'sz000002',
+      higher_multiple: 2.2,
+      segment_multiple: 1.6,
+      bi_gain_percent: 12.5,
+      chanlun_reason: 'higher_multiple_exceed',
+    },
+    ...Array.from({ length: 10 }, (_, index) => ({
+      code: String(index + 3).padStart(6, '0'),
+      name: `样本股票${index + 3}`,
+      symbol: `sz${String(index + 3).padStart(6, '0')}`,
+      higher_multiple: 1.2 + index * 0.1,
+      segment_multiple: 0.9 + index * 0.1,
+      bi_gain_percent: 6 + index,
+      chanlun_reason: index % 2 === 0 ? 'passed' : 'segment_multiple_exceed',
+    })),
+  ]
 
   return {
     run_id: 'trade_date:2026-03-18',
     scope: 'trade_date:2026-03-18',
-    total: matchedSingle ? 1 : 2,
-    rows: [
-      {
-        code: '000001',
-        name: '平安银行',
-        symbol: 'sz000001',
-        higher_multiple: 1.8,
-        segment_multiple: 1.3,
-        bi_gain_percent: 9.2,
-        chanlun_reason: 'passed',
-      },
-      ...(
-        matchedSingle
-          ? []
-          : [
-              {
-                code: '000002',
-                name: '万科A',
-                symbol: 'sz000002',
-                higher_multiple: 2.2,
-                segment_multiple: 1.6,
-                bi_gain_percent: 12.5,
-                chanlun_reason: 'higher_multiple_exceed',
-              },
-            ]
-      ),
-    ],
+    total: matchedSingle ? 1 : baseRows.length,
+    rows: matchedSingle ? baseRows.slice(0, 1) : baseRows,
   }
 }
 
@@ -254,6 +261,7 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
         body: JSON.stringify(buildQueryPayload({
           conditionKeys: body.condition_keys || [],
           clxsModels: body.clxs_models || [],
+          metricFilters: body.metric_filters || null,
         })),
       })
       return
@@ -343,48 +351,71 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
 
   await expect(page.locator('.workbench-page-title').getByText('每日选股')).toBeVisible()
   await expect(page.locator('.workbench-toolbar .daily-toolbar-guide')).toBeVisible()
-  await expect(page.locator('.daily-filter-panel .daily-guide-block')).toHaveCount(0)
+  await expect(page.locator('.daily-toolbar-scope')).toBeVisible()
+  await expect(page.getByText('筛选工作台')).toHaveCount(0)
+  await expect(page.getByText('前端只做组合查询，不再触发运行，不再展示 SSE。')).toHaveCount(0)
   const filterPanelMetrics = await page.locator('.daily-filter-panel').evaluate((element) => ({
     overflowY: window.getComputedStyle(element).overflowY,
-    scrollHeight: element.scrollHeight,
-    clientHeight: element.clientHeight,
   }))
-  expect(filterPanelMetrics.overflowY).toBe('visible')
-  await expect(page.getByText('前端只做组合查询，不再触发运行，不再展示 SSE。')).toBeVisible()
-  await expect(page.getByText('上游范围：全市场股票，排除 ST 和北交所')).toBeVisible()
-  await expect(page.getByText('基础池：CLS 各模型结果和热门 30/45/60/90 天结果先取并集形成')).toBeVisible()
-  await expect(page.getByText('交集规则：用户勾选的条件会在当前结果上继续取交集')).toBeVisible()
-  await expect(page.getByText('工作区用途：交集结果可加入 pre_pools，再同步到 stock_pools / must_pools')).toBeVisible()
-  await expect(page.getByText('基础池 2')).toBeVisible()
-  await expect(page.getByText('当前结果 2')).toBeVisible()
+  expect(filterPanelMetrics.overflowY).toBe('auto')
+  await expect(page.getByText('上游：全市场，排除 ST / 北交所')).toBeVisible()
+  await expect(page.getByText('基础池：CLS 分组 + 热门窗口先取并集')).toBeVisible()
+  await expect(page.getByText('交集：其他条件在基础池结果上继续收敛')).toBeVisible()
+  await expect(page.getByText('工作区：结果可加入 pre_pools / stock_pools / must_pools')).toBeVisible()
+  await expect(page.getByText('基础池 12')).toBeVisible()
+  await expect(page.getByText('当前结果 12')).toBeVisible()
   await expect(page.getByRole('button', { name: '开始扫描' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '全部加入pre_pools' })).toBeVisible()
   await expect(page.getByRole('tab', { name: /pre_pools/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: /stock_pools/ })).toBeVisible()
   await expect(page.getByRole('button', { name: '查询结果' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '参与筛选' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /参与筛选/ })).toBeVisible()
+  await expect(page.locator('.daily-results-pagination')).toBeVisible()
+  await expect(page.locator('.daily-results-panel .runtime-ledger__row')).toHaveCount(8)
+
+  const viewportFit = await page.evaluate(() => {
+    const scrollingElement = document.scrollingElement || document.documentElement
+    return {
+      innerHeight: window.innerHeight,
+      scrollHeight: scrollingElement.scrollHeight,
+    }
+  })
+  expect(viewportFit.scrollHeight).toBeLessThanOrEqual(viewportFit.innerHeight + 4)
+
+  const workspaceBox = await page.locator('.daily-workspace-panel').boundingBox()
+  expect(workspaceBox).toBeTruthy()
+  expect(workspaceBox.y + workspaceBox.height).toBeLessThanOrEqual(900)
 
   await page.getByRole('button', { name: '查看热门窗口说明' }).dispatchEvent('mouseenter')
   await expect(page.getByText('来源于 /gantt/shouban30 同口径的热门标的结果，聚合选股通和韭研公式的 30/45/60/90 天窗口命中股票。')).toBeVisible()
   await page.getByRole('button', { name: '查看CLS 模型分组说明' }).dispatchEvent('mouseenter')
   await expect(page.getByText('分组内多个 CLS 模型取并集；不同 CLS 分组之间多选也取并集；CLS 分组结果与热门窗口、市场属性、chanlun、日线缠论涨幅等其他条件之间再取交集。')).toBeVisible()
+  await page.mouse.move(8, 8)
+  await page.keyboard.press('Escape')
 
   await page.getByRole('button', { name: '背驰 · 2', exact: true }).click()
   await page.getByRole('button', { name: '30天热门 · 1' }).click()
 
   await expect(page.getByText('当前结果 1')).toBeVisible()
-  await expect(page.getByText('CLS 分组并集（背驰） ∩ 30天热门')).toBeVisible()
-  await expect(page.getByRole('cell', { name: '平安银行' })).toBeVisible()
+  await expect(page.getByText('CLS 分组并集（背驰） ∩ 融资标的 ∩ 30天热门 ∩ 日线缠论涨幅（高级段倍数 <= 3 / 段倍数 <= 2 / 笔涨幅% <= 20）')).toBeVisible()
+  await expect(page.locator('.daily-results-panel .runtime-ledger__row').first()).toContainText('平安银行')
 
   const lastQuery = requestLog.queryBodies.at(-1)
   expect(lastQuery).toEqual({
     scope_id: 'trade_date:2026-03-18',
-    condition_keys: ['hot:30d'],
+    condition_keys: ['flag:credit_subject', 'hot:30d'],
     clxs_models: ['S0008', 'S0009'],
+    metric_filters: {
+      higher_multiple_lte: 3,
+      segment_multiple_lte: 2,
+      bi_gain_percent_lte: 20,
+    },
   })
 
-  await page.getByRole('button', { name: '全部加入pre_pools' }).click()
-  await expect(page.getByText('已将当前交集结果 1 条加入 pre_pools')).toBeVisible()
+  await page.getByRole('button', { name: '全部加入pre_pools' }).evaluate((element) => {
+    element.click()
+  })
+  await expect.poll(() => requestLog.appendPrePoolBodies.length).toBe(1)
   expect(requestLog.appendPrePoolBodies.at(-1)).toEqual({
     items: [
       {
@@ -397,11 +428,14 @@ test('daily-screening workbench only queries Dagster-prepared scopes and interse
     ],
     replace_scope: 'daily_screening_intersection',
     end_date: '2026-03-18',
-    selected_extra_filters: ['cls_group:beichi', 'hot:30d'],
-    remark: 'CLS 分组并集（背驰） ∩ 30天热门',
+    selected_extra_filters: ['cls_group:beichi', 'flag:credit_subject', 'hot:30d', 'metric:daily_chanlun'],
+    remark: 'CLS 分组并集（背驰） ∩ 融资标的 ∩ 30天热门 ∩ 日线缠论涨幅（高级段倍数 <= 3 / 段倍数 <= 2 / 笔涨幅% <= 20）',
   })
 
-  await page.locator('.daily-results-panel .el-table__body-wrapper tbody tr').first().dispatchEvent('click')
+  await page.locator('.daily-results-panel .runtime-ledger__row').first().evaluate((element) => {
+    element.click()
+  })
+  await expect.poll(() => requestLog.detailRequests.length).toBe(1)
 
   const detailPane = page.locator('.daily-detail-stack')
   await expect(page.getByText('标的详情')).toBeVisible()
