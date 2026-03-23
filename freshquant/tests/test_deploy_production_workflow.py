@@ -20,6 +20,7 @@ def _powershell_executable() -> str:
     executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:
         pytest.skip("PowerShell is not available in PATH")
+    assert executable is not None
     return executable
 
 
