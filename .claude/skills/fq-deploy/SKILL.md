@@ -44,9 +44,11 @@ py -3.12 script/ci/run_formal_deploy.py --repo-root . --format summary
 
 - `D:/fqpack/runtime/formal-deploy/production-state.json`
 - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`
-- `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/runtime-baseline.json`
-- `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/runtime-verify.json`
 - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/result.json`
+- 当 `plan.json` / `result.json` 显示 `deployment_required=true` 时，再要求：
+  - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/runtime-baseline.json`
+  - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/runtime-verify.json`
+- 当 `plan.json` / `result.json` 显示 `deployment_required=false` 时，把这轮当成 `no-op deploy`；`runtime-verify.json 可以不存在`，但必须确认 `result.json` 为 `ok=true`，并且 `production-state.json` 的 `last_success_sha` 已更新到目标 SHA
 
 ## Runtime Verification
 
@@ -81,6 +83,13 @@ print(inspect.signature(resolve_stock_account))
 ```
 
 - 如果源文件落在 `.venv\Lib\site-packages\fqxtrade\xtquant\account.py`，说明宿主机运行时仍在使用已安装包；先确认正式 deploy 是否已经切到包含最新兼容修复的远程 `main`
+
+### formal deploy 判定为 no-op deploy
+
+- 如果当前 run_dir 只有 `plan.json` 和 `result.json`，先不要把它直接判成失败
+- 先读 `result.json` 和 `plan.json`；如果其中明确写了 `deployment_required=false`，说明这轮没有命中任何真实 deploy surface
+- 这种情况下 `runtime-verify.json 可以不存在`；收口依据是 `result.json` 的 `ok=true`，以及 `production-state.json` 的 `last_success_sha` 已更新到目标 SHA
+- 只有当你预期本轮应该触发运行面变更，但 deploy plan 仍然给出 `deployment_required=false` 时，才继续回查 changed paths 或 deploy plan 规则
 
 ### Docker 构建阶段 fqchan04 编译器崩溃
 

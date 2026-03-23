@@ -223,6 +223,27 @@ print(inspect.signature(resolve_stock_account))
 - 只有当第二次仍在相同位置稳定复现时，才继续进入代码修复、Dockerfile 调整或编译环境隔离
 - 如果重跑成功，把这次失败判定为构建过程瞬时失败；继续以新 run_dir 的 `result.json` 与 `runtime-verify.json` 作为正式交付证据
 
+## formal deploy 判定为 no-op deploy
+
+现象：
+
+- `run_formal_deploy.py` 成功退出，但当前 run_dir 只有 `plan.json` 和 `result.json`
+- `runtime-baseline.json`、`runtime-verify.json` 没有生成
+- `result.json` / `plan.json` 里明确显示 `deployment_required=false`
+
+先检查：
+
+- `Get-Content D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/result.json`
+- `Get-Content D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`
+- `Get-Content D:/fqpack/runtime/formal-deploy/production-state.json`
+
+处理：
+
+- 先确认这轮 changed paths 只命中文档、skill、测试或其他不需要部署的路径，而不是误漏了 deploy surface
+- 如果 `deployment_required=false`，把这轮判定为正常的 `no-op deploy`，不是失败
+- 在这种情况下，`runtime-verify.json 可以不存在`；正式收口依据改为 `result.json` 的 `ok=true` 和 `production-state.json` 的 `last_success_sha` 已更新到目标 SHA
+- 只有当你预期本轮应该命中运行面，但 plan 仍然给出 `deployment_required=false` 时，才继续回查 deploy plan 规则或 changed paths 计算
+
 ## API 无响应
 
 现象：
