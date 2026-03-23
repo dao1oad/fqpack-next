@@ -348,6 +348,8 @@ test('readDashboardPayload unwraps axios responses instead of treating request c
 
 test('PositionManagement.vue uses dense runtime ledger layout and removes legacy split panels', async () => {
   const content = await readFile(new URL('./PositionManagement.vue', import.meta.url), 'utf8')
+  const topPanelIndex = content.indexOf('position-lower-grid')
+  const decisionPanelIndex = content.indexOf('position-decision-panel')
 
   assert.match(content, /最近决策与上下文/)
   assert.match(content, /runtime-ledger runtime-position-decision-ledger/)
@@ -365,8 +367,16 @@ test('PositionManagement.vue uses dense runtime ledger layout and removes legacy
   assert.match(content, /恢复默认/)
   assert.match(content, /positionManagementApi\.updateSymbolLimit/)
   assert.match(content, /规则矩阵/)
+  assert.match(content, /position-state-scroll/)
+  assert.match(content, /position-config-scroll/)
+  assert.match(content, /--position-upper-panel-height:/)
+  assert.match(content, /position-decision-panel/)
+  assert.ok(topPanelIndex >= 0)
+  assert.ok(decisionPanelIndex >= 0)
+  assert.ok(topPanelIndex < decisionPanelIndex)
   assert.match(content, /--position-decision-ledger-row-height:/)
   assert.match(content, /max-height:\s*calc\(var\(--position-decision-ledger-row-height\)\s*\*\s*11/)
+  assert.doesNotMatch(content, /<section class="workbench-toolbar">/)
   assert.doesNotMatch(content, /决策上下文详情/)
   assert.doesNotMatch(content, /持仓范围/)
   assert.doesNotMatch(content, /position-decision-card/)
@@ -377,8 +387,11 @@ test('position-management module doc reflects merged dense decision ledger and e
   const content = await readFile(new URL('../../../../docs/current/modules/position-management.md', import.meta.url), 'utf8')
 
   assert.match(content, /最近决策与上下文已合并为一张高密度 ledger/)
+  assert.match(content, /三栏摘要区上移到“最近决策与上下文”上方/)
+  assert.match(content, /页面顶部不再保留“仓位管理”标题卡片/)
   assert.match(content, /持仓范围卡片已移除/)
   assert.match(content, /规则矩阵已并入“当前仓位状态”/)
   assert.match(content, /单标的仓位上限覆盖.*可直接编辑“覆盖值”/)
   assert.match(content, /券商同步仓位.*订单推断仓位.*stock_fills/)
+  assert.match(content, /订单推断仓位与.*stock_fills.*券商仓位真值对齐/)
 })

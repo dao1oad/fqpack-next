@@ -3,40 +3,6 @@
     <MyHeader />
 
     <div class="workbench-body position-body" v-loading="loading">
-      <section class="workbench-toolbar">
-        <div class="workbench-toolbar__header">
-          <div class="workbench-title-group">
-            <div class="workbench-page-title">仓位管理</div>
-            <div class="workbench-page-meta">
-              <span>最近决策与上下文统一收口到一张高密度 ledger，缩放后优先保持信息完整与滚动可读。</span>
-              <span>/</span>
-              <span>配置更新时间 {{ configUpdatedAt }}</span>
-              <span>/</span>
-              <span>更新人 {{ configUpdatedBy }}</span>
-            </div>
-          </div>
-
-          <div class="workbench-toolbar__actions">
-            <el-button @click="loadDashboard">刷新</el-button>
-          </div>
-        </div>
-
-        <div class="workbench-summary-row">
-          <span class="workbench-summary-chip" :class="stateToneChipClass">
-            当前状态 <strong>{{ statePanel.hero.effective_state_label }}</strong>
-          </span>
-          <span class="workbench-summary-chip" :class="staleChipClass">
-            {{ statePanel.hero.stale_label }}
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
-            raw state <strong>{{ statePanel.hero.raw_state_label }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
-            最近决策 <strong>{{ decisionLedgerRows.length }} 条</strong>
-          </span>
-        </div>
-      </section>
-
       <el-alert
         v-if="pageError"
         class="workbench-alert"
@@ -46,7 +12,269 @@
         :closable="false"
       />
 
-      <section class="workbench-panel">
+      <section class="position-lower-grid">
+        <div class="position-lower-column">
+          <section class="workbench-panel position-top-panel">
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">当前仓位状态</div>
+                <p class="workbench-panel__desc">effective state、stale 语义和资产摘要仍由服务端按真实 PositionPolicy 汇总；规则矩阵已并入本卡片。</p>
+              </div>
+
+              <div class="workbench-toolbar__actions">
+                <el-button @click="loadDashboard">刷新</el-button>
+              </div>
+            </div>
+
+            <div class="position-panel-body position-state-scroll">
+              <div class="workbench-summary-row">
+                <span class="workbench-summary-chip" :class="stateToneChipClass">
+                  {{ statePanel.hero.effective_state_label }}
+                </span>
+                <span class="workbench-summary-chip" :class="staleChipClass">
+                  {{ statePanel.hero.stale_label }}
+                </span>
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  raw state <strong>{{ statePanel.hero.raw_state_label }}</strong>
+                </span>
+              </div>
+
+              <div class="position-rule-hint">
+                <strong>{{ statePanel.hero.matched_rule_title }}</strong>
+                <p>{{ statePanel.hero.matched_rule_detail }}</p>
+              </div>
+
+              <div class="position-metric-grid">
+                <article
+                  v-for="item in statePanel.stats"
+                  :key="item.key"
+                  class="workbench-block position-metric-card"
+                >
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value_label }}</strong>
+                </article>
+              </div>
+
+              <div class="position-meta-grid">
+                <article
+                  v-for="item in statePanel.meta"
+                  :key="item.key"
+                  class="workbench-block position-meta-card"
+                >
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </article>
+              </div>
+
+              <div class="position-panel-section">
+                <div class="position-panel-section__title">规则矩阵</div>
+
+                <div class="runtime-ledger runtime-position-rule-ledger">
+                  <div class="runtime-ledger__header runtime-position-rule-ledger__grid">
+                    <span>行为</span>
+                    <span>结果</span>
+                    <span>原因码</span>
+                    <span>说明</span>
+                  </div>
+
+                  <div
+                    v-for="row in ruleMatrix"
+                    :key="row.key"
+                    class="runtime-ledger__row runtime-position-rule-ledger__grid"
+                    :class="{ 'runtime-ledger__row--blocked': !row.allowed }"
+                  >
+                    <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.label }}</span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                      <span class="runtime-inline-status" :class="resolveRuleStatusClass(row.allowed)">
+                        {{ row.allowed_label }}
+                      </span>
+                    </span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.reason_code">{{ row.reason_code }}</span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_text">{{ row.reason_text }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="position-lower-column">
+          <section class="workbench-panel position-top-panel position-config-panel">
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">参数 inventory</div>
+                <p class="workbench-panel__desc">把真正生效的阈值、代码默认值和系统连接参数合并到一张表，同时保留说明和可编辑边界。</p>
+              </div>
+            </div>
+
+            <div class="position-panel-body position-config-scroll">
+              <div class="workbench-summary-row">
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  配置时间 <strong>{{ configUpdatedAt }}</strong>
+                </span>
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  更新人 <strong>{{ configUpdatedBy }}</strong>
+                </span>
+              </div>
+
+              <el-table :data="inventoryRows" size="small" border class="position-config-table">
+                <el-table-column prop="group_label" label="分组" min-width="120" show-overflow-tooltip />
+                <el-table-column label="参数" min-width="220">
+                  <template #default="{ row }">
+                    <div class="inventory-parameter-cell">
+                      <strong>{{ row.label }}</strong>
+                      <span>{{ row.source_label }}</span>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="当前值" min-width="180">
+                  <template #default="{ row }">
+                    <el-input-number
+                      v-if="row.key === 'allow_open_min_bail'"
+                      v-model="editableForm.allow_open_min_bail"
+                      :min="0"
+                      :step="10000"
+                      controls-position="right"
+                    />
+                    <el-input-number
+                      v-else-if="row.key === 'holding_only_min_bail'"
+                      v-model="editableForm.holding_only_min_bail"
+                      :min="0"
+                      :step="10000"
+                      controls-position="right"
+                    />
+                    <el-input-number
+                      v-else-if="row.key === 'single_symbol_position_limit'"
+                      v-model="editableForm.single_symbol_position_limit"
+                      :min="0"
+                      :step="10000"
+                      controls-position="right"
+                    />
+                    <span v-else class="inventory-value">{{ row.value_label }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="description" label="说明" min-width="260" show-overflow-tooltip />
+              </el-table>
+
+              <div class="position-edit-footer">
+                <span class="workbench-muted">当前开放账户阈值和全局单标的实时仓位上限保持可编辑，其余参数继续只读展示。</span>
+                <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="position-lower-column">
+          <section class="workbench-panel position-top-panel">
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">单标的仓位上限覆盖</div>
+                <p class="workbench-panel__desc">右栏只保留单标的仓位上限覆盖。订单推断仓位和 stock_fills 视图都会按券商仓位真值对齐，来源语义仍保留；覆盖值可直接编辑，broker 缺失或超限时高亮。</p>
+              </div>
+            </div>
+
+            <div class="position-panel-body position-symbol-limit-scroll">
+              <div class="workbench-summary-row">
+                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  单独设置 <strong>{{ overrideSymbolCount }}</strong>
+                </span>
+                <span class="workbench-summary-chip workbench-summary-chip--warning">
+                  仓位不一致 <strong>{{ mismatchSymbolCount }}</strong>
+                </span>
+                <span class="workbench-summary-chip workbench-summary-chip--warning">
+                  已超限 <strong>{{ blockedSymbolCount }}</strong>
+                </span>
+              </div>
+
+              <div v-if="symbolLimitRows.length" class="runtime-ledger runtime-position-symbol-limit-ledger">
+                <div class="runtime-ledger__header runtime-position-symbol-limit-ledger__grid">
+                  <span>标的</span>
+                  <span>券商仓位</span>
+                  <span>推断仓位</span>
+                  <span>stock_fills仓位</span>
+                  <span>默认值</span>
+                  <span>覆盖值</span>
+                  <span>有效值</span>
+                  <span>一致性</span>
+                  <span>门禁</span>
+                  <span>操作</span>
+                </div>
+
+                <div
+                  v-for="row in symbolLimitRows"
+                  :key="row.symbol"
+                  class="runtime-ledger__row runtime-position-symbol-limit-ledger__grid"
+                  :class="{
+                    'runtime-ledger__row--blocked': row.blocked,
+                    'runtime-ledger__row--inconsistent': row.quantity_mismatch,
+                  }"
+                >
+                  <div class="runtime-ledger__cell position-limit-symbol">
+                    <strong>{{ row.symbol }}</strong>
+                    <span>{{ row.name }}</span>
+                  </div>
+                  <div class="runtime-ledger__cell position-source-cell" :title="row.broker_position_source_label">
+                    <strong>{{ row.broker_position_label }}</strong>
+                    <span>{{ row.broker_position_source_label }}</span>
+                  </div>
+                  <div class="runtime-ledger__cell position-source-cell" :title="row.inferred_position_source_label">
+                    <strong>{{ row.inferred_position_label }}</strong>
+                    <span>{{ row.inferred_position_source_label }}</span>
+                  </div>
+                  <div class="runtime-ledger__cell position-source-cell" :title="row.legacy_position_source_label">
+                    <strong>{{ row.legacy_position_label }}</strong>
+                    <span>{{ row.legacy_position_source_label }}</span>
+                  </div>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.default_limit_label }}</span>
+                  <div class="runtime-ledger__cell position-symbol-limit-input">
+                    <el-input-number
+                      v-model="symbolLimitDrafts[row.symbol]"
+                      size="small"
+                      :min="0"
+                      :step="10000"
+                      controls-position="right"
+                    />
+                  </div>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.effective_limit_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status" :title="row.consistency_detail_label">
+                    <span class="runtime-inline-status" :class="resolvePositionConsistencyStatusClass(row.quantity_mismatch)">
+                      {{ row.consistency_label }}
+                    </span>
+                  </span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                    <span class="runtime-inline-status" :class="resolveSymbolLimitStatusClass(row.blocked)">
+                      {{ row.blocked_label }}
+                    </span>
+                  </span>
+                  <div class="runtime-ledger__cell position-symbol-limit-actions">
+                    <el-button
+                      type="primary"
+                      text
+                      :loading="Boolean(symbolLimitSaving[row.symbol])"
+                      @click="saveSymbolLimit(row)"
+                    >
+                      保存覆盖
+                    </el-button>
+                    <el-button
+                      text
+                      :disabled="!canResetSymbolLimit(row)"
+                      @click="resetSymbolLimit(row)"
+                    >
+                      恢复默认
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else class="runtime-empty-panel">
+                <strong>当前没有可展示的单标的仓位上限行</strong>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="workbench-panel position-decision-panel">
         <div class="workbench-panel__header">
           <div class="workbench-title-group">
             <div class="workbench-panel__title">最近决策与上下文</div>
@@ -134,249 +362,6 @@
             @current-change="handleDecisionPageChange"
             @size-change="handleDecisionPageSizeChange"
           />
-        </div>
-      </section>
-
-      <section class="position-lower-grid">
-        <div class="position-lower-column">
-          <section class="workbench-panel">
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">当前仓位状态</div>
-                <p class="workbench-panel__desc">effective state、stale 语义和资产摘要仍由服务端按真实 PositionPolicy 汇总；规则矩阵已并入本卡片。</p>
-              </div>
-            </div>
-
-            <div class="workbench-summary-row">
-              <span class="workbench-summary-chip" :class="stateToneChipClass">
-                {{ statePanel.hero.effective_state_label }}
-              </span>
-              <span class="workbench-summary-chip" :class="staleChipClass">
-                {{ statePanel.hero.stale_label }}
-              </span>
-              <span class="workbench-summary-chip workbench-summary-chip--muted">
-                raw state <strong>{{ statePanel.hero.raw_state_label }}</strong>
-              </span>
-            </div>
-
-            <div class="position-rule-hint">
-              <strong>{{ statePanel.hero.matched_rule_title }}</strong>
-              <p>{{ statePanel.hero.matched_rule_detail }}</p>
-            </div>
-
-            <div class="position-metric-grid">
-              <article
-                v-for="item in statePanel.stats"
-                :key="item.key"
-                class="workbench-block position-metric-card"
-              >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value_label }}</strong>
-              </article>
-            </div>
-
-            <div class="position-meta-grid">
-              <article
-                v-for="item in statePanel.meta"
-                :key="item.key"
-                class="workbench-block position-meta-card"
-              >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </article>
-            </div>
-
-            <div class="position-panel-section">
-              <div class="position-panel-section__title">规则矩阵</div>
-
-              <div class="runtime-ledger runtime-position-rule-ledger">
-                <div class="runtime-ledger__header runtime-position-rule-ledger__grid">
-                  <span>行为</span>
-                  <span>结果</span>
-                  <span>原因码</span>
-                  <span>说明</span>
-                </div>
-
-                <div
-                  v-for="row in ruleMatrix"
-                  :key="row.key"
-                  class="runtime-ledger__row runtime-position-rule-ledger__grid"
-                  :class="{ 'runtime-ledger__row--blocked': !row.allowed }"
-                >
-                  <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.label }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                    <span class="runtime-inline-status" :class="resolveRuleStatusClass(row.allowed)">
-                      {{ row.allowed_label }}
-                    </span>
-                  </span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.reason_code">{{ row.reason_code }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_text">{{ row.reason_text }}</span>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <div class="position-lower-column">
-          <section class="workbench-panel position-config-panel">
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">参数 inventory</div>
-                <p class="workbench-panel__desc">把真正生效的阈值、代码默认值和系统连接参数合并到一张表，同时保留说明和可编辑边界。</p>
-              </div>
-            </div>
-
-            <el-table :data="inventoryRows" size="small" border class="position-config-table">
-              <el-table-column prop="group_label" label="分组" min-width="120" show-overflow-tooltip />
-              <el-table-column label="参数" min-width="220">
-                <template #default="{ row }">
-                  <div class="inventory-parameter-cell">
-                    <strong>{{ row.label }}</strong>
-                    <span>{{ row.source_label }}</span>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="当前值" min-width="180">
-                <template #default="{ row }">
-                  <el-input-number
-                    v-if="row.key === 'allow_open_min_bail'"
-                    v-model="editableForm.allow_open_min_bail"
-                    :min="0"
-                    :step="10000"
-                    controls-position="right"
-                  />
-                  <el-input-number
-                    v-else-if="row.key === 'holding_only_min_bail'"
-                    v-model="editableForm.holding_only_min_bail"
-                    :min="0"
-                    :step="10000"
-                    controls-position="right"
-                  />
-                  <el-input-number
-                    v-else-if="row.key === 'single_symbol_position_limit'"
-                    v-model="editableForm.single_symbol_position_limit"
-                    :min="0"
-                    :step="10000"
-                    controls-position="right"
-                  />
-                  <span v-else class="inventory-value">{{ row.value_label }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="description" label="说明" min-width="260" show-overflow-tooltip />
-            </el-table>
-
-            <div class="position-edit-footer">
-              <span class="workbench-muted">当前开放账户阈值和全局单标的实时仓位上限保持可编辑，其余参数继续只读展示。</span>
-              <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
-            </div>
-          </section>
-        </div>
-
-        <div class="position-lower-column">
-          <section class="workbench-panel">
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-            <div class="workbench-panel__title">单标的仓位上限覆盖</div>
-                <p class="workbench-panel__desc">右栏只保留单标的仓位上限覆盖。并排展示券商同步仓位、订单推断仓位和 stock_fills 视图；覆盖值可直接编辑，数量不一致或超限时高亮。</p>
-              </div>
-            </div>
-
-            <div class="workbench-summary-row">
-              <span class="workbench-summary-chip workbench-summary-chip--muted">
-                单独设置 <strong>{{ overrideSymbolCount }}</strong>
-              </span>
-              <span class="workbench-summary-chip workbench-summary-chip--warning">
-                仓位不一致 <strong>{{ mismatchSymbolCount }}</strong>
-              </span>
-              <span class="workbench-summary-chip workbench-summary-chip--warning">
-                已超限 <strong>{{ blockedSymbolCount }}</strong>
-              </span>
-            </div>
-
-            <div v-if="symbolLimitRows.length" class="runtime-ledger runtime-position-symbol-limit-ledger">
-              <div class="runtime-ledger__header runtime-position-symbol-limit-ledger__grid">
-                <span>标的</span>
-                <span>券商仓位</span>
-                <span>推断仓位</span>
-                <span>stock_fills仓位</span>
-                <span>默认值</span>
-                <span>覆盖值</span>
-                <span>有效值</span>
-                <span>一致性</span>
-                <span>门禁</span>
-                <span>操作</span>
-              </div>
-
-              <div
-                v-for="row in symbolLimitRows"
-                :key="row.symbol"
-                class="runtime-ledger__row runtime-position-symbol-limit-ledger__grid"
-                :class="{
-                  'runtime-ledger__row--blocked': row.blocked,
-                  'runtime-ledger__row--inconsistent': row.quantity_mismatch,
-                }"
-              >
-                <div class="runtime-ledger__cell position-limit-symbol">
-                  <strong>{{ row.symbol }}</strong>
-                  <span>{{ row.name }}</span>
-                </div>
-                <div class="runtime-ledger__cell position-source-cell" :title="row.broker_position_source_label">
-                  <strong>{{ row.broker_position_label }}</strong>
-                  <span>{{ row.broker_position_source_label }}</span>
-                </div>
-                <div class="runtime-ledger__cell position-source-cell" :title="row.inferred_position_source_label">
-                  <strong>{{ row.inferred_position_label }}</strong>
-                  <span>{{ row.inferred_position_source_label }}</span>
-                </div>
-                <div class="runtime-ledger__cell position-source-cell" :title="row.legacy_position_source_label">
-                  <strong>{{ row.legacy_position_label }}</strong>
-                  <span>{{ row.legacy_position_source_label }}</span>
-                </div>
-                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.default_limit_label }}</span>
-                <div class="runtime-ledger__cell position-symbol-limit-input">
-                  <el-input-number
-                    v-model="symbolLimitDrafts[row.symbol]"
-                    size="small"
-                    :min="0"
-                    :step="10000"
-                    controls-position="right"
-                  />
-                </div>
-                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.effective_limit_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--status" :title="row.consistency_detail_label">
-                  <span class="runtime-inline-status" :class="resolvePositionConsistencyStatusClass(row.quantity_mismatch)">
-                    {{ row.consistency_label }}
-                  </span>
-                </span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                  <span class="runtime-inline-status" :class="resolveSymbolLimitStatusClass(row.blocked)">
-                    {{ row.blocked_label }}
-                  </span>
-                </span>
-                <div class="runtime-ledger__cell position-symbol-limit-actions">
-                  <el-button
-                    type="primary"
-                    text
-                    :loading="Boolean(symbolLimitSaving[row.symbol])"
-                    @click="saveSymbolLimit(row)"
-                  >
-                    保存覆盖
-                  </el-button>
-                  <el-button
-                    text
-                    :disabled="!canResetSymbolLimit(row)"
-                    @click="resetSymbolLimit(row)"
-                  >
-                    恢复默认
-                  </el-button>
-                </div>
-              </div>
-            </div>
-
-            <div v-else class="runtime-empty-panel">
-              <strong>当前没有可展示的单标的仓位上限行</strong>
-            </div>
-          </section>
         </div>
       </section>
     </div>
@@ -611,10 +596,13 @@ onMounted(() => {
 }
 
 .position-lower-grid {
+  --position-symbol-limit-ledger-row-height: 52px;
+  --position-symbol-limit-ledger-body-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
+  --position-upper-panel-height: calc(var(--position-symbol-limit-ledger-body-height) + 136px);
   display: grid;
   grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.96fr) minmax(0, 1.04fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .position-lower-column {
@@ -624,8 +612,34 @@ onMounted(() => {
   min-width: 0;
 }
 
+.position-lower-column > .workbench-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: var(--position-upper-panel-height);
+  height: var(--position-upper-panel-height);
+}
+
+.position-top-panel {
+  min-height: 0;
+}
+
+.position-panel-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+
+.position-state-scroll,
+.position-config-scroll,
+.position-symbol-limit-scroll {
+  padding-right: 4px;
+}
+
 .position-config-table {
-  margin-top: 6px;
+  margin-top: 0;
 }
 
 .position-config-table :deep(.el-input-number) {
@@ -638,7 +652,8 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-top: auto;
+  padding-top: 4px;
 }
 
 .inventory-parameter-cell {
@@ -659,7 +674,7 @@ onMounted(() => {
 }
 
 .position-rule-hint {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px dashed #dbe1ea;
   border-radius: 8px;
   background: #f8fafc;
@@ -670,47 +685,47 @@ onMounted(() => {
 }
 
 .position-rule-hint p {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: #606266;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .position-metric-grid,
 .position-meta-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .position-metric-card span,
 .position-meta-card span {
   color: #909399;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .position-metric-card strong,
 .position-meta-card strong {
   display: block;
-  margin-top: 8px;
+  margin-top: 4px;
   color: #303133;
   line-height: 1.35;
 }
 
 .position-metric-card strong {
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .position-meta-card strong {
-  font-size: 13px;
+  font-size: 12px;
   word-break: break-all;
 }
 
 .position-panel-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 .position-panel-section__title {
@@ -825,7 +840,12 @@ onMounted(() => {
 }
 
 .runtime-position-rule-ledger {
-  max-height: 198px;
+  --position-rule-ledger-row-height: 36px;
+  max-height: calc(var(--position-rule-ledger-row-height) * 4 + 2px);
+}
+
+.runtime-position-rule-ledger :is(.runtime-ledger__header, .runtime-ledger__row) {
+  min-height: var(--position-rule-ledger-row-height);
 }
 
 .runtime-position-rule-ledger__grid {
@@ -833,8 +853,7 @@ onMounted(() => {
 }
 
 .runtime-position-symbol-limit-ledger {
-  --position-symbol-limit-ledger-row-height: 54px;
-  max-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
+  max-height: var(--position-symbol-limit-ledger-body-height);
 }
 
 .runtime-position-symbol-limit-ledger :is(.runtime-ledger__header, .runtime-ledger__row) {

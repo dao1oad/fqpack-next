@@ -489,21 +489,89 @@ def test_dashboard_exposes_three_position_views_and_quantity_consistency():
 
     assert rows["600000"]["broker_position"]["quantity"] == 1200
     assert rows["600000"]["broker_position"]["market_value"] == 520000.0
-    assert rows["600000"]["inferred_position"]["quantity"] == 1000
-    assert rows["600000"]["inferred_position"]["market_value"] == 510000.0
-    assert rows["600000"]["legacy_position"]["quantity"] == 1000
-    assert rows["600000"]["legacy_position"]["market_value"] == 505000.0
+    assert rows["600000"]["inferred_position"]["quantity"] == 1200
+    assert rows["600000"]["inferred_position"]["market_value"] == 520000.0
+    assert "broker_truth" in rows["600000"]["inferred_position"]["quantity_source"]
+    assert rows["600000"]["legacy_position"]["quantity"] == 1200
+    assert rows["600000"]["legacy_position"]["market_value"] == 520000.0
+    assert "broker_truth" in rows["600000"]["legacy_position"]["quantity_source"]
     assert rows["600000"]["position_consistency"]["quantity_values"] == {
         "broker": 1200,
-        "inferred": 1000,
-        "legacy_stock_fills": 1000,
+        "inferred": 1200,
+        "legacy_stock_fills": 1200,
     }
-    assert rows["600000"]["position_consistency"]["quantity_consistent"] is False
+    assert rows["600000"]["position_consistency"]["quantity_consistent"] is True
 
     assert rows["000001"]["broker_position"]["quantity"] == 800
     assert rows["000001"]["inferred_position"]["quantity"] == 800
     assert rows["000001"]["legacy_position"]["quantity"] == 800
     assert rows["000001"]["position_consistency"]["quantity_consistent"] is True
+
+
+def test_dashboard_aligns_non_broker_views_to_broker_truth_for_symbol_limit_detail():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    repository = FakeRepository()
+    repository.config_doc = {
+        "code": "default",
+        "enabled": True,
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
+        },
+    }
+    repository.symbol_snapshot_docs = [
+        {
+            "symbol": "600000",
+            "quantity": 1200,
+            "quantity_source": "xt_positions",
+            "market_value": 520000.0,
+            "market_value_source": "xt_positions_market_value",
+            "name": "浦发银行",
+        }
+    ]
+
+    service = PositionManagementDashboardService(
+        repository=repository,
+        holding_codes_provider=lambda: ["600000"],
+        inferred_position_loader=lambda: [
+            {
+                "symbol": "sh600000",
+                "quantity": 1000,
+                "amount_adjusted": -510000.0,
+                "name": "浦发银行",
+            }
+        ],
+        legacy_position_loader=lambda: [
+            {
+                "symbol": "sh600000",
+                "quantity": 1000,
+                "amount_adjusted": -505000.0,
+                "name": "浦发银行",
+            }
+        ],
+        settings_provider=_system_settings_provider(),
+        now_provider=_fixed_now,
+    )
+
+    detail = service.get_symbol_limit("600000")
+
+    assert detail["broker_position"]["quantity"] == 1200
+    assert detail["inferred_position"]["quantity"] == 1200
+    assert detail["legacy_position"]["quantity"] == 1200
+    assert detail["inferred_position"]["market_value"] == 520000.0
+    assert detail["legacy_position"]["market_value"] == 520000.0
+    assert "broker_truth" in detail["inferred_position"]["quantity_source"]
+    assert "broker_truth" in detail["legacy_position"]["quantity_source"]
+    assert detail["position_consistency"]["quantity_values"] == {
+        "broker": 1200,
+        "inferred": 1200,
+        "legacy_stock_fills": 1200,
+    }
+    assert detail["position_consistency"]["quantity_consistent"] is True
 
 
 def test_dashboard_legacy_view_reads_compat_loader_not_raw_stock_fills_scan(
