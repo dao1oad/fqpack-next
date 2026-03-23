@@ -27,6 +27,20 @@ def test_deploy_workflow_resolves_entrypoint_from_canonical_root() -> None:
     assert "-File script/ci/run_production_deploy.ps1" not in text
 
 
+def test_deploy_workflow_fast_forwards_canonical_root_before_entrypoint() -> None:
+    text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
+
+    assert "git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT fetch origin main" in text
+    assert (
+        '$remoteMainSha = (git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT rev-parse '
+        'origin/main).Trim()'
+    ) in text
+    assert 'if ($remoteMainSha -ne "${{ github.sha }}") {' in text
+    assert (
+        "git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT pull --ff-only origin main" in text
+    )
+
+
 def test_run_production_deploy_catches_py_launcher_failures_before_fallback() -> None:
     text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
     start = text.index("function Get-PyLauncherPython312")
