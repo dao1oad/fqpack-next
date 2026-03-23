@@ -73,6 +73,17 @@ test('KlineSlim price guide panel exposes a save-and-activate action for all six
   assert.match(scriptSource, /handleSaveAndActivatePriceGuides\(\)/)
 })
 
+test('KlineSlim exposes a reset viewport control that returns the chart to auto mode', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /重置视图/)
+  assert.match(viewSource, /@click="resetChartViewport"/)
+  assert.match(scriptSource, /resetChartViewport\(\)/)
+  assert.match(scriptSource, /this\.chartViewport = createKlineSlimViewportState\(\)/)
+  assert.match(scriptSource, /this\.resetViewportOnNextRender = true/)
+})
+
 test('KlineSlim lets the body flow below a wrapping toolbar instead of relying on a fixed top offset', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 

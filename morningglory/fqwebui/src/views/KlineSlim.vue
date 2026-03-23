@@ -33,6 +33,7 @@
           @change="applyEndDate"
         />
         <el-button size="small" @click="reloadNow">刷新</el-button>
+        <el-button size="small" :disabled="!routeSymbol" @click="resetChartViewport">重置视图</el-button>
         <el-button
           size="small"
           :type="showPriceGuidePanel ? 'primary' : 'default'"
