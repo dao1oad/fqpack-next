@@ -217,7 +217,9 @@ def build_verify_runtime_command(
     ]
 
 
-def build_health_commands(plan: dict[str, Any], plan_module) -> list[list[str]]:
+def build_health_commands(
+    plan: dict[str, Any], plan_module, python_executable: str
+) -> list[list[str]]:
     commands: list[list[str]] = []
     health_surface_map = getattr(plan_module, "HEALTH_CHECK_MAP", {})
     for surface in plan["deployment_surfaces"]:
@@ -225,8 +227,7 @@ def build_health_commands(plan: dict[str, Any], plan_module) -> list[list[str]]:
             continue
         commands.append(
             [
-                "py",
-                "-3.12",
+                python_executable,
                 "script/freshquant_health_check.py",
                 "--surface",
                 surface,
@@ -252,6 +253,7 @@ def run_formal_deploy(
     repo_root: Path,
     state_path: Path,
     runs_root: Path,
+    python_executable: str | None = None,
     head_sha: str | None = None,
     run_url: str | None = None,
     github_repository: str | None = None,
@@ -304,6 +306,7 @@ def run_formal_deploy(
         if plan["deployment_required"]:
             baseline_path = run_dir / "runtime-baseline.json"
             verify_path = run_dir / "runtime-verify.json"
+            resolved_python_executable = python_executable or sys.executable
 
             capture_command = build_capture_baseline_command(baseline_path)
             commands.append(capture_command)
@@ -330,7 +333,7 @@ def run_formal_deploy(
                 )
 
             for index, health_command in enumerate(
-                build_health_commands(plan, plan_module),
+                build_health_commands(plan, plan_module, resolved_python_executable),
                 start=20,
             ):
                 commands.append(health_command)
@@ -392,6 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--artifacts-root", default=str(DEFAULT_ARTIFACTS_ROOT))
     parser.add_argument("--state-path")
     parser.add_argument("--runs-root")
+    parser.add_argument("--head-sha")
     parser.add_argument("--run-url")
     parser.add_argument("--github-repository")
     parser.add_argument("--format", choices=("json", "summary"), default="json")
@@ -426,6 +430,8 @@ def main(argv: list[str] | None = None) -> int:
             repo_root=repo_root,
             state_path=state_path,
             runs_root=runs_root,
+            python_executable=sys.executable,
+            head_sha=args.head_sha,
             run_url=args.run_url,
             github_repository=args.github_repository,
         )

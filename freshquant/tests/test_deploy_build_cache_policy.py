@@ -158,7 +158,9 @@ def test_docker_images_workflow_fetches_full_history_for_diff_planning() -> None
     assert "fetch-depth: 0" in text
 
 
-def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
+def test_deploy_production_workflow_runs_on_push_to_main_via_single_entrypoint() -> (
+    None
+):
     text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
 
     assert "push:" in text
@@ -168,41 +170,51 @@ def test_deploy_production_workflow_runs_on_successful_docker_publish() -> None:
     assert "self-hosted" in text
     assert "windows" in text
     assert "production" in text
-    assert "run_formal_deploy.py" in text
-    assert "github.sha" in text
+    assert "script/ci/run_production_deploy.ps1" in text
+    assert '-TargetSha "${{ github.sha }}"' in text
+    assert '-GitHubRepository "${{ github.repository }}"' in text
+    assert (
+        '-RunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"'
+        in text
+    )
     assert r"FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23" in text
     assert (
         r"FQ_DEPLOY_MIRROR_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
         in text
     )
     assert 'FQ_DEPLOY_MIRROR_BRANCH: "deploy-production-main"' in text
-    assert "sync_local_deploy_mirror.py" in text
-    assert "safe.directory" in text
     assert 'FQ_DOCKER_FORCE_LOCAL_BUILD: "1"' in text
+    assert "working-directory: ${{ env.FQ_DEPLOY_CANONICAL_REPO_ROOT }}" in text
+    assert "shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}" in text
+    assert "$ErrorActionPreference = 'Stop'" in text
     assert "actions/checkout@v4" not in text
     assert "actions/setup-python@v5" not in text
-    assert "Download target revision archive" not in text
-    assert "zipball" not in text
-    assert "curl.exe" not in text
-    assert "Expand-Archive" not in text
-    assert "GH_TOKEN: ${{ github.token }}" in text
-    assert "shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}" in text
-    assert "shell: powershell\n" not in text
-    assert "git -C $canonicalRoot worktree prune" in text
-    assert "py -3.12 -m uv --version" in text
-    assert "py -3.12 -m uv sync --frozen" in text
+    assert "sync_local_deploy_mirror.py" not in text
+    assert "run_formal_deploy.py" not in text
+    assert "py -3.12 -m uv sync --frozen" not in text
     assert "pip install --upgrade pip uv" not in text
-    assert text.count("$ErrorActionPreference = 'Stop'") >= 5
 
 
 def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
-    text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
+    workflow_text = Path(".github/workflows/deploy-production.yml").read_text(
+        encoding="utf-8"
+    )
+    entrypoint_text = Path("script/ci/run_production_deploy.ps1").read_text(
+        encoding="utf-8"
+    )
 
-    assert "Validate main tip freshness" in text
-    assert "api.github.com/repos/${{ github.repository }}/branches/main" in text
-    assert "github.sha" in text
-    assert "stale main deploy trigger" not in text
-    assert "stale push deploy trigger" in text
+    assert '-TargetSha "${{ github.sha }}"' in workflow_text
+    assert (
+        'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("fetch", "origin", "main")'
+        in entrypoint_text
+    )
+    assert (
+        '$remoteMainSha = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("rev-parse", "origin/main")'
+        in entrypoint_text
+    )
+    assert "stale push deploy trigger" in entrypoint_text
+    assert "api.github.com/repos/" not in workflow_text
+    assert "api.github.com/repos/" not in entrypoint_text
 
 
 def test_current_docs_cover_automatic_production_deploy_state() -> None:
@@ -212,9 +224,9 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert "deploy-production.yml" in deployment_text
     assert "production-state.json" in deployment_text
     assert "上一次成功部署" in deployment_text
-    assert "当前 main tip" in deployment_text
-    assert "宿主机已安装的 Python 3.12" in deployment_text
-    assert "宿主机已安装的 uv" in deployment_text
+    assert "script/ci/run_production_deploy.ps1" in deployment_text
+    assert "runner Python 3.12" in deployment_text
+    assert "python -m pip install uv --break-system-packages" in deployment_text
     assert (
         r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
         in deployment_text
@@ -223,13 +235,16 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert "safe.directory" in deployment_text
     assert "本机 deploy mirror" in deployment_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in deployment_text
+    assert r".venv\Scripts\python.exe" in deployment_text
     assert "deploy-production.yml" in runtime_text
     assert "formal-deploy" in runtime_text
-    assert "宿主机已安装的 Python 3.12" in runtime_text
-    assert "宿主机已安装的 uv" in runtime_text
+    assert "script/ci/run_production_deploy.ps1" in runtime_text
+    assert "per-user / system Python 3.12" in runtime_text
+    assert "python -m uv" in runtime_text
     assert (
         r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
         in runtime_text
     )
     assert r"D:\fqpack\freshquant-2026.2.23" in runtime_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in runtime_text
+    assert r".venv\Scripts\python.exe" in runtime_text
