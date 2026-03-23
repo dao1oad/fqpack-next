@@ -346,7 +346,7 @@ onMounted(async () => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .tpsl-layout {
@@ -355,7 +355,8 @@ onMounted(async () => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  min-width: 0;
+  overflow: visible;
 }
 
 .tpsl-sidebar-panel,
@@ -432,7 +433,7 @@ onMounted(async () => {
   width: 120px;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1320px) {
   .tpsl-layout {
     grid-template-columns: 1fr;
   }

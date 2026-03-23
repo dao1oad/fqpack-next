@@ -2466,9 +2466,8 @@ onBeforeUnmount(() => {
 .runtime-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
   background: #f5f7fa;
 }
 
@@ -2478,7 +2477,8 @@ onBeforeUnmount(() => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
 }
 
 .runtime-section {
@@ -2512,7 +2512,8 @@ onBeforeUnmount(() => {
 }
 
 .runtime-time-range {
-  min-width: 340px;
+  width: min(100%, 340px);
+  min-width: 0;
 }
 
 .runtime-view-switch {
@@ -2622,8 +2623,8 @@ onBeforeUnmount(() => {
   gap: 14px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  min-width: 0;
+  overflow: auto;
   align-items: stretch;
 }
 
@@ -4172,6 +4173,17 @@ onBeforeUnmount(() => {
 
 :deep(.runtime-trace-row--issue) td {
   background: #fff7f5 !important;
+}
+
+@media (max-width: 1600px) {
+  .runtime-browse-layout {
+    grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
+  }
+
+  .runtime-browser-panel--detail {
+    grid-column: 1 / -1;
+    min-height: 520px;
+  }
 }
 
 @media (max-width: 1080px) {

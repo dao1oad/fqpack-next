@@ -1386,9 +1386,8 @@ onMounted(() => {
 .shouban30-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
   background: #f5f7fa;
 }
 
@@ -1398,7 +1397,8 @@ onMounted(() => {
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
   padding: 12px 16px 16px;
 }
 
@@ -1444,7 +1444,7 @@ onMounted(() => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .panel-card {
@@ -1640,7 +1640,7 @@ onMounted(() => {
   min-height: 0;
 }
 
-@media (max-width: 1440px) {
+@media (max-width: 1520px) {
   .shouban30-grid {
     grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(240px, 0.72fr);
@@ -1651,14 +1651,10 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 960px) {
+@media (max-width: 1180px) {
   .shouban30-grid {
     grid-template-columns: 1fr;
     grid-template-rows: repeat(4, minmax(280px, auto));
-    overflow: auto;
-  }
-
-  .shouban30-page-body {
     overflow: auto;
   }
 

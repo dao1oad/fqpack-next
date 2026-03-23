@@ -1390,7 +1390,8 @@ onMounted(async () => {
   grid-template-columns: 312px minmax(0, 1.2fr) minmax(0, 0.98fr);
   gap: 16px;
   min-height: 0;
-  overflow: hidden;
+  min-width: 0;
+  overflow: visible;
   align-items: stretch;
 }
 
@@ -1836,7 +1837,7 @@ onMounted(async () => {
   }
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1440px) {
   .daily-filter-panel,
   .daily-center-stack,
   .daily-detail-stack {

@@ -606,6 +606,9 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .subject-toolbar-filters {
@@ -630,9 +633,10 @@ onMounted(async () => {
 
 .subject-layout {
   display: grid;
-  grid-template-columns: minmax(540px, 42%) minmax(0, 1fr);
+  grid-template-columns: minmax(420px, 0.92fr) minmax(0, 1.08fr);
   gap: 12px;
-  min-height: calc(100vh - 228px);
+  min-height: 0;
+  align-items: stretch;
 }
 
 .subject-overview-panel,
@@ -838,7 +842,7 @@ onMounted(async () => {
   padding-bottom: 7px;
 }
 
-@media (max-width: 1380px) {
+@media (max-width: 1500px) {
   .subject-layout {
     grid-template-columns: 1fr;
     min-height: auto;

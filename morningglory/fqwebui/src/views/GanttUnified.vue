@@ -113,9 +113,8 @@ const handleDrillDown = ({ plateKey, plateName, days }) => {
 .gantt-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
   background: #f5f7fa;
 }
 
@@ -124,6 +123,7 @@ const handleDrillDown = ({ plateKey, plateName, days }) => {
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: auto;
 }
 
 .gantt-tabs {
@@ -137,6 +137,6 @@ const handleDrillDown = ({ plateKey, plateName, days }) => {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 </style>
