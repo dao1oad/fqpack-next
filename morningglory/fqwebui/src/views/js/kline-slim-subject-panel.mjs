@@ -7,12 +7,16 @@ const cloneMustPoolDraft = (draft = {}) => ({
   lot_amount: draft?.lot_amount ?? null,
 })
 
-const clonePositionLimitDraft = (draft = {}) => ({
-  use_default: Boolean(
-    draft?.use_default ?? !(draft?.using_override ?? (draft?.override_limit !== null && draft?.override_limit !== undefined))
-  ),
-  limit: draft?.limit ?? draft?.override_limit ?? null,
-})
+const clonePositionLimitDraft = (draft = {}) => {
+  const rawLimit = draft?.limit ?? draft?.override_limit
+  if (rawLimit === null || rawLimit === undefined || rawLimit === '') {
+    return { limit: null }
+  }
+  const parsed = Number(rawLimit)
+  return {
+    limit: Number.isFinite(parsed) ? parsed : null,
+  }
+}
 
 const cloneStoplossDrafts = (rows = []) => {
   const drafts = {}
@@ -32,7 +36,6 @@ export const normalizeKlineSlimSubjectPanelDetail = (detail = {}) => {
     name: normalized.name,
     mustPool: normalized.mustPool,
     positionLimit: {
-      use_default: !normalized.positionLimitSummary?.using_override,
       limit: normalized.positionLimitSummary?.override_limit ?? null,
       default_limit: normalized.positionLimitSummary?.default_limit ?? null,
       effective_limit: normalized.positionLimitSummary?.effective_limit ?? null,
@@ -59,7 +62,6 @@ export const buildInitialKlineSlimSubjectPanelState = () => ({
     lot_amount: null,
   },
   positionLimitDraft: {
-    use_default: true,
     limit: null,
   },
   stoplossDrafts: {},

@@ -191,9 +191,12 @@ function cloneSubjectPanelMustPoolDraft(draft = {}) {
 }
 
 function cloneSubjectPanelPositionLimitDraft(draft = {}) {
+  const rawLimit = draft?.limit ?? draft?.override_limit
+  const parsedLimit = rawLimit === null || rawLimit === undefined || rawLimit === ''
+    ? null
+    : Number(rawLimit)
   return {
-    use_default: Boolean(draft?.use_default ?? !draft?.using_override),
-    limit: draft?.limit ?? null
+    limit: Number.isFinite(parsedLimit) ? parsedLimit : null
   }
 }
 
@@ -238,11 +241,12 @@ function hasSubjectPanelPositionLimitChanges(detail, draft) {
 }
 
 function buildSubjectPanelPositionLimitPayload(draft = {}) {
-  if (draft?.use_default) {
+  const parsedLimit = Number(draft?.limit)
+  if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
     return { use_default: true }
   }
   return {
-    limit: draft?.limit ?? null
+    limit: parsedLimit
   }
 }
 
@@ -1024,8 +1028,9 @@ export default {
         return
       }
 
-      if (!this.subjectPanelState.positionLimitDraft.use_default) {
-        const parsedLimit = Number(this.subjectPanelState.positionLimitDraft.limit)
+      const rawLimit = this.subjectPanelState.positionLimitDraft.limit
+      if (rawLimit !== null && rawLimit !== undefined && rawLimit !== '') {
+        const parsedLimit = Number(rawLimit)
         if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
           this.$message?.warning?.('请先填写有效的仓位上限')
           return
