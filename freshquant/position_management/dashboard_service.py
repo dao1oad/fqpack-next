@@ -40,21 +40,15 @@ class PositionManagementDashboardService:
         self.holding_codes_provider = (
             holding_codes_provider or _default_holding_codes_provider
         )
-        self.inferred_position_loader = (
-            inferred_position_loader
-            or (
-                _default_inferred_position_loader
-                if use_default_position_loaders
-                else _empty_position_loader
-            )
+        self.inferred_position_loader = inferred_position_loader or (
+            _default_inferred_position_loader
+            if use_default_position_loaders
+            else _empty_position_loader
         )
-        self.legacy_position_loader = (
-            legacy_position_loader
-            or (
-                _default_legacy_position_loader
-                if use_default_position_loaders
-                else _empty_position_loader
-            )
+        self.legacy_position_loader = legacy_position_loader or (
+            _default_legacy_position_loader
+            if use_default_position_loaders
+            else _empty_position_loader
         )
         self.settings_provider = settings_provider or _resolve_settings_provider(
             query_param_loader
@@ -813,9 +807,7 @@ def _build_optional_position_view(
         "market_value": _coerce_float(row.get("market_value"), 0.0),
         "quantity_source": _normalize_optional_text(row.get("quantity_source"))
         or empty_quantity_source,
-        "market_value_source": _normalize_optional_text(
-            row.get("market_value_source")
-        )
+        "market_value_source": _normalize_optional_text(row.get("market_value_source"))
         or empty_market_value_source,
         "available": True,
         "name": _normalize_optional_text(row.get("name")),
@@ -862,7 +854,11 @@ def _build_position_view_map(
             "symbol": symbol,
             "name": _normalize_optional_text(item.get("name")),
             "quantity": _coerce_int(
-                item.get("quantity") if item.get("quantity") is not None else item.get("volume"),
+                (
+                    item.get("quantity")
+                    if item.get("quantity") is not None
+                    else item.get("volume")
+                ),
                 0,
             ),
             "quantity_source": _normalize_optional_text(item.get("quantity_source"))

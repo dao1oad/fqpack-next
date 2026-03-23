@@ -493,14 +493,11 @@ def test_dashboard_exposes_three_position_views_and_quantity_consistency():
     assert rows["600000"]["inferred_position"]["market_value"] == 510000.0
     assert rows["600000"]["legacy_position"]["quantity"] == 1000
     assert rows["600000"]["legacy_position"]["market_value"] == 505000.0
-    assert (
-        rows["600000"]["position_consistency"]["quantity_values"]
-        == {
-            "broker": 1200,
-            "inferred": 1000,
-            "legacy_stock_fills": 1000,
-        }
-    )
+    assert rows["600000"]["position_consistency"]["quantity_values"] == {
+        "broker": 1200,
+        "inferred": 1000,
+        "legacy_stock_fills": 1000,
+    }
     assert rows["600000"]["position_consistency"]["quantity_consistent"] is False
 
     assert rows["000001"]["broker_position"]["quantity"] == 800
