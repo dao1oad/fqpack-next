@@ -28,6 +28,23 @@ const toText = (value) => {
   return String(value).trim()
 }
 
+const toNullableNumber = (value) => {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const toInteger = (value) => {
+  const parsed = toNullableNumber(value)
+  return parsed === null ? 0 : Math.trunc(parsed)
+}
+
+const formatWanAmount = (value) => {
+  const parsed = toNullableNumber(value)
+  if (parsed === null) return '-'
+  return `${(Math.abs(parsed) / 10000).toFixed(2)} 万`
+}
+
 const joinLabels = (values = []) => {
   const labels = []
   for (const value of Array.isArray(values) ? values : []) {
@@ -53,6 +70,9 @@ const buildSymbolFromCode6 = (code6) => {
 
 export const normalizeSidebarItem = (item = {}) => {
   const code6 = getSidebarCode6(item)
+  const amount = item?.position_amount ?? item?.market_value ?? item?.amount
+  const quantity = item?.position_quantity ?? item?.quantity
+  const hasRuntimeSummary = amount !== null && amount !== undefined || quantity !== null && quantity !== undefined
   return {
     code: toText(item.code || code6),
     code6,
@@ -60,6 +80,8 @@ export const normalizeSidebarItem = (item = {}) => {
     name: toText(item.name || item.stock_name || code6),
     sourceLabels: joinLabels(item.sources) || toText(item.provider),
     categoryLabels: joinLabels(item.categories) || toText(item.category),
+    runtimePrimaryLabel: hasRuntimeSummary ? `仓位 ${formatWanAmount(amount)}` : '',
+    runtimeSecondaryLabel: hasRuntimeSummary ? `持仓 ${toInteger(quantity)} 股` : '',
     raw: item
   }
 }

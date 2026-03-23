@@ -124,18 +124,50 @@ test('KlineSlim exposes a subject settings overlay next to price guides', () => 
   assert.match(scriptSource, /subjectPanelState/)
 })
 
-test('KlineSlim subject panel uses compact header summary and readable buy-lot stoploss rows', () => {
+test('KlineSlim subject panel removes category editing, refresh noise and source toggle', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
-  assert.match(viewSource, /class="subject-panel-header-summary"/)
   assert.match(viewSource, /保存基础配置与上限/)
+  assert.equal(viewSource.includes('subject-panel-header-summary'), false)
+  assert.equal(viewSource.includes('@click="loadSubjectPanelDetail({ force: true })"'), false)
+  assert.equal(viewSource.includes('v-model.trim="subjectPanelState.mustPoolDraft.category"'), false)
+  assert.equal(viewSource.includes('右侧直接改 must_pool.category'), false)
+  assert.equal(viewSource.includes('当前分类'), false)
+  assert.equal(viewSource.includes('subjectPanelState.positionLimitDraft.use_default'), false)
+  assert.equal(viewSource.includes('关闭“默认”后生效'), false)
+  assert.match(viewSource, /class="subject-panel-base-row"/)
+  assert.match(viewSource, /class="subject-panel-limit-summary"/)
+})
+
+test('KlineSlim subject panel keeps readable buy-lot stoploss rows after header cleanup', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
   assert.match(viewSource, /row\.buyLotDisplayLabel/)
   assert.match(viewSource, /row\.buyLotMetaLabel/)
   assert.match(viewSource, /row\.buyLotIdLabel/)
   assert.match(viewSource, /class="subject-panel-stoploss-head"/)
   assert.match(viewSource, /class="subject-panel-stoploss-title-wrap"/)
   assert.match(viewSource, /class="subject-panel-stoploss-id"/)
-  assert.equal(viewSource.includes('.kline-slim-subject-panel\n  left 12px\n  width 452px'), true)
-  assert.equal(viewSource.includes('.subject-panel-header-actions\n  justify-content flex-end'), true)
+  assert.equal(viewSource.includes('.kline-slim-subject-panel\n  left 12px\n  width 436px'), true)
   assert.equal(viewSource.includes('.subject-panel-stoploss-row\n  display flex\n  flex-direction column'), true)
+})
+
+test('KlineSlim price guide panel removes refresh noise and keeps full color badges', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
+  assert.equal(viewSource.includes('@click="loadSubjectPriceDetail({ force: true })"'), false)
+  assert.equal(viewSource.includes('图上默认展示 Guardian / 止盈横线，可在 legend 中关闭'), false)
+  assert.equal(viewSource.includes('高到低展示，蓝 / 红 / 绿实线'), false)
+  assert.equal(viewSource.includes('低到高展示，蓝 / 红 / 绿虚线'), false)
+  assert.match(viewSource, /\.price-guide-badge/)
+  assert.equal(viewSource.includes('min-width 68px'), true)
+  assert.equal(viewSource.includes('white-space nowrap'), true)
+})
+
+test('KlineSlim sidebar shows runtime position summary for holding rows', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /section\.key === 'holding'/)
+  assert.match(viewSource, /item\.runtimePrimaryLabel/)
+  assert.match(viewSource, /item\.runtimeSecondaryLabel/)
 })

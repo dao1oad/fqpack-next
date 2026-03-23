@@ -37,15 +37,19 @@ test('KlineSlim medium breakpoint keeps the flow layout and only narrows the pri
     true
   )
   assert.equal(
-    mediumLayoutBlock.includes('.kline-slim-price-panel\n    width 332px'),
+    mediumLayoutBlock.includes('.kline-slim-price-panel\n    width 348px'),
     true
   )
   assert.equal(
-    mediumLayoutBlock.includes('.kline-slim-subject-panel\n    width 372px'),
+    mediumLayoutBlock.includes('.kline-slim-subject-panel\n    width 392px'),
     true
   )
   assert.equal(mediumLayoutBlock.includes('has-side-panel'), false)
   assert.equal(mediumLayoutBlock.includes('.kline-slim-body\n    top 120px'), false)
+  assert.equal(
+    mediumLayoutBlock.includes('.subject-panel-base-row\n    grid-template-columns 1fr'),
+    true
+  )
 })
 
 test('KlineSlim price panel titles stay horizontal with ellipsis', () => {
