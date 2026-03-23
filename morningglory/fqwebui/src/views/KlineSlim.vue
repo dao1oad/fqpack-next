@@ -124,20 +124,8 @@
                         @click="selectSidebarItem(item)"
                       >
                         <span class="sidebar-item-meta">
-                          <span class="sidebar-item-title">{{ item.name || item.code6 }}</span>
-                          <span class="sidebar-item-subtitle">{{ item.code6 }}</span>
-                          <template v-if="section.key === 'holding' && (item.runtimePrimaryLabel || item.runtimeSecondaryLabel)">
-                            <span v-if="item.runtimePrimaryLabel" class="sidebar-item-runtime">
-                              {{ item.runtimePrimaryLabel }}
-                            </span>
-                            <span v-if="item.runtimeSecondaryLabel" class="sidebar-item-runtime sidebar-item-runtime--muted">
-                              {{ item.runtimeSecondaryLabel }}
-                            </span>
-                          </template>
-                          <span v-if="item.sourceLabels || item.categoryLabels" class="sidebar-item-tags">
-                            <span v-if="item.sourceLabels" class="sidebar-item-tag">{{ item.sourceLabels }}</span>
-                            <span v-if="item.categoryLabels" class="sidebar-item-tag sidebar-item-tag--muted">{{ item.categoryLabels }}</span>
-                          </span>
+                          <span class="sidebar-item-title">{{ item.titleLabel || item.name || item.code6 }}</span>
+                          <span v-if="item.secondaryLabel" class="sidebar-item-subtitle">{{ item.secondaryLabel }}</span>
                         </span>
                       </button>
                     </template>
@@ -402,7 +390,6 @@
               <div class="price-panel-title-row">
                 <span class="price-panel-title">价格层级</span>
                 <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
-                <span class="price-panel-chip">{{ currentPeriod }}</span>
                 <span v-if="subjectDetailLoading" class="price-panel-chip">同步中</span>
               </div>
             </div>
@@ -821,7 +808,7 @@ export default klineSlim
 .sidebar-item-meta
   display flex
   flex-direction column
-  gap 2px
+  gap 4px
   min-width 0
 
 .sidebar-item-title
@@ -834,30 +821,8 @@ export default klineSlim
 
 .sidebar-item-subtitle
   font-size 12px
-  line-height 1.3
-  color #93c5fd
-
-.sidebar-item-runtime
-  font-size 11px
-  line-height 1.45
-  color #e2e8f0
-
-.sidebar-item-runtime--muted
+  line-height 1.35
   color #94a3b8
-
-.sidebar-item-tags
-  display flex
-  flex-direction column
-  gap 4px
-  margin-top 6px
-
-.sidebar-item-tag
-  font-size 11px
-  line-height 1.45
-  color rgba(191, 219, 254, 0.9)
-
-.sidebar-item-tag--muted
-  color rgba(148, 163, 184, 0.92)
 
 .sidebar-item-delete
   align-self center

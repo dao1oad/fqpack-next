@@ -41,15 +41,15 @@ test('KlineSlim toolbar toggles both price guide and chanlun panels from the sam
   assert.match(scriptSource, /this\.showChanlunStructurePanel = false/)
 })
 
-test('KlineSlim sidebar renders source and category tags for shared pre_pool rows', () => {
+test('KlineSlim sidebar uses compact two-line summaries instead of stacked tags', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const sidebarSource = fs.readFileSync(new URL('./js/kline-slim-sidebar.mjs', import.meta.url), 'utf8')
 
-  assert.match(viewSource, /sidebar-item-tags/)
-  assert.match(viewSource, /item\.sourceLabels/)
-  assert.match(viewSource, /item\.categoryLabels/)
-  assert.match(sidebarSource, /sourceLabels/)
-  assert.match(sidebarSource, /categoryLabels/)
+  assert.match(viewSource, /item\.titleLabel/)
+  assert.match(viewSource, /item\.secondaryLabel/)
+  assert.doesNotMatch(viewSource, /sidebar-item-tags/)
+  assert.match(sidebarSource, /titleLabel/)
+  assert.match(sidebarSource, /secondaryLabel/)
 })
 
 test('KlineSlim exposes a dedicated price-guide edit mode with drag-save handlers', () => {
@@ -159,6 +159,7 @@ test('KlineSlim price guide panel removes refresh noise and keeps full color bad
   assert.equal(viewSource.includes('图上默认展示 Guardian / 止盈横线，可在 legend 中关闭'), false)
   assert.equal(viewSource.includes('高到低展示，蓝 / 红 / 绿实线'), false)
   assert.equal(viewSource.includes('低到高展示，蓝 / 红 / 绿虚线'), false)
+  assert.equal(viewSource.includes('<span class="price-panel-chip">{{ currentPeriod }}</span>'), false)
   assert.match(viewSource, /\.price-guide-badge/)
   assert.equal(viewSource.includes('min-width 68px'), true)
   assert.equal(viewSource.includes('white-space nowrap'), true)
@@ -176,7 +177,9 @@ test('KlineSlim price guide rows give the color badge its own layout column', ()
 test('KlineSlim sidebar shows runtime position summary for holding rows', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
 
-  assert.match(viewSource, /section\.key === 'holding'/)
-  assert.match(viewSource, /item\.runtimePrimaryLabel/)
-  assert.match(viewSource, /item\.runtimeSecondaryLabel/)
+  assert.match(viewSource, /item\.titleLabel/)
+  assert.match(viewSource, /item\.secondaryLabel/)
+  assert.doesNotMatch(viewSource, /item\.runtimePrimaryLabel/)
+  assert.doesNotMatch(viewSource, /item\.runtimeSecondaryLabel/)
+  assert.doesNotMatch(viewSource, /sidebar-item-tags/)
 })
