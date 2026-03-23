@@ -153,6 +153,7 @@ class OrderManagementXtIngestService:
             open_slices = self.repository.list_open_slices(symbol)
             if holdings_changed:
                 mark_stock_holdings_projection_updated()
+                _sync_stock_fills_compat(symbol, repository=self.repository)
             self._emit_runtime(
                 "report_receive", report, extra_payload={"report_type": "trade"}
             )
@@ -463,6 +464,14 @@ def _get_guardian_buy_grid_service():
     from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
 
     return get_guardian_buy_grid_service()
+
+
+def _sync_stock_fills_compat(symbol, *, repository):
+    from freshquant.order_management.projection.stock_fills_compat import (
+        sync_symbol,
+    )
+
+    sync_symbol(symbol, repository=repository)
 
 
 _runtime_logger = None

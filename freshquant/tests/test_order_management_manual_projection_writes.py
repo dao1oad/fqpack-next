@@ -6,6 +6,7 @@ from datetime import date
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 from flask import Flask
 
 
@@ -174,8 +175,35 @@ def test_manual_write_service_import_fill_creates_trade_fact_and_projection(
     from freshquant.order_management.manual.service import (
         OrderManagementManualWriteService,
     )
+    from freshquant.order_management.projection import stock_fills_compat
+
+    class BoomStockFillsCollection:
+        def __init__(self):
+            self.rows = []
+
+        def delete_many(self, *_args, **_kwargs):
+            raise AssertionError("raw stock_fills should not be touched")
+
+        def insert_many(self, *_args, **_kwargs):
+            raise AssertionError("raw stock_fills should not be touched")
+
+    class FakeStockFillsCompatCollection:
+        def __init__(self):
+            self.rows = []
+
+        def delete_many(self, query):
+            symbol = query.get("symbol")
+            self.rows = [item for item in self.rows if item.get("symbol") != symbol]
+
+        def insert_many(self, documents):
+            self.rows.extend(dict(item) for item in documents)
 
     repository = InMemoryRepository()
+    fake_db = SimpleNamespace(
+        stock_fills=BoomStockFillsCollection(),
+        stock_fills_compat=FakeStockFillsCompatCollection(),
+    )
+    monkeypatch.setattr(stock_fills_compat, "DBfreshquant", fake_db)
     monkeypatch.setattr(
         "freshquant.order_management.manual.service.mark_stock_holdings_projection_updated",
         lambda: 1,
@@ -201,6 +229,76 @@ def test_manual_write_service_import_fill_creates_trade_fact_and_projection(
     assert repository.buy_lots[0]["name"] == "平安银行"
     assert len(result["projections"]["open_buy_fills"]) == 1
     assert len(result["projections"]["arranged_fills"]) == len(repository.lot_slices)
+    assert fake_db.stock_fills.rows == []
+    assert len(fake_db.stock_fills_compat.rows) == 1
+
+
+def test_manual_write_service_import_fill_syncs_stock_fills_compat_only(monkeypatch):
+    from freshquant.order_management.manual.service import (
+        OrderManagementManualWriteService,
+    )
+    from freshquant.order_management.projection import stock_fills_compat
+
+    class BoomStockFillsCollection:
+        def __init__(self):
+            self.rows = []
+
+        def delete_many(self, *_args, **_kwargs):
+            raise AssertionError("raw stock_fills should not be touched")
+
+        def insert_many(self, *_args, **_kwargs):
+            raise AssertionError("raw stock_fills should not be touched")
+
+    class FakeStockFillsCompatCollection:
+        def __init__(self):
+            self.rows = []
+
+        def delete_many(self, query):
+            symbol = query.get("symbol")
+            self.rows = [item for item in self.rows if item.get("symbol") != symbol]
+
+        def insert_many(self, documents):
+            self.rows.extend(dict(item) for item in documents)
+
+    fake_db = SimpleNamespace(
+        stock_fills=BoomStockFillsCollection(),
+        stock_fills_compat=FakeStockFillsCompatCollection(),
+    )
+    monkeypatch.setattr(stock_fills_compat, "DBfreshquant", fake_db)
+    monkeypatch.setattr(
+        "freshquant.order_management.manual.service.mark_stock_holdings_projection_updated",
+        lambda: 1,
+    )
+    service = OrderManagementManualWriteService(repository=InMemoryRepository())
+
+    service.import_fill(
+        op="buy",
+        code="000001",
+        quantity=300,
+        price=10.0,
+        amount=3000.0,
+        dt="2024-01-02 09:31:00",
+        instrument={"name": "平安银行", "code": "000001", "sse": "SZ"},
+        lot_amount=3000,
+        grid_interval=1.03,
+    )
+
+    assert fake_db.stock_fills.rows == []
+    assert fake_db.stock_fills_compat.rows == [
+        {
+            "symbol": "000001",
+            "op": "买",
+            "quantity": 300,
+            "price": 10.0,
+            "amount": 3000.0,
+            "amount_adjust": 1.0,
+            "date": 20240102,
+            "time": "09:31:00",
+            "name": "平安银行",
+            "stock_code": "000001.SZ",
+            "source": "manual_import",
+        }
+    ]
 
 
 def test_manual_write_service_reset_symbol_lots_closes_existing_and_creates_manual_locked_lots(
@@ -209,8 +307,35 @@ def test_manual_write_service_reset_symbol_lots_closes_existing_and_creates_manu
     from freshquant.order_management.manual.service import (
         OrderManagementManualWriteService,
     )
+    from freshquant.order_management.projection import stock_fills_compat
+
+    class BoomStockFillsCollection:
+        def __init__(self):
+            self.rows = []
+
+        def delete_many(self, *_args, **_kwargs):
+            raise AssertionError("raw stock_fills should not be touched")
+
+        def insert_many(self, *_args, **_kwargs):
+            raise AssertionError("raw stock_fills should not be touched")
+
+    class FakeStockFillsCompatCollection:
+        def __init__(self):
+            self.rows = []
+
+        def delete_many(self, query):
+            symbol = query.get("symbol")
+            self.rows = [item for item in self.rows if item.get("symbol") != symbol]
+
+        def insert_many(self, documents):
+            self.rows.extend(dict(item) for item in documents)
 
     repository = InMemoryRepository()
+    fake_db = SimpleNamespace(
+        stock_fills=BoomStockFillsCollection(),
+        stock_fills_compat=FakeStockFillsCompatCollection(),
+    )
+    monkeypatch.setattr(stock_fills_compat, "DBfreshquant", fake_db)
     monkeypatch.setattr(
         "freshquant.order_management.manual.service.mark_stock_holdings_projection_updated",
         lambda: 1,
@@ -265,6 +390,136 @@ def test_manual_write_service_reset_symbol_lots_closes_existing_and_creates_manu
     assert len(manual_locked_lots) == 2
     assert all(item["source"] == "reset" for item in manual_locked_lots)
     assert all(item["amount_adjust"] == 1.1 for item in manual_locked_lots)
+    assert fake_db.stock_fills.rows == []
+    assert len(fake_db.stock_fills_compat.rows) == 2
+
+
+def test_manual_write_service_reset_symbol_lots_syncs_stock_fills_compat_only(
+    monkeypatch,
+):
+    from freshquant.order_management.manual.service import (
+        OrderManagementManualWriteService,
+    )
+    from freshquant.order_management.projection import stock_fills_compat
+
+    class BoomStockFillsCollection:
+        def __init__(self):
+            self.rows = []
+
+        def delete_many(self, *_args, **_kwargs):
+            raise AssertionError("raw stock_fills should not be touched")
+
+        def insert_many(self, *_args, **_kwargs):
+            raise AssertionError("raw stock_fills should not be touched")
+
+    class FakeStockFillsCompatCollection:
+        def __init__(self):
+            self.rows = [
+                {
+                    "symbol": "000001",
+                    "op": "买",
+                    "quantity": 300,
+                    "price": 10.0,
+                    "amount": 3000.0,
+                    "amount_adjust": 1.0,
+                    "date": 20240101,
+                    "time": "09:30:00",
+                    "name": "旧镜像",
+                    "stock_code": "000001.SZ",
+                }
+            ]
+
+        def delete_many(self, query):
+            symbol = query.get("symbol")
+            self.rows = [item for item in self.rows if item.get("symbol") != symbol]
+
+        def insert_many(self, documents):
+            self.rows.extend(dict(item) for item in documents)
+
+    fake_db = SimpleNamespace(
+        stock_fills=BoomStockFillsCollection(),
+        stock_fills_compat=FakeStockFillsCompatCollection(),
+    )
+    monkeypatch.setattr(stock_fills_compat, "DBfreshquant", fake_db)
+    monkeypatch.setattr(
+        "freshquant.order_management.manual.service.mark_stock_holdings_projection_updated",
+        lambda: 1,
+    )
+    service = OrderManagementManualWriteService(repository=InMemoryRepository())
+    service.import_fill(
+        op="buy",
+        code="000001",
+        quantity=600,
+        price=10.0,
+        amount=6000.0,
+        dt="2024-01-02 09:31:00",
+        instrument={"name": "平安银行", "code": "000001", "sse": "SZ"},
+        lot_amount=3000,
+        grid_interval=1.03,
+    )
+
+    service.reset_symbol_lots(
+        code="000001",
+        name="平安银行",
+        stock_code="000001.SZ",
+        grid_items=[
+            {
+                "date": 20240103,
+                "time": "09:31:00",
+                "price": 10.0,
+                "quantity": 300,
+                "amount": 3000.0,
+                "amount_adjust": 1.1,
+            },
+            {
+                "date": 20240104,
+                "time": "09:31:00",
+                "price": 9.7,
+                "quantity": 300,
+                "amount": 2910.0,
+                "amount_adjust": 1.1,
+            },
+        ],
+    )
+
+    assert fake_db.stock_fills.rows == []
+    assert [item["symbol"] for item in fake_db.stock_fills_compat.rows] == [
+        "000001",
+        "000001",
+    ]
+
+
+def test_manual_write_service_raises_when_stock_fills_compat_sync_fails(monkeypatch):
+    from freshquant.order_management.manual.service import (
+        OrderManagementManualWriteService,
+    )
+    from freshquant.order_management.projection import stock_fills_compat
+
+    monkeypatch.setattr(
+        stock_fills_compat,
+        "sync_symbol",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("compat sync failed")
+        ),
+    )
+    monkeypatch.setattr(
+        "freshquant.order_management.manual.service.mark_stock_holdings_projection_updated",
+        lambda: 1,
+    )
+    service = OrderManagementManualWriteService(repository=InMemoryRepository())
+
+    with pytest.raises(RuntimeError, match="compat sync failed"):
+        service.import_fill(
+            op="buy",
+            code="000001",
+            quantity=300,
+            price=10.0,
+            amount=3000.0,
+            dt="2024-01-02 09:31:00",
+            instrument={"name": "平安银行", "code": "000001", "sse": "SZ"},
+            lot_amount=3000,
+            grid_interval=1.03,
+        )
 
 
 def test_manual_reset_rebuilds_stock_fills_compat_rows_from_manual_locked_lots(
@@ -306,7 +561,8 @@ def test_manual_reset_rebuilds_stock_fills_compat_rows_from_manual_locked_lots(
         lambda: 1,
     )
     fake_db = SimpleNamespace(
-        stock_fills=FakeStockFillsCollection(
+        stock_fills=FakeStockFillsCollection([]),
+        stock_fills_compat=FakeStockFillsCollection(
             [
                 {
                     "symbol": "000001",
@@ -321,7 +577,7 @@ def test_manual_reset_rebuilds_stock_fills_compat_rows_from_manual_locked_lots(
                     "stock_code": "000001.SZ",
                 }
             ]
-        )
+        ),
     )
     monkeypatch.setattr(stock_fills_compat, "DBfreshquant", fake_db)
     service = OrderManagementManualWriteService(repository=repository)
@@ -362,7 +618,7 @@ def test_manual_reset_rebuilds_stock_fills_compat_rows_from_manual_locked_lots(
     )
 
     mirrored_rows = [
-        item for item in fake_db.stock_fills.rows if item["symbol"] == "000001"
+        item for item in fake_db.stock_fills_compat.rows if item["symbol"] == "000001"
     ]
     assert result["inserted_count"] == 2
     assert len(mirrored_rows) == 2

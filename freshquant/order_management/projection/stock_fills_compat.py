@@ -7,12 +7,12 @@ from freshquant.util.code import normalize_to_base_code
 
 
 def sync_symbol(symbol, repository=None, database=None):
-    normalized_symbol = normalize_to_base_code(symbol)
+    normalized_symbol = _normalize_optional_symbol(symbol)
     if not normalized_symbol:
         return []
 
     repository = repository or OrderManagementRepository()
-    collection = _get_stock_fills_collection(database)
+    collection = _get_stock_fills_compat_collection(database)
     rows = _build_symbol_rows(
         normalized_symbol,
         repository=repository,
@@ -25,9 +25,9 @@ def sync_symbol(symbol, repository=None, database=None):
 
 
 def list_compat_stock_positions(symbol=None, repository=None, database=None):
-    collection = _get_stock_fills_collection(database)
+    collection = _get_stock_fills_compat_collection(database)
     query = {}
-    normalized_symbol = normalize_to_base_code(symbol)
+    normalized_symbol = _normalize_optional_symbol(symbol)
     if normalized_symbol:
         query["symbol"] = normalized_symbol
     rows = list(collection.find(query))
@@ -63,6 +63,9 @@ def list_compat_stock_positions(symbol=None, repository=None, database=None):
         for item in grouped.values()
         if item["amount_adjusted"] < 0 or item["quantity"] > 0
     ]
+    for item in positions:
+        item["amount"] = round(float(item["amount"]), 2)
+        item["amount_adjusted"] = round(float(item["amount_adjusted"]), 2)
     positions.sort(key=lambda item: item["symbol"])
     return positions
 
@@ -112,11 +115,11 @@ def _build_symbol_rows(symbol, *, repository):
     return rows
 
 
-def _get_stock_fills_collection(database):
+def _get_stock_fills_compat_collection(database):
     target = database or DBfreshquant
-    if hasattr(target, "stock_fills"):
-        return target.stock_fills
-    return target["stock_fills"]
+    if hasattr(target, "stock_fills_compat"):
+        return target.stock_fills_compat
+    return target["stock_fills_compat"]
 
 
 def _normalize_text(value):
@@ -140,3 +143,9 @@ def _coerce_int(value, default):
         return int(value)
     except (TypeError, ValueError):
         return int(default)
+
+
+def _normalize_optional_symbol(symbol):
+    if symbol in {None, ""}:
+        return ""
+    return normalize_to_base_code(symbol)

@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 
 class FakeStockFillsCollection:
     def __init__(self, rows=None):
@@ -32,8 +34,9 @@ class FakeStockFillsCollection:
 
 
 class FakeDatabase:
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, compat_rows=None):
         self.stock_fills = FakeStockFillsCollection(rows)
+        self.stock_fills_compat = FakeStockFillsCollection(compat_rows)
 
 
 class FakeRepository:
@@ -82,8 +85,35 @@ def test_sync_symbol_replaces_legacy_stock_fills_with_open_buy_lot_mirror():
             },
         ]
     )
+    legacy_rows = [
+        {
+            "symbol": "000001",
+            "op": "卖",
+            "quantity": 100,
+            "price": 9.5,
+            "amount": 950.0,
+            "amount_adjust": 9.9,
+            "date": 20240101,
+            "time": "09:30:00",
+            "name": "旧数据",
+            "stock_code": "000001.SZ",
+        },
+        {
+            "symbol": "600000",
+            "op": "买",
+            "quantity": 100,
+            "price": 8.0,
+            "amount": 800.0,
+            "amount_adjust": 1.0,
+            "date": 20240101,
+            "time": "09:30:00",
+            "name": "浦发银行",
+            "stock_code": "600000.SH",
+        },
+    ]
     database = FakeDatabase(
-        rows=[
+        rows=legacy_rows,
+        compat_rows=[
             {
                 "symbol": "000001",
                 "op": "卖",
@@ -108,7 +138,7 @@ def test_sync_symbol_replaces_legacy_stock_fills_with_open_buy_lot_mirror():
                 "name": "浦发银行",
                 "stock_code": "600000.SH",
             },
-        ]
+        ],
     )
 
     rows = sync_symbol("000001", repository=repository, database=database)
@@ -124,9 +154,8 @@ def test_sync_symbol_replaces_legacy_stock_fills_with_open_buy_lot_mirror():
     assert rows[0]["time"] == "09:31:00"
     assert rows[0]["name"] == "平安银行"
     assert rows[0]["stock_code"] == "000001.SZ"
-    rows_by_symbol = {
-        item["symbol"]: item for item in database.stock_fills.rows
-    }
+    assert database.stock_fills.rows == legacy_rows
+    rows_by_symbol = {item["symbol"]: item for item in database.stock_fills_compat.rows}
     assert rows_by_symbol == {
         "000001": rows[0],
         "600000": {
@@ -191,13 +220,65 @@ def test_sync_symbol_removes_symbol_rows_when_no_open_lots_remain():
                 "name": "浦发银行",
                 "stock_code": "600000.SH",
             },
-        ]
+        ],
+        compat_rows=[
+            {
+                "symbol": "000001",
+                "op": "买",
+                "quantity": 300,
+                "price": 10.0,
+                "amount": 3000.0,
+                "amount_adjust": 1.1,
+                "date": 20240102,
+                "time": "09:31:00",
+                "name": "平安银行",
+                "stock_code": "000001.SZ",
+            },
+            {
+                "symbol": "600000",
+                "op": "买",
+                "quantity": 100,
+                "price": 8.0,
+                "amount": 800.0,
+                "amount_adjust": 1.0,
+                "date": 20240101,
+                "time": "09:30:00",
+                "name": "浦发银行",
+                "stock_code": "600000.SH",
+            },
+        ],
     )
 
     rows = sync_symbol("000001", repository=repository, database=database)
 
     assert rows == []
     assert database.stock_fills.rows == [
+        {
+            "symbol": "000001",
+            "op": "买",
+            "quantity": 300,
+            "price": 10.0,
+            "amount": 3000.0,
+            "amount_adjust": 1.1,
+            "date": 20240102,
+            "time": "09:31:00",
+            "name": "平安银行",
+            "stock_code": "000001.SZ",
+        },
+        {
+            "symbol": "600000",
+            "op": "买",
+            "quantity": 100,
+            "price": 8.0,
+            "amount": 800.0,
+            "amount_adjust": 1.0,
+            "date": 20240101,
+            "time": "09:30:00",
+            "name": "浦发银行",
+            "stock_code": "600000.SH",
+        },
+    ]
+    assert database.stock_fills_compat.rows == [
         {
             "symbol": "600000",
             "op": "买",
@@ -211,3 +292,54 @@ def test_sync_symbol_removes_symbol_rows_when_no_open_lots_remain():
             "stock_code": "600000.SH",
         }
     ]
+
+
+def test_list_compat_stock_positions_reads_compat_collection_only():
+    from freshquant.order_management.projection.stock_fills_compat import (
+        list_compat_stock_positions,
+    )
+
+    class BoomStockFillsCollection:
+        def find(self, *_args, **_kwargs):
+            raise AssertionError("raw stock_fills should not be read")
+
+    class RecordingCompatCollection:
+        def __init__(self, rows):
+            self.rows = list(rows)
+            self.find_calls = []
+
+        def find(self, query=None):
+            self.find_calls.append(dict(query or {}))
+            symbol = (query or {}).get("symbol")
+            if symbol is None:
+                return list(self.rows)
+            return [item for item in self.rows if item.get("symbol") == symbol]
+
+    database = SimpleNamespace(
+        stock_fills=BoomStockFillsCollection(),
+        stock_fills_compat=RecordingCompatCollection(
+            [
+                {
+                    "symbol": "000001",
+                    "op": "买",
+                    "quantity": 300,
+                    "price": 10.0,
+                    "amount": 3000.0,
+                    "amount_adjust": 1.1,
+                    "date": 20240102,
+                    "time": "09:31:00",
+                    "name": "平安银行",
+                    "stock_code": "000001.SZ",
+                }
+            ]
+        ),
+    )
+
+    rows = list_compat_stock_positions(database=database)
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "000001"
+    assert rows[0]["name"] == "平安银行"
+    assert rows[0]["quantity"] == 300
+    assert rows[0]["amount"] == -3000.0
+    assert rows[0]["amount_adjusted"] == pytest.approx(-3300.0)
+    assert database.stock_fills_compat.find_calls == [{}]

@@ -121,6 +121,7 @@ def _bootstrap_service():
         repository=repository,
         tracking_service=tracking_service,
     )
+    xt_reports_module._sync_stock_fills_compat = lambda symbol, repository: None
     return repository, ingest_service
 
 
@@ -350,11 +351,18 @@ def test_trade_report_creates_trade_fact_buy_lot_and_slices():
 def test_trade_report_marks_holding_projection_updated(monkeypatch):
     repository, ingest_service = _bootstrap_service()
     marks = []
+    sync_calls = []
 
     monkeypatch.setattr(
         xt_reports_module,
         "mark_stock_holdings_projection_updated",
         lambda: marks.append("marked"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda symbol, repository: sync_calls.append((symbol, repository)),
         raising=False,
     )
 
@@ -365,6 +373,7 @@ def test_trade_report_marks_holding_projection_updated(monkeypatch):
     )
 
     assert marks == ["marked"]
+    assert sync_calls == [("000001", repository)]
 
 
 def test_sell_trade_report_creates_sell_allocations_and_updates_projection():
@@ -387,6 +396,39 @@ def test_sell_trade_report_creates_sell_allocations_and_updates_projection():
     assert [(item["price"], item["quantity"]) for item in arranged_fills] == [
         (10.93, 200),
         (10.61, 200),
+    ]
+
+
+def test_sell_trade_report_syncs_stock_fills_compat_when_holdings_change(monkeypatch):
+    repository, ingest_service = _bootstrap_service()
+    sync_calls = []
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda symbol, repository: sync_calls.append((symbol, repository)),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "mark_stock_holdings_projection_updated",
+        lambda: None,
+        raising=False,
+    )
+
+    ingest_service.ingest_trade_report(
+        _buy_report(),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    ingest_service.ingest_trade_report(
+        _sell_report("T-101-sync"),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert sync_calls == [
+        ("000001", repository),
+        ("000001", repository),
     ]
 
 

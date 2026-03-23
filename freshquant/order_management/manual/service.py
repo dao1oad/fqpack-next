@@ -302,15 +302,8 @@ def _get_tpsl_service():
 
 
 def _sync_stock_fills_compat(symbol, *, repository):
-    try:
-        from freshquant.order_management.projection.stock_fills_compat import (
-            sync_symbol,
-        )
-    except Exception:
-        logger.exception("failed to import stock_fills compat mirror module")
-        return
+    from freshquant.order_management.projection.stock_fills_compat import (
+        sync_symbol,
+    )
 
-    try:
-        sync_symbol(symbol, repository=repository)
-    except Exception:
-        logger.exception("failed to sync stock_fills compat mirror for %s", symbol)
+    sync_symbol(symbol, repository=repository)
