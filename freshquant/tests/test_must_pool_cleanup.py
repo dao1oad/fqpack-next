@@ -19,7 +19,7 @@ class FakeDatabase(dict):
 
 
 def test_clean_must_pool_does_not_filter_by_forever(monkeypatch):
-    import freshquant.pool.general as pool_general
+    pool_general = importlib.import_module("freshquant.pool.general")
 
     fake_db = FakeDatabase(
         {
