@@ -15,8 +15,10 @@
 - `must_pool`
 - `stock_signals`
 - `realtime_screen_multi_period`
-- 兼容历史的 `stock_fills`
-- 订单投影数据库中的持仓/成交兼容视图
+- `stock_fills`
+  - 历史原始兼容集合，仅保留人工审计、旧脚本和兜底排障
+- `stock_fills_compat`
+  - 由 `om_buy_lots` 投影生成的兼容镜像，供 Guardian / TPSL / 旧读接口使用
 
 ### `gantt` 或 `mongodb.gantt_db`
 
@@ -85,6 +87,8 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 
 - 主交易事实在订单管理库中，不在旧 `xt_orders/xt_trades` 集合中。
 - `xt_orders / xt_trades / xt_positions / xt_assets` 是外部回报与当前账户视角事实，不是内部订单请求事实。
+- `stock_fills_compat` 是从 `om_buy_lots` / `om_lot_slices` 派生出的兼容镜像，不是独立真值；需要兼容 Guardian 旧 `stock_fills` 语义时，优先读取它。
+- 原始 `stock_fills` 仍保留，但只作为历史 raw 集合、人工审计与最终兜底，不再承担当前持仓镜像真值。
 - `stock_pre_pools / stock_pools / must_pool` 是策略与页面共享的工作区/订阅范围集合，不再承担每日选股正式结果真值。
 - 每日选股正式 run、membership 和股票快照都落在 `fqscreening`；页面只在显式动作时复制结果到 `stock_pre_pools`。
 - 当每日选股复制结果到 `stock_pre_pools` 时，当前仍使用顶层 `remark` 保持来源隔离，正式值包括：
@@ -125,12 +129,14 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - XT account sync worker 读 XT 资产/持仓/成交/委托，写 `xt_*`、`pm_*` 与 `om_credit_subjects`。
 - Order submit 写 `om_order_requests`、`om_orders`、`om_order_events`，并把 broker payload 推到 Redis。
 - XT 回报 ingest 写 `om_trade_facts`、`om_buy_lots`、`om_lot_slices`、`om_sell_allocations` 等。
+- XT 回报 ingest、手工 `import_fill`、`reset_symbol_lots` 在持仓结构变化后同步重建 `freshquant.stock_fills_compat`。
 - TPSL 读 `xt_positions` 与 `om_*`，写 `om_takeprofit_*` / `om_exit_trigger_events`。
 - Gantt/Shouban30 API 读 gantt 库，并在工作区操作时写 `stock_pre_pools`、`stock_pools`；`stock_pool -> must_pool` 的单条/批量动作会显式写 `must_pool`，但不会改写 `stock_pool` 顺序。
 - 每日选股 API 直接调用 `CLXS / chanlun / shouban30_agg90 / market_flags`，把正式 run 和查询快照写入 `fqscreening`；手动工作区动作才会写 `stock_pre_pools`。
 
 ## 当前排障原则
 
-- 查交易链问题时，先看 `om_*`，再看 `xt_*`，最后才回头看旧兼容集合。
+- 查交易链或 lot 语义问题时，先看 `om_*`，再看 `stock_fills_compat`，最后才回头看原始 `stock_fills`。
+- 查当前券商仓位真值时，先看 `xt_positions`，再看 `pm_*` / 页面聚合结果，不要把 compat 镜像当 broker 真值。
 - 查前端列表问题时，先确认 Mongo 读模型集合是否有数据，再看 API，再看页面。
 - 查 TPSL 问题时，同时核对 `xt_positions` 的可用数量与 `om_takeprofit_states` 的状态。

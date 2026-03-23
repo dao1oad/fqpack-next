@@ -233,6 +233,9 @@ def get_stock_fill_list(symbol):
     if records:
         _compare_with_legacy_fill_list(symbol, records)
         return records
+    records = _get_compat_stock_fill_list(symbol)
+    if records:
+        return records
     return _get_legacy_stock_fill_list(symbol)
 
 
@@ -261,6 +264,25 @@ def _get_legacy_stock_fill_list(symbol):
         return None
 
 
+def _get_compat_stock_fill_list(symbol):
+    records = (
+        DBfreshquant["stock_fills_compat"]
+        .find({"symbol": symbol, "quantity": {"$ne": 0}})
+        .sort([("date", pymongo.ASCENDING), ("time", pymongo.ASCENDING)])
+    )
+    df = pd.DataFrame(records)
+    if not df.empty:
+        if "amount_adjust" not in df.columns:
+            df["amount_adjust"] = 1
+        df["amount_adjust"].fillna(1, inplace=True)
+        records = df.to_dict("records")
+        acc = []
+        for record in records:
+            acc = accStockTrades(acc, record)
+        return acc
+    return None
+
+
 # 查询InstrumentStrategy
 def getInstrumentStrategy(instrumentCode: str):
     return DBfreshquant["instrument_strategy"].find_one(
@@ -274,6 +296,9 @@ def get_arranged_stock_fill_list(symbol):
     records = _get_order_management_arranged_fill_list(symbol)
     if records:
         _compare_with_legacy_arranged_fill_list(symbol, records)
+        return records
+    records = _get_compat_arranged_stock_fill_list(symbol)
+    if records:
         return records
     return _get_legacy_arranged_stock_fill_list(symbol)
 
@@ -300,10 +325,28 @@ def _get_legacy_arranged_stock_fill_list(symbol):
         return None
 
 
+def _get_compat_arranged_stock_fill_list(symbol):
+    records = list(
+        DBfreshquant["stock_fills_compat"]
+        .find({"symbol": symbol, "quantity": {"$ne": 0}})
+        .sort([("date", pymongo.ASCENDING), ("time", pymongo.ASCENDING)])
+    )
+    if len(records) > 0:
+        stockCode = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
+        lotAmount = get_trade_amount(stockCode)
+        acc = []
+        for record in records:
+            acc = accArrangedStockTrades(acc, record, lotAmount)
+        return acc
+    return None
+
+
 def _compare_with_legacy_fill_list(symbol, projected_records):
     if not settings.get("order_management", {}).get("enable_dual_read_compare", True):
         return
-    legacy_records = _get_legacy_stock_fill_list(symbol)
+    legacy_records = _get_compat_stock_fill_list(symbol) or _get_legacy_stock_fill_list(
+        symbol
+    )
     if legacy_records is None:
         return
     if _normalize_records_for_compare(
@@ -317,7 +360,9 @@ def _compare_with_legacy_fill_list(symbol, projected_records):
 def _compare_with_legacy_arranged_fill_list(symbol, projected_records):
     if not settings.get("order_management", {}).get("enable_dual_read_compare", True):
         return
-    legacy_records = _get_legacy_arranged_stock_fill_list(symbol)
+    legacy_records = _get_compat_arranged_stock_fill_list(
+        symbol
+    ) or _get_legacy_arranged_stock_fill_list(symbol)
     if legacy_records is None:
         return
     if _normalize_records_for_compare(
@@ -566,6 +611,7 @@ def get_stock_hold_position(code):
 
 # 清理股票持仓数据
 def clean_stock_fills():
+    """Deprecated raw legacy cleanup; keep only for manual audit workflows."""
     # 检查当前时间是否在晚上8点之后
     current_time = datetime.now()
     if current_time.hour < 20:  # 20点是晚上8点
@@ -581,6 +627,7 @@ def clean_stock_fills():
 
 
 def compact_stock_fills(code=None):
+    """Deprecated raw legacy compaction; prefer stock.fill rebuild for compat maintenance."""
     # 检查当前时间是否在晚上8点之后
     current_time = datetime.now()
     if current_time.hour < 20:  # 20点是晚上8点

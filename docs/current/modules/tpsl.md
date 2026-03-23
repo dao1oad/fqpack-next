@@ -47,7 +47,9 @@ TPSL 与 Runtime Observability 的当前口径：
 
 `/api/tpsl/management/overview -> TpslManagementService -> 当前持仓数量 + 单标的实时仓位 + takeprofit profile + stoploss 绑定 + 最近触发事件`
 
-`/api/tpsl/management/<symbol> -> TpslManagementService -> takeprofit profile/state + stock_fills 对照视图 + open buy lots + 单标的实时仓位 + stoploss bindings + 统一历史`
+`/api/tpsl/management/<symbol> -> TpslManagementService -> takeprofit profile/state + stock_fills 兼容对照视图 + open buy lots + 单标的实时仓位 + stoploss bindings + 统一历史`
+
+其中 `stock_fills` 对照视图的读路径当前优先使用 OM 投影，再退到 `freshquant.stock_fills_compat`，只有 compat 缺失时才兜底原始 `stock_fills`。
 
 `/api/tpsl/history -> TpslManagementService -> om_exit_trigger_events + om_order_requests + om_orders + om_order_events + om_trade_facts`
 
@@ -96,7 +98,7 @@ TPSL 还会读取：
 
 - 左侧标的卡片只读展示 symbol 级三层止盈价格
 - buy lot 级 stop_price 设置与启停
-- 同页查看 `stock_fills` 对照视图
+- 同页查看 `stock_fills` 兼容对照视图
 - 同页查看 takeprofit / stoploss 触发历史及后续 request/order/trade
 
 当前 `/tpsl` 页面已切到统一的 workbench density 语法：
@@ -147,6 +149,12 @@ python -m freshquant.tpsl.tick_listener
 - 检查 `pm_symbol_position_snapshots.market_value`
 - 检查 `xt_positions.market_value` 是否与券商查询一致
 - 检查 `xt_account_sync.worker` 最近一次 `positions` 同步是否成功
+
+### 管理页 `stock_fills` 对照视图不一致
+
+- 先检查 `om_buy_lots` / `om_lot_slices` 是否正确
+- 再检查 `freshquant.stock_fills_compat` 是否已同步
+- compat 缺失时才回头看原始 `freshquant.stock_fills`
 
 ### 触发事件落了但批次无单
 

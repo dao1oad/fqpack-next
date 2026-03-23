@@ -163,6 +163,72 @@ def test_get_arranged_stock_fill_list_matches_projection_output(monkeypatch):
     assert holding_module.get_arranged_stock_fill_list("000001") == sample
 
 
+def test_get_stock_fill_list_prefers_compat_fallback_before_raw_legacy(monkeypatch):
+    _, holding_module, _ = _reload_modules(monkeypatch)
+    sample = [
+        {
+            "symbol": "000001",
+            "date": 20240102,
+            "time": "09:31:00",
+            "price": 10.0,
+            "quantity": 300,
+            "amount": 3000.0,
+            "source": "om_projection_mirror",
+        }
+    ]
+
+    monkeypatch.setattr(
+        holding_module, "_get_order_management_stock_fill_list", lambda symbol: None
+    )
+    monkeypatch.setattr(
+        holding_module, "_get_compat_stock_fill_list", lambda symbol: sample
+    )
+    monkeypatch.setattr(
+        holding_module,
+        "_get_legacy_stock_fill_list",
+        lambda symbol: (_ for _ in ()).throw(
+            AssertionError("raw legacy stock_fills should stay fallback-only")
+        ),
+    )
+
+    assert holding_module.get_stock_fill_list("000001") == sample
+
+
+def test_get_arranged_stock_fill_list_prefers_compat_fallback_before_raw_legacy(
+    monkeypatch,
+):
+    _, holding_module, _ = _reload_modules(monkeypatch)
+    sample = [
+        {
+            "symbol": "000001",
+            "date": 20240102,
+            "time": "09:31:00",
+            "price": 10.93,
+            "quantity": 200,
+            "amount": 2186.0,
+            "source": "om_projection_mirror",
+        }
+    ]
+
+    monkeypatch.setattr(
+        holding_module,
+        "_get_order_management_arranged_fill_list",
+        lambda symbol: None,
+    )
+    monkeypatch.setattr(
+        holding_module, "_get_compat_arranged_stock_fill_list", lambda symbol: sample
+    )
+    monkeypatch.setattr(
+        holding_module,
+        "_get_legacy_arranged_stock_fill_list",
+        lambda symbol: (_ for _ in ()).throw(
+            AssertionError("raw legacy arranged stock_fills should stay fallback-only")
+        ),
+    )
+
+    assert holding_module.get_arranged_stock_fill_list("000001") == sample
+
+
 def test_projection_refresh_invalidates_holding_code_cache(monkeypatch):
     _, holding_module, invalidator_module = _reload_modules(monkeypatch)
     state = {

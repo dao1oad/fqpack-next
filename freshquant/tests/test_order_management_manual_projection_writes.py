@@ -296,7 +296,7 @@ def test_manual_write_service_import_fill_syncs_stock_fills_compat_only(monkeypa
             "time": "09:31:00",
             "name": "平安银行",
             "stock_code": "000001.SZ",
-            "source": "manual_import",
+            "source": "om_projection_mirror",
         }
     ]
 

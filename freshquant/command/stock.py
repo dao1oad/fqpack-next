@@ -762,3 +762,18 @@ def stock_fill_import_command(
     # 标准化日期格式
     standardized_date = parsed_date.strftime('%Y-%m-%d %H:%M:%S')
     fill.import_fill(op, code, quantity, price, amount, standardized_date)
+
+
+@stock_fill_command_group.command(name="rebuild")
+@click.option("--code", type=str)
+@click.option("--all", "all_symbols", is_flag=True, default=False)
+def stock_fill_rebuild_command(code: str, all_symbols: bool):
+    if bool(code) == bool(all_symbols):
+        raise click.UsageError("必须且只能提供 --code 或 --all 其中之一")
+    fill.rebuild_fill_compat(code=code, all_symbols=all_symbols)
+
+
+@stock_fill_command_group.command(name="compare")
+@click.option("--code", type=str, required=True)
+def stock_fill_compare_command(code: str):
+    fill.compare_fill_compat(code)

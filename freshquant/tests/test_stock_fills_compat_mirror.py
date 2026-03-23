@@ -50,6 +50,47 @@ class FakeRepository:
         return rows
 
 
+def test_build_compat_stock_fill_records_marks_rows_as_projection_mirror():
+    from freshquant.order_management.projection.stock_fills_compat import (
+        build_compat_stock_fill_records,
+    )
+
+    rows = build_compat_stock_fill_records(
+        [
+            {
+                "buy_lot_id": "lot_runtime_grid",
+                "symbol": "000001",
+                "remaining_quantity": 300,
+                "date": 20240102,
+                "time": "09:31:00",
+                "buy_price_real": 10.0,
+                "original_quantity": 600,
+                "amount": 6000.0,
+                "amount_adjust": 1.1,
+                "name": "平安银行",
+                "stock_code": "000001.SZ",
+                "source": "runtime_grid",
+            }
+        ]
+    )
+
+    assert rows == [
+        {
+            "symbol": "000001",
+            "op": "买",
+            "quantity": 300,
+            "price": 10.0,
+            "amount": 3000.0,
+            "amount_adjust": 1.1,
+            "date": 20240102,
+            "time": "09:31:00",
+            "name": "平安银行",
+            "stock_code": "000001.SZ",
+            "source": "om_projection_mirror",
+        }
+    ]
+
+
 def test_sync_symbol_replaces_legacy_stock_fills_with_open_buy_lot_mirror():
     from freshquant.order_management.projection.stock_fills_compat import sync_symbol
 
@@ -343,3 +384,119 @@ def test_list_compat_stock_positions_reads_compat_collection_only():
     assert rows[0]["amount"] == -3000.0
     assert rows[0]["amount_adjusted"] == pytest.approx(-3300.0)
     assert database.stock_fills_compat.find_calls == [{}]
+
+
+def test_stock_fills_compat_service_sync_symbols_rebuilds_all_known_symbols():
+    from freshquant.order_management.projection.stock_fills_compat import (
+        StockFillsCompatibilityService,
+    )
+
+    repository = FakeRepository(
+        [
+            {
+                "buy_lot_id": "lot_open_1",
+                "symbol": "000001",
+                "remaining_quantity": 300,
+                "date": 20240102,
+                "time": "09:31:00",
+                "buy_price_real": 10.0,
+                "original_quantity": 300,
+                "amount": 3000.0,
+                "amount_adjust": 1.1,
+                "name": "平安银行",
+                "stock_code": "000001.SZ",
+                "source": "manual_locked",
+            }
+        ]
+    )
+    database = FakeDatabase(
+        compat_rows=[
+            {
+                "symbol": "600000",
+                "op": "买",
+                "quantity": 100,
+                "price": 8.0,
+                "amount": 800.0,
+                "amount_adjust": 1.0,
+                "date": 20240101,
+                "time": "09:30:00",
+                "name": "浦发银行",
+                "stock_code": "600000.SH",
+                "source": "om_projection_mirror",
+            }
+        ]
+    )
+
+    service = StockFillsCompatibilityService(repository=repository, database=database)
+
+    summary = service.sync_symbols()
+
+    assert summary["synced_symbols"] == ["000001", "600000"]
+    assert summary["rows_by_symbol"]["000001"] == 1
+    assert summary["rows_by_symbol"]["600000"] == 0
+    assert database.stock_fills_compat.rows == [
+        {
+            "symbol": "000001",
+            "op": "买",
+            "quantity": 300,
+            "price": 10.0,
+            "amount": 3000.0,
+            "amount_adjust": 1.1,
+            "date": 20240102,
+            "time": "09:31:00",
+            "name": "平安银行",
+            "stock_code": "000001.SZ",
+            "source": "om_projection_mirror",
+        }
+    ]
+
+
+def test_stock_fills_compat_service_compare_symbol_reports_mismatch():
+    from freshquant.order_management.projection.stock_fills_compat import (
+        StockFillsCompatibilityService,
+    )
+
+    repository = FakeRepository(
+        [
+            {
+                "buy_lot_id": "lot_open_1",
+                "symbol": "000001",
+                "remaining_quantity": 300,
+                "date": 20240102,
+                "time": "09:31:00",
+                "buy_price_real": 10.0,
+                "original_quantity": 300,
+                "amount": 3000.0,
+                "amount_adjust": 1.1,
+                "name": "平安银行",
+                "stock_code": "000001.SZ",
+                "source": "manual_locked",
+            }
+        ]
+    )
+    database = FakeDatabase(
+        compat_rows=[
+            {
+                "symbol": "000001",
+                "op": "买",
+                "quantity": 200,
+                "price": 10.0,
+                "amount": 2000.0,
+                "amount_adjust": 1.1,
+                "date": 20240102,
+                "time": "09:31:00",
+                "name": "平安银行",
+                "stock_code": "000001.SZ",
+                "source": "om_projection_mirror",
+            }
+        ]
+    )
+
+    service = StockFillsCompatibilityService(repository=repository, database=database)
+
+    comparison = service.compare_symbol("000001")
+
+    assert comparison["symbol"] == "000001"
+    assert comparison["projected_quantity"] == 300
+    assert comparison["compat_quantity"] == 200
+    assert comparison["quantity_consistent"] is False

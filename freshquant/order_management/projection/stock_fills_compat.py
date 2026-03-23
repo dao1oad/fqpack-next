@@ -7,32 +7,199 @@ from freshquant.util.code import normalize_to_base_code
 
 
 def sync_symbol(symbol, repository=None, database=None):
-    normalized_symbol = _normalize_optional_symbol(symbol)
-    if not normalized_symbol:
-        return []
-
-    repository = repository or OrderManagementRepository()
-    collection = _get_stock_fills_compat_collection(database)
-    rows = _build_symbol_rows(
-        normalized_symbol,
+    service = StockFillsCompatibilityService(
         repository=repository,
+        database=database,
     )
+    return service.sync_symbol(symbol)
 
-    collection.delete_many({"symbol": normalized_symbol})
-    if rows:
-        collection.insert_many(rows)
-    return rows
+
+def sync_symbols(symbols=None, repository=None, database=None):
+    service = StockFillsCompatibilityService(
+        repository=repository,
+        database=database,
+    )
+    return service.sync_symbols(symbols)
+
+
+def compare_symbol(symbol, repository=None, database=None):
+    service = StockFillsCompatibilityService(
+        repository=repository,
+        database=database,
+    )
+    return service.compare_symbol(symbol)
 
 
 def list_compat_stock_positions(symbol=None, repository=None, database=None):
+    rows = list_compat_stock_fill_rows(symbol=symbol, database=database)
+    return _aggregate_position_rows(rows)
+
+
+def list_compat_stock_fill_rows(symbol=None, database=None):
     collection = _get_stock_fills_compat_collection(database)
     query = {}
     normalized_symbol = _normalize_optional_symbol(symbol)
     if normalized_symbol:
         query["symbol"] = normalized_symbol
-    rows = list(collection.find(query))
+    return list(collection.find(query))
+
+
+def build_compat_stock_fill_records(buy_lots):
+    rows = []
+    for buy_lot in buy_lots or []:
+        symbol = _normalize_optional_symbol(
+            buy_lot.get("symbol") or buy_lot.get("stock_code") or buy_lot.get("code")
+        )
+        if not symbol:
+            continue
+        remaining_quantity = _coerce_int(buy_lot.get("remaining_quantity"), 0)
+        if remaining_quantity <= 0:
+            continue
+        original_quantity = _coerce_int(
+            buy_lot.get("original_quantity") or buy_lot.get("quantity"),
+            0,
+        )
+        amount = buy_lot.get("remaining_amount")
+        if amount is None:
+            base_amount = _coerce_float(buy_lot.get("amount"), 0.0)
+            if original_quantity > 0:
+                amount = round(
+                    base_amount * remaining_quantity / original_quantity,
+                    2,
+                )
+            else:
+                amount = 0.0
+        row = {
+            "symbol": symbol,
+            "op": "买",
+            "quantity": remaining_quantity,
+            "price": _coerce_float(
+                buy_lot.get("buy_price_real") or buy_lot.get("price"),
+                0.0,
+            ),
+            "amount": _coerce_float(amount, 0.0),
+            "amount_adjust": _coerce_float(buy_lot.get("amount_adjust"), 1.0),
+            "date": buy_lot.get("date"),
+            "time": buy_lot.get("time"),
+            "name": _normalize_text(buy_lot.get("name")),
+            "stock_code": _normalize_text(
+                buy_lot.get("stock_code")
+            )
+            or fq_util_code_append_market_code_suffix(symbol, upper_case=True),
+            "source": "om_projection_mirror",
+        }
+        rows.append(row)
+    rows.sort(key=lambda item: (item.get("date") or 0, item.get("time") or ""))
+    return rows
+
+
+class StockFillsCompatibilityService:
+    def __init__(self, repository=None, database=None):
+        self.repository = repository or OrderManagementRepository()
+        self.database = database
+
+    def sync_symbol(self, symbol: str):
+        normalized_symbol = _normalize_optional_symbol(symbol)
+        if not normalized_symbol:
+            return []
+
+        collection = _get_stock_fills_compat_collection(self.database)
+        rows = build_compat_stock_fill_records(
+            self.repository.list_buy_lots(normalized_symbol) or []
+        )
+        collection.delete_many({"symbol": normalized_symbol})
+        if rows:
+            collection.insert_many(rows)
+        return rows
+
+    def sync_symbols(self, symbols=None):
+        normalized_symbols = _collect_sync_symbols(
+            symbols,
+            repository=self.repository,
+            database=self.database,
+        )
+        rows_by_symbol = {}
+        for symbol in normalized_symbols:
+            rows_by_symbol[symbol] = len(self.sync_symbol(symbol))
+        return {
+            "synced_symbols": normalized_symbols,
+            "rows_by_symbol": rows_by_symbol,
+        }
+
+    def compare_symbol(self, symbol: str):
+        normalized_symbol = _normalize_optional_symbol(symbol)
+        if not normalized_symbol:
+            return {
+                "symbol": "",
+                "projected_quantity": 0,
+                "compat_quantity": 0,
+                "projected_amount_adjusted": 0.0,
+                "compat_amount_adjusted": 0.0,
+                "quantity_consistent": True,
+                "amount_adjusted_consistent": True,
+            }
+
+        projected_rows = build_compat_stock_fill_records(
+            self.repository.list_buy_lots(normalized_symbol) or []
+        )
+        compat_rows = list_compat_stock_fill_rows(
+            symbol=normalized_symbol,
+            database=self.database,
+        )
+        projected_position = _position_for_symbol(projected_rows, normalized_symbol)
+        compat_position = _position_for_symbol(compat_rows, normalized_symbol)
+        return {
+            "symbol": normalized_symbol,
+            "projected_quantity": projected_position["quantity"],
+            "compat_quantity": compat_position["quantity"],
+            "projected_amount_adjusted": projected_position["amount_adjusted"],
+            "compat_amount_adjusted": compat_position["amount_adjusted"],
+            "quantity_consistent": projected_position["quantity"]
+            == compat_position["quantity"],
+            "amount_adjusted_consistent": projected_position["amount_adjusted"]
+            == compat_position["amount_adjusted"],
+        }
+
+
+def _get_stock_fills_compat_collection(database):
+    target = database or DBfreshquant
+    if hasattr(target, "stock_fills_compat"):
+        return target.stock_fills_compat
+    return target["stock_fills_compat"]
+
+
+def _normalize_text(value):
+    text = str(value or "").strip()
+    return text
+
+
+def _coerce_float(value, default):
+    if value is None:
+        return float(default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _coerce_int(value, default):
+    if value is None:
+        return int(default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _normalize_optional_symbol(symbol):
+    if symbol in {None, ""}:
+        return ""
+    return normalize_to_base_code(symbol)
+
+
+def _aggregate_position_rows(rows):
     grouped = {}
-    for item in rows:
+    for item in rows or []:
         normalized_item_symbol = normalize_to_base_code(
             item.get("symbol") or item.get("stock_code") or item.get("code")
         )
@@ -70,82 +237,40 @@ def list_compat_stock_positions(symbol=None, repository=None, database=None):
     return positions
 
 
-def _build_symbol_rows(symbol, *, repository):
-    buy_lots = list(repository.list_buy_lots(symbol) or [])
-    rows = []
-    for buy_lot in buy_lots:
-        remaining_quantity = _coerce_int(buy_lot.get("remaining_quantity"), 0)
-        if remaining_quantity <= 0:
-            continue
-        original_quantity = _coerce_int(
-            buy_lot.get("original_quantity") or buy_lot.get("quantity"),
-            0,
-        )
-        amount = buy_lot.get("remaining_amount")
-        if amount is None:
-            base_amount = _coerce_float(buy_lot.get("amount"), 0.0)
-            if original_quantity > 0:
-                amount = round(
-                    base_amount * remaining_quantity / original_quantity,
-                    2,
-                )
-            else:
-                amount = 0.0
-        row = {
-            "symbol": symbol,
-            "op": "买",
-            "quantity": remaining_quantity,
-            "price": _coerce_float(
-                buy_lot.get("buy_price_real") or buy_lot.get("price"),
-                0.0,
-            ),
-            "amount": _coerce_float(amount, 0.0),
-            "amount_adjust": _coerce_float(buy_lot.get("amount_adjust"), 1.0),
-            "date": buy_lot.get("date"),
-            "time": buy_lot.get("time"),
-            "name": _normalize_text(buy_lot.get("name")),
-            "stock_code": _normalize_text(
-                buy_lot.get("stock_code")
+def _position_for_symbol(rows, symbol):
+    for item in _aggregate_position_rows(rows):
+        if item["symbol"] == symbol:
+            return item
+    return {
+        "symbol": symbol,
+        "name": "",
+        "quantity": 0,
+        "amount": 0.0,
+        "amount_adjusted": 0.0,
+    }
+
+
+def _collect_sync_symbols(symbols, *, repository, database):
+    normalized_symbols = set()
+    if symbols:
+        for item in symbols:
+            normalized_symbol = _normalize_optional_symbol(item)
+            if normalized_symbol:
+                normalized_symbols.add(normalized_symbol)
+    else:
+        for buy_lot in repository.list_buy_lots() or []:
+            normalized_symbol = _normalize_optional_symbol(
+                buy_lot.get("symbol")
+                or buy_lot.get("stock_code")
+                or buy_lot.get("code")
             )
-            or fq_util_code_append_market_code_suffix(symbol, upper_case=True),
-            "source": _normalize_text(buy_lot.get("source")) or "order_management",
-        }
-        rows.append(row)
-    rows.sort(key=lambda item: (item.get("date") or 0, item.get("time") or ""))
-    return rows
+            if normalized_symbol:
+                normalized_symbols.add(normalized_symbol)
 
-
-def _get_stock_fills_compat_collection(database):
-    target = database or DBfreshquant
-    if hasattr(target, "stock_fills_compat"):
-        return target.stock_fills_compat
-    return target["stock_fills_compat"]
-
-
-def _normalize_text(value):
-    text = str(value or "").strip()
-    return text
-
-
-def _coerce_float(value, default):
-    if value is None:
-        return float(default)
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return float(default)
-
-
-def _coerce_int(value, default):
-    if value is None:
-        return int(default)
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return int(default)
-
-
-def _normalize_optional_symbol(symbol):
-    if symbol in {None, ""}:
-        return ""
-    return normalize_to_base_code(symbol)
+    for row in list_compat_stock_fill_rows(database=database):
+        normalized_symbol = _normalize_optional_symbol(
+            row.get("symbol") or row.get("stock_code") or row.get("code")
+        )
+        if normalized_symbol:
+            normalized_symbols.add(normalized_symbol)
+    return sorted(normalized_symbols)
