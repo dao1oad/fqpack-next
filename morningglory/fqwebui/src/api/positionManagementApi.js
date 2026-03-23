@@ -19,5 +19,12 @@ export const positionManagementApi = {
       method: 'post',
       data
     })
+  },
+  updateSymbolLimit (symbol, data) {
+    return axios({
+      url: `/api/position-management/symbol-limits/${String(symbol || '').trim()}`,
+      method: 'post',
+      data
+    })
   }
 }

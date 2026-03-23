@@ -8,7 +8,7 @@
           <div class="workbench-title-group">
             <div class="workbench-page-title">仓位管理</div>
             <div class="workbench-page-meta">
-              <span>最近决策置顶，统一查看门禁结论、上下文语义和当前状态</span>
+              <span>最近决策与上下文统一收口到一张高密度 ledger，缩放后优先保持信息完整与滚动可读。</span>
               <span>/</span>
               <span>配置更新时间 {{ configUpdatedAt }}</span>
               <span>/</span>
@@ -32,7 +32,7 @@
             raw state <strong>{{ statePanel.hero.raw_state_label }}</strong>
           </span>
           <span class="workbench-summary-chip workbench-summary-chip--muted">
-            最近决策 <strong>{{ recentDecisionRows.length }} 条</strong>
+            最近决策 <strong>{{ decisionLedgerRows.length }} 条</strong>
           </span>
         </div>
       </section>
@@ -46,110 +46,95 @@
         :closable="false"
       />
 
-      <section class="position-decision-grid">
-        <section class="workbench-panel">
-          <div class="workbench-panel__header">
-            <div class="workbench-title-group">
-              <div class="workbench-panel__title">最近决策</div>
-              <p class="workbench-panel__desc">左侧集中看最近门禁结论、触发时间、来源模块和核心摘要；点击后右侧切到该条上下文细节。</p>
-            </div>
+      <section class="workbench-panel">
+        <div class="workbench-panel__header">
+          <div class="workbench-title-group">
+            <div class="workbench-panel__title">最近决策与上下文</div>
+            <p class="workbench-panel__desc">复用 runtime-observability 的 dense ledger 语法，一次展示决策主信息、仓位上下文、trace 与附加字段；宽度不足时直接横向滚动。</p>
+          </div>
+        </div>
+
+        <div class="workbench-summary-row">
+          <span class="workbench-summary-chip workbench-summary-chip--muted">
+            当前页 <strong>{{ pagedDecisionRows.length }}</strong>
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--muted">
+            默认分页 <strong>{{ decisionPagination.pageSize }} / 页</strong>
+          </span>
+          <span class="workbench-summary-chip workbench-summary-chip--muted">
+            当前页码 <strong>{{ decisionPagination.page }}</strong>
+          </span>
+        </div>
+
+        <div v-if="pagedDecisionRows.length" class="runtime-ledger runtime-position-decision-ledger">
+          <div class="runtime-ledger__header runtime-position-decision-ledger__grid">
+            <span>触发时间</span>
+            <span>标的</span>
+            <span>动作</span>
+            <span>结果</span>
+            <span>门禁状态</span>
+            <span>触发来源</span>
+            <span>策略</span>
+            <span>说明</span>
+            <span>持仓标的</span>
+            <span>实时市值</span>
+            <span>仓位上限</span>
+            <span>市值来源</span>
+            <span>数量来源</span>
+            <span>盈利减仓</span>
+            <span>减仓模式</span>
+            <span>Trace</span>
+            <span>Intent</span>
+            <span>附加上下文</span>
           </div>
 
-          <div class="workbench-summary-row">
-            <span class="workbench-summary-chip workbench-summary-chip--muted">
-              当前选中
-              <strong>{{ selectedDecision?.symbol_label || '无' }}</strong>
-            </span>
-            <span class="workbench-summary-chip workbench-summary-chip--muted">
-              触发来源
-              <strong>{{ selectedDecision?.source_module_label || '-' }}</strong>
-            </span>
-          </div>
-
-          <div v-if="recentDecisionRows.length" class="position-decision-list">
-            <button
-              v-for="row in recentDecisionRows"
-              :key="row.selection_key"
-              type="button"
-              class="position-decision-card"
-              :class="{ 'position-decision-card--active': selectedDecisionKey === row.selection_key }"
-              @click="selectedDecisionKey = row.selection_key"
-            >
-              <div class="position-decision-card__header">
-                <div class="position-decision-card__symbol">
-                  <strong>{{ row.symbol_label }}</strong>
-                  <span>{{ row.symbol_name_label }}</span>
-                </div>
-                <span
-                  class="workbench-summary-chip"
-                  :class="row.tone === 'allow' ? 'workbench-summary-chip--success' : 'workbench-summary-chip--danger'"
-                >
-                  {{ row.allowed_label }}
-                </span>
-              </div>
-
-              <div class="position-decision-card__summary">
-                <div class="position-decision-card__summary-item">
-                  <span>触发时间</span>
-                  <strong>{{ row.evaluated_at_label }}</strong>
-                </div>
-                <div class="position-decision-card__summary-item">
-                  <span>触发来源</span>
-                  <strong>{{ row.source_module_label }}</strong>
-                </div>
-                <div class="position-decision-card__summary-item">
-                  <span>门禁状态</span>
-                  <strong>{{ row.state_label }}</strong>
-                </div>
-                <div class="position-decision-card__summary-item">
-                  <span>动作</span>
-                  <strong>{{ row.action_label }}</strong>
-                </div>
-              </div>
-
-              <div class="position-decision-card__reason">{{ row.reason_text }}</div>
-            </button>
-          </div>
-
-          <div v-else class="workbench-empty">暂无最近决策记录。</div>
-        </section>
-
-        <section class="workbench-panel">
-          <div class="workbench-panel__header">
-            <div class="workbench-title-group">
-              <div class="workbench-panel__title">决策上下文详情</div>
-              <p class="workbench-panel__desc">右侧把当前选中决策拆成中文语义表格，尽量把来源、门禁原因、仓位上下文与追踪字段一次看全。</p>
-            </div>
-          </div>
-
-          <div v-if="selectedDecision" class="workbench-summary-row">
-            <span class="workbench-summary-chip workbench-summary-chip--muted">
-              标的 <strong>{{ selectedDecision.symbol_label }}</strong>
-            </span>
-            <span class="workbench-summary-chip workbench-summary-chip--muted">
-              策略 <strong>{{ selectedDecision.strategy_label }}</strong>
-            </span>
-            <span
-              class="workbench-summary-chip"
-              :class="selectedDecision.tone === 'allow' ? 'workbench-summary-chip--success' : 'workbench-summary-chip--danger'"
-            >
-              {{ selectedDecision.allowed_label }}
-            </span>
-          </div>
-
-          <el-table
-            v-if="decisionDetailRows.length"
-            :data="decisionDetailRows"
-            size="small"
-            border
-            class="position-decision-detail-table"
+          <div
+            v-for="row in pagedDecisionRows"
+            :key="row.selection_key"
+            class="runtime-ledger__row runtime-position-decision-ledger__grid"
+            :class="{ 'runtime-ledger__row--blocked': row.tone === 'reject' }"
           >
-            <el-table-column prop="label" label="上下文项" min-width="180" />
-            <el-table-column prop="value" label="中文语义" min-width="360" show-overflow-tooltip />
-          </el-table>
+            <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.evaluated_at_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
+            <span class="runtime-ledger__cell">{{ row.action_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--status">
+              <span class="runtime-inline-status" :class="resolveDecisionStatusClass(row.tone)">
+                {{ row.allowed_label }}
+              </span>
+            </span>
+            <span class="runtime-ledger__cell">{{ row.state_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.source_display">{{ row.source_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.strategy_label">{{ row.strategy_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_display">{{ row.reason_display }}</span>
+            <span class="runtime-ledger__cell">{{ row.holding_symbol_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.symbol_market_value_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.symbol_position_limit_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.market_value_source_display">{{ row.market_value_source_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.quantity_source_display">{{ row.quantity_source_display }}</span>
+            <span class="runtime-ledger__cell">{{ row.force_profit_reduce_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.profit_reduce_mode_display">{{ row.profit_reduce_mode_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.trace_display">{{ row.trace_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.intent_display">{{ row.intent_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.extra_context_label">{{ row.extra_context_label }}</span>
+          </div>
+        </div>
 
-          <div v-else class="workbench-empty">选择左侧最近决策后，可在这里查看该条门禁决策的完整上下文。</div>
-        </section>
+        <div v-else class="runtime-empty-panel">
+          <strong>暂无最近决策记录</strong>
+        </div>
+
+        <div class="position-ledger-pagination">
+          <el-pagination
+            background
+            layout="total,sizes,prev,pager,next"
+            :current-page="decisionPagination.page"
+            :page-size="decisionPagination.pageSize"
+            :total="decisionLedgerRows.length"
+            :page-sizes="[100, 200, 500]"
+            @current-change="handleDecisionPageChange"
+            @size-change="handleDecisionPageSizeChange"
+          />
+        </div>
       </section>
 
       <section class="position-lower-grid">
@@ -158,7 +143,7 @@
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">当前仓位状态</div>
-                <p class="workbench-panel__desc">effective state、stale 语义和资产摘要均由服务端按真实 PositionPolicy 汇总。</p>
+                <p class="workbench-panel__desc">effective state、stale 语义和资产摘要仍由服务端按真实 PositionPolicy 汇总；规则矩阵已并入本卡片。</p>
               </div>
             </div>
 
@@ -199,6 +184,35 @@
                 <span>{{ item.label }}</span>
                 <strong>{{ item.value }}</strong>
               </article>
+            </div>
+
+            <div class="position-panel-section">
+              <div class="position-panel-section__title">规则矩阵</div>
+
+              <div class="runtime-ledger runtime-position-rule-ledger">
+                <div class="runtime-ledger__header runtime-position-rule-ledger__grid">
+                  <span>行为</span>
+                  <span>结果</span>
+                  <span>原因码</span>
+                  <span>说明</span>
+                </div>
+
+                <div
+                  v-for="row in ruleMatrix"
+                  :key="row.key"
+                  class="runtime-ledger__row runtime-position-rule-ledger__grid"
+                  :class="{ 'runtime-ledger__row--blocked': !row.allowed }"
+                >
+                  <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                    <span class="runtime-inline-status" :class="resolveRuleStatusClass(row.allowed)">
+                      {{ row.allowed_label }}
+                    </span>
+                  </span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.reason_code">{{ row.reason_code }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_text">{{ row.reason_text }}</span>
+                </div>
+              </div>
             </div>
           </section>
         </div>
@@ -252,95 +266,93 @@
             </el-table>
 
             <div class="position-edit-footer">
-              <span class="workbench-muted">当前开放账户阈值和单标的实时仓位上限保持可编辑，其余参数继续只读展示。</span>
+              <span class="workbench-muted">当前开放账户阈值和全局单标的实时仓位上限保持可编辑，其余参数继续只读展示。</span>
               <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
             </div>
           </section>
+        </div>
 
+        <div class="position-lower-column">
           <section class="workbench-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">单标的仓位上限覆盖</div>
-                <p class="workbench-panel__desc">这里展示默认值、单独设置值、有效值和当前是否已触发禁止买入。具体编辑入口放在标的管理和行情图表页。</p>
-              </div>
-            </div>
-
-            <el-table v-if="symbolLimitRows.length" :data="symbolLimitRows" size="small" border>
-              <el-table-column prop="symbol" label="标的代码" width="100" />
-              <el-table-column prop="name" label="标的名称" min-width="140" />
-              <el-table-column prop="market_value_label" label="当前市值" min-width="120" />
-              <el-table-column prop="default_limit_label" label="默认值" min-width="120" />
-              <el-table-column prop="override_limit_label" label="覆盖值" min-width="120" />
-              <el-table-column prop="effective_limit_label" label="有效值" min-width="120" />
-              <el-table-column prop="source_label" label="来源" width="92" />
-              <el-table-column prop="blocked_label" label="门禁" width="92" />
-            </el-table>
-
-            <div v-else class="workbench-empty">当前没有可展示的单标的仓位上限行。</div>
-          </section>
-        </div>
-
-        <div class="position-lower-column position-lower-column--stacked">
-          <section class="workbench-panel">
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">持仓范围</div>
-                <p class="workbench-panel__desc">holding scope 使用与门禁一致的 union 口径，只认最新一次券商同步的持仓真值。</p>
+                <p class="workbench-panel__desc">右栏只保留单标的仓位上限覆盖。可直接编辑“覆盖值”，超限标的会高亮；留空后点“恢复默认”即可撤销单独设置。</p>
               </div>
             </div>
 
             <div class="workbench-summary-row">
               <span class="workbench-summary-chip workbench-summary-chip--muted">
-                count <strong>{{ holdingScope.count_label }}</strong>
+                单独设置 <strong>{{ overrideSymbolCount }}</strong>
               </span>
-              <span class="workbench-summary-chip workbench-summary-chip--muted">
-                source <strong>{{ holdingScope.source }}</strong>
+              <span class="workbench-summary-chip workbench-summary-chip--warning">
+                已超限 <strong>{{ blockedSymbolCount }}</strong>
               </span>
             </div>
 
-            <div class="position-holding-panel">
-              <div class="position-holding-copy">{{ holdingScope.description }}</div>
-              <div class="position-code-chip-list">
-                <span
-                  v-for="code in holdingScope.codes"
-                  :key="code"
-                  class="workbench-summary-chip workbench-summary-chip--muted"
-                >
-                  {{ code }}
-                </span>
-                <span
-                  v-if="holdingScope.codes.length === 0"
-                  class="workbench-summary-chip workbench-summary-chip--muted"
-                >
-                  当前无持仓代码
-                </span>
+            <div v-if="symbolLimitRows.length" class="runtime-ledger runtime-position-symbol-limit-ledger">
+              <div class="runtime-ledger__header runtime-position-symbol-limit-ledger__grid">
+                <span>标的</span>
+                <span>当前市值</span>
+                <span>默认值</span>
+                <span>覆盖值</span>
+                <span>有效值</span>
+                <span>来源</span>
+                <span>门禁</span>
+                <span>操作</span>
               </div>
-            </div>
-          </section>
 
-          <section class="workbench-panel">
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">规则矩阵</div>
-                <p class="workbench-panel__desc">直接回答当前哪些行为允许、为什么。</p>
-              </div>
-            </div>
-
-            <el-table :data="ruleMatrix" size="small" border>
-              <el-table-column prop="label" label="行为" min-width="120" />
-              <el-table-column label="结果" width="88">
-                <template #default="{ row }">
-                  <span
-                    class="workbench-summary-chip"
-                    :class="row.allowed ? 'workbench-summary-chip--success' : 'workbench-summary-chip--danger'"
-                  >
-                    {{ row.allowed_label }}
+              <div
+                v-for="row in symbolLimitRows"
+                :key="row.symbol"
+                class="runtime-ledger__row runtime-position-symbol-limit-ledger__grid"
+                :class="{ 'runtime-ledger__row--blocked': row.blocked }"
+              >
+                <div class="runtime-ledger__cell position-limit-symbol">
+                  <strong>{{ row.symbol }}</strong>
+                  <span>{{ row.name }}</span>
+                </div>
+                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.market_value_label }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.default_limit_label }}</span>
+                <div class="runtime-ledger__cell position-symbol-limit-input">
+                  <el-input-number
+                    v-model="symbolLimitDrafts[row.symbol]"
+                    size="small"
+                    :min="0"
+                    :step="10000"
+                    controls-position="right"
+                  />
+                </div>
+                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.effective_limit_label }}</span>
+                <span class="runtime-ledger__cell">{{ row.source_label }}</span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                  <span class="runtime-inline-status" :class="resolveSymbolLimitStatusClass(row.blocked)">
+                    {{ row.blocked_label }}
                   </span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="reason_code" label="原因码" min-width="140" />
-              <el-table-column prop="reason_text" label="说明" min-width="220" />
-            </el-table>
+                </span>
+                <div class="runtime-ledger__cell position-symbol-limit-actions">
+                  <el-button
+                    type="primary"
+                    text
+                    :loading="Boolean(symbolLimitSaving[row.symbol])"
+                    @click="saveSymbolLimit(row)"
+                  >
+                    保存覆盖
+                  </el-button>
+                  <el-button
+                    text
+                    :disabled="!canResetSymbolLimit(row)"
+                    @click="resetSymbolLimit(row)"
+                  >
+                    恢复默认
+                  </el-button>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="runtime-empty-panel">
+              <strong>当前没有可展示的单标的仓位上限行</strong>
+            </div>
           </section>
         </div>
       </section>
@@ -355,10 +367,8 @@ import { ElMessage } from 'element-plus'
 import MyHeader from '@/views/MyHeader.vue'
 import { positionManagementApi } from '@/api/positionManagementApi'
 import {
-  buildHoldingScopeView,
   buildInventoryRows,
-  buildRecentDecisionDetailRows,
-  buildRecentDecisionRows,
+  buildRecentDecisionLedgerRows,
   buildRuleMatrix,
   buildStatePanel,
   buildSymbolLimitRows,
@@ -369,7 +379,6 @@ const loading = ref(false)
 const saving = ref(false)
 const pageError = ref('')
 const dashboard = ref({})
-const selectedDecisionKey = ref('')
 
 const editableForm = reactive({
   allow_open_min_bail: 0,
@@ -377,20 +386,27 @@ const editableForm = reactive({
   single_symbol_position_limit: 0,
 })
 
+const decisionPagination = reactive({
+  page: 1,
+  pageSize: 100,
+})
+
+const symbolLimitDrafts = reactive({})
+const symbolLimitSaving = reactive({})
+
 const inventoryRows = computed(() => buildInventoryRows(dashboard.value))
 const symbolLimitRows = computed(() => buildSymbolLimitRows(dashboard.value))
 const statePanel = computed(() => buildStatePanel(dashboard.value))
-const holdingScope = computed(() => buildHoldingScopeView(dashboard.value))
 const ruleMatrix = computed(() => buildRuleMatrix(dashboard.value))
-const recentDecisionRows = computed(() => buildRecentDecisionRows(dashboard.value))
-const selectedDecision = computed(() => (
-  recentDecisionRows.value.find((item) => item.selection_key === selectedDecisionKey.value) ||
-  recentDecisionRows.value[0] ||
-  null
-))
-const decisionDetailRows = computed(() => buildRecentDecisionDetailRows(selectedDecision.value))
+const decisionLedgerRows = computed(() => buildRecentDecisionLedgerRows(dashboard.value))
+const pagedDecisionRows = computed(() => {
+  const start = (decisionPagination.page - 1) * decisionPagination.pageSize
+  return decisionLedgerRows.value.slice(start, start + decisionPagination.pageSize)
+})
 const configUpdatedAt = computed(() => dashboard.value?.config?.updated_at || '未配置')
 const configUpdatedBy = computed(() => dashboard.value?.config?.updated_by || 'unknown')
+const blockedSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.blocked).length)
+const overrideSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.using_override).length)
 const stateToneChipClass = computed(() => {
   const tone = statePanel.value?.hero?.effective_state_tone
   if (tone === 'allow') return 'workbench-summary-chip--success'
@@ -402,11 +418,43 @@ const staleChipClass = computed(() => (
   statePanel.value?.hero?.stale ? 'workbench-summary-chip--warning' : 'workbench-summary-chip--muted'
 ))
 
-watch(recentDecisionRows, (rows) => {
-  if (!rows.some((item) => item.selection_key === selectedDecisionKey.value)) {
-    selectedDecisionKey.value = rows[0]?.selection_key || ''
-  }
-}, { immediate: true })
+watch(
+  () => [decisionLedgerRows.value.length, decisionPagination.pageSize],
+  () => {
+    const totalPages = Math.max(1, Math.ceil(decisionLedgerRows.value.length / decisionPagination.pageSize))
+    if (decisionPagination.page > totalPages) {
+      decisionPagination.page = totalPages
+    }
+  },
+  { immediate: true },
+)
+
+const resolveErrorMessage = (error, fallback) => {
+  const responseMessage = error?.response?.data?.error
+  const directMessage = error?.message
+  return responseMessage || directMessage || fallback
+}
+
+const resolveDecisionStatusClass = (tone) => (
+  tone === 'allow' ? 'runtime-inline-status--success' : 'runtime-inline-status--failed'
+)
+
+const resolveRuleStatusClass = (allowed) => (
+  allowed ? 'runtime-inline-status--success' : 'runtime-inline-status--failed'
+)
+
+const resolveSymbolLimitStatusClass = (blocked) => (
+  blocked ? 'runtime-inline-status--failed' : 'runtime-inline-status--success'
+)
+
+const handleDecisionPageChange = (page) => {
+  decisionPagination.page = page
+}
+
+const handleDecisionPageSizeChange = (pageSize) => {
+  decisionPagination.pageSize = pageSize
+  decisionPagination.page = 1
+}
 
 const syncEditableForm = () => {
   const thresholds = dashboard.value?.config?.thresholds || {}
@@ -415,10 +463,18 @@ const syncEditableForm = () => {
   editableForm.single_symbol_position_limit = Number(thresholds.single_symbol_position_limit || 0)
 }
 
-const resolveErrorMessage = (error, fallback) => {
-  const responseMessage = error?.response?.data?.error
-  const directMessage = error?.message
-  return responseMessage || directMessage || fallback
+const syncSymbolLimitDrafts = (rows = []) => {
+  const symbols = new Set(rows.map((row) => row.symbol))
+  Object.keys(symbolLimitDrafts).forEach((symbol) => {
+    if (!symbols.has(symbol)) delete symbolLimitDrafts[symbol]
+  })
+  Object.keys(symbolLimitSaving).forEach((symbol) => {
+    if (!symbols.has(symbol)) delete symbolLimitSaving[symbol]
+  })
+  rows.forEach((row) => {
+    symbolLimitDrafts[row.symbol] = row.override_limit_value
+    symbolLimitSaving[row.symbol] = false
+  })
 }
 
 const loadDashboard = async () => {
@@ -431,6 +487,7 @@ const loadDashboard = async () => {
     )
     dashboard.value = payload
     syncEditableForm()
+    syncSymbolLimitDrafts(buildSymbolLimitRows(payload))
   } catch (error) {
     pageError.value = resolveErrorMessage(error, '加载仓位管理面板失败')
   } finally {
@@ -461,6 +518,55 @@ const saveThresholds = async () => {
   }
 }
 
+const canResetSymbolLimit = (row) => {
+  const draft = Number(symbolLimitDrafts[row?.symbol])
+  return Boolean(row?.using_override) || Number.isFinite(draft)
+}
+
+const saveSymbolLimit = async (row) => {
+  const symbol = String(row?.symbol || '').trim()
+  if (!symbol) return
+  const parsed = Number(symbolLimitDrafts[symbol])
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    ElMessage.error(`请先为 ${symbol} 填写有效的覆盖值`)
+    return
+  }
+
+  symbolLimitSaving[symbol] = true
+  try {
+    await positionManagementApi.updateSymbolLimit(symbol, {
+      limit: parsed,
+      use_default: false,
+      updated_by: 'web-ui',
+    })
+    ElMessage.success(`${symbol} 覆盖值已保存`)
+    await loadDashboard()
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, `保存 ${symbol} 覆盖值失败`))
+  } finally {
+    symbolLimitSaving[symbol] = false
+  }
+}
+
+const resetSymbolLimit = async (row) => {
+  const symbol = String(row?.symbol || '').trim()
+  if (!symbol) return
+
+  symbolLimitSaving[symbol] = true
+  try {
+    await positionManagementApi.updateSymbolLimit(symbol, {
+      use_default: true,
+      updated_by: 'web-ui',
+    })
+    ElMessage.success(`${symbol} 已恢复默认值`)
+    await loadDashboard()
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, `恢复 ${symbol} 默认值失败`))
+  } finally {
+    symbolLimitSaving[symbol] = false
+  }
+}
+
 onMounted(() => {
   loadDashboard()
 })
@@ -476,116 +582,18 @@ onMounted(() => {
   overflow: auto;
 }
 
-.position-decision-grid,
 .position-lower-grid {
   display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.96fr) minmax(0, 1.04fr);
   gap: 12px;
-}
-
-.position-decision-grid {
-  grid-template-columns: minmax(320px, 0.96fr) minmax(0, 1.24fr);
-}
-
-.position-lower-grid {
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.08fr) minmax(0, 0.95fr);
   align-items: start;
 }
 
-.position-lower-column,
-.position-lower-column--stacked {
+.position-lower-column {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-}
-
-.position-decision-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 620px;
-  overflow: auto;
-}
-
-.position-decision-card {
-  width: 100%;
-  padding: 14px;
-  border: 1px solid #dbe1ea;
-  border-radius: 10px;
-  background: #fff;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
-}
-
-.position-decision-card:hover,
-.position-decision-card--active {
-  border-color: #6f8ad8;
-  box-shadow: 0 10px 26px rgba(44, 72, 146, 0.08);
-  background: #f8fbff;
-}
-
-.position-decision-card__header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.position-decision-card__symbol {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.position-decision-card__symbol strong {
-  color: #1f2937;
-  font-size: 15px;
-  line-height: 1.3;
-}
-
-.position-decision-card__symbol span,
-.position-decision-card__reason,
-.inventory-parameter-cell span,
-.inventory-value,
-.position-holding-copy {
-  color: #606266;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.position-decision-card__summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.position-decision-card__summary-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.position-decision-card__summary-item span,
-.position-metric-card span,
-.position-meta-card span {
-  color: #909399;
-  font-size: 12px;
-}
-
-.position-decision-card__summary-item strong {
-  color: #303133;
-  line-height: 1.4;
-  font-size: 13px;
-}
-
-.position-decision-card__reason {
-  margin-top: 12px;
-}
-
-.position-decision-detail-table {
-  margin-top: 8px;
 }
 
 .position-config-table {
@@ -615,6 +623,13 @@ onMounted(() => {
   color: #303133;
 }
 
+.inventory-parameter-cell span,
+.inventory-value {
+  color: #606266;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .position-rule-hint {
   padding: 10px 12px;
   border: 1px dashed #dbe1ea;
@@ -633,10 +648,17 @@ onMounted(() => {
   line-height: 1.5;
 }
 
-.position-metric-grid {
+.position-metric-grid,
+.position-meta-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.position-metric-card span,
+.position-meta-card span {
+  color: #909399;
+  font-size: 12px;
 }
 
 .position-metric-card strong,
@@ -651,39 +673,237 @@ onMounted(() => {
   font-size: 18px;
 }
 
-.position-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
 .position-meta-card strong {
   font-size: 13px;
   word-break: break-all;
 }
 
-.position-holding-panel {
+.position-panel-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-.position-code-chip-list {
+.position-panel-section__title {
+  color: #21405e;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.runtime-empty-panel {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  border: 1px dashed #dbe1ea;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #68839d;
+}
+
+.runtime-ledger {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #e5edf5;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.runtime-ledger__header,
+.runtime-ledger__row {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  min-width: max-content;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.runtime-ledger__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f6f9fc;
+  color: #68839d;
+  border-bottom: 1px solid #e5edf5;
+}
+
+.runtime-ledger__row {
+  border-top: 1px solid #eef3f8;
+  background: transparent;
+}
+
+.runtime-ledger__row:hover {
+  background: #f8fbff;
+}
+
+.runtime-ledger__row--blocked {
+  background: #fff7f5;
+}
+
+.runtime-ledger__row--blocked:hover {
+  background: #fff1ed;
+}
+
+.runtime-position-decision-ledger {
+  --position-decision-ledger-row-height: 40px;
+  max-height: calc(var(--position-decision-ledger-row-height) * 11 + 2px);
+}
+
+.runtime-position-decision-ledger :is(.runtime-ledger__header, .runtime-ledger__row) {
+  min-height: var(--position-decision-ledger-row-height);
+}
+
+.runtime-position-decision-ledger__grid {
+  grid-template-columns:
+    148px
+    180px
+    72px
+    88px
+    120px
+    188px
+    112px
+    140px
+    86px
+    118px
+    118px
+    156px
+    156px
+    92px
+    108px
+    144px
+    144px
+    minmax(260px, 1.25fr);
+}
+
+.runtime-position-rule-ledger {
+  max-height: 198px;
+}
+
+.runtime-position-rule-ledger__grid {
+  grid-template-columns: 120px 88px 148px minmax(240px, 1fr);
+}
+
+.runtime-position-symbol-limit-ledger {
+  --position-symbol-limit-ledger-row-height: 44px;
+  max-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
+}
+
+.runtime-position-symbol-limit-ledger :is(.runtime-ledger__header, .runtime-ledger__row) {
+  min-height: var(--position-symbol-limit-ledger-row-height);
+}
+
+.runtime-position-symbol-limit-ledger__grid {
+  grid-template-columns:
+    170px
+    120px
+    120px
+    168px
+    120px
+    92px
+    92px
+    160px;
+}
+
+.runtime-ledger__cell {
+  min-width: 0;
+  color: #35506c;
+}
+
+.runtime-ledger__cell--truncate {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.runtime-ledger__cell--strong {
+  color: #21405e;
+  font-weight: 600;
+}
+
+.runtime-ledger__cell--mono {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.runtime-ledger__cell--number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.runtime-ledger__cell--status {
+  overflow: visible;
+}
+
+.runtime-inline-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 76px;
+  padding: 2px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  box-sizing: border-box;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.runtime-inline-status--success {
+  border-color: #c5ebd1;
+  background: #eefbf3;
+  color: #18794e;
+}
+
+.runtime-inline-status--failed {
+  border-color: #ffd1cc;
+  background: #fff1f0;
+  color: #b42318;
+}
+
+.position-ledger-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.position-limit-symbol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.position-limit-symbol strong {
+  color: #21405e;
+}
+
+.position-limit-symbol span {
+  color: #68839d;
+  font-size: 12px;
+}
+
+.position-symbol-limit-input :deep(.el-input-number) {
+  width: 100%;
+}
+
+.position-symbol-limit-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-@media (max-width: 1480px) {
+@media (max-width: 1600px) {
   .position-lower-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 1260px) {
-  .position-decision-grid,
   .position-lower-grid,
-  .position-decision-card__summary,
   .position-metric-grid,
   .position-meta-grid {
     grid-template-columns: 1fr;
