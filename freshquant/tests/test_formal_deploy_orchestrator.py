@@ -420,8 +420,7 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         "-BridgeIfServiceUnavailable",
     ]
     assert commands[3] == [
-        "py",
-        "-3.12",
+        sys.executable,
         "script/freshquant_health_check.py",
         "--surface",
         "api",
@@ -436,6 +435,69 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         "script/check_freshquant_runtime_post_deploy.ps1",
     ]
     assert verify_command[-1] == "api,market_data"
+
+
+def test_health_checks_use_current_python_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_module()
+    commands: list[list[str]] = []
+
+    state_path = tmp_path / "production-state.json"
+    write_state(
+        state_path,
+        {
+            "last_success_sha": "oldsha",
+            "last_attempt_sha": "oldsha",
+            "last_attempt_at": "2026-03-16T00:00:00+00:00",
+            "last_success_at": "2026-03-16T00:00:00+00:00",
+            "last_deployed_surfaces": ["api"],
+            "last_run_url": "https://example.invalid/runs/0",
+        },
+    )
+
+    fake_plan_module = SimpleNamespace(
+        SURFACE_ORDER=("api",),
+        HEALTH_CHECK_MAP={"api": ["http://127.0.0.1:15000/api/runtime/health/summary"]},
+        build_deploy_plan=lambda changed_paths=None, explicit_surfaces=None: make_plan(
+            surfaces=["api"]
+        ),
+    )
+
+    monkeypatch.setattr(module, "resolve_latest_remote_main_sha", lambda _: "newsha")
+    monkeypatch.setattr(
+        module,
+        "load_changed_paths",
+        lambda repo_root, base_sha, head_sha: ["freshquant/rear/api_server.py"],
+    )
+    monkeypatch.setattr(module, "load_deploy_plan_module", lambda _: fake_plan_module)
+    monkeypatch.setattr(
+        module,
+        "execute_command",
+        lambda command, **_: commands.append(command),
+    )
+    monkeypatch.setattr(
+        module,
+        "utcnow",
+        lambda: datetime(2026, 3, 17, 11, 0, 0, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(module.sys, "executable", r"C:\tooling\mirror-python.exe")
+
+    module.run_formal_deploy(
+        repo_root=Path("."),
+        state_path=state_path,
+        runs_root=tmp_path / "runs",
+        run_url="https://example.invalid/runs/7",
+    )
+
+    assert commands[1] == [
+        r"C:\tooling\mirror-python.exe",
+        "script/freshquant_health_check.py",
+        "--surface",
+        "api",
+        "--format",
+        "summary",
+    ]
 
 
 def test_noop_run_skips_deploy_commands_and_advances_state(
@@ -588,3 +650,11 @@ def test_formal_deploy_source_no_longer_references_runtime_symphony() -> None:
 
     assert "runtime/symphony" not in text
     assert "build_symphony_commands" not in text
+
+
+def test_formal_deploy_cli_accepts_head_sha() -> None:
+    module = load_module()
+
+    args = module.build_parser().parse_args(["--head-sha", "abc123"])
+
+    assert args.head_sha == "abc123"
