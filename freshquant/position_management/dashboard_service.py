@@ -169,10 +169,20 @@ class PositionManagementDashboardService:
             default_quantity_source="order_management_projected_positions",
             default_market_value_source="order_management_projected_positions",
         )
+        inferred_position_map = _align_position_view_map_to_broker_truth(
+            inferred_position_map,
+            snapshot_map,
+            default_source="order_management_projected_positions",
+        )
         legacy_position_map = _build_position_view_map(
             self.legacy_position_loader(),
             default_quantity_source="legacy_stock_fills",
             default_market_value_source="legacy_stock_fills",
+        )
+        legacy_position_map = _align_position_view_map_to_broker_truth(
+            legacy_position_map,
+            snapshot_map,
+            default_source="stock_fills_compat",
         )
         symbols = (
             set(overrides)
@@ -225,21 +235,32 @@ class PositionManagementDashboardService:
             for code in (self.holding_codes_provider() or [])
             if normalize_to_base_code(code)
         }
+        snapshot_map = {normalized_symbol: snapshot} if snapshot else {}
+        inferred_position_map = _align_position_view_map_to_broker_truth(
+            _build_position_view_map(
+                self.inferred_position_loader(),
+                default_quantity_source="order_management_projected_positions",
+                default_market_value_source="order_management_projected_positions",
+            ),
+            snapshot_map,
+            default_source="order_management_projected_positions",
+        )
+        legacy_position_map = _align_position_view_map_to_broker_truth(
+            _build_position_view_map(
+                self.legacy_position_loader(),
+                default_quantity_source="legacy_stock_fills",
+                default_market_value_source="legacy_stock_fills",
+            ),
+            snapshot_map,
+            default_source="stock_fills_compat",
+        )
         return self._build_symbol_limit_row(
             normalized_symbol,
             default_limit=default_limit,
             override=overrides.get(normalized_symbol),
             snapshot=snapshot,
-            inferred_position=_build_position_view_map(
-                self.inferred_position_loader(),
-                default_quantity_source="order_management_projected_positions",
-                default_market_value_source="order_management_projected_positions",
-            ).get(normalized_symbol),
-            legacy_position=_build_position_view_map(
-                self.legacy_position_loader(),
-                default_quantity_source="legacy_stock_fills",
-                default_market_value_source="legacy_stock_fills",
-            ).get(normalized_symbol),
+            inferred_position=inferred_position_map.get(normalized_symbol),
+            legacy_position=legacy_position_map.get(normalized_symbol),
             is_holding_symbol=normalized_symbol in holding_codes,
         )
 
@@ -870,6 +891,62 @@ def _build_position_view_map(
             or default_market_value_source,
         }
     return position_map
+
+
+def _align_position_view_map_to_broker_truth(
+    position_map,
+    snapshot_map,
+    *,
+    default_source,
+):
+    aligned_map = {}
+    symbols = set(position_map or {}) | set(snapshot_map or {})
+    for symbol in symbols:
+        aligned_row = _align_position_view_to_broker_truth(
+            (position_map or {}).get(symbol),
+            (snapshot_map or {}).get(symbol),
+            default_source=default_source,
+        )
+        if aligned_row:
+            aligned_map[symbol] = aligned_row
+    return aligned_map
+
+
+def _align_position_view_to_broker_truth(
+    row,
+    snapshot,
+    *,
+    default_source,
+):
+    broker_view = _build_broker_position_view(snapshot, is_holding_symbol=True)
+    if not broker_view.get("available"):
+        return dict(row or {}) if row else None
+
+    payload = dict(row or {})
+    payload["symbol"] = payload.get("symbol") or (snapshot or {}).get("symbol")
+    payload["name"] = (
+        _normalize_optional_text(payload.get("name"))
+        or _normalize_optional_text(broker_view.get("name"))
+        or _normalize_optional_text((snapshot or {}).get("name"))
+    )
+    payload["quantity"] = _coerce_int(broker_view.get("quantity"), 0)
+    payload["market_value"] = _coerce_float(broker_view.get("market_value"), 0.0)
+    payload["quantity_source"] = _build_broker_truth_source_label(
+        payload.get("quantity_source"), default_source
+    )
+    payload["market_value_source"] = _build_broker_truth_source_label(
+        payload.get("market_value_source"), default_source
+    )
+    return payload
+
+
+def _build_broker_truth_source_label(source, default_source):
+    normalized_source = _normalize_optional_text(source) or _normalize_optional_text(
+        default_source
+    )
+    if "broker_truth" in normalized_source:
+        return normalized_source
+    return f"{normalized_source}/broker_truth"
 
 
 def _coerce_position_market_value(item):
