@@ -71,11 +71,13 @@
 - 仅允许持仓内操作的最低保证金默认约 `100000`
 - 单标的实时仓位上限默认约 `800000`
 
-当前同时支持“全局默认值 + 单标的覆盖值”：
+单标的实时仓位上限当前统一使用“系统默认值兜底 + 显式 override”语义：
 
 - 默认值仍写在 `pm_configs.thresholds.single_symbol_position_limit`
 - 单标的覆盖值写在 `pm_configs.symbol_position_limits.overrides.<symbol>`
+- 没有 override 时，实际生效值天然等于系统默认值
 - 买入门禁按 `override_limit ?? default_limit` 计算有效上限
+- 保存值等于系统默认值时，后端会自动删除 override
 - Dashboard 会同时返回 `default_limit / override_limit / effective_limit / market_value / blocked`
 
 单标的实时仓位当前统一定义：
@@ -118,7 +120,21 @@
 - 当前规则矩阵
 - 最近决策摘要（包含 `decision_id / symbol / symbol_name / source / source_module / trace_id / intent_id`，以及单标的实时仓位来源）
 
-其中 `effective_state`、`stale` 和规则说明均由服务端按真实 `PositionPolicy` 计算；最近决策会带出单标的实时仓位、上限来源与 trace 上下文，单标的仓位上限摘要会带出默认值、覆盖值和当前阻断状态。
+其中 `effective_state`、`stale` 和规则说明均由服务端按真实 `PositionPolicy` 计算；最近决策会带出单标的实时仓位、上限来源与 trace 上下文，单标的仓位上限摘要会带出系统默认值、当前生效值、来源事实和当前阻断状态。
+
+最近决策当前会对以下字段做系统真值回填：
+
+最近决策中的实时市值、仓位上限、市值来源、数量来源、盈利减仓、减仓模式和附加上下文字段都会做系统真值回填。
+
+- `实时市值`
+- `仓位上限`
+- `市值来源`
+- `数量来源`
+- `盈利减仓`
+- `减仓模式`
+- `附加上下文`
+
+如果历史 `pm_strategy_decisions.meta` 缺少这些字段，Dashboard 会用当前 `pm_symbol_position_snapshots`、`pm_configs.symbol_position_limits` 和 tracked scope 口径补齐。其中附加上下文至少会带出 `symbol_limit_source`、`symbol_scope_memberships` 等当前系统真值。
 
 单标的仓位上限摘要行当前同时返回三套仓位视图：
 
@@ -129,29 +145,40 @@
 
 三套视图都会带出 `quantity / market_value / source`。其中“订单推断仓位”和“`stock_fills` 兼容镜像仓位”在页面展示前会按券商仓位真值对齐，`source` 会保留 `broker_truth` 标记，避免把对齐后的显示视图误当成原始 lot 残量。
 
+单标的仓位上限摘要行只保留 tracked scope 内的 symbol：
+
+- 当前持仓股
+- `must_pool`
+- `stock_pools`
+- `pre_pools`
+
+脏数据只要不在持仓股、must_pool、stock_pools、pre_pools 中，就不会进入“单标的仓位上限覆盖”，即使它残留在旧 snapshot、订单推断仓位或 `stock_fills` 兼容视图里也一样。
+
 ## 页面组织
 
 `/position-management` 当前已切到统一的 workbench density 语法：
 
 - 页面顶部不再保留“仓位管理”标题卡片
 - 三栏摘要区上移到“最近决策与上下文”上方
-- 三栏摘要区当前固定等高，左中两栏在卡片内滚动以贴齐右栏“单标的仓位上限覆盖”
+- 当前仓位状态与参数 inventory 已合并为左栏，顶部第一行只保留左右两栏
+- 左栏继续展示当前仓位状态、资产摘要、参数 inventory 和规则矩阵；右栏保留更宽的“单标的仓位上限覆盖”
 - 最近决策与上下文已合并为一张高密度 ledger，复用 `/runtime-observability` 全局 Trace 的表格语法
 - 最近决策 ledger 一次展示 `触发时间 / 标的 / 动作 / 结果 / 门禁状态 / 触发来源 / 仓位上下文 / trace / intent / 附加上下文`
 - 最近决策 ledger 默认分页 `100` 条，表体默认显示约 `10` 行，宽度不足时直接使用横向滚动
-- 页面下半区固定为左中右三栏：左栏当前仓位状态与规则矩阵，中栏参数 inventory，右栏单标的仓位上限覆盖
-- 参数 inventory 维持“可编辑阈值 + 只读参数”边界，但当前统一合并为一张紧凑表格，列包含 `分组 / 参数 / 当前值 / 编辑值 / 说明`
+- 参数 inventory 维持“可编辑阈值 + 只读参数”边界，但当前统一合并为左栏中的一张紧凑表格，说明列已移除，编辑态直接嵌入“当前值”列
 - 可编辑阈值当前包含账户级阈值和单标的实时仓位上限
 - 持仓范围卡片已移除，不再单独展示 holding scope
-- 规则矩阵已并入“当前仓位状态”，不再作为独立卡片
-- “单标的仓位上限覆盖”固定放在右栏，集中展示 `券商同步仓位 / 订单推断仓位 / stock_fills 仓位 / 默认值 / 覆盖值 / 有效值 / 一致性 / 门禁`
+- 规则矩阵已并入“当前仓位状态”，不再作为独立卡片，也不再使用滚动条隐藏三种状态
+- “单标的仓位上限覆盖”固定放在右栏，集中展示 `券商同步仓位 / 订单推断仓位 / stock_fills 仓位 / 系统默认值 / 单标的上限设置 / 当前来源 / 一致性 / 门禁`
   - 页面列名仍保留 `stock_fills` 以兼容原有认知，但后端来源是 `stock_fills_compat`
   - 订单推断仓位与 `stock_fills` 对照视图都会按券商仓位真值对齐，只保留来源语义和 `broker_truth` 标记
-- “单标的仓位上限覆盖”可直接编辑“覆盖值”，并调用 `POST /api/position-management/symbol-limits/<symbol>` 写回真实配置
+- “单标的仓位上限覆盖”输入框默认展示当前生效值，并调用 `POST /api/position-management/symbol-limits/<symbol>` 写回真实配置
+- “单标的仓位上限覆盖”保存值等于系统默认值时，后端会自动删除 override，不再存在 `use_default / 恢复默认 / 默认-单独切换`
+- “单标的仓位上限覆盖”里的金额统一按“万”展示，并保留两位小数
 - 已超限或三套仓位数量不一致的标的会在右栏覆盖表中高亮，便于缩放后快速定位
 - 当前仓位状态改成摘要条、指标块和元数据块，不再使用大 hero
 
-单标的覆盖值当前可直接从以下入口编辑：
+单标的上限当前可直接从以下入口编辑，三个入口共享同一语义：
 
 - `/position-management` 右栏“单标的仓位上限覆盖”表
 - `/subject-management` 的右侧“基础配置 + 单标的仓位上限”编辑表

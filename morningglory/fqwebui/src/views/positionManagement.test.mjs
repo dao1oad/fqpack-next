@@ -53,7 +53,7 @@ test('buildInventoryRows keeps single symbol position limit editable inside merg
   assert.equal(singleSymbolLimit.editable, true)
 })
 
-test('buildSymbolLimitRows exposes default and override rows for position limits', () => {
+test('buildSymbolLimitRows exposes effective limit as the editable value and only reports factual source', () => {
   const rows = buildSymbolLimitRows({
     symbol_position_limits: {
       rows: [
@@ -61,6 +61,24 @@ test('buildSymbolLimitRows exposes default and override rows for position limits
           symbol: '600000',
           name: '浦发银行',
           market_value: 520000,
+          broker_position: {
+            quantity: 0,
+            market_value: 0,
+            quantity_source: 'no_broker_position',
+            market_value_source: 'no_broker_position',
+          },
+          inferred_position: {
+            quantity: 0,
+            market_value: 0,
+            quantity_source: 'order_management_projected_positions',
+            market_value_source: 'order_management_projected_positions',
+          },
+          legacy_position: {
+            quantity: 0,
+            market_value: 0,
+            quantity_source: 'stock_fills_compat',
+            market_value_source: 'stock_fills_compat',
+          },
           default_limit: 800000,
           override_limit: 500000,
           effective_limit: 500000,
@@ -71,6 +89,24 @@ test('buildSymbolLimitRows exposes default and override rows for position limits
           symbol: '000001',
           name: '平安银行',
           market_value: 200000,
+          broker_position: {
+            quantity: 0,
+            market_value: 0,
+            quantity_source: 'no_broker_position',
+            market_value_source: 'no_broker_position',
+          },
+          inferred_position: {
+            quantity: 0,
+            market_value: 0,
+            quantity_source: 'order_management_projected_positions',
+            market_value_source: 'order_management_projected_positions',
+          },
+          legacy_position: {
+            quantity: 0,
+            market_value: 0,
+            quantity_source: 'stock_fills_compat',
+            market_value_source: 'stock_fills_compat',
+          },
           default_limit: 800000,
           override_limit: null,
           effective_limit: 800000,
@@ -85,39 +121,54 @@ test('buildSymbolLimitRows exposes default and override rows for position limits
     rows.map((row) => row.symbol),
     ['600000', '000001'],
   )
-  assert.equal(rows[0].market_value_label, '520,000.00')
+  assert.equal(rows[0].market_value_label, '52.00万')
   assert.equal(rows[0].source_label, '单独设置')
   assert.equal(rows[0].blocked_label, '已阻断')
-  assert.equal(rows[1].source_label, '默认值')
-  assert.equal(rows[1].override_limit_label, '-')
+  assert.equal(rows[0].broker_position_label, '0 股 / 0.00万')
+  assert.equal(rows[0].default_limit_label, '80.00万')
+  assert.equal(rows[0].limit_input_value, 500000)
+  assert.equal(rows[0].effective_limit_label, '50.00万')
+  assert.equal(rows[1].source_label, '系统默认值')
+  assert.equal(rows[1].limit_input_value, 800000)
   assert.equal(rows[1].blocked_label, '允许')
 })
 
-test('PositionManagement view keeps top three panels ahead of decision ledger and removes toolbar card', () => {
+test('PositionManagement view merges runtime state and inventory into left panel and keeps only two top columns', () => {
   const source = fs.readFileSync(new URL('./PositionManagement.vue', import.meta.url), 'utf8')
   const topPanelIndex = source.indexOf('position-lower-grid')
   const decisionPanelIndex = source.indexOf('position-decision-panel')
+  const topColumnCount = (source.match(/<div class="position-lower-column">/g) || []).length
 
   assert.match(source, /inventoryRows/)
   assert.match(source, /symbolLimitRows/)
+  assert.match(source, /参数 inventory/)
   assert.match(source, /prop="group_label" label="分组"/)
-  assert.match(source, /prop="description" label="说明"/)
   assert.match(source, /position-lower-grid/)
   assert.match(source, /position-state-scroll/)
-  assert.match(source, /position-config-scroll/)
+  assert.match(source, /runtime-position-rule-ledger/)
   assert.match(source, /--position-upper-panel-height:/)
   assert.match(source, /position-decision-panel/)
   assert.ok(topPanelIndex >= 0)
   assert.ok(decisionPanelIndex >= 0)
   assert.ok(topPanelIndex < decisionPanelIndex)
+  assert.equal(topColumnCount, 2)
   assert.match(source, /position-lower-column > \.workbench-panel/)
   assert.match(source, /单标的仓位上限覆盖/)
   assert.match(source, /single_symbol_position_limit/)
   assert.match(source, /v-model="editableForm\.single_symbol_position_limit"/)
+  assert.match(source, /系统默认值/)
+  assert.match(source, /单标的上限设置/)
+  assert.match(source, /当前来源/)
+  assert.match(source, /runtime-position-rule-ledger\s*\{[^}]*overflow:\s*visible;/)
   assert.doesNotMatch(source, /<section class="workbench-toolbar">/)
   assert.doesNotMatch(source, /<div class="workbench-page-title">仓位管理<\/div>/)
+  assert.doesNotMatch(source, /position-config-panel/)
+  assert.doesNotMatch(source, /position-config-scroll/)
+  assert.doesNotMatch(source, /label="说明"/)
   assert.doesNotMatch(source, /position-decision-card/)
   assert.doesNotMatch(source, /selectedDecision/)
+  assert.doesNotMatch(source, /覆盖值/)
+  assert.doesNotMatch(source, /恢复默认/)
 })
 
 test('buildRecentDecisionRows formats Beijing trigger time and Chinese detail rows', () => {

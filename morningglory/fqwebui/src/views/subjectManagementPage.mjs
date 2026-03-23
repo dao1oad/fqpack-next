@@ -1,10 +1,7 @@
 import { cloneSubjectManagementTakeprofitDrafts } from './subjectManagement.mjs'
 
 const clonePositionLimitDraft = (draft = {}) => ({
-  use_default: Boolean(
-    draft?.use_default ?? !(draft?.using_override ?? (draft?.override_limit !== null && draft?.override_limit !== undefined))
-  ),
-  limit: draft?.limit ?? draft?.override_limit ?? null,
+  limit: draft?.limit ?? draft?.effective_limit ?? draft?.override_limit ?? draft?.default_limit ?? null,
 })
 
 const errorMessage = (error) => {
@@ -52,14 +49,9 @@ const hasPositionLimitDraftChanges = (detail, draft) => {
   return JSON.stringify(clonePositionLimitDraft(draft)) !== JSON.stringify(baseline)
 }
 
-const buildPositionLimitPayload = (draft = {}) => {
-  if (draft?.use_default) {
-    return { use_default: true }
-  }
-  return {
-    limit: draft?.limit ?? null,
-  }
-}
+const buildPositionLimitPayload = (draft = {}) => ({
+  limit: draft?.limit ?? null,
+})
 
 export const createSubjectManagementPageController = ({
   actions,
@@ -87,7 +79,6 @@ export const createSubjectManagementPageController = ({
       lot_amount: null,
     },
     positionLimitDraft: {
-      use_default: true,
       limit: null,
     },
     takeprofitDrafts: [],

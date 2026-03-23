@@ -120,6 +120,11 @@ const formatAmount = (value) => {
   return parsed === null ? '-' : numberFormatter.format(parsed)
 }
 
+const formatWanAmount = (value) => {
+  const parsed = toNumber(value)
+  return parsed === null ? '-' : `${numberFormatter.format(parsed / 10000)}万`
+}
+
 const formatQuantity = (value) => {
   const parsed = toNumber(value)
   return parsed === null ? '-' : integerFormatter.format(parsed)
@@ -161,9 +166,13 @@ const POSITION_SOURCE_NAME_LABELS = {
   legacy_stock_fills: 'stock_fills',
 }
 
-const buildPositionSourceView = (view = {}, fallbackSource = '-') => {
+const buildPositionSourceView = (
+  view = {},
+  fallbackSource = '-',
+  { amountFormatter = formatAmount } = {},
+) => {
   const quantityLabel = formatQuantity(view?.quantity)
-  const marketValueLabel = formatAmount(view?.market_value)
+  const marketValueLabel = amountFormatter(view?.market_value)
   return {
     quantity: toNumber(view?.quantity),
     market_value: toNumber(view?.market_value),
@@ -363,14 +372,17 @@ export const buildSymbolLimitRows = (dashboard = {}) => {
       const brokerPosition = buildPositionSourceView(
         row?.broker_position,
         'no_broker_position',
+        { amountFormatter: formatWanAmount },
       )
       const inferredPosition = buildPositionSourceView(
         row?.inferred_position,
         'order_management_projected_positions',
+        { amountFormatter: formatWanAmount },
       )
       const legacyPosition = buildPositionSourceView(
         row?.legacy_position,
         'legacy_stock_fills',
+        { amountFormatter: formatWanAmount },
       )
       const quantityValues = row?.position_consistency?.quantity_values || {
         broker: brokerPosition.quantity ?? 0,
@@ -382,7 +394,7 @@ export const buildSymbolLimitRows = (dashboard = {}) => {
         ...row,
         symbol: toText(row?.symbol) || '-',
         name: toText(row?.name) || '-',
-        market_value_label: formatAmount(row?.market_value),
+        market_value_label: formatWanAmount(row?.market_value),
         broker_position_label: brokerPosition.summary_label,
         broker_position_source_label: brokerPosition.source_label,
         inferred_position_label: inferredPosition.summary_label,
@@ -392,15 +404,14 @@ export const buildSymbolLimitRows = (dashboard = {}) => {
         broker_position: brokerPosition,
         inferred_position: inferredPosition,
         legacy_position: legacyPosition,
-        default_limit_label: formatAmount(row?.default_limit),
-        override_limit_label: formatAmount(row?.override_limit),
-        effective_limit_label: formatAmount(row?.effective_limit),
-        source_label: row?.using_override ? '单独设置' : '默认值',
+        default_limit_label: formatWanAmount(row?.default_limit),
+        effective_limit_label: formatWanAmount(row?.effective_limit),
+        source_label: row?.using_override ? '单独设置' : '系统默认值',
         blocked_label: row?.blocked ? '已阻断' : '允许',
         consistency_label: quantityMismatch ? '数量不一致' : '数量一致',
         consistency_detail_label: buildConsistencyDetailLabel(quantityValues),
         quantity_mismatch: quantityMismatch,
-        override_limit_value: toNumber(row?.override_limit),
+        limit_input_value: toNumber(row?.effective_limit),
         row_tone: row?.blocked ? 'blocked' : 'normal',
       }
     })

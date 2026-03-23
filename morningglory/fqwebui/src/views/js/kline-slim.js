@@ -191,7 +191,7 @@ function cloneSubjectPanelMustPoolDraft(draft = {}) {
 }
 
 function cloneSubjectPanelPositionLimitDraft(draft = {}) {
-  const rawLimit = draft?.limit ?? draft?.override_limit
+  const rawLimit = draft?.limit ?? draft?.effective_limit ?? draft?.override_limit ?? draft?.default_limit
   const parsedLimit = rawLimit === null || rawLimit === undefined || rawLimit === ''
     ? null
     : Number(rawLimit)
@@ -242,9 +242,6 @@ function hasSubjectPanelPositionLimitChanges(detail, draft) {
 
 function buildSubjectPanelPositionLimitPayload(draft = {}) {
   const parsedLimit = Number(draft?.limit)
-  if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
-    return { use_default: true }
-  }
   return {
     limit: parsedLimit
   }
@@ -1028,13 +1025,10 @@ export default {
         return
       }
 
-      const rawLimit = this.subjectPanelState.positionLimitDraft.limit
-      if (rawLimit !== null && rawLimit !== undefined && rawLimit !== '') {
-        const parsedLimit = Number(rawLimit)
-        if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
-          this.$message?.warning?.('请先填写有效的仓位上限')
-          return
-        }
+      const parsedLimit = Number(this.subjectPanelState.positionLimitDraft.limit)
+      if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+        this.$message?.warning?.('请先填写有效的单标的上限')
+        return
       }
 
       const mustPoolChanged = hasSubjectPanelMustPoolChanges(
@@ -1068,15 +1062,15 @@ export default {
         await this.loadSubjectPanelDetail({ force: true })
         this.$message?.success?.(
           mustPoolChanged && positionLimitChanged
-            ? '基础配置与仓位上限已保存'
+            ? '基础配置与单标的上限已保存'
             : mustPoolChanged
               ? '基础配置已保存'
-              : '仓位上限已保存'
+              : '单标的上限已保存'
         )
       } catch (error) {
         if (mustPoolSaved) {
           await this.loadSubjectPanelDetail({ force: true })
-          this.$message?.warning?.('基础配置已保存，仓位上限保存失败')
+          this.$message?.warning?.('基础配置已保存，单标的上限保存失败')
         }
         this.subjectPanelState.pageError = resolvePanelErrorMessage(error, '标的设置保存失败')
       } finally {

@@ -8,7 +8,7 @@ const cloneMustPoolDraft = (draft = {}) => ({
 })
 
 const clonePositionLimitDraft = (draft = {}) => {
-  const rawLimit = draft?.limit ?? draft?.override_limit
+  const rawLimit = draft?.limit ?? draft?.effective_limit ?? draft?.override_limit ?? draft?.default_limit
   if (rawLimit === null || rawLimit === undefined || rawLimit === '') {
     return { limit: null }
   }
@@ -36,7 +36,7 @@ export const normalizeKlineSlimSubjectPanelDetail = (detail = {}) => {
     name: normalized.name,
     mustPool: normalized.mustPool,
     positionLimit: {
-      limit: normalized.positionLimitSummary?.override_limit ?? null,
+      limit: normalized.positionLimitSummary?.effective_limit ?? null,
       default_limit: normalized.positionLimitSummary?.default_limit ?? null,
       effective_limit: normalized.positionLimitSummary?.effective_limit ?? null,
       market_value: normalized.positionLimitSummary?.market_value ?? null,

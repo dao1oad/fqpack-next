@@ -574,6 +574,175 @@ def test_dashboard_aligns_non_broker_views_to_broker_truth_for_symbol_limit_deta
     assert detail["position_consistency"]["quantity_consistent"] is True
 
 
+def test_dashboard_filters_dirty_symbols_that_are_not_in_holdings_or_any_pool():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    repository = FakeRepository()
+    repository.config_doc = {
+        "code": "default",
+        "enabled": True,
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
+        },
+        "symbol_position_limits": {
+            "overrides": {
+                "000001": {
+                    "limit": 300000.0,
+                    "updated_at": "2026-03-22T10:00:00+08:00",
+                    "updated_by": "pytest",
+                }
+            }
+        },
+    }
+    repository.symbol_snapshot_docs = [
+        {
+            "symbol": "600000",
+            "quantity": 1200,
+            "quantity_source": "xt_positions.volume",
+            "market_value": 520000.0,
+            "market_value_source": "xt_positions.market_value",
+            "name": "浦发银行",
+        },
+        {
+            "symbol": "000001",
+            "quantity": 800,
+            "quantity_source": "xt_positions.volume",
+            "market_value": 200000.0,
+            "market_value_source": "xt_positions.market_value",
+            "name": "平安银行",
+        },
+    ]
+
+    service = PositionManagementDashboardService(
+        repository=repository,
+        holding_codes_provider=lambda: ["600000"],
+        tracked_symbol_context_provider=lambda: {
+            "600000": {
+                "scope_memberships": ["holding", "stock_pool"],
+                "in_scope": True,
+            },
+        },
+        inferred_position_loader=lambda: [
+            {
+                "symbol": "sh600000",
+                "quantity": 1200,
+                "amount_adjusted": -520000.0,
+                "name": "浦发银行",
+            },
+            {
+                "symbol": "sz000001",
+                "quantity": 800,
+                "amount_adjusted": -200000.0,
+                "name": "平安银行",
+            },
+        ],
+        legacy_position_loader=lambda: [
+            {
+                "symbol": "sh600000",
+                "quantity": 1200,
+                "amount_adjusted": -520000.0,
+                "name": "浦发银行",
+            },
+            {
+                "symbol": "sz000001",
+                "quantity": 800,
+                "amount_adjusted": -200000.0,
+                "name": "平安银行",
+            },
+        ],
+        settings_provider=_system_settings_provider(),
+        now_provider=_fixed_now,
+    )
+
+    rows = service.get_dashboard()["symbol_position_limits"]["rows"]
+
+    assert [row["symbol"] for row in rows] == ["600000"]
+
+
+def test_dashboard_backfills_recent_decision_truth_fields_from_current_system_state():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    repository = FakeRepository()
+    repository.config_doc = {
+        "code": "default",
+        "enabled": True,
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
+        },
+        "symbol_position_limits": {
+            "overrides": {
+                "600000": {
+                    "limit": 500000.0,
+                    "updated_at": "2026-03-22T10:00:00+08:00",
+                    "updated_by": "pytest",
+                }
+            }
+        },
+    }
+    repository.symbol_snapshot_docs = [
+        {
+            "symbol": "600000",
+            "quantity": 1200,
+            "quantity_source": "xt_positions.volume",
+            "market_value": 520000.0,
+            "market_value_source": "xt_positions.market_value",
+            "name": "浦发银行",
+        }
+    ]
+    repository.decision_docs = [
+        {
+            "decision_id": "pmd_1",
+            "strategy_name": "Guardian",
+            "action": "buy",
+            "symbol": "600000",
+            "state": HOLDING_ONLY,
+            "allowed": False,
+            "reason_code": "symbol_position_limit_blocked",
+            "reason_text": "单标的实时仓位已达到上限，禁止继续买入",
+            "source": "strategy",
+            "source_module": "Guardian",
+            "evaluated_at": "2026-03-07T12:00:00+08:00",
+            "trace_id": "trc_1",
+            "intent_id": "int_1",
+            "meta": {},
+        }
+    ]
+
+    service = PositionManagementDashboardService(
+        repository=repository,
+        holding_codes_provider=lambda: ["600000"],
+        tracked_symbol_context_provider=lambda: {
+            "600000": {
+                "scope_memberships": ["holding", "must_pool"],
+                "in_scope": True,
+            },
+        },
+        settings_provider=_system_settings_provider(),
+        now_provider=_fixed_now,
+    )
+
+    row = service.get_dashboard()["recent_decisions"][0]
+
+    assert row["symbol_name"] == "浦发银行"
+    assert row["meta"]["is_holding_symbol"] is True
+    assert row["meta"]["symbol_market_value"] == 520000.0
+    assert row["meta"]["symbol_position_limit"] == 500000.0
+    assert row["meta"]["symbol_market_value_source"] == "xt_positions.market_value"
+    assert row["meta"]["symbol_quantity_source"] == "xt_positions.volume"
+    assert row["meta"]["force_profit_reduce"] is False
+    assert row["meta"]["profit_reduce_mode"] == "off"
+    assert row["meta"]["symbol_limit_source"] == "override"
+    assert row["meta"]["symbol_scope_memberships"] == ["holding", "must_pool"]
+
+
 def test_dashboard_legacy_view_reads_compat_loader_not_raw_stock_fills_scan(
     monkeypatch,
 ):
@@ -615,7 +784,7 @@ def test_dashboard_legacy_view_reads_compat_loader_not_raw_stock_fills_scan(
     ]
 
 
-def test_update_symbol_limit_persists_override_and_supports_reset_to_default():
+def test_update_symbol_limit_persists_override_when_limit_differs_from_default():
     from freshquant.position_management.dashboard_service import (
         PositionManagementDashboardService,
     )
@@ -666,10 +835,51 @@ def test_update_symbol_limit_persists_override_and_supports_reset_to_default():
         == 500000.0
     )
 
+
+def test_update_symbol_limit_deletes_override_when_limit_equals_default():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    repository = FakeRepository()
+    repository.config_doc = {
+        "code": "default",
+        "enabled": True,
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
+        },
+        "symbol_position_limits": {
+            "overrides": {
+                "600000": {
+                    "limit": 500000.0,
+                    "updated_at": "2026-01-01T00:00:00+08:00",
+                    "updated_by": "seed",
+                }
+            }
+        },
+    }
+    repository.symbol_snapshot_docs = [
+        {
+            "symbol": "600000",
+            "market_value": 480000.0,
+            "market_value_source": "xt_positions.market_value",
+            "name": "浦发银行",
+        }
+    ]
+
+    service = PositionManagementDashboardService(
+        repository=repository,
+        holding_codes_provider=lambda: ["600000"],
+        settings_provider=_system_settings_provider(),
+        now_provider=_fixed_now,
+    )
+
     reset_detail = service.update_symbol_limit(
         "600000",
         {
-            "use_default": True,
+            "limit": 800000.0,
             "updated_by": "pytest",
         },
     )

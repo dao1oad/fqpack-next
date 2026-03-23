@@ -77,7 +77,7 @@ const normalizePositionLimitSummary = (row = {}) => {
 }
 
 const formatPositionLimitSource = (summary = {}) => (
-  summary?.using_override ? '单独设置' : '默认值'
+  summary?.using_override ? '单独设置' : '系统默认值'
 )
 
 const cloneTakeprofitDraft = (row = {}) => ({
@@ -322,25 +322,15 @@ export const buildDenseConfigRows = (detail = {}) => {
     },
     {
       group: '仓位上限',
-      key: 'position_limit_mode',
-      label: '来源',
-      currentLabel: formatPositionLimitSource(positionLimitSummary),
-      editor: 'position-limit-mode',
-      statusLabel: formatPositionLimitSource(positionLimitSummary),
-      note: positionLimitSummary.blocked
-        ? '当前已触发禁止买入'
-        : `当前市值 ${formatAmountWan(positionLimitSummary.market_value)}`,
-    },
-    {
-      group: '仓位上限',
       key: 'position_limit_value',
-      label: '有效上限',
+      label: '单标的上限设置',
       currentLabel: formatAmountWan(positionLimitSummary.effective_limit),
       editor: 'position-limit-value',
-      statusLabel: positionLimitSummary.blocked ? '已阻断' : '允许',
+      statusLabel: formatPositionLimitSource(positionLimitSummary),
       note: [
         `当前市值 ${formatAmountWan(positionLimitSummary.market_value)}`,
         `默认 ${formatAmountWan(positionLimitSummary.default_limit)}`,
+        positionLimitSummary.blocked ? '当前已触发禁止买入' : '保存成系统默认值会自动删除单独设置',
       ].join(' / '),
     },
   ]

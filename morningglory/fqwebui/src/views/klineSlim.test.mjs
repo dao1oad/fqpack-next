@@ -126,6 +126,7 @@ test('KlineSlim exposes a subject settings overlay next to price guides', () => 
 
 test('KlineSlim subject panel removes category editing, refresh noise and source toggle', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
   assert.match(viewSource, /保存基础配置与上限/)
   assert.equal(viewSource.includes('subject-panel-header-summary'), false)
@@ -135,6 +136,11 @@ test('KlineSlim subject panel removes category editing, refresh noise and source
   assert.equal(viewSource.includes('当前分类'), false)
   assert.equal(viewSource.includes('subjectPanelState.positionLimitDraft.use_default'), false)
   assert.equal(viewSource.includes('关闭“默认”后生效'), false)
+  assert.equal(viewSource.includes('覆盖值'), false)
+  assert.equal(viewSource.includes('留空时沿用仓位管理默认值'), false)
+  assert.match(viewSource, /单标的上限设置/)
+  assert.match(viewSource, /当前来源/)
+  assert.equal(scriptSource.includes('use_default'), false)
   assert.match(viewSource, /class="subject-panel-base-row"/)
   assert.match(viewSource, /class="subject-panel-limit-summary"/)
 })

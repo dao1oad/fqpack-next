@@ -164,7 +164,7 @@ test('page controller loads overview first, then detail, switches rows and refre
       return { symbol, ...payload }
     },
     async savePositionLimit(symbol, payload) {
-      calls.push(['savePositionLimit', symbol, payload.limit ?? null, !!payload.use_default])
+      calls.push(['savePositionLimit', symbol, payload.limit ?? null])
       return { symbol, ...payload }
     },
     async saveTakeprofit(symbol, tiers) {
@@ -227,7 +227,7 @@ test('page controller saves dense config table via must-pool and symbol-limit ap
       return { symbol, ...payload }
     },
     async savePositionLimit(symbol, payload) {
-      calls.push(['savePositionLimit', symbol, payload.limit ?? null, !!payload.use_default])
+      calls.push(['savePositionLimit', symbol, payload.limit ?? null])
       return { symbol, ...payload }
     },
     async saveTakeprofit(symbol, tiers) {
@@ -252,7 +252,6 @@ test('page controller saves dense config table via must-pool and symbol-limit ap
   await controller.refreshOverview()
   controller.state.mustPoolDraft.category = '核心银行'
   controller.state.mustPoolDraft.stop_loss_price = 9.1
-  controller.state.positionLimitDraft.use_default = false
   controller.state.positionLimitDraft.limit = 460000
 
   await controller.handleSaveConfigBundle()
@@ -261,7 +260,7 @@ test('page controller saves dense config table via must-pool and symbol-limit ap
     ['loadOverview'],
     ['loadSubjectDetail', '600000'],
     ['saveMustPool', '600000', '核心银行', 9.1],
-    ['savePositionLimit', '600000', 460000, false],
+    ['savePositionLimit', '600000', 460000],
     ['loadSubjectDetail', '600000'],
     ['loadOverview'],
   ])
@@ -366,7 +365,7 @@ test('page controller reloads persisted state and warns when position-limit save
       return { symbol, ...payload }
     },
     async savePositionLimit(symbol, payload) {
-      calls.push(['savePositionLimit', symbol, payload.limit ?? null, !!payload.use_default])
+      calls.push(['savePositionLimit', symbol, payload.limit ?? null])
       throw new Error('position limit failed')
     },
     async saveTakeprofit() {
@@ -392,14 +391,12 @@ test('page controller reloads persisted state and warns when position-limit save
   await controller.refreshOverview()
   controller.state.mustPoolDraft.category = '核心银行'
   controller.state.mustPoolDraft.stop_loss_price = 9.1
-  controller.state.positionLimitDraft.use_default = false
   controller.state.positionLimitDraft.limit = 460000
 
   await controller.handleSaveConfigBundle()
 
   assert.equal(controller.state.mustPoolDraft.category, '核心银行')
   assert.equal(controller.state.mustPoolDraft.stop_loss_price, 9.1)
-  assert.equal(controller.state.positionLimitDraft.use_default, false)
   assert.equal(controller.state.positionLimitDraft.limit, 460000)
   assert.equal(controller.state.pageError, 'position limit failed')
   assert.deepEqual(messages, [['warning', '基础设置已保存，仓位上限保存失败']])
@@ -407,7 +404,7 @@ test('page controller reloads persisted state and warns when position-limit save
     ['loadOverview'],
     ['loadSubjectDetail', '600000', 'initial'],
     ['saveMustPool', '600000', '核心银行', 9.1],
-    ['savePositionLimit', '600000', 460000, false],
+    ['savePositionLimit', '600000', 460000],
     ['loadSubjectDetail', '600000', 'must-pool-saved'],
     ['loadOverview'],
   ])
