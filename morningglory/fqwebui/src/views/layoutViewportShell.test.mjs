@@ -36,7 +36,7 @@ test('runtime, order, subject, tpsl and daily pages stop clipping the viewport a
   assert.match(orderSource, /\.order-body \{[^}]*overflow:\s*auto;/)
   assert.match(subjectSource, /\.subject-management-body \{[^}]*overflow:\s*auto;/)
   assert.doesNotMatch(subjectSource, /\.subject-layout \{[^}]*min-height:\s*calc\(100vh - 228px\);/)
-  assert.match(subjectSource, /@media \(max-width:\s*1500px\)/)
+  assert.match(subjectSource, /@media \(max-width:\s*1360px\)/)
 
   assert.match(tpslSource, /\.tpsl-body \{[^}]*overflow:\s*auto;/)
   assert.doesNotMatch(tpslSource, /\.tpsl-layout \{[^}]*overflow:\s*hidden;/)
