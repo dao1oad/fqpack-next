@@ -178,6 +178,12 @@ def _stub_ingest_side_effects(monkeypatch, *, marks=None, mark_label="updated"):
         (lambda: None) if marks is None else (lambda: marks.append(mark_label)),
         raising=False,
     )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
 
 
 def _build_service(monkeypatch=None, *, marks=None, mark_label="updated"):

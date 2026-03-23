@@ -510,8 +510,8 @@ def test_dashboard_legacy_view_reads_compat_loader_not_raw_stock_fills_scan(
     monkeypatch,
 ):
     import freshquant.db as fq_db
-    from freshquant.position_management import dashboard_service
     from freshquant.order_management.projection import stock_fills_compat
+    from freshquant.position_management import dashboard_service
 
     class BoomStockFillsCollection:
         def find(self, *_args, **_kwargs):

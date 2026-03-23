@@ -135,6 +135,12 @@ def _stub_ingest_side_effects(monkeypatch):
         )(),
         raising=False,
     )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
 
 
 def test_ingest_trade_report_emits_runtime_events(monkeypatch):
