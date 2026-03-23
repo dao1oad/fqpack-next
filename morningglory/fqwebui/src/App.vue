@@ -9,15 +9,17 @@ html,
 body,
 #app {
   margin: 0;
-  height: 100%;
-  overflow: hidden;
+  min-height: 100%;
 }
 
 body {
   background: #f5f7fa;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 
+#app,
 .app-shell {
-  height: 100%;
+  min-height: 100%;
 }
 </style>
