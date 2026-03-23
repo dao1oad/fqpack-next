@@ -12,6 +12,7 @@ const DEFAULT_X_RANGE = {
 }
 const WHEEL_ZOOM_IN_FACTOR = 0.85
 const MIN_WHEEL_ZOOM_SPAN = 2
+const MIN_WHEEL_ZOOM_Y_SPAN_RATIO = 0.002
 const PRICE_GUIDE_HIT_DISTANCE = 12
 
 function clampRangeValue(value, fallback) {
@@ -32,6 +33,19 @@ function normalizeXRange(range = {}) {
     end = Math.min(100, start + 1)
   }
   return { start, end }
+}
+
+function normalizeYRange(range = null) {
+  const min = Number(range?.min)
+  const max = Number(range?.max)
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
+    return null
+  }
+  return { min, max }
+}
+
+function resolveViewportYMode(mode) {
+  return mode === 'manual' ? 'manual' : 'auto'
 }
 
 function readXRangeFromDataZoomEvent(event, fallbackViewport = createKlineSlimViewportState()) {
@@ -74,6 +88,34 @@ function buildWheelZoomXRange({ currentRange, cursorRatio, zoomDirection } = {})
   }
 
   return normalizeXRange({ start, end })
+}
+
+function buildWheelZoomYRange({ currentRange, anchorValue, zoomDirection } = {}) {
+  const normalizedRange = normalizeYRange(currentRange)
+  const numericAnchorValue = Number(anchorValue)
+  if (!normalizedRange || !Number.isFinite(numericAnchorValue)) {
+    return normalizedRange
+  }
+
+  const rangeSpan = Math.max(1e-9, normalizedRange.max - normalizedRange.min)
+  const referenceValue = Math.max(
+    Math.abs(numericAnchorValue),
+    Math.abs(normalizedRange.min),
+    Math.abs(normalizedRange.max),
+    1
+  )
+  const factor = zoomDirection > 0 ? WHEEL_ZOOM_IN_FACTOR : 1 / WHEEL_ZOOM_IN_FACTOR
+  const nextSpan = Math.max(referenceValue * MIN_WHEEL_ZOOM_Y_SPAN_RATIO, rangeSpan * factor)
+  if (Math.abs(nextSpan - rangeSpan) < 1e-12) {
+    return normalizedRange
+  }
+
+  const lowerRatio = Math.max(0, Math.min(1, (numericAnchorValue - normalizedRange.min) / rangeSpan))
+  const upperRatio = Math.max(0, Math.min(1, (normalizedRange.max - numericAnchorValue) / rangeSpan))
+  return {
+    min: Number((numericAnchorValue - nextSpan * lowerRatio).toFixed(6)),
+    max: Number((numericAnchorValue + nextSpan * upperRatio).toFixed(6))
+  }
 }
 
 function pickVisibleWindow(scene, xRange) {
@@ -153,7 +195,8 @@ function buildYRange(values, fallback = null) {
   const min = Math.min(...values)
   const max = Math.max(...values)
   const span = Math.max(0.01, max - min)
-  const padding = Math.max(0.1, span * 0.08)
+  const referenceValue = Math.max(Math.abs(min), Math.abs(max), 1)
+  const padding = Math.max(referenceValue * MIN_WHEEL_ZOOM_Y_SPAN_RATIO, span * 0.08)
   return {
     min: Number((min - padding).toFixed(6)),
     max: Number((max + padding).toFixed(6))
@@ -163,7 +206,8 @@ function buildYRange(values, fallback = null) {
 export function createKlineSlimViewportState(overrides = {}) {
   return {
     xRange: normalizeXRange(overrides.xRange),
-    yRange: overrides.yRange || null
+    yRange: normalizeYRange(overrides.yRange),
+    yMode: resolveViewportYMode(overrides.yMode)
   }
 }
 
@@ -177,7 +221,8 @@ export function readKlineSlimViewportWindow(option, previousViewport = createKli
       start: xZoom?.start ?? previousViewport.xRange.start,
       end: xZoom?.end ?? previousViewport.xRange.end
     }),
-    yRange: previousViewport.yRange
+    yRange: normalizeYRange(previousViewport.yRange),
+    yMode: resolveViewportYMode(previousViewport.yMode)
   }
 }
 
@@ -187,11 +232,20 @@ export function deriveViewportStateForScene({ scene, viewport } = {}) {
     return resolvedViewport
   }
 
+  if (resolvedViewport.yMode === 'manual' && normalizeYRange(resolvedViewport.yRange)) {
+    return {
+      xRange: resolvedViewport.xRange,
+      yRange: normalizeYRange(resolvedViewport.yRange),
+      yMode: 'manual'
+    }
+  }
+
   const windowBounds = pickVisibleWindow(scene, resolvedViewport.xRange)
   const values = collectVisibleValues(scene, windowBounds)
   return {
     xRange: resolvedViewport.xRange,
-    yRange: buildYRange(values, resolvedViewport.yRange)
+    yRange: buildYRange(values, resolvedViewport.yRange),
+    yMode: 'auto'
   }
 }
 
@@ -308,13 +362,23 @@ export function createKlineSlimChartController({
       ? readXRangeFromDataZoomEvent(event, viewport)
       : readKlineSlimViewportWindow(option, viewport).xRange
 
-    viewport = deriveViewportStateForScene({
-      scene: currentScene,
-      viewport: {
-        xRange,
-        yRange: viewport.yRange
-      }
-    })
+    const nextViewport =
+      viewport.yMode === 'manual' && normalizeYRange(viewport.yRange)
+        ? createKlineSlimViewportState({
+          xRange,
+          yRange: viewport.yRange,
+          yMode: 'manual'
+        })
+        : deriveViewportStateForScene({
+          scene: currentScene,
+          viewport: {
+            xRange,
+            yRange: viewport.yRange,
+            yMode: 'auto'
+          }
+        })
+
+    viewport = nextViewport
 
     applyingViewport = true
     chart.setOption(buildKlineSlimChartOption({
@@ -370,21 +434,48 @@ export function createKlineSlimChartController({
       cursorRatio,
       zoomDirection: wheelDelta
     })
+    const anchorPrice = resolvePriceFromPixelY({
+      viewport,
+      gridRect,
+      pixelY: pixel[1]
+    })
+    const nextYRange = buildWheelZoomYRange({
+      currentRange: viewport.yRange,
+      anchorValue: anchorPrice,
+      zoomDirection: wheelDelta
+    })
     if (
       Math.abs(nextRange.start - viewport.xRange.start) < 0.001 &&
-      Math.abs(nextRange.end - viewport.xRange.end) < 0.001
+      Math.abs(nextRange.end - viewport.xRange.end) < 0.001 &&
+      normalizeYRange(nextYRange) &&
+      normalizeYRange(viewport.yRange) &&
+      Math.abs(nextYRange.min - viewport.yRange.min) < 1e-6 &&
+      Math.abs(nextYRange.max - viewport.yRange.max) < 1e-6
     ) {
       return
     }
 
     event?.event?.preventDefault?.()
     event?.event?.stopPropagation?.()
-    chart.dispatchAction({
-      type: 'dataZoom',
-      dataZoomId: 'kline-slim-inside-zoom',
-      start: nextRange.start,
-      end: nextRange.end
+    viewport = createKlineSlimViewportState({
+      xRange: nextRange,
+      yRange: nextYRange || viewport.yRange,
+      yMode: 'manual'
     })
+
+    applyingViewport = true
+    chart.setOption(buildKlineSlimChartOption({
+      chart,
+      scene: currentScene,
+      viewport,
+      crosshair,
+      draggingPriceGuideId: draggingPriceGuide?.id || ''
+    }), {
+      notMerge: false,
+      replaceMerge: ['series', 'xAxis', 'yAxis', 'dataZoom', 'graphic']
+    })
+    applyingViewport = false
+    onViewportChange?.(viewport)
   }
 
   const handleMouseMove = (event) => {

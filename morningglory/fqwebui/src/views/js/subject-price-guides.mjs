@@ -1,4 +1,4 @@
-const DEFAULT_BUY_ACTIVE = [true, true, true]
+const DEFAULT_BUY_ACTIVE = [false, false, false]
 const DEFAULT_BUY_ENABLED = [true, true, true]
 const DEFAULT_MIN_GUIDE_GAP = 0.01
 const DEFAULT_GUARDIAN_OFFSETS = [0.015, 0.03, 0.045]

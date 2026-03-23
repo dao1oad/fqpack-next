@@ -28,6 +28,21 @@ const makeMainData = () => ({
   high: [10.2, 10.3, 10.4, 10.5],
 })
 
+const makeLowPriceMainData = () => ({
+  symbol: '512000',
+  name: '券商ETF',
+  date: [
+    '2026-03-20 10:00:00',
+    '2026-03-20 10:30:00',
+    '2026-03-20 11:00:00',
+    '2026-03-20 11:30:00',
+  ],
+  open: [0.518, 0.519, 0.52, 0.519],
+  close: [0.519, 0.52, 0.519, 0.518],
+  low: [0.516, 0.517, 0.518, 0.517],
+  high: [0.521, 0.522, 0.522, 0.52],
+})
+
 const makePriceGuides = () => ({
   lines: [
     {
@@ -158,6 +173,49 @@ test('buildKlineSlimChartOption renders price lines without background bands and
   )
   assert.equal(option.legend.selected['Guardian 价格线'], true)
   assert.equal(option.legend.selected['止盈价格线'], true)
+})
+
+test('buildChartPriceGuides does not mark guardian lines active when runtime state is missing', () => {
+  const guides = buildChartPriceGuides({
+    guardianDraft: {
+      buy_enabled: [true, true, true],
+      buy_1: 0.51,
+      buy_2: 0.48,
+      buy_3: 0.46,
+    },
+    guardianState: null,
+    takeprofitDrafts: [],
+    takeprofitState: {},
+  })
+
+  assert.equal(
+    guides.lines
+      .filter((item) => item.group === 'guardian')
+      .every((item) => item.active === false),
+    true
+  )
+})
+
+test('deriveViewportStateForScene keeps low-price auto y range tight', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: makeLowPriceMainData(),
+    currentPeriod: '30m',
+    visiblePeriods: ['30m'],
+    priceGuides: {
+      lines: [],
+      bands: [],
+    },
+  })
+
+  const viewport = deriveViewportStateForScene({
+    scene,
+    viewport: {
+      xRange: { start: 75, end: 100 },
+      yRange: null,
+    },
+  })
+
+  assert.equal(viewport.yRange.max - viewport.yRange.min < 0.05, true)
 })
 
 test('buildChartPriceGuides uses draft values as the chart source', () => {

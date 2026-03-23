@@ -1563,6 +1563,11 @@ export default {
       this.fetchMainData(this.routeToken)
       this.refreshVisibleChanlunPeriods(this.routeToken)
     },
+    resetChartViewport() {
+      this.chartViewport = createKlineSlimViewportState()
+      this.resetViewportOnNextRender = true
+      this.scheduleRender()
+    },
     jumpToControl() {
       this.$router.replace('/stock-control')
     },

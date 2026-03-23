@@ -4,7 +4,10 @@ import assert from 'node:assert/strict'
 import {
   buildKlineSlimChartScene,
 } from './kline-slim-chart-renderer.mjs'
-import { createKlineSlimChartController } from './kline-slim-chart-controller.mjs'
+import {
+  createKlineSlimChartController,
+  createKlineSlimViewportState,
+} from './kline-slim-chart-controller.mjs'
 import {
   buildChartPriceGuides,
   buildEditablePriceGuides,
@@ -43,7 +46,14 @@ function createStubChart() {
     clear() {
       option = null
     },
-    dispatchAction() {},
+    dispatchAction(action) {
+      if (action?.type === 'dataZoom') {
+        chartHandlers.get('datazoom')?.({
+          start: action.start,
+          end: action.end,
+        })
+      }
+    },
     getModel() {
       return {
         getComponent() {
@@ -128,6 +138,45 @@ function buildScene() {
   })
 }
 
+function buildVolatileScene() {
+  return buildKlineSlimChartScene({
+    mainData: {
+      symbol: '300750',
+      name: '宁德时代',
+      date: [
+        '2026-03-16 09:30:00',
+        '2026-03-16 10:00:00',
+        '2026-03-16 10:30:00',
+        '2026-03-16 11:00:00',
+        '2026-03-16 13:30:00',
+        '2026-03-16 14:00:00',
+        '2026-03-16 14:30:00',
+        '2026-03-16 15:00:00',
+      ],
+      open: [10, 12, 15, 18, 23, 28, 34, 39],
+      close: [12, 15, 18, 23, 28, 34, 39, 45],
+      low: [9, 11, 14, 17, 22, 27, 33, 38],
+      high: [13, 16, 19, 24, 29, 35, 40, 46],
+    },
+    currentPeriod: '30m',
+    visiblePeriods: ['30m'],
+    priceGuides: {
+      lines: [],
+      bands: [],
+    },
+    editablePriceGuides: {
+      lines: [],
+      bands: [],
+    },
+  })
+}
+
+test('createKlineSlimViewportState defaults to auto y mode', () => {
+  const viewport = createKlineSlimViewportState()
+
+  assert.equal(viewport.yMode, 'auto')
+})
+
 test('controller calls drag callbacks for editable price guides', () => {
   const chart = createStubChart()
   const dragCalls = []
@@ -180,4 +229,68 @@ test('controller calls drag callbacks for editable price guides', () => {
   assert.equal(typeof dragCalls[0].price, 'number')
   assert.equal(dragEndCalls.length, 1)
   assert.equal(dragEndCalls[0].line.id, 'takeprofit-l3')
+})
+
+test('controller mouse wheel switches to manual dual-axis viewport around the cursor', () => {
+  const chart = createStubChart()
+  const controller = createKlineSlimChartController({ chart })
+
+  controller.applyScene(buildScene(), {
+    resetViewport: true,
+  })
+
+  const initialViewport = JSON.parse(JSON.stringify(controller.getViewport()))
+  const mouseWheel = chart.zrHandlers.get('mousewheel')
+
+  mouseWheel({
+    offsetX: 220,
+    offsetY: 120,
+    wheelDelta: 120,
+    event: {
+      preventDefault() {},
+      stopPropagation() {},
+    },
+  })
+
+  const nextViewport = controller.getViewport()
+
+  assert.equal(nextViewport.yMode, 'manual')
+  assert.notDeepEqual(nextViewport.xRange, initialViewport.xRange)
+  assert.notDeepEqual(nextViewport.yRange, initialViewport.yRange)
+  assert.equal(
+    nextViewport.yRange.max - nextViewport.yRange.min <
+      initialViewport.yRange.max - initialViewport.yRange.min,
+    true
+  )
+})
+
+test('manual y range survives x-axis datazoom after wheel zoom', () => {
+  const chart = createStubChart()
+  const controller = createKlineSlimChartController({ chart })
+
+  controller.applyScene(buildVolatileScene(), {
+    resetViewport: true,
+  })
+
+  const mouseWheel = chart.zrHandlers.get('mousewheel')
+  mouseWheel({
+    offsetX: 200,
+    offsetY: 96,
+    wheelDelta: 120,
+    event: {
+      preventDefault() {},
+      stopPropagation() {},
+    },
+  })
+
+  const afterWheel = JSON.parse(JSON.stringify(controller.getViewport()))
+  chart.chartHandlers.get('datazoom')?.({
+    start: 15,
+    end: 55,
+  })
+  const afterPan = controller.getViewport()
+
+  assert.equal(afterWheel.yMode, 'manual')
+  assert.deepEqual(afterPan.yRange, afterWheel.yRange)
+  assert.notDeepEqual(afterPan.xRange, afterWheel.xRange)
 })
