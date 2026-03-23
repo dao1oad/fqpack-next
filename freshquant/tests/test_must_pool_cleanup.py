@@ -1,4 +1,5 @@
-import importlib
+import importlib.util
+from pathlib import Path
 
 
 class FakeCollection:
@@ -18,8 +19,19 @@ class FakeDatabase(dict):
         return dict.__getitem__(self, name)
 
 
+def load_pool_general_module():
+    module_path = Path(__file__).resolve().parents[1] / "pool" / "general.py"
+    spec = importlib.util.spec_from_file_location(
+        "_freshquant_pool_general_under_test", module_path
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_clean_must_pool_does_not_filter_by_forever(monkeypatch):
-    pool_general = importlib.import_module("freshquant.pool.general")
+    pool_general = load_pool_general_module()
 
     fake_db = FakeDatabase(
         {
