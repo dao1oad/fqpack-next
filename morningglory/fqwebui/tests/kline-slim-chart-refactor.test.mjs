@@ -315,6 +315,58 @@ test('viewport derivation keeps x window and recomputes y range from visible can
   assert.ok(viewport.yRange.min < 11)
 })
 
+test('viewport auto-fit ignores distant price guides unless price-guide edit mode is active', () => {
+  const baseOptions = {
+    mainData: createMainPayload(),
+    currentPeriod: '5m',
+    priceGuides: {
+      lines: [
+        {
+          id: 'takeprofit-l3',
+          group: 'takeprofit',
+          price: 18.5,
+          active: true,
+          manual_enabled: true
+        }
+      ],
+      bands: []
+    },
+    editablePriceGuides: {
+      lines: [
+        {
+          id: 'takeprofit-l3',
+          group: 'takeprofit',
+          price: 18.5,
+          active: true,
+          manual_enabled: true
+        }
+      ],
+      bands: []
+    }
+  }
+
+  const autoScene = buildKlineSlimChartScene({
+    ...baseOptions,
+    priceGuideEditMode: false
+  })
+  const autoViewport = deriveViewportStateForScene({
+    scene: autoScene,
+    viewport: createKlineSlimViewportState()
+  })
+
+  const editScene = buildKlineSlimChartScene({
+    ...baseOptions,
+    priceGuideEditMode: true
+  })
+  const editViewport = deriveViewportStateForScene({
+    scene: editScene,
+    viewport: createKlineSlimViewportState()
+  })
+
+  assert.ok(autoViewport.yRange.max < 15, `expected auto-fit max < 15, got ${autoViewport.yRange.max}`)
+  assert.ok(editViewport.yRange.max > 18, `expected edit-mode max > 18, got ${editViewport.yRange.max}`)
+})
+
 test('chart option uses compressed trading-slot axis and period legends while keeping viewport as explicit state', () => {
   const scene = buildKlineSlimChartScene({
     mainData: createMainPayload(),
