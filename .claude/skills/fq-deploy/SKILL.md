@@ -82,6 +82,14 @@ print(inspect.signature(resolve_stock_account))
 
 - 如果源文件落在 `.venv\Lib\site-packages\fqxtrade\xtquant\account.py`，说明宿主机运行时仍在使用已安装包；先确认正式 deploy 是否已经切到包含最新兼容修复的远程 `main`
 
+### Docker 构建阶段 fqchan04 编译器崩溃
+
+- 如果 formal deploy 失败点在 `script/docker_parallel_compose.ps1`，先读当前 run_dir 的 `result.json` 和 `plan.json`，确认失败到底发生在 Docker 构建、health check 还是 runtime verify
+- 如果日志显示 `docker/Dockerfile.rear` 的 `python -m uv sync --frozen --no-install-project` 在编译 `fqchan04` 时触发 `g++ internal compiler error` 或 `Segmentation fault`，先把它当成潜在的瞬时构建失败，而不是立刻当成稳定源码回归
+- `fq_webui` 的 compose 依赖当前会带出 `fq_apiserver` / `fq_qawebserver` 启动路径，所以 Web deploy 仍可能触发 rear image 构建链路
+- 第一次遇到这种 `fqchan04` 编译器崩溃时，保留失败 run_dir artifacts 后，对同一 SHA 原样重跑 1 次 formal deploy
+- 只有当第二次仍在同一位置失败，才继续进入代码修复、Dockerfile 调整或编译环境调查
+
 ## Discipline
 
 - 不要在开发 worktree 上直接 formal deploy

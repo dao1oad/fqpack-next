@@ -26,6 +26,18 @@ def test_current_docs_cover_host_runtime_dependency_drift() -> None:
     assert "fqxtrade" in troubleshooting_text
 
 
+def test_current_docs_cover_transient_fqchan04_build_failure() -> None:
+    deployment_text = Path("docs/current/deployment.md").read_text(encoding="utf-8")
+    troubleshooting_text = Path("docs/current/troubleshooting.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "fqchan04" in deployment_text
+    assert "fq_apiserver" in deployment_text
+    assert "internal compiler error" in troubleshooting_text
+    assert "原样重跑 1 次" in troubleshooting_text
+
+
 def test_project_deploy_skill_exists_and_covers_formal_flow() -> None:
     skill_text = Path(".claude/skills/fq-deploy/SKILL.md").read_text(encoding="utf-8")
 
@@ -36,3 +48,5 @@ def test_project_deploy_skill_exists_and_covers_formal_flow() -> None:
     assert "check_freshquant_runtime_post_deploy.ps1" in skill_text
     assert "fqnext_host_runtime_ctl.ps1 -Mode Status" in skill_text
     assert "site-packages" in skill_text
+    assert "fqchan04" in skill_text
+    assert "原样重跑 1 次" in skill_text
