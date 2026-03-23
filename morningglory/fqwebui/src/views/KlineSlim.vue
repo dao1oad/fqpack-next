@@ -190,21 +190,23 @@
 
       <section class="kline-slim-content">
         <div v-if="showSubjectPanel" class="kline-slim-subject-panel kline-slim-overlay-panel">
-          <div class="price-panel-header">
-            <div class="price-panel-header-main">
+          <div class="price-panel-header subject-panel-header">
+            <div class="price-panel-header-main subject-panel-header-main">
               <div class="price-panel-title-row">
                 <span class="price-panel-title">标的设置</span>
                 <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
-                <span v-if="subjectPanelState.subjectDetailLoading" class="price-panel-chip">同步中</span>
-              </div>
-              <div class="price-panel-meta-row">
-                <span>基础配置 / 单标的仓位上限 / 按 buy lot 止损</span>
-                <span v-if="subjectPanelState.subjectPanelDetail">
+                <span v-if="subjectPanelState.subjectPanelDetail" class="price-panel-chip">
                   {{ subjectPanelState.subjectPanelDetail.name || subjectPanelState.subjectPanelDetail.symbol }}
                 </span>
+                <span v-if="subjectPanelState.subjectDetailLoading" class="price-panel-chip">同步中</span>
+              </div>
+              <div class="subject-panel-header-summary">
+                <span class="price-panel-summary-chip">基础配置</span>
+                <span class="price-panel-summary-chip">仓位上限</span>
+                <span class="price-panel-summary-chip">buy lot 止损</span>
               </div>
             </div>
-            <div class="price-panel-actions">
+            <div class="price-panel-actions subject-panel-header-actions">
               <el-button
                 size="small"
                 type="primary"
@@ -212,7 +214,7 @@
                 :disabled="!subjectPanelState.subjectPanelDetail"
                 @click="handleSaveSubjectConfigBundle"
               >
-                保存基础配置与仓位上限
+                保存基础配置与上限
               </el-button>
               <el-button
                 size="small"
@@ -402,12 +404,17 @@
                     :key="row.buy_lot_id"
                     class="subject-panel-stoploss-row"
                   >
-                    <div class="subject-panel-stoploss-main">
-                      <span class="subject-panel-field__label">{{ row.buy_lot_id }}</span>
-                      <span class="subject-panel-field__note">
-                        买入 {{ formatPriceGuideValue(row.buy_price_real) }} / 数量 {{ row.original_quantity }} / 剩余 {{ row.remaining_quantity }}
+                    <div class="subject-panel-stoploss-head">
+                      <div class="subject-panel-stoploss-title-wrap">
+                        <span class="subject-panel-stoploss-title">{{ row.buyLotDisplayLabel }}</span>
+                        <span class="subject-panel-stoploss-id" :title="row.buy_lot_id">{{ row.buyLotIdLabel }}</span>
+                      </div>
+                      <span class="price-panel-state-chip" :class="{ active: subjectPanelState.stoplossDrafts[row.buy_lot_id].enabled }">
+                        {{ subjectPanelState.stoplossDrafts[row.buy_lot_id].enabled ? '生效中' : '未启用' }}
                       </span>
                     </div>
+
+                    <span class="subject-panel-stoploss-meta" :title="row.buy_lot_id">{{ row.buyLotMetaLabel }}</span>
 
                     <div class="subject-panel-stoploss-editor">
                       <el-input-number
@@ -424,12 +431,6 @@
                         active-text="开"
                         inactive-text="关"
                       />
-                    </div>
-
-                    <div class="subject-panel-stoploss-actions">
-                      <span class="price-panel-state-chip" :class="{ active: subjectPanelState.stoplossDrafts[row.buy_lot_id].enabled }">
-                        {{ subjectPanelState.stoplossDrafts[row.buy_lot_id].enabled ? '生效中' : '未启用' }}
-                      </span>
                       <el-button
                         size="small"
                         type="primary"
@@ -976,7 +977,7 @@ export default klineSlim
 
 .kline-slim-subject-panel
   left 12px
-  width 372px
+  width 452px
   max-width calc(100% - 24px)
   max-height calc(100% - 24px)
   display flex
@@ -1010,6 +1011,7 @@ export default klineSlim
   font-size 16px
   font-weight 600
   color #f8fafc
+  white-space nowrap
 
 .price-panel-chip
   display inline-flex
@@ -1034,6 +1036,22 @@ export default klineSlim
   display flex
   align-items center
   gap 8px
+
+.subject-panel-header
+  align-items flex-start
+
+.subject-panel-header-main
+  gap 10px
+
+.subject-panel-header-summary
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+
+.subject-panel-header-actions
+  justify-content flex-end
+  flex-wrap wrap
 
 .price-panel-body
   flex 1
@@ -1294,14 +1312,50 @@ export default klineSlim
   gap 10px
 
 .subject-panel-stoploss-row
-  display grid
-  grid-template-columns minmax(0, 1fr) minmax(148px, 0.9fr) auto
-  gap 10px
-  align-items center
-  padding 12px
+  display flex
+  flex-direction column
+  gap 8px
+  padding 10px 12px
   border 1px solid rgba(127, 127, 122, 0.16)
   border-radius 14px
   background rgba(15, 23, 42, 0.44)
+
+.subject-panel-stoploss-head
+  display flex
+  align-items flex-start
+  justify-content space-between
+  gap 10px
+  min-width 0
+
+.subject-panel-stoploss-title-wrap
+  display flex
+  align-items center
+  flex-wrap wrap
+  gap 8px
+  min-width 0
+
+.subject-panel-stoploss-title
+  font-size 13px
+  font-weight 600
+  color #f8fafc
+  white-space nowrap
+
+.subject-panel-stoploss-id
+  display inline-flex
+  align-items center
+  min-height 22px
+  padding 0 8px
+  border-radius 999px
+  border 1px solid rgba(127, 127, 122, 0.18)
+  background rgba(30, 41, 59, 0.42)
+  color #94a3b8
+  font-size 11px
+
+.subject-panel-stoploss-meta
+  font-size 12px
+  line-height 1.5
+  color #94a3b8
+  overflow-wrap anywhere
 
 .subject-panel-stoploss-main
   display flex
@@ -1311,14 +1365,9 @@ export default klineSlim
 
 .subject-panel-stoploss-editor
   display grid
-  grid-template-columns minmax(0, 1fr) auto
+  grid-template-columns minmax(0, 1fr) auto auto
   gap 8px
   align-items center
-
-.subject-panel-stoploss-actions
-  display flex
-  align-items center
-  gap 8px
 
 .subject-panel-field :deep(.el-input-number),
 .subject-panel-stoploss-editor :deep(.el-input-number)
@@ -1525,13 +1574,12 @@ export default klineSlim
     width 332px
 
   .kline-slim-subject-panel
-    width 372px
+    width 408px
 
   .price-panel-row
     grid-template-columns 1fr
 
-  .subject-panel-limit-row,
-  .subject-panel-stoploss-row
+  .subject-panel-limit-row
     grid-template-columns 1fr
 
 @media (max-width: 900px)
@@ -1577,6 +1625,9 @@ export default klineSlim
   .price-panel-actions
     justify-content flex-end
 
+  .subject-panel-header-actions
+    justify-content flex-end
+
   .price-panel-section-header,
   .price-panel-footer
     flex-direction column
@@ -1584,6 +1635,13 @@ export default klineSlim
 
   .price-panel-row-editor
     justify-content flex-start
+
+  .subject-panel-stoploss-editor
+    grid-template-columns minmax(0, 1fr) auto
+
+  .subject-panel-stoploss-editor :deep(.el-button)
+    grid-column 1 / -1
+    justify-self end
 
   .chanlun-panel-actions
     justify-content flex-end

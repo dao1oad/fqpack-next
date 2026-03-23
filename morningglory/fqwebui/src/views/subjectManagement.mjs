@@ -103,8 +103,52 @@ const buildTakeprofitSummary = (tiers = []) => {
     }))
 }
 
+const formatCompactDate = (value) => {
+  const text = toText(value)
+  if (/^\d{8}$/.test(text)) {
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`
+  }
+  return text
+}
+
+const formatCompactTime = (value) => {
+  const text = toText(value)
+  if (/^\d{2}:\d{2}:\d{2}$/.test(text)) {
+    return text.slice(0, 5)
+  }
+  return text
+}
+
+const formatBuyLotDateTime = (row = {}) => {
+  const dateText = formatCompactDate(row?.date)
+  const timeText = formatCompactTime(row?.time)
+  return [dateText, timeText].filter(Boolean).join(' ')
+}
+
+const buildBuyLotIdLabel = (value) => {
+  const text = toText(value)
+  if (!text) return 'ID -'
+  if (text.length <= 12) return `ID ${text}`
+  return `ID 尾号 ${text.slice(-6)}`
+}
+
+const buildBuyLotMetaLabel = (row = {}) => {
+  const parts = []
+  const dateTime = formatBuyLotDateTime(row)
+  const buyPriceLabel = formatPrice(row?.buy_price_real)
+  const originalQuantityLabel = formatInteger(row?.original_quantity)
+  const remainingQuantityLabel = formatInteger(row?.remaining_quantity)
+
+  if (dateTime) parts.push(dateTime)
+  if (buyPriceLabel !== '-') parts.push(`买入 ${buyPriceLabel}`)
+  if (originalQuantityLabel !== '-') parts.push(`原始 ${originalQuantityLabel}`)
+  if (remainingQuantityLabel !== '-') parts.push(`剩余 ${remainingQuantityLabel}`)
+
+  return parts.join(' · ') || '暂无买入信息'
+}
+
 const buildBuyLots = (rows = []) => {
-  return (Array.isArray(rows) ? rows : []).map((row) => {
+  return (Array.isArray(rows) ? rows : []).map((row, index) => {
     const stoploss = row?.stoploss || {}
     return {
       ...row,
@@ -114,6 +158,9 @@ const buildBuyLots = (rows = []) => {
         enabled: Boolean(stoploss?.enabled),
       },
       stoplossLabel: formatPrice(stoploss?.stop_price),
+      buyLotDisplayLabel: `第 ${index + 1} 笔买入`,
+      buyLotIdLabel: buildBuyLotIdLabel(row?.buy_lot_id),
+      buyLotMetaLabel: buildBuyLotMetaLabel(row),
     }
   })
 }

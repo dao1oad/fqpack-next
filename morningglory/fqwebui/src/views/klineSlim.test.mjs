@@ -123,3 +123,19 @@ test('KlineSlim exposes a subject settings overlay next to price guides', () => 
   assert.match(scriptSource, /showSubjectPanel:/)
   assert.match(scriptSource, /subjectPanelState/)
 })
+
+test('KlineSlim subject panel uses compact header summary and readable buy-lot stoploss rows', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
+  assert.match(viewSource, /class="subject-panel-header-summary"/)
+  assert.match(viewSource, /保存基础配置与上限/)
+  assert.match(viewSource, /row\.buyLotDisplayLabel/)
+  assert.match(viewSource, /row\.buyLotMetaLabel/)
+  assert.match(viewSource, /row\.buyLotIdLabel/)
+  assert.match(viewSource, /class="subject-panel-stoploss-head"/)
+  assert.match(viewSource, /class="subject-panel-stoploss-title-wrap"/)
+  assert.match(viewSource, /class="subject-panel-stoploss-id"/)
+  assert.equal(viewSource.includes('.kline-slim-subject-panel\n  left 12px\n  width 452px'), true)
+  assert.equal(viewSource.includes('.subject-panel-header-actions\n  justify-content flex-end'), true)
+  assert.equal(viewSource.includes('.subject-panel-stoploss-row\n  display flex\n  flex-direction column'), true)
+})

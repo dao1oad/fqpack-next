@@ -20,7 +20,12 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
     },
     buy_lots: [
       {
-        buy_lot_id: 'lot-1',
+        buy_lot_id: 'lot_c47155b437de422db9ea2eec0b316d2a',
+        date: 20260316,
+        time: '10:31:00',
+        buy_price_real: 10.0,
+        original_quantity: 300,
+        remaining_quantity: 200,
         stoploss: { stop_price: 9.2, enabled: true },
       },
     ],
@@ -30,6 +35,9 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
   assert.equal(detail.positionLimit.use_default, false)
   assert.equal(detail.positionLimit.limit, 500000)
   assert.equal(detail.buyLots[0].stoploss.enabled, true)
+  assert.equal(detail.buyLots[0].buyLotDisplayLabel, '第 1 笔买入')
+  assert.equal(detail.buyLots[0].buyLotIdLabel, 'ID 尾号 316d2a')
+  assert.equal(detail.buyLots[0].buyLotMetaLabel, '2026-03-16 10:31 · 买入 10.0 · 原始 300 · 剩余 200')
 })
 
 test('createKlineSlimSubjectPanelActions routes subject and position-limit writes to separate apis', async () => {
