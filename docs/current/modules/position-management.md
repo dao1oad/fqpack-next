@@ -124,7 +124,8 @@
 
 - 券商同步仓位
 - 订单推断仓位
-- `stock_fills` 对照仓位
+- `stock_fills` 兼容镜像仓位
+  - 后端实际读取 `freshquant.stock_fills_compat`，只在 compat 缺失时才兜底原始 `stock_fills`
 
 三套视图都会带出 `quantity / market_value / source`，并额外返回数量一致性判定，便于页面直接高亮不一致标的。
 
@@ -142,6 +143,7 @@
 - 持仓范围卡片已移除，不再单独展示 holding scope
 - 规则矩阵已并入“当前仓位状态”，不再作为独立卡片
 - “单标的仓位上限覆盖”固定放在右栏，集中展示 `券商同步仓位 / 订单推断仓位 / stock_fills 仓位 / 默认值 / 覆盖值 / 有效值 / 一致性 / 门禁`
+  - 页面列名仍保留 `stock_fills` 以兼容原有认知，但后端来源是 `stock_fills_compat`
 - “单标的仓位上限覆盖”可直接编辑“覆盖值”，并调用 `POST /api/position-management/symbol-limits/<symbol>` 写回真实配置
 - 已超限或三套仓位数量不一致的标的会在右栏覆盖表中高亮，便于缩放后快速定位
 - 当前仓位状态改成摘要条、指标块和元数据块，不再使用大 hero
@@ -196,6 +198,7 @@ python -m freshquant.xt_account_sync.worker --interval 15
 - 检查 `xt_positions` 最近是否被同步
 - 检查 `pm_symbol_position_snapshots` 最近更新时间
 - 检查目标 symbol 是否能从 `xt_positions` 解析到数量
+- 如果只是右栏 `stock_fills` 视图不一致，先查 `om_buy_lots`，再查 `freshquant.stock_fills_compat` 是否同步
 
 ### 盈利减仓语义异常
 

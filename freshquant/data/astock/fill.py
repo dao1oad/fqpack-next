@@ -1,3 +1,4 @@
+import json
 from typing import Optional
 
 from bson import ObjectId
@@ -9,12 +10,19 @@ from freshquant.instrument.general import query_instrument_info, query_instrumen
 from freshquant.KlineDataTool import get_stock_data
 from freshquant.order_management.manual.service import OrderManagementManualWriteService
 from freshquant.order_management.projection.stock_fills import build_raw_fills_view
+from freshquant.order_management.projection.stock_fills_compat import (
+    StockFillsCompatibilityService,
+)
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.quote.etf import queryEtfCandleSticks
 
 
 def _get_manual_write_service():
     return OrderManagementManualWriteService()
+
+
+def _get_stock_fills_compat_service():
+    return StockFillsCompatibilityService()
 
 
 def list_fill(code: Optional[str] = None, dt: Optional[str] = None):
@@ -140,6 +148,7 @@ def list_fill(code: Optional[str] = None, dt: Optional[str] = None):
 
 
 def remove_fill(id=None, code=None):
+    """Deprecated raw legacy mutator; prefer stock.fill rebuild/compare for compat maintenance."""
     if id is None and code is None:
         raise ValueError("必须提供id或code参数")
 
@@ -180,3 +189,26 @@ def import_fill(
     )
     print(f"成功导入{code}的{op}操作记录")
     list_fill(code)
+
+
+def rebuild_fill_compat(*, code: Optional[str] = None, all_symbols: bool = False):
+    service = _get_stock_fills_compat_service()
+    if all_symbols:
+        result = service.sync_symbols()
+    else:
+        if not code:
+            raise ValueError("必须提供 code 或 all_symbols=True")
+        normalized = str(code or "").strip()
+        rows = service.sync_symbol(normalized)
+        result = {
+            "synced_symbols": [normalized],
+            "rows_by_symbol": {normalized: len(rows)},
+        }
+    print(json.dumps(result, ensure_ascii=False, default=str))
+    return result
+
+
+def compare_fill_compat(code: str):
+    result = _get_stock_fills_compat_service().compare_symbol(code)
+    print(json.dumps(result, ensure_ascii=False, default=str))
+    return result

@@ -1,3 +1,4 @@
+import freshquant.order_management.ingest.xt_reports as xt_reports_module
 import freshquant.order_management.reconcile.service as reconcile_service_module
 from freshquant.order_management.reconcile.service import ExternalOrderReconcileService
 from freshquant.order_management.tracking.service import OrderTrackingService
@@ -155,6 +156,12 @@ class InMemoryRepository:
 
 def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
     monkeypatch.setattr(
+        xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
         reconcile_service_module,
         "_safe_resolve_lot_amount",
         lambda _symbol: 3000,
@@ -220,6 +227,12 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
 
 
 def test_confirm_expired_candidates_emits_externalize_event(monkeypatch):
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
     monkeypatch.setattr(
         reconcile_service_module,
         "_safe_resolve_lot_amount",

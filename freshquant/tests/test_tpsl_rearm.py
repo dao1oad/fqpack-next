@@ -1,3 +1,5 @@
+import freshquant.order_management.ingest.xt_reports as xt_reports_module
+import freshquant.order_management.manual.service as manual_service_module
 from freshquant.order_management.ingest.xt_reports import (
     OrderManagementXtIngestService,
 )
@@ -167,7 +169,13 @@ def test_new_buy_below_lowest_tier_rearms_manual_enabled_levels():
     }
 
 
-def test_xt_ingest_buy_trade_calls_tpsl_service_hook():
+def test_xt_ingest_buy_trade_calls_tpsl_service_hook(monkeypatch):
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
     repository = InMemoryOrderRepository()
     tracking_service = OrderTrackingService(repository=repository)
     tracking_service.submit_order(
@@ -211,6 +219,12 @@ def test_manual_import_buy_calls_tpsl_service_hook(monkeypatch):
     monkeypatch.setattr(
         "freshquant.order_management.manual.service.mark_stock_holdings_projection_updated",
         lambda: 1,
+    )
+    monkeypatch.setattr(
+        manual_service_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
     )
     repository = InMemoryOrderRepository()
     tpsl_service = FakeTpslService()
