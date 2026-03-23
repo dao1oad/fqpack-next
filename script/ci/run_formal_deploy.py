@@ -333,9 +333,7 @@ def run_formal_deploy(
                 )
 
             for index, health_command in enumerate(
-                build_health_commands(
-                    plan, plan_module, resolved_python_executable
-                ),
+                build_health_commands(plan, plan_module, resolved_python_executable),
                 start=20,
             ):
                 commands.append(health_command)

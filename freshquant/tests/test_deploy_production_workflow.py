@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 def test_deploy_workflow_uses_single_production_entrypoint() -> None:
@@ -13,11 +16,19 @@ def test_deploy_workflow_uses_single_production_entrypoint() -> None:
     assert "py -3.12 script/ci/run_formal_deploy.py" not in text
 
 
+def _powershell_executable() -> str:
+    executable = shutil.which("powershell") or shutil.which("pwsh")
+    if executable is None:
+        pytest.skip("PowerShell is not available in PATH")
+    return executable
+
+
 def test_run_production_deploy_help_exits_zero() -> None:
     result = subprocess.run(
         [
-            "powershell",
+            _powershell_executable(),
             "-NoProfile",
+            "-NonInteractive",
             "-ExecutionPolicy",
             "Bypass",
             "-File",
