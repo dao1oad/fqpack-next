@@ -164,6 +164,15 @@ test('KlineSlim price guide panel removes refresh noise and keeps full color bad
   assert.equal(viewSource.includes('white-space nowrap'), true)
 })
 
+test('KlineSlim price guide rows give the color badge its own layout column', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
+  assert.equal(viewSource.includes('class="price-panel-row-main"'), false)
+  assert.match(viewSource, /class="price-guide-badge"/)
+  assert.match(viewSource, /class="price-panel-row-meta"/)
+  assert.match(viewSource, /\.price-panel-row\n  display grid\n  grid-template-columns max-content minmax\(0, 1fr\) auto/)
+})
+
 test('KlineSlim sidebar shows runtime position summary for holding rows', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
 
