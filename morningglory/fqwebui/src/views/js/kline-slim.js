@@ -269,6 +269,8 @@ export default {
     const pricePanelState = buildInitialKlineSlimPricePanelState()
     const subjectPanelState = buildInitialKlineSlimSubjectPanelState()
     return {
+      pricePanelActions: createKlineSlimPricePanelActions(subjectManagementApi),
+      subjectPanelActions: createKlineSlimSubjectPanelActions(subjectManagementApi),
       chart: null,
       chartController: null,
       chartViewport: createKlineSlimViewportState(),
@@ -519,8 +521,6 @@ export default {
     }
   },
   created() {
-    this.pricePanelActions = createKlineSlimPricePanelActions(subjectManagementApi)
-    this.subjectPanelActions = createKlineSlimSubjectPanelActions(subjectManagementApi)
     this.loadSidebarData()
   },
   mounted() {

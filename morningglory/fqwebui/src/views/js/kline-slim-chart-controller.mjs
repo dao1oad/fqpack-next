@@ -146,7 +146,7 @@ function shouldIncludePriceGuideInYRange(scene, line) {
   return isPriceGuideVisible(scene, line.group)
 }
 
-function collectVisibleValues(scene, windowBounds) {
+function collectPrimaryVisibleValues(scene, windowBounds) {
   const values = []
 
   scene.mainCandles.forEach((item) => {
@@ -174,6 +174,12 @@ function collectVisibleValues(scene, windowBounds) {
     })
   })
 
+  return values.filter(Number.isFinite)
+}
+
+function collectVisiblePriceGuideValues(scene) {
+  const values = []
+
   ;(Array.isArray(scene?.priceGuideLines) ? scene.priceGuideLines : []).forEach((line) => {
     if (!shouldIncludePriceGuideInYRange(scene, line)) {
       return
@@ -185,6 +191,14 @@ function collectVisibleValues(scene, windowBounds) {
   })
 
   return values.filter(Number.isFinite)
+}
+
+function collectVisibleValues(scene, windowBounds, { includePriceGuides = false } = {}) {
+  const values = collectPrimaryVisibleValues(scene, windowBounds)
+  if (includePriceGuides) {
+    return values.concat(collectVisiblePriceGuideValues(scene)).filter(Number.isFinite)
+  }
+  return values
 }
 
 function buildYRange(values, fallback = null) {
@@ -241,7 +255,12 @@ export function deriveViewportStateForScene({ scene, viewport } = {}) {
   }
 
   const windowBounds = pickVisibleWindow(scene, resolvedViewport.xRange)
-  const values = collectVisibleValues(scene, windowBounds)
+  let values = collectVisibleValues(scene, windowBounds, {
+    includePriceGuides: Boolean(scene?.priceGuideEditMode)
+  })
+  if (!values.length) {
+    values = collectVisibleValues(scene, windowBounds, { includePriceGuides: true })
+  }
   return {
     xRange: resolvedViewport.xRange,
     yRange: buildYRange(values, resolvedViewport.yRange),
@@ -439,8 +458,18 @@ export function createKlineSlimChartController({
       gridRect,
       pixelY: pixel[1]
     })
+    const nextWindowBounds = pickVisibleWindow(currentScene, nextRange)
+    const yZoomBaseline =
+      viewport.yMode === 'manual'
+        ? viewport.yRange
+        : buildYRange(
+            collectVisibleValues(currentScene, nextWindowBounds, {
+              includePriceGuides: Boolean(currentScene?.priceGuideEditMode)
+            }),
+            viewport.yRange
+          )
     const nextYRange = buildWheelZoomYRange({
-      currentRange: viewport.yRange,
+      currentRange: yZoomBaseline,
       anchorValue: anchorPrice,
       zoomDirection: wheelDelta
     })
