@@ -88,9 +88,6 @@
         <el-form-item label="每次买入金额" :label-width="formLabelWidth">
           <el-input-number v-model="form.lot_amount" :precision="2" :step="1"></el-input-number>
         </el-form-item>
-        <el-form-item label="是否永久" :label-width="formLabelWidth">
-          <el-switch v-model="form.forever" active-text="是" inactive-text="否"></el-switch>
-        </el-form-item>
       </el-form>
       <template v-slot:footer>
         <div  class="dialog-footer">
@@ -146,8 +143,7 @@ export default {
         code: null,
         stop_loss_price: null,
         initial_lot_amount: null,
-        lot_amount: null,
-        forever: false
+        lot_amount: null
       },
       addStockForm: {
         code: null,
@@ -257,11 +253,10 @@ export default {
       this.form.stop_loss_price = row.stop_loss_price
       this.form.initial_lot_amount = null
       this.form.lot_amount = null
-      this.form.forever = false
       this.dialogFormVisible = true
     },
     confirmAddMust () {
-      stockApi.addToStockMustPoolsByCode(this.form.code, this.form.stop_loss_price, this.form.initial_lot_amount, this.form.lot_amount, this.form.forever)
+      stockApi.addToStockMustPoolsByCode(this.form.code, this.form.stop_loss_price, this.form.initial_lot_amount, this.form.lot_amount)
         .then(res => {
           if (res.code === '0') {
             this.dialogFormVisible = false

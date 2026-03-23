@@ -33,10 +33,6 @@ const formatInteger = (value) => {
   return String(Math.trunc(parsed))
 }
 
-const formatBooleanLabel = (value, { truthy = '是', falsy = '否' } = {}) => {
-  return value ? truthy : falsy
-}
-
 const formatAmountWan = (value) => {
   const parsed = toNullableNumber(value)
   if (parsed === null) return '-'
@@ -48,7 +44,6 @@ const normalizeMustPool = (row = {}) => ({
   stop_loss_price: toNullableNumber(row?.stop_loss_price),
   initial_lot_amount: toNullableNumber(row?.initial_lot_amount),
   lot_amount: toNullableNumber(row?.lot_amount),
-  forever: Boolean(row?.forever),
 })
 
 const normalizeRuntimeSummary = (row = {}) => ({
@@ -203,7 +198,6 @@ export const buildOverviewRows = (rows = []) => {
           `SL ${formatPrice(mustPool.stop_loss_price)}`,
           `首 ${formatInteger(mustPool.initial_lot_amount)}`,
           `常 ${formatInteger(mustPool.lot_amount)}`,
-          mustPool.forever ? '永久' : '普通',
         ].join(' / '),
         stoplossSummaryLabel: `${activeStoplossCount} / ${openBuyLotCount}`,
         positionLimitSummary,
@@ -327,15 +321,6 @@ export const buildDenseConfigRows = (detail = {}) => {
       note: 'Guardian base_amount',
     },
     {
-      group: '基础',
-      key: 'forever',
-      label: '永久跟踪',
-      currentLabel: formatBooleanLabel(Boolean(mustPool.forever), { truthy: '开启', falsy: '关闭' }),
-      editor: 'switch',
-      statusLabel: mustPool.forever ? '永久' : '普通',
-      note: mustPool.forever ? '持续跟踪' : '普通标的',
-    },
-    {
       group: '仓位上限',
       key: 'position_limit_mode',
       label: '来源',
@@ -376,12 +361,6 @@ export const buildDetailSummaryChips = (detail = {}) => {
       label: '分类',
       value: toText(detail?.category) || '-',
       tone: 'muted',
-    },
-    {
-      key: 'must_pool',
-      label: '标的',
-      value: detail?.mustPool?.forever ? '永久跟踪' : '普通标的',
-      tone: detail?.mustPool?.forever ? 'success' : 'muted',
     },
     {
       key: 'position_quantity',

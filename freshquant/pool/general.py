@@ -48,7 +48,7 @@ def queryMustPoolCodesWithMarketCodeSuffix(
 def cleanMustPool():
     positions = list(DBfreshquant["xt_positions"].find({}))
     codes = [item["stock_code"][:6] for item in positions]
-    DBfreshquant["must_pool"].delete_many({"code": {"$in": codes}, "forever": False})
+    DBfreshquant["must_pool"].delete_many({"code": {"$in": codes}})
 
 
 if __name__ == "__main__":

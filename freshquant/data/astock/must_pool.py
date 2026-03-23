@@ -34,7 +34,7 @@ def remove(id=None, category=None, codes=None):
     else:
         raise ValueError("必须提供 category 或 codes 或 id 参数")
     
-def import_pool(code: str, category: str, stop_loss_price: float, initial_lot_amount: float = None, lot_amount: float = None, forever: bool = False):
+def import_pool(code: str, category: str, stop_loss_price: float, initial_lot_amount: float = None, lot_amount: float = None, forever: bool = True):
     """保存股票到must_pool集合
     Args:
         code: 股票代码
@@ -44,6 +44,8 @@ def import_pool(code: str, category: str, stop_loss_price: float, initial_lot_am
         initial_lot_amount: 首次买入金额 (可选，默认等于lot_amount)
     """
     
+    forever = True
+
     if lot_amount is None:
         lot_amount = get_trade_amount(code)
     if initial_lot_amount is None:

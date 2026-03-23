@@ -190,6 +190,7 @@ test('page controller loads overview first, then detail, switches rows and refre
   assert.equal(controller.state.selectedSymbol, '600000')
   assert.equal(controller.state.takeprofitDrafts.length, 3)
   assert.equal(controller.state.takeprofitDrafts[0].manual_enabled, true)
+  assert.equal(Object.hasOwn(controller.state.mustPoolDraft, 'forever'), false)
 
   await controller.selectSymbol('000001')
   assert.equal(controller.state.selectedSymbol, '000001')
@@ -309,6 +310,7 @@ test('page controller uses must-pool category draft instead of subject category 
   assert.equal(controller.state.detail.category, '银行')
   assert.equal(controller.state.detail.mustPool.category, '守护池')
   assert.equal(controller.state.mustPoolDraft.category, '守护池')
+  assert.equal(Object.hasOwn(controller.state.mustPoolDraft, 'forever'), false)
 })
 
 test('page controller reloads persisted state and warns when position-limit save fails after must-pool save', async () => {

@@ -89,3 +89,26 @@ def test_update_guardian_buy_grid_forwards_per_level_switches():
     )
     assert result["symbol"] == "600000"
     assert result["buy_enabled"] == [True, False, True]
+
+
+def test_update_must_pool_forces_forever_true(monkeypatch):
+    monkeypatch.setattr(
+        "freshquant.instrument.general.query_instrument_info",
+        lambda symbol: {"name": "浦发银行", "sec": "stock"},
+    )
+    database = FakeDatabase()
+    service = SubjectManagementWriteService(database=database)
+
+    result = service.update_must_pool(
+        "600000.SH",
+        {
+            "category": "银行",
+            "stop_loss_price": 9.2,
+            "initial_lot_amount": 80000,
+            "lot_amount": 50000,
+            "forever": False,
+        },
+    )
+
+    assert result["forever"] is True
+    assert database["must_pool"].updates[0]["update"]["$set"]["forever"] is True

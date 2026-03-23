@@ -186,3 +186,40 @@ def test_get_stock_model_signal_list_route_uses_service_payload(
 
     assert response.status_code == 200
     assert response.get_json() == [{"page": 2, "size": 50, "model": "CLX10001"}]
+
+
+def test_add_to_must_pool_route_ignores_forever_query_flag(stock_routes, monkeypatch):
+    class _Args(dict):
+        def get(self, key, default=None, type=None):
+            value = dict.get(self, key, default)
+            if type is not None and value is not None:
+                return type(value)
+            return value
+
+    stock_routes.request.args = _Args(
+        {
+            "code": "600000",
+            "stop_loss_price": "9.2",
+            "initial_lot_amount": "80000",
+            "lot_amount": "50000",
+            "forever": "false",
+        }
+    )
+    captured = {}
+
+    def _add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount):
+        captured["call"] = (code, stop_loss_price, initial_lot_amount, lot_amount)
+        return True
+
+    monkeypatch.setattr(
+        stock_routes,
+        "_get_stock_service",
+        lambda: types.SimpleNamespace(add_to_must_pool=_add_to_must_pool),
+        raising=False,
+    )
+
+    response = stock_routes.add_to_must_pool_by_code()
+
+    assert response.status_code == 200
+    assert response.get_json() == {"code": "0", "msg": "操作成功"}
+    assert captured["call"] == ("600000", 9.2, 80000.0, 50000.0)
