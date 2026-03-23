@@ -16,6 +16,17 @@ def test_deploy_workflow_uses_single_production_entrypoint() -> None:
     assert "py -3.12 script/ci/run_formal_deploy.py" not in text
 
 
+def test_deploy_workflow_resolves_entrypoint_from_canonical_root() -> None:
+    text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
+
+    assert (
+        "$entrypoint = Join-Path $env:FQ_DEPLOY_CANONICAL_REPO_ROOT "
+        "'script/ci/run_production_deploy.ps1'"
+    ) in text
+    assert "-File $entrypoint" in text
+    assert "-File script/ci/run_production_deploy.ps1" not in text
+
+
 def _powershell_executable() -> str:
     executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:

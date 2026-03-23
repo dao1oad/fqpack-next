@@ -25,7 +25,11 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
-          powershell -NoProfile -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 `
+          $entrypoint = Join-Path $env:FQ_DEPLOY_CANONICAL_REPO_ROOT 'script/ci/run_production_deploy.ps1'
+          if (-not (Test-Path $entrypoint)) {
+            throw "production deploy entrypoint not found: $entrypoint"
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass -File $entrypoint `
             -CanonicalRoot $env:FQ_DEPLOY_CANONICAL_REPO_ROOT `
             -MirrorRoot $env:FQ_DEPLOY_MIRROR_ROOT `
             -MirrorBranch $env:FQ_DEPLOY_MIRROR_BRANCH `
