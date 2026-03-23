@@ -29,13 +29,32 @@ class PositionManagementDashboardService:
         self,
         repository=None,
         holding_codes_provider=None,
+        inferred_position_loader=None,
+        legacy_position_loader=None,
         settings_provider=None,
         query_param_loader=None,
         now_provider=None,
     ):
+        use_default_position_loaders = repository is None
         self.repository = repository or PositionManagementRepository()
         self.holding_codes_provider = (
             holding_codes_provider or _default_holding_codes_provider
+        )
+        self.inferred_position_loader = (
+            inferred_position_loader
+            or (
+                _default_inferred_position_loader
+                if use_default_position_loaders
+                else _empty_position_loader
+            )
+        )
+        self.legacy_position_loader = (
+            legacy_position_loader
+            or (
+                _default_legacy_position_loader
+                if use_default_position_loaders
+                else _empty_position_loader
+            )
         )
         self.settings_provider = settings_provider or _resolve_settings_provider(
             query_param_loader
@@ -151,9 +170,21 @@ class PositionManagementDashboardService:
             for item in snapshots
             if normalize_to_base_code(item.get("symbol"))
         }
+        inferred_position_map = _build_position_view_map(
+            self.inferred_position_loader(),
+            default_quantity_source="order_management_projected_positions",
+            default_market_value_source="order_management_projected_positions",
+        )
+        legacy_position_map = _build_position_view_map(
+            self.legacy_position_loader(),
+            default_quantity_source="legacy_stock_fills",
+            default_market_value_source="legacy_stock_fills",
+        )
         symbols = (
             set(overrides)
             | set(snapshot_map)
+            | set(inferred_position_map)
+            | set(legacy_position_map)
             | {
                 normalize_to_base_code(code)
                 for code in holding_codes
@@ -166,6 +197,8 @@ class PositionManagementDashboardService:
                 default_limit=default_limit,
                 override=overrides.get(symbol),
                 snapshot=snapshot_map.get(symbol),
+                inferred_position=inferred_position_map.get(symbol),
+                legacy_position=legacy_position_map.get(symbol),
                 is_holding_symbol=symbol in holding_codes,
             )
             for symbol in symbols
@@ -203,6 +236,16 @@ class PositionManagementDashboardService:
             default_limit=default_limit,
             override=overrides.get(normalized_symbol),
             snapshot=snapshot,
+            inferred_position=_build_position_view_map(
+                self.inferred_position_loader(),
+                default_quantity_source="order_management_projected_positions",
+                default_market_value_source="order_management_projected_positions",
+            ).get(normalized_symbol),
+            legacy_position=_build_position_view_map(
+                self.legacy_position_loader(),
+                default_quantity_source="legacy_stock_fills",
+                default_market_value_source="legacy_stock_fills",
+            ).get(normalized_symbol),
             is_holding_symbol=normalized_symbol in holding_codes,
         )
 
@@ -294,15 +337,30 @@ class PositionManagementDashboardService:
         default_limit,
         override=None,
         snapshot=None,
+        inferred_position=None,
+        legacy_position=None,
         is_holding_symbol=False,
     ):
-        snapshot = snapshot or {}
         override_limit = _coerce_float((override or {}).get("limit"), None)
         effective_limit = (
             override_limit if override_limit is not None else float(default_limit)
         )
-        market_value = _coerce_float(snapshot.get("market_value"), None)
-        market_value_available = market_value is not None
+        broker_position = _build_broker_position_view(
+            snapshot,
+            is_holding_symbol=is_holding_symbol,
+        )
+        inferred_position_view = _build_optional_position_view(
+            inferred_position,
+            empty_quantity_source="order_management_projected_positions",
+            empty_market_value_source="order_management_projected_positions",
+        )
+        legacy_position_view = _build_optional_position_view(
+            legacy_position,
+            empty_quantity_source="legacy_stock_fills",
+            empty_market_value_source="legacy_stock_fills",
+        )
+        market_value = broker_position["market_value"]
+        market_value_available = broker_position["available"]
         blocked = (
             True
             if not market_value_available
@@ -314,14 +372,17 @@ class PositionManagementDashboardService:
             blocked_reason = "symbol_position_limit_blocked"
         else:
             blocked_reason = "buy_allowed"
-        name = _normalize_optional_text(
-            snapshot.get("name")
-        ) or _resolve_instrument_name(symbol)
+        name = (
+            broker_position.get("name")
+            or inferred_position_view.get("name")
+            or legacy_position_view.get("name")
+            or _resolve_instrument_name(symbol)
+        )
         return {
             "symbol": symbol,
             "name": name,
             "market_value": market_value,
-            "market_value_source": snapshot.get("market_value_source"),
+            "market_value_source": broker_position.get("market_value_source"),
             "market_value_available": market_value_available,
             "default_limit": float(default_limit),
             "override_limit": override_limit,
@@ -332,6 +393,14 @@ class PositionManagementDashboardService:
             "updated_at": (override or {}).get("updated_at"),
             "updated_by": (override or {}).get("updated_by"),
             "is_holding_symbol": bool(is_holding_symbol),
+            "broker_position": broker_position,
+            "inferred_position": inferred_position_view,
+            "legacy_position": legacy_position_view,
+            "position_consistency": _build_position_consistency(
+                broker_position,
+                inferred_position_view,
+                legacy_position_view,
+            ),
         }
 
     def _build_policy(self, config_view):
@@ -667,6 +736,159 @@ def _normalize_optional_text(value):
     return text or None
 
 
+def _build_broker_position_view(snapshot, *, is_holding_symbol):
+    row = dict(snapshot or {})
+    quantity = _coerce_int(row.get("quantity"), 0)
+    quantity_source = _normalize_optional_text(row.get("quantity_source"))
+    market_value = _coerce_float(row.get("market_value"), None)
+    market_value_source = _normalize_optional_text(row.get("market_value_source"))
+    name = _normalize_optional_text(row.get("name"))
+
+    if row:
+        if market_value is not None:
+            return {
+                "quantity": quantity,
+                "market_value": market_value,
+                "quantity_source": quantity_source or "xt_positions",
+                "market_value_source": market_value_source
+                or "xt_positions_market_value",
+                "available": True,
+                "name": name,
+            }
+        if quantity == 0 and not is_holding_symbol:
+            return {
+                "quantity": 0,
+                "market_value": 0.0,
+                "quantity_source": quantity_source or "no_broker_position",
+                "market_value_source": market_value_source or "no_broker_position",
+                "available": True,
+                "name": name,
+            }
+        return {
+            "quantity": quantity,
+            "market_value": None,
+            "quantity_source": quantity_source or "xt_positions",
+            "market_value_source": market_value_source or "unavailable",
+            "available": False,
+            "name": name,
+        }
+
+    if not is_holding_symbol:
+        return {
+            "quantity": 0,
+            "market_value": 0.0,
+            "quantity_source": "no_broker_position",
+            "market_value_source": "no_broker_position",
+            "available": True,
+            "name": None,
+        }
+
+    return {
+        "quantity": 0,
+        "market_value": None,
+        "quantity_source": "xt_positions",
+        "market_value_source": "unavailable",
+        "available": False,
+        "name": None,
+    }
+
+
+def _build_optional_position_view(
+    row,
+    *,
+    empty_quantity_source,
+    empty_market_value_source,
+):
+    if not row:
+        return {
+            "quantity": 0,
+            "market_value": 0.0,
+            "quantity_source": empty_quantity_source,
+            "market_value_source": empty_market_value_source,
+            "available": True,
+            "name": None,
+        }
+    return {
+        "quantity": _coerce_int(row.get("quantity"), 0),
+        "market_value": _coerce_float(row.get("market_value"), 0.0),
+        "quantity_source": _normalize_optional_text(row.get("quantity_source"))
+        or empty_quantity_source,
+        "market_value_source": _normalize_optional_text(
+            row.get("market_value_source")
+        )
+        or empty_market_value_source,
+        "available": True,
+        "name": _normalize_optional_text(row.get("name")),
+    }
+
+
+def _build_position_consistency(
+    broker_position,
+    inferred_position,
+    legacy_position,
+):
+    quantity_values = {
+        "broker": _coerce_int(broker_position.get("quantity"), 0),
+        "inferred": _coerce_int(inferred_position.get("quantity"), 0),
+        "legacy_stock_fills": _coerce_int(legacy_position.get("quantity"), 0),
+    }
+    quantity_consistent = (
+        bool(broker_position.get("available"))
+        and len(set(quantity_values.values())) == 1
+    )
+    return {
+        "quantity_values": quantity_values,
+        "quantity_consistent": quantity_consistent,
+    }
+
+
+def _build_position_view_map(
+    rows,
+    *,
+    default_quantity_source,
+    default_market_value_source,
+):
+    if hasattr(rows, "to_dict") and callable(rows.to_dict):
+        rows = rows.to_dict(orient="records")
+    position_map = {}
+    for item in list(rows or []):
+        symbol = normalize_to_base_code(
+            item.get("symbol") or item.get("stock_code") or item.get("code")
+        )
+        if not symbol:
+            continue
+        market_value = _coerce_position_market_value(item)
+        position_map[symbol] = {
+            "symbol": symbol,
+            "name": _normalize_optional_text(item.get("name")),
+            "quantity": _coerce_int(
+                item.get("quantity") if item.get("quantity") is not None else item.get("volume"),
+                0,
+            ),
+            "quantity_source": _normalize_optional_text(item.get("quantity_source"))
+            or default_quantity_source,
+            "market_value": 0.0 if market_value is None else market_value,
+            "market_value_source": _normalize_optional_text(
+                item.get("market_value_source")
+            )
+            or default_market_value_source,
+        }
+    return position_map
+
+
+def _coerce_position_market_value(item):
+    market_value = _coerce_float(item.get("market_value"), None)
+    if market_value is not None:
+        return market_value
+    amount_adjusted = _coerce_float(item.get("amount_adjusted"), None)
+    if amount_adjusted is not None:
+        return abs(amount_adjusted)
+    amount = _coerce_float(item.get("amount"), None)
+    if amount is not None:
+        return abs(amount)
+    return None
+
+
 def _coerce_float(value, default):
     if value is None and default is None:
         return None
@@ -677,6 +899,16 @@ def _coerce_float(value, default):
     if math.isfinite(candidate):
         return candidate
     return None if default is None else float(default)
+
+
+def _coerce_int(value, default):
+    if value is None:
+        return int(default)
+    try:
+        candidate = int(value)
+    except (TypeError, ValueError):
+        return int(default)
+    return candidate
 
 
 def _require_finite_float(value, default, *, field_name):
@@ -697,10 +929,59 @@ def _default_now_provider():
     return datetime.now(timezone.utc)
 
 
+def _empty_position_loader():
+    return []
+
+
 def _default_holding_codes_provider():
     from freshquant.data.astock.holding import get_stock_holding_codes
 
     return get_stock_holding_codes()
+
+
+def _default_inferred_position_loader():
+    from freshquant.order_management.projection.stock_fills import (
+        list_stock_positions,
+    )
+
+    return list_stock_positions()
+
+
+def _default_legacy_position_loader():
+    from freshquant.db import DBfreshquant
+
+    grouped = {}
+    for row in list(DBfreshquant["stock_fills"].find({})):
+        symbol = normalize_to_base_code(
+            row.get("symbol") or row.get("stock_code") or row.get("code")
+        )
+        if not symbol:
+            continue
+        current = grouped.setdefault(
+            symbol,
+            {
+                "symbol": symbol,
+                "name": "",
+                "quantity": 0,
+                "amount": 0.0,
+                "amount_adjusted": 0.0,
+            },
+        )
+        current["name"] = current["name"] or _normalize_optional_text(row.get("name"))
+        direction = -1 if "买" in str(row.get("op") or "") else 1
+        quantity_delta = _coerce_int(row.get("quantity"), 0) * direction * -1
+        amount = _coerce_float(row.get("amount"), 0.0)
+        amount_adjust = _coerce_float(row.get("amount_adjust"), 1.0)
+        amount_delta = amount * direction
+        current["quantity"] += quantity_delta
+        current["amount"] += amount_delta
+        current["amount_adjusted"] += amount_delta * amount_adjust
+
+    return [
+        item
+        for item in grouped.values()
+        if item["amount_adjusted"] < 0 or item["quantity"] > 0
+    ]
 
 
 def _resolve_settings_provider(query_param_loader=None):

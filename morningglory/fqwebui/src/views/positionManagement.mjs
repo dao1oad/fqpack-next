@@ -101,6 +101,10 @@ const numberFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
+const integerFormatter = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 0,
+})
+
 const toText = (value) => String(value ?? '').trim()
 
 const toNumber = (value) => {
@@ -114,6 +118,11 @@ const toNumber = (value) => {
 const formatAmount = (value) => {
   const parsed = toNumber(value)
   return parsed === null ? '-' : numberFormatter.format(parsed)
+}
+
+const formatQuantity = (value) => {
+  const parsed = toNumber(value)
+  return parsed === null ? '-' : integerFormatter.format(parsed)
 }
 
 const formatBooleanLabel = (value) => {
@@ -145,6 +154,36 @@ const formatStateTone = (value) => STATE_TONES[toText(value)] || 'neutral'
 const formatSourceLabel = (value) => SOURCE_LABELS[toText(value)] || toText(value) || '-'
 
 const joinLabels = (...values) => values.filter((item) => toText(item)).join(' / ')
+
+const POSITION_SOURCE_NAME_LABELS = {
+  broker: '券商',
+  inferred: '推断',
+  legacy_stock_fills: 'stock_fills',
+}
+
+const buildPositionSourceView = (view = {}, fallbackSource = '-') => {
+  const quantityLabel = formatQuantity(view?.quantity)
+  const marketValueLabel = formatAmount(view?.market_value)
+  return {
+    quantity: toNumber(view?.quantity),
+    market_value: toNumber(view?.market_value),
+    quantity_label: quantityLabel,
+    market_value_label: marketValueLabel,
+    summary_label: `${quantityLabel} 股 / ${marketValueLabel}`,
+    source_label: joinLabels(
+      toText(view?.quantity_source) || fallbackSource,
+      toText(view?.market_value_source) || fallbackSource,
+    ) || fallbackSource,
+  }
+}
+
+const buildConsistencyDetailLabel = (quantityValues = {}) => {
+  const entries = Object.entries(quantityValues)
+  if (!entries.length) return '-'
+  return entries
+    .map(([key, value]) => `${POSITION_SOURCE_NAME_LABELS[key] || key} ${formatQuantity(value)}`)
+    .join(' / ')
+}
 
 const formatBeijingDateTime = (value) => {
   const rawValue = toText(value)
@@ -320,19 +359,51 @@ export const buildSymbolLimitRows = (dashboard = {}) => {
       Number(Boolean(right?.using_override)) - Number(Boolean(left?.using_override)) ||
       toText(left?.symbol).localeCompare(toText(right?.symbol))
     ))
-    .map((row) => ({
-      ...row,
-      symbol: toText(row?.symbol) || '-',
-      name: toText(row?.name) || '-',
-      market_value_label: formatAmount(row?.market_value),
-      default_limit_label: formatAmount(row?.default_limit),
-      override_limit_label: formatAmount(row?.override_limit),
-      effective_limit_label: formatAmount(row?.effective_limit),
-      source_label: row?.using_override ? '单独设置' : '默认值',
-      blocked_label: row?.blocked ? '已阻断' : '允许',
-      override_limit_value: toNumber(row?.override_limit),
-      row_tone: row?.blocked ? 'blocked' : 'normal',
-    }))
+    .map((row) => {
+      const brokerPosition = buildPositionSourceView(
+        row?.broker_position,
+        'no_broker_position',
+      )
+      const inferredPosition = buildPositionSourceView(
+        row?.inferred_position,
+        'order_management_projected_positions',
+      )
+      const legacyPosition = buildPositionSourceView(
+        row?.legacy_position,
+        'legacy_stock_fills',
+      )
+      const quantityValues = row?.position_consistency?.quantity_values || {
+        broker: brokerPosition.quantity ?? 0,
+        inferred: inferredPosition.quantity ?? 0,
+        legacy_stock_fills: legacyPosition.quantity ?? 0,
+      }
+      const quantityMismatch = row?.position_consistency?.quantity_consistent === false
+      return {
+        ...row,
+        symbol: toText(row?.symbol) || '-',
+        name: toText(row?.name) || '-',
+        market_value_label: formatAmount(row?.market_value),
+        broker_position_label: brokerPosition.summary_label,
+        broker_position_source_label: brokerPosition.source_label,
+        inferred_position_label: inferredPosition.summary_label,
+        inferred_position_source_label: inferredPosition.source_label,
+        legacy_position_label: legacyPosition.summary_label,
+        legacy_position_source_label: legacyPosition.source_label,
+        broker_position: brokerPosition,
+        inferred_position: inferredPosition,
+        legacy_position: legacyPosition,
+        default_limit_label: formatAmount(row?.default_limit),
+        override_limit_label: formatAmount(row?.override_limit),
+        effective_limit_label: formatAmount(row?.effective_limit),
+        source_label: row?.using_override ? '单独设置' : '默认值',
+        blocked_label: row?.blocked ? '已阻断' : '允许',
+        consistency_label: quantityMismatch ? '数量不一致' : '数量一致',
+        consistency_detail_label: buildConsistencyDetailLabel(quantityValues),
+        quantity_mismatch: quantityMismatch,
+        override_limit_value: toNumber(row?.override_limit),
+        row_tone: row?.blocked ? 'blocked' : 'normal',
+      }
+    })
 }
 
 export const buildRuleMatrix = (dashboard = {}) => {

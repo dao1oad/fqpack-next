@@ -139,7 +139,32 @@ const createDashboard = () => ({
       {
         symbol: '000001',
         name: '平安银行',
-        market_value: 530000,
+        broker_position: {
+          quantity: 1200,
+          market_value: 530000,
+          quantity_source: 'xt_positions',
+          market_value_source: 'xt_positions.market_value',
+        },
+        inferred_position: {
+          quantity: 1000,
+          market_value: 510000,
+          quantity_source: 'order_management.buy_lots',
+          market_value_source: 'order_management.position_amount',
+        },
+        legacy_position: {
+          quantity: 1000,
+          market_value: 505000,
+          quantity_source: 'stock_fills',
+          market_value_source: 'stock_fills.amount_adjusted',
+        },
+        position_consistency: {
+          quantity_consistent: false,
+          quantity_values: {
+            broker: 1200,
+            inferred: 1000,
+            legacy_stock_fills: 1000,
+          },
+        },
         default_limit: 800000,
         override_limit: 500000,
         effective_limit: 500000,
@@ -149,7 +174,32 @@ const createDashboard = () => ({
       {
         symbol: '000002',
         name: '万科A',
-        market_value: 220000,
+        broker_position: {
+          quantity: 400,
+          market_value: 220000,
+          quantity_source: 'xt_positions',
+          market_value_source: 'xt_positions.market_value',
+        },
+        inferred_position: {
+          quantity: 400,
+          market_value: 218000,
+          quantity_source: 'order_management.buy_lots',
+          market_value_source: 'order_management.position_amount',
+        },
+        legacy_position: {
+          quantity: 400,
+          market_value: 215000,
+          quantity_source: 'stock_fills',
+          market_value_source: 'stock_fills.amount_adjusted',
+        },
+        position_consistency: {
+          quantity_consistent: true,
+          quantity_values: {
+            broker: 400,
+            inferred: 400,
+            legacy_stock_fills: 400,
+          },
+        },
         default_limit: 800000,
         override_limit: null,
         effective_limit: 800000,
@@ -236,13 +286,20 @@ test('buildStatePanel exposes state labels, stale badge and asset metrics', () =
   assert.equal(stats.total_asset, '1,432,100.00')
 })
 
-test('buildSymbolLimitRows exposes blocked highlight metadata for over-limit symbols', () => {
+test('buildSymbolLimitRows exposes three position views and quantity mismatch metadata', () => {
   const rows = buildSymbolLimitRows(createDashboard())
 
   assert.equal(rows[0].symbol, '000001')
   assert.equal(rows[0].blocked_label, '已阻断')
   assert.equal(rows[0].row_tone, 'blocked')
+  assert.equal(rows[0].broker_position_label, '1,200 股 / 530,000.00')
+  assert.equal(rows[0].inferred_position_label, '1,000 股 / 510,000.00')
+  assert.equal(rows[0].legacy_position_label, '1,000 股 / 505,000.00')
+  assert.equal(rows[0].consistency_label, '数量不一致')
+  assert.equal(rows[0].quantity_mismatch, true)
   assert.equal(rows[0].override_limit_label, '500,000.00')
+  assert.equal(rows[1].consistency_label, '数量一致')
+  assert.equal(rows[1].quantity_mismatch, false)
   assert.equal(rows[1].row_tone, 'normal')
 })
 
@@ -298,7 +355,12 @@ test('PositionManagement.vue uses dense runtime ledger layout and removes legacy
   assert.match(content, /<el-pagination[\s\S]*:page-size=/)
   assert.match(content, /page-sizes="\[100,\s*200,\s*500\]"/)
   assert.match(content, /runtime-ledger__row--blocked/)
+  assert.match(content, /runtime-ledger__row--inconsistent/)
   assert.match(content, /覆盖值/)
+  assert.match(content, /券商仓位/)
+  assert.match(content, /推断仓位/)
+  assert.match(content, /stock_fills仓位/)
+  assert.match(content, /一致性/)
   assert.match(content, /保存覆盖/)
   assert.match(content, /恢复默认/)
   assert.match(content, /positionManagementApi\.updateSymbolLimit/)
@@ -318,4 +380,5 @@ test('position-management module doc reflects merged dense decision ledger and e
   assert.match(content, /持仓范围卡片已移除/)
   assert.match(content, /规则矩阵已并入“当前仓位状态”/)
   assert.match(content, /单标的仓位上限覆盖.*可直接编辑“覆盖值”/)
+  assert.match(content, /券商同步仓位.*订单推断仓位.*stock_fills/)
 })
