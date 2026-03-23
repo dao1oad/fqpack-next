@@ -18,7 +18,7 @@
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">当前仓位状态</div>
-                <p class="workbench-panel__desc">effective state、stale 语义和资产摘要仍由服务端按真实 PositionPolicy 汇总；规则矩阵已并入本卡片。</p>
+                <p class="workbench-panel__desc">effective state、stale 语义、资产摘要、参数 inventory 与规则矩阵统一放在左栏；右栏只保留更宽的单标的仓位上限覆盖。</p>
               </div>
 
               <div class="workbench-toolbar__actions">
@@ -67,6 +67,72 @@
               </div>
 
               <div class="position-panel-section">
+                <div class="position-panel-section__header">
+                  <div class="workbench-title-group">
+                    <div class="position-panel-section__title">参数 inventory</div>
+                    <p class="position-panel-section__desc">可编辑阈值和只读系统参数压缩到同一张高密度表里，不再单独占用一栏；说明列已移除。</p>
+                  </div>
+                </div>
+
+                <div class="workbench-summary-row">
+                  <span class="workbench-summary-chip workbench-summary-chip--muted">
+                    配置时间 <strong>{{ configUpdatedAt }}</strong>
+                  </span>
+                  <span class="workbench-summary-chip workbench-summary-chip--muted">
+                    更新人 <strong>{{ configUpdatedBy }}</strong>
+                  </span>
+                </div>
+
+                <el-table :data="inventoryRows" size="small" border class="position-config-table">
+                  <el-table-column prop="group_label" label="分组" min-width="108" show-overflow-tooltip />
+                  <el-table-column label="参数" min-width="188">
+                    <template #default="{ row }">
+                      <div class="inventory-parameter-cell">
+                        <strong>{{ row.label }}</strong>
+                        <span>{{ row.source_label }}</span>
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="当前值" min-width="184">
+                    <template #default="{ row }">
+                      <div class="inventory-value-cell">
+                        <el-input-number
+                          v-if="row.key === 'allow_open_min_bail'"
+                          v-model="editableForm.allow_open_min_bail"
+                          :min="0"
+                          :step="10000"
+                          controls-position="right"
+                        />
+                        <el-input-number
+                          v-else-if="row.key === 'holding_only_min_bail'"
+                          v-model="editableForm.holding_only_min_bail"
+                          :min="0"
+                          :step="10000"
+                          controls-position="right"
+                        />
+                        <el-input-number
+                          v-else-if="row.key === 'single_symbol_position_limit'"
+                          v-model="editableForm.single_symbol_position_limit"
+                          :min="0"
+                          :step="10000"
+                          controls-position="right"
+                        />
+                        <span v-else class="inventory-value">{{ row.value_label }}</span>
+                        <span v-if="row.editable" class="inventory-inline-hint">
+                          当前生效：{{ row.value_label }}
+                        </span>
+                      </div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+
+                <div class="position-edit-footer">
+                  <span class="workbench-muted">当前开放账户阈值和全局单标的实时仓位上限保持可编辑，其余参数继续只读展示。</span>
+                  <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
+                </div>
+              </div>
+
+              <div class="position-panel-section">
                 <div class="position-panel-section__title">规则矩阵</div>
 
                 <div class="runtime-ledger runtime-position-rule-ledger">
@@ -99,77 +165,11 @@
         </div>
 
         <div class="position-lower-column">
-          <section class="workbench-panel position-top-panel position-config-panel">
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">参数 inventory</div>
-                <p class="workbench-panel__desc">把真正生效的阈值、代码默认值和系统连接参数合并到一张表，同时保留说明和可编辑边界。</p>
-              </div>
-            </div>
-
-            <div class="position-panel-body position-config-scroll">
-              <div class="workbench-summary-row">
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
-                  配置时间 <strong>{{ configUpdatedAt }}</strong>
-                </span>
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
-                  更新人 <strong>{{ configUpdatedBy }}</strong>
-                </span>
-              </div>
-
-              <el-table :data="inventoryRows" size="small" border class="position-config-table">
-                <el-table-column prop="group_label" label="分组" min-width="120" show-overflow-tooltip />
-                <el-table-column label="参数" min-width="220">
-                  <template #default="{ row }">
-                    <div class="inventory-parameter-cell">
-                      <strong>{{ row.label }}</strong>
-                      <span>{{ row.source_label }}</span>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="当前值" min-width="180">
-                  <template #default="{ row }">
-                    <el-input-number
-                      v-if="row.key === 'allow_open_min_bail'"
-                      v-model="editableForm.allow_open_min_bail"
-                      :min="0"
-                      :step="10000"
-                      controls-position="right"
-                    />
-                    <el-input-number
-                      v-else-if="row.key === 'holding_only_min_bail'"
-                      v-model="editableForm.holding_only_min_bail"
-                      :min="0"
-                      :step="10000"
-                      controls-position="right"
-                    />
-                    <el-input-number
-                      v-else-if="row.key === 'single_symbol_position_limit'"
-                      v-model="editableForm.single_symbol_position_limit"
-                      :min="0"
-                      :step="10000"
-                      controls-position="right"
-                    />
-                    <span v-else class="inventory-value">{{ row.value_label }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="description" label="说明" min-width="260" show-overflow-tooltip />
-              </el-table>
-
-              <div class="position-edit-footer">
-                <span class="workbench-muted">当前开放账户阈值和全局单标的实时仓位上限保持可编辑，其余参数继续只读展示。</span>
-                <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <div class="position-lower-column">
           <section class="workbench-panel position-top-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">单标的仓位上限覆盖</div>
-                <p class="workbench-panel__desc">右栏只保留单标的仓位上限覆盖。订单推断仓位和 stock_fills 视图都会按券商仓位真值对齐，来源语义仍保留；覆盖值可直接编辑，broker 缺失或超限时高亮。</p>
+                <p class="workbench-panel__desc">右栏宽度扩展后统一展示券商仓位、推断仓位、stock_fills 仓位与当前生效单标的上限；输入框默认回填当前生效值，金额统一按“万”显示，两位小数。</p>
               </div>
             </div>
 
@@ -192,9 +192,9 @@
                   <span>券商仓位</span>
                   <span>推断仓位</span>
                   <span>stock_fills仓位</span>
-                  <span>默认值</span>
-                  <span>覆盖值</span>
-                  <span>有效值</span>
+                  <span>系统默认值</span>
+                  <span>单标的上限设置</span>
+                  <span>当前来源</span>
                   <span>一致性</span>
                   <span>门禁</span>
                   <span>操作</span>
@@ -235,7 +235,7 @@
                       controls-position="right"
                     />
                   </div>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.effective_limit_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status">{{ row.source_label }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--status" :title="row.consistency_detail_label">
                     <span class="runtime-inline-status" :class="resolvePositionConsistencyStatusClass(row.quantity_mismatch)">
                       {{ row.consistency_label }}
@@ -253,14 +253,7 @@
                       :loading="Boolean(symbolLimitSaving[row.symbol])"
                       @click="saveSymbolLimit(row)"
                     >
-                      保存覆盖
-                    </el-button>
-                    <el-button
-                      text
-                      :disabled="!canResetSymbolLimit(row)"
-                      @click="resetSymbolLimit(row)"
-                    >
-                      恢复默认
+                      保存
                     </el-button>
                   </div>
                 </div>
@@ -485,7 +478,7 @@ const syncSymbolLimitDrafts = (rows = []) => {
     if (!symbols.has(symbol)) delete symbolLimitSaving[symbol]
   })
   rows.forEach((row) => {
-    symbolLimitDrafts[row.symbol] = row.override_limit_value
+    symbolLimitDrafts[row.symbol] = row.limit_input_value
     symbolLimitSaving[row.symbol] = false
   })
 }
@@ -531,17 +524,12 @@ const saveThresholds = async () => {
   }
 }
 
-const canResetSymbolLimit = (row) => {
-  const draft = Number(symbolLimitDrafts[row?.symbol])
-  return Boolean(row?.using_override) || Number.isFinite(draft)
-}
-
 const saveSymbolLimit = async (row) => {
   const symbol = String(row?.symbol || '').trim()
   if (!symbol) return
   const parsed = Number(symbolLimitDrafts[symbol])
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    ElMessage.error(`请先为 ${symbol} 填写有效的覆盖值`)
+    ElMessage.error(`请先为 ${symbol} 填写有效的单标的上限`)
     return
   }
 
@@ -549,32 +537,12 @@ const saveSymbolLimit = async (row) => {
   try {
     await positionManagementApi.updateSymbolLimit(symbol, {
       limit: parsed,
-      use_default: false,
       updated_by: 'web-ui',
     })
-    ElMessage.success(`${symbol} 覆盖值已保存`)
+    ElMessage.success(`${symbol} 单标的上限已保存`)
     await loadDashboard()
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, `保存 ${symbol} 覆盖值失败`))
-  } finally {
-    symbolLimitSaving[symbol] = false
-  }
-}
-
-const resetSymbolLimit = async (row) => {
-  const symbol = String(row?.symbol || '').trim()
-  if (!symbol) return
-
-  symbolLimitSaving[symbol] = true
-  try {
-    await positionManagementApi.updateSymbolLimit(symbol, {
-      use_default: true,
-      updated_by: 'web-ui',
-    })
-    ElMessage.success(`${symbol} 已恢复默认值`)
-    await loadDashboard()
-  } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, `恢复 ${symbol} 默认值失败`))
+    ElMessage.error(resolveErrorMessage(error, `保存 ${symbol} 单标的上限失败`))
   } finally {
     symbolLimitSaving[symbol] = false
   }
@@ -600,7 +568,7 @@ onMounted(() => {
   --position-symbol-limit-ledger-body-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
   --position-upper-panel-height: calc(var(--position-symbol-limit-ledger-body-height) + 136px);
   display: grid;
-  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.96fr) minmax(0, 1.04fr);
+  grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.32fr);
   gap: 12px;
   align-items: stretch;
 }
@@ -628,18 +596,22 @@ onMounted(() => {
   flex: 1 1 auto;
   min-height: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   overflow: auto;
 }
 
 .position-state-scroll,
-.position-config-scroll,
 .position-symbol-limit-scroll {
   padding-right: 4px;
 }
 
 .position-config-table {
   margin-top: 0;
+}
+
+.position-config-table :deep(.cell) {
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 .position-config-table :deep(.el-input-number) {
@@ -656,21 +628,40 @@ onMounted(() => {
   padding-top: 4px;
 }
 
+.position-panel-section__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
 .inventory-parameter-cell {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .inventory-parameter-cell strong {
   color: #303133;
 }
 
+.inventory-value-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .inventory-parameter-cell span,
-.inventory-value {
+.inventory-inline-hint,
+.inventory-value,
+.position-panel-section__desc {
   color: #606266;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.position-panel-section__desc {
+  margin: 0;
 }
 
 .position-rule-hint {
@@ -695,7 +686,7 @@ onMounted(() => {
 .position-meta-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .position-metric-card span,
@@ -707,17 +698,17 @@ onMounted(() => {
 .position-metric-card strong,
 .position-meta-card strong {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   color: #303133;
   line-height: 1.35;
 }
 
 .position-metric-card strong {
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .position-meta-card strong {
-  font-size: 12px;
+  font-size: 11px;
   word-break: break-all;
 }
 
@@ -725,7 +716,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .position-panel-section__title {
@@ -840,16 +831,15 @@ onMounted(() => {
 }
 
 .runtime-position-rule-ledger {
-  --position-rule-ledger-row-height: 36px;
-  max-height: calc(var(--position-rule-ledger-row-height) * 4 + 2px);
+  overflow: visible;
 }
 
 .runtime-position-rule-ledger :is(.runtime-ledger__header, .runtime-ledger__row) {
-  min-height: var(--position-rule-ledger-row-height);
+  min-height: 34px;
 }
 
 .runtime-position-rule-ledger__grid {
-  grid-template-columns: 120px 88px 148px minmax(240px, 1fr);
+  grid-template-columns: 102px 80px 136px minmax(180px, 1fr);
 }
 
 .runtime-position-symbol-limit-ledger {
@@ -862,16 +852,16 @@ onMounted(() => {
 
 .runtime-position-symbol-limit-ledger__grid {
   grid-template-columns:
-    170px
-    220px
-    220px
-    220px
-    120px
-    168px
-    120px
-    108px
-    92px
-    160px;
+    150px
+    176px
+    176px
+    176px
+    88px
+    152px
+    88px
+    96px
+    76px
+    132px;
 }
 
 .runtime-ledger__cell {
@@ -981,12 +971,12 @@ onMounted(() => {
 .position-symbol-limit-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 @media (max-width: 1600px) {
   .position-lower-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

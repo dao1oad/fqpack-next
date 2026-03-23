@@ -130,9 +130,10 @@ Kline 页面不维护自己的事实源，读取的主要是：
 - 缠论结构面板
 - Guardian 倍量价格三层编辑，支持逐层启停；激活层与仅展示层保留不同横线样式
 - 止盈价格三层编辑，按低到高蓝 / 红 / 绿虚线展示
-- `标的设置` 浮层编辑 `must_pool`、单标的仓位上限覆盖和 open buy lot 止损
+- `标的设置` 浮层编辑 `must_pool`、单标的仓位上限设置和 open buy lot 止损
 - `must_pool` 基础配置当前只编辑止损价、首笔金额和常规金额；分类继续沿用当前真值，`forever` 固定写 `true`，页面不再暴露这两个项
-- 单标的仓位上限当前只保留一个“覆盖值”输入；留空时回退仓位管理默认值，有值时写入 symbol override
+- 单标的仓位上限当前只保留一个“单标的上限设置”输入；默认回填当前生效值 `effective_limit`
+- 若保存值与系统默认值相同，后端会自动删除 symbol override；浮层不再提供 `use_default / 恢复默认 / 默认-单独切换`
 - `保存并激活` 按钮会把 Guardian / 止盈 6 个值一并保存，并把 Guardian `buy_active` 与止盈 `armed_levels` 全部打开
 - 图上默认直接显示 Guardian / 止盈价格横线
 - `画线编辑` 模式下可直接拖拽 Guardian / 止盈价格横线设置价格，拖拽结束自动保存
@@ -216,7 +217,7 @@ Kline 页面不维护自己的事实源，读取的主要是：
 ### 标的设置浮层保存后未刷新
 
 - 检查 `/api/subject-management/<symbol>` 是否返回了 `must_pool / position_limit_summary / buy_lots`
-- 检查 `/api/position-management/symbol-limits/<symbol>` 是否成功写入覆盖值或恢复默认值
+- 检查 `/api/position-management/symbol-limits/<symbol>` 是否成功写入当前希望生效的单标的上限；若保存值等于系统默认值，后端应删除 override
 - 检查 `/api/order-management/stoploss/bind` 是否成功写入 buy lot 级止损
 - 检查当前是否切换了 symbol；现状是 symbol 变化后会清空旧浮层 detail 并按当前 symbol 重新加载
 - 如果 `按 buy lot 止损` 区再次出现长 ID 挤压布局，检查前端是否仍直接渲染 `row.buy_lot_id`，而不是 `buyLotDisplayLabel / buyLotMetaLabel / buyLotIdLabel`

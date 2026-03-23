@@ -192,14 +192,14 @@ test('buildDenseConfigRows flattens must-pool and symbol limit fields into one d
 
   assert.deepEqual(
     rows.map((row) => row.key),
-    ['category', 'stop_loss_price', 'initial_lot_amount', 'lot_amount', 'position_limit_mode', 'position_limit_value'],
+    ['category', 'stop_loss_price', 'initial_lot_amount', 'lot_amount', 'position_limit_value'],
   )
   assert.equal(rows[0].currentLabel, '银行')
   assert.equal(rows[1].group, '基础')
   assert.equal(rows[4].group, '仓位上限')
   assert.equal(rows[4].statusLabel, '单独设置')
-  assert.equal(rows[5].currentLabel, '50.00 万')
-  assert.equal(rows[5].note.includes('当前市值'), true)
+  assert.equal(rows[4].currentLabel, '50.00 万')
+  assert.equal(rows[4].note.includes('当前市值'), true)
 })
 
 test('buildDenseConfigRows keeps category row bound to must-pool category instead of subject category', () => {
@@ -326,7 +326,7 @@ test('createSubjectManagementActions calls subject, position-limit and stoploss 
       return { symbol, ...payload }
     },
     async saveSymbolPositionLimit(symbol, payload) {
-      calls.push(['saveSymbolPositionLimit', symbol, payload.limit ?? null, !!payload.use_default])
+      calls.push(['saveSymbolPositionLimit', symbol, payload.limit ?? null])
       return { symbol, ...payload }
     },
     async saveTakeprofitProfile(symbol, payload) {
@@ -355,7 +355,7 @@ test('createSubjectManagementActions calls subject, position-limit and stoploss 
     ['getOverview'],
     ['getDetail', '600000'],
     ['saveMustPool', '600000', '银行'],
-    ['saveSymbolPositionLimit', '600000', 500000, false],
+    ['saveSymbolPositionLimit', '600000', 500000],
     ['bindStoploss', 'lot_1', 9.2, true],
   ])
 })
@@ -369,7 +369,10 @@ test('SubjectManagement view uses symbol-limit editor layout and leaves guardian
   assert.match(source, /subject-editor-stoploss-table/)
   assert.match(source, /基础配置 \+ 单标的仓位上限/)
   assert.match(source, /仓位上限/)
+  assert.match(source, /单标的上限设置/)
   assert.match(source, /positionLimitDraft/)
+  assert.doesNotMatch(source, /position_limit_mode/)
+  assert.doesNotMatch(source, /use_default/)
   assert.doesNotMatch(source, /subject-form-grid/)
   assert.doesNotMatch(source, /subject-runtime-grid/)
   assert.doesNotMatch(source, /保存基础与 Guardian/)

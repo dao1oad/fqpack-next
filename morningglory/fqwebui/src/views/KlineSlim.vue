@@ -294,20 +294,20 @@
                 <div class="subject-panel-grid">
                   <div class="subject-panel-limit-summary">
                     <span class="price-panel-summary-chip">
-                      默认 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.default_limit) }}
+                      系统默认值 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.default_limit) }}
                     </span>
                     <span class="price-panel-summary-chip">
-                      有效 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.effective_limit) }}
+                      当前生效 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.effective_limit) }}
                     </span>
                     <span class="price-panel-summary-chip">
-                      来源 {{ subjectPanelState.subjectPanelDetail.positionLimit.using_override ? '单独设置' : '默认值' }}
+                      当前来源 {{ subjectPanelState.subjectPanelDetail.positionLimit.using_override ? '单独设置' : '系统默认值' }}
                     </span>
                   </div>
 
                   <div class="subject-panel-limit-row">
                     <label class="subject-panel-field">
-                      <span class="subject-panel-field__label">覆盖值</span>
-                      <span class="subject-panel-field__note">留空时沿用仓位管理默认值</span>
+                      <span class="subject-panel-field__label">单标的上限设置</span>
+                      <span class="subject-panel-field__note">输入当前希望生效的单标的上限；若与系统默认值相同，保存时后端会自动删除单独设置</span>
                       <el-input-number
                         v-model="subjectPanelState.positionLimitDraft.limit"
                         size="small"

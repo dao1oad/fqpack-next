@@ -130,6 +130,8 @@ const createDashboard = () => ({
         symbol_quantity_source: 'xt_positions.volume',
         force_profit_reduce: false,
         profit_reduce_mode: 'off',
+        symbol_limit_source: 'override',
+        symbol_scope_memberships: ['holding', 'must_pool'],
         guardrail_hint: 'stale-window',
       },
     },
@@ -271,6 +273,8 @@ test('buildRecentDecisionLedgerRows merges summary and detail fields into one de
   assert.equal(rows[0].symbol_position_limit_label, '500,000.00')
   assert.equal(rows[0].trace_display, 'trace-001')
   assert.equal(rows[0].intent_display, 'intent-001')
+  assert.match(rows[0].extra_context_label, /symbol_limit_source=override/)
+  assert.match(rows[0].extra_context_label, /symbol_scope_memberships=holding \/ must_pool/)
   assert.match(rows[0].extra_context_label, /guardrail_hint=stale-window/)
 })
 
@@ -292,12 +296,15 @@ test('buildSymbolLimitRows exposes three position views and quantity mismatch me
   assert.equal(rows[0].symbol, '000001')
   assert.equal(rows[0].blocked_label, '已阻断')
   assert.equal(rows[0].row_tone, 'blocked')
-  assert.equal(rows[0].broker_position_label, '1,200 股 / 530,000.00')
-  assert.equal(rows[0].inferred_position_label, '1,000 股 / 510,000.00')
-  assert.equal(rows[0].legacy_position_label, '1,000 股 / 505,000.00')
+  assert.equal(rows[0].broker_position_label, '1,200 股 / 53.00万')
+  assert.equal(rows[0].inferred_position_label, '1,000 股 / 51.00万')
+  assert.equal(rows[0].legacy_position_label, '1,000 股 / 50.50万')
   assert.equal(rows[0].consistency_label, '数量不一致')
   assert.equal(rows[0].quantity_mismatch, true)
-  assert.equal(rows[0].override_limit_label, '500,000.00')
+  assert.equal(rows[0].default_limit_label, '80.00万')
+  assert.equal(rows[0].limit_input_value, 500000)
+  assert.equal(rows[0].effective_limit_label, '50.00万')
+  assert.equal(rows[1].source_label, '系统默认值')
   assert.equal(rows[1].consistency_label, '数量一致')
   assert.equal(rows[1].quantity_mismatch, false)
   assert.equal(rows[1].row_tone, 'normal')
@@ -346,10 +353,11 @@ test('readDashboardPayload unwraps axios responses instead of treating request c
   assert.deepEqual(readDashboardPayload(response), payload)
 })
 
-test('PositionManagement.vue uses dense runtime ledger layout and removes legacy split panels', async () => {
+test('PositionManagement.vue uses merged left panel and fully visible rule matrix without a separate inventory card', async () => {
   const content = await readFile(new URL('./PositionManagement.vue', import.meta.url), 'utf8')
   const topPanelIndex = content.indexOf('position-lower-grid')
   const decisionPanelIndex = content.indexOf('position-decision-panel')
+  const topColumnCount = (content.match(/<div class="position-lower-column">/g) || []).length
 
   assert.match(content, /最近决策与上下文/)
   assert.match(content, /runtime-ledger runtime-position-decision-ledger/)
@@ -358,32 +366,40 @@ test('PositionManagement.vue uses dense runtime ledger layout and removes legacy
   assert.match(content, /page-sizes="\[100,\s*200,\s*500\]"/)
   assert.match(content, /runtime-ledger__row--blocked/)
   assert.match(content, /runtime-ledger__row--inconsistent/)
-  assert.match(content, /覆盖值/)
+  assert.match(content, /系统默认值/)
+  assert.match(content, /单标的上限设置/)
+  assert.match(content, /当前来源/)
   assert.match(content, /券商仓位/)
   assert.match(content, /推断仓位/)
   assert.match(content, /stock_fills仓位/)
   assert.match(content, /一致性/)
-  assert.match(content, /保存覆盖/)
-  assert.match(content, /恢复默认/)
+  assert.match(content, /保存/)
   assert.match(content, /positionManagementApi\.updateSymbolLimit/)
   assert.match(content, /规则矩阵/)
   assert.match(content, /position-state-scroll/)
-  assert.match(content, /position-config-scroll/)
+  assert.match(content, /参数 inventory/)
   assert.match(content, /--position-upper-panel-height:/)
   assert.match(content, /position-decision-panel/)
   assert.ok(topPanelIndex >= 0)
   assert.ok(decisionPanelIndex >= 0)
   assert.ok(topPanelIndex < decisionPanelIndex)
+  assert.equal(topColumnCount, 2)
   assert.match(content, /--position-decision-ledger-row-height:/)
   assert.match(content, /max-height:\s*calc\(var\(--position-decision-ledger-row-height\)\s*\*\s*11/)
+  assert.match(content, /runtime-position-rule-ledger\s*\{[^}]*overflow:\s*visible;/)
   assert.doesNotMatch(content, /<section class="workbench-toolbar">/)
   assert.doesNotMatch(content, /决策上下文详情/)
   assert.doesNotMatch(content, /持仓范围/)
   assert.doesNotMatch(content, /position-decision-card/)
   assert.doesNotMatch(content, /position-holding-panel/)
+  assert.doesNotMatch(content, /position-config-panel/)
+  assert.doesNotMatch(content, /position-config-scroll/)
+  assert.doesNotMatch(content, /label="说明"/)
+  assert.doesNotMatch(content, /覆盖值/)
+  assert.doesNotMatch(content, /恢复默认/)
 })
 
-test('position-management module doc reflects merged dense decision ledger and editable symbol overrides', async () => {
+test('position-management module doc reflects merged left panel, dirty-symbol filtering and truth-filled recent decisions', async () => {
   const content = await readFile(new URL('../../../../docs/current/modules/position-management.md', import.meta.url), 'utf8')
 
   assert.match(content, /最近决策与上下文已合并为一张高密度 ledger/)
@@ -391,7 +407,13 @@ test('position-management module doc reflects merged dense decision ledger and e
   assert.match(content, /页面顶部不再保留“仓位管理”标题卡片/)
   assert.match(content, /持仓范围卡片已移除/)
   assert.match(content, /规则矩阵已并入“当前仓位状态”/)
-  assert.match(content, /单标的仓位上限覆盖.*可直接编辑“覆盖值”/)
+  assert.match(content, /当前仓位状态与参数 inventory 已合并为左栏/)
+  assert.match(content, /参数 inventory.*说明列/)
+  assert.match(content, /脏数据.*不在持仓股、must_pool、stock_pools、pre_pools.*不会进入“单标的仓位上限覆盖”/)
+  assert.match(content, /最近决策.*实时市值.*仓位上限.*市值来源.*数量来源.*系统真值回填/)
+  assert.match(content, /单标的仓位上限覆盖.*输入框默认展示当前生效值/)
+  assert.match(content, /保存值等于系统默认值时.*自动删除 override/)
+  assert.match(content, /金额统一按“万”展示/)
   assert.match(content, /券商同步仓位.*订单推断仓位.*stock_fills/)
   assert.match(content, /订单推断仓位与.*stock_fills.*券商仓位真值对齐/)
 })

@@ -54,7 +54,7 @@ test('createKlineSlimSubjectPanelActions routes subject and position-limit write
       return { symbol, ...payload }
     },
     async saveSymbolPositionLimit(symbol, payload) {
-      calls.push(['saveSymbolPositionLimit', symbol, payload.limit ?? null, !!payload.use_default])
+      calls.push(['saveSymbolPositionLimit', symbol, payload.limit ?? null])
       return { symbol, ...payload }
     },
     async bindStoploss(payload) {
@@ -71,7 +71,7 @@ test('createKlineSlimSubjectPanelActions routes subject and position-limit write
   assert.deepEqual(calls, [
     ['getDetail', '600000'],
     ['saveMustPool', '600000', '银行'],
-    ['saveSymbolPositionLimit', '600000', 500000, false],
+    ['saveSymbolPositionLimit', '600000', 500000],
     ['bindStoploss', 'lot-1', 9.2, true],
   ])
 })

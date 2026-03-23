@@ -138,7 +138,7 @@
                   <div class="subject-summary-stack">
                     <div class="subject-summary-line">市值 {{ formatWanAmount(row.positionLimitSummary.market_value) }}</div>
                     <div class="subject-summary-line">上限 {{ formatWanAmount(row.positionLimitSummary.effective_limit) }}</div>
-                    <div class="subject-summary-line">{{ row.positionLimitSummary.using_override ? '单独设置' : '默认值' }}</div>
+                    <div class="subject-summary-line">{{ row.positionLimitSummary.using_override ? '单独设置' : '系统默认值' }}</div>
                     <div class="subject-summary-line">
                       <span class="subject-inline-state" :class="{ active: !row.positionLimitSummary.blocked }">
                         {{ row.positionLimitSummary.blocked ? '阻断' : '允许' }}
@@ -242,7 +242,7 @@
               <div class="subject-editor-table-header">
                 <div class="subject-editor-table-heading">
                   <div class="subject-editor-table-title">基础配置 + 单标的仓位上限</div>
-                  <div class="subject-editor-table-subtitle">must_pool / position_management symbol limit</div>
+                  <div class="subject-editor-table-subtitle">单标的上限设置默认显示当前生效值；保存成系统默认值时后端会自动删除单独设置</div>
                 </div>
                 <el-button
                   size="small"
@@ -302,21 +302,12 @@
                       :step="1000"
                       controls-position="right"
                     />
-                    <el-switch
-                      v-else-if="row.key === 'position_limit_mode'"
-                      v-model="positionLimitDraft.use_default"
-                      size="small"
-                      inline-prompt
-                      active-text="默认"
-                      inactive-text="单独"
-                    />
                     <el-input-number
                       v-else-if="row.key === 'position_limit_value'"
                       v-model="positionLimitDraft.limit"
                       size="small"
                       :min="0"
                       :step="10000"
-                      :disabled="positionLimitDraft.use_default"
                       controls-position="right"
                     />
                   </template>
@@ -606,11 +597,8 @@ const resolveConfigRowTagType = (row) => {
   if (row?.key === 'stop_loss_price') {
     return 'danger'
   }
-  if (row?.key === 'position_limit_mode') {
-    return row?.statusLabel === '单独设置' ? 'warning' : 'info'
-  }
   if (row?.key === 'position_limit_value') {
-    return row?.statusLabel === '已阻断' ? 'danger' : 'success'
+    return row?.statusLabel === '单独设置' ? 'warning' : 'info'
   }
   return 'info'
 }
@@ -629,12 +617,10 @@ const handleOverviewPageSizeChange = (pageSize) => {
 }
 
 const handleSaveConfigBundleClick = async () => {
-  if (!positionLimitDraft.value?.use_default) {
-    const parsed = Number(positionLimitDraft.value?.limit)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      ElMessage.warning('请先填写有效的仓位上限')
-      return
-    }
+  const parsed = Number(positionLimitDraft.value?.limit)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    ElMessage.warning('请先填写有效的单标的上限')
+    return
   }
   await handleSaveConfigBundle()
 }

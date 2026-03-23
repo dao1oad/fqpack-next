@@ -85,7 +85,7 @@ def test_position_management_config_routes_forward_reads_and_validation_errors(
     )
 
 
-def test_position_management_symbol_limit_routes_forward_reads_and_updates(
+def test_position_management_symbol_limit_routes_forward_limit_only_payload(
     monkeypatch,
 ):
     captured = {}
@@ -112,7 +112,7 @@ def test_position_management_symbol_limit_routes_forward_reads_and_updates(
             return {
                 "symbol": symbol,
                 "effective_limit": payload.get("limit", 800000.0),
-                "using_override": not payload.get("use_default"),
+                "using_override": payload.get("limit") != 800000.0,
             }
 
     monkeypatch.setattr(

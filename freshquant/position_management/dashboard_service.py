@@ -22,6 +22,12 @@ from freshquant.util.code import normalize_to_base_code
 DEFAULT_STATE_STALE_AFTER_SECONDS = 15
 DEFAULT_FALLBACK_STATE = HOLDING_ONLY
 DEFAULT_SINGLE_SYMBOL_POSITION_LIMIT = 800000.0
+TRACKED_SCOPE_MEMBERSHIP_ORDER = {
+    "holding": 0,
+    "must_pool": 1,
+    "stock_pool": 2,
+    "pre_pool": 3,
+}
 
 
 class PositionManagementDashboardService:
@@ -29,6 +35,7 @@ class PositionManagementDashboardService:
         self,
         repository=None,
         holding_codes_provider=None,
+        tracked_symbol_context_provider=None,
         inferred_position_loader=None,
         legacy_position_loader=None,
         settings_provider=None,
@@ -39,6 +46,15 @@ class PositionManagementDashboardService:
         self.repository = repository or PositionManagementRepository()
         self.holding_codes_provider = (
             holding_codes_provider or _default_holding_codes_provider
+        )
+        self.tracked_symbol_context_provider = tracked_symbol_context_provider or (
+            _resolve_default_tracked_symbol_context_provider(
+                self.holding_codes_provider
+            )
+            if use_default_position_loaders
+            else _resolve_holding_only_tracked_symbol_context_provider(
+                self.holding_codes_provider
+            )
         )
         self.inferred_position_loader = inferred_position_loader or (
             _default_inferred_position_loader
@@ -73,7 +89,10 @@ class PositionManagementDashboardService:
     def get_config(self):
         raw_config = self.repository.get_config() or {}
         thresholds = self._resolve_thresholds(raw_config)
-        symbol_position_limits = self._resolve_symbol_position_limits(raw_config)
+        symbol_position_limits = self._resolve_symbol_position_limits(
+            raw_config,
+            default_limit=thresholds["single_symbol_position_limit"],
+        )
         policy_defaults = {
             "state_stale_after_seconds": DEFAULT_STATE_STALE_AFTER_SECONDS,
             "default_state": DEFAULT_FALLBACK_STATE,
@@ -149,11 +168,8 @@ class PositionManagementDashboardService:
         overrides = (config_view.get("symbol_position_limits") or {}).get(
             "overrides"
         ) or {}
-        holding_codes = {
-            normalize_to_base_code(code)
-            for code in (self.holding_codes_provider() or [])
-            if normalize_to_base_code(code)
-        }
+        holding_codes = self._get_holding_codes()
+        tracked_symbol_context = self._get_tracked_symbol_context()
         snapshots = (
             self.repository.list_symbol_snapshots()
             if hasattr(self.repository, "list_symbol_snapshots")
@@ -184,17 +200,11 @@ class PositionManagementDashboardService:
             snapshot_map,
             default_source="stock_fills_compat",
         )
-        symbols = (
-            set(overrides)
-            | set(snapshot_map)
-            | set(inferred_position_map)
-            | set(legacy_position_map)
-            | {
-                normalize_to_base_code(code)
-                for code in holding_codes
-                if normalize_to_base_code(code)
-            }
-        )
+        symbols = {
+            symbol
+            for symbol, context in tracked_symbol_context.items()
+            if context.get("in_scope", True)
+        }
         rows = [
             self._build_symbol_limit_row(
                 symbol,
@@ -204,6 +214,10 @@ class PositionManagementDashboardService:
                 inferred_position=inferred_position_map.get(symbol),
                 legacy_position=legacy_position_map.get(symbol),
                 is_holding_symbol=symbol in holding_codes,
+                scope_memberships=(
+                    tracked_symbol_context.get(symbol, {}).get("scope_memberships")
+                    or []
+                ),
             )
             for symbol in symbols
         ]
@@ -219,6 +233,10 @@ class PositionManagementDashboardService:
         normalized_symbol = normalize_to_base_code(symbol)
         if not normalized_symbol:
             raise ValueError("symbol is required")
+        tracked_symbol_context = self._get_tracked_symbol_context()
+        tracked_context = tracked_symbol_context.get(normalized_symbol)
+        if tracked_context is None or not tracked_context.get("in_scope", True):
+            raise ValueError("symbol is not tracked by holdings or pools")
         config_view = self.get_config()
         default_limit = config_view["thresholds"]["single_symbol_position_limit"]
         overrides = (config_view.get("symbol_position_limits") or {}).get(
@@ -230,11 +248,7 @@ class PositionManagementDashboardService:
         if snapshot is None and hasattr(self.repository, "list_symbol_snapshots"):
             rows = self.repository.list_symbol_snapshots(symbols=[normalized_symbol])
             snapshot = rows[0] if rows else None
-        holding_codes = {
-            normalize_to_base_code(code)
-            for code in (self.holding_codes_provider() or [])
-            if normalize_to_base_code(code)
-        }
+        holding_codes = self._get_holding_codes()
         snapshot_map = {normalized_symbol: snapshot} if snapshot else {}
         inferred_position_map = _align_position_view_map_to_broker_truth(
             _build_position_view_map(
@@ -262,34 +276,43 @@ class PositionManagementDashboardService:
             inferred_position=inferred_position_map.get(normalized_symbol),
             legacy_position=legacy_position_map.get(normalized_symbol),
             is_holding_symbol=normalized_symbol in holding_codes,
+            scope_memberships=tracked_context.get("scope_memberships") or [],
         )
 
     def update_symbol_limit(self, symbol, payload):
         normalized_symbol = normalize_to_base_code(symbol)
         if not normalized_symbol:
             raise ValueError("symbol is required")
+        tracked_context = self._get_tracked_symbol_context().get(normalized_symbol)
+        if tracked_context is None or not tracked_context.get("in_scope", True):
+            raise ValueError("symbol is not tracked by holdings or pools")
 
         current_raw = self.repository.get_config() or {}
         document = dict(current_raw)
         document.pop("_id", None)
         document["code"] = str(document.get("code") or "default")
         document["enabled"] = True
-        document["thresholds"] = self._resolve_thresholds(document)
-        symbol_position_limits = self._resolve_symbol_position_limits(document)
+        thresholds = self._resolve_thresholds(document)
+        document["thresholds"] = thresholds
+        default_limit = thresholds["single_symbol_position_limit"]
+        symbol_position_limits = self._resolve_symbol_position_limits(
+            document,
+            default_limit=default_limit,
+        )
         overrides = dict(symbol_position_limits.get("overrides") or {})
         updated_by = str(payload.get("updated_by") or "api").strip() or "api"
         updated_at = self.now_provider().isoformat()
 
-        if bool(payload.get("use_default")):
+        limit = _require_finite_float(
+            payload.get("limit"),
+            None,
+            field_name="limit",
+        )
+        if limit <= 0:
+            raise ValueError("limit must be greater than 0")
+        if math.isclose(limit, default_limit, rel_tol=0.0, abs_tol=1e-9):
             overrides.pop(normalized_symbol, None)
         else:
-            limit = _require_finite_float(
-                payload.get("limit"),
-                None,
-                field_name="limit",
-            )
-            if limit <= 0:
-                raise ValueError("limit must be greater than 0")
             overrides[normalized_symbol] = {
                 "limit": limit,
                 "updated_at": updated_at,
@@ -321,25 +344,12 @@ class PositionManagementDashboardService:
             ),
         }
 
-    def _resolve_symbol_position_limits(self, raw_config):
+    def _resolve_symbol_position_limits(self, raw_config, default_limit=None):
         raw_limits = (raw_config or {}).get("symbol_position_limits", {}) or {}
-        raw_overrides = raw_limits.get("overrides", {}) or {}
-        overrides = {}
-        for raw_symbol, raw_detail in raw_overrides.items():
-            normalized_symbol = normalize_to_base_code(raw_symbol)
-            if not normalized_symbol:
-                continue
-            detail = (
-                raw_detail if isinstance(raw_detail, dict) else {"limit": raw_detail}
-            )
-            limit = _coerce_float(detail.get("limit"), None)
-            if limit is None:
-                continue
-            overrides[normalized_symbol] = {
-                "limit": limit,
-                "updated_at": detail.get("updated_at"),
-                "updated_by": detail.get("updated_by"),
-            }
+        overrides = _normalize_symbol_position_limit_overrides(
+            raw_limits.get("overrides", {}) or {},
+            default_limit=default_limit,
+        )
         return {
             "override_count": len(overrides),
             "overrides": overrides,
@@ -355,6 +365,7 @@ class PositionManagementDashboardService:
         inferred_position=None,
         legacy_position=None,
         is_holding_symbol=False,
+        scope_memberships=None,
     ):
         override_limit = _coerce_float((override or {}).get("limit"), None)
         effective_limit = (
@@ -408,6 +419,10 @@ class PositionManagementDashboardService:
             "updated_at": (override or {}).get("updated_at"),
             "updated_by": (override or {}).get("updated_by"),
             "is_holding_symbol": bool(is_holding_symbol),
+            "scope_memberships": _sort_scope_memberships(scope_memberships or []),
+            "scope_summary": " / ".join(
+                _sort_scope_memberships(scope_memberships or [])
+            ),
             "broker_position": broker_position,
             "inferred_position": inferred_position_view,
             "legacy_position": legacy_position_view,
@@ -515,9 +530,48 @@ class PositionManagementDashboardService:
         if not hasattr(self.repository, "list_recent_decisions"):
             return []
         decisions = self.repository.list_recent_decisions(limit=limit) or []
+        config_view = self.get_config()
+        default_limit = config_view["thresholds"]["single_symbol_position_limit"]
+        overrides = (config_view.get("symbol_position_limits") or {}).get(
+            "overrides"
+        ) or {}
+        holding_codes = self._get_holding_codes()
+        tracked_symbol_context = self._get_tracked_symbol_context()
+        symbols = [
+            normalize_to_base_code(item.get("symbol"))
+            for item in decisions
+            if normalize_to_base_code(item.get("symbol"))
+        ]
+        snapshot_map = {}
+        if hasattr(self.repository, "list_symbol_snapshots") and symbols:
+            snapshot_map = {
+                normalize_to_base_code(item.get("symbol")): item
+                for item in self.repository.list_symbol_snapshots(symbols=symbols)
+                if normalize_to_base_code(item.get("symbol"))
+            }
         rows = []
         for item in decisions:
-            meta = item.get("meta") or {}
+            normalized_symbol = normalize_to_base_code(item.get("symbol"))
+            symbol_truth = self._build_symbol_limit_row(
+                normalized_symbol,
+                default_limit=default_limit,
+                override=overrides.get(normalized_symbol),
+                snapshot=snapshot_map.get(normalized_symbol),
+                inferred_position=None,
+                legacy_position=None,
+                is_holding_symbol=normalized_symbol in holding_codes,
+                scope_memberships=(
+                    tracked_symbol_context.get(normalized_symbol, {}).get(
+                        "scope_memberships"
+                    )
+                    or []
+                ),
+            )
+            meta = self._enrich_recent_decision_meta(
+                item.get("meta") or {},
+                symbol_truth=symbol_truth,
+                is_holding_symbol=normalized_symbol in holding_codes,
+            )
             rows.append(
                 {
                     "decision_id": item.get("decision_id"),
@@ -542,6 +596,65 @@ class PositionManagementDashboardService:
                 }
             )
         return rows
+
+    def _get_holding_codes(self):
+        return {
+            normalize_to_base_code(code)
+            for code in (self.holding_codes_provider() or [])
+            if normalize_to_base_code(code)
+        }
+
+    def _get_tracked_symbol_context(self):
+        return _normalize_tracked_symbol_context(
+            self.tracked_symbol_context_provider() or {}
+        )
+
+    def _enrich_recent_decision_meta(
+        self,
+        meta,
+        *,
+        symbol_truth,
+        is_holding_symbol,
+    ):
+        payload = dict(meta or {})
+        truth_row = symbol_truth or {}
+        broker_position = truth_row.get("broker_position") or {}
+
+        payload["is_holding_symbol"] = bool(
+            payload.get("is_holding_symbol", is_holding_symbol)
+        )
+        if truth_row.get("name"):
+            payload.setdefault("symbol_name", truth_row.get("name"))
+        if truth_row.get("market_value") is not None:
+            payload.setdefault("symbol_market_value", truth_row.get("market_value"))
+        if truth_row.get("effective_limit") is not None:
+            payload.setdefault(
+                "symbol_position_limit", truth_row.get("effective_limit")
+            )
+        if broker_position.get("market_value_source"):
+            payload.setdefault(
+                "symbol_market_value_source",
+                broker_position.get("market_value_source"),
+            )
+        if broker_position.get("quantity_source"):
+            payload.setdefault(
+                "symbol_quantity_source", broker_position.get("quantity_source")
+            )
+        payload.setdefault("force_profit_reduce", False)
+        payload.setdefault(
+            "profit_reduce_mode",
+            ("guardian_placeholder" if payload.get("force_profit_reduce") else "off"),
+        )
+        payload.setdefault(
+            "symbol_limit_source",
+            "override" if truth_row.get("using_override") else "default",
+        )
+        if truth_row.get("scope_memberships"):
+            payload.setdefault(
+                "symbol_scope_memberships",
+                list(truth_row.get("scope_memberships") or []),
+            )
+        return payload
 
     def _build_inventory(self, *, thresholds, policy_defaults, xtquant):
         return [
@@ -751,6 +864,95 @@ def _normalize_optional_text(value):
     return text or None
 
 
+def _sort_scope_memberships(values):
+    return sorted(
+        {
+            _normalize_optional_text(value)
+            for value in list(values or [])
+            if _normalize_optional_text(value)
+        },
+        key=lambda item: (TRACKED_SCOPE_MEMBERSHIP_ORDER.get(item, 99), item),
+    )
+
+
+def _normalize_tracked_symbol_context(raw_context):
+    if isinstance(raw_context, dict):
+        items = list(raw_context.items())
+    else:
+        items = [(item, {}) for item in list(raw_context or [])]
+
+    context = {}
+    for raw_symbol, raw_payload in items:
+        symbol = normalize_to_base_code(raw_symbol)
+        if not symbol:
+            continue
+        payload = raw_payload if isinstance(raw_payload, dict) else {}
+        context[symbol] = {
+            "scope_memberships": _sort_scope_memberships(
+                payload.get("scope_memberships") or payload.get("memberships") or []
+            ),
+            "in_scope": bool(payload.get("in_scope", True)),
+        }
+    return context
+
+
+def _resolve_default_tracked_symbol_context_provider(holding_codes_provider):
+    def _provider():
+        context = {}
+
+        def add(symbol, membership):
+            normalized_symbol = normalize_to_base_code(symbol)
+            if not normalized_symbol:
+                return
+            payload = context.setdefault(
+                normalized_symbol,
+                {
+                    "scope_memberships": [],
+                    "in_scope": True,
+                },
+            )
+            payload["scope_memberships"].append(membership)
+
+        for code in holding_codes_provider() or []:
+            add(code, "holding")
+
+        try:
+            from freshquant.db import DBfreshquant
+            from freshquant.pre_pool_service import PrePoolService
+        except Exception:
+            return _normalize_tracked_symbol_context(context)
+
+        try:
+            for item in list(DBfreshquant["must_pool"].find({}, {"code": 1})):
+                add(item.get("code") or item.get("symbol"), "must_pool")
+            for item in list(DBfreshquant["stock_pools"].find({}, {"code": 1})):
+                add(item.get("code") or item.get("symbol"), "stock_pool")
+            for item in PrePoolService(db=DBfreshquant).list_codes():
+                add(item.get("code") or item.get("symbol"), "pre_pool")
+        except Exception:
+            return _normalize_tracked_symbol_context(context)
+
+        return _normalize_tracked_symbol_context(context)
+
+    return _provider
+
+
+def _resolve_holding_only_tracked_symbol_context_provider(holding_codes_provider):
+    def _provider():
+        context = {}
+        for code in holding_codes_provider() or []:
+            normalized_symbol = normalize_to_base_code(code)
+            if not normalized_symbol:
+                continue
+            context[normalized_symbol] = {
+                "scope_memberships": ["holding"],
+                "in_scope": True,
+            }
+        return _normalize_tracked_symbol_context(context)
+
+    return _provider
+
+
 def _build_broker_position_view(snapshot, *, is_holding_symbol):
     row = dict(snapshot or {})
     quantity = _coerce_int(row.get("quantity"), 0)
@@ -947,6 +1149,32 @@ def _build_broker_truth_source_label(source, default_source):
     if "broker_truth" in normalized_source:
         return normalized_source
     return f"{normalized_source}/broker_truth"
+
+
+def _normalize_symbol_position_limit_overrides(raw_overrides, *, default_limit=None):
+    normalized_default_limit = _coerce_float(default_limit, None)
+    overrides = {}
+    for raw_symbol, raw_detail in (raw_overrides or {}).items():
+        normalized_symbol = normalize_to_base_code(raw_symbol)
+        if not normalized_symbol:
+            continue
+        detail = raw_detail if isinstance(raw_detail, dict) else {"limit": raw_detail}
+        limit = _coerce_float(detail.get("limit"), None)
+        if limit is None:
+            continue
+        if normalized_default_limit is not None and math.isclose(
+            limit,
+            normalized_default_limit,
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            continue
+        overrides[normalized_symbol] = {
+            "limit": limit,
+            "updated_at": detail.get("updated_at"),
+            "updated_by": detail.get("updated_by"),
+        }
+    return overrides
 
 
 def _coerce_position_market_value(item):
