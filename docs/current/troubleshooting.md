@@ -195,6 +195,34 @@ print(inspect.signature(resolve_stock_account))
 - 若仍需继续定位，优先以 `inspect.getsourcefile()` 与 `inspect.signature()` 的结果确认宿主机实际 import 源，而不是继续凭仓库文件内容猜测
 - worker 恢复后，再重新执行命中的 host runtime surface restart 或整轮 formal deploy，并确认 runtime verify 通过
 
+## Docker 构建阶段 fqchan04 编译器崩溃
+
+现象：
+
+- formal deploy 在 `script/docker_parallel_compose.ps1` 阶段失败
+- 日志显示失败点在 `docker/Dockerfile.rear` 的 `python -m uv sync --frozen --no-install-project`
+- stderr 出现 `fqchan04`、`internal compiler error`、`Segmentation fault`，并且 `g++` 在编译 `fqchan04.cpp` 时退出
+
+先检查：
+
+- `Get-Content D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/result.json`
+- `Get-Content D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`
+- `Get-Content docker/Dockerfile.rear`
+- `Get-Content docker/compose.parallel.yaml`
+
+常见根因：
+
+- 失败点其实在 rear image 依赖同步，不是运行面健康检查，也不是宿主机进程
+- `fq_webui` 的 compose 依赖会带出 `fq_apiserver` / `fq_qawebserver` 启动路径，因此 Web deploy 也可能触发 rear image 构建
+- `fqchan04` 的 C++ 扩展编译可能偶发触发编译器级 `internal compiler error`，并不一定是当前提交引入了稳定可复现的源码错误
+
+处理：
+
+- 先保留失败 run_dir artifacts，不要在没有证据的情况下立刻改代码
+- 如果是第一次出现这类 `fqchan04` / `g++ internal compiler error`，对同一 SHA 原样重跑 1 次 formal deploy
+- 只有当第二次仍在相同位置稳定复现时，才继续进入代码修复、Dockerfile 调整或编译环境隔离
+- 如果重跑成功，把这次失败判定为构建过程瞬时失败；继续以新 run_dir 的 `result.json` 与 `runtime-verify.json` 作为正式交付证据
+
 ## API 无响应
 
 现象：
