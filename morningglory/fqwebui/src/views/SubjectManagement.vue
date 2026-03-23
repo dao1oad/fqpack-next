@@ -86,14 +86,15 @@
               <p class="workbench-panel__desc">左表直接展示当前配置摘要，不再依赖卡片。点击任一行，右栏切换到该标的编辑。</p>
             </div>
             <div class="workbench-panel__meta">
-              <span>{{ filteredOverviewRows.length }} 条</span>
+              <span>{{ overviewPage.total }} 条</span>
+              <span>第 {{ overviewPage.page }} / {{ overviewPage.totalPages }} 页</span>
             </div>
           </div>
 
-          <div class="workbench-table-wrap">
+          <div class="workbench-table-wrap subject-overview-table-wrap">
             <el-table
               v-loading="loadingOverview"
-              :data="filteredOverviewRows"
+              :data="overviewPage.rows"
               row-key="symbol"
               size="small"
               border
@@ -185,6 +186,19 @@
                 </template>
               </el-table-column>
             </el-table>
+          </div>
+
+          <div class="subject-overview-pagination">
+            <el-pagination
+              background
+              layout="total,sizes,prev,pager,next"
+              :current-page="overviewPage.page"
+              :page-size="overviewPage.pageSize"
+              :total="overviewPage.total"
+              :page-sizes="overviewPageSizeOptions"
+              @current-change="handleOverviewPageChange"
+              @size-change="handleOverviewPageSizeChange"
+            />
           </div>
         </section>
 
@@ -416,11 +430,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, toRefs } from 'vue'
+import { computed, onMounted, reactive, toRefs, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { subjectManagementApi } from '@/api/subjectManagementApi'
 import MyHeader from '@/views/MyHeader.vue'
+import {
+  DEFAULT_OVERVIEW_PAGE_SIZE,
+  OVERVIEW_PAGE_SIZE_OPTIONS,
+  paginateOverviewRows,
+} from '@/views/subjectManagementOverviewPagination.mjs'
 import {
   buildDenseConfigRows,
   buildDetailSummaryChips,
@@ -501,6 +520,13 @@ const filters = reactive({
   onlyStoploss: false,
 })
 
+const overviewPagination = reactive({
+  page: 1,
+  pageSize: DEFAULT_OVERVIEW_PAGE_SIZE,
+})
+
+const overviewPageSizeOptions = OVERVIEW_PAGE_SIZE_OPTIONS
+
 const categoryOptions = computed(() => {
   return Array.from(new Set((overviewRows.value || []).map((row) => String(row.category || '').trim()).filter(Boolean)))
     .sort((left, right) => left.localeCompare(right))
@@ -529,6 +555,11 @@ const filteredOverviewRows = computed(() => {
   })
 })
 
+const overviewPage = computed(() => paginateOverviewRows(
+  filteredOverviewRows.value,
+  overviewPagination,
+))
+
 const pmSummary = computed(() => detail.value?.positionManagementSummary || {
   effective_state: '',
   allow_open_min_bail: null,
@@ -539,6 +570,33 @@ const pmStateChipClass = computed(() => resolveStateChipClass(pmSummary.value.ef
 
 const detailSummaryChips = computed(() => buildDetailSummaryChips(detail.value || {}))
 const configEditorRows = computed(() => buildDenseConfigRows(detail.value || {}))
+
+watch(
+  () => [
+    filters.keyword,
+    filters.category,
+    filters.onlyMustPool,
+    filters.onlyHolding,
+    filters.onlyTakeprofit,
+    filters.onlyStoploss,
+  ],
+  () => {
+    overviewPagination.page = 1
+  },
+)
+
+watch(
+  () => [overviewPage.value.page, overviewPage.value.pageSize],
+  ([page, pageSize]) => {
+    if (overviewPagination.page !== page) {
+      overviewPagination.page = page
+    }
+    if (overviewPagination.pageSize !== pageSize) {
+      overviewPagination.pageSize = pageSize
+    }
+  },
+  { immediate: true },
+)
 
 const overviewRowClassName = ({ row }) => {
   return row?.symbol === selectedSymbol.value ? 'subject-table-row--active' : ''
@@ -559,6 +617,15 @@ const resolveConfigRowTagType = (row) => {
 
 const handleRowClick = async (row) => {
   await selectSymbol(row?.symbol)
+}
+
+const handleOverviewPageChange = (page) => {
+  overviewPagination.page = page
+}
+
+const handleOverviewPageSizeChange = (pageSize) => {
+  overviewPagination.pageSize = pageSize
+  overviewPagination.page = 1
 }
 
 const handleSaveConfigBundleClick = async () => {
@@ -590,13 +657,17 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.subject-management-page {
+  max-height: 100dvh;
+}
+
 .subject-management-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .subject-toolbar-filters {
@@ -623,8 +694,10 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: minmax(420px, 0.92fr) minmax(0, 1.08fr);
   gap: 12px;
+  flex: 1 1 auto;
   min-height: 0;
   align-items: stretch;
+  overflow: hidden;
 }
 
 .subject-overview-panel,
@@ -632,10 +705,20 @@ onMounted(async () => {
   min-height: 0;
 }
 
+.subject-overview-panel {
+  overflow: hidden;
+}
+
+.subject-overview-table-wrap {
+  overflow: hidden;
+}
+
 .subject-editor-stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
+  overflow: auto;
 }
 
 .subject-overview-panel :deep(.el-table) {
@@ -644,6 +727,12 @@ onMounted(async () => {
 
 .subject-overview-panel :deep(.subject-table-row--active > td.el-table__cell) {
   background: #f4f9ff;
+}
+
+.subject-overview-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
 }
 
 .subject-code-cell {
@@ -830,10 +919,19 @@ onMounted(async () => {
   padding-bottom: 7px;
 }
 
-@media (max-width: 1500px) {
+@media (max-width: 1360px) {
+  .subject-management-body {
+    overflow: auto;
+  }
+
   .subject-layout {
     grid-template-columns: 1fr;
     min-height: auto;
+    overflow: visible;
+  }
+
+  .subject-editor-stack {
+    overflow: visible;
   }
 }
 
