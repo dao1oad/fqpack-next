@@ -128,7 +128,6 @@ def test_tpsl_submit_intent_emits_trace_step():
     service.submit_takeprofit_batch(batch)
 
     assert [event["node"] for event in runtime_logger.events] == [
-        "profile_load",
         "trigger_eval",
         "batch_create",
         "submit_intent",
@@ -147,7 +146,7 @@ def test_tpsl_submit_intent_emits_trace_step():
     ]
 
 
-def test_tpsl_tick_consumer_emits_tick_match_before_service_submit():
+def test_tpsl_tick_consumer_does_not_emit_pretrigger_info_events():
     runtime_logger = FakeRuntimeLogger()
 
     class FakeService:
@@ -180,7 +179,7 @@ def test_tpsl_tick_consumer_emits_tick_match_before_service_submit():
         }
     )
 
-    assert runtime_logger.events[0]["node"] == "tick_match"
+    assert runtime_logger.events == []
     assert service.calls == [("takeprofit", "000001")]
 
 
@@ -232,11 +231,7 @@ def test_evaluate_takeprofit_without_hit_does_not_emit_trace_ids():
     )
 
     assert batch is None
-    assert [event["node"] for event in runtime_logger.events] == [
-        "profile_load",
-        "trigger_eval",
-    ]
-    assert all(not event.get("trace_id") for event in runtime_logger.events)
+    assert runtime_logger.events == []
 
 
 def test_evaluate_takeprofit_ignores_empty_tier_price_without_trace_ids():
@@ -260,11 +255,7 @@ def test_evaluate_takeprofit_ignores_empty_tier_price_without_trace_ids():
     )
 
     assert batch is None
-    assert [event["node"] for event in runtime_logger.events] == [
-        "profile_load",
-        "trigger_eval",
-    ]
-    assert all(not event.get("trace_id") for event in runtime_logger.events)
+    assert runtime_logger.events == []
 
 
 def test_evaluate_takeprofit_ignores_falsey_hit_objects_without_trace_ids(
@@ -294,12 +285,7 @@ def test_evaluate_takeprofit_ignores_falsey_hit_objects_without_trace_ids(
     )
 
     assert batch is None
-    assert [event["node"] for event in runtime_logger.events] == [
-        "profile_load",
-        "trigger_eval",
-    ]
-    assert runtime_logger.events[-1]["payload"]["triggered"] is False
-    assert all(not event.get("trace_id") for event in runtime_logger.events)
+    assert runtime_logger.events == []
 
 
 def test_tpsl_tick_consumer_without_takeprofit_hit_does_not_create_global_trace():
@@ -330,15 +316,7 @@ def test_tpsl_tick_consumer_without_takeprofit_hit_does_not_create_global_trace(
     )
 
     assert result is None
-    assert [event['node'] for event in runtime_logger.events] == [
-        'tick_match',
-        'profile_load',
-        'trigger_eval',
-        'trigger_eval',
-    ]
-    assert runtime_logger.events[2]['payload']['kind'] == 'takeprofit'
-    assert runtime_logger.events[2]['payload']['triggered'] is False
-    assert all(not event.get('trace_id') for event in runtime_logger.events)
+    assert runtime_logger.events == []
 
 
 def test_evaluate_takeprofit_blocked_result_does_not_emit_trace_ids():
@@ -364,7 +342,6 @@ def test_evaluate_takeprofit_blocked_result_does_not_emit_trace_ids():
     assert batch["status"] == "blocked"
     assert batch["blocked_reason"] == "can_use_volume"
     assert [event["node"] for event in runtime_logger.events] == [
-        "profile_load",
         "trigger_eval",
     ]
     assert all(not event.get("trace_id") for event in runtime_logger.events)

@@ -280,7 +280,8 @@
               <el-button plain :loading="loading.events" @click="loadMoreEvents">加载更多 Event</el-button>
             </div>
             <div v-else class="runtime-empty-panel">
-              <strong>{{ activeComponent ? `${activeComponent} 暂无最近事件` : '先选择组件查看 Event' }}</strong>
+              <strong>{{ componentEventEmptyState.title }}</strong>
+              <p v-if="componentEventEmptyState.detail">{{ componentEventEmptyState.detail }}</p>
             </div>
           </template>
           </section>
@@ -919,6 +920,7 @@ import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
 import MyHeader from './MyHeader.vue'
 import {
   buildComponentEventFeed,
+  buildComponentEventEmptyState,
   buildEventLedgerRows,
   buildComponentSidebarItems,
   buildTodayTimeRange,
@@ -1183,6 +1185,14 @@ const traceIssueFocusLabel = computed(() => {
   if (!component) return ''
   return componentSidebarItems.value.find((item) => item.component === component)?.component_label || component
 })
+const allComponentEventFeed = computed(() => {
+  if (!activeComponent.value) return []
+  return buildComponentEventFeed(events.value, {
+    component: activeComponent.value,
+    runtime_node: boardFilter.runtime_node,
+    onlyIssues: false,
+  })
+})
 const componentEventFeed = computed(() => {
   if (!activeComponent.value) return []
   return buildComponentEventFeed(events.value, {
@@ -1192,6 +1202,12 @@ const componentEventFeed = computed(() => {
   })
 })
 const eventLedgerRows = computed(() => buildEventLedgerRows(componentEventFeed.value))
+const componentEventEmptyState = computed(() => buildComponentEventEmptyState({
+  component: activeComponent.value,
+  allEvents: allComponentEventFeed.value,
+  visibleEvents: componentEventFeed.value,
+  onlyIssues: onlyIssues.value,
+}))
 const filterChips = computed(() => {
   const chips = []
   if (traceOnlyIssues.value) {

@@ -1129,6 +1129,42 @@ export const buildComponentEventFeed = (events = [], options = {}) => {
     .map((event, index) => hydrateRuntimeEvent(event, index))
 }
 
+export const buildComponentEventEmptyState = (options = {}) => {
+  const component = toText(options?.component)
+  const allEvents = Array.isArray(options?.allEvents) ? options.allEvents : []
+  const visibleEvents = Array.isArray(options?.visibleEvents) ? options.visibleEvents : []
+  const onlyIssues = Boolean(options?.onlyIssues)
+
+  if (!component) {
+    return {
+      title: '先选择组件查看 Event',
+      detail: '',
+    }
+  }
+  if (visibleEvents.length > 0) {
+    return {
+      title: '',
+      detail: '',
+    }
+  }
+  if (onlyIssues && allEvents.length > 0) {
+    return {
+      title: `${component} 当前没有异常 Event`,
+      detail: `当前仍有 ${allEvents.length} 条正常/心跳事件；关闭“仅异常”后可查看完整组件 Event。`,
+    }
+  }
+  if (component === 'tpsl_worker') {
+    return {
+      title: 'tpsl_worker 当前没有真实触发 Event',
+      detail: '未命中止盈止损价、空价格和盘后空跑评估默认不会显示；如需查看原始评估日志，请打开 Raw Browser。',
+    }
+  }
+  return {
+    title: `${component} 当前时间范围内没有任何 Event`,
+    detail: '请检查 runtime 原始日志目录、runtime indexer 与组件实际运行状态。',
+  }
+}
+
 export const findTraceByRow = (traces = [], row = {}) => {
   const traceKey = toText(row?.trace_key)
   const traceId = toText(row?.trace_id)

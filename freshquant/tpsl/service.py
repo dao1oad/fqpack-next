@@ -185,12 +185,6 @@ class TpslService:
         except ValueError:
             return None
         try:
-            self._emit_runtime(
-                "profile_load",
-                symbol=base_symbol,
-                payload={"code": code},
-            )
-
             state = profile.get("state") or {}
             current_node = "trigger_eval"
             hit = choose_takeprofit_level(
@@ -204,11 +198,6 @@ class TpslService:
                 "triggered": bool(hit),
             }
             if not hit:
-                self._emit_runtime(
-                    "trigger_eval",
-                    symbol=base_symbol,
-                    payload=trigger_payload,
-                )
                 return None
 
             open_slices = self.order_repository.list_open_slices(base_symbol)
@@ -342,11 +331,6 @@ class TpslService:
                 "triggered_bindings": len(triggered_bindings),
             }
             if not triggered_bindings:
-                self._emit_runtime(
-                    "trigger_eval",
-                    symbol=base_symbol,
-                    payload=trigger_payload,
-                )
                 return None
 
             can_use_volume = self.position_reader.get_can_use_volume(base_symbol)

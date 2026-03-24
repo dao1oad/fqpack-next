@@ -266,6 +266,34 @@ def test_clickhouse_store_list_events_decodes_payloads_and_builds_cursor(monkeyp
     }
 
 
+def test_clickhouse_store_list_events_hides_non_triggered_tpsl_info_noise(
+    monkeypatch,
+):
+    from freshquant.runtime_observability.clickhouse_store import (
+        RuntimeObservabilityClickHouseStore,
+    )
+
+    store = RuntimeObservabilityClickHouseStore(base_url="http://clickhouse.test")
+    queries = []
+
+    def _fake_select_rows(query: str):
+        queries.append(query)
+        return []
+
+    monkeypatch.setattr(store, "ensure_schema", lambda: None)
+    monkeypatch.setattr(store, "_select_rows", _fake_select_rows)
+
+    payload = store.list_events(filters={"component": "tpsl_worker"}, limit=1)
+
+    assert payload == {"items": [], "next_cursor": None}
+    assert "component = 'tpsl_worker'" in queries[0]
+    assert "node IN ('tick_match', 'profile_load')" in queries[0]
+    assert 'payload_json LIKE \'%"kind": "takeprofit"%\'' in queries[0]
+    assert 'payload_json LIKE \'%"triggered": false%\'' in queries[0]
+    assert 'payload_json LIKE \'%"kind": "stoploss"%\'' in queries[0]
+    assert 'payload_json LIKE \'%"triggered_bindings": 0%\'' in queries[0]
+
+
 def test_clickhouse_store_get_trace_detail_combines_summary_and_first_step_page(
     monkeypatch,
 ):
