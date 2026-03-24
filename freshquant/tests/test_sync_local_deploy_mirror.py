@@ -225,3 +225,24 @@ def test_sync_local_deploy_mirror_rejects_non_fast_forward_main(tmp_path: Path) 
 
     with pytest.raises(RuntimeError, match="failed to fast-forward main"):
         module.sync_local_deploy_mirror(repo_root=mirror, target_sha=target_sha)
+
+
+def test_sync_local_deploy_mirror_removes_ignored_artifacts(tmp_path: Path) -> None:
+    module = load_module()
+    remote = init_bare_remote(tmp_path)
+    seed, _ = init_seed_repo(tmp_path, remote)
+    (seed / ".gitignore").write_text("build/\n", encoding="utf-8")
+    git(["add", ".gitignore"], seed)
+    git(["commit", "-m", "ignore build artifacts"], seed)
+    target_sha = push_main(seed)
+    mirror = clone_mirror(tmp_path, remote)
+
+    ignored_dir = mirror / "build"
+    ignored_dir.mkdir()
+    (ignored_dir / "stale.txt").write_text("stale\n", encoding="utf-8")
+
+    result = module.sync_local_deploy_mirror(repo_root=mirror, target_sha=target_sha)
+
+    assert result["ok"] is True
+    assert result["head_sha"] == target_sha
+    assert not ignored_dir.exists()

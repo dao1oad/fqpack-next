@@ -2187,3 +2187,16 @@ test('RuntimeObservability.vue lets zero-issue chips pass clicks through to the 
 
   assert.match(content, /\.component-symbol-card__action\.is-disabled\s*\{[\s\S]*pointer-events:\s*none;/)
 })
+
+test('RuntimeObservability.vue keeps step and raw DOM registries outside Vue reactivity to avoid render-time update loops', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /const stepRowRefs = new Map\(\)/)
+  assert.match(content, /const rawRecordRefs = new Map\(\)/)
+  assert.match(content, /const setStepRowRef = \(element, key\) => \{[\s\S]*stepRowRefs\.set\(key, element \|\| null\)/)
+  assert.match(content, /const setRawRecordRef = \(element, index\) => \{[\s\S]*rawRecordRefs\.set\(index, element \|\| null\)/)
+  assert.match(content, /stepRowRefs\.get\(key\)\?\.scrollIntoView/)
+  assert.match(content, /rawRecordRefs\.get\(rawFocusedIndex\.value\)\?\.scrollIntoView/)
+  assert.doesNotMatch(content, /stepRowRefs\.value = \{/)
+  assert.doesNotMatch(content, /rawRecordRefs\.value = \{/)
+})

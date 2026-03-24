@@ -35,6 +35,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
 - `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 mirror sync、`uv sync` 和 `run_formal_deploy.py`。
 - `script/ci/run_production_deploy.ps1` 会先校验 `github.sha == latest origin/main`，再负责 mirror bootstrap / fast-forward、runner Python 3.12 / `uv` 自愈、mirror `.venv` 同步和 formal deploy 调用。
+- `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先执行 `git clean -ffdX` 清掉 mirror 内的 ignored 产物，避免历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件混入后续 Docker 构建。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - `script/ci/run_production_deploy.ps1` 会显式把 canonical repo root 与本机 deploy mirror 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
 - 正式 deploy 要求 production runner 至少存在一个可用的 Python 3.12；若 `py -3.12` 因旧注册失效，入口脚本会回退到已注册的 per-user / system Python 3.12，并回补 `HKCU\Software\Python\PythonCore\3.12\InstallPath`。
@@ -76,6 +77,7 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 - 正式 deploy 统一从 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 执行，不要直接把开发 worktree 当成正式来源。
 - workflow 与人工正式 deploy 都应优先调用 `script/ci/run_production_deploy.ps1`；不要再把 mirror sync、`uv sync`、`run_formal_deploy.py` 手工拆开执行。
 - `script/ci/run_production_deploy.ps1` 会先用 runner Python 3.12 做 `uv sync`，再切换到 deploy mirror `.venv\Scripts\python.exe` 运行 `run_formal_deploy.py`；formal deploy 内部 health check 也跟随 mirror `.venv` 解释器。
+- 如果 formal deploy 命中 `fq_apiserver` / `fq_webui` 后仍出现“像是旧代码”的症状，先检查 deploy mirror 是否残留过往 ignored 构建产物；当前正式入口会在 mirror sync 阶段主动清掉这类文件。
 - 读取 `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`、`result.json` 与 `D:/fqpack/runtime/formal-deploy/production-state.json` 作为正式 deploy 基础证据；不要只凭终端退出码判断成功。
 - 如果 `plan.json` / `result.json` 显示 `deployment_required=false`，把这轮判定为 `no-op deploy`：`runtime-verify.json 可以不存在`，但仍要确认 `result.json` 为 `ok=true`，并且 `production-state.json` 里的 `last_success_sha` 已更新到目标 SHA。
 - 如果 `plan.json` / `result.json` 显示 `deployment_required=true`，再额外读取 `runtime-baseline.json`、`runtime-verify.json`，并保留 `CaptureBaseline -> deploy -> health check -> Verify` 的完整顺序。
