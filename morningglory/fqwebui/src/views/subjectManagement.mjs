@@ -27,6 +27,12 @@ const formatPrice = (value) => {
   return Number.isInteger(parsed) ? parsed.toFixed(1) : String(parsed)
 }
 
+const formatAvgPrice = (value) => {
+  const parsed = toNullableNumber(value)
+  if (parsed === null) return '-'
+  return parsed.toFixed(3)
+}
+
 const formatInteger = (value) => {
   const parsed = toNullableNumber(value)
   if (parsed === null) return '-'
@@ -39,6 +45,12 @@ const formatAmountWan = (value) => {
   return `${(parsed / 10000).toFixed(2)} 万`
 }
 
+const formatPercent = (value) => {
+  const parsed = toNullableNumber(value)
+  if (parsed === null) return '-'
+  return `${parsed.toFixed(2)}%`
+}
+
 const normalizeMustPool = (row = {}) => ({
   category: toText(row?.category),
   stop_loss_price: toNullableNumber(row?.stop_loss_price),
@@ -49,6 +61,7 @@ const normalizeMustPool = (row = {}) => ({
 const normalizeRuntimeSummary = (row = {}) => ({
   position_quantity: toNumber(row?.position_quantity),
   position_amount: toNullableNumber(row?.position_amount),
+  avg_price: toNullableNumber(row?.avg_price),
   last_trigger_time: toText(row?.last_trigger_time),
   last_trigger_kind: toText(row?.last_trigger_kind),
 })
@@ -127,22 +140,28 @@ const buildBuyLotIdLabel = (value) => {
   return `ID 尾号 ${text.slice(-6)}`
 }
 
-const buildBuyLotMetaLabel = (row = {}) => {
+const buildBuyLotMetaLabel = (row = {}, runtimeSummary = {}) => {
   const parts = []
   const dateTime = formatBuyLotDateTime(row)
-  const buyPriceLabel = formatPrice(row?.buy_price_real)
-  const originalQuantityLabel = formatInteger(row?.original_quantity)
-  const remainingQuantityLabel = formatInteger(row?.remaining_quantity)
+  const avgPriceLabel = formatAvgPrice(runtimeSummary?.avg_price)
+  const marketValueLabel = formatAmountWan(runtimeSummary?.position_amount)
+  const originalQuantity = toNullableNumber(row?.original_quantity)
+  const remainingQuantity = toNullableNumber(row?.remaining_quantity)
+  const remainingPercentLabel = (
+    originalQuantity && originalQuantity > 0 && remainingQuantity !== null
+      ? formatPercent((remainingQuantity / originalQuantity) * 100)
+      : '-'
+  )
 
   if (dateTime) parts.push(dateTime)
-  if (buyPriceLabel !== '-') parts.push(`买入 ${buyPriceLabel}`)
-  if (originalQuantityLabel !== '-') parts.push(`原始 ${originalQuantityLabel}`)
-  if (remainingQuantityLabel !== '-') parts.push(`剩余 ${remainingQuantityLabel}`)
+  if (avgPriceLabel !== '-') parts.push(`均价 ${avgPriceLabel}`)
+  if (marketValueLabel !== '-') parts.push(`市值 ${marketValueLabel}`)
+  if (remainingPercentLabel !== '-') parts.push(`剩余 ${remainingPercentLabel}`)
 
   return parts.join(' · ') || '暂无买入信息'
 }
 
-const buildBuyLots = (rows = []) => {
+const buildBuyLots = (rows = [], runtimeSummary = {}) => {
   return (Array.isArray(rows) ? rows : []).map((row, index) => {
     const stoploss = row?.stoploss || {}
     return {
@@ -155,7 +174,7 @@ const buildBuyLots = (rows = []) => {
       stoplossLabel: formatPrice(stoploss?.stop_price),
       buyLotDisplayLabel: `第 ${index + 1} 笔买入`,
       buyLotIdLabel: buildBuyLotIdLabel(row?.buy_lot_id),
-      buyLotMetaLabel: buildBuyLotMetaLabel(row),
+      buyLotMetaLabel: buildBuyLotMetaLabel(row, runtimeSummary),
     }
   })
 }
@@ -260,8 +279,8 @@ export const buildDetailViewModel = (detail = {}) => {
       state: priceDetail.takeprofitState,
     },
     takeprofitDrafts: priceDetail.takeprofitDrafts,
-    buyLots: buildBuyLots(detail?.buy_lots || []),
     runtimeSummary,
+    buyLots: buildBuyLots(detail?.buy_lots || [], runtimeSummary),
     positionManagementSummary,
     positionLimitSummary,
   }

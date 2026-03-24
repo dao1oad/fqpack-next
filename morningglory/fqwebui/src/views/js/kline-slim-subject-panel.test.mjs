@@ -29,15 +29,24 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
         stoploss: { stop_price: 9.2, enabled: true },
       },
     ],
+    runtime_summary: {
+      position_quantity: 500,
+      position_amount: 123456.0,
+      avg_price: 10.023,
+    },
   })
 
   assert.equal(detail.symbol, '600000')
   assert.equal(detail.positionLimit.limit, 500000)
   assert.equal(detail.positionLimit.using_override, true)
+  assert.equal(detail.runtimeSummary.avg_price, 10.023)
   assert.equal(detail.buyLots[0].stoploss.enabled, true)
   assert.equal(detail.buyLots[0].buyLotDisplayLabel, '第 1 笔买入')
   assert.equal(detail.buyLots[0].buyLotIdLabel, 'ID 尾号 316d2a')
-  assert.equal(detail.buyLots[0].buyLotMetaLabel, '2026-03-16 10:31 · 买入 10.0 · 原始 300 · 剩余 200')
+  assert.equal(
+    detail.buyLots[0].buyLotMetaLabel,
+    '2026-03-16 10:31 · 均价 10.023 · 市值 12.35 万 · 剩余 66.67%'
+  )
   assert.equal(Object.hasOwn(detail.mustPool, 'forever'), false)
   assert.equal(Object.hasOwn(detail.positionLimit, 'use_default'), false)
 })

@@ -423,6 +423,7 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lot
                 "name": "浦发银行",
                 "quantity": 500,
                 "amount": 5010.0,
+                "avg_price": 10.023,
             }
         ],
         symbol_position_loader=lambda symbol: None,
@@ -453,6 +454,7 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lot
     assert len(detail["buy_lots"]) == 1
     assert detail["buy_lots"][0]["stoploss"]["stop_price"] == 9.2
     assert detail["runtime_summary"]["position_quantity"] == 500
+    assert detail["runtime_summary"]["avg_price"] == 10.023
     assert detail["position_management_summary"]["effective_state"] == "HOLDING_ONLY"
     assert detail["position_limit_summary"]["effective_limit"] == 500000.0
     assert detail["position_limit_summary"]["blocked"] is True
