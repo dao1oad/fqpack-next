@@ -140,6 +140,14 @@ Runtime Observability 当前采用“双存储”：
 - 写入 ClickHouse 与查询返回阶段都会优先复用现有 instrument lookup 补全 `symbol_name`
 - 名称最终仍缺失时，前端兜底显示 `symbol / 未知名称`
 - `tpsl_worker` 的组件 Event 视图与 `/api/runtime/events` 当前默认隐藏未命中止盈/止损价、空价格和盘后空跑评估；需要完整原始记录时改看 Raw Browser
+- 组件 Event 视图当前会按组件切换一列中文业务语义：
+  - `position_gate`: `决策结果`
+  - `guardian_strategy`: `判断结果`
+  - `tpsl_worker`: `触发类型`
+  - `order_submit`: `提交语义`
+  - `xt_report_ingest`: `回报语义`
+  - `order_reconcile`: `对账语义`
+  对应取值都直接来自 runtime event payload 的稳定字段，不依赖前端对 `reason_code` 做猜测翻译
 - 顶部 `异常链路` 与 `异常节点` 摘要当前可直接跳转到异常 Trace/异常步骤浏览态
 - 左侧组件卡片里的异常摘要当前拆成：
   - `异常链路`

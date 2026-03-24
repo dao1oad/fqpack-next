@@ -123,6 +123,67 @@ const GUARDIAN_CONTEXT_LABELS = {
   quantity: '数量上下文',
   position_management: '仓位管理',
 }
+const EVENT_SEMANTIC_COLUMN_LABELS = {
+  position_gate: '决策结果',
+  guardian_strategy: '判断结果',
+  tpsl_worker: '触发类型',
+  order_submit: '提交语义',
+  xt_report_ingest: '回报语义',
+  order_reconcile: '对账语义',
+}
+const POSITION_STATE_LABELS = {
+  ALLOW_OPEN: '允许开新仓',
+  HOLDING_ONLY: '仅允许持仓内买入',
+  FORCE_PROFIT_REDUCE: '强制盈利减仓',
+}
+const SIDE_LABELS = {
+  buy: '买入',
+  sell: '卖出',
+}
+const CREDIT_TRADE_MODE_LABELS = {
+  finance_buy: '融资买入',
+  collateral_buy: '担保品买入',
+  sell_repay: '卖券还款',
+  collateral_sell: '担保品卖出',
+}
+const BROKER_ORDER_TYPE_LABELS = {
+  '23': '买入',
+  '24': '卖出',
+  '27': '融资买入',
+  '28': '融券卖出',
+  '29': '买券还券',
+  '30': '直接还券',
+  '31': '卖券还款',
+  '32': '直接还款',
+  '40': '专项融资买入',
+  '41': '专项融券卖出',
+  '42': '专项买券还券',
+  '43': '专项直接还券',
+  '44': '专项卖券还款',
+  '45': '专项直接还款',
+}
+const ORDER_STATE_LABELS = {
+  ACCEPTED: '已受理',
+  QUEUED: '已入队',
+  SUBMITTING: '提交中',
+  FILLED: '已成交',
+  PARTIAL_FILLED: '部分成交',
+  CANCELED: '已撤单',
+  REJECTED: '已拒绝',
+  INFERRED_PENDING: '推断待确认',
+  INFERRED_CONFIRMED: '推断已确认',
+  MATCHED: '已匹配',
+}
+const REPORT_TYPE_LABELS = {
+  trade: '成交回报',
+  order: '订单回报',
+}
+const TPSL_KIND_LABELS = {
+  takeprofit: '止盈',
+  stoploss: '止损',
+  takeprofit_batch: '止盈',
+  stoploss_batch: '止损',
+}
 const BEIJING_TIMEZONE = 'Asia/Shanghai'
 const BEIJING_OFFSET_SUFFIX = '+08:00'
 const TRACE_DETAIL_MARKER = '__fq_trace_detail'
@@ -633,6 +694,133 @@ const buildEventIdentity = (event = {}) => {
   )
 }
 
+export const resolveEventSemanticColumnLabel = (component = '') => {
+  const normalized = toText(component)
+  return EVENT_SEMANTIC_COLUMN_LABELS[normalized] || '业务语义'
+}
+
+const parseBooleanLike = (value) => {
+  if (value === true || value === false) return value
+  if (value === 1 || value === 0) return Boolean(value)
+  const normalized = toText(value).toLowerCase()
+  if (normalized === 'true' || normalized === '1') return true
+  if (normalized === 'false' || normalized === '0') return false
+  return null
+}
+
+const resolveEventPayload = (event = {}) => {
+  return event?.payload && typeof event.payload === 'object' ? event.payload : {}
+}
+
+const resolveEventQueuePayload = (event = {}) => {
+  const queuePayload = resolveEventPayload(event)?.queue_payload
+  return queuePayload && typeof queuePayload === 'object' ? queuePayload : {}
+}
+
+const resolveEventPayloadField = (event = {}, key) => {
+  const payload = resolveEventPayload(event)
+  if (payload[key] !== undefined) return payload[key]
+  const queuePayload = resolveEventQueuePayload(event)
+  if (queuePayload[key] !== undefined) return queuePayload[key]
+  return undefined
+}
+
+const formatPositionStateLabel = (value) => {
+  return POSITION_STATE_LABELS[toText(value)] || ''
+}
+
+const formatSideLabel = (value) => {
+  return SIDE_LABELS[toText(value).toLowerCase()] || ''
+}
+
+const formatCreditTradeModeLabel = (value) => {
+  return CREDIT_TRADE_MODE_LABELS[toText(value)] || ''
+}
+
+const formatBrokerOrderTypeLabel = (value) => {
+  return BROKER_ORDER_TYPE_LABELS[toText(value)] || ''
+}
+
+const formatOrderStateLabel = (value) => {
+  return ORDER_STATE_LABELS[toText(value).toUpperCase()] || ''
+}
+
+const formatTpslKindLabel = (value) => {
+  return TPSL_KIND_LABELS[toText(value).toLowerCase()] || ''
+}
+
+const resolvePositionGateSemanticValue = (event = {}) => {
+  const allowed = parseBooleanLike(resolveEventPayloadField(event, 'allowed'))
+  if (allowed === true) return '允许'
+  if (allowed === false) return '阻断'
+  return ''
+}
+
+const resolveGuardianSemanticValue = (event = {}) => {
+  const guardianStep = event?.guardian_step || buildGuardianStepInsight(event)
+  return toText(guardianStep?.outcome?.label)
+}
+
+const resolveTpslSemanticValue = (event = {}) => {
+  return (
+    formatTpslKindLabel(resolveEventPayloadField(event, 'kind')) ||
+    formatTpslKindLabel(resolveEventPayloadField(event, 'scope_type'))
+  )
+}
+
+const resolveOrderSubmitSemanticValue = (event = {}) => {
+  return (
+    formatPositionStateLabel(resolveEventPayloadField(event, 'position_management_state')) ||
+    formatCreditTradeModeLabel(resolveEventPayloadField(event, 'credit_trade_mode_resolved')) ||
+    formatBrokerOrderTypeLabel(resolveEventPayloadField(event, 'broker_order_type')) ||
+    formatOrderStateLabel(resolveEventPayloadField(event, 'state'))
+  )
+}
+
+const resolveXtReportSemanticValue = (event = {}) => {
+  const reportType = toText(resolveEventPayloadField(event, 'report_type')).toLowerCase()
+  const sideLabel = formatSideLabel(resolveEventPayloadField(event, 'side'))
+  const stateLabel = formatOrderStateLabel(resolveEventPayloadField(event, 'state'))
+  if (reportType === 'trade') return sideLabel ? `${sideLabel}成交` : REPORT_TYPE_LABELS.trade
+  if (reportType === 'order') return stateLabel ? `订单${stateLabel}` : REPORT_TYPE_LABELS.order
+  if (sideLabel) return `${sideLabel}成交`
+  if (stateLabel) return `订单${stateLabel}`
+  return REPORT_TYPE_LABELS[reportType] || ''
+}
+
+const resolveOrderReconcileSemanticValue = (event = {}) => {
+  const node = toText(event?.node)
+  const sourceType = toText(resolveEventPayloadField(event, 'source_type'))
+  const source = toText(resolveEventPayloadField(event, 'source'))
+  if (node === 'internal_match') return '内部订单匹配'
+  if (node === 'externalize') {
+    if (sourceType === 'external_reported') return '外部上报补单'
+    if (sourceType === 'external_inferred') return '外部推断补单'
+  }
+  if (node === 'projection_update') {
+    if (source === 'internal_match') return '内部订单入账'
+    if (source === 'external_reported') return '外部上报入账'
+    if (source === 'external_inferred') return '外部推断入账'
+  }
+  if (sourceType === 'external_reported') return '外部上报补单'
+  if (sourceType === 'external_inferred') return '外部推断补单'
+  if (source === 'internal_match') return '内部订单匹配'
+  if (source === 'external_reported') return '外部上报入账'
+  if (source === 'external_inferred') return '外部推断入账'
+  return ''
+}
+
+const resolveEventSemanticValue = (event = {}) => {
+  const component = toText(event?.component)
+  if (component === 'position_gate') return resolvePositionGateSemanticValue(event)
+  if (component === GUARDIAN_COMPONENT) return resolveGuardianSemanticValue(event)
+  if (component === 'tpsl_worker') return resolveTpslSemanticValue(event)
+  if (component === 'order_submit') return resolveOrderSubmitSemanticValue(event)
+  if (component === 'xt_report_ingest') return resolveXtReportSemanticValue(event)
+  if (component === 'order_reconcile') return resolveOrderReconcileSemanticValue(event)
+  return ''
+}
+
 const hydrateRuntimeEvent = (event = {}, index = 0) => {
   if (event && event[EVENT_DETAIL_MARKER]) return event
   const component = toText(event?.component) || 'runtime'
@@ -661,6 +849,7 @@ const hydrateRuntimeEvent = (event = {}, index = 0) => {
     symbol,
     symbol_name: symbolName,
     symbol_display: buildSymbolDisplay(symbol, symbolName),
+    semantic_value: resolveEventSemanticValue(event),
     summary_metrics: buildHealthHighlights(event?.metrics || {}),
   }
   return {
@@ -1105,6 +1294,7 @@ export const buildEventLedgerRows = (events = []) => {
       symbol: detail.symbol,
       symbol_name: detail.symbol_name,
       symbol_display: detail.symbol_display,
+      semantic_value: detail.semantic_value,
       summary: detail.summary,
       metrics_summary: buildEventMetricsSummary(detail),
       is_issue: detail.is_issue,

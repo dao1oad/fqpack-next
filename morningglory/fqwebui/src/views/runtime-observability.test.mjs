@@ -1055,6 +1055,7 @@ test('buildEventLedgerRows keeps heartbeat events and extracts summary and metri
       symbol: '',
       symbol_name: '',
       symbol_display: '-',
+      semantic_value: '',
       summary: 'heartbeat',
       metrics_summary: '收 tick 3s · 5m ticks 48 · 订阅 20 · 连接 yes',
       is_issue: false,
@@ -1075,9 +1076,162 @@ test('buildEventLedgerRows keeps heartbeat events and extracts summary and metri
       symbol_display: '000001 / 平安银行',
       summary: 'unexpected_exception · fill_time >= signal_time · ValueError: invalid fill time',
       metrics_summary: '',
+      semantic_value: '阻断',
       is_issue: true,
     },
   ])
+})
+
+test('buildEventLedgerRows derives chinese semantic values for supported runtime components', () => {
+  const rows = buildEventLedgerRows([
+    {
+      ts: '2026-03-09T02:05:02Z',
+      runtime_node: 'host:position-gate',
+      component: 'position_gate',
+      node: 'policy_eval',
+      status: 'info',
+      symbol: '000001',
+      symbol_name: '平安银行',
+      reason_code: 'new_position_blocked',
+      payload: {
+        allowed: false,
+        effective_state: 'HOLDING_ONLY',
+      },
+    },
+    {
+      ts: '2026-03-09T02:05:03Z',
+      runtime_node: 'host:position-gate',
+      component: 'position_gate',
+      node: 'decision_record',
+      status: 'info',
+      symbol: '000001',
+      symbol_name: '平安银行',
+      reason_code: 'buy_allowed',
+      payload: {
+        allowed: true,
+      },
+    },
+    {
+      ts: '2026-03-09T02:05:04Z',
+      runtime_node: 'host:guardian',
+      component: 'guardian_strategy',
+      node: 'price_threshold_check',
+      status: 'info',
+      symbol: '000001',
+      symbol_name: '平安银行',
+      decision_outcome: {
+        outcome: 'pass',
+      },
+    },
+    {
+      ts: '2026-03-09T02:05:05Z',
+      runtime_node: 'host:tpsl',
+      component: 'tpsl_worker',
+      node: 'submit_intent',
+      status: 'info',
+      symbol: '000001',
+      payload: {
+        scope_type: 'stoploss_batch',
+        batch_id: 'sl_batch_1',
+      },
+    },
+    {
+      ts: '2026-03-09T02:05:06Z',
+      runtime_node: 'host:submit',
+      component: 'order_submit',
+      node: 'credit_mode_resolve',
+      status: 'info',
+      symbol: '000001',
+      action: 'buy',
+      payload: {
+        credit_trade_mode_resolved: 'finance_buy',
+        broker_order_type: 27,
+      },
+    },
+    {
+      ts: '2026-03-09T02:05:07Z',
+      runtime_node: 'host:submit',
+      component: 'order_submit',
+      node: 'queue_payload_build',
+      status: 'info',
+      symbol: '000001',
+      action: 'buy',
+      payload: {
+        queue_payload: {
+          position_management_state: 'HOLDING_ONLY',
+        },
+      },
+    },
+    {
+      ts: '2026-03-09T02:05:08Z',
+      runtime_node: 'host:xt-ingest',
+      component: 'xt_report_ingest',
+      node: 'trade_match',
+      status: 'info',
+      symbol: '000001',
+      payload: {
+        report_type: 'trade',
+        side: 'buy',
+        quantity: 100,
+        created: true,
+      },
+    },
+    {
+      ts: '2026-03-09T02:05:09Z',
+      runtime_node: 'host:xt-ingest',
+      component: 'xt_report_ingest',
+      node: 'order_match',
+      status: 'info',
+      symbol: '000001',
+      payload: {
+        report_type: 'order',
+        state: 'FILLED',
+      },
+    },
+    {
+      ts: '2026-03-09T02:05:10Z',
+      runtime_node: 'host:reconcile',
+      component: 'order_reconcile',
+      node: 'internal_match',
+      status: 'info',
+      symbol: '000001',
+      payload: {
+        source: 'internal_match',
+      },
+    },
+    {
+      ts: '2026-03-09T02:05:11Z',
+      runtime_node: 'host:reconcile',
+      component: 'order_reconcile',
+      node: 'externalize',
+      status: 'info',
+      symbol: '000001',
+      payload: {
+        source_type: 'external_inferred',
+      },
+    },
+  ])
+
+  assert.equal(rows[0].semantic_value, '阻断')
+  assert.equal(rows[1].semantic_value, '允许')
+  assert.equal(rows[2].semantic_value, '通过')
+  assert.equal(rows[3].semantic_value, '止损')
+  assert.equal(rows[4].semantic_value, '融资买入')
+  assert.equal(rows[5].semantic_value, '仅允许持仓内买入')
+  assert.equal(rows[6].semantic_value, '买入成交')
+  assert.equal(rows[7].semantic_value, '订单已成交')
+  assert.equal(rows[8].semantic_value, '内部订单匹配')
+  assert.equal(rows[9].semantic_value, '外部推断补单')
+})
+
+test('resolveEventSemanticColumnLabel returns chinese headers for supported components', () => {
+  assert.equal(runtimeObservability.resolveEventSemanticColumnLabel('position_gate'), '决策结果')
+  assert.equal(runtimeObservability.resolveEventSemanticColumnLabel('guardian_strategy'), '判断结果')
+  assert.equal(runtimeObservability.resolveEventSemanticColumnLabel('tpsl_worker'), '触发类型')
+  assert.equal(runtimeObservability.resolveEventSemanticColumnLabel('order_submit'), '提交语义')
+  assert.equal(runtimeObservability.resolveEventSemanticColumnLabel('xt_report_ingest'), '回报语义')
+  assert.equal(runtimeObservability.resolveEventSemanticColumnLabel('order_reconcile'), '对账语义')
+  assert.equal(runtimeObservability.resolveEventSemanticColumnLabel('xt_producer'), '业务语义')
 })
 
 test('filterTracesByKind keeps all traces by default and narrows by selected kind', () => {
@@ -2317,7 +2471,10 @@ test('runtime observability event mode uses dense ledger layout instead of event
   assert.match(content, /<span>运行节点<\/span>/)
   assert.match(content, /<span>组件<\/span>/)
   assert.match(content, /<span>节点<\/span>/)
+  assert.match(content, /<span>\{\{\s*eventSemanticColumnLabel\s*\}\}<\/span>/)
   assert.match(content, /<span>标的<\/span>/)
+  assert.match(content, /\{\{\s*row\.semantic_value\s*\|\|\s*'-'\s*\}\}/)
+  assert.match(content, /const eventSemanticColumnLabel = computed\(\(\) => resolveEventSemanticColumnLabel\(activeComponent\.value\)\)/)
   assert.match(content, /:deep\(\.workspace-tabs \.el-tabs__content\)/)
   assert.doesNotMatch(content, /event-feed-row/)
   assert.doesNotMatch(content, /<section v-show="activeEventDetailTab === 'payload'" class="runtime-detail-panel">/)
