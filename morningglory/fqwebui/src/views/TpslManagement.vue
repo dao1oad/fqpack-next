@@ -346,7 +346,7 @@ onMounted(async () => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .tpsl-layout {
@@ -356,7 +356,7 @@ onMounted(async () => {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .tpsl-sidebar-panel,

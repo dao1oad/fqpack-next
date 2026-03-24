@@ -1386,8 +1386,10 @@ onMounted(() => {
 .shouban30-page {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   background: #f5f7fa;
 }
 
@@ -1397,8 +1399,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  overflow: auto;
-  scrollbar-gutter: stable both-edges;
+  overflow: hidden;
   padding: 12px 16px 16px;
 }
 
@@ -1444,7 +1445,7 @@ onMounted(() => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .panel-card {

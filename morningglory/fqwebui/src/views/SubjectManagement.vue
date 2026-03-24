@@ -644,7 +644,9 @@ onMounted(async () => {
 
 <style scoped>
 .subject-management-page {
-  max-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .subject-management-body {
@@ -705,6 +707,7 @@ onMounted(async () => {
   gap: 10px;
   min-width: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .subject-overview-panel :deep(.el-table) {
