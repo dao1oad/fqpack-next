@@ -287,6 +287,31 @@ def test_management_overview_prefers_symbol_snapshot_market_value():
     assert rows[0]["position_amount"] == 123456.0
 
 
+def test_management_detail_marks_external_inferred_stock_fills_as_inferred_positions():
+    service = TpslManagementService(
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        stock_fills_loader=lambda symbol: [
+            {
+                "symbol": symbol,
+                "date": 20260315,
+                "time": "23:39:42",
+                "price": 0.569677,
+                "quantity": 1470300,
+                "amount": 837596.09,
+                "source": "external_inferred",
+            }
+        ],
+    )
+
+    detail = service.get_symbol_detail("512000")
+
+    assert detail["stock_fills"][0]["source"] == "external_inferred"
+    assert detail["stock_fills"][0]["direction_label"] == "推断持仓"
+
+
 def test_management_overview_uses_latest_event_query_instead_of_full_scan():
     class OverviewAwareTpslRepository(InMemoryTpslRepository):
         def __init__(self):

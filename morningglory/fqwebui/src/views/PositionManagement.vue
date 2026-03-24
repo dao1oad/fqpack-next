@@ -18,7 +18,7 @@
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">当前仓位状态</div>
-                <p class="workbench-panel__desc">effective state、stale 语义、资产摘要、参数 inventory 与规则矩阵统一放在左栏；右栏只保留更宽的单标的仓位上限覆盖。</p>
+                <p class="workbench-panel__desc">effective state、stale 语义、资产摘要、规则矩阵与 inventory 参数统一放在左栏；右栏只保留更宽的单标的仓位上限覆盖。</p>
               </div>
 
               <div class="workbench-toolbar__actions">
@@ -39,31 +39,62 @@
                 </span>
               </div>
 
-              <div class="position-rule-hint">
-                <strong>{{ statePanel.hero.matched_rule_title }}</strong>
-                <p>{{ statePanel.hero.matched_rule_detail }}</p>
+              <div class="position-panel-section">
+                <div class="position-panel-section__title">规则矩阵</div>
+
+                <div class="runtime-ledger runtime-position-rule-ledger">
+                  <div class="runtime-ledger__header runtime-position-rule-ledger__grid">
+                    <span>行为</span>
+                    <span>结果</span>
+                    <span>原因码</span>
+                    <span>说明</span>
+                  </div>
+
+                  <div
+                    v-for="row in ruleMatrix"
+                    :key="row.key"
+                    class="runtime-ledger__row runtime-position-rule-ledger__grid"
+                    :class="{ 'runtime-ledger__row--blocked': !row.allowed }"
+                  >
+                    <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.label }}</span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                      <span class="runtime-inline-status" :class="resolveRuleStatusClass(row.allowed)">
+                        {{ row.allowed_label }}
+                      </span>
+                    </span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.reason_code">{{ row.reason_code }}</span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_text">{{ row.reason_text }}</span>
+                  </div>
+                </div>
               </div>
 
-              <div class="position-metric-grid">
-                <article
-                  v-for="item in statePanel.stats"
-                  :key="item.key"
-                  class="workbench-block position-metric-card"
-                >
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value_label }}</strong>
-                </article>
-              </div>
+              <div class="position-state-grid position-state-grid--compact">
+                <div class="position-rule-hint">
+                  <strong>{{ statePanel.hero.matched_rule_title }}</strong>
+                  <p>{{ statePanel.hero.matched_rule_detail }}</p>
+                </div>
 
-              <div class="position-meta-grid">
-                <article
-                  v-for="item in statePanel.meta"
-                  :key="item.key"
-                  class="workbench-block position-meta-card"
-                >
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </article>
+                <div class="position-metric-grid">
+                  <article
+                    v-for="item in statePanel.stats"
+                    :key="item.key"
+                    class="workbench-block position-metric-card"
+                  >
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value_label }}</strong>
+                  </article>
+                </div>
+
+                <div class="position-meta-grid">
+                  <article
+                    v-for="item in statePanel.meta"
+                    :key="item.key"
+                    class="workbench-block position-meta-card"
+                  >
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </article>
+                </div>
               </div>
 
               <div class="position-panel-section">
@@ -129,35 +160,6 @@
                 <div class="position-edit-footer">
                   <span class="workbench-muted">当前开放账户阈值和全局单标的实时仓位上限保持可编辑，其余参数继续只读展示。</span>
                   <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
-                </div>
-              </div>
-
-              <div class="position-panel-section">
-                <div class="position-panel-section__title">规则矩阵</div>
-
-                <div class="runtime-ledger runtime-position-rule-ledger">
-                  <div class="runtime-ledger__header runtime-position-rule-ledger__grid">
-                    <span>行为</span>
-                    <span>结果</span>
-                    <span>原因码</span>
-                    <span>说明</span>
-                  </div>
-
-                  <div
-                    v-for="row in ruleMatrix"
-                    :key="row.key"
-                    class="runtime-ledger__row runtime-position-rule-ledger__grid"
-                    :class="{ 'runtime-ledger__row--blocked': !row.allowed }"
-                  >
-                    <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.label }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                      <span class="runtime-inline-status" :class="resolveRuleStatusClass(row.allowed)">
-                        {{ row.allowed_label }}
-                      </span>
-                    </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.reason_code">{{ row.reason_code }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_text">{{ row.reason_text }}</span>
-                  </div>
                 </div>
               </div>
             </div>
@@ -566,6 +568,7 @@ onMounted(() => {
 .position-lower-grid {
   --position-symbol-limit-ledger-row-height: 52px;
   --position-symbol-limit-ledger-body-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
+  --position-symbol-limit-source-column-width: 148px;
   --position-upper-panel-height: calc(var(--position-symbol-limit-ledger-body-height) + 136px);
   display: grid;
   grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.32fr);
@@ -690,11 +693,21 @@ onMounted(() => {
   line-height: 1.4;
 }
 
+.position-state-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.position-state-grid--compact {
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+
 .position-metric-grid,
 .position-meta-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
 }
 
 .position-metric-card span,
@@ -861,9 +874,9 @@ onMounted(() => {
 .runtime-position-symbol-limit-ledger__grid {
   grid-template-columns:
     150px
-    176px
-    176px
-    176px
+    164px
+    var(--position-symbol-limit-source-column-width)
+    var(--position-symbol-limit-source-column-width)
     88px
     152px
     88px
@@ -990,6 +1003,7 @@ onMounted(() => {
 
 @media (max-width: 1260px) {
   .position-lower-grid,
+  .position-state-grid--compact,
   .position-metric-grid,
   .position-meta-grid {
     grid-template-columns: 1fr;

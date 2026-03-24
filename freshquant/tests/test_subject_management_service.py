@@ -272,6 +272,42 @@ def test_subject_management_overview_prefers_symbol_snapshot_market_value():
     assert rows[0]["runtime"]["position_amount"] == 123456.0
 
 
+def test_subject_management_overview_keeps_rows_when_symbol_limit_loader_rejects_untracked_symbol():
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(
+            {
+                "must_pool": FakeCollection(
+                    [
+                        {
+                            "code": "512000",
+                            "name": "中证全指证券公司ETF",
+                        }
+                    ]
+                )
+            }
+        ),
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: (_ for _ in ()).throw(
+            ValueError("symbol is not tracked by holdings or pools")
+        ),
+    )
+
+    rows = service.get_overview()
+
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "512000"
+    assert rows[0]["position_limit_summary"]["available"] is False
+    assert (
+        rows[0]["position_limit_summary"]["error"]
+        == "symbol is not tracked by holdings or pools"
+    )
+    assert rows[0]["position_limit_summary"]["using_override"] is False
+
+
 def test_subject_management_overview_normalizes_must_pool_codes_before_grouping():
     database = FakeDatabase(
         {

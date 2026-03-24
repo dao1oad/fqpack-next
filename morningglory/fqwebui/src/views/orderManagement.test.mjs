@@ -79,6 +79,13 @@ test('OrderManagement table uses Chinese semantics and places 更新时间 after
   assert.doesNotMatch(orderManagementPageSource, /label="Request"/)
 })
 
+test('OrderManagement hides advanced filters behind an explicit toggle', () => {
+  assert.match(orderManagementPageSource, /const showAdvancedFilters = ref\(false\)/)
+  assert.match(orderManagementPageSource, /const toggleAdvancedFilters = \(\) => \{[\s\S]*showAdvancedFilters\.value = !showAdvancedFilters\.value/)
+  assert.match(orderManagementPageSource, /@click="toggleAdvancedFilters"[^>]*>\s*高级筛选\s*</)
+  assert.match(orderManagementPageSource, /<div v-if="showAdvancedFilters" class="filter-grid">/)
+})
+
 test('buildOrderDetailViewModel and buildOrderStats keep identifiers and distributions', () => {
   const detail = buildOrderDetailViewModel({
     order: {

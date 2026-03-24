@@ -20,6 +20,7 @@
   - `freshquant.rear.*`
   - `morningglory/fqwebui`
   - 负责 API、Web UI 与历史/实时视图展示；当前 Web UI 工作台页面统一走固定 viewport shell，并把长列表滚动收口到组件内部容器。
+  - `KlineSlim / OrderManagement / PositionManagement / TpslManagement / RuntimeObservability` 当前都使用“固定页壳 + 组件内滚动”模型；其中订单筛选默认折叠，仓位左栏把规则矩阵前置，Runtime 左侧组件选择保持 sticky。
 - 盘后选股工作台层
   - `freshquant.daily_screening.*`
   - `freshquant.screening.strategies.*`
@@ -31,7 +32,7 @@
   - 负责热门板块读模型、首板筛选读模型与工作区落库。
 - 观测层
   - `freshquant.runtime_observability.*`
-  - 负责 runtime 事件写盘、聚合与可视化。
+  - 负责 runtime 事件写盘、聚合与可视化；前端组件事件面板对相同 query 做去重加载，避免左侧组件切换和自动刷新互相覆盖。
 - 记忆层
   - `freshquant.runtime.memory.*`
   - 负责把冷记忆、热记忆和角色化 context pack 汇总成 agent 可复用的启动上下文。
@@ -116,6 +117,8 @@
 - Position Management 只负责是否允许提交，不负责真正下单。
 - Order Management 是订单事实层，维护请求、内部订单、事件、买入 lot、卖出分配与外部单对齐。
 - TPSL 是独立退出策略，依赖订单事实和持仓，不跟 Guardian 共用状态机。
+- `SubjectManagementDashboardService` 读取仓位上限摘要时会兜底未跟踪 symbol 的异常，返回 `available=false / error` 而不是把 overview/detail 直接打成 500。
+- `TpslManagementService` 会为 `stock_fills` 补 `direction_label`；对 `external_inferred` 来源统一标记为“推断持仓”。
 - Gantt 与 Shouban30 只消费读模型与工作区集合，不参与交易链。
 - 每日选股正式结果真值在 `fqscreening`；`stock_pre_pools / stock_pools` 只保留人工工作区角色。
 - Runtime Observability 是旁路系统，允许丢日志，不允许卡住主交易链。

@@ -73,12 +73,24 @@ const buildTriggerPriceLabel = (row = {}) => {
   return formatNumericLabel(firstTradePrice) || '-'
 }
 
+const buildStockFillDirectionLabel = (row = {}) => {
+  const backendLabel = toText(row?.direction_label)
+  if (backendLabel) return backendLabel
+  const source = toText(row?.source).toLowerCase()
+  if (source === 'external_inferred') return '推断持仓'
+  const op = toText(row?.op).toLowerCase()
+  if (['buy', 'b', 'open', 'long'].includes(op)) return '买入'
+  if (['sell', 's', 'close', 'short'].includes(op)) return '卖出'
+  return toText(row?.op)
+}
+
 const buildStockFillRows = (rows = []) => {
   return (Array.isArray(rows) ? rows : []).map((row) => ({
     ...row,
     date: toText(row?.date),
     time: toText(row?.time),
     op: toText(row?.op),
+    opLabel: buildStockFillDirectionLabel(row),
     quantity: toNumber(row?.quantity),
     price: row?.price,
     amount: row?.amount,

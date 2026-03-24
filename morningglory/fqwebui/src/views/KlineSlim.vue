@@ -227,7 +227,6 @@
                 <div class="price-panel-section-header">
                   <div class="price-panel-section-title-wrap">
                     <span class="price-panel-section-title">基础配置</span>
-                    <span class="price-panel-section-note">must_pool</span>
                   </div>
                   <div class="subject-panel-inline-chips">
                     <span class="price-panel-summary-chip">
@@ -283,6 +282,9 @@
                   </div>
                   <div class="subject-panel-inline-chips">
                     <span class="price-panel-summary-chip">
+                      当前生效 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.effective_limit) }}
+                    </span>
+                    <span class="price-panel-summary-chip">
                       市值 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.market_value) }}
                     </span>
                     <span class="price-panel-summary-chip" :class="{ active: subjectPanelState.subjectPanelDetail.positionLimit.blocked }">
@@ -292,22 +294,9 @@
                 </div>
 
                 <div class="subject-panel-grid">
-                  <div class="subject-panel-limit-summary">
-                    <span class="price-panel-summary-chip">
-                      系统默认值 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.default_limit) }}
-                    </span>
-                    <span class="price-panel-summary-chip">
-                      当前生效 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.effective_limit) }}
-                    </span>
-                    <span class="price-panel-summary-chip">
-                      当前来源 {{ subjectPanelState.subjectPanelDetail.positionLimit.using_override ? '单独设置' : '系统默认值' }}
-                    </span>
-                  </div>
-
                   <div class="subject-panel-limit-row">
                     <label class="subject-panel-field">
                       <span class="subject-panel-field__label">单标的上限设置</span>
-                      <span class="subject-panel-field__note">输入当前希望生效的单标的上限；若与系统默认值相同，保存时后端会自动删除单独设置</span>
                       <el-input-number
                         v-model="subjectPanelState.positionLimitDraft.limit"
                         size="small"

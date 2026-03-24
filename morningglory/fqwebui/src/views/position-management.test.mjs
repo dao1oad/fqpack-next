@@ -399,6 +399,19 @@ test('PositionManagement.vue uses merged left panel and fully visible rule matri
   assert.doesNotMatch(content, /恢复默认/)
 })
 
+test('PositionManagement.vue places rule matrix above inventory and widens inferred source columns', async () => {
+  const content = await readFile(new URL('./PositionManagement.vue', import.meta.url), 'utf8')
+  const ruleIndex = content.indexOf('规则矩阵')
+  const inventoryIndex = content.indexOf('参数 inventory')
+
+  assert.ok(ruleIndex >= 0)
+  assert.ok(inventoryIndex >= 0)
+  assert.ok(ruleIndex < inventoryIndex)
+  assert.match(content, /class="position-state-grid position-state-grid--compact"/)
+  assert.match(content, /--position-symbol-limit-source-column-width:\s*148px;/)
+  assert.match(content, /runtime-position-symbol-limit-ledger__grid\s*\{[\s\S]*var\(--position-symbol-limit-source-column-width\)\s+var\(--position-symbol-limit-source-column-width\)/)
+})
+
 test('position-management module doc reflects merged left panel, dirty-symbol filtering and truth-filled recent decisions', async () => {
   const content = await readFile(new URL('../../../../docs/current/modules/position-management.md', import.meta.url), 'utf8')
 

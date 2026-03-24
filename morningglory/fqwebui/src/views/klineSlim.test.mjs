@@ -146,10 +146,21 @@ test('KlineSlim subject panel removes category editing, refresh noise and source
   assert.equal(viewSource.includes('覆盖值'), false)
   assert.equal(viewSource.includes('留空时沿用仓位管理默认值'), false)
   assert.match(viewSource, /单标的上限设置/)
-  assert.match(viewSource, /当前来源/)
+  assert.match(viewSource, /当前生效/)
   assert.equal(scriptSource.includes('use_default'), false)
   assert.match(viewSource, /class="subject-panel-base-row"/)
-  assert.match(viewSource, /class="subject-panel-limit-summary"/)
+})
+
+test('KlineSlim subject panel removes misleading must-pool note and redundant limit prose', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
+  assert.equal(viewSource.includes('price-panel-section-note">must_pool'), false)
+  assert.match(viewSource, /当前生效/)
+  assert.match(viewSource, /市值/)
+  assert.match(viewSource, /已阻断买入|允许买入/)
+  assert.equal(viewSource.includes('系统默认值'), false)
+  assert.equal(viewSource.includes('当前来源'), false)
+  assert.equal(viewSource.includes('输入当前希望生效的单标的上限'), false)
 })
 
 test('KlineSlim subject panel keeps readable buy-lot stoploss rows after header cleanup', () => {

@@ -393,10 +393,22 @@ def _normalize_stock_fills(rows):
         rows = rows.to_dict(orient="records")
     normalized = []
     for item in list(rows or []):
-        normalized.append(
-            {key: _coerce_json_scalar(value) for key, value in dict(item).items()}
-        )
+        row = {key: _coerce_json_scalar(value) for key, value in dict(item).items()}
+        row["direction_label"] = _resolve_stock_fill_direction_label(row)
+        normalized.append(row)
     return normalized
+
+
+def _resolve_stock_fill_direction_label(row):
+    source = str(row.get("source") or "").strip().lower()
+    if source == "external_inferred":
+        return "推断持仓"
+    op = str(row.get("op") or row.get("direction") or "").strip().lower()
+    if op in {"buy", "b", "open", "long"}:
+        return "买入"
+    if op in {"sell", "s", "close", "short"}:
+        return "卖出"
+    return ""
 
 
 def _normalize_event(row):
