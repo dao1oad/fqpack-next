@@ -408,6 +408,8 @@ def _resolve_stock_fill_direction_label(row):
         return "买入"
     if op in {"sell", "s", "close", "short"}:
         return "卖出"
+    if source:
+        return "买入"
     return ""
 
 

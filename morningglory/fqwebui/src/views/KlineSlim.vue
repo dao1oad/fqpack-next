@@ -36,14 +36,6 @@
         <el-button size="small" :disabled="!routeSymbol" @click="resetChartViewport">重置视图</el-button>
         <el-button
           size="small"
-          :type="showPriceGuidePanel ? 'primary' : 'default'"
-          :disabled="!routeSymbol"
-          @click="togglePriceGuidePanel"
-        >
-          价格层级
-        </el-button>
-        <el-button
-          size="small"
           :type="showSubjectPanel ? 'primary' : 'default'"
           :disabled="!routeSymbol"
           @click="toggleSubjectPanel"
@@ -377,7 +369,7 @@
           <div class="price-panel-header">
             <div class="price-panel-header-main">
               <div class="price-panel-title-row">
-                <span class="price-panel-title">价格层级</span>
+                <span class="price-panel-title">画线编辑</span>
                 <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
                 <span v-if="subjectDetailLoading" class="price-panel-chip">同步中</span>
               </div>
@@ -405,7 +397,7 @@
               加载中...
             </div>
             <div v-else-if="!subjectPriceDetail" class="price-panel-state">
-              暂无价格层级配置
+              暂无价格设置
             </div>
             <div v-else class="price-panel-sections">
               <section class="price-panel-section">
@@ -439,10 +431,6 @@
                     >
                       {{ row.lineLabel }}
                     </span>
-                    <div class="price-panel-row-meta">
-                      <span class="price-panel-row-title">{{ row.label }}</span>
-                      <span class="price-panel-row-subtitle">图上 G-{{ row.shortLabel }} 横线</span>
-                    </div>
                     <div class="price-panel-row-editor price-panel-row-editor--multi">
                       <el-input-number
                         v-model="guardianDraft[row.key]"
@@ -485,10 +473,6 @@
                     >
                       {{ row.lineLabel }}
                     </span>
-                    <div class="price-panel-row-meta">
-                      <span class="price-panel-row-title">TP-{{ row.label }}</span>
-                      <span class="price-panel-row-subtitle">图上 TP-{{ row.label }} 横线</span>
-                    </div>
                     <div class="price-panel-row-editor price-panel-row-editor--multi">
                       <el-input-number
                         v-model="takeprofitDrafts[row.draftIndex].price"
@@ -992,7 +976,7 @@ export default klineSlim
 
 .price-panel-row
   display grid
-  grid-template-columns max-content minmax(0, 1fr) auto
+  grid-template-columns max-content auto
   gap 10px
   align-items center
   padding 12px
@@ -1002,28 +986,6 @@ export default klineSlim
 
 .price-panel-row--stacked
   align-items stretch
-
-.price-panel-row-meta
-  display flex
-  flex-direction column
-  gap 4px
-  min-width 0
-  overflow hidden
-
-.price-panel-row-title
-  font-size 13px
-  color #f8fafc
-  font-weight 600
-  overflow hidden
-  text-overflow ellipsis
-  white-space nowrap
-
-.price-panel-row-subtitle
-  font-size 12px
-  color #94a3b8
-  overflow hidden
-  text-overflow ellipsis
-  white-space nowrap
 
 .price-panel-row-editor
   display flex

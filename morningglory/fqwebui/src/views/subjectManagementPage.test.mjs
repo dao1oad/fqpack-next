@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { buildDetailViewModel, buildOverviewRows } from './subjectManagement.mjs'
 import { createSubjectManagementPageController } from './subjectManagementPage.mjs'
@@ -82,6 +83,8 @@ const makeOverviewRows = () => buildOverviewRows([
     },
   },
 ])
+
+const subjectManagementViewSource = readFileSync(new URL('./SubjectManagement.vue', import.meta.url), 'utf8')
 
 const makeDetail = (symbol = '600000', overrides = {}) => buildDetailViewModel({
   subject: {
@@ -408,4 +411,10 @@ test('page controller reloads persisted state and warns when position-limit save
     ['loadSubjectDetail', '600000', 'must-pool-saved'],
     ['loadOverview'],
   ])
+})
+
+test('SubjectManagement runtime column shows the effective single-symbol limit even when using defaults', () => {
+  assert.match(subjectManagementViewSource, /运行态/)
+  assert.match(subjectManagementViewSource, /上限 \{\{ formatWanAmount\(row\.positionLimitSummary\.effective_limit\) \}\}/)
+  assert.match(subjectManagementViewSource, /row\.positionLimitSummary\.using_override \? '单独' : '默认'/)
 })

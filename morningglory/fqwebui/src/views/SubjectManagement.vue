@@ -175,6 +175,10 @@
                   <div class="subject-summary-stack">
                     <div class="subject-summary-line">仓位 {{ formatWanAmount(row.position_amount) }}</div>
                     <div class="subject-summary-line">持仓 {{ row.position_quantity }} 股</div>
+                    <div class="subject-summary-line">
+                      上限 {{ formatWanAmount(row.positionLimitSummary.effective_limit) }}
+                      {{ row.positionLimitSummary.using_override ? '单独' : '默认' }}
+                    </div>
                     <div class="subject-summary-line">{{ row.runtime?.last_hit_level || '-' }}</div>
                     <div class="subject-summary-line workbench-code">{{ formatDateTime(row.runtime?.last_trigger_time) }}</div>
                   </div>

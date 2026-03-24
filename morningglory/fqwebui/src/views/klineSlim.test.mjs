@@ -2,10 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
-test('KlineSlim view exposes price guide toolbar entry and side panel layout', () => {
+test('KlineSlim keeps the price editor side panel but removes the duplicate 价格层级 trigger copy', () => {
   const source = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /价格层级/)
+  assert.doesNotMatch(source, />\s*价格层级\s*<\/el-button>/)
+  assert.doesNotMatch(source, /price-panel-title">价格层级</)
+  assert.doesNotMatch(source, /暂无价格层级配置/)
+  assert.match(source, /画线编辑/)
   assert.match(source, /kline-slim-price-panel/)
   assert.match(source, /Guardian 倍量价格/)
   assert.match(source, /止盈价格/)
@@ -24,16 +27,15 @@ test('KlineSlim keeps price guide and chanlun panels on the chart overlay instea
   assert.match(source, /class="kline-slim-chanlun-panel kline-slim-overlay-panel"/)
 })
 
-test('KlineSlim toolbar toggles both price guide and chanlun panels from the same buttons', () => {
+test('KlineSlim toolbar keeps only draw-edit, subject and chanlun toggles for overlay panels', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
-  assert.match(viewSource, /@click="togglePriceGuidePanel"/)
   assert.match(viewSource, /@click="toggleSubjectPanel"/)
   assert.match(viewSource, /@click="toggleChanlunStructurePanel"/)
+  assert.match(viewSource, /@click="togglePriceGuideEditMode"/)
   assert.match(viewSource, /:type="showChanlunStructurePanel \? 'primary' : 'default'"/)
 
-  assert.match(scriptSource, /togglePriceGuidePanel\(\)/)
   assert.match(scriptSource, /toggleSubjectPanel\(\)/)
   assert.match(scriptSource, /toggleChanlunStructurePanel\(\)/)
   assert.match(scriptSource, /this\.showPriceGuidePanel = false/)
@@ -199,9 +201,13 @@ test('KlineSlim price guide rows give the color badge its own layout column', ()
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
   assert.equal(viewSource.includes('class="price-panel-row-main"'), false)
+  assert.equal(viewSource.includes('price-panel-row-title'), false)
+  assert.equal(viewSource.includes('price-panel-row-subtitle'), false)
+  assert.equal(viewSource.includes('图上 G-'), false)
+  assert.equal(viewSource.includes('图上 TP-'), false)
   assert.match(viewSource, /class="price-guide-badge"/)
-  assert.match(viewSource, /class="price-panel-row-meta"/)
-  assert.match(viewSource, /\.price-panel-row\n  display grid\n  grid-template-columns max-content minmax\(0, 1fr\) auto/)
+  assert.equal(viewSource.includes('class="price-panel-row-meta"'), false)
+  assert.match(viewSource, /\.price-panel-row\n  display grid\n  grid-template-columns max-content auto/)
 })
 
 test('KlineSlim sidebar shows runtime position summary for holding rows', () => {

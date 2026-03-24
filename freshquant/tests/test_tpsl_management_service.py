@@ -797,3 +797,37 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
     assert payload["buy_lots"][0]["buy_lot_id"] == "lot_open_1"
     assert payload["buy_lots"][0]["stoploss"]["stop_price"] == 9.2
     assert payload["history"][0]["order_requests"][0]["request_id"] == "req_stop_1"
+
+
+def test_symbol_detail_marks_open_stock_fills_as_buy_when_direction_is_missing():
+    service = TpslManagementService(
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        stock_fills_loader=lambda symbol: [
+            {
+                "symbol": symbol,
+                "date": 20260323,
+                "time": "11:05:10",
+                "price": 0.633,
+                "quantity": 9900,
+                "amount": 6266.7,
+                "source": "external_reported",
+            },
+            {
+                "symbol": symbol,
+                "date": 20260323,
+                "time": "11:05:10",
+                "price": 0.633,
+                "quantity": 69000,
+                "amount": 43677.0,
+                "source": "xtquant",
+            },
+        ],
+    )
+
+    detail = service.get_symbol_detail("512600")
+
+    assert detail["stock_fills"][0]["direction_label"] == "买入"
+    assert detail["stock_fills"][1]["direction_label"] == "买入"
