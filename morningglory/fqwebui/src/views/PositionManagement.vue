@@ -18,7 +18,6 @@
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">当前仓位状态</div>
-                <p class="workbench-panel__desc">effective state、stale 语义、资产摘要、规则矩阵与 inventory 参数统一放在左栏；右栏只保留更宽的单标的仓位上限覆盖。</p>
               </div>
 
               <div class="workbench-toolbar__actions">
@@ -69,10 +68,11 @@
               </div>
 
               <div class="position-state-grid position-state-grid--compact">
-                <div class="position-rule-hint">
+                <article class="workbench-block position-metric-card position-rule-card">
+                  <span>当前命中规则</span>
                   <strong>{{ statePanel.hero.matched_rule_title }}</strong>
                   <p>{{ statePanel.hero.matched_rule_detail }}</p>
-                </div>
+                </article>
 
                 <div class="position-metric-grid">
                   <article
@@ -101,7 +101,6 @@
                 <div class="position-panel-section__header">
                   <div class="workbench-title-group">
                     <div class="position-panel-section__title">参数 inventory</div>
-                    <p class="position-panel-section__desc">可编辑阈值和只读系统参数压缩到同一张高密度表里，不再单独占用一栏；说明列已移除。</p>
                   </div>
                 </div>
 
@@ -171,7 +170,6 @@
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">单标的仓位上限覆盖</div>
-                <p class="workbench-panel__desc">右栏宽度扩展后统一展示券商仓位、推断仓位、stock_fills 仓位与当前生效单标的上限；输入框默认回填当前生效值，金额统一按“万”显示，两位小数。</p>
               </div>
             </div>
 
@@ -273,7 +271,6 @@
         <div class="workbench-panel__header">
           <div class="workbench-title-group">
             <div class="workbench-panel__title">最近决策与上下文</div>
-            <p class="workbench-panel__desc">复用 runtime-observability 的 dense ledger 语法，一次展示决策主信息、仓位上下文、trace 与附加字段；宽度不足时直接横向滚动。</p>
           </div>
         </div>
 
@@ -566,14 +563,13 @@ onMounted(() => {
 }
 
 .position-lower-grid {
-  --position-symbol-limit-ledger-row-height: 52px;
+  --position-symbol-limit-ledger-row-height: 48px;
   --position-symbol-limit-ledger-body-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
-  --position-symbol-limit-source-column-width: 148px;
-  --position-upper-panel-height: calc(var(--position-symbol-limit-ledger-body-height) + 136px);
+  --position-symbol-limit-source-column-width: 184px;
   display: grid;
   grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.32fr);
   gap: 12px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .position-lower-column {
@@ -586,8 +582,7 @@ onMounted(() => {
 .position-lower-column > .workbench-panel {
   display: flex;
   flex-direction: column;
-  min-height: var(--position-upper-panel-height);
-  height: var(--position-upper-panel-height);
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -635,7 +630,7 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-top: auto;
+  margin-top: 6px;
   padding-top: 4px;
 }
 
@@ -664,33 +659,10 @@ onMounted(() => {
 
 .inventory-parameter-cell span,
 .inventory-inline-hint,
-.inventory-value,
-.position-panel-section__desc {
+.inventory-value {
   color: #606266;
   font-size: 12px;
   line-height: 1.5;
-}
-
-.position-panel-section__desc {
-  margin: 0;
-}
-
-.position-rule-hint {
-  padding: 8px 10px;
-  border: 1px dashed #dbe1ea;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.position-rule-hint strong {
-  color: #303133;
-}
-
-.position-rule-hint p {
-  margin: 4px 0 0;
-  color: #606266;
-  font-size: 11px;
-  line-height: 1.4;
 }
 
 .position-state-grid {
@@ -699,7 +671,7 @@ onMounted(() => {
 }
 
 .position-state-grid--compact {
-  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(256px, 0.96fr) minmax(0, 1fr) minmax(0, 1fr);
   align-items: stretch;
 }
 
@@ -722,6 +694,30 @@ onMounted(() => {
   margin-top: 2px;
   color: #303133;
   line-height: 1.35;
+}
+
+.position-rule-card {
+  justify-content: flex-start;
+}
+
+.position-rule-card span {
+  color: #909399;
+  font-size: 11px;
+}
+
+.position-rule-card strong {
+  display: block;
+  margin-top: 2px;
+  color: #303133;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.position-rule-card p {
+  margin: 6px 0 0;
+  color: #606266;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .position-metric-card strong {
@@ -965,24 +961,24 @@ onMounted(() => {
 
 .position-limit-symbol span {
   color: #68839d;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .position-source-cell {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .position-source-cell strong {
   color: #21405e;
-  line-height: 1.35;
+  line-height: 1.25;
 }
 
 .position-source-cell span {
   color: #68839d;
   font-size: 11px;
-  line-height: 1.3;
+  line-height: 1.2;
 }
 
 .position-symbol-limit-input :deep(.el-input-number) {
