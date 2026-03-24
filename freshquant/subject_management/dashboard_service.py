@@ -64,7 +64,7 @@ class SubjectManagementDashboardService:
                 {"active_count": 0, "open_buy_lot_count": 0},
             )
             latest_event = latest_events.get(symbol) or {}
-            position_limit_summary = dict(self.symbol_limit_loader(symbol) or {})
+            position_limit_summary = self._load_position_limit_summary(symbol)
 
             rows.append(
                 {
@@ -170,7 +170,7 @@ class SubjectManagementDashboardService:
             self._latest_trigger_map({normalized_symbol}).get(normalized_symbol) or {}
         )
         pm_summary = dict(self.pm_summary_loader() or {})
-        position_limit_summary = dict(self.symbol_limit_loader(normalized_symbol) or {})
+        position_limit_summary = self._load_position_limit_summary(normalized_symbol)
 
         return _json_safe_payload(
             {
@@ -209,6 +209,24 @@ class SubjectManagementDashboardService:
                 },
             }
         )
+
+    def _load_position_limit_summary(self, symbol):
+        normalized_symbol = _normalize_symbol(symbol)
+        try:
+            summary = dict(self.symbol_limit_loader(normalized_symbol) or {})
+        except Exception as exc:
+            return {
+                "symbol": normalized_symbol,
+                "available": False,
+                "using_override": False,
+                "blocked": False,
+                "error": str(exc) or exc.__class__.__name__,
+            }
+        return {
+            "symbol": normalized_symbol,
+            "available": bool(summary),
+            **summary,
+        }
 
     def _must_pool_map(self):
         rows = {}

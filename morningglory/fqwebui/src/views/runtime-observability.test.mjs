@@ -1059,7 +1059,16 @@ test('RuntimeObservability.vue scopes event reloads with the active sidebar comp
 test('RuntimeObservability.vue switches to component event view when sidebar component is clicked from global trace', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /const handleComponentFilter = \(target\) => \{[\s\S]*activeView\.value = 'events'/)
+  assert.match(content, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(/)
+})
+
+test('RuntimeObservability.vue keeps explicit sidebar selection sticky and routes component clicks through one event-switch helper', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /const userSelectedComponent = ref\(false\)/)
+  assert.match(content, /const switchToComponentEvents = async \(component, options = \{\}\) => \{[\s\S]*userSelectedComponent\.value = true[\s\S]*activeView\.value = 'events'[\s\S]*await loadEvents\(\{ suppressError: true \}\)/)
+  assert.match(content, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(/)
+  assert.match(content, /watch\(componentSidebarItems, \(items\) => \{[\s\S]*if \(userSelectedComponent\.value && boardFilter\.component\) return/)
 })
 
 test('RuntimeObservability.vue keeps toolbar actions in the left title block and exposes a time range picker', async () => {

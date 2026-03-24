@@ -166,7 +166,7 @@
                   {{ row.buy_price_real }}
                 </template>
               </el-table-column>
-              <el-table-column label="原始/剩余" width="118">
+              <el-table-column label="原始/剩余" width="156">
                 <template #default="{ row }">
                   {{ row.original_quantity }} / {{ row.remaining_quantity }}
                 </template>
@@ -224,7 +224,11 @@
             <el-table v-else :data="detail.stockFills" stripe size="small" border>
               <el-table-column prop="date" label="日期" width="98" />
               <el-table-column prop="time" label="时间" width="96" />
-              <el-table-column prop="op" label="方向" width="72" />
+              <el-table-column label="方向" width="96">
+                <template #default="{ row }">
+                  {{ row.opLabel || '-' }}
+                </template>
+              </el-table-column>
               <el-table-column prop="quantity" label="数量" width="92" />
               <el-table-column prop="price" label="价格" width="92" />
               <el-table-column prop="amount" label="金额" min-width="108" />

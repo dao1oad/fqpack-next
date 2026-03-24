@@ -986,6 +986,7 @@ const activeView = ref('traces')
 const onlyIssues = ref(false)
 const autoRefresh = ref(true)
 const advancedFilterVisible = ref(false)
+const userSelectedComponent = ref(false)
 const selectedTraceKind = ref('all')
 const activeTraceDetailTab = ref('steps')
 const activeEventDetailTab = ref('event')
@@ -2058,16 +2059,29 @@ const handleTraceKindClick = async (kind) => {
   await loadTraces()
 }
 
-const handleComponentFilter = (target) => {
+const switchToComponentEvents = async (component, options = {}) => {
+  const normalizedComponent = String(component || '').trim()
+  if (!normalizedComponent) return
+  const nextOnlyIssues = Object.prototype.hasOwnProperty.call(options, 'onlyIssues')
+    ? Boolean(options.onlyIssues)
+    : onlyIssues.value
+  traceIssueFocus.component = ''
+  userSelectedComponent.value = true
+  boardFilter.component = normalizedComponent
+  boardFilter.runtime_node = ''
+  onlyIssues.value = nextOnlyIssues
+  activeView.value = 'events'
+  if (lastLoadedEventQueryKey.value === buildEventRequestKey()) return
+  await loadEvents({ suppressError: true })
+}
+
+const handleComponentFilter = async (target) => {
   const normalizedComponent =
     typeof target === 'string'
       ? String(target || '').trim()
       : String(target?.component || '').trim()
   if (!normalizedComponent) return
-  traceIssueFocus.component = ''
-  boardFilter.component = normalizedComponent
-  boardFilter.runtime_node = ''
-  activeView.value = 'events'
+  await switchToComponentEvents(normalizedComponent)
 }
 
 const handleSummaryJump = async (target) => {
@@ -2094,14 +2108,10 @@ const handleComponentIssueTraceJump = async (item) => {
   }
 }
 
-const handleComponentIssueEventJump = (item) => {
+const handleComponentIssueEventJump = async (item) => {
   const normalizedComponent = String(item?.component || '').trim()
   if (!normalizedComponent || Number(item?.issue_step_count || 0) <= 0) return
-  traceIssueFocus.component = ''
-  boardFilter.component = normalizedComponent
-  boardFilter.runtime_node = ''
-  onlyIssues.value = true
-  activeView.value = 'events'
+  await switchToComponentEvents(normalizedComponent, { onlyIssues: true })
 }
 
 const clearFilterChip = async (chip) => {
@@ -2372,10 +2382,12 @@ watch(componentEventFeed, (items) => {
 
 watch(componentSidebarItems, (items) => {
   if (items.length === 0) {
+    userSelectedComponent.value = false
     boardFilter.component = ''
     boardFilter.runtime_node = ''
     return
   }
+  if (userSelectedComponent.value && boardFilter.component) return
   const fallback = pickDefaultSidebarComponent(items, boardFilter.component)
   if (fallback === boardFilter.component) return
   boardFilter.component = fallback
@@ -2388,6 +2400,7 @@ watch(
     if (component === prevComponent && runtimeNode === prevRuntimeNode) return
     if (!component && !runtimeNode) return
     if (activeView.value !== 'events') return
+    if (lastLoadedEventQueryKey.value === buildEventRequestKey()) return
     await loadEvents({ suppressError: true })
   },
 )

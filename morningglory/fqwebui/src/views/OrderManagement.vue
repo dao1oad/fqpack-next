@@ -18,12 +18,13 @@
             </div>
           </div>
 
-          <div class="workbench-toolbar__actions">
-            <el-button @click="resetFilters">重置</el-button>
-            <el-button type="primary" :loading="loadingOrders || loadingStats" @click="applyFilters">
-              刷新
-            </el-button>
-          </div>
+        <div class="workbench-toolbar__actions">
+          <el-button @click="resetFilters">重置</el-button>
+          <el-button @click="toggleAdvancedFilters">高级筛选</el-button>
+          <el-button type="primary" :loading="loadingOrders || loadingStats" @click="applyFilters">
+            刷新
+          </el-button>
+        </div>
         </div>
 
         <el-alert
@@ -35,7 +36,7 @@
           show-icon
         />
 
-        <div class="filter-grid">
+        <div v-if="showAdvancedFilters" class="filter-grid">
           <el-input v-model="filters.symbol" placeholder="symbol，如 600000" clearable />
           <el-select v-model="filters.side" placeholder="方向" clearable>
             <el-option label="买入" value="buy" />
@@ -320,7 +321,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, toRefs } from 'vue'
+import { computed, onMounted, ref, toRefs } from 'vue'
 
 import MyHeader from '@/views/MyHeader.vue'
 import { orderManagementApi } from '@/api/orderManagementApi'
@@ -360,6 +361,11 @@ const {
   size,
   total,
 } = toRefs(state)
+const showAdvancedFilters = ref(false)
+
+const toggleAdvancedFilters = () => {
+  showAdvancedFilters.value = !showAdvancedFilters.value
+}
 
 const activeFilterChips = computed(() => {
   const chips = []

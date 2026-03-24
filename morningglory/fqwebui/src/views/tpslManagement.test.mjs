@@ -134,6 +134,26 @@ test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstr
   assert.equal(buildHistoryRows(detail.historyRows)[0].buy_lot_label, 'lot_1')
 })
 
+test('buildDetailViewModel labels inferred stock-fills rows instead of leaving direction blank', () => {
+  const detail = buildDetailViewModel({
+    symbol: '512000',
+    stock_fills: [
+      {
+        date: 20260315,
+        time: '23:39:42',
+        quantity: 1470300,
+        price: 0.569677,
+        amount: 837596.09,
+        source: 'external_inferred',
+        direction_label: '推断持仓',
+      },
+    ],
+  })
+
+  assert.equal(detail.stockFills[0].opLabel, '推断持仓')
+  assert.equal(detail.stockFills[0].source, 'external_inferred')
+})
+
 test('buildHistoryRows derives level and stop price labels for unified timeline cards', () => {
   const rows = buildHistoryRows([
     {
@@ -229,6 +249,13 @@ test('createTpslManagementActions calls takeprofit save, stoploss save and histo
     ['bindStoploss', 'lot_1', 9.2, true],
     ['listHistory', '600000', 'takeprofit', 5],
   ])
+})
+
+test('TpslManagement.vue widens quantity summary and renders stock-fill direction from opLabel', () => {
+  const source = fs.readFileSync(new URL('./TpslManagement.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /<el-table-column label="原始\/剩余" width="156">/)
+  assert.match(source, /<el-table-column label="方向" width="96">[\s\S]*row\.opLabel/)
 })
 
 test('page controller runs takeprofit save, stoploss save and history refresh from selected symbol', async () => {
