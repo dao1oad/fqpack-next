@@ -301,7 +301,10 @@ def test_subject_management_overview_keeps_rows_when_symbol_limit_loader_rejects
     assert len(rows) == 1
     assert rows[0]["symbol"] == "512000"
     assert rows[0]["position_limit_summary"]["available"] is False
-    assert rows[0]["position_limit_summary"]["error"] == "symbol is not tracked by holdings or pools"
+    assert (
+        rows[0]["position_limit_summary"]["error"]
+        == "symbol is not tracked by holdings or pools"
+    )
     assert rows[0]["position_limit_summary"]["using_override"] is False
 
 
