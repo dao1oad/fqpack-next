@@ -152,6 +152,8 @@ Runtime Observability 当前采用“双存储”：
   - `下一个异常`
   - `最慢节点`
   并在跳转后自动滚动到当前选中步骤
+- 浏览页在 `1920x1080 / 100%` 桌面分辨率下当前会把右侧详情区下沉到第二行，避免仍然坚持三栏导致右侧详情只能靠浏览器缩放阅读
+- 步骤 ledger、右侧步骤详情与 Raw JSON 都保持组件内滚动；页面壳本身不承担主滚动
 - Raw Browser 继续按 `runtime_node/component/date/file` 直接读 JSONL
 
 ## 组件健康
