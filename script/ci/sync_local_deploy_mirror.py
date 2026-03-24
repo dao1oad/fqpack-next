@@ -40,6 +40,16 @@ def ensure_clean_worktree(repo_root: Path) -> None:
         raise RuntimeError(f"deploy mirror has a dirty working tree: {repo_root}")
 
 
+def clean_ignored_artifacts(repo_root: Path) -> None:
+    subprocess.run(
+        ["git", "clean", "-ffdX"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def current_head_sha(repo_root: Path) -> str:
     return run_git(repo_root, "rev-parse", "HEAD")
 
@@ -113,6 +123,7 @@ def sync_local_deploy_mirror(
     repo_root = repo_root.resolve()
     ensure_git_repo(repo_root)
     ensure_safe_directory(repo_root)
+    clean_ignored_artifacts(repo_root)
     ensure_clean_worktree(repo_root)
 
     resolved_checkout_branch = checkout_branch or branch

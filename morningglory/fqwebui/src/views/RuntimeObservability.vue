@@ -995,8 +995,8 @@ const rawFiles = ref([])
 const rawRecords = ref([])
 const rawFocusedIndex = ref(-1)
 const rawSelectionKey = ref('')
-const rawRecordRefs = ref({})
-const stepRowRefs = ref({})
+const rawRecordRefs = new Map()
+const stepRowRefs = new Map()
 const pageError = ref('')
 const boardFilter = reactive({
   component: '',
@@ -2251,17 +2251,15 @@ const isSlowestStep = (step) => {
 }
 
 const setStepRowRef = (element, key) => {
-  stepRowRefs.value = {
-    ...stepRowRefs.value,
-    [key]: element || null,
-  }
+  if (!key) return
+  stepRowRefs.set(key, element || null)
 }
 
 const scrollToSelectedStep = async () => {
   const key = stepKey(selectedStep.value)
   if (!key) return
   await nextTick()
-  stepRowRefs.value[key]?.scrollIntoView({
+  stepRowRefs.get(key)?.scrollIntoView({
     block: 'nearest',
     behavior: 'smooth',
   })
@@ -2356,16 +2354,13 @@ const syncSelectedStep = () => {
 }
 
 const setRawRecordRef = (element, index) => {
-  rawRecordRefs.value = {
-    ...rawRecordRefs.value,
-    [index]: element || null,
-  }
+  rawRecordRefs.set(index, element || null)
 }
 
 const scrollToFocusedRawRecord = async () => {
   if (rawFocusedIndex.value < 0) return
   await nextTick()
-  rawRecordRefs.value[rawFocusedIndex.value]?.scrollIntoView({
+  rawRecordRefs.get(rawFocusedIndex.value)?.scrollIntoView({
     block: 'nearest',
     behavior: 'smooth',
   })
@@ -2444,11 +2439,11 @@ watch(
 )
 
 watch(rawRecords, () => {
-  rawRecordRefs.value = {}
+  rawRecordRefs.clear()
 })
 
 watch(traceStepLedgerRows, () => {
-  stepRowRefs.value = {}
+  stepRowRefs.clear()
 })
 
 watch(selectedStep, () => {
