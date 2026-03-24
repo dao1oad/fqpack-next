@@ -250,6 +250,7 @@
                 <span>组件</span>
                 <span>节点</span>
                 <span>状态</span>
+                <span>{{ eventSemanticColumnLabel }}</span>
                 <span>标的</span>
                 <span>摘要</span>
                 <span>指标</span>
@@ -271,6 +272,7 @@
                     {{ row.status }}
                   </span>
                 </span>
+                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.semantic_value || '-'">{{ row.semantic_value || '-' }}</span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.summary || '-'">{{ row.summary || '-' }}</span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.metrics_summary || '-'">{{ row.metrics_summary || '-' }}</span>
@@ -950,6 +952,7 @@ import {
   pickDefaultSidebarComponent,
   pickDefaultTraceStep,
   readApiPayload,
+  resolveEventSemanticColumnLabel,
   stopPollingTimer,
   TRACE_QUERY_FIELDS,
   TRACE_QUERY_LABELS,
@@ -1201,6 +1204,7 @@ const componentEventFeed = computed(() => {
     onlyIssues: onlyIssues.value,
   })
 })
+const eventSemanticColumnLabel = computed(() => resolveEventSemanticColumnLabel(activeComponent.value))
 const eventLedgerRows = computed(() => buildEventLedgerRows(componentEventFeed.value))
 const componentEventEmptyState = computed(() => buildComponentEventEmptyState({
   component: activeComponent.value,
@@ -3145,8 +3149,9 @@ onBeforeUnmount(() => {
     140px
     140px
     112px
+    144px
     180px
-    minmax(260px, 1.45fr)
+    minmax(220px, 1.3fr)
     minmax(220px, 1.15fr);
 }
 
