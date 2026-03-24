@@ -3551,6 +3551,11 @@ onBeforeUnmount(() => {
 .detail-pane-grid--step,
 .detail-pane-grid--raw {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.detail-pane-grid--step {
+  min-width: 0;
 }
 
 .detail-ledger-section,
@@ -3739,6 +3744,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -4222,7 +4228,7 @@ onBeforeUnmount(() => {
   background: #fff7f5 !important;
 }
 
-@media (max-width: 1600px) {
+@media (max-width: 1920px) {
   .runtime-browse-layout {
     grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
   }
