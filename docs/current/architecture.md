@@ -19,7 +19,7 @@
 - 展示层
   - `freshquant.rear.*`
   - `morningglory/fqwebui`
-  - 负责 API、Web UI 与历史/实时视图展示。
+  - 负责 API、Web UI 与历史/实时视图展示；当前 Web UI 工作台页面统一走固定 viewport shell，并把长列表滚动收口到组件内部容器。
 - 盘后选股工作台层
   - `freshquant.daily_screening.*`
   - `freshquant.screening.strategies.*`

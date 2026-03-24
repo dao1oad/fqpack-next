@@ -408,7 +408,7 @@ onMounted(async () => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .filter-grid {
@@ -439,6 +439,7 @@ onMounted(async () => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .order-list-panel,

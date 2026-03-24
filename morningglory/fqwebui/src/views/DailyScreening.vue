@@ -1445,7 +1445,7 @@ onMounted(async () => {
   gap: 16px;
   min-height: 0;
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
   align-items: stretch;
 }
 
@@ -1466,6 +1466,7 @@ onMounted(async () => {
   grid-template-rows: minmax(0, 0.82fr) minmax(0, 1.18fr);
   gap: 16px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .daily-detail-stack {
@@ -1473,6 +1474,7 @@ onMounted(async () => {
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 16px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .daily-chip-grid {
@@ -1578,6 +1580,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 10px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .daily-results-pagination {

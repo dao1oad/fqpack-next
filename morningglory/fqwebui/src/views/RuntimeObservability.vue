@@ -2477,8 +2477,7 @@ onBeforeUnmount(() => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
-  scrollbar-gutter: stable both-edges;
+  overflow: hidden;
 }
 
 .runtime-section {
@@ -2624,7 +2623,7 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
   align-items: stretch;
 }
 
@@ -2646,6 +2645,7 @@ onBeforeUnmount(() => {
   background: transparent;
   border: 0;
   box-shadow: none;
+  overflow: hidden;
 }
 
 .component-symbol-list {

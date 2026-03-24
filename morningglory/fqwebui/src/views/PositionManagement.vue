@@ -560,7 +560,7 @@ onMounted(() => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .position-lower-grid {
@@ -585,10 +585,18 @@ onMounted(() => {
   flex-direction: column;
   min-height: var(--position-upper-panel-height);
   height: var(--position-upper-panel-height);
+  overflow: hidden;
 }
 
 .position-top-panel {
   min-height: 0;
+}
+
+.position-decision-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .position-panel-body {
