@@ -378,7 +378,6 @@ test('PositionManagement.vue uses merged left panel and fully visible rule matri
   assert.match(content, /规则矩阵/)
   assert.match(content, /position-state-scroll/)
   assert.match(content, /参数 inventory/)
-  assert.match(content, /--position-upper-panel-height:/)
   assert.match(content, /position-decision-panel/)
   assert.ok(topPanelIndex >= 0)
   assert.ok(decisionPanelIndex >= 0)
@@ -397,9 +396,14 @@ test('PositionManagement.vue uses merged left panel and fully visible rule matri
   assert.doesNotMatch(content, /label="说明"/)
   assert.doesNotMatch(content, /覆盖值/)
   assert.doesNotMatch(content, /恢复默认/)
+  assert.doesNotMatch(content, /effective state、stale 语义、资产摘要、规则矩阵与 inventory 参数统一放在左栏/)
+  assert.doesNotMatch(content, /右栏宽度扩展后统一展示券商仓位、推断仓位、stock_fills 仓位与当前生效单标的上限/)
+  assert.doesNotMatch(content, /复用 runtime-observability 的 dense ledger 语法/)
+  assert.doesNotMatch(content, /--position-upper-panel-height:/)
+  assert.doesNotMatch(content, /height:\s*var\(--position-upper-panel-height\)/)
 })
 
-test('PositionManagement.vue places rule matrix above inventory and widens inferred source columns', async () => {
+test('PositionManagement.vue places rule matrix above inventory, uses a compact rule card, and widens inferred source columns', async () => {
   const content = await readFile(new URL('./PositionManagement.vue', import.meta.url), 'utf8')
   const ruleIndex = content.indexOf('规则矩阵')
   const inventoryIndex = content.indexOf('参数 inventory')
@@ -408,8 +412,11 @@ test('PositionManagement.vue places rule matrix above inventory and widens infer
   assert.ok(inventoryIndex >= 0)
   assert.ok(ruleIndex < inventoryIndex)
   assert.match(content, /class="position-state-grid position-state-grid--compact"/)
-  assert.match(content, /--position-symbol-limit-source-column-width:\s*148px;/)
+  assert.match(content, /class="workbench-block position-metric-card position-rule-card"/)
+  assert.match(content, /--position-symbol-limit-source-column-width:\s*184px;/)
+  assert.match(content, /\.position-lower-grid\s*\{[\s\S]*align-items:\s*start;/)
   assert.match(content, /runtime-position-symbol-limit-ledger__grid\s*\{[\s\S]*var\(--position-symbol-limit-source-column-width\)\s+var\(--position-symbol-limit-source-column-width\)/)
+  assert.doesNotMatch(content, /position-rule-hint/)
 })
 
 test('position-management module doc reflects merged left panel, dirty-symbol filtering and truth-filled recent decisions', async () => {
@@ -424,6 +431,9 @@ test('position-management module doc reflects merged left panel, dirty-symbol fi
   assert.match(content, /参数 inventory.*说明列/)
   assert.match(content, /脏数据.*不在持仓股、must_pool、stock_pools、pre_pools.*不会进入“单标的仓位上限覆盖”/)
   assert.match(content, /最近决策.*实时市值.*仓位上限.*市值来源.*数量来源.*系统真值回填/)
+  assert.match(content, /当前命中规则说明改成与资产摘要同层级的紧凑指标卡/)
+  assert.match(content, /顶部两栏标题当前只保留标题与操作/)
+  assert.match(content, /订单推断仓位 \/ stock_fills 仓位.*列当前已放宽/)
   assert.match(content, /单标的仓位上限覆盖.*输入框默认展示当前生效值/)
   assert.match(content, /保存值等于系统默认值时.*自动删除 override/)
   assert.match(content, /金额统一按“万”展示/)
