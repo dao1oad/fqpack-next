@@ -1244,8 +1244,22 @@ export const hasMatchingRawSelection = (selectionKey, record = {}, view = 'trace
   return Boolean(selectionKey) && selectionKey === buildRawSelectionKey(record, view)
 }
 
+const isHydratedTraceStep = (step = {}) => {
+  return (
+    Number.isFinite(step?.index) &&
+    Object.prototype.hasOwnProperty.call(step, 'is_issue') &&
+    Object.prototype.hasOwnProperty.call(step, 'ts_label')
+  )
+}
+
+const isHydratedTraceDetail = (trace = {}) => {
+  if (!(trace && trace[TRACE_DETAIL_MARKER])) return false
+  const steps = Array.isArray(trace?.steps) ? trace.steps : []
+  return steps.length === 0 || steps.every((step) => isHydratedTraceStep(step))
+}
+
 export const buildTraceDetail = (trace = {}) => {
-  if (trace && trace[TRACE_DETAIL_MARKER]) return trace
+  if (isHydratedTraceDetail(trace)) return trace
   const sourceSteps = Array.isArray(trace.steps) ? trace.steps : []
   let previousTsMs = null
   const steps = sourceSteps.map((step, index) => {
@@ -1631,6 +1645,16 @@ export const filterTracesByIssueComponent = (traces = [], component = '') => {
       .map((item) => toText(item))
       .includes(normalizedComponent)
   })
+}
+
+export const filterVisibleTraces = (traces = [], options = {}) => {
+  const issueComponent = toText(options?.issueComponent)
+  const onlyIssueTraces = Boolean(options?.onlyIssueTraces)
+  const scopedTraces = issueComponent
+    ? filterTracesByIssueComponent(traces, issueComponent)
+    : normalizeTraces(traces)
+  if (!onlyIssueTraces) return scopedTraces
+  return scopedTraces.filter((trace) => buildTraceDetail(trace).issue_count > 0)
 }
 
 export const buildComponentBoard = (traces = [], components = []) => {

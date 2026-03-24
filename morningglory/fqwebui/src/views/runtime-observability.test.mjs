@@ -24,6 +24,7 @@ import {
   buildIssueSummary,
   buildRawRecordSummary,
   buildRecentTraceFeed,
+  filterVisibleTraces,
   filterTracesByIssueComponent,
   buildTraceLedgerRows,
   buildTraceStepLedgerRows,
@@ -307,6 +308,59 @@ test('buildTraceDetail reuses hydrated detail objects without rebuilding', () =>
   )
 
   assert.equal(buildTraceDetail(detail), detail)
+})
+
+test('buildTraceDetail rehydrates merged trace shells when raw step pages replace hydrated steps', () => {
+  const trace = makeTrace({
+    traceId: 'trc_trace_detail_merge',
+    status: 'failed',
+    issueCount: 1,
+    lastTs: '2026-03-09T10:00:03.000Z',
+  })
+  const hydrated = buildTraceDetail(trace)
+  const merged = {
+    ...hydrated,
+    steps: trace.steps,
+  }
+
+  const detail = buildTraceDetail(merged)
+
+  assert.notEqual(detail, merged)
+  assert.deepEqual(detail.steps.map((item) => item.index), [0, 1, 2])
+  assert.equal(detail.steps[2].is_issue, true)
+  assert.equal(filterTraceSteps(detail.steps, { onlyIssues: true }).map((item) => item.node).join(','), 'queue_write,submit_result')
+  assert.equal(detail.steps[0].ts_label, '2026-03-09 18:00:02')
+})
+
+test('filterVisibleTraces keeps issue trace filtering separate from issue step filtering', () => {
+  const traces = [
+    makeTrace({
+      traceId: 'trc_visible_ok',
+      status: 'success',
+      lastTs: '2026-03-09T10:00:02.000Z',
+    }),
+    makeTrace({
+      traceId: 'trc_visible_failed',
+      status: 'failed',
+      issueCount: 1,
+      component: 'position_gate',
+      issueComponent: 'position_gate',
+      issueNode: 'decision',
+      lastTs: '2026-03-09T10:00:03.000Z',
+    }),
+  ]
+
+  const issueTraces = filterVisibleTraces(traces, { onlyIssueTraces: true })
+  const focusedTraces = filterVisibleTraces(traces, {
+    issueComponent: 'position_gate',
+    onlyIssueTraces: true,
+  })
+  const failedTrace = buildTraceDetail(traces[1])
+
+  assert.deepEqual(issueTraces.map((item) => buildTraceDetail(item).trace_id), ['trc_visible_failed'])
+  assert.deepEqual(focusedTraces.map((item) => buildTraceDetail(item).trace_id), ['trc_visible_failed'])
+  assert.equal(filterTraceSteps(failedTrace.steps, { onlyIssues: false }).length, 3)
+  assert.equal(filterTraceSteps(failedTrace.steps, { onlyIssues: true }).length, 2)
 })
 
 test('stopPollingTimer clears current timer without arming a new one', () => {
@@ -1060,6 +1114,21 @@ test('RuntimeObservability.vue switches to component event view when sidebar com
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
   assert.match(content, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(/)
+})
+
+test('RuntimeObservability.vue keeps trace issue filtering separate from step issue filtering', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /const traceOnlyIssues = ref\(false\)/)
+  assert.match(content, /const visibleTraces = computed\(\(\) =>[\s\S]*filterVisibleTraces\(hydratedTraces\.value,\s*\{[\s\S]*issueComponent:\s*traceIssueFocus\.component,[\s\S]*onlyIssueTraces:\s*traceOnlyIssues\.value,[\s\S]*\}\)/)
+  assert.match(content, /const handleSummaryJump = async \(target\) => \{[\s\S]*traceOnlyIssues\.value = true[\s\S]*onlyIssues\.value = target === 'issue-steps'/)
+  assert.match(content, /const handleComponentIssueTraceJump = async \(item\) => \{[\s\S]*traceOnlyIssues\.value = true[\s\S]*onlyIssues\.value = false/)
+})
+
+test('RuntimeObservability.vue resets component event issue filtering when clicking a component card', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(normalizedComponent,\s*\{\s*onlyIssues:\s*false\s*\}\)/)
 })
 
 test('RuntimeObservability.vue keeps explicit sidebar selection sticky and routes component clicks through one event-switch helper', async () => {
