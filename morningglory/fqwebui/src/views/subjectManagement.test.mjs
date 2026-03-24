@@ -116,6 +116,7 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
     runtime_summary: {
       position_quantity: 500,
       position_amount: 123456,
+      avg_price: 10.023,
       last_trigger_time: '2026-03-16T10:40:00+08:00',
       last_trigger_kind: 'takeprofit',
     },
@@ -144,8 +145,9 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.equal(detail.buyLots[0].buyLotIdLabel, 'ID 尾号 316d2a')
   assert.equal(
     detail.buyLots[0].buyLotMetaLabel,
-    '2026-03-16 10:31 · 买入 10.0 · 原始 300 · 剩余 200'
+    '2026-03-16 10:31 · 均价 10.023 · 市值 12.35 万 · 剩余 66.67%'
   )
+  assert.equal(detail.runtimeSummary.avg_price, 10.023)
   assert.equal(Object.hasOwn(detail.mustPool, 'forever'), false)
   assert.equal(detail.positionManagementSummary.effective_state, 'HOLDING_ONLY')
   assert.equal(detail.positionLimitSummary.effective_limit, 500000)

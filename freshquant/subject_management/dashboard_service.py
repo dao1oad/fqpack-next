@@ -94,6 +94,7 @@ class SubjectManagementDashboardService:
                             symbol_position,
                             position,
                         ),
+                        "avg_price": _safe_float_or_none(position.get("avg_price")),
                         "last_hit_level": guardian_state.get("last_hit_level"),
                         "last_trigger_time": latest_event.get("created_at"),
                     },
@@ -193,6 +194,7 @@ class SubjectManagementDashboardService:
                         symbol_position,
                         position,
                     ),
+                    "avg_price": _safe_float_or_none(position.get("avg_price")),
                     "last_trigger_time": latest_event.get("created_at"),
                     "last_trigger_kind": latest_event.get("kind"),
                     "market_value_source": symbol_position.get("market_value_source"),
@@ -262,11 +264,27 @@ class SubjectManagementDashboardService:
                     "name": "",
                     "quantity": 0,
                     "amount": 0.0,
+                    "avg_price": None,
+                    "_avg_price_numerator": 0.0,
+                    "_avg_price_quantity": 0,
                 },
             )
             current["name"] = current["name"] or str(item.get("name") or "").strip()
-            current["quantity"] += int(item.get("quantity") or 0)
+            quantity = int(item.get("quantity") or 0)
+            current["quantity"] += quantity
             current["amount"] += _safe_float(item.get("amount"))
+            avg_price = _safe_float_or_none(item.get("avg_price"))
+            if avg_price is not None and quantity > 0:
+                current["_avg_price_numerator"] += avg_price * quantity
+                current["_avg_price_quantity"] += quantity
+        for current in rows.values():
+            avg_price_quantity = int(current.pop("_avg_price_quantity", 0) or 0)
+            avg_price_numerator = _safe_float(current.pop("_avg_price_numerator", 0.0))
+            current["avg_price"] = (
+                avg_price_numerator / avg_price_quantity
+                if avg_price_quantity > 0
+                else None
+            )
         return rows
 
     def _stoploss_summary_map(self):

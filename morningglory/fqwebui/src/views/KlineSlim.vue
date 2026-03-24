@@ -205,7 +205,7 @@
                 :disabled="!subjectPanelState.subjectPanelDetail"
                 @click="handleSaveSubjectConfigBundle"
                 >
-                  保存基础配置与上限
+                  保存
                 </el-button>
                 <el-button size="small" @click="closeSubjectPanel">关闭</el-button>
               </div>
@@ -469,26 +469,8 @@
                         active-text="开"
                         inactive-text="关"
                       />
-                      <span class="price-panel-state-chip" :class="{ active: row.active }">
-                        {{ row.active ? '激活' : (row.manual_enabled ? '待机' : '仅展示') }}
-                      </span>
                     </div>
                   </div>
-                </div>
-
-                <div class="price-panel-footer">
-                  <span class="price-panel-footer-note">
-                    {{ priceGuideEditMode ? '画线编辑已开启，拖拽 Guardian 横线后自动保存。' : '保存后会同步刷新图上的 Guardian 横线。' }}
-                  </span>
-                  <el-button
-                    size="small"
-                    type="primary"
-                    :loading="savingGuardianPriceGuides"
-                    :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                    @click="handleSaveGuardianPriceGuides"
-                  >
-                    保存 Guardian
-                  </el-button>
                 </div>
               </section>
 
@@ -498,7 +480,7 @@
                     <span class="price-panel-section-title">止盈价格</span>
                   </div>
                   <span class="price-panel-summary-chip">
-                    已布防 {{ takeprofitGuideRows.filter((row) => row.armed).length }}/3
+                    已启用 {{ takeprofitGuideRows.filter((row) => row.armed).length }}/3
                   </span>
                 </div>
 
@@ -533,30 +515,8 @@
                         active-text="开"
                         inactive-text="关"
                       />
-                      <span class="price-panel-state-chip" :class="{ active: row.armed }">
-                        {{
-                          row.armed
-                            ? '布防'
-                            : (takeprofitDrafts[row.draftIndex].manual_enabled ? '待命' : '仅展示')
-                        }}
-                      </span>
                     </div>
                   </div>
-                </div>
-
-                <div class="price-panel-footer">
-                  <span class="price-panel-footer-note">
-                    {{ priceGuideEditMode ? '画线编辑已开启，拖拽止盈横线后自动保存。' : '保存后会同步刷新图上的止盈横线。' }}
-                  </span>
-                  <el-button
-                    size="small"
-                    type="primary"
-                    :loading="savingTakeprofitGuides"
-                    :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                    @click="handleSaveTakeprofitPriceGuides"
-                  >
-                    保存止盈
-                  </el-button>
                 </div>
               </section>
             </div>
@@ -1142,17 +1102,6 @@ export default klineSlim
   border-color rgba(96, 165, 250, 0.35)
   background rgba(30, 64, 175, 0.24)
 
-.price-panel-footer
-  display flex
-  align-items center
-  justify-content space-between
-  gap 12px
-
-.price-panel-footer-note
-  font-size 12px
-  line-height 1.5
-  color #94a3b8
-
 .subject-panel-grid
   display flex
   flex-direction column
@@ -1535,8 +1484,7 @@ export default klineSlim
   .subject-panel-header-actions
     justify-content flex-end
 
-  .price-panel-section-header,
-  .price-panel-footer
+  .price-panel-section-header
     flex-direction column
     align-items stretch
 
