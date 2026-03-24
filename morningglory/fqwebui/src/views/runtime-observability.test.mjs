@@ -5,6 +5,7 @@ import * as runtimeObservability from './runtimeObservability.mjs'
 
 import {
   buildEventLedgerRows,
+  buildComponentEventEmptyState,
   buildIdentityStrip,
   buildRawSelectionKey,
   buildTodayTimeRange,
@@ -709,6 +710,64 @@ test('buildComponentEventFeed recovers symbol display from nested payload fields
   assert.equal(feed[0].symbol_display, '600000 / 浦发银行')
 })
 
+test('buildComponentEventEmptyState distinguishes issue-filter empty state from missing runtime events', () => {
+  const sourceEvents = [
+    {
+      component: 'broker_gateway',
+      runtime_node: 'host:broker',
+      node: 'heartbeat',
+      event_type: 'heartbeat',
+      status: 'info',
+      ts: '2026-03-24T10:00:00+08:00',
+    },
+  ]
+  const allEvents = buildComponentEventFeed(sourceEvents, {
+    component: 'broker_gateway',
+    onlyIssues: false,
+  })
+  const issueOnlyEvents = buildComponentEventFeed(sourceEvents, {
+    component: 'broker_gateway',
+    onlyIssues: true,
+  })
+
+  assert.deepEqual(
+    buildComponentEventEmptyState({
+      component: 'broker_gateway',
+      allEvents,
+      visibleEvents: issueOnlyEvents,
+      onlyIssues: true,
+    }),
+    {
+      title: 'broker_gateway 当前没有异常 Event',
+      detail: '当前仍有 1 条正常/心跳事件；关闭“仅异常”后可查看完整组件 Event。',
+    },
+  )
+  assert.deepEqual(
+    buildComponentEventEmptyState({
+      component: 'broker_gateway',
+      allEvents: [],
+      visibleEvents: [],
+      onlyIssues: false,
+    }),
+    {
+      title: 'broker_gateway 当前时间范围内没有任何 Event',
+      detail: '请检查 runtime 原始日志目录、runtime indexer 与组件实际运行状态。',
+    },
+  )
+  assert.deepEqual(
+    buildComponentEventEmptyState({
+      component: 'tpsl_worker',
+      allEvents: [],
+      visibleEvents: [],
+      onlyIssues: false,
+    }),
+    {
+      title: 'tpsl_worker 当前没有真实触发 Event',
+      detail: '未命中止盈止损价、空价格和盘后空跑评估默认不会显示；如需查看原始评估日志，请打开 Raw Browser。',
+    },
+  )
+})
+
 test('buildIdentityStrip preserves all strong ids without dropping symbol and trace metadata', () => {
   assert.deepEqual(
     buildIdentityStrip({
@@ -1129,6 +1188,16 @@ test('RuntimeObservability.vue resets component event issue filtering when click
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
   assert.match(content, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(normalizedComponent,\s*\{\s*onlyIssues:\s*false\s*\}\)/)
+})
+
+test('RuntimeObservability.vue renders explicit component event empty-state guidance', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /buildComponentEventEmptyState/)
+  assert.match(content, /const allComponentEventFeed = computed\(\(\) => \{[\s\S]*onlyIssues: false,[\s\S]*\}\)/)
+  assert.match(content, /const componentEventEmptyState = computed\(\(\) => buildComponentEventEmptyState\(\{[\s\S]*component: activeComponent\.value,[\s\S]*allEvents: allComponentEventFeed\.value,[\s\S]*visibleEvents: componentEventFeed\.value,[\s\S]*onlyIssues: onlyIssues\.value,[\s\S]*\}\)\)/)
+  assert.match(content, /<strong>{{ componentEventEmptyState\.title }}<\/strong>/)
+  assert.match(content, /<p v-if="componentEventEmptyState\.detail">{{ componentEventEmptyState\.detail }}<\/p>/)
 })
 
 test('RuntimeObservability.vue keeps explicit sidebar selection sticky and routes component clicks through one event-switch helper', async () => {

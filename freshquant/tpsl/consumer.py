@@ -59,11 +59,6 @@ class TpslTickConsumer:
             active_codes = self.refresh_universe()
             if event.code not in active_codes:
                 return None
-            self._emit_runtime(
-                "tick_match",
-                symbol=symbol,
-                payload={"code": event.code, "tick_time": event.tick_time},
-            )
             takeprofit_batch = self.service.evaluate_takeprofit(
                 symbol=symbol,
                 code=event.code,

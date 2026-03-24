@@ -420,6 +420,7 @@ class RuntimeObservabilityClickHouseStore:
             start_time=start_time,
             end_time=end_time,
         )
+        visibility_condition = _build_tpsl_event_visibility_condition()
         cursor_condition = _build_event_cursor_condition(cursor_ts, cursor_event_id)
         rows = self._select_rows(
             f"""
@@ -447,7 +448,7 @@ class RuntimeObservabilityClickHouseStore:
                 error_type,
                 error_message
             FROM runtime_events
-            WHERE {conditions} AND {cursor_condition}
+            WHERE {conditions} AND {visibility_condition} AND {cursor_condition}
             ORDER BY ts DESC, event_id DESC
             LIMIT {safe_limit + 1}
             """
@@ -480,6 +481,7 @@ class RuntimeObservabilityClickHouseStore:
             start_time=start_time,
             end_time=end_time,
         )
+        visibility_condition = _build_tpsl_event_visibility_condition()
         cursor_condition = _build_event_cursor_condition(cursor_ts, cursor_event_id)
         rows = self._select_rows(
             f"""
@@ -507,7 +509,7 @@ class RuntimeObservabilityClickHouseStore:
                 error_type,
                 error_message
             FROM runtime_events
-            WHERE {conditions} AND {cursor_condition}
+            WHERE {conditions} AND {visibility_condition} AND {cursor_condition}
             ORDER BY ts DESC, event_id DESC
             LIMIT {safe_limit + 1}
             """
@@ -576,6 +578,32 @@ def _to_json_text(value: Any) -> str:
         )
     except TypeError:
         return "{}"
+
+
+def _build_tpsl_event_visibility_condition() -> str:
+    return """
+    NOT (
+        component = 'tpsl_worker'
+        AND lowerUTF8(status) = 'info'
+        AND trace_id = ''
+        AND (
+            node IN ('tick_match', 'profile_load')
+            OR (
+                node = 'trigger_eval'
+                AND (
+                    (
+                        payload_json LIKE '%"kind": "takeprofit"%'
+                        AND payload_json LIKE '%"triggered": false%'
+                    )
+                    OR (
+                        payload_json LIKE '%"kind": "stoploss"%'
+                        AND payload_json LIKE '%"triggered_bindings": 0%'
+                    )
+                )
+            )
+        )
+    )
+    """
 
 
 def _request_error_message(exc: Exception) -> str:
