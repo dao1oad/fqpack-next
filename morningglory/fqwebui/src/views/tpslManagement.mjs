@@ -81,6 +81,7 @@ const buildStockFillDirectionLabel = (row = {}) => {
   const op = toText(row?.op).toLowerCase()
   if (['buy', 'b', 'open', 'long'].includes(op)) return '买入'
   if (['sell', 's', 'close', 'short'].includes(op)) return '卖出'
+  if (source) return '买入'
   return toText(row?.op)
 }
 

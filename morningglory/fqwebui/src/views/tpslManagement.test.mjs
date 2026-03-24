@@ -154,6 +154,33 @@ test('buildDetailViewModel labels inferred stock-fills rows instead of leaving d
   assert.equal(detail.stockFills[0].source, 'external_inferred')
 })
 
+test('buildDetailViewModel labels open stock-fills rows as 买入 when the backend omits op fields', () => {
+  const detail = buildDetailViewModel({
+    symbol: '512600',
+    stock_fills: [
+      {
+        date: 20260323,
+        time: '11:05:10',
+        quantity: 9900,
+        price: 0.633,
+        amount: 6266.7,
+        source: 'external_reported',
+      },
+      {
+        date: 20260323,
+        time: '11:05:10',
+        quantity: 69000,
+        price: 0.633,
+        amount: 43677.0,
+        source: 'xtquant',
+      },
+    ],
+  })
+
+  assert.equal(detail.stockFills[0].opLabel, '买入')
+  assert.equal(detail.stockFills[1].opLabel, '买入')
+})
+
 test('buildHistoryRows derives level and stop price labels for unified timeline cards', () => {
   const rows = buildHistoryRows([
     {

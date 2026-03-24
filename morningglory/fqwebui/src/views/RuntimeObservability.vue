@@ -2554,6 +2554,7 @@ onBeforeUnmount(() => {
 .component-symbol-card__action.is-disabled {
   cursor: default;
   opacity: 0.58;
+  pointer-events: none;
 }
 
 .runtime-filter-chips {

@@ -2181,3 +2181,9 @@ test('runtime observability event mode uses dense ledger layout instead of event
   assert.doesNotMatch(content, /<section v-show="activeEventDetailTab === 'payload'" class="runtime-detail-panel">/)
   assert.doesNotMatch(content, /raw-record-list raw-record-list--embedded/)
 })
+
+test('RuntimeObservability.vue lets zero-issue chips pass clicks through to the component card', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /\.component-symbol-card__action\.is-disabled\s*\{[\s\S]*pointer-events:\s*none;/)
+})

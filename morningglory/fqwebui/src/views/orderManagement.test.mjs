@@ -86,6 +86,13 @@ test('OrderManagement hides advanced filters behind an explicit toggle', () => {
   assert.match(orderManagementPageSource, /<div v-if="showAdvancedFilters" class="filter-grid">/)
 })
 
+test('OrderManagement keeps the summary panel above the list grid in its own stacking context', () => {
+  assert.match(orderManagementPageSource, /\.order-stats-panel\s*\{[\s\S]*position:\s*relative;/)
+  assert.match(orderManagementPageSource, /\.order-stats-panel\s*\{[\s\S]*z-index:\s*2;/)
+  assert.match(orderManagementPageSource, /\.order-main-grid\s*\{[\s\S]*position:\s*relative;/)
+  assert.match(orderManagementPageSource, /\.order-main-grid\s*\{[\s\S]*z-index:\s*1;/)
+})
+
 test('buildOrderDetailViewModel and buildOrderStats keep identifiers and distributions', () => {
   const detail = buildOrderDetailViewModel({
     order: {

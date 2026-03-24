@@ -109,6 +109,7 @@ TPSL 还会读取：
 - 右侧标题摘要同时展示持仓股数和统一实时仓位
 - 右侧不再提供 symbol 级止盈层次编辑；止盈设置真值入口以 `KlineSlim` 为主
 - 右侧新增 `stock_fills` 对照表
+- `stock_fills` 对照表当前统一展示方向列：`external_inferred` 显示 `推断持仓`；OM 投影返回的 open buy fills 即使未显式带 `op`，也按当前真值语义显示 `买入`
 - 统一历史改成高密度表格，继续同屏展示 request/order/trade 明细
 
 ## 部署/运行

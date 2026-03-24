@@ -436,6 +436,8 @@ onMounted(async () => {
 }
 
 .order-stats-panel {
+  position: relative;
+  z-index: 2;
   gap: 8px;
 }
 
@@ -446,6 +448,8 @@ onMounted(async () => {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .order-list-panel,
