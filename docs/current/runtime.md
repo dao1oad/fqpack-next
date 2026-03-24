@@ -85,6 +85,15 @@
 - Gantt/Shouban30 对应读模型数据
 - Runtime Observability 原始日志目录
 
+## Runtime Observability 页面口径
+
+- `/runtime-observability` 主视图固定拆成 `全局 Trace` 与 `组件 Event` 两个视角。
+- 顶部 `异常链路` 只过滤中间 Trace 列表，不过滤右侧已选 Trace 的完整步骤明细。
+- 顶部 `异常节点` 与工具栏 `仅异常` 用于过滤当前右侧步骤/事件明细；查看异常 Trace 时，默认仍可回看完整链路步骤。
+- 左侧组件卡片点击后默认进入该组件的完整 `Event` 视图；卡片上的 `异常节点` 按钮才进入该组件的仅异常 Event 视图。
+- 右侧 Trace 摘要里的 `异常阶段` 列出当前单条 Trace 的异常节点列表。
+- 左侧组件卡片里的 `异常节点 N` 是当前选定时间范围内该组件异常 Event 的聚合计数，不等于单条 Trace 的异常节点数。
+
 ## 并行环境的默认口径
 
 - 宿主机 `.env` 示例：`deployment/examples/envs.fqnext.example`

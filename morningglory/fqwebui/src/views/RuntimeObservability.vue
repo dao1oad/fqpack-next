@@ -939,7 +939,7 @@ import {
   buildBoardScopedQuery,
   buildTraceQuery,
   createTraceQueryState,
-  filterTracesByIssueComponent,
+  filterVisibleTraces,
   findTraceByRow,
   findRawRecordIndex,
   filterTraceSteps,
@@ -984,6 +984,7 @@ const selectedStep = ref(null)
 const selectedEvent = ref(null)
 const activeView = ref('traces')
 const onlyIssues = ref(false)
+const traceOnlyIssues = ref(false)
 const autoRefresh = ref(true)
 const advancedFilterVisible = ref(false)
 const userSelectedComponent = ref(false)
@@ -1165,13 +1166,12 @@ const buildEventRequestKey = () => JSON.stringify({
 const timeRangeDisplayLabel = computed(() => formatTimeRangeLabel(timeRange.value))
 
 const hydratedTraces = computed(() => traces.value.map((trace) => buildTraceDetail(trace)))
-const visibleTraces = computed(() => {
-  const issueFocused = traceIssueFocus.component
-    ? filterTracesByIssueComponent(hydratedTraces.value, traceIssueFocus.component)
-    : hydratedTraces.value
-  if (!onlyIssues.value) return issueFocused
-  return issueFocused.filter((trace) => trace.issue_count > 0)
-})
+const visibleTraces = computed(() =>
+  filterVisibleTraces(hydratedTraces.value, {
+    issueComponent: traceIssueFocus.component,
+    onlyIssueTraces: traceOnlyIssues.value,
+  }),
+)
 const traceKindOptions = computed(() => buildTraceKindOptions(hydratedTraces.value))
 const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
 const issuePriorityCards = computed(() => buildIssuePriorityCards(visibleTraces.value))
@@ -1194,6 +1194,13 @@ const componentEventFeed = computed(() => {
 const eventLedgerRows = computed(() => buildEventLedgerRows(componentEventFeed.value))
 const filterChips = computed(() => {
   const chips = []
+  if (traceOnlyIssues.value) {
+    chips.push({
+      key: 'trace-only-issues',
+      label: '异常链路',
+      kind: 'trace-only-issues',
+    })
+  }
   if (onlyIssues.value) {
     chips.push({
       key: 'only-issues',
@@ -1341,6 +1348,14 @@ const traceIssueRows = computed(() =>
       key: 'issue_headline',
       label: '异常概览',
       value: issueSummary.value.headline,
+      always: true,
+    },
+    {
+      key: 'issue_nodes',
+      label: '异常阶段',
+      value: selectedTraceDetail.value.steps
+        .filter((step) => step?.is_issue)
+        .map((step) => buildNodeLabel(step.component, step.node)),
       always: true,
     },
     {
@@ -2066,6 +2081,7 @@ const switchToComponentEvents = async (component, options = {}) => {
     ? Boolean(options.onlyIssues)
     : onlyIssues.value
   traceIssueFocus.component = ''
+  traceOnlyIssues.value = false
   userSelectedComponent.value = true
   boardFilter.component = normalizedComponent
   boardFilter.runtime_node = ''
@@ -2081,14 +2097,15 @@ const handleComponentFilter = async (target) => {
       ? String(target || '').trim()
       : String(target?.component || '').trim()
   if (!normalizedComponent) return
-  await switchToComponentEvents(normalizedComponent)
+  await switchToComponentEvents(normalizedComponent, { onlyIssues: false })
 }
 
 const handleSummaryJump = async (target) => {
   if (target === 'issue-traces' && traceListSummary.value.issue_trace_count <= 0) return
   if (target === 'issue-steps' && traceListSummary.value.issue_step_count <= 0) return
   traceIssueFocus.component = ''
-  onlyIssues.value = true
+  traceOnlyIssues.value = true
+  onlyIssues.value = target === 'issue-steps'
   activeView.value = 'traces'
   activeTraceDetailTab.value = 'steps'
   if (selectedTraceKind.value !== 'all') {
@@ -2100,7 +2117,8 @@ const handleComponentIssueTraceJump = async (item) => {
   const normalizedComponent = String(item?.component || '').trim()
   if (!normalizedComponent || Number(item?.issue_trace_count || 0) <= 0) return
   traceIssueFocus.component = normalizedComponent
-  onlyIssues.value = true
+  traceOnlyIssues.value = true
+  onlyIssues.value = false
   activeView.value = 'traces'
   activeTraceDetailTab.value = 'steps'
   if (selectedTraceKind.value !== 'all') {
@@ -2116,6 +2134,10 @@ const handleComponentIssueEventJump = async (item) => {
 
 const clearFilterChip = async (chip) => {
   if (!chip) return
+  if (chip.kind === 'trace-only-issues') {
+    traceOnlyIssues.value = false
+    return
+  }
   if (chip.kind === 'toggle') {
     onlyIssues.value = false
     return
