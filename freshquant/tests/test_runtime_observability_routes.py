@@ -60,6 +60,50 @@ class _FakeRuntimeQueryService:
                     "intent_ids": ["int_1"],
                     "request_ids": ["req_1"],
                     "internal_order_ids": ["ord_1"],
+                    "steps_preview": [
+                        {
+                            "event_id": "evt_1",
+                            "ts": "2026-03-20T10:00:00+08:00",
+                            "runtime_node": "host:guardian",
+                            "component": "guardian_strategy",
+                            "node": "receive_signal",
+                            "status": "info",
+                            "event_type": "trace_step",
+                            "trace_id": "trc_1",
+                            "symbol": "000001",
+                            "symbol_name": "平安银行",
+                            "signal_summary": {
+                                "code": "000001",
+                                "name": "平安银行",
+                                "remark": "首板回封",
+                            },
+                            "decision_outcome": {"outcome": "continue"},
+                        },
+                        {
+                            "event_id": "evt_2",
+                            "ts": "2026-03-20T10:00:01+08:00",
+                            "runtime_node": "host:guardian",
+                            "component": "guardian_strategy",
+                            "node": "price_threshold_check",
+                            "status": "skipped",
+                            "event_type": "trace_step",
+                            "trace_id": "trc_1",
+                            "symbol": "000001",
+                            "symbol_name": "平安银行",
+                            "reason_code": "price_threshold_not_met",
+                            "decision_expr": "current_price <= bot_river_price",
+                            "decision_context": {
+                                "threshold": {
+                                    "current_price": 9.8,
+                                    "bot_river_price": 9.5,
+                                }
+                            },
+                            "decision_outcome": {
+                                "outcome": "skip",
+                                "reason_code": "price_threshold_not_met",
+                            },
+                        },
+                    ],
                 }
             ],
             "next_cursor": {
@@ -213,6 +257,10 @@ def test_runtime_traces_route_returns_summary_page(monkeypatch):
     assert resp.status_code == 200
     assert body["items"][0]["trace_key"] == "trace__trc_1"
     assert body["items"][0]["trace_status"] == "failed"
+    assert (
+        body["items"][0]["steps_preview"][0]["signal_summary"]["remark"] == "首板回封"
+    )
+    assert body["items"][0]["steps_preview"][1]["node"] == "price_threshold_check"
     assert body["next_cursor"]["trace_key"] == "trace__trc_0"
 
 

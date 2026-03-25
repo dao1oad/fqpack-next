@@ -97,15 +97,15 @@ const COMMON_NODE_LABELS = {
 const GUARDIAN_COMPONENT = 'guardian_strategy'
 const GUARDIAN_NODE_LABELS = {
   receive_signal: '信号接收',
-  holding_scope_resolve: '持仓范围判断',
-  timing_check: '时效判断',
+  holding_scope_resolve: '范围判断',
+  timing_check: '时间条件判断',
   price_threshold_check: '价格阈值判断',
-  signal_structure_check: '中枢/分离判断',
+  signal_structure_check: '中枢分离判断',
   cooldown_check: '冷却判断',
-  quantity_check: '数量有效性判断',
-  position_management_check: '仓位管理判断',
-  submit_intent: '提交意图',
-  finish: '结束结论',
+  quantity_check: '下单数量判断',
+  position_management_check: '仓位门禁判断',
+  submit_intent: '策略下单意图',
+  finish: '最终结论',
 }
 const GUARDIAN_OUTCOME_LABELS = {
   continue: '继续',
@@ -886,8 +886,198 @@ const buildFlowNodeLabel = (step = {}) => {
   return [componentLabel, nodeLabel].filter(Boolean).join('.') || '运行事件'
 }
 
+const appendHoverItem = (items, label, value, options = {}) => {
+  const display = options?.formatter
+    ? options.formatter(value)
+    : formatValueText(value)
+  if (!toText(display)) return
+  items.push({
+    label,
+    value: display,
+  })
+}
+
+const formatBooleanLikeLabel = (value) => {
+  const parsed = parseBooleanLike(value)
+  if (parsed === null) return formatValueText(value)
+  return parsed ? '是' : '否'
+}
+
+const appendGuardianSignalHoverItems = (items, step = {}, options = {}) => {
+  const signalSummary = step?.signal_summary || {}
+  const signalDisplay = buildSymbolDisplay(
+    resolveSymbolFromRecord(step),
+    resolveSymbolNameFromRecord(step),
+  )
+  if (!options?.skipSymbol && signalDisplay !== '-') appendHoverItem(items, '标的', signalDisplay)
+  appendHoverItem(items, '方向', signalSummary?.position)
+  appendHoverItem(items, '周期', signalSummary?.period)
+  appendHoverItem(items, '信号价格', signalSummary?.price)
+  appendHoverItem(items, '触发时间', signalSummary?.fire_time, { formatter: formatTimestampLabel })
+  appendHoverItem(items, '发现时间', signalSummary?.discover_time, { formatter: formatTimestampLabel })
+  appendHoverItem(items, '信号备注', signalSummary?.remark)
+  appendHoverItem(items, '信号标签', signalSummary?.tags)
+}
+
+const appendGuardianContextItemsByType = (items, context = {}, type = '') => {
+  const normalizedType = toText(type)
+  if (normalizedType === 'scope') {
+    appendHoverItem(items, '仓位状态', context?.position)
+    appendHoverItem(items, '持仓内', context?.in_holding, { formatter: formatBooleanLikeLabel })
+    appendHoverItem(items, '必选池内', context?.in_must_pool, { formatter: formatBooleanLikeLabel })
+    appendHoverItem(items, '成交次数', context?.fill_count)
+    return
+  }
+  if (normalizedType === 'timing') {
+    appendHoverItem(items, '触发时间', context?.fire_time, { formatter: formatTimestampLabel })
+    appendHoverItem(items, '发现时间', context?.discover_time, { formatter: formatTimestampLabel })
+    appendHoverItem(items, '截止时间', context?.cutoff_time, { formatter: formatTimestampLabel })
+    appendHoverItem(items, '最大时长(分钟)', context?.max_age_minutes)
+    appendHoverItem(items, '最近成交时间', context?.last_fill_time, { formatter: formatTimestampLabel })
+    return
+  }
+  if (normalizedType === 'threshold') {
+    appendHoverItem(items, '当前价', context?.current_price)
+    appendHoverItem(items, '最近成交价', context?.last_fill_price)
+    appendHoverItem(items, '底河价格', context?.bot_river_price)
+    appendHoverItem(items, '顶河价格', context?.top_river_price)
+    return
+  }
+  if (normalizedType === 'signal_structure') {
+    appendHoverItem(items, '成交次数', context?.fill_count)
+    appendHoverItem(items, '中枢数量', context?.zs_count)
+    appendHoverItem(items, '最近成交时间', context?.fill_time, { formatter: formatTimestampLabel })
+    appendHoverItem(items, '最近成交价', context?.fill_price)
+    appendHoverItem(items, '要求中枢', context?.requires_zs, { formatter: formatBooleanLikeLabel })
+    appendHoverItem(items, '候选中枢开始', context?.candidate_zs?.start, { formatter: formatTimestampLabel })
+    appendHoverItem(items, '候选中枢结束', context?.candidate_zs?.end, { formatter: formatTimestampLabel })
+    appendHoverItem(items, '候选中枢低点1', context?.candidate_zs?.low_1)
+    appendHoverItem(items, '候选中枢低点2', context?.candidate_zs?.low_2)
+    appendHoverItem(items, '是否分离', context?.separating, { formatter: formatBooleanLikeLabel })
+    return
+  }
+  if (normalizedType === 'cooldown') {
+    appendHoverItem(items, '冷却键', context?.key)
+    appendHoverItem(items, '命中冷却', context?.active, { formatter: formatBooleanLikeLabel })
+    appendHoverItem(items, '上次值', context?.last_value)
+    appendHoverItem(items, '冷却分钟', context?.cooldown_minutes)
+    return
+  }
+  if (normalizedType === 'quantity') {
+    appendHoverItem(items, '下单数量', context?.quantity)
+    appendHoverItem(items, '路径', context?.path)
+    appendHoverItem(items, '网格层级', context?.grid_level)
+    appendHoverItem(items, '来源价格', context?.source_price)
+    appendHoverItem(items, '设置开仓冷却', context?.set_new_open_cooldown, { formatter: formatBooleanLikeLabel })
+    appendHoverItem(items, '盈利成交数', context?.profitable_fill_count)
+    appendHoverItem(items, '成交次数', context?.fill_count)
+    return
+  }
+  if (normalizedType === 'position_management') {
+    appendHoverItem(items, '动作', context?.action)
+    appendHoverItem(items, '下单数量', context?.quantity)
+    appendHoverItem(items, '拒绝原因', context?.reason)
+  }
+}
+
+const appendGuardianNodeContextItems = (items, step = {}) => {
+  const node = toText(step?.node)
+  const decisionContext = step?.decision_context && typeof step.decision_context === 'object'
+    ? step.decision_context
+    : {}
+  const payload = step?.payload && typeof step.payload === 'object' ? step.payload : {}
+  if (node === 'receive_signal') {
+    appendGuardianSignalHoverItems(items, step)
+    return
+  }
+  if (node === 'holding_scope_resolve') {
+    appendGuardianContextItemsByType(items, decisionContext?.scope, 'scope')
+    return
+  }
+  if (node === 'timing_check') {
+    appendGuardianContextItemsByType(items, decisionContext?.timing, 'timing')
+    return
+  }
+  if (node === 'price_threshold_check') {
+    appendGuardianContextItemsByType(items, decisionContext?.threshold, 'threshold')
+    return
+  }
+  if (node === 'signal_structure_check') {
+    appendGuardianContextItemsByType(items, decisionContext?.signal_structure, 'signal_structure')
+    return
+  }
+  if (node === 'cooldown_check') {
+    appendGuardianContextItemsByType(items, decisionContext?.cooldown, 'cooldown')
+    return
+  }
+  if (node === 'quantity_check') {
+    appendGuardianContextItemsByType(items, decisionContext?.quantity, 'quantity')
+    return
+  }
+  if (node === 'position_management_check') {
+    appendGuardianContextItemsByType(items, decisionContext?.position_management, 'position_management')
+    appendHoverItem(items, '拒绝原因', payload?.reason || decisionContext?.position_management?.reason)
+    return
+  }
+  if (node === 'submit_intent') {
+    appendGuardianContextItemsByType(items, decisionContext?.quantity, 'quantity')
+    appendHoverItem(items, '动作', step?.action)
+    appendHoverItem(items, '盈利减仓', payload?.is_profitable, { formatter: formatBooleanLikeLabel })
+    return
+  }
+  if (node === 'finish') {
+    for (const [key, value] of Object.entries(decisionContext)) {
+      appendGuardianContextItemsByType(items, value, key)
+    }
+  }
+}
+
+const buildGuardianFlowNodeHoverItems = (step = {}, guardianStep = null) => {
+  const items = [
+    {
+      label: '阶段',
+      value: buildFlowNodeLabel(step),
+    },
+    {
+      label: '状态',
+      value: toText(step?.status) || 'info',
+    },
+  ]
+  const condition =
+    guardianStep?.outcome?.expr ||
+    toText(step?.decision_expr) ||
+    ''
+  if (condition) {
+    items.push({
+      label: '条件',
+      value: condition,
+    })
+  }
+  items.push({
+    label: '结果',
+    value: buildStepOutcomeLabel(step),
+  })
+  const reasonCode =
+    guardianStep?.outcome?.reason_code ||
+    toText(step?.reason_code) ||
+    toText(step?.decision_outcome?.reason_code)
+  if (reasonCode) {
+    items.push({
+      label: '原因',
+      value: reasonCode,
+    })
+  }
+  appendGuardianNodeContextItems(items, step)
+  appendHoverItem(items, '异常类型', step?.error_type || step?.payload?.error_type)
+  appendHoverItem(items, '异常信息', step?.error_message || step?.payload?.error_message)
+  return items.filter((item) => toText(item?.value))
+}
+
 const buildFlowNodeHoverItems = (step = {}) => {
   const guardianStep = step?.guardian_step || buildGuardianStepInsight(step)
+  if (guardianStep) {
+    return buildGuardianFlowNodeHoverItems(step, guardianStep)
+  }
   const items = [
     {
       label: '阶段',
@@ -977,6 +1167,29 @@ export const buildTraceFlowNodes = (steps = []) => {
   })
 }
 
+const buildTraceFallbackFlowNodes = (detail = {}) => {
+  const fallbackSteps = [
+    detail?.entry_component && detail?.entry_node
+      ? {
+          component: detail.entry_component,
+          node: detail.entry_node,
+          status: 'info',
+          ts: detail?.first_ts || '',
+        }
+      : null,
+    detail?.exit_component && detail?.exit_node
+      ? {
+          component: detail.exit_component,
+          node: detail.exit_node,
+          status: toText(detail?.trace_status) || 'info',
+          ts: detail?.last_ts || '',
+          reason_code: detail?.break_reason || '',
+        }
+      : null,
+  ].filter(Boolean)
+  return buildTraceFlowNodes(fallbackSteps)
+}
+
 export const filterTracesByKind = (traces = [], kind = 'all') => {
   const normalizedKind = toText(kind) || 'all'
   if (normalizedKind === 'all') return normalizeTraces(traces)
@@ -1043,18 +1256,7 @@ export const summarizeTrace = (trace = {}) => {
   const lastStep = detail.steps[detail.steps.length - 1] || {}
   const flowNodes = detail.steps.length > 0
     ? buildTraceFlowNodes(detail.steps)
-    : [
-        {
-          component: detail.entry_component,
-          label: `${resolveComponentLabel(detail.entry_component)}.${resolveNodeLabel(detail.entry_component, detail.entry_node)}`,
-        },
-        detail.exit_component && detail.exit_node
-          ? {
-              component: detail.exit_component,
-              label: `${resolveComponentLabel(detail.exit_component)}.${resolveNodeLabel(detail.exit_component, detail.exit_node)}`,
-            }
-          : null,
-      ].filter(Boolean)
+    : buildTraceFallbackFlowNodes(detail)
   const traceKind = toText(trace?.trace_kind) || 'unknown'
   const traceStatus = toText(trace?.trace_status) || (detail.issue_count > 0 ? 'broken' : 'open')
   return {
@@ -1169,6 +1371,17 @@ export const buildIdentityStrip = (record = {}) => {
   }
 }
 
+const findGuardianSignalRemark = (detail = {}) => {
+  const guardianSteps = Array.isArray(detail?.steps)
+    ? detail.steps.filter((step) => toText(step?.component) === GUARDIAN_COMPONENT)
+    : []
+  for (const step of guardianSteps) {
+    const remark = toText(step?.signal_summary?.remark)
+    if (remark) return remark
+  }
+  return ''
+}
+
 export const buildTraceLedgerRows = (traces = [], options = {}) => {
   const limit = Number(options?.limit || 0)
   const rows = normalizeTraces(traces)
@@ -1176,18 +1389,7 @@ export const buildTraceLedgerRows = (traces = [], options = {}) => {
       const detail = buildTraceDetail(trace)
       const flowNodes = detail.steps.length > 0
         ? buildTraceFlowNodes(detail.steps)
-        : [
-            {
-              component: detail.entry_component,
-              label: `${resolveComponentLabel(detail.entry_component)}.${resolveNodeLabel(detail.entry_component, detail.entry_node)}`,
-            },
-            detail.exit_component && detail.exit_node
-              ? {
-                  component: detail.exit_component,
-                  label: `${resolveComponentLabel(detail.exit_component)}.${resolveNodeLabel(detail.exit_component, detail.exit_node)}`,
-                }
-              : null,
-          ].filter(Boolean)
+        : buildTraceFallbackFlowNodes(detail)
       return {
         trace_key: toText(detail?.trace_key) || null,
         trace_id: toText(detail?.trace_id) || null,
@@ -1203,6 +1405,8 @@ export const buildTraceLedgerRows = (traces = [], options = {}) => {
         duration_ms: Number.isFinite(detail?.duration_ms) ? Number(detail.duration_ms) : null,
         duration_label: toText(detail?.duration_label) || '-',
         step_count: Number(detail?.step_count || 0),
+        signal_remark: findGuardianSignalRemark(detail),
+        flow_nodes: flowNodes,
         entry_exit_label: flowNodes.map((item) => item.label).join(' -> ') || '-',
         break_reason: toText(detail?.break_reason),
         has_issue: Number(detail?.issue_count || 0) > 0,
@@ -1486,7 +1690,9 @@ const isHydratedTraceDetail = (trace = {}) => {
 
 export const buildTraceDetail = (trace = {}) => {
   if (isHydratedTraceDetail(trace)) return trace
-  const sourceSteps = Array.isArray(trace.steps) ? trace.steps : []
+  const sourceSteps = Array.isArray(trace.steps) && trace.steps.length > 0
+    ? trace.steps
+    : Array.isArray(trace.steps_preview) ? trace.steps_preview : []
   let previousTsMs = null
   const steps = sourceSteps.map((step, index) => {
     const tsMs = parseTimestampMs(step?.ts)
@@ -1567,8 +1773,8 @@ export const buildTraceDetail = (trace = {}) => {
     symbol_name: symbolName,
     symbol_display: buildSymbolDisplay(symbol, symbolName),
     steps,
-    step_count: steps.length > 0 ? steps.length : summaryStepCount,
-    issue_count: issueSteps.length > 0 || steps.length > 0 ? issueSteps.length : summaryIssueCount,
+    step_count: summaryStepCount,
+    issue_count: summaryIssueCount,
     first_issue: issueSteps[0] || null,
     total_duration_ms: totalDurationMs,
     total_duration_label: totalDurationMs === null ? '-' : formatDurationMs(totalDurationMs),

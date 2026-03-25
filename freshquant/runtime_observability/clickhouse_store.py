@@ -21,6 +21,7 @@ from freshquant.util.code import normalize_to_base_code
 _ISSUE_STATUSES = {"warning", "failed", "error", "skipped"}
 _HEALTH_EVENT_TYPES = {"heartbeat", "metric_snapshot"}
 _CLICKHOUSE_TIMEZONE = ZoneInfo("Asia/Shanghai")
+_TRACE_PREVIEW_STEP_LIMIT = 12
 _SYMBOL_FIELDS = (
     "symbol",
     "code",
@@ -363,8 +364,19 @@ class RuntimeObservabilityClickHouseStore:
                 "trace_key": _normalized_text(cursor_row.get("trace_key")),
             }
             rows = rows[:safe_limit]
+        items = [_serialize_trace_summary_row(row) for row in rows]
+        preview_by_trace = self._list_trace_preview_steps(
+            [item.get("trace_key") for item in items],
+            start_time=start_time,
+            end_time=end_time,
+            limit_per_trace=_TRACE_PREVIEW_STEP_LIMIT,
+        )
+        for item in items:
+            item["steps_preview"] = preview_by_trace.get(
+                _normalized_text(item.get("trace_key")), []
+            )
         return {
-            "items": [_serialize_trace_summary_row(row) for row in rows],
+            "items": items,
             "next_cursor": next_cursor,
         }
 
@@ -441,8 +453,12 @@ class RuntimeObservabilityClickHouseStore:
                 symbol_name,
                 message,
                 reason_code,
+                decision_branch,
+                decision_expr,
+                decision_outcome,
                 payload_json,
                 metrics_json,
+                raw_json,
                 raw_file,
                 raw_line,
                 error_type,
@@ -463,6 +479,106 @@ class RuntimeObservabilityClickHouseStore:
             rows = rows[:safe_limit]
         items = list(reversed(_serialize_event_rows(rows)))
         return {"items": items, "next_cursor": next_cursor}
+
+    def _list_trace_preview_steps(
+        self,
+        trace_keys: list[Any] | tuple[Any, ...],
+        *,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        limit_per_trace: int = _TRACE_PREVIEW_STEP_LIMIT,
+    ) -> dict[str, list[dict[str, Any]]]:
+        normalized_trace_keys = [
+            _normalized_text(item)
+            for item in (trace_keys or [])
+            if _normalized_text(item)
+        ]
+        if not normalized_trace_keys:
+            return {}
+        key_list = ", ".join(_sql_string(item) for item in normalized_trace_keys)
+        time_conditions = _build_where_conditions(
+            start_time=start_time,
+            end_time=end_time,
+        )
+        visibility_condition = _build_tpsl_event_visibility_condition()
+        safe_limit = max(int(limit_per_trace or 1), 1)
+        rows = self._select_rows(
+            f"""
+            SELECT
+                event_id,
+                session_key,
+                ts,
+                runtime_node,
+                component,
+                node,
+                status,
+                event_type,
+                trace_id,
+                intent_id,
+                request_id,
+                internal_order_id,
+                symbol,
+                symbol_name,
+                message,
+                reason_code,
+                decision_branch,
+                decision_expr,
+                decision_outcome,
+                payload_json,
+                metrics_json,
+                raw_json,
+                raw_file,
+                raw_line,
+                error_type,
+                error_message
+            FROM (
+                SELECT
+                    event_id,
+                    session_key,
+                    ts,
+                    runtime_node,
+                    component,
+                    node,
+                    status,
+                    event_type,
+                    trace_id,
+                    intent_id,
+                    request_id,
+                    internal_order_id,
+                    symbol,
+                    symbol_name,
+                    message,
+                    reason_code,
+                    decision_branch,
+                    decision_expr,
+                    decision_outcome,
+                    payload_json,
+                    metrics_json,
+                    raw_json,
+                    raw_file,
+                    raw_line,
+                    error_type,
+                    error_message,
+                    row_number() OVER (
+                        PARTITION BY session_key
+                        ORDER BY ts ASC, event_id ASC
+                    ) AS step_rank
+                FROM runtime_events
+                WHERE session_key IN ({key_list})
+                  AND {time_conditions}
+                  AND {visibility_condition}
+            )
+            WHERE step_rank <= {safe_limit}
+            ORDER BY session_key ASC, ts ASC, event_id ASC
+            """
+        )
+        preview_by_trace: dict[str, list[dict[str, Any]]] = {}
+        for row in _serialize_event_rows(rows):
+            preview_by_trace.setdefault(
+                _normalized_text(row.get("session_key")),
+                [],
+            ).append(row)
+        return preview_by_trace
 
     def list_events(
         self,
@@ -864,10 +980,20 @@ def _serialize_event_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _serialize_event_row(row: dict[str, Any]) -> dict[str, Any]:
     payload = _decode_json_text(row.get("payload_json"))
     metrics = _decode_json_text(row.get("metrics_json"))
+    raw_record = _decode_json_text(row.get("raw_json"))
+    signal_summary = _coerce_dict(raw_record.get("signal_summary"))
+    decision_context = _coerce_dict(raw_record.get("decision_context"))
+    decision_outcome = _decode_json_text(row.get("decision_outcome"))
+    if not decision_outcome:
+        decision_outcome = _coerce_dict(raw_record.get("decision_outcome"))
     record = {
         **row,
+        **raw_record,
         "payload": payload,
         "metrics": metrics,
+        "signal_summary": signal_summary,
+        "decision_context": decision_context,
+        "decision_outcome": decision_outcome,
     }
     symbol = resolve_runtime_symbol(record)
     symbol_name = resolve_runtime_symbol_name(record, symbol=symbol)
@@ -884,10 +1010,18 @@ def _serialize_event_row(row: dict[str, Any]) -> dict[str, Any]:
         "intent_id": _normalized_text(row.get("intent_id")),
         "request_id": _normalized_text(row.get("request_id")),
         "internal_order_id": _normalized_text(row.get("internal_order_id")),
+        "action": _normalized_text(raw_record.get("action")),
         "symbol": symbol,
         "symbol_name": symbol_name,
         "message": _normalized_text(row.get("message")),
         "reason_code": _normalized_text(row.get("reason_code")),
+        "decision_branch": _normalized_text(row.get("decision_branch"))
+        or _normalized_text(raw_record.get("decision_branch")),
+        "decision_expr": _normalized_text(row.get("decision_expr"))
+        or _normalized_text(raw_record.get("decision_expr")),
+        "signal_summary": signal_summary,
+        "decision_context": decision_context,
+        "decision_outcome": decision_outcome,
         "payload": payload,
         "metrics": metrics,
         "raw_file": _normalized_text(row.get("raw_file")),
@@ -906,6 +1040,10 @@ def _decode_json_text(raw: Any) -> dict[str, Any]:
     except ValueError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _coerce_dict(raw: Any) -> dict[str, Any]:
+    return raw if isinstance(raw, dict) else {}
 
 
 def _clickhouse_ts_to_iso(raw: Any) -> str:
