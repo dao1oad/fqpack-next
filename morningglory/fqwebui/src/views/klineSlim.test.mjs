@@ -210,6 +210,29 @@ test('KlineSlim subject panel removes misleading must-pool note and redundant li
   assert.equal(viewSource.includes('输入当前希望生效的单标的上限'), false)
 })
 
+test('KlineSlim subject panel lifts base config summaries out of the position-limit card', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
+  assert.match(
+    viewSource,
+    /<span class="price-panel-section-title">基础配置<\/span>[\s\S]*<div class="price-panel-summary">[\s\S]*当前止损[\s\S]*当前上限[\s\S]*市值[\s\S]*(?:已阻断买入|允许买入)/
+  )
+  assert.equal(
+    /<span class="subject-panel-field__label">单标的上限设置<\/span>[\s\S]*<div class="subject-panel-inline-chips">/.test(viewSource),
+    false
+  )
+})
+
+test('KlineSlim subject panel uses a two-column base grid inside the narrow overlay', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
+  assert.equal(
+    viewSource.includes('.subject-panel-base-row\n  display grid\n  grid-template-columns repeat(2, minmax(0, 1fr))'),
+    true
+  )
+  assert.equal(viewSource.includes('grid-template-columns repeat(4, minmax(0, 1fr))'), false)
+})
+
 test('KlineSlim subject panel keeps readable buy-lot stoploss rows after header cleanup', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
