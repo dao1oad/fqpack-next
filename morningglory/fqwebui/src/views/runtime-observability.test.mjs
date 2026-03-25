@@ -1424,8 +1424,37 @@ test('RuntimeObservability.vue keeps the right detail pane scrollable at full zo
   assert.match(content, /\.runtime-detail-panel--fill \{[\s\S]*overflow:\s*auto;/)
   assert.match(content, /@media \(max-width: 1920px\) \{[\s\S]*\.runtime-browse-layout \{[\s\S]*grid-template-columns:\s*minmax\(220px,\s*0\.72fr\)\s*minmax\(0,\s*1\.28fr\);[\s\S]*\}[\s\S]*\.runtime-browser-panel--detail \{[\s\S]*grid-column:\s*1 \/ -1;/)
   assert.match(content, /\.runtime-detail-panel--steps \{[\s\S]*min-width:\s*0;[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
-  assert.match(content, /\.step-inspector \{[\s\S]*overflow:\s*auto;/)
+  assert.match(content, /\.trace-step-detail \{[\s\S]*overflow:\s*auto;/)
   assert.match(content, /\.detail-pane-grid--step \{[\s\S]*min-width:\s*0;/)
+})
+
+test('RuntimeObservability.vue gives node-path the dominant trace-ledger width and uses panel-local horizontal scrolling', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<div v-if="traceLedgerRows\.length" class="runtime-trace-ledger-scroll">[\s\S]*runtime-ledger runtime-trace-ledger/)
+  assert.match(content, /\.runtime-trace-ledger-scroll \{[\s\S]*overflow-x:\s*auto;[\s\S]*overflow-y:\s*hidden;/)
+  assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*132px[\s\S]*104px[\s\S]*102px[\s\S]*108px[\s\S]*minmax\(720px,\s*4\.8fr\)[\s\S]*64px[\s\S]*84px[\s\S]*minmax\(180px,\s*0\.9fr\)/)
+})
+
+test('RuntimeObservability.vue renders selected-step detail as dense tables without card-style inspector blocks', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<section v-show="activeTraceDetailTab === 'steps'" class="runtime-detail-panel runtime-detail-panel--steps">/)
+  assert.match(content, /<section class="detail-ledger-section">\s*<div class="detail-ledger-section__title">基础字段<\/div>/)
+  assert.match(content, /<section v-if="selectedStepDecisionRows\.length" class="detail-ledger-section">\s*<div class="detail-ledger-section__title">判断字段<\/div>/)
+  assert.match(content, /<section v-if="selectedStepContextRows\.length" class="detail-ledger-section detail-ledger-section--full">\s*<div class="detail-ledger-section__title">Guardian 上下文<\/div>/)
+  assert.match(content, /<section v-if="selectedStepErrorRows\.length" class="detail-ledger-section">\s*<div class="detail-ledger-section__title">异常信息<\/div>/)
+  assert.match(content, /<section class="detail-ledger-section detail-ledger-section--full">\s*<div class="detail-ledger-section__title">Payload \/ Metrics<\/div>/)
+  assert.doesNotMatch(content, /class="step-inspector"/)
+  assert.doesNotMatch(content, /\.step-inspector-head/)
+})
+
+test('RuntimeObservability.vue resets stale trace detail before loading a different trace and ignores stale detail responses', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /let traceDetailLoadToken = 0/)
+  assert.match(content, /const handleTraceClick = async \(row\) => \{[\s\S]*const previousTraceKey = selectedTrace\.value\?\.trace_key \|\| selectedTrace\.value\?\.trace_id \|\| ''[\s\S]*const nextTraceKey = selected\.trace_key \|\| selected\.trace_id \|\| ''[\s\S]*if \(previousTraceKey !== nextTraceKey\) \{[\s\S]*resetSelectedTraceDetailState\(\)/)
+  assert.match(content, /const loadTraceDetail = async \(traceRow, options = \{\}\) => \{[\s\S]*const loadToken = \+\+traceDetailLoadToken[\s\S]*if \(loadToken !== traceDetailLoadToken\) return/)
 })
 
 test('RuntimeObservability.vue only shows the trace step empty-state when no visible steps remain and keeps it compact', async () => {
@@ -1438,7 +1467,7 @@ test('RuntimeObservability.vue only shows the trace step empty-state when no vis
 test('RuntimeObservability.vue only renders guardian step tables when guardian metadata exists', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /<section v-if="selectedStep\?\.guardian_step && selectedStepGuardianRows.length" class="detail-ledger-section">/)
+  assert.match(content, /<section v-if="selectedStepDecisionRows.length" class="detail-ledger-section">/)
   assert.match(content, /<section v-if="selectedStep\?\.guardian_step && selectedStepSignalRows.length" class="detail-ledger-section">/)
 })
 
@@ -2477,14 +2506,14 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /component-symbol-list/)
   assert.match(content, /component-symbol-card/)
   assert.match(content, /grid-template-columns:\s*minmax\(200px,\s*0\.58fr\)\s*minmax\(820px,\s*2\.42fr\)\s*minmax\(400px,\s*1\.08fr\)/)
-  assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*minmax\(220px,\s*1\.1fr\)[\s\S]*104px[\s\S]*102px[\s\S]*minmax\(180px,\s*0\.95fr\)[\s\S]*minmax\(480px,\s*3\.1fr\)[\s\S]*54px[\s\S]*84px[\s\S]*minmax\(160px,\s*0\.85fr\)/)
+  assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*132px[\s\S]*104px[\s\S]*102px[\s\S]*108px[\s\S]*minmax\(720px,\s*4\.8fr\)[\s\S]*64px[\s\S]*84px[\s\S]*minmax\(180px,\s*0\.9fr\)/)
   assert.match(content, /步骤/)
   assert.match(content, /摘要/)
   assert.match(content, /原始数据/)
   assert.match(content, /\.runtime-detail-panel--steps \{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;[\s\S]*flex:\s*1 1 auto;/)
   assert.match(content, /\.trace-step-ledger \{[\s\S]*flex:\s*0 0 auto;[\s\S]*max-height:\s*calc\(var\(--trace-step-ledger-row-height\)\s*\*\s*9/)
   assert.match(content, /\.trace-step-ledger__header,\s*\.trace-step-ledger__row \{[\s\S]*min-height:\s*var\(--trace-step-ledger-row-height\);/)
-  assert.match(content, /\.step-inspector \{[\s\S]*flex:\s*1 1 auto;[\s\S]*overflow:\s*auto;/)
+  assert.match(content, /\.trace-step-detail \{[\s\S]*flex:\s*1 1 auto;[\s\S]*overflow:\s*auto;/)
   assert.doesNotMatch(content, /trace-feed-row/)
   assert.doesNotMatch(content, /trace-group-card/)
   assert.doesNotMatch(content, /trace-summary-card/)

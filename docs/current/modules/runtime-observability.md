@@ -145,6 +145,10 @@ Runtime Observability 当前采用“双存储”：
 - 全局 Trace 顶部的类型按钮会带 `trace_kind` 重新请求最新 Trace；不是在当前已加载列表上做本地筛选
 - 全局 Trace 主表当前新增 `信号备注` 列，优先显示 Guardian `signal_summary.remark`
 - 全局 Trace 主表的 `节点路径` 当前不再是纯文本；Guardian 会直接渲染中文判断节点 pill，并在 hover 时展示该节点判断上下文
+- 全局 Trace 主表当前会优先把横向空间让给 `节点路径`：
+  - `标的` 与 `信号备注` 列宽被刻意压缩
+  - `节点数 / 总耗时 / 断裂原因` 继续保留在右侧
+  - 过长链路通过中间 Trace panel 自己的横向滚动条查看，不依赖浏览器页面滚动
 - Guardian 的全局 Trace 节点 hover 当前重点展开：
   - `receive_signal`：标的、方向、周期、信号价格、触发时间、发现时间、信号备注、信号标签
   - `holding_scope_resolve`：仓位状态、是否持仓内、是否必选池内、成交次数
@@ -192,6 +196,14 @@ Runtime Observability 当前采用“双存储”：
   - `下一个异常`
   - `最慢节点`
   并在跳转后自动滚动到当前选中步骤
+- Trace 详情的 `步骤` tab 当前不再使用卡片式节点详情头块；当前选中节点统一使用高密度表格分区展示：
+  - `基础字段`
+  - `Guardian 信号`
+  - `判断字段`
+  - `Guardian 上下文`
+  - `异常信息`
+  - `Payload / Metrics`
+- `异常节点` 模式下，切换中间主表中的 Trace 会先清空旧链路 detail，再加载新链路 detail；旧的异步详情响应不会覆盖当前已选中的新链路
 - 浏览页在 `1920x1080 / 100%` 桌面分辨率下当前会把右侧详情区下沉到第二行，避免仍然坚持三栏导致右侧详情只能靠浏览器缩放阅读
 - 步骤 ledger、右侧步骤详情与 Raw JSON 都保持组件内滚动；页面壳本身不承担主滚动
 - Raw Browser 继续按 `runtime_node/component/date/file` 直接读 JSONL
