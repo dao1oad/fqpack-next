@@ -166,6 +166,38 @@ const POSITION_SOURCE_NAME_LABELS = {
   legacy_stock_fills: 'stock_fills',
 }
 
+const buildHoldingCodeSet = (dashboard = {}) => {
+  const payload = readDashboardPayload(dashboard)
+  const codes = Array.isArray(payload?.holding_scope?.codes) ? payload.holding_scope.codes : []
+  return new Set(codes.map((code) => toText(code)).filter(Boolean))
+}
+
+const shouldDisplayHoldingSymbol = (row = {}, holdingCodes = new Set()) => {
+  const symbol = toText(row?.symbol)
+  if (!symbol) return false
+  if (holdingCodes.size > 0) {
+    return holdingCodes.has(symbol)
+  }
+  if (typeof row?.is_holding_symbol === 'boolean') {
+    return row.is_holding_symbol
+  }
+  return true
+}
+
+const resolveSymbolLimitSortMarketValue = (row = {}) => {
+  const values = [
+    row?.market_value,
+    row?.broker_position?.market_value,
+    row?.inferred_position?.market_value,
+    row?.legacy_position?.market_value,
+  ]
+  for (const value of values) {
+    const parsed = toNumber(value)
+    if (parsed !== null) return parsed
+  }
+  return -1
+}
+
 const buildPositionSourceView = (
   view = {},
   fallbackSource = '-',
@@ -360,12 +392,14 @@ export const buildHoldingScopeView = (dashboard = {}) => {
 
 export const buildSymbolLimitRows = (dashboard = {}) => {
   const payload = readDashboardPayload(dashboard)
+  const holdingCodes = buildHoldingCodeSet(payload)
   const rows = Array.isArray(payload?.symbol_position_limits?.rows)
     ? payload.symbol_position_limits.rows
     : []
   return [...rows]
+    .filter((row) => shouldDisplayHoldingSymbol(row, holdingCodes))
     .sort((left, right) => (
-      Number(Boolean(right?.using_override)) - Number(Boolean(left?.using_override)) ||
+      resolveSymbolLimitSortMarketValue(right) - resolveSymbolLimitSortMarketValue(left) ||
       toText(left?.symbol).localeCompare(toText(right?.symbol))
     ))
     .map((row) => {
