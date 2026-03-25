@@ -109,6 +109,12 @@
 - 冷目录 `.codex/memory`
 - Artifact 根目录 `D:/fqpack/runtime/artifacts/memory`
 
+当前正式运行面补充口径：
+
+- 宿主机 FreshQuant / FQXTrade 进程通过 `.env` 使用 `FRESHQUANT_REDIS__HOST=127.0.0.1`、`FRESHQUANT_REDIS__PORT=6380`
+- Docker 并行环境里的核心容器由 `docker/compose.parallel.yaml` 显式覆盖为 `FRESHQUANT_REDIS__HOST=fq_redis`、`FRESHQUANT_REDIS__PORT=6379`
+- 若容器内 traceback 仍出现 `redis.exceptions.ConnectionError: Error 111 connecting to 127.0.0.1:6379`，优先检查 compose 环境覆盖是否丢失
+
 ### 订单与仓位数据库
 
 - `order_management.mongo_database`
