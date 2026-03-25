@@ -280,7 +280,9 @@ def sync_etf_xdxr_all(
                         lambda x: _CATEGORY_MEANING.get(int(x))
                     )
                     if "name" in df.columns:
-                        df["category_meaning"] = df["category_meaning"].fillna(df["name"])
+                        df["category_meaning"] = df["category_meaning"].fillna(
+                            df["name"]
+                        )
                     df["category_meaning"] = df["category_meaning"].fillna(
                         df["category"].astype(str)
                     )

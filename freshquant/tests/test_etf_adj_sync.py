@@ -150,9 +150,7 @@ def test_sync_etf_xdxr_all_preserves_existing_docs_when_source_returns_empty(
     monkeypatch.setattr(
         etf_adj_sync,
         "_pick_hq_host",
-        lambda timeout=0.7, **kwargs: etf_adj_sync.TdxHqHost(
-            "fake", "127.0.0.1", 7709
-        ),
+        lambda timeout=0.7, **kwargs: etf_adj_sync.TdxHqHost("fake", "127.0.0.1", 7709),
     )
     FakeTdxApi.payload_by_code = {"512000": []}
     monkeypatch.setattr(etf_adj_sync, "_import_pytdx", lambda: (FakeTdxApi, []))
@@ -196,9 +194,7 @@ def test_sync_etf_xdxr_all_replaces_docs_when_source_returns_events(monkeypatch)
     monkeypatch.setattr(
         etf_adj_sync,
         "_pick_hq_host",
-        lambda timeout=0.7, **kwargs: etf_adj_sync.TdxHqHost(
-            "fake", "127.0.0.1", 7709
-        ),
+        lambda timeout=0.7, **kwargs: etf_adj_sync.TdxHqHost("fake", "127.0.0.1", 7709),
     )
     FakeTdxApi.payload_by_code = {
         "512800": [
@@ -255,24 +251,24 @@ def test_sync_etf_xdxr_all_retries_empty_result_before_preserving_docs(monkeypat
     monkeypatch.setattr(
         etf_adj_sync,
         "_pick_hq_host",
-        lambda timeout=0.7, **kwargs: etf_adj_sync.TdxHqHost(
-            "fake", "127.0.0.1", 7709
-        ),
+        lambda timeout=0.7, **kwargs: etf_adj_sync.TdxHqHost("fake", "127.0.0.1", 7709),
     )
     FakeTdxApi.instance_count = 0
     FakeTdxApi.payload_by_code = {
-        "512800": lambda **kwargs: []
-        if kwargs["instance_no"] == 1
-        else [
-            {
-                "year": 2025,
-                "month": 7,
-                "day": 7,
-                "category": 11,
-                "name": "扩缩股",
-                "suogu": 2.0,
-            }
-        ]
+        "512800": lambda **kwargs: (
+            []
+            if kwargs["instance_no"] == 1
+            else [
+                {
+                    "year": 2025,
+                    "month": 7,
+                    "day": 7,
+                    "category": 11,
+                    "name": "扩缩股",
+                    "suogu": 2.0,
+                }
+            ]
+        )
     }
     monkeypatch.setattr(etf_adj_sync, "_import_pytdx", lambda: (FakeTdxApi, []))
 
@@ -312,9 +308,7 @@ def test_sync_etf_xdxr_all_reconnects_between_batches(monkeypatch):
     monkeypatch.setattr(
         etf_adj_sync,
         "_pick_hq_host",
-        lambda timeout=0.7, **kwargs: etf_adj_sync.TdxHqHost(
-            "fake", "127.0.0.1", 7709
-        ),
+        lambda timeout=0.7, **kwargs: etf_adj_sync.TdxHqHost("fake", "127.0.0.1", 7709),
     )
     FakeTdxApi.instance_count = 0
     FakeTdxApi.payload_by_code = {
