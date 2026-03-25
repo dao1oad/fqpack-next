@@ -1,5 +1,5 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 
 def test_dockerfile_rear_uses_uv_sync_frozen() -> None:
