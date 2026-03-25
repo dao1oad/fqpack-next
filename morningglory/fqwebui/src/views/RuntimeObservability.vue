@@ -442,7 +442,7 @@
               <div v-if="traceStepsNextCursor" class="runtime-load-more runtime-load-more--detail">
                 <el-button plain :loading="loading.traceSteps" @click="loadMoreTraceSteps">加载更早步骤</el-button>
               </div>
-              <div v-else class="trace-empty">当前过滤条件下没有节点</div>
+              <div v-else-if="!traceStepLedgerRows.length" class="trace-empty">当前过滤条件下没有节点</div>
 
               <aside class="step-inspector">
                 <template v-if="selectedStep">
@@ -3751,7 +3751,9 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 .runtime-detail-panel__toolbar,
@@ -4090,10 +4092,12 @@ onBeforeUnmount(() => {
 }
 
 .trace-empty {
-  min-height: 200px;
+  min-height: 0;
   display: grid;
   place-items: center;
+  padding: 8px 0 4px;
   color: #6a8198;
+  font-size: 12px;
 }
 
 .raw-toolbar {

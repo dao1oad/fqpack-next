@@ -1397,9 +1397,16 @@ test('RuntimeObservability.vue keeps the right detail pane scrollable at full zo
   assert.match(content, /:deep\(\.workspace-tabs \.el-tab-pane\) \{[\s\S]*flex:\s*1 1 auto;[\s\S]*min-height:\s*0;/)
   assert.match(content, /\.runtime-detail-panel--fill \{[\s\S]*overflow:\s*auto;/)
   assert.match(content, /@media \(max-width: 1920px\) \{[\s\S]*\.runtime-browse-layout \{[\s\S]*grid-template-columns:\s*minmax\(220px,\s*0\.72fr\)\s*minmax\(0,\s*1\.28fr\);[\s\S]*\}[\s\S]*\.runtime-browser-panel--detail \{[\s\S]*grid-column:\s*1 \/ -1;/)
-  assert.match(content, /\.runtime-detail-panel--steps \{[\s\S]*min-width:\s*0;/)
+  assert.match(content, /\.runtime-detail-panel--steps \{[\s\S]*min-width:\s*0;[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
   assert.match(content, /\.step-inspector \{[\s\S]*overflow:\s*auto;/)
   assert.match(content, /\.detail-pane-grid--step \{[\s\S]*min-width:\s*0;/)
+})
+
+test('RuntimeObservability.vue only shows the trace step empty-state when no visible steps remain and keeps it compact', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<div v-else-if="!traceStepLedgerRows\.length" class="trace-empty">当前过滤条件下没有节点<\/div>/)
+  assert.match(content, /\.trace-empty \{[\s\S]*min-height:\s*0;[\s\S]*padding:\s*8px 0 4px;/)
 })
 
 test('RuntimeObservability.vue only renders guardian step tables when guardian metadata exists', async () => {
