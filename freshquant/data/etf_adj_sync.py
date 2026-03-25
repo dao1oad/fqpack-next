@@ -137,6 +137,60 @@ def _fetch_xdxr_df(api, *, market: int, code: str) -> pd.DataFrame:
     return df
 
 
+def _disconnect_tdx_api_safely(api) -> None:
+    try:
+        api.disconnect()
+    except Exception:
+        pass
+
+
+def _connect_tdx_api_or_raise(api, *, host: TdxHqHost, timeout: float):
+    try:
+        conn = api.connect(host.ip, host.port, time_out=timeout)
+    except Exception as exc:
+        raise RuntimeError(
+            f"TDX HQ connect failed: {host.name} {host.ip}:{host.port}: {exc}"
+        ) from exc
+    if not conn:
+        raise RuntimeError(f"TDX HQ connect failed: {host.name} {host.ip}:{host.port}")
+    return conn
+
+
+def _open_tdx_api_with_host_fallback(
+    tdx_api_cls,
+    *,
+    preferred_host: TdxHqHost,
+    timeout: float,
+    log_prefix: str,
+    max_attempts: int = 3,
+) -> tuple[object, TdxHqHost]:
+    host = preferred_host
+    tried_hosts: set[tuple[str, int]] = set()
+    last_error: Exception | None = None
+
+    for _ in range(max(int(max_attempts), 1)):
+        api = tdx_api_cls()
+        try:
+            _connect_tdx_api_or_raise(api, host=host, timeout=timeout)
+            return api, host
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                f"{log_prefix} host connect failed: "
+                f"{host.name} {host.ip}:{host.port} err={exc}"
+            )
+            _disconnect_tdx_api_safely(api)
+            tried_hosts.add((host.ip, host.port))
+            try:
+                host = _pick_hq_host(timeout=timeout, exclude_hosts=tried_hosts)
+            except RuntimeError:
+                break
+
+    if last_error is not None:
+        raise RuntimeError(f"{log_prefix} no reachable TDX HQ host") from last_error
+    raise RuntimeError(f"{log_prefix} no reachable TDX HQ host")
+
+
 def _fetch_xdxr_df_with_fresh_connection(
     tdx_api_cls,
     *,
@@ -144,10 +198,37 @@ def _fetch_xdxr_df_with_fresh_connection(
     timeout: float,
     market: int,
     code: str,
+    exclude_hosts: Optional[set[tuple[str, int]]] = None,
 ) -> pd.DataFrame:
-    api = tdx_api_cls()
-    with api.connect(host.ip, host.port, time_out=timeout):
-        return _fetch_xdxr_df(api, market=market, code=code)
+    current_host = host
+    tried_hosts = set(exclude_hosts or set())
+    last_error: Exception | None = None
+
+    while True:
+        api = tdx_api_cls()
+        try:
+            _connect_tdx_api_or_raise(api, host=current_host, timeout=timeout)
+            return _fetch_xdxr_df(api, market=market, code=code)
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "fresh ETF xdxr connection failed: "
+                f"{code} market={market} host={current_host.name} "
+                f"{current_host.ip}:{current_host.port} err={exc}"
+            )
+            tried_hosts.add((current_host.ip, current_host.port))
+            try:
+                current_host = _pick_hq_host(timeout=timeout, exclude_hosts=tried_hosts)
+            except RuntimeError:
+                break
+        finally:
+            _disconnect_tdx_api_safely(api)
+
+    if last_error is not None:
+        raise RuntimeError(
+            f"fresh ETF xdxr connection exhausted all hosts for {code}"
+        ) from last_error
+    raise RuntimeError(f"fresh ETF xdxr connection exhausted all hosts for {code}")
 
 
 def _normalize_xdxr_df_to_docs(df: pd.DataFrame, *, code: str) -> list[dict]:
@@ -275,8 +356,13 @@ def sync_etf_xdxr_all(
                 )
             except RuntimeError:
                 pass
-        api = TdxHq_API()
-        with api.connect(current_host.ip, current_host.port, time_out=timeout):
+        api, current_host = _open_tdx_api_with_host_fallback(
+            TdxHq_API,
+            preferred_host=current_host,
+            timeout=timeout,
+            log_prefix="sync etf_xdxr batch",
+        )
+        try:
             for batch_offset, code in enumerate(batch_codes, 1):
                 i = batch_start + batch_offset
                 market = _market_from_sse_or_code(sse=etf_map.get(code), code=code)
@@ -292,13 +378,16 @@ def sync_etf_xdxr_all(
                         )
                         retry_df = pd.DataFrame()
                         retry_host = current_host
+                        retry_exclude_hosts: set[tuple[str, int]] = set()
                         try:
+                            retry_exclude_hosts = {(current_host.ip, current_host.port)}
                             retry_host = _pick_hq_host(
                                 timeout=timeout,
-                                exclude_hosts={(current_host.ip, current_host.port)},
+                                exclude_hosts=retry_exclude_hosts,
                             )
                         except RuntimeError:
                             retry_host = current_host
+                            retry_exclude_hosts = set()
                         try:
                             retry_df = _fetch_xdxr_df_with_fresh_connection(
                                 TdxHq_API,
@@ -306,6 +395,7 @@ def sync_etf_xdxr_all(
                                 timeout=timeout,
                                 market=market,
                                 code=code,
+                                exclude_hosts=retry_exclude_hosts,
                             )
                         except Exception as retry_error:
                             retry_failed += 1
@@ -357,6 +447,8 @@ def sync_etf_xdxr_all(
                         f"failed={failed} retried_empty={retried_empty} "
                         f"recovered_after_retry={recovered_after_retry} retry_failed={retry_failed}"
                     )
+        finally:
+            _disconnect_tdx_api_safely(api)
 
     return {
         "total": len(code_list),
@@ -435,8 +527,13 @@ def audit_recent_etf_xdxr_coverage(
                 )
             except RuntimeError:
                 pass
-        api = TdxHq_API()
-        with api.connect(current_host.ip, current_host.port, time_out=timeout):
+        api, current_host = _open_tdx_api_with_host_fallback(
+            TdxHq_API,
+            preferred_host=current_host,
+            timeout=timeout,
+            log_prefix="audit etf_xdxr batch",
+        )
+        try:
             for batch_offset, code in enumerate(batch_codes, 1):
                 i = batch_start + batch_offset
                 market = _market_from_sse_or_code(sse=etf_map.get(code), code=code)
@@ -444,19 +541,23 @@ def audit_recent_etf_xdxr_coverage(
                     df = _fetch_xdxr_df(api, market=market, code=code)
                     if df is None or len(df) == 0:
                         retry_host = current_host
+                        retry_exclude_hosts: set[tuple[str, int]] = set()
                         try:
+                            retry_exclude_hosts = {(current_host.ip, current_host.port)}
                             retry_host = _pick_hq_host(
                                 timeout=timeout,
-                                exclude_hosts={(current_host.ip, current_host.port)},
+                                exclude_hosts=retry_exclude_hosts,
                             )
                         except RuntimeError:
                             retry_host = current_host
+                            retry_exclude_hosts = set()
                         df = _fetch_xdxr_df_with_fresh_connection(
                             TdxHq_API,
                             host=retry_host,
                             timeout=timeout,
                             market=market,
                             code=code,
+                            exclude_hosts=retry_exclude_hosts,
                         )
 
                     if df is None or len(df) == 0:
@@ -520,6 +621,8 @@ def audit_recent_etf_xdxr_coverage(
                         f"{i}/{len(code_list)} checked={checked} matching={matching} "
                         f"mismatched={mismatched} source_empty={source_empty} failed={failed}"
                     )
+        finally:
+            _disconnect_tdx_api_safely(api)
 
     return {
         "total": len(code_list),

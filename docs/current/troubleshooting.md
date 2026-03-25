@@ -187,13 +187,15 @@ print(sync_etf_xdxr_all(codes=['512800']))
 常见根因：
 
 - pytdx 长连接在 ETF xdxr 全量批量同步后段返回空结果
+- pytdx `connect()` 失败时会直接返回 `False`；旧实现把它放进 `with api.connect(...)`，会把 retry host / batch host 故障误打成 `bool` context manager 错误
 - 部分 ETF 的旧 `etf_xdxr` 文档来自 TDX 之外的历史回填，TDX 当前返回为空时会走 `preserve_on_empty=True` 保留旧文档；如果某只 ETF 在长连接退化场景下误返回空，也会被保留成旧状态
 
 处理：
 
 - 当前实现会对 ETF xdxr 首次空结果做 fresh connection retry，并在全量同步时周期性重建 TDX 连接
+- 当前实现会在 batch host 连接失败时自动切到下一个可用 HQ host；fresh connection retry 的目标 host 若连不上，也会继续轮转其他 HQ host，而不是把 run 记成成功或打成 `bool` context manager 异常
 - retry 仍超时或为空时，优先核对该 code 在不同 TDX host 上是否一致为空；对确实为空但库里已有历史回填的 ETF，允许保留旧文档
-- Dagster `etf_xdxr` 资产会对本次同步中 `empty/preserved` 的可疑 code 追加一次近期覆盖审计；如果近窗口内源侧有事件但库里没有，asset 会直接 fail，不再把 run 记成成功
+- Dagster `etf_xdxr` 资产会对本次同步中 `empty/preserved` 的可疑 code 追加一次近期覆盖审计；如果近窗口内源侧有事件但库里没有，或者所有 HQ host 都不可达，asset 会直接 fail，不再把 run 记成成功
 - 对单券立即修复可执行：
   - `@'
 from freshquant.data.etf_adj_sync import sync_etf_adj_all, sync_etf_xdxr_all
@@ -204,6 +206,11 @@ print(sync_etf_adj_all(codes=['512800']))
   - `@'
 from freshquant.data.etf_adj_sync import audit_recent_etf_xdxr_coverage
 print(audit_recent_etf_xdxr_coverage(codes=['512800'], recent_days=365))
+'@ | py -3.12 -m uv run -`
+- 对全量 ETF 近期覆盖审计可手工执行：
+  - `@'
+from freshquant.data.etf_adj_sync import audit_recent_etf_xdxr_coverage
+print(audit_recent_etf_xdxr_coverage(recent_days=365))
 '@ | py -3.12 -m uv run -`
 - 正式修复后，重新部署 Dagster，并再跑一次 formal deploy health check / runtime verify
 
