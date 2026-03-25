@@ -460,6 +460,7 @@ test('position-management module doc reflects merged left panel, dirty-symbol fi
   assert.match(content, /当前命中规则.*与“可用保证金”等小指标卡保持同尺寸/)
   assert.match(content, /系统默认值.?列已移除.*操作.*当前来源/)
   assert.match(content, /券商.*订单推断仓位.*stock_fills.*扩展占满右栏剩余宽度/)
+  assert.match(content, /订单推断仓位 \/ stock_fills 仓位.*左对齐/)
   assert.match(content, /顶部双栏都改为面板内竖向滚动/)
   assert.match(content, /单标的仓位上限覆盖.*输入框默认展示当前生效值/)
   assert.match(content, /保存值等于系统默认值时.*自动删除 override/)
