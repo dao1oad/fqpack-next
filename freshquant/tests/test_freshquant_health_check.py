@@ -39,6 +39,7 @@ def test_resolve_check_urls_uses_surface_targets_and_deduplicates() -> None:
         "http://127.0.0.1:18080/",
         "http://127.0.0.1:18080/gantt/shouban30",
         "http://127.0.0.1:18080/runtime-observability",
+        "http://127.0.0.1:18080/api/stock_data?period=1d&symbol=sh512800&endDate=2025-07-10&barCount=2",
         "http://127.0.0.1:9999/custom",
     ]
 

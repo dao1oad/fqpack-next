@@ -137,6 +137,42 @@ def test_etf_adj_sync_path_requires_dagster_redeploy() -> None:
     ]
 
 
+def test_compose_parallel_changes_require_full_docker_runtime_redeploy() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(changed_paths=["docker/compose.parallel.yaml"])
+
+    assert plan["deployment_required"] is True
+    assert plan["deployment_surfaces"] == [
+        "api",
+        "web",
+        "dagster",
+        "qa",
+        "tradingagents",
+    ]
+    assert plan["docker_build_targets"] == [
+        "fq_apiserver",
+        "fq_webui",
+        "ta_backend",
+        "ta_frontend",
+    ]
+    assert plan["docker_services"] == [
+        "fq_mongodb",
+        "fq_redis",
+        "fq_runtime_clickhouse",
+        "fq_apiserver",
+        "fq_runtime_indexer",
+        "fq_tdxhq",
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+        "fq_qawebserver",
+        "fq_webui",
+        "ta_backend",
+        "ta_frontend",
+    ]
+    assert any("compose.parallel.yaml" in note for note in plan["notes"])
+
+
 def test_qa_surface_requires_shared_rear_build_target() -> None:
     module = load_module()
 
