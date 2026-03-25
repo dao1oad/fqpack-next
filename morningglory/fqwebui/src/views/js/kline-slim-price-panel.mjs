@@ -1,6 +1,7 @@
 import {
   buildKlineSubjectPriceDetail,
   buildTakeprofitDrafts,
+  roundGuidePrice,
   validateGuardianGuideDraft,
   validateTakeprofitDrafts,
 } from './subject-price-guides.mjs'
@@ -27,29 +28,111 @@ export const cloneGuardianDraft = (draft = {}) => ({
   enabled: Array.isArray(draft?.buy_enabled) && draft.buy_enabled.length >= 3
     ? draft.buy_enabled.slice(0, 3).some((item) => item !== false)
     : Boolean(draft?.enabled ?? true),
-  buy_1: draft?.buy_1 ?? null,
-  buy_2: draft?.buy_2 ?? null,
-  buy_3: draft?.buy_3 ?? null,
+  buy_1: roundGuidePrice(draft?.buy_1),
+  buy_2: roundGuidePrice(draft?.buy_2),
+  buy_3: roundGuidePrice(draft?.buy_3),
 })
 
 export const cloneTakeprofitDrafts = (rows = []) => {
   return buildTakeprofitDrafts(rows).map((row) => ({
     level: Number(row?.level) || 0,
-    price: row?.price ?? null,
+    price: roundGuidePrice(row?.price),
     manual_enabled: Boolean(row?.manual_enabled ?? row?.enabled ?? true),
   }))
 }
 
-const buildActivatedGuardianDraft = (draft = {}) => ({
-  ...cloneGuardianDraft(draft),
-  buy_enabled: [true, true, true],
-  enabled: true,
+const cloneGuardianPriceDraft = (draft = {}) => ({
+  buy_1: roundGuidePrice(draft?.buy_1),
+  buy_2: roundGuidePrice(draft?.buy_2),
+  buy_3: roundGuidePrice(draft?.buy_3),
 })
 
-const buildActivatedTakeprofitDrafts = (rows = []) => {
-  return cloneTakeprofitDrafts(rows).map((row) => ({
+const normalizeBuyEnabled = (values, fallback = [true, true, true]) => {
+  if (!Array.isArray(values) || values.length < 3) {
+    return fallback.slice(0, 3).map((item) => item !== false)
+  }
+  return values.slice(0, 3).map((item) => item !== false)
+}
+
+const captureLocalPriceDrafts = (state) => ({
+  guardian: cloneGuardianPriceDraft(state?.guardianDraft || {}),
+  takeprofit: cloneTakeprofitDrafts(state?.takeprofitDrafts || []).map((row) => ({
+    level: Number(row.level) || 0,
+    price: roundGuidePrice(row.price),
+  })),
+})
+
+const restoreLocalPriceDrafts = (state, draftSnapshot) => {
+  if (!draftSnapshot) {
+    return
+  }
+
+  state.guardianDraft = {
+    ...state.guardianDraft,
+    ...cloneGuardianPriceDraft(draftSnapshot.guardian),
+  }
+
+  const takeprofitPriceByLevel = new Map(
+    (Array.isArray(draftSnapshot.takeprofit) ? draftSnapshot.takeprofit : []).map((row) => [
+      Number(row.level) || 0,
+      roundGuidePrice(row.price),
+    ]),
+  )
+  state.takeprofitDrafts = cloneTakeprofitDrafts(state.takeprofitDrafts || []).map((row) => ({
     ...row,
-    manual_enabled: true,
+    price: takeprofitPriceByLevel.has(row.level)
+      ? takeprofitPriceByLevel.get(row.level)
+      : row.price,
+  }))
+}
+
+const buildGuardianPriceSaveDraft = (state = {}) => {
+  const baseline = cloneGuardianDraft(state?.subjectPriceDetail?.guardianDraft || state?.guardianDraft || {})
+  return {
+    ...baseline,
+    ...cloneGuardianPriceDraft(state?.guardianDraft || {}),
+  }
+}
+
+const buildTakeprofitPriceSaveDrafts = (state = {}) => {
+  const baselineRows = cloneTakeprofitDrafts(
+    state?.subjectPriceDetail?.takeprofitDrafts || state?.takeprofitDrafts || [],
+  )
+  const currentPriceByLevel = new Map(
+    cloneTakeprofitDrafts(state?.takeprofitDrafts || []).map((row) => [
+      Number(row.level) || 0,
+      roundGuidePrice(row.price),
+    ]),
+  )
+  return baselineRows.map((row) => ({
+    ...row,
+    price: currentPriceByLevel.has(row.level)
+      ? currentPriceByLevel.get(row.level)
+      : row.price,
+  }))
+}
+
+const buildGuardianEnabledSaveDraft = (state = {}, nextBuyEnabled = [true, true, true]) => {
+  const baseline = cloneGuardianDraft(state?.subjectPriceDetail?.guardianDraft || state?.guardianDraft || {})
+  const buy_enabled = normalizeBuyEnabled(nextBuyEnabled, baseline.buy_enabled)
+  return {
+    ...baseline,
+    buy_enabled,
+    enabled: buy_enabled.some(Boolean),
+  }
+}
+
+const buildTakeprofitEnabledSaveDrafts = (state = {}, nextManualEnabled = [true, true, true]) => {
+  const baselineRows = cloneTakeprofitDrafts(
+    state?.subjectPriceDetail?.takeprofitDrafts || state?.takeprofitDrafts || [],
+  )
+  const normalizedFlags = normalizeBuyEnabled(
+    nextManualEnabled,
+    baselineRows.map((row) => row.manual_enabled),
+  )
+  return baselineRows.map((row, index) => ({
+    ...row,
+    manual_enabled: normalizedFlags[index] !== false,
   }))
 }
 
@@ -73,7 +156,7 @@ export const buildInitialKlineSlimPricePanelState = () => ({
   subjectDetailLoading: false,
   savingGuardianPriceGuides: false,
   savingTakeprofitGuides: false,
-  savingPriceGuideActivation: false,
+  savingPriceGuides: false,
   subjectDetailRequestId: 0,
   ...buildEmptySubjectPriceDetailState(),
 })
@@ -115,7 +198,7 @@ export const resetSubjectPriceDetailState = (state) => {
   state.subjectDetailLoading = false
   state.savingGuardianPriceGuides = false
   state.savingTakeprofitGuides = false
-  state.savingPriceGuideActivation = false
+  state.savingPriceGuides = false
   state.subjectDetailRequestId = 0
   clearSubjectPriceDetailState(state)
 }
@@ -219,7 +302,8 @@ export const saveGuardianPriceGuides = async (
     notifySuccess = true,
   } = {},
 ) => {
-  const validation = validateGuardianGuideDraft(state?.guardianDraft || {})
+  const guardianDraft = buildGuardianPriceSaveDraft(state)
+  const validation = validateGuardianGuideDraft(guardianDraft)
   if (!validation.valid) {
     emitNotify(notify, 'warning', validation.message)
     return {
@@ -231,7 +315,7 @@ export const saveGuardianPriceGuides = async (
 
   state.savingGuardianPriceGuides = true
   try {
-    await actions.saveGuardian(symbol, state.guardianDraft)
+    await actions.saveGuardian(symbol, guardianDraft)
     await loadSubjectPriceDetail(state, {
       actions,
       symbol,
@@ -264,7 +348,8 @@ export const saveTakeprofitPriceGuides = async (
     notifySuccess = true,
   } = {},
 ) => {
-  const validation = validateTakeprofitDrafts(state?.takeprofitDrafts || [])
+  const takeprofitDrafts = buildTakeprofitPriceSaveDrafts(state)
+  const validation = validateTakeprofitDrafts(takeprofitDrafts)
   if (!validation.valid) {
     emitNotify(notify, 'warning', validation.message)
     return {
@@ -276,7 +361,7 @@ export const saveTakeprofitPriceGuides = async (
 
   state.savingTakeprofitGuides = true
   try {
-    await actions.saveTakeprofit(symbol, state.takeprofitDrafts)
+    await actions.saveTakeprofit(symbol, takeprofitDrafts)
     await loadSubjectPriceDetail(state, {
       actions,
       symbol,
@@ -299,7 +384,7 @@ export const saveTakeprofitPriceGuides = async (
   }
 }
 
-export const saveAndActivatePriceGuides = async (
+export const savePriceGuides = async (
   state,
   {
     actions,
@@ -309,9 +394,7 @@ export const saveAndActivatePriceGuides = async (
     notifySuccess = true,
   } = {},
 ) => {
-  const guardianDraft = buildActivatedGuardianDraft(state?.guardianDraft || {})
-  const takeprofitDrafts = buildActivatedTakeprofitDrafts(state?.takeprofitDrafts || [])
-
+  const guardianDraft = buildGuardianPriceSaveDraft(state)
   const guardianValidation = validateGuardianGuideDraft(guardianDraft)
   if (!guardianValidation.valid) {
     emitNotify(notify, 'warning', guardianValidation.message)
@@ -322,6 +405,7 @@ export const saveAndActivatePriceGuides = async (
     }
   }
 
+  const takeprofitDrafts = buildTakeprofitPriceSaveDrafts(state)
   const takeprofitValidation = validateTakeprofitDrafts(takeprofitDrafts)
   if (!takeprofitValidation.valid) {
     emitNotify(notify, 'warning', takeprofitValidation.message)
@@ -332,18 +416,10 @@ export const saveAndActivatePriceGuides = async (
     }
   }
 
-  state.savingPriceGuideActivation = true
+  state.savingPriceGuides = true
   try {
     await actions.saveGuardian(symbol, guardianDraft)
-    await actions.saveGuardianState(symbol, {
-      buy_active: [true, true, true],
-      last_hit_level: null,
-      last_hit_price: null,
-      last_hit_signal_time: null,
-      last_reset_reason: 'manual_activate',
-    })
     await actions.saveTakeprofit(symbol, takeprofitDrafts)
-    await actions.rearmTakeprofit(symbol)
     await loadSubjectPriceDetail(state, {
       actions,
       symbol,
@@ -351,7 +427,7 @@ export const saveAndActivatePriceGuides = async (
     })
     afterRefresh?.()
     if (notifySuccess) {
-      emitNotify(notify, 'success', 'Guardian / 止盈价格层级已保存并激活')
+      emitNotify(notify, 'success', '价格已保存')
     }
     return { ok: true }
   } catch (error) {
@@ -362,6 +438,104 @@ export const saveAndActivatePriceGuides = async (
       message: state.subjectDetailError,
     }
   } finally {
-    state.savingPriceGuideActivation = false
+    state.savingPriceGuides = false
+  }
+}
+
+export const saveGuardianGuideEnabledState = async (
+  state,
+  {
+    actions,
+    symbol,
+    notify,
+    afterRefresh,
+    notifySuccess = true,
+    nextBuyEnabled = [true, true, true],
+  } = {},
+) => {
+  const localPriceDrafts = captureLocalPriceDrafts(state)
+  const guardianDraft = buildGuardianEnabledSaveDraft(state, nextBuyEnabled)
+  const validation = validateGuardianGuideDraft(guardianDraft)
+  if (!validation.valid) {
+    emitNotify(notify, 'warning', validation.message)
+    return {
+      ok: false,
+      reason: 'validation',
+      message: validation.message,
+    }
+  }
+
+  state.savingGuardianPriceGuides = true
+  try {
+    await actions.saveGuardian(symbol, guardianDraft)
+    await loadSubjectPriceDetail(state, {
+      actions,
+      symbol,
+      force: true,
+    })
+    restoreLocalPriceDrafts(state, localPriceDrafts)
+    afterRefresh?.()
+    if (notifySuccess) {
+      emitNotify(notify, 'success', 'Guardian 开关已更新')
+    }
+    return { ok: true }
+  } catch (error) {
+    state.subjectDetailError = errorMessage(error)
+    return {
+      ok: false,
+      reason: 'error',
+      message: state.subjectDetailError,
+    }
+  } finally {
+    state.savingGuardianPriceGuides = false
+  }
+}
+
+export const saveTakeprofitGuideEnabledState = async (
+  state,
+  {
+    actions,
+    symbol,
+    notify,
+    afterRefresh,
+    notifySuccess = true,
+    nextManualEnabled = [true, true, true],
+  } = {},
+) => {
+  const localPriceDrafts = captureLocalPriceDrafts(state)
+  const takeprofitDrafts = buildTakeprofitEnabledSaveDrafts(state, nextManualEnabled)
+  const validation = validateTakeprofitDrafts(takeprofitDrafts)
+  if (!validation.valid) {
+    emitNotify(notify, 'warning', validation.message)
+    return {
+      ok: false,
+      reason: 'validation',
+      message: validation.message,
+    }
+  }
+
+  state.savingTakeprofitGuides = true
+  try {
+    await actions.saveTakeprofit(symbol, takeprofitDrafts)
+    await loadSubjectPriceDetail(state, {
+      actions,
+      symbol,
+      force: true,
+    })
+    restoreLocalPriceDrafts(state, localPriceDrafts)
+    afterRefresh?.()
+    if (notifySuccess) {
+      emitNotify(notify, 'success', '止盈开关已更新')
+    }
+    return { ok: true }
+  } catch (error) {
+    state.subjectDetailError = errorMessage(error)
+    return {
+      ok: false,
+      reason: 'error',
+      message: state.subjectDetailError,
+    }
+  } finally {
+    state.savingTakeprofitGuides = false
   }
 }

@@ -15,7 +15,7 @@ test('KlineSlim keeps the price editor side panel but removes the duplicate 价�
   assert.match(source, /price-guide-badge--guardian/)
   assert.match(source, /price-guide-badge--takeprofit/)
   assert.match(source, /guardianGuideRows\.filter\(\(row\) => row\.manual_enabled\)\.length/)
-  assert.match(source, /v-model="guardianDraft\.buy_enabled\[row\.index\]"/)
+  assert.match(source, /:model-value="guardianDraft\.buy_enabled\[row\.index\]"/)
   assert.doesNotMatch(source, /v-model="guardianDraft\.enabled"/)
 })
 
@@ -66,19 +66,28 @@ test('KlineSlim exposes a dedicated price-guide edit mode with drag-save handler
   assert.match(scriptSource, /handlePriceGuideDragEnd\(/)
 })
 
-test('KlineSlim price guide panel exposes a save-and-activate action for all six price levels', () => {
+test('KlineSlim price guide panel separates price saving from switch control', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
-  assert.match(viewSource, /保存并激活/)
-  assert.match(viewSource, /@click="handleSaveAndActivatePriceGuides"/)
+  assert.match(viewSource, />\s*保存\s*<\/el-button>/)
+  assert.match(viewSource, /@click="handleSavePriceGuides"/)
+  assert.match(viewSource, /Guardian 倍量价格/)
+  assert.match(viewSource, /止盈价格/)
+  assert.match(viewSource, /@click="handleGuardianGuideEnabledAll\(true\)"/)
+  assert.match(viewSource, /@click="handleGuardianGuideEnabledAll\(false\)"/)
+  assert.match(viewSource, /@click="handleTakeprofitGuideEnabledAll\(true\)"/)
+  assert.match(viewSource, /@click="handleTakeprofitGuideEnabledAll\(false\)"/)
+  assert.match(viewSource, /@change="handleGuardianGuideEnabledChange\(row\.index, \$event\)"/)
+  assert.match(viewSource, /@change="handleTakeprofitGuideEnabledChange\(row\.level, \$event\)"/)
+  assert.doesNotMatch(viewSource, /保存并激活/)
   assert.doesNotMatch(viewSource, /保存 Guardian/)
   assert.doesNotMatch(viewSource, /保存止盈/)
-  assert.doesNotMatch(viewSource, /画线编辑已开启，拖拽 Guardian 横线后自动保存。/)
-  assert.doesNotMatch(viewSource, /画线编辑已开启，拖拽止盈横线后自动保存。/)
-  assert.doesNotMatch(viewSource, /保存后会同步刷新图上的 Guardian 横线。/)
-  assert.doesNotMatch(viewSource, /保存后会同步刷新图上的止盈横线。/)
-  assert.match(scriptSource, /handleSaveAndActivatePriceGuides\(\)/)
+  assert.match(scriptSource, /handleSavePriceGuides\(\)/)
+  assert.match(scriptSource, /handleGuardianGuideEnabledChange\(index, enabled\)/)
+  assert.match(scriptSource, /handleTakeprofitGuideEnabledChange\(level, enabled\)/)
+  assert.match(scriptSource, /handleGuardianGuideEnabledAll\(enabled\)/)
+  assert.match(scriptSource, /handleTakeprofitGuideEnabledAll\(enabled\)/)
 })
 
 test('KlineSlim exposes a reset viewport control that returns the chart to auto mode', () => {
@@ -191,10 +200,24 @@ test('KlineSlim price guide panel removes refresh noise and keeps full color bad
   assert.equal(viewSource.includes('布防'), false)
   assert.equal(viewSource.includes('仅展示'), false)
   assert.equal(viewSource.includes('price-panel-footer'), false)
-  assert.match(viewSource, /已启用 \{\{ takeprofitGuideRows\.filter\(\(row\) => row\.armed\)\.length \}\}\/3/)
+  assert.match(viewSource, /已开启 \{\{ takeprofitGuideRows\.filter\(\(row\) => row\.manual_enabled\)\.length \}\}\/3/)
   assert.match(viewSource, /\.price-guide-badge/)
   assert.equal(viewSource.includes('min-width 68px'), true)
   assert.equal(viewSource.includes('white-space nowrap'), true)
+})
+
+test('KlineSlim price guide inputs use three-decimal precision for editing', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+  const stepMatches = viewSource.match(/:step="0\.001"/g) || []
+  const precisionMatches = viewSource.match(/:precision="3"/g) || []
+
+  assert.equal(stepMatches.length, 2)
+  assert.equal(precisionMatches.length, 2)
+  assert.match(
+    scriptSource,
+    /function resolveLatestClosePrice\(mainData\)\s*\{[\s\S]*lastClose\.toFixed\(3\)/
+  )
 })
 
 test('KlineSlim price guide rows give the color badge its own layout column', () => {

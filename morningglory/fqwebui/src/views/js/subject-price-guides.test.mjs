@@ -13,9 +13,9 @@ test('buildKlineSubjectPriceDetail keeps guardian, takeprofit and runtime state'
   const detail = buildKlineSubjectPriceDetail({
     guardian_buy_grid_config: {
       enabled: true,
-      buy_1: 10.2,
-      buy_2: 9.9,
-      buy_3: 9.5,
+      buy_1: 10.2346,
+      buy_2: 9.8765,
+      buy_3: 9.5434,
     },
     guardian_buy_grid_state: {
       buy_active: [true, false, true],
@@ -23,16 +23,17 @@ test('buildKlineSubjectPriceDetail keeps guardian, takeprofit and runtime state'
     },
     takeprofit: {
       tiers: [
-        { level: 1, price: 10.8, enabled: true },
-        { level: 3, price: 11.8, enabled: false },
+        { level: 1, price: 10.8765, enabled: true },
+        { level: 3, price: 11.8765, enabled: false },
       ],
       state: { armed_levels: { 1: true, 2: false, 3: true } },
     },
   })
 
-  assert.equal(detail.guardianDraft.buy_1, 10.2)
+  assert.equal(detail.guardianDraft.buy_1, 10.235)
   assert.deepEqual(detail.guardianState.buy_active, [true, false, true])
   assert.equal(detail.takeprofitDrafts.length, 3)
+  assert.equal(detail.takeprofitDrafts[0].price, 10.877)
   assert.equal(detail.takeprofitDrafts[1].level, 2)
   assert.equal(detail.takeprofitDrafts[1].price, null)
   assert.deepEqual(detail.takeprofitState.armed_levels, { 1: true, 2: false, 3: true })
@@ -64,7 +65,7 @@ test('buildGuardianPriceGuides keeps blue red green order from high to low', () 
       { key: 'buy_3', price: 9.5, color: '#22c55e', active: true, lineStyle: 'dashed' },
     ],
   )
-  assert.equal(lines[0].label, 'G-B1 10.20')
+  assert.equal(lines[0].label, 'G-B1 10.200')
 })
 
 test('buildGuardianPriceGuides respects per-level switches instead of a single global switch', () => {
@@ -115,7 +116,7 @@ test('buildTakeprofitPriceGuides keeps blue red green order from low to high', (
       { level: 3, price: 11.8, color: '#22c55e', active: true, lineStyle: 'dashed' },
     ],
   )
-  assert.equal(lines[2].label, 'TP-L3 11.80')
+  assert.equal(lines[2].label, 'TP-L3 11.800')
 })
 
 test('validateGuardianGuideDraft rejects invalid prices and wrong order', () => {

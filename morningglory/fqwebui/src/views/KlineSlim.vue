@@ -378,11 +378,11 @@
               <el-button
                 size="small"
                 type="primary"
-                :loading="savingPriceGuideActivation"
+                :loading="savingPriceGuides"
                 :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                @click="handleSaveAndActivatePriceGuides"
+                @click="handleSavePriceGuides"
               >
-                保存并激活
+                保存
               </el-button>
               <el-button size="small" @click="closePriceGuidePanel">关闭</el-button>
             </div>
@@ -405,9 +405,27 @@
                   <div class="price-panel-section-title-wrap">
                     <span class="price-panel-section-title">Guardian 倍量价格</span>
                   </div>
-                  <span class="price-panel-summary-chip">
-                    已生效 {{ guardianGuideRows.filter((row) => row.manual_enabled).length }}/3
-                  </span>
+                  <div class="price-panel-section-actions">
+                    <span class="price-panel-summary-chip">
+                      已开启 {{ guardianGuideRows.filter((row) => row.manual_enabled).length }}/3
+                    </span>
+                    <el-button
+                      size="small"
+                      :loading="savingGuardianPriceGuides"
+                      :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                      @click="handleGuardianGuideEnabledAll(true)"
+                    >
+                      全部开启
+                    </el-button>
+                    <el-button
+                      size="small"
+                      :loading="savingGuardianPriceGuides"
+                      :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                      @click="handleGuardianGuideEnabledAll(false)"
+                    >
+                      全部关闭
+                    </el-button>
+                  </div>
                 </div>
 
                 <div class="price-panel-summary">
@@ -436,15 +454,19 @@
                         v-model="guardianDraft[row.key]"
                         size="small"
                         :min="0"
-                        :step="0.01"
+                        :step="0.001"
+                        :precision="3"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
                         controls-position="right"
                       />
                       <el-switch
-                        v-model="guardianDraft.buy_enabled[row.index]"
+                        :model-value="guardianDraft.buy_enabled[row.index]"
                         size="small"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
                         inline-prompt
                         active-text="开"
                         inactive-text="关"
+                        @change="handleGuardianGuideEnabledChange(row.index, $event)"
                       />
                     </div>
                   </div>
@@ -456,9 +478,27 @@
                   <div class="price-panel-section-title-wrap">
                     <span class="price-panel-section-title">止盈价格</span>
                   </div>
-                  <span class="price-panel-summary-chip">
-                    已启用 {{ takeprofitGuideRows.filter((row) => row.armed).length }}/3
-                  </span>
+                  <div class="price-panel-section-actions">
+                    <span class="price-panel-summary-chip">
+                      已开启 {{ takeprofitGuideRows.filter((row) => row.manual_enabled).length }}/3
+                    </span>
+                    <el-button
+                      size="small"
+                      :loading="savingTakeprofitGuides"
+                      :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                      @click="handleTakeprofitGuideEnabledAll(true)"
+                    >
+                      全部开启
+                    </el-button>
+                    <el-button
+                      size="small"
+                      :loading="savingTakeprofitGuides"
+                      :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                      @click="handleTakeprofitGuideEnabledAll(false)"
+                    >
+                      全部关闭
+                    </el-button>
+                  </div>
                 </div>
 
                 <div class="price-panel-grid">
@@ -478,15 +518,19 @@
                         v-model="takeprofitDrafts[row.draftIndex].price"
                         size="small"
                         :min="0"
-                        :step="0.01"
+                        :step="0.001"
+                        :precision="3"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
                         controls-position="right"
                       />
                       <el-switch
-                        v-model="takeprofitDrafts[row.draftIndex].manual_enabled"
+                        :model-value="takeprofitDrafts[row.draftIndex].manual_enabled"
                         size="small"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
                         inline-prompt
                         active-text="开"
                         inactive-text="关"
+                        @change="handleTakeprofitGuideEnabledChange(row.level, $event)"
                       />
                     </div>
                   </div>
@@ -931,6 +975,13 @@ export default klineSlim
   align-items flex-start
   justify-content space-between
   gap 12px
+
+.price-panel-section-actions
+  display flex
+  align-items center
+  justify-content flex-end
+  flex-wrap wrap
+  gap 8px
 
 .price-panel-section-title-wrap
   display flex
@@ -1438,6 +1489,9 @@ export default klineSlim
   .price-panel-section-header
     flex-direction column
     align-items stretch
+
+  .price-panel-section-actions
+    justify-content flex-start
 
   .price-panel-row-editor
     justify-content flex-start

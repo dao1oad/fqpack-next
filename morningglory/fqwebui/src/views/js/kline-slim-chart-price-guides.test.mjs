@@ -243,7 +243,7 @@ test('buildChartPriceGuides uses draft values as the chart source', () => {
   assert.equal(guides.lines.find((item) => item.id === 'takeprofit-l2')?.price, 11.8)
 })
 
-test('buildEditablePriceGuides backfills missing prices from the latest close', () => {
+test('buildEditablePriceGuides backfills missing prices from the latest close with three-decimal precision', () => {
   const guides = buildEditablePriceGuides({
     guardianDraft: {
       buy_enabled: [true, true, true],
@@ -262,17 +262,17 @@ test('buildEditablePriceGuides backfills missing prices from the latest close', 
     takeprofitState: {
       armed_levels: { 1: true, 2: true, 3: true },
     },
-    lastPrice: 10,
+    lastPrice: 10.1234,
   })
 
   assert.equal(guides.lines.length, 6)
-  assert.equal(guides.lines.find((item) => item.id === 'guardian-buy_1')?.price, 9.85)
+  assert.equal(guides.lines.find((item) => item.id === 'guardian-buy_1')?.price, 9.971)
   assert.equal(guides.lines.find((item) => item.id === 'guardian-buy_1')?.placeholder, true)
-  assert.equal(guides.lines.find((item) => item.id === 'takeprofit-l3')?.price, 10.9)
+  assert.equal(guides.lines.find((item) => item.id === 'takeprofit-l3')?.price, 11.034)
   assert.equal(guides.lines.find((item) => item.id === 'takeprofit-l3')?.placeholder, true)
 })
 
-test('clampGuardianGuidePrice keeps BUY-1 > BUY-2 > BUY-3 ordering', () => {
+test('clampGuardianGuidePrice keeps BUY-1 > BUY-2 > BUY-3 ordering with a 0.001 default gap', () => {
   const price = clampGuardianGuidePrice({
     key: 'buy_2',
     nextPrice: 10.8,
@@ -281,13 +281,12 @@ test('clampGuardianGuidePrice keeps BUY-1 > BUY-2 > BUY-3 ordering', () => {
       buy_2: 10.0,
       buy_3: 9.5,
     },
-    minGap: 0.01,
   })
 
-  assert.equal(price, 10.49)
+  assert.equal(price, 10.499)
 })
 
-test('clampTakeprofitGuidePrice keeps L1 < L2 < L3 ordering', () => {
+test('clampTakeprofitGuidePrice keeps L1 < L2 < L3 ordering with a 0.001 default gap', () => {
   const price = clampTakeprofitGuidePrice({
     level: 2,
     nextPrice: 10.0,
@@ -296,8 +295,7 @@ test('clampTakeprofitGuidePrice keeps L1 < L2 < L3 ordering', () => {
       { level: 2, price: 10.5, manual_enabled: true },
       { level: 3, price: 11.0, manual_enabled: true },
     ],
-    minGap: 0.01,
   })
 
-  assert.equal(price, 10.01)
+  assert.equal(price, 10.001)
 })
