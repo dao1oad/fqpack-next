@@ -1428,12 +1428,27 @@ test('RuntimeObservability.vue keeps the right detail pane scrollable at full zo
   assert.match(content, /\.detail-pane-grid--step \{[\s\S]*min-width:\s*0;/)
 })
 
+test('RuntimeObservability.vue keeps the center feed panel vertically scrollable without falling back to page scroll', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /\.runtime-browser-panel--feed \{[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;[\s\S]*scrollbar-gutter:\s*stable;/)
+})
+
 test('RuntimeObservability.vue gives node-path the dominant trace-ledger width and uses panel-local horizontal scrolling', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
   assert.match(content, /<div v-if="traceLedgerRows\.length" class="runtime-trace-ledger-scroll">[\s\S]*runtime-ledger runtime-trace-ledger/)
   assert.match(content, /\.runtime-trace-ledger-scroll \{[\s\S]*overflow-x:\s*auto;[\s\S]*overflow-y:\s*hidden;/)
   assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*132px[\s\S]*104px[\s\S]*102px[\s\S]*108px[\s\S]*minmax\(720px,\s*4\.8fr\)[\s\S]*64px[\s\S]*84px[\s\S]*minmax\(180px,\s*0\.9fr\)/)
+})
+
+test('RuntimeObservability.vue only renders trace and event empty panels when the corresponding ledger is actually empty', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<div v-if="traceNextCursor" class="runtime-load-more">/)
+  assert.match(content, /<div v-else-if="!traceLedgerRows\.length" class="runtime-empty-panel">[\s\S]*暂无最近 Trace/)
+  assert.match(content, /<div v-if="eventNextCursor" class="runtime-load-more">/)
+  assert.match(content, /<div v-else-if="!eventLedgerRows\.length" class="runtime-empty-panel">[\s\S]*componentEventEmptyState\.title/)
 })
 
 test('RuntimeObservability.vue renders selected-step detail as dense tables without card-style inspector blocks', async () => {

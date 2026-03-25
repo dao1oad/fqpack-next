@@ -261,7 +261,7 @@
               <div v-if="traceNextCursor" class="runtime-load-more">
                 <el-button plain :loading="loading.traces" @click="loadMoreTraces">加载更多 Trace</el-button>
               </div>
-              <div v-else class="runtime-empty-panel">
+              <div v-else-if="!traceLedgerRows.length" class="runtime-empty-panel">
                 <strong>暂无最近 Trace</strong>
               </div>
             </template>
@@ -315,7 +315,7 @@
             <div v-if="eventNextCursor" class="runtime-load-more">
               <el-button plain :loading="loading.events" @click="loadMoreEvents">加载更多 Event</el-button>
             </div>
-            <div v-else class="runtime-empty-panel">
+            <div v-else-if="!eventLedgerRows.length" class="runtime-empty-panel">
               <strong>{{ componentEventEmptyState.title }}</strong>
               <p v-if="componentEventEmptyState.detail">{{ componentEventEmptyState.detail }}</p>
             </div>
@@ -2742,6 +2742,12 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   background: #fff;
   padding: 12px;
+}
+
+.runtime-browser-panel--feed {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 .runtime-browser-panel--detail {
