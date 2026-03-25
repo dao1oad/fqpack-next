@@ -976,8 +976,7 @@ export default {
         return
       }
       if (this.priceGuideEditMode) {
-        this.priceGuideEditMode = false
-        this.priceGuideDragDirty = false
+        this.closePriceGuidePanel()
         return
       }
       this.closeSubjectPanel()

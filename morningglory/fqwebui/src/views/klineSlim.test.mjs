@@ -62,6 +62,10 @@ test('KlineSlim exposes a dedicated price-guide edit mode with drag-save handler
   assert.match(viewSource, /@click="togglePriceGuideEditMode"/)
   assert.match(scriptSource, /priceGuideEditMode:/)
   assert.match(scriptSource, /togglePriceGuideEditMode\(\)/)
+  assert.match(
+    scriptSource,
+    /if \(this\.priceGuideEditMode\) \{[\s\S]*this\.closePriceGuidePanel\(\)/
+  )
   assert.match(scriptSource, /handlePriceGuideDrag\(/)
   assert.match(scriptSource, /handlePriceGuideDragEnd\(/)
 })
@@ -159,7 +163,7 @@ test('KlineSlim exposes a subject settings overlay next to price guides', () => 
   assert.match(viewSource, /标的设置/)
   assert.match(viewSource, /kline-slim-subject-panel/)
   assert.match(viewSource, /基础配置/)
-  assert.match(viewSource, /单标的仓位上限/)
+  assert.match(viewSource, /单标的上限设置/)
   assert.match(viewSource, /按 buy lot 止损/)
   assert.equal(
     viewSource.indexOf('class="kline-slim-subject-panel kline-slim-overlay-panel"') <
@@ -187,8 +191,11 @@ test('KlineSlim subject panel removes category editing, refresh noise and source
   assert.equal(viewSource.includes('留空时沿用仓位管理默认值'), false)
   assert.match(viewSource, /单标的上限设置/)
   assert.match(viewSource, /当前生效/)
+  assert.equal(viewSource.includes('单标的仓位上限'), false)
+  assert.equal(viewSource.includes('subject-panel-limit-row'), false)
   assert.equal(scriptSource.includes('use_default'), false)
   assert.match(viewSource, /class="subject-panel-base-row"/)
+  assert.match(viewSource, /v-model="subjectPanelState\.positionLimitDraft\.limit"/)
 })
 
 test('KlineSlim subject panel removes misleading must-pool note and redundant limit prose', () => {
@@ -230,6 +237,14 @@ test('KlineSlim price guide panel removes refresh noise and keeps full color bad
   assert.equal(viewSource.includes('仅展示'), false)
   assert.equal(viewSource.includes('price-panel-footer'), false)
   assert.match(viewSource, /已开启 \{\{ takeprofitGuideRows\.filter\(\(row\) => row\.manual_enabled\)\.length \}\}\/3/)
+  assert.match(
+    viewSource,
+    /<span class="price-panel-section-title">止盈价格<\/span>[\s\S]*<div class="price-panel-section-actions">[\s\S]*handleTakeprofitGuideEnabledAll\(true\)[\s\S]*handleTakeprofitGuideEnabledAll\(false\)/
+  )
+  assert.match(
+    viewSource,
+    /<span class="price-panel-section-title">止盈价格<\/span>[\s\S]*<div class="price-panel-summary">[\s\S]*takeprofitGuideRows\.filter\(\(row\) => row\.manual_enabled\)\.length[\s\S]*takeprofitRuntimeActiveCount/
+  )
   assert.match(viewSource, /\.price-guide-badge/)
   assert.equal(viewSource.includes('min-width 68px'), true)
   assert.equal(viewSource.includes('white-space nowrap'), true)
