@@ -116,6 +116,7 @@
 - Docker 容器内部 Mongo 继续使用服务名 `fq_mongodb:27017`
 - Docker 容器内部 Redis 继续使用服务名 `fq_redis:6379`
 - `docker/compose.parallel.yaml` 会为核心容器显式注入 `FRESHQUANT_MONGODB__HOST=fq_mongodb`、`FRESHQUANT_MONGODB__PORT=27017`、`FRESHQUANT_REDIS__HOST=fq_redis` 与 `FRESHQUANT_REDIS__PORT=6379`
+- `docker/compose.parallel.yaml` 只要变更，正式 deploy plan 就按全量受管 Docker 并行环境容器重建/重启处理，避免 merge 后漏掉运行时配置更新。
 - Web UI 默认访问并行 API `http://127.0.0.1:15000`
 
 ### 跑本地预检并开 PR

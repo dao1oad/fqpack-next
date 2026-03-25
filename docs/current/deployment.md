@@ -76,6 +76,7 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 - 先确认当前代码真值是最新远程 `origin/main`；如果为了修 deploy 问题需要改代码，必须先走 `feature branch -> PR -> merge remote main`，再回到本地 `main` 与 `origin/main` 对齐。
 - 正式 deploy 统一从 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 执行，不要直接把开发 worktree 当成正式来源。
 - workflow 与人工正式 deploy 都应优先调用 `script/ci/run_production_deploy.ps1`；不要再把 mirror sync、`uv sync`、`run_formal_deploy.py` 手工拆开执行。
+- `docker/compose.parallel.yaml` 变更现在按完整 Docker 并行环境运行时变更处理；`freshquant_deploy_plan.py` 必须把它解析成实际 deploy，而不是 `deployment_required=false` 的 no-op。
 - `script/ci/run_production_deploy.ps1` 会先用 runner Python 3.12 做 `uv sync`，再切换到 deploy mirror `.venv\Scripts\python.exe` 运行 `run_formal_deploy.py`；formal deploy 内部 health check 也跟随 mirror `.venv` 解释器。
 - 如果 formal deploy 命中 `fq_apiserver` / `fq_webui` 后仍出现“像是旧代码”的症状，先检查 deploy mirror 是否残留过往 ignored 构建产物；当前正式入口会在 mirror sync 阶段主动清掉这类文件。
 - 读取 `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`、`result.json` 与 `D:/fqpack/runtime/formal-deploy/production-state.json` 作为正式 deploy 基础证据；不要只凭终端退出码判断成功。

@@ -84,6 +84,7 @@ HEALTH_CHECK_MAP = {
         "http://127.0.0.1:18080/",
         "http://127.0.0.1:18080/gantt/shouban30",
         "http://127.0.0.1:18080/runtime-observability",
+        "http://127.0.0.1:18080/api/stock_data?period=1d&symbol=sh512800&endDate=2025-07-10&barCount=2",
     ],
     "tradingagents": [
         "http://127.0.0.1:13000/api/health",
@@ -107,6 +108,22 @@ FRESHQUANT_MESSAGE_SURFACES = ("market_data", "guardian")
 FRESHQUANT_TRADING_SURFACES = ("api", "dagster", "market_data", "guardian")
 FRESHQUANT_LEGACY_CONFIG_SURFACES = ("dagster", "market_data", "guardian")
 FQXTRADE_RUNTIME_SURFACES = ("order_management",)
+DOCKER_PARALLEL_ALL_SURFACES = ("api", "web", "dagster", "qa", "tradingagents")
+DOCKER_PARALLEL_ALL_SERVICES = (
+    "fq_mongodb",
+    "fq_redis",
+    "fq_runtime_clickhouse",
+    "fq_apiserver",
+    "fq_runtime_indexer",
+    "fq_tdxhq",
+    "fq_dagster_webserver",
+    "fq_dagster_daemon",
+    "fq_qawebserver",
+    "fq_webui",
+    "ta_backend",
+    "ta_frontend",
+)
+DOCKER_PARALLEL_COMPOSE_PATH = "docker/compose.parallel.yaml"
 
 
 @dataclass(frozen=True)
@@ -321,9 +338,16 @@ def build_deploy_plan(
 ) -> dict[str, object]:
     changed_paths = changed_paths or []
     explicit_surfaces = explicit_surfaces or []
+    normalized_changed_paths = [normalize_path(path) for path in changed_paths]
+    compose_parallel_changed = DOCKER_PARALLEL_COMPOSE_PATH in normalized_changed_paths
 
-    surfaces_from_paths, notes = resolve_surfaces_from_paths(changed_paths)
+    surfaces_from_paths, notes = resolve_surfaces_from_paths(normalized_changed_paths)
     surfaces = set(surfaces_from_paths)
+    if compose_parallel_changed:
+        surfaces.update(DOCKER_PARALLEL_ALL_SURFACES)
+        notes.append(
+            "`docker/compose.parallel.yaml` 变更会直接影响 Docker 并行环境；正式 deploy 统一重建/重启全部受管容器。"
+        )
     for value in explicit_surfaces:
         surfaces.add(normalize_surface(value))
 
@@ -343,6 +367,10 @@ def build_deploy_plan(
         ]
     )
     docker_services = unique_in_order(docker_build_targets + docker_up_services)
+    if compose_parallel_changed:
+        docker_services = unique_in_order(
+            [*DOCKER_PARALLEL_ALL_SERVICES, *docker_services]
+        )
     host_surfaces = [surface for surface in ordered if surface in HOST_SURFACE_PROGRAMS]
     host_programs = unique_in_order(
         [
@@ -407,7 +435,7 @@ def build_deploy_plan(
     )
 
     return {
-        "changed_paths": [normalize_path(path) for path in changed_paths],
+        "changed_paths": normalized_changed_paths,
         "deployment_required": bool(ordered),
         "deployment_surfaces": ordered,
         "docker_build_targets": docker_build_targets,
