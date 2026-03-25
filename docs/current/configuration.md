@@ -187,16 +187,15 @@
   - `POST /api/system-config/bootstrap`
   - `POST /api/system-config/settings`
 
-页面固定分两块：
+页面当前使用固定视口三列工作台：
 
-- Bootstrap 文件配置
-- Mongo 系统设置
-
-页面当前使用固定视口工作台：
-
-- 左侧编辑区保持表单编辑能力
-- 右侧摘要、参数状态和策略信息统一压缩为高密度列表
-- 页面内使用局部滚动，不再依赖浏览器页面滚动
+- 左列展示基础设施 / 存储类设置
+- 中列展示运行接入 / 系统链路设置
+- 右列展示交易控制 / 策略字典
+- Bootstrap 与 Mongo 两类正式设置项都直接以内嵌 dense ledger 行展示，不再使用卡片式编辑区
+- 所有正式设置项都会出现在主视图中；`guardian.stock.threshold.*` 与 `guardian.stock.grid_interval.*` 不再因 mode 切换而隐藏，只对未生效行做弱化
+- 页面内使用列内局部滚动，不再依赖浏览器页面滚动
+- 页面顶部保留 `刷新 / 保存启动配置 / 保存系统设置` 三个主操作，并分别统计 Bootstrap 与 Mongo 的未保存项
 
 `guardian.stock.threshold.*` 与 `guardian.stock.grid_interval.*` 保留。
 旧 SMTP / 邮件收件人配置不再进入新系统正式设置面。

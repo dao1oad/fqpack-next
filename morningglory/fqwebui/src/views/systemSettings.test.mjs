@@ -3,9 +3,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import {
-  buildBootstrapSections,
-  buildSettingsSections,
+  buildBootstrapLedgerSections,
+  buildSettingsLedgerSections,
+  flattenLedgerRows,
   readSystemConfigPayload,
+  resolveEditorMeta,
 } from './systemSettings.mjs'
 
 const createPayload = () => ({
@@ -18,6 +20,12 @@ const createPayload = () => ({
         db: 'freshquant',
         gantt_db: 'freshquant_gantt',
       },
+      redis: {
+        host: '127.0.0.1',
+        port: 6380,
+        db: 1,
+        password: 'secret',
+      },
     },
     sections: [
       {
@@ -27,20 +35,19 @@ const createPayload = () => ({
         source: 'bootstrap_file',
         restart_required: true,
         items: [
-          {
-            key: 'mongodb.host',
-            label: '主机',
-            value: '127.0.0.1',
-            restart_required: true,
-            source: 'bootstrap_file',
-          },
-          {
-            key: 'mongodb.port',
-            label: '端口',
-            value: 27027,
-            restart_required: true,
-            source: 'bootstrap_file',
-          },
+          { key: 'mongodb.host', label: '主机', value: '127.0.0.1' },
+          { key: 'mongodb.port', label: '端口', value: 27027 },
+        ],
+      },
+      {
+        key: 'redis',
+        title: 'Redis',
+        description: '运行队列与实时缓存依赖的 Redis 启动配置。',
+        source: 'bootstrap_file',
+        restart_required: true,
+        items: [
+          { key: 'redis.password', label: '密码', value: 'secret' },
+          { key: 'redis.port', label: '端口', value: 6380 },
         ],
       },
     ],
@@ -48,16 +55,46 @@ const createPayload = () => ({
   settings: {
     values: {
       monitor: {
-        xtdata: { mode: 'guardian_1m' },
+        xtdata: {
+          mode: 'guardian_1m',
+          max_symbols: 60,
+          queue_backlog_threshold: 500,
+          prewarm: { max_bars: 240 },
+        },
+      },
+      xtquant: {
+        path: 'D:/xtquant/userdata_mini',
+        account: '068000076370',
+        account_type: 'CREDIT',
+        broker_submit_mode: 'observe_only',
       },
       guardian: {
         stock: {
           lot_amount: 1500,
+          threshold: {
+            mode: 'percent',
+            percent: 1,
+            atr: { period: 14, multiplier: 1.2 },
+          },
+          grid_interval: {
+            mode: 'atr',
+            percent: 3,
+            atr: { period: 21, multiplier: 2 },
+          },
         },
+      },
+      position_management: {
+        allow_open_min_bail: 800000,
+        holding_only_min_bail: 100000,
       },
     },
     strategies: [
-      { code: 'Guardian', name: '守护者策略', b62_uid: 'g8txDZY5cclM7zbo' },
+      {
+        code: 'Guardian',
+        name: '守护者策略',
+        desc: '这是一个高抛低吸的超级网格策略',
+        b62_uid: 'g8txDZY5cclM7zbo',
+      },
     ],
     sections: [
       {
@@ -67,13 +104,19 @@ const createPayload = () => ({
         source: 'params.monitor',
         restart_required: false,
         items: [
-          {
-            key: 'monitor.xtdata.mode',
-            label: 'XTData 模式',
-            value: 'guardian_1m',
-            restart_required: false,
-            source: 'params.monitor',
-          },
+          { key: 'monitor.xtdata.mode', label: 'XTData 模式', value: 'guardian_1m' },
+          { key: 'monitor.xtdata.max_symbols', label: '最大订阅数', value: 60 },
+        ],
+      },
+      {
+        key: 'xtquant',
+        title: 'XTQuant',
+        description: '交易连接、账户和 broker submit mode。',
+        source: 'params.xtquant',
+        restart_required: false,
+        items: [
+          { key: 'xtquant.account_type', label: '账户类型', value: 'CREDIT' },
+          { key: 'xtquant.broker_submit_mode', label: 'Broker Submit Mode', value: 'observe_only' },
         ],
       },
       {
@@ -83,13 +126,25 @@ const createPayload = () => ({
         source: 'params.guardian',
         restart_required: false,
         items: [
-          {
-            key: 'guardian.stock.lot_amount',
-            label: '单次买入金额',
-            value: 1500,
-            restart_required: false,
-            source: 'params.guardian',
-          },
+          { key: 'guardian.stock.threshold.mode', label: '阈值模式', value: 'percent' },
+          { key: 'guardian.stock.threshold.percent', label: '阈值百分比', value: 1 },
+          { key: 'guardian.stock.threshold.atr.period', label: '阈值 ATR 周期', value: 14 },
+          { key: 'guardian.stock.threshold.atr.multiplier', label: '阈值 ATR 倍数', value: 1.2 },
+          { key: 'guardian.stock.grid_interval.mode', label: '网格模式', value: 'atr' },
+          { key: 'guardian.stock.grid_interval.percent', label: '网格百分比', value: 3 },
+          { key: 'guardian.stock.grid_interval.atr.period', label: '网格 ATR 周期', value: 21 },
+          { key: 'guardian.stock.grid_interval.atr.multiplier', label: '网格 ATR 倍数', value: 2 },
+        ],
+      },
+      {
+        key: 'position_management',
+        title: '仓位门禁',
+        description: '仓位管理阈值真值，保存在 pm_configs。',
+        source: 'pm_configs.thresholds',
+        restart_required: false,
+        items: [
+          { key: 'position_management.allow_open_min_bail', label: '允许开新仓最低保证金', value: 800000 },
+          { key: 'position_management.holding_only_min_bail', label: '仅允许持仓内买入最低保证金', value: 100000 },
         ],
       },
     ],
@@ -101,30 +156,70 @@ test('readSystemConfigPayload unwraps axios responses', () => {
   assert.deepEqual(readSystemConfigPayload({ data: payload }), payload)
 })
 
-test('buildBootstrapSections formats restart badges and scalar values', () => {
-  const sections = buildBootstrapSections(createPayload())
+test('bootstrap sections flatten into dense ledger rows with column and editor metadata', () => {
+  const payload = createPayload()
+  const sections = buildBootstrapLedgerSections(payload, {
+    currentValues: payload.bootstrap.values,
+    baselineValues: payload.bootstrap.values,
+  })
+  const rows = flattenLedgerRows(sections)
 
-  assert.equal(sections[0].key, 'mongodb')
-  assert.equal(sections[0].restart_label, '保存后需重启相关服务')
-  assert.equal(sections[0].items[0].value_label, '127.0.0.1')
-  assert.equal(sections[0].items[1].value_label, '27,027')
+  const mongodbHost = rows.find((row) => row.key === 'mongodb.host')
+  const redisPort = rows.find((row) => row.key === 'redis.port')
+
+  assert.equal(mongodbHost.column, 'left')
+  assert.equal(mongodbHost.editor.type, 'text')
+  assert.equal(redisPort.column, 'left')
+  assert.equal(redisPort.editor.type, 'number')
 })
 
-test('buildSettingsSections formats arrays and booleans for display', () => {
-  const sections = buildSettingsSections(createPayload())
+test('settings rows keep guardian percent and atr rows visible while marking inactive mode rows', () => {
+  const payload = createPayload()
+  const currentValues = JSON.parse(JSON.stringify(payload.settings.values))
+  currentValues.guardian.stock.threshold.mode = 'percent'
+  currentValues.guardian.stock.grid_interval.mode = 'atr'
 
-  assert.equal(sections[0].items[0].value_label, 'guardian_1m')
-  assert.equal(sections[1].items[0].value_label, '1,500')
-  assert.equal(sections[1].restart_label, '保存后运行链按下次刷新生效')
+  const sections = buildSettingsLedgerSections(payload, {
+    currentValues,
+    baselineValues: payload.settings.values,
+  })
+  const rows = flattenLedgerRows(sections)
+
+  const thresholdPercent = rows.find((row) => row.key === 'guardian.stock.threshold.percent')
+  const thresholdAtrPeriod = rows.find((row) => row.key === 'guardian.stock.threshold.atr.period')
+  const gridPercent = rows.find((row) => row.key === 'guardian.stock.grid_interval.percent')
+  const gridAtrPeriod = rows.find((row) => row.key === 'guardian.stock.grid_interval.atr.period')
+
+  assert.ok(thresholdPercent)
+  assert.ok(thresholdAtrPeriod)
+  assert.ok(gridPercent)
+  assert.ok(gridAtrPeriod)
+  assert.equal(thresholdPercent.inactive, false)
+  assert.equal(thresholdAtrPeriod.inactive, true)
+  assert.equal(gridPercent.inactive, true)
+  assert.equal(gridAtrPeriod.inactive, false)
 })
 
-test('SystemSettings mode selector only exposes official guardian and combined modes', () => {
+test('resolveEditorMeta returns official select options for enum settings', () => {
+  assert.deepEqual(resolveEditorMeta('monitor.xtdata.mode').options.map((item) => item.value), [
+    'guardian_1m',
+    'guardian_and_clx_15_30',
+  ])
+  assert.deepEqual(resolveEditorMeta('xtquant.account_type').options.map((item) => item.value), [
+    'STOCK',
+    'CREDIT',
+  ])
+  assert.deepEqual(resolveEditorMeta('guardian.stock.threshold.mode').options.map((item) => item.value), [
+    'percent',
+    'atr',
+  ])
+})
+
+test('monitor mode editor only exposes official guardian and combined modes', () => {
+  const options = resolveEditorMeta('monitor.xtdata.mode').options.map((item) => item.value)
   const content = readFileSync(new URL('./SystemSettings.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /label="guardian_1m" value="guardian_1m"/)
-  assert.match(
-    content,
-    /label="guardian_and_clx_15_30"\s+value="guardian_and_clx_15_30"/,
-  )
-  assert.doesNotMatch(content, /label="clx_15_30" value="clx_15_30"/)
+  assert.deepEqual(options, ['guardian_1m', 'guardian_and_clx_15_30'])
+  assert.equal(options.includes('clx_15_30'), false)
+  assert.match(content, /buildSettingsLedgerSections/)
 })
