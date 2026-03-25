@@ -412,32 +412,36 @@ def test_clickhouse_store_list_traces_backfills_symbol_name_for_legacy_rows(
     store = store_module.RuntimeObservabilityClickHouseStore(
         base_url="http://clickhouse.test"
     )
+    queries = []
 
     def _fake_select_rows(query: str):
-        return [
-            {
-                "trace_key": "trace__trc_legacy_1",
-                "trace_id": "trc_legacy_1",
-                "trace_kind": "guardian_signal",
-                "trace_status": "failed",
-                "break_reason": "failed@guardian_strategy.finish",
-                "first_ts": "2026-03-20 10:00:00.000",
-                "last_ts": "2026-03-20 10:00:02.000",
-                "duration_ms": 2000,
-                "entry_component": "guardian_strategy",
-                "entry_node": "receive_signal",
-                "exit_component": "guardian_strategy",
-                "exit_node": "finish",
-                "step_count": 2,
-                "issue_count": 1,
-                "symbol": "000001",
-                "symbol_name": "",
-                "intent_ids": ["int_legacy_1"],
-                "request_ids": ["req_legacy_1"],
-                "internal_order_ids": ["ord_legacy_1"],
-                "affected_components": ["guardian_strategy"],
-            }
-        ]
+        queries.append(query)
+        if len(queries) == 1:
+            return [
+                {
+                    "trace_key": "trace__trc_legacy_1",
+                    "trace_id": "trc_legacy_1",
+                    "trace_kind": "guardian_signal",
+                    "trace_status": "failed",
+                    "break_reason": "failed@guardian_strategy.finish",
+                    "first_ts": "2026-03-20 10:00:00.000",
+                    "last_ts": "2026-03-20 10:00:02.000",
+                    "duration_ms": 2000,
+                    "entry_component": "guardian_strategy",
+                    "entry_node": "receive_signal",
+                    "exit_component": "guardian_strategy",
+                    "exit_node": "finish",
+                    "step_count": 2,
+                    "issue_count": 1,
+                    "symbol": "000001",
+                    "symbol_name": "",
+                    "intent_ids": ["int_legacy_1"],
+                    "request_ids": ["req_legacy_1"],
+                    "internal_order_ids": ["ord_legacy_1"],
+                    "affected_components": ["guardian_strategy"],
+                }
+            ]
+        return []
 
     monkeypatch.setattr(store, "ensure_schema", lambda: None)
     monkeypatch.setattr(store, "_select_rows", _fake_select_rows)
@@ -451,6 +455,155 @@ def test_clickhouse_store_list_traces_backfills_symbol_name_for_legacy_rows(
     payload = store.list_traces(limit=1)
 
     assert payload["items"][0]["symbol_name"] == "平安银行"
+    assert payload["items"][0]["steps_preview"] == []
+
+
+def test_clickhouse_store_list_traces_includes_steps_preview(monkeypatch):
+    from freshquant.runtime_observability.clickhouse_store import (
+        RuntimeObservabilityClickHouseStore,
+    )
+
+    store = RuntimeObservabilityClickHouseStore(base_url="http://clickhouse.test")
+    queries = []
+
+    def _fake_select_rows(query: str):
+        queries.append(query)
+        if len(queries) == 1:
+            return [
+                {
+                    "trace_key": "trace__trc_preview_1",
+                    "trace_id": "trc_preview_1",
+                    "trace_kind": "guardian_signal",
+                    "trace_status": "failed",
+                    "break_reason": "skipped@guardian_strategy.price_threshold_check:price_threshold_not_met",
+                    "first_ts": "2026-03-20 10:00:00.000",
+                    "last_ts": "2026-03-20 10:00:02.000",
+                    "duration_ms": 2000,
+                    "entry_component": "guardian_strategy",
+                    "entry_node": "receive_signal",
+                    "exit_component": "guardian_strategy",
+                    "exit_node": "finish",
+                    "step_count": 3,
+                    "issue_count": 1,
+                    "symbol": "000001",
+                    "symbol_name": "平安银行",
+                    "intent_ids": ["int_preview_1"],
+                    "request_ids": ["req_preview_1"],
+                    "internal_order_ids": ["ord_preview_1"],
+                    "affected_components": ["guardian_strategy"],
+                }
+            ]
+        return [
+            {
+                "event_id": "evt_preview_1",
+                "session_key": "trace__trc_preview_1",
+                "ts": "2026-03-20 10:00:00.000",
+                "runtime_node": "host:guardian",
+                "component": "guardian_strategy",
+                "node": "receive_signal",
+                "status": "info",
+                "event_type": "trace_step",
+                "trace_id": "trc_preview_1",
+                "intent_id": "int_preview_1",
+                "request_id": "req_preview_1",
+                "internal_order_id": "ord_preview_1",
+                "symbol": "000001",
+                "symbol_name": "平安银行",
+                "message": "",
+                "reason_code": "",
+                "decision_branch": "signal_received",
+                "decision_expr": "",
+                "decision_outcome": '{"outcome":"continue"}',
+                "payload_json": "{}",
+                "metrics_json": "{}",
+                "raw_json": json.dumps(
+                    {
+                        "signal_summary": {
+                            "code": "000001",
+                            "name": "平安银行",
+                            "price": 9.8,
+                            "remark": "首板回封",
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                "raw_file": "host_guardian/guardian_strategy/2026-03-20/file.jsonl",
+                "raw_line": 1,
+                "error_type": "",
+                "error_message": "",
+            },
+            {
+                "event_id": "evt_preview_2",
+                "session_key": "trace__trc_preview_1",
+                "ts": "2026-03-20 10:00:01.000",
+                "runtime_node": "host:guardian",
+                "component": "guardian_strategy",
+                "node": "price_threshold_check",
+                "status": "skipped",
+                "event_type": "trace_step",
+                "trace_id": "trc_preview_1",
+                "intent_id": "int_preview_1",
+                "request_id": "req_preview_1",
+                "internal_order_id": "ord_preview_1",
+                "symbol": "000001",
+                "symbol_name": "平安银行",
+                "message": "",
+                "reason_code": "price_threshold_not_met",
+                "decision_branch": "holding_add_threshold",
+                "decision_expr": "current_price <= bot_river_price",
+                "decision_outcome": '{"outcome":"skip","reason_code":"price_threshold_not_met"}',
+                "payload_json": "{}",
+                "metrics_json": "{}",
+                "raw_json": json.dumps(
+                    {
+                        "signal_summary": {
+                            "code": "000001",
+                            "name": "平安银行",
+                            "remark": "首板回封",
+                        },
+                        "decision_context": {
+                            "threshold": {
+                                "current_price": 9.8,
+                                "last_fill_price": 10.0,
+                                "bot_river_price": 9.5,
+                            }
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                "raw_file": "host_guardian/guardian_strategy/2026-03-20/file.jsonl",
+                "raw_line": 2,
+                "error_type": "",
+                "error_message": "",
+            },
+        ]
+
+    monkeypatch.setattr(store, "ensure_schema", lambda: None)
+    monkeypatch.setattr(store, "_select_rows", _fake_select_rows)
+
+    payload = store.list_traces(limit=1)
+
+    assert len(queries) == 2
+    assert payload["items"][0]["trace_key"] == "trace__trc_preview_1"
+    assert [item["node"] for item in payload["items"][0]["steps_preview"]] == [
+        "receive_signal",
+        "price_threshold_check",
+    ]
+    assert (
+        payload["items"][0]["steps_preview"][0]["signal_summary"]["remark"]
+        == "首板回封"
+    )
+    assert payload["items"][0]["steps_preview"][1]["decision_context"] == {
+        "threshold": {
+            "current_price": 9.8,
+            "last_fill_price": 10.0,
+            "bot_river_price": 9.5,
+        }
+    }
+    assert payload["items"][0]["steps_preview"][1]["decision_outcome"] == {
+        "outcome": "skip",
+        "reason_code": "price_threshold_not_met",
+    }
 
 
 def test_clickhouse_store_list_traces_accepts_trace_kind_filter(monkeypatch):
@@ -472,6 +625,7 @@ def test_clickhouse_store_list_traces_accepts_trace_kind_filter(monkeypatch):
 
     assert payload["items"] == []
     assert "trace_kind = 'takeprofit'" in queries[0]
+    assert len(queries) == 1
 
 
 def test_clickhouse_store_health_summary_preserves_missing_heartbeat_as_null(

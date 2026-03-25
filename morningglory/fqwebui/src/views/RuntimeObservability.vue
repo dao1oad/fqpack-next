@@ -197,6 +197,7 @@
                   <span>标的</span>
                   <span>链路类型</span>
                   <span>链路状态</span>
+                  <span>信号备注</span>
                   <span>节点路径</span>
                   <span>节点数</span>
                   <span>总耗时</span>
@@ -218,7 +219,38 @@
                       {{ row.trace_status_label }}
                     </span>
                   </span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate runtime-ledger__cell--entry-exit" :title="row.entry_exit_label">{{ row.entry_exit_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate runtime-ledger__cell--signal-remark" :title="row.signal_remark || '-'">
+                    {{ row.signal_remark || '-' }}
+                  </span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--entry-exit" :title="row.entry_exit_label">
+                    <span class="trace-flow-strip">
+                      <template v-for="(node, nodeIndex) in row.flow_nodes" :key="node.key || `${row.trace_key || row.trace_id}-${nodeIndex}`">
+                        <el-popover
+                          trigger="hover"
+                          placement="top"
+                          :width="320"
+                          :teleported="false"
+                        >
+                          <template #reference>
+                            <span class="trace-flow-pill" :class="`is-${node.status}`">
+                              {{ node.label }}
+                            </span>
+                          </template>
+                          <div class="trace-flow-popover">
+                            <div
+                              v-for="item in node.hover_items"
+                              :key="`${node.key || node.label}-${item.label}`"
+                              class="trace-flow-popover-item"
+                            >
+                              <span>{{ item.label }}</span>
+                              <strong :title="item.value">{{ item.value }}</strong>
+                            </div>
+                          </div>
+                        </el-popover>
+                        <span v-if="nodeIndex < row.flow_nodes.length - 1" class="trace-flow-arrow">→</span>
+                      </template>
+                    </span>
+                  </span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.step_count }}</span>
                   <span class="runtime-ledger__cell">{{ row.duration_label }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.break_reason || '-'">{{ row.break_reason || '-' }}</span>
@@ -3133,13 +3165,14 @@ onBeforeUnmount(() => {
 .runtime-trace-ledger__grid {
   grid-template-columns:
     152px
-    minmax(220px, 1.15fr)
+    minmax(220px, 1.1fr)
     104px
     102px
-    minmax(480px, 3.6fr)
+    minmax(180px, 0.95fr)
+    minmax(480px, 3.1fr)
     54px
     84px
-    minmax(160px, 0.9fr);
+    minmax(160px, 0.85fr);
 }
 
 .runtime-event-ledger__grid {
@@ -3183,6 +3216,74 @@ onBeforeUnmount(() => {
 .runtime-ledger__cell--entry-exit {
   color: #21405e;
   font-weight: 600;
+  overflow: visible;
+}
+
+.runtime-ledger__cell--signal-remark {
+  color: #5a728b;
+}
+
+.trace-flow-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trace-flow-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 220px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #21405e;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.trace-flow-pill.is-success {
+  background: #eefaf3;
+  color: #17784b;
+}
+
+.trace-flow-pill.is-warning,
+.trace-flow-pill.is-skipped {
+  background: #fff4e3;
+  color: #a45d08;
+}
+
+.trace-flow-pill.is-failed,
+.trace-flow-pill.is-error {
+  background: #fff1f0;
+  color: #b6382c;
+}
+
+.trace-flow-arrow {
+  color: #88a0b7;
+  font-size: 12px;
+}
+
+.trace-flow-popover {
+  display: grid;
+  gap: 8px;
+}
+
+.trace-flow-popover-item {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  font-size: 12px;
+}
+
+.trace-flow-popover-item span {
+  color: #68839d;
+}
+
+.trace-flow-popover-item strong {
+  color: #21405e;
+  word-break: break-word;
 }
 
 .runtime-inline-status,

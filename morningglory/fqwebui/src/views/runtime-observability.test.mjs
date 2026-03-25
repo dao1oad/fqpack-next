@@ -856,7 +856,7 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
       internal_order_ids: ['ord_dense_1'],
       intent_ids: ['intent_dense_1'],
       symbol: '000001',
-      steps: [
+      steps_preview: [
         {
           component: 'guardian_strategy',
           node: 'receive_signal',
@@ -867,19 +867,38 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
           signal_summary: {
             code: '000001',
             name: '平安银行',
+            price: 9.8,
+            remark: '首板回封',
+          },
+          decision_outcome: {
+            outcome: 'continue',
           },
         },
         {
           component: 'guardian_strategy',
-          node: 'timing_check',
-          status: 'error',
-          ts: '2026-03-09T02:00:02Z',
+          node: 'price_threshold_check',
+          status: 'skipped',
+          ts: '2026-03-09T02:00:01Z',
           trace_id: 'trc_dense_1',
           symbol: '000001',
-          reason_code: 'unexpected_exception',
-          payload: {
-            error_type: 'ValueError',
-            error_message: 'invalid fill time',
+          signal_summary: {
+            code: '000001',
+            name: '平安银行',
+            price: 9.8,
+            remark: '首板回封',
+          },
+          reason_code: 'price_threshold_not_met',
+          decision_expr: 'current_price <= bot_river_price',
+          decision_context: {
+            threshold: {
+              current_price: 9.8,
+              bot_river_price: 9.5,
+              last_fill_price: 10,
+            },
+          },
+          decision_outcome: {
+            outcome: 'skip',
+            reason_code: 'price_threshold_not_met',
           },
         },
       ],
@@ -887,25 +906,32 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
   ])
 
   assert.equal(rows.length, 1)
-  assert.deepEqual(rows[0], {
-    trace_key: 'trace:trc_dense_1',
-    trace_id: 'trc_dense_1',
-    symbol: '000001',
-    symbol_name: '平安银行',
-    symbol_display: '000001 / 平安银行',
-    trace_kind: 'guardian_signal',
-    trace_kind_label: 'Guardian 信号',
-    trace_status: 'failed',
-    trace_status_label: '失败',
-    last_ts: '2026-03-09T02:00:02Z',
-    last_ts_label: '2026-03-09 10:00:02',
-    duration_ms: 2000,
-    duration_label: '2s',
-    step_count: 2,
-    entry_exit_label: '信号接收 -> 时效判断',
-    break_reason: 'unexpected_exception@guardian_strategy.timing_check:ValueError',
-    has_issue: true,
-  })
+  assert.equal(rows[0].trace_key, 'trace:trc_dense_1')
+  assert.equal(rows[0].trace_status, 'failed')
+  assert.equal(rows[0].symbol_display, '000001 / 平安银行')
+  assert.equal(rows[0].duration_label, '2s')
+  assert.equal(rows[0].step_count, 2)
+  assert.equal(rows[0].signal_remark, '首板回封')
+  assert.equal(rows[0].entry_exit_label, '信号接收 -> 价格阈值判断')
+  assert.equal(rows[0].break_reason, 'unexpected_exception@guardian_strategy.timing_check:ValueError')
+  assert.equal(rows[0].has_issue, true)
+  assert.deepEqual(rows[0].flow_nodes.map((item) => item.label), ['信号接收', '价格阈值判断'])
+  assert.equal(
+    rows[0].flow_nodes[0].hover_items.find((item) => item.label === '信号备注')?.value,
+    '首板回封',
+  )
+  assert.equal(
+    rows[0].flow_nodes[1].hover_items.find((item) => item.label === '当前价')?.value,
+    '9.8',
+  )
+  assert.equal(
+    rows[0].flow_nodes[1].hover_items.find((item) => item.label === '最近成交价')?.value,
+    '10',
+  )
+  assert.equal(
+    rows[0].flow_nodes[1].hover_items.find((item) => item.label === '结果')?.value,
+    '跳过',
+  )
 })
 
 test('buildTraceLedgerRows falls back to unknown name when symbol name is unavailable', () => {
@@ -994,7 +1020,7 @@ test('buildTraceStepLedgerRows surfaces branch expr reason outcome context and e
     ts: '2026-03-09T10:00:01.300+08:00',
     ts_label: '2026-03-09 10:00:01',
     delta_label: '1.3s',
-    component_node: '时效判断',
+    component_node: '时间条件判断',
     status: 'error',
     branch: 'holding_sell_timing',
     expr: 'fill_time >= signal_time',
@@ -1069,7 +1095,7 @@ test('buildEventLedgerRows keeps heartbeat events and extracts summary and metri
       component: 'guardian_strategy',
       component_label: 'Guardian 策略',
       node: 'timing_check',
-      node_label: '时效判断',
+      node_label: '时间条件判断',
       status: 'error',
       symbol: '000001',
       symbol_name: '平安银行',
@@ -1482,6 +1508,14 @@ test('buildRecentTraceFeed exposes flow nodes with guardian decision detail and 
     guardianRow.flow_nodes[1].hover_items.find((item) => item.label === '原因')?.value,
     'price_threshold_not_met',
   )
+  assert.equal(
+    guardianRow.flow_nodes[1].hover_items.find((item) => item.label === '当前价')?.value,
+    '9.8',
+  )
+  assert.equal(
+    guardianRow.flow_nodes[0].hover_items.find((item) => item.label === '信号备注')?.value,
+    'runtime-test',
+  )
 
   const genericRow = feed.find((item) => item.trace_id === 'trc_generic_flow')
   assert.ok(genericRow)
@@ -1502,7 +1536,7 @@ test('buildGuardianTraceSummary and buildGuardianStepInsight expose structured g
   const stepInsight = buildGuardianStepInsight(detail.steps[1])
 
   assert.equal(summary.signal.title, '000001 Ping An Bank')
-  assert.equal(summary.conclusion.node_label, '结束结论')
+  assert.equal(summary.conclusion.node_label, '最终结论')
   assert.equal(summary.conclusion.label, '跳过')
   assert.equal(summary.conclusion.reason_code, 'price_threshold_not_met')
 
@@ -2432,12 +2466,18 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /<span>标的<\/span>/)
   assert.match(content, /row\.symbol_display/)
   assert.match(content, /value: selectedTraceDetail\.value\.symbol_display/)
+  assert.match(content, /<span>信号备注<\/span>/)
+  assert.match(content, /row\.signal_remark \|\| '-'/)
   assert.match(content, /runtime-ledger__cell--entry-exit/)
   assert.match(content, /runtime-ledger__cell--status/)
+  assert.match(content, /v-for="\(node,\s*nodeIndex\) in row\.flow_nodes"/)
+  assert.match(content, /<el-popover[\s\S]*class="trace-flow-pill"/)
+  assert.match(content, /trace-flow-popover/)
+  assert.match(content, /trace-flow-arrow/)
   assert.match(content, /component-symbol-list/)
   assert.match(content, /component-symbol-card/)
   assert.match(content, /grid-template-columns:\s*minmax\(200px,\s*0\.58fr\)\s*minmax\(820px,\s*2\.42fr\)\s*minmax\(400px,\s*1\.08fr\)/)
-  assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*minmax\(220px,\s*1\.15fr\)[\s\S]*104px[\s\S]*102px[\s\S]*minmax\(480px,\s*3\.6fr\)[\s\S]*54px[\s\S]*84px[\s\S]*minmax\(160px,\s*0\.9fr\)/)
+  assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*minmax\(220px,\s*1\.1fr\)[\s\S]*104px[\s\S]*102px[\s\S]*minmax\(180px,\s*0\.95fr\)[\s\S]*minmax\(480px,\s*3\.1fr\)[\s\S]*54px[\s\S]*84px[\s\S]*minmax\(160px,\s*0\.85fr\)/)
   assert.match(content, /步骤/)
   assert.match(content, /摘要/)
   assert.match(content, /原始数据/)
@@ -2446,7 +2486,6 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /\.trace-step-ledger__header,\s*\.trace-step-ledger__row \{[\s\S]*min-height:\s*var\(--trace-step-ledger-row-height\);/)
   assert.match(content, /\.step-inspector \{[\s\S]*flex:\s*1 1 auto;[\s\S]*overflow:\s*auto;/)
   assert.doesNotMatch(content, /trace-feed-row/)
-  assert.doesNotMatch(content, /trace-flow-strip/)
   assert.doesNotMatch(content, /trace-group-card/)
   assert.doesNotMatch(content, /trace-summary-card/)
   assert.doesNotMatch(content, /guardian-trace-card/)

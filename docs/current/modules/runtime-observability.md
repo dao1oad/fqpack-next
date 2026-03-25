@@ -42,6 +42,14 @@ Runtime Observability 当前采用“双存储”：
 - `cursor_trace_key`
 - `limit`
 
+`/api/runtime/traces` 当前返回 Trace 摘要字段之外，还会附带：
+
+- `steps_preview`
+  - 每条 Trace 最多 12 个按时间正序排列的步骤预览
+  - 直接复用 runtime event 的 `signal_summary`、`decision_context`、`decision_outcome`
+  - 同时保留 `decision_branch`、`decision_expr`、`error_type`、`error_message`
+  - 用途是让全局 Trace 列表在不额外发 detail 请求的情况下直接渲染节点 hover
+
 `/api/runtime/traces/<trace_key>/steps` 与 `/api/runtime/events` 额外支持：
 
 - `cursor_ts`
@@ -135,6 +143,30 @@ Runtime Observability 当前采用“双存储”：
   - 必要时 `/api/runtime/traces/<trace_key>/steps`
 - Event 与 Trace 列表都走分页 cursor
 - 全局 Trace 顶部的类型按钮会带 `trace_kind` 重新请求最新 Trace；不是在当前已加载列表上做本地筛选
+- 全局 Trace 主表当前新增 `信号备注` 列，优先显示 Guardian `signal_summary.remark`
+- 全局 Trace 主表的 `节点路径` 当前不再是纯文本；Guardian 会直接渲染中文判断节点 pill，并在 hover 时展示该节点判断上下文
+- Guardian 的全局 Trace 节点 hover 当前重点展开：
+  - `receive_signal`：标的、方向、周期、信号价格、触发时间、发现时间、信号备注、信号标签
+  - `holding_scope_resolve`：仓位状态、是否持仓内、是否必选池内、成交次数
+  - `timing_check`：触发时间、发现时间、截止时间、最大时长、最近成交时间
+  - `price_threshold_check`：当前价、最近成交价、底河价格、顶河价格
+  - `signal_structure_check`：成交次数、中枢数量、最近成交时间、最近成交价、候选中枢、是否分离
+  - `cooldown_check`：冷却键、是否命中冷却、上次值、冷却分钟
+  - `quantity_check`：下单数量、路径、网格层级、来源价格、盈利成交数
+  - `position_management_check`：动作、下单数量、拒绝原因
+  - `submit_intent`：动作、下单数量、盈利减仓标记
+  - `finish`：最终结果、最终原因，以及最后一次判断上下文
+- Guardian 节点名当前统一显示为：
+  - `信号接收`
+  - `范围判断`
+  - `时间条件判断`
+  - `价格阈值判断`
+  - `中枢分离判断`
+  - `冷却判断`
+  - `下单数量判断`
+  - `仓位门禁判断`
+  - `策略下单意图`
+  - `最终结论`
 - 自动刷新只刷新摘要列表，不自动刷新已打开的 Trace detail
 - 页面内所有标的展示统一为 `symbol / symbol_name`
 - 写入 ClickHouse 与查询返回阶段都会优先复用现有 instrument lookup 补全 `symbol_name`
