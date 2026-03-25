@@ -97,15 +97,29 @@ class FakeDb:
 
 class FakeTdxApi:
     payload_by_code: dict[str, list[dict[str, Any]]] = {}
+    payload_by_endpoint_and_code: dict[tuple[str, int, str], Any] = {}
+    connect_outcome_by_endpoint: dict[tuple[str, int], Any] = {}
     instance_count = 0
 
     def __init__(self):
         type(self).instance_count += 1
         self.instance_no = type(self).instance_count
         self.call_count_by_code: dict[str, int] = {}
+        self.connected_endpoint: tuple[str, int] | None = None
 
     def connect(self, ip, port, time_out=0.7):
-        return self
+        endpoint = (str(ip), int(port))
+        self.connected_endpoint = endpoint
+        outcome = type(self).connect_outcome_by_endpoint.get(endpoint, self)
+        if callable(outcome):
+            outcome = outcome(
+                api=self,
+                ip=str(ip),
+                port=int(port),
+                instance_no=self.instance_no,
+                time_out=time_out,
+            )
+        return outcome
 
     def __enter__(self):
         return self
@@ -115,7 +129,18 @@ class FakeTdxApi:
 
     def get_xdxr_info(self, market, code):
         self.call_count_by_code[code] = self.call_count_by_code.get(code, 0) + 1
-        payload = self.payload_by_code.get(code, [])
+        payload = []
+        if self.connected_endpoint is not None:
+            payload = self.payload_by_endpoint_and_code.get(
+                (
+                    self.connected_endpoint[0],
+                    self.connected_endpoint[1],
+                    code,
+                ),
+                [],
+            )
+        if not payload:
+            payload = self.payload_by_code.get(code, [])
         if callable(payload):
             return payload(
                 code=code,
@@ -358,6 +383,70 @@ def test_sync_etf_xdxr_all_reconnects_between_batches(monkeypatch):
     assert FakeTdxApi.instance_count == 2
 
 
+def test_sync_etf_xdxr_all_falls_back_when_batch_host_connect_fails(monkeypatch):
+    db = FakeDb(etf_list=[{"code": "512800", "sse": "sh"}])
+
+    monkeypatch.setattr(etf_adj_sync, "_ensure_indexes", lambda db: None)
+    hosts = [
+        etf_adj_sync.TdxHqHost("bad", "10.0.0.1", 7709),
+        etf_adj_sync.TdxHqHost("good", "10.0.0.2", 7709),
+    ]
+
+    def pick_host(timeout=0.7, exclude_hosts=None):
+        exclude_hosts = exclude_hosts or set()
+        for host in hosts:
+            if (host.ip, host.port) not in exclude_hosts:
+                return host
+        raise RuntimeError("no host")
+
+    monkeypatch.setattr(etf_adj_sync, "_pick_hq_host", pick_host)
+    FakeTdxApi.instance_count = 0
+    FakeTdxApi.connect_outcome_by_endpoint = {("10.0.0.1", 7709): False}
+    FakeTdxApi.payload_by_code = {}
+    FakeTdxApi.payload_by_endpoint_and_code = {
+        (
+            "10.0.0.2",
+            7709,
+            "512800",
+        ): [
+            {
+                "year": 2025,
+                "month": 7,
+                "day": 7,
+                "category": 11,
+                "name": "扩缩股",
+                "suogu": 2.0,
+            }
+        ]
+    }
+    monkeypatch.setattr(etf_adj_sync, "_import_pytdx", lambda: (FakeTdxApi, []))
+
+    stats = etf_adj_sync.sync_etf_xdxr_all(db=db, reconnect_every=1)
+
+    assert stats == {
+        "total": 1,
+        "ok": 1,
+        "empty": 0,
+        "preserved": 0,
+        "failed": 0,
+        "retried_empty": 0,
+        "recovered_after_retry": 0,
+        "retry_failed": 0,
+        "empty_codes": [],
+        "preserved_codes": [],
+    }
+    assert db.etf_xdxr.documents == [
+        {
+            "code": "512800",
+            "date": "2025-07-07",
+            "category": 11,
+            "name": "扩缩股",
+            "suogu": 2.0,
+            "category_meaning": "扩缩股",
+        }
+    ]
+
+
 def test_audit_recent_etf_xdxr_coverage_reports_missing_recent_source_event(
     monkeypatch,
 ):
@@ -445,6 +534,76 @@ def test_audit_recent_etf_xdxr_coverage_accepts_matching_recent_source_event(
                 "suogu": 2.0,
             }
         ]
+    }
+    monkeypatch.setattr(etf_adj_sync, "_import_pytdx", lambda: (FakeTdxApi, []))
+
+    stats = etf_adj_sync.audit_recent_etf_xdxr_coverage(
+        db=db,
+        as_of_date="2025-07-10",
+        recent_days=30,
+    )
+
+    assert stats == {
+        "total": 1,
+        "checked": 1,
+        "matching": 1,
+        "mismatched": 0,
+        "source_empty": 0,
+        "failed": 0,
+        "cutoff_date": "2025-06-10",
+        "mismatch_codes": [],
+    }
+
+
+def test_audit_recent_etf_xdxr_coverage_falls_back_when_retry_host_connect_fails(
+    monkeypatch,
+):
+    db = FakeDb(
+        etf_list=[{"code": "512800", "sse": "sh"}],
+        etf_xdxr=[
+            {
+                "code": "512800",
+                "date": "2025-07-07",
+                "category": 11,
+                "suogu": 2.0,
+            }
+        ],
+    )
+
+    monkeypatch.setattr(etf_adj_sync, "_ensure_indexes", lambda db: None)
+    hosts = [
+        etf_adj_sync.TdxHqHost("current", "10.0.1.1", 7709),
+        etf_adj_sync.TdxHqHost("bad-retry", "10.0.1.2", 7709),
+        etf_adj_sync.TdxHqHost("good-retry", "10.0.1.3", 7709),
+    ]
+
+    def pick_host(timeout=0.7, exclude_hosts=None):
+        exclude_hosts = exclude_hosts or set()
+        for host in hosts:
+            if (host.ip, host.port) not in exclude_hosts:
+                return host
+        raise RuntimeError("no host")
+
+    monkeypatch.setattr(etf_adj_sync, "_pick_hq_host", pick_host)
+    FakeTdxApi.instance_count = 0
+    FakeTdxApi.connect_outcome_by_endpoint = {("10.0.1.2", 7709): False}
+    FakeTdxApi.payload_by_code = {}
+    FakeTdxApi.payload_by_endpoint_and_code = {
+        ("10.0.1.1", 7709, "512800"): [],
+        (
+            "10.0.1.3",
+            7709,
+            "512800",
+        ): [
+            {
+                "year": 2025,
+                "month": 7,
+                "day": 7,
+                "category": 11,
+                "name": "扩缩股",
+                "suogu": 2.0,
+            }
+        ],
     }
     monkeypatch.setattr(etf_adj_sync, "_import_pytdx", lambda: (FakeTdxApi, []))
 
