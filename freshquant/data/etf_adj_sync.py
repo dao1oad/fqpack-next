@@ -61,10 +61,16 @@ def _import_pytdx():
         return TdxHq_API, hq_hosts
 
 
-def _pick_hq_host(timeout: float = 0.7) -> TdxHqHost:
+def _pick_hq_host(
+    timeout: float = 0.7,
+    *,
+    exclude_hosts: Optional[set[tuple[str, int]]] = None,
+) -> TdxHqHost:
     TdxHq_API, hq_hosts = _import_pytdx()
     api = TdxHq_API()
     for name, ip, port in hq_hosts:
+        if exclude_hosts and (ip, int(port)) in exclude_hosts:
+            continue
         try:
             conn = api.connect(ip, port, time_out=timeout)
             if conn:
@@ -123,12 +129,34 @@ def _normalize_code_list(codes: Optional[Iterable[str]]) -> list[str]:
     return [str(c).strip().zfill(6) for c in codes if str(c).strip()]
 
 
+def _fetch_xdxr_df(api, *, market: int, code: str) -> pd.DataFrame:
+    raw = api.get_xdxr_info(market, code)
+    df = api.to_df(raw) if raw else pd.DataFrame()
+    if df is None:
+        return pd.DataFrame()
+    return df
+
+
+def _fetch_xdxr_df_with_fresh_connection(
+    tdx_api_cls,
+    *,
+    host: TdxHqHost,
+    timeout: float,
+    market: int,
+    code: str,
+) -> pd.DataFrame:
+    api = tdx_api_cls()
+    with api.connect(host.ip, host.port, time_out=timeout):
+        return _fetch_xdxr_df(api, market=market, code=code)
+
+
 def sync_etf_xdxr_all(
     *,
     db=DBQuantAxis,
     codes: Optional[Iterable[str]] = None,
     timeout: float = 0.7,
     preserve_on_empty: bool = True,
+    reconnect_every: int = 200,
 ) -> dict:
     """
     同步 ETF 除权/拆分事件到 quantaxis.etf_xdxr。
@@ -152,79 +180,142 @@ def sync_etf_xdxr_all(
             etf_map[c] = None
 
     TdxHq_API, _ = _import_pytdx()
-    host = _pick_hq_host(timeout=timeout)
-    logger.info(f"TDX HQ host selected: {host.name} {host.ip}:{host.port}")
+    current_host = _pick_hq_host(timeout=timeout)
+    logger.info(
+        f"TDX HQ host selected: {current_host.name} {current_host.ip}:{current_host.port}"
+    )
 
     coll = db.etf_xdxr
     ok = 0
     failed = 0
     empty = 0
     preserved = 0
+    retried_empty = 0
+    recovered_after_retry = 0
+    retry_failed = 0
+    reconnect_every = max(int(reconnect_every), 1)
 
-    api = TdxHq_API()
-    with api.connect(host.ip, host.port, time_out=timeout):
-        for i, code in enumerate(code_list, 1):
-            market = _market_from_sse_or_code(sse=etf_map.get(code), code=code)
+    for batch_start in range(0, len(code_list), reconnect_every):
+        batch_codes = code_list[batch_start : batch_start + reconnect_every]
+        if batch_start > 0:
             try:
-                raw = api.get_xdxr_info(market, code)
-                df = api.to_df(raw) if raw else pd.DataFrame()
-                if df is None or len(df) == 0:
-                    existing_docs = list(
-                        coll.find({"code": code}, {"_id": 0, "code": 1}).sort(
-                            "date", -1
+                current_host = _pick_hq_host(
+                    timeout=timeout,
+                    exclude_hosts={(current_host.ip, current_host.port)},
+                )
+            except RuntimeError:
+                pass
+        api = TdxHq_API()
+        with api.connect(current_host.ip, current_host.port, time_out=timeout):
+            for batch_offset, code in enumerate(batch_codes, 1):
+                i = batch_start + batch_offset
+                market = _market_from_sse_or_code(sse=etf_map.get(code), code=code)
+                try:
+                    df = _fetch_xdxr_df(api, market=market, code=code)
+                    if df is None or len(df) == 0:
+                        retried_empty += 1
+                        existing_docs = list(
+                            coll.find(
+                                {"code": code},
+                                {"_id": 0, "code": 1, "date": 1},
+                            ).sort("date", -1)
                         )
+                        retry_df = pd.DataFrame()
+                        retry_host = current_host
+                        try:
+                            retry_host = _pick_hq_host(
+                                timeout=timeout,
+                                exclude_hosts={(current_host.ip, current_host.port)},
+                            )
+                        except RuntimeError:
+                            retry_host = current_host
+                        try:
+                            retry_df = _fetch_xdxr_df_with_fresh_connection(
+                                TdxHq_API,
+                                host=retry_host,
+                                timeout=timeout,
+                                market=market,
+                                code=code,
+                            )
+                        except Exception as retry_error:
+                            retry_failed += 1
+                            logger.warning(
+                                f"sync etf_xdxr retry failed: {code} market={market} "
+                                f"host={retry_host.name} {retry_host.ip}:{retry_host.port} err={retry_error}"
+                            )
+
+                        if retry_df is not None and len(retry_df) > 0:
+                            recovered_after_retry += 1
+                            if existing_docs:
+                                logger.warning(
+                                    "sync etf_xdxr recovered after empty result via fresh connection: "
+                                    f"{code} market={market} retry_host={retry_host.name} "
+                                    f"latest_existing={existing_docs[0].get('date')}"
+                                )
+                            df = retry_df
+                        elif existing_docs and preserve_on_empty:
+                            preserved += 1
+                            logger.warning(
+                                "sync etf_xdxr empty after retry, preserving existing docs: "
+                                f"{code} market={market} latest_existing={existing_docs[0].get('date')}"
+                            )
+                            continue
+                        else:
+                            coll.delete_many({"code": code})
+                            empty += 1
+                            continue
+
+                    for col in ["year", "month", "day", "category"]:
+                        if col not in df.columns:
+                            raise ValueError(f"TDX xdxr missing column: {col}")
+
+                    df["date"] = pd.to_datetime(
+                        df[["year", "month", "day"]], errors="coerce"
+                    ).dt.strftime("%Y-%m-%d")
+                    df = df.drop(
+                        columns=[c for c in ["year", "month", "day"] if c in df.columns]
                     )
-                    if existing_docs and preserve_on_empty:
-                        preserved += 1
-                    else:
-                        coll.delete_many({"code": code})
-                        empty += 1
+                    df["code"] = code
+                    df["category_meaning"] = df["category"].map(
+                        lambda x: _CATEGORY_MEANING.get(int(x))
+                    )
+                    if "name" in df.columns:
+                        df["category_meaning"] = df["category_meaning"].fillna(
+                            df["name"]
+                        )
+                    df["category_meaning"] = df["category_meaning"].fillna(
+                        df["category"].astype(str)
+                    )
+                    df = df.rename(
+                        columns={
+                            "panhouliutong": "liquidity_after",
+                            "panqianliutong": "liquidity_before",
+                            "houzongguben": "shares_after",
+                            "qianzongguben": "shares_before",
+                        }
+                    )
+
+                    df = df.where(pd.notnull(df), None)
+                    docs = df.to_dict(orient="records")
+
+                    coll.delete_many({"code": code})
+                    if docs:
+                        coll.insert_many(docs, ordered=False)
+                    ok += 1
+                except Exception as e:
+                    failed += 1
+                    logger.warning(
+                        f"sync etf_xdxr failed: {code} market={market} err={e}"
+                    )
                     continue
 
-                for col in ["year", "month", "day", "category"]:
-                    if col not in df.columns:
-                        raise ValueError(f"TDX xdxr missing column: {col}")
-
-                df["date"] = pd.to_datetime(
-                    df[["year", "month", "day"]], errors="coerce"
-                ).dt.strftime("%Y-%m-%d")
-                df = df.drop(
-                    columns=[c for c in ["year", "month", "day"] if c in df.columns]
-                )
-                df["code"] = code
-                df["category_meaning"] = df["category"].map(
-                    lambda x: _CATEGORY_MEANING.get(int(x))
-                )
-                if "name" in df.columns:
-                    df["category_meaning"] = df["category_meaning"].fillna(df["name"])
-                df["category_meaning"] = df["category_meaning"].fillna(
-                    df["category"].astype(str)
-                )
-                df = df.rename(
-                    columns={
-                        "panhouliutong": "liquidity_after",
-                        "panqianliutong": "liquidity_before",
-                        "houzongguben": "shares_after",
-                        "qianzongguben": "shares_before",
-                    }
-                )
-
-                df = df.where(pd.notnull(df), None)
-                docs = df.to_dict(orient="records")
-
-                coll.delete_many({"code": code})
-                if docs:
-                    coll.insert_many(docs, ordered=False)
-                ok += 1
-            except Exception as e:
-                failed += 1
-                logger.warning(f"sync etf_xdxr failed: {code} market={market} err={e}")
-                continue
-
-            if i % 200 == 0:
-                logger.info(
-                    f"etf_xdxr progress: {i}/{len(code_list)} ok={ok} empty={empty} preserved={preserved} failed={failed}"
-                )
+                if i % 200 == 0:
+                    logger.info(
+                        "etf_xdxr progress: "
+                        f"{i}/{len(code_list)} ok={ok} empty={empty} preserved={preserved} "
+                        f"failed={failed} retried_empty={retried_empty} "
+                        f"recovered_after_retry={recovered_after_retry} retry_failed={retry_failed}"
+                    )
 
     return {
         "total": len(code_list),
@@ -232,6 +323,9 @@ def sync_etf_xdxr_all(
         "empty": empty,
         "preserved": preserved,
         "failed": failed,
+        "retried_empty": retried_empty,
+        "recovered_after_retry": recovered_after_retry,
+        "retry_failed": retry_failed,
     }
 
 
