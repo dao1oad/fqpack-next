@@ -1,4 +1,4 @@
-export const SUPPORTED_CHANLUN_PERIODS = ['1m', '5m', '15m', '30m']
+export const SUPPORTED_CHANLUN_PERIODS = ['1m', '5m', '15m', '30m', '1d']
 
 export const DEFAULT_MAIN_PERIOD = '5m'
 
@@ -36,6 +36,14 @@ export const PERIOD_STYLE_MAP = {
     zhongshu: '#3b82f6',
     duanZhongshu: '#ef4444',
     higherDuanZhongshu: '#22c55e'
+  },
+  '1d': {
+    bi: '#22c55e',
+    duan: '#f97316',
+    higherDuan: '#a855f7',
+    zhongshu: '#22c55e',
+    duanZhongshu: '#f97316',
+    higherDuanZhongshu: '#a855f7'
   }
 }
 
@@ -43,14 +51,16 @@ export const PERIOD_WIDTH_FACTOR = {
   '1m': 1,
   '5m': 3,
   '15m': 4,
-  '30m': 5
+  '30m': 5,
+  '1d': 7
 }
 
 export const PERIOD_DURATION_MS = {
   '1m': 60 * 1000,
   '5m': 5 * 60 * 1000,
   '15m': 15 * 60 * 1000,
-  '30m': 30 * 60 * 1000
+  '30m': 30 * 60 * 1000,
+  '1d': 24 * 60 * 60 * 1000
 }
 
 function buildDefaultLegendSelection(currentPeriod) {

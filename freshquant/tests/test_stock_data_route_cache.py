@@ -210,6 +210,51 @@ def test_stock_data_falls_back_when_opt_in_cache_missing(monkeypatch, stock_rout
     assert fake_redis.keys == [get_redis_cache_key("sz000001", "15min")]
 
 
+def test_stock_data_reads_redis_for_opt_in_1d_period(monkeypatch, stock_routes):
+    cached_payload = {"symbol": "sz000001", "period": "1d", "close": [1, 2, 3]}
+    fake_redis = FakeRedis(value=json.dumps(cached_payload))
+
+    monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(
+        stock_routes,
+        "get_data_v2",
+        lambda *args, **kwargs: pytest.fail("1d cache hit should not call fallback"),
+    )
+
+    response = call_stock_data(
+        stock_routes, symbol="sz000001", period="1d", realtimeCache="1"
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == cached_payload
+    assert fake_redis.keys == [get_redis_cache_key("sz000001", "1d")]
+
+
+def test_stock_data_falls_back_when_opt_in_1d_cache_missing(monkeypatch, stock_routes):
+    fake_redis = FakeRedis(value=None)
+    fallback_calls = []
+
+    def fake_get_data_v2(symbol, period, end_date, bar_count=0):
+        fallback_calls.append((symbol, period, end_date, bar_count))
+        return {"source": "fallback", "symbol": symbol, "period": period}
+
+    monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
+
+    response = call_stock_data(
+        stock_routes, symbol="sz000001", period="1d", realtimeCache="true"
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "source": "fallback",
+        "symbol": "sz000001",
+        "period": "1d",
+    }
+    assert fallback_calls == [("sz000001", "1d", None, 0)]
+    assert fake_redis.keys == [get_redis_cache_key("sz000001", "1d")]
+
+
 def test_stock_data_skips_redis_when_end_date_present(monkeypatch, stock_routes):
     fake_redis = FakeRedis(value=json.dumps({"source": "cache"}))
     fallback_calls = []
