@@ -1399,11 +1399,21 @@ export default {
           : [true, true, true],
         enabled: Boolean(this.guardianDraft?.enabled ?? true)
       }
+      const previousGuardianState = {
+        ...this.guardianState,
+        buy_active: Array.isArray(this.guardianState?.buy_active)
+          ? this.guardianState.buy_active.slice(0, 3).map((item) => item !== false)
+          : [true, true, true]
+      }
 
       this.guardianDraft = {
         ...this.guardianDraft,
         buy_enabled: nextBuyEnabled,
         enabled: nextBuyEnabled.some(Boolean)
+      }
+      this.guardianState = {
+        ...this.guardianState,
+        buy_active: nextBuyEnabled.slice(0, 3).map((item) => item !== false)
       }
 
       try {
@@ -1412,10 +1422,12 @@ export default {
           symbol: this.routeSymbol,
           notify: this.$message,
           afterRefresh: () => this.scheduleRender(),
-          nextBuyEnabled
+          nextBuyEnabled,
+          syncRuntimeState: true
         })
       } catch (error) {
         this.guardianDraft = previousGuardianDraft
+        this.guardianState = previousGuardianState
         throw error
       }
     },
@@ -1423,6 +1435,12 @@ export default {
       const previousDrafts = Array.isArray(this.takeprofitDrafts)
         ? this.takeprofitDrafts.map((row) => ({ ...row }))
         : []
+      const previousTakeprofitState = {
+        ...this.takeprofitState,
+        armed_levels: {
+          ...(this.takeprofitState?.armed_levels || {})
+        }
+      }
       const nextManualEnabled = [enabled !== false, enabled !== false, enabled !== false]
 
       this.takeprofitDrafts = TAKEPROFIT_GUIDE_META.map((item) => {
@@ -1437,6 +1455,12 @@ export default {
           manual_enabled: nextManualEnabled[item.level - 1]
         }
       })
+      this.takeprofitState = {
+        ...this.takeprofitState,
+        armed_levels: Object.fromEntries(
+          TAKEPROFIT_GUIDE_META.map((item) => [item.level, nextManualEnabled[item.level - 1] !== false])
+        )
+      }
 
       try {
         return await saveTakeprofitGuideEnabledState(this, {
@@ -1444,10 +1468,12 @@ export default {
           symbol: this.routeSymbol,
           notify: this.$message,
           afterRefresh: () => this.scheduleRender(),
-          nextManualEnabled
+          nextManualEnabled,
+          syncRuntimeState: true
         })
       } catch (error) {
         this.takeprofitDrafts = previousDrafts
+        this.takeprofitState = previousTakeprofitState
         throw error
       }
     },

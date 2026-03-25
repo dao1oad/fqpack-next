@@ -347,6 +347,133 @@ test('saveTakeprofitGuideEnabledState updates only takeprofit switches and keeps
   )
 })
 
+test('saveGuardianGuideEnabledState syncs Guardian runtime state for bulk actions when requested', async () => {
+  const calls = []
+  let savedBuyEnabled = [true, false, true]
+  let savedBuyActive = [true, false, true]
+  const actions = createKlineSlimPricePanelActions({
+    async getDetail(symbol) {
+      calls.push(['getDetail', symbol])
+      return makeDetail(symbol, {
+        guardian_buy_grid_config: {
+          enabled: savedBuyEnabled.some(Boolean),
+          buy_enabled: savedBuyEnabled,
+          buy_1: 10.2,
+          buy_2: 9.9,
+          buy_3: 9.5,
+        },
+        guardian_buy_grid_state: {
+          buy_active: savedBuyActive,
+        },
+      })
+    },
+    async saveGuardianBuyGrid(symbol, payload) {
+      savedBuyEnabled = payload.buy_enabled.slice(0, 3)
+      calls.push(['saveGuardianBuyGrid', symbol, payload.buy_enabled, payload.enabled])
+      return { symbol, ...payload }
+    },
+    async saveGuardianBuyGridState(symbol, payload) {
+      savedBuyActive = payload.buy_active.slice(0, 3)
+      calls.push(['saveGuardianBuyGridState', symbol, payload.buy_active])
+      return { code: symbol, ...payload }
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  await loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '600000',
+    force: true,
+  })
+  state.guardianDraft.buy_1 = 10.888
+
+  const result = await saveGuardianGuideEnabledState(state, {
+    actions,
+    symbol: '600000',
+    notify: {},
+    nextBuyEnabled: [true, true, true],
+    syncRuntimeState: true,
+  })
+
+  assert.deepEqual(calls, [
+    ['getDetail', '600000'],
+    ['saveGuardianBuyGrid', '600000', [true, true, true], true],
+    ['saveGuardianBuyGridState', '600000', [true, true, true]],
+    ['getDetail', '600000'],
+  ])
+  assert.equal(result.ok, true)
+  assert.equal(state.guardianDraft.buy_1, 10.888)
+  assert.deepEqual(state.guardianDraft.buy_enabled, [true, true, true])
+})
+
+test('saveTakeprofitGuideEnabledState rearms runtime state for bulk actions when requested', async () => {
+  const calls = []
+  let savedManualEnabled = [true, false, true]
+  const actions = createKlineSlimPricePanelActions({
+    async getDetail(symbol) {
+      calls.push(['getDetail', symbol])
+      return makeDetail(symbol, {
+        takeprofit: {
+          tiers: [
+            { level: 1, price: 10.8, manual_enabled: savedManualEnabled[0] },
+            { level: 2, price: 11.2, manual_enabled: savedManualEnabled[1] },
+            { level: 3, price: 11.8, manual_enabled: savedManualEnabled[2] },
+          ],
+          state: {
+            armed_levels: {
+              1: savedManualEnabled[0],
+              2: savedManualEnabled[1],
+              3: savedManualEnabled[2],
+            },
+          },
+        },
+      })
+    },
+    async saveTakeprofitProfile(symbol, payload) {
+      savedManualEnabled = payload.tiers.map((row) => Boolean(row.manual_enabled))
+      calls.push([
+        'saveTakeprofitProfile',
+        symbol,
+        payload.tiers.map((row) => row.manual_enabled),
+      ])
+      return { symbol, ...payload }
+    },
+    async rearmTakeprofit(symbol) {
+      calls.push(['rearmTakeprofit', symbol])
+      return { symbol, ok: true }
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  await loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '600000',
+    force: true,
+  })
+  state.takeprofitDrafts[0].price = 10.999
+
+  const result = await saveTakeprofitGuideEnabledState(state, {
+    actions,
+    symbol: '600000',
+    notify: {},
+    nextManualEnabled: [false, false, false],
+    syncRuntimeState: true,
+  })
+
+  assert.deepEqual(calls, [
+    ['getDetail', '600000'],
+    ['saveTakeprofitProfile', '600000', [false, false, false]],
+    ['rearmTakeprofit', '600000'],
+    ['getDetail', '600000'],
+  ])
+  assert.equal(result.ok, true)
+  assert.equal(state.takeprofitDrafts[0].price, 10.999)
+  assert.deepEqual(
+    state.takeprofitDrafts.map((row) => row.manual_enabled),
+    [false, false, false],
+  )
+})
+
 test('loadSubjectPriceDetail ignores stale responses from older symbol requests', async () => {
   const resolvers = new Map()
   const actions = createKlineSlimPricePanelActions({
