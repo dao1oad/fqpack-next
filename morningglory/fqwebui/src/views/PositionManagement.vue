@@ -189,12 +189,11 @@
               <div v-if="symbolLimitRows.length" class="runtime-ledger runtime-position-symbol-limit-ledger">
                 <div class="runtime-ledger__header runtime-position-symbol-limit-ledger__grid">
                   <span>标的</span>
-                  <span>系统默认值</span>
                   <span>单标的上限设置</span>
+                  <span>操作</span>
                   <span>当前来源</span>
                   <span>一致性</span>
                   <span>门禁</span>
-                  <span>操作</span>
                   <span>券商仓位</span>
                   <span>推断仓位</span>
                   <span>stock_fills仓位</span>
@@ -213,7 +212,6 @@
                     <strong>{{ row.symbol }}</strong>
                     <span>{{ row.name }}</span>
                   </div>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.default_limit_label }}</span>
                   <div class="runtime-ledger__cell position-symbol-limit-input">
                     <el-input-number
                       v-model="symbolLimitDrafts[row.symbol]"
@@ -222,6 +220,16 @@
                       :step="10000"
                       controls-position="right"
                     />
+                  </div>
+                  <div class="runtime-ledger__cell position-symbol-limit-actions">
+                    <el-button
+                      type="primary"
+                      text
+                      :loading="Boolean(symbolLimitSaving[row.symbol])"
+                      @click="saveSymbolLimit(row)"
+                    >
+                      保存
+                    </el-button>
                   </div>
                   <span class="runtime-ledger__cell runtime-ledger__cell--status">{{ row.source_label }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--status" :title="row.consistency_detail_label">
@@ -234,16 +242,6 @@
                       {{ row.blocked_label }}
                     </span>
                   </span>
-                  <div class="runtime-ledger__cell position-symbol-limit-actions">
-                    <el-button
-                      type="primary"
-                      text
-                      :loading="Boolean(symbolLimitSaving[row.symbol])"
-                      @click="saveSymbolLimit(row)"
-                    >
-                      保存
-                    </el-button>
-                  </div>
                   <div class="runtime-ledger__cell position-source-cell" :title="row.broker_position_source_label">
                     <strong>{{ row.broker_position_label }}</strong>
                     <span>{{ row.broker_position_source_label }}</span>
@@ -566,7 +564,7 @@ onMounted(() => {
   --position-upper-panel-height: clamp(420px, 44dvh, 500px);
   --position-symbol-limit-ledger-row-height: 48px;
   --position-symbol-limit-ledger-body-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
-  --position-symbol-limit-position-column-width: 188px;
+  --position-symbol-limit-position-column-min-width: 220px;
   display: grid;
   grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.32fr);
   gap: 12px;
@@ -869,15 +867,14 @@ onMounted(() => {
 .runtime-position-symbol-limit-ledger__grid {
   grid-template-columns:
     144px
-    92px
     144px
+    84px
     88px
     92px
     72px
-    84px
-    var(--position-symbol-limit-position-column-width)
-    var(--position-symbol-limit-position-column-width)
-    var(--position-symbol-limit-position-column-width);
+    minmax(var(--position-symbol-limit-position-column-min-width), 1fr)
+    minmax(var(--position-symbol-limit-position-column-min-width), 1fr)
+    minmax(var(--position-symbol-limit-position-column-min-width), 1fr);
 }
 
 .runtime-ledger__cell {
