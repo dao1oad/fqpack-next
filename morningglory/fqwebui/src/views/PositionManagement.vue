@@ -563,13 +563,14 @@ onMounted(() => {
 }
 
 .position-lower-grid {
+  --position-upper-panel-height: clamp(420px, 44dvh, 500px);
   --position-symbol-limit-ledger-row-height: 48px;
   --position-symbol-limit-ledger-body-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
-  --position-symbol-limit-source-column-width: 184px;
+  --position-symbol-limit-source-column-min-width: 240px;
   display: grid;
   grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.32fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .position-lower-column {
@@ -582,7 +583,8 @@ onMounted(() => {
 .position-lower-column > .workbench-panel {
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: var(--position-upper-panel-height);
+  height: var(--position-upper-panel-height);
   overflow: hidden;
 }
 
@@ -693,23 +695,6 @@ onMounted(() => {
   display: block;
   margin-top: 2px;
   color: #303133;
-  line-height: 1.35;
-}
-
-.position-rule-card {
-  justify-content: flex-start;
-}
-
-.position-rule-card span {
-  color: #909399;
-  font-size: 11px;
-}
-
-.position-rule-card strong {
-  display: block;
-  margin-top: 2px;
-  color: #303133;
-  font-size: 15px;
   line-height: 1.35;
 }
 
@@ -869,16 +854,16 @@ onMounted(() => {
 
 .runtime-position-symbol-limit-ledger__grid {
   grid-template-columns:
-    150px
-    164px
-    var(--position-symbol-limit-source-column-width)
-    var(--position-symbol-limit-source-column-width)
+    144px
+    168px
+    minmax(var(--position-symbol-limit-source-column-min-width), 1.1fr)
+    minmax(var(--position-symbol-limit-source-column-min-width), 1.1fr)
+    92px
+    144px
     88px
-    152px
-    88px
-    96px
-    76px
-    132px;
+    92px
+    72px
+    84px;
 }
 
 .runtime-ledger__cell {
