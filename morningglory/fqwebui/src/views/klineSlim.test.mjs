@@ -90,6 +90,22 @@ test('KlineSlim price guide panel separates price saving from switch control', (
   assert.match(scriptSource, /handleTakeprofitGuideEnabledAll\(enabled\)/)
 })
 
+test('KlineSlim price guide panel shows read-only runtime states for Guardian and takeprofit', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /运行态 \{\{ guardianRuntimeActiveCount \}\}\/3/)
+  assert.match(viewSource, /运行态 \{\{ takeprofitRuntimeActiveCount \}\}\/3/)
+  assert.match(viewSource, /最近命中 \{\{ guardianLastHitLabel \}\}/)
+  assert.match(viewSource, /最近命中价/)
+  assert.match(viewSource, /运行态 \{\{ row\.runtimeStateLabel \}\}/)
+  assert.match(scriptSource, /guardianLastHitLabel\(\)/)
+  assert.match(scriptSource, /guardianRuntimeActiveCount\(\)/)
+  assert.match(scriptSource, /takeprofitRuntimeActiveCount\(\)/)
+  assert.match(scriptSource, /runtime_active:/)
+  assert.doesNotMatch(viewSource, />\s*命中价\s*</)
+})
+
 test('KlineSlim exposes a reset viewport control that returns the chart to auto mode', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')

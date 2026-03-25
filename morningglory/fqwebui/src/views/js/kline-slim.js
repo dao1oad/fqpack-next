@@ -380,8 +380,17 @@ export default {
         index,
         price: this.guardianDraft?.[item.key] ?? null,
         manual_enabled: buyEnabled[index] !== false,
+        runtime_active: buyActive[index] !== false,
+        runtimeStateLabel: buyActive[index] !== false ? '激活' : '未激活',
         active: buyEnabled[index] !== false && buyActive[index] !== false
       }))
+    },
+    guardianRuntimeActiveCount() {
+      return this.guardianGuideRows.filter((row) => row.runtime_active).length
+    },
+    guardianLastHitLabel() {
+      const lastHitLevel = String(this.guardianState?.last_hit_level || '').trim()
+      return lastHitLevel || '未命中'
     },
     takeprofitGuideRows() {
       return TAKEPROFIT_GUIDE_META.map((item) => {
@@ -391,14 +400,20 @@ export default {
           price: null,
           manual_enabled: true
         }
+        const runtimeActive = isTakeprofitArmedLevel(this.takeprofitState, item.level)
         return {
           ...item,
           draftIndex,
           price: draft.price,
           manual_enabled: Boolean(draft.manual_enabled),
+          runtime_active: runtimeActive,
+          runtimeStateLabel: runtimeActive ? '已布防' : '未布防',
           armed: Boolean(draft.manual_enabled) && isTakeprofitArmedLevel(this.takeprofitState, item.level)
         }
       })
+    },
+    takeprofitRuntimeActiveCount() {
+      return this.takeprofitGuideRows.filter((row) => row.runtime_active).length
     },
     lastMainClosePrice() {
       return resolveLatestClosePrice(this.mainData)
