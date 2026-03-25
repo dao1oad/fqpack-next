@@ -230,9 +230,7 @@ def test_stock_data_reads_redis_for_opt_in_1d_period(monkeypatch, stock_routes):
     assert fake_redis.keys == [get_redis_cache_key("sz000001", "1d")]
 
 
-def test_stock_data_falls_back_when_opt_in_1d_cache_missing(
-    monkeypatch, stock_routes
-):
+def test_stock_data_falls_back_when_opt_in_1d_cache_missing(monkeypatch, stock_routes):
     fake_redis = FakeRedis(value=None)
     fallback_calls = []
 
