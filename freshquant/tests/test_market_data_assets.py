@@ -413,7 +413,7 @@ def test_etf_xdxr_asset_calls_sync_function(monkeypatch):
     monkeypatch.setattr(
         module,
         "sync_etf_xdxr_all",
-        lambda: captured.setdefault("etf_xdxr", True) or {"ok": 1},
+        lambda: captured.setdefault("etf_xdxr", True) and {"ok": 1},
     )
 
     context = SimpleNamespace(log=log)

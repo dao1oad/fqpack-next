@@ -124,6 +124,21 @@ def test_dagster_surface_requires_shared_rear_build_target() -> None:
     ]
 
 
+def test_etf_adj_sync_path_requires_dagster_redeploy() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/data/etf_adj_sync.py"]
+    )
+
+    assert plan["deployment_surfaces"] == ["dagster"]
+    assert plan["docker_build_targets"] == ["fq_apiserver"]
+    assert plan["docker_up_services"] == [
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+    ]
+
+
 def test_qa_surface_requires_shared_rear_build_target() -> None:
     module = load_module()
 

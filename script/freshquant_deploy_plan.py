@@ -232,6 +232,12 @@ PATH_RULES: tuple[PathRule, ...] = (
         notes=("Gantt/Shouban30 读模型改动后按数据状态评估是否补跑 Dagster。",),
     ),
     ExactRule(
+        label="etf-adj-sync",
+        exact_path="freshquant/data/etf_adj_sync.py",
+        surfaces=("dagster",),
+        notes=("ETF 前复权 xdxr/adj 同步逻辑变更后必须重部署 Dagster。",),
+    ),
+    ExactRule(
         label="shouban30-pool-service",
         exact_path="freshquant/shouban30_pool_service.py",
         surfaces=("api",),

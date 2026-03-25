@@ -163,6 +163,44 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 重新执行命中的 Docker deploy 或整轮 formal deploy
 - 再次执行 `check_freshquant_runtime_post_deploy.ps1 -Mode Verify`，确认 Dagster 容器从 `Restarting` 恢复为 `running`
 
+## ETF 前复权未生效但 Dagster run 显示成功
+
+现象：
+
+- KlineSlim / ETF 日线在拆分、扩缩股之后仍显示 bfq 价格
+- `quantaxis.etf_xdxr` 缺少目标 ETF 的历史事件，但 Dagster `etf_data_schedule` 显示成功
+- `quantaxis.etf_adj` 在事件日前后仍全部为 `1.0`
+
+先检查：
+
+- `@'
+from freshquant.db import DBQuantAxis
+print(list(DBQuantAxis.etf_xdxr.find({'code':'512800'},{'_id':0}).sort('date',1)))
+print(list(DBQuantAxis.etf_adj.find({'code':'512800','date':{'$gte':'2025-07-01','$lte':'2025-07-10'}},{'_id':0}).sort('date',1)))
+'@ | py -3.12 -m uv run -`
+- `docker exec fqnext_20260223-fq_dagster_webserver-1 sh -lc 'grep -R -n "ETF xdxr sync stats\|preserved=\|sync etf_xdxr empty after retry" /opt/dagster/logs || true'`
+- `@'
+from freshquant.data.etf_adj_sync import sync_etf_xdxr_all
+print(sync_etf_xdxr_all(codes=['512800']))
+'@ | py -3.12 -m uv run -`
+
+常见根因：
+
+- pytdx 长连接在 ETF xdxr 全量批量同步后段返回空结果
+- 部分 ETF 的旧 `etf_xdxr` 文档来自 TDX 之外的历史回填，TDX 当前返回为空时会走 `preserve_on_empty=True` 保留旧文档；如果某只 ETF 在长连接退化场景下误返回空，也会被保留成旧状态
+
+处理：
+
+- 当前实现会对 ETF xdxr 首次空结果做 fresh connection retry，并在全量同步时周期性重建 TDX 连接
+- retry 仍超时或为空时，优先核对该 code 在不同 TDX host 上是否一致为空；对确实为空但库里已有历史回填的 ETF，允许保留旧文档
+- 对单券立即修复可执行：
+  - `@'
+from freshquant.data.etf_adj_sync import sync_etf_adj_all, sync_etf_xdxr_all
+print(sync_etf_xdxr_all(codes=['512800']))
+print(sync_etf_adj_all(codes=['512800']))
+'@ | py -3.12 -m uv run -`
+- 正式修复后，重新部署 Dagster，并再跑一次 formal deploy health check / runtime verify
+
 ## xt_account_sync worker 启动即 Fatal
 
 现象：
