@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import pytest
+
 
 def _build_dagster_stub():
     module = ModuleType("dagster")
@@ -77,6 +79,7 @@ def _build_etf_adj_sync_stub():
     module = ModuleType("freshquant.data.etf_adj_sync")
     module.sync_etf_adj_all = lambda *args, **kwargs: None
     module.sync_etf_xdxr_all = lambda *args, **kwargs: None
+    module.audit_recent_etf_xdxr_coverage = lambda *args, **kwargs: None
     return module
 
 
@@ -413,7 +416,14 @@ def test_etf_xdxr_asset_calls_sync_function(monkeypatch):
     monkeypatch.setattr(
         module,
         "sync_etf_xdxr_all",
-        lambda: captured.setdefault("etf_xdxr", True) and {"ok": 1},
+        lambda: captured.setdefault("etf_xdxr", True)
+        and {"ok": 1, "empty_codes": [], "preserved_codes": []},
+    )
+    monkeypatch.setattr(
+        module,
+        "audit_recent_etf_xdxr_coverage",
+        lambda **kwargs: captured.setdefault("etf_xdxr_audit", kwargs)
+        or {"mismatched": 0, "failed": 0},
     )
 
     context = SimpleNamespace(log=log)
@@ -421,6 +431,31 @@ def test_etf_xdxr_asset_calls_sync_function(monkeypatch):
 
     assert captured == {"etf_xdxr": True}
     assert isinstance(result, str)
+
+
+def test_etf_xdxr_asset_raises_when_recent_audit_finds_mismatch(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    log = FakeLog()
+    captured = {}
+
+    monkeypatch.setattr(
+        module,
+        "sync_etf_xdxr_all",
+        lambda: {"ok": 1, "empty_codes": ["512800"], "preserved_codes": []},
+    )
+    monkeypatch.setattr(
+        module,
+        "audit_recent_etf_xdxr_coverage",
+        lambda **kwargs: (
+            captured.setdefault("audit_kwargs", kwargs),
+            {"mismatched": 1, "failed": 0, "mismatch_codes": ["512800"]},
+        )[1],
+    )
+
+    context = SimpleNamespace(log=log)
+    with pytest.raises(RuntimeError, match="512800"):
+        module.etf_xdxr(context, "2026-03-17 16:00:00")
+    assert captured == {"audit_kwargs": {"codes": ["512800"]}}
 
 
 def test_etf_adj_asset_calls_sync_function(monkeypatch):

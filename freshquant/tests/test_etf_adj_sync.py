@@ -166,6 +166,8 @@ def test_sync_etf_xdxr_all_preserves_existing_docs_when_source_returns_empty(
         "retried_empty": 1,
         "recovered_after_retry": 0,
         "retry_failed": 0,
+        "empty_codes": [],
+        "preserved_codes": ["512000"],
     }
     assert db.etf_xdxr.documents == [
         {
@@ -221,6 +223,8 @@ def test_sync_etf_xdxr_all_replaces_docs_when_source_returns_events(monkeypatch)
         "retried_empty": 0,
         "recovered_after_retry": 0,
         "retry_failed": 0,
+        "empty_codes": [],
+        "preserved_codes": [],
     }
     assert db.etf_xdxr.documents == [
         {
@@ -283,6 +287,8 @@ def test_sync_etf_xdxr_all_retries_empty_result_before_preserving_docs(monkeypat
         "retried_empty": 1,
         "recovered_after_retry": 1,
         "retry_failed": 0,
+        "empty_codes": [],
+        "preserved_codes": [],
     }
     assert db.etf_xdxr.documents == [
         {
@@ -346,5 +352,115 @@ def test_sync_etf_xdxr_all_reconnects_between_batches(monkeypatch):
         "retried_empty": 0,
         "recovered_after_retry": 0,
         "retry_failed": 0,
+        "empty_codes": [],
+        "preserved_codes": [],
     }
     assert FakeTdxApi.instance_count == 2
+
+
+def test_audit_recent_etf_xdxr_coverage_reports_missing_recent_source_event(
+    monkeypatch,
+):
+    db = FakeDb(
+        etf_list=[{"code": "512800", "sse": "sh"}],
+        etf_xdxr=[
+            {
+                "code": "512800",
+                "date": "2023-12-25",
+                "category": 1,
+                "fenhong": 0.48,
+            }
+        ],
+    )
+
+    monkeypatch.setattr(etf_adj_sync, "_ensure_indexes", lambda db: None)
+    monkeypatch.setattr(
+        etf_adj_sync,
+        "_pick_hq_host",
+        lambda timeout=0.7, **kwargs: etf_adj_sync.TdxHqHost("fake", "127.0.0.1", 7709),
+    )
+    FakeTdxApi.instance_count = 0
+    FakeTdxApi.payload_by_code = {
+        "512800": [
+            {
+                "year": 2025,
+                "month": 7,
+                "day": 7,
+                "category": 11,
+                "name": "扩缩股",
+                "suogu": 2.0,
+            }
+        ]
+    }
+    monkeypatch.setattr(etf_adj_sync, "_import_pytdx", lambda: (FakeTdxApi, []))
+
+    stats = etf_adj_sync.audit_recent_etf_xdxr_coverage(
+        db=db,
+        as_of_date="2025-07-10",
+        recent_days=30,
+    )
+
+    assert stats == {
+        "total": 1,
+        "checked": 1,
+        "matching": 0,
+        "mismatched": 1,
+        "source_empty": 0,
+        "failed": 0,
+        "cutoff_date": "2025-06-10",
+        "mismatch_codes": ["512800"],
+    }
+
+
+def test_audit_recent_etf_xdxr_coverage_accepts_matching_recent_source_event(
+    monkeypatch,
+):
+    db = FakeDb(
+        etf_list=[{"code": "512800", "sse": "sh"}],
+        etf_xdxr=[
+            {
+                "code": "512800",
+                "date": "2025-07-07",
+                "category": 11,
+                "suogu": 2.0,
+            }
+        ],
+    )
+
+    monkeypatch.setattr(etf_adj_sync, "_ensure_indexes", lambda db: None)
+    monkeypatch.setattr(
+        etf_adj_sync,
+        "_pick_hq_host",
+        lambda timeout=0.7, **kwargs: etf_adj_sync.TdxHqHost("fake", "127.0.0.1", 7709),
+    )
+    FakeTdxApi.instance_count = 0
+    FakeTdxApi.payload_by_code = {
+        "512800": [
+            {
+                "year": 2025,
+                "month": 7,
+                "day": 7,
+                "category": 11,
+                "name": "扩缩股",
+                "suogu": 2.0,
+            }
+        ]
+    }
+    monkeypatch.setattr(etf_adj_sync, "_import_pytdx", lambda: (FakeTdxApi, []))
+
+    stats = etf_adj_sync.audit_recent_etf_xdxr_coverage(
+        db=db,
+        as_of_date="2025-07-10",
+        recent_days=30,
+    )
+
+    assert stats == {
+        "total": 1,
+        "checked": 1,
+        "matching": 1,
+        "mismatched": 0,
+        "source_empty": 0,
+        "failed": 0,
+        "cutoff_date": "2025-06-10",
+        "mismatch_codes": [],
+    }

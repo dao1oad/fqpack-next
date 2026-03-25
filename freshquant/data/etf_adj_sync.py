@@ -150,6 +150,74 @@ def _fetch_xdxr_df_with_fresh_connection(
         return _fetch_xdxr_df(api, market=market, code=code)
 
 
+def _normalize_xdxr_df_to_docs(df: pd.DataFrame, *, code: str) -> list[dict]:
+    for col in ["year", "month", "day", "category"]:
+        if col not in df.columns:
+            raise ValueError(f"TDX xdxr missing column: {col}")
+
+    normalized = df.copy()
+    normalized["date"] = pd.to_datetime(
+        normalized[["year", "month", "day"]], errors="coerce"
+    ).dt.strftime("%Y-%m-%d")
+    normalized = normalized.drop(
+        columns=[c for c in ["year", "month", "day"] if c in normalized.columns]
+    )
+    normalized["code"] = code
+    normalized["category_meaning"] = normalized["category"].map(
+        lambda x: _CATEGORY_MEANING.get(int(x))
+    )
+    if "name" in normalized.columns:
+        normalized["category_meaning"] = normalized["category_meaning"].fillna(
+            normalized["name"]
+        )
+    normalized["category_meaning"] = normalized["category_meaning"].fillna(
+        normalized["category"].astype(str)
+    )
+    normalized = normalized.rename(
+        columns={
+            "panhouliutong": "liquidity_after",
+            "panqianliutong": "liquidity_before",
+            "houzongguben": "shares_after",
+            "qianzongguben": "shares_before",
+        }
+    )
+    normalized = normalized.where(pd.notnull(normalized), None)
+    return normalized.to_dict(orient="records")
+
+
+def _normalize_xdxr_signature_value(value):
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, (int, float)):
+        return round(float(value), 6)
+    try:
+        return round(float(value), 6)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _build_xdxr_signature_set(
+    documents: Iterable[dict], *, cutoff_date: str, as_of_date: str
+) -> set[tuple]:
+    signatures = set()
+    for document in documents or []:
+        trade_date = str(document.get("date") or "")
+        if not trade_date or trade_date < cutoff_date or trade_date > as_of_date:
+            continue
+        signatures.add(
+            (
+                trade_date,
+                _normalize_xdxr_signature_value(document.get("category")),
+                _normalize_xdxr_signature_value(document.get("fenhong")),
+                _normalize_xdxr_signature_value(document.get("peigu")),
+                _normalize_xdxr_signature_value(document.get("peigujia")),
+                _normalize_xdxr_signature_value(document.get("songzhuangu")),
+                _normalize_xdxr_signature_value(document.get("suogu")),
+            )
+        )
+    return signatures
+
+
 def sync_etf_xdxr_all(
     *,
     db=DBQuantAxis,
@@ -193,6 +261,8 @@ def sync_etf_xdxr_all(
     retried_empty = 0
     recovered_after_retry = 0
     retry_failed = 0
+    empty_codes: list[str] = []
+    preserved_codes: list[str] = []
     reconnect_every = max(int(reconnect_every), 1)
 
     for batch_start in range(0, len(code_list), reconnect_every):
@@ -255,6 +325,7 @@ def sync_etf_xdxr_all(
                             df = retry_df
                         elif existing_docs and preserve_on_empty:
                             preserved += 1
+                            preserved_codes.append(code)
                             logger.warning(
                                 "sync etf_xdxr empty after retry, preserving existing docs: "
                                 f"{code} market={market} latest_existing={existing_docs[0].get('date')}"
@@ -263,40 +334,10 @@ def sync_etf_xdxr_all(
                         else:
                             coll.delete_many({"code": code})
                             empty += 1
+                            empty_codes.append(code)
                             continue
 
-                    for col in ["year", "month", "day", "category"]:
-                        if col not in df.columns:
-                            raise ValueError(f"TDX xdxr missing column: {col}")
-
-                    df["date"] = pd.to_datetime(
-                        df[["year", "month", "day"]], errors="coerce"
-                    ).dt.strftime("%Y-%m-%d")
-                    df = df.drop(
-                        columns=[c for c in ["year", "month", "day"] if c in df.columns]
-                    )
-                    df["code"] = code
-                    df["category_meaning"] = df["category"].map(
-                        lambda x: _CATEGORY_MEANING.get(int(x))
-                    )
-                    if "name" in df.columns:
-                        df["category_meaning"] = df["category_meaning"].fillna(
-                            df["name"]
-                        )
-                    df["category_meaning"] = df["category_meaning"].fillna(
-                        df["category"].astype(str)
-                    )
-                    df = df.rename(
-                        columns={
-                            "panhouliutong": "liquidity_after",
-                            "panqianliutong": "liquidity_before",
-                            "houzongguben": "shares_after",
-                            "qianzongguben": "shares_before",
-                        }
-                    )
-
-                    df = df.where(pd.notnull(df), None)
-                    docs = df.to_dict(orient="records")
+                    docs = _normalize_xdxr_df_to_docs(df, code=code)
 
                     coll.delete_many({"code": code})
                     if docs:
@@ -326,6 +367,169 @@ def sync_etf_xdxr_all(
         "retried_empty": retried_empty,
         "recovered_after_retry": recovered_after_retry,
         "retry_failed": retry_failed,
+        "empty_codes": empty_codes,
+        "preserved_codes": preserved_codes,
+    }
+
+
+def audit_recent_etf_xdxr_coverage(
+    *,
+    db=DBQuantAxis,
+    codes: Optional[Iterable[str]] = None,
+    timeout: float = 0.7,
+    reconnect_every: int = 200,
+    recent_days: int = 120,
+    as_of_date: str | None = None,
+) -> dict:
+    """
+    校验近期 ETF xdxr 事件是否已经从 TDX 同步到 quantaxis.etf_xdxr。
+
+    只校验近窗口内源侧存在的事件是否落库，避免历史缺口导致的误报。
+    """
+    _ensure_indexes(db)
+
+    code_list = _normalize_code_list(codes)
+    etf_map = {}
+    if not code_list:
+        cursor = db.etf_list.find({}, {"_id": 0, "code": 1, "sse": 1})
+        for doc in cursor:
+            c = str(doc.get("code", "")).zfill(6)
+            if c and c.isdigit():
+                etf_map[c] = doc.get("sse")
+        code_list = sorted(etf_map.keys())
+    else:
+        for c in code_list:
+            etf_map[c] = None
+
+    window_days = max(int(recent_days), 1)
+    as_of_ts = (
+        pd.Timestamp(as_of_date).normalize()
+        if as_of_date
+        else pd.Timestamp.utcnow().normalize()
+    )
+    as_of_date_str = as_of_ts.strftime("%Y-%m-%d")
+    cutoff_date = (as_of_ts - pd.Timedelta(days=window_days)).strftime("%Y-%m-%d")
+
+    TdxHq_API, _ = _import_pytdx()
+    current_host = _pick_hq_host(timeout=timeout)
+    logger.info(
+        f"TDX HQ host selected for ETF xdxr audit: {current_host.name} {current_host.ip}:{current_host.port}"
+    )
+
+    coll = db.etf_xdxr
+    reconnect_every = max(int(reconnect_every), 1)
+    checked = 0
+    matching = 0
+    mismatched = 0
+    source_empty = 0
+    failed = 0
+    mismatch_codes: list[str] = []
+
+    for batch_start in range(0, len(code_list), reconnect_every):
+        batch_codes = code_list[batch_start : batch_start + reconnect_every]
+        if batch_start > 0:
+            try:
+                current_host = _pick_hq_host(
+                    timeout=timeout,
+                    exclude_hosts={(current_host.ip, current_host.port)},
+                )
+            except RuntimeError:
+                pass
+        api = TdxHq_API()
+        with api.connect(current_host.ip, current_host.port, time_out=timeout):
+            for batch_offset, code in enumerate(batch_codes, 1):
+                i = batch_start + batch_offset
+                market = _market_from_sse_or_code(sse=etf_map.get(code), code=code)
+                try:
+                    df = _fetch_xdxr_df(api, market=market, code=code)
+                    if df is None or len(df) == 0:
+                        retry_host = current_host
+                        try:
+                            retry_host = _pick_hq_host(
+                                timeout=timeout,
+                                exclude_hosts={(current_host.ip, current_host.port)},
+                            )
+                        except RuntimeError:
+                            retry_host = current_host
+                        df = _fetch_xdxr_df_with_fresh_connection(
+                            TdxHq_API,
+                            host=retry_host,
+                            timeout=timeout,
+                            market=market,
+                            code=code,
+                        )
+
+                    if df is None or len(df) == 0:
+                        source_empty += 1
+                        continue
+
+                    source_docs = _normalize_xdxr_df_to_docs(df, code=code)
+                    source_signatures = _build_xdxr_signature_set(
+                        source_docs,
+                        cutoff_date=cutoff_date,
+                        as_of_date=as_of_date_str,
+                    )
+                    if not source_signatures:
+                        source_empty += 1
+                        continue
+
+                    checked += 1
+                    db_docs = list(
+                        coll.find(
+                            {
+                                "code": code,
+                                "date": {"$gte": cutoff_date, "$lte": as_of_date_str},
+                            },
+                            {
+                                "_id": 0,
+                                "date": 1,
+                                "category": 1,
+                                "fenhong": 1,
+                                "peigu": 1,
+                                "peigujia": 1,
+                                "songzhuangu": 1,
+                                "suogu": 1,
+                            },
+                        )
+                    )
+                    db_signatures = _build_xdxr_signature_set(
+                        db_docs,
+                        cutoff_date=cutoff_date,
+                        as_of_date=as_of_date_str,
+                    )
+                    if source_signatures.issubset(db_signatures):
+                        matching += 1
+                    else:
+                        mismatched += 1
+                        mismatch_codes.append(code)
+                        missing = sorted(source_signatures - db_signatures)
+                        logger.warning(
+                            "ETF xdxr recent audit mismatch: "
+                            f"{code} missing_recent_signatures={missing[:3]} cutoff_date={cutoff_date}"
+                        )
+                except Exception as e:
+                    failed += 1
+                    logger.warning(
+                        f"audit etf_xdxr failed: {code} market={market} err={e}"
+                    )
+                    continue
+
+                if i % 200 == 0:
+                    logger.info(
+                        "etf_xdxr audit progress: "
+                        f"{i}/{len(code_list)} checked={checked} matching={matching} "
+                        f"mismatched={mismatched} source_empty={source_empty} failed={failed}"
+                    )
+
+    return {
+        "total": len(code_list),
+        "checked": checked,
+        "matching": matching,
+        "mismatched": mismatched,
+        "source_empty": source_empty,
+        "failed": failed,
+        "cutoff_date": cutoff_date,
+        "mismatch_codes": mismatch_codes,
     }
 
 

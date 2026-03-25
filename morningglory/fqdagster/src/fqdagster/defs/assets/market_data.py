@@ -31,7 +31,11 @@ from QUANTAXIS.QASU.main import (
 )
 from QUANTAXIS.QAUtil import QA_util_to_json_from_pandas
 
-from freshquant.data.etf_adj_sync import sync_etf_adj_all, sync_etf_xdxr_all
+from freshquant.data.etf_adj_sync import (
+    audit_recent_etf_xdxr_coverage,
+    sync_etf_adj_all,
+    sync_etf_xdxr_all,
+)
 from freshquant.db import DBQuantAxis
 
 from ..postclose_markers import (
@@ -553,6 +557,28 @@ def etf_xdxr(context: AssetExecutionContext, etf_list: str) -> str:
     context.log.info(f"Saving ETF xdxr data, triggered after etf_list at {etf_list}")
     stats = sync_etf_xdxr_all()
     context.log.info(f"ETF xdxr sync stats: {stats}")
+    suspicious_codes = list(
+        dict.fromkeys(
+            [
+                *list(stats.get("empty_codes") or []),
+                *list(stats.get("preserved_codes") or []),
+            ]
+        )
+    )
+    if suspicious_codes:
+        audit_stats = audit_recent_etf_xdxr_coverage(codes=suspicious_codes)
+        context.log.info(f"ETF xdxr recent audit stats: {audit_stats}")
+        if audit_stats.get("mismatched") or audit_stats.get("failed"):
+            mismatch_codes = audit_stats.get("mismatch_codes") or []
+            mismatch_suffix = (
+                f" mismatch_codes={mismatch_codes[:10]}" if mismatch_codes else ""
+            )
+            raise RuntimeError(
+                "ETF xdxr recent audit failed: "
+                f"mismatched={audit_stats.get('mismatched', 0)} "
+                f"failed={audit_stats.get('failed', 0)}"
+                f"{mismatch_suffix}"
+            )
     market_data_alert.send(
         "dagster-asset",
         payload={
