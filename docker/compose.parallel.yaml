@@ -72,6 +72,8 @@ services:
       FQ_RUNTIME_CLICKHOUSE_PASSWORD: ${FQ_RUNTIME_CLICKHOUSE_PASSWORD:-fq_runtime}
       FRESHQUANT_MONGODB__HOST: fq_mongodb
       FRESHQUANT_MONGODB__PORT: "27017"
+      FRESHQUANT_REDIS__HOST: fq_redis
+      FRESHQUANT_REDIS__PORT: "6379"
       MONGODB: fq_mongodb
       MONGODB_PORT: "27017"
     command: ["/freshquant/.venv/bin/python", "-m", "freshquant.rear.api_server", "--port", "5000"]
@@ -103,6 +105,8 @@ services:
       FQ_RUNTIME_CLICKHOUSE_DATABASE: runtime_observability
       FQ_RUNTIME_CLICKHOUSE_USER: ${FQ_RUNTIME_CLICKHOUSE_USER:-fq_runtime}
       FQ_RUNTIME_CLICKHOUSE_PASSWORD: ${FQ_RUNTIME_CLICKHOUSE_PASSWORD:-fq_runtime}
+      FRESHQUANT_REDIS__HOST: fq_redis
+      FRESHQUANT_REDIS__PORT: "6379"
     command: ["/freshquant/.venv/bin/python", "-m", "freshquant.runtime_observability.indexer_main", "--poll-interval-s", "2.0"]
     volumes:
       - ${FQ_RUNTIME_LOG_HOST_DIR:?Set FQ_RUNTIME_LOG_HOST_DIR to the host runtime log directory}:/freshquant/logs/runtime
@@ -120,6 +124,8 @@ services:
       PYTHONUNBUFFERED: "1"
       FRESHQUANT_MONGODB__HOST: fq_mongodb
       FRESHQUANT_MONGODB__PORT: "27017"
+      FRESHQUANT_REDIS__HOST: fq_redis
+      FRESHQUANT_REDIS__PORT: "6379"
       MONGODB: fq_mongodb
       MONGODB_PORT: "27017"
     command: ["/freshquant/.venv/bin/python", "-m", "freshquant.gateway.tdxhq", "--port", "5001"]
@@ -143,6 +149,8 @@ services:
       FRESHQUANT_TDX_ROOT: /run/host-tdx
       FRESHQUANT_MONGODB__HOST: fq_mongodb
       FRESHQUANT_MONGODB__PORT: "27017"
+      FRESHQUANT_REDIS__HOST: fq_redis
+      FRESHQUANT_REDIS__PORT: "6379"
       MONGODB: fq_mongodb
       MONGODB_PORT: "27017"
     command:
@@ -183,6 +191,8 @@ services:
       FRESHQUANT_TDX_ROOT: /run/host-tdx
       FRESHQUANT_MONGODB__HOST: fq_mongodb
       FRESHQUANT_MONGODB__PORT: "27017"
+      FRESHQUANT_REDIS__HOST: fq_redis
+      FRESHQUANT_REDIS__PORT: "6379"
       MONGODB: fq_mongodb
       MONGODB_PORT: "27017"
     command:
@@ -217,6 +227,8 @@ services:
       PYTHONUNBUFFERED: "1"
       FRESHQUANT_MONGODB__HOST: fq_mongodb
       FRESHQUANT_MONGODB__PORT: "27017"
+      FRESHQUANT_REDIS__HOST: fq_redis
+      FRESHQUANT_REDIS__PORT: "6379"
       MONGODB: fq_mongodb
       MONGODB_PORT: "27017"
     command: ["/freshquant/.venv/bin/python", "-m", "QUANTAXIS.QAWebServer.server"]
