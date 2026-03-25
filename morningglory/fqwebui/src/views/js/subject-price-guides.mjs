@@ -1,6 +1,8 @@
 const DEFAULT_BUY_ACTIVE = [false, false, false]
 const DEFAULT_BUY_ENABLED = [true, true, true]
-const DEFAULT_MIN_GUIDE_GAP = 0.01
+export const PRICE_GUIDE_DECIMALS = 3
+export const PRICE_GUIDE_STEP = 0.001
+const DEFAULT_MIN_GUIDE_GAP = PRICE_GUIDE_STEP
 const DEFAULT_GUARDIAN_OFFSETS = [0.015, 0.03, 0.045]
 const DEFAULT_TAKEPROFIT_OFFSETS = [0.03, 0.06, 0.09]
 
@@ -36,12 +38,12 @@ const toNullableNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-const roundGuidePrice = (value) => {
+export const roundGuidePrice = (value) => {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) {
     return null
   }
-  return Number(parsed.toFixed(2))
+  return Number(parsed.toFixed(PRICE_GUIDE_DECIMALS))
 }
 
 const toPositiveGuidePrice = (value) => {
@@ -60,7 +62,7 @@ const resolveGuideReferencePrice = (lastPrice) => {
 const formatGuidePrice = (value) => {
   const parsed = toNullableNumber(value)
   if (parsed === null) return '--'
-  return parsed.toFixed(2)
+  return parsed.toFixed(PRICE_GUIDE_DECIMALS)
 }
 
 const normalizeGuardianBuyEnabled = (row = {}) => {
@@ -80,22 +82,22 @@ const normalizeGuardianBuyEnabled = (row = {}) => {
 export const normalizeGuardianConfig = (row = {}) => ({
   buy_enabled: normalizeGuardianBuyEnabled(row),
   enabled: normalizeGuardianBuyEnabled(row).some(Boolean),
-  buy_1: toNullableNumber(row?.buy_1),
-  buy_2: toNullableNumber(row?.buy_2),
-  buy_3: toNullableNumber(row?.buy_3),
+  buy_1: roundGuidePrice(row?.buy_1),
+  buy_2: roundGuidePrice(row?.buy_2),
+  buy_3: roundGuidePrice(row?.buy_3),
 })
 
 export const normalizeGuardianState = (row = {}) => ({
   buy_active: Array.isArray(row?.buy_active) ? [...row.buy_active] : [...DEFAULT_BUY_ACTIVE],
   last_hit_level: toText(row?.last_hit_level),
-  last_hit_price: toNullableNumber(row?.last_hit_price),
+  last_hit_price: roundGuidePrice(row?.last_hit_price),
   last_hit_signal_time: toText(row?.last_hit_signal_time),
   last_reset_reason: toText(row?.last_reset_reason),
 })
 
 export const normalizeTakeprofitTier = (row = {}) => ({
   level: toNumber(row?.level),
-  price: toNullableNumber(row?.price),
+  price: roundGuidePrice(row?.price),
   enabled: Boolean(row?.enabled ?? row?.manual_enabled ?? true),
   manual_enabled: Boolean(row?.manual_enabled ?? row?.enabled ?? true),
 })

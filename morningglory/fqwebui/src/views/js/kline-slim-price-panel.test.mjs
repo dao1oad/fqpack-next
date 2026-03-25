@@ -5,9 +5,11 @@ import {
   buildInitialKlineSlimPricePanelState,
   createKlineSlimPricePanelActions,
   loadSubjectPriceDetail,
-  saveAndActivatePriceGuides,
+  saveGuardianGuideEnabledState,
+  savePriceGuides,
   saveGuardianPriceGuides,
   saveTakeprofitPriceGuides,
+  saveTakeprofitGuideEnabledState,
   shouldReloadSubjectPriceDetail,
 } from './kline-slim-price-panel.mjs'
 
@@ -90,7 +92,7 @@ test('shouldReloadSubjectPriceDetail only reloads when symbol changes or force i
   )
 })
 
-test('saveGuardianPriceGuides validates, saves, reloads and triggers render callback', async () => {
+test('saveGuardianPriceGuides validates, saves Guardian prices only, reloads and triggers render callback', async () => {
   const calls = []
   const actions = createKlineSlimPricePanelActions({
     async getDetail(symbol) {
@@ -110,7 +112,7 @@ test('saveGuardianPriceGuides validates, saves, reloads and triggers render call
     symbol: '600000',
     force: true,
   })
-  state.guardianDraft.buy_1 = 10.3
+  state.guardianDraft.buy_1 = 10.3456
   state.guardianDraft.buy_enabled = [true, false, false]
 
   const result = await saveGuardianPriceGuides(state, {
@@ -124,7 +126,7 @@ test('saveGuardianPriceGuides validates, saves, reloads and triggers render call
 
   assert.deepEqual(calls, [
     ['getDetail', '600000'],
-    ['saveGuardianBuyGrid', '600000', 10.3, [true, false, false], true],
+    ['saveGuardianBuyGrid', '600000', 10.346, [true, false, true], true],
     ['getDetail', '600000'],
   ])
   assert.equal(result.ok, true)
@@ -151,7 +153,7 @@ test('saveTakeprofitPriceGuides validates, saves, reloads and triggers render ca
     symbol: '600000',
     force: true,
   })
-  state.takeprofitDrafts[2].price = 11.9
+  state.takeprofitDrafts[2].price = 11.9876
 
   const result = await saveTakeprofitPriceGuides(state, {
     actions,
@@ -164,14 +166,14 @@ test('saveTakeprofitPriceGuides validates, saves, reloads and triggers render ca
 
   assert.deepEqual(calls, [
     ['getDetail', '600000'],
-    ['saveTakeprofitProfile', '600000', [10.8, 11.2, 11.9]],
+    ['saveTakeprofitProfile', '600000', [10.8, 11.2, 11.988]],
     ['getDetail', '600000'],
   ])
   assert.equal(result.ok, true)
   assert.equal(renderCount, 1)
 })
 
-test('saveAndActivatePriceGuides saves all six prices, enables them and re-arms active state', async () => {
+test('savePriceGuides saves price values only and does not touch runtime activation state', async () => {
   const calls = []
   const actions = createKlineSlimPricePanelActions({
     async getDetail(symbol) {
@@ -179,11 +181,13 @@ test('saveAndActivatePriceGuides saves all six prices, enables them and re-arms 
       return makeDetail(symbol)
     },
     async saveGuardianBuyGrid(symbol, payload) {
-      calls.push(['saveGuardianBuyGrid', symbol, payload.buy_enabled, payload.enabled])
-      return { symbol, ...payload }
-    },
-    async saveGuardianBuyGridState(symbol, payload) {
-      calls.push(['saveGuardianBuyGridState', symbol, payload.buy_active, payload.last_reset_reason])
+      calls.push([
+        'saveGuardianBuyGrid',
+        symbol,
+        payload.buy_1,
+        payload.buy_enabled,
+        payload.enabled,
+      ])
       return { symbol, ...payload }
     },
     async saveTakeprofitProfile(symbol, payload) {
@@ -198,10 +202,6 @@ test('saveAndActivatePriceGuides saves all six prices, enables them and re-arms 
       ])
       return { symbol, ...payload }
     },
-    async rearmTakeprofit(symbol) {
-      calls.push(['rearmTakeprofit', symbol])
-      return { symbol }
-    },
   })
   const state = buildInitialKlineSlimPricePanelState()
   let renderCount = 0
@@ -211,11 +211,10 @@ test('saveAndActivatePriceGuides saves all six prices, enables them and re-arms 
     symbol: '600000',
     force: true,
   })
-  state.guardianDraft.buy_enabled = [true, false, false]
-  state.takeprofitDrafts[1].manual_enabled = false
-  state.takeprofitDrafts[2].manual_enabled = false
+  state.guardianDraft.buy_1 = 10.4567
+  state.takeprofitDrafts[2].price = 11.9876
 
-  const result = await saveAndActivatePriceGuides(state, {
+  const result = await savePriceGuides(state, {
     actions,
     symbol: '600000',
     notify: {},
@@ -226,18 +225,126 @@ test('saveAndActivatePriceGuides saves all six prices, enables them and re-arms 
 
   assert.deepEqual(calls, [
     ['getDetail', '600000'],
-    ['saveGuardianBuyGrid', '600000', [true, true, true], true],
-    ['saveGuardianBuyGridState', '600000', [true, true, true], 'manual_activate'],
+    ['saveGuardianBuyGrid', '600000', 10.457, [true, false, true], true],
     ['saveTakeprofitProfile', '600000', [
       { level: 1, price: 10.8, manual_enabled: true },
-      { level: 2, price: 11.2, manual_enabled: true },
-      { level: 3, price: 11.8, manual_enabled: true },
+      { level: 2, price: 11.2, manual_enabled: false },
+      { level: 3, price: 11.988, manual_enabled: true },
     ]],
-    ['rearmTakeprofit', '600000'],
     ['getDetail', '600000'],
   ])
   assert.equal(result.ok, true)
   assert.equal(renderCount, 1)
+})
+
+test('saveGuardianGuideEnabledState updates only Guardian switches and keeps local unsaved price drafts', async () => {
+  const calls = []
+  const actions = createKlineSlimPricePanelActions({
+    async getDetail(symbol) {
+      calls.push(['getDetail', symbol])
+      return makeDetail(symbol, {
+        guardian_buy_grid_config: {
+          enabled: false,
+          buy_enabled: [false, false, false],
+          buy_1: 10.2,
+          buy_2: 9.9,
+          buy_3: 9.5,
+        },
+      })
+    },
+    async saveGuardianBuyGrid(symbol, payload) {
+      calls.push(['saveGuardianBuyGrid', symbol, payload.buy_1, payload.buy_enabled, payload.enabled])
+      return { symbol, ...payload }
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  await loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '600000',
+    force: true,
+  })
+  state.guardianDraft.buy_1 = 10.888
+
+  const result = await saveGuardianGuideEnabledState(state, {
+    actions,
+    symbol: '600000',
+    notify: {},
+    nextBuyEnabled: [false, false, false],
+  })
+
+  assert.deepEqual(calls, [
+    ['getDetail', '600000'],
+    ['saveGuardianBuyGrid', '600000', 10.2, [false, false, false], false],
+    ['getDetail', '600000'],
+  ])
+  assert.equal(result.ok, true)
+  assert.equal(state.guardianDraft.buy_1, 10.888)
+  assert.deepEqual(state.guardianDraft.buy_enabled, [false, false, false])
+})
+
+test('saveTakeprofitGuideEnabledState updates only takeprofit switches and keeps local unsaved price drafts', async () => {
+  const calls = []
+  const actions = createKlineSlimPricePanelActions({
+    async getDetail(symbol) {
+      calls.push(['getDetail', symbol])
+      return makeDetail(symbol, {
+        takeprofit: {
+          tiers: [
+            { level: 1, price: 10.8, manual_enabled: false },
+            { level: 2, price: 11.2, manual_enabled: false },
+            { level: 3, price: 11.8, manual_enabled: false },
+          ],
+          state: {
+            armed_levels: { 1: true, 2: false, 3: true },
+          },
+        },
+      })
+    },
+    async saveTakeprofitProfile(symbol, payload) {
+      calls.push([
+        'saveTakeprofitProfile',
+        symbol,
+        payload.tiers.map((row) => ({
+          level: row.level,
+          price: row.price,
+          manual_enabled: row.manual_enabled,
+        })),
+      ])
+      return { symbol, ...payload }
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  await loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '600000',
+    force: true,
+  })
+  state.takeprofitDrafts[0].price = 10.999
+
+  const result = await saveTakeprofitGuideEnabledState(state, {
+    actions,
+    symbol: '600000',
+    notify: {},
+    nextManualEnabled: [false, false, false],
+  })
+
+  assert.deepEqual(calls, [
+    ['getDetail', '600000'],
+    ['saveTakeprofitProfile', '600000', [
+      { level: 1, price: 10.8, manual_enabled: false },
+      { level: 2, price: 11.2, manual_enabled: false },
+      { level: 3, price: 11.8, manual_enabled: false },
+    ]],
+    ['getDetail', '600000'],
+  ])
+  assert.equal(result.ok, true)
+  assert.equal(state.takeprofitDrafts[0].price, 10.999)
+  assert.deepEqual(
+    state.takeprofitDrafts.map((row) => row.manual_enabled),
+    [false, false, false],
+  )
 })
 
 test('loadSubjectPriceDetail ignores stale responses from older symbol requests', async () => {

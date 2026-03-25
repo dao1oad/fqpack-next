@@ -14,8 +14,10 @@ import {
   createKlineSlimPricePanelActions,
   loadSubjectPriceDetail as loadSubjectPriceDetailState,
   resetSubjectPriceDetailState,
-  saveAndActivatePriceGuides,
+  saveGuardianGuideEnabledState,
+  savePriceGuides,
   saveGuardianPriceGuides,
+  saveTakeprofitGuideEnabledState,
   saveTakeprofitPriceGuides,
 } from './kline-slim-price-panel.mjs'
 import {
@@ -108,6 +110,14 @@ function formatPriceValue(value) {
   return number.toFixed(2)
 }
 
+function formatPriceGuideValueDisplay(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return '--'
+  }
+  return number.toFixed(3)
+}
+
 function formatPercentValue(value) {
   const number = Number(value)
   if (!Number.isFinite(number)) {
@@ -149,7 +159,7 @@ function isTakeprofitArmedLevel(state, level) {
 function resolveLatestClosePrice(mainData) {
   const closeList = Array.isArray(mainData?.close) ? mainData.close : []
   const lastClose = Number(closeList[closeList.length - 1])
-  return Number.isFinite(lastClose) ? Number(lastClose.toFixed(2)) : null
+  return Number.isFinite(lastClose) ? Number(lastClose.toFixed(3)) : null
 }
 
 function buildPriceGuideRenderVersion({
@@ -414,7 +424,7 @@ export default {
       return (
         !this.routeSymbol ||
         this.subjectDetailLoading ||
-        this.savingPriceGuideActivation ||
+        this.savingPriceGuides ||
         this.savingGuardianPriceGuides ||
         this.savingTakeprofitGuides
       )
@@ -1290,13 +1300,141 @@ export default {
         afterRefresh: () => this.scheduleRender()
       })
     },
-    async handleSaveAndActivatePriceGuides() {
-      return saveAndActivatePriceGuides(this, {
+    async handleSavePriceGuides() {
+      return savePriceGuides(this, {
         actions: this.pricePanelActions,
         symbol: this.routeSymbol,
         notify: this.$message,
         afterRefresh: () => this.scheduleRender()
       })
+    },
+    async handleGuardianGuideEnabledChange(index, enabled) {
+      const currentBuyEnabled = Array.isArray(this.guardianDraft?.buy_enabled)
+        ? this.guardianDraft.buy_enabled.slice(0, 3).map((item) => item !== false)
+        : [true, true, true]
+      const nextBuyEnabled = currentBuyEnabled.slice(0, 3)
+      nextBuyEnabled[index] = enabled !== false
+      const previousGuardianDraft = {
+        ...this.guardianDraft,
+        buy_enabled: currentBuyEnabled,
+        enabled: currentBuyEnabled.some(Boolean)
+      }
+
+      this.guardianDraft = {
+        ...this.guardianDraft,
+        buy_enabled: nextBuyEnabled,
+        enabled: nextBuyEnabled.some(Boolean)
+      }
+
+      try {
+        return await saveGuardianGuideEnabledState(this, {
+          actions: this.pricePanelActions,
+          symbol: this.routeSymbol,
+          notify: this.$message,
+          afterRefresh: () => this.scheduleRender(),
+          nextBuyEnabled
+        })
+      } catch (error) {
+        this.guardianDraft = previousGuardianDraft
+        throw error
+      }
+    },
+    async handleTakeprofitGuideEnabledChange(level, enabled) {
+      const previousDrafts = Array.isArray(this.takeprofitDrafts)
+        ? this.takeprofitDrafts.map((row) => ({ ...row }))
+        : []
+      const nextManualEnabled = TAKEPROFIT_GUIDE_META.map((item) => {
+        const draft = this.takeprofitDrafts?.[item.level - 1]
+        return Boolean(draft?.manual_enabled)
+      })
+      nextManualEnabled[level - 1] = enabled !== false
+
+      this.takeprofitDrafts = TAKEPROFIT_GUIDE_META.map((item) => {
+        const draft = this.takeprofitDrafts?.[item.level - 1] || {
+          level: item.level,
+          price: null,
+          manual_enabled: true
+        }
+        return {
+          ...draft,
+          level: item.level,
+          manual_enabled: nextManualEnabled[item.level - 1] !== false
+        }
+      })
+
+      try {
+        return await saveTakeprofitGuideEnabledState(this, {
+          actions: this.pricePanelActions,
+          symbol: this.routeSymbol,
+          notify: this.$message,
+          afterRefresh: () => this.scheduleRender(),
+          nextManualEnabled
+        })
+      } catch (error) {
+        this.takeprofitDrafts = previousDrafts
+        throw error
+      }
+    },
+    async handleGuardianGuideEnabledAll(enabled) {
+      const nextBuyEnabled = [enabled !== false, enabled !== false, enabled !== false]
+      const previousGuardianDraft = {
+        ...this.guardianDraft,
+        buy_enabled: Array.isArray(this.guardianDraft?.buy_enabled)
+          ? this.guardianDraft.buy_enabled.slice(0, 3).map((item) => item !== false)
+          : [true, true, true],
+        enabled: Boolean(this.guardianDraft?.enabled ?? true)
+      }
+
+      this.guardianDraft = {
+        ...this.guardianDraft,
+        buy_enabled: nextBuyEnabled,
+        enabled: nextBuyEnabled.some(Boolean)
+      }
+
+      try {
+        return await saveGuardianGuideEnabledState(this, {
+          actions: this.pricePanelActions,
+          symbol: this.routeSymbol,
+          notify: this.$message,
+          afterRefresh: () => this.scheduleRender(),
+          nextBuyEnabled
+        })
+      } catch (error) {
+        this.guardianDraft = previousGuardianDraft
+        throw error
+      }
+    },
+    async handleTakeprofitGuideEnabledAll(enabled) {
+      const previousDrafts = Array.isArray(this.takeprofitDrafts)
+        ? this.takeprofitDrafts.map((row) => ({ ...row }))
+        : []
+      const nextManualEnabled = [enabled !== false, enabled !== false, enabled !== false]
+
+      this.takeprofitDrafts = TAKEPROFIT_GUIDE_META.map((item) => {
+        const draft = this.takeprofitDrafts?.[item.level - 1] || {
+          level: item.level,
+          price: null,
+          manual_enabled: true
+        }
+        return {
+          ...draft,
+          level: item.level,
+          manual_enabled: nextManualEnabled[item.level - 1]
+        }
+      })
+
+      try {
+        return await saveTakeprofitGuideEnabledState(this, {
+          actions: this.pricePanelActions,
+          symbol: this.routeSymbol,
+          notify: this.$message,
+          afterRefresh: () => this.scheduleRender(),
+          nextManualEnabled
+        })
+      } catch (error) {
+        this.takeprofitDrafts = previousDrafts
+        throw error
+      }
     },
     handlePriceGuideDrag({ line, price } = {}) {
       if (!line || !Number.isFinite(Number(price))) {
@@ -1589,7 +1727,7 @@ export default {
       return formatIntegerLabel(value)
     },
     formatPriceGuideValue(value) {
-      return formatPriceValue(value)
+      return formatPriceGuideValueDisplay(value)
     }
   }
 }
