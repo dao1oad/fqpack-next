@@ -249,6 +249,14 @@ test('KlineSlim price guide inputs use three-decimal precision for editing', () 
   )
 })
 
+test('KlineSlim exposes 1d as a supported chanlun period', async () => {
+  const periodsModule = await import('./js/kline-slim-chanlun-periods.mjs')
+
+  assert.equal(periodsModule.SUPPORTED_CHANLUN_PERIODS.includes('1d'), true)
+  assert.equal(periodsModule.normalizeChanlunPeriod('1d'), '1d')
+  assert.equal(periodsModule.PERIOD_DURATION_MS['1d'], 24 * 60 * 60 * 1000)
+})
+
 test('KlineSlim price guide rows give the color badge its own layout column', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 

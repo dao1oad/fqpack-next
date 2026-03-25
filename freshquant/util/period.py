@@ -45,7 +45,7 @@ def to_frontend_period(period: str) -> str:
 
 def is_supported_realtime_period(period: str) -> bool:
     p = to_backend_period(period)
-    return p in {"1min", "5min", "15min", "30min"}
+    return p in {"1min", "5min", "15min", "30min", "1d"}
 
 
 def get_redis_cache_key(code: str, period_backend: str) -> str:

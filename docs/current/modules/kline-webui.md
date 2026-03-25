@@ -125,10 +125,12 @@ Kline 页面不维护自己的事实源，读取的主要是：
 - 该默认值与 realtime cache 预热/保留窗口 `monitor.xtdata.prewarm.max_bars` 的默认值保持一致
 - `/api/stock_data` 会把外部传入的 `barCount` 钳制到 `20000`，避免单次请求把 fallback 历史窗口无限放大
 - realtime cache 命中时直接返回缓存尾部 `20000` 根；未命中时后端会按 `barCount` 放大历史查询窗口并在返回前截尾
+- `1d` 当前也接入同一个 `realtimeCache` 读取入口；有缓存时直接读取 `CACHE:KLINE:<symbol>:1d`，没有缓存时回退到 `get_data_v2()`，`/api/stock_data` 本身不负责对 `1d` miss 结果做回写
 
 页面当前支持：
 
 - 周期按钮切换
+- `1m / 5m / 15m / 30m / 1d` 周期
 - 历史日期回看
 - 缠论结构面板
 - Guardian 倍量价格三层编辑，支持逐层启停；激活层与仅展示层保留不同横线样式
