@@ -53,29 +53,33 @@ test('buildInventoryRows keeps single symbol position limit editable inside merg
   assert.equal(singleSymbolLimit.editable, true)
 })
 
-test('buildSymbolLimitRows exposes effective limit as the editable value and only reports factual source', () => {
+test('buildSymbolLimitRows keeps only holding symbols and sorts them by broker-truth market value desc', () => {
   const rows = buildSymbolLimitRows({
+    holding_scope: {
+      codes: ['000001', '600000'],
+    },
     symbol_position_limits: {
       rows: [
         {
           symbol: '600000',
           name: '浦发银行',
-          market_value: 520000,
+          is_holding_symbol: true,
+          market_value: 200000,
           broker_position: {
-            quantity: 0,
-            market_value: 0,
-            quantity_source: 'no_broker_position',
-            market_value_source: 'no_broker_position',
+            quantity: 400,
+            market_value: 200000,
+            quantity_source: 'xt_positions',
+            market_value_source: 'xt_positions.market_value',
           },
           inferred_position: {
-            quantity: 0,
-            market_value: 0,
+            quantity: 400,
+            market_value: 200000,
             quantity_source: 'order_management_projected_positions',
             market_value_source: 'order_management_projected_positions',
           },
           legacy_position: {
-            quantity: 0,
-            market_value: 0,
+            quantity: 400,
+            market_value: 200000,
             quantity_source: 'stock_fills_compat',
             market_value_source: 'stock_fills_compat',
           },
@@ -88,22 +92,23 @@ test('buildSymbolLimitRows exposes effective limit as the editable value and onl
         {
           symbol: '000001',
           name: '平安银行',
-          market_value: 200000,
+          is_holding_symbol: true,
+          market_value: 520000,
           broker_position: {
-            quantity: 0,
-            market_value: 0,
-            quantity_source: 'no_broker_position',
-            market_value_source: 'no_broker_position',
+            quantity: 1200,
+            market_value: 520000,
+            quantity_source: 'xt_positions',
+            market_value_source: 'xt_positions.market_value',
           },
           inferred_position: {
-            quantity: 0,
-            market_value: 0,
+            quantity: 1200,
+            market_value: 520000,
             quantity_source: 'order_management_projected_positions',
             market_value_source: 'order_management_projected_positions',
           },
           legacy_position: {
-            quantity: 0,
-            market_value: 0,
+            quantity: 1200,
+            market_value: 520000,
             quantity_source: 'stock_fills_compat',
             market_value_source: 'stock_fills_compat',
           },
@@ -113,24 +118,53 @@ test('buildSymbolLimitRows exposes effective limit as the editable value and onl
           using_override: false,
           blocked: false,
         },
+        {
+          symbol: '300001',
+          name: '特锐德',
+          is_holding_symbol: false,
+          market_value: 900000,
+          broker_position: {
+            quantity: 1600,
+            market_value: 900000,
+            quantity_source: 'xt_positions',
+            market_value_source: 'xt_positions.market_value',
+          },
+          inferred_position: {
+            quantity: 1600,
+            market_value: 900000,
+            quantity_source: 'order_management_projected_positions',
+            market_value_source: 'order_management_projected_positions',
+          },
+          legacy_position: {
+            quantity: 1600,
+            market_value: 900000,
+            quantity_source: 'stock_fills_compat',
+            market_value_source: 'stock_fills_compat',
+          },
+          default_limit: 800000,
+          override_limit: 600000,
+          effective_limit: 600000,
+          using_override: true,
+          blocked: true,
+        },
       ],
     },
   })
 
   assert.deepEqual(
     rows.map((row) => row.symbol),
-    ['600000', '000001'],
+    ['000001', '600000'],
   )
   assert.equal(rows[0].market_value_label, '52.00万')
-  assert.equal(rows[0].source_label, '单独设置')
-  assert.equal(rows[0].blocked_label, '已阻断')
-  assert.equal(rows[0].broker_position_label, '0 股 / 0.00万')
-  assert.equal(rows[0].default_limit_label, '80.00万')
-  assert.equal(rows[0].limit_input_value, 500000)
-  assert.equal(rows[0].effective_limit_label, '50.00万')
-  assert.equal(rows[1].source_label, '系统默认值')
-  assert.equal(rows[1].limit_input_value, 800000)
-  assert.equal(rows[1].blocked_label, '允许')
+  assert.equal(rows[0].source_label, '系统默认值')
+  assert.equal(rows[0].limit_input_value, 800000)
+  assert.equal(rows[0].blocked_label, '允许')
+  assert.equal(rows[1].source_label, '单独设置')
+  assert.equal(rows[1].blocked_label, '已阻断')
+  assert.equal(rows[1].broker_position_label, '400 股 / 20.00万')
+  assert.equal(rows[1].default_limit_label, '80.00万')
+  assert.equal(rows[1].limit_input_value, 500000)
+  assert.equal(rows[1].effective_limit_label, '50.00万')
 })
 
 test('PositionManagement view merges runtime state and inventory into left panel and keeps only two top columns', () => {
@@ -156,9 +190,11 @@ test('PositionManagement view merges runtime state and inventory into left panel
   assert.match(source, /单标的仓位上限覆盖/)
   assert.match(source, /single_symbol_position_limit/)
   assert.match(source, /v-model="editableForm\.single_symbol_position_limit"/)
-  assert.match(source, /系统默认值/)
   assert.match(source, /单标的上限设置/)
   assert.match(source, /当前来源/)
+  assert.match(source, /<span>操作<\/span>\s*<span>当前来源<\/span>/)
+  assert.match(source, /buildSymbolLimitRows\(dashboard\.value\)/)
+  assert.match(source, /minmax\(var\(--position-symbol-limit-position-column-min-width\),\s*1fr\)/)
   assert.match(source, /runtime-position-rule-ledger\s*\{[^}]*overflow:\s*visible;/)
   assert.doesNotMatch(source, /<section class="workbench-toolbar">/)
   assert.doesNotMatch(source, /<div class="workbench-page-title">仓位管理<\/div>/)
@@ -167,6 +203,7 @@ test('PositionManagement view merges runtime state and inventory into left panel
   assert.doesNotMatch(source, /label="说明"/)
   assert.doesNotMatch(source, /position-decision-card/)
   assert.doesNotMatch(source, /selectedDecision/)
+  assert.doesNotMatch(source, /<span>系统默认值<\/span>/)
   assert.doesNotMatch(source, /覆盖值/)
   assert.doesNotMatch(source, /恢复默认/)
 })
