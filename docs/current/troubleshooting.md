@@ -196,6 +196,8 @@ print(sync_etf_xdxr_all(codes=['512800']))
 - 当前实现会在 batch host 连接失败时自动切到下一个可用 HQ host；fresh connection retry 的目标 host 若连不上，也会继续轮转其他 HQ host，而不是把 run 记成成功或打成 `bool` context manager 异常
 - retry 仍超时或为空时，优先核对该 code 在不同 TDX host 上是否一致为空；对确实为空但库里已有历史回填的 ETF，允许保留旧文档
 - Dagster `etf_xdxr` 资产会对本次同步中 `empty/preserved` 的可疑 code 追加一次近期覆盖审计；如果近窗口内源侧有事件但库里没有，或者所有 HQ host 都不可达，asset 会直接 fail，不再把 run 记成成功
+- 如果 API / KlineSlim 在 `/api/stock_data` 上直接报 `redis.exceptions.ConnectionError: Error 111 connecting to 127.0.0.1:6379`，优先检查 Docker compose 是否把宿主机 `.env` 里的 Redis 地址误透传进容器；正式口径应由 `docker/compose.parallel.yaml` 显式覆盖为 `FRESHQUANT_REDIS__HOST=fq_redis`、`FRESHQUANT_REDIS__PORT=6379`
+- 如果 compose Redis 覆盖修复已经 merge，但 formal deploy 的 `plan.json` 仍显示 `deployment_required=false`，优先检查 changed paths 是否包含 `docker/compose.parallel.yaml`；当前正式口径要求这类 compose 运行时变更必须触发全量受管 Docker 并行环境容器重建/重启。
 - 对单券立即修复可执行：
   - `@'
 from freshquant.data.etf_adj_sync import sync_etf_adj_all, sync_etf_xdxr_all

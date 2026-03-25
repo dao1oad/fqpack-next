@@ -246,11 +246,17 @@
                     <strong>{{ row.broker_position_label }}</strong>
                     <span>{{ row.broker_position_source_label }}</span>
                   </div>
-                  <div class="runtime-ledger__cell position-source-cell" :title="row.inferred_position_source_label">
+                  <div
+                    class="runtime-ledger__cell position-source-cell position-source-cell--left"
+                    :title="row.inferred_position_source_label"
+                  >
                     <strong>{{ row.inferred_position_label }}</strong>
                     <span>{{ row.inferred_position_source_label }}</span>
                   </div>
-                  <div class="runtime-ledger__cell position-source-cell" :title="row.legacy_position_source_label">
+                  <div
+                    class="runtime-ledger__cell position-source-cell position-source-cell--left"
+                    :title="row.legacy_position_source_label"
+                  >
                     <strong>{{ row.legacy_position_label }}</strong>
                     <span>{{ row.legacy_position_source_label }}</span>
                   </div>
@@ -964,6 +970,10 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.position-source-cell--left {
+  text-align: left;
 }
 
 .position-source-cell strong {

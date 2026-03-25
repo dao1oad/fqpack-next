@@ -220,11 +220,21 @@
                   <div class="price-panel-section-title-wrap">
                     <span class="price-panel-section-title">基础配置</span>
                   </div>
-                  <div class="subject-panel-inline-chips">
-                    <span class="price-panel-summary-chip">
-                      当前止损 {{ formatPriceGuideValue(subjectPanelState.subjectPanelDetail.mustPool.stop_loss_price) }}
-                    </span>
-                  </div>
+                </div>
+
+                <div class="price-panel-summary">
+                  <span class="price-panel-summary-chip">
+                    当前止损 {{ formatPriceGuideValue(subjectPanelState.subjectPanelDetail.mustPool.stop_loss_price) }}
+                  </span>
+                  <span class="price-panel-summary-chip">
+                    当前上限 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.effective_limit) }}
+                  </span>
+                  <span class="price-panel-summary-chip">
+                    市值 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.market_value) }}
+                  </span>
+                  <span class="price-panel-summary-chip" :class="{ active: subjectPanelState.subjectPanelDetail.positionLimit.blocked }">
+                    {{ subjectPanelState.subjectPanelDetail.positionLimit.blocked ? '已阻断买入' : '允许买入' }}
+                  </span>
                 </div>
 
                 <div class="subject-panel-grid">
@@ -268,14 +278,6 @@
                       <span class="subject-panel-field__note">
                         当前生效 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.effective_limit) }}
                       </span>
-                      <div class="subject-panel-inline-chips">
-                        <span class="price-panel-summary-chip">
-                          市值 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.market_value) }}
-                        </span>
-                        <span class="price-panel-summary-chip" :class="{ active: subjectPanelState.subjectPanelDetail.positionLimit.blocked }">
-                          {{ subjectPanelState.subjectPanelDetail.positionLimit.blocked ? '已阻断买入' : '允许买入' }}
-                        </span>
-                      </div>
                       <el-input-number
                         v-model="subjectPanelState.positionLimitDraft.limit"
                         size="small"
@@ -1123,7 +1125,7 @@ export default klineSlim
 
 .subject-panel-base-row
   display grid
-  grid-template-columns repeat(4, minmax(0, 1fr))
+  grid-template-columns repeat(2, minmax(0, 1fr))
   gap 10px
 
 .subject-panel-field
@@ -1144,12 +1146,6 @@ export default klineSlim
   font-size 12px
   line-height 1.5
   color #94a3b8
-
-.subject-panel-inline-chips
-  display flex
-  align-items center
-  flex-wrap wrap
-  gap 8px
 
 .subject-panel-empty
   padding 10px 12px

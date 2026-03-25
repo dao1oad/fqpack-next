@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -17,6 +18,28 @@ def test_compose_images_support_env_overrides() -> None:
     assert "${FQNEXT_WEBUI_IMAGE:-fqnext_webui:2026.2.23}" in text
     assert "${FQNEXT_TA_BACKEND_IMAGE:-fqnext_ta_backend:2026.2.23}" in text
     assert "${FQNEXT_TA_FRONTEND_IMAGE:-fqnext_ta_frontend:2026.2.23}" in text
+
+
+def test_compose_core_rear_services_override_container_redis_host() -> None:
+    text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
+
+    for service_name in (
+        "fq_apiserver",
+        "fq_runtime_indexer",
+        "fq_tdxhq",
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+        "fq_qawebserver",
+    ):
+        match = re.search(
+            rf"^  {service_name}:\n(?P<body>.*?)(?=^  [a-z0-9_]+:\n|\Z)",
+            text,
+            re.MULTILINE | re.DOTALL,
+        )
+        assert match, service_name
+        body = match.group("body")
+        assert "FRESHQUANT_REDIS__HOST: fq_redis" in body
+        assert 'FRESHQUANT_REDIS__PORT: "6379"' in body
 
 
 def test_compose_builds_rear_image_once() -> None:
