@@ -265,7 +265,7 @@ function formatCrosshairPrice(value) {
   if (!Number.isFinite(numeric)) {
     return ''
   }
-  return numeric.toFixed(2)
+  return numeric.toFixed(3)
 }
 
 function buildCrosshairTextGraphic({ id, x, y, width, height, text, fill }) {
@@ -370,7 +370,7 @@ export function buildKlineSlimCrosshairGraphics({ chart, scene, viewport, crossh
     return []
   }
 
-  const priceWidth = 64
+  const priceWidth = 72
   const labelHeight = 20
   const dateWidth = Math.max(96, dateText.length * 7 + 16)
   const dateX = clampNumber(

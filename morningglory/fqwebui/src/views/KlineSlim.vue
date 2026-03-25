@@ -409,6 +409,9 @@
                     <span class="price-panel-summary-chip">
                       已开启 {{ guardianGuideRows.filter((row) => row.manual_enabled).length }}/3
                     </span>
+                    <span class="price-panel-summary-chip" :class="{ active: guardianRuntimeActiveCount > 0 }">
+                      运行态 {{ guardianRuntimeActiveCount }}/3
+                    </span>
                     <el-button
                       size="small"
                       :loading="savingGuardianPriceGuides"
@@ -429,11 +432,11 @@
                 </div>
 
                 <div class="price-panel-summary">
-                  <span v-if="guardianState.last_hit_level" class="price-panel-summary-chip">
-                    最近命中 {{ guardianState.last_hit_level }}
+                  <span class="price-panel-summary-chip">
+                    最近命中 {{ guardianLastHitLabel }}
                   </span>
                   <span v-if="guardianState.last_hit_price !== null" class="price-panel-summary-chip">
-                    命中价 {{ formatPriceGuideValue(guardianState.last_hit_price) }}
+                    最近命中价 {{ formatPriceGuideValue(guardianState.last_hit_price) }}
                   </span>
                 </div>
 
@@ -459,6 +462,9 @@
                         :disabled="priceGuideEditLocked || !subjectPriceDetail"
                         controls-position="right"
                       />
+                      <span class="price-panel-state-chip" :class="{ active: row.runtime_active }">
+                        运行态 {{ row.runtimeStateLabel }}
+                      </span>
                       <el-switch
                         :model-value="guardianDraft.buy_enabled[row.index]"
                         size="small"
@@ -481,6 +487,9 @@
                   <div class="price-panel-section-actions">
                     <span class="price-panel-summary-chip">
                       已开启 {{ takeprofitGuideRows.filter((row) => row.manual_enabled).length }}/3
+                    </span>
+                    <span class="price-panel-summary-chip" :class="{ active: takeprofitRuntimeActiveCount > 0 }">
+                      运行态 {{ takeprofitRuntimeActiveCount }}/3
                     </span>
                     <el-button
                       size="small"
@@ -523,6 +532,9 @@
                         :disabled="priceGuideEditLocked || !subjectPriceDetail"
                         controls-position="right"
                       />
+                      <span class="price-panel-state-chip" :class="{ active: row.runtime_active }">
+                        运行态 {{ row.runtimeStateLabel }}
+                      </span>
                       <el-switch
                         :model-value="takeprofitDrafts[row.draftIndex].manual_enabled"
                         size="small"

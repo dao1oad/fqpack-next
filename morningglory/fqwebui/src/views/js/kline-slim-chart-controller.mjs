@@ -48,6 +48,10 @@ function resolveViewportYMode(mode) {
   return mode === 'manual' ? 'manual' : 'auto'
 }
 
+function isShiftModified(event) {
+  return Boolean(event?.shiftKey ?? event?.event?.shiftKey)
+}
+
 function readXRangeFromDataZoomEvent(event, fallbackViewport = createKlineSlimViewportState()) {
   const batchItem = Array.isArray(event?.batch)
     ? event.batch.find((item) => item && (item.start !== undefined || item.end !== undefined))
@@ -115,6 +119,43 @@ function buildWheelZoomYRange({ currentRange, anchorValue, zoomDirection } = {})
   return {
     min: Number((numericAnchorValue - nextSpan * lowerRatio).toFixed(6)),
     max: Number((numericAnchorValue + nextSpan * upperRatio).toFixed(6))
+  }
+}
+
+function buildPanXRange({ currentRange, pixelDeltaX, gridWidth } = {}) {
+  const normalizedRange = normalizeXRange(currentRange)
+  if (!Number.isFinite(pixelDeltaX) || !Number.isFinite(gridWidth) || gridWidth <= 0) {
+    return normalizedRange
+  }
+
+  const span = Math.max(1, normalizedRange.end - normalizedRange.start)
+  const rangeDelta = (pixelDeltaX / gridWidth) * span
+  let start = normalizedRange.start - rangeDelta
+  let end = normalizedRange.end - rangeDelta
+
+  if (start < 0) {
+    end = Math.min(100, end - start)
+    start = 0
+  }
+  if (end > 100) {
+    start = Math.max(0, start - (end - 100))
+    end = 100
+  }
+
+  return normalizeXRange({ start, end })
+}
+
+function buildPanYRange({ currentRange, pixelDeltaY, gridHeight } = {}) {
+  const normalizedRange = normalizeYRange(currentRange)
+  if (!normalizedRange || !Number.isFinite(pixelDeltaY) || !Number.isFinite(gridHeight) || gridHeight <= 0) {
+    return normalizedRange
+  }
+
+  const span = Math.max(1e-9, normalizedRange.max - normalizedRange.min)
+  const valueDelta = (pixelDeltaY / gridHeight) * span
+  return {
+    min: Number((normalizedRange.min + valueDelta).toFixed(6)),
+    max: Number((normalizedRange.max + valueDelta).toFixed(6))
   }
 }
 
@@ -293,7 +334,7 @@ function resolvePriceFromPixelY({ viewport, gridRect, pixelY } = {}) {
   }
   const ratio = clampRangeValue(((pixelY - gridRect.y) / gridRect.height) * 100, 0) / 100
   const value = yMax - (yMax - yMin) * ratio
-  return Number(value.toFixed(2))
+  return Number(value.toFixed(3))
 }
 
 function pickEditablePriceGuide({ scene, viewport, gridRect, pixel } = {}) {
@@ -347,6 +388,7 @@ export function createKlineSlimChartController({
   let crosshair = null
   let applyingViewport = false
   let draggingPriceGuide = null
+  let draggingViewport = null
 
   const applyGraphicOverlay = () => {
     if (!chart || applyingViewport) {
@@ -369,6 +411,25 @@ export function createKlineSlimChartController({
         lazyUpdate: true
       }
     )
+  }
+
+  const applyViewportOption = ({ notMerge = false } = {}) => {
+    if (!chart || !currentScene) {
+      return
+    }
+    applyingViewport = true
+    chart.setOption(buildKlineSlimChartOption({
+      chart,
+      scene: currentScene,
+      viewport,
+      crosshair,
+      draggingPriceGuideId: draggingPriceGuide?.id || ''
+    }), {
+      notMerge,
+      replaceMerge: ['series', 'xAxis', 'yAxis', 'dataZoom', 'graphic']
+    })
+    applyingViewport = false
+    onViewportChange?.(viewport)
   }
 
   const syncViewport = (event = null) => {
@@ -398,20 +459,7 @@ export function createKlineSlimChartController({
         })
 
     viewport = nextViewport
-
-    applyingViewport = true
-    chart.setOption(buildKlineSlimChartOption({
-      chart,
-      scene: currentScene,
-      viewport,
-      crosshair,
-      draggingPriceGuideId: draggingPriceGuide?.id || ''
-    }), {
-      notMerge: false,
-      replaceMerge: ['series', 'xAxis', 'yAxis', 'dataZoom', 'graphic']
-    })
-    applyingViewport = false
-    onViewportChange?.(viewport)
+    applyViewportOption()
   }
 
   const handleLegendSelectChanged = (event) => {
@@ -491,20 +539,7 @@ export function createKlineSlimChartController({
       yRange: nextYRange || viewport.yRange,
       yMode: 'manual'
     })
-
-    applyingViewport = true
-    chart.setOption(buildKlineSlimChartOption({
-      chart,
-      scene: currentScene,
-      viewport,
-      crosshair,
-      draggingPriceGuideId: draggingPriceGuide?.id || ''
-    }), {
-      notMerge: false,
-      replaceMerge: ['series', 'xAxis', 'yAxis', 'dataZoom', 'graphic']
-    })
-    applyingViewport = false
-    onViewportChange?.(viewport)
+    applyViewportOption()
   }
 
   const handleMouseMove = (event) => {
@@ -518,6 +553,25 @@ export function createKlineSlimChartController({
     }
 
     const gridRect = resolveKlineSlimGridRect(chart)
+    if (draggingViewport) {
+      event?.event?.preventDefault?.()
+      event?.event?.stopPropagation?.()
+      viewport = createKlineSlimViewportState({
+        xRange: buildPanXRange({
+          currentRange: draggingViewport.viewport.xRange,
+          pixelDeltaX: pixel[0] - draggingViewport.pixel[0],
+          gridWidth: gridRect?.width
+        }),
+        yRange: buildPanYRange({
+          currentRange: draggingViewport.viewport.yRange,
+          pixelDeltaY: pixel[1] - draggingViewport.pixel[1],
+          gridHeight: gridRect?.height
+        }),
+        yMode: 'manual'
+      })
+      applyViewportOption()
+      return
+    }
     if (!isPixelInsideGrid(pixel, gridRect)) {
       return
     }
@@ -561,6 +615,19 @@ export function createKlineSlimChartController({
       return
     }
     const gridRect = resolveKlineSlimGridRect(chart)
+    if (isShiftModified(event) && isPixelInsideGrid(pixel, gridRect)) {
+      draggingViewport = {
+        pixel,
+        viewport: createKlineSlimViewportState({
+          xRange: viewport.xRange,
+          yRange: viewport.yRange,
+          yMode: 'manual'
+        })
+      }
+      event?.event?.preventDefault?.()
+      event?.event?.stopPropagation?.()
+      return
+    }
     const matchedGuide = pickEditablePriceGuide({
       scene: currentScene,
       viewport,
@@ -577,6 +644,13 @@ export function createKlineSlimChartController({
   }
 
   const handleMouseUp = (event) => {
+    if (draggingViewport) {
+      draggingViewport = null
+      event?.event?.preventDefault?.()
+      event?.event?.stopPropagation?.()
+      applyGraphicOverlay()
+      return
+    }
     if (!draggingPriceGuide) {
       return
     }
@@ -613,31 +687,22 @@ export function createKlineSlimChartController({
       if (shouldResetCrosshair) {
         crosshair = null
         draggingPriceGuide = null
+        draggingViewport = null
       }
       viewport = resetViewport ? createKlineSlimViewportState() : createKlineSlimViewportState(viewport)
       viewport = deriveViewportStateForScene({
         scene: currentScene,
         viewport
       })
-      applyingViewport = true
-      chart.setOption(buildKlineSlimChartOption({
-        chart,
-        scene: currentScene,
-        viewport,
-        crosshair,
-        draggingPriceGuideId: draggingPriceGuide?.id || ''
-      }), {
-        notMerge: true
-      })
-      applyingViewport = false
+      applyViewportOption({ notMerge: true })
       chart.hideLoading?.()
-      onViewportChange?.(viewport)
     },
     clear() {
       currentScene = null
       viewport = createKlineSlimViewportState()
       crosshair = null
       draggingPriceGuide = null
+      draggingViewport = null
       chart?.clear?.()
     },
     syncCrosshair() {

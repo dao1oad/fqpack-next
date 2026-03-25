@@ -171,6 +171,26 @@ function buildVolatileScene() {
   })
 }
 
+function resolveExpectedGuidePrice(viewport, pixelY) {
+  const yMin = Number(viewport?.yRange?.min)
+  const yMax = Number(viewport?.yRange?.max)
+  const ratio = pixelY / 200
+  return Number((yMax - (yMax - yMin) * ratio).toFixed(3))
+}
+
+function pickThreeDecimalPixelY(viewport, fallback = 28) {
+  for (let pixelY = 1; pixelY < 199; pixelY += 1) {
+    if (Math.abs(pixelY - 8) <= 1) {
+      continue
+    }
+    const expected = resolveExpectedGuidePrice(viewport, pixelY)
+    if (Math.abs(expected - Number(expected.toFixed(2))) > 1e-9) {
+      return pixelY
+    }
+  }
+  return fallback
+}
+
 test('createKlineSlimViewportState defaults to auto y mode', () => {
   const viewport = createKlineSlimViewportState()
 
@@ -293,4 +313,103 @@ test('manual y range survives x-axis datazoom after wheel zoom', () => {
   assert.equal(afterWheel.yMode, 'manual')
   assert.deepEqual(afterPan.yRange, afterWheel.yRange)
   assert.notDeepEqual(afterPan.xRange, afterWheel.xRange)
+})
+
+test('controller shift drag pans both x and y axes together', () => {
+  const chart = createStubChart()
+  const controller = createKlineSlimChartController({ chart })
+
+  controller.applyScene(buildVolatileScene(), {
+    resetViewport: true,
+  })
+
+  const initialViewport = JSON.parse(JSON.stringify(controller.getViewport()))
+  const mouseDown = chart.zrHandlers.get('mousedown')
+  const mouseMove = chart.zrHandlers.get('mousemove')
+  const mouseUp = chart.zrHandlers.get('mouseup')
+
+  mouseDown({
+    offsetX: 160,
+    offsetY: 120,
+    event: {
+      shiftKey: true,
+      preventDefault() {},
+      stopPropagation() {},
+    },
+  })
+  mouseMove({
+    offsetX: 220,
+    offsetY: 152,
+    event: {
+      shiftKey: true,
+      preventDefault() {},
+      stopPropagation() {},
+    },
+  })
+  mouseUp({
+    offsetX: 220,
+    offsetY: 152,
+    event: {
+      shiftKey: true,
+      preventDefault() {},
+      stopPropagation() {},
+    },
+  })
+
+  const nextViewport = controller.getViewport()
+
+  assert.equal(nextViewport.yMode, 'manual')
+  assert.notDeepEqual(nextViewport.xRange, initialViewport.xRange)
+  assert.notDeepEqual(nextViewport.yRange, initialViewport.yRange)
+})
+
+test('controller drag callback keeps three-decimal guide prices', () => {
+  const chart = createStubChart()
+  const dragCalls = []
+  const controller = createKlineSlimChartController({
+    chart,
+    onPriceGuideDrag(payload) {
+      dragCalls.push(payload)
+    },
+  })
+
+  controller.applyScene(buildScene(), {
+    resetViewport: true,
+  })
+
+  const viewport = controller.getViewport()
+  const targetY = pickThreeDecimalPixelY(viewport)
+  const expectedPrice = resolveExpectedGuidePrice(viewport, targetY)
+  const mouseDown = chart.zrHandlers.get('mousedown')
+  const mouseMove = chart.zrHandlers.get('mousemove')
+  const mouseUp = chart.zrHandlers.get('mouseup')
+
+  mouseDown({
+    offsetX: 200,
+    offsetY: 8,
+    event: {
+      preventDefault() {},
+      stopPropagation() {},
+    },
+  })
+  mouseMove({
+    offsetX: 200,
+    offsetY: targetY,
+    event: {
+      preventDefault() {},
+      stopPropagation() {},
+    },
+  })
+  mouseUp({
+    offsetX: 200,
+    offsetY: targetY,
+    event: {
+      preventDefault() {},
+      stopPropagation() {},
+    },
+  })
+
+  assert.equal(dragCalls.length > 0, true)
+  assert.equal(dragCalls.at(-1).price, expectedPrice)
+  assert.notEqual(dragCalls.at(-1).price, Number(expectedPrice.toFixed(2)))
 })

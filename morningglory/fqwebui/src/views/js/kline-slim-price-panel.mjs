@@ -136,6 +136,17 @@ const buildTakeprofitEnabledSaveDrafts = (state = {}, nextManualEnabled = [true,
   }))
 }
 
+const buildGuardianRuntimeSavePayload = (state = {}, nextBuyEnabled = [true, true, true]) => {
+  const currentState = state?.guardianState || state?.subjectPriceDetail?.guardianState || {}
+  return {
+    buy_active: normalizeBuyEnabled(nextBuyEnabled, currentState?.buy_active || [true, true, true]),
+    last_hit_level: currentState?.last_hit_level ?? null,
+    last_hit_price: currentState?.last_hit_price ?? null,
+    last_hit_signal_time: currentState?.last_hit_signal_time ?? null,
+    last_reset_reason: currentState?.last_reset_reason ?? null,
+  }
+}
+
 const buildEmptySubjectPriceDetailState = () => ({
   subjectDetailError: '',
   subjectPriceDetail: null,
@@ -451,6 +462,7 @@ export const saveGuardianGuideEnabledState = async (
     afterRefresh,
     notifySuccess = true,
     nextBuyEnabled = [true, true, true],
+    syncRuntimeState = false,
   } = {},
 ) => {
   const localPriceDrafts = captureLocalPriceDrafts(state)
@@ -468,6 +480,9 @@ export const saveGuardianGuideEnabledState = async (
   state.savingGuardianPriceGuides = true
   try {
     await actions.saveGuardian(symbol, guardianDraft)
+    if (syncRuntimeState) {
+      await actions.saveGuardianState(symbol, buildGuardianRuntimeSavePayload(state, nextBuyEnabled))
+    }
     await loadSubjectPriceDetail(state, {
       actions,
       symbol,
@@ -500,6 +515,7 @@ export const saveTakeprofitGuideEnabledState = async (
     afterRefresh,
     notifySuccess = true,
     nextManualEnabled = [true, true, true],
+    syncRuntimeState = false,
   } = {},
 ) => {
   const localPriceDrafts = captureLocalPriceDrafts(state)
@@ -517,6 +533,9 @@ export const saveTakeprofitGuideEnabledState = async (
   state.savingTakeprofitGuides = true
   try {
     await actions.saveTakeprofit(symbol, takeprofitDrafts)
+    if (syncRuntimeState) {
+      await actions.rearmTakeprofit(symbol)
+    }
     await loadSubjectPriceDetail(state, {
       actions,
       symbol,

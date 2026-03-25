@@ -380,8 +380,17 @@ export default {
         index,
         price: this.guardianDraft?.[item.key] ?? null,
         manual_enabled: buyEnabled[index] !== false,
+        runtime_active: buyActive[index] !== false,
+        runtimeStateLabel: buyActive[index] !== false ? '激活' : '未激活',
         active: buyEnabled[index] !== false && buyActive[index] !== false
       }))
+    },
+    guardianRuntimeActiveCount() {
+      return this.guardianGuideRows.filter((row) => row.runtime_active).length
+    },
+    guardianLastHitLabel() {
+      const lastHitLevel = String(this.guardianState?.last_hit_level || '').trim()
+      return lastHitLevel || '未命中'
     },
     takeprofitGuideRows() {
       return TAKEPROFIT_GUIDE_META.map((item) => {
@@ -391,14 +400,20 @@ export default {
           price: null,
           manual_enabled: true
         }
+        const runtimeActive = isTakeprofitArmedLevel(this.takeprofitState, item.level)
         return {
           ...item,
           draftIndex,
           price: draft.price,
           manual_enabled: Boolean(draft.manual_enabled),
+          runtime_active: runtimeActive,
+          runtimeStateLabel: runtimeActive ? '已布防' : '未布防',
           armed: Boolean(draft.manual_enabled) && isTakeprofitArmedLevel(this.takeprofitState, item.level)
         }
       })
+    },
+    takeprofitRuntimeActiveCount() {
+      return this.takeprofitGuideRows.filter((row) => row.runtime_active).length
     },
     lastMainClosePrice() {
       return resolveLatestClosePrice(this.mainData)
@@ -1384,11 +1399,21 @@ export default {
           : [true, true, true],
         enabled: Boolean(this.guardianDraft?.enabled ?? true)
       }
+      const previousGuardianState = {
+        ...this.guardianState,
+        buy_active: Array.isArray(this.guardianState?.buy_active)
+          ? this.guardianState.buy_active.slice(0, 3).map((item) => item !== false)
+          : [true, true, true]
+      }
 
       this.guardianDraft = {
         ...this.guardianDraft,
         buy_enabled: nextBuyEnabled,
         enabled: nextBuyEnabled.some(Boolean)
+      }
+      this.guardianState = {
+        ...this.guardianState,
+        buy_active: nextBuyEnabled.slice(0, 3).map((item) => item !== false)
       }
 
       try {
@@ -1397,10 +1422,12 @@ export default {
           symbol: this.routeSymbol,
           notify: this.$message,
           afterRefresh: () => this.scheduleRender(),
-          nextBuyEnabled
+          nextBuyEnabled,
+          syncRuntimeState: true
         })
       } catch (error) {
         this.guardianDraft = previousGuardianDraft
+        this.guardianState = previousGuardianState
         throw error
       }
     },
@@ -1408,6 +1435,12 @@ export default {
       const previousDrafts = Array.isArray(this.takeprofitDrafts)
         ? this.takeprofitDrafts.map((row) => ({ ...row }))
         : []
+      const previousTakeprofitState = {
+        ...this.takeprofitState,
+        armed_levels: {
+          ...(this.takeprofitState?.armed_levels || {})
+        }
+      }
       const nextManualEnabled = [enabled !== false, enabled !== false, enabled !== false]
 
       this.takeprofitDrafts = TAKEPROFIT_GUIDE_META.map((item) => {
@@ -1422,6 +1455,12 @@ export default {
           manual_enabled: nextManualEnabled[item.level - 1]
         }
       })
+      this.takeprofitState = {
+        ...this.takeprofitState,
+        armed_levels: Object.fromEntries(
+          TAKEPROFIT_GUIDE_META.map((item) => [item.level, nextManualEnabled[item.level - 1] !== false])
+        )
+      }
 
       try {
         return await saveTakeprofitGuideEnabledState(this, {
@@ -1429,10 +1468,12 @@ export default {
           symbol: this.routeSymbol,
           notify: this.$message,
           afterRefresh: () => this.scheduleRender(),
-          nextManualEnabled
+          nextManualEnabled,
+          syncRuntimeState: true
         })
       } catch (error) {
         this.takeprofitDrafts = previousDrafts
+        this.takeprofitState = previousTakeprofitState
         throw error
       }
     },
