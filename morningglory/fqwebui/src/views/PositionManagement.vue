@@ -189,15 +189,15 @@
               <div v-if="symbolLimitRows.length" class="runtime-ledger runtime-position-symbol-limit-ledger">
                 <div class="runtime-ledger__header runtime-position-symbol-limit-ledger__grid">
                   <span>标的</span>
-                  <span>券商仓位</span>
-                  <span>推断仓位</span>
-                  <span>stock_fills仓位</span>
                   <span>系统默认值</span>
                   <span>单标的上限设置</span>
                   <span>当前来源</span>
                   <span>一致性</span>
                   <span>门禁</span>
                   <span>操作</span>
+                  <span>券商仓位</span>
+                  <span>推断仓位</span>
+                  <span>stock_fills仓位</span>
                 </div>
 
                 <div
@@ -212,18 +212,6 @@
                   <div class="runtime-ledger__cell position-limit-symbol">
                     <strong>{{ row.symbol }}</strong>
                     <span>{{ row.name }}</span>
-                  </div>
-                  <div class="runtime-ledger__cell position-source-cell" :title="row.broker_position_source_label">
-                    <strong>{{ row.broker_position_label }}</strong>
-                    <span>{{ row.broker_position_source_label }}</span>
-                  </div>
-                  <div class="runtime-ledger__cell position-source-cell" :title="row.inferred_position_source_label">
-                    <strong>{{ row.inferred_position_label }}</strong>
-                    <span>{{ row.inferred_position_source_label }}</span>
-                  </div>
-                  <div class="runtime-ledger__cell position-source-cell" :title="row.legacy_position_source_label">
-                    <strong>{{ row.legacy_position_label }}</strong>
-                    <span>{{ row.legacy_position_source_label }}</span>
                   </div>
                   <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.default_limit_label }}</span>
                   <div class="runtime-ledger__cell position-symbol-limit-input">
@@ -255,6 +243,18 @@
                     >
                       保存
                     </el-button>
+                  </div>
+                  <div class="runtime-ledger__cell position-source-cell" :title="row.broker_position_source_label">
+                    <strong>{{ row.broker_position_label }}</strong>
+                    <span>{{ row.broker_position_source_label }}</span>
+                  </div>
+                  <div class="runtime-ledger__cell position-source-cell" :title="row.inferred_position_source_label">
+                    <strong>{{ row.inferred_position_label }}</strong>
+                    <span>{{ row.inferred_position_source_label }}</span>
+                  </div>
+                  <div class="runtime-ledger__cell position-source-cell" :title="row.legacy_position_source_label">
+                    <strong>{{ row.legacy_position_label }}</strong>
+                    <span>{{ row.legacy_position_source_label }}</span>
                   </div>
                 </div>
               </div>
@@ -566,7 +566,7 @@ onMounted(() => {
   --position-upper-panel-height: clamp(420px, 44dvh, 500px);
   --position-symbol-limit-ledger-row-height: 48px;
   --position-symbol-limit-ledger-body-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
-  --position-symbol-limit-source-column-min-width: 240px;
+  --position-symbol-limit-position-column-width: 188px;
   display: grid;
   grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.32fr);
   gap: 12px;
@@ -669,19 +669,22 @@ onMounted(() => {
 
 .position-state-grid {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .position-state-grid--compact {
-  grid-template-columns: minmax(256px, 0.96fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: stretch;
 }
 
 .position-metric-grid,
 .position-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
+  display: contents;
+}
+
+.position-metric-card,
+.position-meta-card {
+  min-height: 72px;
 }
 
 .position-metric-card span,
@@ -698,20 +701,31 @@ onMounted(() => {
   line-height: 1.35;
 }
 
-.position-rule-card p {
-  margin: 6px 0 0;
-  color: #606266;
-  font-size: 11px;
-  line-height: 1.45;
-}
-
 .position-metric-card strong {
   font-size: 15px;
+  max-height: calc(1.35em * 2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .position-meta-card strong {
   font-size: 11px;
   word-break: break-all;
+}
+
+.position-rule-card p {
+  margin: 4px 0 0;
+  color: #606266;
+  font-size: 10px;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .position-panel-section {
@@ -803,7 +817,7 @@ onMounted(() => {
 
 .runtime-position-decision-ledger {
   --position-decision-ledger-row-height: 40px;
-  max-height: calc(var(--position-decision-ledger-row-height) * 11 + 2px);
+  max-height: calc(var(--position-decision-ledger-row-height) * 15 + 2px);
 }
 
 .runtime-position-decision-ledger :is(.runtime-ledger__header, .runtime-ledger__row) {
@@ -855,15 +869,15 @@ onMounted(() => {
 .runtime-position-symbol-limit-ledger__grid {
   grid-template-columns:
     144px
-    168px
-    minmax(var(--position-symbol-limit-source-column-min-width), 1.1fr)
-    minmax(var(--position-symbol-limit-source-column-min-width), 1.1fr)
     92px
     144px
     88px
     92px
     72px
-    84px;
+    84px
+    var(--position-symbol-limit-position-column-width)
+    var(--position-symbol-limit-position-column-width)
+    var(--position-symbol-limit-position-column-width);
 }
 
 .runtime-ledger__cell {
@@ -964,6 +978,9 @@ onMounted(() => {
   color: #68839d;
   font-size: 11px;
   line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .position-symbol-limit-input :deep(.el-input-number) {
@@ -984,9 +1001,7 @@ onMounted(() => {
 
 @media (max-width: 1260px) {
   .position-lower-grid,
-  .position-state-grid--compact,
-  .position-metric-grid,
-  .position-meta-grid {
+  .position-state-grid--compact {
     grid-template-columns: 1fr;
   }
 }
