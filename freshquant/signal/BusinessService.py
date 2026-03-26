@@ -7,14 +7,15 @@ import string
 import time
 import traceback
 from datetime import datetime, timedelta
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pydash
 import pymongo
-import pytz
+import pytz  # type: ignore[import-untyped]
 import QUANTAXIS as QA
-import requests
+import requests  # type: ignore[import-untyped]
 from bson import ObjectId
 from bson.codec_options import CodecOptions
 
@@ -30,9 +31,9 @@ tz = pytz.timezone('Asia/Shanghai')
 # periodList = ['3min', '5min', '15min', '30min', '60min', '4hour', '1day']
 periodList = ['1m', '3m', '5m', '15m', '30m', '180m', '1d']
 # 主力合约列表
-dominantSymbolList = []
+dominantSymbolList: list[str] = []
 # 主力合约详细信息
-dominantSymbolInfoList = []
+dominantSymbolInfoList: list[dict[str, Any]] = []
 # CL:原油; GC:黄金;SI:白银; CT:棉花;S:大豆;SM：豆粕; BO:豆油;NID:伦镍; ZSD:伦锌;
 # 马棕 日胶
 global_future_symbol = config['global_future_symbol']
