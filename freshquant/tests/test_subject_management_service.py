@@ -1,26 +1,35 @@
+import importlib
 import json
 import sys
 import types
+from typing import Any
 
 from bson import ObjectId
 
-code_module = types.ModuleType("freshquant.util.code")
-code_module.normalize_to_base_code = lambda value: str(value or "").strip().split(".")[0]
-sys.modules.setdefault("freshquant.util.code", code_module)
+import freshquant.instrument as instrument_package
 
-db_module = types.ModuleType("freshquant.db")
+code_module: Any = types.ModuleType("freshquant.util.code")
+code_module.normalize_to_base_code = (
+    lambda value: str(value or "").strip().split(".")[0]
+)
+sys.modules["freshquant.util.code"] = code_module
+
+db_module: Any = types.ModuleType("freshquant.db")
 db_module.DBfreshquant = {}
-sys.modules.setdefault("freshquant.db", db_module)
+sys.modules["freshquant.db"] = db_module
 
-strategy_common_module = types.ModuleType("freshquant.strategy.common")
+strategy_common_module: Any = types.ModuleType("freshquant.strategy.common")
 strategy_common_module.get_trade_amount = lambda code: 50000
-sys.modules.setdefault("freshquant.strategy.common", strategy_common_module)
+sys.modules["freshquant.strategy.common"] = strategy_common_module
 
-instrument_module = types.ModuleType("freshquant.instrument.general")
+instrument_module: Any = types.ModuleType("freshquant.instrument.general")
 instrument_module.query_instrument_info = lambda symbol: None
-sys.modules.setdefault("freshquant.instrument.general", instrument_module)
+sys.modules["freshquant.instrument.general"] = instrument_module
+setattr(instrument_package, "general", instrument_module)
 
-order_repository_module = types.ModuleType("freshquant.order_management.repository")
+order_repository_module: Any = types.ModuleType(
+    "freshquant.order_management.repository"
+)
 
 
 class OrderManagementRepository:
@@ -32,9 +41,9 @@ class OrderManagementRepository:
 
 
 order_repository_module.OrderManagementRepository = OrderManagementRepository
-sys.modules.setdefault("freshquant.order_management.repository", order_repository_module)
+sys.modules["freshquant.order_management.repository"] = order_repository_module
 
-tpsl_repository_module = types.ModuleType("freshquant.tpsl.repository")
+tpsl_repository_module: Any = types.ModuleType("freshquant.tpsl.repository")
 
 
 class TpslRepository:
@@ -52,10 +61,15 @@ class TpslRepository:
 
 
 tpsl_repository_module.TpslRepository = TpslRepository
-sys.modules.setdefault("freshquant.tpsl.repository", tpsl_repository_module)
+sys.modules["freshquant.tpsl.repository"] = tpsl_repository_module
 
-from freshquant.subject_management.dashboard_service import (
-    SubjectManagementDashboardService,
+sys.modules.pop("freshquant.data.astock.must_pool", None)
+
+import freshquant.subject_management.dashboard_service as dashboard_service_module
+
+dashboard_service_module = importlib.reload(dashboard_service_module)
+SubjectManagementDashboardService = (
+    dashboard_service_module.SubjectManagementDashboardService
 )
 
 

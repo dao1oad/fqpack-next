@@ -1342,7 +1342,11 @@ def test_sync_stock_pool_to_must_pool_uses_stock_pool_order_and_returns_counts(
         ),
         must_pool=FakeCollection(
             [
-                {"code": "600001", "category": "人工观察", "manual_category": "人工观察"},
+                {
+                    "code": "600001",
+                    "category": "人工观察",
+                    "manual_category": "人工观察",
+                },
                 {"code": "300001", "category": "旧分类"},
             ]
         ),

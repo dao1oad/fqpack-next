@@ -33,9 +33,10 @@ def _import_must_pool_with_stubs(monkeypatch, *, collection=None):
     fake_db_module.DBfreshquant = fake_db
 
     fake_instrument_module = types.ModuleType("freshquant.instrument.general")
-    fake_instrument_module.query_instrument_info = (
-        lambda code: {"name": f"name-{code}", "sec": "stock"}
-    )
+    fake_instrument_module.query_instrument_info = lambda code: {
+        "name": f"name-{code}",
+        "sec": "stock",
+    }
 
     fake_strategy_common_module = types.ModuleType("freshquant.strategy.common")
     fake_strategy_common_module.get_trade_amount = lambda code: 50000

@@ -1,10 +1,14 @@
-import types
 import sys
+import types
 from datetime import datetime
+from typing import Any
 
 from flask import Flask
 
-svc_module = types.ModuleType("freshquant.data.gantt_readmodel")
+import freshquant
+import freshquant.data as freshquant_data
+
+svc_module: Any = types.ModuleType("freshquant.data.gantt_readmodel")
 svc_module.DBGantt = {}
 svc_module.get_trade_dates_between = lambda start_date, end_date: []
 svc_module.query_gantt_plate_matrix = lambda **kwargs: {}
@@ -13,9 +17,10 @@ svc_module.query_gantt_stock_matrix = lambda **kwargs: {}
 svc_module.query_stock_hot_reason_rows = lambda **kwargs: []
 svc_module.query_shouban30_plate_rows = lambda **kwargs: []
 svc_module.query_shouban30_stock_rows = lambda **kwargs: []
-sys.modules.setdefault("freshquant.data.gantt_readmodel", svc_module)
+sys.modules["freshquant.data.gantt_readmodel"] = svc_module
+setattr(freshquant_data, "gantt_readmodel", svc_module)
 
-shouban_module = types.ModuleType("freshquant.shouban30_pool_service")
+shouban_module: Any = types.ModuleType("freshquant.shouban30_pool_service")
 shouban_module.SHOUBAN30_PRE_POOL_CATEGORY = "三十涨停Pro预选"
 shouban_module.SHOUBAN30_STOCK_POOL_CATEGORY = "三十涨停Pro自选"
 shouban_module.SHOUBAN30_BLK_FILENAME = "30RYZT.blk"
@@ -35,7 +40,8 @@ shouban_module.clear_stock_pool = lambda: {}
 shouban_module.delete_stock_pool_item = lambda code6: {}
 shouban_module.sync_must_pool_to_blk = lambda: {}
 shouban_module.clear_must_pool = lambda: {}
-sys.modules.setdefault("freshquant.shouban30_pool_service", shouban_module)
+sys.modules["freshquant.shouban30_pool_service"] = shouban_module
+setattr(freshquant, "shouban30_pool_service", shouban_module)
 
 
 class FakeCollection:

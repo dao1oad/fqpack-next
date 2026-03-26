@@ -4,6 +4,7 @@ import types
 from typing import Any
 
 import pytest
+
 import freshquant.instrument as instrument_package
 
 SubjectManagementWriteService = None

@@ -278,7 +278,9 @@ def _resolve_must_pool_category(existing_doc, source_doc, provenance):
     if existing_category and existing_category != SHOUBAN30_MUST_POOL_CATEGORY:
         return existing_category
 
-    categories = [str(value or "").strip() for value in provenance.get("categories") or []]
+    categories = [
+        str(value or "").strip() for value in provenance.get("categories") or []
+    ]
     categories = [value for value in categories if value]
     if categories:
         return categories[0]

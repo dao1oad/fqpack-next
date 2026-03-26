@@ -42,7 +42,9 @@ class SubjectManagementWriteService:
 
         from freshquant.data.astock.must_pool import build_legacy_provenance
 
-        existing = self.database["must_pool"].find_one({"code": normalized_symbol}) or {}
+        existing = (
+            self.database["must_pool"].find_one({"code": normalized_symbol}) or {}
+        )
         provenance = build_legacy_provenance(existing)
         now = datetime.now()
         document = {
