@@ -1,13 +1,61 @@
 import importlib
+import sys
+import types
+from typing import Any
 
 import pytest
+import freshquant.instrument as instrument_package
 
-from freshquant.subject_management.write_service import SubjectManagementWriteService
+SubjectManagementWriteService = None
+
+
+@pytest.fixture(autouse=True)
+def _install_write_service_stubs(monkeypatch):
+    global SubjectManagementWriteService
+
+    code_module: Any = types.ModuleType("freshquant.util.code")
+    code_module.normalize_to_base_code = (
+        lambda value: str(value or "").strip().split(".")[0]
+    )
+    monkeypatch.setitem(sys.modules, "freshquant.util.code", code_module)
+
+    db_module: Any = types.ModuleType("freshquant.db")
+    db_module.DBfreshquant = {}
+    monkeypatch.setitem(sys.modules, "freshquant.db", db_module)
+
+    strategy_common_module: Any = types.ModuleType("freshquant.strategy.common")
+    strategy_common_module.get_trade_amount = lambda code: 50000
+    monkeypatch.setitem(
+        sys.modules, "freshquant.strategy.common", strategy_common_module
+    )
+
+    instrument_module: Any = types.ModuleType("freshquant.instrument.general")
+    instrument_module.query_instrument_info = lambda symbol: None
+    monkeypatch.setitem(sys.modules, "freshquant.instrument.general", instrument_module)
+    monkeypatch.setattr(instrument_package, "general", instrument_module, raising=False)
+
+    monkeypatch.delitem(sys.modules, "freshquant.data.astock.must_pool", raising=False)
+    monkeypatch.delitem(
+        sys.modules, "freshquant.subject_management.write_service", raising=False
+    )
+
+    import freshquant.subject_management.write_service as write_service_module
+
+    write_service_module = importlib.reload(write_service_module)
+    SubjectManagementWriteService = write_service_module.SubjectManagementWriteService
+    yield
 
 
 class FakeCollection:
-    def __init__(self):
+    def __init__(self, docs=None):
+        self.docs = [dict(item) for item in (docs or [])]
         self.updates = []
+
+    def find_one(self, query):
+        for doc in self.docs:
+            if all(doc.get(key) == value for key, value in dict(query or {}).items()):
+                return dict(doc)
+        return None
 
     def update_one(self, query, update, upsert=False):
         self.updates.append(
@@ -20,21 +68,19 @@ class FakeCollection:
 
 
 class FakeDatabase(dict):
+    def __init__(self, initial=None):
+        super().__init__(initial or {})
+
     def __getitem__(self, name):
         if name not in self:
             self[name] = FakeCollection()
         return dict.__getitem__(self, name)
 
 
-def _instrument_general_module():
-    return importlib.import_module("freshquant.instrument.general")
-
-
 @pytest.mark.parametrize("field_name", ["initial_lot_amount", "lot_amount"])
 def test_update_must_pool_rejects_fractional_lot_amounts(monkeypatch, field_name):
     monkeypatch.setattr(
-        _instrument_general_module(),
-        "query_instrument_info",
+        "freshquant.instrument.general.query_instrument_info",
         lambda symbol: {"name": "浦发银行", "sec": "stock"},
     )
     database = FakeDatabase()
@@ -100,8 +146,7 @@ def test_update_guardian_buy_grid_forwards_per_level_switches():
 
 def test_update_must_pool_forces_forever_true(monkeypatch):
     monkeypatch.setattr(
-        _instrument_general_module(),
-        "query_instrument_info",
+        "freshquant.instrument.general.query_instrument_info",
         lambda symbol: {"name": "浦发银行", "sec": "stock"},
     )
     database = FakeDatabase()
@@ -120,3 +165,57 @@ def test_update_must_pool_forces_forever_true(monkeypatch):
 
     assert result["forever"] is True
     assert database["must_pool"].updates[0]["update"]["$set"]["forever"] is True
+
+
+def test_update_must_pool_keeps_existing_memberships(monkeypatch):
+    monkeypatch.setattr(
+        "freshquant.instrument.general.query_instrument_info",
+        lambda symbol: {"name": "浦发银行", "sec": "stock"},
+    )
+    existing_memberships = [
+        {
+            "source": "shouban30",
+            "category": "plate:11",
+            "added_at": "2026-03-20T09:00:00",
+            "expire_at": None,
+            "extra": {"shouban30_plate_key": "11"},
+        }
+    ]
+    database = FakeDatabase(
+        {
+            "must_pool": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "name": "浦发银行",
+                        "category": "旧分类",
+                        "sources": ["shouban30"],
+                        "categories": ["plate:11"],
+                        "memberships": existing_memberships,
+                        "workspace_order_hint": 5,
+                    }
+                ]
+            )
+        }
+    )
+    service = SubjectManagementWriteService(database=database)
+
+    result = service.update_must_pool(
+        "600000.SH",
+        {
+            "category": "银行",
+            "stop_loss_price": 9.2,
+            "initial_lot_amount": 80000,
+            "lot_amount": 50000,
+            "updated_by": "pytest",
+        },
+    )
+
+    saved = database["must_pool"].updates[0]["update"]["$set"]
+    assert result["category"] == "银行"
+    assert saved["manual_category"] == "银行"
+    assert saved["category"] == "银行"
+    assert saved["sources"] == ["shouban30"]
+    assert saved["categories"] == ["plate:11"]
+    assert saved["memberships"] == existing_memberships
+    assert saved["workspace_order_hint"] == 5

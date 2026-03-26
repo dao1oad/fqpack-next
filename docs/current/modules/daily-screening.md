@@ -177,10 +177,12 @@
 - 当前结果表达式会明确展示：CLS 分组内部和分组之间用并集语义，和其他筛选条件再取交集
 - 全市场搜索是覆盖模式，不和左侧勾选条件叠加；搜索结果会直接显示到中间列表中
 - 交集列表支持批量加入 `pre_pools`，也支持单条直接加入 `pre_pools`
-- 工作区 `pre_pools` / `stock_pools` 当前读取共享去重真值；同一个 `code` 只显示一行，并明确展示 `sources / categories`
+- 工作区 `pre_pools` / `stock_pools` / `must_pools` 当前都读取共享去重真值；同一个 `code` 只显示一行，并明确展示 `sources / categories`
 - 工作区会额外展示 `must_pools` 页签，并直接复用现有必选池读写接口
-- `must_pools` 页签增加 `集合` 列，显示该标的在必选池中的 `category`
-- `must_pools` 页签支持单条删除，不提供批量同步按钮
+- `must_pools` 继续按“单 `code` 单主记录”展示；记录内部会保留 `sources / categories / memberships`
+- `must_pools` 顶层 `category` 现在是兼容摘要字段：优先 `manual_category`，否则按 `memberships` 主来源推导
+- `must_pools` 页签增加 `集合` 列，显示当前摘要 `category`
+- `must_pools` 页签支持单条按 `code` 删除整条记录，也提供“同步到通达信”“清空”按钮；两个动作都以当前共享 `must_pool` 全量集合为真值并完整覆盖 `30RYZT.blk`
 - 工作区 `分类 / 上下文` 列优先展示聚合 `categories`；如果同时存在板块信息，会在同格补充板块上下文
 - 点击交集列表或工作区中的任一标的，右侧都复用 `/api/daily-screening/stocks/<code>/detail` 展示完整详情
 - 右侧详情区删除独立“日线缠论涨幅”卡片，改成紧凑条件卡片区，把更多高度留给“历史热门理由”
@@ -231,6 +233,8 @@
 - `/api/gantt/shouban30/stock-pool/sync-to-tdx`
 - `/api/gantt/shouban30/stock-pool/clear`
 - `/api/gantt/shouban30/stock-pool/delete`
+- `/api/gantt/shouban30/must-pool/sync-to-tdx`
+- `/api/gantt/shouban30/must-pool/clear`
 - `/api/get_stock_must_pools_list`
 - `/api/delete_from_must_pool_by_code`
 
@@ -240,7 +244,11 @@
 - 每行会携带 `sources / categories / memberships`
 - `/api/gantt/shouban30/stock-pool` 也会返回并展示 `sources / categories / memberships`
 - 从 `pre_pools` 加入 `stock_pools` 时会保留来源与分类 provenance；同 code 已存在时会补齐这些字段
+- `/api/get_stock_must_pools_list` 返回共享 `must_pool` 的去重列表，并带上 `manual_category / sources / categories / memberships / workspace_order_hint`
+- 从 `stock_pools` 加入 `must_pool` 时会 merge provenance，不再把 `category` 固定写成单一常量
 - `/api/gantt/shouban30/pre-pool/delete` 按 `code` 删除整条共享记录
+- `/api/delete_from_must_pool_by_code` 也按 `code` 删除整条 `must_pool` 主记录，不提供 membership 级删除
+- `/api/gantt/shouban30/must-pool/sync-to-tdx` 与 `/api/gantt/shouban30/must-pool/clear` 会按 `workspace_order_hint` 输出 `must_pool`，缺失时回退 `updated_at / created_at / datetime desc`
 
 已禁用的旧手动执行入口：
 

@@ -501,3 +501,28 @@ def delete_shouban30_stock_pool_item():
     except RuntimeError as exc:
         return _server_error(str(exc))
     return jsonify({"data": result})
+
+
+@gantt_bp.route("/shouban30/must-pool/sync-to-tdx", methods=["POST"])
+def sync_shouban30_must_pool_to_tdx():
+    try:
+        blk_sync = shouban30_pool_service.sync_must_pool_to_blk()
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify({"data": {"blk_sync": blk_sync}})
+
+
+@gantt_bp.route("/shouban30/must-pool/clear", methods=["POST"])
+def clear_shouban30_must_pool():
+    try:
+        result = shouban30_pool_service.clear_must_pool()
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify(
+        {
+            "data": {
+                "deleted_count": result.get("deleted_count", 0),
+            },
+            "meta": {"blk_sync": result.get("blk_sync")},
+        }
+    )

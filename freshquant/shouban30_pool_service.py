@@ -62,7 +62,35 @@ def _sorted_stock_pool_docs():
     return _sorted_workspace_docs(docs, _sort_docs_by_datetime_desc)
 
 
+def _sort_docs_by_updated_desc(docs):
+    ordered = sorted(docs, key=lambda item: item.get("code", ""))
+    return sorted(
+        ordered,
+        key=lambda item: (
+            item.get("updated_at")
+            or item.get("created_at")
+            or item.get("datetime")
+            or datetime.min
+        ),
+        reverse=True,
+    )
+
+
+def _sorted_must_pool_docs():
+    docs = list(DBfreshquant["must_pool"].find({}))
+    return _sorted_workspace_docs(docs, _sort_docs_by_updated_desc)
+
+
 def _workspace_order(doc):
+    value = doc.get("workspace_order_hint")
+    if isinstance(value, int) and value >= 0:
+        return value
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = None
+    if parsed is not None and parsed >= 0:
+        return parsed
     value = doc.get("workspace_order")
     if isinstance(value, int) and value >= 0:
         return value
@@ -235,6 +263,34 @@ def _serialize_pool_doc(doc):
 
 def _pre_pool_service():
     return PrePoolService(db=DBfreshquant)
+
+
+def _resolve_must_pool_category(existing_doc, source_doc, provenance):
+    existing_doc = dict(existing_doc or {})
+    source_doc = dict(source_doc or {})
+    provenance = dict(provenance or {})
+
+    manual_category = str(existing_doc.get("manual_category") or "").strip()
+    if manual_category:
+        return manual_category
+
+    existing_category = str(existing_doc.get("category") or "").strip()
+    if existing_category and existing_category != SHOUBAN30_MUST_POOL_CATEGORY:
+        return existing_category
+
+    categories = [str(value or "").strip() for value in provenance.get("categories") or []]
+    categories = [value for value in categories if value]
+    if categories:
+        return categories[0]
+
+    source_category = str(source_doc.get("category") or "").strip()
+    return source_category or existing_category or SHOUBAN30_MUST_POOL_CATEGORY
+
+
+def _resolve_existing_or_default(existing_doc, field_name, default):
+    existing_doc = dict(existing_doc or {})
+    value = existing_doc.get(field_name)
+    return default if value is None else value
 
 
 def _shouban30_membership_category(item):
@@ -535,6 +591,10 @@ def sync_stock_pool_to_blk():
     return _write_blk(_sorted_stock_pool_docs())
 
 
+def sync_must_pool_to_blk():
+    return _write_blk(_sorted_must_pool_docs())
+
+
 def clear_pre_pool():
     deleted_count = 0
     pre_pool_service = _pre_pool_service()
@@ -555,6 +615,15 @@ def clear_stock_pool():
         SHOUBAN30_STOCK_POOL_CATEGORY,
         sync_stock_pool_to_blk,
     )
+
+
+def clear_must_pool():
+    delete_result = DBfreshquant["must_pool"].delete_many({})
+    blk_sync = sync_must_pool_to_blk()
+    return {
+        "deleted_count": delete_result.deleted_count,
+        "blk_sync": blk_sync,
+    }
 
 
 def add_pre_pool_item_to_stock_pool(code6):
@@ -644,16 +713,31 @@ def list_stock_pool():
     return [_serialize_pool_doc(doc) for doc in _sorted_stock_pool_docs()]
 
 
-def _upsert_must_pool_item(code6):
+def _upsert_must_pool_item(code6, *, source_doc=None):
     code6 = _normalize_code6(code6)
+    if source_doc is None:
+        source_doc = DBfreshquant["stock_pools"].find_one(
+            {"code": code6, "category": SHOUBAN30_STOCK_POOL_CATEGORY}
+        )
+    if source_doc is None:
+        raise ValueError("stock_pool item not found")
     existing = DBfreshquant["must_pool"].find_one({"code": code6})
-    import_module("freshquant.data.astock.must_pool").import_pool(
-        code6,
-        SHOUBAN30_MUST_POOL_CATEGORY,
-        DEFAULT_STOP_LOSS_PRICE,
-        DEFAULT_INITIAL_LOT_AMOUNT,
-        DEFAULT_LOT_AMOUNT,
-        DEFAULT_FOREVER,
+    must_pool_module = import_module("freshquant.data.astock.must_pool")
+    provenance = must_pool_module.build_stock_pool_provenance(source_doc)
+    must_pool_module.import_pool(
+        code=code6,
+        category=_resolve_must_pool_category(existing, source_doc, provenance),
+        stop_loss_price=_resolve_existing_or_default(
+            existing, "stop_loss_price", DEFAULT_STOP_LOSS_PRICE
+        ),
+        initial_lot_amount=_resolve_existing_or_default(
+            existing, "initial_lot_amount", DEFAULT_INITIAL_LOT_AMOUNT
+        ),
+        lot_amount=_resolve_existing_or_default(
+            existing, "lot_amount", DEFAULT_LOT_AMOUNT
+        ),
+        forever=_resolve_existing_or_default(existing, "forever", DEFAULT_FOREVER),
+        provenance=provenance,
     )
     return "created" if existing is None else "updated"
 
@@ -665,7 +749,7 @@ def add_stock_pool_item_to_must_pool(code6):
     )
     if record is None:
         raise ValueError("stock_pool item not found")
-    return _upsert_must_pool_item(code6)
+    return _upsert_must_pool_item(code6, source_doc=record)
 
 
 def sync_stock_pool_to_must_pool():
@@ -674,7 +758,7 @@ def sync_stock_pool_to_must_pool():
     updated_count = 0
 
     for record in stock_pool_docs:
-        status = _upsert_must_pool_item(record.get("code"))
+        status = _upsert_must_pool_item(record.get("code"), source_doc=record)
         if status == "created":
             created_count += 1
         else:

@@ -1,7 +1,41 @@
 import types
+import sys
 from datetime import datetime
 
 from flask import Flask
+
+svc_module = types.ModuleType("freshquant.data.gantt_readmodel")
+svc_module.DBGantt = {}
+svc_module.get_trade_dates_between = lambda start_date, end_date: []
+svc_module.query_gantt_plate_matrix = lambda **kwargs: {}
+svc_module.query_gantt_plate_reason_map = lambda **kwargs: {}
+svc_module.query_gantt_stock_matrix = lambda **kwargs: {}
+svc_module.query_stock_hot_reason_rows = lambda **kwargs: []
+svc_module.query_shouban30_plate_rows = lambda **kwargs: []
+svc_module.query_shouban30_stock_rows = lambda **kwargs: []
+sys.modules.setdefault("freshquant.data.gantt_readmodel", svc_module)
+
+shouban_module = types.ModuleType("freshquant.shouban30_pool_service")
+shouban_module.SHOUBAN30_PRE_POOL_CATEGORY = "三十涨停Pro预选"
+shouban_module.SHOUBAN30_STOCK_POOL_CATEGORY = "三十涨停Pro自选"
+shouban_module.SHOUBAN30_BLK_FILENAME = "30RYZT.blk"
+shouban_module.replace_pre_pool = lambda items, context=None: {}
+shouban_module.append_pre_pool = lambda items, context=None: {}
+shouban_module.list_pre_pool = lambda: []
+shouban_module.add_pre_pool_item_to_stock_pool = lambda code6: "created"
+shouban_module.sync_pre_pool_to_stock_pool = lambda: {}
+shouban_module.sync_pre_pool_to_blk = lambda: {}
+shouban_module.clear_pre_pool = lambda: {}
+shouban_module.delete_pre_pool_item = lambda code6: {}
+shouban_module.list_stock_pool = lambda: []
+shouban_module.add_stock_pool_item_to_must_pool = lambda code6: "created"
+shouban_module.sync_stock_pool_to_must_pool = lambda: {}
+shouban_module.sync_stock_pool_to_blk = lambda: {}
+shouban_module.clear_stock_pool = lambda: {}
+shouban_module.delete_stock_pool_item = lambda code6: {}
+shouban_module.sync_must_pool_to_blk = lambda: {}
+shouban_module.clear_must_pool = lambda: {}
+sys.modules.setdefault("freshquant.shouban30_pool_service", shouban_module)
 
 
 class FakeCollection:
@@ -36,43 +70,31 @@ def _fake_db(**collections):
 def test_get_gantt_plates_reads_readmodel_collection(monkeypatch):
     from freshquant.rear.gantt import routes as gantt_routes
 
-    fake_db = _fake_db(
-        gantt_plate_daily=[
-            {
-                "provider": "xgb",
-                "trade_date": "2026-03-04",
-                "plate_key": "11",
-                "plate_name": "robotics",
-                "rank": 2,
-                "hot_stock_count": 5,
-                "limit_up_count": 1,
-                "stock_codes": ["000001", "000002"],
+    monkeypatch.setattr(
+        gantt_routes.svc,
+        "query_gantt_plate_matrix",
+        lambda **kwargs: {
+            "dates": ["2026-03-04", "2026-03-05"],
+            "y_axis": [{"id": "11", "name": "robotics"}],
+            "series": [
+                [0, 0, 2],
+                [1, 0, 1],
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        gantt_routes.svc,
+        "query_gantt_plate_reason_map",
+        lambda **kwargs: {
+            "2026-03-04|11": {
                 "reason_text": "day1 reason",
                 "reason_ref": {"trade_date": "2026-03-04", "plate_id": 11},
             },
-            {
-                "provider": "xgb",
-                "trade_date": "2026-03-05",
-                "plate_key": "11",
-                "plate_name": "robotics",
-                "rank": 1,
-                "hot_stock_count": 8,
-                "limit_up_count": 3,
-                "stock_codes": ["000001", "000002", "000003"],
+            "2026-03-05|11": {
                 "reason_text": "day2 reason",
                 "reason_ref": {"trade_date": "2026-03-05", "plate_id": 11},
             },
-        ]
-    )
-    monkeypatch.setattr(gantt_routes.svc, "DBGantt", fake_db)
-    monkeypatch.setattr(
-        gantt_routes.svc,
-        "get_trade_dates_between",
-        lambda start_date, end_date: [
-            datetime.strptime("2026-03-04", "%Y-%m-%d").date(),
-            datetime.strptime("2026-03-05", "%Y-%m-%d").date(),
-        ],
-        raising=False,
+        },
     )
 
     app = Flask(__name__)
@@ -99,44 +121,37 @@ def test_get_gantt_plates_reads_readmodel_collection(monkeypatch):
 def test_get_gantt_plates_keeps_trade_date_axis_for_calendar_window(monkeypatch):
     from freshquant.rear.gantt import routes as gantt_routes
 
-    fake_db = _fake_db(
-        gantt_plate_daily=[
-            {
-                "provider": "jygs",
-                "trade_date": "2026-03-04",
-                "plate_key": "robotics",
-                "plate_name": "robotics",
-                "rank": 2,
-                "hot_stock_count": 1,
-                "limit_up_count": 0,
-                "stock_codes": ["000001"],
-                "reason_text": "day1 reason",
-                "reason_ref": {"trade_date": "2026-03-04", "board_key": "robotics"},
-            },
-            {
-                "provider": "jygs",
-                "trade_date": "2026-03-06",
-                "plate_key": "robotics",
-                "plate_name": "robotics",
-                "rank": 1,
-                "hot_stock_count": 2,
-                "limit_up_count": 0,
-                "stock_codes": ["000001", "000002"],
-                "reason_text": "day3 reason",
-                "reason_ref": {"trade_date": "2026-03-06", "board_key": "robotics"},
-            },
-        ]
-    )
-    monkeypatch.setattr(gantt_routes.svc, "DBGantt", fake_db)
     monkeypatch.setattr(
         gantt_routes.svc,
-        "get_trade_dates_between",
-        lambda start_date, end_date: [
-            datetime.strptime("2026-03-04", "%Y-%m-%d").date(),
-            datetime.strptime("2026-03-05", "%Y-%m-%d").date(),
-            datetime.strptime("2026-03-06", "%Y-%m-%d").date(),
-        ],
-        raising=False,
+        "query_gantt_plate_matrix",
+        lambda **kwargs: {
+            "dates": ["2026-03-04", "2026-03-05", "2026-03-06"],
+            "y_axis": [{"id": "robotics", "name": "robotics"}],
+            "series": [
+                [0, 0, 2],
+                [2, 0, 1],
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        gantt_routes.svc,
+        "query_gantt_plate_reason_map",
+        lambda **kwargs: {
+            "2026-03-04|robotics": {
+                "reason_text": "day1 reason",
+                "reason_ref": {
+                    "trade_date": "2026-03-04",
+                    "board_key": "robotics",
+                },
+            },
+            "2026-03-06|robotics": {
+                "reason_text": "day3 reason",
+                "reason_ref": {
+                    "trade_date": "2026-03-06",
+                    "board_key": "robotics",
+                },
+            },
+        },
     )
 
     app = Flask(__name__)
@@ -443,8 +458,10 @@ def test_get_shouban30_stocks_returns_empty_when_missing(monkeypatch):
 def test_get_shouban30_stocks_returns_chanlun_snapshot_fields(monkeypatch):
     from freshquant.rear.gantt import routes as gantt_routes
 
-    fake_db = _fake_db(
-        shouban30_stocks=[
+    monkeypatch.setattr(
+        gantt_routes.svc,
+        "query_shouban30_stock_rows",
+        lambda **kwargs: [
             {
                 "provider": "xgb",
                 "plate_key": "11",
@@ -472,9 +489,8 @@ def test_get_shouban30_stocks_returns_chanlun_snapshot_fields(monkeypatch):
                 "quality_subject_snapshot_ready": True,
                 "quality_subject_source_version": "xgt_hot_blocks_v1",
             }
-        ]
+        ],
     )
-    monkeypatch.setattr(gantt_routes.svc, "DBGantt", fake_db)
 
     app = Flask(__name__)
     app.register_blueprint(gantt_routes.gantt_bp)
@@ -974,6 +990,78 @@ def test_clear_shouban30_stock_pool_returns_blk_sync_meta(monkeypatch):
         "data": {
             "deleted_count": 0,
             "category": "三十涨停Pro自选",
+        },
+        "meta": {
+            "blk_sync": {
+                "success": True,
+                "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+                "count": 0,
+            }
+        },
+    }
+
+
+def test_sync_shouban30_must_pool_to_tdx_returns_blk_sync(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(
+            sync_must_pool_to_blk=lambda: {
+                "success": True,
+                "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+                "count": 3,
+            }
+        ),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post("/api/gantt/shouban30/must-pool/sync-to-tdx")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "data": {
+            "blk_sync": {
+                "success": True,
+                "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+                "count": 3,
+            }
+        }
+    }
+
+
+def test_clear_shouban30_must_pool_returns_blk_sync_meta(monkeypatch):
+    from freshquant.rear.gantt import routes as gantt_routes
+
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        types.SimpleNamespace(
+            clear_must_pool=lambda: {
+                "deleted_count": 2,
+                "blk_sync": {
+                    "success": True,
+                    "file_path": "D:/tdx_biduan/T0002/blocknew/30RYZT.blk",
+                    "count": 0,
+                },
+            }
+        ),
+        raising=False,
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(gantt_routes.gantt_bp)
+    client = app.test_client()
+    response = client.post("/api/gantt/shouban30/must-pool/clear")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "data": {
+            "deleted_count": 2,
         },
         "meta": {
             "blk_sync": {

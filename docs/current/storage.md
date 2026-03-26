@@ -90,6 +90,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - `stock_fills_compat` 是从 `om_buy_lots` / `om_lot_slices` 派生出的兼容镜像，不是独立真值；需要兼容 Guardian 旧 `stock_fills` 语义时，优先读取它。
 - 原始 `stock_fills` 仍保留，但只作为历史 raw 集合、人工审计与最终兜底，不再承担当前持仓镜像真值。
 - `stock_pre_pools / stock_pools / must_pool` 是策略与页面共享的工作区/订阅范围集合，不再承担每日选股正式结果真值。
+- `must_pool` 当前仍按 `code` 唯一保留一条主记录，并通过 `manual_category / sources / categories / memberships` 兼容保留来源、分类与上下文；顶层 `category` 只是兼容摘要字段。
 - 每日选股正式 run、membership 和股票快照都落在 `fqscreening`；页面只在显式动作时复制结果到 `stock_pre_pools`。
 - 当每日选股复制结果到 `stock_pre_pools` 时，当前仍使用顶层 `remark` 保持来源隔离，正式值包括：
   - `daily-screening:clxs`
@@ -99,7 +100,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - Gantt/Shouban30 集合是只读视图与筛选结果，不参与订单账本。
 - `daily_screening_runs / memberships / stock_snapshots` 是每日选股正式读模型，不参与订单账本。
 - `fq_memory` 是 agent 旁路上下文库，不参与交易链、订单账本或正式运行真值。
-- Shouban30 当前把 `stock_pre_pools.extra.shouban30_order` 与 `stock_pools.extra.shouban30_order` 作为页面列表顺序和 `.blk` 输出顺序真值；历史 `stock_pools` 记录缺失该字段时，读取顺序兼容回退到旧 `datetime desc`。
+- Shouban30 当前把 `stock_pre_pools.workspace_order`、`stock_pools.extra.shouban30_order` 与 `must_pool.workspace_order_hint` 分别作为三个共享池的页面或 `.blk` 输出顺序真值；`stock_pool` 历史记录缺失顺序字段时回退到旧 `datetime desc`，`must_pool` 缺失时回退到 `updated_at / created_at / datetime desc`。
 
 ## Redis 当前角色
 
@@ -131,7 +132,7 @@ Gantt 与 Shouban30 读模型库，当前主要集合：
 - XT 回报 ingest 写 `om_trade_facts`、`om_buy_lots`、`om_lot_slices`、`om_sell_allocations` 等。
 - XT 回报 ingest、手工 `import_fill`、`reset_symbol_lots` 在持仓结构变化后同步重建 `freshquant.stock_fills_compat`。
 - TPSL 读 `xt_positions` 与 `om_*`，写 `om_takeprofit_*` / `om_exit_trigger_events`。
-- Gantt/Shouban30 API 读 gantt 库，并在工作区操作时写 `stock_pre_pools`、`stock_pools`；`stock_pool -> must_pool` 的单条/批量动作会显式写 `must_pool`，但不会改写 `stock_pool` 顺序。
+- Gantt/Shouban30 API 读 gantt 库，并在工作区操作时写 `stock_pre_pools`、`stock_pools`、`must_pool`；`stock_pool -> must_pool` 的单条/批量动作会显式写 `must_pool`，但不会改写 `stock_pool` 顺序；三个共享池各自的显式 `sync-to-tdx` 或 `clear` 都会完整覆盖 `30RYZT.blk`。
 - 每日选股 API 直接调用 `CLXS / chanlun / shouban30_agg90 / market_flags`，把正式 run 和查询快照写入 `fqscreening`；手动工作区动作才会写 `stock_pre_pools`。
 
 ## 当前排障原则

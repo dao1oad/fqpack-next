@@ -361,6 +361,8 @@ test('buildDailyScreeningWorkspaceTabs reuses shared workspace tab structure', (
   assert.equal(tabs[1].label, 'stock_pools')
   assert.equal(tabs[1].rows[0].primary_action_label, '加入 must_pools')
   assert.equal(tabs[2].label, 'must_pools')
+  assert.equal(tabs[2].sync_action_label, '同步到通达信')
+  assert.equal(tabs[2].clear_action_label, '清空')
   assert.equal(tabs[2].rows[0].category, '短线观察、机构票')
   assert.equal(tabs[2].rows[0].plate_name, '医药')
 })

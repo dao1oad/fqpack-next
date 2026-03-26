@@ -15,6 +15,7 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
   - `/api/gantt/shouban30/stocks`
   - `/api/gantt/shouban30/pre-pool/*`
   - `/api/gantt/shouban30/stock-pool/*`
+  - `/api/gantt/shouban30/must-pool/*`
 - 工作区服务
   - `freshquant.shouban30_pool_service`
 
@@ -38,7 +39,7 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 
 `stock_pool -> /api/gantt/shouban30/stock-pool/add-to-must-pool 或 /sync-to-must-pool -> must_pool`
 
-`pre_pool / stock_pool -> 手动 sync-to-tdx -> full overwrite 30RYZT.blk`
+`pre_pool / stock_pool / must_pool -> 手动 sync-to-tdx -> full overwrite 30RYZT.blk`
 
 当前快照前提：
 
@@ -72,13 +73,15 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
   - 对已存在于 `stock_pool` 的同 code 标的，接口仍返回 `already_exists / skipped_count`，但会补齐缺失的 provenance 字段，不要求先删后加
 - `stock_pool` 恢复单条“加入 must_pools”，并新增批量“同步到 must_pools”
   - 单条与批量共用同一套 `must_pool` upsert 语义：不存在记为 `created`，已存在记为 `updated`
+  - 写入 `must_pool` 时会保留并补齐 `sources / categories / memberships` provenance；不再把顶层 `category` 固定写成单一常量
   - 批量同步返回 `created_count / updated_count / total_count`
   - 批量同步按当前 `stock_pool` 页面顺序执行，但不会改变 `stock_pool` 自身顺序，也不会附带通达信同步
 - 工作区标签显示为 `pre_pools` / `stock_pools`，内部 tab key 仍保持 `pre_pool` / `stockpools`
 - `pre_pools` 当前展示共享去重池子的全量列表，并明确显示 `sources / categories`
 - `stock_pools` 当前也会明确展示并返回 `sources / categories / memberships`，用于说明每只标的是从哪些 `pre_pool` 来源/分类进入工作区
 - `pre_pools` 与 `stock_pools` 标签各自提供“同步到通达信”和“清空”按钮；`pre_pools` 的清空当前会清空整个共享 `stock_pre_pools` 池子并立即完整覆盖 `30RYZT.blk`
-- 两个工作区共享同一个 `30RYZT.blk`，所以最终文件内容始终由最后一次 `pre_pools` / `stock_pools` 的同步或清空动作决定
+- 当前 Shouban30 页面只直接暴露 `pre_pools / stock_pools` 的同步与清空按钮；同一后端也提供 `must_pool` 的同步与清空路由，供共享工作区复用
+- 三个工作区共享同一个 `30RYZT.blk`，所以最终文件内容始终由最后一次 `pre_pools` / `stock_pools` / `must_pool` 的同步或清空动作决定
 - 中间“热点标的”和工作区列表共用同一套“标的详情”联动；点击工作区行也会加载右侧标的详情
 - 热门理由与缠论统计展示
 - 页面桌面工作区固定按单屏展示；`首板板块`、`热点标的`、`标的详情`、`工作区` 同时保留在视口内
@@ -114,6 +117,9 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 - `pre_pool` 顶层使用 `workspace_order` 作为共享顺序真值；兼容字段 `extra.shouban30_order` 仍保留用于旧页面与 `.blk` 输出桥接
 - `stock_pool` 继续使用 `extra.shouban30_order` 作为页面顺序与 `.blk` 输出顺序真值
   - 历史 `stock_pool` 记录缺失该字段时，读取顺序兼容回退到 `datetime desc`
+- `must_pool` 继续按 `code` 唯一保留一条主记录，并通过 `manual_category / sources / categories / memberships` 保留来源与分类 provenance
+- `must_pool` 顶层 `category` 是兼容摘要字段：优先 `manual_category`，否则取主 `membership` 的 `category`
+- `must_pool` 使用 `workspace_order_hint` 作为 `.blk` 输出顺序真值；缺失时回退 `updated_at / created_at / datetime desc`
 - 当前缠论过滤版本是 `1d_v1`
 - 通达信目录解析口径固定为：先读 `bootstrap_config.tdx.home`，未配置时回退 `TDX_HOME`
 - Docker 并行部署下，`fq_apiserver` 当前必须挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}` 到 `/opt/tdx`
@@ -155,9 +161,9 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 
 ### 点击“同步到通达信”或“清空”后文件内容不对
 
-- 确认当前激活的是 `pre_pools` 还是 `stock_pools` 标签；按钮只会以当前标签对应池子为真值
-- 确认这是完整覆盖写，不会 append，也不会合并两个池子
-- 检查工作区列表顺序是否和预期一致；`.blk` 会按 `extra.shouban30_order` 输出
+- 确认当前触发的是 `pre_pools`、`stock_pools` 还是 `must_pool` 的同步/清空；动作只会以当前池子为真值
+- 确认这是完整覆盖写，不会 append，也不会把三个池子自动合并
+- 检查工作区列表顺序是否和预期一致：`pre_pool` 按 `workspace_order`，`stock_pool` 按 `extra.shouban30_order`，`must_pool` 按 `workspace_order_hint`
 - 如果刚执行过另一个工作区的同步或清空，`30RYZT.blk` 被后一次动作覆盖属于预期
 
 ### 加入 must_pool 后策略仍不关注

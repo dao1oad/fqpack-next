@@ -180,6 +180,8 @@ export const buildWorkspaceTabs = ({
     tabs.push({
       key: 'must_pools',
       label: 'must_pools',
+      sync_action_label: '同步到通达信',
+      clear_action_label: '清空',
       rows: normalizeList(mustPoolItems).map((item) => mapWorkspaceRow(item, {
         defaultProvider: 'must_pool',
       })),
