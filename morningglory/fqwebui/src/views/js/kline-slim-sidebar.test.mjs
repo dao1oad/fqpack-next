@@ -34,3 +34,22 @@ test('buildSidebarSections keeps every section to a compact two-line summary', (
   assert.equal(stockPoolSection.items[0].titleLabel, '平安银行(000001)')
   assert.equal(stockPoolSection.items[0].secondaryLabel, 'xgb')
 })
+
+test('buildSidebarSections sorts holding items by position size descending and keeps equal amounts stable', () => {
+  const sections = buildSidebarSections({
+    holdings: [
+      { symbol: 'sz000001', name: '平安银行', amount: 100000 },
+      { symbol: 'sh600036', name: '招商银行', position_amount: 300000 },
+      { symbol: 'sh601398', name: '工商银行', market_value: 300000 },
+      { symbol: 'sz300750', name: '宁德时代', amount: 'not-a-number' }
+    ],
+    expandedKey: 'holding'
+  })
+
+  const holdingSection = sections.find((section) => section.key === 'holding')
+
+  assert.deepEqual(
+    holdingSection.items.map((item) => item.titleLabel),
+    ['招商银行(600036)', '工商银行(601398)', '平安银行(000001)', '宁德时代(300750)']
+  )
+})

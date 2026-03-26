@@ -94,6 +94,16 @@ test('KlineSlim price guide panel separates price saving from switch control', (
   assert.match(scriptSource, /handleTakeprofitGuideEnabledAll\(enabled\)/)
 })
 
+test('KlineSlim price guide panel keeps takeprofit above guardian to match line positions', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+
+  assert.equal(
+    viewSource.indexOf('<span class="price-panel-section-title">止盈价格</span>') <
+      viewSource.indexOf('<span class="price-panel-section-title">Guardian 倍量价格</span>'),
+    true
+  )
+})
+
 test('KlineSlim bulk price guide toggles sync runtime state while row toggles stay config-only', () => {
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
