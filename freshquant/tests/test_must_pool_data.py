@@ -57,6 +57,11 @@ def _import_must_pool_with_stubs(monkeypatch, *, collection=None):
     monkeypatch.setitem(sys.modules, "pyperclip", fake_pyperclip_module)
     monkeypatch.setitem(sys.modules, "bson", fake_bson_module)
 
+    import freshquant.data.astock as astock_package
+
+    monkeypatch.delitem(sys.modules, "freshquant.data.astock.must_pool", raising=False)
+    monkeypatch.delattr(astock_package, "must_pool", raising=False)
+
     import freshquant.data.astock.must_pool as must_pool
 
     return importlib.reload(must_pool)
