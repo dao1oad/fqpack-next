@@ -25,19 +25,32 @@ class RuntimeJsonlIndexer:
 
     def sync_once(self) -> None:
         self.store.ensure_schema()
+        progress_rows: list[dict[str, Any]] = []
         for path in sorted(self.runtime_root.rglob("*.jsonl")):
             if path.is_file():
-                self._sync_file(path)
+                progress_row = self._sync_file(path)
+                if progress_row:
+                    progress_rows.append(progress_row)
+        self._record_progress_rows(progress_rows)
 
     def sync_forever(self, *, poll_interval_s: float = 2.0) -> None:
         while True:
             self.sync_once()
             time.sleep(max(float(poll_interval_s or 0.5), 0.5))
 
-    def _sync_file(self, path: Path) -> None:
+    def _sync_file(self, path: Path) -> dict[str, Any] | None:
         raw_file = path.relative_to(self.runtime_root).as_posix()
-        offset = int(self.store.load_progress(raw_file) or 0)
-        file_size = path.stat().st_size
+        snapshot = self._load_progress_snapshot(raw_file)
+        offset = int(snapshot.get("offset_bytes") or 0)
+        stat = path.stat()
+        file_size = int(stat.st_size)
+        mtime = float(stat.st_mtime)
+        if (
+            file_size == offset
+            and file_size == int(snapshot.get("file_size") or 0)
+            and self._same_mtime(snapshot.get("mtime"), mtime)
+        ):
+            return None
         if file_size < offset:
             offset = 0
         line_no = self._count_lines_until_offset(path, offset)
@@ -67,11 +80,43 @@ class RuntimeJsonlIndexer:
                     batch = []
             if batch:
                 self.store.insert_events(batch)
+            final_offset = int(handle.tell())
+        if (
+            final_offset == int(snapshot.get("offset_bytes") or 0)
+            and file_size == int(snapshot.get("file_size") or 0)
+            and self._same_mtime(snapshot.get("mtime"), mtime)
+        ):
+            return None
+        return {
+            "raw_file": raw_file,
+            "offset_bytes": final_offset,
+            "file_size": file_size,
+            "mtime": mtime,
+        }
+
+    def _load_progress_snapshot(self, raw_file: str) -> dict[str, Any]:
+        loader = getattr(self.store, "load_progress_snapshot", None)
+        if callable(loader):
+            snapshot = loader(raw_file) or {}
+            if isinstance(snapshot, dict):
+                return snapshot
+        return {"offset_bytes": int(self.store.load_progress(raw_file) or 0)}
+
+    def _record_progress_rows(
+        self, rows: list[dict[str, Any]] | tuple[dict[str, Any], ...]
+    ) -> None:
+        if not rows:
+            return
+        writer = getattr(self.store, "record_progress_rows", None)
+        if callable(writer):
+            writer(rows)
+            return
+        for row in rows:
             self.store.record_progress(
-                raw_file,
-                handle.tell(),
-                file_size=file_size,
-                mtime=path.stat().st_mtime,
+                row["raw_file"],
+                row["offset_bytes"],
+                file_size=row.get("file_size"),
+                mtime=row.get("mtime"),
             )
 
     def _count_lines_until_offset(self, path: Path, offset: int) -> int:
@@ -87,6 +132,13 @@ class RuntimeJsonlIndexer:
                 count += chunk.count(b"\n")
                 remaining -= len(chunk)
         return count
+
+    @staticmethod
+    def _same_mtime(left: Any, right: float, *, tolerance: float = 1e-6) -> bool:
+        try:
+            return abs(float(left) - float(right)) <= tolerance
+        except (TypeError, ValueError):
+            return False
 
 
 __all__ = ["RuntimeJsonlIndexer"]
