@@ -416,6 +416,27 @@
                       {{ tab.clear_action_label }}
                     </el-button>
                   </template>
+
+                  <template v-else-if="tab.key === 'must_pools'">
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      :loading="isWorkspaceActionRunning('workspace:must:sync-tdx')"
+                      @click="handleSyncMustPoolToTdx"
+                    >
+                      {{ tab.sync_action_label }}
+                    </el-button>
+                    <el-button
+                      size="small"
+                      type="danger"
+                      plain
+                      :loading="isWorkspaceActionRunning('workspace:must:clear')"
+                      @click="handleClearMustPool"
+                    >
+                      {{ tab.clear_action_label }}
+                    </el-button>
+                  </template>
                 </div>
 
                 <div v-if="tab.rows.length" class="runtime-ledger daily-workspace-ledger">
@@ -736,12 +757,14 @@ import {
   addShouban30PrePoolToStockPool,
   addShouban30StockPoolToMustPool,
   appendShouban30PrePool,
+  clearShouban30MustPool,
   clearShouban30PrePool,
   clearShouban30StockPool,
   deleteShouban30PrePoolItem,
   deleteShouban30StockPoolItem,
   getShouban30PrePool,
   getShouban30StockPool,
+  syncShouban30MustPoolToTdx,
   syncShouban30PrePoolToStockPool,
   syncShouban30PrePoolToTdx,
   syncShouban30StockPoolToMustPool,
@@ -1318,6 +1341,23 @@ const handleDeleteMustPoolRow = async (row) => {
     actionKey: `workspace:must:delete:${String(row?.code6 || '').trim()}`,
     action: () => stockApi.deleteFromStockMustPoolsByCode(String(row?.code6 || '').trim()),
     successMessage: `${String(row?.code6 || '').trim()} 已从 must_pools 删除`,
+  })
+}
+
+const handleSyncMustPoolToTdx = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:must:sync-tdx',
+    action: () => syncShouban30MustPoolToTdx(),
+    successMessage: `已将 must_pools ${mustPoolItems.value.length} 条同步到通达信`,
+    refreshWorkspace: false,
+  })
+}
+
+const handleClearMustPool = async () => {
+  await runWorkspaceAction({
+    actionKey: 'workspace:must:clear',
+    action: () => clearShouban30MustPool(),
+    successMessage: '已清空 must_pools',
   })
 }
 

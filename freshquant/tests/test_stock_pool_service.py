@@ -83,6 +83,12 @@ class FakeDB(dict):
 
 
 def _import_stock_service_with_stubs(monkeypatch):
+    db_module = types.ModuleType("freshquant.db")
+    db_module.DBfreshquant = {}
+
+    code_module = types.ModuleType("freshquant.util.code")
+    code_module.fq_util_code_append_market_code = lambda code: code
+
     must_pool_module = types.ModuleType("freshquant.data.astock.must_pool")
     must_pool_module.import_pool = lambda *args, **kwargs: None
 
@@ -97,6 +103,8 @@ def _import_stock_service_with_stubs(monkeypatch):
     monkeypatch.setitem(
         sys.modules, "freshquant.data.astock.must_pool", must_pool_module
     )
+    monkeypatch.setitem(sys.modules, "freshquant.db", db_module)
+    monkeypatch.setitem(sys.modules, "freshquant.util.code", code_module)
     monkeypatch.setitem(
         sys.modules, "freshquant.signal.a_stock_common", signal_common_module
     )
@@ -271,6 +279,91 @@ def test_add_to_stock_pools_by_code_uses_unified_pre_pool_provenance(monkeypatch
     } == {
         ("daily-screening", "CLXS_10008"),
         ("shouban30", "plate:11"),
+    }
+
+
+def test_add_to_must_pool_merges_stock_pool_provenance(monkeypatch):
+    stock_service = _import_stock_service_with_stubs(monkeypatch)
+
+    fake_db = FakeDB(
+        must_pool=FakeCollection([]),
+        stock_pools=FakeCollection(
+            [
+                {
+                    "code": "000001",
+                    "name": "alpha",
+                    "category": "CLXS_10008",
+                    "sources": ["daily-screening", "shouban30"],
+                    "categories": ["CLXS_10008", "plate:11"],
+                    "memberships": [
+                        {
+                            "source": "daily-screening",
+                            "category": "CLXS_10008",
+                            "added_at": datetime(2026, 3, 20, 9, 31),
+                            "expire_at": datetime(2026, 6, 16, 0, 0),
+                            "extra": {"screening_run_id": "run-1"},
+                        },
+                        {
+                            "source": "shouban30",
+                            "category": "plate:11",
+                            "added_at": datetime(2026, 3, 20, 9, 35),
+                            "expire_at": None,
+                            "extra": {"shouban30_plate_key": "11"},
+                        },
+                    ],
+                    "extra": {"shouban30_order": 7},
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+
+    captured = {}
+    monkeypatch.setattr(
+        stock_service.must_pool,
+        "build_stock_pool_provenance",
+        lambda record: {
+            "sources": list(record.get("sources") or []),
+            "categories": list(record.get("categories") or []),
+            "memberships": list(record.get("memberships") or []),
+            "workspace_order_hint": record.get("extra", {}).get("shouban30_order"),
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stock_service.must_pool,
+        "import_pool",
+        lambda *args, **kwargs: captured.setdefault(
+            "call", {"args": args, "kwargs": kwargs}
+        ),
+    )
+
+    result = stock_service.add_to_must_pool("000001", 9.2, 80000, 50000)
+
+    assert result is True
+    assert captured["call"]["args"] == ()
+    assert captured["call"]["kwargs"]["code"] == "000001"
+    assert captured["call"]["kwargs"]["category"] == "CLXS_10008"
+    assert captured["call"]["kwargs"]["provenance"] == {
+        "sources": ["daily-screening", "shouban30"],
+        "categories": ["CLXS_10008", "plate:11"],
+        "memberships": [
+            {
+                "source": "daily-screening",
+                "category": "CLXS_10008",
+                "added_at": datetime(2026, 3, 20, 9, 31),
+                "expire_at": datetime(2026, 6, 16, 0, 0),
+                "extra": {"screening_run_id": "run-1"},
+            },
+            {
+                "source": "shouban30",
+                "category": "plate:11",
+                "added_at": datetime(2026, 3, 20, 9, 35),
+                "expire_at": None,
+                "extra": {"shouban30_plate_key": "11"},
+            },
+        ],
+        "workspace_order_hint": 7,
     }
 
 

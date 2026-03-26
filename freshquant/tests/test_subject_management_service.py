@@ -1,10 +1,93 @@
+import importlib
 import json
+import sys
+import types
+from typing import Any
 
+import pytest
 from bson import ObjectId
 
-from freshquant.subject_management.dashboard_service import (
-    SubjectManagementDashboardService,
-)
+import freshquant.instrument as instrument_package
+
+dashboard_service_module = None
+SubjectManagementDashboardService = None
+
+
+@pytest.fixture(autouse=True)
+def _install_dashboard_service_stubs(monkeypatch):
+    global dashboard_service_module, SubjectManagementDashboardService
+
+    code_module: Any = types.ModuleType("freshquant.util.code")
+    code_module.normalize_to_base_code = (
+        lambda value: str(value or "").strip().split(".")[0]
+    )
+    monkeypatch.setitem(sys.modules, "freshquant.util.code", code_module)
+
+    db_module: Any = types.ModuleType("freshquant.db")
+    db_module.DBfreshquant = {}
+    monkeypatch.setitem(sys.modules, "freshquant.db", db_module)
+
+    strategy_common_module: Any = types.ModuleType("freshquant.strategy.common")
+    strategy_common_module.get_trade_amount = lambda code: 50000
+    monkeypatch.setitem(
+        sys.modules, "freshquant.strategy.common", strategy_common_module
+    )
+
+    instrument_module: Any = types.ModuleType("freshquant.instrument.general")
+    instrument_module.query_instrument_info = lambda symbol: None
+    monkeypatch.setitem(sys.modules, "freshquant.instrument.general", instrument_module)
+    monkeypatch.setattr(instrument_package, "general", instrument_module, raising=False)
+
+    order_repository_module: Any = types.ModuleType(
+        "freshquant.order_management.repository"
+    )
+
+    class OrderManagementRepository:
+        def list_buy_lots(self, symbol=None, buy_lot_ids=None):
+            return []
+
+        def list_stoploss_bindings(self, symbol=None, enabled=None):
+            return []
+
+    order_repository_module.OrderManagementRepository = OrderManagementRepository
+    monkeypatch.setitem(
+        sys.modules, "freshquant.order_management.repository", order_repository_module
+    )
+
+    tpsl_repository_module: Any = types.ModuleType("freshquant.tpsl.repository")
+
+    class TpslRepository:
+        def find_takeprofit_profile(self, symbol):
+            return None
+
+        def find_takeprofit_state(self, symbol):
+            return None
+
+        def list_takeprofit_profiles(self):
+            return []
+
+        def list_latest_exit_trigger_events_by_symbol(self, *, symbols=None):
+            return []
+
+    tpsl_repository_module.TpslRepository = TpslRepository
+    monkeypatch.setitem(
+        sys.modules, "freshquant.tpsl.repository", tpsl_repository_module
+    )
+
+    monkeypatch.delitem(sys.modules, "freshquant.data.astock.must_pool", raising=False)
+    monkeypatch.delitem(
+        sys.modules,
+        "freshquant.subject_management.dashboard_service",
+        raising=False,
+    )
+
+    import freshquant.subject_management.dashboard_service as _dashboard_service_module
+
+    dashboard_service_module = importlib.reload(_dashboard_service_module)
+    SubjectManagementDashboardService = (
+        dashboard_service_module.SubjectManagementDashboardService
+    )
+    yield
 
 
 class FakeCollection:
@@ -629,3 +712,67 @@ def test_subject_management_uses_default_position_loader_when_not_injected(monke
     assert rows[0]["runtime"]["position_quantity"] == 500
     assert detail["runtime_summary"]["position_quantity"] == 500
     assert detail["runtime_summary"]["position_amount"] == 12345.0
+
+
+def test_subject_management_detail_exposes_must_pool_provenance():
+    database = FakeDatabase(
+        {
+            "must_pool": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "name": "浦发银行",
+                        "category": "银行",
+                        "manual_category": "银行",
+                        "stop_loss_price": 9.2,
+                        "initial_lot_amount": 80000,
+                        "lot_amount": 50000,
+                        "forever": True,
+                        "sources": ["daily-screening", "shouban30"],
+                        "categories": ["CLXS_10008", "plate:11"],
+                        "memberships": [
+                            {
+                                "source": "daily-screening",
+                                "category": "CLXS_10008",
+                                "added_at": "2026-03-20T09:31:00+08:00",
+                                "expire_at": None,
+                                "extra": {"screening_run_id": "run-1"},
+                            },
+                            {
+                                "source": "shouban30",
+                                "category": "plate:11",
+                                "added_at": "2026-03-20T09:35:00+08:00",
+                                "expire_at": None,
+                                "extra": {"shouban30_plate_key": "11"},
+                            },
+                        ],
+                        "workspace_order_hint": 7,
+                    }
+                ]
+            )
+        }
+    )
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600000.SH")
+
+    assert detail["must_pool"]["manual_category"] == "银行"
+    assert detail["must_pool"]["sources"] == ["daily-screening", "shouban30"]
+    assert detail["must_pool"]["categories"] == ["CLXS_10008", "plate:11"]
+    assert detail["must_pool"]["memberships"][1]["category"] == "plate:11"
+    assert detail["must_pool"]["workspace_order_hint"] == 7

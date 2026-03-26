@@ -175,3 +175,17 @@ export const clearShouban30StockPool = () => {
     method: 'post'
   })
 }
+
+export const syncShouban30MustPoolToTdx = () => {
+  return http({
+    url: '/api/gantt/shouban30/must-pool/sync-to-tdx',
+    method: 'post'
+  })
+}
+
+export const clearShouban30MustPool = () => {
+  return http({
+    url: '/api/gantt/shouban30/must-pool/clear',
+    method: 'post'
+  })
+}

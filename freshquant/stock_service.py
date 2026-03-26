@@ -326,24 +326,22 @@ def add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount):
     Returns:
         bool: 操作是否成功，如果记录不存在也会返回True
     """
-    # 从must_pool中查找记录
-    old = DBfreshquant["must_pool"].find_one({"code": code})
-    if old is not None:
-        return True
-
     # 从stock_pools中查找记录
     record = DBfreshquant["stock_pools"].find_one({"code": code})
     if record is None:
         return False
 
+    provenance = must_pool.build_stock_pool_provenance(record)
+
     # 将记录写入must_pool
     must_pool.import_pool(
-        code,
-        record.get("category"),
-        stop_loss_price,
-        initial_lot_amount,
-        lot_amount,
-        True,
+        code=code,
+        category=record.get("category"),
+        stop_loss_price=stop_loss_price,
+        initial_lot_amount=initial_lot_amount,
+        lot_amount=lot_amount,
+        forever=True,
+        provenance=provenance,
     )
     return True
 

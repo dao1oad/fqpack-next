@@ -31,8 +31,13 @@
 
 - 是 Guardian 新开仓范围的重要来源
 - 也是 XTData `guardian_1m` 和 `guardian_and_clx_15_30` 订阅池的一部分
+- 当前正式口径仍是“同一个 `code` 只保留一条主记录”
+- `sources / categories / memberships` 用于保留从 `stock_pools`、`shouban30`、`daily-screening` 等进入 `must_pool` 的 provenance
+- 顶层 `category` 是兼容摘要字段；优先 `manual_category`，否则按主 `membership` 推导
+- `SubjectManagement` 只编辑 `manual_category` 和交易参数，不直接编辑 `memberships`
 - 记录止损价、首笔金额、常规 lot 金额
 - `forever` 当前固定写为 `true`，不再作为页面可配置项
+- `workspace_order_hint` 用于 `must_pool -> 30RYZT.blk` 的输出顺序，缺失时回退 `updated_at / created_at / datetime desc`
 
 ### `xt_positions`
 
@@ -81,9 +86,10 @@
 - 代码加入 `must_pool`
   - `/api/add_to_must_pool_by_code`
   - 当前显式加入后统一固定写 `forever=true`
+  - 会把 `stock_pools` 的 provenance merge 到 `must_pool`
 - 代码从 `must_pool` 删除
   - `/api/delete_from_must_pool_by_code`
-  - 当前显式删除只按 `code` 删除，不再看 `forever`
+  - 当前显式删除只按 `code` 删除整条主记录，不再看 `forever`
 - 读取 Guardian 信号列表
   - `/api/get_stock_signal_list`
 - 读取 stock_pools 模型信号列表
@@ -96,6 +102,10 @@
 - Shouban30 同步到通达信
   - `/api/gantt/shouban30/pre-pool/sync-to-tdx`
   - `/api/gantt/shouban30/stock-pool/sync-to-tdx`
+- Shouban30 must_pool 同步到通达信
+  - `/api/gantt/shouban30/must-pool/sync-to-tdx`
+  - `/api/gantt/shouban30/must-pool/clear`
+  - 两个动作都以当前 `must_pool` 全量主记录为真值并完整覆盖 `30RYZT.blk`
 
 ## 当前排查
 

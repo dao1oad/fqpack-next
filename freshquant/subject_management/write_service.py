@@ -40,12 +40,23 @@ class SubjectManagementWriteService:
         if not instrument:
             raise ValueError("symbol not found")
 
+        from freshquant.data.astock.must_pool import build_legacy_provenance
+
+        existing = (
+            self.database["must_pool"].find_one({"code": normalized_symbol}) or {}
+        )
+        provenance = build_legacy_provenance(existing)
         now = datetime.now()
         document = {
             "code": normalized_symbol,
             "name": str(instrument.get("name") or "").strip(),
             "instrument_type": instrument.get("sec"),
+            "manual_category": category,
             "category": category,
+            "sources": list(provenance.get("sources") or []),
+            "categories": list(provenance.get("categories") or []),
+            "memberships": list(provenance.get("memberships") or []),
+            "workspace_order_hint": provenance.get("workspace_order_hint"),
             "stop_loss_price": stop_loss_price,
             "initial_lot_amount": initial_lot_amount,
             "lot_amount": lot_amount,

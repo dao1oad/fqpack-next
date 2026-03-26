@@ -351,10 +351,23 @@ class SubjectManagementDashboardService:
     def _normalize_must_pool(raw):
         if raw is None:
             return None
+        from freshquant.data.astock.must_pool import build_legacy_provenance
+
+        provenance = build_legacy_provenance(raw)
         return {
             "symbol": _normalize_symbol(raw.get("code")),
             "name": str(raw.get("name") or "").strip(),
-            "category": str(raw.get("category") or "").strip(),
+            "manual_category": str(provenance.get("manual_category") or "").strip(),
+            "category": str(
+                provenance.get("manual_category")
+                or raw.get("category")
+                or provenance.get("category")
+                or ""
+            ).strip(),
+            "sources": list(provenance.get("sources") or []),
+            "categories": list(provenance.get("categories") or []),
+            "memberships": list(provenance.get("memberships") or []),
+            "workspace_order_hint": provenance.get("workspace_order_hint"),
             "stop_loss_price": _safe_float_or_none(raw.get("stop_loss_price")),
             "initial_lot_amount": _safe_int_or_none(raw.get("initial_lot_amount")),
             "lot_amount": _safe_int_or_none(raw.get("lot_amount")),
