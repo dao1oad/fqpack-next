@@ -25,7 +25,7 @@ test('ModelSignalList restores stock model context columns and keeps single-line
   assert.match(modelSignalListSource, /return parsed\.toFixed\(3\)/)
   assert.match(modelSignalListSource, /@import '\.\.\/style\/stock-control-ledger\.styl'/)
   assert.match(modelSignalListSource, /stock-control-ledger__cell--time/)
-  assert.match(modelSignalListSource, /grid-template-columns 72px 72px 56px minmax\(0, 1fr\) 80px 100px 120px 46px 160px/)
+  assert.match(modelSignalListSource, /grid-template-columns 148px 148px 56px minmax\(0, 1fr\) 80px 100px 120px 60px 160px/)
   assert.doesNotMatch(modelSignalListSource, /<el-table/)
   assert.doesNotMatch(modelSignalListSource, /label="标的"/)
 })

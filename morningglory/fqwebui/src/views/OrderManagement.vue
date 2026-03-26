@@ -64,8 +64,8 @@
             <el-option label="创建时间" value="created_at" />
             <el-option label="提交时间" value="submitted_at" />
           </el-select>
-          <el-input v-model="filters.date_from" placeholder="date_from，ISO 时间或 YYYY-MM-DD" clearable />
-          <el-input v-model="filters.date_to" placeholder="date_to，ISO 时间或 YYYY-MM-DD" clearable />
+          <el-input v-model="filters.date_from" placeholder="date_from，ISO 时间或 YYYY-MM-DD（按北京时间）" clearable />
+          <el-input v-model="filters.date_to" placeholder="date_to，ISO 时间或 YYYY-MM-DD（按北京时间）" clearable />
         </div>
 
         <div class="filter-foot">
@@ -261,8 +261,8 @@
                   <el-descriptions-item label="account_type">{{ detail.order.account_type || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="filled">{{ detail.order.filled_quantity ?? '-' }}</el-descriptions-item>
                   <el-descriptions-item label="avg_filled_price">{{ detail.order.avg_filled_price ?? '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="submitted_at">{{ detail.order.submitted_at || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="updated_at">{{ detail.order.updated_at || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="submitted_at">{{ formatOrderTimestamp(detail.order.submitted_at) }}</el-descriptions-item>
+                  <el-descriptions-item label="updated_at">{{ formatOrderTimestamp(detail.order.updated_at) }}</el-descriptions-item>
                 </el-descriptions>
               </article>
 
@@ -275,7 +275,7 @@
                   <el-descriptions-item label="scope_type">{{ detail.request.scope_type || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="scope_ref_id">{{ detail.request.scope_ref_id || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="remark">{{ detail.request.remark || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="created_at">{{ detail.request.created_at || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="created_at">{{ formatOrderTimestamp(detail.request.created_at) }}</el-descriptions-item>
                 </el-descriptions>
               </article>
 
@@ -286,7 +286,7 @@
                   <el-timeline-item
                     v-for="item in detail.timelineRows"
                     :key="item.event_id || `${item.event_type}-${item.created_at}`"
-                    :timestamp="item.created_at || '-'"
+                    :timestamp="formatOrderTimestamp(item.created_at)"
                     placement="top"
                   >
                     <strong>{{ item.event_type || '-' }}</strong>
@@ -306,7 +306,11 @@
                       {{ formatOrderPrice(row.price) }}
                     </template>
                   </el-table-column>
-                  <el-table-column prop="trade_time" label="Trade Time" min-width="140" />
+                  <el-table-column label="Trade Time" min-width="168">
+                    <template #default="{ row }">
+                      {{ row.trade_time_label || formatOrderTimestamp(row.trade_time) }}
+                    </template>
+                  </el-table-column>
                   <el-table-column prop="source" label="Source" min-width="120" />
                 </el-table>
               </article>

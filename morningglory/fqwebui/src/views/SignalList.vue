@@ -51,6 +51,7 @@ import { stockApi } from '@/api/stockApi'
 import _ from 'lodash'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, reactive } from 'vue'
+import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
 
 export default {
   name: 'SignalList',
@@ -138,12 +139,7 @@ export default {
       return this.formatText(category)
     },
     formatDateTime (value) {
-      const normalized = this.formatText(value)
-      const matched = normalized.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/)
-      if (!matched) {
-        return normalized
-      }
-      return `${matched[2]}-${matched[3]} ${matched[4]}:${matched[5]}`
+      return formatBeijingTimestamp(value, '--')
     },
     formatPrice (value) {
       if (value === null || value === undefined || value === '') {
@@ -182,5 +178,5 @@ export default {
   overflow hidden
 
 .stock-control-signal-ledger__grid
-  grid-template-columns 72px 72px 56px minmax(0, 0.52fr) 40px minmax(0, 1fr) 160px
+  grid-template-columns 148px 148px 56px minmax(0, 0.52fr) 40px minmax(0, 1fr) 160px
 </style>
