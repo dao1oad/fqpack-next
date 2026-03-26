@@ -571,6 +571,7 @@ onMounted(() => {
   --position-symbol-limit-ledger-row-height: 48px;
   --position-symbol-limit-ledger-body-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
   --position-symbol-limit-position-column-min-width: 220px;
+  --position-symbol-limit-position-column-width: clamp(280px, 24vw, 360px);
   display: grid;
   grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.32fr);
   gap: 12px;
@@ -878,9 +879,9 @@ onMounted(() => {
     88px
     92px
     72px
-    minmax(var(--position-symbol-limit-position-column-min-width), 1fr)
-    minmax(var(--position-symbol-limit-position-column-min-width), 1fr)
-    minmax(var(--position-symbol-limit-position-column-min-width), 1fr);
+    var(--position-symbol-limit-position-column-width)
+    var(--position-symbol-limit-position-column-width)
+    var(--position-symbol-limit-position-column-width);
 }
 
 .runtime-ledger__cell {
@@ -973,6 +974,7 @@ onMounted(() => {
 }
 
 .position-source-cell--left {
+  align-items: flex-start;
   text-align: left;
 }
 
