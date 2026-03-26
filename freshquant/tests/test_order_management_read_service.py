@@ -6,7 +6,7 @@ import types
 import pytest
 
 instrument_general_stub = types.ModuleType("freshquant.instrument.general")
-instrument_general_stub.query_instrument_info = lambda symbol: None
+setattr(instrument_general_stub, "query_instrument_info", lambda symbol: None)
 sys.modules.setdefault("freshquant.instrument.general", instrument_general_stub)
 
 repository_stub = types.ModuleType("freshquant.order_management.repository")
@@ -16,7 +16,7 @@ class StubOrderManagementRepository:
     pass
 
 
-repository_stub.OrderManagementRepository = StubOrderManagementRepository
+setattr(repository_stub, "OrderManagementRepository", StubOrderManagementRepository)
 sys.modules.setdefault("freshquant.order_management.repository", repository_stub)
 
 code_stub = types.ModuleType("freshquant.util.code")
@@ -27,7 +27,7 @@ def _normalize_to_base_code(value):
     return text[-6:] if len(text) >= 6 else text
 
 
-code_stub.normalize_to_base_code = _normalize_to_base_code
+setattr(code_stub, "normalize_to_base_code", _normalize_to_base_code)
 sys.modules.setdefault("freshquant.util.code", code_stub)
 
 from freshquant.order_management.read_service import (
