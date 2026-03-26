@@ -82,6 +82,35 @@ const buildSidebarSecondaryLabel = ({
   return sourceLabels || categoryLabels || ''
 }
 
+const getHoldingSortAmount = (item = {}) => {
+  return toNullableNumber(item?.position_amount ?? item?.market_value ?? item?.amount)
+}
+
+export const sortHoldingItemsByAmountDesc = (items = []) => {
+  return (Array.isArray(items) ? items : [])
+    .map((item, index) => ({
+      item,
+      index,
+      sortAmount: getHoldingSortAmount(item)
+    }))
+    .sort((left, right) => {
+      const leftMissing = left.sortAmount === null
+      const rightMissing = right.sortAmount === null
+
+      if (leftMissing || rightMissing) {
+        if (leftMissing !== rightMissing) return leftMissing ? 1 : -1
+        return left.index - right.index
+      }
+
+      if (right.sortAmount !== left.sortAmount) {
+        return right.sortAmount - left.sortAmount
+      }
+
+      return left.index - right.index
+    })
+    .map(({ item }) => item)
+}
+
 export const normalizeSidebarItem = (item = {}, { sectionKey = '' } = {}) => {
   const code6 = getSidebarCode6(item)
   const amount = item?.position_amount ?? item?.market_value ?? item?.amount
@@ -112,7 +141,10 @@ export const buildSidebarSections = ({
   return SECTION_DEFS.map((section) => ({
     key: section.key,
     label: section.label,
-    items: (sourceMap[section.source] || []).map((item) => normalizeSidebarItem(item, { sectionKey: section.key })),
+    items: (section.key === 'holding'
+      ? sortHoldingItemsByAmountDesc(sourceMap[section.source] || [])
+      : (sourceMap[section.source] || [])
+    ).map((item) => normalizeSidebarItem(item, { sectionKey: section.key })),
     deletable: !!section.deletable,
     expanded: section.key === expandedKey,
     deleteConfirmText: DELETE_BEHAVIOR_MAP[section.key]?.confirmText || ''

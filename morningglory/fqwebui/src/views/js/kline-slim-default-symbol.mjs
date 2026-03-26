@@ -1,3 +1,5 @@
+import { sortHoldingItemsByAmountDesc } from './kline-slim-sidebar.mjs'
+
 export function shouldResolveDefaultSymbol(query) {
   return !String(query?.symbol || '').trim()
 }
@@ -6,7 +8,7 @@ export function pickFirstHoldingSymbol(positions) {
   if (!Array.isArray(positions)) {
     return ''
   }
-  const first = positions.find((item) => String(item?.symbol || '').trim())
+  const first = sortHoldingItemsByAmountDesc(positions).find((item) => String(item?.symbol || '').trim())
   return String(first?.symbol || '').trim()
 }
 
