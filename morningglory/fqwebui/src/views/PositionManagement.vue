@@ -1,5 +1,5 @@
 <template>
-  <div class="workbench-page position-page">
+  <WorkbenchPage class="position-page">
     <MyHeader />
 
     <div class="workbench-body position-body" v-loading="loading">
@@ -14,7 +14,7 @@
 
       <section class="position-lower-grid">
         <div class="position-lower-column">
-          <section class="workbench-panel position-top-panel">
+          <WorkbenchDetailPanel class="position-top-panel position-state-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">当前仓位状态</div>
@@ -27,15 +27,15 @@
 
             <div class="position-panel-body position-state-scroll">
               <div class="workbench-summary-row">
-                <span class="workbench-summary-chip" :class="stateToneChipClass">
+                <StatusChip :variant="stateToneChipVariant">
                   {{ statePanel.hero.effective_state_label }}
-                </span>
-                <span class="workbench-summary-chip" :class="staleChipClass">
+                </StatusChip>
+                <StatusChip :variant="staleChipVariant">
                   {{ statePanel.hero.stale_label }}
-                </span>
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                </StatusChip>
+                <StatusChip variant="muted">
                   raw state <strong>{{ statePanel.hero.raw_state_label }}</strong>
-                </span>
+                </StatusChip>
               </div>
 
               <div class="position-panel-section">
@@ -57,9 +57,9 @@
                   >
                     <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.label }}</span>
                     <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                      <span class="runtime-inline-status" :class="resolveRuleStatusClass(row.allowed)">
+                      <StatusChip class="runtime-inline-status" :variant="ruleStatusChipVariant(row.allowed)">
                         {{ row.allowed_label }}
-                      </span>
+                      </StatusChip>
                     </span>
                     <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.reason_code">{{ row.reason_code }}</span>
                     <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_text">{{ row.reason_text }}</span>
@@ -105,12 +105,12 @@
                 </div>
 
                 <div class="workbench-summary-row">
-                  <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  <StatusChip variant="muted">
                     配置时间 <strong>{{ configUpdatedAt }}</strong>
-                  </span>
-                  <span class="workbench-summary-chip workbench-summary-chip--muted">
+                  </StatusChip>
+                  <StatusChip variant="muted">
                     更新人 <strong>{{ configUpdatedBy }}</strong>
-                  </span>
+                  </StatusChip>
                 </div>
 
                 <el-table :data="inventoryRows" size="small" border class="position-config-table">
@@ -162,11 +162,11 @@
                 </div>
               </div>
             </div>
-          </section>
+          </WorkbenchDetailPanel>
         </div>
 
         <div class="position-lower-column">
-          <section class="workbench-panel position-top-panel">
+          <WorkbenchLedgerPanel class="position-top-panel position-symbol-limit-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">单标的仓位上限覆盖</div>
@@ -175,15 +175,15 @@
 
             <div class="position-panel-body position-symbol-limit-scroll">
               <div class="workbench-summary-row">
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                <StatusChip variant="muted">
                   单独设置 <strong>{{ overrideSymbolCount }}</strong>
-                </span>
-                <span class="workbench-summary-chip workbench-summary-chip--warning">
+                </StatusChip>
+                <StatusChip variant="warning">
                   仓位不一致 <strong>{{ mismatchSymbolCount }}</strong>
-                </span>
-                <span class="workbench-summary-chip workbench-summary-chip--warning">
+                </StatusChip>
+                <StatusChip variant="warning">
                   已超限 <strong>{{ blockedSymbolCount }}</strong>
-                </span>
+                </StatusChip>
               </div>
 
               <div v-if="symbolLimitRows.length" class="runtime-ledger runtime-position-symbol-limit-ledger">
@@ -233,14 +233,14 @@
                   </div>
                   <span class="runtime-ledger__cell runtime-ledger__cell--status">{{ row.source_label }}</span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--status" :title="row.consistency_detail_label">
-                    <span class="runtime-inline-status" :class="resolvePositionConsistencyStatusClass(row.quantity_mismatch)">
+                    <StatusChip class="runtime-inline-status" :variant="positionConsistencyChipVariant(row.quantity_mismatch)">
                       {{ row.consistency_label }}
-                    </span>
+                    </StatusChip>
                   </span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                    <span class="runtime-inline-status" :class="resolveSymbolLimitStatusClass(row.blocked)">
+                    <StatusChip class="runtime-inline-status" :variant="symbolLimitStatusChipVariant(row.blocked)">
                       {{ row.blocked_label }}
-                    </span>
+                    </StatusChip>
                   </span>
                   <div class="runtime-ledger__cell position-source-cell" :title="row.broker_position_source_label">
                     <strong>{{ row.broker_position_label }}</strong>
@@ -267,11 +267,11 @@
                 <strong>当前没有可展示的单标的仓位上限行</strong>
               </div>
             </div>
-          </section>
+          </WorkbenchLedgerPanel>
         </div>
       </section>
 
-      <section class="workbench-panel position-decision-panel">
+        <WorkbenchLedgerPanel class="position-decision-panel">
         <div class="workbench-panel__header">
           <div class="workbench-title-group">
             <div class="workbench-panel__title">最近决策与上下文</div>
@@ -279,15 +279,15 @@
         </div>
 
         <div class="workbench-summary-row">
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
+          <StatusChip variant="muted">
             当前页 <strong>{{ pagedDecisionRows.length }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip variant="muted">
             默认分页 <strong>{{ decisionPagination.pageSize }} / 页</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip variant="muted">
             当前页码 <strong>{{ decisionPagination.page }}</strong>
-          </span>
+          </StatusChip>
         </div>
 
         <div v-if="pagedDecisionRows.length" class="runtime-ledger runtime-position-decision-ledger">
@@ -322,9 +322,9 @@
             <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
             <span class="runtime-ledger__cell">{{ row.action_label }}</span>
             <span class="runtime-ledger__cell runtime-ledger__cell--status">
-              <span class="runtime-inline-status" :class="resolveDecisionStatusClass(row.tone)">
+              <StatusChip class="runtime-inline-status" :variant="decisionStatusChipVariant(row.tone)">
                 {{ row.allowed_label }}
-              </span>
+              </StatusChip>
             </span>
             <span class="runtime-ledger__cell">{{ row.state_label }}</span>
             <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.source_display">{{ row.source_display }}</span>
@@ -359,15 +359,19 @@
             @size-change="handleDecisionPageSizeChange"
           />
         </div>
-      </section>
+        </WorkbenchLedgerPanel>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
+import StatusChip from '../components/workbench/StatusChip.vue'
+import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
+import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
+import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
 import MyHeader from '@/views/MyHeader.vue'
 import { positionManagementApi } from '@/api/positionManagementApi'
 import {
@@ -413,15 +417,15 @@ const configUpdatedBy = computed(() => dashboard.value?.config?.updated_by || 'u
 const blockedSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.blocked).length)
 const mismatchSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.quantity_mismatch).length)
 const overrideSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.using_override).length)
-const stateToneChipClass = computed(() => {
+const stateToneChipVariant = computed(() => {
   const tone = statePanel.value?.hero?.effective_state_tone
-  if (tone === 'allow') return 'workbench-summary-chip--success'
-  if (tone === 'hold') return 'workbench-summary-chip--warning'
-  if (tone === 'reduce') return 'workbench-summary-chip--danger'
-  return 'workbench-summary-chip--muted'
+  if (tone === 'allow') return 'success'
+  if (tone === 'hold') return 'warning'
+  if (tone === 'reduce') return 'danger'
+  return 'muted'
 })
-const staleChipClass = computed(() => (
-  statePanel.value?.hero?.stale ? 'workbench-summary-chip--warning' : 'workbench-summary-chip--muted'
+const staleChipVariant = computed(() => (
+  statePanel.value?.hero?.stale ? 'warning' : 'muted'
 ))
 
 watch(
@@ -441,20 +445,20 @@ const resolveErrorMessage = (error, fallback) => {
   return responseMessage || directMessage || fallback
 }
 
-const resolveDecisionStatusClass = (tone) => (
-  tone === 'allow' ? 'runtime-inline-status--success' : 'runtime-inline-status--failed'
+const decisionStatusChipVariant = (tone) => (
+  tone === 'allow' ? 'success' : 'danger'
 )
 
-const resolveRuleStatusClass = (allowed) => (
-  allowed ? 'runtime-inline-status--success' : 'runtime-inline-status--failed'
+const ruleStatusChipVariant = (allowed) => (
+  allowed ? 'success' : 'danger'
 )
 
-const resolveSymbolLimitStatusClass = (blocked) => (
-  blocked ? 'runtime-inline-status--failed' : 'runtime-inline-status--success'
+const symbolLimitStatusChipVariant = (blocked) => (
+  blocked ? 'danger' : 'success'
 )
 
-const resolvePositionConsistencyStatusClass = (quantityMismatch) => (
-  quantityMismatch ? 'runtime-inline-status--warning' : 'runtime-inline-status--success'
+const positionConsistencyChipVariant = (quantityMismatch) => (
+  quantityMismatch ? 'warning' : 'success'
 )
 
 const handleDecisionPageChange = (page) => {
@@ -920,31 +924,12 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   min-width: 76px;
-  padding: 2px 10px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  box-sizing: border-box;
+  gap: 0;
+  padding: 4px 8px;
   font-size: 12px;
   font-weight: 600;
-  line-height: 20px;
-}
-
-.runtime-inline-status--success {
-  border-color: #c5ebd1;
-  background: #eefbf3;
-  color: #18794e;
-}
-
-.runtime-inline-status--failed {
-  border-color: #ffd1cc;
-  background: #fff1f0;
-  color: #b42318;
-}
-
-.runtime-inline-status--warning {
-  border-color: #f7d8a8;
-  background: #fff7e8;
-  color: #9a5b00;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .position-ledger-pagination {

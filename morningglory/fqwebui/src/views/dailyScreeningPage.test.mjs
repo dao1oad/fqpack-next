@@ -411,3 +411,17 @@ test('DailyScreening.vue renders grouped filters and denser detail layout hooks'
   assert.match(content, /全部加入pre_pools/)
   assert.match(content, /dayChanlunEnabled \? 'primary' : 'default'/)
 })
+
+test('DailyScreening.vue reuses shared StatusChip variants for summary and detail memberships', async () => {
+  const content = await readFile(new URL('./DailyScreening.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /import StatusChip from '\.\.\/components\/workbench\/StatusChip\.vue'/)
+  assert.match(content, /<StatusChip[\s\S]*v-for="line in workbenchGuideLines"[\s\S]*variant="muted"/)
+  assert.match(content, /<StatusChip variant="muted">\s*当前 scope <strong>\{\{\s*selectedScopeLabel\s*\}\}<\/strong>/)
+  assert.match(content, /<StatusChip variant="success">\s*基础池 <strong>\{\{\s*scopeSummary\?\.stock_count \?\? 0\s*\}\}<\/strong>/)
+  assert.match(content, /<StatusChip variant="warning">\s*当前结果 <strong>\{\{\s*resultRows\.length\s*\}\}<\/strong>/)
+  assert.match(content, /<StatusChip[\s\S]*v-for="item in detail\.clsMemberships"[\s\S]*variant="muted"/)
+  assert.match(content, /<StatusChip[\s\S]*v-for="item in detail\.hotMemberships"[\s\S]*variant="warning"/)
+  assert.match(content, /<StatusChip[\s\S]*v-for="item in detail\.marketFlagMemberships"[\s\S]*variant="success"/)
+  assert.match(content, /<StatusChip[\s\S]*:variant="detailBasePoolStatus\.inBasePool \? 'success' : 'warning'"/)
+})

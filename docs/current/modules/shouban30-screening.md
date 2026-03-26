@@ -50,7 +50,10 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 
 页面当前支持：
 
-- provider 切换
+- 页面根容器当前直接消费共享 `WorkbenchPage / WorkbenchToolbar / WorkbenchPanel` primitives，继续保留单屏工作区与局部滚动 contract
+- 顶部日期与窗口摘要当前统一用共享 `StatusChip` 表达
+- `首板板块 / 热点标的 / 标的详情 / 工作区` 四个主区当前分别落到共享 `WorkbenchSidebarPanel / WorkbenchLedgerPanel / WorkbenchDetailPanel / WorkbenchLedgerPanel`
+- provider 切换当前使用 `el-radio-group + el-radio-button` 的单行 switch，不再使用 header-only tabs
 - `30/45/60/90` 日自然日窗口
   - 对外 query / API 默认使用 `days` + `end_date`
   - 页面仍兼容旧链接里的 `stock_window_days` + `as_of_date`，但交互后会回写成 `days` + `end_date`

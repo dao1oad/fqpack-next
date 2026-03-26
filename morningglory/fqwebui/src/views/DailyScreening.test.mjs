@@ -55,3 +55,17 @@ test('DailyScreening moves scope into the top guide area and paginates intersect
     /<section class="workbench-panel daily-filter-panel"[\s\S]*<div class="workbench-panel__title">Scope<\/div>/,
   )
 })
+
+test('DailyScreening routes guide summary and detail chips through shared StatusChip', () => {
+  const source = fs.readFileSync(componentPath, 'utf8')
+
+  assert.match(source, /import StatusChip from '\.\.\/components\/workbench\/StatusChip\.vue'/)
+  assert.match(source, /<StatusChip[\s\S]*v-for="line in workbenchGuideLines"[\s\S]*variant="muted"/)
+  assert.match(source, /<StatusChip variant="muted">\s*当前 scope <strong>\{\{\s*selectedScopeLabel\s*\}\}<\/strong>/)
+  assert.match(source, /<StatusChip variant="success">\s*基础池 <strong>\{\{\s*scopeSummary\?\.stock_count \?\? 0\s*\}\}<\/strong>/)
+  assert.match(source, /<StatusChip variant="warning">\s*当前结果 <strong>\{\{\s*resultRows\.length\s*\}\}<\/strong>/)
+  assert.match(source, /<StatusChip[\s\S]*v-for="item in detail\.clsMemberships"[\s\S]*variant="muted"/)
+  assert.match(source, /<StatusChip[\s\S]*v-for="item in detail\.hotMemberships"[\s\S]*variant="warning"/)
+  assert.match(source, /<StatusChip[\s\S]*v-for="item in detail\.marketFlagMemberships"[\s\S]*variant="success"/)
+  assert.match(source, /<StatusChip[\s\S]*:variant="detailBasePoolStatus\.inBasePool \? 'success' : 'warning'"/)
+})

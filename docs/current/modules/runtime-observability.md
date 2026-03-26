@@ -145,6 +145,11 @@ Runtime Observability 当前采用“双存储”：
 
 页面当前是 summary/detail 模式：
 
+- 前端页面壳当前开始收口到共享 workbench 设计系统：
+  - 共享 token 位于 `morningglory/fqwebui/src/style/workbench-tokens.css`
+  - 共享页面原语位于 `morningglory/fqwebui/src/components/workbench/`
+  - `/runtime-observability` 当前已接入 page / toolbar / summary row / sidebar panel / ledger panel / detail panel 这组 workbench 原语
+  - 只读摘要徽标当前统一复用 `StatusChip`，交互型筛选/跳转徽标继续保留 button 语义
 - 首屏拉：
   - 组件健康摘要
   - Trace 摘要第一页
@@ -186,6 +191,7 @@ Runtime Observability 当前采用“双存储”：
   - `策略下单意图`
   - `最终结论`
 - 自动刷新只刷新摘要列表，不自动刷新已打开的 Trace detail
+- 顶部时间范围默认覆盖“北京当天 + 前一天”两个自然日，避免跨午夜后首屏误判成空页面
 - 页面内所有标的展示统一为 `symbol / symbol_name`
 - 写入 ClickHouse 与查询返回阶段都会优先复用现有 instrument lookup 补全 `symbol_name`
 - 名称最终仍缺失时，前端兜底显示 `symbol / 未知名称`

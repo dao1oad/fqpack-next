@@ -108,6 +108,7 @@ TPSL 还会读取：
 - 左侧保留 symbol 导航，列表在单屏内独立滚动，卡片摘要展示统一单标的实时仓位（万元）和三层止盈价格
 - 右侧保留详情工作台
 - 右侧标题摘要同时展示持仓股数和统一实时仓位
+- 顶部摘要条、左侧 symbol 卡片金额 / badge / 止盈层级，以及统一历史里的 request / order / trade 明细标签当前统一复用共享 `StatusChip`
 - 右侧不再提供 symbol 级止盈层次编辑；止盈设置真值入口以 `KlineSlim` 为主
 - 右侧新增 `stock_fills` 对照表
 - `stock_fills` 对照表当前统一展示方向列：`external_inferred` 显示 `推断持仓`；OM 投影返回的 open buy fills 即使未显式带 `op`，也按当前真值语义显示 `买入`

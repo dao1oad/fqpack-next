@@ -1,45 +1,49 @@
 <template>
-  <div class="shouban30-page shouban30-shell">
+  <WorkbenchPage class="shouban30-page shouban30-shell">
     <MyHeader />
-    <div class="shouban30-page-body">
-      <div class="shouban30-toolbar">
+    <div class="workbench-body shouban30-page-body">
+      <WorkbenchToolbar class="shouban30-toolbar">
         <div class="toolbar-title">
           <div class="page-title">首板筛选</div>
           <div class="page-meta">
-            <span>end_date {{ resolvedEndDate || '-' }}</span>
-            <span>/</span>
-            <span>自然日窗口 {{ stockWindowDays }} 日</span>
-            <span v-if="windowRangeLabel">/ {{ windowRangeLabel }}</span>
+            <StatusChip variant="muted">
+              end_date <strong>{{ resolvedEndDate || '-' }}</strong>
+            </StatusChip>
+            <StatusChip variant="info">
+              自然日窗口 <strong>{{ stockWindowDays }} 日</strong>
+            </StatusChip>
+            <StatusChip v-if="windowRangeLabel" variant="muted">
+              {{ windowRangeLabel }}
+            </StatusChip>
           </div>
         </div>
-      </div>
+      </WorkbenchToolbar>
 
       <div class="shouban30-grid">
-        <section class="panel-card">
-          <div class="panel-card-header">
+        <WorkbenchSidebarPanel class="shouban30-panel shouban30-panel--plates">
+          <header class="workbench-panel__header shouban30-panel__header">
             <span>首板板块</span>
-            <span class="muted">{{ currentStats.plate_count }}</span>
-          </div>
+            <StatusChip variant="muted">{{ currentStats.plate_count }}</StatusChip>
+          </header>
 
           <div class="panel-controls">
-            <el-tabs
+            <el-radio-group
               :model-value="activeViewProvider"
-              class="provider-tabs"
-              @tab-change="handleProviderChange"
+              class="provider-switch"
+              size="small"
+              @change="handleProviderChange"
             >
-              <el-tab-pane
+              <el-radio-button
                 v-for="option in VIEW_PROVIDER_OPTIONS"
                 :key="option.name"
-                :name="option.name"
+                :value="option.name"
               >
-                <template #label>
-                  <div class="provider-tab-label">
-                    <span>{{ option.label }}</span>
-                    <span class="tab-meta">{{ formatTabStats(statsByView[option.name]) }}</span>
-                  </div>
-                </template>
-              </el-tab-pane>
-            </el-tabs>
+                <div class="provider-tab-label">
+                  <span>{{ option.label }}</span>
+                  <span class="tab-meta">{{ formatTabStats(statsByView[option.name]) }}</span>
+                </div>
+              </el-radio-button>
+            </el-radio-group>
 
             <el-button-group class="window-buttons">
               <el-button
@@ -181,13 +185,13 @@
               </el-table-column>
             </el-table>
           </div>
-        </section>
+        </WorkbenchSidebarPanel>
 
-        <section class="panel-card">
-          <div class="panel-card-header">
+        <WorkbenchLedgerPanel class="shouban30-panel shouban30-panel--stocks">
+          <header class="workbench-panel__header shouban30-panel__header">
             <span>热点标的</span>
-            <span class="muted">{{ currentStocks.length }}</span>
-          </div>
+            <StatusChip variant="muted">{{ currentStocks.length }}</StatusChip>
+          </header>
           <el-alert
             v-if="stocksError"
             class="panel-alert"
@@ -246,16 +250,16 @@
               </el-table-column>
             </el-table>
           </div>
-        </section>
+        </WorkbenchLedgerPanel>
 
-        <section class="panel-card">
-          <div class="panel-card-header">
+        <WorkbenchDetailPanel class="shouban30-panel shouban30-panel--detail">
+          <header class="workbench-panel__header shouban30-panel__header">
             <span>标的详情</span>
-            <span class="muted" v-if="selectedStockDetailContext">
+            <StatusChip variant="muted" v-if="selectedStockDetailContext">
               <span class="mono">{{ selectedStockDetailContext.code6 }}</span>
               <span> {{ selectedStockDetailContext.name }}</span>
-            </span>
-          </div>
+            </StatusChip>
+          </header>
           <div class="detail-meta">
             <span>历史全量热门理由</span>
             <span v-if="stockReasons.length">/ {{ stockReasons.length }} 条</span>
@@ -320,13 +324,13 @@
               </el-table-column>
             </el-table>
           </div>
-        </section>
+        </WorkbenchDetailPanel>
 
-        <section class="panel-card panel-card-workspace">
-          <div class="panel-card-header">
+        <WorkbenchLedgerPanel class="shouban30-panel shouban30-panel--workspace">
+          <header class="workbench-panel__header shouban30-panel__header">
             <span>工作区</span>
-            <span class="muted">{{ prePoolItems.length }} / {{ stockPoolItems.length }}</span>
-          </div>
+            <StatusChip variant="muted">{{ prePoolItems.length }} / {{ stockPoolItems.length }}</StatusChip>
+          </header>
           <div class="panel-summary">
             <span>pre_pools {{ prePoolItems.length }}</span>
             <span>/</span>
@@ -498,10 +502,10 @@
               </el-tab-pane>
             </el-tabs>
           </div>
-        </section>
+        </WorkbenchLedgerPanel>
       </div>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup>
@@ -554,6 +558,12 @@ import {
   buildWorkspaceTabs,
   resolveSelectedStockDetailContext,
 } from './shouban30PoolWorkspace.mjs'
+import StatusChip from '@/components/workbench/StatusChip.vue'
+import WorkbenchDetailPanel from '@/components/workbench/WorkbenchDetailPanel.vue'
+import WorkbenchLedgerPanel from '@/components/workbench/WorkbenchLedgerPanel.vue'
+import WorkbenchPage from '@/components/workbench/WorkbenchPage.vue'
+import WorkbenchSidebarPanel from '@/components/workbench/WorkbenchSidebarPanel.vue'
+import WorkbenchToolbar from '@/components/workbench/WorkbenchToolbar.vue'
 
 const VIEW_PROVIDER_OPTIONS = [
   { name: 'xgb', label: '选股通' },
@@ -1438,6 +1448,10 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
+.page-meta strong {
+  font-weight: 600;
+}
+
 .shouban30-grid {
   display: grid;
   grid-template-columns: minmax(300px, 1.05fr) minmax(300px, 1.02fr) minmax(340px, 1.2fr);
@@ -1448,23 +1462,20 @@ onMounted(() => {
   overflow: hidden;
 }
 
-.panel-card {
+.shouban30-panel {
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
   padding: 12px;
-  background: #fff;
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
 }
 
-.panel-card-workspace {
+.shouban30-panel--workspace {
   grid-column: 1 / -1;
   min-height: 0;
 }
 
-.panel-card-header {
+.shouban30-panel__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1481,7 +1492,7 @@ onMounted(() => {
   margin-bottom: 10px;
 }
 
-.provider-tabs {
+.provider-switch {
   min-width: 0;
 }
 

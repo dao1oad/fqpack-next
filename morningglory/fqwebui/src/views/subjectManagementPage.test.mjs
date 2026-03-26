@@ -418,3 +418,12 @@ test('SubjectManagement runtime column shows the effective single-symbol limit e
   assert.match(subjectManagementViewSource, /上限 \{\{ formatWanAmount\(row\.positionLimitSummary\.effective_limit\) \}\}/)
   assert.match(subjectManagementViewSource, /row\.positionLimitSummary\.using_override \? '单独' : '默认'/)
 })
+
+test('SubjectManagement.vue routes summary and detail chips through shared StatusChip', () => {
+  assert.match(subjectManagementViewSource, /import StatusChip from '\.\.\/components\/workbench\/StatusChip\.vue'/)
+  assert.match(subjectManagementViewSource, /<StatusChip>\s*总标的 <strong>\{\{\s*overviewRows\.length\s*\}\}<\/strong>/)
+  assert.match(subjectManagementViewSource, /<StatusChip variant="muted">\s*当前筛选 <strong>\{\{\s*filteredOverviewRows\.length\s*\}\}<\/strong>/)
+  assert.match(subjectManagementViewSource, /<StatusChip variant="success">\s*持仓中 <strong>\{\{\s*holdingCount\s*\}\}<\/strong>/)
+  assert.match(subjectManagementViewSource, /<StatusChip v-if="pmSummary\.effective_state" :variant="pmStateChipVariant">/)
+  assert.match(subjectManagementViewSource, /<StatusChip[\s\S]*v-for="chip in detailSummaryChips"/)
+})

@@ -1,76 +1,16 @@
 <template>
   <div class="header-main">
     <div class="header-menu">
-      <el-button-group>
-        <el-button type="primary" @click="goSetting">设置</el-button>
-      </el-button-group>
-      <el-button-group>
+      <el-button-group v-for="(group, groupIndex) in headerNavGroups" :key="`header-group-${groupIndex}`">
         <el-button
-          type="primary"
-          @click="jumpToControl('futures')"
-          size="small"
+          v-for="item in group"
+          :key="item.key"
+          :type="item.buttonType"
+          :plain="item.plain"
+          :size="item.size"
+          @click="openNavTab(item.key)"
         >
-          期货
-        </el-button>
-      </el-button-group>
-      <el-button-group>
-        <el-button
-          type="warning"
-          @click="jumpToControl('klineSlim')"
-          size="small"
-        >
-          行情图表
-        </el-button>
-        <el-button type="success" @click="jumpToControl('orders')" size="small">
-          订单管理
-        </el-button>
-        <el-button
-          type="success"
-          @click="jumpToControl('positionManagement')"
-          size="small"
-        >
-          仓位管理
-        </el-button>
-        <el-button
-          type="success"
-          plain
-          @click="jumpToControl('subjectManagement')"
-          size="small"
-        >
-          标的管理
-        </el-button>
-        <el-button type="warning" plain @click="jumpToControl('tpsl')" size="small">
-          TPSL
-        </el-button>
-        <el-button type="danger" @click="jumpToControl('runtime')" size="small">
-          运行观测
-        </el-button>
-      </el-button-group>
-      <el-button-group>
-        <el-button type="success" @click="jumpToControl('gantt')" size="small">
-          板块趋势
-        </el-button>
-        <el-button type="warning" @click="jumpToControl('shouban30')" size="small">
-          首板选股
-        </el-button>
-        <el-button
-          type="danger"
-          plain
-          @click="jumpToControl('dailyScreening')"
-          size="small"
-        >
-          每日选股
-        </el-button>
-      </el-button-group>
-      <el-button-group>
-        <el-button type="primary" @click="jumpToControl('stock')" size="small">
-          股票
-        </el-button>
-        <el-button type="primary" @click="jumpToControl('pool')" size="small">
-          股票池
-        </el-button>
-        <el-button type="primary" @click="jumpToControl('cjsd')" size="small">
-          超级赛道
+          {{ item.label }}
         </el-button>
       </el-button-group>
     </div>
@@ -81,17 +21,34 @@
 </template>
 
 <script>
-import { getHeaderNavTarget } from '@/router/pageMeta.mjs'
+import {
+  HEADER_NAV_GROUPS,
+  HEADER_NAV_TARGETS,
+  getHeaderNavTarget,
+} from '@/router/pageMeta.mjs'
 
 export default {
   name: 'my-header',
+  computed: {
+    headerNavGroups() {
+      return HEADER_NAV_GROUPS.map((group) => group
+        .map((key) => {
+          const meta = HEADER_NAV_TARGETS[key] || {}
+          const target = getHeaderNavTarget(key)
+          if (!target) return null
+
+          return {
+            ...target,
+            key,
+            buttonType: meta.buttonType || 'default',
+            plain: Boolean(meta.plain),
+            size: meta.size || 'small',
+          }
+        })
+        .filter(Boolean))
+    },
+  },
   methods: {
-    jumpToControl(type) {
-      this.openNavTab(type)
-    },
-    goSetting() {
-      this.openNavTab('systemSettings')
-    },
     openNavTab(type) {
       const target = getHeaderNavTarget(type)
       if (!target) return

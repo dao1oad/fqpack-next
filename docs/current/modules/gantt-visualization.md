@@ -40,6 +40,7 @@
 - provider 切换
   - `xgb`
   - `jygs`
+- 页头当前统一接入共享 `WorkbenchPage + WorkbenchToolbar`；provider 切换维持在右侧工具栏动作区，不再单独保留自定义 `gantt-tabs` 壳
 - plate 视图与 stock 视图
 - `days` 窗口切换
   - 点击 `7/15/30/45/60/90` 后会立即重新请求当前视图数据，并同步当前路由 query

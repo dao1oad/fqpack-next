@@ -304,6 +304,17 @@ export const buildTodayTimeRange = (now = new Date()) => {
   return [`${day}T00:00:00${BEIJING_OFFSET_SUFFIX}`, `${day}T23:59:59${BEIJING_OFFSET_SUFFIX}`]
 }
 
+export const buildRuntimeDefaultTimeRange = (now = new Date(), daySpan = 2) => {
+  const parsedMs = parseTimestampMs(now instanceof Date ? now.toISOString() : now)
+  if (parsedMs === null) return ['', '']
+  const normalizedDaySpan = Math.max(1, Math.trunc(Number(daySpan) || 2))
+  const startMs = parsedMs - ((normalizedDaySpan - 1) * 24 * 60 * 60 * 1000)
+  const startDay = formatShanghaiDay(new Date(startMs))
+  const endDay = formatShanghaiDay(new Date(parsedMs))
+  if (!startDay || !endDay) return ['', '']
+  return [`${startDay}T00:00:00${BEIJING_OFFSET_SUFFIX}`, `${endDay}T23:59:59${BEIJING_OFFSET_SUFFIX}`]
+}
+
 export const buildTimeRangeQuery = (timeRange = []) => {
   const [startRaw, endRaw] = Array.isArray(timeRange) ? timeRange : []
   const startTime = normalizeTimeRangeValue(startRaw)

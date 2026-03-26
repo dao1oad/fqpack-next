@@ -445,6 +445,25 @@ test('PositionManagement.vue places rule matrix above inventory, shrinks rule ca
   assert.doesNotMatch(content, /position-rule-hint/)
 })
 
+test('PositionManagement.vue reuses shared StatusChip variants instead of local runtime-inline-status color classes', async () => {
+  const content = await readFile(new URL('./PositionManagement.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /import StatusChip from '\.\.\/components\/workbench\/StatusChip\.vue'/)
+  assert.match(content, /const stateToneChipVariant = computed\(\(\) => \{/)
+  assert.match(content, /const staleChipVariant = computed\(\(\) => \(/)
+  assert.match(content, /const ruleStatusChipVariant = \(allowed\) => \(/)
+  assert.match(content, /const symbolLimitStatusChipVariant = \(blocked\) => \(/)
+  assert.match(content, /const positionConsistencyChipVariant = \(quantityMismatch\) => \(/)
+  assert.match(content, /const decisionStatusChipVariant = \(tone\) => \(/)
+  assert.match(content, /<StatusChip class="runtime-inline-status" :variant="ruleStatusChipVariant\(row\.allowed\)">/)
+  assert.match(content, /<StatusChip class="runtime-inline-status" :variant="positionConsistencyChipVariant\(row\.quantity_mismatch\)">/)
+  assert.match(content, /<StatusChip class="runtime-inline-status" :variant="symbolLimitStatusChipVariant\(row\.blocked\)">/)
+  assert.match(content, /<StatusChip class="runtime-inline-status" :variant="decisionStatusChipVariant\(row\.tone\)">/)
+  assert.doesNotMatch(content, /\.runtime-inline-status--success\s*\{/)
+  assert.doesNotMatch(content, /\.runtime-inline-status--failed\s*\{/)
+  assert.doesNotMatch(content, /\.runtime-inline-status--warning\s*\{/)
+})
+
 test('position-management module doc reflects merged left panel, dirty-symbol filtering and truth-filled recent decisions', async () => {
   const content = await readFile(new URL('../../../../docs/current/modules/position-management.md', import.meta.url), 'utf8')
 

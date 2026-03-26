@@ -184,6 +184,7 @@ export default {
       winLoseCountRate: 0, // 胜率
       evWinLoseCountRate: [0, 0], // 根据胜率计算出正期望的盈亏比,根据盈亏比计算出正期望的胜率
       winloseRate: 0, // 当前盈亏比
+      resizeHandler: null,
       pickerOptions: {
         shortcuts: [
           {
@@ -218,32 +219,44 @@ export default {
     }
   },
   mounted () {
-    this.initChart()
     const now = new Date()
     const lastWeek = now.getTime() - 3600 * 1000 * 24 * 7
     const start = CommonTool.parseTime(lastWeek, '{y}-{m}-{d}')
     const end = CommonTool.dateFormat('yyyy-MM-dd')
 
     this.dateRange = [start, end]
-    this.getStatisticList()
+    this.$nextTick(() => {
+      this.initChart()
+      this.getStatisticList()
+    })
   },
   beforeUnmount () {
-    if (!this.profitChart || !this.winPiechart || !this.losePieChart) {
-      return
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler)
+      this.resizeHandler = null
     }
-    this.profitChart.dispose()
+    for (const chart of [
+      this.profitChart,
+      this.marginChart,
+      this.winPiechart,
+      this.losePieChart,
+      this.winLoseCountRateChart
+    ]) {
+      if (chart) {
+        chart.dispose()
+      }
+    }
     this.profitChart = null
-    this.winPiechart.dispose()
+    this.marginChart = null
     this.winPiechart = null
-    this.losePieChart.dispose()
     this.losePieChart = null
+    this.winLoseCountRateChart = null
   },
   methods: {
     getStatisticList () {
       futureApi
         .getStatisticList(this.dateRange)
         .then(res => {
-          console.log('统计图表:', res)
           this.statisticList = res
           this.signal_result = res.signal_result
           this.totalNetProfit = 0
@@ -280,7 +293,6 @@ export default {
               item => -item
             )
           }
-          console.log(this.loseEndCountListNegative)
 
           this.winLoseCountRate =
             win_end_count / (win_end_count + lose_end_count)
@@ -290,9 +302,7 @@ export default {
           this.evWinLoseCountRate[1] = Math.abs(1 - 1 / this.winLoseCountRate)
           this.processData()
         })
-        .catch(error => {
-          console.log('获取统计图表失败:', error)
-        })
+        .catch(() => {})
     },
     processData () {
       const that = this
@@ -448,7 +458,7 @@ export default {
             barMaxWidth: 40,
             itemStyle: {
               color: 'rgba(0,191,183,1)',
-              barBorderRadius: 0,
+              borderRadius: 0,
               label: {
                 show: true,
                 textStyle: {
@@ -467,7 +477,7 @@ export default {
             symbol: 'circle',
             itemStyle: {
               color: 'rgba(252,230,48,1)',
-              barBorderRadius: 0,
+              borderRadius: 0,
               label: {
                 show: true,
                 position: 'top',
@@ -639,7 +649,7 @@ export default {
             stack: 'total',
             itemStyle: {
               color: 'rgba(0,191,183,1)',
-              barBorderRadius: 0,
+              borderRadius: 0,
               label: {
                 show: true,
                 position: 'insideTop',
@@ -658,7 +668,7 @@ export default {
             symbol: 'circle',
             itemStyle: {
               color: 'rgba(252,230,48,1)',
-              barBorderRadius: 0,
+              borderRadius: 0,
               label: {
                 show: true,
                 position: 'top',
@@ -712,7 +722,7 @@ export default {
           textStyle: {
             color: '#fff'
           },
-          data: ['总保证金']
+          data: ['保证金占用']
         },
         calculable: true,
         xAxis: [
@@ -942,45 +952,23 @@ export default {
       })
     },
     initChart () {
-      this.profitChart = echarts.init(
-        document.getElementById('profit-chart')
+      if (this.profitChart) {
+        return
+      }
+      const profitDom = this.prepareChartHost('profit-chart-parent', 'profit-chart')
+      const marginDom = this.prepareChartHost('margin-chart-parent', 'margin-chart')
+      const winLoseCountRateDom = this.prepareChartHost(
+        'win-lose-count-rate-chart-parent',
+        'win-lose-count-rate-chart'
       )
-      this.marginChart = echarts.init(
-        document.getElementById('margin-chart')
-      )
-      this.winPiechart = echarts.init(
-        document.getElementById('win-pie-chart')
-      )
-      this.losePieChart = echarts.init(
-        document.getElementById('lose-pie-chart')
-      )
+      const winPieDom = this.prepareChartHost('win-pie-chart-parent', 'win-pie-chart')
+      const losePieDom = this.prepareChartHost('lose-pie-chart-parent', 'lose-pie-chart')
 
-      this.winLoseCountRateChart = echarts.init(
-        document.getElementById('win-lose-count-rate-chart')
-      )
-
-      this.chartssize(
-        document.getElementById('profit-chart-parent'),
-        document.getElementById('profit-chart')
-      )
-      this.chartssize(
-        document.getElementById('margin-chart-parent'),
-        document.getElementById('margin-chart')
-      )
-
-      this.chartssize(
-        document.getElementById('win-lose-count-rate-chart-parent'),
-        document.getElementById('win-lose-count-rate-chart')
-      )
-
-      this.chartssize(
-        document.getElementById('win-pie-chart-parent'),
-        document.getElementById('win-pie-chart')
-      )
-      this.chartssize(
-        document.getElementById('lose-pie-chart-parent'),
-        document.getElementById('lose-pie-chart')
-      )
+      this.profitChart = echarts.init(profitDom)
+      this.marginChart = echarts.init(marginDom)
+      this.winPiechart = echarts.init(winPieDom)
+      this.losePieChart = echarts.init(losePieDom)
+      this.winLoseCountRateChart = echarts.init(winLoseCountRateDom)
 
       this.profitChart.resize()
       this.marginChart.resize()
@@ -988,16 +976,34 @@ export default {
       this.losePieChart.resize()
       this.winLoseCountRateChart.resize()
 
-      window.addEventListener('resize', () => {
+      this.resizeHandler = () => {
+        this.chartssize(document.getElementById('profit-chart-parent'), profitDom)
+        this.chartssize(document.getElementById('margin-chart-parent'), marginDom)
+        this.chartssize(
+          document.getElementById('win-lose-count-rate-chart-parent'),
+          winLoseCountRateDom
+        )
+        this.chartssize(document.getElementById('win-pie-chart-parent'), winPieDom)
+        this.chartssize(document.getElementById('lose-pie-chart-parent'), losePieDom)
         this.profitChart.resize()
         this.marginChart.resize()
         this.winPiechart.resize()
         this.losePieChart.resize()
         this.winLoseCountRateChart.resize()
-      })
+      }
+      window.addEventListener('resize', this.resizeHandler)
+    },
+    prepareChartHost (containerId, chartId) {
+      const container = document.getElementById(containerId)
+      const chart = document.getElementById(chartId)
+      this.chartssize(container, chart)
+      return chart
     },
     // 计算echarts 高度
     chartssize (container, charts) {
+      if (!container || !charts) {
+        return
+      }
       function getStyle (el, name) {
         if (window.getComputedStyle) {
           return window.getComputedStyle(el, null)
@@ -1006,10 +1012,10 @@ export default {
         }
       }
 
-      const wi = getStyle(container, 'width').width
-      const hi = getStyle(container, 'height').height
-      charts.style.height = hi
-      charts.style.width = wi
+      const wi = container.clientWidth || parseInt(getStyle(container, 'width').width, 10) || 1200
+      const hi = container.clientHeight || parseInt(getStyle(container, 'height').height, 10) || 300
+      charts.style.height = `${hi}px`
+      charts.style.width = `${wi}px`
     }
   }
 }
@@ -1091,13 +1097,24 @@ input.el-range-input {
         flex-wrap: wrap;
         justify-content: space-between;
         flex-direction column
-        height: 100%;
+        width: 100%;
+        height: auto;
 
         .pie-chart {
-            flex: 1
+            flex: 0 0 auto
             width: 1200px;
+            min-height: 300px;
             height: 300px;
         }
+    }
+
+    #profit-chart,
+    #win-lose-count-rate-chart,
+    #margin-chart,
+    #win-pie-chart,
+    #lose-pie-chart {
+        width: 100%;
+        height: 100%;
     }
 
 }

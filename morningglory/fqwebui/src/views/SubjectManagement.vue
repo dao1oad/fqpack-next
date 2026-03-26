@@ -1,9 +1,9 @@
 <template>
-  <div class="workbench-page subject-management-page">
+  <WorkbenchPage class="subject-management-page">
     <MyHeader />
 
     <div class="workbench-body subject-management-body">
-      <section class="workbench-toolbar">
+      <WorkbenchToolbar class="subject-management-toolbar">
         <div class="workbench-toolbar__header">
           <div class="workbench-title-group">
             <div class="workbench-page-title">标的管理</div>
@@ -54,32 +54,32 @@
         </div>
 
         <div class="workbench-summary-row">
-          <span class="workbench-summary-chip">
+          <StatusChip>
             总标的 <strong>{{ overviewRows.length }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip variant="muted">
             当前筛选 <strong>{{ filteredOverviewRows.length }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--success">
+          </StatusChip>
+          <StatusChip variant="success">
             持仓中 <strong>{{ holdingCount }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--warning">
+          </StatusChip>
+          <StatusChip variant="warning">
             活跃止损 <strong>{{ activeStoplossCount }}</strong>
-          </span>
-          <span v-if="pmSummary.effective_state" class="workbench-summary-chip" :class="pmStateChipClass">
+          </StatusChip>
+          <StatusChip v-if="pmSummary.effective_state" :variant="pmStateChipVariant">
             门禁 <strong>{{ pmSummary.effective_state }}</strong>
-          </span>
-          <span v-if="pmSummary.allow_open_min_bail !== null" class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip v-if="pmSummary.allow_open_min_bail !== null" variant="muted">
             开仓阈值 <strong>{{ formatInteger(pmSummary.allow_open_min_bail) }}</strong>
-          </span>
-          <span v-if="pmSummary.holding_only_min_bail !== null" class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip v-if="pmSummary.holding_only_min_bail !== null" variant="muted">
             持仓阈值 <strong>{{ formatInteger(pmSummary.holding_only_min_bail) }}</strong>
-          </span>
+          </StatusChip>
         </div>
-      </section>
+      </WorkbenchToolbar>
 
       <div class="subject-layout">
-        <section class="workbench-panel subject-overview-panel">
+        <WorkbenchLedgerPanel class="subject-overview-panel">
           <div class="workbench-panel__header">
             <div class="workbench-title-group">
               <div class="workbench-panel__title">标的总览</div>
@@ -204,7 +204,7 @@
               @size-change="handleOverviewPageSizeChange"
             />
           </div>
-        </section>
+        </WorkbenchLedgerPanel>
 
         <main class="subject-editor-stack">
           <template v-if="detail">
@@ -226,15 +226,15 @@
               </div>
 
               <div class="subject-editor-summarybar__chips">
-                <span
+                <StatusChip
                   v-for="chip in detailSummaryChips"
                   :key="chip.key"
                   class="subject-editor-chip"
-                  :class="`subject-editor-chip--${chip.tone}`"
+                  :variant="chip.tone"
                 >
                   <span class="subject-editor-chip__label">{{ chip.label }}</span>
                   <strong>{{ chip.value }}</strong>
-                </span>
+                </StatusChip>
               </div>
 
               <div class="subject-editor-summarybar__actions">
@@ -242,7 +242,7 @@
               </div>
             </section>
 
-            <section class="workbench-panel subject-editor-table-panel">
+            <WorkbenchDetailPanel class="subject-editor-table-panel">
               <div class="subject-editor-table-header">
                 <div class="subject-editor-table-heading">
                   <div class="subject-editor-table-title">基础配置 + 单标的仓位上限</div>
@@ -331,9 +331,9 @@
                   </template>
                 </el-table-column>
               </el-table>
-            </section>
+            </WorkbenchDetailPanel>
 
-            <section class="workbench-panel subject-editor-table-panel">
+            <WorkbenchDetailPanel class="subject-editor-table-panel">
               <div class="subject-editor-table-header">
                 <div class="subject-editor-table-heading">
                   <div class="subject-editor-table-title">按 buy lot 止损</div>
@@ -412,7 +412,7 @@
                   </template>
                 </el-table-column>
               </el-table>
-            </section>
+            </WorkbenchDetailPanel>
           </template>
 
           <section v-else class="workbench-empty">
@@ -421,13 +421,18 @@
         </main>
       </div>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, toRefs, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
+import StatusChip from '../components/workbench/StatusChip.vue'
+import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
+import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
+import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
+import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import { subjectManagementApi } from '@/api/subjectManagementApi'
 import MyHeader from '@/views/MyHeader.vue'
 import {
@@ -468,11 +473,11 @@ const formatDateTime = (value) => {
   return formatBeijingTimestamp(value)
 }
 
-const resolveStateChipClass = (state) => {
-  if (state === 'ALLOW_OPEN') return 'workbench-summary-chip--success'
-  if (state === 'HOLDING_ONLY') return 'workbench-summary-chip--warning'
-  if (state === 'FORCE_PROFIT_REDUCE') return 'workbench-summary-chip--danger'
-  return 'workbench-summary-chip--muted'
+const resolveStateChipVariant = (state) => {
+  if (state === 'ALLOW_OPEN') return 'success'
+  if (state === 'HOLDING_ONLY') return 'warning'
+  if (state === 'FORCE_PROFIT_REDUCE') return 'danger'
+  return 'muted'
 }
 
 const actions = createSubjectManagementActions(subjectManagementApi)
@@ -561,7 +566,7 @@ const pmSummary = computed(() => detail.value?.positionManagementSummary || {
   holding_only_min_bail: null,
 })
 
-const pmStateChipClass = computed(() => resolveStateChipClass(pmSummary.value.effective_state))
+const pmStateChipVariant = computed(() => resolveStateChipVariant(pmSummary.value.effective_state))
 
 const detailSummaryChips = computed(() => buildDetailSummaryChips(detail.value || {}))
 const configEditorRows = computed(() => buildDenseConfigRows(detail.value || {}))
@@ -842,24 +847,6 @@ onMounted(async () => {
 
 .subject-editor-chip__label {
   color: #64748b;
-}
-
-.subject-editor-chip--success {
-  background: #edf8ef;
-  border-color: #c7ead1;
-  color: #166534;
-}
-
-.subject-editor-chip--warning {
-  background: #fff7e8;
-  border-color: #f6ddb3;
-  color: #b45309;
-}
-
-.subject-editor-chip--danger {
-  background: #fef2f2;
-  border-color: #f7caca;
-  color: #b91c1c;
 }
 
 .subject-editor-table-panel {

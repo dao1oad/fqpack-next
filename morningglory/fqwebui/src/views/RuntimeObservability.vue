@@ -1,8 +1,8 @@
 <template>
-  <div class="workbench-page runtime-page">
+  <WorkbenchPage class="runtime-page">
     <MyHeader />
     <div class="workbench-body runtime-shell">
-      <section class="workbench-toolbar runtime-section runtime-section--workbench">
+      <WorkbenchToolbar class="runtime-section runtime-section--workbench">
         <div class="workbench-toolbar__header runtime-title-row">
           <div class="runtime-title-main">
             <div class="workbench-title-group">
@@ -24,8 +24,8 @@
                 @change="handleTimeRangeChange"
               />
               <el-radio-group v-model="activeView" size="small" class="runtime-view-switch">
-                <el-radio-button label="traces">全局 Trace</el-radio-button>
-                <el-radio-button label="events">组件 Event</el-radio-button>
+                <el-radio-button value="traces">全局 Trace</el-radio-button>
+                <el-radio-button value="events">组件 Event</el-radio-button>
               </el-radio-group>
               <el-switch
                 v-model="onlyIssues"
@@ -60,10 +60,8 @@
           :closable="false"
         />
 
-        <div class="workbench-summary-row runtime-summary-row">
-          <span class="workbench-summary-chip">
-            可见 Trace <strong>{{ traceListSummary.trace_count }}</strong>
-          </span>
+        <WorkbenchSummaryRow class="runtime-summary-row">
+          <StatusChip>可见 Trace <strong>{{ traceListSummary.trace_count }}</strong></StatusChip>
           <button
             type="button"
             class="workbench-summary-chip workbench-summary-chip--warning runtime-summary-chip-button"
@@ -80,9 +78,9 @@
           >
             异常节点 <strong>{{ traceListSummary.issue_step_count }}</strong>
           </button>
-          <span v-if="timeRangeDisplayLabel" class="workbench-summary-chip workbench-summary-chip--muted">
+          <StatusChip v-if="timeRangeDisplayLabel" variant="muted">
             展示范围 <strong>{{ timeRangeDisplayLabel }}</strong>
-          </span>
+          </StatusChip>
           <div class="runtime-filter-chips">
             <button
               v-for="chip in filterChips"
@@ -93,18 +91,17 @@
             >
               {{ chip.label }}
             </button>
-            <span
+            <StatusChip
               v-if="filterChips.length === 0"
-              class="workbench-summary-chip workbench-summary-chip--muted runtime-filter-empty"
-            >
-              当前无筛选
-            </span>
+              variant="muted"
+              class="runtime-filter-empty"
+            >当前无筛选</StatusChip>
           </div>
-        </div>
-      </section>
+        </WorkbenchSummaryRow>
+      </WorkbenchToolbar>
 
       <div class="runtime-browse-layout">
-        <aside class="workbench-panel runtime-browser-panel runtime-browser-panel--components">
+        <WorkbenchSidebarPanel class="runtime-browser-panel runtime-browser-panel--components">
           <div class="runtime-home-head">
             <div>
               <h2>组件导航</h2>
@@ -126,18 +123,14 @@
                   <strong :title="item.component_label">{{ item.component_label }}</strong>
                   <span :title="item.component">{{ item.component }}</span>
                 </div>
-                <span class="runtime-inline-status" :class="statusClass(item.status)">
-                  {{ item.status }}
-                </span>
+                <StatusChip class="runtime-inline-status" :variant="statusChipVariant(item.status)">{{ item.status }}</StatusChip>
               </div>
 
               <div class="component-symbol-card__badges">
-                <span class="workbench-summary-chip workbench-summary-chip--muted" :title="item.runtime_summary_title">
+                <StatusChip variant="muted" :title="item.runtime_summary_title">
                   {{ item.runtime_summary_label || '-' }}
-                </span>
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
-                  Trace {{ item.trace_count }}
-                </span>
+                </StatusChip>
+                <StatusChip variant="muted">Trace {{ item.trace_count }}</StatusChip>
                 <button
                   type="button"
                   class="workbench-summary-chip workbench-summary-chip--warning component-symbol-card__action"
@@ -164,9 +157,9 @@
               </div>
             </div>
           </div>
-        </aside>
+        </WorkbenchSidebarPanel>
 
-          <section class="workbench-panel runtime-browser-panel runtime-browser-panel--feed">
+          <WorkbenchLedgerPanel class="runtime-browser-panel runtime-browser-panel--feed">
             <template v-if="activeView === 'traces'">
               <div class="runtime-home-head">
                 <div>
@@ -216,9 +209,7 @@
                     <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
                     <span class="runtime-ledger__cell">{{ row.trace_kind_label }}</span>
                     <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                      <span class="runtime-inline-status" :class="statusClass(row.trace_status)">
-                        {{ row.trace_status_label }}
-                      </span>
+                      <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.trace_status)">{{ row.trace_status_label }}</StatusChip>
                     </span>
                     <span class="runtime-ledger__cell runtime-ledger__cell--truncate runtime-ledger__cell--signal-remark" :title="row.signal_remark || '-'">
                       {{ row.signal_remark || '-' }}
@@ -228,7 +219,7 @@
                         <template v-for="(node, nodeIndex) in row.flow_nodes" :key="node.key || `${row.trace_key || row.trace_id}-${nodeIndex}`">
                           <el-popover
                             trigger="hover"
-                            placement="top"
+                            placement="left"
                             :width="320"
                             :teleported="false"
                           >
@@ -302,9 +293,7 @@
                 <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.component_label">{{ row.component_label }}</span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.node_label">{{ row.node_label }}</span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                  <span class="runtime-inline-status" :class="statusClass(row.status)">
-                    {{ row.status }}
-                  </span>
+                  <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.status)">{{ row.status }}</StatusChip>
                 </span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.semantic_value || '-'">{{ row.semantic_value || '-' }}</span>
                 <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
@@ -320,9 +309,9 @@
               <p v-if="componentEventEmptyState.detail">{{ componentEventEmptyState.detail }}</p>
             </div>
           </template>
-          </section>
+          </WorkbenchLedgerPanel>
 
-          <section class="runtime-browser-panel runtime-browser-panel--detail">
+          <WorkbenchDetailPanel class="runtime-browser-panel runtime-browser-panel--detail">
             <div v-if="activeView === 'traces'" class="trace-detail trace-detail--embedded">
           <div class="trace-detail-head">
             <div>
@@ -342,6 +331,179 @@
                         <span class="tab-meta">{{ traceStepLedgerRows.length }}</span>
                       </div>
                     </template>
+                    <section class="runtime-detail-panel runtime-detail-panel--steps">
+                      <div class="trace-ledger-toolbar">
+                        <div class="trace-ledger-toolbar__meta">
+                          <span>{{ onlyIssues ? '仅显示异常节点' : '显示全部节点' }}</span>
+                          <span>可见 {{ traceStepLedgerRows.length }} / {{ selectedTraceDetail.step_count }}</span>
+                        </div>
+                        <div class="trace-ledger-toolbar__actions">
+                          <el-button text size="small" :disabled="!firstIssueTraceStep" @click="handleTraceAnchorJump('first-issue')">首个异常</el-button>
+                          <el-button text size="small" :disabled="!previousIssueTraceStep" @click="handleTraceAnchorJump('previous-issue')">上一个异常</el-button>
+                          <el-button text size="small" :disabled="!nextIssueTraceStep" @click="handleTraceAnchorJump('next-issue')">下一个异常</el-button>
+                          <el-button text size="small" :disabled="!slowestTraceStep" @click="handleTraceAnchorJump('slowest-step')">最慢节点</el-button>
+                        </div>
+                      </div>
+
+                      <div v-if="traceStepLedgerRows.length" class="trace-step-ledger">
+                        <div class="trace-step-ledger__header trace-step-ledger__grid">
+                          <span>#</span>
+                          <span>时间</span>
+                          <span>耗时</span>
+                          <span>节点</span>
+                          <span>状态</span>
+                          <span>分支</span>
+                          <span>条件</span>
+                          <span>原因</span>
+                          <span>结果</span>
+                          <span>上下文</span>
+                          <span>错误</span>
+                        </div>
+                        <button
+                          v-for="(row, rowIndex) in traceStepLedgerRows"
+                          :key="row.step_key"
+                          :ref="(el) => setStepRowRef(el, row.step_key)"
+                          type="button"
+                          class="trace-step-ledger__row trace-step-ledger__grid"
+                          :class="[statusClass(row.status), { active: isActiveStep(filteredSteps[rowIndex]), 'is-issue': row.is_issue }]"
+                          @click="handleStepSelect(filteredSteps[rowIndex])"
+                        >
+                          <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.index + 1 }}</span>
+                          <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
+                          <span class="runtime-ledger__cell">{{ row.delta_label || '-' }}</span>
+                          <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.component_node }}</span>
+                          <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                            <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.status)">{{ row.status }}</StatusChip>
+                          </span>
+                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.branch || '-' }}</span>
+                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.expr || '-' }}</span>
+                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.reason || '-' }}</span>
+                          <span class="runtime-ledger__cell">{{ row.outcome || '-' }}</span>
+                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.context_summary || '-' }}</span>
+                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.error_summary || '-' }}</span>
+                        </button>
+                      </div>
+                      <div v-if="traceStepsNextCursor" class="runtime-load-more runtime-load-more--detail">
+                        <el-button plain :loading="loading.traceSteps" @click="loadMoreTraceSteps">加载更早步骤</el-button>
+                      </div>
+                      <div v-else-if="!traceStepLedgerRows.length" class="trace-empty">当前过滤条件下没有节点</div>
+
+                      <div class="trace-step-detail">
+                        <template v-if="selectedStep">
+                          <div class="detail-pane-grid detail-pane-grid--step">
+                            <section class="detail-ledger-section">
+                              <div class="detail-ledger-section__title">基础字段</div>
+
+                              <table class="detail-kv-table">
+                                <tbody>
+                                  <tr v-for="row in selectedStepOverviewRows" :key="`selected-step-overview-${row.key}`">
+                                    <th>{{ row.label }}</th>
+                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </section>
+
+                            <section v-if="selectedStep?.guardian_step && selectedStepSignalRows.length" class="detail-ledger-section">
+                              <div class="detail-ledger-section__title">Guardian 信号</div>
+                              <table class="detail-kv-table">
+                                <tbody>
+                                  <tr v-for="row in selectedStepSignalRows" :key="`selected-step-signal-${row.key}`">
+                                    <th>{{ row.label }}</th>
+                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </section>
+
+                            <section v-if="selectedStepDecisionRows.length" class="detail-ledger-section">
+                              <div class="detail-ledger-section__title">判断字段</div>
+                              <table class="detail-kv-table">
+                                <tbody>
+                                  <tr v-for="row in selectedStepDecisionRows" :key="`selected-step-decision-${row.key}`">
+                                    <th>{{ row.label }}</th>
+                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </section>
+
+                            <section v-if="selectedStepContextRows.length" class="detail-ledger-section detail-ledger-section--full">
+                              <div class="detail-ledger-section__title">Guardian 上下文</div>
+                              <table class="detail-kv-table detail-kv-table--full">
+                                <tbody>
+                                  <tr v-for="row in selectedStepContextRows" :key="`selected-step-context-${row.key}`">
+                                    <th>{{ row.label }}</th>
+                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </section>
+
+                            <section v-if="selectedStepErrorRows.length" class="detail-ledger-section">
+                              <div class="detail-ledger-section__title">异常信息</div>
+                              <table class="detail-kv-table">
+                                <tbody>
+                                  <tr v-for="row in selectedStepErrorRows" :key="`selected-step-error-${row.key}`">
+                                    <th>{{ row.label }}</th>
+                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </section>
+
+                            <section class="detail-ledger-section detail-ledger-section--full">
+                              <div class="detail-ledger-section__title">Payload / Metrics</div>
+                              <div class="detail-pane-grid detail-pane-grid--nested">
+                                <table class="detail-kv-table">
+                                  <tbody>
+                                    <tr v-if="!selectedStepPayloadRows.length">
+                                      <th>payload</th>
+                                      <td>-</td>
+                                    </tr>
+                                    <tr v-for="row in selectedStepPayloadRows" :key="`selected-step-payload-${row.key}`">
+                                      <th>{{ row.label }}</th>
+                                      <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                                <table class="detail-kv-table">
+                                  <tbody>
+                                    <tr v-if="!selectedStepMetricsRows.length">
+                                      <th>metrics</th>
+                                      <td>-</td>
+                                    </tr>
+                                    <tr v-for="row in selectedStepMetricsRows" :key="`selected-step-metrics-${row.key}`">
+                                      <th>{{ row.label }}</th>
+                                      <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                              <div
+                                v-if="selectedStep.payload_text || selectedStep.metrics_text"
+                                class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw"
+                              >
+                                <section v-if="selectedStep.payload_text" class="detail-json-section">
+                                  <div class="detail-ledger-section__title">Payload JSON</div>
+                                  <pre class="detail-json-view">{{ selectedStep.payload_text }}</pre>
+                                </section>
+                                <section v-if="selectedStep.metrics_text" class="detail-json-section">
+                                  <div class="detail-ledger-section__title">Metrics JSON</div>
+                                  <pre class="detail-json-view">{{ selectedStep.metrics_text }}</pre>
+                                </section>
+                              </div>
+                            </section>
+                          </div>
+
+                          <div class="step-inspector-actions">
+                            <el-button type="primary" plain @click="openRawFromStep(selectedStep)">查看 Raw</el-button>
+                            <el-button text @click="copyText(buildStepCopyText(selectedStep))">复制节点摘要</el-button>
+                          </div>
+                        </template>
+                        <div v-else class="trace-empty">暂无选中节点</div>
+                      </div>
+                    </section>
                   </el-tab-pane>
                   <el-tab-pane name="summary">
                     <template #label>
@@ -350,6 +512,63 @@
                         <span class="tab-meta">{{ guardianTrace ? 3 : 2 }}</span>
                       </div>
                     </template>
+                    <section class="runtime-detail-panel runtime-detail-panel--summary runtime-detail-panel--fill">
+                      <div class="detail-pane-grid">
+                        <section class="detail-ledger-section">
+                          <div class="detail-ledger-section__title">链路摘要</div>
+                          <table class="detail-kv-table trace-summary-ledger">
+                            <tbody>
+                              <tr v-for="row in traceSummaryRows" :key="`trace-summary-${row.key}`">
+                                <th>{{ row.label }}</th>
+                                <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </section>
+
+                        <section class="detail-ledger-section">
+                          <div class="detail-ledger-section__title">异常与慢点</div>
+                          <table class="detail-kv-table trace-summary-ledger">
+                            <tbody>
+                              <tr v-for="row in traceIssueRows" :key="`trace-issue-${row.key}`">
+                                <th>{{ row.label }}</th>
+                                <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </section>
+
+                        <section v-if="guardianTrace" class="detail-ledger-section detail-ledger-section--full">
+                          <div class="detail-ledger-section__title">Guardian 结论</div>
+                          <div class="detail-pane-grid detail-pane-grid--nested">
+                            <table class="detail-kv-table trace-summary-ledger">
+                              <tbody>
+                                <tr v-for="row in guardianTraceRows" :key="`guardian-summary-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                            <table v-if="guardianSignalRows.length" class="detail-kv-table trace-summary-ledger">
+                              <tbody>
+                                <tr v-for="row in guardianSignalRows" :key="`guardian-signal-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                          <table v-if="guardianDecisionContextRows.length" class="detail-kv-table trace-summary-ledger detail-kv-table--full">
+                            <tbody>
+                              <tr v-for="row in guardianDecisionContextRows" :key="`guardian-context-${row.key}`">
+                                <th>{{ row.label }}</th>
+                                <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </section>
+                      </div>
+                    </section>
                   </el-tab-pane>
                   <el-tab-pane name="raw">
                     <template #label>
@@ -358,270 +577,36 @@
                         <span class="tab-meta">{{ embeddedRawLedgerRows.length }}</span>
                       </div>
                     </template>
+                    <section class="runtime-detail-panel runtime-detail-panel--fill">
+                      <div class="runtime-detail-panel__toolbar">
+                        <span>{{ selectedStep ? `${selectedStep.component}.${selectedStep.node}` : '选择一个 Step 后可直接定位 Raw' }}</span>
+                        <el-button type="primary" plain :disabled="!selectedStep" @click="openRawBrowser">打开 Raw Browser</el-button>
+                      </div>
+                      <div v-if="embeddedRawLedgerRows.length" class="embedded-raw-ledger">
+                        <div class="embedded-raw-ledger__header">
+                          <span>record</span>
+                          <span>summary</span>
+                          <span>badges</span>
+                        </div>
+                        <div
+                          v-for="row in embeddedRawLedgerRows"
+                          :key="row.key"
+                          class="embedded-raw-ledger__entry"
+                          :class="{ active: row.active }"
+                        >
+                          <div class="embedded-raw-ledger__row">
+                            <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
+                          </div>
+                          <pre class="detail-json-view">{{ row.body }}</pre>
+                        </div>
+                      </div>
+                      <div v-else class="trace-empty">尚未加载 Raw，点击上方按钮拉取当前节点的原始记录。</div>
+                    </section>
                   </el-tab-pane>
                 </el-tabs>
 
-              <section v-show="activeTraceDetailTab === 'summary'" class="runtime-detail-panel runtime-detail-panel--summary runtime-detail-panel--fill">
-                <div class="detail-pane-grid">
-                  <section class="detail-ledger-section">
-                    <div class="detail-ledger-section__title">链路摘要</div>
-                    <table class="detail-kv-table trace-summary-ledger">
-                      <tbody>
-                        <tr v-for="row in traceSummaryRows" :key="`trace-summary-${row.key}`">
-                          <th>{{ row.label }}</th>
-                          <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </section>
-
-                  <section class="detail-ledger-section">
-                    <div class="detail-ledger-section__title">异常与慢点</div>
-                    <table class="detail-kv-table trace-summary-ledger">
-                      <tbody>
-                        <tr v-for="row in traceIssueRows" :key="`trace-issue-${row.key}`">
-                          <th>{{ row.label }}</th>
-                          <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </section>
-
-                  <section v-if="guardianTrace" class="detail-ledger-section detail-ledger-section--full">
-                    <div class="detail-ledger-section__title">Guardian 结论</div>
-                    <div class="detail-pane-grid detail-pane-grid--nested">
-                      <table class="detail-kv-table trace-summary-ledger">
-                        <tbody>
-                          <tr v-for="row in guardianTraceRows" :key="`guardian-summary-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                      <table v-if="guardianSignalRows.length" class="detail-kv-table trace-summary-ledger">
-                        <tbody>
-                          <tr v-for="row in guardianSignalRows" :key="`guardian-signal-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                    <table v-if="guardianDecisionContextRows.length" class="detail-kv-table trace-summary-ledger detail-kv-table--full">
-                      <tbody>
-                        <tr v-for="row in guardianDecisionContextRows" :key="`guardian-context-${row.key}`">
-                          <th>{{ row.label }}</th>
-                          <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </section>
-                </div>
-              </section>
-
-            <section v-show="activeTraceDetailTab === 'steps'" class="runtime-detail-panel runtime-detail-panel--steps">
-              <div class="trace-ledger-toolbar">
-                <div class="trace-ledger-toolbar__meta">
-                  <span>{{ onlyIssues ? '仅显示异常节点' : '显示全部节点' }}</span>
-                  <span>可见 {{ traceStepLedgerRows.length }} / {{ selectedTraceDetail.step_count }}</span>
-                </div>
-                <div class="trace-ledger-toolbar__actions">
-                  <el-button text size="small" :disabled="!firstIssueTraceStep" @click="handleTraceAnchorJump('first-issue')">首个异常</el-button>
-                  <el-button text size="small" :disabled="!previousIssueTraceStep" @click="handleTraceAnchorJump('previous-issue')">上一个异常</el-button>
-                  <el-button text size="small" :disabled="!nextIssueTraceStep" @click="handleTraceAnchorJump('next-issue')">下一个异常</el-button>
-                  <el-button text size="small" :disabled="!slowestTraceStep" @click="handleTraceAnchorJump('slowest-step')">最慢节点</el-button>
-                </div>
-              </div>
-
-              <div v-if="traceStepLedgerRows.length" class="trace-step-ledger">
-                <div class="trace-step-ledger__header trace-step-ledger__grid">
-                  <span>#</span>
-                  <span>时间</span>
-                  <span>耗时</span>
-                  <span>节点</span>
-                  <span>状态</span>
-                  <span>分支</span>
-                  <span>条件</span>
-                  <span>原因</span>
-                  <span>结果</span>
-                  <span>上下文</span>
-                  <span>错误</span>
-                </div>
-                <button
-                  v-for="(row, rowIndex) in traceStepLedgerRows"
-                  :key="row.step_key"
-                  :ref="(el) => setStepRowRef(el, row.step_key)"
-                  type="button"
-                  class="trace-step-ledger__row trace-step-ledger__grid"
-                  :class="[statusClass(row.status), { active: isActiveStep(filteredSteps[rowIndex]), 'is-issue': row.is_issue }]"
-                  @click="handleStepSelect(filteredSteps[rowIndex])"
-                >
-                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.index + 1 }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
-                  <span class="runtime-ledger__cell">{{ row.delta_label || '-' }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.component_node }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                    <span class="runtime-inline-status" :class="statusClass(row.status)">
-                      {{ row.status }}
-                    </span>
-                  </span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.branch || '-' }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.expr || '-' }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.reason || '-' }}</span>
-                  <span class="runtime-ledger__cell">{{ row.outcome || '-' }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.context_summary || '-' }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.error_summary || '-' }}</span>
-                </button>
-              </div>
-              <div v-if="traceStepsNextCursor" class="runtime-load-more runtime-load-more--detail">
-                <el-button plain :loading="loading.traceSteps" @click="loadMoreTraceSteps">加载更早步骤</el-button>
-              </div>
-              <div v-else-if="!traceStepLedgerRows.length" class="trace-empty">当前过滤条件下没有节点</div>
-
-              <div class="trace-step-detail">
-                <template v-if="selectedStep">
-                  <div class="detail-pane-grid detail-pane-grid--step">
-                    <section class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">基础字段</div>
-
-                      <table class="detail-kv-table">
-                        <tbody>
-                          <tr v-for="row in selectedStepOverviewRows" :key="`selected-step-overview-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section v-if="selectedStep?.guardian_step && selectedStepSignalRows.length" class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">Guardian 信号</div>
-                      <table class="detail-kv-table">
-                        <tbody>
-                          <tr v-for="row in selectedStepSignalRows" :key="`selected-step-signal-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section v-if="selectedStepDecisionRows.length" class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">判断字段</div>
-                      <table class="detail-kv-table">
-                        <tbody>
-                          <tr v-for="row in selectedStepDecisionRows" :key="`selected-step-decision-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section v-if="selectedStepContextRows.length" class="detail-ledger-section detail-ledger-section--full">
-                      <div class="detail-ledger-section__title">Guardian 上下文</div>
-                      <table class="detail-kv-table detail-kv-table--full">
-                        <tbody>
-                          <tr v-for="row in selectedStepContextRows" :key="`selected-step-context-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section v-if="selectedStepErrorRows.length" class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">异常信息</div>
-                      <table class="detail-kv-table">
-                        <tbody>
-                          <tr v-for="row in selectedStepErrorRows" :key="`selected-step-error-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section class="detail-ledger-section detail-ledger-section--full">
-                      <div class="detail-ledger-section__title">Payload / Metrics</div>
-                      <div class="detail-pane-grid detail-pane-grid--nested">
-                        <table class="detail-kv-table">
-                          <tbody>
-                            <tr v-if="!selectedStepPayloadRows.length">
-                              <th>payload</th>
-                              <td>-</td>
-                            </tr>
-                            <tr v-for="row in selectedStepPayloadRows" :key="`selected-step-payload-${row.key}`">
-                              <th>{{ row.label }}</th>
-                              <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                        <table class="detail-kv-table">
-                          <tbody>
-                            <tr v-if="!selectedStepMetricsRows.length">
-                              <th>metrics</th>
-                              <td>-</td>
-                            </tr>
-                            <tr v-for="row in selectedStepMetricsRows" :key="`selected-step-metrics-${row.key}`">
-                              <th>{{ row.label }}</th>
-                              <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                      <div
-                        v-if="selectedStep.payload_text || selectedStep.metrics_text"
-                        class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw"
-                      >
-                        <section v-if="selectedStep.payload_text" class="detail-json-section">
-                          <div class="detail-ledger-section__title">Payload JSON</div>
-                          <pre class="detail-json-view">{{ selectedStep.payload_text }}</pre>
-                        </section>
-                        <section v-if="selectedStep.metrics_text" class="detail-json-section">
-                          <div class="detail-ledger-section__title">Metrics JSON</div>
-                          <pre class="detail-json-view">{{ selectedStep.metrics_text }}</pre>
-                        </section>
-                      </div>
-                    </section>
-                  </div>
-
-                  <div class="step-inspector-actions">
-                      <el-button type="primary" plain @click="openRawFromStep(selectedStep)">查看 Raw</el-button>
-                      <el-button text @click="copyText(buildStepCopyText(selectedStep))">复制节点摘要</el-button>
-                  </div>
-                </template>
-                <div v-else class="trace-empty">暂无选中节点</div>
-              </div>
-            </section>
-
-            <section v-show="activeTraceDetailTab === 'raw'" class="runtime-detail-panel runtime-detail-panel--fill">
-              <div class="runtime-detail-panel__toolbar">
-                <span>{{ selectedStep ? `${selectedStep.component}.${selectedStep.node}` : '选择一个 Step 后可直接定位 Raw' }}</span>
-                <el-button type="primary" plain :disabled="!selectedStep" @click="openRawBrowser">打开 Raw Browser</el-button>
-              </div>
-              <div v-if="embeddedRawLedgerRows.length" class="embedded-raw-ledger">
-                <div class="embedded-raw-ledger__header">
-                  <span>record</span>
-                  <span>summary</span>
-                  <span>badges</span>
-                </div>
-                <div
-                  v-for="row in embeddedRawLedgerRows"
-                  :key="row.key"
-                  class="embedded-raw-ledger__entry"
-                  :class="{ active: row.active }"
-                >
-                  <div class="embedded-raw-ledger__row">
-                    <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
-                  </div>
-                  <pre class="detail-json-view">{{ row.body }}</pre>
-                </div>
-              </div>
-              <div v-else class="trace-empty">尚未加载 Raw，点击上方按钮拉取当前节点的原始记录。</div>
-            </section>
               </div>
           </div>
           <div v-else class="trace-empty">暂无选中链路</div>
@@ -645,6 +630,126 @@
                           <span class="tab-meta">{{ eventMetaRows.length + eventSummaryRows.length + eventMetricRows.length }}</span>
                         </div>
                       </template>
+                      <section class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
+                        <div class="detail-pane-grid detail-pane-grid--step">
+                          <section class="detail-ledger-section">
+                            <div class="detail-ledger-section__title">事件摘要</div>
+                            <table class="detail-kv-table">
+                              <tbody>
+                                <tr v-for="row in eventMetaRows" :key="`event-meta-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                                <tr v-for="row in eventSummaryRows" :key="`event-summary-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                                <tr v-for="row in eventMetricRows" :key="`event-metric-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </section>
+
+                          <section v-if="eventDecisionRows.length || eventDetailFieldRows.length" class="detail-ledger-section">
+                            <div class="detail-ledger-section__title">判断与关联字段</div>
+                            <table class="detail-kv-table">
+                              <tbody>
+                                <tr v-for="row in eventDecisionRows" :key="`event-decision-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                                <tr v-for="row in eventDetailFieldRows" :key="`event-field-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </section>
+
+                          <section v-if="selectedEvent?.guardian_step && eventGuardianRows.length" class="detail-ledger-section">
+                            <div class="detail-ledger-section__title">Guardian 判断</div>
+                            <table class="detail-kv-table">
+                              <tbody>
+                                <tr v-for="row in eventGuardianRows" :key="`event-guardian-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </section>
+
+                          <section v-if="selectedEvent?.guardian_step && eventSignalRows.length" class="detail-ledger-section">
+                            <div class="detail-ledger-section__title">Guardian 信号</div>
+                            <table class="detail-kv-table">
+                              <tbody>
+                                <tr v-for="row in eventSignalRows" :key="`event-signal-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </section>
+
+                          <section v-if="eventContextRows.length" class="detail-ledger-section detail-ledger-section--full">
+                            <div class="detail-ledger-section__title">上下文</div>
+                            <table class="detail-kv-table detail-kv-table--full">
+                              <tbody>
+                                <tr v-for="row in eventContextRows" :key="`event-context-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </section>
+
+                          <section class="detail-ledger-section detail-ledger-section--full">
+                            <div class="detail-ledger-section__title">Payload / Metrics</div>
+                            <div class="detail-pane-grid detail-pane-grid--nested">
+                              <table class="detail-kv-table">
+                                <tbody>
+                                  <tr v-if="!eventPayloadRows.length">
+                                    <th>payload</th>
+                                    <td>-</td>
+                                  </tr>
+                                  <tr v-for="row in eventPayloadRows" :key="`event-payload-inline-${row.key}`">
+                                    <th>{{ row.label }}</th>
+                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                              <table class="detail-kv-table">
+                                <tbody>
+                                  <tr v-if="!eventMetricsRows.length">
+                                    <th>metrics</th>
+                                    <td>-</td>
+                                  </tr>
+                                  <tr v-for="row in eventMetricsRows" :key="`event-metrics-inline-${row.key}`">
+                                    <th>{{ row.label }}</th>
+                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                            <div class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw">
+                              <section v-if="selectedEvent.payload_text" class="detail-json-section">
+                                <div class="detail-ledger-section__title">Payload JSON</div>
+                                <pre class="detail-json-view">{{ selectedEvent.payload_text }}</pre>
+                              </section>
+
+                              <section v-if="selectedEvent.metrics_text" class="detail-json-section">
+                                <div class="detail-ledger-section__title">Metrics JSON</div>
+                                <pre class="detail-json-view">{{ selectedEvent.metrics_text }}</pre>
+                              </section>
+                            </div>
+                          </section>
+                        </div>
+                        <div class="step-inspector-actions">
+                          <el-button type="primary" plain @click="openRawFromStep(selectedEvent)">查看 Raw</el-button>
+                          <el-button text @click="copyText(buildEventCopyText(selectedEvent))">复制事件摘要</el-button>
+                        </div>
+                      </section>
                     </el-tab-pane>
                     <el-tab-pane name="payload">
                       <template #label>
@@ -653,6 +758,56 @@
                           <span class="tab-meta">{{ eventPayloadRows.length + eventMetricsRows.length }}</span>
                         </div>
                       </template>
+                      <section class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
+                        <div class="detail-pane-grid">
+                          <section class="detail-ledger-section">
+                            <div class="detail-ledger-section__title">载荷字段</div>
+                            <table class="detail-kv-table">
+                              <tbody>
+                                <tr v-if="!eventPayloadRows.length">
+                                  <th>payload</th>
+                                  <td>-</td>
+                                </tr>
+                                <tr v-for="row in eventPayloadRows" :key="`event-payload-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </section>
+
+                          <section class="detail-ledger-section">
+                            <div class="detail-ledger-section__title">指标字段</div>
+                            <table class="detail-kv-table">
+                              <tbody>
+                                <tr v-if="!eventMetricsRows.length">
+                                  <th>metrics</th>
+                                  <td>-</td>
+                                </tr>
+                                <tr v-for="row in eventMetricsRows" :key="`event-metrics-${row.key}`">
+                                  <th>{{ row.label }}</th>
+                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </section>
+                        </div>
+                        <div class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw">
+                          <section v-if="selectedEvent.payload_text" class="detail-json-section">
+                            <div class="detail-ledger-section__title">Payload JSON</div>
+                            <pre class="detail-json-view">{{ selectedEvent.payload_text }}</pre>
+                          </section>
+
+                          <section v-if="selectedEvent.metrics_text" class="detail-json-section">
+                            <div class="detail-ledger-section__title">Metrics JSON</div>
+                            <pre class="detail-json-view">{{ selectedEvent.metrics_text }}</pre>
+                          </section>
+                        </div>
+                        <div class="step-inspector-actions">
+                          <el-button type="primary" plain @click="openRawFromStep(selectedEvent)">查看 Raw</el-button>
+                          <el-button text @click="copyText(buildEventCopyText(selectedEvent))">复制事件摘要</el-button>
+                        </div>
+                      </section>
                     </el-tab-pane>
                     <el-tab-pane name="raw">
                       <template #label>
@@ -661,213 +816,41 @@
                           <span class="tab-meta">{{ embeddedRawLedgerRows.length }}</span>
                         </div>
                       </template>
+                      <section class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
+                        <div class="runtime-detail-panel__toolbar">
+                          <span>{{ selectedEvent.component }}.{{ selectedEvent.node }}</span>
+                          <el-button type="primary" plain @click="openRawBrowser">打开 Raw Browser</el-button>
+                        </div>
+                        <div v-if="embeddedRawLedgerRows.length" class="embedded-raw-ledger">
+                          <div class="embedded-raw-ledger__header">
+                            <span>记录</span>
+                            <span>摘要</span>
+                            <span>标识</span>
+                          </div>
+                          <div
+                            v-for="row in embeddedRawLedgerRows"
+                            :key="row.key"
+                            class="embedded-raw-ledger__entry"
+                            :class="{ active: row.active }"
+                          >
+                            <div class="embedded-raw-ledger__row">
+                              <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
+                              <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
+                              <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
+                            </div>
+                            <pre class="detail-json-view">{{ row.body }}</pre>
+                          </div>
+                        </div>
+                        <div v-else class="trace-empty">尚未加载 Raw，点击上方按钮拉取当前事件的原始记录。</div>
+                      </section>
                     </el-tab-pane>
                   </el-tabs>
 
-                <section v-show="activeEventDetailTab === 'event'" class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
-                  <div class="detail-pane-grid detail-pane-grid--step">
-                    <section class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">事件摘要</div>
-                      <table class="detail-kv-table">
-                        <tbody>
-                          <tr v-for="row in eventMetaRows" :key="`event-meta-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                          <tr v-for="row in eventSummaryRows" :key="`event-summary-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                          <tr v-for="row in eventMetricRows" :key="`event-metric-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section v-if="eventDecisionRows.length || eventDetailFieldRows.length" class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">判断与关联字段</div>
-                      <table class="detail-kv-table">
-                        <tbody>
-                          <tr v-for="row in eventDecisionRows" :key="`event-decision-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                          <tr v-for="row in eventDetailFieldRows" :key="`event-field-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section v-if="selectedEvent?.guardian_step && eventGuardianRows.length" class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">Guardian 判断</div>
-                      <table class="detail-kv-table">
-                        <tbody>
-                          <tr v-for="row in eventGuardianRows" :key="`event-guardian-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section v-if="selectedEvent?.guardian_step && eventSignalRows.length" class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">Guardian 信号</div>
-                      <table class="detail-kv-table">
-                        <tbody>
-                          <tr v-for="row in eventSignalRows" :key="`event-signal-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section v-if="eventContextRows.length" class="detail-ledger-section detail-ledger-section--full">
-                      <div class="detail-ledger-section__title">上下文</div>
-                      <table class="detail-kv-table detail-kv-table--full">
-                        <tbody>
-                          <tr v-for="row in eventContextRows" :key="`event-context-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section class="detail-ledger-section detail-ledger-section--full">
-                      <div class="detail-ledger-section__title">Payload / Metrics</div>
-                      <div class="detail-pane-grid detail-pane-grid--nested">
-                        <table class="detail-kv-table">
-                          <tbody>
-                            <tr v-if="!eventPayloadRows.length">
-                              <th>payload</th>
-                              <td>-</td>
-                            </tr>
-                            <tr v-for="row in eventPayloadRows" :key="`event-payload-inline-${row.key}`">
-                              <th>{{ row.label }}</th>
-                              <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                        <table class="detail-kv-table">
-                          <tbody>
-                            <tr v-if="!eventMetricsRows.length">
-                              <th>metrics</th>
-                              <td>-</td>
-                            </tr>
-                            <tr v-for="row in eventMetricsRows" :key="`event-metrics-inline-${row.key}`">
-                              <th>{{ row.label }}</th>
-                              <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                      <div class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw">
-                        <section v-if="selectedEvent.payload_text" class="detail-json-section">
-                          <div class="detail-ledger-section__title">Payload JSON</div>
-                          <pre class="detail-json-view">{{ selectedEvent.payload_text }}</pre>
-                        </section>
-
-                        <section v-if="selectedEvent.metrics_text" class="detail-json-section">
-                          <div class="detail-ledger-section__title">Metrics JSON</div>
-                          <pre class="detail-json-view">{{ selectedEvent.metrics_text }}</pre>
-                        </section>
-                      </div>
-                    </section>
-                  </div>
-                  <div class="step-inspector-actions">
-                    <el-button type="primary" plain @click="openRawFromStep(selectedEvent)">查看 Raw</el-button>
-                    <el-button text @click="copyText(buildEventCopyText(selectedEvent))">复制事件摘要</el-button>
-                  </div>
-                </section>
-
-                <section v-show="activeEventDetailTab === 'payload'" class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
-                  <div class="detail-pane-grid">
-                    <section class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">载荷字段</div>
-                      <table class="detail-kv-table">
-                        <tbody>
-                          <tr v-if="!eventPayloadRows.length">
-                            <th>payload</th>
-                            <td>-</td>
-                          </tr>
-                          <tr v-for="row in eventPayloadRows" :key="`event-payload-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-
-                    <section class="detail-ledger-section">
-                      <div class="detail-ledger-section__title">指标字段</div>
-                      <table class="detail-kv-table">
-                        <tbody>
-                          <tr v-if="!eventMetricsRows.length">
-                            <th>metrics</th>
-                            <td>-</td>
-                          </tr>
-                          <tr v-for="row in eventMetricsRows" :key="`event-metrics-${row.key}`">
-                            <th>{{ row.label }}</th>
-                            <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </section>
-                  </div>
-                  <div class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw">
-                    <section v-if="selectedEvent.payload_text" class="detail-json-section">
-                      <div class="detail-ledger-section__title">Payload JSON</div>
-                      <pre class="detail-json-view">{{ selectedEvent.payload_text }}</pre>
-                    </section>
-
-                    <section v-if="selectedEvent.metrics_text" class="detail-json-section">
-                      <div class="detail-ledger-section__title">Metrics JSON</div>
-                      <pre class="detail-json-view">{{ selectedEvent.metrics_text }}</pre>
-                    </section>
-                  </div>
-                  <div class="step-inspector-actions">
-                    <el-button type="primary" plain @click="openRawFromStep(selectedEvent)">查看 Raw</el-button>
-                    <el-button text @click="copyText(buildEventCopyText(selectedEvent))">复制事件摘要</el-button>
-                  </div>
-                </section>
-
-                <section v-show="activeEventDetailTab === 'raw'" class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
-                  <div class="runtime-detail-panel__toolbar">
-                    <span>{{ selectedEvent.component }}.{{ selectedEvent.node }}</span>
-                    <el-button type="primary" plain @click="openRawBrowser">打开 Raw Browser</el-button>
-                  </div>
-                  <div v-if="embeddedRawLedgerRows.length" class="embedded-raw-ledger">
-                    <div class="embedded-raw-ledger__header">
-                      <span>记录</span>
-                      <span>摘要</span>
-                      <span>标识</span>
-                    </div>
-                    <div
-                      v-for="row in embeddedRawLedgerRows"
-                      :key="row.key"
-                      class="embedded-raw-ledger__entry"
-                      :class="{ active: row.active }"
-                    >
-                      <div class="embedded-raw-ledger__row">
-                        <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
-                        <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
-                        <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
-                      </div>
-                      <pre class="detail-json-view">{{ row.body }}</pre>
-                    </div>
-                  </div>
-                  <div v-else class="trace-empty">尚未加载 Raw，点击上方按钮拉取当前事件的原始记录。</div>
-                </section>
                 </div>
               </div>
               <div v-else class="trace-empty">先从左侧选择组件，再从中间选择一个 Event</div>
             </div>
-          </section>
+          </WorkbenchDetailPanel>
         </div>
     </div>
 
@@ -921,20 +904,27 @@
       </div>
       <pre v-else class="raw-content">暂无记录</pre>
     </el-drawer>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
+import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
+import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
+import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
+import WorkbenchSidebarPanel from '../components/workbench/WorkbenchSidebarPanel.vue'
+import StatusChip from '../components/workbench/StatusChip.vue'
+import WorkbenchSummaryRow from '../components/workbench/WorkbenchSummaryRow.vue'
+import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from './MyHeader.vue'
 import {
   buildComponentEventFeed,
   buildComponentEventEmptyState,
   buildEventLedgerRows,
   buildComponentSidebarItems,
-  buildTodayTimeRange,
+  buildRuntimeDefaultTimeRange,
   formatTimeRangeLabel,
   buildTimeRangeQuery,
   buildIssuePriorityCards,
@@ -989,7 +979,7 @@ const traces = ref([])
 const traceNextCursor = ref(null)
 const events = ref([])
 const eventNextCursor = ref(null)
-const timeRange = ref(buildTodayTimeRange())
+const timeRange = ref(buildRuntimeDefaultTimeRange())
 const selectedTrace = ref(null)
 const selectedTracePayload = ref(null)
 const traceSteps = ref([])
@@ -1159,7 +1149,7 @@ const normalizeTimeRangeState = (value) => {
       return [startTime, endTime]
     }
   }
-  return buildTodayTimeRange()
+  return buildRuntimeDefaultTimeRange()
 }
 
 const buildTraceRequestParams = () => ({
@@ -2370,6 +2360,15 @@ const statusClass = (status) => {
   return 'is-info'
 }
 
+const statusChipVariant = (status) => {
+  const normalized = String(status || 'info').trim()
+  if (normalized === 'success') return 'success'
+  if (normalized === 'warning') return 'warning'
+  if (normalized === 'failed' || normalized === 'error') return 'danger'
+  if (normalized === 'skipped') return 'skipped'
+  return 'info'
+}
+
 const buildStepCopyText = (step) => {
   if (!step) return ''
   const lines = [
@@ -2807,7 +2806,7 @@ onBeforeUnmount(() => {
   color: #21405e;
 }
 
-.component-symbol-card__head span,
+.component-symbol-card__head > div > span,
 .component-symbol-card__foot {
   color: #69829b;
   font-size: 12px;
@@ -3193,7 +3192,7 @@ onBeforeUnmount(() => {
 .runtime-trace-ledger-scroll {
   min-width: 0;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;
   scrollbar-gutter: stable;
 }
 
@@ -3332,46 +3331,17 @@ onBeforeUnmount(() => {
   word-break: break-word;
 }
 
-.runtime-inline-status,
-.component-ledger__status,
-.component-ledger__runtime-status {
-  display: inline-flex;
-  align-items: center;
+.runtime-inline-status {
   justify-content: center;
   min-width: 88px;
   box-sizing: border-box;
+  gap: 0;
   padding: 4px 8px;
-  border-radius: 999px;
-  background: #edf4fb;
-  color: #35506c;
+  border-width: 0;
   font-size: 12px;
   line-height: 1;
   text-transform: lowercase;
   white-space: nowrap;
-}
-
-.runtime-inline-status.is-success,
-.component-ledger__runtime-status.is-success {
-  background: #1e9b61;
-  color: #fff;
-}
-
-.runtime-inline-status.is-warning,
-.component-ledger__runtime-status.is-warning {
-  background: #de8f1f;
-  color: #fff;
-}
-
-.runtime-inline-status.is-failed,
-.component-ledger__runtime-status.is-failed {
-  background: #cf4a3c;
-  color: #fff;
-}
-
-.runtime-inline-status.is-skipped,
-.component-ledger__runtime-status.is-skipped {
-  background: #7d74b6;
-  color: #fff;
 }
 
 .recent-feed-tags,
@@ -3708,6 +3678,8 @@ onBeforeUnmount(() => {
 
 .detail-pane-grid--step {
   min-width: 0;
+  grid-auto-rows: max-content;
+  align-items: start;
 }
 
 .detail-ledger-section,
@@ -3945,7 +3917,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   flex: 0 0 auto;
   min-height: 0;
-  max-height: calc(var(--trace-step-ledger-row-height) * 9 + 2px);
+  max-height: min(320px, calc(var(--trace-step-ledger-row-height) * 6 + 2px));
   overflow: auto;
   border: 1px solid #e5edf5;
   border-radius: 12px;
@@ -4116,12 +4088,12 @@ onBeforeUnmount(() => {
 }
 
 .trace-step-detail {
-  flex: 1 1 auto;
+  flex: 1 0 220px;
   border: 1px solid #d8e2ee;
   border-radius: 12px;
   background: #fff;
   padding: 12px;
-  min-height: 0;
+  min-height: 220px;
   overflow: auto;
 }
 
@@ -4328,11 +4300,12 @@ onBeforeUnmount(() => {
 @media (max-width: 1920px) {
   .runtime-browse-layout {
     grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
+    grid-template-rows: minmax(300px, 0.9fr) minmax(0, 1.1fr);
   }
 
   .runtime-browser-panel--detail {
     grid-column: 1 / -1;
-    min-height: 520px;
+    min-height: 0;
   }
 }
 

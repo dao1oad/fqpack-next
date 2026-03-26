@@ -1,9 +1,9 @@
 <template>
-  <div class="workbench-page daily-screening-page">
+  <WorkbenchPage class="daily-screening-page">
     <MyHeader />
 
     <div class="workbench-body daily-screening-body" v-loading="pageLoading">
-      <section class="workbench-toolbar">
+      <WorkbenchToolbar class="daily-screening-toolbar">
         <div class="workbench-toolbar__header daily-toolbar-header">
           <div class="workbench-title-group">
             <div class="workbench-page-title">每日选股</div>
@@ -35,13 +35,14 @@
           <div class="daily-toolbar-guide">
             <span class="daily-toolbar-guide__title">工作台说明</span>
             <div class="workbench-inline-tags daily-toolbar-guide__tags">
-              <span
+              <StatusChip
                 v-for="line in workbenchGuideLines"
                 :key="line"
-                class="workbench-summary-chip workbench-summary-chip--muted daily-toolbar-guide__tag"
+                class="daily-toolbar-guide__tag"
+                variant="muted"
               >
                 {{ line }}
-              </span>
+              </StatusChip>
             </div>
           </div>
           <div class="workbench-toolbar__actions">
@@ -51,20 +52,20 @@
         </div>
 
         <div class="workbench-summary-row">
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
+          <StatusChip variant="muted">
             当前 scope <strong>{{ selectedScopeLabel }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--success">
+          </StatusChip>
+          <StatusChip variant="success">
             基础池 <strong>{{ scopeSummary?.stock_count ?? 0 }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--warning">
+          </StatusChip>
+          <StatusChip variant="warning">
             当前结果 <strong>{{ resultRows.length }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip variant="muted">
             已选条件 <strong>{{ activeConditionCount }}</strong>
-          </span>
+          </StatusChip>
         </div>
-      </section>
+      </WorkbenchToolbar>
 
       <el-alert
         v-if="pageError"
@@ -76,7 +77,7 @@
       />
 
       <div class="daily-screening-grid">
-        <section class="workbench-panel daily-filter-panel" v-loading="loadingFilters">
+        <WorkbenchSidebarPanel class="daily-filter-panel" v-loading="loadingFilters">
           <article class="workbench-block">
             <div class="daily-section-header">
               <div class="workbench-panel__title">全市场搜索</div>
@@ -232,10 +233,10 @@
               <el-button @click="resetFilters">重置筛选</el-button>
             </div>
           </div>
-        </section>
+        </WorkbenchSidebarPanel>
 
         <div class="daily-center-stack">
-          <section class="workbench-panel daily-results-panel" v-loading="queryLoading">
+        <WorkbenchLedgerPanel class="daily-results-panel" v-loading="queryLoading">
             <div class="workbench-panel__header daily-results-header">
               <div class="daily-results-header__action">
                 <el-button
@@ -308,7 +309,7 @@
                 <el-pagination
                   v-model:current-page="resultPage"
                   background
-                  small
+                  size="small"
                   layout="prev, pager, next"
                   :page-size="RESULT_PAGE_SIZE"
                   :pager-count="5"
@@ -317,9 +318,9 @@
                 />
               </div>
             </div>
-          </section>
+        </WorkbenchLedgerPanel>
 
-          <section class="workbench-panel daily-workspace-panel" v-loading="workspaceLoading">
+        <WorkbenchLedgerPanel class="daily-workspace-panel" v-loading="workspaceLoading">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">工作区</div>
@@ -552,11 +553,11 @@
                 </div>
               </el-tab-pane>
             </el-tabs>
-          </section>
+        </WorkbenchLedgerPanel>
         </div>
 
         <aside class="daily-detail-stack" v-loading="detailLoading">
-          <section class="workbench-panel daily-detail-overview-panel">
+          <WorkbenchDetailPanel class="daily-detail-overview-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">标的详情</div>
@@ -572,21 +573,21 @@
                 <span>{{ selectedScopeLabel }}</span>
               </div>
               <div class="daily-detail-metrics">
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                <StatusChip variant="muted">
                   高级段倍数 {{ formatNumber(detailSnapshot.higherMultiple) }}
-                </span>
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                </StatusChip>
+                <StatusChip variant="muted">
                   段倍数 {{ formatNumber(detailSnapshot.segmentMultiple) }}
-                </span>
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                </StatusChip>
+                <StatusChip variant="muted">
                   笔涨幅% {{ formatNumber(detailSnapshot.biGainPercent) }}
-                </span>
+                </StatusChip>
               </div>
             </div>
             <div v-else class="daily-empty">请先选择一只股票。</div>
-          </section>
+          </WorkbenchDetailPanel>
 
-          <section class="workbench-panel daily-detail-condition-panel">
+          <WorkbenchDetailPanel class="daily-detail-condition-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">命中条件</div>
@@ -597,13 +598,13 @@
               <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">CLS 模型</div>
                 <div class="daily-chip-grid">
-                  <span
+                  <StatusChip
                     v-for="item in detail.clsMemberships"
                     :key="item.conditionKey"
-                    class="workbench-summary-chip workbench-summary-chip--muted"
+                    variant="muted"
                   >
                     {{ formatDailyScreeningConditionLabel(item.conditionKey) }}
-                  </span>
+                  </StatusChip>
                   <span v-if="detail.clsMemberships.length === 0" class="daily-empty-inline">暂无</span>
                 </div>
               </article>
@@ -611,13 +612,13 @@
               <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">热门窗口</div>
                 <div class="daily-chip-grid">
-                  <span
+                  <StatusChip
                     v-for="item in detail.hotMemberships"
                     :key="item.conditionKey"
-                    class="workbench-summary-chip workbench-summary-chip--warning"
+                    variant="warning"
                   >
                     {{ formatDailyScreeningConditionLabel(item.conditionKey) }}
-                  </span>
+                  </StatusChip>
                   <span v-if="detail.hotMemberships.length === 0" class="daily-empty-inline">暂无</span>
                 </div>
               </article>
@@ -625,13 +626,13 @@
               <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">市场属性</div>
                 <div class="daily-chip-grid">
-                  <span
+                  <StatusChip
                     v-for="item in detail.marketFlagMemberships"
                     :key="item.conditionKey"
-                    class="workbench-summary-chip workbench-summary-chip--success"
+                    variant="success"
                   >
                     {{ formatDailyScreeningConditionLabel(item.conditionKey) }}
-                  </span>
+                  </StatusChip>
                   <span v-if="detail.marketFlagMemberships.length === 0" class="daily-empty-inline">暂无</span>
                 </div>
               </article>
@@ -639,13 +640,13 @@
               <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">chanlun 周期</div>
                 <div class="daily-chip-grid">
-                  <span
+                  <StatusChip
                     v-for="item in detail.chanlunPeriodMemberships"
                     :key="item.conditionKey"
-                    class="workbench-summary-chip workbench-summary-chip--muted"
+                    variant="muted"
                   >
                     {{ formatDailyScreeningConditionLabel(item.conditionKey) }}
-                  </span>
+                  </StatusChip>
                   <span v-if="detail.chanlunPeriodMemberships.length === 0" class="daily-empty-inline">暂无</span>
                 </div>
               </article>
@@ -653,13 +654,13 @@
               <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">chanlun 信号</div>
                 <div class="daily-chip-grid">
-                  <span
+                  <StatusChip
                     v-for="item in detail.chanlunSignalMemberships"
                     :key="item.conditionKey"
-                    class="workbench-summary-chip workbench-summary-chip--muted"
+                    variant="muted"
                   >
                     {{ formatDailyScreeningConditionLabel(item.conditionKey) }}
-                  </span>
+                  </StatusChip>
                   <span v-if="detail.chanlunSignalMemberships.length === 0" class="daily-empty-inline">暂无</span>
                 </div>
               </article>
@@ -672,12 +673,9 @@
               <article class="workbench-block daily-detail-card">
                 <div class="workbench-panel__title">基础池状态</div>
                 <div class="daily-base-pool-status">
-                  <span
-                    class="workbench-summary-chip"
-                    :class="detailBasePoolStatus.inBasePool ? 'workbench-summary-chip--success' : 'workbench-summary-chip--warning'"
-                  >
+                  <StatusChip :variant="detailBasePoolStatus.inBasePool ? 'success' : 'warning'">
                     {{ detailBasePoolStatus.inBasePool ? '当前在基础池' : '当前不在基础池' }}
-                  </span>
+                  </StatusChip>
                   <div class="daily-base-pool-status__meta">
                     最近一次在基础池
                     <strong>{{ detailBasePoolStatus.lastSeenTradeDate || '未找到历史记录' }}</strong>
@@ -686,9 +684,9 @@
               </article>
             </div>
             <div v-else class="daily-empty">请先选择一只股票。</div>
-          </section>
+          </WorkbenchDetailPanel>
 
-          <section class="workbench-panel daily-detail-history-panel">
+          <WorkbenchDetailPanel class="daily-detail-history-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">历史热门理由</div>
@@ -738,17 +736,23 @@
             <div v-else class="runtime-empty-panel daily-empty-panel">
               <strong>暂无热门理由</strong>
             </div>
-          </section>
+          </WorkbenchDetailPanel>
         </aside>
       </div>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
+import StatusChip from '../components/workbench/StatusChip.vue'
+import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
+import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
+import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
+import WorkbenchSidebarPanel from '../components/workbench/WorkbenchSidebarPanel.vue'
+import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from './MyHeader.vue'
 import Shouban30ReasonPopover from './components/Shouban30ReasonPopover.vue'
 import { dailyScreeningApi } from '@/api/dailyScreeningApi.js'

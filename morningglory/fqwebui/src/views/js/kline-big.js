@@ -21,9 +21,14 @@ export default {
       queryKey: ['klineData'],
       queryFn: async () => {
         const { symbol, period, endDate } = queryParamTool.getLocationQueryParams()
+        if (!symbol) {
+          return null
+        }
+        const resolvedPeriod = period || query.period || '1m'
         const data = await futureApi.stockData(
-          Object.assign({ symbol, period, endDate }, _.pick(query, ['symbol', 'period', 'endDate']))
+          Object.assign({ symbol, period: resolvedPeriod, endDate }, _.pick(query, ['symbol', 'period', 'endDate']))
         )
+        data._resolvedPeriod = resolvedPeriod
         data._dtString = manba(data.dt).format('YYYY-MM-DD HH:mm:ss')
         return data
       },
@@ -36,7 +41,11 @@ export default {
   watch: {
     klineData: function (newKlineData) {
       if (newKlineData) {
-        draw(this, newKlineData, this.$route.query.period)
+        draw(
+          this,
+          newKlineData,
+          newKlineData._resolvedPeriod || this.query.period || this.$route.query.period || '1m'
+        )
       }
     }
   }

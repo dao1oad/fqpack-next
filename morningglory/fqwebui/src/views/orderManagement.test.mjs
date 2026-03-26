@@ -95,6 +95,17 @@ test('OrderManagement keeps the summary panel above the list grid in its own sta
   assert.match(orderManagementPageSource, /\.order-main-grid\s*\{[\s\S]*z-index:\s*1;/)
 })
 
+test('OrderManagement.vue routes summary and identifier chips through shared StatusChip', () => {
+  assert.match(orderManagementPageSource, /import StatusChip from '\.\.\/components\/workbench\/StatusChip\.vue'/)
+  assert.match(orderManagementPageSource, /<StatusChip[\s\S]*v-for="chip in activeFilterChips"/)
+  assert.match(orderManagementPageSource, /<StatusChip[\s\S]*v-if="activeFilterChips\.length === 0"[\s\S]*variant="muted"[\s\S]*当前无额外筛选/)
+  assert.match(orderManagementPageSource, /<StatusChip>\s*总订单 <strong>\{\{\s*stats\.total\s*\}\}<\/strong>/)
+  assert.match(orderManagementPageSource, /<StatusChip variant="warning">\s*缺 broker 单号 <strong>\{\{\s*stats\.missing_broker_order_count\s*\}\}<\/strong>/)
+  assert.match(orderManagementPageSource, /<StatusChip variant="success">\s*已成交 \/ 部分成交 <strong>\{\{\s*stats\.filled_count\s*\}\} \/ \{\{\s*stats\.partial_filled_count\s*\}\}<\/strong>/)
+  assert.match(orderManagementPageSource, /<StatusChip[\s\S]*v-for="item in stats\.sideCards"/)
+  assert.match(orderManagementPageSource, /<StatusChip[\s\S]*v-for="item in detail\.identifierRows"/)
+})
+
 test('buildOrderDetailViewModel and buildOrderStats keep identifiers and distributions', () => {
   const detail = buildOrderDetailViewModel({
     order: {

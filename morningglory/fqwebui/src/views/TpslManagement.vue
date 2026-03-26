@@ -1,9 +1,9 @@
 <template>
-  <div class="workbench-page tpsl-page">
+  <WorkbenchPage class="tpsl-page">
     <MyHeader />
 
     <div class="workbench-body tpsl-body">
-      <section class="workbench-toolbar">
+      <WorkbenchToolbar class="tpsl-toolbar">
         <div class="workbench-toolbar__header">
           <div class="workbench-title-group">
             <div class="workbench-page-title">股票止盈止损管理</div>
@@ -31,32 +31,32 @@
         />
 
         <div class="workbench-summary-row">
-          <span class="workbench-summary-chip">
+          <StatusChip>
             标的数 <strong>{{ overviewRows.length }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--success">
+          </StatusChip>
+          <StatusChip variant="success">
             持仓中 <strong>{{ holdingCount }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--warning">
+          </StatusChip>
+          <StatusChip variant="warning">
             活跃止损 <strong>{{ activeStoplossCount }}</strong>
-          </span>
-          <span v-if="detail" class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip v-if="detail" variant="muted">
             止盈层 <strong>{{ detail.takeprofitTierCount }}</strong>
-          </span>
-          <span v-if="detail" class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip v-if="detail" variant="muted">
             open buy lot <strong>{{ detail.buyLots.length }}</strong>
-          </span>
-          <span v-if="detail" class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip v-if="detail" variant="muted">
             stock_fills <strong>{{ detail.stockFills.length }}</strong>
-          </span>
-          <span v-if="detail" class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip v-if="detail" variant="muted">
             历史 <strong>{{ detail.historyRows.length }}</strong>
-          </span>
+          </StatusChip>
         </div>
-      </section>
+      </WorkbenchToolbar>
 
       <div class="tpsl-layout">
-        <aside class="workbench-panel tpsl-sidebar-panel">
+        <WorkbenchSidebarPanel class="tpsl-sidebar-panel">
           <div class="workbench-panel__header">
             <div class="workbench-title-group">
               <div class="workbench-panel__title">标的列表</div>
@@ -81,35 +81,35 @@
                   <strong>{{ row.name || row.symbol }}</strong>
                   <span>{{ row.symbol }}</span>
                 </div>
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                <StatusChip variant="muted">
                   {{ row.position_amount_label }}
-                </span>
+                </StatusChip>
               </div>
 
               <div class="symbol-card-badges">
-                <span
+                <StatusChip
                   v-for="badge in row.badges"
                   :key="`${row.symbol}-${badge}`"
-                  class="workbench-summary-chip workbench-summary-chip--muted"
+                  variant="muted"
                 >
                   {{ badge }}
-                </span>
-                <span
+                </StatusChip>
+                <StatusChip
                   v-if="row.badges.length === 0"
-                  class="workbench-summary-chip workbench-summary-chip--muted"
+                  variant="muted"
                 >
                   未配置
-                </span>
+                </StatusChip>
               </div>
 
               <div class="symbol-card-tiers">
-                <span
+                <StatusChip
                   v-for="tierLabel in row.takeprofitSummary"
                   :key="`${row.symbol}-${tierLabel}`"
-                  class="workbench-summary-chip workbench-summary-chip--muted"
+                  variant="muted"
                 >
                   {{ tierLabel }}
-                </span>
+                </StatusChip>
               </div>
 
               <div class="symbol-card-foot">
@@ -118,10 +118,10 @@
               </div>
             </button>
           </div>
-        </aside>
+        </WorkbenchSidebarPanel>
 
         <main class="tpsl-main-stack">
-          <section v-if="detail" class="workbench-panel">
+          <WorkbenchDetailPanel v-if="detail" class="tpsl-detail-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">
@@ -144,9 +144,9 @@
                 <el-button type="warning" :disabled="!detail.takeprofitTierCount" @click="handleRearm">Rearm</el-button>
               </div>
             </div>
-          </section>
+          </WorkbenchDetailPanel>
 
-          <section v-if="detail" class="workbench-panel">
+          <WorkbenchLedgerPanel v-if="detail" class="tpsl-ledger-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">按买入订单止损</div>
@@ -210,9 +210,9 @@
                 </template>
               </el-table-column>
             </el-table>
-          </section>
+          </WorkbenchLedgerPanel>
 
-          <section v-if="detail" class="workbench-panel">
+          <WorkbenchLedgerPanel v-if="detail" class="tpsl-ledger-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">stock_fills 对照视图</div>
@@ -234,9 +234,9 @@
               <el-table-column prop="amount" label="金额" min-width="108" />
               <el-table-column prop="source" label="来源" min-width="140" />
             </el-table>
-          </section>
+          </WorkbenchLedgerPanel>
 
-          <section v-if="detail" class="workbench-panel">
+          <WorkbenchLedgerPanel v-if="detail" class="tpsl-ledger-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">统一触发历史</div>
@@ -264,32 +264,32 @@
               <el-table-column label="明细" min-width="260">
                 <template #default="{ row }">
                   <div class="history-chip-row">
-                    <span
+                    <StatusChip
                       v-for="request in row.order_requests || []"
                       :key="request.request_id"
-                      class="workbench-summary-chip workbench-summary-chip--muted"
+                      variant="muted"
                     >
                       request {{ request.request_id }}
-                    </span>
-                    <span
+                    </StatusChip>
+                    <StatusChip
                       v-for="order in row.orders || []"
                       :key="order.internal_order_id"
-                      class="workbench-summary-chip workbench-summary-chip--muted"
+                      variant="muted"
                     >
                       order {{ order.internal_order_id }} · {{ order.state }}
-                    </span>
-                    <span
+                    </StatusChip>
+                    <StatusChip
                       v-for="trade in row.trades || []"
                       :key="trade.trade_fact_id"
-                      class="workbench-summary-chip workbench-summary-chip--muted"
+                      variant="muted"
                     >
                       trade {{ trade.trade_fact_id }} · {{ trade.quantity }}@{{ trade.price }}
-                    </span>
+                    </StatusChip>
                   </div>
                 </template>
               </el-table-column>
             </el-table>
-          </section>
+          </WorkbenchLedgerPanel>
 
           <section v-else class="workbench-empty">
             左侧先选择一个标的。
@@ -297,13 +297,19 @@
         </main>
       </div>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup>
 import { onMounted, toRefs } from 'vue'
 import { ElMessage } from 'element-plus'
 
+import StatusChip from '../components/workbench/StatusChip.vue'
+import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
+import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
+import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
+import WorkbenchSidebarPanel from '../components/workbench/WorkbenchSidebarPanel.vue'
+import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import { tpslApi } from '@/api/tpslApi'
 import MyHeader from '@/views/MyHeader.vue'
 import { createTpslManagementActions } from '@/views/tpslManagement.mjs'

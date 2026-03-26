@@ -46,6 +46,15 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/daily-screening/pre-pools/stock-pools`
 - `/api/daily-screening/pre-pools/delete`
 
+### `future`
+
+- `/api/get_statistic_list`
+- `/api/get_future_config`
+- `/api/dominant`
+- `/api/create_future_prejudge_list`
+- `/api/get_future_prejudge_list`
+- `/api/update_future_prejudge_list`
+
 ### `order`
 
 - `/api/order/submit`
@@ -170,16 +179,24 @@ python -m freshquant.initialize
 
 ## Web UI 路由
 
+- `/futures-control`
+  - `最新行情`
+  - `每日复盘`
+  - `统计数据`
 - `/stock-control`
   - 持仓股信号
   - `stock_pools模型信号`
   - `must_pools买入信号`
-- 顶部导航按钮当前使用浏览器新标签页打开路由，并通过 `tabTitle` 驱动浏览器标签标题
+- 顶部导航按钮当前由 `src/router/pageMeta.mjs` 的分组元数据驱动，统一使用浏览器新标签页打开路由，并通过 `tabTitle` 驱动浏览器标签标题
+- `/multi-period`
+- `/kline-big`
 - `/kline-slim`
 - `/gantt`
 - `/gantt/shouban30`
 - `/daily-screening`
 - `/gantt/stocks/:plateKey`
+- `/stock-pools`
+- `/stock-cjsd`
 - `/order-management`
 - `/position-management`
 - `/subject-management`
@@ -215,9 +232,14 @@ python -m freshquant.initialize
 - `/stock-control` 的价格列当前统一展示为单行 `触发价/止损价/止损%` 顺序的紧凑值串，价格数值保留三位小数，分页默认 `100` 条/页
 - `/stock-control` 的时间列当前统一压缩显示为 `MM-DD HH:mm`
 - `/stock-control` 的三个 ledger 当前都固定在面板内滚动，表头 sticky，浏览器 `100%` 缩放下不再出现页面横向滚动
+- `/futures-control` 当前也接入统一 `workbench-page` 视口壳；`最新行情` 之外的 `每日复盘 / 统计数据` 采用按 tab 延迟挂载，首屏不再预加载统计图与复盘请求
+- `/futures-control` 的 `统计数据` 当前在图表宿主节点预先保留固定宽高，再初始化 ECharts；切到 `统计数据` tab 时不应再出现 `Can't get DOM width or height` warning
+- `/api/get_future_prejudge_list` 当前按 `endDate` 读取单日预判文档；服务实现不再依赖 PyMongo 已废弃的 cursor `count()`
 - 系统设置页只维护新系统正式配置，不再承载旧 SMTP / 邮件收件人或旧 `code + value` 通用参数模式
+- 系统设置页当前直接消费共享 `WorkbenchPage / WorkbenchToolbar / StatusChip`，顶部 Bootstrap/Mongo 摘要与 dense ledger 行内状态统一走共享标签语义
 - Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面
 - `/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 当前正式时间参数是 `days` 与 `end_date`
+- `/gantt/shouban30` 当前直接消费共享 `WorkbenchSidebarPanel / WorkbenchLedgerPanel / WorkbenchDetailPanel`，provider 切换统一为 `radio-button switch`
 - `/api/daily-screening/query` 的语义是“先锚定 base union，再对所选条件统一取交集”
 - `/api/daily-screening/stocks/<code>/detail` 会返回统一详情：snapshot、memberships、CLXS 命中、chanlun 命中、90 天聚合、市场属性与热门理由
 - `/daily-screening` 页面当前会展示条件说明提示，并允许把当前交集结果直接追加到共享 `pre_pools`
