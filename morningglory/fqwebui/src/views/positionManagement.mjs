@@ -1,3 +1,5 @@
+import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
+
 const SECTION_ORDER = [
   'editable_thresholds',
   'policy_defaults',
@@ -84,17 +86,6 @@ const DECISION_DETAIL_LABELS = {
   trace_id: 'Trace ID',
   intent_id: 'Intent ID',
 }
-
-const BEIJING_DATE_TIME_FORMATTER = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-})
 
 const numberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 2,
@@ -227,17 +218,7 @@ const buildConsistencyDetailLabel = (quantityValues = {}) => {
 }
 
 const formatBeijingDateTime = (value) => {
-  const rawValue = toText(value)
-  if (!rawValue) return '-'
-  const parsed = new Date(rawValue)
-  if (Number.isNaN(parsed.getTime())) return rawValue
-  const parts = Object.fromEntries(
-    BEIJING_DATE_TIME_FORMATTER
-      .formatToParts(parsed)
-      .filter((item) => item.type !== 'literal')
-      .map((item) => [item.type, item.value]),
-  )
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`
+  return formatBeijingTimestamp(value)
 }
 
 const buildDecisionSelectionKey = (row = {}) => (

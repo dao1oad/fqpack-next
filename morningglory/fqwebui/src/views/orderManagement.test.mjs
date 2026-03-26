@@ -53,6 +53,8 @@ test('order helpers keep instrument name, 3-decimal prices and second-level time
   assert.equal(formatOrderPrice('10.1'), '10.100')
   assert.equal(formatOrderTimestamp('2026-03-13T10:05:00+08:00'), '2026-03-13 10:05:00')
   assert.equal(formatOrderTimestamp('2026-03-13T10:05:00.123+08:00'), '2026-03-13 10:05:00')
+  assert.equal(formatOrderTimestamp('2026-03-25T05:46:10+00:00'), '2026-03-25 13:46:10')
+  assert.equal(formatOrderTimestamp(1774417570), '2026-03-25 13:46:10')
 })
 
 test('OrderManagement table uses Chinese semantics and places 更新时间 after 标的代码', () => {
@@ -117,7 +119,7 @@ test('buildOrderDetailViewModel and buildOrderStats keep identifiers and distrib
       { event_id: 'evt_2', event_type: 'trade_reported', state: 'FILLED' },
     ],
     trades: [
-      { trade_fact_id: 'trade_1', quantity: 100, price: 10.1 },
+      { trade_fact_id: 'trade_1', quantity: 100, price: 10.1, trade_time: 1774417570 },
     ],
     identifiers: {
       trace_id: 'trc_1',
@@ -132,15 +134,17 @@ test('buildOrderDetailViewModel and buildOrderStats keep identifiers and distrib
     side_distribution: { buy: 1, sell: 1 },
     state_distribution: { FILLED: 1, QUEUED: 1 },
     missing_broker_order_count: 1,
-    latest_updated_at: '2026-03-13T10:05:00+08:00',
+    latest_updated_at: '2026-03-25T05:46:10+00:00',
   })
 
   assert.equal(detail.headerTitle, '600000 · ord_1')
   assert.equal(detail.requestSummary, 'strategy · Guardian')
   assert.equal(detail.timelineRows[1].event_type, 'trade_reported')
   assert.equal(detail.tradeSummary, '1 笔成交')
+  assert.equal(detail.tradeRows[0].trade_time_label, '2026-03-25 13:46:10')
   assert.equal(detail.identifierRows[0].key, 'trace_id')
   assert.equal(stats.total, 2)
+  assert.equal(stats.latest_updated_at, '2026-03-25 13:46:10')
   assert.equal(stats.sideCards[0].label, '买单')
   assert.equal(stats.stateCards[0].label, 'FILLED')
 })

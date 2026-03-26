@@ -1,9 +1,39 @@
 # -*- coding: utf-8 -*-
 
-import pytest
-from bson import ObjectId
+import sys
+import types
 
-from freshquant.order_management.read_service import OrderManagementReadService
+import pytest
+
+instrument_general_stub = types.ModuleType("freshquant.instrument.general")
+setattr(instrument_general_stub, "query_instrument_info", lambda symbol: None)
+sys.modules.setdefault("freshquant.instrument.general", instrument_general_stub)
+
+repository_stub = types.ModuleType("freshquant.order_management.repository")
+
+
+class StubOrderManagementRepository:
+    pass
+
+
+setattr(repository_stub, "OrderManagementRepository", StubOrderManagementRepository)
+sys.modules.setdefault("freshquant.order_management.repository", repository_stub)
+
+code_stub = types.ModuleType("freshquant.util.code")
+
+
+def _normalize_to_base_code(value):
+    text = str(value or "").strip()
+    return text[-6:] if len(text) >= 6 else text
+
+
+setattr(code_stub, "normalize_to_base_code", _normalize_to_base_code)
+sys.modules.setdefault("freshquant.util.code", code_stub)
+
+from freshquant.order_management.read_service import (
+    OrderManagementReadService,
+    _parse_filter_datetime,
+)
 
 
 class InMemoryOrderManagementRepository:
@@ -301,6 +331,14 @@ def test_list_orders_filters_and_paginates_order_rows():
     assert payload["rows"][0]["trace_id"] == "trc_fill_1"
 
 
+def test_parse_filter_datetime_uses_beijing_for_naive_inputs():
+    lower_bound = _parse_filter_datetime("2026-03-25", upper_bound=False)
+    upper_bound = _parse_filter_datetime("2026-03-25 13:46:10", upper_bound=True)
+
+    assert lower_bound.isoformat() == "2026-03-25T00:00:00+08:00"
+    assert upper_bound.isoformat() == "2026-03-25T13:46:10+08:00"
+
+
 def test_list_orders_includes_instrument_name(monkeypatch):
     repository = _build_repository()
     monkeypatch.setattr(
@@ -378,10 +416,10 @@ def test_list_orders_rejects_unknown_time_field():
 
 def test_read_service_removes_mongo_ids_from_list_and_detail_payloads():
     repository = _build_repository()
-    repository.orders[0]["_id"] = ObjectId()
-    repository.order_requests[0]["_id"] = ObjectId()
-    repository.order_events[0]["_id"] = ObjectId()
-    repository.trade_facts[0]["_id"] = ObjectId()
+    repository.orders[0]["_id"] = object()
+    repository.order_requests[0]["_id"] = object()
+    repository.order_events[0]["_id"] = object()
+    repository.trade_facts[0]["_id"] = object()
     service = OrderManagementReadService(repository=repository)
 
     orders_payload = service.list_orders(symbol="600000", state="FILLED")

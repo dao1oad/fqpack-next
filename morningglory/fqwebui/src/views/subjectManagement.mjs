@@ -5,6 +5,10 @@ import {
   normalizeGuardianState,
   normalizeTakeprofitTier,
 } from './js/subject-price-guides.mjs'
+import {
+  formatBeijingDateTimeParts,
+  formatBeijingTimestamp,
+} from '../tool/beijingTime.mjs'
 
 export { buildTakeprofitDrafts }
 
@@ -62,7 +66,7 @@ const normalizeRuntimeSummary = (row = {}) => ({
   position_quantity: toNumber(row?.position_quantity),
   position_amount: toNullableNumber(row?.position_amount),
   avg_price: toNullableNumber(row?.avg_price),
-  last_trigger_time: toText(row?.last_trigger_time),
+  last_trigger_time: formatBeijingTimestamp(row?.last_trigger_time),
   last_trigger_kind: toText(row?.last_trigger_kind),
 })
 
@@ -120,17 +124,11 @@ const formatCompactDate = (value) => {
 }
 
 const formatCompactTime = (value) => {
-  const text = toText(value)
-  if (/^\d{2}:\d{2}:\d{2}$/.test(text)) {
-    return text.slice(0, 5)
-  }
-  return text
+  return formatBeijingDateTimeParts('', value, '')
 }
 
 const formatBuyLotDateTime = (row = {}) => {
-  const dateText = formatCompactDate(row?.date)
-  const timeText = formatCompactTime(row?.time)
-  return [dateText, timeText].filter(Boolean).join(' ')
+  return formatBeijingDateTimeParts(formatCompactDate(row?.date), row?.time, '')
 }
 
 const buildBuyLotIdLabel = (value) => {
@@ -230,7 +228,7 @@ export const buildOverviewRows = (rows = []) => {
           formatAmountWan(runtime?.position_amount),
           `${toNumber(runtime?.position_quantity)} 股`,
           toText(runtime?.last_hit_level) || '-',
-          toText(runtime?.last_trigger_time) || '-',
+          formatBeijingTimestamp(runtime?.last_trigger_time),
         ].join(' / '),
         position_quantity: toNumber(runtime?.position_quantity),
         position_amount: toNullableNumber(runtime?.position_amount),
@@ -289,7 +287,7 @@ export const buildDetailViewModel = (detail = {}) => {
 const buildGuardianRuntimeNote = (guardianState = {}) => {
   const lastHitLevel = toText(guardianState?.last_hit_level)
   const lastHitPrice = formatPrice(guardianState?.last_hit_price)
-  const lastHitSignalTime = toText(guardianState?.last_hit_signal_time) || '-'
+  const lastHitSignalTime = formatBeijingTimestamp(guardianState?.last_hit_signal_time)
   if (!lastHitLevel && lastHitPrice === '-') {
     return '未命中'
   }

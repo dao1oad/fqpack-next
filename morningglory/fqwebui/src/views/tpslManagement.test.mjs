@@ -21,7 +21,7 @@ test('buildOverviewRows sorts holding symbols before config-only symbols and kee
       has_active_stoploss: false,
       last_trigger: {
         kind: 'takeprofit',
-        created_at: '2026-03-13T09:00:00+08:00',
+        created_at: '2026-03-13T01:00:00+00:00',
       },
     },
     {
@@ -33,7 +33,7 @@ test('buildOverviewRows sorts holding symbols before config-only symbols and kee
       active_stoploss_buy_lot_count: 2,
       last_trigger: {
         kind: 'stoploss',
-        created_at: '2026-03-13T10:00:00+08:00',
+        created_at: '2026-03-13T02:00:00+00:00',
       },
     },
   ])
@@ -41,6 +41,7 @@ test('buildOverviewRows sorts holding symbols before config-only symbols and kee
   assert.equal(rows[0].symbol, '600000')
   assert.equal(rows[0].badges.join(','), '止盈,止损')
   assert.equal(rows[0].last_trigger_label, 'stoploss')
+  assert.equal(rows[0].last_trigger_time, '2026-03-13 10:00:00')
   assert.equal(rows[1].symbol, '000001')
 })
 
@@ -113,7 +114,7 @@ test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstr
         batch_id: 'sl_batch_1',
         buy_lot_ids: ['lot_1'],
         buy_lot_details: [{ buy_lot_id: 'lot_1', stop_price: 9.2, quantity: 200 }],
-        created_at: '2026-03-13T10:00:00+08:00',
+        created_at: '2026-03-13T02:00:00+00:00',
         order_requests: [{ request_id: 'req_1' }],
         orders: [{ internal_order_id: 'ord_1', state: 'FILLED' }],
         trades: [{ trade_fact_id: 'trade_1', quantity: 200, price: 9.1 }],
@@ -128,6 +129,7 @@ test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstr
   assert.equal(detail.stockFills[0].op, '买')
   assert.equal(detail.stockFills[0].source, 'legacy_stock_fills')
   assert.equal(detail.historyRows[0].batch_id, 'sl_batch_1')
+  assert.equal(detail.historyRows[0].created_at, '2026-03-13 10:00:00')
   assert.equal(detail.historyRows[0].triggerLabel, '9.2')
   assert.equal(detail.historyRows[0].triggerPriceLabel, '9.1')
   assert.equal(detail.historyRows[0].downstreamLabel, '1 request / 1 order / 1 trade')

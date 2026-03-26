@@ -156,9 +156,9 @@
 
             <el-table :data="detail.buyLots" stripe size="small" border>
               <el-table-column prop="buy_lot_id" label="Buy Lot" min-width="176" />
-              <el-table-column label="买入时间" min-width="146">
+              <el-table-column label="买入时间" min-width="176">
                 <template #default="{ row }">
-                  {{ row.date || '-' }} {{ row.time || '' }}
+                  {{ row.buy_time_label || '-' }}
                 </template>
               </el-table-column>
               <el-table-column label="买入价" width="92">

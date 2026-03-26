@@ -1,3 +1,8 @@
+import {
+  formatBeijingDateTimeParts,
+  formatBeijingTimestamp,
+} from '../tool/beijingTime.mjs'
+
 const toText = (value) => String(value ?? '').trim()
 
 const toNumber = (value, fallback = 0) => {
@@ -112,7 +117,7 @@ export const buildOverviewRows = (rows = []) => {
       badges: buildBadges(row),
       takeprofitSummary: buildTakeprofitSummary(row),
       last_trigger_label: toText(row?.last_trigger?.kind) || '-',
-      last_trigger_time: toText(row?.last_trigger?.created_at) || '-',
+      last_trigger_time: formatBeijingTimestamp(row?.last_trigger?.created_at),
     }))
     .sort((left, right) => {
       const holdingDiff = Number(right.position_quantity > 0) - Number(left.position_quantity > 0)
@@ -133,7 +138,7 @@ export const buildHistoryRows = (rows = []) => {
       kind: toText(row?.kind),
       event_type: toText(row?.event_type),
       batch_id: toText(row?.batch_id),
-      created_at: toText(row?.created_at),
+      created_at: formatBeijingTimestamp(row?.created_at),
       buy_lot_label: buildHistoryLabel(row),
       triggerLabel: buildTriggerLabel(row),
       triggerPriceLabel: buildTriggerPriceLabel(row),
@@ -149,6 +154,7 @@ export const buildDetailViewModel = (detail = {}) => {
     const sellHistory = Array.isArray(row?.sell_history) ? row.sell_history : []
     return {
       ...row,
+      buy_time_label: formatBeijingDateTimeParts(row?.date, row?.time),
       stoploss,
       sell_history: sellHistory,
       stoplossLabel: stoploss?.stop_price === null || stoploss?.stop_price === undefined
