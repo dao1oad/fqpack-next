@@ -17,6 +17,12 @@ svc_module.query_gantt_stock_matrix = lambda **kwargs: {}
 svc_module.query_stock_hot_reason_rows = lambda **kwargs: []
 svc_module.query_shouban30_plate_rows = lambda **kwargs: []
 svc_module.query_shouban30_stock_rows = lambda **kwargs: []
+svc_module._load_shouban30_credit_subject_lookup = lambda *args, **kwargs: {}
+svc_module._load_shouban30_quality_subject_lookup = lambda *args, **kwargs: {}
+svc_module._resolve_shouban30_extra_filter_result = lambda *args, **kwargs: {
+    "tag": None,
+    "matches": {},
+}
 sys.modules["freshquant.data.gantt_readmodel"] = svc_module
 setattr(freshquant_data, "gantt_readmodel", svc_module)
 

@@ -4,73 +4,90 @@ import sys
 import types
 from typing import Any
 
+import pytest
 from bson import ObjectId
 
 import freshquant.instrument as instrument_package
 
-code_module: Any = types.ModuleType("freshquant.util.code")
-code_module.normalize_to_base_code = (
-    lambda value: str(value or "").strip().split(".")[0]
-)
-sys.modules["freshquant.util.code"] = code_module
-
-db_module: Any = types.ModuleType("freshquant.db")
-db_module.DBfreshquant = {}
-sys.modules["freshquant.db"] = db_module
-
-strategy_common_module: Any = types.ModuleType("freshquant.strategy.common")
-strategy_common_module.get_trade_amount = lambda code: 50000
-sys.modules["freshquant.strategy.common"] = strategy_common_module
-
-instrument_module: Any = types.ModuleType("freshquant.instrument.general")
-instrument_module.query_instrument_info = lambda symbol: None
-sys.modules["freshquant.instrument.general"] = instrument_module
-setattr(instrument_package, "general", instrument_module)
-
-order_repository_module: Any = types.ModuleType(
-    "freshquant.order_management.repository"
-)
+dashboard_service_module = None
+SubjectManagementDashboardService = None
 
 
-class OrderManagementRepository:
-    def list_buy_lots(self, symbol=None, buy_lot_ids=None):
-        return []
+@pytest.fixture(autouse=True)
+def _install_dashboard_service_stubs(monkeypatch):
+    global dashboard_service_module, SubjectManagementDashboardService
 
-    def list_stoploss_bindings(self, symbol=None, enabled=None):
-        return []
+    code_module: Any = types.ModuleType("freshquant.util.code")
+    code_module.normalize_to_base_code = (
+        lambda value: str(value or "").strip().split(".")[0]
+    )
+    monkeypatch.setitem(sys.modules, "freshquant.util.code", code_module)
 
+    db_module: Any = types.ModuleType("freshquant.db")
+    db_module.DBfreshquant = {}
+    monkeypatch.setitem(sys.modules, "freshquant.db", db_module)
 
-order_repository_module.OrderManagementRepository = OrderManagementRepository
-sys.modules["freshquant.order_management.repository"] = order_repository_module
+    strategy_common_module: Any = types.ModuleType("freshquant.strategy.common")
+    strategy_common_module.get_trade_amount = lambda code: 50000
+    monkeypatch.setitem(
+        sys.modules, "freshquant.strategy.common", strategy_common_module
+    )
 
-tpsl_repository_module: Any = types.ModuleType("freshquant.tpsl.repository")
+    instrument_module: Any = types.ModuleType("freshquant.instrument.general")
+    instrument_module.query_instrument_info = lambda symbol: None
+    monkeypatch.setitem(sys.modules, "freshquant.instrument.general", instrument_module)
+    monkeypatch.setattr(instrument_package, "general", instrument_module, raising=False)
 
+    order_repository_module: Any = types.ModuleType(
+        "freshquant.order_management.repository"
+    )
 
-class TpslRepository:
-    def find_takeprofit_profile(self, symbol):
-        return None
+    class OrderManagementRepository:
+        def list_buy_lots(self, symbol=None, buy_lot_ids=None):
+            return []
 
-    def find_takeprofit_state(self, symbol):
-        return None
+        def list_stoploss_bindings(self, symbol=None, enabled=None):
+            return []
 
-    def list_takeprofit_profiles(self):
-        return []
+    order_repository_module.OrderManagementRepository = OrderManagementRepository
+    monkeypatch.setitem(
+        sys.modules, "freshquant.order_management.repository", order_repository_module
+    )
 
-    def list_latest_exit_trigger_events_by_symbol(self, *, symbols=None):
-        return []
+    tpsl_repository_module: Any = types.ModuleType("freshquant.tpsl.repository")
 
+    class TpslRepository:
+        def find_takeprofit_profile(self, symbol):
+            return None
 
-tpsl_repository_module.TpslRepository = TpslRepository
-sys.modules["freshquant.tpsl.repository"] = tpsl_repository_module
+        def find_takeprofit_state(self, symbol):
+            return None
 
-sys.modules.pop("freshquant.data.astock.must_pool", None)
+        def list_takeprofit_profiles(self):
+            return []
 
-import freshquant.subject_management.dashboard_service as dashboard_service_module
+        def list_latest_exit_trigger_events_by_symbol(self, *, symbols=None):
+            return []
 
-dashboard_service_module = importlib.reload(dashboard_service_module)
-SubjectManagementDashboardService = (
-    dashboard_service_module.SubjectManagementDashboardService
-)
+    tpsl_repository_module.TpslRepository = TpslRepository
+    monkeypatch.setitem(
+        sys.modules, "freshquant.tpsl.repository", tpsl_repository_module
+    )
+
+    monkeypatch.delitem(sys.modules, "freshquant.data.astock.must_pool", raising=False)
+    monkeypatch.delitem(
+        sys.modules,
+        "freshquant.subject_management.dashboard_service",
+        raising=False,
+    )
+
+    import freshquant.subject_management.dashboard_service as _dashboard_service_module
+
+    dashboard_service_module = importlib.reload(_dashboard_service_module)
+    SubjectManagementDashboardService = (
+        dashboard_service_module.SubjectManagementDashboardService
+    )
+    yield
 
 
 class FakeCollection:
