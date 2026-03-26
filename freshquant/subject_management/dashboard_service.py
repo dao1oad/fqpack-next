@@ -45,7 +45,6 @@ class SubjectManagementDashboardService:
 
         symbols = set(must_pool_rows)
         symbols.update(guardian_config_rows)
-        symbols.update(guardian_state_rows)
         symbols.update(takeprofit_profiles)
         symbols.update(positions)
         symbols.update(stoploss_summary)
