@@ -70,6 +70,11 @@ Runtime Observability 当前采用“双存储”：
 
 `fq_runtime_indexer` 维护文件 offset 状态，只做增量读取，不改写原始 JSONL。
 
+当前 indexer 会把 `runtime_ingest_progress` 作为文件 offset snapshot：
+
+- 只有当某个 JSONL 的 `offset / file_size / mtime` 发生变化时，才会写新的 progress
+- 单轮扫描内多个文件的 progress 会合并成一次批量写入，避免为每个文件单独生成 ClickHouse insert part
+
 ### 查询链
 
 `ClickHouse -> Flask runtime routes -> RuntimeObservability.vue`
@@ -129,6 +134,12 @@ Runtime Observability 当前采用“双存储”：
 - `file_size`
 - `mtime`
 - `updated_at`
+
+恢复口径：
+
+- 不要通过“删除 progress 后全量重扫 JSONL”来恢复已存在的 `runtime_events`
+- 正式恢复入口是 `script/rebuild_runtime_ingest_progress.py`
+- 该脚本会先从 `runtime_events` 读取每个 `raw_file` 已入库的最大 `raw_line`，再反推当前 JSONL 的 byte offset，重建 `runtime_ingest_progress`
 
 ## 页面信息架构
 
@@ -276,6 +287,7 @@ Runtime Observability 当前采用“双存储”：
 - 先查 `fq_runtime_indexer` 是否在跑
 - 再查 `runtime_ingest_progress` 是否推进
 - 再查 `fq_runtime_clickhouse` 健康
+- 如果 `runtime_ingest_progress` 因 broken parts 无法 attach，先重建这张进度表，再恢复 indexer；不要直接让 indexer 从 0 重扫所有 JSONL
 
 ### Raw Browser 正常但 summary/detail 为空
 

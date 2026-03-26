@@ -198,12 +198,26 @@ class RuntimeObservabilityClickHouseStore:
         self._schema_ready = True
 
     def load_progress(self, raw_file: str) -> int:
+        snapshot = self.load_progress_snapshot(raw_file)
+        return int(snapshot.get("offset_bytes") or 0)
+
+    def load_progress_snapshot(self, raw_file: str) -> dict[str, Any]:
         self.ensure_schema()
         rows = self._select_rows(
-            "SELECT argMax(offset_bytes, updated_at) AS offset_bytes "
+            "SELECT "
+            "argMax(offset_bytes, updated_at) AS offset_bytes, "
+            "argMax(file_size, updated_at) AS file_size, "
+            "argMax(mtime, updated_at) AS mtime "
             f"FROM runtime_ingest_progress WHERE raw_file = {_sql_string(raw_file)}"
         )
-        return int(rows[0].get("offset_bytes") or 0) if rows else 0
+        if not rows:
+            return {}
+        row = rows[0]
+        return {
+            "offset_bytes": int(row.get("offset_bytes") or 0),
+            "file_size": int(row.get("file_size") or 0),
+            "mtime": float(row.get("mtime") or 0.0),
+        }
 
     def record_progress(
         self,
@@ -213,21 +227,66 @@ class RuntimeObservabilityClickHouseStore:
         file_size: int | None = None,
         mtime: float | None = None,
     ) -> None:
-        self.ensure_schema()
-        self._insert_json_each_row(
-            "runtime_ingest_progress",
+        self.record_progress_rows(
             [
                 {
                     "raw_file": raw_file,
                     "offset_bytes": int(offset_bytes),
                     "file_size": int(file_size or 0),
                     "mtime": float(mtime or 0.0),
-                    "updated_at": _format_clickhouse_datetime(
-                        datetime.now().astimezone()
-                    ),
                 }
-            ],
+            ]
         )
+
+    def record_progress_rows(
+        self, rows: list[dict[str, Any]] | tuple[dict[str, Any], ...]
+    ) -> None:
+        self.ensure_schema()
+        payload = []
+        now = _format_clickhouse_datetime(datetime.now().astimezone())
+        for row in rows or []:
+            raw_file = (
+                _normalized_text(row.get("raw_file")) if isinstance(row, dict) else ""
+            )
+            if not raw_file:
+                continue
+            payload.append(
+                {
+                    "raw_file": raw_file,
+                    "offset_bytes": int(row.get("offset_bytes") or 0),
+                    "file_size": int(row.get("file_size") or 0),
+                    "mtime": float(row.get("mtime") or 0.0),
+                    "updated_at": _normalized_text(row.get("updated_at")) or now,
+                }
+            )
+        if payload:
+            self._insert_json_each_row("runtime_ingest_progress", payload)
+
+    def list_runtime_event_checkpoints(self) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        rows = self._select_rows(
+            """
+            SELECT
+                raw_file,
+                max(raw_line) AS raw_line
+            FROM runtime_events
+            WHERE raw_file != ''
+            GROUP BY raw_file
+            ORDER BY raw_file ASC
+            """
+        )
+        return [
+            {
+                "raw_file": _normalized_text(row.get("raw_file")),
+                "raw_line": int(row.get("raw_line") or 0),
+            }
+            for row in rows
+            if _normalized_text(row.get("raw_file"))
+        ]
+
+    def truncate_progress(self) -> None:
+        self.ensure_schema()
+        self._execute_command("TRUNCATE TABLE runtime_ingest_progress")
 
     def insert_events(
         self, events: list[dict[str, Any]] | tuple[dict[str, Any], ...]

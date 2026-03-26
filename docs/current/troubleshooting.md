@@ -78,6 +78,12 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 确认 `fq_runtime_clickhouse` 与 `fq_runtime_indexer` 都已恢复。
 - 核对 `FQ_RUNTIME_CLICKHOUSE_USER` / `FQ_RUNTIME_CLICKHOUSE_PASSWORD` 是否与 API / indexer 使用的一致。
 - 若 ClickHouse 已恢复但页面仍无数据，优先排查 indexer backlog 与 runtime event 写入链路。
+- 如果 `fq_runtime_indexer` 持续重启，且 ClickHouse stderr 报 `runtime_ingest_progress` 的 `TOO_MANY_UNEXPECTED_DATA_PARTS`：
+  - 先停止 indexer，避免继续重试
+  - 修复或重建 `runtime_ingest_progress`
+  - 再执行 `py -3.12 script/rebuild_runtime_ingest_progress.py --apply --truncate-existing`
+  - 最后再恢复 indexer
+- 不要直接删除 progress 后让 indexer 从 0 全量重扫；`runtime_events` 当前不是去重表，这样会把历史事件重复写入 ClickHouse。
 
 ## Memory context 缺失或过期
 
