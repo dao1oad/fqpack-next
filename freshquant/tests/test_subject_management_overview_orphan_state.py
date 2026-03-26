@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import sys
 import types
+from pathlib import Path
+
+import pytest
 
 
 class _ObjectId:
@@ -28,38 +32,6 @@ class _TpslRepository:
 
     def list_latest_exit_trigger_events_by_symbol(self, *, symbols=None):
         return []
-
-
-bson_module = types.ModuleType("bson")
-setattr(bson_module, "ObjectId", _ObjectId)
-sys.modules.setdefault("bson", bson_module)
-
-order_repository_module = types.ModuleType("freshquant.order_management.repository")
-setattr(
-    order_repository_module,
-    "OrderManagementRepository",
-    _OrderManagementRepository,
-)
-sys.modules.setdefault(
-    "freshquant.order_management.repository",
-    order_repository_module,
-)
-
-tpsl_repository_module = types.ModuleType("freshquant.tpsl.repository")
-setattr(tpsl_repository_module, "TpslRepository", _TpslRepository)
-sys.modules.setdefault("freshquant.tpsl.repository", tpsl_repository_module)
-
-code_module = types.ModuleType("freshquant.util.code")
-setattr(
-    code_module,
-    "normalize_to_base_code",
-    lambda value: str(value or "").split(".")[0],
-)
-sys.modules.setdefault("freshquant.util.code", code_module)
-
-from freshquant.subject_management.dashboard_service import (  # noqa: E402
-    SubjectManagementDashboardService,
-)
 
 
 class FakeCollection:
@@ -96,8 +68,56 @@ class InMemoryOrderManagementRepository(_OrderManagementRepository):
     pass
 
 
-def _build_service(database):
-    return SubjectManagementDashboardService(
+@pytest.fixture
+def dashboard_service_module(monkeypatch):
+    bson_module = types.ModuleType("bson")
+    setattr(bson_module, "ObjectId", _ObjectId)
+    monkeypatch.setitem(sys.modules, "bson", bson_module)
+
+    order_repository_module = types.ModuleType("freshquant.order_management.repository")
+    setattr(
+        order_repository_module,
+        "OrderManagementRepository",
+        _OrderManagementRepository,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "freshquant.order_management.repository",
+        order_repository_module,
+    )
+
+    tpsl_repository_module = types.ModuleType("freshquant.tpsl.repository")
+    setattr(tpsl_repository_module, "TpslRepository", _TpslRepository)
+    monkeypatch.setitem(
+        sys.modules,
+        "freshquant.tpsl.repository",
+        tpsl_repository_module,
+    )
+
+    code_module = types.ModuleType("freshquant.util.code")
+    setattr(
+        code_module,
+        "normalize_to_base_code",
+        lambda value: str(value or "").split(".")[0],
+    )
+    monkeypatch.setitem(sys.modules, "freshquant.util.code", code_module)
+
+    module_name = "test_subject_management_dashboard_service_stubbed"
+    module_path = (
+        Path(__file__).resolve().parents[1]
+        / "subject_management"
+        / "dashboard_service.py"
+    )
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _build_service(module, database):
+    return module.SubjectManagementDashboardService(
         database=database,
         tpsl_repository=InMemoryTpslRepository(),
         order_repository=InMemoryOrderManagementRepository(),
@@ -108,8 +128,11 @@ def _build_service(database):
     )
 
 
-def test_overview_ignores_symbol_sourced_only_from_guardian_state():
+def test_overview_ignores_symbol_sourced_only_from_guardian_state(
+    dashboard_service_module,
+):
     service = _build_service(
+        dashboard_service_module,
         FakeDatabase(
             {
                 "guardian_buy_grid_states": FakeCollection(
@@ -122,7 +145,7 @@ def test_overview_ignores_symbol_sourced_only_from_guardian_state():
                     ]
                 )
             }
-        )
+        ),
     )
 
     rows = service.get_overview()
@@ -130,8 +153,11 @@ def test_overview_ignores_symbol_sourced_only_from_guardian_state():
     assert rows == []
 
 
-def test_overview_keeps_guardian_state_for_symbol_present_in_guardian_config():
+def test_overview_keeps_guardian_state_for_symbol_present_in_guardian_config(
+    dashboard_service_module,
+):
     service = _build_service(
+        dashboard_service_module,
         FakeDatabase(
             {
                 "guardian_buy_grid_configs": FakeCollection(
@@ -157,7 +183,7 @@ def test_overview_keeps_guardian_state_for_symbol_present_in_guardian_config():
                     ]
                 ),
             }
-        )
+        ),
     )
 
     rows = service.get_overview()

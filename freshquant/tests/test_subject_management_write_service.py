@@ -1,3 +1,5 @@
+import importlib
+
 import pytest
 
 from freshquant.subject_management.write_service import SubjectManagementWriteService
@@ -24,10 +26,15 @@ class FakeDatabase(dict):
         return dict.__getitem__(self, name)
 
 
+def _instrument_general_module():
+    return importlib.import_module("freshquant.instrument.general")
+
+
 @pytest.mark.parametrize("field_name", ["initial_lot_amount", "lot_amount"])
 def test_update_must_pool_rejects_fractional_lot_amounts(monkeypatch, field_name):
     monkeypatch.setattr(
-        "freshquant.instrument.general.query_instrument_info",
+        _instrument_general_module(),
+        "query_instrument_info",
         lambda symbol: {"name": "浦发银行", "sec": "stock"},
     )
     database = FakeDatabase()
@@ -93,7 +100,8 @@ def test_update_guardian_buy_grid_forwards_per_level_switches():
 
 def test_update_must_pool_forces_forever_true(monkeypatch):
     monkeypatch.setattr(
-        "freshquant.instrument.general.query_instrument_info",
+        _instrument_general_module(),
+        "query_instrument_info",
         lambda symbol: {"name": "浦发银行", "sec": "stock"},
     )
     database = FakeDatabase()
