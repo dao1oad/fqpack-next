@@ -31,22 +31,30 @@ class _TpslRepository:
 
 
 bson_module = types.ModuleType("bson")
-bson_module.ObjectId = _ObjectId
+setattr(bson_module, "ObjectId", _ObjectId)
 sys.modules.setdefault("bson", bson_module)
 
 order_repository_module = types.ModuleType("freshquant.order_management.repository")
-order_repository_module.OrderManagementRepository = _OrderManagementRepository
+setattr(
+    order_repository_module,
+    "OrderManagementRepository",
+    _OrderManagementRepository,
+)
 sys.modules.setdefault(
     "freshquant.order_management.repository",
     order_repository_module,
 )
 
 tpsl_repository_module = types.ModuleType("freshquant.tpsl.repository")
-tpsl_repository_module.TpslRepository = _TpslRepository
+setattr(tpsl_repository_module, "TpslRepository", _TpslRepository)
 sys.modules.setdefault("freshquant.tpsl.repository", tpsl_repository_module)
 
 code_module = types.ModuleType("freshquant.util.code")
-code_module.normalize_to_base_code = lambda value: str(value or "").split(".")[0]
+setattr(
+    code_module,
+    "normalize_to_base_code",
+    lambda value: str(value or "").split(".")[0],
+)
 sys.modules.setdefault("freshquant.util.code", code_module)
 
 from freshquant.subject_management.dashboard_service import (  # noqa: E402
