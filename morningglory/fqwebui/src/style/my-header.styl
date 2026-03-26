@@ -1,15 +1,52 @@
-.header-main {
+.header-main
+  display flex
+  flex-wrap wrap
+  align-items flex-start
+  gap 12px
+  width 100%
+  margin 0 auto 10px
+
+  .header-menu
     display flex
-    margin 0 auto
-    margin-bottom 10px
-    width 100%
-    justify-content space-between
-    .header-menu {
-        display flex
-        justify-content flex-start
-    }
-    .header-tip {
-        display flex
-        justify-content flex-end
-    }
-}
+    flex 1 1 0
+    flex-wrap wrap
+    gap 8px
+    justify-content flex-start
+    align-items center
+    min-width 0
+    overflow-x auto
+    overflow-y visible
+    padding-bottom 4px
+    scrollbar-width thin
+
+    .el-button-group
+      display inline-flex
+      flex 0 0 auto
+
+  .header-tip
+    display flex
+    flex 0 1 auto
+    justify-content flex-end
+    align-items center
+    min-width 240px
+    color var(--fq-text-secondary, #606266)
+    font-size 12px
+    line-height 1.5
+    text-align right
+
+    span
+      white-space normal
+      word-break break-word
+
+@media (max-width: 1440px)
+  .header-main
+    align-items stretch
+
+    .header-menu
+      width 100%
+
+    .header-tip
+      width 100%
+      min-width 0
+      justify-content flex-start
+      text-align left

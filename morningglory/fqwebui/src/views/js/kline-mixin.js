@@ -126,6 +126,10 @@ export default {
   },
   mounted () {
     const { ...query } = this.$route.query
+    if (this.view === 'klineBig' && !query.period) {
+      query.period = this.periodList[0]
+      this.$router.replace({ query })
+    }
     Object.assign(this.query, query)
     // 不共用symbol对象, symbol是双向绑定的
     this.$refs.klineHeader.setELDatePicker(query.endDate)
@@ -170,8 +174,8 @@ export default {
             JSON.stringify(this.futureSymbolList)
           )
         })
-        .catch(error => {
-          console.log('获取主力合约失败:', error)
+        .catch(() => {
+          this.futureSymbolList = []
         })
     },
     quickSwitchSymbol (symbol) {
@@ -202,10 +206,9 @@ export default {
         )
         .then(res => {
           this.currentPosition = res
-          console.log('获取当前品种持仓:', res)
         })
-        .catch(error => {
-          console.log('获取当前品种持仓失败:', error)
+        .catch(() => {
+          this.currentPosition = null
         })
     },
     getStockPosition () {
@@ -215,10 +218,9 @@ export default {
         .getPosition(query.symbol, period, this.positionStatus)
         .then(res => {
           this.currentPosition = res
-          console.log('获取当前品种持仓:', res)
         })
-        .catch(err => {
-          console.log('获取当前品种持仓失败:', err)
+        .catch(() => {
+          this.currentPosition = null
         })
     },
     jumpToMultiPeriod () {
@@ -283,7 +285,6 @@ export default {
     },
 
     jumpToControl (type) {
-      console.log('type', type)
       if (type === 'futures') {
         this.$router.replace('/futures-control')
       } else {
@@ -304,6 +305,13 @@ export default {
     },
     processMargin () {
       const query = this.$route.query
+      if (!query.symbol) {
+        this.symbolInfo = null
+        this.currentMarginRate = null
+        this.marginLevel = 1
+        this.contractMultiplier = 1
+        return
+      }
       // 获取当前品种的合约 保证金率
       if (query.symbol === 'BTC') {
         // BTC
@@ -347,8 +355,8 @@ export default {
           )
           this.processMargin()
         })
-        .catch(error => {
-          console.log('获取合约配置失败:', error)
+        .catch(() => {
+          this.futureConfig = {}
         })
     },
     switchPeriod (period) {

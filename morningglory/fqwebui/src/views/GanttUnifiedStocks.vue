@@ -1,13 +1,27 @@
 <template>
-  <div class="gantt-page">
+  <WorkbenchPage class="gantt-page">
     <MyHeader />
-    <div class="gantt-page-body">
-      <div class="gantt-tabs">
-        <el-tabs v-model="activeProvider" @tab-change="handleProviderChange">
-          <el-tab-pane label="选股通" name="xgb" />
-          <el-tab-pane label="韭研公社" name="jygs" />
-        </el-tabs>
-      </div>
+
+    <div class="workbench-body gantt-page-body">
+      <WorkbenchToolbar class="gantt-toolbar">
+        <div class="workbench-toolbar__header">
+          <div class="workbench-title-group">
+            <div class="workbench-page-title">板块趋势 / 个股</div>
+            <div class="workbench-page-meta">
+              <span>板块内个股回看</span>
+              <span>/</span>
+              <span>{{ plateName || plateKey || '未选板块' }}</span>
+            </div>
+          </div>
+
+          <div class="workbench-toolbar__actions">
+            <el-radio-group v-model="activeProvider" size="small" class="gantt-provider-switch">
+              <el-radio-button value="xgb">选股通</el-radio-button>
+              <el-radio-button value="jygs">韭研公社</el-radio-button>
+            </el-radio-group>
+          </div>
+        </div>
+      </WorkbenchToolbar>
 
       <div class="gantt-page-content">
         <GanttHistory
@@ -22,12 +36,14 @@
         />
       </div>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import WorkbenchPage from '@/components/workbench/WorkbenchPage.vue'
+import WorkbenchToolbar from '@/components/workbench/WorkbenchToolbar.vue'
 import MyHeader from './MyHeader.vue'
 import GanttHistory from './components/GanttHistory.vue'
 
@@ -60,7 +76,7 @@ watch(
   (value) => {
     const next = normalizeProvider(value)
     if (next !== activeProvider.value) activeProvider.value = next
-  }
+  },
 )
 
 watch(
@@ -68,7 +84,7 @@ watch(
   (value) => {
     const next = normalizeDays(value, windowDays.value)
     if (next !== windowDays.value) windowDays.value = next
-  }
+  },
 )
 
 const navigateBackToPlates = (provider = activeProvider.value) => {
@@ -76,8 +92,8 @@ const navigateBackToPlates = (provider = activeProvider.value) => {
     name: 'gantt',
     query: {
       p: normalizeProvider(provider),
-      days: String(windowDays.value)
-    }
+      days: String(windowDays.value),
+    },
   }).catch(() => {})
 }
 
@@ -95,14 +111,10 @@ watch(windowDays, (value) => {
       ...(route.query || {}),
       p: activeProvider.value,
       days: String(value),
-      plate_name: plateName.value
-    }
+      plate_name: plateName.value,
+    },
   }).catch(() => {})
 })
-
-const handleProviderChange = (value) => {
-  activeProvider.value = normalizeProvider(value)
-}
 
 const handleWindowDaysChange = (value) => {
   windowDays.value = normalizeDays(value, windowDays.value)
@@ -114,29 +126,17 @@ const handleBack = () => {
 </script>
 
 <style scoped>
-.gantt-page {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  min-height: 0;
-  overflow: hidden;
-  background: #f5f7fa;
-}
-
 .gantt-page-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
+  padding-top: 12px;
+  gap: 12px;
 }
 
-.gantt-tabs {
+.gantt-toolbar {
   flex: 0 0 auto;
-  padding: 8px 16px 0;
-  background: #fff;
-  border-bottom: 1px solid #ebeef5;
+}
+
+.gantt-provider-switch {
+  flex: 0 0 auto;
 }
 
 .gantt-page-content {

@@ -12,25 +12,34 @@
 - `/gantt/shouban30`
 - `/runtime-observability`
 
-当前已采用统一 workbench 风格的业务页：
+当前已采用统一 workbench 风格或共享 page-shell contract 的业务页：
 
 - `/daily-screening`
 - `/gantt`
 - `/gantt/stocks/:plateKey`
 - `/gantt/shouban30`
 - `/stock-control`
+- `/stock-pools`
+- `/stock-cjsd`
 - `/order-management`
 - `/position-management`
 - `/runtime-observability`
 - `/subject-management`
 - `/system-settings`
 - `/tpsl`
-
-当前已统一为“固定视口 + 页面内滚动壳”的老页面：
-
 - `/futures-control`
-- `/stock-pools`
-- `/stock-cjsd`
+- `/kline-big`
+- `/kline-slim`
+- `/multi-period`
+
+补充事实：
+
+- `/stock-control`、`/stock-pools`、`/stock-cjsd`、`/gantt`、`/gantt/stocks/:plateKey`、`/gantt/shouban30`、`/system-settings` 当前已经直接消费共享 `WorkbenchPage / WorkbenchToolbar / WorkbenchPanel` primitives
+- `/system-settings` 当前把顶部摘要与 dense ledger 行内状态统一收口到共享 `StatusChip`
+- `/gantt/shouban30` 当前把 `首板板块 / 热点标的 / 标的详情 / 工作区` 四个主区域统一落到共享 `WorkbenchSidebarPanel / WorkbenchLedgerPanel / WorkbenchDetailPanel`，provider 切换也改成共享 workbench 常用的 `radio-button switch`
+- `/futures-control`、`/kline-big`、`/kline-slim`、`/multi-period` 当前至少统一接入共享 `page-shell contract`：根容器显式带 `workbench-page`，并复用同一套视口高度、背景与滚动兜底语义
+- `/futures-control` 当前把 `每日复盘 / 统计数据` 设为按 tab 延迟挂载；`统计数据` 图表宿主节点会先保留固定尺寸，再初始化 ECharts，切换 tab 时不应再因为 0 宽/0 高发出控制台 warning
+- `/kline-slim` 仍保留暗色图表页语法，不纳入白底 workbench 页面壳；但它的工具栏状态条、浮层摘要和缠论摘要当前也统一复用共享 `StatusChip`
 
 ## 页面壳
 
@@ -38,8 +47,15 @@
 
 `MyHeader -> workbench-body -> toolbar/panel -> 列表/详情/操作区`
 
+对于图表页或仍在保留历史内部结构的页面，最低统一要求是：
+
+- 根容器显式接入 `workbench-page`
+- 主内容区接入 `workbench-body` 或等价的页面级滚动兜底语义
+- 不再各自维护另一套视口高度和背景 contract
+
 当前规则：
 
+- `MyHeader` 顶部导航由 `src/router/pageMeta.mjs` 的元数据分组驱动，不在页面里硬编码按钮清单
 - 页面背景使用中性浅灰白底。
 - 标题区不再使用大 hero、大渐变、大面积主题背景。
 - 页面主内容由多个白底 panel 组成，间距默认紧凑。
@@ -97,6 +113,19 @@
 - 筛选标签
 - 上下文 meta 标签
 
+当前落地事实：
+
+- `/runtime-observability` 已经用共享 `StatusChip` 承担只读摘要 badge 与行内状态 badge
+- `/position-management` 已经用共享 `StatusChip` 承担顶部摘要、规则矩阵结果、右栏一致性/门禁和最近决策结果
+- `/order-management` 已经用共享 `StatusChip` 承担筛选摘要、订单摘要条和详情 identifier chip
+- `/tpsl` 已经用共享 `StatusChip` 承担顶部摘要、symbol 导航卡片 badge 与统一历史明细标签
+- `/subject-management` 已经用共享 `StatusChip` 承担顶部摘要条与右侧编辑区摘要 chip
+- `/daily-screening` 已经用共享 `StatusChip` 承担工作台说明标签、顶部摘要条、详情数值摘要与命中条件 chip
+- `/kline-slim` 已经用共享 `StatusChip` 承担工具栏状态条、标的设置/画线编辑摘要与缠论结构摘要
+- `/system-settings` 已经用共享 `StatusChip` 承担顶部 Bootstrap/Mongo 摘要与 dense ledger 的生效/来源/状态标签
+- `/gantt/shouban30` 已经用共享 `StatusChip` 承担顶部日期/窗口摘要和四个主面板的计数 badge
+- 页面本地只允许保留尺寸与布局约束，不再在单页里重复维护成功/警告/危险配色类
+
 状态色只允许做局部强调：
 
 - 主交互色：蓝色
@@ -115,7 +144,7 @@
 - 优先把统计卡压缩成摘要条
 - 详情优先与主列表同屏并排，而不是增加跳转层级
 - 响应式以面板堆叠和断点提前降级为主，不删字段
-- 顶部导航按钮打开浏览器新标签页；标签标题优先使用对应按钮文案
+- 顶部导航按钮打开浏览器新标签页；标签标题优先使用对应按钮文案，并由导航元数据自动注入 `tabTitle`
 
 ## 禁止项
 

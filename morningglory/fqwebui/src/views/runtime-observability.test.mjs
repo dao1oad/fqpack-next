@@ -8,6 +8,7 @@ import {
   buildComponentEventEmptyState,
   buildIdentityStrip,
   buildRawSelectionKey,
+  buildRuntimeDefaultTimeRange,
   buildTodayTimeRange,
   buildTimeRangeQuery,
   buildTraceIdentityLabel,
@@ -115,6 +116,13 @@ const makeTrace = ({
     symbol,
     steps,
   }
+}
+
+const readStyleBlock = (source, selector) => {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = source.match(new RegExp(`${escapedSelector}\\s*\\{([\\s\\S]*?)\\n\\}`, 'm'))
+  assert.ok(match, `missing style block for ${selector}`)
+  return match[1]
 }
 
 const makeGuardianTrace = ({
@@ -241,6 +249,13 @@ test('buildTodayTimeRange returns current Beijing day bounds', () => {
       start_time: '2026-03-18T00:00:00+08:00',
       end_time: '2026-03-18T23:59:59+08:00',
     },
+  )
+})
+
+test('buildRuntimeDefaultTimeRange keeps runtime observability on the latest two Beijing days', () => {
+  assert.deepEqual(
+    buildRuntimeDefaultTimeRange('2026-03-26T12:34:56+08:00'),
+    ['2026-03-25T00:00:00+08:00', '2026-03-26T23:59:59+08:00'],
   )
 })
 
@@ -1389,11 +1404,19 @@ test('RuntimeObservability.vue keeps explicit sidebar selection sticky and route
   assert.match(content, /watch\(componentSidebarItems, \(items\) => \{[\s\S]*if \(userSelectedComponent\.value && boardFilter\.component\) return/)
 })
 
+test('RuntimeObservability.vue scopes sidebar helper text styling so status chips keep their shared variants', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /\.component-symbol-card__head > div > span,\s*\.component-symbol-card__foot \{/)
+  assert.doesNotMatch(content, /\.component-symbol-card__head span,\s*\.component-symbol-card__foot \{/)
+})
+
 test('RuntimeObservability.vue keeps toolbar actions in the left title block and exposes a time range picker', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
   assert.match(content, /<div class="runtime-title-main">[\s\S]*<div class="workbench-title-group">[\s\S]*<div class="runtime-title-actions">/)
   assert.match(content, /<el-date-picker[\s\S]*type="datetimerange"/)
+  assert.match(content, /const timeRange = ref\(buildRuntimeDefaultTimeRange\(\)\)/)
   assert.match(content, /buildTraceQuery\(query,\s*timeRange\.value\)/)
   assert.match(content, /buildBoardScopedQuery\(query,\s*boardFilter,\s*timeRange\.value\)/)
 })
@@ -1422,7 +1445,7 @@ test('RuntimeObservability.vue keeps the right detail pane scrollable at full zo
   assert.match(content, /:deep\(\.workspace-tabs \.el-tabs__content\) \{[\s\S]*flex:\s*1 1 auto;[\s\S]*overflow:\s*hidden;/)
   assert.match(content, /:deep\(\.workspace-tabs \.el-tab-pane\) \{[\s\S]*flex:\s*1 1 auto;[\s\S]*min-height:\s*0;/)
   assert.match(content, /\.runtime-detail-panel--fill \{[\s\S]*overflow:\s*auto;/)
-  assert.match(content, /@media \(max-width: 1920px\) \{[\s\S]*\.runtime-browse-layout \{[\s\S]*grid-template-columns:\s*minmax\(220px,\s*0\.72fr\)\s*minmax\(0,\s*1\.28fr\);[\s\S]*\}[\s\S]*\.runtime-browser-panel--detail \{[\s\S]*grid-column:\s*1 \/ -1;/)
+  assert.match(content, /@media \(max-width: 1920px\) \{[\s\S]*\.runtime-browse-layout \{[\s\S]*grid-template-columns:\s*minmax\(220px,\s*0\.72fr\)\s*minmax\(0,\s*1\.28fr\);[\s\S]*grid-template-rows:\s*minmax\(300px,\s*0\.9fr\)\s*minmax\(0,\s*1\.1fr\);[\s\S]*\}[\s\S]*\.runtime-browser-panel--detail \{[\s\S]*grid-column:\s*1 \/ -1;[\s\S]*min-height:\s*0;/)
   assert.match(content, /\.runtime-detail-panel--steps \{[\s\S]*min-width:\s*0;[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
   assert.match(content, /\.trace-step-detail \{[\s\S]*overflow:\s*auto;/)
   assert.match(content, /\.detail-pane-grid--step \{[\s\S]*min-width:\s*0;/)
@@ -1434,11 +1457,11 @@ test('RuntimeObservability.vue keeps the center feed panel vertically scrollable
   assert.match(content, /\.runtime-browser-panel--feed \{[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;[\s\S]*scrollbar-gutter:\s*stable;/)
 })
 
-test('RuntimeObservability.vue gives node-path the dominant trace-ledger width and uses panel-local horizontal scrolling', async () => {
+test('RuntimeObservability.vue gives node-path the dominant trace-ledger width and uses panel-local horizontal and vertical scrolling', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
   assert.match(content, /<div v-if="traceLedgerRows\.length" class="runtime-trace-ledger-scroll">[\s\S]*runtime-ledger runtime-trace-ledger/)
-  assert.match(content, /\.runtime-trace-ledger-scroll \{[\s\S]*overflow-x:\s*auto;[\s\S]*overflow-y:\s*hidden;/)
+  assert.match(content, /\.runtime-trace-ledger-scroll \{[\s\S]*overflow-x:\s*auto;[\s\S]*overflow-y:\s*auto;/)
   assert.match(content, /\.runtime-trace-ledger__grid \{[\s\S]*152px[\s\S]*132px[\s\S]*104px[\s\S]*102px[\s\S]*108px[\s\S]*minmax\(720px,\s*4\.8fr\)[\s\S]*64px[\s\S]*84px[\s\S]*minmax\(180px,\s*0\.9fr\)/)
 })
 
@@ -1454,7 +1477,7 @@ test('RuntimeObservability.vue only renders trace and event empty panels when th
 test('RuntimeObservability.vue renders selected-step detail as dense tables without card-style inspector blocks', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /<section v-show="activeTraceDetailTab === 'steps'" class="runtime-detail-panel runtime-detail-panel--steps">/)
+  assert.match(content, /<el-tab-pane name="steps">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--steps">/)
   assert.match(content, /<section class="detail-ledger-section">\s*<div class="detail-ledger-section__title">基础字段<\/div>/)
   assert.match(content, /<section v-if="selectedStepDecisionRows\.length" class="detail-ledger-section">\s*<div class="detail-ledger-section__title">判断字段<\/div>/)
   assert.match(content, /<section v-if="selectedStepContextRows\.length" class="detail-ledger-section detail-ledger-section--full">\s*<div class="detail-ledger-section__title">Guardian 上下文<\/div>/)
@@ -1501,6 +1524,46 @@ test('RuntimeObservability.vue surfaces the selected time range as a visible sum
   assert.match(content, /formatTimeRangeLabel/)
   assert.match(content, /const timeRangeDisplayLabel = computed\(\(\) => formatTimeRangeLabel\(timeRange\.value\)\)/)
   assert.match(content, /展示范围 <strong>{{ timeRangeDisplayLabel }}<\/strong>/)
+})
+
+test('RuntimeObservability.vue uses value-based radio buttons for the view switch', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<el-radio-button value="traces">全局 Trace<\/el-radio-button>/)
+  assert.match(content, /<el-radio-button value="events">组件 Event<\/el-radio-button>/)
+  assert.doesNotMatch(content, /<el-radio-button label="traces">/)
+  assert.doesNotMatch(content, /<el-radio-button label="events">/)
+})
+
+test('RuntimeObservability.vue keeps trace-flow hover popovers expanding left so they do not cover the detail column', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<el-popover[\s\S]*trigger="hover"[\s\S]*placement="left"[\s\S]*:width="320"[\s\S]*:teleported="false"/)
+  assert.doesNotMatch(content, /<el-popover[\s\S]*placement="top"/)
+})
+
+test('RuntimeObservability.vue renders trace detail tab bodies inside their el-tab-pane containers', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<el-tab-pane name="steps">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--steps">[\s\S]*<\/section>\s*<\/el-tab-pane>/)
+  assert.match(content, /<el-tab-pane name="summary">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--summary runtime-detail-panel--fill">[\s\S]*<\/section>\s*<\/el-tab-pane>/)
+  assert.match(content, /<el-tab-pane name="raw">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--fill">[\s\S]*<\/section>\s*<\/el-tab-pane>/)
+})
+
+test('RuntimeObservability.vue renders event detail tab bodies inside their el-tab-pane containers', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /<el-tab-pane name="event">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">[\s\S]*<\/section>\s*<\/el-tab-pane>/)
+  assert.match(content, /<el-tab-pane name="payload">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">[\s\S]*<\/section>\s*<\/el-tab-pane>/)
+  assert.match(content, /<el-tab-pane name="raw">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">[\s\S]*<\/section>\s*<\/el-tab-pane>/)
+})
+
+test('RuntimeObservability.vue allows the trace ledger scroll container to scroll vertically', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const block = readStyleBlock(content, '.runtime-trace-ledger-scroll')
+
+  assert.match(block, /overflow-x:\s*auto;/)
+  assert.match(block, /overflow-y:\s*auto;/)
 })
 
 test('RuntimeObservability.vue enriches component event detail with decision fields guardian signal and context sections', async () => {
@@ -2494,7 +2557,7 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /trace-summary-ledger/)
   assert.match(content, /embedded-raw-ledger/)
   assert.match(content, /trace-step-ledger/)
-  assert.match(content, /<section v-show="activeTraceDetailTab === 'steps'" class="runtime-detail-panel runtime-detail-panel--steps">/)
+  assert.match(content, /<el-tab-pane name="steps">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--steps">/)
   assert.match(content, /buildTraceLedgerRows/)
   assert.match(content, /buildTraceStepLedgerRows/)
   assert.match(content, /traceKindOptions/)
@@ -2526,9 +2589,10 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /摘要/)
   assert.match(content, /原始数据/)
   assert.match(content, /\.runtime-detail-panel--steps \{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;[\s\S]*flex:\s*1 1 auto;/)
-  assert.match(content, /\.trace-step-ledger \{[\s\S]*flex:\s*0 0 auto;[\s\S]*max-height:\s*calc\(var\(--trace-step-ledger-row-height\)\s*\*\s*9/)
+  assert.match(content, /\.trace-step-ledger \{[\s\S]*flex:\s*0 0 auto;[\s\S]*max-height:\s*min\(320px,\s*calc\(var\(--trace-step-ledger-row-height\)\s*\*\s*6\s*\+\s*2px\)\)/)
   assert.match(content, /\.trace-step-ledger__header,\s*\.trace-step-ledger__row \{[\s\S]*min-height:\s*var\(--trace-step-ledger-row-height\);/)
-  assert.match(content, /\.trace-step-detail \{[\s\S]*flex:\s*1 1 auto;[\s\S]*overflow:\s*auto;/)
+  assert.match(content, /\.trace-step-detail \{[\s\S]*flex:\s*1 0 220px;[\s\S]*min-height:\s*220px;[\s\S]*overflow:\s*auto;/)
+  assert.match(content, /\.detail-pane-grid--step \{[\s\S]*grid-auto-rows:\s*max-content;[\s\S]*align-items:\s*start;/)
   assert.doesNotMatch(content, /trace-feed-row/)
   assert.doesNotMatch(content, /trace-group-card/)
   assert.doesNotMatch(content, /trace-summary-card/)

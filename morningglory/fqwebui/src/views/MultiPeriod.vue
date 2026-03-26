@@ -1,5 +1,5 @@
 <template>
-    <div class="multi-period-main">
+    <WorkbenchPage class="multi-period-main">
         <KlineHeader ref="klineHeader" :periodList="periodList"
             :quickCalc="quickCalc" :submitSymbol="submitSymbol" :quickCalcMaxCount="quickCalcMaxCount"
             :quickSwitchDay="quickSwitchDay" :switchPeriod="switchPeriod" :jumpToControl="jumpToControl"
@@ -35,11 +35,18 @@
                 </div>
             </div>
         </div>
-    </div>
+    </WorkbenchPage>
 </template>
 <script>
+import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
 import multiPeriod from "./js/multi-period.js"
-export default multiPeriod
+export default {
+  ...multiPeriod,
+  components: {
+    ...(multiPeriod.components || {}),
+    WorkbenchPage,
+  },
+}
 </script>
 <style lang="stylus">
     @import "../style/multi-period.styl";

@@ -26,7 +26,7 @@
         <template #default="{ row }">
           <el-link
             type="primary"
-            :underline="false"
+            underline="never"
             @click="handleJumpToKline(row.symbol, '1m')"
             >{{ row.symbol }}</el-link
           >

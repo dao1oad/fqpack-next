@@ -327,3 +327,31 @@ test('KlineSlim sidebar shows runtime position summary for holding rows', () => 
   assert.doesNotMatch(viewSource, /item\.runtimeSecondaryLabel/)
   assert.doesNotMatch(viewSource, /sidebar-item-tags/)
 })
+
+test('KlineSlim routes toolbar and overlay summary pills through shared StatusChip', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /<StatusChip[\s\S]*variant="muted"[\s\S]*>\s*主图 \{\{\s*currentPeriod\s*\}\}/)
+  assert.match(viewSource, /<StatusChip[\s\S]*:variant="toolbarStatusChipVariant"/)
+  assert.match(viewSource, /<StatusChip[\s\S]*variant="muted"[\s\S]*>\s*当前止损/)
+  assert.match(viewSource, /<StatusChip[\s\S]*:variant="subjectPositionLimitChipVariant"/)
+  assert.match(viewSource, /<StatusChip[\s\S]*:variant="takeprofitRuntimeChipVariant"/)
+  assert.match(viewSource, /<StatusChip[\s\S]*:variant="guardianRuntimeChipVariant"/)
+  assert.match(scriptSource, /toolbarStatusChipVariant\(\)/)
+  assert.match(scriptSource, /subjectPositionLimitChipVariant\(\)/)
+  assert.match(scriptSource, /takeprofitRuntimeChipVariant\(\)/)
+  assert.match(scriptSource, /guardianRuntimeChipVariant\(\)/)
+})
+
+test('KlineSlim removes local summary chip classes after StatusChip migration', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const normalizedSource = viewSource.replace(/\r/g, '')
+
+  assert.doesNotMatch(viewSource, /class="status-chip"/)
+  assert.doesNotMatch(viewSource, /class="price-panel-summary-chip"/)
+  assert.doesNotMatch(viewSource, /class="chanlun-summary-chip"/)
+  assert.equal(normalizedSource.includes('.status-chip\n'), false)
+  assert.equal(normalizedSource.includes('.price-panel-summary-chip\n'), false)
+  assert.equal(normalizedSource.includes('.chanlun-summary-chip\n'), false)
+})

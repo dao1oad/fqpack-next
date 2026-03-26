@@ -1,5 +1,5 @@
 <template>
-  <div class="kline-big-main kline-slim-main">
+  <WorkbenchPage class="kline-big-main kline-slim-main">
     <div class="kline-slim-toolbar">
       <div class="toolbar-left">
         <el-button size="small" @click="jumpToControl">股票</el-button>
@@ -61,10 +61,10 @@
         <el-button size="small" @click="jumpToBigChart">大图</el-button>
       </div>
       <div class="toolbar-right">
-        <span class="status-chip">主图 {{ currentPeriod }}</span>
-        <span class="status-chip">图例控制主图缠论层与额外周期叠加，并可关闭价格横线</span>
-        <span class="status-chip">主图末 bar {{ lastMainBarLabel }}</span>
-        <span class="status-chip" :class="{ error: lastError }">{{ statusText }}</span>
+        <StatusChip class="kline-slim-toolbar-chip" variant="muted">主图 {{ currentPeriod }}</StatusChip>
+        <StatusChip class="kline-slim-toolbar-chip" variant="muted">图例控制主图缠论层与额外周期叠加，并可关闭价格横线</StatusChip>
+        <StatusChip class="kline-slim-toolbar-chip" variant="muted">主图末 bar {{ lastMainBarLabel }}</StatusChip>
+        <StatusChip class="kline-slim-toolbar-chip" :variant="toolbarStatusChipVariant">{{ statusText }}</StatusChip>
       </div>
     </div>
 
@@ -223,18 +223,18 @@
                 </div>
 
                 <div class="price-panel-summary">
-                  <span class="price-panel-summary-chip">
+                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
                     当前止损 {{ formatPriceGuideValue(subjectPanelState.subjectPanelDetail.mustPool.stop_loss_price) }}
-                  </span>
-                  <span class="price-panel-summary-chip">
+                  </StatusChip>
+                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
                     当前上限 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.effective_limit) }}
-                  </span>
-                  <span class="price-panel-summary-chip">
+                  </StatusChip>
+                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
                     市值 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.market_value) }}
-                  </span>
-                  <span class="price-panel-summary-chip" :class="{ active: subjectPanelState.subjectPanelDetail.positionLimit.blocked }">
+                  </StatusChip>
+                  <StatusChip class="price-panel-summary-status-chip" :variant="subjectPositionLimitChipVariant">
                     {{ subjectPanelState.subjectPanelDetail.positionLimit.blocked ? '已阻断买入' : '允许买入' }}
-                  </span>
+                  </StatusChip>
                 </div>
 
                 <div class="subject-panel-grid">
@@ -296,9 +296,9 @@
                     <span class="price-panel-section-title">按 buy lot 止损</span>
                     <span class="price-panel-section-note">只对 open buy lot 生效，按行保存</span>
                   </div>
-                  <span class="price-panel-summary-chip">
+                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
                     {{ (subjectPanelState.subjectPanelDetail.buyLots || []).length }} 条
-                  </span>
+                  </StatusChip>
                 </div>
 
                 <div v-if="!(subjectPanelState.subjectPanelDetail.buyLots || []).length" class="subject-panel-empty">
@@ -417,12 +417,12 @@
                 </div>
 
                 <div class="price-panel-summary">
-                  <span class="price-panel-summary-chip">
+                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
                     已开启 {{ takeprofitGuideRows.filter((row) => row.manual_enabled).length }}/3
-                  </span>
-                  <span class="price-panel-summary-chip" :class="{ active: takeprofitRuntimeActiveCount > 0 }">
+                  </StatusChip>
+                  <StatusChip class="price-panel-summary-status-chip" :variant="takeprofitRuntimeChipVariant">
                     运行态 {{ takeprofitRuntimeActiveCount }}/3
-                  </span>
+                  </StatusChip>
                 </div>
 
                 <div class="price-panel-grid">
@@ -492,18 +492,18 @@
                 </div>
 
                 <div class="price-panel-summary">
-                  <span class="price-panel-summary-chip">
+                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
                     已开启 {{ guardianGuideRows.filter((row) => row.manual_enabled).length }}/3
-                  </span>
-                  <span class="price-panel-summary-chip" :class="{ active: guardianRuntimeActiveCount > 0 }">
+                  </StatusChip>
+                  <StatusChip class="price-panel-summary-status-chip" :variant="guardianRuntimeChipVariant">
                     运行态 {{ guardianRuntimeActiveCount }}/3
-                  </span>
-                  <span class="price-panel-summary-chip">
+                  </StatusChip>
+                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
                     最近命中 {{ guardianLastHitLabel }}
-                  </span>
-                  <span v-if="guardianState.last_hit_price !== null" class="price-panel-summary-chip">
+                  </StatusChip>
+                  <StatusChip v-if="guardianState.last_hit_price !== null" class="price-panel-summary-status-chip" variant="muted">
                     最近命中价 {{ formatPriceGuideValue(guardianState.last_hit_price) }}
-                  </span>
+                  </StatusChip>
                 </div>
 
                 <div class="price-panel-grid">
@@ -588,14 +588,15 @@
               <section class="chanlun-structure-section">
                 <div v-if="chanlunHigherSegmentSummary" class="chanlun-summary-line">
                   <span class="chanlun-summary-line__title">高级段</span>
-                  <span
+                  <StatusChip
                     v-for="field in chanlunHigherSegmentSummary"
                     :key="`higher:${field.label}`"
-                    class="chanlun-summary-chip"
+                    class="chanlun-summary-status-chip"
+                    variant="info"
                   >
-                    <span class="chanlun-summary-chip__label">{{ field.label }}</span>
-                    <span class="chanlun-summary-chip__value">{{ field.value }}</span>
-                  </span>
+                    <span class="chanlun-summary-status-chip__label">{{ field.label }}</span>
+                    <span class="chanlun-summary-status-chip__value">{{ field.value }}</span>
+                  </StatusChip>
                 </div>
                 <div v-else class="chanlun-panel-empty">暂无已完成高级段</div>
               </section>
@@ -603,14 +604,15 @@
               <section class="chanlun-structure-section">
                 <div v-if="chanlunSegmentSummary" class="chanlun-summary-line">
                   <span class="chanlun-summary-line__title">段</span>
-                  <span
+                  <StatusChip
                     v-for="field in chanlunSegmentSummary"
                     :key="`segment:${field.label}`"
-                    class="chanlun-summary-chip"
+                    class="chanlun-summary-status-chip"
+                    variant="info"
                   >
-                    <span class="chanlun-summary-chip__label">{{ field.label }}</span>
-                    <span class="chanlun-summary-chip__value">{{ field.value }}</span>
-                  </span>
+                    <span class="chanlun-summary-status-chip__label">{{ field.label }}</span>
+                    <span class="chanlun-summary-status-chip__value">{{ field.value }}</span>
+                  </StatusChip>
                 </div>
                 <div v-else class="chanlun-panel-empty">暂无已完成段</div>
               </section>
@@ -618,14 +620,15 @@
               <section class="chanlun-structure-section">
                 <div v-if="chanlunBiSummary" class="chanlun-summary-line">
                   <span class="chanlun-summary-line__title">笔</span>
-                  <span
+                  <StatusChip
                     v-for="field in chanlunBiSummary"
                     :key="`bi:${field.label}`"
-                    class="chanlun-summary-chip"
+                    class="chanlun-summary-status-chip"
+                    variant="info"
                   >
-                    <span class="chanlun-summary-chip__label">{{ field.label }}</span>
-                    <span class="chanlun-summary-chip__value">{{ field.value }}</span>
-                  </span>
+                    <span class="chanlun-summary-status-chip__label">{{ field.label }}</span>
+                    <span class="chanlun-summary-status-chip__value">{{ field.value }}</span>
+                  </StatusChip>
                 </div>
                 <div v-else class="chanlun-panel-empty">暂无已完成笔</div>
               </section>
@@ -638,13 +641,22 @@
         </div>
       </section>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script>
+import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
+import StatusChip from '../components/workbench/StatusChip.vue'
 import klineSlim from './js/kline-slim'
 
-export default klineSlim
+export default {
+  ...klineSlim,
+  components: {
+    ...(klineSlim.components || {}),
+    WorkbenchPage,
+    StatusChip,
+  },
+}
 </script>
 
 <style lang="stylus">
@@ -682,20 +694,8 @@ export default klineSlim
 .symbol-input
   width 220px
 
-.status-chip
-  display inline-flex
-  align-items center
-  padding 0 10px
-  height 28px
-  font-size 12px
-  border-radius 999px
-  border 1px solid rgba(127, 127, 122, 0.2)
-  background rgba(31, 41, 55, 0.72)
-  color #d1d5db
-
-.status-chip.error
-  color #fca5a5
-  border-color rgba(248, 113, 113, 0.4)
+.kline-slim-toolbar-chip
+  white-space nowrap
 
 .kline-slim-body
   position relative
@@ -1019,21 +1019,8 @@ export default klineSlim
   flex-wrap wrap
   gap 8px
 
-.price-panel-summary-chip
-  display inline-flex
-  align-items center
-  min-height 24px
-  padding 0 10px
-  border-radius 999px
-  border 1px solid rgba(127, 127, 122, 0.2)
-  background rgba(30, 41, 59, 0.52)
-  color #cbd5e1
-  font-size 12px
-
-.price-panel-summary-chip.active
-  color #dbeafe
-  border-color rgba(96, 165, 250, 0.35)
-  background rgba(30, 64, 175, 0.24)
+.price-panel-summary-status-chip
+  white-space nowrap
 
 .price-panel-grid
   display flex
@@ -1322,21 +1309,13 @@ export default klineSlim
   font-size 14px
   font-weight 600
 
-.chanlun-summary-chip
-  display inline-flex
-  align-items center
+.chanlun-summary-status-chip
   gap 6px
-  padding 6px 10px
-  border 1px solid rgba(127, 127, 122, 0.18)
-  border-radius 999px
-  background rgba(30, 41, 59, 0.5)
-  color #e2e8f0
-  font-size 12px
 
-.chanlun-summary-chip__label
+.chanlun-summary-status-chip__label
   color #93c5fd
 
-.chanlun-summary-chip__value
+.chanlun-summary-status-chip__value
   color #f8fafc
 
 .chanlun-panel-empty

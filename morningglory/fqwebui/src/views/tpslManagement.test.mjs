@@ -420,3 +420,16 @@ test('TpslManagement view keeps symbol list scrollable inside the fixed viewport
   assert.match(source, /\.symbol-list[\s\S]*?overflow:\s*auto;/)
   assert.match(source, /\.symbol-list[\s\S]*?flex:\s*1 1 auto;/)
 })
+
+test('TpslManagement.vue routes toolbar and symbol-list chips through shared StatusChip', () => {
+  const filePath = path.resolve(import.meta.dirname, 'TpslManagement.vue')
+  const source = fs.readFileSync(filePath, 'utf8')
+
+  assert.match(source, /import StatusChip from '\.\.\/components\/workbench\/StatusChip\.vue'/)
+  assert.match(source, /<StatusChip>\s*标的数 <strong>\{\{\s*overviewRows\.length\s*\}\}<\/strong>/)
+  assert.match(source, /<StatusChip variant="success">\s*持仓中 <strong>\{\{\s*holdingCount\s*\}\}<\/strong>/)
+  assert.match(source, /<StatusChip variant="warning">\s*活跃止损 <strong>\{\{\s*activeStoplossCount\s*\}\}<\/strong>/)
+  assert.match(source, /<StatusChip variant="muted">\s*\{\{\s*row\.position_amount_label\s*\}\}\s*<\/StatusChip>/)
+  assert.match(source, /<StatusChip[\s\S]*v-for="badge in row\.badges"/)
+  assert.match(source, /<StatusChip[\s\S]*v-for="tierLabel in row\.takeprofitSummary"/)
+})

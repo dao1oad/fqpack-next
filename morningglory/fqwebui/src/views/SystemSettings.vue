@@ -1,8 +1,8 @@
 <template>
-  <div class="system-settings-page system-settings-shell">
+  <WorkbenchPage class="system-settings-page system-settings-shell">
     <MyHeader />
-    <div class="settings-shell" v-loading="loading">
-      <section class="settings-dense-toolbar">
+    <div class="workbench-body settings-shell" v-loading="loading">
+      <WorkbenchToolbar class="settings-dense-toolbar">
         <div class="settings-dense-toolbar__title">
           <p class="settings-toolbar-kicker">System Config</p>
           <h1>系统设置</h1>
@@ -10,18 +10,18 @@
             正式真值只保留 Bootstrap 文件与 Mongo。当前页面直接以内嵌列表编辑全部正式设置项。
           </p>
           <div class="settings-toolbar-meta">
-            <span class="settings-toolbar-chip settings-toolbar-chip--path" :title="bootstrapFilePath">
+            <StatusChip class="settings-toolbar-chip settings-toolbar-chip--path" variant="info" :title="bootstrapFilePath">
               Bootstrap
               <strong>{{ bootstrapFilePath }}</strong>
-            </span>
-            <span class="settings-toolbar-chip settings-toolbar-chip--muted">
+            </StatusChip>
+            <StatusChip class="settings-toolbar-chip settings-toolbar-chip--muted" variant="warning">
               启动配置已改
               <strong>{{ bootstrapDirtyCount }}</strong>
-            </span>
-            <span class="settings-toolbar-chip settings-toolbar-chip--soft">
+            </StatusChip>
+            <StatusChip class="settings-toolbar-chip settings-toolbar-chip--soft" variant="success">
               Mongo 已改
               <strong>{{ settingsDirtyCount }}</strong>
-            </span>
+            </StatusChip>
           </div>
         </div>
 
@@ -45,7 +45,7 @@
             {{ settingsSaveLabel }}
           </el-button>
         </div>
-      </section>
+      </WorkbenchToolbar>
 
       <el-alert
         v-if="pageError"
@@ -77,12 +77,9 @@
                 <h2>{{ section.title }}</h2>
                 <p>{{ section.description }}</p>
               </div>
-              <span
-                class="settings-inline-badge"
-                :class="section.readonly ? 'is-readonly' : section.restart_required ? 'is-restart' : 'is-live'"
-              >
+              <StatusChip class="settings-inline-chip" :variant="sectionModeChipVariant(section)">
                 {{ section.readonly ? '只读' : section.restart_required ? '需重启' : '即时' }}
-              </span>
+              </StatusChip>
             </div>
 
             <div
@@ -171,27 +168,21 @@
                 </div>
 
                 <div class="settings-ledger__cell settings-ledger__cell--badge">
-                  <span
-                    class="settings-inline-chip"
-                    :class="row.restart_required ? 'is-restart' : 'is-live'"
-                  >
+                  <StatusChip class="settings-inline-chip" :variant="restartModeChipVariant(row.restart_required)">
                     {{ row.restart_required ? '重启' : '即时' }}
-                  </span>
+                  </StatusChip>
                 </div>
 
                 <div class="settings-ledger__cell settings-ledger__cell--badge">
-                  <span class="settings-inline-chip is-source" :title="row.source">
+                  <StatusChip class="settings-inline-chip is-source" variant="info" :title="row.source">
                     {{ resolveSourceLabel(row) }}
-                  </span>
+                  </StatusChip>
                 </div>
 
                 <div class="settings-ledger__cell settings-ledger__cell--badge">
-                  <span
-                    class="settings-inline-chip"
-                    :class="resolveStateChipClass(row)"
-                  >
+                  <StatusChip class="settings-inline-chip" :variant="stateChipVariant(row)">
                     {{ resolveStateLabel(row) }}
-                  </span>
+                  </StatusChip>
                 </div>
               </div>
             </div>
@@ -199,13 +190,16 @@
         </section>
       </div>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
+import StatusChip from '@/components/workbench/StatusChip.vue'
+import WorkbenchPage from '@/components/workbench/WorkbenchPage.vue'
+import WorkbenchToolbar from '@/components/workbench/WorkbenchToolbar.vue'
 import MyHeader from '@/views/MyHeader.vue'
 import { systemConfigApi } from '@/api/systemConfigApi'
 import {
@@ -384,6 +378,16 @@ const resolveSourceLabel = (row) => {
   return '只读'
 }
 
+const sectionModeChipVariant = (section) => {
+  if (section?.readonly) return 'muted'
+  if (section?.restart_required) return 'warning'
+  return 'success'
+}
+
+const restartModeChipVariant = (restartRequired) => (
+  restartRequired ? 'warning' : 'success'
+)
+
 const resolveStateLabel = (row) => {
   if (row.readonly) return '只读'
   if (row.dirty) return '已改'
@@ -391,11 +395,11 @@ const resolveStateLabel = (row) => {
   return '当前'
 }
 
-const resolveStateChipClass = (row) => {
-  if (row.readonly) return 'is-readonly'
-  if (row.dirty) return 'is-dirty'
-  if (row.inactive) return 'is-inactive'
-  return 'is-current'
+const stateChipVariant = (row) => {
+  if (row.readonly) return 'muted'
+  if (row.dirty) return 'warning'
+  if (row.inactive) return 'muted'
+  return 'success'
 }
 
 const resolveRowClass = (row) => ({

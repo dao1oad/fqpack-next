@@ -1077,13 +1077,11 @@ class BusinessService(metaclass=SingletonType):
 
     # 获取预判信息
     def getFuturePrejudgeList(self, endDate):
-        result = DBfreshquant['prejudge_record'].find({'endDate': endDate})
-        if result.count() != 0:
-            for x in result:
-                x['_id'] = str(x['_id'])
-            return x
-        else:
-            return -1
+        result = DBfreshquant['prejudge_record'].find_one({'endDate': endDate})
+        if result:
+            result['_id'] = str(result['_id'])
+            return result
+        return -1
 
     #  更新预判信息
     def updateFuturePrejudgeList(self, id, prejudgeList):

@@ -1,6 +1,11 @@
 <template>
   <div class="stock-pool-subview">
-      <el-divider content-position="center">必选股票池</el-divider>
+      <div class="workbench-panel__header stock-pool-subview__header">
+        <div class="workbench-title-group">
+          <div class="workbench-panel__title">必选股票池</div>
+          <p class="workbench-panel__desc">维护必须重点跟踪的股票池，并支持快速跳图与删除。</p>
+        </div>
+      </div>
       <div class="stock-pool-subview__table">
         <el-table
           v-loading="isLoading"
@@ -13,7 +18,7 @@
             <template #default="scope">
               <el-link
                 type="primary"
-                :underline="true"
+            underline="hover"
                 @click="jumpToKline(scope.row.symbol)"
               >
                 {{ scope.row.symbol }}
@@ -152,8 +157,12 @@ export default {
 .stock-pool-subview
   display flex
   flex-direction column
+  gap 10px
   min-height 0
   height 100%
+
+.stock-pool-subview__header
+  flex 0 0 auto
 
 .stock-pool-subview__table
   flex 1 1 auto

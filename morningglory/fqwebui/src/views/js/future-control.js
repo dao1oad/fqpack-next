@@ -133,6 +133,8 @@ export default {
       // 级别多空方向
       levelDirectionList: [],
       activeTab: 'first',
+      prejudgeTabLoaded: false,
+      statisticsTabLoaded: false,
       // 结束日期
       endDate: CommonTool.dateFormat('yyyy-MM-dd'),
       prejudgeFormMap: '',
@@ -199,8 +201,7 @@ export default {
     this.getDayMaList()
     this.getChangeiList()
     this.getSignalList()
-    // this.getLevelDirectionList()
-    this.getPrejudgeList()
+    this.handleChangeTab({ name: this.activeTab })
     // this.getBTCTicker()
     // this.getGlobalFutureChangeList()
     setInterval(() => {
@@ -218,7 +219,6 @@ export default {
     subscribeWS () {
       const ws = new WebSocket('ws://localhost:5000/control')
       ws.onopen = function (evt) {
-        console.log('Connection open ...')
         const subChangeList = { event: 'changeList' }
         ws.send(JSON.stringify(subChangeList))
       }
@@ -226,15 +226,12 @@ export default {
       //    ws.send('Hello Server!')
       // }
       ws.onmessage = event => {
-        console.log('Received Message: ' + event.data)
         const jsonObj = JSON.parse(event.data)
-        console.log(jsonObj)
         if (jsonObj.event === 'changeList') {
           this.changeList = jsonObj.data
         }
       }
       ws.onclose = function (evt) {
-        console.log('Connection closed.')
       }
     },
     getBTCTicker () {
@@ -245,11 +242,10 @@ export default {
           .getBTCTicker()
           .then(res => {
             this.btcTicker = res
-            console.log('获取okexTiker', this.btcTicker)
             this.$cache.del('BTC_TICKER')
           })
-          .catch(error => {
-            console.log('获取okexTiker失败:', error)
+          .catch(() => {
+            this.$cache.del('BTC_TICKER')
           })
       }
     },
@@ -291,11 +287,6 @@ export default {
         }
       }
       this.globalFuturePercentage = parseInt((long / (long + short)) * 100)
-      console.log(
-        '获取外盘涨跌幅列表 计算百分比',
-        this.globalFutureChangeList,
-        this.globalFuturePercentage
-      )
     },
     // getLevelDirectionList() {
     //     futureApi.getLevelDirectionList().then(res => {
@@ -316,8 +307,10 @@ export default {
       futureApi
         .getDominant()
         .then(res => {
-          console.log('获取主力合约:', res)
           this.futureSymbolList = res
+          this.prejudgeFormList = res
+          this.futureSymbolMap = {}
+          this.createPrejudgeMap()
           window.localStorage.setItem(
             'symbolList',
             JSON.stringify(this.futureSymbolList)
@@ -325,8 +318,7 @@ export default {
           this.firstRequestDominant = false
           this.beichiListLoading = false
         })
-        .catch(error => {
-          console.log('获取主力合约失败:', error)
+        .catch(() => {
           this.firstRequestDominant = false
         })
     },
@@ -353,7 +345,6 @@ export default {
         futureApi
           .getSignalList()
           .then(res => {
-            console.log('获取背驰列表:', res)
             this.beichiList = res
             this.processBeichiList()
             if (this.firstRequestDominant) {
@@ -373,8 +364,8 @@ export default {
             }
             this.$cache.del('SIGNAL_LIST')
           })
-          .catch(error => {
-            console.log('获取背驰列表失败:', error)
+          .catch(() => {
+            this.$cache.del('SIGNAL_LIST')
           })
       }
     },
@@ -436,11 +427,10 @@ export default {
           .getDayMaList()
           .then(res => {
             this.dayMa20List = res
-            console.log(this.dayMa20List)
             this.$cache.del('DAY_MA_LIST')
           })
-          .catch(error => {
-            console.log('获取日MA失败:', error)
+          .catch(() => {
+            this.$cache.del('DAY_MA_LIST')
           })
       }
     },
@@ -455,14 +445,13 @@ export default {
             this.processChangeList()
             this.$cache.del('CHANGE_LIST')
           })
-          .catch(error => {
-            console.log('获取涨跌幅失败:', error)
+          .catch(() => {
+            this.$cache.del('CHANGE_LIST')
           })
       }
     },
     getGlobalFutureChangeList () {
       const requesting = this.$cache.get('GLOBAL_CHANGE')
-      console.log('请求：', requesting)
       if (!requesting) {
         this.$cache.set('GLOBAL_CHANGE', true, 60)
         futureApi
@@ -472,8 +461,8 @@ export default {
             this.processGlobalFutureChangeList()
             this.$cache.del('GLOBAL_CHANGE')
           })
-          .catch(error => {
-            console.log('获取涨跌幅失败:', error)
+          .catch(() => {
+            this.$cache.del('GLOBAL_CHANGE')
           })
       }
     },
@@ -638,32 +627,6 @@ export default {
               Number(this.calcPosForm.perOrderStopMoney))
         )
       }
-      const maxOrderCount1AccoutUseRate =
-        (
-          ((maxOrderCount1 * this.calcPosForm.perOrderMargin) /
-            (this.calcPosForm.account * 10000)) *
-          100
-        ).toFixed(2) + '%'
-      console.log(
-        '最大账户使用率:',
-        maxAccountUse,
-        ' 最大止损 :',
-        maxStopMoney,
-        ' 一手保证金:',
-        this.calcPosForm.perOrderMargin,
-        ' 根据最大止损算的开仓手数:',
-        maxOrderCount1,
-        '根据最大止损开仓占用使用率',
-        maxOrderCount1AccoutUseRate,
-        ' 根据最大仓位算的开仓手数:',
-        maxOrderCount2,
-        ' 一手止损金额:',
-        this.calcPosForm.perOrderStopMoney,
-        ' 账户使用率:',
-        this.calcPosForm.accountUseRate,
-        ' 1手止损率:',
-        this.calcPosForm.perOrderStopRate
-      )
     },
     customColorMethod (percentage) {
       if (percentage < 50) {
@@ -672,8 +635,15 @@ export default {
         return '#D04949'
       }
     },
-    handleChangeTab (tab, event) {
-      // console.log(tab, event)
+    handleChangeTab (tab) {
+      const tabName = tab?.props?.name || tab?.paneName || tab?.name
+      if (tabName === 'second' && !this.prejudgeTabLoaded) {
+        this.prejudgeTabLoaded = true
+        this.getPrejudgeList()
+      }
+      if (tabName === 'third' && !this.statisticsTabLoaded) {
+        this.statisticsTabLoaded = true
+      }
     },
 
     changePrejudgeDate () {
@@ -690,8 +660,7 @@ export default {
       if (type === 'create') {
         futureApi
           .createPrejudgeList(data)
-          .then(res => {
-            console.log('创建预判成功:', res)
+          .then(() => {
             this.btnPrejudgeLoading = false
             this.$notify({
               title: 'Success',
@@ -701,16 +670,20 @@ export default {
             })
             this.getPrejudgeList()
           })
-          .catch((err) => {
+          .catch(() => {
             this.btnPrejudgeLoading = false
-            console.log('创建失败:', err)
+            this.$notify({
+              title: 'Error',
+              message: '创建预判失败',
+              type: 'error',
+              duration: 2500
+            })
           })
       } else {
         data.id = this.prejudgeTableId
         futureApi
           .updatePrejudgeList(data)
-          .then(res => {
-            console.log('更新预判成功:', res)
+          .then(() => {
             this.btnPrejudgeLoading = false
             this.$notify({
               title: 'Success',
@@ -720,9 +693,14 @@ export default {
             })
             this.getPrejudgeList()
           })
-          .catch((err) => {
+          .catch(() => {
             this.btnPrejudgeLoading = false
-            console.log('更新失败:', err)
+            this.$notify({
+              title: 'Error',
+              message: '更新预判失败',
+              type: 'error',
+              duration: 2500
+            })
           })
       }
     },
@@ -745,11 +723,14 @@ export default {
             this.historyPrejudgeShortMap = res.prejudgeList.short
             this.historyPrejudgeMap.long = this.historyPrejudgeLongMap
             this.historyPrejudgeMap.short = this.historyPrejudgeShortMap
-            console.log('获取预判成功:', res)
           }
         })
-        .catch((err) => {
-          console.log('获取预判失败:', err)
+        .catch(() => {
+          this.prejudgeTableStatus = 'current'
+          this.prejudgeTableId = ''
+          this.historyPrejudgeList = []
+          this.historyPrejudgeMap = {}
+          this.createPrejudgeMap()
         })
     },
     editPrejudgeList () {}

@@ -4,8 +4,9 @@ import echartsConfig from './echartsConfig'
 
 export default (vueComp) => {
   const query = vueComp.$route.query
+  const singleChartPeriod = query.period || vueComp.query?.period || (vueComp.view === 'klineBig' ? vueComp.periodList?.[0] : null)
   //  大图只显示选中的k线图
-  if (query.period) {
+  if (singleChartPeriod) {
     elementTool.fitToContainerSize(document.getElementById('main'), document.getElementById('mainParent'))
     const myChart = echarts.getInstanceByDom(document.getElementById('main'))
     if (myChart != null) {

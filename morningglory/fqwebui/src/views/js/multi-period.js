@@ -7,6 +7,19 @@ import _ from 'lodash'
 import { reactive } from 'vue'
 import manba from 'manba'
 
+async function loadKlinePeriodData({ query, period }) {
+  const { symbol, endDate } = queryParamTool.getLocationQueryParams()
+  if (!symbol) {
+    return null
+  }
+  const data = await futureApi.stockData(
+    Object.assign({
+      symbol, period, endDate
+    }, _.pick(query, ['symbol', 'endDate'])))
+  data._dtString = manba(data.dt).format('YYYY-MM-DD HH:mm:ss')
+  return data
+}
+
 export default {
   name: 'multi-period',
   mixins: [klineMixin],
@@ -19,85 +32,37 @@ export default {
     const query = reactive({})
     const { data: klineData1Min } = useQuery({
       queryKey: ['klineData1Min'],
-      queryFn: async () => {
-        const { symbol, endDate } = queryParamTool.getLocationQueryParams()
-        const data = await futureApi.stockData(
-          Object.assign({
-            symbol, period: '1m', endDate
-          }, _.pick(query, ['symbol', 'endDate'])))
-        data._dtString = manba(data.dt).format('YYYY-MM-DD HH:mm:ss')
-        return data
-      },
+      queryFn: async () => loadKlinePeriodData({ query, period: '1m' }),
       refetchInterval: 10000,
       staleTime: 5000
     })
     const { data: klineData5Min } = useQuery({
       queryKey: ['klineData5Min'],
-      queryFn: async () => {
-        const { symbol, endDate } = queryParamTool.getLocationQueryParams()
-        const data = await futureApi.stockData(
-          Object.assign({
-            symbol, period: '5m', endDate
-          }, _.pick(query, ['symbol', 'endDate'])))
-        data._dtString = manba(data.dt).format('YYYY-MM-DD HH:mm:ss')
-        return data
-      },
+      queryFn: async () => loadKlinePeriodData({ query, period: '5m' }),
       refetchInterval: 10000,
       staleTime: 5000
     })
     const { data: klineData15Min } = useQuery({
       queryKey: ['klineData15Min'],
-      queryFn: async () => {
-        const { symbol, endDate } = queryParamTool.getLocationQueryParams()
-        const data = await futureApi.stockData(
-          Object.assign({
-            symbol, period: '15m', endDate
-          }, _.pick(query, ['symbol', 'endDate'])))
-        data._dtString = manba(data.dt).format('YYYY-MM-DD HH:mm:ss')
-        return data
-      },
+      queryFn: async () => loadKlinePeriodData({ query, period: '15m' }),
       refetchInterval: 10000,
       staleTime: 5000
     })
     const { data: klineData30Min } = useQuery({
       queryKey: ['klineData30Min'],
-      queryFn: async () => {
-        const { symbol, endDate } = queryParamTool.getLocationQueryParams()
-        const data = await futureApi.stockData(
-          Object.assign({
-            symbol, period: '30m', endDate
-          }, _.pick(query, ['symbol', 'endDate'])))
-        data._dtString = manba(data.dt).format('YYYY-MM-DD HH:mm:ss')
-        return data
-      },
+      queryFn: async () => loadKlinePeriodData({ query, period: '30m' }),
       refetchInterval: 10000,
       staleTime: 5000
     })
     const { data: klineData60Min } = useQuery({
       queryKey: ['klineData60Min'],
-      queryFn: async () => {
-        const { symbol, endDate } = queryParamTool.getLocationQueryParams()
-        const data = await futureApi.stockData(
-          Object.assign({
-            symbol, period: '60m', endDate
-          }, _.pick(query, ['symbol', 'endDate'])))
-        data._dtString = manba(data.dt).format('YYYY-MM-DD HH:mm:ss')
-        return data
-      },
+      queryFn: async () => loadKlinePeriodData({ query, period: '60m' }),
       refetchInterval: 10000,
       staleTime: 5000
     })
     const { data: klineData1D } = useQuery({
       queryKey: ['klineData1D'],
-      queryFn: async () => {
-        const { symbol, endDate } = queryParamTool.getLocationQueryParams()
-        const data = await futureApi.stockData(
-          Object.assign({
-            symbol, period: '1d', endDate
-          }, _.pick(query, ['symbol', 'endDate'])))
-        data._dtString = manba(data.dt).format('YYYY-MM-DD HH:mm:ss')
-        return data
-      },
+      queryFn: async () => loadKlinePeriodData({ query, period: '1d' }),
       refetchInterval: 10000,
       staleTime: 5000
     })
@@ -141,7 +106,9 @@ export default {
       }
     },
     klineData60Min: function (newKlineData) {
-      draw(this, newKlineData, '60m')
+      if (newKlineData) {
+        draw(this, newKlineData, '60m')
+      }
     },
     klineData1D: function (newKlineData) {
       if (newKlineData) {

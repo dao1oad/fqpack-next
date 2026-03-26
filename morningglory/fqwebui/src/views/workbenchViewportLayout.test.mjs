@@ -51,9 +51,9 @@ test('order, position, subject, tpsl and runtime pages no longer use page-level 
 test('system settings keeps the hero visible and scrolls inside editor and side panes', () => {
   assert.match(systemSettingsSource, /\.system-settings-page[\s\S]*height 100vh[\s\S]*height 100dvh[\s\S]*overflow hidden/)
   assert.match(systemSettingsSource, /\.settings-shell[\s\S]*overflow hidden/)
-  assert.match(systemSettingsSource, /\.settings-section[\s\S]*overflow hidden/)
-  assert.match(systemSettingsSource, /\.form-grid[\s\S]*overflow auto/)
-  assert.match(systemSettingsSource, /\.settings-side-pane[\s\S]*overflow auto/)
+  assert.match(systemSettingsSource, /\.settings-dense-columns[\s\S]*overflow hidden/)
+  assert.match(systemSettingsSource, /\.settings-dense-column[\s\S]*overflow auto/)
+  assert.match(systemSettingsSource, /\.settings-ledger[\s\S]*overflow hidden/)
 })
 
 test('gantt routes use fixed viewport pages and keep scrolling inside content panes', () => {
@@ -61,11 +61,11 @@ test('gantt routes use fixed viewport pages and keep scrolling inside content pa
   assert.match(shoubanSource, /\.shouban30-page-body \{[\s\S]*overflow:\s*hidden;/)
   assert.match(shoubanSource, /\.shouban30-grid \{[\s\S]*overflow:\s*hidden;/)
 
-  assert.match(ganttSource, /\.gantt-page \{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/)
-  assert.match(ganttSource, /\.gantt-page-body \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(ganttSource, /<WorkbenchPage class="gantt-page">/)
+  assert.match(ganttSource, /<div class="workbench-body gantt-page-body">/)
   assert.match(ganttSource, /\.gantt-page-content \{[\s\S]*overflow:\s*auto;/)
 
-  assert.match(ganttStocksSource, /\.gantt-page \{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/)
-  assert.match(ganttStocksSource, /\.gantt-page-body \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(ganttStocksSource, /<WorkbenchPage class="gantt-page">/)
+  assert.match(ganttStocksSource, /<div class="workbench-body gantt-page-body">/)
   assert.match(ganttStocksSource, /\.gantt-page-content \{[\s\S]*overflow:\s*auto;/)
 })

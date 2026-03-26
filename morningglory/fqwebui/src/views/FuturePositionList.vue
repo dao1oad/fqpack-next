@@ -333,12 +333,10 @@
             -->
 
       <el-table-column type="expand" label="展开">
-        <template
-          #default="{row}"
-          v-if="Object.hasOwnProperty(row, 'dynamicPositionList')"
-        >
+        <template #default="{row}">
           <el-table
-            :data="props.row.dynamicPositionList"
+            v-if="Object.hasOwnProperty(row, 'dynamicPositionList')"
+            :data="row.dynamicPositionList"
             fit
             size="small"
             header-cell-class-name="el-header-cell"
@@ -347,7 +345,7 @@
             <el-table-column label="动止时间" align="center">
               <template #default="{row}">
                 <span>{{
-                  row.date_created | parseTime('{y}-{m}-{d} {h}:{i}')
+                  parseTime(row.date_created, '{y}-{m}-{d} {h}:{i}')
                 }}</span>
               </template>
             </el-table-column>
@@ -385,8 +383,8 @@
             </el-table-column>
             <el-table-column label="动止方向" prop="direction" align="center">
               <template #default="{row}">
-                <span :class="row.direction | directionTagFilter">
-                  <span>{{ row.direction | directionFilter }}</span>
+                <span :class="directionTagFilter(row.direction)">
+                  <span>{{ directionFilter(row.direction) }}</span>
                 </span>
               </template>
             </el-table-column>
@@ -414,7 +412,7 @@
         <template #default="{row}">
           <el-link
             type="primary"
-            :underline="false"
+            underline="never"
             @click="handleJumpToKline(row)"
             v-if="globalFutureSymbol.indexOf(row.symbol) !== -1"
           >
@@ -431,7 +429,7 @@
           </el-link>
           <el-link
             type="primary"
-            :underline="false"
+            underline="never"
             @click="handleJumpToKline(row)"
             v-else
           >
@@ -450,8 +448,8 @@
       </el-table-column>
       <el-table-column label="方向" prop="direction" align="center" :key="5">
         <template #default="{row}">
-          <span :class="row.direction | directionTagFilter">
-            <span>{{ row.direction | directionFilter }}</span>
+          <span :class="directionTagFilter(row.direction)">
+            <span>{{ directionFilter(row.direction) }}</span>
           </span>
         </template>
       </el-table-column>
@@ -488,7 +486,7 @@
       <el-table-column label="信号" align="center" :key="4">
         <template #default="{row}">
           <span :class="row.signal === 'tupo' ? 'down-green' : 'up-red'">{{
-            row.signal | signalTypeFilter
+            signalTypeFilter(row.signal)
           }}</span>
         </template>
       </el-table-column>
@@ -564,7 +562,7 @@
         :key="9"
       >
         <template #default="{row}">
-          <span :class="row.current_profit_rate | percentTagFilter"
+          <span :class="percentTagFilter(row.current_profit_rate)"
             >{{ parseInt(row.current_profit_rate * 100) }}%</span
           >
         </template>
@@ -578,7 +576,7 @@
         :key="10"
       >
         <template #default="{row}">
-          <span :class="row.current_profit | percentTagFilter">{{
+          <span :class="percentTagFilter(row.current_profit)">{{
             parseInt(row.current_profit)
           }}</span>
         </template>
@@ -697,7 +695,7 @@
       </el-table-column>
       <el-table-column label="盈亏比" width="80" align="center" :key="21">
         <template #default="{row}">
-          <span :class="calcWinLoseRate(row) | winLoseRateTagFilter"
+          <span :class="winLoseRateTagFilter(calcWinLoseRate(row))"
             >{{ calcWinLoseRate(row) }}
           </span>
         </template>
@@ -724,7 +722,7 @@
       <!--                align="center"-->
       <!--            >-->
       <!--&lt;!&ndash;                <template #default="{row}">&ndash;&gt;-->
-      <!--&lt;!&ndash;                    <el-tag :type="calcWinEndRate(row) | percentTagFilter">{{calcWinEndRate(row)}}%</el-tag>&ndash;&gt;-->
+      <!--&lt;!&ndash;                    <el-tag :type="percentTagFilter(calcWinEndRate(row))">{{ calcWinEndRate(row) }}%</el-tag>&ndash;&gt;-->
       <!--&lt;!&ndash;                </template>&ndash;&gt;-->
       <!--            </el-table-column>-->
 
@@ -774,7 +772,7 @@
       <!--            <el-col :span="12">-->
       <!--                外盘期货（$）-->
       <!--                当前盈利：-->
-      <!--                <span :class="globalSumObj.currentProfitSum| percentTagFilter" class="sum-text">{{globalSumObj.currentProfitSum}}</span>-->
+      <!--                <span :class="percentTagFilter(globalSumObj.currentProfitSum)" class="sum-text">{{globalSumObj.currentProfitSum}}</span>-->
       <!--                预计止损：{{(globalSumObj.predictStopSum)}}-->
       <!--                已止盈：{{(globalSumObj.winEndSum)}}-->
       <!--                已止损：{{(globalSumObj.loseEndSum)}}-->
@@ -785,7 +783,7 @@
         内盘期货(￥)
 
         <span
-          :class="sumObj.currentProfitSum | percentTagFilter"
+          :class="percentTagFilter(sumObj.currentProfitSum)"
           class="sum-text"
           v-if="positionQueryForm.status === 'holding'"
           >当前盈利：{{ sumObj.currentProfitSum + sumObj.winEndSum }} 占比：{{
@@ -848,61 +846,12 @@ const signalTypeKeyValue = signalTypeOptions.reduce((acc, cur) => {
   acc[cur.key] = cur.display_name
   return acc
 }, {})
-const statusKeyValue = statusOptions.reduce((acc, cur) => {
-  acc[cur.key] = cur.display_name
-  return acc
-}, {})
 const directionKeyValue = directionOptions.reduce((acc, cur) => {
   acc[cur.key] = cur.display_name
   return acc
 }, {})
 export default {
   name: 'PositionList',
-  filters: {
-    statusTagFilter (status) {
-      const statusMap = {
-        holding: 'success',
-        prepare: 'info',
-        end: 'danger'
-      }
-      return statusMap[status]
-    },
-    directionTagFilter (direction) {
-      const directionMap = {
-        long: 'up-red',
-        short: 'down-green'
-      }
-      return directionMap[direction]
-    },
-    percentTagFilter (percent) {
-      if (percent > 0) {
-        return 'up-red'
-      } else if (percent < 0) {
-        return 'down-green'
-      } else {
-        return 'zero-gray'
-      }
-    },
-    winLoseRateTagFilter (rate) {
-      if (rate >= 1) {
-        return 'up-red'
-      } else {
-        return 'zero-gray'
-      }
-    },
-    directionFilter (direction) {
-      return directionKeyValue[direction]
-    },
-    signalTypeFilter (type) {
-      return signalTypeKeyValue[type]
-    },
-    statusFilter (type) {
-      return statusKeyValue[type]
-    },
-    parseTime (time, fmt) {
-      return CommonTool.parseTime(time, fmt)
-    }
-  },
   props: {
     futureSymbolList: {
       type: Array,
@@ -1047,6 +996,37 @@ export default {
     this.getFutureConfig()
   },
   methods: {
+    directionTagFilter (direction) {
+      const directionMap = {
+        long: 'up-red',
+        short: 'down-green'
+      }
+      return directionMap[direction]
+    },
+    percentTagFilter (percent) {
+      if (percent > 0) {
+        return 'up-red'
+      } else if (percent < 0) {
+        return 'down-green'
+      } else {
+        return 'zero-gray'
+      }
+    },
+    winLoseRateTagFilter (rate) {
+      if (rate >= 1) {
+        return 'up-red'
+      }
+      return 'zero-gray'
+    },
+    directionFilter (direction) {
+      return directionKeyValue[direction]
+    },
+    signalTypeFilter (type) {
+      return signalTypeKeyValue[type]
+    },
+    parseTime (time, fmt) {
+      return CommonTool.parseTime(time, fmt)
+    },
     // calcWinEndRate(row) {
     //     // 获取动止列表中的最后一次平仓的价格
     //     if (row.dynamicPositionList.length > 0) {
@@ -1085,9 +1065,7 @@ export default {
             this.getPositionList()
           }, 5000)
         })
-        .catch(error => {
-          console.log('获取合约配置失败:', error)
-        })
+        .catch(() => {})
     },
     // 计算盈亏比
     calcWinLoseRate (row) {
@@ -1136,7 +1114,6 @@ export default {
     //     return currentPercent;
     // },
     changeStatus (id, status, close_price) {
-      console.log(id, status)
       futureApi
         .updatePositionStatus(id, status, close_price)
         .then(res => {
@@ -1144,8 +1121,13 @@ export default {
             this.getPositionList()
           }
         })
-        .catch(error => {
-          console.log('更新状态失败', error)
+        .catch(() => {
+          this.$notify({
+            title: 'Error',
+            message: '更新状态失败',
+            type: 'error',
+            duration: 2500
+          })
         })
     },
     getRowKeys (row) {
@@ -1183,7 +1165,6 @@ export default {
       return row.status === value
     },
     handleJumpToKline (row) {
-      console.log(this.$parent)
       // 夜盘交易，时间算第二天的
       // this.$parent.jumpToKline(symbol)
       // 结束状态 k线页面不获取持仓信息
@@ -1267,9 +1248,11 @@ export default {
               `POSITION_LIST#${this.positionQueryForm.status}#${this.listQuery.current}#${this.listQuery.size}#${this.endDate}`
             )
           })
-          .catch(error => {
+          .catch(() => {
             // this.listLoading = false;
-            console.log('获取持仓列表失败', error)
+            this.$cache.del(
+              `POSITION_LIST#${this.positionQueryForm.status}#${this.listQuery.current}#${this.listQuery.size}#${this.endDate}`
+            )
           })
       }
     },
@@ -1329,9 +1312,8 @@ export default {
           ].margin_rate
           futureApi
             .createPosition(this.positionForm)
-            .then(res => {
+            .then(() => {
               this.submitBtnLoading = false
-              console.log('新增结果', res)
               this.dialogFormVisible = false
               this.$notify({
                 title: 'Success',
@@ -1342,10 +1324,14 @@ export default {
               // 拉取后端接口获取最新持仓列表
               this.getPositionList()
             })
-            .catch(error => {
+            .catch(() => {
               this.submitBtnLoading = false
-
-              console.log('新增失败:', error)
+              this.$notify({
+                title: 'Error',
+                message: '新增失败',
+                type: 'error',
+                duration: 2500
+              })
             })
         }
       })
@@ -1369,9 +1355,8 @@ export default {
           ].margin_rate
           futureApi
             .updatePosition(this.positionForm)
-            .then(res => {
+            .then(() => {
               this.submitBtnLoading = false
-              console.log('更新结果', res)
               this.dialogFormVisible = false
               this.$notify({
                 title: 'Success',
@@ -1382,9 +1367,14 @@ export default {
               // 拉取后端接口获取最新持仓列表
               this.getPositionList()
             })
-            .catch(error => {
+            .catch(() => {
               this.submitBtnLoading = false
-              console.log('更新持仓失败:', error)
+              this.$notify({
+                title: 'Error',
+                message: '更新持仓失败',
+                type: 'error',
+                duration: 2500
+              })
             })
         }
       })

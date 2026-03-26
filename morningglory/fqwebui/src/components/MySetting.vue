@@ -316,7 +316,6 @@ export default {
     updateSetting (code, value) {
       this.isLoading = true
       const sanitizedValue = sanitizeLegacySettingValue(code, value)
-      console.log(code, JSON.stringify(sanitizedValue))
       stockApi.updateSetting(code, sanitizedValue)
         .then(res => {
           if (res && res.code === '0') {

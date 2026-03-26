@@ -1,18 +1,17 @@
-.stock-control-shell
-  display flex
-  flex-direction column
-  height 100vh
-  height 100dvh
-  overflow hidden
-  background #f5f7fa
-
 .stock-control-body
   display flex
   flex 1 1 auto
+  flex-direction column
+  gap 12px
   min-width 0
   min-height 0
   overflow hidden
-  padding 12px 16px 16px
+
+.stock-control-toolbar
+  flex 0 0 auto
+
+.stock-control-summary
+  justify-content flex-start
 
 .stock-control-grid
   display grid
@@ -21,30 +20,11 @@
   flex 1 1 auto
   min-width 0
   min-height 0
-  overflow hidden
-
-.panel-card
-  display flex
-  flex-direction column
+.stock-control-panel
   min-width 0
   min-height 0
-  overflow hidden
-  padding 14px
-  background linear-gradient(180deg, #fbfdff 0%, #f4f8fc 100%)
-  border 1px solid #dfe7f3
-  border-radius 14px
 
-.panel-card-header
-  display flex
-  align-items center
-  justify-content space-between
-  margin-bottom 10px
-  font-size 15px
-  font-weight 600
-  color #21405e
-
-.panel-table
-  display flex
+.stock-control-panel__table
   flex 1 1 auto
   min-width 0
   min-height 0

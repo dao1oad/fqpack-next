@@ -1,6 +1,11 @@
 <template>
   <div class="stock-pool-subview">
-      <el-divider content-position="center">预选股票池</el-divider>
+      <div class="workbench-panel__header stock-pool-subview__header">
+        <div class="workbench-title-group">
+          <div class="workbench-panel__title">预选股票池</div>
+          <p class="workbench-panel__desc">按分类浏览预选股票，并支持一键加入监控池。</p>
+        </div>
+      </div>
       <el-row class="stock-pool-subview__menu">
         <el-menu :default-active="currentCategory" @select="handleCategoryChange" mode="horizontal">
           <el-menu-item v-for="cat in categoryList" :key="cat" :index="cat">
@@ -20,7 +25,7 @@
             <template #default="scope">
               <el-link
                 type="primary"
-                :underline="true"
+            underline="hover"
                 @click="jumpToKline(scope.row.symbol)"
               >
                 {{ scope.row.symbol }}
@@ -131,7 +136,6 @@ export default {
     async getStockPrePoolsCategory() {
       try {
         var response = await stockApi.getStockPrePoolsCategory()
-        console.log(response)
         if (response.data && response.code == '0') {
           this.categoryList = response.data
           if (this.categoryList && this.categoryList.length > 0) {
@@ -248,12 +252,15 @@ export default {
 .stock-pool-subview
   display flex
   flex-direction column
+  gap 10px
   min-height 0
   height 100%
 
+.stock-pool-subview__header
+  flex 0 0 auto
+
 .stock-pool-subview__menu
   flex 0 0 auto
-  margin-bottom 10px
 
 .stock-pool-subview__table
   flex 1 1 auto

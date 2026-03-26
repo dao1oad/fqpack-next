@@ -165,7 +165,6 @@ const CommonTool = {
 
         if (key === name) {
           res = value
-          console.log('coinName', res)
           break
         }
       }

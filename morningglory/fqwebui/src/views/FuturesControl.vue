@@ -1,7 +1,7 @@
 <template>
-  <div class="future-control-shell">
+  <WorkbenchPage class="future-control-shell">
     <MyHeader />
-    <div class="future-control-main future-control-body">
+    <div class="workbench-body future-control-main future-control-body">
     <!--仓位计算-->
     <el-divider content-position="center">仓位计算器</el-divider>
     <el-row>
@@ -261,7 +261,7 @@
                 <template #default="scope">
                   <el-link
                     class="primary-color"
-                    :underline="false"
+                    underline="never"
                     @click="jumpToKline(scope.row.order_book_id)"
                     >{{ scope.row.order_book_id }}
                   </el-link>
@@ -281,7 +281,7 @@
                           : 0
                       )
                     "
-                    :underline="false"
+                    underline="never"
                     v-if="scope.row.order_book_id.indexOf('BTC') === -1"
                     >{{
                       (scope.row.margin_rate + marginLevelCompany).toFixed(3)
@@ -289,7 +289,7 @@
                   </el-link>
                   <el-link
                     @click="fillMarginRate(scope.row, btcTicker.price)"
-                    :underline="false"
+                    underline="never"
                     v-else
                     >{{ scope.row.margin_rate.toFixed(3) }}
                   </el-link>
@@ -522,7 +522,7 @@
                   <template #default="scope">
                     <el-link
                       class="primary-color"
-                      :underline="false"
+                      underline="never"
                       @click="jumpToKline(scope.row.order_book_id)"
                       >{{ scope.row.order_book_id }}
                     </el-link>
@@ -581,7 +581,7 @@
                   <template #default="scope">
                     <el-link
                       class="primary-color"
-                      :underline="false"
+                      underline="never"
                       @click="jumpToKline(scope.row)"
                       >{{ scope.row }}
                     </el-link>
@@ -635,16 +635,23 @@
         </el-row>
       </el-tab-pane>
       <el-tab-pane label="统计数据" name="third">
-        <StatisticsChat></StatisticsChat>
+        <StatisticsChat v-if="statisticsTabLoaded"></StatisticsChat>
       </el-tab-pane>
     </el-tabs>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script>
+import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
 import futureControl from "./js/future-control.js"
-export default futureControl
+export default {
+  ...futureControl,
+  components: {
+    ...(futureControl.components || {}),
+    WorkbenchPage,
+  },
+}
 </script>
 
 <style lang="stylus">

@@ -6,34 +6,52 @@ export const HEADER_NAV_TARGETS = {
   systemSettings: {
     label: '设置',
     path: '/system-settings',
+    buttonType: 'primary',
+    size: 'default',
   },
   futures: {
     label: '期货',
     path: '/futures-control',
+    buttonType: 'primary',
+    size: 'small',
   },
   klineSlim: {
     label: '行情图表',
     path: '/kline-slim',
+    buttonType: 'warning',
+    size: 'small',
   },
   orders: {
     label: '订单管理',
     path: '/order-management',
+    buttonType: 'success',
+    size: 'small',
   },
   positionManagement: {
     label: '仓位管理',
     path: '/position-management',
+    buttonType: 'success',
+    size: 'small',
   },
   subjectManagement: {
     label: '标的管理',
     path: '/subject-management',
+    buttonType: 'success',
+    plain: true,
+    size: 'small',
   },
   tpsl: {
     label: 'TPSL',
     path: '/tpsl',
+    buttonType: 'warning',
+    plain: true,
+    size: 'small',
   },
   runtime: {
     label: '运行观测',
     path: '/runtime-observability',
+    buttonType: 'danger',
+    size: 'small',
   },
   gantt: {
     label: '板块趋势',
@@ -41,6 +59,8 @@ export const HEADER_NAV_TARGETS = {
     query: {
       p: 'xgb',
     },
+    buttonType: 'success',
+    size: 'small',
   },
   shouban30: {
     label: '首板选股',
@@ -49,24 +69,43 @@ export const HEADER_NAV_TARGETS = {
       p: 'xgb',
       days: '30',
     },
+    buttonType: 'warning',
+    size: 'small',
   },
   dailyScreening: {
     label: '每日选股',
     path: '/daily-screening',
+    buttonType: 'danger',
+    plain: true,
+    size: 'small',
   },
   stock: {
     label: '股票',
     path: '/stock-control',
+    buttonType: 'primary',
+    size: 'small',
   },
   pool: {
     label: '股票池',
     path: '/stock-pools',
+    buttonType: 'primary',
+    size: 'small',
   },
   cjsd: {
     label: '超级赛道',
     path: '/stock-cjsd',
+    buttonType: 'primary',
+    size: 'small',
   },
 }
+
+export const HEADER_NAV_GROUPS = [
+  ['systemSettings'],
+  ['futures'],
+  ['klineSlim', 'orders', 'positionManagement', 'subjectManagement', 'tpsl', 'runtime'],
+  ['gantt', 'shouban30', 'dailyScreening'],
+  ['stock', 'pool', 'cjsd'],
+]
 
 export const ROUTE_TITLES_BY_NAME = {
   'futures-control': '期货',
@@ -99,6 +138,12 @@ export const getHeaderNavTarget = (key) => {
       tabTitle: target.label,
     },
   }
+}
+
+export const resolveHeaderNavGroups = () => {
+  return HEADER_NAV_GROUPS.map((group) => group
+    .map((key) => getHeaderNavTarget(key))
+    .filter(Boolean))
 }
 
 export const resolveRouteMetaTitle = (routeName) => {

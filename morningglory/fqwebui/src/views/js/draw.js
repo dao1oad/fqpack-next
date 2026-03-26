@@ -161,7 +161,6 @@ export default (vueComp, klineData, period) => {
         specialMA5 = (_5base * baseHour) / 3
         specialMA34 = (_34base * baseHour) / 3
         specialMA55 = (_55base * baseHour) / 3
-        console.log('内盘', specialMA5, specialMA34, specialMA55)
         break
     }
   }

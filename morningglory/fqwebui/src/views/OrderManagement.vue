@@ -1,9 +1,9 @@
 <template>
-  <div class="workbench-page order-page">
+  <WorkbenchPage class="order-page">
     <MyHeader />
 
     <div class="workbench-body order-body">
-      <section class="workbench-toolbar order-toolbar">
+      <WorkbenchToolbar class="order-toolbar">
         <div class="workbench-toolbar__header">
           <div class="workbench-title-group">
             <div class="workbench-page-title">订单管理</div>
@@ -80,24 +80,24 @@
           </div>
 
           <div class="workbench-summary-row order-filter-chips">
-            <span
+            <StatusChip
               v-for="chip in activeFilterChips"
               :key="chip"
-              class="workbench-summary-chip workbench-summary-chip--muted"
+              variant="muted"
             >
               {{ chip }}
-            </span>
-            <span
+            </StatusChip>
+            <StatusChip
               v-if="activeFilterChips.length === 0"
-              class="workbench-summary-chip workbench-summary-chip--muted"
+              variant="muted"
             >
               当前无额外筛选
-            </span>
+            </StatusChip>
           </div>
         </div>
-      </section>
+      </WorkbenchToolbar>
 
-      <section class="workbench-panel order-stats-panel" v-loading="loadingStats">
+      <WorkbenchPanel class="order-stats-panel" v-loading="loadingStats">
         <div class="workbench-panel__header">
           <div class="workbench-title-group">
             <div class="workbench-panel__title">订单摘要</div>
@@ -106,43 +106,43 @@
         </div>
 
         <div class="workbench-summary-row">
-          <span class="workbench-summary-chip">
+          <StatusChip>
             总订单 <strong>{{ stats.total }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--warning">
+          </StatusChip>
+          <StatusChip variant="warning">
             缺 broker 单号 <strong>{{ stats.missing_broker_order_count }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--success">
+          </StatusChip>
+          <StatusChip variant="success">
             已成交 / 部分成交 <strong>{{ stats.filled_count }} / {{ stats.partial_filled_count }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip variant="muted">
             撤单 <strong>{{ stats.canceled_count }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip variant="muted">
             失败 <strong>{{ stats.failed_count }}</strong>
-          </span>
-          <span class="workbench-summary-chip workbench-summary-chip--muted">
+          </StatusChip>
+          <StatusChip variant="muted">
             最近更新时间 <strong>{{ stats.latest_updated_at }}</strong>
-          </span>
-          <span
+          </StatusChip>
+          <StatusChip
             v-for="item in stats.sideCards"
             :key="item.key"
-            class="workbench-summary-chip workbench-summary-chip--muted"
+            variant="muted"
           >
             {{ item.label }} <strong>{{ item.value }}</strong>
-          </span>
-          <span
+          </StatusChip>
+          <StatusChip
             v-for="item in stats.stateCards"
             :key="item.key"
-            class="workbench-summary-chip workbench-summary-chip--muted"
+            variant="muted"
           >
             {{ item.label }} <strong>{{ item.value }}</strong>
-          </span>
+          </StatusChip>
         </div>
-      </section>
+      </WorkbenchPanel>
 
       <div class="order-main-grid">
-        <section class="workbench-panel order-list-panel" v-loading="loadingOrders">
+        <WorkbenchLedgerPanel class="order-list-panel" v-loading="loadingOrders">
           <div class="workbench-panel__header">
             <div class="workbench-title-group">
               <div class="workbench-panel__title">订单列表</div>
@@ -213,9 +213,9 @@
               @size-change="changeSize"
             />
           </div>
-        </section>
+        </WorkbenchLedgerPanel>
 
-        <section class="workbench-panel order-detail-panel" v-loading="loadingDetail">
+        <WorkbenchDetailPanel class="order-detail-panel" v-loading="loadingDetail">
           <template v-if="detail">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
@@ -228,27 +228,27 @@
               </div>
 
               <div class="workbench-summary-row">
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                <StatusChip variant="muted">
                   {{ detail.order.side || '-' }}
-                </span>
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                </StatusChip>
+                <StatusChip variant="muted">
                   {{ detail.order.state || '-' }}
-                </span>
-                <span class="workbench-summary-chip workbench-summary-chip--muted">
+                </StatusChip>
+                <StatusChip variant="muted">
                   {{ detail.tradeSummary }}
-                </span>
+                </StatusChip>
               </div>
             </div>
 
             <div class="workbench-summary-row order-identifier-row">
-              <span
+              <StatusChip
                 v-for="item in detail.identifierRows"
                 :key="item.key"
-                class="workbench-summary-chip workbench-summary-chip--muted"
+                variant="muted"
               >
                 <span>{{ item.key }}</span>
                 <strong>{{ item.value }}</strong>
-              </span>
+              </StatusChip>
             </div>
 
             <div class="order-detail-grid">
@@ -318,15 +318,21 @@
           </template>
 
           <div v-else class="workbench-empty">先从左侧订单列表选择一笔订单。</div>
-        </section>
+        </WorkbenchDetailPanel>
       </div>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, toRefs } from 'vue'
 
+import StatusChip from '../components/workbench/StatusChip.vue'
+import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
+import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
+import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
+import WorkbenchPanel from '../components/workbench/WorkbenchPanel.vue'
+import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from '@/views/MyHeader.vue'
 import { orderManagementApi } from '@/api/orderManagementApi'
 import {

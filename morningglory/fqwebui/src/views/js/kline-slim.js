@@ -532,6 +532,24 @@ export default {
         return this.lastError
       }
       return this.isRealtimeMode ? '轮询中' : '历史模式'
+    },
+    toolbarStatusChipVariant() {
+      if (this.defaultSymbolResolveError || this.lastError) {
+        return 'danger'
+      }
+      if (this.resolvingDefaultSymbol) {
+        return 'warning'
+      }
+      return this.isRealtimeMode ? 'success' : 'muted'
+    },
+    subjectPositionLimitChipVariant() {
+      return this.subjectPanelState?.subjectPanelDetail?.positionLimit?.blocked ? 'warning' : 'success'
+    },
+    takeprofitRuntimeChipVariant() {
+      return this.takeprofitRuntimeActiveCount > 0 ? 'success' : 'muted'
+    },
+    guardianRuntimeChipVariant() {
+      return this.guardianRuntimeActiveCount > 0 ? 'success' : 'muted'
     }
   },
   watch: {
