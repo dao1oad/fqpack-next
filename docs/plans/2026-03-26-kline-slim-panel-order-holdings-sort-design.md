@@ -35,4 +35,3 @@
 - `klineSlim.test.mjs`：断言 `止盈价格` 出现在 `Guardian 倍量价格` 之前。
 - `kline-slim-sidebar.test.mjs`：断言 `holding` 分组按仓位金额降序且稳定。
 - 新增 `kline-slim-default-symbol.test.mjs`：断言默认标的选择遵循同一降序口径。
-

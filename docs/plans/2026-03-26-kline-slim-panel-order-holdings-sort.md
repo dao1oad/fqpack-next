@@ -107,4 +107,3 @@ Expected: build 成功，更新 `morningglory/fqwebui/web/**`。
 git add docs/current/modules/kline-webui.md morningglory/fqwebui/web
 git commit -m "docs kline slim panel order and holding sort"
 ```
-
