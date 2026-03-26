@@ -378,6 +378,7 @@ import {
   buildSymbolLimitRows,
   readDashboardPayload,
 } from './positionManagement.mjs'
+import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -407,7 +408,7 @@ const pagedDecisionRows = computed(() => {
   const start = (decisionPagination.page - 1) * decisionPagination.pageSize
   return decisionLedgerRows.value.slice(start, start + decisionPagination.pageSize)
 })
-const configUpdatedAt = computed(() => dashboard.value?.config?.updated_at || '未配置')
+const configUpdatedAt = computed(() => formatBeijingTimestamp(dashboard.value?.config?.updated_at, '未配置'))
 const configUpdatedBy = computed(() => dashboard.value?.config?.updated_by || 'unknown')
 const blockedSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.blocked).length)
 const mismatchSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.quantity_mismatch).length)

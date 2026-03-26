@@ -392,6 +392,81 @@
               <section class="price-panel-section">
                 <div class="price-panel-section-header">
                   <div class="price-panel-section-title-wrap">
+                    <span class="price-panel-section-title">止盈价格</span>
+                  </div>
+                  <div class="price-panel-section-actions">
+                    <div class="price-panel-action-buttons">
+                      <el-button
+                        size="small"
+                        :loading="savingTakeprofitGuides"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        @click="handleTakeprofitGuideEnabledAll(true)"
+                      >
+                        全部开启
+                      </el-button>
+                      <el-button
+                        size="small"
+                        :loading="savingTakeprofitGuides"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        @click="handleTakeprofitGuideEnabledAll(false)"
+                      >
+                        全部关闭
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="price-panel-summary">
+                  <span class="price-panel-summary-chip">
+                    已开启 {{ takeprofitGuideRows.filter((row) => row.manual_enabled).length }}/3
+                  </span>
+                  <span class="price-panel-summary-chip" :class="{ active: takeprofitRuntimeActiveCount > 0 }">
+                    运行态 {{ takeprofitRuntimeActiveCount }}/3
+                  </span>
+                </div>
+
+                <div class="price-panel-grid">
+                  <div
+                    v-for="row in takeprofitGuideRows"
+                    :key="row.level"
+                    class="price-panel-row"
+                  >
+                    <span
+                      class="price-guide-badge"
+                      :class="['price-guide-badge--takeprofit', `price-guide-badge--${row.tone}`]"
+                    >
+                      {{ row.lineLabel }}
+                    </span>
+                    <div class="price-panel-row-editor price-panel-row-editor--multi">
+                      <el-input-number
+                        v-model="takeprofitDrafts[row.draftIndex].price"
+                        size="small"
+                        :min="0"
+                        :step="0.001"
+                        :precision="3"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        controls-position="right"
+                      />
+                      <span class="price-panel-state-chip" :class="{ active: row.runtime_active }">
+                        运行态 {{ row.runtimeStateLabel }}
+                      </span>
+                      <el-switch
+                        :model-value="takeprofitDrafts[row.draftIndex].manual_enabled"
+                        size="small"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        inline-prompt
+                        active-text="开"
+                        inactive-text="关"
+                        @change="handleTakeprofitGuideEnabledChange(row.level, $event)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="price-panel-section">
+                <div class="price-panel-section-header">
+                  <div class="price-panel-section-title-wrap">
                     <span class="price-panel-section-title">Guardian 倍量价格</span>
                   </div>
                   <div class="price-panel-section-actions">
@@ -470,80 +545,6 @@
                 </div>
               </section>
 
-              <section class="price-panel-section">
-                <div class="price-panel-section-header">
-                  <div class="price-panel-section-title-wrap">
-                    <span class="price-panel-section-title">止盈价格</span>
-                  </div>
-                  <div class="price-panel-section-actions">
-                    <div class="price-panel-action-buttons">
-                      <el-button
-                        size="small"
-                        :loading="savingTakeprofitGuides"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        @click="handleTakeprofitGuideEnabledAll(true)"
-                      >
-                        全部开启
-                      </el-button>
-                      <el-button
-                        size="small"
-                        :loading="savingTakeprofitGuides"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        @click="handleTakeprofitGuideEnabledAll(false)"
-                      >
-                        全部关闭
-                      </el-button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="price-panel-summary">
-                  <span class="price-panel-summary-chip">
-                    已开启 {{ takeprofitGuideRows.filter((row) => row.manual_enabled).length }}/3
-                  </span>
-                  <span class="price-panel-summary-chip" :class="{ active: takeprofitRuntimeActiveCount > 0 }">
-                    运行态 {{ takeprofitRuntimeActiveCount }}/3
-                  </span>
-                </div>
-
-                <div class="price-panel-grid">
-                  <div
-                    v-for="row in takeprofitGuideRows"
-                    :key="row.level"
-                    class="price-panel-row"
-                  >
-                    <span
-                      class="price-guide-badge"
-                      :class="['price-guide-badge--takeprofit', `price-guide-badge--${row.tone}`]"
-                    >
-                      {{ row.lineLabel }}
-                    </span>
-                    <div class="price-panel-row-editor price-panel-row-editor--multi">
-                      <el-input-number
-                        v-model="takeprofitDrafts[row.draftIndex].price"
-                        size="small"
-                        :min="0"
-                        :step="0.001"
-                        :precision="3"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        controls-position="right"
-                      />
-                      <span class="price-panel-state-chip" :class="{ active: row.runtime_active }">
-                        运行态 {{ row.runtimeStateLabel }}
-                      </span>
-                      <el-switch
-                        :model-value="takeprofitDrafts[row.draftIndex].manual_enabled"
-                        size="small"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        inline-prompt
-                        active-text="开"
-                        inactive-text="关"
-                        @change="handleTakeprofitGuideEnabledChange(row.level, $event)"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </section>
             </div>
           </div>
         </div>
