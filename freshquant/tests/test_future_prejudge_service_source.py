@@ -1,5 +1,5 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 
 def test_get_future_prejudge_list_no_longer_uses_cursor_count():
