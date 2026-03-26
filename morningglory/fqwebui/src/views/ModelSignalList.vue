@@ -56,6 +56,7 @@ import { resolveDailyScreeningClsModelPresentation } from './dailyScreeningPage.
 import _ from 'lodash'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, reactive } from 'vue'
+import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
 
 export default {
   name: 'ModelSignalList',
@@ -105,12 +106,7 @@ export default {
       return normalized || '--'
     },
     formatDateTime (value) {
-      const normalized = this.formatText(value)
-      const matched = normalized.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/)
-      if (!matched) {
-        return normalized
-      }
-      return `${matched[2]}-${matched[3]} ${matched[4]}:${matched[5]}`
+      return formatBeijingTimestamp(value, '--')
     },
     resolveModelPresentation (value) {
       return resolveDailyScreeningClsModelPresentation(value)
@@ -158,5 +154,5 @@ export default {
   overflow hidden
 
 .stock-control-model-ledger__grid
-  grid-template-columns 72px 72px 56px minmax(0, 1fr) 80px 100px 120px 46px 160px
+  grid-template-columns 148px 148px 56px minmax(0, 1fr) 80px 100px 120px 60px 160px
 </style>

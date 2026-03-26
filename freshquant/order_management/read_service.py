@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from freshquant.instrument.general import query_instrument_info
 from freshquant.order_management.repository import OrderManagementRepository
@@ -11,6 +11,7 @@ from freshquant.util.code import normalize_to_base_code
 
 _TIME_FIELDS = {"created_at", "updated_at", "submitted_at"}
 _FAILED_STATES = {"FAILED", "REJECTED", "ERROR"}
+_BEIJING_TZ = timezone(timedelta(hours=8))
 
 
 class OrderManagementReadService:
@@ -404,7 +405,7 @@ def _parse_filter_datetime(value, *, upper_bound):
     if not text:
         return None
     if len(text) == 10:
-        text = f"{text}T23:59:59+00:00" if upper_bound else f"{text}T00:00:00+00:00"
+        text = f"{text}T23:59:59+08:00" if upper_bound else f"{text}T00:00:00+08:00"
     elif " " in text and "T" not in text:
         text = text.replace(" ", "T")
     if text.endswith("Z"):
@@ -414,7 +415,7 @@ def _parse_filter_datetime(value, *, upper_bound):
     except ValueError as exc:
         raise ValueError("invalid datetime filter") from exc
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=_BEIJING_TZ)
     return parsed
 
 

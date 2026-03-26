@@ -1,3 +1,5 @@
+import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
+
 const toText = (value) => String(value || '').trim()
 
 const toNumber = (value, fallback = 0) => {
@@ -74,7 +76,7 @@ export const buildOrderStats = (stats = {}) => {
     ...stats,
     total: toNumber(stats?.total),
     missing_broker_order_count: toNumber(stats?.missing_broker_order_count),
-    latest_updated_at: toText(stats?.latest_updated_at) || '-',
+    latest_updated_at: formatBeijingTimestamp(stats?.latest_updated_at),
     filled_count: toNumber(stats?.filled_count),
     partial_filled_count: toNumber(stats?.partial_filled_count),
     canceled_count: toNumber(stats?.canceled_count),
@@ -124,6 +126,7 @@ export const buildOrderDetailViewModel = (detail = {}) => {
   const tradeRows = (Array.isArray(detail?.trades) ? detail.trades : []).map((row) => ({
     ...row,
     trade_fact_id: toText(row?.trade_fact_id),
+    trade_time_label: formatBeijingTimestamp(row?.trade_time),
   }))
   const identifiers = {
     ...(detail?.identifiers || {}),
@@ -183,10 +186,5 @@ export const formatOrderQuantity = (value) => {
 }
 
 export const formatOrderTimestamp = (value) => {
-  const text = toText(value)
-  if (!text) return '-'
-  const normalized = text.replace('T', ' ')
-  const withoutTimezone = normalized.replace(/([+-]\d{2}:\d{2}|Z)$/i, '')
-  const withoutFraction = withoutTimezone.replace(/\.\d+$/, '')
-  return withoutFraction || '-'
+  return formatBeijingTimestamp(value)
 }

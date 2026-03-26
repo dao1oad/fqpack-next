@@ -441,6 +441,7 @@ import {
   createSubjectManagementActions,
 } from '@/views/subjectManagement.mjs'
 import { createSubjectManagementPageController } from '@/views/subjectManagementPage.mjs'
+import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
 
 const formatPrice = (value) => {
   if (value === null || value === undefined || value === '') return '-'
@@ -464,8 +465,7 @@ const formatWanAmount = (value) => {
 }
 
 const formatDateTime = (value) => {
-  const text = String(value || '').trim()
-  return text || '-'
+  return formatBeijingTimestamp(value)
 }
 
 const resolveStateChipClass = (state) => {
