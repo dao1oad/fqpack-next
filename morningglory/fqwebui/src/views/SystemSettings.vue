@@ -72,26 +72,42 @@
             :key="section.key"
             class="settings-dense-section"
           >
-            <div class="settings-dense-section__head">
-              <div>
-                <h2>{{ section.title }}</h2>
-                <p>{{ section.description }}</p>
-              </div>
-              <StatusChip class="settings-inline-chip" :variant="sectionModeChipVariant(section)">
-                {{ section.readonly ? '只读' : section.restart_required ? '需重启' : '即时' }}
-              </StatusChip>
-            </div>
-
             <div
-              v-if="section.kind === 'strategy-ledger'"
-              class="settings-ledger settings-strategy-ledger"
+              class="settings-ledger"
+              :class="section.kind === 'strategy-ledger' ? 'settings-strategy-ledger' : 'settings-config-ledger'"
             >
-              <div class="settings-ledger__header settings-strategy-ledger__grid">
-                <span>策略</span>
-                <span>名称</span>
-                <span>说明</span>
-                <span>b62_uid</span>
+              <div class="settings-dense-section__sticky">
+                <div class="settings-dense-section__summary">
+                  <div>
+                    <h2>{{ section.title }}</h2>
+                    <p>{{ section.description }}</p>
+                  </div>
+                  <StatusChip class="settings-inline-chip" :variant="sectionModeChipVariant(section)">
+                    {{ section.readonly ? '只读' : section.restart_required ? '需重启' : '即时' }}
+                  </StatusChip>
+                </div>
+
+                <div
+                  class="settings-ledger__header"
+                  :class="section.kind === 'strategy-ledger' ? 'settings-strategy-ledger__grid' : 'settings-config-ledger__grid'"
+                >
+                  <template v-if="section.kind === 'strategy-ledger'">
+                    <span>策略</span>
+                    <span>名称</span>
+                    <span>说明</span>
+                    <span>b62_uid</span>
+                  </template>
+                  <template v-else>
+                    <span>设置项</span>
+                    <span>当前值</span>
+                    <span>生效</span>
+                    <span>来源</span>
+                    <span>状态</span>
+                  </template>
+                </div>
               </div>
+
+              <template v-if="section.kind === 'strategy-ledger'">
               <div v-if="section.rows.length">
                 <div
                   v-for="row in section.rows"
@@ -107,19 +123,8 @@
               <div v-else class="settings-ledger-empty">
                 暂无策略字典记录。
               </div>
-            </div>
-
-            <div
-              v-else
-              class="settings-ledger settings-config-ledger"
-            >
-              <div class="settings-ledger__header settings-config-ledger__grid">
-                <span>设置项</span>
-                <span>当前值</span>
-                <span>生效</span>
-                <span>来源</span>
-                <span>状态</span>
-              </div>
+              </template>
+              <template v-else>
               <div
                 v-for="row in section.rows"
                 :key="row.key"
@@ -185,6 +190,7 @@
                   </StatusChip>
                 </div>
               </div>
+              </template>
             </div>
           </article>
         </section>
@@ -598,7 +604,6 @@ onMounted(() => {
 .settings-dense-section
   display flex
   flex-direction column
-  gap 8px
   padding-top 12px
   margin-top 12px
   border-top 1px solid #e7eef5
@@ -608,23 +613,27 @@ onMounted(() => {
   margin-top 0
   border-top 0
 
-.settings-dense-section__head
+.settings-dense-section__sticky
   position sticky
   top 40px
   z-index 4
   display flex
+  flex-direction column
+  background rgba(255, 255, 255, 0.98)
+
+.settings-dense-section__summary
+  display flex
   justify-content space-between
   gap 10px
   align-items flex-start
-  padding 8px 0
-  background rgba(255, 255, 255, 0.96)
+  padding 8px 10px 10px
 
-.settings-dense-section__head h2
+.settings-dense-section__summary h2
   margin 0
   color #1f3a56
   font-size 15px
 
-.settings-dense-section__head p
+.settings-dense-section__summary p
   margin 4px 0 0
   color #69839b
   font-size 12px
@@ -690,9 +699,6 @@ onMounted(() => {
   font-size 12px
 
 .settings-ledger__header
-  position sticky
-  top 88px
-  z-index 3
   background #f6f9fc
   color #68839d
   border-bottom 1px solid #e5edf5
@@ -812,6 +818,6 @@ onMounted(() => {
   .settings-ledger__cell--badge
     justify-content flex-start
 
-  .settings-dense-section__head
+  .settings-dense-section__sticky
     top 38px
 </style>
