@@ -1577,12 +1577,14 @@ test('RuntimeObservability.vue renders event detail tab bodies inside their el-t
   assert.match(content, /<el-tab-pane name="raw">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">[\s\S]*<\/section>\s*<\/el-tab-pane>/)
 })
 
-test('RuntimeObservability.vue allows the trace ledger scroll container to scroll vertically', async () => {
+test('RuntimeObservability.vue keeps trace ledger scrolling inside the dedicated viewport', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
-  const block = readStyleBlock(content, '.runtime-trace-ledger-scroll')
+  const shellBlock = readStyleBlock(content, '.runtime-trace-ledger-scroll')
+  const viewportBlock = readStyleBlock(content, '.runtime-ledger__viewport')
 
-  assert.match(block, /overflow-x:\s*auto;/)
-  assert.match(block, /overflow-y:\s*auto;/)
+  assert.match(shellBlock, /overflow:\s*hidden;/)
+  assert.match(viewportBlock, /overflow-y:\s*auto;/)
+  assert.match(viewportBlock, /overflow-x:\s*visible;/)
 })
 
 test('RuntimeObservability.vue enriches component event detail with decision fields guardian signal and context sections', async () => {
@@ -2566,6 +2568,7 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
   assert.match(content, /runtime-ledger runtime-trace-ledger/)
+  assert.match(content, /runtime-ledger__viewport runtime-trace-ledger__viewport/)
   assert.match(content, /<el-tabs v-model="activeTraceDetailTab" class="workspace-tabs trace-detail-tabs"/)
   assert.match(content, /<div class="workspace-tab-label">\s*<span>步骤<\/span>/)
   assert.match(content, /<div class="workspace-tab-label">\s*<span>摘要<\/span>/)
@@ -2576,7 +2579,9 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /detail-kv-table/)
   assert.match(content, /trace-summary-ledger/)
   assert.match(content, /embedded-raw-ledger/)
+  assert.match(content, /embedded-raw-ledger__viewport/)
   assert.match(content, /trace-step-ledger/)
+  assert.match(content, /trace-step-ledger__viewport/)
   assert.match(content, /<el-tab-pane name="steps">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--steps">/)
   assert.match(content, /buildTraceLedgerRows/)
   assert.match(content, /buildTraceStepLedgerRows/)
@@ -2610,9 +2615,13 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /原始数据/)
   assert.match(content, /\.runtime-detail-panel--steps \{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;[\s\S]*flex:\s*1 1 auto;/)
   assert.match(content, /\.trace-step-ledger \{[\s\S]*flex:\s*0 0 auto;[\s\S]*max-height:\s*min\(320px,\s*calc\(var\(--trace-step-ledger-row-height\)\s*\*\s*6\s*\+\s*2px\)\)/)
+  assert.match(content, /\.trace-step-ledger__viewport \{[\s\S]*overflow-y:\s*auto;/)
   assert.match(content, /\.trace-step-ledger__header,\s*\.trace-step-ledger__row \{[\s\S]*min-height:\s*var\(--trace-step-ledger-row-height\);/)
   assert.match(content, /\.trace-step-detail \{[\s\S]*flex:\s*1 0 220px;[\s\S]*min-height:\s*220px;[\s\S]*overflow:\s*auto;/)
   assert.match(content, /\.detail-pane-grid--step \{[\s\S]*grid-auto-rows:\s*max-content;[\s\S]*align-items:\s*start;/)
+  assert.doesNotMatch(content, /\.runtime-ledger__header \{[\s\S]*position:\s*sticky;/)
+  assert.doesNotMatch(content, /\.trace-step-ledger__header \{[\s\S]*position:\s*sticky;/)
+  assert.doesNotMatch(content, /\.embedded-raw-ledger__header \{[\s\S]*position:\s*sticky;/)
   assert.doesNotMatch(content, /trace-feed-row/)
   assert.doesNotMatch(content, /trace-group-card/)
   assert.doesNotMatch(content, /trace-summary-card/)
@@ -2631,6 +2640,7 @@ test('runtime observability event mode uses dense ledger layout instead of event
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
 
   assert.match(content, /runtime-ledger runtime-event-ledger/)
+  assert.match(content, /<div class="runtime-ledger__viewport">[\s\S]*v-for="\(row,\s*rowIndex\) in eventLedgerRows"/)
   assert.match(content, /<el-tabs v-model="activeEventDetailTab" class="workspace-tabs event-detail-tabs"/)
   assert.match(content, /<div class="workspace-tab-label">\s*<span>事件<\/span>/)
   assert.match(content, /<div class="workspace-tab-label">\s*<span>载荷<\/span>/)
