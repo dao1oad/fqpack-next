@@ -780,12 +780,9 @@ import {
   buildDailyScreeningAppendSinglePrePoolPayload,
   buildDailyScreeningConditionSectionGroups,
   buildDailyScreeningCurrentExpression,
-  buildDailyScreeningDefaultFilterState,
   buildDailyScreeningQueryPayload,
-  buildDailyScreeningWorkspaceTabs,
   buildDailyScreeningWorkbenchState,
   formatDailyScreeningConditionLabel,
-  normalizeDailyScreeningDetail,
   normalizeDailyScreeningFilterCatalog,
   normalizeDailyScreeningResultRows,
   normalizeDailyScreeningScopeItems,
@@ -794,6 +791,20 @@ import {
   resolveDailyScreeningClsGroupModels,
   toggleDailyScreeningSelection,
 } from './dailyScreeningPage.mjs'
+import {
+  buildDailyScreeningFilterDefaults,
+  createDailyScreeningQueryDebouncer,
+} from './dailyScreeningFilters.mjs'
+import {
+  buildDailyScreeningSelectedFilterKeys,
+  buildDailyScreeningWorkspaceTabs,
+  readDailyScreeningWorkspaceItems as readWorkspaceItems,
+  readDailyScreeningWorkspacePayload as readSharedWorkspacePayload,
+} from './dailyScreeningWorkspace.mjs'
+import {
+  buildEmptyDailyScreeningBasePoolStatus,
+  normalizeDailyScreeningDetail,
+} from './dailyScreeningDetail.mjs'
 
 const RESULT_PAGE_SIZE = 8
 
@@ -828,16 +839,18 @@ const metricFilters = reactive({
   ...DEFAULT_DAILY_CHANLUN_METRIC_FILTERS,
 })
 
-let queryDebounceTimer = null
 let suppressMetricFilterAutoQuery = false
+const dailyQueryDebouncer = createDailyScreeningQueryDebouncer({
+  onQueryRows: () => {
+    void queryRows()
+  },
+})
 
 const pageLoading = computed(() => loadingScopes.value || loadingFilters.value)
 const detailSnapshot = computed(() => detail.value?.snapshot || null)
-const detailBasePoolStatus = computed(() => detail.value?.basePoolStatus || {
-  inBasePool: false,
-  lastSeenScopeId: '',
-  lastSeenTradeDate: '',
-})
+const detailBasePoolStatus = computed(() => (
+  detail.value?.basePoolStatus || buildEmptyDailyScreeningBasePoolStatus()
+))
 const sectionHelp = computed(() => filterCatalog.value.sectionHelp || {})
 const conditionSectionGroups = computed(() => (
   buildDailyScreeningConditionSectionGroups(filterCatalog.value)
@@ -921,7 +934,7 @@ const isResultRowActive = (row) => String(row?.code || '').trim() === selectedCo
 const isWorkspaceRowActive = (row) => String(row?.code6 || '').trim() === selectedCode.value
 
 const applyDefaultFilterState = () => {
-  const defaults = buildDailyScreeningDefaultFilterState()
+  const defaults = buildDailyScreeningFilterDefaults()
   conditionKeys.value = [...defaults.conditionKeys]
   clsGroupKeys.value = [...defaults.clsGroupKeys]
   dayChanlunEnabled.value = Boolean(defaults.dayChanlunEnabled)
@@ -930,34 +943,14 @@ const applyDefaultFilterState = () => {
   metricFilters.biGainPercentLte = defaults.metricFilters.biGainPercentLte
 }
 
-const readSharedWorkspacePayload = (response) => {
-  if (response && typeof response === 'object') {
-    if (response.data && typeof response.data === 'object') {
-      return response.data
-    }
-    return response
-  }
-  return {}
-}
-
-const readWorkspaceItems = (response, itemKey = 'items') => {
-  const payload = readSharedWorkspacePayload(response)
-  if (Array.isArray(payload)) return payload
-  if (Array.isArray(payload?.[itemKey])) return payload[itemKey]
-  return []
-}
-
 const isWorkspaceActionRunning = (key) => workspaceActionKey.value === key
 
 const buildSelectedFilterKeys = () => {
-  const keys = [
-    ...clsGroupKeys.value,
-    ...conditionKeys.value,
-  ]
-  if (dayChanlunEnabled.value) {
-    keys.push('metric:daily_chanlun')
-  }
-  return keys
+  return buildDailyScreeningSelectedFilterKeys({
+    clsGroupKeys: clsGroupKeys.value,
+    conditionKeys: conditionKeys.value,
+    dayChanlunEnabled: dayChanlunEnabled.value,
+  })
 }
 
 const isSectionItemSelected = (section, item) => {
@@ -976,13 +969,7 @@ const handleResultPageChange = (page) => {
 }
 
 const scheduleQueryRows = () => {
-  if (queryDebounceTimer) {
-    clearTimeout(queryDebounceTimer)
-  }
-  queryDebounceTimer = setTimeout(() => {
-    queryDebounceTimer = null
-    void queryRows()
-  }, 250)
+  dailyQueryDebouncer.scheduleQueryRows()
 }
 
 const applyStateDefaults = (latestScope = null) => {
@@ -1407,10 +1394,7 @@ watch(selectedScopeId, async (scopeId) => {
 })
 
 onBeforeUnmount(() => {
-  if (queryDebounceTimer) {
-    clearTimeout(queryDebounceTimer)
-    queryDebounceTimer = null
-  }
+  dailyQueryDebouncer.cancel()
 })
 
 onMounted(async () => {

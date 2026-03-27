@@ -110,6 +110,43 @@ jobs:
           raise SystemExit(subprocess.call(command))
           PY
 
+  frontend:
+    name: frontend
+    needs: changes
+    if: needs.changes.outputs.has_changes == 'true' && (contains(needs.changes.outputs.changed_files_json, 'morningglory/fqwebui/') || contains(needs.changes.outputs.changed_files_json, '.github/workflows/ci.yml') || contains(needs.changes.outputs.changed_files_json, 'script/fq_local_preflight.ps1'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        working-directory: morningglory/fqwebui
+        run: npm ci
+
+      - name: Run frontend lint
+        working-directory: morningglory/fqwebui
+        run: npm run lint
+
+      - name: Run frontend unit tests
+        working-directory: morningglory/fqwebui
+        run: npm run test:unit
+
+      - name: Run frontend browser smoke
+        working-directory: morningglory/fqwebui
+        run: npm run test:browser-smoke
+
+      - name: Run frontend build
+        working-directory: morningglory/fqwebui
+        run: npm run build
+
   pytest-shards:
     name: pytest-shard (${{ matrix.shard }})
     needs: changes

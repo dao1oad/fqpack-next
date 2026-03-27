@@ -6,6 +6,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "lint": "eslint --ext .js,.mjs,.vue src tests",
+    "test:unit": "node ./scripts/run-node-tests.mjs",
+    "test:unit:all": "node ./scripts/run-node-tests.mjs --include-known-red",
+    "test:browser-smoke": "node --input-type=module -e \"import config from './playwright.config.mjs'; const chromiumProject = config?.projects?.find((project) => project?.name === 'chromium'); if (!config || !chromiumProject) throw new Error('missing chromium project'); if (config.testDir !== './tests') throw new Error('invalid testDir'); if (!String(config.testMatch).includes('browser')) throw new Error('invalid testMatch'); console.log('playwright smoke config ok');\"",
     "test:shouban30": "node --test src/views/shouban30Aggregation.test.mjs src/views/shouban30PoolWorkspace.test.mjs"
   },
   "dependencies": {
@@ -27,8 +31,10 @@
     "@babel/plugin-transform-private-methods": "^7.28.6",
     "@playwright/test": "^1.58.2",
     "@vitejs/plugin-vue": "^6.0.4",
+    "eslint": "^10.1.0",
     "stylus": "^0.64.0",
     "stylus-loader": "^8.1.3",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vue-eslint-parser": "^10.4.0"
   }
 }

@@ -146,31 +146,31 @@
 }
 
 .workbench-summary-chip--info {
-  border-color: #d6e4f2;
+  border-color: var(--fq-chip-border-info);
   background: var(--fq-chip-bg-info);
   color: var(--fq-status-info);
 }
 
 .workbench-summary-chip--success {
-  border-color: #d1fae5;
+  border-color: var(--fq-chip-border-success);
   background: var(--fq-chip-bg-success);
   color: var(--fq-status-success);
 }
 
 .workbench-summary-chip--warning {
-  border-color: #fde68a;
+  border-color: var(--fq-chip-border-warning);
   background: var(--fq-chip-bg-warning);
   color: var(--fq-status-warning);
 }
 
 .workbench-summary-chip--danger {
-  border-color: #fecaca;
+  border-color: var(--fq-chip-border-danger);
   background: var(--fq-chip-bg-danger);
   color: var(--fq-status-danger);
 }
 
 .workbench-summary-chip--skipped {
-  border-color: #ddd6fe;
+  border-color: var(--fq-chip-border-skipped);
   background: var(--fq-chip-bg-skipped);
   color: var(--fq-status-skipped);
 }

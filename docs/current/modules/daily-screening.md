@@ -22,6 +22,9 @@
   - `morningglory/fqwebui/src/views/DailyScreening.vue`
 - 前端状态/API
   - `morningglory/fqwebui/src/views/dailyScreeningPage.mjs`
+  - `morningglory/fqwebui/src/views/dailyScreeningFilters.mjs`
+  - `morningglory/fqwebui/src/views/dailyScreeningWorkspace.mjs`
+  - `morningglory/fqwebui/src/views/dailyScreeningDetail.mjs`
   - `morningglory/fqwebui/src/api/dailyScreeningApi.js`
 - 后端服务
   - `freshquant.daily_screening.service.DailyScreeningService`
@@ -136,6 +139,7 @@
 - 工作台说明标签、页头摘要条、右侧详情数值摘要与命中条件 chip 当前统一复用共享 `StatusChip`
 - 条件分组勾选
 - 页头 `每日选股` 的工作说明下方直接放 `Scope` 下拉；左侧筛选面板不再重复展示独立 `Scope` 卡片，也不再显示“筛选工作台”标题和说明
+- `DailyScreening.vue` 当前只保留页面壳编排；默认筛选值、查询防抖、共享工作区 tab 归一和右侧详情 chip 归一分别下沉到 `dailyScreeningFilters.mjs`、`dailyScreeningWorkspace.mjs`、`dailyScreeningDetail.mjs`
 - `基础池（并集）`
   - `CLS 模型分组`
   - `热门窗口`

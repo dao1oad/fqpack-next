@@ -1,1 +1,0 @@
-import{o as t,c as s,d as r,a9 as o,al as n,ac as c}from"./index-CvwmWjSt.js";const i={__name:"WorkbenchDetailPanel",props:{tag:{type:String,default:"section"}},setup(e){return(a,l)=>(t(),s(c,n({class:"workbench-panel--detail",tag:e.tag},a.$attrs),{default:r(()=>[o(a.$slots,"default")]),_:3},16,["tag"]))}};export{i as _};

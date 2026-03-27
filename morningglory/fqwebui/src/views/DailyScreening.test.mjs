@@ -33,7 +33,7 @@ test('DailyScreening renders dense workbench layout for grouped filters and work
   assert.ok(source.includes('handleWorkspaceRowClick'))
   assert.ok(source.includes('daily-detail-card-grid'))
   assert.ok(source.includes('daily-detail-history-panel'))
-  assert.ok(source.includes('buildDailyScreeningDefaultFilterState'))
+  assert.ok(source.includes('buildDailyScreeningFilterDefaults'))
   assert.match(source, /const applyDefaultFilterState = \(\) => \{/)
   assert.match(source, /const resetFilters = async \(\) => \{[\s\S]*applyDefaultFilterState\(\)/)
   assert.match(source, /watch\(selectedScopeId, async \(scopeId\) => \{[\s\S]*applyDefaultFilterState\(\)/)
@@ -68,4 +68,12 @@ test('DailyScreening routes guide summary and detail chips through shared Status
   assert.match(source, /<StatusChip[\s\S]*v-for="item in detail\.hotMemberships"[\s\S]*variant="warning"/)
   assert.match(source, /<StatusChip[\s\S]*v-for="item in detail\.marketFlagMemberships"[\s\S]*variant="success"/)
   assert.match(source, /<StatusChip[\s\S]*:variant="detailBasePoolStatus\.inBasePool \? 'success' : 'warning'"/)
+})
+
+test('DailyScreening.vue imports split filter, workspace, and detail modules', async () => {
+  const content = await fs.promises.readFile(componentPath, 'utf8')
+
+  assert.match(content, /from '\.\/dailyScreeningFilters\.mjs'/)
+  assert.match(content, /from '\.\/dailyScreeningWorkspace\.mjs'/)
+  assert.match(content, /from '\.\/dailyScreeningDetail\.mjs'/)
 })

@@ -1,27 +1,27 @@
-import axios from 'axios'
+import http from '@/http'
 
 export const positionManagementApi = {
   getDashboard () {
-    return axios({
+    return http({
       url: '/api/position-management/dashboard',
       method: 'get'
     })
   },
   getConfig () {
-    return axios({
+    return http({
       url: '/api/position-management/config',
       method: 'get'
     })
   },
   updateConfig (data) {
-    return axios({
+    return http({
       url: '/api/position-management/config',
       method: 'post',
       data
     })
   },
   updateSymbolLimit (symbol, data) {
-    return axios({
+    return http({
       url: `/api/position-management/symbol-limits/${String(symbol || '').trim()}`,
       method: 'post',
       data

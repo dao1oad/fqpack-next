@@ -40,6 +40,7 @@
 - 本地开 PR 的正式入口：`script/fq_open_pr.ps1`
 - 仓库 `git push` 会通过 `.githooks/pre-push` 调用本地预检；首次接入或 hook 丢失时，用 `script/install_repo_hooks.ps1` 恢复 `core.hooksPath`
 - 当前本地预检会缓存 docs guard / pre-commit / pytest / review-thread 检查结果；当前分支已有关联 PR 且 `gh` 已登录时，会直接阻断 unresolved review threads
+- 当前本地预检命中 `morningglory/fqwebui/**`、`.github/workflows/ci.yml` 或 `script/fq_local_preflight.ps1` 变更时，会额外执行 `npm run lint`、`npm run test:browser-smoke`、`npm run test:unit`、`npm run build`
 - FQNext 宿主机 Supervisor service：`fqnext-supervisord`
 - Supervisor XML-RPC 入口：`http://127.0.0.1:10011/RPC2`
 - formal deploy 状态根目录：`D:/fqpack/runtime/formal-deploy`

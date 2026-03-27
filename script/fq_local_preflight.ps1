@@ -38,12 +38,35 @@ function Resolve-PythonLauncher {
     throw "Python launcher not found in PATH."
 }
 
-function Resolve-UvPath {
+function Resolve-UvCommand {
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+
     $uvCommand = Get-Command uv -ErrorAction SilentlyContinue
-    if (-not $uvCommand) {
-        throw "uv not found in PATH."
+    if ($uvCommand) {
+        return @{
+            Path = $uvCommand.Source
+            Prefix = @()
+        }
     }
-    return $uvCommand.Source
+
+    $pythonLauncher = Resolve-PythonLauncher -RepoRoot $RepoRoot
+    & $pythonLauncher.Path @($pythonLauncher.Prefix + @("-m", "uv", "--version")) | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        return @{
+            Path = $pythonLauncher.Path
+            Prefix = @($pythonLauncher.Prefix + @("-m", "uv"))
+        }
+    }
+
+    throw "uv not found in PATH and python -m uv is unavailable."
+}
+
+function Resolve-NpmPath {
+    $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
+    if (-not $npmCommand) {
+        throw "npm not found in PATH."
+    }
+    return $npmCommand.Source
 }
 
 function Invoke-Git {
@@ -142,8 +165,14 @@ function Test-ValidPreflightRecord {
     param(
         [Parameter(Mandatory = $true)][string]$RecordPath,
         [Parameter(Mandatory = $true)][string]$HeadSha,
-        [Parameter(Mandatory = $true)][string]$BaseSha
+        [Parameter(Mandatory = $true)][string]$BaseSha,
+        [Parameter(Mandatory = $true)][bool]$FrontendChanged,
+        [Parameter(Mandatory = $true)][bool]$HasUncommittedChanges
     )
+
+    if ($HasUncommittedChanges) {
+        return $false
+    }
 
     if (-not (Test-Path $RecordPath)) {
         return $false
@@ -157,9 +186,79 @@ function Test-ValidPreflightRecord {
     return (
         $payload.governance.status -eq "passed" -and
         $payload.pre_commit.status -eq "passed" -and
+        $(
+            if ($FrontendChanged) {
+                $payload.frontend.lint -eq "passed" -and
+                $payload.frontend.browser_smoke -eq "passed" -and
+                $payload.frontend.test_unit -eq "passed" -and
+                $payload.frontend.build -eq "passed"
+            }
+            else {
+                @("passed", "skipped") -contains [string]$payload.frontend.lint -and
+                @("passed", "skipped") -contains [string]$payload.frontend.browser_smoke -and
+                @("passed", "skipped") -contains [string]$payload.frontend.test_unit -and
+                @("passed", "skipped") -contains [string]$payload.frontend.build
+            }
+        ) -and
         $payload.pytest.status -eq "passed" -and
         @("passed", "skipped") -contains [string]$payload.review_threads.status
     )
+}
+
+function Test-FrontendChanges {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$ResolvedBaseRef
+    )
+
+    $triggerPaths = @(
+        "morningglory/fqwebui",
+        ".github/workflows/ci.yml",
+        "script/fq_local_preflight.ps1"
+    )
+
+    $changedFiles = & git -C $RepoRoot diff --name-only $ResolvedBaseRef -- @triggerPaths
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to detect frontend changes."
+    }
+
+    $untrackedFiles = & git -C $RepoRoot ls-files --others --exclude-standard -- @triggerPaths
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to detect untracked frontend changes."
+    }
+
+    foreach ($changedFile in @($changedFiles) + @($untrackedFiles)) {
+        $normalizedChangedFile = ($changedFile -replace '\\', '/')
+        if (
+            -not [string]::IsNullOrWhiteSpace($changedFile) -and
+            (
+                $normalizedChangedFile -like 'morningglory/fqwebui/*' -or
+                $normalizedChangedFile -eq '.github/workflows/ci.yml' -or
+                $normalizedChangedFile -eq 'script/fq_local_preflight.ps1'
+            )
+        ) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Test-HasUncommittedChanges {
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+
+    $statusLines = & git -C $RepoRoot status --porcelain --untracked-files=normal
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to detect uncommitted changes."
+    }
+
+    foreach ($statusLine in $statusLines) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$statusLine)) {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 function Invoke-ReviewThreadsCheck {
@@ -211,11 +310,13 @@ if ($Mode -ne "Check" -and -not $SkipFetch) {
 
 $headSha = Get-GitSha -RepoRoot $repoRoot -RefName "HEAD"
 $baseSha = Get-GitSha -RepoRoot $repoRoot -RefName $resolvedBaseRef
+$frontendChanged = Test-FrontendChanges -RepoRoot $repoRoot -ResolvedBaseRef $resolvedBaseRef
+$hasUncommittedChanges = Test-HasUncommittedChanges -RepoRoot $repoRoot
 $recordPath = Join-Path $recordRoot "$headSha.json"
 $pythonLauncher = Resolve-PythonLauncher -RepoRoot $repoRoot
 
 if ($Mode -eq "Check") {
-    if (Test-ValidPreflightRecord -RecordPath $recordPath -HeadSha $headSha -BaseSha $baseSha) {
+    if (Test-ValidPreflightRecord -RecordPath $recordPath -HeadSha $headSha -BaseSha $baseSha -FrontendChanged $frontendChanged -HasUncommittedChanges $hasUncommittedChanges) {
         $reviewThreadsResult = Invoke-ReviewThreadsCheck -RepoRoot $repoRoot -PythonLauncher $pythonLauncher
         if ($reviewThreadsResult.ExitCode -ne 0) {
             exit 1
@@ -228,7 +329,7 @@ if ($Mode -eq "Check") {
     exit 1
 }
 
-if ($Mode -eq "Ensure" -and (Test-ValidPreflightRecord -RecordPath $recordPath -HeadSha $headSha -BaseSha $baseSha)) {
+if ($Mode -eq "Ensure" -and (Test-ValidPreflightRecord -RecordPath $recordPath -HeadSha $headSha -BaseSha $baseSha -FrontendChanged $frontendChanged -HasUncommittedChanges $hasUncommittedChanges)) {
     $reviewThreadsResult = Invoke-ReviewThreadsCheck -RepoRoot $repoRoot -PythonLauncher $pythonLauncher
     if ($reviewThreadsResult.ExitCode -ne 0) {
         exit $reviewThreadsResult.ExitCode
@@ -248,7 +349,8 @@ if ($Mode -eq "Ensure" -and (Test-ValidPreflightRecord -RecordPath $recordPath -
     exit 0
 }
 
-$uvPath = Resolve-UvPath
+$uvCommand = Resolve-UvCommand -RepoRoot $repoRoot
+$frontendRoot = Join-Path $repoRoot "morningglory\fqwebui"
 $checkCurrentDocsScript = Join-Path $repoRoot "script\ci\check_current_docs.py"
 $governanceExitCode = Invoke-ExternalCommand -FilePath $pythonLauncher.Path -Arguments @(
     $pythonLauncher.Prefix + @(
@@ -263,31 +365,79 @@ if ($governanceExitCode -ne 0) {
     exit $governanceExitCode
 }
 
-$preCommitExitCode = Invoke-ExternalCommand -FilePath $uvPath -Arguments @(
-    "tool",
-    "run",
-    "pre-commit",
-    "run",
-    "--show-diff-on-failure",
-    "--color=always",
-    "--from-ref",
-    $resolvedBaseRef,
-    "--to-ref",
-    "HEAD"
+$preCommitExitCode = Invoke-ExternalCommand -FilePath $uvCommand.Path -Arguments @(
+    $uvCommand.Prefix + @(
+        "tool",
+        "run",
+        "pre-commit",
+        "run",
+        "--show-diff-on-failure",
+        "--color=always",
+        "--from-ref",
+        $resolvedBaseRef,
+        "--to-ref",
+        "HEAD"
+    )
 )
 if ($preCommitExitCode -ne 0) {
     exit $preCommitExitCode
 }
 
-$pytestExitCode = Invoke-ExternalCommand -FilePath $uvPath -Arguments @(
-    "run",
-    "pytest",
-    "-q",
-    "freshquant/tests",
-    "-n",
-    "auto",
-    "--dist",
-    "loadfile"
+if ($frontendChanged) {
+    $npmPath = Resolve-NpmPath
+
+    $frontendLintExitCode = Invoke-ExternalCommand -FilePath $npmPath -Arguments @(
+        "--prefix",
+        $frontendRoot,
+        "run",
+        "lint"
+    )
+    if ($frontendLintExitCode -ne 0) {
+        exit $frontendLintExitCode
+    }
+
+    $frontendBrowserSmokeExitCode = Invoke-ExternalCommand -FilePath $npmPath -Arguments @(
+        "--prefix",
+        $frontendRoot,
+        "run",
+        "test:browser-smoke"
+    )
+    if ($frontendBrowserSmokeExitCode -ne 0) {
+        exit $frontendBrowserSmokeExitCode
+    }
+
+    $frontendUnitExitCode = Invoke-ExternalCommand -FilePath $npmPath -Arguments @(
+        "--prefix",
+        $frontendRoot,
+        "run",
+        "test:unit"
+    )
+    if ($frontendUnitExitCode -ne 0) {
+        exit $frontendUnitExitCode
+    }
+
+    $frontendBuildExitCode = Invoke-ExternalCommand -FilePath $npmPath -Arguments @(
+        "--prefix",
+        $frontendRoot,
+        "run",
+        "build"
+    )
+    if ($frontendBuildExitCode -ne 0) {
+        exit $frontendBuildExitCode
+    }
+}
+
+$pytestExitCode = Invoke-ExternalCommand -FilePath $uvCommand.Path -Arguments @(
+    $uvCommand.Prefix + @(
+        "run",
+        "pytest",
+        "-q",
+        "freshquant/tests",
+        "-n",
+        "auto",
+        "--dist",
+        "loadfile"
+    )
 )
 if ($pytestExitCode -ne 0) {
     exit $pytestExitCode
@@ -315,6 +465,12 @@ $payload = [ordered]@{
     executed_at = (Get-Date).ToString("o")
     governance = [ordered]@{ status = "passed" }
     pre_commit = [ordered]@{ status = "passed" }
+    frontend = [ordered]@{
+        lint = if ($frontendChanged) { "passed" } else { "skipped" }
+        browser_smoke = if ($frontendChanged) { "passed" } else { "skipped" }
+        test_unit = if ($frontendChanged) { "passed" } else { "skipped" }
+        build = if ($frontendChanged) { "passed" } else { "skipped" }
+    }
     pytest = [ordered]@{ status = "passed" }
     review_threads = [ordered]@{
         status = $reviewThreadStatus

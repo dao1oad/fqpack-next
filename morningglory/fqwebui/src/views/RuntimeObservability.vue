@@ -908,7 +908,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
 import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
@@ -956,69 +956,83 @@ import {
   TRACE_QUERY_FIELDS,
   TRACE_QUERY_LABELS,
 } from './runtimeObservability.mjs'
+import {
+  EVENT_PAGE_SIZE,
+  TRACE_PAGE_SIZE,
+  TRACE_STEP_PAGE_SIZE,
+  buildEventRequestKey as buildRuntimeEventRequestKey,
+  buildEventRequestParams as buildRuntimeEventRequestParams,
+  buildTraceRequestParams as buildRuntimeTraceRequestParams,
+  createRuntimeObservabilityQueryState,
+  mergeByKey,
+  summarizeRequestError,
+} from './runtimeObservabilityQueries.mjs'
+import {
+  buildEventCopyText as buildRuntimeEventCopyText,
+  buildIdentityCopyValue as buildRuntimeIdentityCopyValue,
+  buildStepCopyText as buildRuntimeStepCopyText,
+  createRuntimeObservabilitySelectionState,
+  isActiveEventRow as checkActiveEventRow,
+  isActiveTraceRow as checkActiveTraceRow,
+  resetSelectedTraceDetailState as resetRuntimeSelectedTraceDetailState,
+  stepKey as buildRuntimeStepKey,
+  syncSelectedStep as syncRuntimeSelectedStep,
+} from './runtimeObservabilitySelection.mjs'
+import {
+  buildFilterChips,
+  createRuntimeObservabilityFilterState,
+  normalizeTimeRangeState as normalizeRuntimeTimeRangeState,
+  syncQueryState as syncRuntimeQueryState,
+} from './runtimeObservabilityFilters.mjs'
 
-const loading = reactive({
-  overview: false,
-  traces: false,
-  events: false,
-  traceDetail: false,
-  traceSteps: false,
-  raw: false,
+const {
+  loading,
+  healthSummaryItems,
+  healthCards,
+  traces,
+  traceNextCursor,
+  events,
+  eventNextCursor,
+  pageError,
+} = createRuntimeObservabilityQueryState()
+const {
+  query,
+  draftQuery,
+  timeRange,
+  activeView,
+  onlyIssues,
+  traceOnlyIssues,
+  autoRefresh,
+  advancedFilterVisible,
+  userSelectedComponent,
+  selectedTraceKind,
+  boardFilter,
+  traceIssueFocus,
+} = createRuntimeObservabilityFilterState({
+  createTraceQueryState,
+  buildRuntimeDefaultTimeRange,
 })
-
-const TRACE_PAGE_SIZE = 60
-const EVENT_PAGE_SIZE = 120
-const TRACE_STEP_PAGE_SIZE = 160
-
-const query = reactive(createTraceQueryState())
-const draftQuery = reactive(createTraceQueryState())
-
-const healthSummaryItems = ref([])
-const healthCards = ref([])
-const traces = ref([])
-const traceNextCursor = ref(null)
-const events = ref([])
-const eventNextCursor = ref(null)
-const timeRange = ref(buildRuntimeDefaultTimeRange())
-const selectedTrace = ref(null)
-const selectedTracePayload = ref(null)
-const traceSteps = ref([])
-const traceStepsNextCursor = ref(null)
-const selectedStep = ref(null)
-const selectedEvent = ref(null)
-const activeView = ref('traces')
-const onlyIssues = ref(false)
-const traceOnlyIssues = ref(false)
-const autoRefresh = ref(true)
-const advancedFilterVisible = ref(false)
-const userSelectedComponent = ref(false)
-const selectedTraceKind = ref('all')
-const activeTraceDetailTab = ref('steps')
-const activeEventDetailTab = ref('event')
-const rawDrawerVisible = ref(false)
-const rawFiles = ref([])
-const rawRecords = ref([])
-const rawFocusedIndex = ref(-1)
-const rawSelectionKey = ref('')
+const {
+  selectedTrace,
+  selectedTracePayload,
+  traceSteps,
+  traceStepsNextCursor,
+  selectedStep,
+  selectedEvent,
+  activeTraceDetailTab,
+  activeEventDetailTab,
+  rawDrawerVisible,
+  rawFiles,
+  rawRecords,
+  rawFocusedIndex,
+  rawSelectionKey,
+  rawQuery,
+  lastLoadedEventQueryKey,
+} = createRuntimeObservabilitySelectionState()
 const rawRecordRefs = new Map()
 const stepRowRefs = new Map()
-const pageError = ref('')
-const boardFilter = reactive({
-  component: '',
-  runtime_node: '',
-})
-const traceIssueFocus = reactive({
-  component: '',
-})
-const lastLoadedEventQueryKey = ref('')
 let eventLoadToken = 0
 let traceDetailLoadToken = 0
-const rawQuery = reactive({
-  runtime_node: '',
-  component: '',
-  date: '',
-  file: '',
-})
 let overviewTimer = null
 
 const hasDetailValue = (value) => {
@@ -1142,32 +1156,25 @@ const buildContextRows = (blocks = []) => {
   )
 }
 
-const normalizeTimeRangeState = (value) => {
-  if (Array.isArray(value) && value.length === 2) {
-    const [startTime, endTime] = value
-    if (String(startTime || '').trim() && String(endTime || '').trim()) {
-      return [startTime, endTime]
-    }
-  }
-  return buildRuntimeDefaultTimeRange()
-}
+const normalizeTimeRangeState = (value) => normalizeRuntimeTimeRangeState(value, {
+  buildRuntimeDefaultTimeRange,
+})
 
-const buildTraceRequestParams = () => ({
-  ...buildTraceQuery(query, timeRange.value),
-  ...(selectedTraceKind.value && selectedTraceKind.value !== 'all'
-    ? { trace_kind: selectedTraceKind.value }
-    : {}),
-  include_symbol_name: 1,
-  limit: TRACE_PAGE_SIZE,
+const buildTraceRequestParams = () => buildRuntimeTraceRequestParams({
+  buildTraceQuery,
+  query,
+  timeRange: timeRange.value,
+  selectedTraceKind: selectedTraceKind.value,
 })
-const buildEventRequestParams = () => ({
-  ...buildBoardScopedQuery(query, boardFilter, timeRange.value),
-  include_symbol_name: 1,
-  limit: EVENT_PAGE_SIZE,
+
+const buildEventRequestParams = () => buildRuntimeEventRequestParams({
+  buildBoardScopedQuery,
+  query,
+  boardFilter,
+  timeRange: timeRange.value,
 })
-const buildEventRequestKey = () => JSON.stringify({
-  ...buildEventRequestParams(),
-})
+
+const buildEventRequestKey = () => buildRuntimeEventRequestKey(buildEventRequestParams())
 const timeRangeDisplayLabel = computed(() => formatTimeRangeLabel(timeRange.value))
 
 const hydratedTraces = computed(() => traces.value.map((trace) => buildTraceDetail(trace)))
@@ -1212,49 +1219,15 @@ const componentEventEmptyState = computed(() => buildComponentEventEmptyState({
   visibleEvents: componentEventFeed.value,
   onlyIssues: onlyIssues.value,
 }))
-const filterChips = computed(() => {
-  const chips = []
-  if (traceOnlyIssues.value) {
-    chips.push({
-      key: 'trace-only-issues',
-      label: '异常链路',
-      kind: 'trace-only-issues',
-    })
-  }
-  if (onlyIssues.value) {
-    chips.push({
-      key: 'only-issues',
-      label: '仅异常',
-      kind: 'toggle',
-    })
-  }
-  for (const [field, label] of Object.entries(TRACE_QUERY_LABELS)) {
-    const value = String(query[field] || '').trim()
-    if (!value) continue
-    chips.push({
-      key: `query-${field}`,
-      label: `${label}: ${value}`,
-      kind: 'query',
-      field,
-    })
-  }
-  if (selectedTraceKind.value && selectedTraceKind.value !== 'all') {
-    const activeOption = traceKindOptions.value.find((item) => item.value === selectedTraceKind.value)
-    chips.push({
-      key: 'trace-kind',
-      label: activeOption?.label || selectedTraceKind.value,
-      kind: 'trace-kind',
-    })
-  }
-  if (traceIssueFocusLabel.value) {
-    chips.push({
-      key: 'trace-issue-focus',
-      label: `异常组件: ${traceIssueFocusLabel.value}`,
-      kind: 'trace-issue-focus',
-    })
-  }
-  return chips
-})
+const filterChips = computed(() => buildFilterChips({
+  traceOnlyIssues: traceOnlyIssues.value,
+  onlyIssues: onlyIssues.value,
+  query,
+  traceQueryLabels: TRACE_QUERY_LABELS,
+  selectedTraceKind: selectedTraceKind.value,
+  traceKindOptions: traceKindOptions.value,
+  traceIssueFocusLabel: traceIssueFocusLabel.value,
+}))
 
 const selectedTraceDetail = computed(() => buildTraceDetail({
   ...(selectedTrace.value || {}),
@@ -1871,40 +1844,14 @@ const embeddedRawLedgerRows = computed(() =>
   })),
 )
 
-const syncQueryState = (target, source = {}) => {
-  for (const field of TRACE_QUERY_FIELDS) {
-    target[field] = String(source?.[field] || '').trim()
-  }
-}
+const syncQueryState = (target, source = {}) => syncRuntimeQueryState(target, source, TRACE_QUERY_FIELDS)
 
-const summarizeRequestError = (fallback, error) => {
-  const detail = String(
-    error?.response?.data?.detail ||
-      error?.response?.data?.message ||
-      error?.message ||
-      '',
-  ).trim()
-  return detail ? `${fallback}：${detail}` : fallback
-}
-
-const mergeByKey = (items = [], keyField = 'trace_key') => {
-  const merged = []
-  const seen = new Set()
-  for (const item of items) {
-    const key = String(item?.[keyField] || item?.trace_id || item?.event_id || '').trim()
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    merged.push(item)
-  }
-  return merged
-}
-
-const resetSelectedTraceDetailState = () => {
-  selectedTracePayload.value = null
-  traceSteps.value = []
-  traceStepsNextCursor.value = null
-  selectedStep.value = null
-}
+const resetSelectedTraceDetailState = () => resetRuntimeSelectedTraceDetailState({
+  selectedTracePayload,
+  traceSteps,
+  traceStepsNextCursor,
+  selectedStep,
+})
 
 const loadOverview = async () => {
   loading.overview = true
@@ -1990,7 +1937,7 @@ const loadEvents = async (options = {}) => {
     ...(cursor?.ts ? { cursor_ts: cursor.ts } : {}),
     ...(cursor?.event_id ? { cursor_event_id: cursor.event_id } : {}),
   }
-  const requestKey = JSON.stringify(buildEventRequestParams())
+  const requestKey = buildEventRequestKey()
   eventLoadToken = loadToken
   loading.events = true
   try {
@@ -2240,11 +2187,7 @@ const handleTraceAnchorJump = async (mode) => {
   await scrollToSelectedStep()
 }
 
-const buildIdentityCopyValue = (item = {}) => {
-  return Array.isArray(item?.values) && item.values.length > 0
-    ? item.values.join('\n')
-    : String(item?.value || '').trim()
-}
+const buildIdentityCopyValue = (item = {}) => buildRuntimeIdentityCopyValue(item)
 
 const openRawBrowser = async () => {
   const target = activeView.value === 'events' ? selectedEvent.value : selectedStep.value
@@ -2315,14 +2258,7 @@ const loadRawTail = async (
   }
 }
 
-const stepKey = (step) => {
-  return [
-    step?.component || '',
-    step?.node || '',
-    step?.ts || '',
-    step?.index ?? '',
-  ].join('|')
-}
+const stepKey = (step) => buildRuntimeStepKey(step)
 
 const isActiveStep = (step) => {
   return stepKey(selectedStep.value) === stepKey(step)
@@ -2369,42 +2305,11 @@ const statusChipVariant = (status) => {
   return 'info'
 }
 
-const buildStepCopyText = (step) => {
-  if (!step) return ''
-  const lines = [
-    `${step.component}.${step.node}`,
-    `status: ${step.status || 'info'}`,
-    step.ts ? `ts: ${step.ts}` : '',
-    ...(step.detail_fields || []).map((field) => `${field.key}: ${field.value}`),
-    ...(step.tags || []).map((tag) => `${tag.label}: ${tag.value}`),
-  ].filter(Boolean)
-  return lines.join('\n')
-}
+const buildStepCopyText = (step) => buildRuntimeStepCopyText(step)
 
-const isActiveTraceRow = (row) => {
-  const selectedKey = selectedTrace.value?.trace_key || ''
-  const selectedId = selectedTrace.value?.trace_id || ''
-  return (
-    (row?.trace_key && row.trace_key === selectedKey) ||
-    (row?.trace_id && row.trace_id === selectedId)
-  )
-}
+const isActiveTraceRow = (row) => checkActiveTraceRow(selectedTrace.value, row)
 
-const isActiveEventRow = (row) => {
-  return [
-    row?.key || '',
-    row?.component || '',
-    row?.runtime_node || '',
-    row?.node || '',
-    row?.ts || '',
-  ].join('|') === [
-    selectedEvent.value?.key || '',
-    selectedEvent.value?.component || '',
-    selectedEvent.value?.runtime_node || '',
-    selectedEvent.value?.node || '',
-    selectedEvent.value?.ts || '',
-  ].join('|')
-}
+const isActiveEventRow = (row) => checkActiveEventRow(selectedEvent.value, row)
 
 const copyText = async (value) => {
   const text = String(value || '').trim()
@@ -2418,17 +2323,7 @@ const copyText = async (value) => {
   }
 }
 
-const buildEventCopyText = (event) => {
-  if (!event) return ''
-  return [
-    `${event.component}.${event.node}`,
-    `event_type: ${event.event_type || 'trace_step'}`,
-    `status: ${event.status || 'info'}`,
-    event.runtime_node ? `runtime_node: ${event.runtime_node}` : '',
-    event.ts ? `ts: ${event.ts}` : '',
-    ...(event.badges || []),
-  ].filter(Boolean).join('\n')
-}
+const buildEventCopyText = (event) => buildRuntimeEventCopyText(event)
 
 const resetOverviewTimer = () => {
   overviewTimer = stopPollingTimer(overviewTimer, { clearInterval: window.clearInterval.bind(window) })
@@ -2438,15 +2333,11 @@ const resetOverviewTimer = () => {
   }, 15000)
 }
 
-const syncSelectedStep = () => {
-  const steps = filteredSteps.value
-  if (!steps.length) {
-    selectedStep.value = null
-    return
-  }
-  const currentKey = stepKey(selectedStep.value)
-  selectedStep.value = steps.find((step) => stepKey(step) === currentKey) || pickDefaultTraceStep(steps)
-}
+const syncSelectedStep = () => syncRuntimeSelectedStep({
+  filteredSteps: filteredSteps.value,
+  selectedStep,
+  pickDefaultTraceStep,
+})
 
 const setRawRecordRef = (element, index) => {
   rawRecordRefs.set(index, element || null)

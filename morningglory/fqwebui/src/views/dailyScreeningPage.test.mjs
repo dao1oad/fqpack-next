@@ -425,3 +425,135 @@ test('DailyScreening.vue reuses shared StatusChip variants for summary and detai
   assert.match(content, /<StatusChip[\s\S]*v-for="item in detail\.marketFlagMemberships"[\s\S]*variant="success"/)
   assert.match(content, /<StatusChip[\s\S]*:variant="detailBasePoolStatus\.inBasePool \? 'success' : 'warning'"/)
 })
+
+test('dailyScreeningFilters exposes default state and debounced refresh wiring', async () => {
+  const {
+    buildDailyScreeningFilterDefaults,
+    createDailyScreeningQueryDebouncer,
+  } = await import('./dailyScreeningFilters.mjs')
+
+  assert.deepEqual(buildDailyScreeningFilterDefaults(), {
+    conditionKeys: ['flag:credit_subject'],
+    clsGroupKeys: [],
+    dayChanlunEnabled: true,
+    metricFilters: {
+      higherMultipleLte: 3,
+      segmentMultipleLte: 2,
+      biGainPercentLte: 20,
+    },
+  })
+
+  const scheduledTimers = []
+  const clearedTimers = []
+  let queryCount = 0
+
+  const debouncer = createDailyScreeningQueryDebouncer({
+    delayMs: 250,
+    setTimer: (fn, delayMs) => {
+      const timerId = scheduledTimers.length + 1
+      scheduledTimers.push({ timerId, delayMs, fn })
+      return timerId
+    },
+    clearTimer: (timerId) => {
+      clearedTimers.push(timerId)
+    },
+    onQueryRows: () => {
+      queryCount += 1
+    },
+  })
+
+  debouncer.scheduleQueryRows()
+  debouncer.scheduleQueryRows()
+
+  assert.deepEqual(
+    scheduledTimers.map((item) => item.delayMs),
+    [250, 250],
+  )
+  assert.deepEqual(clearedTimers, [1])
+
+  scheduledTimers.at(-1).fn()
+  assert.equal(queryCount, 1)
+})
+
+test('dailyScreeningWorkspace keeps the shared workspace tab labels', async () => {
+  const { buildDailyScreeningWorkspaceTabs } = await import('./dailyScreeningWorkspace.mjs')
+
+  const tabs = buildDailyScreeningWorkspaceTabs({
+    prePoolItems: [
+      {
+        code: '000001',
+        name: '平安银行',
+        category: '三十涨停Pro预选',
+        extra: {
+          shouban30_provider: 'daily_screening',
+          shouban30_plate_name: '每日选股交集',
+        },
+      },
+    ],
+    stockPoolItems: [
+      {
+        code: '000002',
+        name: '万科A',
+        category: '三十涨停Pro自选',
+        extra: {
+          shouban30_provider: 'daily_screening',
+          shouban30_plate_name: '每日选股交集',
+        },
+      },
+    ],
+    mustPoolItems: [
+      {
+        code: '000003',
+        name: '国农科技',
+        category: ['短线观察', '机构票'],
+        plate_name: '医药',
+        provider: 'must_pool',
+      },
+    ],
+  })
+
+  assert.equal(tabs[0].label, 'pre_pools')
+  assert.equal(tabs[0].rows[0].primary_action_label, '加入 stock_pools')
+  assert.equal(tabs[1].label, 'stock_pools')
+  assert.equal(tabs[1].rows[0].primary_action_label, '加入 must_pools')
+  assert.equal(tabs[2].label, 'must_pools')
+  assert.equal(tabs[2].sync_action_label, '同步到通达信')
+  assert.equal(tabs[2].clear_action_label, '清空')
+})
+
+test('dailyScreeningDetail normalizes the detail chips shown in the right panel', async () => {
+  const {
+    normalizeDailyScreeningDetail,
+    normalizeDailyScreeningDetailChips,
+  } = await import('./dailyScreeningDetail.mjs')
+
+  const detail = normalizeDailyScreeningDetail({
+    snapshot: {
+      code: '600917',
+      name: '渝农商行',
+      higher_multiple: 2.4,
+    },
+    memberships: [
+      { condition_key: 'cls:S0001', model_label: '类2买' },
+      { condition_key: 'hot:30d' },
+      { condition_key: 'flag:credit_subject' },
+    ],
+    base_pool_status: {
+      in_base_pool: false,
+      last_seen_scope_id: 'trade_date:2026-03-18',
+      last_seen_trade_date: '2026-03-18',
+    },
+  })
+
+  const chips = normalizeDailyScreeningDetailChips(detail)
+
+  assert.deepEqual(detail.basePoolStatus, {
+    inBasePool: false,
+    lastSeenScopeId: 'trade_date:2026-03-18',
+    lastSeenTradeDate: '2026-03-18',
+  })
+  assert.equal(chips.clsMembershipChips[0].label, '类2买')
+  assert.equal(chips.hotMembershipChips[0].label, '30天热门')
+  assert.equal(chips.marketFlagMembershipChips[0].label, '融资标的')
+  assert.equal(chips.basePoolStatusChip.variant, 'warning')
+})
