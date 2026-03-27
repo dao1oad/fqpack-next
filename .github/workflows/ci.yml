@@ -129,7 +129,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: morningglory/fqwebui
-        run: npm ci
+        run: npm install
 
       - name: Install Playwright Chromium
         working-directory: morningglory/fqwebui
