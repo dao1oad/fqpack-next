@@ -1633,6 +1633,20 @@ export const buildHealthCards = (components = []) => {
   })
 }
 
+const buildHealthCardHeartbeatLabel = (item = {}) => {
+  const explicit = toText(item?.heartbeat_label)
+  if (explicit) return explicit
+  if (item?.heartbeat_age_s === null || item?.heartbeat_age_s === undefined) return 'no data'
+  return formatDurationMs(Number(item.heartbeat_age_s) * 1000)
+}
+
+const buildHealthCardHighlights = (item = {}) => {
+  if (Array.isArray(item?.highlights) && item.highlights.length > 0) {
+    return item.highlights
+  }
+  return buildHealthHighlights(item?.metrics || {})
+}
+
 export const buildRawLookupFromStep = (step = {}) => {
   const ts = toText(step?.ts)
   const date = ts.slice(0, 10)
@@ -2179,13 +2193,13 @@ export const buildComponentBoard = (traces = [], components = []) => {
         runtime_node: runtimeNode,
         status: toText(healthCard?.status) || (issueTraceCount > 0 ? 'warning' : 'unknown'),
         heartbeat_age_s: healthCard?.heartbeat_age_s ?? null,
-        heartbeat_label: healthCard?.heartbeat_label || 'no data',
+        heartbeat_label: buildHealthCardHeartbeatLabel(healthCard),
         issue_trace_count: issueTraceCount,
         issue_step_count: issueStepCount,
         last_issue_ts: toText(healthCard?.last_issue_ts) || toText(lastIssueTrace?.last_ts) || '',
         trace_count: traceCount,
         is_placeholder: Boolean(healthCard?.is_placeholder),
-        highlights: Array.isArray(healthCard?.highlights) ? healthCard.highlights : [],
+        highlights: buildHealthCardHighlights(healthCard),
       })
     }
   }

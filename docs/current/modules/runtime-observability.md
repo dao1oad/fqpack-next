@@ -239,6 +239,8 @@ Runtime Observability 当前采用“双存储”：
 - `issue_trace_count`
 - `issue_step_count`
 - `last_issue_ts`
+- 左侧组件卡片的 `主心跳` 优先复用 API 已返回的 `heartbeat_label`；若接口当前只返回 `heartbeat_age_s`，前端会直接按秒龄格式化，不依赖 Trace steps 才显示心跳
+- 左侧组件卡片的指标摘要优先复用 health summary 已带的 `highlights`；若接口当前只返回原始 `metrics`，前端会在卡片层按既定规则回填核心指标
 
 左侧组件导航仍固定展示核心组件全集：
 
