@@ -53,6 +53,7 @@ import {
   summarizeTrace,
   TRACE_QUERY_FIELDS,
 } from './runtimeObservability.mjs'
+import { normalizeTimeRangeState } from './runtimeObservabilityFilters.mjs'
 
 const makeTrace = ({
   traceId,
@@ -256,6 +257,23 @@ test('buildRuntimeDefaultTimeRange keeps runtime observability on the latest two
   assert.deepEqual(
     buildRuntimeDefaultTimeRange('2026-03-26T12:34:56+08:00'),
     ['2026-03-25T00:00:00+08:00', '2026-03-26T23:59:59+08:00'],
+  )
+})
+
+test('normalizeTimeRangeState expands date-only midnight ranges to the end of the selected day', () => {
+  assert.deepEqual(
+    normalizeTimeRangeState(
+      ['2026-03-27T00:00:00+08:00', '2026-03-27T00:00:00+08:00'],
+      { buildRuntimeDefaultTimeRange },
+    ),
+    ['2026-03-27T00:00:00+08:00', '2026-03-27T23:59:59+08:00'],
+  )
+  assert.deepEqual(
+    normalizeTimeRangeState(
+      ['2026-03-26T00:00:00+08:00', '2026-03-27T00:00:00+08:00'],
+      { buildRuntimeDefaultTimeRange },
+    ),
+    ['2026-03-26T00:00:00+08:00', '2026-03-27T23:59:59+08:00'],
   )
 })
 
@@ -1416,6 +1434,7 @@ test('RuntimeObservability.vue keeps toolbar actions in the left title block and
 
   assert.match(content, /<div class="runtime-title-main">[\s\S]*<div class="workbench-title-group">[\s\S]*<div class="runtime-title-actions">/)
   assert.match(content, /<el-date-picker[\s\S]*type="datetimerange"/)
+  assert.match(content, /:default-time="TIME_RANGE_PICKER_DEFAULT_TIME"/)
   assert.match(content, /const \{[\s\S]*timeRange,[\s\S]*\} = createRuntimeObservabilityFilterState\(/)
   assert.match(content, /const buildTraceRequestParams = \(\) => buildRuntimeTraceRequestParams\(\{[\s\S]*buildTraceQuery,[\s\S]*timeRange: timeRange\.value,[\s\S]*selectedTraceKind: selectedTraceKind\.value,[\s\S]*\}\)/)
   assert.match(content, /const buildEventRequestParams = \(\) => buildRuntimeEventRequestParams\(\{[\s\S]*buildBoardScopedQuery,[\s\S]*boardFilter,[\s\S]*timeRange: timeRange\.value,[\s\S]*\}\)/)
