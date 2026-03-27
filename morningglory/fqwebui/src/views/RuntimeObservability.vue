@@ -17,6 +17,7 @@
                 type="datetimerange"
                 class="runtime-time-range"
                 value-format="YYYY-MM-DDTHH:mm:ssZ"
+                :default-time="TIME_RANGE_PICKER_DEFAULT_TIME"
                 range-separator="至"
                 start-placeholder="开始时间"
                 end-placeholder="结束时间"
@@ -1034,6 +1035,10 @@ const stepRowRefs = new Map()
 let eventLoadToken = 0
 let traceDetailLoadToken = 0
 let overviewTimer = null
+const TIME_RANGE_PICKER_DEFAULT_TIME = [
+  new Date(2000, 0, 1, 0, 0, 0),
+  new Date(2000, 0, 1, 23, 59, 59),
+]
 
 const hasDetailValue = (value) => {
   if (value === null || value === undefined) return false

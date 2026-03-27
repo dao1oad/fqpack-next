@@ -1,5 +1,31 @@
 import { reactive, ref } from 'vue'
 
+const DAY_START_TIME_SUFFIX = 'T00:00:00'
+const DAY_END_TIME_SUFFIX = 'T23:59:59'
+
+const splitIsoDateTime = (value) => {
+  const text = String(value || '').trim()
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(.+)$/)
+  if (!match) return null
+  return {
+    day: match[1],
+    time: match[2],
+    offset: match[3],
+  }
+}
+
+const normalizeDateOnlyTimeRange = (startTime, endTime) => {
+  const start = splitIsoDateTime(startTime)
+  const end = splitIsoDateTime(endTime)
+  if (!start || !end) return [startTime, endTime]
+  if (start.time !== '00:00:00' || end.time !== '00:00:00') return [startTime, endTime]
+  if (start.offset !== end.offset) return [startTime, endTime]
+  return [
+    `${start.day}${DAY_START_TIME_SUFFIX}${start.offset}`,
+    `${end.day}${DAY_END_TIME_SUFFIX}${end.offset}`,
+  ]
+}
+
 export const createRuntimeObservabilityFilterState = ({
   createTraceQueryState,
   buildRuntimeDefaultTimeRange,
@@ -27,7 +53,7 @@ export const normalizeTimeRangeState = (value, { buildRuntimeDefaultTimeRange })
   if (Array.isArray(value) && value.length === 2) {
     const [startTime, endTime] = value
     if (String(startTime || '').trim() && String(endTime || '').trim()) {
-      return [startTime, endTime]
+      return normalizeDateOnlyTimeRange(startTime, endTime)
     }
   }
   return buildRuntimeDefaultTimeRange()
