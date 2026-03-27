@@ -2298,6 +2298,7 @@ test('buildComponentSidebarItems uses health summary counters without requiring 
   assert.equal(card.issue_trace_count, 3)
   assert.equal(card.issue_step_count, 4)
   assert.equal(card.trace_count, 7)
+  assert.equal(card.heartbeat_label, '5s')
   assert.equal(card.runtime_details[0].runtime_node, 'host:rear')
 })
 
