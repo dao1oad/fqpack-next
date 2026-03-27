@@ -23,6 +23,11 @@
   --fq-chip-bg-danger: #fef2f2;
   --fq-chip-bg-muted: #f8fafc;
   --fq-chip-bg-skipped: #f5f3ff;
+  --fq-chip-border-info: #d6e4f2;
+  --fq-chip-border-success: #d1fae5;
+  --fq-chip-border-warning: #fde68a;
+  --fq-chip-border-danger: #fecaca;
+  --fq-chip-border-skipped: #ddd6fe;
   --fq-space-1: 4px;
   --fq-space-2: 8px;
   --fq-space-3: 12px;

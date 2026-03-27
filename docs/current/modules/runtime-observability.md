@@ -149,6 +149,7 @@ Runtime Observability 当前采用“双存储”：
   - 共享 token 位于 `morningglory/fqwebui/src/style/workbench-tokens.css`
   - 共享页面原语位于 `morningglory/fqwebui/src/components/workbench/`
   - `/runtime-observability` 当前已接入 page / toolbar / summary row / sidebar panel / ledger panel / detail panel 这组 workbench 原语
+  - 页面状态当前按职责拆成 `RuntimeObservability.vue + runtimeObservabilityQueries.mjs + runtimeObservabilitySelection.mjs + runtimeObservabilityFilters.mjs`
   - 只读摘要徽标当前统一复用 `StatusChip`，交互型筛选/跳转徽标继续保留 button 语义
 - 首屏拉：
   - 组件健康摘要

@@ -95,7 +95,6 @@
 </template>
 
 <script>
-/* eslint-disable */
 import { stockApi } from '@/api/stockApi'
 import CommonTool from '@/tool/CommonTool'
 import _ from 'lodash'
