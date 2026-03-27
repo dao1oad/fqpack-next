@@ -95,7 +95,7 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 - Dagster 容器必须在容器内固定使用 `DAGSTER_HOME=/opt/dagster/home` 与 `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`；不要让主工作树 `.env` 里的 Windows 路径 `D:/fqpack/dagster` 直接透传进 Linux 容器。
 - 命中宿主机 deployment surface 时，把 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status` 与对应 stderr 日志一起当作正式证据；不要只看 `fqnext-supervisord` service 是否仍是 `Running`。
 - 如果宿主机 traceback 指向 vendored 包 API 不匹配，例如 `resolve_stock_account() got an unexpected keyword argument 'settings_provider'`，先确认实际 import 源文件是否落在 `.venv\\Lib\\site-packages\\fqxtrade\\xtquant\\account.py`，不要假设仓库里的 vendored 源码一定覆盖了宿主机 Python 环境。
-- `fq_webui` 的 compose 依赖当前仍会带出 `fq_apiserver` / `fq_qawebserver` 启动路径；因此即使本轮 deploy plan 只命中 Web，也要预期 rear image 构建链路可能被触发，不能把 Docker 构建失败简单当成纯前端问题。
+- `fq_webui` 的 compose 依赖当前仍声明了 `fq_apiserver` / `fq_qawebserver`；但正式 deploy 在“仅命中 Web surface”时会固定追加 `--no-deps`，避免把未改动的 API / QA 容器一起重建。只有显式命中 `api` / `qa` / compose 全量变更时，才会把这些依赖一并纳入 deploy。
 - 如果 Docker 构建阶段在 `fq_apiserver` 里编译 `fqchan04` 时出现 `g++ internal compiler error`、`Segmentation fault` 一类编译器崩溃，先保留失败 run_dir artifacts，再对同一 SHA 原样重跑 1 次 formal deploy；只有稳定复现后才进入代码修复或 Dockerfile 调整。
 - 只要本轮有实际 deploy，就必须保留 `CaptureBaseline -> deploy -> health check -> Verify` 的顺序；不能跳过 baseline，也不能把 runtime verify 替换成手工肉眼检查。
 

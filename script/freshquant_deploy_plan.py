@@ -402,8 +402,9 @@ def build_deploy_plan(
             }
         )
 
-    docker_command = (
-        [
+    docker_command: list[str] = []
+    if docker_services:
+        docker_command = [
             "powershell",
             "-ExecutionPolicy",
             "Bypass",
@@ -412,11 +413,11 @@ def build_deploy_plan(
             "up",
             "-d",
             "--build",
-            *docker_services,
         ]
-        if docker_services
-        else []
-    )
+        # Web-only deploy should not bounce unchanged API/QA dependencies.
+        if ordered == ["web"] and docker_services == ["fq_webui"]:
+            docker_command.append("--no-deps")
+        docker_command.extend(docker_services)
     host_command = (
         [
             "powershell",
