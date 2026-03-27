@@ -272,34 +272,36 @@
                   <span>笔涨幅%</span>
                   <span>缠论原因</span>
                 </div>
-                <div
-                  v-for="row in paginatedResultRows"
-                  :key="row.code"
-                  class="runtime-ledger__row daily-results-ledger__grid"
-                  :class="{ active: isResultRowActive(row) }"
-                  @click="handleRowClick(row)"
-                >
-                  <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.code }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.name || '-'">
-                    {{ row.name || '-' }}
-                  </span>
-                  <span class="runtime-ledger__cell daily-ledger__actions">
-                    <el-button
-                      size="small"
-                      type="primary"
-                      link
-                      :loading="isWorkspaceActionRunning(`workspace:append-single:${row.code}`)"
-                      @click.stop="handleAppendSingleRowToPrePool(row)"
-                    >
-                      加入 pre_pools
-                    </el-button>
-                  </span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.higherMultiple) }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.segmentMultiple) }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.biGainPercent) }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.chanlunReason || '-'">
-                    {{ row.chanlunReason || '-' }}
-                  </span>
+                <div class="runtime-ledger__viewport">
+                  <div
+                    v-for="row in paginatedResultRows"
+                    :key="row.code"
+                    class="runtime-ledger__row daily-results-ledger__grid"
+                    :class="{ active: isResultRowActive(row) }"
+                    @click="handleRowClick(row)"
+                  >
+                    <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.code }}</span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.name || '-'">
+                      {{ row.name || '-' }}
+                    </span>
+                    <span class="runtime-ledger__cell daily-ledger__actions">
+                      <el-button
+                        size="small"
+                        type="primary"
+                        link
+                        :loading="isWorkspaceActionRunning(`workspace:append-single:${row.code}`)"
+                        @click.stop="handleAppendSingleRowToPrePool(row)"
+                      >
+                        加入 pre_pools
+                      </el-button>
+                    </span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.higherMultiple) }}</span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.segmentMultiple) }}</span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ formatNumber(row.biGainPercent) }}</span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.chanlunReason || '-'">
+                      {{ row.chanlunReason || '-' }}
+                    </span>
+                  </div>
                 </div>
               </div>
               <div v-else class="runtime-empty-panel daily-empty-panel">
@@ -452,100 +454,102 @@
                     <span v-if="tab.key === 'must_pools'">集合</span>
                     <span>操作</span>
                   </div>
-                  <div
-                    v-for="row in tab.rows"
-                    :key="`${tab.key}:${row.code6}:${row.provider}`"
-                    class="runtime-ledger__row"
-                    :class="[
-                      tab.key === 'must_pools' ? 'daily-workspace-ledger__grid--must' : 'daily-workspace-ledger__grid',
-                      { active: isWorkspaceRowActive(row) },
-                    ]"
-                    @click="handleWorkspaceRowClick(row)"
-                  >
-                    <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.code6 }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.name || '-'">
-                      {{ row.name || '-' }}
-                    </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.source_labels || row.provider || '-'">
-                      {{ row.source_labels || row.provider || '-' }}
-                    </span>
-                    <span class="runtime-ledger__cell daily-workspace-cell">
-                      <span
-                        class="daily-workspace-cell__main runtime-ledger__cell--truncate"
-                        :title="row.category_labels || row.context_label || row.plate_name || '-'"
-                      >
-                        {{ row.category_labels || row.context_label || row.plate_name || '-' }}
-                      </span>
-                      <span
-                        v-if="row.context_detail"
-                        class="daily-workspace-cell__meta runtime-ledger__cell--truncate"
-                        :title="row.context_detail"
-                      >
-                        {{ row.context_detail }}
-                      </span>
-                    </span>
-                    <span
-                      v-if="tab.key === 'must_pools'"
-                      class="runtime-ledger__cell runtime-ledger__cell--truncate"
-                      :title="row.category || '-'"
+                  <div class="runtime-ledger__viewport">
+                    <div
+                      v-for="row in tab.rows"
+                      :key="`${tab.key}:${row.code6}:${row.provider}`"
+                      class="runtime-ledger__row"
+                      :class="[
+                        tab.key === 'must_pools' ? 'daily-workspace-ledger__grid--must' : 'daily-workspace-ledger__grid',
+                        { active: isWorkspaceRowActive(row) },
+                      ]"
+                      @click="handleWorkspaceRowClick(row)"
                     >
-                      {{ row.category || '-' }}
-                    </span>
-                    <span class="runtime-ledger__cell daily-ledger__actions">
-                      <div class="daily-workspace-row-actions">
-                        <template v-if="tab.key === 'pre_pool'">
-                          <el-button
-                            size="small"
-                            type="primary"
-                            link
-                            :loading="isWorkspaceActionRunning(`workspace:pre:add:${row.code6}`)"
-                            @click.stop="handleAddPrePoolToStockPools(row)"
-                          >
-                            {{ row.primary_action_label }}
-                          </el-button>
-                          <el-button
-                            size="small"
-                            type="danger"
-                            link
-                            :loading="isWorkspaceActionRunning(`workspace:pre:delete:${row.code6}`)"
-                            @click.stop="handleDeletePrePoolRow(row)"
-                          >
-                            {{ row.secondary_action_label }}
-                          </el-button>
-                        </template>
-                        <template v-else-if="tab.key === 'stockpools'">
-                          <el-button
-                            size="small"
-                            type="primary"
-                            link
-                            :loading="isWorkspaceActionRunning(`workspace:stock:add-must:${row.code6}`)"
-                            @click.stop="handleAddStockPoolToMustPools(row)"
-                          >
-                            {{ row.primary_action_label }}
-                          </el-button>
-                          <el-button
-                            size="small"
-                            type="danger"
-                            link
-                            :loading="isWorkspaceActionRunning(`workspace:stock:delete:${row.code6}`)"
-                            @click.stop="handleDeleteStockPoolRow(row)"
-                          >
-                            {{ row.secondary_action_label }}
-                          </el-button>
-                        </template>
-                        <template v-else-if="tab.key === 'must_pools'">
-                          <el-button
-                            size="small"
-                            type="danger"
-                            link
-                            :loading="isWorkspaceActionRunning(`workspace:must:delete:${row.code6}`)"
-                            @click.stop="handleDeleteMustPoolRow(row)"
-                          >
-                            {{ row.secondary_action_label }}
-                          </el-button>
-                        </template>
-                      </div>
-                    </span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.code6 }}</span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.name || '-'">
+                        {{ row.name || '-' }}
+                      </span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.source_labels || row.provider || '-'">
+                        {{ row.source_labels || row.provider || '-' }}
+                      </span>
+                      <span class="runtime-ledger__cell daily-workspace-cell">
+                        <span
+                          class="daily-workspace-cell__main runtime-ledger__cell--truncate"
+                          :title="row.category_labels || row.context_label || row.plate_name || '-'"
+                        >
+                          {{ row.category_labels || row.context_label || row.plate_name || '-' }}
+                        </span>
+                        <span
+                          v-if="row.context_detail"
+                          class="daily-workspace-cell__meta runtime-ledger__cell--truncate"
+                          :title="row.context_detail"
+                        >
+                          {{ row.context_detail }}
+                        </span>
+                      </span>
+                      <span
+                        v-if="tab.key === 'must_pools'"
+                        class="runtime-ledger__cell runtime-ledger__cell--truncate"
+                        :title="row.category || '-'"
+                      >
+                        {{ row.category || '-' }}
+                      </span>
+                      <span class="runtime-ledger__cell daily-ledger__actions">
+                        <div class="daily-workspace-row-actions">
+                          <template v-if="tab.key === 'pre_pool'">
+                            <el-button
+                              size="small"
+                              type="primary"
+                              link
+                              :loading="isWorkspaceActionRunning(`workspace:pre:add:${row.code6}`)"
+                              @click.stop="handleAddPrePoolToStockPools(row)"
+                            >
+                              {{ row.primary_action_label }}
+                            </el-button>
+                            <el-button
+                              size="small"
+                              type="danger"
+                              link
+                              :loading="isWorkspaceActionRunning(`workspace:pre:delete:${row.code6}`)"
+                              @click.stop="handleDeletePrePoolRow(row)"
+                            >
+                              {{ row.secondary_action_label }}
+                            </el-button>
+                          </template>
+                          <template v-else-if="tab.key === 'stockpools'">
+                            <el-button
+                              size="small"
+                              type="primary"
+                              link
+                              :loading="isWorkspaceActionRunning(`workspace:stock:add-must:${row.code6}`)"
+                              @click.stop="handleAddStockPoolToMustPools(row)"
+                            >
+                              {{ row.primary_action_label }}
+                            </el-button>
+                            <el-button
+                              size="small"
+                              type="danger"
+                              link
+                              :loading="isWorkspaceActionRunning(`workspace:stock:delete:${row.code6}`)"
+                              @click.stop="handleDeleteStockPoolRow(row)"
+                            >
+                              {{ row.secondary_action_label }}
+                            </el-button>
+                          </template>
+                          <template v-else-if="tab.key === 'must_pools'">
+                            <el-button
+                              size="small"
+                              type="danger"
+                              link
+                              :loading="isWorkspaceActionRunning(`workspace:must:delete:${row.code6}`)"
+                              @click.stop="handleDeleteMustPoolRow(row)"
+                            >
+                              {{ row.secondary_action_label }}
+                            </el-button>
+                          </template>
+                        </div>
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div v-else class="runtime-empty-panel daily-empty-panel">
@@ -702,35 +706,37 @@
                 <span>标的理由</span>
                 <span>板块理由</span>
               </div>
-              <div
-                v-for="(row, index) in detail.hot_reasons"
-                :key="`${row.date || ''}:${row.time || ''}:${row.provider || ''}:${index}`"
-                class="runtime-ledger__row daily-history-ledger__grid"
-              >
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.date || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.time || '-' }}</span>
-                <span class="runtime-ledger__cell">{{ row.provider || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.plate_name || '-'">
-                  {{ row.plate_name || '-' }}
-                </span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate">
-                  <Shouban30ReasonPopover
-                    :reference-text="row.stock_reason"
-                    :content-text="row.stock_reason"
-                    :title="`${detailSnapshot?.code || '-'} ${detailSnapshot?.name || ''}`.trim()"
-                    subtitle="历史热门理由"
-                    :width="580"
-                  />
-                </span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate">
-                  <Shouban30ReasonPopover
-                    :reference-text="row.plate_reason"
-                    :content-text="row.plate_reason"
-                    :title="row.plate_name || '板块理由'"
-                    subtitle="历史热门理由"
-                    :width="580"
-                  />
-                </span>
+              <div class="runtime-ledger__viewport">
+                <div
+                  v-for="(row, index) in detail.hot_reasons"
+                  :key="`${row.date || ''}:${row.time || ''}:${row.provider || ''}:${index}`"
+                  class="runtime-ledger__row daily-history-ledger__grid"
+                >
+                  <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.date || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.time || '-' }}</span>
+                  <span class="runtime-ledger__cell">{{ row.provider || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.plate_name || '-'">
+                    {{ row.plate_name || '-' }}
+                  </span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate">
+                    <Shouban30ReasonPopover
+                      :reference-text="row.stock_reason"
+                      :content-text="row.stock_reason"
+                      :title="`${detailSnapshot?.code || '-'} ${detailSnapshot?.name || ''}`.trim()"
+                      subtitle="历史热门理由"
+                      :width="580"
+                    />
+                  </span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate">
+                    <Shouban30ReasonPopover
+                      :reference-text="row.plate_reason"
+                      :content-text="row.plate_reason"
+                      :title="row.plate_name || '板块理由'"
+                      subtitle="历史热门理由"
+                      :width="580"
+                    />
+                  </span>
+                </div>
               </div>
             </div>
             <div v-else class="runtime-empty-panel daily-empty-panel">
@@ -1809,7 +1815,8 @@ onMounted(async () => {
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid #e5edf5;
   border-radius: 12px;
   background: #fff;
@@ -1820,20 +1827,33 @@ onMounted(async () => {
   display: grid;
   align-items: center;
   gap: 8px;
+  width: max-content;
+  min-width: 100%;
   padding: 8px 10px;
   font-size: 12px;
 }
 
 .runtime-ledger__header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   background: #f6f9fc;
   color: #68839d;
   border-bottom: 1px solid #e5edf5;
 }
 
+.runtime-ledger__viewport {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 100%;
+  width: max-content;
+  overflow-y: auto;
+  overflow-x: visible;
+  scrollbar-gutter: stable;
+}
+
 .runtime-ledger__row {
+  flex: 0 0 auto;
   border-top: 1px solid #eef3f8;
   background: transparent;
 }

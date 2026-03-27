@@ -56,6 +56,17 @@ test('DailyScreening moves scope into the top guide area and paginates intersect
   )
 })
 
+test('DailyScreening ledger headers stay outside scrollable viewports', () => {
+  const source = fs.readFileSync(componentPath, 'utf8')
+
+  assert.match(source, /<div class="runtime-ledger__viewport">[\s\S]*paginatedResultRows/)
+  assert.match(source, /<div class="runtime-ledger__viewport">[\s\S]*v-for="row in tab\.rows"/)
+  assert.match(source, /<div class="runtime-ledger__viewport">[\s\S]*v-for="\(row,\s*index\) in detail\.hot_reasons"/)
+  assert.match(source, /\.runtime-ledger__viewport \{[\s\S]*overflow-y:\s*auto;/)
+  assert.match(source, /\.runtime-ledger__header \{[\s\S]*flex:\s*0 0 auto;/)
+  assert.doesNotMatch(source, /\.runtime-ledger__header \{[\s\S]*position:\s*sticky;/)
+})
+
 test('DailyScreening routes guide summary and detail chips through shared StatusChip', () => {
   const source = fs.readFileSync(componentPath, 'utf8')
 

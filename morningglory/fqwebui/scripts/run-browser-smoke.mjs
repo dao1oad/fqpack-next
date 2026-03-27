@@ -10,6 +10,7 @@ const smokeSpecs = (
     : [
         'tests/daily-screening.browser.spec.mjs',
         'tests/system-settings.browser.spec.mjs',
+        'tests/workbench-overlap.browser.spec.mjs',
       ]
 )
 const localBrowserCandidates = [

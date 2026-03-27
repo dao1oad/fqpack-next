@@ -198,56 +198,58 @@
                     <span>总耗时</span>
                     <span>断裂原因</span>
                   </div>
-                  <button
-                    v-for="row in traceLedgerRows"
-                    :key="row.trace_key || row.trace_id"
-                    type="button"
-                    class="runtime-ledger__row runtime-trace-ledger__grid"
-                    :class="{ active: isActiveTraceRow(row) }"
-                    @click="handleRecentTraceClick(row)"
-                  >
-                    <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.last_ts_label || '-' }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
-                    <span class="runtime-ledger__cell">{{ row.trace_kind_label }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                      <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.trace_status)">{{ row.trace_status_label }}</StatusChip>
-                    </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate runtime-ledger__cell--signal-remark" :title="row.signal_remark || '-'">
-                      {{ row.signal_remark || '-' }}
-                    </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--entry-exit" :title="row.entry_exit_label">
-                      <span class="trace-flow-strip">
-                        <template v-for="(node, nodeIndex) in row.flow_nodes" :key="node.key || `${row.trace_key || row.trace_id}-${nodeIndex}`">
-                          <el-popover
-                            trigger="hover"
-                            placement="left"
-                            :width="320"
-                            :teleported="false"
-                          >
-                            <template #reference>
-                              <span class="trace-flow-pill" :class="`is-${node.status}`">
-                                {{ node.label }}
-                              </span>
-                            </template>
-                            <div class="trace-flow-popover">
-                              <div
-                                v-for="item in node.hover_items"
-                                :key="`${node.key || node.label}-${item.label}`"
-                                class="trace-flow-popover-item"
-                              >
-                                <span>{{ item.label }}</span>
-                                <strong :title="item.value">{{ item.value }}</strong>
-                              </div>
-                            </div>
-                          </el-popover>
-                          <span v-if="nodeIndex < row.flow_nodes.length - 1" class="trace-flow-arrow">→</span>
-                        </template>
+                  <div class="runtime-ledger__viewport runtime-trace-ledger__viewport">
+                    <button
+                      v-for="row in traceLedgerRows"
+                      :key="row.trace_key || row.trace_id"
+                      type="button"
+                      class="runtime-ledger__row runtime-trace-ledger__grid"
+                      :class="{ active: isActiveTraceRow(row) }"
+                      @click="handleRecentTraceClick(row)"
+                    >
+                      <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.last_ts_label || '-' }}</span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
+                      <span class="runtime-ledger__cell">{{ row.trace_kind_label }}</span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                        <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.trace_status)">{{ row.trace_status_label }}</StatusChip>
                       </span>
-                    </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.step_count }}</span>
-                    <span class="runtime-ledger__cell">{{ row.duration_label }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.break_reason || '-'">{{ row.break_reason || '-' }}</span>
-                  </button>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--truncate runtime-ledger__cell--signal-remark" :title="row.signal_remark || '-'">
+                        {{ row.signal_remark || '-' }}
+                      </span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--entry-exit" :title="row.entry_exit_label">
+                        <span class="trace-flow-strip">
+                          <template v-for="(node, nodeIndex) in row.flow_nodes" :key="node.key || `${row.trace_key || row.trace_id}-${nodeIndex}`">
+                            <el-popover
+                              trigger="hover"
+                              placement="left"
+                              :width="320"
+                              :teleported="false"
+                            >
+                              <template #reference>
+                                <span class="trace-flow-pill" :class="`is-${node.status}`">
+                                  {{ node.label }}
+                                </span>
+                              </template>
+                              <div class="trace-flow-popover">
+                                <div
+                                  v-for="item in node.hover_items"
+                                  :key="`${node.key || node.label}-${item.label}`"
+                                  class="trace-flow-popover-item"
+                                >
+                                  <span>{{ item.label }}</span>
+                                  <strong :title="item.value">{{ item.value }}</strong>
+                                </div>
+                              </div>
+                            </el-popover>
+                            <span v-if="nodeIndex < row.flow_nodes.length - 1" class="trace-flow-arrow">→</span>
+                          </template>
+                        </span>
+                      </span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.step_count }}</span>
+                      <span class="runtime-ledger__cell">{{ row.duration_label }}</span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.break_reason || '-'">{{ row.break_reason || '-' }}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div v-if="traceNextCursor" class="runtime-load-more">
@@ -281,26 +283,28 @@
                 <span>摘要</span>
                 <span>指标</span>
               </div>
-              <button
-                v-for="(row, rowIndex) in eventLedgerRows"
-                :key="row.event_key"
-                type="button"
-                class="runtime-ledger__row runtime-event-ledger__grid"
-                :class="{ active: isActiveEventRow(componentEventFeed[rowIndex]) }"
-                @click="handleEventClick(componentEventFeed[rowIndex])"
-              >
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.runtime_node_label">{{ row.runtime_node_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.component_label">{{ row.component_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.node_label">{{ row.node_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                  <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.status)">{{ row.status }}</StatusChip>
-                </span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.semantic_value || '-'">{{ row.semantic_value || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.summary || '-'">{{ row.summary || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.metrics_summary || '-'">{{ row.metrics_summary || '-' }}</span>
-              </button>
+              <div class="runtime-ledger__viewport">
+                <button
+                  v-for="(row, rowIndex) in eventLedgerRows"
+                  :key="row.event_key"
+                  type="button"
+                  class="runtime-ledger__row runtime-event-ledger__grid"
+                  :class="{ active: isActiveEventRow(componentEventFeed[rowIndex]) }"
+                  @click="handleEventClick(componentEventFeed[rowIndex])"
+                >
+                  <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.runtime_node_label">{{ row.runtime_node_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.component_label">{{ row.component_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.node_label">{{ row.node_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                    <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.status)">{{ row.status }}</StatusChip>
+                  </span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.semantic_value || '-'">{{ row.semantic_value || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.summary || '-'">{{ row.summary || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.metrics_summary || '-'">{{ row.metrics_summary || '-' }}</span>
+                </button>
+              </div>
             </div>
             <div v-if="eventNextCursor" class="runtime-load-more">
               <el-button plain :loading="loading.events" @click="loadMoreEvents">加载更多 Event</el-button>
@@ -360,29 +364,31 @@
                           <span>上下文</span>
                           <span>错误</span>
                         </div>
-                        <button
-                          v-for="(row, rowIndex) in traceStepLedgerRows"
-                          :key="row.step_key"
-                          :ref="(el) => setStepRowRef(el, row.step_key)"
-                          type="button"
-                          class="trace-step-ledger__row trace-step-ledger__grid"
-                          :class="[statusClass(row.status), { active: isActiveStep(filteredSteps[rowIndex]), 'is-issue': row.is_issue }]"
-                          @click="handleStepSelect(filteredSteps[rowIndex])"
-                        >
-                          <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.index + 1 }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
-                          <span class="runtime-ledger__cell">{{ row.delta_label || '-' }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.component_node }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                            <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.status)">{{ row.status }}</StatusChip>
-                          </span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.branch || '-' }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.expr || '-' }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.reason || '-' }}</span>
-                          <span class="runtime-ledger__cell">{{ row.outcome || '-' }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.context_summary || '-' }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.error_summary || '-' }}</span>
-                        </button>
+                        <div class="trace-step-ledger__viewport">
+                          <button
+                            v-for="(row, rowIndex) in traceStepLedgerRows"
+                            :key="row.step_key"
+                            :ref="(el) => setStepRowRef(el, row.step_key)"
+                            type="button"
+                            class="trace-step-ledger__row trace-step-ledger__grid"
+                            :class="[statusClass(row.status), { active: isActiveStep(filteredSteps[rowIndex]), 'is-issue': row.is_issue }]"
+                            @click="handleStepSelect(filteredSteps[rowIndex])"
+                          >
+                            <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.index + 1 }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
+                            <span class="runtime-ledger__cell">{{ row.delta_label || '-' }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.component_node }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                              <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.status)">{{ row.status }}</StatusChip>
+                            </span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.branch || '-' }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.expr || '-' }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.reason || '-' }}</span>
+                            <span class="runtime-ledger__cell">{{ row.outcome || '-' }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.context_summary || '-' }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.error_summary || '-' }}</span>
+                          </button>
+                        </div>
                       </div>
                       <div v-if="traceStepsNextCursor" class="runtime-load-more runtime-load-more--detail">
                         <el-button plain :loading="loading.traceSteps" @click="loadMoreTraceSteps">加载更早步骤</el-button>
@@ -589,18 +595,20 @@
                           <span>summary</span>
                           <span>badges</span>
                         </div>
-                        <div
-                          v-for="row in embeddedRawLedgerRows"
-                          :key="row.key"
-                          class="embedded-raw-ledger__entry"
-                          :class="{ active: row.active }"
-                        >
-                          <div class="embedded-raw-ledger__row">
-                            <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
-                            <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
-                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
+                        <div class="embedded-raw-ledger__viewport">
+                          <div
+                            v-for="row in embeddedRawLedgerRows"
+                            :key="row.key"
+                            class="embedded-raw-ledger__entry"
+                            :class="{ active: row.active }"
+                          >
+                            <div class="embedded-raw-ledger__row">
+                              <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
+                              <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
+                              <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
+                            </div>
+                            <pre class="detail-json-view">{{ row.body }}</pre>
                           </div>
-                          <pre class="detail-json-view">{{ row.body }}</pre>
                         </div>
                       </div>
                       <div v-else class="trace-empty">尚未加载 Raw，点击上方按钮拉取当前节点的原始记录。</div>
@@ -828,18 +836,20 @@
                             <span>摘要</span>
                             <span>标识</span>
                           </div>
-                          <div
-                            v-for="row in embeddedRawLedgerRows"
-                            :key="row.key"
-                            class="embedded-raw-ledger__entry"
-                            :class="{ active: row.active }"
-                          >
-                            <div class="embedded-raw-ledger__row">
-                              <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
-                              <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
-                              <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
+                          <div class="embedded-raw-ledger__viewport">
+                            <div
+                              v-for="row in embeddedRawLedgerRows"
+                              :key="row.key"
+                              class="embedded-raw-ledger__entry"
+                              :class="{ active: row.active }"
+                            >
+                              <div class="embedded-raw-ledger__row">
+                                <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
+                                <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
+                                <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
+                              </div>
+                              <pre class="detail-json-view">{{ row.body }}</pre>
                             </div>
-                            <pre class="detail-json-view">{{ row.body }}</pre>
                           </div>
                         </div>
                         <div v-else class="trace-empty">尚未加载 Raw，点击上方按钮拉取当前事件的原始记录。</div>
@@ -2966,9 +2976,7 @@ onBeforeUnmount(() => {
 }
 
 .component-ledger__header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   background: #f6f9fc;
   color: #68839d;
   border-bottom: 1px solid #e5edf5;
@@ -3047,7 +3055,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid #e5edf5;
   border-radius: 12px;
   background: #fff;
@@ -3058,21 +3067,33 @@ onBeforeUnmount(() => {
   display: grid;
   align-items: center;
   gap: 8px;
+  width: max-content;
+  min-width: 100%;
   padding: 8px 10px;
   font-size: 12px;
 }
 
 .runtime-ledger__header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   background: #f6f9fc;
   color: #68839d;
   border-bottom: 1px solid #e5edf5;
 }
 
+.runtime-ledger__viewport {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 100%;
+  width: max-content;
+  overflow-y: auto;
+  overflow-x: visible;
+  scrollbar-gutter: stable;
+}
+
 .runtime-ledger__row {
-  width: 100%;
+  flex: 0 0 auto;
   border: 0;
   border-top: 1px solid #eef3f8;
   background: transparent;
@@ -3086,10 +3107,11 @@ onBeforeUnmount(() => {
 }
 
 .runtime-trace-ledger-scroll {
+  display: flex;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .runtime-trace-ledger {
@@ -3814,11 +3836,24 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   min-height: 0;
   max-height: min(320px, calc(var(--trace-step-ledger-row-height) * 6 + 2px));
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid #e5edf5;
   border-radius: 12px;
   background: #fff;
   margin-bottom: 12px;
+}
+
+.trace-step-ledger__viewport {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 100%;
+  width: max-content;
+  overflow-y: auto;
+  overflow-x: visible;
+  scrollbar-gutter: stable;
 }
 
 .trace-step-ledger__header,
@@ -3838,22 +3873,22 @@ onBeforeUnmount(() => {
     minmax(190px, 1fr);
   align-items: center;
   gap: 8px;
+  width: max-content;
+  min-width: 100%;
   padding: 8px 10px;
   min-height: var(--trace-step-ledger-row-height);
   font-size: 12px;
 }
 
 .trace-step-ledger__header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   background: #f6f9fc;
   color: #68839d;
   border-bottom: 1px solid #e5edf5;
 }
 
 .trace-step-ledger__row {
-  width: 100%;
+  flex: 0 0 auto;
   border: 0;
   border-top: 1px solid #eef3f8;
   background: transparent;
@@ -4129,10 +4164,23 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid #e5edf5;
   border-radius: 12px;
   background: #fff;
+}
+
+.embedded-raw-ledger__viewport {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 100%;
+  width: max-content;
+  overflow-y: auto;
+  overflow-x: visible;
+  scrollbar-gutter: stable;
 }
 
 .embedded-raw-ledger__header,
@@ -4140,15 +4188,15 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(180px, 0.9fr) minmax(280px, 1.45fr) minmax(180px, 0.75fr);
   gap: 8px;
+  width: max-content;
+  min-width: 100%;
   padding: 8px 10px;
   font-size: 12px;
   align-items: center;
 }
 
 .embedded-raw-ledger__header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   background: #f6f9fc;
   color: #68839d;
   border-bottom: 1px solid #e5edf5;
@@ -4168,6 +4216,7 @@ onBeforeUnmount(() => {
 }
 
 .embedded-raw-ledger__row {
+  flex: 0 0 auto;
   background: transparent;
 }
 
