@@ -42,6 +42,21 @@ def test_compose_core_rear_services_override_container_redis_host() -> None:
         assert 'FRESHQUANT_REDIS__PORT: "6379"' in body
 
 
+def test_runtime_indexer_overrides_container_mongo_host() -> None:
+    text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
+    match = re.search(
+        r"^  fq_runtime_indexer:\n(?P<body>.*?)(?=^  [a-z0-9_]+:\n|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match
+    body = match.group("body")
+    assert "FRESHQUANT_MONGODB__HOST: fq_mongodb" in body
+    assert 'FRESHQUANT_MONGODB__PORT: "27017"' in body
+    assert "MONGODB: fq_mongodb" in body
+    assert 'MONGODB_PORT: "27017"' in body
+
+
 def test_compose_builds_rear_image_once() -> None:
     text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
     assert text.count("dockerfile: docker/Dockerfile.rear") == 1
