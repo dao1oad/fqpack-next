@@ -53,7 +53,10 @@ test('system settings keeps the hero visible and scrolls inside editor and side 
   assert.match(systemSettingsSource, /\.settings-shell[\s\S]*overflow hidden/)
   assert.match(systemSettingsSource, /\.settings-dense-columns[\s\S]*overflow hidden/)
   assert.match(systemSettingsSource, /\.settings-dense-column[\s\S]*overflow auto/)
+  assert.match(systemSettingsSource, /\.settings-dense-section__sticky[\s\S]*position sticky/)
   assert.match(systemSettingsSource, /\.settings-ledger[\s\S]*overflow hidden/)
+  assert.doesNotMatch(systemSettingsSource, /\.settings-dense-section__head[\s\S]*position sticky/)
+  assert.doesNotMatch(systemSettingsSource, /\.settings-ledger__header[\s\S]*position sticky/)
 })
 
 test('gantt routes use fixed viewport pages and keep scrolling inside content panes', () => {

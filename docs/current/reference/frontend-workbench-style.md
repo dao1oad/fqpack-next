@@ -36,6 +36,7 @@
 
 - `/stock-control`、`/stock-pools`、`/stock-cjsd`、`/gantt`、`/gantt/stocks/:plateKey`、`/gantt/shouban30`、`/system-settings` 当前已经直接消费共享 `WorkbenchPage / WorkbenchToolbar / WorkbenchPanel` primitives
 - `/system-settings` 当前把顶部摘要与 dense ledger 行内状态统一收口到共享 `StatusChip`
+- `/system-settings` 当前把每个 section 的标题摘要与 ledger 表头合并成单个 sticky 壳层，列内滚动时不再保留双 sticky 叠层
 - `/gantt/shouban30` 当前把 `首板板块 / 热点标的 / 标的详情 / 工作区` 四个主区域统一落到共享 `WorkbenchSidebarPanel / WorkbenchLedgerPanel / WorkbenchDetailPanel`，provider 切换也改成共享 workbench 常用的 `radio-button switch`
 - `/futures-control`、`/kline-big`、`/kline-slim`、`/multi-period` 当前至少统一接入共享 `page-shell contract`：根容器显式带 `workbench-page`，并复用同一套视口高度、背景与滚动兜底语义
 - `/futures-control` 当前把 `每日复盘 / 统计数据` 设为按 tab 延迟挂载；`统计数据` 图表宿主节点会先保留固定尺寸，再初始化 ECharts，切换 tab 时不应再因为 0 宽/0 高发出控制台 warning

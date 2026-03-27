@@ -7,6 +7,7 @@ test('system settings uses a three-column dense ledger workspace instead of card
 
   assert.match(content, /<WorkbenchToolbar class="settings-dense-toolbar">/)
   assert.match(content, /<StatusChip class="settings-toolbar-chip settings-toolbar-chip--path" variant="info"/)
+  assert.match(content, /class="settings-dense-section__sticky"/)
   assert.match(content, /<StatusChip class="settings-inline-chip" :variant="sectionModeChipVariant\(section\)">/)
   assert.match(content, /<StatusChip class="settings-inline-chip" :variant="restartModeChipVariant\(row\.restart_required\)">/)
   assert.match(content, /<StatusChip class="settings-inline-chip" :variant="stateChipVariant\(row\)">/)
@@ -15,5 +16,6 @@ test('system settings uses a three-column dense ledger workspace instead of card
   assert.match(content, /settings-dense-column/)
   assert.match(content, /settings-ledger__header/)
   assert.match(content, /settings-ledger__row/)
+  assert.doesNotMatch(content, /class="settings-dense-section__head"/)
   assert.doesNotMatch(content, /panel-card/)
 })
