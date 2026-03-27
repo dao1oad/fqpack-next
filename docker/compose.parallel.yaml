@@ -105,8 +105,12 @@ services:
       FQ_RUNTIME_CLICKHOUSE_DATABASE: runtime_observability
       FQ_RUNTIME_CLICKHOUSE_USER: ${FQ_RUNTIME_CLICKHOUSE_USER:-fq_runtime}
       FQ_RUNTIME_CLICKHOUSE_PASSWORD: ${FQ_RUNTIME_CLICKHOUSE_PASSWORD:-fq_runtime}
+      FRESHQUANT_MONGODB__HOST: fq_mongodb
+      FRESHQUANT_MONGODB__PORT: "27017"
       FRESHQUANT_REDIS__HOST: fq_redis
       FRESHQUANT_REDIS__PORT: "6379"
+      MONGODB: fq_mongodb
+      MONGODB_PORT: "27017"
     command: ["/freshquant/.venv/bin/python", "-m", "freshquant.runtime_observability.indexer_main", "--poll-interval-s", "2.0"]
     volumes:
       - ${FQ_RUNTIME_LOG_HOST_DIR:?Set FQ_RUNTIME_LOG_HOST_DIR to the host runtime log directory}:/freshquant/logs/runtime
@@ -356,6 +360,21 @@ services:
       interval: 15s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
+
+  ta_tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles:
+      - ta-public
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - ${CF_TUNNEL_TOKEN:-unset-token}
+    depends_on:
+      ta_frontend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

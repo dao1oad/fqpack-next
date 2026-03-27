@@ -78,6 +78,11 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 确认 `fq_runtime_clickhouse` 与 `fq_runtime_indexer` 都已恢复。
 - 核对 `FQ_RUNTIME_CLICKHOUSE_USER` / `FQ_RUNTIME_CLICKHOUSE_PASSWORD` 是否与 API / indexer 使用的一致。
 - 若 ClickHouse 已恢复但页面仍无数据，优先排查 indexer backlog 与 runtime event 写入链路。
+- 若 `fq_runtime_indexer` 容器状态是 `Up`，但新日志长期进不了 ClickHouse，优先检查容器环境：
+  - `docker inspect fqnext_20260223-fq_runtime_indexer-1 --format '{{range .Config.Env}}{{println .}}{{end}}'`
+  - 如果 `FRESHQUANT_MONGODB__HOST` 或 `MONGODB` 仍是 `127.0.0.1`，说明 compose recreate 继承了宿主机 `.env`，没有切到容器内 `fq_mongodb:27017`
+  - 这种情况下 symbol / instrument 查询会在容器内反复超时，indexer 看起来在运行，实际上几乎不推进
+  - 处理方式是修复 `docker/compose.parallel.yaml` 中 `fq_runtime_indexer` 的 Mongo 显式覆盖，然后重新 `up -d --force-recreate fq_runtime_indexer`
 - 如果 `fq_runtime_indexer` 持续重启，且 ClickHouse stderr 报 `runtime_ingest_progress` 的 `TOO_MANY_UNEXPECTED_DATA_PARTS`：
   - 先停止 indexer，避免继续重试
   - 修复或重建 `runtime_ingest_progress`
