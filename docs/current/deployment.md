@@ -61,6 +61,8 @@ powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ens
   - `npm run test:browser-smoke`
   - `npm run test:unit`
   - `npm run build`
+- `npm run test:browser-smoke` 当前会先确保 Playwright Chromium 可用，再实际执行 `tests/daily-screening.browser.spec.mjs`。
+- `npm run test:unit` 当前默认跳过 7 个已登记的 known-red Node 用例；需要全量回归时改跑 `npm run test:unit:all`。
 - `script/fq_local_preflight.ps1` 当前按 `base ref -> 当前工作树` 识别前端 surface 改动，并在 dirty worktree 下禁用本地 preflight cache，避免未提交前端变更被旧记录跳过。
 - 当前机器如果没有 `uv.exe` 直接进 PATH，`script/fq_local_preflight.ps1` 会回退到当前 Python launcher 的 `python -m uv`
 - `.github/workflows/ci.yml` 当前也对同一前端 surface 执行上述四个 `fqwebui` gate；前端改动不能只靠本地 `npm run build` 作为唯一证据。

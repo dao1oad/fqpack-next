@@ -131,6 +131,10 @@ jobs:
         working-directory: morningglory/fqwebui
         run: npm ci
 
+      - name: Install Playwright Chromium
+        working-directory: morningglory/fqwebui
+        run: npx playwright install --with-deps chromium
+
       - name: Run frontend lint
         working-directory: morningglory/fqwebui
         run: npm run lint

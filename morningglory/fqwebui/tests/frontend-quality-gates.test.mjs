@@ -8,6 +8,7 @@ const readSource = (relativePath) => (
 
 const packageJson = readSource('../package.json')
 const eslintConfig = readSource('../eslint.config.mjs')
+const browserSmokeRunner = readSource('../scripts/run-browser-smoke.mjs')
 const nodeTestRunner = readSource('../scripts/run-node-tests.mjs')
 const ciYaml = readSource('../../../.github/workflows/ci.yml')
 const preflightScript = readSource('../../../script/fq_local_preflight.ps1')
@@ -16,6 +17,7 @@ test('fqwebui exposes frontend quality gate entrypoints', () => {
   assert.match(packageJson, /"lint"/)
   assert.match(packageJson, /"build"/)
   assert.match(packageJson, /scripts\/run-node-tests\.mjs/)
+  assert.match(packageJson, /scripts\/run-browser-smoke\.mjs/)
   assert.match(packageJson, /\.vue/)
   assert.match(eslintConfig, /src\/\*\*\/\*\.vue/)
   assert.match(eslintConfig, /tests\/\*\*\/\*\.vue/)
@@ -28,6 +30,7 @@ test('fqwebui exposes frontend quality gate entrypoints', () => {
   assert.match(preflightScript, /frontendBuildExitCode/)
   assert.match(preflightScript, /frontend = \[ordered\]@{/)
   assert.match(ciYaml, /npm run test:browser-smoke/)
+  assert.match(ciYaml, /playwright install --with-deps chromium/)
   assert.match(ciYaml, /npm run build/)
   assert.match(preflightScript, /fqwebui/)
 })
@@ -62,4 +65,13 @@ test('preflight detects frontend changes from the full working tree and bypasses
   assert.match(preflightScript, /Test-HasUncommittedChanges/)
   assert.match(preflightScript, /HasUncommittedChanges/)
   assert.match(preflightScript, /if \(\$HasUncommittedChanges\) {\s*return \$false/)
+})
+
+test('browser smoke gate executes a real Playwright chromium spec instead of config-only assertions', () => {
+  assert.match(browserSmokeRunner, /FQ_PLAYWRIGHT_EXECUTABLE_PATH/)
+  assert.match(browserSmokeRunner, /Program Files\\\\Google\\\\Chrome/)
+  assert.match(browserSmokeRunner, /install', 'chromium/)
+  assert.match(browserSmokeRunner, /tests\/daily-screening\.browser\.spec\.mjs/)
+  assert.match(browserSmokeRunner, /'test', \.\.\.smokeSpecs, '--project=chromium'/)
+  assert.match(readSource('../playwright.config.mjs'), /launchOptions:/)
 })

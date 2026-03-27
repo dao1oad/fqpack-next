@@ -9,7 +9,7 @@
     "lint": "eslint --ext .js,.mjs,.vue src tests",
     "test:unit": "node ./scripts/run-node-tests.mjs",
     "test:unit:all": "node ./scripts/run-node-tests.mjs --include-known-red",
-    "test:browser-smoke": "node --input-type=module -e \"import config from './playwright.config.mjs'; const chromiumProject = config?.projects?.find((project) => project?.name === 'chromium'); if (!config || !chromiumProject) throw new Error('missing chromium project'); if (config.testDir !== './tests') throw new Error('invalid testDir'); if (!String(config.testMatch).includes('browser')) throw new Error('invalid testMatch'); console.log('playwright smoke config ok');\"",
+    "test:browser-smoke": "node ./scripts/run-browser-smoke.mjs",
     "test:shouban30": "node --test src/views/shouban30Aggregation.test.mjs src/views/shouban30PoolWorkspace.test.mjs"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
 const baseURL = process.env.FQ_WEBUI_BASE_URL || 'http://127.0.0.1:18080'
+const executablePath = process.env.FQ_PLAYWRIGHT_EXECUTABLE_PATH || undefined
 
 export default defineConfig({
   testDir: './tests',
@@ -19,6 +20,13 @@ export default defineConfig({
       name: 'chromium',
       use: {
         browserName: 'chromium',
+        ...(executablePath
+          ? {
+              launchOptions: {
+                executablePath,
+              },
+            }
+          : {}),
       },
     },
   ],
