@@ -67,16 +67,13 @@
             <span>{{ column.sections.length }} 组</span>
           </header>
 
-          <article
-            v-for="section in column.sections"
-            :key="section.key"
-            class="settings-dense-section"
-          >
-            <div
-              class="settings-ledger"
-              :class="section.kind === 'strategy-ledger' ? 'settings-strategy-ledger' : 'settings-config-ledger'"
+          <div class="settings-dense-column__body">
+            <article
+              v-for="section in column.sections"
+              :key="section.key"
+              class="settings-dense-section"
             >
-              <div class="settings-dense-section__sticky">
+              <div class="settings-dense-section__header">
                 <div class="settings-dense-section__summary">
                   <div>
                     <h2>{{ section.title }}</h2>
@@ -107,92 +104,97 @@
                 </div>
               </div>
 
-              <template v-if="section.kind === 'strategy-ledger'">
-              <div v-if="section.rows.length">
-                <div
-                  v-for="row in section.rows"
-                  :key="row.key"
-                  class="settings-ledger__row settings-strategy-ledger__grid"
-                >
-                  <span class="settings-ledger__cell settings-ledger__cell--strong">{{ row.code }}</span>
-                  <span class="settings-ledger__cell settings-ledger__cell--truncate" :title="row.name">{{ row.name }}</span>
-                  <span class="settings-ledger__cell settings-ledger__cell--truncate" :title="row.desc">{{ row.desc }}</span>
-                  <span class="settings-ledger__cell settings-ledger__cell--mono settings-ledger__cell--truncate" :title="row.b62_uid">{{ row.b62_uid }}</span>
-                </div>
-              </div>
-              <div v-else class="settings-ledger-empty">
-                暂无策略字典记录。
-              </div>
-              </template>
-              <template v-else>
               <div
-                v-for="row in section.rows"
-                :key="row.key"
-                class="settings-ledger__row settings-ledger__row--editable settings-config-ledger__grid"
-                :class="resolveRowClass(row)"
+                class="settings-ledger"
+                :class="section.kind === 'strategy-ledger' ? 'settings-strategy-ledger' : 'settings-config-ledger'"
               >
-                <div class="settings-ledger__cell settings-ledger__cell--primary">
-                  <strong>{{ row.label }}</strong>
-                  <span :title="row.full_path">{{ row.full_path }}</span>
-                </div>
-
-                <div class="settings-ledger__cell settings-ledger__cell--editor">
-                  <el-select
-                    v-if="row.editor.type === 'select'"
-                    :model-value="readRowValue(row)"
-                    size="small"
-                    @update:model-value="(value) => updateRowValue(row, value)"
+                <template v-if="section.kind === 'strategy-ledger'">
+                  <div v-if="section.rows.length">
+                    <div
+                      v-for="row in section.rows"
+                      :key="row.key"
+                      class="settings-ledger__row settings-strategy-ledger__grid"
+                    >
+                      <span class="settings-ledger__cell settings-ledger__cell--strong">{{ row.code }}</span>
+                      <span class="settings-ledger__cell settings-ledger__cell--truncate" :title="row.name">{{ row.name }}</span>
+                      <span class="settings-ledger__cell settings-ledger__cell--truncate" :title="row.desc">{{ row.desc }}</span>
+                      <span class="settings-ledger__cell settings-ledger__cell--mono settings-ledger__cell--truncate" :title="row.b62_uid">{{ row.b62_uid }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="settings-ledger-empty">
+                    暂无策略字典记录。
+                  </div>
+                </template>
+                <template v-else>
+                  <div
+                    v-for="row in section.rows"
+                    :key="row.key"
+                    class="settings-ledger__row settings-ledger__row--editable settings-config-ledger__grid"
+                    :class="resolveRowClass(row)"
                   >
-                    <el-option
-                      v-for="option in row.editor.options"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
+                    <div class="settings-ledger__cell settings-ledger__cell--primary">
+                      <strong>{{ row.label }}</strong>
+                      <span :title="row.full_path">{{ row.full_path }}</span>
+                    </div>
 
-                  <el-input-number
-                    v-else-if="row.editor.type === 'number'"
-                    :model-value="readRowValue(row)"
-                    size="small"
-                    :min="row.editor.min"
-                    :step="row.editor.step"
-                    :precision="row.editor.precision"
-                    controls-position="right"
-                    @update:model-value="(value) => updateRowValue(row, value)"
-                  />
+                    <div class="settings-ledger__cell settings-ledger__cell--editor">
+                      <el-select
+                        v-if="row.editor.type === 'select'"
+                        :model-value="readRowValue(row)"
+                        size="small"
+                        @update:model-value="(value) => updateRowValue(row, value)"
+                      >
+                        <el-option
+                          v-for="option in row.editor.options"
+                          :key="option.value"
+                          :label="option.label"
+                          :value="option.value"
+                        />
+                      </el-select>
 
-                  <el-input
-                    v-else
-                    :model-value="readRowValue(row)"
-                    size="small"
-                    :type="row.editor.type === 'password' ? 'password' : 'text'"
-                    :show-password="row.editor.type === 'password'"
-                    @update:model-value="(value) => updateRowValue(row, value)"
-                  />
-                </div>
+                      <el-input-number
+                        v-else-if="row.editor.type === 'number'"
+                        :model-value="readRowValue(row)"
+                        size="small"
+                        :min="row.editor.min"
+                        :step="row.editor.step"
+                        :precision="row.editor.precision"
+                        controls-position="right"
+                        @update:model-value="(value) => updateRowValue(row, value)"
+                      />
 
-                <div class="settings-ledger__cell settings-ledger__cell--badge">
-                  <StatusChip class="settings-inline-chip" :variant="restartModeChipVariant(row.restart_required)">
-                    {{ row.restart_required ? '重启' : '即时' }}
-                  </StatusChip>
-                </div>
+                      <el-input
+                        v-else
+                        :model-value="readRowValue(row)"
+                        size="small"
+                        :type="row.editor.type === 'password' ? 'password' : 'text'"
+                        :show-password="row.editor.type === 'password'"
+                        @update:model-value="(value) => updateRowValue(row, value)"
+                      />
+                    </div>
 
-                <div class="settings-ledger__cell settings-ledger__cell--badge">
-                  <StatusChip class="settings-inline-chip is-source" variant="info" :title="row.source">
-                    {{ resolveSourceLabel(row) }}
-                  </StatusChip>
-                </div>
+                    <div class="settings-ledger__cell settings-ledger__cell--badge">
+                      <StatusChip class="settings-inline-chip" :variant="restartModeChipVariant(row.restart_required)">
+                        {{ row.restart_required ? '重启' : '即时' }}
+                      </StatusChip>
+                    </div>
 
-                <div class="settings-ledger__cell settings-ledger__cell--badge">
-                  <StatusChip class="settings-inline-chip" :variant="stateChipVariant(row)">
-                    {{ resolveStateLabel(row) }}
-                  </StatusChip>
-                </div>
+                    <div class="settings-ledger__cell settings-ledger__cell--badge">
+                      <StatusChip class="settings-inline-chip is-source" variant="info" :title="row.source">
+                        {{ resolveSourceLabel(row) }}
+                      </StatusChip>
+                    </div>
+
+                    <div class="settings-ledger__cell settings-ledger__cell--badge">
+                      <StatusChip class="settings-inline-chip" :variant="stateChipVariant(row)">
+                        {{ resolveStateLabel(row) }}
+                      </StatusChip>
+                    </div>
+                  </div>
+                </template>
               </div>
-              </template>
-            </div>
-          </article>
+            </article>
+          </div>
         </section>
       </div>
     </div>
@@ -577,17 +579,21 @@ onMounted(() => {
   display flex
   flex-direction column
   min-height 0
-  overflow auto
+  overflow hidden
   padding 10px 12px 12px
   border 1px solid #d9e4ee
   border-radius 12px
   background rgba(255, 255, 255, 0.9)
+
+.settings-dense-column__body
+  display flex
+  flex 1 1 auto
+  flex-direction column
+  min-height 0
+  overflow auto
   scrollbar-gutter stable
 
 .settings-dense-column__head
-  position sticky
-  top 0
-  z-index 5
   display flex
   justify-content space-between
   gap 10px
@@ -613,13 +619,9 @@ onMounted(() => {
   margin-top 0
   border-top 0
 
-.settings-dense-section__sticky
-  position sticky
-  top 40px
-  z-index 4
+.settings-dense-section__header
   display flex
   flex-direction column
-  background rgba(255, 255, 255, 0.98)
 
 .settings-dense-section__summary
   display flex
@@ -627,6 +629,10 @@ onMounted(() => {
   gap 10px
   align-items flex-start
   padding 8px 10px 10px
+  border 1px solid #e4ecf3
+  border-bottom 0
+  border-radius 10px 10px 0 0
+  background rgba(255, 255, 255, 0.98)
 
 .settings-dense-section__summary h2
   margin 0
@@ -686,7 +692,8 @@ onMounted(() => {
   flex-direction column
   min-width 0
   border 1px solid #e4ecf3
-  border-radius 10px
+  border-top 0
+  border-radius 0 0 10px 10px
   background #fff
   overflow hidden
 
@@ -701,7 +708,9 @@ onMounted(() => {
 .settings-ledger__header
   background #f6f9fc
   color #68839d
-  border-bottom 1px solid #e5edf5
+  border 1px solid #e4ecf3
+  border-top 0
+  border-bottom 0
 
 .settings-ledger__row
   border-top 1px solid #eef3f8
@@ -818,6 +827,4 @@ onMounted(() => {
   .settings-ledger__cell--badge
     justify-content flex-start
 
-  .settings-dense-section__sticky
-    top 38px
 </style>

@@ -199,7 +199,7 @@
 - 中列展示运行接入 / 系统链路设置
 - 右列展示交易控制 / 策略字典
 - Bootstrap 与 Mongo 两类正式设置项都直接以内嵌 dense ledger 行展示，不再使用卡片式编辑区
-- 每个 section 当前统一使用单层 sticky 区块承载标题摘要和 ledger 表头，不再让 section 标题与表头分别独立 sticky，避免列内滚动时互相覆盖
+- 每列当前拆成固定列头和独立滚动 body；section 标题摘要与 ledger 表头使用静态头部，rows 落在单独 ledger box 内，避免列内滚动时覆盖首行
 - 所有正式设置项都会出现在主视图中；`guardian.stock.threshold.*` 与 `guardian.stock.grid_interval.*` 不再因 mode 切换而隐藏，只对未生效行做弱化
 - 页面内使用列内局部滚动，不再依赖浏览器页面滚动
 - 页面顶部保留 `刷新 / 保存启动配置 / 保存系统设置` 三个主操作，并分别统计 Bootstrap 与 Mongo 的未保存项
