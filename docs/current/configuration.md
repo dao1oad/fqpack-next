@@ -169,10 +169,15 @@
 - `thresholds.allow_open_min_bail`
 - `thresholds.holding_only_min_bail`
 - `thresholds.single_symbol_position_limit`
+- `symbol_position_limits.overrides.<symbol>`
 
 其中 `thresholds.single_symbol_position_limit` 是系统级“单标的默认持仓上限”真值。
 
 当前系统设置页面会统一展示并编辑 `pm_configs.thresholds` 下这三个全局阈值；`/system-settings -> 仓位门禁` 直接编辑的也是这个系统级默认值。
+
+其中 `symbol_position_limits.overrides.<symbol>` 是标的级 override 真值。
+
+标的级 override 不并入 `/system-settings`，仍在 `/position-management` 等入口维护。
 
 ### `instrument_strategy`
 
@@ -185,8 +190,6 @@
 - 可选阈值/网格覆盖
 
 初始化程序只补缺失记录，不覆盖已有单标的配置。
-
-单标的 override 仍在 `/position-management` 等标的页维护，不并入 `/system-settings`。
 
 ## 前端设置页
 
