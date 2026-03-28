@@ -169,8 +169,15 @@
 - `thresholds.allow_open_min_bail`
 - `thresholds.holding_only_min_bail`
 - `thresholds.single_symbol_position_limit`
+- `symbol_position_limits.overrides.<symbol>`
 
-当前系统设置页面会统一展示并编辑 `pm_configs.thresholds` 下这三个全局阈值。
+其中 `thresholds.single_symbol_position_limit` 是系统级“单标的默认持仓上限”真值。
+
+当前系统设置页面会统一展示并编辑 `pm_configs.thresholds` 下这三个全局阈值；`/system-settings -> 仓位门禁` 直接编辑的也是这个系统级默认值。
+
+其中 `symbol_position_limits.overrides.<symbol>` 是标的级 override 真值。
+
+标的级 override 不并入 `/system-settings`，仍在 `/position-management` 等入口维护。
 
 ### `instrument_strategy`
 
@@ -204,6 +211,8 @@
 - 所有正式设置项都会出现在主视图中；`guardian.stock.threshold.*` 与 `guardian.stock.grid_interval.*` 不再因 mode 切换而隐藏，只对未生效行做弱化
 - 页面内使用列内局部滚动，不再依赖浏览器页面滚动
 - 页面顶部保留 `刷新 / 保存启动配置 / 保存系统设置` 三个主操作，并分别统计 Bootstrap 与 Mongo 的未保存项
+- `/system-settings -> 仓位门禁` 当前直接编辑 `pm_configs.thresholds.single_symbol_position_limit`，该字段在页面口径中统一称为“单标的默认持仓上限”
+- 标的级 override 不在 `/system-settings` 维护，仍保留在 `/position-management` 等标的入口
 
 `guardian.stock.threshold.*` 与 `guardian.stock.grid_interval.*` 保留。
 旧 SMTP / 邮件收件人配置不再进入新系统正式设置面。

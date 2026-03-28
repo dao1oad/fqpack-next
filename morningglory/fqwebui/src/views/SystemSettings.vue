@@ -135,6 +135,12 @@
                     <div class="settings-ledger__cell settings-ledger__cell--primary">
                       <strong>{{ row.label }}</strong>
                       <span :title="row.full_path">{{ row.full_path }}</span>
+                      <small
+                        v-if="row.key === 'position_management.single_symbol_position_limit'"
+                        class="settings-ledger__cell-hint"
+                      >
+                        未为某个标的单独设置上限时，默认使用这里的值
+                      </small>
                     </div>
 
                     <div class="settings-ledger__cell settings-ledger__cell--editor">
@@ -764,6 +770,13 @@ onMounted(() => {
   overflow hidden
   text-overflow ellipsis
   white-space nowrap
+
+.settings-ledger__cell-hint
+  display block
+  margin-top 4px
+  color #516d87
+  font-size 11px
+  line-height 1.45
 
 .settings-ledger__cell--truncate
   overflow hidden
