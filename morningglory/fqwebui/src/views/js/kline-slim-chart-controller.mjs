@@ -180,11 +180,22 @@ function isPriceGuideVisible(scene, group) {
   return !!scene.legendSelected[legendName]
 }
 
-function shouldIncludePriceGuideInYRange(scene, line) {
-  if (!line || line.active === false || line.manual_enabled === false) {
+function shouldAlwaysIncludePriceGuideInAutoYRange(line) {
+  const group = String(line?.group || '').trim()
+  return group === 'cost_basis' || group === 'buy_lot'
+}
+
+function shouldIncludePriceGuideInYRange(scene, line, { includeAllPriceGuides = false } = {}) {
+  if (!line || !isPriceGuideVisible(scene, line.group)) {
     return false
   }
-  return isPriceGuideVisible(scene, line.group)
+  if (shouldAlwaysIncludePriceGuideInAutoYRange(line)) {
+    return true
+  }
+  if (!includeAllPriceGuides) {
+    return false
+  }
+  return !(line.active === false || line.manual_enabled === false)
 }
 
 function collectPrimaryVisibleValues(scene, windowBounds) {
@@ -218,11 +229,11 @@ function collectPrimaryVisibleValues(scene, windowBounds) {
   return values.filter(Number.isFinite)
 }
 
-function collectVisiblePriceGuideValues(scene) {
+function collectVisiblePriceGuideValues(scene, { includeAllPriceGuides = false } = {}) {
   const values = []
 
   ;(Array.isArray(scene?.priceGuideLines) ? scene.priceGuideLines : []).forEach((line) => {
-    if (!shouldIncludePriceGuideInYRange(scene, line)) {
+    if (!shouldIncludePriceGuideInYRange(scene, line, { includeAllPriceGuides })) {
       return
     }
     const price = Number(line?.price)
@@ -236,10 +247,13 @@ function collectVisiblePriceGuideValues(scene) {
 
 function collectVisibleValues(scene, windowBounds, { includePriceGuides = false } = {}) {
   const values = collectPrimaryVisibleValues(scene, windowBounds)
-  if (includePriceGuides) {
-    return values.concat(collectVisiblePriceGuideValues(scene)).filter(Number.isFinite)
-  }
   return values
+    .concat(
+      collectVisiblePriceGuideValues(scene, {
+        includeAllPriceGuides: includePriceGuides,
+      })
+    )
+    .filter(Number.isFinite)
 }
 
 function buildYRange(values, fallback = null) {

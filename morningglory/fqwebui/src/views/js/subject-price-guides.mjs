@@ -23,6 +23,8 @@ const TAKEPROFIT_LEVELS = [
 export const PRICE_GUIDE_LEGEND_GROUPS = [
   { key: 'guardian', legendName: 'Guardian 价格线', color: GUIDE_COLORS[0] },
   { key: 'takeprofit', legendName: '止盈价格线', color: GUIDE_COLORS[2] },
+  { key: 'cost_basis', legendName: '成本价线', color: '#f59e0b' },
+  { key: 'buy_lot', legendName: '买入订单线', color: '#06b6d4' },
 ]
 
 const toText = (value) => String(value ?? '').trim()
@@ -217,6 +219,51 @@ export const buildTakeprofitPriceGuides = (tiers = [], state = {}) => {
     .filter(Boolean)
 }
 
+export const buildCostBasisPriceGuide = (avgPrice = null) => {
+  const price = toPositiveGuidePrice(avgPrice)
+  if (price === null) {
+    return null
+  }
+  return {
+    id: 'cost-basis',
+    key: 'cost_basis',
+    level: 'COST',
+    group: 'cost_basis',
+    price,
+    color: '#f59e0b',
+    label: `成本 ${formatGuidePrice(price)}`,
+    active: true,
+    manual_enabled: true,
+    lineStyle: 'solid',
+  }
+}
+
+export const buildBuyLotPriceGuides = (buyLots = []) => {
+  return (Array.isArray(buyLots) ? buyLots : [])
+    .map((row, index) => {
+      const price = toPositiveGuidePrice(row?.buy_price_real)
+      const remainingQuantity = toNullableNumber(row?.remaining_quantity)
+      const buyLotId = toText(row?.buy_lot_id)
+      if (price === null) {
+        return null
+      }
+      const quantityLabel = remainingQuantity !== null ? ` / ${Math.trunc(remainingQuantity)}股` : ''
+      return {
+        id: `buy-lot-${buyLotId || index + 1}`,
+        key: buyLotId || `lot_${index + 1}`,
+        level: index + 1,
+        group: 'buy_lot',
+        price,
+        color: '#06b6d4',
+        label: `买${index + 1} ${formatGuidePrice(price)}${quantityLabel}`,
+        active: true,
+        manual_enabled: true,
+        lineStyle: 'dotted',
+      }
+    })
+    .filter(Boolean)
+}
+
 export const getPriceGuideLegendName = (group) =>
   PRICE_GUIDE_LEGEND_GROUPS.find((item) => item.key === group)?.legendName || String(group || '').trim()
 
@@ -243,12 +290,19 @@ export const buildChartPriceGuides = ({
   guardianState = {},
   takeprofitDrafts = [],
   takeprofitState = {},
+  costBasisPrice = null,
+  buyLots = [],
 } = {}) => {
   const guardianLines = buildGuardianPriceGuides(guardianDraft, guardianState)
   const takeprofitLines = buildTakeprofitPriceGuides(takeprofitDrafts, takeprofitState)
+  const costBasisLine = buildCostBasisPriceGuide(costBasisPrice)
+  const buyLotLines = buildBuyLotPriceGuides(buyLots)
 
   return {
-    lines: guardianLines.concat(takeprofitLines),
+    lines: guardianLines
+      .concat(takeprofitLines)
+      .concat(costBasisLine ? [costBasisLine] : [])
+      .concat(buyLotLines),
     bands: [],
   }
 }
@@ -363,6 +417,12 @@ export const buildKlineSubjectPriceDetail = (detail = {}) => {
     .sort((left, right) => left.level - right.level)
   const takeprofitDrafts = buildTakeprofitDrafts(takeprofitTiers)
   const takeprofitState = detail?.takeprofit?.state || { armed_levels: {} }
+  const costBasisPrice = toPositiveGuidePrice(detail?.runtime_summary?.avg_price)
+  const openBuyLots = Array.isArray(detail?.buy_lots)
+    ? detail.buy_lots.filter((row) => toPositiveGuidePrice(row?.buy_price_real) !== null)
+    : []
+  const costBasisPriceGuide = buildCostBasisPriceGuide(costBasisPrice)
+  const buyLotPriceGuides = buildBuyLotPriceGuides(openBuyLots)
 
   return {
     guardianDraft,
@@ -371,11 +431,17 @@ export const buildKlineSubjectPriceDetail = (detail = {}) => {
     takeprofitDrafts,
     takeprofitState,
     takeprofitPriceGuides: buildTakeprofitPriceGuides(takeprofitDrafts, takeprofitState),
+    costBasisPrice,
+    costBasisPriceGuide,
+    openBuyLots,
+    buyLotPriceGuides,
     chartPriceGuides: buildChartPriceGuides({
       guardianDraft,
       guardianState,
       takeprofitDrafts,
       takeprofitState,
+      costBasisPrice,
+      buyLots: openBuyLots,
     }),
   }
 }
