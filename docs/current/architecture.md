@@ -19,6 +19,18 @@
 - 记忆层
   - `freshquant.runtime.memory.*`
 
+## 记忆层
+
+- 热记忆
+  - 当前会话通过 `FQ_MEMORY_CONTEXT_PATH` 加载的 context pack
+- 冷记忆
+  - `runtime/memory/**` 中由 bootstrap / archive / retrieval 维护的长期记忆材料
+  - 自由会话通过 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 生成并加载 context pack
+- 正式边界
+  - 记忆层只提供上下文，不覆盖 GitHub、`docs/current/**` 与最新远程 `origin/main` / `main` 的正式真值
+  - 涉及运行交付时，以最新远程 `main` 的正式 deploy 与 health check 为准
+  - 所有代码更新的 PR + CI + merge gate 仍是交付收敛面的正式真值
+
 ## 订单相关核心调用链
 
 ### 实时交易链

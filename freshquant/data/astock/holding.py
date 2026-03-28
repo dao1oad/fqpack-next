@@ -233,11 +233,11 @@ def get_stock_fill_list(symbol):
     if records:
         _compare_with_legacy_fill_list(symbol, records)
         return records
-    if not _allow_legacy_runtime_fallback():
-        return None
     records = _get_compat_stock_fill_list(symbol)
     if records:
         return records
+    if not _allow_legacy_runtime_fallback():
+        return None
     return _get_legacy_stock_fill_list(symbol)
 
 
@@ -299,11 +299,11 @@ def get_arranged_stock_fill_list(symbol):
     if records:
         _compare_with_legacy_arranged_fill_list(symbol, records)
         return records
-    if not _allow_legacy_runtime_fallback():
-        return None
     records = _get_compat_arranged_stock_fill_list(symbol)
     if records:
         return records
+    if not _allow_legacy_runtime_fallback():
+        return None
     return _get_legacy_arranged_stock_fill_list(symbol)
 
 

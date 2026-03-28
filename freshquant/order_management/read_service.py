@@ -328,9 +328,7 @@ class OrderManagementReadService:
             return self.repository.list_execution_fills(
                 broker_order_keys=[broker_order_key]
             )
-        return self.repository.list_trade_facts(
-            internal_order_ids=[internal_order_id]
-        )
+        return self.repository.list_trade_facts(internal_order_ids=[internal_order_id])
 
 
 def _assemble_order_row(order, request):

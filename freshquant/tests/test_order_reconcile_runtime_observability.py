@@ -207,7 +207,9 @@ class InMemoryRepository:
 
     def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
         rows = [
-            item for item in self.entry_slices if int(item.get("remaining_quantity") or 0) > 0
+            item
+            for item in self.entry_slices
+            if int(item.get("remaining_quantity") or 0) > 0
         ]
         if symbol is not None:
             rows = [item for item in rows if item.get("symbol") == symbol]

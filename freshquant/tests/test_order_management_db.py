@@ -122,7 +122,9 @@ def _matches_query(document, query):
         if isinstance(expected, dict):
             if "$in" in expected and actual not in set(expected["$in"]):
                 return False
-            if "$gt" in expected and not (actual is not None and actual > expected["$gt"]):
+            if "$gt" in expected and not (
+                actual is not None and actual > expected["$gt"]
+            ):
                 return False
             continue
         if actual != expected:

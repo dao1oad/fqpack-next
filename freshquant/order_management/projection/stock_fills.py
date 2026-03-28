@@ -108,6 +108,12 @@ def list_arranged_fills(symbol, repository=None):
         for item in list_open_entry_views(symbol, repository=repository)
         if item.get("entry_id") is not None
     }
+    if hasattr(repository, "list_buy_lots"):
+        for item in repository.list_buy_lots(symbol):
+            entry_id = str(item.get("buy_lot_id") or "").strip()
+            if not entry_id or entry_id in entry_by_id:
+                continue
+            entry_by_id[entry_id] = dict(item)
     normalized_slices = [
         _with_resolved_date_time(
             item,

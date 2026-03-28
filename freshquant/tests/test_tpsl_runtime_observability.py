@@ -41,6 +41,7 @@ class FakeTakeprofitService:
         batch_id,
         updated_by,
         trigger_price=None,
+        entry_details=None,
         buy_lot_details=None,
     ):
         self.mark_calls.append(
@@ -50,6 +51,7 @@ class FakeTakeprofitService:
                 "batch_id": batch_id,
                 "updated_by": updated_by,
                 "trigger_price": trigger_price,
+                "entry_details": list(entry_details or []),
                 "buy_lot_details": list(buy_lot_details or []),
             }
         )
@@ -141,6 +143,7 @@ def test_tpsl_submit_intent_emits_trace_step():
             "batch_id": batch["batch_id"],
             "updated_by": "tpsl_submit",
             "trigger_price": 10.8,
+            "entry_details": [{"entry_id": "lot1", "quantity": 300}],
             "buy_lot_details": [{"buy_lot_id": "lot1", "quantity": 300}],
         }
     ]
@@ -300,18 +303,18 @@ def test_tpsl_tick_consumer_without_takeprofit_hit_does_not_create_global_trace(
     )
     consumer = TpslTickConsumer(
         service=service,
-        universe_loader=lambda: ['sz000001'],
+        universe_loader=lambda: ["sz000001"],
         refresh_interval_s=999,
         runtime_logger=runtime_logger,
     )
 
     result = consumer.handle_tick(
         {
-            'code': 'sz000001',
-            'ask1': 10.0,
-            'bid1': 9.9,
-            'lastPrice': 10.0,
-            'time': 1710000000,
+            "code": "sz000001",
+            "ask1": 10.0,
+            "bid1": 9.9,
+            "lastPrice": 10.0,
+            "time": 1710000000,
         }
     )
 

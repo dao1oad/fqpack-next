@@ -146,6 +146,17 @@ python -m freshquant.cli om-order submit --action buy --symbol 600000 --price 10
 python -m freshquant.cli om-order cancel --internal-order-id <id>
 ```
 
+## Codex / Memory Bootstrap
+
+- memory bootstrap 脚本
+  - `py -3.12 runtime/memory/scripts/bootstrap_freshquant_memory.py --repo-root . --service-root D:/fqpack/runtime`
+- Codex CLI 启动入口
+  - `codex_run/start_codex_cli.bat`
+- Codex app-server 启动入口
+  - `codex_run/start_codex_app_server.bat`
+- app-server 默认通过 `stdio://` 暴露本地会话接口
+- 本地 `codex app-server` 窗口按 `Ctrl+C` 退出；关闭该窗口即停止服务
+
 ## 后台 worker
 
 - XTData producer

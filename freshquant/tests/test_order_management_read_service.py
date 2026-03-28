@@ -154,7 +154,9 @@ class InMemoryOrderManagementRepository:
             ]
         return rows
 
-    def list_execution_fills(self, symbol=None, broker_order_keys=None, execution_fill_ids=None):
+    def list_execution_fills(
+        self, symbol=None, broker_order_keys=None, execution_fill_ids=None
+    ):
         rows = list(self.execution_fills)
         if symbol is not None:
             rows = [item for item in rows if item.get("symbol") == symbol]

@@ -68,9 +68,7 @@ def build_stoploss_batch(
         slice_id = slice_document["entry_slice_id"]
         entry_id = slice_document["entry_id"]
         slice_quantities[slice_id] = allocatable
-        entry_quantities[entry_id] = (
-            entry_quantities.get(entry_id, 0) + allocatable
-        )
+        entry_quantities[entry_id] = entry_quantities.get(entry_id, 0) + allocatable
         slice_details.append(
             {
                 "entry_slice_id": slice_id,

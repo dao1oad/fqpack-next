@@ -89,9 +89,10 @@ def test_submit_order_creates_request_order_and_accepted_event():
     assert repository.order_requests[0]["state"] == "ACCEPTED"
     assert repository.orders[0]["request_id"] == request_id
     assert repository.orders[0]["state"] == "ACCEPTED"
-    assert repository.broker_orders[0]["internal_order_id"] == repository.orders[0][
-        "internal_order_id"
-    ]
+    assert (
+        repository.broker_orders[0]["internal_order_id"]
+        == repository.orders[0]["internal_order_id"]
+    )
     assert repository.broker_orders[0]["requested_quantity"] == 100
     assert repository.order_events[0]["event_type"] == "accepted"
 
