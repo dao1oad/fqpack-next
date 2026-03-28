@@ -69,12 +69,14 @@
 - stale 默认按 `HOLDING_ONLY` 处理
 - 允许开仓的最低保证金默认约 `800000`
 - 仅允许持仓内操作的最低保证金默认约 `100000`
-- 单标的实时仓位上限默认约 `800000`
+- 单标的默认持仓上限默认约 `800000`
 
 单标的实时仓位上限当前统一使用“系统默认值兜底 + 显式 override”语义：
 
-- 默认值仍写在 `pm_configs.thresholds.single_symbol_position_limit`
+- 系统级“单标的默认持仓上限”的真值仍写在 `pm_configs.thresholds.single_symbol_position_limit`
+- 该默认值可在 `/system-settings -> 仓位门禁` 直接编辑
 - 单标的覆盖值写在 `pm_configs.symbol_position_limits.overrides.<symbol>`
+- 标的级 override 仍在 `/position-management` 等标的入口维护，不并入 `/system-settings`
 - 没有 override 时，实际生效值天然等于系统默认值
 - 买入门禁按 `override_limit ?? default_limit` 计算有效上限
 - 保存值等于系统默认值时，后端会自动删除 override
@@ -92,7 +94,7 @@
 - 可编辑并真实生效
   - `allow_open_min_bail`
   - `holding_only_min_bail`
-  - `single_symbol_position_limit`
+  - `single_symbol_position_limit`（系统级单标的默认持仓上限）
 - 只读展示
   - `state_stale_after_seconds`
   - `default_state`
@@ -103,7 +105,7 @@
 阈值写入 `pm_configs.thresholds`。其中：
 
 - `allow_open_min_bail / holding_only_min_bail` 在下一次账户快照刷新后影响 `state_from_bail()`
-- `single_symbol_position_limit` 直接影响后续买入门禁
+- `single_symbol_position_limit` 作为系统级单标的默认持仓上限，直接影响后续买入门禁
 
 如果阈值刚更新、`pm_current_state` 还没被下一次 snapshot 刷新重算，Dashboard 会明确标记“阈值已更新，当前状态待下一次快照刷新”；在这段窗口期内，真实门禁仍按当前 `pm_current_state` 生效。
 `POST /api/position-management/config` 只接受有限数值（finite number）阈值；`nan`、`inf`、`-inf` 会直接返回 400。若历史配置中出现这类脏值，Dashboard 读取时会回退到默认阈值，避免污染门禁判断。
@@ -120,7 +122,7 @@
 - 当前规则矩阵
 - 最近决策摘要（包含 `decision_id / symbol / symbol_name / source / source_module / trace_id / intent_id`，以及单标的实时仓位来源）
 
-其中 `effective_state`、`stale` 和规则说明均由服务端按真实 `PositionPolicy` 计算；最近决策会带出单标的实时仓位、上限来源与 trace 上下文，单标的仓位上限摘要会带出系统默认值、当前生效值、来源事实和当前阻断状态。
+其中 `effective_state`、`stale` 和规则说明均由服务端按真实 `PositionPolicy` 计算；最近决策会带出单标的实时仓位、上限来源与 trace 上下文，单标的仓位上限摘要会带出系统默认值（即单标的默认持仓上限）、当前生效值、来源事实和当前阻断状态。
 
 最近决策当前会对以下字段做系统真值回填：
 
@@ -166,7 +168,7 @@
 - 最近决策 ledger 一次展示 `触发时间 / 标的 / 动作 / 结果 / 门禁状态 / 触发来源 / 仓位上下文 / trace / intent / 附加上下文`
 - 最近决策 ledger 默认分页 `100` 条，表体默认显示约 `15` 行，宽度不足时直接使用横向滚动
 - 参数 inventory 维持“可编辑阈值 + 只读参数”边界，但当前统一合并为左栏中的一张紧凑表格，说明列已移除，编辑态直接嵌入“当前值”列
-- 可编辑阈值当前包含账户级阈值和单标的实时仓位上限
+- 可编辑阈值当前包含账户级阈值和单标的默认持仓上限
 - 持仓范围卡片已移除，不再单独展示 holding scope
 - 规则矩阵已并入“当前仓位状态”，不再作为独立卡片，也不再使用滚动条隐藏三种状态
 - 当前命中规则说明改成与资产摘要同层级的紧凑指标卡，不再单独使用虚线提示块
@@ -176,7 +178,7 @@
 - “单标的仓位上限覆盖”当前只展示持仓股，并按券商真值仓位市值从大到小排序
 - 顶部摘要条、规则矩阵结果、右栏一致性/门禁状态和最近决策结果当前统一复用共享 `StatusChip` 语义，不再各自维护本地 `runtime-inline-status` 颜色类
 - 顶部两栏标题当前只保留标题与操作，移除说明长句；顶部双栏当前恢复等高面板，顶部双栏都改为面板内竖向滚动，这样首屏就能把“最近决策与上下文”露出来
-- “单标的仓位上限覆盖”里的“系统默认值”列已移除；输入框默认直接展示当前生效值，`操作` 列挪到 `当前来源` 前
+- “单标的仓位上限覆盖”里的系统默认值（即单标的默认持仓上限）列已移除；输入框默认直接展示当前生效值，`操作` 列挪到 `当前来源` 前
 - “单标的仓位上限覆盖”里的 `券商仓位 / 订单推断仓位 / stock_fills 仓位` 当前都挪到主列右侧，最小宽度上调并会扩展占满右栏剩余宽度；其中 `订单推断仓位 / stock_fills 仓位` 内容左对齐，来源文本会截断显示并保留 tooltip，避免扰乱主列排版
 - 右栏三列仓位当前改成表头与数据行共用固定列宽，避免右侧三列在长来源文本下发生错位
 - “当前命中规则”卡片当前复用 `position-metric-card` 的标题与数值样式，只保留详情文案段落，并与“可用保证金”等小指标卡保持同尺寸
@@ -186,11 +188,13 @@
 - 已超限或三套仓位数量不一致的标的会在右栏覆盖表中高亮，便于缩放后快速定位
 - 当前仓位状态改成摘要条、指标块和元数据块，不再使用大 hero
 
-单标的上限当前可直接从以下入口编辑，三个入口共享同一语义：
+标的级 override 当前仍可直接从以下入口编辑，三个入口共享同一语义：
 
 - `/position-management` 右栏“单标的仓位上限覆盖”表
 - `/subject-management` 的右侧“基础配置 + 单标的仓位上限”编辑表
 - `/kline-slim` 的“标的设置”浮层
+
+这些入口维护的是单标的 override，不是 `/system-settings -> 仓位门禁` 里的系统级单标的默认持仓上限。
 
 ## holding scope 口径
 

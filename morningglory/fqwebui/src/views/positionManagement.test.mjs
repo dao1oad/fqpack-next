@@ -23,7 +23,7 @@ test('buildInventoryRows keeps single symbol position limit editable inside merg
         },
         {
           key: 'single_symbol_position_limit',
-          label: '单标的实时仓位上限',
+          label: '单标的默认持仓上限',
           value: 800000,
           editable: true,
           group: 'editable_thresholds',
@@ -48,6 +48,7 @@ test('buildInventoryRows keeps single symbol position limit editable inside merg
     editableRows.map((item) => item.key),
     ['allow_open_min_bail', 'holding_only_min_bail', 'single_symbol_position_limit'],
   )
+  assert.equal(singleSymbolLimit.label, '单标的默认持仓上限')
   assert.equal(singleSymbolLimit.value_label, '800,000.00')
   assert.equal(singleSymbolLimit.group_label, '已生效且可编辑')
   assert.equal(singleSymbolLimit.editable, true)
@@ -190,6 +191,7 @@ test('PositionManagement view merges runtime state and inventory into left panel
   assert.match(source, /单标的仓位上限覆盖/)
   assert.match(source, /single_symbol_position_limit/)
   assert.match(source, /v-model="editableForm\.single_symbol_position_limit"/)
+  assert.match(source, /全局单标的默认持仓上限/)
   assert.match(source, /单标的上限设置/)
   assert.match(source, /当前来源/)
   assert.match(source, /<span>操作<\/span>\s*<span>当前来源<\/span>/)

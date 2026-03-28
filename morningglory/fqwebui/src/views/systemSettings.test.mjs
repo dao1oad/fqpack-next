@@ -193,7 +193,7 @@ const createPayload = () => ({
         items: [
           { key: 'position_management.allow_open_min_bail', label: '允许开新仓最低保证金', value: 800000 },
           { key: 'position_management.holding_only_min_bail', label: '仅允许持仓内买入最低保证金', value: 100000 },
-          { key: 'position_management.single_symbol_position_limit', label: '单标的实时仓位上限', value: 600000 },
+          { key: 'position_management.single_symbol_position_limit', label: '单标的默认持仓上限', value: 600000 },
         ],
       },
     ],
@@ -268,6 +268,23 @@ test('settings rows keep guardian percent and atr rows visible while marking ina
   assert.equal(thresholdAtrPeriod.inactive, true)
   assert.equal(gridPercent.inactive, true)
   assert.equal(gridAtrPeriod.inactive, false)
+})
+
+test('single symbol position limit row uses default position limit wording and helper copy', () => {
+  const payload = createPayload()
+  const sections = buildSettingsLedgerSections(payload, {
+    currentValues: payload.settings.values,
+    baselineValues: payload.settings.values,
+  })
+  const rows = flattenLedgerRows(sections)
+  const singleSymbolLimit = rows.find((row) => row.key === 'position_management.single_symbol_position_limit')
+  const content = readFileSync(new URL('./SystemSettings.vue', import.meta.url), 'utf8')
+
+  assert.ok(singleSymbolLimit)
+  assert.equal(singleSymbolLimit.label, '单标的默认持仓上限')
+  assert.equal(singleSymbolLimit.value_label, '600,000')
+  assert.equal(singleSymbolLimit.editor.type, 'number')
+  assert.match(content, /未为某个标的单独设置上限时，默认使用这里的值/)
 })
 
 test('resolveEditorMeta returns official select options for enum settings', () => {
