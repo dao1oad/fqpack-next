@@ -48,9 +48,18 @@ class FakeOrderSubmitService:
 
 
 class FakeOrderManagementRepository:
-    def __init__(self, *, open_slices=None, stoploss_bindings=None):
+    def __init__(
+        self,
+        *,
+        open_slices=None,
+        open_entry_slices=None,
+        stoploss_bindings=None,
+        entry_stoploss_bindings=None,
+    ):
         self._open_slices = list(open_slices or [])
+        self._open_entry_slices = list(open_entry_slices or [])
         self._stoploss_bindings = list(stoploss_bindings or [])
+        self._entry_stoploss_bindings = list(entry_stoploss_bindings or [])
 
     def list_open_slices(self, symbol=None, buy_lot_ids=None):
         rows = list(self._open_slices)
@@ -61,8 +70,25 @@ class FakeOrderManagementRepository:
             rows = [item for item in rows if item.get("buy_lot_id") in allowed]
         return rows
 
+    def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+        rows = list(self._open_entry_slices)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        return rows
+
     def list_stoploss_bindings(self, symbol=None, enabled=True):
         rows = list(self._stoploss_bindings)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if enabled is not None:
+            rows = [item for item in rows if bool(item.get("enabled", True)) == enabled]
+        return rows
+
+    def list_entry_stoploss_bindings(self, symbol=None, enabled=True):
+        rows = list(self._entry_stoploss_bindings)
         if symbol is not None:
             rows = [item for item in rows if item.get("symbol") == symbol]
         if enabled is not None:
@@ -185,9 +211,9 @@ def test_submit_stoploss_batch_persists_stoploss_trigger_event():
             "price": 9.1,
             "bid1": 9.1,
             "quantity": 200,
-            "buy_lot_quantities": {"lot_1": 200},
+            "entry_quantities": {"entry_1": 200},
             "triggered_bindings": [
-                {"buy_lot_id": "lot_1", "stop_price": 9.2, "enabled": True}
+                {"entry_id": "entry_1", "stop_price": 9.2, "enabled": True}
             ],
         }
     )
@@ -195,9 +221,9 @@ def test_submit_stoploss_batch_persists_stoploss_trigger_event():
     assert repo.events[-1]["event_type"] == "stoploss_hit"
     assert repo.events[-1]["kind"] == "stoploss"
     assert repo.events[-1]["trigger_price"] == 9.1
-    assert repo.events[-1]["buy_lot_ids"] == ["lot_1"]
-    assert repo.events[-1]["buy_lot_details"] == [
-        {"buy_lot_id": "lot_1", "stop_price": 9.2, "quantity": 200}
+    assert repo.events[-1]["entry_ids"] == ["entry_1"]
+    assert repo.events[-1]["entry_details"] == [
+        {"entry_id": "entry_1", "stop_price": 9.2, "quantity": 200}
     ]
 
 

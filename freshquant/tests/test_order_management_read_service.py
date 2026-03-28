@@ -14,10 +14,22 @@ code_stub = types.ModuleType("freshquant.util.code")
 
 def _normalize_to_base_code(value):
     text = str(value or "").strip()
+    if "." in text:
+        text = text.split(".", 1)[0]
     return text[-6:] if len(text) >= 6 else text
 
 
 setattr(code_stub, "normalize_to_base_code", _normalize_to_base_code)
+setattr(
+    code_stub,
+    "fq_util_code_append_market_code",
+    lambda value: str(value or "").strip(),
+)
+setattr(
+    code_stub,
+    "fq_util_code_append_market_code_suffix",
+    lambda value: str(value or "").strip(),
+)
 sys.modules.setdefault("freshquant.util.code", code_stub)
 
 from freshquant.order_management.read_service import (

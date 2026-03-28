@@ -7,6 +7,10 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from freshquant.db import DBfreshquant
+from freshquant.order_management.entry_adapter import (
+    list_entry_stoploss_bindings_compat,
+    list_open_entry_slices_compat,
+)
 from freshquant.order_management.ids import new_event_id
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.submit.service import OrderSubmitService
@@ -98,24 +102,24 @@ class TpslService:
         if repository is None or not hasattr(repository, "insert_exit_trigger_event"):
             return None
 
-        buy_lot_quantities = dict(batch.get("buy_lot_quantities") or {})
+        entry_quantities = dict(batch.get("entry_quantities") or {})
         binding_map = {
-            item.get("buy_lot_id"): item
+            item.get("entry_id"): item
             for item in (batch.get("triggered_bindings") or [])
-            if item.get("buy_lot_id")
+            if item.get("entry_id")
         }
-        buy_lot_details = []
-        for buy_lot_id, quantity in buy_lot_quantities.items():
+        entry_details = []
+        for entry_id, quantity in entry_quantities.items():
             detail = {
-                "buy_lot_id": buy_lot_id,
+                "entry_id": entry_id,
                 "quantity": int(quantity),
             }
-            binding = binding_map.get(buy_lot_id) or {}
+            binding = binding_map.get(entry_id) or {}
             if binding.get("stop_price") is not None:
                 detail["stop_price"] = float(binding["stop_price"])
             if binding.get("ratio") is not None:
                 detail["ratio"] = float(binding["ratio"])
-            buy_lot_details.append(detail)
+            entry_details.append(detail)
 
         event = {
             "event_id": new_event_id(),
@@ -124,8 +128,8 @@ class TpslService:
             "symbol": _normalize_symbol(batch.get("symbol")),
             "batch_id": batch.get("batch_id"),
             "trigger_price": float(batch.get("bid1") or batch.get("price") or 0.0),
-            "buy_lot_ids": [item["buy_lot_id"] for item in buy_lot_details],
-            "buy_lot_details": buy_lot_details,
+            "entry_ids": [item["entry_id"] for item in entry_details],
+            "entry_details": entry_details,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         repository.insert_exit_trigger_event(event)
@@ -317,9 +321,10 @@ class TpslService:
         trace_id_value = None
         try:
             triggered_bindings = []
-            for binding in self.order_repository.list_stoploss_bindings(
+            for binding in list_entry_stoploss_bindings_compat(
                 symbol=base_symbol,
                 enabled=True,
+                repository=self.order_repository,
             ):
                 stop_price = binding.get("stop_price")
                 if stop_price is None:
