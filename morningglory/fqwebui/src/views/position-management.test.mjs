@@ -88,21 +88,21 @@ const createDashboard = () => ({
       label: '新标的买入',
       allowed: false,
       reason_code: 'new_position_blocked',
-      reason_text: '当前状态不允许开新仓',
+      reason_text: '当前 effective_state=HOLDING_ONLY（仅允许持仓内买入）。只允许对当前已持仓标的继续买入；新标的买入会被拒绝。当前命中：状态已过期，按默认 HOLDING_ONLY 处理。',
     },
     {
       key: 'buy_holding',
       label: '已持仓标的买入',
       allowed: true,
       reason_code: 'holding_buy_allowed',
-      reason_text: '当前状态允许买入已持仓标的',
+      reason_text: '当前 effective_state=HOLDING_ONLY（仅允许持仓内买入）。允许对当前已持仓标的继续买入，但不允许借此开新仓。当前命中：状态已过期，按默认 HOLDING_ONLY 处理。',
     },
     {
       key: 'sell',
       label: '卖出',
       allowed: true,
       reason_code: 'sell_allowed',
-      reason_text: '当前状态允许卖出持仓',
+      reason_text: '当前 effective_state=HOLDING_ONLY（仅允许持仓内买入）。仓位门禁不阻断卖出；是否真正卖出仍取决于上游策略、人工操作和持仓本身，本页不会因为该状态自动发起卖单。当前命中：状态已过期，按默认 HOLDING_ONLY 处理。',
     },
   ],
   recent_decisions: [
@@ -323,17 +323,17 @@ test('buildRuleMatrix keeps decision order and readable allow status', () => {
       {
         key: 'buy_new',
         allowed_label: '拒绝',
-        reason_text: '当前状态不允许开新仓',
+        reason_text: '当前 effective_state=HOLDING_ONLY（仅允许持仓内买入）。只允许对当前已持仓标的继续买入；新标的买入会被拒绝。当前命中：状态已过期，按默认 HOLDING_ONLY 处理。',
       },
       {
         key: 'buy_holding',
         allowed_label: '允许',
-        reason_text: '当前状态允许买入已持仓标的',
+        reason_text: '当前 effective_state=HOLDING_ONLY（仅允许持仓内买入）。允许对当前已持仓标的继续买入，但不允许借此开新仓。当前命中：状态已过期，按默认 HOLDING_ONLY 处理。',
       },
       {
         key: 'sell',
         allowed_label: '允许',
-        reason_text: '当前状态允许卖出持仓',
+        reason_text: '当前 effective_state=HOLDING_ONLY（仅允许持仓内买入）。仓位门禁不阻断卖出；是否真正卖出仍取决于上游策略、人工操作和持仓本身，本页不会因为该状态自动发起卖单。当前命中：状态已过期，按默认 HOLDING_ONLY 处理。',
       },
     ],
   )
@@ -403,7 +403,16 @@ test('PositionManagement.vue uses merged left panel and fully visible rule matri
   assert.match(content, /<div[\s\S]*class="runtime-ledger__cell position-source-cell position-source-cell--left"[\s\S]*:title="row\.legacy_position_source_label"/)
   assert.doesNotMatch(content, /<div[\s\S]*class="runtime-ledger__cell position-source-cell position-source-cell--left"[\s\S]*:title="row\.broker_position_source_label"/)
   assert.match(content, /\.position-source-cell--left\s*\{[\s\S]*text-align:\s*left;/)
-  assert.match(content, /\.runtime-position-rule-ledger \.runtime-ledger__viewport \{[\s\S]*overflow:\s*visible;/)
+  assert.match(content, /class="runtime-ledger__cell runtime-position-rule-ledger__description"/)
+  assert.match(content, /\.position-panel-body\s*\{[\s\S]*overflow:\s*hidden;/)
+  assert.match(content, /\.position-state-scroll\s*\{[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
+  assert.match(content, /\.position-symbol-limit-scroll\s*\{[\s\S]*overflow:\s*hidden;/)
+  assert.match(content, /\.runtime-position-rule-ledger\s*\{[\s\S]*overflow:\s*hidden;/)
+  assert.match(content, /\.runtime-position-rule-ledger :is\(\.runtime-ledger__header, \.runtime-ledger__row\)\s*\{[\s\S]*min-width:\s*0;[\s\S]*width:\s*100%;/)
+  assert.match(content, /\.runtime-position-rule-ledger__grid\s*\{[\s\S]*minmax\(0,\s*1fr\);/)
+  assert.match(content, /\.runtime-position-rule-ledger__description\s*\{[\s\S]*white-space:\s*normal;[\s\S]*word-break:\s*break-word;/)
+  assert.match(content, /\.runtime-position-symbol-limit-ledger\s*\{[\s\S]*flex:\s*1 1 auto;[\s\S]*max-height:\s*none;/)
+  assert.doesNotMatch(content, /runtime-position-rule-ledger\s*\{[^}]*overflow:\s*visible;/)
   assert.doesNotMatch(content, /<section class="workbench-toolbar">/)
   assert.doesNotMatch(content, /决策上下文详情/)
   assert.doesNotMatch(content, /持仓范围/)
@@ -440,6 +449,8 @@ test('PositionManagement.vue places rule matrix above inventory, shrinks rule ca
   assert.match(content, /runtime-position-symbol-limit-ledger__grid\s*\{[\s\S]*144px[\s\S]*144px[\s\S]*84px[\s\S]*88px[\s\S]*92px[\s\S]*72px[\s\S]*var\(--position-symbol-limit-position-column-width\)\s+var\(--position-symbol-limit-position-column-width\)\s+var\(--position-symbol-limit-position-column-width\)/)
   assert.doesNotMatch(content, /runtime-position-symbol-limit-ledger__grid\s*\{[\s\S]*minmax\(var\(--position-symbol-limit-position-column-min-width\),\s*1fr\)/)
   assert.match(content, /\.position-source-cell--left\s*\{[\s\S]*align-items:\s*flex-start;[\s\S]*text-align:\s*left;/)
+  assert.match(content, /class="runtime-ledger__cell runtime-position-rule-ledger__description"/)
+  assert.match(content, /\.runtime-position-rule-ledger__grid\s*\{[\s\S]*minmax\(0,\s*1fr\);/)
   assert.doesNotMatch(content, /\.position-rule-card span\s*\{/)
   assert.doesNotMatch(content, /\.position-rule-card strong\s*\{/)
   assert.doesNotMatch(content, /position-rule-hint/)
@@ -485,6 +496,9 @@ test('position-management module doc reflects merged left panel, dirty-symbol fi
   assert.match(content, /订单推断仓位 \/ stock_fills 仓位.*左对齐/)
   assert.match(content, /表头与数据行共用固定列宽，避免右侧三列在长来源文本下发生错位/)
   assert.match(content, /顶部双栏都改为面板内竖向滚动/)
+  assert.match(content, /右栏摘要条固定在面板内，纵横滚动统一收口到“单标的仓位上限覆盖” ledger 自身/)
+  assert.match(content, /规则矩阵“说明”列当前占用左栏剩余宽度并允许换行，不再额外撑出横向滚动条/)
+  assert.match(content, /规则矩阵说明会直接带出 `effective_state` 与当前命中规则；其中“卖出”明确表示“仓位门禁不阻断卖出”，但不会因为状态本身自动发起卖单/)
   assert.match(content, /单标的仓位上限覆盖.*输入框默认展示当前生效值/)
   assert.match(content, /保存值等于系统默认值时.*自动删除 override/)
   assert.match(content, /金额统一按“万”展示/)
