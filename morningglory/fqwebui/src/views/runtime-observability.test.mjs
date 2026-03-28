@@ -54,6 +54,7 @@ import {
   TRACE_QUERY_FIELDS,
 } from './runtimeObservability.mjs'
 import { normalizeTimeRangeState } from './runtimeObservabilityFilters.mjs'
+import { buildStructuredPayloadEntries, detectStructuredValueKind } from './runtimeObservabilityStructuredPayload.mjs'
 
 const makeTrace = ({
   traceId,
@@ -274,6 +275,49 @@ test('normalizeTimeRangeState expands date-only midnight ranges to the end of th
       { buildRuntimeDefaultTimeRange },
     ),
     ['2026-03-26T00:00:00+08:00', '2026-03-27T23:59:59+08:00'],
+  )
+})
+
+test('detectStructuredValueKind classifies machine ids multiline text and empty values', () => {
+  assert.equal(detectStructuredValueKind('pmd_1774580407763249700'), 'machine')
+  assert.equal(
+    detectStructuredValueKind('position management rejected:\nbuy_blocked_force_profit_reduce'),
+    'multiline',
+  )
+  assert.equal(detectStructuredValueKind(''), 'empty')
+  assert.equal(detectStructuredValueKind('FORCE_PROFIT_REDUCE'), 'short')
+})
+
+test('buildStructuredPayloadEntries flattens payload objects into typed entries', () => {
+  assert.deepEqual(
+    buildStructuredPayloadEntries(
+      JSON.stringify({
+        position_management_decision_id: 'pmd_1774580407763249700',
+        position_management_reason_code: 'buy_blocked_force_profit_reduce',
+        reason: 'position management rejected:\nbuy_blocked_force_profit_reduce',
+      }),
+      'payload',
+    ),
+    [
+      {
+        key: 'payload-0',
+        label: 'position_management_decision_id',
+        value: 'pmd_1774580407763249700',
+        kind: 'machine',
+      },
+      {
+        key: 'payload-1',
+        label: 'position_management_reason_code',
+        value: 'buy_blocked_force_profit_reduce',
+        kind: 'machine',
+      },
+      {
+        key: 'payload-2',
+        label: 'reason',
+        value: 'position management rejected:\nbuy_blocked_force_profit_reduce',
+        kind: 'multiline',
+      },
+    ],
   )
 })
 
@@ -2663,6 +2707,36 @@ test('runtime observability event mode uses dense ledger layout instead of event
   assert.doesNotMatch(content, /event-feed-row/)
   assert.doesNotMatch(content, /<section v-show="activeEventDetailTab === 'payload'" class="runtime-detail-panel">/)
   assert.doesNotMatch(content, /raw-record-list raw-record-list--embedded/)
+})
+
+test('RuntimeObservability payload and metrics render through StructuredPayloadPanel instead of detail-kv-table rows', async () => {
+  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /import StructuredPayloadPanel from '\.\.\/components\/workbench\/StructuredPayloadPanel\.vue'/)
+  assert.match(content, /selectedStepPayloadEntries/)
+  assert.match(content, /selectedStepMetricsEntries/)
+  assert.match(content, /eventPayloadEntries/)
+  assert.match(content, /eventMetricsEntries/)
+  assert.match(content, /<StructuredPayloadPanel[\s\S]*:entries="selectedStepPayloadEntries"/)
+  assert.match(content, /<StructuredPayloadPanel[\s\S]*:entries="selectedStepMetricsEntries"/)
+  assert.match(content, /<StructuredPayloadPanel[\s\S]*:entries="eventPayloadEntries"/)
+  assert.match(content, /<StructuredPayloadPanel[\s\S]*:entries="eventMetricsEntries"/)
+  assert.doesNotMatch(content, /selectedStepPayloadRows/)
+  assert.doesNotMatch(content, /selectedStepMetricsRows/)
+  assert.doesNotMatch(content, /eventPayloadRows/)
+  assert.doesNotMatch(content, /eventMetricsRows/)
+})
+
+test('StructuredPayloadPanel uses block fields instead of generic detail-kv tables', async () => {
+  const content = await readFile(new URL('../components/workbench/StructuredPayloadPanel.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /structured-payload-panel/)
+  assert.match(content, /structured-payload-field/)
+  assert.match(content, /structured-payload-field__label/)
+  assert.match(content, /structured-payload-field__value/)
+  assert.match(content, /is-machine/)
+  assert.match(content, /overflow-x:\s*auto;/)
+  assert.doesNotMatch(content, /detail-kv-table/)
 })
 
 test('RuntimeObservability.vue lets zero-issue chips pass clicks through to the component card', async () => {
