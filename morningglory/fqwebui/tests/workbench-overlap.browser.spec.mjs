@@ -354,7 +354,7 @@ function buildPositionManagementDashboard() {
         inventory: [
           { key: 'allow_open_min_bail', label: '允许开新仓最低保证金', value: 800000, editable: true, group: 'editable_thresholds', source: 'pm_configs' },
           { key: 'holding_only_min_bail', label: '仅允许持仓内买入最低保证金', value: 100000, editable: true, group: 'editable_thresholds', source: 'pm_configs' },
-          { key: 'single_symbol_position_limit', label: '单标的实时仓位上限', value: 800000, editable: true, group: 'editable_thresholds', source: 'pm_configs' },
+          { key: 'single_symbol_position_limit', label: '单标的默认持仓上限', value: 800000, editable: true, group: 'editable_thresholds', source: 'pm_configs' },
         ],
       },
       holding_scope: {
