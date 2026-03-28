@@ -505,9 +505,10 @@ export default (vueComp, klineData) => {
     }
   }
 
-  if (klineData.stock_fills) {
-    for (let i = 0; i < klineData.stock_fills.length; i++) {
-      const fill = klineData.stock_fills[i]
+  const entryLedger = klineData.entry_ledger || klineData.stock_fills
+  if (entryLedger) {
+    for (let i = 0; i < entryLedger.length; i++) {
+      const fill = entryLedger[i]
       let dt = manba(`${fill.date} ${fill.time}`, 'YYYYMMDD HH:mm:ss').format('YYYY-MM-DD HH:mm')
       for (let j = 0; j < stockDate.length; j++) {
         if (stockDate[j] >= dt) {

@@ -25,6 +25,7 @@ def list_open_entry_views(symbol=None, repository=None):
     repository = repository or OrderManagementRepository()
     rows = []
     seen_entry_ids = set()
+    has_v2_rows = False
 
     if hasattr(repository, "list_position_entries"):
         for item in repository.list_position_entries(symbol=symbol):
@@ -33,14 +34,16 @@ def list_open_entry_views(symbol=None, repository=None):
                 continue
             rows.append(normalized)
             seen_entry_ids.add(normalized["entry_id"])
+            has_v2_rows = True
 
-    for item in repository.list_buy_lots(symbol):
-        normalized = _legacy_buy_lot_to_entry(item)
-        if normalized["entry_id"] in seen_entry_ids:
-            continue
-        if int(normalized.get("remaining_quantity") or 0) <= 0:
-            continue
-        rows.append(normalized)
+    if not has_v2_rows:
+        for item in repository.list_buy_lots(symbol):
+            normalized = _legacy_buy_lot_to_entry(item)
+            if normalized["entry_id"] in seen_entry_ids:
+                continue
+            if int(normalized.get("remaining_quantity") or 0) <= 0:
+                continue
+            rows.append(normalized)
 
     rows.sort(
         key=lambda item: (
@@ -56,9 +59,12 @@ def list_open_entry_views(symbol=None, repository=None):
 
 def list_open_entry_slices_compat(symbol=None, entry_ids=None, repository=None):
     repository = repository or OrderManagementRepository()
-    normalized_entry_ids = {str(item).strip() for item in list(entry_ids or []) if str(item).strip()}
+    normalized_entry_ids = {
+        str(item).strip() for item in list(entry_ids or []) if str(item).strip()
+    }
     rows = []
     seen_slice_ids = set()
+    has_v2_rows = False
 
     if hasattr(repository, "list_open_entry_slices"):
         for item in repository.list_open_entry_slices(
@@ -68,15 +74,24 @@ def list_open_entry_slices_compat(symbol=None, entry_ids=None, repository=None):
             normalized = _normalize_entry_slice(item)
             rows.append(normalized)
             seen_slice_ids.add(normalized["entry_slice_id"])
+            has_v2_rows = True
 
-    legacy_rows = repository.list_open_slices(symbol)
-    for item in legacy_rows:
-        normalized = _legacy_lot_slice_to_entry_slice(item)
-        if normalized_entry_ids and normalized["entry_id"] not in normalized_entry_ids:
-            continue
-        if normalized["entry_slice_id"] in seen_slice_ids:
-            continue
-        rows.append(normalized)
+    if not has_v2_rows:
+        legacy_rows = (
+            repository.list_open_slices(symbol)
+            if hasattr(repository, "list_open_slices")
+            else []
+        )
+        for item in legacy_rows:
+            normalized = _legacy_lot_slice_to_entry_slice(item)
+            if (
+                normalized_entry_ids
+                and normalized["entry_id"] not in normalized_entry_ids
+            ):
+                continue
+            if normalized["entry_slice_id"] in seen_slice_ids:
+                continue
+            rows.append(normalized)
 
     rows.sort(
         key=lambda item: (
@@ -94,7 +109,9 @@ def list_entry_stoploss_bindings_compat(symbol=None, enabled=True, repository=No
     rows = {}
 
     if hasattr(repository, "list_entry_stoploss_bindings"):
-        for item in repository.list_entry_stoploss_bindings(symbol=symbol, enabled=enabled):
+        for item in repository.list_entry_stoploss_bindings(
+            symbol=symbol, enabled=enabled
+        ):
             normalized = _normalize_entry_binding(item)
             rows[normalized["entry_id"]] = normalized
 

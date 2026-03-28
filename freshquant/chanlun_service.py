@@ -176,6 +176,7 @@ def get_data_v2(symbol, period, end_date=None, bar_count=0):
         "macd_bullish_divergence": trading_signals["macd_bullish_divergence"],
         "macd_bearish_divergence": trading_signals["macd_bearish_divergence"],
         "fractal": placeholder.fractal,
+        "entry_ledger": stock_fills,
         "stock_fills": stock_fills,
         "future_fills": future_fills,
         "digitalcoin_fills": digitalcoin_fills,

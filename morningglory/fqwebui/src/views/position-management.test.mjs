@@ -147,24 +147,24 @@ const createDashboard = () => ({
           quantity_source: 'xt_positions',
           market_value_source: 'xt_positions.market_value',
         },
-        inferred_position: {
+        ledger_position: {
           quantity: 1000,
           market_value: 510000,
-          quantity_source: 'order_management.buy_lots',
-          market_value_source: 'order_management.position_amount',
+          quantity_source: 'order_management.position_entries',
+          market_value_source: 'order_management.position_entries',
         },
-        legacy_position: {
-          quantity: 1000,
-          market_value: 505000,
-          quantity_source: 'stock_fills',
-          market_value_source: 'stock_fills.amount_adjusted',
+        reconciliation: {
+          state: 'BROKEN',
+          signed_gap_quantity: 200,
+          open_gap_count: 1,
+          latest_resolution_type: 'REJECTED',
+          ingest_rejection_count: 1,
         },
         position_consistency: {
           quantity_consistent: false,
           quantity_values: {
             broker: 1200,
-            inferred: 1000,
-            legacy_stock_fills: 1000,
+            ledger: 1000,
           },
         },
         default_limit: 800000,
@@ -182,24 +182,24 @@ const createDashboard = () => ({
           quantity_source: 'xt_positions',
           market_value_source: 'xt_positions.market_value',
         },
-        inferred_position: {
+        ledger_position: {
           quantity: 400,
           market_value: 218000,
-          quantity_source: 'order_management.buy_lots',
-          market_value_source: 'order_management.position_amount',
+          quantity_source: 'order_management.position_entries',
+          market_value_source: 'order_management.position_entries',
         },
-        legacy_position: {
-          quantity: 400,
-          market_value: 215000,
-          quantity_source: 'stock_fills',
-          market_value_source: 'stock_fills.amount_adjusted',
+        reconciliation: {
+          state: 'ALIGNED',
+          signed_gap_quantity: 0,
+          open_gap_count: 0,
+          latest_resolution_type: '',
+          ingest_rejection_count: 0,
         },
         position_consistency: {
           quantity_consistent: true,
           quantity_values: {
             broker: 400,
-            inferred: 400,
-            legacy_stock_fills: 400,
+            ledger: 400,
           },
         },
         default_limit: 800000,
@@ -297,8 +297,9 @@ test('buildSymbolLimitRows exposes three position views and quantity mismatch me
   assert.equal(rows[0].blocked_label, '已阻断')
   assert.equal(rows[0].row_tone, 'blocked')
   assert.equal(rows[0].broker_position_label, '1,200 股 / 53.00万')
-  assert.equal(rows[0].inferred_position_label, '1,000 股 / 51.00万')
-  assert.equal(rows[0].legacy_position_label, '1,000 股 / 50.50万')
+  assert.equal(rows[0].ledger_position_label, '1,000 股 / 51.00万')
+  assert.equal(rows[0].reconciliation_state_label, '异常')
+  assert.match(rows[0].reconciliation_label, /gap 200/)
   assert.equal(rows[0].consistency_label, '数量不一致')
   assert.equal(rows[0].quantity_mismatch, true)
   assert.equal(rows[0].default_limit_label, '80.00万')
@@ -361,8 +362,8 @@ test('PositionManagement.vue uses merged left panel and fully visible rule matri
   const actionHeaderIndex = content.indexOf('<span>操作</span>')
   const sourceHeaderIndex = content.indexOf('<span>当前来源</span>')
   const brokerHeaderIndex = content.indexOf('<span>券商仓位</span>')
-  const inferredHeaderIndex = content.indexOf('<span>推断仓位</span>')
-  const stockFillsHeaderIndex = content.indexOf('<span>stock_fills仓位</span>')
+  const ledgerHeaderIndex = content.indexOf('<span>账本仓位</span>')
+  const reconciliationHeaderIndex = content.indexOf('<span>对账状态</span>')
 
   assert.match(content, /最近决策与上下文/)
   assert.match(content, /runtime-ledger runtime-position-decision-ledger/)
@@ -374,8 +375,8 @@ test('PositionManagement.vue uses merged left panel and fully visible rule matri
   assert.match(content, /单标的上限设置/)
   assert.match(content, /当前来源/)
   assert.match(content, /券商仓位/)
-  assert.match(content, /推断仓位/)
-  assert.match(content, /stock_fills仓位/)
+  assert.match(content, /账本仓位/)
+  assert.match(content, /对账状态/)
   assert.match(content, /一致性/)
   assert.match(content, /保存/)
   assert.match(content, /positionManagementApi\.updateSymbolLimit/)
@@ -392,15 +393,15 @@ test('PositionManagement.vue uses merged left panel and fully visible rule matri
   assert.ok(actionHeaderIndex >= 0)
   assert.ok(sourceHeaderIndex >= 0)
   assert.ok(brokerHeaderIndex >= 0)
-  assert.ok(inferredHeaderIndex >= 0)
-  assert.ok(stockFillsHeaderIndex >= 0)
+  assert.ok(ledgerHeaderIndex >= 0)
+  assert.ok(reconciliationHeaderIndex >= 0)
   assert.ok(actionHeaderIndex < sourceHeaderIndex)
   assert.ok(sourceHeaderIndex < brokerHeaderIndex)
-  assert.ok(brokerHeaderIndex < inferredHeaderIndex)
-  assert.ok(inferredHeaderIndex < stockFillsHeaderIndex)
-  assert.match(content, /position-symbol-limit-input[\s\S]*saveSymbolLimit\(row\)[\s\S]*row\.source_label[\s\S]*row\.broker_position_source_label[\s\S]*row\.inferred_position_source_label[\s\S]*row\.legacy_position_source_label/)
-  assert.match(content, /<div[\s\S]*class="runtime-ledger__cell position-source-cell position-source-cell--left"[\s\S]*:title="row\.inferred_position_source_label"/)
-  assert.match(content, /<div[\s\S]*class="runtime-ledger__cell position-source-cell position-source-cell--left"[\s\S]*:title="row\.legacy_position_source_label"/)
+  assert.ok(brokerHeaderIndex < ledgerHeaderIndex)
+  assert.ok(ledgerHeaderIndex < reconciliationHeaderIndex)
+  assert.match(content, /position-symbol-limit-input[\s\S]*saveSymbolLimit\(row\)[\s\S]*row\.source_label[\s\S]*row\.broker_position_source_label[\s\S]*row\.ledger_position_source_label[\s\S]*row\.reconciliation_detail_label/)
+  assert.match(content, /<div[\s\S]*class="runtime-ledger__cell position-source-cell position-source-cell--left"[\s\S]*:title="row\.ledger_position_source_label"/)
+  assert.match(content, /<div[\s\S]*class="runtime-ledger__cell position-source-cell position-source-cell--left"[\s\S]*:title="row\.reconciliation_detail_label"/)
   assert.doesNotMatch(content, /<div[\s\S]*class="runtime-ledger__cell position-source-cell position-source-cell--left"[\s\S]*:title="row\.broker_position_source_label"/)
   assert.match(content, /\.position-source-cell--left\s*\{[\s\S]*text-align:\s*left;/)
   assert.match(content, /runtime-position-rule-ledger\s*\{[^}]*overflow:\s*visible;/)
@@ -481,15 +482,15 @@ test('position-management module doc reflects merged left panel, dirty-symbol fi
   assert.match(content, /最近决策 ledger 默认分页 `100` 条，表体默认显示约 `15` 行/)
   assert.match(content, /当前命中规则.*与“可用保证金”等小指标卡保持同尺寸/)
   assert.match(content, /系统默认值.?列已移除.*操作.*当前来源/)
-  assert.match(content, /券商.*订单推断仓位.*stock_fills.*扩展占满右栏剩余宽度/)
-  assert.match(content, /订单推断仓位 \/ stock_fills 仓位.*左对齐/)
+  assert.match(content, /券商仓位.*账本仓位.*对账状态.*扩展占满右栏剩余宽度/)
+  assert.match(content, /账本仓位 \/ 对账状态.*左对齐/)
   assert.match(content, /表头与数据行共用固定列宽，避免右侧三列在长来源文本下发生错位/)
   assert.match(content, /顶部双栏都改为面板内竖向滚动/)
   assert.match(content, /单标的仓位上限覆盖.*输入框默认展示当前生效值/)
   assert.match(content, /保存值等于系统默认值时.*自动删除 override/)
   assert.match(content, /金额统一按“万”展示/)
-  assert.match(content, /券商同步仓位.*订单推断仓位.*stock_fills/)
-  assert.match(content, /订单推断仓位与.*stock_fills.*券商仓位真值对齐/)
+  assert.match(content, /券商仓位.*账本仓位.*对账状态/)
+  assert.match(content, /券商真值.*账本仓位.*reconciliation/)
   assert.match(content, /单标的仓位上限覆盖.*只展示持仓股/)
   assert.match(content, /券商真值仓位市值从大到小排序/)
 })

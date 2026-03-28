@@ -78,6 +78,7 @@ class TakeprofitService:
         batch_id,
         updated_by="system",
         trigger_price=None,
+        entry_details=None,
         buy_lot_details=None,
     ):
         normalized_symbol = _normalize_symbol(symbol)
@@ -117,12 +118,22 @@ class TakeprofitService:
                 "trigger_price": (
                     float(trigger_price) if trigger_price is not None else None
                 ),
+                "entry_ids": [
+                    item.get("entry_id")
+                    for item in list(entry_details or [])
+                    if item.get("entry_id") is not None
+                ],
+                "entry_details": list(entry_details or []),
                 "buy_lot_ids": [
                     item.get("buy_lot_id")
-                    for item in list(buy_lot_details or [])
+                    for item in list(
+                        buy_lot_details or _derive_buy_lot_details(entry_details)
+                    )
                     if item.get("buy_lot_id") is not None
                 ],
-                "buy_lot_details": list(buy_lot_details or []),
+                "buy_lot_details": list(
+                    buy_lot_details or _derive_buy_lot_details(entry_details)
+                ),
                 "created_at": _now(),
             }
         )
@@ -261,3 +272,18 @@ def _normalize_symbol(symbol):
 
 def _now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _derive_buy_lot_details(entry_details):
+    details = []
+    for item in list(entry_details or []):
+        buy_lot_id = item.get("buy_lot_id")
+        if buy_lot_id is None:
+            continue
+        details.append(
+            {
+                "buy_lot_id": buy_lot_id,
+                "quantity": int(item.get("quantity") or 0),
+            }
+        )
+    return details

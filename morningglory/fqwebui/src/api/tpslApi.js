@@ -62,14 +62,14 @@ export const tpslApi = {
       },
     })
   },
-  listHistory ({ symbol, kind, buy_lot_id, batch_id, limit = 20 } = {}) {
+  listHistory ({ symbol, kind, entry_id, batch_id, limit = 20 } = {}) {
     return http({
       url: '/api/tpsl/history',
       method: 'get',
       params: {
         symbol: normalizeSymbol(symbol),
         kind: String(kind || '').trim(),
-        buy_lot_id: String(buy_lot_id || '').trim(),
+        entry_id: String(entry_id || '').trim(),
         batch_id: String(batch_id || '').trim(),
         limit: normalizeLimit(limit, 20),
       },

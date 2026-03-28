@@ -1,17 +1,25 @@
 # -*- coding: utf-8 -*-
 
-from datetime import datetime
+from datetime import datetime, timezone
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from loguru import logger
 
 from freshquant.carnation import xtconstant
+from freshquant.order_management.entry_adapter import (
+    list_open_entry_slices_compat,
+    list_open_entry_views,
+)
 from freshquant.order_management.guardian.allocation_policy import (
+    allocate_sell_to_entry_slices,
     allocate_sell_to_slices,
 )
 from freshquant.order_management.guardian.arranger import (
     arrange_buy_lot,
+    arrange_entry,
     build_buy_lot_from_trade_fact,
+    build_position_entry_from_trade_fact,
 )
 from freshquant.order_management.projection.cache_invalidator import (
     mark_stock_holdings_projection_updated,
@@ -83,74 +91,165 @@ class OrderManagementXtIngestService:
                     "created": True,
                 }
             trade_fact = ingest_result["trade_fact"]
+            execution_fill = ingest_result.get("execution_fill")
             created = bool(ingest_result.get("created"))
             symbol = trade_fact["symbol"]
             buy_lot = None
             lot_slices = []
             sell_allocations = []
+            position_entry = None
+            entry_slices = []
+            exit_allocations = []
             holdings_changed = False
 
             if not created:
                 if trade_fact["side"] == "buy":
+                    position_entry = _find_position_entry_for_broker_order(
+                        self.repository,
+                        symbol=symbol,
+                        broker_order_key=(
+                            (execution_fill or {}).get("broker_order_key")
+                            or trade_fact.get("internal_order_id")
+                        ),
+                    )
+                    if position_entry is not None and hasattr(
+                        self.repository, "list_open_entry_slices"
+                    ):
+                        entry_slices = self.repository.list_open_entry_slices(
+                            symbol=symbol,
+                            entry_ids=[position_entry["entry_id"]],
+                        )
+                if trade_fact["side"] == "buy" and hasattr(
+                    self.repository, "find_buy_lot_by_origin_trade_fact_id"
+                ):
                     buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
                         trade_fact["trade_fact_id"]
                     )
+                if hasattr(self.repository, "list_open_slices"):
                     lot_slices = self.repository.list_open_slices(symbol)
-                buy_lots = self.repository.list_buy_lots(symbol)
-                open_slices = self.repository.list_open_slices(symbol)
+                projections = _build_entry_projections(
+                    symbol, repository=self.repository
+                )
                 return {
                     "trade_fact": trade_fact,
+                    "execution_fill": execution_fill,
                     "buy_lot": buy_lot,
+                    "position_entry": position_entry,
                     "lot_slices": lot_slices,
+                    "entry_slices": entry_slices,
                     "sell_allocations": [],
+                    "exit_allocations": [],
                     "created": False,
-                    "projections": {
-                        "raw_fills": build_raw_fills_view([trade_fact]),
-                        "open_buy_fills": build_open_buy_fills_view(buy_lots),
-                        "arranged_fills": build_arranged_fills_view(open_slices),
-                    },
+                    "projections": projections,
                 }
 
             if trade_fact["side"] == "buy":
-                buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
-                    trade_fact["trade_fact_id"]
-                )
-                if buy_lot is None:
-                    buy_lot = build_buy_lot_from_trade_fact(trade_fact)
-                    self.repository.insert_buy_lot(buy_lot)
-                    lot_slices = arrange_buy_lot(
-                        buy_lot,
-                        lot_amount=lot_amount,
-                        grid_interval=grid_interval_lookup(symbol, trade_fact),
+                if not _is_board_lot_quantity(trade_fact.get("quantity")):
+                    _record_ingest_rejection(
+                        self.repository,
+                        trade_fact=trade_fact,
+                        reason_code="non_board_lot_quantity",
                     )
-                    self.repository.replace_lot_slices_for_lot(
-                        buy_lot["buy_lot_id"],
-                        lot_slices,
-                    )
+                else:
+                    if hasattr(self.repository, "find_buy_lot_by_origin_trade_fact_id"):
+                        buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
+                            trade_fact["trade_fact_id"]
+                        )
+                    if buy_lot is None and hasattr(self.repository, "insert_buy_lot"):
+                        buy_lot = build_buy_lot_from_trade_fact(trade_fact)
+                        self.repository.insert_buy_lot(buy_lot)
+                        lot_slices = arrange_buy_lot(
+                            buy_lot,
+                            lot_amount=lot_amount,
+                            grid_interval=grid_interval_lookup(symbol, trade_fact),
+                        )
+                        self.repository.replace_lot_slices_for_lot(
+                            buy_lot["buy_lot_id"],
+                            lot_slices,
+                        )
+                    if hasattr(self.repository, "replace_position_entry") and hasattr(
+                        self.repository, "replace_entry_slices_for_entry"
+                    ):
+                        position_entry, entry_slices = _upsert_broker_position_entry(
+                            repository=self.repository,
+                            trade_fact=trade_fact,
+                            lot_amount=lot_amount,
+                            grid_interval=grid_interval_lookup(symbol, trade_fact),
+                        )
+                        self.repository.replace_entry_slices_for_entry(
+                            position_entry["entry_id"],
+                            entry_slices,
+                        )
                     holdings_changed = True
                     self._notify_new_buy_trade(
                         symbol=symbol,
                         price=trade_fact["price"],
                     )
-                else:
+                if not holdings_changed and hasattr(
+                    self.repository, "list_open_slices"
+                ):
                     lot_slices = self.repository.list_open_slices(symbol)
             elif trade_fact["side"] == "sell":
-                buy_lots = self.repository.list_buy_lots(symbol)
-                open_slices = self.repository.list_open_slices(symbol)
-                sell_allocations = allocate_sell_to_slices(
-                    buy_lots=buy_lots,
-                    open_slices=open_slices,
-                    sell_trade_fact=trade_fact,
-                )
-                for item in buy_lots:
-                    self.repository.replace_buy_lot(item)
-                self.repository.replace_open_slices(open_slices)
-                self.repository.insert_sell_allocations(sell_allocations)
-                holdings_changed = bool(sell_allocations)
-                self._reset_guardian_buy_grid_after_sell(symbol)
+                if not _is_board_lot_quantity(trade_fact.get("quantity")):
+                    _record_ingest_rejection(
+                        self.repository,
+                        trade_fact=trade_fact,
+                        reason_code="non_board_lot_quantity",
+                    )
+                else:
+                    if hasattr(self.repository, "list_position_entries") and hasattr(
+                        self.repository, "list_open_entry_slices"
+                    ):
+                        entries = self.repository.list_position_entries(symbol=symbol)
+                        open_entry_slices = self.repository.list_open_entry_slices(
+                            symbol=symbol
+                        )
+                        if entries and open_entry_slices:
+                            exit_allocations = allocate_sell_to_entry_slices(
+                                entries=entries,
+                                open_slices=open_entry_slices,
+                                sell_trade_fact=trade_fact,
+                            )
+                            for item in entries:
+                                self.repository.replace_position_entry(item)
+                            touched_entry_ids = {
+                                item.get("entry_id")
+                                for item in open_entry_slices
+                                if item.get("entry_id")
+                            }
+                            for entry_id in touched_entry_ids:
+                                self.repository.replace_entry_slices_for_entry(
+                                    entry_id,
+                                    [
+                                        item
+                                        for item in open_entry_slices
+                                        if item.get("entry_id") == entry_id
+                                    ],
+                                )
+                            self.repository.insert_exit_allocations(exit_allocations)
+                            entry_slices = open_entry_slices
+                            holdings_changed = holdings_changed or bool(
+                                exit_allocations
+                            )
+                    if hasattr(self.repository, "list_buy_lots") and hasattr(
+                        self.repository, "list_open_slices"
+                    ):
+                        buy_lots = self.repository.list_buy_lots(symbol)
+                        open_slices = self.repository.list_open_slices(symbol)
+                        sell_allocations = allocate_sell_to_slices(
+                            buy_lots=buy_lots,
+                            open_slices=open_slices,
+                            sell_trade_fact=trade_fact,
+                        )
+                        for item in buy_lots:
+                            self.repository.replace_buy_lot(item)
+                        self.repository.replace_open_slices(open_slices)
+                        self.repository.insert_sell_allocations(sell_allocations)
+                        holdings_changed = holdings_changed or bool(sell_allocations)
+                    if holdings_changed:
+                        self._reset_guardian_buy_grid_after_sell(symbol)
 
-            buy_lots = self.repository.list_buy_lots(symbol)
-            open_slices = self.repository.list_open_slices(symbol)
+            projections = _build_entry_projections(symbol, repository=self.repository)
             if holdings_changed:
                 mark_stock_holdings_projection_updated()
                 _sync_stock_fills_compat(symbol, repository=self.repository)
@@ -172,15 +271,15 @@ class OrderManagementXtIngestService:
 
             return {
                 "trade_fact": trade_fact,
+                "execution_fill": execution_fill,
                 "buy_lot": buy_lot,
+                "position_entry": position_entry,
                 "lot_slices": lot_slices,
+                "entry_slices": entry_slices,
                 "sell_allocations": sell_allocations,
+                "exit_allocations": exit_allocations,
                 "created": created,
-                "projections": {
-                    "raw_fills": build_raw_fills_view([trade_fact]),
-                    "open_buy_fills": build_open_buy_fills_view(buy_lots),
-                    "arranged_fills": build_arranged_fills_view(open_slices),
-                },
+                "projections": projections,
             }
         except Exception as exc:
             self._emit_runtime(
@@ -411,6 +510,158 @@ def _resolve_lot_amount(symbol):
 
     stock_code = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
     return get_trade_amount(stock_code)
+
+
+def _is_board_lot_quantity(quantity):
+    try:
+        normalized = int(quantity or 0)
+    except (TypeError, ValueError):
+        return False
+    return normalized > 0 and normalized % 100 == 0
+
+
+def _record_ingest_rejection(repository, *, trade_fact, reason_code):
+    if not hasattr(repository, "insert_ingest_rejection"):
+        return None
+    document = {
+        "rejection_id": f"reject_{uuid4().hex}",
+        "symbol": trade_fact.get("symbol"),
+        "broker_trade_id": trade_fact.get("broker_trade_id"),
+        "internal_order_id": trade_fact.get("internal_order_id"),
+        "reason_code": reason_code,
+        "quantity": int(trade_fact.get("quantity") or 0),
+        "trade_time": trade_fact.get("trade_time"),
+        "date": trade_fact.get("date"),
+        "time": trade_fact.get("time"),
+        "source": trade_fact.get("source"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    repository.insert_ingest_rejection(document)
+    return document
+
+
+def _build_entry_projections(symbol, *, repository):
+    if hasattr(repository, "list_trade_facts"):
+        trade_facts = repository.list_trade_facts(symbol)
+    else:
+        trade_facts = [
+            item
+            for item in getattr(repository, "trade_facts", [])
+            if item.get("symbol") == symbol
+        ]
+    return {
+        "raw_fills": build_raw_fills_view(trade_facts),
+        "open_buy_fills": build_open_buy_fills_view(
+            list_open_entry_views(symbol=symbol, repository=repository)
+        ),
+        "arranged_fills": build_arranged_fills_view(
+            list_open_entry_slices_compat(symbol=symbol, repository=repository)
+        ),
+    }
+
+
+def _find_position_entry_for_broker_order(repository, *, symbol, broker_order_key):
+    normalized_key = str(broker_order_key or "").strip()
+    if not normalized_key or not hasattr(repository, "list_position_entries"):
+        return None
+    for item in repository.list_position_entries(symbol=symbol):
+        if (
+            str(item.get("source_ref_type") or "").strip() == "broker_order"
+            and str(item.get("source_ref_id") or "").strip() == normalized_key
+        ):
+            return dict(item)
+    return None
+
+
+def _upsert_broker_position_entry(
+    *,
+    repository,
+    trade_fact,
+    lot_amount,
+    grid_interval,
+):
+    symbol = trade_fact["symbol"]
+    broker_order_key = str(trade_fact.get("internal_order_id") or "").strip()
+    existing_entry = _find_position_entry_for_broker_order(
+        repository,
+        symbol=symbol,
+        broker_order_key=broker_order_key,
+    )
+    broker_order = (
+        repository.find_broker_order(broker_order_key)
+        if hasattr(repository, "find_broker_order")
+        else None
+    ) or {}
+    total_quantity = int(
+        broker_order.get("filled_quantity")
+        or (existing_entry or {}).get("original_quantity")
+        or trade_fact.get("quantity")
+        or 0
+    )
+    exited_quantity = 0
+    if existing_entry is not None:
+        exited_quantity = max(
+            int(existing_entry.get("original_quantity") or 0)
+            - int(existing_entry.get("remaining_quantity") or 0),
+            0,
+        )
+    remaining_quantity = max(total_quantity - exited_quantity, 0)
+    trade_payload = dict(trade_fact)
+    trade_payload["trade_time"] = (
+        broker_order.get("first_fill_time")
+        or (existing_entry or {}).get("trade_time")
+        or trade_fact.get("trade_time")
+    )
+    if trade_payload.get("trade_time") and not (
+        trade_payload.get("date") and trade_payload.get("time")
+    ):
+        trade_dt = datetime.fromtimestamp(int(trade_payload["trade_time"]))
+        trade_payload["date"] = int(trade_dt.strftime("%Y%m%d"))
+        trade_payload["time"] = trade_dt.strftime("%H:%M:%S")
+    if existing_entry is not None:
+        trade_payload["date"] = existing_entry.get("date") or trade_payload.get("date")
+        trade_payload["time"] = existing_entry.get("time") or trade_payload.get("time")
+    entry = build_position_entry_from_trade_fact(
+        trade_payload,
+        entry_id=(existing_entry or {}).get("entry_id"),
+        source_ref_type="broker_order",
+        source_ref_id=broker_order_key,
+        entry_type="broker_execution_group",
+        original_quantity=total_quantity,
+        remaining_quantity=remaining_quantity,
+        entry_price=float(
+            broker_order.get("avg_filled_price")
+            or (existing_entry or {}).get("entry_price")
+            or trade_fact.get("price")
+            or 0.0
+        ),
+        amount=round(
+            float(
+                broker_order.get("avg_filled_price")
+                or (existing_entry or {}).get("entry_price")
+                or trade_fact.get("price")
+                or 0.0
+            )
+            * total_quantity,
+            2,
+        ),
+        source=trade_fact.get("source", "xt_trade_callback"),
+        arrange_mode=(existing_entry or {}).get("arrange_mode") or "runtime_grid",
+        sell_history=(existing_entry or {}).get("sell_history") or [],
+    )
+    repository.replace_position_entry(entry)
+    if exited_quantity > 0 and hasattr(repository, "list_open_entry_slices"):
+        entry_slices = repository.list_open_entry_slices(
+            symbol=symbol,
+            entry_ids=[entry["entry_id"]],
+        )
+        return entry, entry_slices
+    entry_slices = arrange_entry(
+        entry,
+        lot_amount=lot_amount,
+        grid_interval=grid_interval,
+    )
+    return entry, entry_slices
 
 
 def _map_xt_order_status_to_state(order_status):

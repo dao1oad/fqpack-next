@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from bson import ObjectId
 
+from freshquant.order_management.entry_adapter import (
+    list_entry_stoploss_bindings_compat,
+    list_open_entry_views,
+)
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.tpsl.repository import TpslRepository
 from freshquant.util.code import normalize_to_base_code
@@ -60,7 +64,11 @@ class SubjectManagementDashboardService:
             symbol_position = dict(self.symbol_position_loader(symbol) or {})
             stoploss = stoploss_summary.get(
                 symbol,
-                {"active_count": 0, "open_buy_lot_count": 0},
+                {
+                    "active_count": 0,
+                    "active_stoploss_entry_count": 0,
+                    "open_entry_count": 0,
+                },
             )
             latest_event = latest_events.get(symbol) or {}
             position_limit_summary = self._load_position_limit_summary(symbol)
@@ -110,6 +118,8 @@ class SubjectManagementDashboardService:
         rows.sort(
             key=lambda item: (
                 -(1 if int(item["runtime"].get("position_quantity") or 0) > 0 else 0),
+                -float(item["runtime"].get("position_amount") or 0.0),
+                -int(item["runtime"].get("position_quantity") or 0),
                 item["symbol"],
             )
         )
@@ -143,22 +153,29 @@ class SubjectManagementDashboardService:
         }
 
         stoploss_bindings = {
-            item.get("buy_lot_id"): dict(item)
-            for item in self.order_repository.list_stoploss_bindings(
+            item.get("entry_id"): dict(item)
+            for item in list_entry_stoploss_bindings_compat(
                 symbol=normalized_symbol,
                 enabled=None,
+                repository=self.order_repository,
             )
-            if item.get("buy_lot_id")
+            if item.get("entry_id")
         }
-        buy_lots = []
-        for item in self.order_repository.list_buy_lots(normalized_symbol):
+        entries = []
+        for item in list_open_entry_views(
+            normalized_symbol, repository=self.order_repository
+        ):
             if int(item.get("remaining_quantity") or 0) <= 0:
                 continue
             row = dict(item)
-            row["stoploss"] = stoploss_bindings.get(item.get("buy_lot_id"))
-            buy_lots.append(row)
-        buy_lots.sort(
-            key=lambda item: (int(item.get("date") or 0), str(item.get("time") or "")),
+            row["stoploss"] = stoploss_bindings.get(item.get("entry_id"))
+            entries.append(row)
+        entries.sort(
+            key=lambda item: (
+                int(item.get("trade_time") or 0),
+                int(item.get("date") or 0),
+                str(item.get("time") or ""),
+            ),
             reverse=True,
         )
 
@@ -186,7 +203,7 @@ class SubjectManagementDashboardService:
                 "guardian_buy_grid_config": guardian_config,
                 "guardian_buy_grid_state": guardian_state,
                 "takeprofit": takeprofit,
-                "buy_lots": buy_lots,
+                "entries": entries,
                 "runtime_summary": {
                     "position_quantity": int(position.get("quantity") or 0),
                     "position_amount": _resolve_position_amount(
@@ -306,29 +323,41 @@ class SubjectManagementDashboardService:
 
     def _stoploss_summary_map(self):
         rows = {}
-        open_lot_counts = {}
-        for item in self.order_repository.list_buy_lots():
+        open_entry_counts = {}
+        for item in list_open_entry_views(repository=self.order_repository):
             symbol = _normalize_symbol(item.get("symbol"))
             if not symbol or int(item.get("remaining_quantity") or 0) <= 0:
                 continue
-            open_lot_counts[symbol] = open_lot_counts.get(symbol, 0) + 1
+            open_entry_counts[symbol] = open_entry_counts.get(symbol, 0) + 1
 
-        for item in self.order_repository.list_stoploss_bindings(enabled=None):
+        for item in list_entry_stoploss_bindings_compat(
+            enabled=None,
+            repository=self.order_repository,
+        ):
             symbol = _normalize_symbol(item.get("symbol"))
             if not symbol:
                 continue
             current = rows.setdefault(
-                symbol, {"active_count": 0, "open_buy_lot_count": 0}
+                symbol,
+                {
+                    "active_count": 0,
+                    "active_stoploss_entry_count": 0,
+                    "open_entry_count": 0,
+                },
             )
             if bool(item.get("enabled")):
                 current["active_count"] += 1
+                current["active_stoploss_entry_count"] += 1
 
-        symbols = set(rows) | set(open_lot_counts)
+        symbols = set(rows) | set(open_entry_counts)
         result = {}
         for symbol in symbols:
             current = dict(rows.get(symbol) or {})
             current["active_count"] = int(current.get("active_count") or 0)
-            current["open_buy_lot_count"] = int(open_lot_counts.get(symbol) or 0)
+            current["active_stoploss_entry_count"] = int(
+                current.get("active_stoploss_entry_count") or 0
+            )
+            current["open_entry_count"] = int(open_entry_counts.get(symbol) or 0)
             result[symbol] = current
         return result
 

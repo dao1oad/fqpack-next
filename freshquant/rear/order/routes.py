@@ -3,7 +3,7 @@
 from flask import Blueprint, jsonify, request
 
 from freshquant.order_management.read_service import OrderManagementReadService
-from freshquant.order_management.stoploss.service import BuyLotStoplossService
+from freshquant.order_management.stoploss.service import EntryStoplossService
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.util.code import normalize_to_base_code
 
@@ -15,7 +15,7 @@ def _get_order_submit_service():
 
 
 def _get_stoploss_service():
-    return BuyLotStoplossService()
+    return EntryStoplossService()
 
 
 def _get_order_management_read_service():
@@ -155,15 +155,10 @@ def get_entry_detail(entry_id):
     return jsonify(detail)
 
 
-@order_bp.route("/order-management/buy-lots/<buy_lot_id>", methods=["GET"])
-def get_buy_lot_detail(buy_lot_id):
-    return get_entry_detail(buy_lot_id)
-
-
 @order_bp.route("/order-management/stoploss/bind", methods=["POST"])
-def bind_buy_lot_stoploss():
+def bind_entry_stoploss():
     payload = request.get_json(silent=True) or {}
-    entry_id = payload.get("entry_id") or payload.get("buy_lot_id")
+    entry_id = payload.get("entry_id")
     if not entry_id:
         return jsonify({"error": "entry_id is required"}), 400
     try:

@@ -8,7 +8,7 @@
           <div class="workbench-title-group">
             <div class="workbench-page-title">股票止盈止损管理</div>
             <div class="workbench-page-meta">
-              <span>左侧只读展示三层止盈价格，右侧按买入 lot 维护止损，并同页对照 stock_fills 与触发后订单成交。</span>
+              <span>左侧只读展示三层止盈价格，右侧按持仓 entry 维护止损，并同页对照 entry ledger、对账状态与触发后订单成交。</span>
               <template v-if="detail">
                 <span>/</span>
                 <span>当前标的 <span class="workbench-code">{{ detail.symbol }}</span></span>
@@ -44,10 +44,13 @@
             止盈层 <strong>{{ detail.takeprofitTierCount }}</strong>
           </StatusChip>
           <StatusChip v-if="detail" variant="muted">
-            open buy lot <strong>{{ detail.buyLots.length }}</strong>
+            open entry <strong>{{ detail.entries.length }}</strong>
           </StatusChip>
           <StatusChip v-if="detail" variant="muted">
-            stock_fills <strong>{{ detail.stockFills.length }}</strong>
+            entry slice <strong>{{ detail.entrySlices.length }}</strong>
+          </StatusChip>
+          <StatusChip v-if="detail" variant="muted">
+            对账 <strong>{{ detail.reconciliation.state || '-' }}</strong>
           </StatusChip>
           <StatusChip v-if="detail" variant="muted">
             历史 <strong>{{ detail.historyRows.length }}</strong>
@@ -60,7 +63,7 @@
           <div class="workbench-panel__header">
             <div class="workbench-title-group">
               <div class="workbench-panel__title">标的列表</div>
-              <p class="workbench-panel__desc">按标的切换只读止盈三层、stoploss buy lot、stock_fills 对照和统一触发历史。</p>
+              <p class="workbench-panel__desc">按标的切换只读止盈三层、entry 止损、entry slice ledger、对账状态和统一触发历史。</p>
             </div>
             <div class="workbench-panel__meta">
               <span>{{ overviewRows.length }} 个标的</span>
@@ -113,7 +116,7 @@
               </div>
 
               <div class="symbol-card-foot">
-                <span>止损 lot {{ row.active_stoploss_buy_lot_count || 0 }}</span>
+                <span>止损 entry {{ row.active_stoploss_entry_count || 0 }}</span>
                 <span>{{ row.last_trigger_label }} · {{ row.last_trigger_time }}</span>
               </div>
             </button>
@@ -135,7 +138,7 @@
                   <span>/</span>
                   <span>止盈层 {{ detail.takeprofitTierCount }} 个</span>
                   <span>/</span>
-                  <span>open buy lot {{ detail.buyLots.length }} 个</span>
+                  <span>open entry {{ detail.entries.length }} 个</span>
                 </div>
               </div>
 
@@ -149,13 +152,13 @@
           <WorkbenchLedgerPanel v-if="detail" class="tpsl-ledger-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
-                <div class="workbench-panel__title">按买入订单止损</div>
-                <p class="workbench-panel__desc">只展示 open buy lot。每行可单独设置 stop_price 和 enabled。</p>
+                <div class="workbench-panel__title">按持仓入口止损</div>
+                <p class="workbench-panel__desc">只展示 open entry。每行可单独设置 stop_price 和 enabled。</p>
               </div>
             </div>
 
-            <el-table :data="detail.buyLots" stripe size="small" border>
-              <el-table-column prop="buy_lot_id" label="Buy Lot" min-width="176" />
+            <el-table :data="detail.entries" stripe size="small" border>
+              <el-table-column prop="entry_id" label="Entry" min-width="176" />
               <el-table-column label="买入时间" min-width="176">
                 <template #default="{ row }">
                   {{ row.buy_time_label || '-' }}
@@ -174,7 +177,7 @@
               <el-table-column label="Stop Price" min-width="176">
                 <template #default="{ row }">
                   <el-input-number
-                    v-model="stoplossDrafts[row.buy_lot_id].stop_price"
+                    v-model="stoplossDrafts[row.entry_id].stop_price"
                     :min="0"
                     :step="0.01"
                     :precision="2"
@@ -185,7 +188,7 @@
               <el-table-column label="Enabled" width="116">
                 <template #default="{ row }">
                   <el-switch
-                    v-model="stoplossDrafts[row.buy_lot_id].enabled"
+                    v-model="stoplossDrafts[row.entry_id].enabled"
                     inline-prompt
                     active-text="开"
                     inactive-text="关"
@@ -202,8 +205,8 @@
                   <el-button
                     type="primary"
                     text
-                    :loading="savingStoploss[row.buy_lot_id]"
-                    @click="handleSaveStoploss(row.buy_lot_id)"
+                    :loading="savingStoploss[row.entry_id]"
+                    @click="handleSaveStoploss(row.entry_id)"
                   >
                     保存
                   </el-button>
@@ -215,25 +218,44 @@
           <WorkbenchLedgerPanel v-if="detail" class="tpsl-ledger-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
-                <div class="workbench-panel__title">stock_fills 对照视图</div>
-                <p class="workbench-panel__desc">展示旧 stock_fills 集合的该标的内容，方便和 buy lot / 历史事件对照。</p>
+                <div class="workbench-panel__title">Entry Slice Ledger</div>
+                <p class="workbench-panel__desc">展示当前 entry 切片账本，方便和止盈止损批次、实际成交以及剩余数量对照。</p>
               </div>
             </div>
 
-            <el-empty v-if="detail.stockFills.length === 0" description="当前没有 stock_fills 记录。" />
-            <el-table v-else :data="detail.stockFills" stripe size="small" border>
-              <el-table-column prop="date" label="日期" width="98" />
-              <el-table-column prop="time" label="时间" width="96" />
-              <el-table-column label="方向" width="96">
-                <template #default="{ row }">
-                  {{ row.opLabel || '-' }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="quantity" label="数量" width="92" />
-              <el-table-column prop="price" label="价格" width="92" />
-              <el-table-column prop="amount" label="金额" min-width="108" />
-              <el-table-column prop="source" label="来源" min-width="140" />
+            <el-empty v-if="detail.entrySlices.length === 0" description="当前没有 entry slice 记录。" />
+            <el-table v-else :data="detail.entrySlices" stripe size="small" border>
+              <el-table-column prop="entry_slice_id" label="Slice" min-width="164" />
+              <el-table-column prop="entry_id" label="Entry" min-width="164" />
+              <el-table-column prop="guardian_price" label="Guardian 价" width="100" />
+              <el-table-column prop="original_quantity" label="原始数量" width="96" />
+              <el-table-column prop="remaining_quantity" label="剩余数量" width="96" />
+              <el-table-column prop="status" label="状态" width="96" />
             </el-table>
+          </WorkbenchLedgerPanel>
+
+          <WorkbenchLedgerPanel v-if="detail" class="tpsl-ledger-panel">
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">对账状态</div>
+                <p class="workbench-panel__desc">展示券商持仓与系统 ledger 的差额状态，不再把自动平账伪装成外部订单。</p>
+              </div>
+            </div>
+
+            <div class="workbench-summary-row">
+              <StatusChip variant="muted">
+                状态 <strong>{{ detail.reconciliation.state || '-' }}</strong>
+              </StatusChip>
+              <StatusChip variant="muted">
+                signed gap <strong>{{ detail.reconciliation.signed_gap_quantity || 0 }}</strong>
+              </StatusChip>
+              <StatusChip variant="muted">
+                open gap <strong>{{ detail.reconciliation.open_gap_count || 0 }}</strong>
+              </StatusChip>
+              <StatusChip variant="muted">
+                最新 resolution <strong>{{ detail.reconciliation.latest_resolution_type || '-' }}</strong>
+              </StatusChip>
+            </div>
           </WorkbenchLedgerPanel>
 
           <WorkbenchLedgerPanel v-if="detail" class="tpsl-ledger-panel">
@@ -259,7 +281,7 @@
               <el-table-column prop="batch_id" label="Batch" min-width="128" />
               <el-table-column prop="triggerLabel" label="层级/止损价" min-width="110" />
               <el-table-column prop="triggerPriceLabel" label="触发价" width="88" />
-              <el-table-column prop="buy_lot_label" label="影响 buy lot" min-width="120" />
+              <el-table-column prop="entry_label" label="影响 entry" min-width="120" />
               <el-table-column prop="downstreamLabel" label="后续结果" min-width="160" />
               <el-table-column label="明细" min-width="260">
                 <template #default="{ row }">

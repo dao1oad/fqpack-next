@@ -2,6 +2,10 @@
 
 from datetime import datetime
 
+from freshquant.order_management.entry_adapter import (
+    list_open_entry_slices_compat,
+    list_open_entry_views,
+)
 from freshquant.order_management.guardian.read_model import (
     build_arranged_fill_read_model,
 )
@@ -36,9 +40,9 @@ def build_raw_fills_view(trade_facts):
     return fills
 
 
-def build_open_buy_fills_view(buy_lots):
+def build_open_buy_fills_view(entries):
     results = []
-    for item in buy_lots:
+    for item in entries:
         if item["remaining_quantity"] <= 0:
             continue
         normalized_item = _with_resolved_date_time(item)
@@ -47,14 +51,26 @@ def build_open_buy_fills_view(buy_lots):
                 "symbol": normalized_item["symbol"],
                 "date": normalized_item.get("date"),
                 "time": normalized_item.get("time"),
-                "price": normalized_item["buy_price_real"],
+                "price": float(
+                    normalized_item.get(
+                        "entry_price",
+                        normalized_item.get("buy_price_real") or 0.0,
+                    )
+                    or 0.0
+                ),
                 "quantity": normalized_item["remaining_quantity"],
                 "amount": (
                     round(
                         float(
                             normalized_item.get(
                                 "amount",
-                                normalized_item["buy_price_real"]
+                                float(
+                                    normalized_item.get(
+                                        "entry_price",
+                                        normalized_item.get("buy_price_real") or 0.0,
+                                    )
+                                    or 0.0
+                                )
                                 * normalized_item["original_quantity"],
                             )
                         )
@@ -80,23 +96,22 @@ def build_arranged_fills_view(open_slices):
 
 def list_open_buy_fills(symbol, repository=None):
     repository = repository or OrderManagementRepository()
-    buy_lots = repository.list_buy_lots(symbol)
-    return build_open_buy_fills_view(buy_lots)
+    entries = list_open_entry_views(symbol, repository=repository)
+    return build_open_buy_fills_view(entries)
 
 
 def list_arranged_fills(symbol, repository=None):
     repository = repository or OrderManagementRepository()
-    open_slices = repository.list_open_slices(symbol)
-    buy_lots = repository.list_buy_lots(symbol)
-    buy_lot_by_id = {
-        item.get("buy_lot_id"): item
-        for item in buy_lots
-        if item.get("buy_lot_id") is not None
+    open_slices = list_open_entry_slices_compat(symbol=symbol, repository=repository)
+    entry_by_id = {
+        item.get("entry_id"): item
+        for item in list_open_entry_views(symbol, repository=repository)
+        if item.get("entry_id") is not None
     }
     normalized_slices = [
         _with_resolved_date_time(
             item,
-            fallback=buy_lot_by_id.get(item.get("buy_lot_id")),
+            fallback=entry_by_id.get(item.get("entry_id")),
         )
         for item in open_slices
     ]
@@ -105,10 +120,10 @@ def list_arranged_fills(symbol, repository=None):
 
 def list_stock_positions(repository=None):
     repository = repository or OrderManagementRepository()
-    buy_lots = repository.list_buy_lots()
+    entries = list_open_entry_views(repository=repository)
     grouped = {}
 
-    for item in buy_lots:
+    for item in entries:
         if item["remaining_quantity"] <= 0:
             continue
         normalized_item = _with_resolved_date_time(item)
@@ -129,13 +144,18 @@ def list_stock_positions(repository=None):
                 "time": normalized_item.get("time"),
             },
         )
+        entry_price = float(
+            normalized_item.get(
+                "entry_price", normalized_item.get("buy_price_real") or 0.0
+            )
+            or 0.0
+        )
         remaining_amount = (
             round(
                 float(
                     normalized_item.get(
                         "amount",
-                        normalized_item["buy_price_real"]
-                        * normalized_item["original_quantity"],
+                        entry_price * normalized_item["original_quantity"],
                     )
                 )
                 * float(normalized_item["remaining_quantity"])

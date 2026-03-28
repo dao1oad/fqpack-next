@@ -26,6 +26,9 @@ class InMemoryRepository:
         self.buy_lots = []
         self.lot_slices = []
         self.sell_allocations = []
+        self.position_entries = []
+        self.entry_slices = []
+        self.exit_allocations = []
 
     def upsert_trade_fact(self, document, unique_keys):
         for existing in self.trade_facts:
@@ -58,6 +61,49 @@ class InMemoryRepository:
         ]
         self.lot_slices.extend(slices)
         return slices
+
+    def replace_position_entry(self, document):
+        for index, current in enumerate(self.position_entries):
+            if current["entry_id"] == document["entry_id"]:
+                self.position_entries[index] = dict(document)
+                return document
+        self.position_entries.append(dict(document))
+        return document
+
+    def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+        rows = list(self.position_entries)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        if status is not None:
+            rows = [item for item in rows if item.get("status") == status]
+        return rows
+
+    def replace_entry_slices_for_entry(self, entry_id, slices):
+        self.entry_slices = [
+            item for item in self.entry_slices if item["entry_id"] != entry_id
+        ]
+        self.entry_slices.extend(dict(item) for item in slices)
+        return slices
+
+    def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+        rows = [
+            item
+            for item in self.entry_slices
+            if int(item.get("remaining_quantity") or 0) > 0
+        ]
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        return [dict(item) for item in rows]
+
+    def insert_exit_allocations(self, allocations):
+        self.exit_allocations.extend(dict(item) for item in allocations)
+        return allocations
 
     def replace_open_slices(self, slices):
         slice_ids = {item["lot_slice_id"] for item in slices}
@@ -227,6 +273,12 @@ def test_manual_write_service_import_fill_creates_trade_fact_and_projection(
     assert len(repository.buy_lots) == 1
     assert repository.buy_lots[0]["arrange_mode"] == "runtime_grid"
     assert repository.buy_lots[0]["name"] == "平安银行"
+    assert len(repository.position_entries) == 1
+    assert repository.position_entries[0]["entry_type"] == "manual_import"
+    assert repository.position_entries[0]["original_quantity"] == 900
+    assert len(repository.entry_slices) == 4
+    assert result["position_entry"]["original_quantity"] == 900
+    assert len(result["entry_slices"]) == 4
     assert len(result["projections"]["open_buy_fills"]) == 1
     assert len(result["projections"]["arranged_fills"]) == len(repository.lot_slices)
     assert fake_db.stock_fills.rows == []
@@ -383,12 +435,26 @@ def test_manual_write_service_reset_symbol_lots_closes_existing_and_creates_manu
     manual_locked_lots = [
         item for item in repository.buy_lots if item["arrange_mode"] == "manual_locked"
     ]
+    runtime_entry = [
+        item
+        for item in repository.position_entries
+        if item["entry_type"] == "manual_import"
+    ][0]
+    manual_locked_entries = [
+        item
+        for item in repository.position_entries
+        if item["entry_type"] == "manual_locked"
+    ]
 
     assert runtime_lot["remaining_quantity"] == 0
     assert runtime_lot["status"] == "closed"
+    assert runtime_entry["remaining_quantity"] == 0
+    assert runtime_entry["status"] == "CLOSED"
     assert result["inserted_count"] == 2
     assert len(manual_locked_lots) == 2
+    assert len(manual_locked_entries) == 2
     assert all(item["source"] == "reset" for item in manual_locked_lots)
+    assert all(item["source"] == "reset" for item in manual_locked_entries)
     assert all(item["amount_adjust"] == 1.1 for item in manual_locked_lots)
     assert fake_db.stock_fills.rows == []
     assert len(fake_db.stock_fills_compat.rows) == 2
@@ -519,6 +585,52 @@ def test_manual_write_service_raises_when_stock_fills_compat_sync_fails(monkeypa
             instrument={"name": "平安银行", "code": "000001", "sse": "SZ"},
             lot_amount=3000,
             grid_interval=1.03,
+        )
+
+
+def test_manual_write_service_rejects_non_board_lot_import():
+    from freshquant.order_management.manual.service import (
+        OrderManagementManualWriteService,
+    )
+
+    service = OrderManagementManualWriteService(repository=InMemoryRepository())
+
+    with pytest.raises(ValueError, match="board-lot"):
+        service.import_fill(
+            op="buy",
+            code="000001",
+            quantity=18,
+            price=10.0,
+            amount=180.0,
+            dt="2024-01-02 09:31:00",
+            instrument={"name": "平安银行", "code": "000001", "sse": "SZ"},
+            lot_amount=3000,
+            grid_interval=1.03,
+        )
+
+
+def test_manual_reset_rejects_non_board_lot_grid_items():
+    from freshquant.order_management.manual.service import (
+        OrderManagementManualWriteService,
+    )
+
+    service = OrderManagementManualWriteService(repository=InMemoryRepository())
+
+    with pytest.raises(ValueError, match="board-lot"):
+        service.reset_symbol_lots(
+            code="000001",
+            name="平安银行",
+            stock_code="000001.SZ",
+            grid_items=[
+                {
+                    "date": 20240103,
+                    "time": "09:31:00",
+                    "price": 10.0,
+                    "quantity": 18,
+                    "amount": 180.0,
+                    "amount_adjust": 1.1,
+                }
+            ],
         )
 
 

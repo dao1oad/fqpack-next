@@ -4,14 +4,21 @@ from datetime import datetime
 
 from loguru import logger
 
+from freshquant.order_management.entry_adapter import (
+    list_open_entry_slices_compat,
+    list_open_entry_views,
+)
 from freshquant.order_management.guardian.allocation_policy import (
+    allocate_sell_to_entry_slices,
     allocate_sell_to_slices,
 )
 from freshquant.order_management.guardian.arranger import (
     arrange_buy_lot,
+    arrange_entry,
     build_buy_lot_from_trade_fact,
+    build_position_entry_from_trade_fact,
 )
-from freshquant.order_management.ids import new_trade_fact_id
+from freshquant.order_management.ids import new_entry_slice_id, new_trade_fact_id
 from freshquant.order_management.projection.cache_invalidator import (
     mark_stock_holdings_projection_updated,
 )
@@ -48,6 +55,8 @@ class OrderManagementManualWriteService:
     ):
         side = _normalize_side(op)
         symbol = normalize_to_base_code(code)
+        normalized_quantity = int(quantity)
+        _ensure_board_lot_quantity(normalized_quantity)
         traded_at = _normalize_datetime(dt)
         instrument = instrument or {}
         lot_amount = lot_amount or _resolve_lot_amount(symbol)
@@ -60,17 +69,17 @@ class OrderManagementManualWriteService:
                 symbol=symbol,
                 side=side,
                 traded_at=traded_at,
-                quantity=quantity,
+                quantity=normalized_quantity,
                 price=price,
             ),
             "symbol": symbol,
             "side": side,
-            "quantity": int(quantity),
+            "quantity": normalized_quantity,
             "price": float(price),
             "amount": (
                 float(amount)
                 if amount is not None
-                else round(float(price) * int(quantity), 2)
+                else round(float(price) * normalized_quantity, 2)
             ),
             "trade_time": int(traded_at.timestamp()),
             "date": int(traded_at.strftime("%Y%m%d")),
@@ -86,8 +95,11 @@ class OrderManagementManualWriteService:
         )
 
         buy_lot = None
+        position_entry = None
         lot_slices = []
+        entry_slices = []
         sell_allocations = []
+        exit_allocations = []
         if created:
             if side == "buy":
                 buy_lot = build_buy_lot_from_trade_fact(trade_fact)
@@ -101,8 +113,52 @@ class OrderManagementManualWriteService:
                     buy_lot["buy_lot_id"],
                     lot_slices,
                 )
+                if hasattr(self.repository, "replace_position_entry") and hasattr(
+                    self.repository, "replace_entry_slices_for_entry"
+                ):
+                    position_entry = _build_manual_import_entry(trade_fact)
+                    self.repository.replace_position_entry(position_entry)
+                    entry_slices = arrange_entry(
+                        position_entry,
+                        lot_amount=lot_amount,
+                        grid_interval=grid_interval,
+                    )
+                    self.repository.replace_entry_slices_for_entry(
+                        position_entry["entry_id"],
+                        entry_slices,
+                    )
                 self._notify_new_buy_trade(symbol=symbol, price=trade_fact["price"])
             else:
+                if hasattr(self.repository, "list_position_entries") and hasattr(
+                    self.repository, "list_open_entry_slices"
+                ):
+                    entries = self.repository.list_position_entries(symbol=symbol)
+                    open_entry_slices = self.repository.list_open_entry_slices(
+                        symbol=symbol
+                    )
+                    if entries and open_entry_slices:
+                        exit_allocations = allocate_sell_to_entry_slices(
+                            entries=entries,
+                            open_slices=open_entry_slices,
+                            sell_trade_fact=trade_fact,
+                        )
+                        for item in entries:
+                            self.repository.replace_position_entry(item)
+                        touched_entry_ids = {
+                            item.get("entry_id")
+                            for item in open_entry_slices
+                            if item.get("entry_id")
+                        }
+                        for entry_id in touched_entry_ids:
+                            self.repository.replace_entry_slices_for_entry(
+                                entry_id,
+                                [
+                                    item
+                                    for item in open_entry_slices
+                                    if item.get("entry_id") == entry_id
+                                ],
+                            )
+                        self.repository.insert_exit_allocations(exit_allocations)
                 buy_lots = self.repository.list_buy_lots(symbol)
                 open_slices = self.repository.list_open_slices(symbol)
                 sell_allocations = allocate_sell_to_slices(
@@ -120,8 +176,11 @@ class OrderManagementManualWriteService:
         return {
             "trade_fact": trade_fact,
             "buy_lot": buy_lot,
+            "position_entry": position_entry,
             "lot_slices": lot_slices,
+            "entry_slices": entry_slices,
             "sell_allocations": sell_allocations,
+            "exit_allocations": exit_allocations,
             "projections": self._build_current_projections(symbol),
         }
 
@@ -138,6 +197,17 @@ class OrderManagementManualWriteService:
             self.repository.replace_buy_lot(item)
             deleted_count += 1
 
+        if hasattr(self.repository, "list_position_entries") and hasattr(
+            self.repository, "replace_position_entry"
+        ):
+            for item in self.repository.list_position_entries(symbol=symbol):
+                if int(item.get("remaining_quantity") or 0) <= 0:
+                    continue
+                item["remaining_quantity"] = 0
+                item["status"] = "CLOSED"
+                item["closed_reason"] = "manual_reset"
+                self.repository.replace_position_entry(item)
+
         existing_open_slices = self.repository.list_open_slices(symbol)
         if existing_open_slices:
             for item in existing_open_slices:
@@ -147,8 +217,36 @@ class OrderManagementManualWriteService:
                 item["closed_reason"] = "manual_reset"
             self.repository.replace_open_slices(existing_open_slices)
 
+        if hasattr(self.repository, "list_open_entry_slices") and hasattr(
+            self.repository, "replace_entry_slices_for_entry"
+        ):
+            existing_open_entry_slices = self.repository.list_open_entry_slices(
+                symbol=symbol
+            )
+            entry_ids = {
+                item.get("entry_id")
+                for item in existing_open_entry_slices
+                if item.get("entry_id")
+            }
+            if existing_open_entry_slices:
+                for item in existing_open_entry_slices:
+                    item["remaining_quantity"] = 0
+                    item["remaining_amount"] = 0.0
+                    item["status"] = "CLOSED"
+                    item["closed_reason"] = "manual_reset"
+                for entry_id in entry_ids:
+                    self.repository.replace_entry_slices_for_entry(
+                        entry_id,
+                        [
+                            item
+                            for item in existing_open_entry_slices
+                            if item.get("entry_id") == entry_id
+                        ],
+                    )
+
         inserted_count = 0
         for item in grid_items:
+            _ensure_board_lot_quantity(item["quantity"])
             buy_lot = build_buy_lot_from_trade_fact(
                 {
                     "trade_fact_id": None,
@@ -198,6 +296,21 @@ class OrderManagementManualWriteService:
                     }
                 ],
             )
+            if hasattr(self.repository, "replace_position_entry") and hasattr(
+                self.repository, "replace_entry_slices_for_entry"
+            ):
+                entry = _build_manual_locked_entry(
+                    symbol=symbol,
+                    name=name,
+                    stock_code=stock_code,
+                    grid_item=item,
+                    source=source,
+                )
+                self.repository.replace_position_entry(entry)
+                self.repository.replace_entry_slices_for_entry(
+                    entry["entry_id"],
+                    [_build_manual_locked_entry_slice(entry)],
+                )
             inserted_count += 1
 
         mark_stock_holdings_projection_updated()
@@ -217,19 +330,23 @@ class OrderManagementManualWriteService:
             logger.exception("failed to notify TPSL service for manual buy trade")
 
     def _build_current_projections(self, symbol):
-        buy_lots = self.repository.list_buy_lots(symbol)
-        open_slices = self.repository.list_open_slices(symbol)
-        if hasattr(self.repository, "list_trade_facts"):
-            trade_facts = self.repository.list_trade_facts(symbol)
-        else:
-            trade_facts = [
+        entries = list_open_entry_views(symbol=symbol, repository=self.repository)
+        open_slices = list_open_entry_slices_compat(
+            symbol=symbol,
+            repository=self.repository,
+        )
+        trade_facts = (
+            self.repository.list_trade_facts(symbol)
+            if hasattr(self.repository, "list_trade_facts")
+            else [
                 item
                 for item in getattr(self.repository, "trade_facts", [])
                 if item["symbol"] == symbol
             ]
+        )
         return {
             "raw_fills": build_raw_fills_view(trade_facts),
-            "open_buy_fills": build_open_buy_fills_view(buy_lots),
+            "open_buy_fills": build_open_buy_fills_view(entries),
             "arranged_fills": build_arranged_fills_view(open_slices),
         }
 
@@ -280,6 +397,82 @@ def _build_manual_trade_id(*, source, symbol, side, traded_at, quantity, price):
             f"{float(price):.4f}",
         ]
     )
+
+
+def _ensure_board_lot_quantity(quantity):
+    normalized = int(quantity)
+    if normalized <= 0 or normalized % 100 != 0:
+        raise ValueError("quantity must be a positive board-lot multiple of 100")
+    return normalized
+
+
+def _build_manual_import_entry(trade_fact):
+    return build_position_entry_from_trade_fact(
+        {
+            **trade_fact,
+            "source_ref_type": "trade_fact",
+            "source_ref_id": trade_fact["trade_fact_id"],
+            "entry_type": "manual_import",
+        }
+    )
+
+
+def _build_manual_locked_entry(*, symbol, name, stock_code, grid_item, source):
+    return build_position_entry_from_trade_fact(
+        {
+            "trade_fact_id": None,
+            "symbol": symbol,
+            "side": "buy",
+            "price": float(grid_item["price"]),
+            "quantity": int(grid_item["quantity"]),
+            "amount": float(
+                grid_item.get(
+                    "amount",
+                    float(grid_item["price"]) * int(grid_item["quantity"]),
+                )
+            ),
+            "date": int(grid_item["date"]),
+            "time": grid_item.get("time", "09:31:00"),
+            "trade_time": None,
+            "source": source,
+            "name": name,
+            "stock_code": stock_code,
+            "amount_adjust": float(grid_item.get("amount_adjust", 1.0)),
+            "arrange_mode": "manual_locked",
+            "entry_type": "manual_locked",
+            "source_ref_type": "manual_reset",
+            "source_ref_id": ":".join(
+                [
+                    symbol,
+                    str(int(grid_item["date"])),
+                    str(grid_item.get("time", "09:31:00")),
+                    f'{float(grid_item["price"]):.4f}',
+                    str(int(grid_item["quantity"])),
+                ]
+            ),
+        }
+    )
+
+
+def _build_manual_locked_entry_slice(entry):
+    quantity = int(entry["original_quantity"])
+    guardian_price = float(entry["entry_price"])
+    return {
+        "entry_slice_id": new_entry_slice_id(),
+        "entry_id": entry["entry_id"],
+        "slice_seq": 0,
+        "guardian_price": guardian_price,
+        "original_quantity": quantity,
+        "remaining_quantity": quantity,
+        "remaining_amount": round(guardian_price * quantity, 2),
+        "sort_key": guardian_price,
+        "date": entry.get("date"),
+        "time": entry.get("time"),
+        "trade_time": entry.get("trade_time"),
+        "symbol": entry["symbol"],
+        "status": "OPEN",
+        "source": entry.get("source", "reset"),
+    }
 
 
 def _resolve_lot_amount(symbol):

@@ -65,7 +65,7 @@ class FakeTpslManagementService:
         self.calls.append(("get_symbol_detail", symbol, history_limit))
         return {
             "symbol": symbol,
-            "buy_lots": [{"buy_lot_id": "lot_1"}],
+            "entries": [{"entry_id": "entry_1"}],
             "history": [{"event_id": "evt_1"}],
         }
 
@@ -74,11 +74,11 @@ class FakeTpslManagementService:
         *,
         symbol=None,
         kind=None,
-        buy_lot_id=None,
+        entry_id=None,
         batch_id=None,
         limit=50,
     ):
-        self.calls.append(("list_history", symbol, kind, buy_lot_id, batch_id, limit))
+        self.calls.append(("list_history", symbol, kind, entry_id, batch_id, limit))
         return [{"event_id": "evt_history_1", "kind": kind or "takeprofit"}]
 
 
@@ -211,7 +211,7 @@ def test_tpsl_management_detail_route_returns_symbol_detail(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json()["symbol"] == "600000"
-    assert response.get_json()["buy_lots"][0]["buy_lot_id"] == "lot_1"
+    assert response.get_json()["entries"][0]["entry_id"] == "entry_1"
     assert management_service.calls[-1] == ("get_symbol_detail", "600000", 15)
 
 
@@ -224,6 +224,14 @@ def test_tpsl_history_route_reads_filtered_timeline(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json()["rows"][0]["kind"] == "stoploss"
+    assert management_service.calls[-1] == (
+        "list_history",
+        "600000",
+        "stoploss",
+        None,
+        None,
+        10,
+    )
 
 
 def test_takeprofit_tier_enable_route_returns_400_for_unknown_tier(monkeypatch):

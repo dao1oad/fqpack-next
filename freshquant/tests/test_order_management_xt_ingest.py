@@ -14,11 +14,17 @@ class InMemoryRepository:
     def __init__(self):
         self.order_requests = []
         self.orders = []
+        self.broker_orders = []
         self.order_events = []
         self.trade_facts = []
+        self.execution_fills = []
         self.buy_lots = []
         self.lot_slices = []
         self.sell_allocations = []
+        self.position_entries = []
+        self.entry_slices = []
+        self.exit_allocations = []
+        self.ingest_rejections = []
 
     def insert_order_request(self, document):
         self.order_requests.append(document)
@@ -27,6 +33,15 @@ class InMemoryRepository:
     def insert_order(self, document):
         self.orders.append(document)
         return document
+
+    def upsert_broker_order(self, document, unique_keys):
+        for existing in self.broker_orders:
+            if all(existing.get(key) == document.get(key) for key in unique_keys):
+                existing.update(document)
+                return existing, False
+        saved = dict(document)
+        self.broker_orders.append(saved)
+        return saved, True
 
     def insert_order_event(self, document):
         self.order_events.append(document)
@@ -39,9 +54,23 @@ class InMemoryRepository:
         self.trade_facts.append(document)
         return document, True
 
+    def upsert_execution_fill(self, document, unique_keys):
+        for existing in self.execution_fills:
+            if all(existing.get(key) == document.get(key) for key in unique_keys):
+                return existing, False
+        saved = dict(document)
+        self.execution_fills.append(saved)
+        return saved, True
+
     def find_order(self, internal_order_id):
         for order in self.orders:
             if order["internal_order_id"] == internal_order_id:
+                return order
+        return None
+
+    def find_broker_order(self, broker_order_key):
+        for order in self.broker_orders:
+            if order["broker_order_key"] == broker_order_key:
                 return order
         return None
 
@@ -102,6 +131,53 @@ class InMemoryRepository:
     def insert_sell_allocations(self, allocations):
         self.sell_allocations.extend(allocations)
         return allocations
+
+    def replace_position_entry(self, document):
+        for index, current in enumerate(self.position_entries):
+            if current["entry_id"] == document["entry_id"]:
+                self.position_entries[index] = dict(document)
+                return document
+        self.position_entries.append(dict(document))
+        return document
+
+    def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+        rows = list(self.position_entries)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        if status is not None:
+            rows = [item for item in rows if item.get("status") == status]
+        return rows
+
+    def replace_entry_slices_for_entry(self, entry_id, slices):
+        self.entry_slices = [
+            item for item in self.entry_slices if item["entry_id"] != entry_id
+        ]
+        self.entry_slices.extend(dict(item) for item in slices)
+        return slices
+
+    def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+        rows = [
+            item
+            for item in self.entry_slices
+            if int(item.get("remaining_quantity") or 0) > 0
+        ]
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        return [dict(item) for item in rows]
+
+    def insert_exit_allocations(self, allocations):
+        self.exit_allocations.extend(dict(item) for item in allocations)
+        return allocations
+
+    def insert_ingest_rejection(self, document):
+        self.ingest_rejections.append(dict(document))
+        return document
 
 
 def _bootstrap_service():
@@ -338,7 +414,7 @@ def test_normalize_xt_order_report_keeps_cancel_requested_state_for_pending_canc
     assert normalized["state"] == "CANCEL_REQUESTED"
 
 
-def test_trade_report_creates_trade_fact_buy_lot_and_slices():
+def test_trade_report_creates_trade_fact_position_entry_and_slices():
     repository, ingest_service = _bootstrap_service()
 
     result = ingest_service.ingest_trade_report(
@@ -348,8 +424,14 @@ def test_trade_report_creates_trade_fact_buy_lot_and_slices():
     )
 
     assert len(repository.trade_facts) == 1
-    assert result["buy_lot"]["original_quantity"] == 900
-    assert len(result["lot_slices"]) == 4
+    assert len(repository.execution_fills) == 1
+    assert len(repository.position_entries) == 1
+    assert repository.position_entries[0]["source_ref_type"] == "broker_order"
+    assert repository.position_entries[0]["original_quantity"] == 900
+    assert repository.position_entries[0]["remaining_quantity"] == 900
+    assert len(repository.entry_slices) == 4
+    assert result["position_entry"]["original_quantity"] == 900
+    assert len(result["entry_slices"]) == 4
 
 
 def test_trade_report_marks_holding_projection_updated(monkeypatch):
@@ -397,6 +479,9 @@ def test_sell_trade_report_creates_sell_allocations_and_updates_projection():
     arranged_fills = build_arranged_fills_view(repository.list_open_slices("000001"))
 
     assert len(result["sell_allocations"]) == 2
+    assert len(result["exit_allocations"]) == 2
+    assert repository.position_entries[0]["remaining_quantity"] == 400
+    assert repository.position_entries[0]["status"] == "PARTIALLY_EXITED"
     assert [(item["price"], item["quantity"]) for item in arranged_fills] == [
         (10.93, 200),
         (10.61, 200),
@@ -480,7 +565,78 @@ def test_repeated_callback_does_not_duplicate_trade_fact_or_projection():
 
     assert len(repository.trade_facts) == 1
     assert len(repository.buy_lots) == 1
+    assert len(repository.position_entries) == 1
+    assert len(repository.list_open_entry_slices(symbol="000001")) == 4
     assert len(repository.list_open_slices("000001")) == 4
+
+
+def test_non_board_lot_trade_report_is_rejected_from_entry_ledger():
+    repository, ingest_service = _bootstrap_service()
+
+    result = ingest_service.ingest_trade_report(
+        {
+            **_buy_report("T-odd"),
+            "quantity": 18,
+            "amount": 180.0,
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert len(repository.trade_facts) == 1
+    assert len(repository.execution_fills) == 1
+    assert repository.position_entries == []
+    assert repository.entry_slices == []
+    assert repository.buy_lots == []
+    assert len(repository.ingest_rejections) == 1
+    assert repository.ingest_rejections[0]["reason_code"] == "non_board_lot_quantity"
+    assert result["position_entry"] is None
+    assert result["projections"]["open_buy_fills"] == []
+
+
+def test_multiple_buy_trade_reports_for_same_order_update_one_position_entry():
+    def _noop_sync_stock_fills_compat(_symbol: str, repository: object) -> None:
+        del repository
+
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 1800,
+            "source": "xt_trade_callback",
+            "internal_order_id": "ord_test_agg_1",
+        }
+    )
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+    )
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
+
+    ingest_service.ingest_trade_report(
+        {
+            **_buy_report("T-201"),
+            "internal_order_id": "ord_test_agg_1",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    ingest_service.ingest_trade_report(
+        {
+            **_buy_report("T-202"),
+            "internal_order_id": "ord_test_agg_1",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert len(repository.position_entries) == 1
+    assert repository.position_entries[0]["source_ref_type"] == "broker_order"
+    assert repository.position_entries[0]["original_quantity"] == 1800
+    assert repository.position_entries[0]["remaining_quantity"] == 1800
 
 
 def test_repeated_sell_callback_does_not_duplicate_sell_allocations(monkeypatch):

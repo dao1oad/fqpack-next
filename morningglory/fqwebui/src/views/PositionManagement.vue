@@ -195,8 +195,8 @@
                   <span>一致性</span>
                   <span>门禁</span>
                   <span>券商仓位</span>
-                  <span>推断仓位</span>
-                  <span>stock_fills仓位</span>
+                  <span>账本仓位</span>
+                  <span>对账状态</span>
                 </div>
 
                 <div
@@ -248,17 +248,21 @@
                   </div>
                   <div
                     class="runtime-ledger__cell position-source-cell position-source-cell--left"
-                    :title="row.inferred_position_source_label"
+                    :title="row.ledger_position_source_label"
                   >
-                    <strong>{{ row.inferred_position_label }}</strong>
-                    <span>{{ row.inferred_position_source_label }}</span>
+                    <strong>{{ row.ledger_position_label }}</strong>
+                    <span>{{ row.ledger_position_source_label }}</span>
                   </div>
                   <div
                     class="runtime-ledger__cell position-source-cell position-source-cell--left"
-                    :title="row.legacy_position_source_label"
+                    :title="row.reconciliation_detail_label"
                   >
-                    <strong>{{ row.legacy_position_label }}</strong>
-                    <span>{{ row.legacy_position_source_label }}</span>
+                    <strong>
+                      <StatusChip class="runtime-inline-status" :variant="reconciliationStatusChipVariant(row.reconciliation_state)">
+                        {{ row.reconciliation_state_label }}
+                      </StatusChip>
+                    </strong>
+                    <span>{{ row.reconciliation_detail_label }}</span>
                   </div>
                 </div>
               </div>
@@ -460,6 +464,13 @@ const symbolLimitStatusChipVariant = (blocked) => (
 const positionConsistencyChipVariant = (quantityMismatch) => (
   quantityMismatch ? 'warning' : 'success'
 )
+
+const reconciliationStatusChipVariant = (state) => {
+  if (state === 'BROKEN') return 'danger'
+  if (state === 'OBSERVING') return 'warning'
+  if (state === 'AUTO_RECONCILED') return 'muted'
+  return 'success'
+}
 
 const handleDecisionPageChange = (page) => {
   decisionPagination.page = page

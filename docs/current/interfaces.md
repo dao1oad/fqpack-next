@@ -8,7 +8,46 @@
 python -m freshquant.rear.api_server --port 5000
 ```
 
-当前蓝图与主要接口：
+### `order`
+
+- `/api/order/submit`
+- `/api/order/cancel`
+- `/api/stock_order`
+- `/api/order-management/orders`
+- `/api/order-management/orders/<internal_order_id>`
+- `/api/order-management/entries/<entry_id>`
+- `/api/order-management/stats`
+- `/api/order-management/stoploss/bind`
+
+当前已删除 `/api/order-management/buy-lots/<buy_lot_id>`。
+
+### `position-management`
+
+- `/api/position-management/dashboard`
+- `/api/position-management/config`
+- `/api/position-management/symbol-limits`
+- `/api/position-management/symbol-limits/<symbol>`
+
+### `subject-management`
+
+- `/api/subject-management/overview`
+- `/api/subject-management/<symbol>`
+- `/api/subject-management/<symbol>/must-pool`
+- `/api/subject-management/<symbol>/guardian-buy-grid`
+
+### `tpsl`
+
+- `/api/tpsl/takeprofit/<symbol>`
+- `/api/tpsl/takeprofit/<symbol>/tiers/<level>/enable`
+- `/api/tpsl/takeprofit/<symbol>/tiers/<level>/disable`
+- `/api/tpsl/takeprofit/<symbol>/rearm`
+- `/api/tpsl/management/overview`
+- `/api/tpsl/management/<symbol>`
+- `/api/tpsl/history`
+- `/api/tpsl/events`
+- `/api/tpsl/batches/<batch_id>`
+
+`/api/tpsl/history` 当前只按 `symbol / batch_id / entry_id` 过滤。
 
 ### `stock`
 
@@ -46,44 +85,6 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/daily-screening/pre-pools/stock-pools`
 - `/api/daily-screening/pre-pools/delete`
 
-### `future`
-
-- `/api/get_statistic_list`
-- `/api/get_future_config`
-- `/api/dominant`
-- `/api/create_future_prejudge_list`
-- `/api/get_future_prejudge_list`
-- `/api/update_future_prejudge_list`
-
-### `order`
-
-- `/api/order/submit`
-- `/api/order/cancel`
-- `/api/stock_order`
-- `/api/order-management/orders`
-- `/api/order-management/orders/<internal_order_id>`
-- `/api/order-management/stats`
-- `/api/order-management/buy-lots/<buy_lot_id>`
-- `/api/order-management/stoploss/bind`
-
-### `position-management`
-
-- `/api/position-management/dashboard`
-- `/api/position-management/config`
-
-### `subject-management`
-
-- `/api/subject-management/overview`
-- `/api/subject-management/<symbol>`
-- `/api/subject-management/<symbol>/must-pool`
-- `/api/subject-management/<symbol>/guardian-buy-grid`
-
-### `system-config`
-
-- `/api/system-config/dashboard`
-- `/api/system-config/bootstrap`
-- `/api/system-config/settings`
-
 ### `runtime`
 
 - `/api/runtime/components`
@@ -94,29 +95,28 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/runtime/raw-files/files`
 - `/api/runtime/raw-files/tail`
 
-### `tpsl`
+### `system-config`
 
-- `/api/tpsl/takeprofit/<symbol>`
-- `/api/tpsl/takeprofit/<symbol>/tiers/<level>/enable`
-- `/api/tpsl/takeprofit/<symbol>/tiers/<level>/disable`
-- `/api/tpsl/takeprofit/<symbol>/rearm`
-- `/api/tpsl/management/overview`
+- `/api/system-config/dashboard`
+- `/api/system-config/bootstrap`
+- `/api/system-config/settings`
+
+## 当前接口语义
+
+- `/api/order-management/stoploss/bind`
+  - 当前只接受 `entry_id`
+- `/api/subject-management/<symbol>`
+  - 当前返回 `entries`
+  - 不再返回 `buy_lots`
 - `/api/tpsl/management/<symbol>`
-- `/api/tpsl/history`
-- `/api/tpsl/events`
-- `/api/tpsl/batches/<batch_id>`
-
-其中：
-
-- `/api/runtime/health/summary` 固定返回核心组件全集；没有最新 health 数据时返回 `status=unknown`、`heartbeat_age_s=null`、`is_placeholder=true`
-- 仓位管理页面使用独立 `/api/position-management/*` 读模型接口，因为它需要同时返回配置 inventory、effective state、holding scope 和规则矩阵
-- 标的管理页面使用独立 `/api/subject-management/*` 聚合接口，把 `must_pool / guardian_buy_grid / takeprofit / buy lot stoploss / 运行态摘要` 收口到同一页；账户级仓位门禁只读联动展示，不在该页写入
-- 系统设置页面使用独立 `/api/system-config/*` 接口，明确区分 Bootstrap 文件配置与 Mongo 系统设置
-- 每日选股页面的查询主链路使用 `/api/daily-screening/*`；共享工作区操作直接复用 `/api/gantt/shouban30/pre-pool/*` 与 `/api/gantt/shouban30/stock-pool/*`
-- `/api/get_stock_pre_pools_list` 与 `/api/gantt/shouban30/pre-pool` 当前都返回共享 `stock_pre_pools` 的去重列表，每行携带 `sources / categories / memberships`
-- `/api/get_stock_pools_list`、`/api/gantt/shouban30/stock-pool` 与 `/api/add_to_stock_pools_by_code` 当前会保留来自 `pre_pool` 的 `sources / categories / memberships`，不会在转入 `stock_pools` 时丢失来源和分类
-- Runtime API 只读原始日志与聚合视图，不承担修复动作
-- `/api/runtime/traces` 与 `/api/runtime/traces/<trace_id>` 默认只用事件内已有字段组装 `symbol_name`；只有显式传 `include_symbol_name=1` 才会按需补查 instrument 信息
+  - 当前返回 `entries / entry_slices / reconciliation / history`
+  - `entries` 内嵌 `stoploss`
+- `/api/position-management/dashboard`
+  - 当前返回 `券商仓位 / 账本仓位 / 对账状态`
+  - 不再返回三套并列仓位真值
+- `/api/stock_fills`
+  - 仍保留旧名称
+  - 底层优先读 `entry ledger`
 
 ## CLI
 
@@ -126,7 +126,7 @@ python -m freshquant.rear.api_server --port 5000
 python -m freshquant.cli
 ```
 
-当前稳定命令组：
+稳定命令组：
 
 - `stock`
 - `etf`
@@ -146,13 +146,7 @@ python -m freshquant.cli om-order submit --action buy --symbol 600000 --price 10
 python -m freshquant.cli om-order cancel --internal-order-id <id>
 ```
 
-交互式初始化向导：
-
-```powershell
-python -m freshquant.initialize
-```
-
-## 后台 worker 与服务入口
+## 后台 worker
 
 - XTData producer
   - `python -m freshquant.market_data.xtdata.market_producer`
@@ -161,86 +155,18 @@ python -m freshquant.initialize
 - Guardian monitor
   - `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event`
 - XT account sync worker
-- `python -m freshquant.xt_account_sync.worker --interval 15`
-  - 主循环每 15 秒刷新 `assets / credit_detail / positions / incremental orders / incremental trades`；`credit_subjects` 只做启动 + 每日计划低频同步
+  - `python -m freshquant.xt_account_sync.worker --interval 15`
 - TPSL worker
   - `python -m freshquant.tpsl.tick_listener`
-- formal deploy
-  - `script/ci/run_formal_deploy.py`
-  - `script/check_freshquant_runtime_post_deploy.ps1`
-- Codex 自由会话硬入口
-  - `codex_run/start_codex_cli.bat`
-  - `codex_run/start_codex_app_server.bat`
-  - 两者都先调用 `codex_run/start_freshquant_codex.ps1`，由 wrapper 执行 `runtime/memory/scripts/bootstrap_freshquant_memory.py`，再启动对应 `codex` 命令
-  - `start_codex_app_server.bat` 保持前台运行，默认启动 `codex app-server` 的 `stdio://` 传输；关闭该窗口即停止服务
-- Memory bootstrap fallback
-  - `runtime/memory/scripts/bootstrap_freshquant_memory.py`
-  - 供没有走 `codex_run/*.bat` 的自由会话手动执行 memory refresh / compile，并返回 `context_pack_path`
 
 ## Web UI 路由
 
-- `/futures-control`
-  - `最新行情`
-  - `每日复盘`
-  - `统计数据`
-- `/stock-control`
-  - 持仓股信号
-  - `stock_pools模型信号`
-  - `must_pools买入信号`
-- 顶部导航按钮当前由 `src/router/pageMeta.mjs` 的分组元数据驱动，统一使用浏览器新标签页打开路由，并通过 `tabTitle` 驱动浏览器标签标题
-- `/multi-period`
-- `/kline-big`
 - `/kline-slim`
-- `/gantt`
-- `/gantt/shouban30`
-- `/daily-screening`
-- `/gantt/stocks/:plateKey`
-- `/stock-pools`
-- `/stock-cjsd`
 - `/order-management`
 - `/position-management`
 - `/subject-management`
-- `/system-settings`
 - `/tpsl`
 - `/runtime-observability`
-
-## 当前接口边界
-
-- 交易主入口是 `OrderSubmitService`；HTTP 和 CLI 只是它的包装
-- `/stock-control` 当前读取两类信号接口：
-  - `/api/get_stock_signal_list`
-  - `/api/get_stock_model_signal_list`
-- `/stock-control` 当前只展示信号列表，不再承载持仓股列表
-- `/stock-control` 当前沿用 workbench 三列页面壳，并把三个列表统一改成 `/runtime-observability` 的全局 Trace dense ledger 语法：
-  - 左列 `持仓股信号`
-  - 中列 `stock_pools模型信号`
-  - 右列 `must_pools买入信号`
-- `/stock-control` 的 `持仓股信号` 与 `must_pools买入信号` 当前列结构为：
-  - `信号时间`
-  - `入库时间`
-  - `标的代码`
-  - `标的名称`
-  - `方向`
-  - `类型`
-  - `触发价/止损价/止损%`
-- `/stock-control` 的 `stock_pools模型信号` 在公共列之外，额外展示：
-  - `周期`
-  - `分组`
-  - `模型`
-  - `来源`
-- `/stock-control` 的 `stock_pools模型信号` 当前复用 `/daily-screening` 对 CLX 12 模型的中文映射与分组真值
-- `/stock-control` 的价格列当前统一展示为单行 `触发价/止损价/止损%` 顺序的紧凑值串，价格数值保留三位小数，分页默认 `100` 条/页
-- `/stock-control` 的时间列当前统一压缩显示为 `MM-DD HH:mm`
-- `/stock-control` 的三个 ledger 当前都固定在面板内滚动，表头 sticky，浏览器 `100%` 缩放下不再出现页面横向滚动
-- `/futures-control` 当前也接入统一 `workbench-page` 视口壳；`最新行情` 之外的 `每日复盘 / 统计数据` 采用按 tab 延迟挂载，首屏不再预加载统计图与复盘请求
-- `/futures-control` 的 `统计数据` 当前在图表宿主节点预先保留固定宽高，再初始化 ECharts；切到 `统计数据` tab 时不应再出现 `Can't get DOM width or height` warning
-- `/api/get_future_prejudge_list` 当前按 `endDate` 读取单日预判文档；服务实现不再依赖 PyMongo 已废弃的 cursor `count()`
-- 系统设置页只维护新系统正式配置，不再承载旧 SMTP / 邮件收件人或旧 `code + value` 通用参数模式
-- 系统设置页当前直接消费共享 `WorkbenchPage / WorkbenchToolbar / StatusChip`，顶部 Bootstrap/Mongo 摘要与 dense ledger 行内状态统一走共享标签语义
-- Kline 与 stock pool 仍保留一批历史接口；这些接口可继续使用，但新增页面应优先复用当前已有路由，不要再扩新的平行接口面
-- `/api/gantt/shouban30/plates` 与 `/api/gantt/shouban30/stocks` 当前正式时间参数是 `days` 与 `end_date`
-- `/gantt/shouban30` 当前直接消费共享 `WorkbenchSidebarPanel / WorkbenchLedgerPanel / WorkbenchDetailPanel`，provider 切换统一为 `radio-button switch`
-- `/api/daily-screening/query` 的语义是“先锚定 base union，再对所选条件统一取交集”
-- `/api/daily-screening/stocks/<code>/detail` 会返回统一详情：snapshot、memberships、CLXS 命中、chanlun 命中、90 天聚合、市场属性与热门理由
-- `/daily-screening` 页面当前会展示条件说明提示，并允许把当前交集结果直接追加到共享 `pre_pools`
-- 共享 `pre_pools` 当前按 `code` 整条删除，不支持只删除某个来源/分类标签
+- `/gantt`
+- `/gantt/shouban30`
+- `/daily-screening`

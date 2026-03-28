@@ -3,8 +3,8 @@
 from datetime import datetime, timezone
 
 from freshquant.order_management.ids import (
-    new_execution_fill_id,
     new_event_id,
+    new_execution_fill_id,
     new_internal_order_id,
     new_request_id,
     new_trade_fact_id,
@@ -77,36 +77,39 @@ class OrderTrackingService:
 
         self.repository.insert_order_request(request_document)
         self.repository.insert_order(order_document)
-        self.repository.upsert_broker_order(
-            {
-                "broker_order_key": internal_order_id,
-                "internal_order_id": internal_order_id,
-                "request_id": request_id,
-                "broker_order_id": payload.get("broker_order_id"),
-                "broker_order_type": payload.get("broker_order_type"),
-                "broker_price_type": payload.get("broker_price_type"),
-                "account_type": payload.get("account_type"),
-                "trace_id": payload.get("trace_id"),
-                "intent_id": payload.get("intent_id"),
-                "symbol": payload.get("symbol"),
-                "side": payload["action"],
-                "credit_trade_mode_requested": payload.get("credit_trade_mode"),
-                "credit_trade_mode_resolved": payload.get("credit_trade_mode_resolved"),
-                "price_mode_requested": payload.get("price_mode"),
-                "price_mode_resolved": payload.get("price_mode_resolved"),
-                "state": "ACCEPTED",
-                "source_type": payload.get("source", "unknown"),
-                "submitted_at": None,
-                "requested_quantity": payload.get("quantity"),
-                "filled_quantity": 0,
-                "avg_filled_price": None,
-                "fill_count": 0,
-                "first_fill_time": None,
-                "last_fill_time": None,
-                "updated_at": now,
-            },
-            unique_keys=["broker_order_key"],
-        )
+        if hasattr(self.repository, "upsert_broker_order"):
+            self.repository.upsert_broker_order(
+                {
+                    "broker_order_key": internal_order_id,
+                    "internal_order_id": internal_order_id,
+                    "request_id": request_id,
+                    "broker_order_id": payload.get("broker_order_id"),
+                    "broker_order_type": payload.get("broker_order_type"),
+                    "broker_price_type": payload.get("broker_price_type"),
+                    "account_type": payload.get("account_type"),
+                    "trace_id": payload.get("trace_id"),
+                    "intent_id": payload.get("intent_id"),
+                    "symbol": payload.get("symbol"),
+                    "side": payload["action"],
+                    "credit_trade_mode_requested": payload.get("credit_trade_mode"),
+                    "credit_trade_mode_resolved": payload.get(
+                        "credit_trade_mode_resolved"
+                    ),
+                    "price_mode_requested": payload.get("price_mode"),
+                    "price_mode_resolved": payload.get("price_mode_resolved"),
+                    "state": "ACCEPTED",
+                    "source_type": payload.get("source", "unknown"),
+                    "submitted_at": None,
+                    "requested_quantity": payload.get("quantity"),
+                    "filled_quantity": 0,
+                    "avg_filled_price": None,
+                    "fill_count": 0,
+                    "first_fill_time": None,
+                    "last_fill_time": None,
+                    "updated_at": now,
+                },
+                unique_keys=["broker_order_key"],
+            )
         self.repository.insert_order_event(event_document)
         return request_id
 
@@ -264,7 +267,9 @@ class OrderTrackingService:
 
     def ingest_trade_report_with_meta(self, report):
         current_order = self.repository.find_order(report["internal_order_id"])
-        broker_order_key = _resolve_broker_order_key(report, current_order=current_order)
+        broker_order_key = _resolve_broker_order_key(
+            report, current_order=current_order
+        )
         execution_fill = {
             "execution_fill_id": report.get("execution_fill_id")
             or new_execution_fill_id(),
@@ -284,10 +289,6 @@ class OrderTrackingService:
             "source": report.get("source", "unknown"),
             "provisional": report.get("provisional", False),
         }
-        saved_execution_fill, created_execution_fill = self.repository.upsert_execution_fill(
-            execution_fill,
-            unique_keys=["broker_trade_id"],
-        )
         trade_fact = {
             "trade_fact_id": report.get("trade_fact_id") or new_trade_fact_id(),
             "internal_order_id": report["internal_order_id"],
@@ -306,6 +307,16 @@ class OrderTrackingService:
             trade_fact,
             unique_keys=["broker_trade_id"],
         )
+        if hasattr(self.repository, "upsert_execution_fill"):
+            saved_execution_fill, created_execution_fill = (
+                self.repository.upsert_execution_fill(
+                    execution_fill,
+                    unique_keys=["broker_trade_id"],
+                )
+            )
+        else:
+            saved_execution_fill = dict(execution_fill)
+            created_execution_fill = created
         if created:
             broker_order = self._apply_fill_to_broker_order(
                 broker_order_key,
@@ -329,6 +340,10 @@ class OrderTrackingService:
         }
 
     def _sync_broker_order_report(self, broker_order_key, report):
+        if not hasattr(self.repository, "find_broker_order") or not hasattr(
+            self.repository, "upsert_broker_order"
+        ):
+            return None
         broker_order = self.repository.find_broker_order(broker_order_key)
         if broker_order is None:
             return None
@@ -350,24 +365,38 @@ class OrderTrackingService:
         )
         return saved_broker_order
 
-    def _apply_fill_to_broker_order(self, broker_order_key, execution_fill, *, current_order):
+    def _apply_fill_to_broker_order(
+        self, broker_order_key, execution_fill, *, current_order
+    ):
+        if not hasattr(self.repository, "find_broker_order") or not hasattr(
+            self.repository, "upsert_broker_order"
+        ):
+            return None
         broker_order = self.repository.find_broker_order(broker_order_key)
         if broker_order is None:
             broker_order = {
                 "broker_order_key": broker_order_key,
-                "internal_order_id": current_order.get("internal_order_id")
-                if current_order
-                else broker_order_key,
-                "request_id": current_order.get("request_id") if current_order else None,
+                "internal_order_id": (
+                    current_order.get("internal_order_id")
+                    if current_order
+                    else broker_order_key
+                ),
+                "request_id": (
+                    current_order.get("request_id") if current_order else None
+                ),
                 "broker_order_id": execution_fill.get("broker_order_id"),
-                "account_type": current_order.get("account_type") if current_order else None,
+                "account_type": (
+                    current_order.get("account_type") if current_order else None
+                ),
                 "trace_id": current_order.get("trace_id") if current_order else None,
                 "intent_id": current_order.get("intent_id") if current_order else None,
                 "symbol": execution_fill.get("symbol"),
                 "side": execution_fill.get("side"),
                 "state": "PARTIAL_FILLED",
                 "source_type": execution_fill.get("source"),
-                "submitted_at": current_order.get("submitted_at") if current_order else None,
+                "submitted_at": (
+                    current_order.get("submitted_at") if current_order else None
+                ),
                 "requested_quantity": None,
                 "filled_quantity": 0,
                 "avg_filled_price": None,
@@ -392,7 +421,9 @@ class OrderTrackingService:
         )
         requested_quantity = broker_order.get("requested_quantity")
         next_state = "PARTIAL_FILLED"
-        if requested_quantity not in (None, "") and next_quantity >= int(requested_quantity):
+        if requested_quantity not in (None, "") and next_quantity >= int(
+            requested_quantity
+        ):
             next_state = "FILLED"
         next_document = {
             **broker_order,

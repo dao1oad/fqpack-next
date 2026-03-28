@@ -27,7 +27,7 @@ const makeOverviewRows = () => buildOverviewRows([
     },
     stoploss: {
       active_count: 1,
-      open_buy_lot_count: 2,
+      open_entry_count: 2,
     },
     runtime: {
       position_quantity: 500,
@@ -65,7 +65,7 @@ const makeOverviewRows = () => buildOverviewRows([
     },
     stoploss: {
       active_count: 0,
-      open_buy_lot_count: 0,
+      open_entry_count: 0,
     },
     runtime: {
       position_quantity: 0,
@@ -116,10 +116,10 @@ const makeDetail = (symbol = '600000', overrides = {}) => buildDetailViewModel({
       : [{ level: 1, price: 10.2, enabled: true }],
     state: { armed_levels: { 1: true, 2: false, 3: true } },
   },
-  buy_lots: [
+  entries: [
     {
-      buy_lot_id: `${symbol}-lot-1`,
-      buy_price_real: 10.0,
+      entry_id: `${symbol}-entry-1`,
+      entry_price: 10.0,
       original_quantity: 300,
       remaining_quantity: 200,
       stoploss: {
@@ -174,9 +174,9 @@ test('page controller loads overview first, then detail, switches rows and refre
       calls.push(['saveTakeprofit', symbol, tiers.length])
       return { symbol, tiers }
     },
-    async saveStoploss(buyLotId, payload) {
-      calls.push(['saveStoploss', buyLotId, payload.stop_price, payload.enabled])
-      return { buyLotId, ...payload }
+    async saveStoploss(entryId, payload) {
+      calls.push(['saveStoploss', entryId, payload.stop_price, payload.enabled])
+      return { entryId, ...payload }
     },
   }
 
@@ -237,9 +237,9 @@ test('page controller saves dense config table via must-pool and symbol-limit ap
       calls.push(['saveTakeprofit', symbol, tiers.length])
       return { symbol, tiers }
     },
-    async saveStoploss(buyLotId, payload) {
-      calls.push(['saveStoploss', buyLotId, payload.stop_price, payload.enabled])
-      return { buyLotId, ...payload }
+    async saveStoploss(entryId, payload) {
+      calls.push(['saveStoploss', entryId, payload.stop_price, payload.enabled])
+      return { entryId, ...payload }
     },
   }
 

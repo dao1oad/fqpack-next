@@ -18,12 +18,12 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
       using_override: true,
       blocked: false,
     },
-    buy_lots: [
+    entries: [
       {
-        buy_lot_id: 'lot_c47155b437de422db9ea2eec0b316d2a',
+        entry_id: 'entry_c47155b437de422db9ea2eec0b316d2a',
         date: 20260316,
         time: '10:31:00',
-        buy_price_real: 10.0,
+        entry_price: 10.0,
         original_quantity: 300,
         remaining_quantity: 200,
         stoploss: { stop_price: 9.2, enabled: true },
@@ -40,12 +40,12 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
   assert.equal(detail.positionLimit.limit, 500000)
   assert.equal(detail.positionLimit.using_override, true)
   assert.equal(detail.runtimeSummary.avg_price, 10.023)
-  assert.equal(detail.buyLots[0].stoploss.enabled, true)
-  assert.equal(detail.buyLots[0].buyLotDisplayLabel, '第 1 笔买入')
-  assert.equal(detail.buyLots[0].buyLotIdLabel, 'ID 尾号 316d2a')
+  assert.equal(detail.entries[0].stoploss.enabled, true)
+  assert.equal(detail.entries[0].entryDisplayLabel, '第 1 笔持仓入口')
+  assert.equal(detail.entries[0].entryIdLabel, 'ID 尾号 316d2a')
   assert.equal(
-    detail.buyLots[0].buyLotMetaLabel,
-    '2026-03-16 10:31 · 均价 10.023 · 市值 12.35 万 · 剩余 66.67%'
+    detail.entries[0].entryMetaLabel,
+    '2026-03-16 10:31:00 · 均价 10.023 · 市值 12.35 万 · 剩余 66.67%'
   )
   assert.equal(Object.hasOwn(detail.mustPool, 'forever'), false)
   assert.equal(Object.hasOwn(detail.positionLimit, 'use_default'), false)
@@ -67,7 +67,7 @@ test('createKlineSlimSubjectPanelActions routes subject and position-limit write
       return { symbol, ...payload }
     },
     async bindStoploss(payload) {
-      calls.push(['bindStoploss', payload.buy_lot_id, payload.stop_price, payload.enabled])
+      calls.push(['bindStoploss', payload.entry_id, payload.stop_price, payload.enabled])
       return payload
     },
   })
@@ -75,13 +75,13 @@ test('createKlineSlimSubjectPanelActions routes subject and position-limit write
   await actions.loadSubjectDetail('600000')
   await actions.saveMustPool('600000', { category: '银行' })
   await actions.savePositionLimit('600000', { limit: 500000 })
-  await actions.saveStoploss('lot-1', { stop_price: 9.2, enabled: true })
+  await actions.saveStoploss('entry-1', { stop_price: 9.2, enabled: true })
 
   assert.deepEqual(calls, [
     ['getDetail', '600000'],
     ['saveMustPool', '600000', '银行'],
     ['saveSymbolPositionLimit', '600000', 500000],
-    ['bindStoploss', 'lot-1', 9.2, true],
+    ['bindStoploss', 'entry-1', 9.2, true],
   ])
 })
 

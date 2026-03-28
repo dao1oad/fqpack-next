@@ -8,7 +8,7 @@
           <div class="workbench-title-group">
             <div class="workbench-page-title">标的管理</div>
             <div class="workbench-page-meta">
-              <span>左侧高密度汇总当前配置，右侧集中编辑基础设置、单标的仓位上限与 buy lot 止损。</span>
+              <span>左侧高密度汇总当前配置，右侧集中编辑基础设置、单标的仓位上限与持仓入口止损。</span>
               <template v-if="detail">
                 <span>/</span>
                 <span>当前标的 <span class="workbench-code">{{ detail.symbol }}</span> {{ detail.name }}</span>
@@ -166,7 +166,7 @@
                 <template #default="{ row }">
                   <div class="subject-summary-stack">
                     <div class="subject-summary-line">活跃 / open</div>
-                    <div class="subject-summary-line workbench-code">{{ row.stoplossActiveCount }} / {{ row.openBuyLotCount }}</div>
+                    <div class="subject-summary-line workbench-code">{{ row.stoplossActiveCount }} / {{ row.openEntryCount }}</div>
                   </div>
                 </template>
               </el-table-column>
@@ -336,19 +336,19 @@
             <WorkbenchDetailPanel class="subject-editor-table-panel">
               <div class="subject-editor-table-header">
                 <div class="subject-editor-table-heading">
-                  <div class="subject-editor-table-title">按 buy lot 止损</div>
-                  <div class="subject-editor-table-subtitle">只展示 open buy lot，按行保存</div>
+                  <div class="subject-editor-table-title">按持仓入口止损</div>
+                  <div class="subject-editor-table-subtitle">只展示 open entry，按行保存</div>
                 </div>
-                <div class="subject-editor-table-meta">{{ detail.buyLots.length }} 条 open buy lot</div>
+                <div class="subject-editor-table-meta">{{ detail.entries.length }} 条 open entry</div>
               </div>
 
               <el-table
-                :data="detail.buyLots"
+                :data="detail.entries"
                 size="small"
                 border
                 class="subject-table subject-editor-stoploss-table"
               >
-                <el-table-column prop="buy_lot_id" label="Buy Lot" min-width="164" />
+                <el-table-column prop="entry_id" label="Entry" min-width="164" />
                 <el-table-column label="买入时间" min-width="138">
                   <template #default="{ row }">
                     <span class="workbench-code">{{ row.date || '-' }} {{ row.time || '' }}</span>
@@ -356,7 +356,7 @@
                 </el-table-column>
                 <el-table-column label="买入价" width="88">
                   <template #default="{ row }">
-                    <span class="workbench-code">{{ formatPrice(row.buy_price_real) }}</span>
+                    <span class="workbench-code">{{ row.entry_price_label }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column label="原始/剩余" width="112">
@@ -372,7 +372,7 @@
                 <el-table-column label="编辑价" min-width="146">
                   <template #default="{ row }">
                     <el-input-number
-                      v-model="stoplossDrafts[row.buy_lot_id].stop_price"
+                      v-model="stoplossDrafts[row.entry_id].stop_price"
                       size="small"
                       :min="0"
                       :step="0.01"
@@ -384,7 +384,7 @@
                 <el-table-column label="启用" width="94">
                   <template #default="{ row }">
                     <el-switch
-                      v-model="stoplossDrafts[row.buy_lot_id].enabled"
+                      v-model="stoplossDrafts[row.entry_id].enabled"
                       size="small"
                       inline-prompt
                       active-text="开"
@@ -394,8 +394,8 @@
                 </el-table-column>
                 <el-table-column label="状态" width="88">
                   <template #default="{ row }">
-                    <el-tag size="small" :type="stoplossDrafts[row.buy_lot_id].enabled ? 'danger' : 'info'">
-                      {{ stoplossDrafts[row.buy_lot_id].enabled ? '生效中' : '未启用' }}
+                    <el-tag size="small" :type="stoplossDrafts[row.entry_id].enabled ? 'danger' : 'info'">
+                      {{ stoplossDrafts[row.entry_id].enabled ? '生效中' : '未启用' }}
                     </el-tag>
                   </template>
                 </el-table-column>
@@ -404,8 +404,8 @@
                     <el-button
                       type="primary"
                       text
-                      :loading="savingStoploss[row.buy_lot_id]"
-                      @click="handleSaveStoplossClick(row.buy_lot_id)"
+                      :loading="savingStoploss[row.entry_id]"
+                      @click="handleSaveStoplossClick(row.entry_id)"
                     >
                       保存
                     </el-button>
@@ -634,16 +634,16 @@ const handleSaveConfigBundleClick = async () => {
   await handleSaveConfigBundle()
 }
 
-const handleSaveStoplossClick = async (buyLotId) => {
-  const draft = stoplossDrafts.value?.[buyLotId] || {}
+const handleSaveStoplossClick = async (entryId) => {
+  const draft = stoplossDrafts.value?.[entryId] || {}
   if (draft.enabled) {
     const parsed = Number(draft.stop_price)
     if (!Number.isFinite(parsed) || parsed <= 0) {
-      ElMessage.warning(`开启止损前请先填写 ${buyLotId} 的 stop_price`)
+      ElMessage.warning(`开启止损前请先填写 ${entryId} 的 stop_price`)
       return
     }
   }
-  await handleSaveStoploss(buyLotId)
+  await handleSaveStoploss(entryId)
 }
 
 onMounted(async () => {

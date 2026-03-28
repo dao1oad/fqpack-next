@@ -466,20 +466,22 @@ def test_dashboard_exposes_three_position_views_and_quantity_consistency():
                 "name": "平安银行",
             },
         ],
-        legacy_position_loader=lambda: [
-            {
-                "symbol": "sh600000",
-                "quantity": 1000,
-                "amount_adjusted": -505000.0,
-                "name": "浦发银行",
+        reconciliation_loader=lambda: {
+            "600000": {
+                "state": "BROKEN",
+                "signed_gap_quantity": 200,
+                "open_gap_count": 1,
+                "latest_resolution_type": "REJECTED",
+                "ingest_rejection_count": 1,
             },
-            {
-                "symbol": "sz000001",
-                "quantity": 800,
-                "amount_adjusted": -190000.0,
-                "name": "平安银行",
+            "000001": {
+                "state": "ALIGNED",
+                "signed_gap_quantity": 0,
+                "open_gap_count": 0,
+                "latest_resolution_type": "",
+                "ingest_rejection_count": 0,
             },
-        ],
+        },
         settings_provider=_system_settings_provider(),
         now_provider=_fixed_now,
     )
@@ -489,22 +491,19 @@ def test_dashboard_exposes_three_position_views_and_quantity_consistency():
 
     assert rows["600000"]["broker_position"]["quantity"] == 1200
     assert rows["600000"]["broker_position"]["market_value"] == 520000.0
-    assert rows["600000"]["inferred_position"]["quantity"] == 1200
-    assert rows["600000"]["inferred_position"]["market_value"] == 520000.0
-    assert "broker_truth" in rows["600000"]["inferred_position"]["quantity_source"]
-    assert rows["600000"]["legacy_position"]["quantity"] == 1200
-    assert rows["600000"]["legacy_position"]["market_value"] == 520000.0
-    assert "broker_truth" in rows["600000"]["legacy_position"]["quantity_source"]
+    assert rows["600000"]["ledger_position"]["quantity"] == 1200
+    assert rows["600000"]["ledger_position"]["market_value"] == 520000.0
+    assert "broker_truth" in rows["600000"]["ledger_position"]["quantity_source"]
+    assert rows["600000"]["reconciliation"]["state"] == "BROKEN"
     assert rows["600000"]["position_consistency"]["quantity_values"] == {
         "broker": 1200,
-        "inferred": 1200,
-        "legacy_stock_fills": 1200,
+        "ledger": 1200,
     }
     assert rows["600000"]["position_consistency"]["quantity_consistent"] is True
 
     assert rows["000001"]["broker_position"]["quantity"] == 800
-    assert rows["000001"]["inferred_position"]["quantity"] == 800
-    assert rows["000001"]["legacy_position"]["quantity"] == 800
+    assert rows["000001"]["ledger_position"]["quantity"] == 800
+    assert rows["000001"]["reconciliation"]["state"] == "ALIGNED"
     assert rows["000001"]["position_consistency"]["quantity_consistent"] is True
 
 
@@ -545,14 +544,15 @@ def test_dashboard_aligns_non_broker_views_to_broker_truth_for_symbol_limit_deta
                 "name": "浦发银行",
             }
         ],
-        legacy_position_loader=lambda: [
-            {
-                "symbol": "sh600000",
-                "quantity": 1000,
-                "amount_adjusted": -505000.0,
-                "name": "浦发银行",
+        reconciliation_loader=lambda: {
+            "600000": {
+                "state": "AUTO_RECONCILED",
+                "signed_gap_quantity": 0,
+                "open_gap_count": 0,
+                "latest_resolution_type": "AUTO_OPENED",
+                "ingest_rejection_count": 0,
             }
-        ],
+        },
         settings_provider=_system_settings_provider(),
         now_provider=_fixed_now,
     )
@@ -560,16 +560,13 @@ def test_dashboard_aligns_non_broker_views_to_broker_truth_for_symbol_limit_deta
     detail = service.get_symbol_limit("600000")
 
     assert detail["broker_position"]["quantity"] == 1200
-    assert detail["inferred_position"]["quantity"] == 1200
-    assert detail["legacy_position"]["quantity"] == 1200
-    assert detail["inferred_position"]["market_value"] == 520000.0
-    assert detail["legacy_position"]["market_value"] == 520000.0
-    assert "broker_truth" in detail["inferred_position"]["quantity_source"]
-    assert "broker_truth" in detail["legacy_position"]["quantity_source"]
+    assert detail["ledger_position"]["quantity"] == 1200
+    assert detail["ledger_position"]["market_value"] == 520000.0
+    assert "broker_truth" in detail["ledger_position"]["quantity_source"]
+    assert detail["reconciliation"]["state"] == "AUTO_RECONCILED"
     assert detail["position_consistency"]["quantity_values"] == {
         "broker": 1200,
-        "inferred": 1200,
-        "legacy_stock_fills": 1200,
+        "ledger": 1200,
     }
     assert detail["position_consistency"]["quantity_consistent"] is True
 
@@ -640,20 +637,22 @@ def test_dashboard_filters_dirty_symbols_that_are_not_in_holdings_or_any_pool():
                 "name": "平安银行",
             },
         ],
-        legacy_position_loader=lambda: [
-            {
-                "symbol": "sh600000",
-                "quantity": 1200,
-                "amount_adjusted": -520000.0,
-                "name": "浦发银行",
+        reconciliation_loader=lambda: {
+            "600000": {
+                "state": "ALIGNED",
+                "signed_gap_quantity": 0,
+                "open_gap_count": 0,
+                "latest_resolution_type": "",
+                "ingest_rejection_count": 0,
             },
-            {
-                "symbol": "sz000001",
-                "quantity": 800,
-                "amount_adjusted": -200000.0,
-                "name": "平安银行",
+            "000001": {
+                "state": "BROKEN",
+                "signed_gap_quantity": 100,
+                "open_gap_count": 1,
+                "latest_resolution_type": "REJECTED",
+                "ingest_rejection_count": 1,
             },
-        ],
+        },
         settings_provider=_system_settings_provider(),
         now_provider=_fixed_now,
     )
@@ -743,45 +742,44 @@ def test_dashboard_backfills_recent_decision_truth_fields_from_current_system_st
     assert row["meta"]["symbol_scope_memberships"] == ["holding", "must_pool"]
 
 
-def test_dashboard_legacy_view_reads_compat_loader_not_raw_stock_fills_scan(
+def test_dashboard_reconciliation_loader_summarizes_gap_and_rejection_state(
     monkeypatch,
 ):
-    import freshquant.db as fq_db
-    from freshquant.order_management.projection import stock_fills_compat
+    import freshquant.order_management.repository as order_repository_module
     from freshquant.position_management import dashboard_service
 
-    class BoomStockFillsCollection:
-        def find(self, *_args, **_kwargs):
-            raise AssertionError("raw stock_fills collection should not be scanned")
+    class FakeOrderRepository:
+        def list_reconciliation_gaps(self):
+            return [
+                {
+                    "symbol": "000001",
+                    "state": "OPEN",
+                    "quantity_delta": 200,
+                    "side": "buy",
+                    "detected_at": 10,
+                    "resolution_type": "",
+                }
+            ]
+
+        def list_ingest_rejections(self):
+            return [{"symbol": "000001"}]
 
     monkeypatch.setattr(
-        stock_fills_compat,
-        "list_compat_stock_positions",
-        lambda repository=None, database=None: [
-            {
-                "symbol": "000001",
-                "quantity": 600,
-                "amount": -6000.0,
-                "amount_adjusted": -6600.0,
-                "name": "平安银行",
-            }
-        ],
-    )
-    monkeypatch.setattr(
-        fq_db,
-        "DBfreshquant",
-        {"stock_fills": BoomStockFillsCollection()},
+        order_repository_module,
+        "OrderManagementRepository",
+        lambda: FakeOrderRepository(),
     )
 
-    assert dashboard_service._default_legacy_position_loader() == [
-        {
-            "symbol": "000001",
-            "quantity": 600,
-            "amount": -6000.0,
-            "amount_adjusted": -6600.0,
-            "name": "平安银行",
+    assert dashboard_service._default_reconciliation_loader() == {
+        "000001": {
+            "state": "BROKEN",
+            "latest_gap_state": "OPEN",
+            "signed_gap_quantity": 200,
+            "open_gap_count": 1,
+            "latest_resolution_type": None,
+            "ingest_rejection_count": 1,
         }
-    ]
+    }
 
 
 def test_update_symbol_limit_persists_override_when_limit_differs_from_default():

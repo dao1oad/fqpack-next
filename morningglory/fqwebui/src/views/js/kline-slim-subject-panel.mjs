@@ -21,7 +21,9 @@ const clonePositionLimitDraft = (draft = {}) => {
 const cloneStoplossDrafts = (rows = []) => {
   const drafts = {}
   for (const row of Array.isArray(rows) ? rows : []) {
-    drafts[row.buy_lot_id] = {
+    const entryId = row.entry_id
+    if (!entryId) continue
+    drafts[entryId] = {
       stop_price: row?.stoploss?.stop_price ?? null,
       enabled: Boolean(row?.stoploss?.enabled),
     }
@@ -43,7 +45,7 @@ export const normalizeKlineSlimSubjectPanelDetail = (detail = {}) => {
       using_override: Boolean(normalized.positionLimitSummary?.using_override),
       blocked: Boolean(normalized.positionLimitSummary?.blocked),
     },
-    buyLots: normalized.buyLots,
+    entries: normalized.entries || [],
     runtimeSummary: normalized.runtimeSummary,
   }
 }
@@ -74,7 +76,7 @@ export const applyKlineSlimSubjectPanelDetailState = (state, detail) => {
   state.lastSubjectSymbol = normalized.symbol
   state.mustPoolDraft = cloneMustPoolDraft(normalized.mustPool)
   state.positionLimitDraft = clonePositionLimitDraft(normalized.positionLimit)
-  state.stoplossDrafts = cloneStoplossDrafts(normalized.buyLots)
+  state.stoplossDrafts = cloneStoplossDrafts(normalized.entries || [])
   return normalized
 }
 
@@ -89,9 +91,9 @@ export const createKlineSlimSubjectPanelActions = (api) => ({
   async savePositionLimit(symbol, payload) {
     return api.saveSymbolPositionLimit(symbol, payload)
   },
-  async saveStoploss(buyLotId, payload = {}) {
+  async saveStoploss(entryId, payload = {}) {
     return api.bindStoploss({
-      buy_lot_id: buyLotId,
+      entry_id: entryId,
       ...payload,
     })
   },

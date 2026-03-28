@@ -154,7 +154,7 @@ def list_tpsl_history():
     rows = _get_tpsl_management_service().list_history(
         symbol=request.args.get("symbol"),
         kind=request.args.get("kind"),
-        buy_lot_id=request.args.get("buy_lot_id"),
+        entry_id=request.args.get("entry_id"),
         batch_id=request.args.get("batch_id"),
         limit=limit,
     )

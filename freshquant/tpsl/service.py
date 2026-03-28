@@ -86,6 +86,7 @@ class TpslService:
         batch_id,
         updated_by="system",
         trigger_price=None,
+        entry_details=None,
         buy_lot_details=None,
     ):
         return self.takeprofit_service.mark_level_triggered(
@@ -94,6 +95,7 @@ class TpslService:
             batch_id=batch_id,
             updated_by=updated_by,
             trigger_price=trigger_price,
+            entry_details=entry_details,
             buy_lot_details=buy_lot_details,
         )
 
@@ -167,7 +169,7 @@ class TpslService:
             batch=batch,
             scope_type="stoploss_batch",
             source="tpsl_stoploss",
-            strategy_name="PerLotStoplossBatch",
+            strategy_name="PerEntryStoplossBatch",
         )
 
     def evaluate_takeprofit(
@@ -204,7 +206,10 @@ class TpslService:
             if not hit:
                 return None
 
-            open_slices = self.order_repository.list_open_slices(base_symbol)
+            open_slices = list_open_entry_slices_compat(
+                symbol=base_symbol,
+                repository=self.order_repository,
+            )
             quantity_result = resolve_takeprofit_sell_quantity(
                 open_slices=open_slices,
                 tier_price=hit["price"],
@@ -289,6 +294,7 @@ class TpslService:
                 "source": "takeprofit",
                 "strategy_name": "Takeprofit",
                 "remark": f"takeprofit:{base_symbol}:L{int(hit['level'])}",
+                "entry_quantities": capped["entry_quantities"],
                 "buy_lot_quantities": capped["buy_lot_quantities"],
                 "slice_quantities": capped["slice_quantities"],
                 "slice_details": capped["slice_details"],
@@ -466,6 +472,9 @@ class TpslService:
                     batch_id=batch_id,
                     updated_by="tpsl_submit",
                     trigger_price=batch.get("tier_price") or batch.get("price"),
+                    entry_details=_build_entry_details(
+                        batch.get("entry_quantities") or {}
+                    ),
                     buy_lot_details=_build_buy_lot_details(
                         batch.get("buy_lot_quantities") or {}
                     ),
@@ -594,6 +603,7 @@ def _floor_to_board_lot(quantity):
 def _cap_takeprofit_breakdown(profit_slices, *, quantity_cap):
     remaining = max(int(quantity_cap or 0), 0)
     slice_quantities = {}
+    entry_quantities = {}
     buy_lot_quantities = {}
     slice_details = []
 
@@ -603,27 +613,49 @@ def _cap_takeprofit_breakdown(profit_slices, *, quantity_cap):
         allocatable = min(int(slice_document.get("remaining_quantity") or 0), remaining)
         if allocatable <= 0:
             continue
-        slice_id = slice_document["lot_slice_id"]
-        buy_lot_id = slice_document["buy_lot_id"]
-        slice_quantities[slice_id] = allocatable
-        buy_lot_quantities[buy_lot_id] = (
-            buy_lot_quantities.get(buy_lot_id, 0) + allocatable
+        slice_id = slice_document.get("entry_slice_id") or slice_document.get(
+            "lot_slice_id"
         )
+        entry_id = slice_document.get("entry_id") or slice_document.get("buy_lot_id")
+        if not slice_id or not entry_id:
+            continue
+        slice_quantities[slice_id] = allocatable
+        entry_quantities[entry_id] = entry_quantities.get(entry_id, 0) + allocatable
+        buy_lot_id = slice_document.get("buy_lot_id")
+        if buy_lot_id:
+            buy_lot_quantities[buy_lot_id] = (
+                buy_lot_quantities.get(buy_lot_id, 0) + allocatable
+            )
         slice_details.append(
             {
-                "lot_slice_id": slice_id,
-                "buy_lot_id": buy_lot_id,
+                "entry_slice_id": slice_id,
+                "entry_id": entry_id,
                 "allocated_quantity": allocatable,
                 "guardian_price": float(slice_document.get("guardian_price") or 0.0),
             }
         )
+        if buy_lot_id:
+            slice_details[-1]["buy_lot_id"] = buy_lot_id
         remaining -= allocatable
 
     return {
         "slice_quantities": slice_quantities,
+        "entry_quantities": entry_quantities,
         "buy_lot_quantities": buy_lot_quantities,
         "slice_details": slice_details,
     }
+
+
+def _build_entry_details(entry_quantities):
+    details = []
+    for entry_id, quantity in dict(entry_quantities or {}).items():
+        details.append(
+            {
+                "entry_id": entry_id,
+                "quantity": int(quantity),
+            }
+        )
+    return details
 
 
 def _build_buy_lot_details(buy_lot_quantities):
