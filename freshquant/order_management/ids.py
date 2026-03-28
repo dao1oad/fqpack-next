@@ -19,6 +19,10 @@ def new_trade_fact_id() -> str:
     return _new_id("trade")
 
 
+def new_execution_fill_id() -> str:
+    return _new_id("fill")
+
+
 def new_event_id() -> str:
     return _new_id("evt")
 
