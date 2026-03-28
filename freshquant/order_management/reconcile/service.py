@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
 
+import socket
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from freshquant.order_management.guardian.allocation_policy import (
+    allocate_sell_to_slices,
+)
 from freshquant.order_management.ids import (
     new_allocation_id,
-    new_event_id,
     new_entry_slice_id,
+    new_event_id,
     new_internal_order_id,
     new_position_entry_id,
     new_reconciliation_gap_id,
@@ -17,9 +22,6 @@ from freshquant.order_management.ingest.xt_reports import (
     OrderManagementXtIngestService,
     _default_grid_interval_lookup,
     normalize_xt_trade_report,
-)
-from freshquant.order_management.guardian.allocation_policy import (
-    allocate_sell_to_slices,
 )
 from freshquant.order_management.reconcile.matcher import match_candidate_to_trade
 from freshquant.order_management.repository import OrderManagementRepository
@@ -84,14 +86,17 @@ class ExternalOrderReconcileService:
                 continue
             side = "buy" if delta > 0 else "sell"
             quantity_delta = abs(delta)
+            price_snapshot = _resolve_inferred_price_snapshot(
+                symbol,
+                position,
+                detected_at=int(detected_at),
+            )
             current_deltas.append(
                 {
                     "symbol": symbol,
                     "side": side,
                     "quantity_delta": quantity_delta,
-                    "price_estimate": position.get("avg_price")
-                    or position.get("open_price")
-                    or 0.0,
+                    **price_snapshot,
                 }
             )
 
@@ -160,6 +165,8 @@ class ExternalOrderReconcileService:
                 "side": item["side"],
                 "quantity_delta": item["quantity_delta"],
                 "price_estimate": item["price_estimate"],
+                "price_source": item.get("price_source"),
+                "price_asof": item.get("price_asof"),
                 "detected_at": int(detected_at),
                 "first_detected_at": int(detected_at),
                 "last_detected_at": int(detected_at),
@@ -459,7 +466,9 @@ class ExternalOrderReconcileService:
                 },
             )
 
-        entry = _build_auto_open_entry(gap, resolution_id=resolution_id, confirmed_at=now)
+        entry = _build_auto_open_entry(
+            gap, resolution_id=resolution_id, confirmed_at=now
+        )
         entry_slices = _arrange_entry_slices(
             entry,
             lot_amount=_safe_resolve_lot_amount(gap["symbol"]),
@@ -749,9 +758,13 @@ def _build_gap_observation_updates(
         or candidate.get("detected_at")
         or detected_at
     )
+    if observed_quantity != current_quantity:
+        resolved_price = _select_preferred_price_snapshot(None, observed)
+    else:
+        resolved_price = _select_preferred_price_snapshot(candidate, observed)
     return {
         "quantity_delta": observed_quantity,
-        "price_estimate": observed.get("price_estimate") or 0.0,
+        **resolved_price,
         "first_detected_at": first_detected_at,
         "last_detected_at": int(detected_at),
         "observed_count": observed_count,
@@ -776,6 +789,296 @@ def _pending_until_for_observation(
         0,
     )
     return int(detected_at) + remaining_observations * int(confirm_interval_seconds)
+
+
+def _build_inferred_trade_report(candidate, internal_order_id):
+    trade_time = int(candidate["pending_until"])
+    trade_datetime = datetime.fromtimestamp(trade_time)
+    return {
+        "internal_order_id": internal_order_id,
+        "broker_order_id": None,
+        "broker_trade_id": f"inferred::{candidate['candidate_id']}",
+        "symbol": candidate["symbol"],
+        "side": candidate["side"],
+        "quantity": candidate["quantity_delta"],
+        "price": candidate.get("price_estimate") or 0.0,
+        "trade_time": trade_time,
+        "date": int(trade_datetime.strftime("%Y%m%d")),
+        "time": trade_datetime.strftime("%H:%M:%S"),
+        "source": "external_inferred",
+        "provisional": True,
+    }
+
+
+_PRICE_SOURCE_PRIORITY = {
+    "position_last_price": 10,
+    "position_market_value": 20,
+    "realtime_bar_close": 30,
+    "previous_close": 40,
+    "position_avg_price": 50,
+    "position_open_price": 60,
+    "missing": 999,
+}
+_MONGO_PROBE_TTL_SECONDS = 5.0
+_mongo_probe_cache: dict[tuple[str, int], tuple[float, bool]] = {}
+
+
+def _resolve_inferred_price_snapshot(symbol, position, *, detected_at):
+    detected_at = int(detected_at or 0)
+
+    snapshot = _build_position_price_snapshot(position, detected_at)
+    if snapshot is not None:
+        return snapshot
+
+    snapshot = _load_latest_realtime_price_snapshot(symbol, position)
+    if snapshot is not None:
+        return snapshot
+
+    snapshot = _load_previous_close_price_snapshot(symbol, detected_at)
+    if snapshot is not None:
+        return snapshot
+
+    snapshot = _build_legacy_position_price_snapshot(position, detected_at)
+    if snapshot is not None:
+        return snapshot
+
+    return {
+        "price_estimate": 0.0,
+        "price_source": "missing",
+        "price_asof": detected_at or None,
+    }
+
+
+def _build_position_price_snapshot(position, detected_at):
+    price = _safe_positive_float(position.get("last_price"))
+    if price is not None:
+        return _make_price_snapshot(
+            price,
+            source="position_last_price",
+            asof=detected_at,
+        )
+
+    volume = int(position.get("volume") or 0)
+    market_value = _safe_positive_float(position.get("market_value"))
+    if market_value is not None and volume > 0:
+        return _make_price_snapshot(
+            market_value / volume,
+            source="position_market_value",
+            asof=detected_at,
+        )
+    return None
+
+
+def _build_legacy_position_price_snapshot(position, detected_at):
+    price = _safe_positive_float(position.get("avg_price"))
+    if price is not None:
+        return _make_price_snapshot(
+            price,
+            source="position_avg_price",
+            asof=detected_at,
+        )
+
+    price = _safe_positive_float(position.get("open_price"))
+    if price is not None:
+        return _make_price_snapshot(
+            price,
+            source="position_open_price",
+            asof=detected_at,
+        )
+    return None
+
+
+def _load_latest_realtime_price_snapshot(symbol, position):
+    try:
+        import pymongo
+        from fqxtrade.database.mongodb import DBfreshquant
+
+        from freshquant.market_data.xtdata.schema import normalize_prefixed_code
+    except Exception:
+        return None
+
+    try:
+        client = getattr(DBfreshquant, "client", None)
+        if client is None or not _can_query_mongo(client):
+            return None
+        raw_code = position.get("stock_code") or position.get("symbol") or symbol
+        code = normalize_prefixed_code(raw_code)
+        if not code:
+            return None
+
+        intraday_freqs = ["1min", "5min", "15min", "30min", "60min"]
+        for collection_name in ("stock_realtime", "index_realtime"):
+            document = DBfreshquant[collection_name].find_one(
+                {
+                    "code": code,
+                    "frequence": {"$in": intraday_freqs},
+                    "close": {"$gt": 0},
+                },
+                sort=[("datetime", pymongo.DESCENDING)],
+            )
+            if document is not None:
+                return _make_price_snapshot(
+                    document.get("close"),
+                    source="realtime_bar_close",
+                    asof=_coerce_timestamp(document.get("datetime")),
+                )
+    except Exception:
+        return None
+    return None
+
+
+def _load_previous_close_price_snapshot(symbol, detected_at):
+    return _load_previous_close_from_realtime(symbol, detected_at)
+
+
+def _load_previous_close_from_realtime(symbol, detected_at):
+    try:
+        import pymongo
+        from fqxtrade.database.mongodb import DBfreshquant
+
+        from freshquant.market_data.xtdata.schema import normalize_prefixed_code
+    except Exception:
+        return None
+
+    try:
+        client = getattr(DBfreshquant, "client", None)
+        if client is None or not _can_query_mongo(client):
+            return None
+        code = normalize_prefixed_code(symbol)
+        if not code:
+            return None
+
+        day_start = datetime.fromtimestamp(int(detected_at)).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        for collection_name in ("stock_realtime", "index_realtime"):
+            document = DBfreshquant[collection_name].find_one(
+                {
+                    "code": code,
+                    "frequence": "1d",
+                    "datetime": {"$lt": day_start},
+                    "close": {"$gt": 0},
+                },
+                sort=[("datetime", pymongo.DESCENDING)],
+            )
+            if document is not None:
+                return _make_price_snapshot(
+                    document.get("close"),
+                    source="previous_close",
+                    asof=_coerce_timestamp(document.get("datetime")),
+                )
+    except Exception:
+        return None
+    return None
+
+
+def _select_preferred_price_snapshot(current, observed):
+    observed_snapshot = _normalize_price_snapshot(observed)
+    current_snapshot = _normalize_price_snapshot(current)
+    if observed_snapshot is None:
+        return current_snapshot or {
+            "price_estimate": 0.0,
+            "price_source": "missing",
+            "price_asof": None,
+        }
+    if current_snapshot is None:
+        return observed_snapshot
+
+    current_priority = _PRICE_SOURCE_PRIORITY.get(
+        current_snapshot.get("price_source") or "missing",
+        999,
+    )
+    observed_priority = _PRICE_SOURCE_PRIORITY.get(
+        observed_snapshot.get("price_source") or "missing",
+        999,
+    )
+    if observed_priority < current_priority:
+        return observed_snapshot
+    if observed_priority > current_priority:
+        return current_snapshot
+
+    current_asof = int(current_snapshot.get("price_asof") or 0)
+    observed_asof = int(observed_snapshot.get("price_asof") or 0)
+    if observed_asof >= current_asof:
+        return observed_snapshot
+    return current_snapshot
+
+
+def _normalize_price_snapshot(payload):
+    if payload is None:
+        return None
+    return _make_price_snapshot(
+        payload.get("price_estimate"),
+        source=payload.get("price_source"),
+        asof=payload.get("price_asof"),
+    )
+
+
+def _make_price_snapshot(price, *, source, asof):
+    parsed_price = _safe_positive_float(price)
+    if parsed_price is None:
+        return None
+    return {
+        "price_estimate": parsed_price,
+        "price_source": str(source or "").strip() or "missing",
+        "price_asof": _coerce_timestamp(asof),
+    }
+
+
+def _safe_positive_float(value):
+    if value in (None, ""):
+        return None
+    try:
+        parsed = float(value)
+    except Exception:
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
+def _coerce_timestamp(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    return None
+
+
+def _can_query_mongo(client):
+    try:
+        seeds = list(getattr(client, "_topology_settings").seeds or [])
+    except Exception:
+        return True
+    if not seeds:
+        return True
+
+    now = time.time()
+    any_reachable = False
+    for host, port in seeds:
+        cache_key = (host, int(port))
+        cached = _mongo_probe_cache.get(cache_key)
+        if cached is not None and (now - cached[0]) < _MONGO_PROBE_TTL_SECONDS:
+            if cached[1]:
+                return True
+            continue
+        reachable = _probe_socket(host, int(port))
+        _mongo_probe_cache[cache_key] = (now, reachable)
+        any_reachable = any_reachable or reachable
+    return any_reachable
+
+
+def _probe_socket(host, port):
+    try:
+        with socket.create_connection((host, port), timeout=0.05):
+            return True
+    except OSError:
+        return False
 
 
 def _safe_resolve_lot_amount(symbol):
@@ -832,7 +1135,8 @@ def _arrange_entry_slices(entry, *, lot_amount, grid_interval):
         slices=slices,
         entry=entry,
         remaining_quantity=int(entry["original_quantity"]),
-        remaining_amount=float(entry["original_quantity"]) * float(entry["entry_price"]),
+        remaining_amount=float(entry["original_quantity"])
+        * float(entry["entry_price"]),
         current_price=float(entry["entry_price"]),
         lot_amount=lot_amount,
         grid_interval=grid_interval,
@@ -924,7 +1228,9 @@ def _allocate_gap_to_entry_slices(*, repository, symbol, quantity, resolution_id
     touched_entry_ids = set()
     slices_by_entry = {}
     for slice_document in open_slices:
-        slices_by_entry.setdefault(slice_document["entry_id"], []).append(slice_document)
+        slices_by_entry.setdefault(slice_document["entry_id"], []).append(
+            slice_document
+        )
         if remaining <= 0:
             continue
         if int(slice_document.get("remaining_quantity") or 0) <= 0:
@@ -940,8 +1246,12 @@ def _allocate_gap_to_entry_slices(*, repository, symbol, quantity, resolution_id
             "CLOSED" if int(slice_document["remaining_quantity"]) == 0 else "OPEN"
         )
         entry = entries[slice_document["entry_id"]]
-        entry["remaining_quantity"] = int(entry.get("remaining_quantity") or 0) - allocated_quantity
-        entry["status"] = _resolve_entry_status(entry["remaining_quantity"], entry["original_quantity"])
+        entry["remaining_quantity"] = (
+            int(entry.get("remaining_quantity") or 0) - allocated_quantity
+        )
+        entry["status"] = _resolve_entry_status(
+            entry["remaining_quantity"], entry["original_quantity"]
+        )
         allocations.append(
             {
                 "allocation_id": new_allocation_id(),
@@ -958,7 +1268,9 @@ def _allocate_gap_to_entry_slices(*, repository, symbol, quantity, resolution_id
 
     for entry_id in touched_entry_ids:
         repository.replace_position_entry(entries[entry_id])
-        repository.replace_entry_slices_for_entry(entry_id, slices_by_entry.get(entry_id, []))
+        repository.replace_entry_slices_for_entry(
+            entry_id, slices_by_entry.get(entry_id, [])
+        )
     if allocations:
         repository.insert_exit_allocations(allocations)
     return remaining, allocations

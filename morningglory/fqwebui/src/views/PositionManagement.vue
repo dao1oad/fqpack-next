@@ -62,7 +62,7 @@
                       </StatusChip>
                     </span>
                     <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.reason_code">{{ row.reason_code }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_text">{{ row.reason_text }}</span>
+                    <span class="runtime-ledger__cell runtime-position-rule-ledger__description" :title="row.reason_text">{{ row.reason_text }}</span>
                   </div>
                 </div>
               </div>
@@ -157,7 +157,7 @@
                 </el-table>
 
                 <div class="position-edit-footer">
-                  <span class="workbench-muted">当前开放账户阈值和全局单标的实时仓位上限保持可编辑，其余参数继续只读展示。</span>
+                  <span class="workbench-muted">当前开放账户阈值和全局单标的默认持仓上限保持可编辑，其余参数继续只读展示。</span>
                   <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
                 </div>
               </div>
@@ -626,12 +626,23 @@ onMounted(() => {
   min-height: 0;
   flex-direction: column;
   gap: 6px;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .position-state-scroll,
 .position-symbol-limit-scroll {
+  min-width: 0;
   padding-right: 4px;
+}
+
+.position-state-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable both-edges;
+}
+
+.position-symbol-limit-scroll {
+  overflow: hidden;
 }
 
 .position-config-table {
@@ -867,20 +878,32 @@ onMounted(() => {
     minmax(260px, 1.25fr);
 }
 
-.runtime-position-rule-ledger {
-  overflow: visible;
-}
-
 .runtime-position-rule-ledger :is(.runtime-ledger__header, .runtime-ledger__row) {
   min-height: 34px;
+  min-width: 0;
+  width: 100%;
 }
 
 .runtime-position-rule-ledger__grid {
-  grid-template-columns: 102px 80px 136px minmax(180px, 1fr);
+  grid-template-columns: 102px 80px 136px minmax(0, 1fr);
+}
+
+.runtime-position-rule-ledger {
+  overflow: hidden;
+}
+
+.runtime-position-rule-ledger__description {
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .runtime-position-symbol-limit-ledger {
-  max-height: var(--position-symbol-limit-ledger-body-height);
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
 }
 
 .runtime-position-symbol-limit-ledger :is(.runtime-ledger__header, .runtime-ledger__row) {

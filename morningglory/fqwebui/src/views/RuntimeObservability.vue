@@ -17,6 +17,7 @@
                 type="datetimerange"
                 class="runtime-time-range"
                 value-format="YYYY-MM-DDTHH:mm:ssZ"
+                :default-time="TIME_RANGE_PICKER_DEFAULT_TIME"
                 range-separator="至"
                 start-placeholder="开始时间"
                 end-placeholder="结束时间"
@@ -197,56 +198,58 @@
                     <span>总耗时</span>
                     <span>断裂原因</span>
                   </div>
-                  <button
-                    v-for="row in traceLedgerRows"
-                    :key="row.trace_key || row.trace_id"
-                    type="button"
-                    class="runtime-ledger__row runtime-trace-ledger__grid"
-                    :class="{ active: isActiveTraceRow(row) }"
-                    @click="handleRecentTraceClick(row)"
-                  >
-                    <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.last_ts_label || '-' }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
-                    <span class="runtime-ledger__cell">{{ row.trace_kind_label }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                      <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.trace_status)">{{ row.trace_status_label }}</StatusChip>
-                    </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate runtime-ledger__cell--signal-remark" :title="row.signal_remark || '-'">
-                      {{ row.signal_remark || '-' }}
-                    </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--entry-exit" :title="row.entry_exit_label">
-                      <span class="trace-flow-strip">
-                        <template v-for="(node, nodeIndex) in row.flow_nodes" :key="node.key || `${row.trace_key || row.trace_id}-${nodeIndex}`">
-                          <el-popover
-                            trigger="hover"
-                            placement="left"
-                            :width="320"
-                            :teleported="false"
-                          >
-                            <template #reference>
-                              <span class="trace-flow-pill" :class="`is-${node.status}`">
-                                {{ node.label }}
-                              </span>
-                            </template>
-                            <div class="trace-flow-popover">
-                              <div
-                                v-for="item in node.hover_items"
-                                :key="`${node.key || node.label}-${item.label}`"
-                                class="trace-flow-popover-item"
-                              >
-                                <span>{{ item.label }}</span>
-                                <strong :title="item.value">{{ item.value }}</strong>
-                              </div>
-                            </div>
-                          </el-popover>
-                          <span v-if="nodeIndex < row.flow_nodes.length - 1" class="trace-flow-arrow">→</span>
-                        </template>
+                  <div class="runtime-ledger__viewport runtime-trace-ledger__viewport">
+                    <button
+                      v-for="row in traceLedgerRows"
+                      :key="row.trace_key || row.trace_id"
+                      type="button"
+                      class="runtime-ledger__row runtime-trace-ledger__grid"
+                      :class="{ active: isActiveTraceRow(row) }"
+                      @click="handleRecentTraceClick(row)"
+                    >
+                      <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.last_ts_label || '-' }}</span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
+                      <span class="runtime-ledger__cell">{{ row.trace_kind_label }}</span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                        <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.trace_status)">{{ row.trace_status_label }}</StatusChip>
                       </span>
-                    </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.step_count }}</span>
-                    <span class="runtime-ledger__cell">{{ row.duration_label }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.break_reason || '-'">{{ row.break_reason || '-' }}</span>
-                  </button>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--truncate runtime-ledger__cell--signal-remark" :title="row.signal_remark || '-'">
+                        {{ row.signal_remark || '-' }}
+                      </span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--entry-exit" :title="row.entry_exit_label">
+                        <span class="trace-flow-strip">
+                          <template v-for="(node, nodeIndex) in row.flow_nodes" :key="node.key || `${row.trace_key || row.trace_id}-${nodeIndex}`">
+                            <el-popover
+                              trigger="hover"
+                              placement="left"
+                              :width="320"
+                              :teleported="false"
+                            >
+                              <template #reference>
+                                <span class="trace-flow-pill" :class="`is-${node.status}`">
+                                  {{ node.label }}
+                                </span>
+                              </template>
+                              <div class="trace-flow-popover">
+                                <div
+                                  v-for="item in node.hover_items"
+                                  :key="`${node.key || node.label}-${item.label}`"
+                                  class="trace-flow-popover-item"
+                                >
+                                  <span>{{ item.label }}</span>
+                                  <strong :title="item.value">{{ item.value }}</strong>
+                                </div>
+                              </div>
+                            </el-popover>
+                            <span v-if="nodeIndex < row.flow_nodes.length - 1" class="trace-flow-arrow">→</span>
+                          </template>
+                        </span>
+                      </span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.step_count }}</span>
+                      <span class="runtime-ledger__cell">{{ row.duration_label }}</span>
+                      <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.break_reason || '-'">{{ row.break_reason || '-' }}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div v-if="traceNextCursor" class="runtime-load-more">
@@ -280,26 +283,28 @@
                 <span>摘要</span>
                 <span>指标</span>
               </div>
-              <button
-                v-for="(row, rowIndex) in eventLedgerRows"
-                :key="row.event_key"
-                type="button"
-                class="runtime-ledger__row runtime-event-ledger__grid"
-                :class="{ active: isActiveEventRow(componentEventFeed[rowIndex]) }"
-                @click="handleEventClick(componentEventFeed[rowIndex])"
-              >
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.runtime_node_label">{{ row.runtime_node_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.component_label">{{ row.component_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.node_label">{{ row.node_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                  <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.status)">{{ row.status }}</StatusChip>
-                </span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.semantic_value || '-'">{{ row.semantic_value || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.summary || '-'">{{ row.summary || '-' }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.metrics_summary || '-'">{{ row.metrics_summary || '-' }}</span>
-              </button>
+              <div class="runtime-ledger__viewport">
+                <button
+                  v-for="(row, rowIndex) in eventLedgerRows"
+                  :key="row.event_key"
+                  type="button"
+                  class="runtime-ledger__row runtime-event-ledger__grid"
+                  :class="{ active: isActiveEventRow(componentEventFeed[rowIndex]) }"
+                  @click="handleEventClick(componentEventFeed[rowIndex])"
+                >
+                  <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.runtime_node_label">{{ row.runtime_node_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.component_label">{{ row.component_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.node_label">{{ row.node_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                    <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.status)">{{ row.status }}</StatusChip>
+                  </span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.semantic_value || '-'">{{ row.semantic_value || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.summary || '-'">{{ row.summary || '-' }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.metrics_summary || '-'">{{ row.metrics_summary || '-' }}</span>
+                </button>
+              </div>
             </div>
             <div v-if="eventNextCursor" class="runtime-load-more">
               <el-button plain :loading="loading.events" @click="loadMoreEvents">加载更多 Event</el-button>
@@ -359,29 +364,31 @@
                           <span>上下文</span>
                           <span>错误</span>
                         </div>
-                        <button
-                          v-for="(row, rowIndex) in traceStepLedgerRows"
-                          :key="row.step_key"
-                          :ref="(el) => setStepRowRef(el, row.step_key)"
-                          type="button"
-                          class="trace-step-ledger__row trace-step-ledger__grid"
-                          :class="[statusClass(row.status), { active: isActiveStep(filteredSteps[rowIndex]), 'is-issue': row.is_issue }]"
-                          @click="handleStepSelect(filteredSteps[rowIndex])"
-                        >
-                          <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.index + 1 }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
-                          <span class="runtime-ledger__cell">{{ row.delta_label || '-' }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.component_node }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                            <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.status)">{{ row.status }}</StatusChip>
-                          </span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.branch || '-' }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.expr || '-' }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.reason || '-' }}</span>
-                          <span class="runtime-ledger__cell">{{ row.outcome || '-' }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.context_summary || '-' }}</span>
-                          <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.error_summary || '-' }}</span>
-                        </button>
+                        <div class="trace-step-ledger__viewport">
+                          <button
+                            v-for="(row, rowIndex) in traceStepLedgerRows"
+                            :key="row.step_key"
+                            :ref="(el) => setStepRowRef(el, row.step_key)"
+                            type="button"
+                            class="trace-step-ledger__row trace-step-ledger__grid"
+                            :class="[statusClass(row.status), { active: isActiveStep(filteredSteps[rowIndex]), 'is-issue': row.is_issue }]"
+                            @click="handleStepSelect(filteredSteps[rowIndex])"
+                          >
+                            <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.index + 1 }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.ts_label || '-' }}</span>
+                            <span class="runtime-ledger__cell">{{ row.delta_label || '-' }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.component_node }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                              <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.status)">{{ row.status }}</StatusChip>
+                            </span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.branch || '-' }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.expr || '-' }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.reason || '-' }}</span>
+                            <span class="runtime-ledger__cell">{{ row.outcome || '-' }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.context_summary || '-' }}</span>
+                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.error_summary || '-' }}</span>
+                          </button>
+                        </div>
                       </div>
                       <div v-if="traceStepsNextCursor" class="runtime-load-more runtime-load-more--detail">
                         <el-button plain :loading="loading.traceSteps" @click="loadMoreTraceSteps">加载更早步骤</el-button>
@@ -455,30 +462,16 @@
                             <section class="detail-ledger-section detail-ledger-section--full">
                               <div class="detail-ledger-section__title">Payload / Metrics</div>
                               <div class="detail-pane-grid detail-pane-grid--nested">
-                                <table class="detail-kv-table">
-                                  <tbody>
-                                    <tr v-if="!selectedStepPayloadRows.length">
-                                      <th>payload</th>
-                                      <td>-</td>
-                                    </tr>
-                                    <tr v-for="row in selectedStepPayloadRows" :key="`selected-step-payload-${row.key}`">
-                                      <th>{{ row.label }}</th>
-                                      <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                                <table class="detail-kv-table">
-                                  <tbody>
-                                    <tr v-if="!selectedStepMetricsRows.length">
-                                      <th>metrics</th>
-                                      <td>-</td>
-                                    </tr>
-                                    <tr v-for="row in selectedStepMetricsRows" :key="`selected-step-metrics-${row.key}`">
-                                      <th>{{ row.label }}</th>
-                                      <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
+                                <StructuredPayloadPanel
+                                  title="Payload"
+                                  empty-label="payload"
+                                  :entries="selectedStepPayloadEntries"
+                                />
+                                <StructuredPayloadPanel
+                                  title="Metrics"
+                                  empty-label="metrics"
+                                  :entries="selectedStepMetricsEntries"
+                                />
                               </div>
                               <div
                                 v-if="selectedStep.payload_text || selectedStep.metrics_text"
@@ -588,18 +581,20 @@
                           <span>summary</span>
                           <span>badges</span>
                         </div>
-                        <div
-                          v-for="row in embeddedRawLedgerRows"
-                          :key="row.key"
-                          class="embedded-raw-ledger__entry"
-                          :class="{ active: row.active }"
-                        >
-                          <div class="embedded-raw-ledger__row">
-                            <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
-                            <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
-                            <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
+                        <div class="embedded-raw-ledger__viewport">
+                          <div
+                            v-for="row in embeddedRawLedgerRows"
+                            :key="row.key"
+                            class="embedded-raw-ledger__entry"
+                            :class="{ active: row.active }"
+                          >
+                            <div class="embedded-raw-ledger__row">
+                              <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
+                              <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
+                              <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
+                            </div>
+                            <pre class="detail-json-view">{{ row.body }}</pre>
                           </div>
-                          <pre class="detail-json-view">{{ row.body }}</pre>
                         </div>
                       </div>
                       <div v-else class="trace-empty">尚未加载 Raw，点击上方按钮拉取当前节点的原始记录。</div>
@@ -707,30 +702,16 @@
                           <section class="detail-ledger-section detail-ledger-section--full">
                             <div class="detail-ledger-section__title">Payload / Metrics</div>
                             <div class="detail-pane-grid detail-pane-grid--nested">
-                              <table class="detail-kv-table">
-                                <tbody>
-                                  <tr v-if="!eventPayloadRows.length">
-                                    <th>payload</th>
-                                    <td>-</td>
-                                  </tr>
-                                  <tr v-for="row in eventPayloadRows" :key="`event-payload-inline-${row.key}`">
-                                    <th>{{ row.label }}</th>
-                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                              <table class="detail-kv-table">
-                                <tbody>
-                                  <tr v-if="!eventMetricsRows.length">
-                                    <th>metrics</th>
-                                    <td>-</td>
-                                  </tr>
-                                  <tr v-for="row in eventMetricsRows" :key="`event-metrics-inline-${row.key}`">
-                                    <th>{{ row.label }}</th>
-                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                  </tr>
-                                </tbody>
-                              </table>
+                              <StructuredPayloadPanel
+                                title="Payload"
+                                empty-label="payload"
+                                :entries="eventPayloadEntries"
+                              />
+                              <StructuredPayloadPanel
+                                title="Metrics"
+                                empty-label="metrics"
+                                :entries="eventMetricsEntries"
+                              />
                             </div>
                             <div class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw">
                               <section v-if="selectedEvent.payload_text" class="detail-json-section">
@@ -755,41 +736,27 @@
                       <template #label>
                         <div class="workspace-tab-label">
                           <span>载荷</span>
-                          <span class="tab-meta">{{ eventPayloadRows.length + eventMetricsRows.length }}</span>
+                          <span class="tab-meta">{{ eventPayloadEntries.length + eventMetricsEntries.length }}</span>
                         </div>
                       </template>
                       <section class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
                         <div class="detail-pane-grid">
                           <section class="detail-ledger-section">
                             <div class="detail-ledger-section__title">载荷字段</div>
-                            <table class="detail-kv-table">
-                              <tbody>
-                                <tr v-if="!eventPayloadRows.length">
-                                  <th>payload</th>
-                                  <td>-</td>
-                                </tr>
-                                <tr v-for="row in eventPayloadRows" :key="`event-payload-${row.key}`">
-                                  <th>{{ row.label }}</th>
-                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                </tr>
-                              </tbody>
-                            </table>
+                            <StructuredPayloadPanel
+                              title="Payload"
+                              empty-label="payload"
+                              :entries="eventPayloadEntries"
+                            />
                           </section>
 
                           <section class="detail-ledger-section">
                             <div class="detail-ledger-section__title">指标字段</div>
-                            <table class="detail-kv-table">
-                              <tbody>
-                                <tr v-if="!eventMetricsRows.length">
-                                  <th>metrics</th>
-                                  <td>-</td>
-                                </tr>
-                                <tr v-for="row in eventMetricsRows" :key="`event-metrics-${row.key}`">
-                                  <th>{{ row.label }}</th>
-                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                </tr>
-                              </tbody>
-                            </table>
+                            <StructuredPayloadPanel
+                              title="Metrics"
+                              empty-label="metrics"
+                              :entries="eventMetricsEntries"
+                            />
                           </section>
                         </div>
                         <div class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw">
@@ -827,18 +794,20 @@
                             <span>摘要</span>
                             <span>标识</span>
                           </div>
-                          <div
-                            v-for="row in embeddedRawLedgerRows"
-                            :key="row.key"
-                            class="embedded-raw-ledger__entry"
-                            :class="{ active: row.active }"
-                          >
-                            <div class="embedded-raw-ledger__row">
-                              <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
-                              <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
-                              <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
+                          <div class="embedded-raw-ledger__viewport">
+                            <div
+                              v-for="row in embeddedRawLedgerRows"
+                              :key="row.key"
+                              class="embedded-raw-ledger__entry"
+                              :class="{ active: row.active }"
+                            >
+                              <div class="embedded-raw-ledger__row">
+                                <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.title }}</span>
+                                <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate">{{ row.subtitle }}</span>
+                                <span class="runtime-ledger__cell runtime-ledger__cell--truncate">{{ row.badges.length ? row.badges.join(' · ') : '-' }}</span>
+                              </div>
+                              <pre class="detail-json-view">{{ row.body }}</pre>
                             </div>
-                            <pre class="detail-json-view">{{ row.body }}</pre>
                           </div>
                         </div>
                         <div v-else class="trace-empty">尚未加载 Raw，点击上方按钮拉取当前事件的原始记录。</div>
@@ -908,9 +877,10 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
+import StructuredPayloadPanel from '../components/workbench/StructuredPayloadPanel.vue'
 import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
 import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
@@ -919,6 +889,7 @@ import StatusChip from '../components/workbench/StatusChip.vue'
 import WorkbenchSummaryRow from '../components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from './MyHeader.vue'
+import { buildStructuredPayloadEntries } from './runtimeObservabilityStructuredPayload.mjs'
 import {
   buildComponentEventFeed,
   buildComponentEventEmptyState,
@@ -956,70 +927,88 @@ import {
   TRACE_QUERY_FIELDS,
   TRACE_QUERY_LABELS,
 } from './runtimeObservability.mjs'
+import {
+  EVENT_PAGE_SIZE,
+  TRACE_PAGE_SIZE,
+  TRACE_STEP_PAGE_SIZE,
+  buildEventRequestKey as buildRuntimeEventRequestKey,
+  buildEventRequestParams as buildRuntimeEventRequestParams,
+  buildTraceRequestParams as buildRuntimeTraceRequestParams,
+  createRuntimeObservabilityQueryState,
+  mergeByKey,
+  summarizeRequestError,
+} from './runtimeObservabilityQueries.mjs'
+import {
+  buildEventCopyText as buildRuntimeEventCopyText,
+  buildIdentityCopyValue as buildRuntimeIdentityCopyValue,
+  buildStepCopyText as buildRuntimeStepCopyText,
+  createRuntimeObservabilitySelectionState,
+  isActiveEventRow as checkActiveEventRow,
+  isActiveTraceRow as checkActiveTraceRow,
+  resetSelectedTraceDetailState as resetRuntimeSelectedTraceDetailState,
+  stepKey as buildRuntimeStepKey,
+  syncSelectedStep as syncRuntimeSelectedStep,
+} from './runtimeObservabilitySelection.mjs'
+import {
+  buildFilterChips,
+  createRuntimeObservabilityFilterState,
+  normalizeTimeRangeState as normalizeRuntimeTimeRangeState,
+  syncQueryState as syncRuntimeQueryState,
+} from './runtimeObservabilityFilters.mjs'
 
-const loading = reactive({
-  overview: false,
-  traces: false,
-  events: false,
-  traceDetail: false,
-  traceSteps: false,
-  raw: false,
+const {
+  loading,
+  healthSummaryItems,
+  healthCards,
+  traces,
+  traceNextCursor,
+  events,
+  eventNextCursor,
+  pageError,
+} = createRuntimeObservabilityQueryState()
+const {
+  query,
+  draftQuery,
+  timeRange,
+  activeView,
+  onlyIssues,
+  traceOnlyIssues,
+  autoRefresh,
+  advancedFilterVisible,
+  userSelectedComponent,
+  selectedTraceKind,
+  boardFilter,
+  traceIssueFocus,
+} = createRuntimeObservabilityFilterState({
+  createTraceQueryState,
+  buildRuntimeDefaultTimeRange,
 })
-
-const TRACE_PAGE_SIZE = 60
-const EVENT_PAGE_SIZE = 120
-const TRACE_STEP_PAGE_SIZE = 160
-
-const query = reactive(createTraceQueryState())
-const draftQuery = reactive(createTraceQueryState())
-
-const healthSummaryItems = ref([])
-const healthCards = ref([])
-const traces = ref([])
-const traceNextCursor = ref(null)
-const events = ref([])
-const eventNextCursor = ref(null)
-const timeRange = ref(buildRuntimeDefaultTimeRange())
-const selectedTrace = ref(null)
-const selectedTracePayload = ref(null)
-const traceSteps = ref([])
-const traceStepsNextCursor = ref(null)
-const selectedStep = ref(null)
-const selectedEvent = ref(null)
-const activeView = ref('traces')
-const onlyIssues = ref(false)
-const traceOnlyIssues = ref(false)
-const autoRefresh = ref(true)
-const advancedFilterVisible = ref(false)
-const userSelectedComponent = ref(false)
-const selectedTraceKind = ref('all')
-const activeTraceDetailTab = ref('steps')
-const activeEventDetailTab = ref('event')
-const rawDrawerVisible = ref(false)
-const rawFiles = ref([])
-const rawRecords = ref([])
-const rawFocusedIndex = ref(-1)
-const rawSelectionKey = ref('')
+const {
+  selectedTrace,
+  selectedTracePayload,
+  traceSteps,
+  traceStepsNextCursor,
+  selectedStep,
+  selectedEvent,
+  activeTraceDetailTab,
+  activeEventDetailTab,
+  rawDrawerVisible,
+  rawFiles,
+  rawRecords,
+  rawFocusedIndex,
+  rawSelectionKey,
+  rawQuery,
+  lastLoadedEventQueryKey,
+} = createRuntimeObservabilitySelectionState()
 const rawRecordRefs = new Map()
 const stepRowRefs = new Map()
-const pageError = ref('')
-const boardFilter = reactive({
-  component: '',
-  runtime_node: '',
-})
-const traceIssueFocus = reactive({
-  component: '',
-})
-const lastLoadedEventQueryKey = ref('')
 let eventLoadToken = 0
 let traceDetailLoadToken = 0
-const rawQuery = reactive({
-  runtime_node: '',
-  component: '',
-  date: '',
-  file: '',
-})
 let overviewTimer = null
+const TIME_RANGE_PICKER_DEFAULT_TIME = [
+  new Date(2000, 0, 1, 0, 0, 0),
+  new Date(2000, 0, 1, 23, 59, 59),
+]
 
 const hasDetailValue = (value) => {
   if (value === null || value === undefined) return false
@@ -1142,32 +1131,25 @@ const buildContextRows = (blocks = []) => {
   )
 }
 
-const normalizeTimeRangeState = (value) => {
-  if (Array.isArray(value) && value.length === 2) {
-    const [startTime, endTime] = value
-    if (String(startTime || '').trim() && String(endTime || '').trim()) {
-      return [startTime, endTime]
-    }
-  }
-  return buildRuntimeDefaultTimeRange()
-}
+const normalizeTimeRangeState = (value) => normalizeRuntimeTimeRangeState(value, {
+  buildRuntimeDefaultTimeRange,
+})
 
-const buildTraceRequestParams = () => ({
-  ...buildTraceQuery(query, timeRange.value),
-  ...(selectedTraceKind.value && selectedTraceKind.value !== 'all'
-    ? { trace_kind: selectedTraceKind.value }
-    : {}),
-  include_symbol_name: 1,
-  limit: TRACE_PAGE_SIZE,
+const buildTraceRequestParams = () => buildRuntimeTraceRequestParams({
+  buildTraceQuery,
+  query,
+  timeRange: timeRange.value,
+  selectedTraceKind: selectedTraceKind.value,
 })
-const buildEventRequestParams = () => ({
-  ...buildBoardScopedQuery(query, boardFilter, timeRange.value),
-  include_symbol_name: 1,
-  limit: EVENT_PAGE_SIZE,
+
+const buildEventRequestParams = () => buildRuntimeEventRequestParams({
+  buildBoardScopedQuery,
+  query,
+  boardFilter,
+  timeRange: timeRange.value,
 })
-const buildEventRequestKey = () => JSON.stringify({
-  ...buildEventRequestParams(),
-})
+
+const buildEventRequestKey = () => buildRuntimeEventRequestKey(buildEventRequestParams())
 const timeRangeDisplayLabel = computed(() => formatTimeRangeLabel(timeRange.value))
 
 const hydratedTraces = computed(() => traces.value.map((trace) => buildTraceDetail(trace)))
@@ -1212,49 +1194,15 @@ const componentEventEmptyState = computed(() => buildComponentEventEmptyState({
   visibleEvents: componentEventFeed.value,
   onlyIssues: onlyIssues.value,
 }))
-const filterChips = computed(() => {
-  const chips = []
-  if (traceOnlyIssues.value) {
-    chips.push({
-      key: 'trace-only-issues',
-      label: '异常链路',
-      kind: 'trace-only-issues',
-    })
-  }
-  if (onlyIssues.value) {
-    chips.push({
-      key: 'only-issues',
-      label: '仅异常',
-      kind: 'toggle',
-    })
-  }
-  for (const [field, label] of Object.entries(TRACE_QUERY_LABELS)) {
-    const value = String(query[field] || '').trim()
-    if (!value) continue
-    chips.push({
-      key: `query-${field}`,
-      label: `${label}: ${value}`,
-      kind: 'query',
-      field,
-    })
-  }
-  if (selectedTraceKind.value && selectedTraceKind.value !== 'all') {
-    const activeOption = traceKindOptions.value.find((item) => item.value === selectedTraceKind.value)
-    chips.push({
-      key: 'trace-kind',
-      label: activeOption?.label || selectedTraceKind.value,
-      kind: 'trace-kind',
-    })
-  }
-  if (traceIssueFocusLabel.value) {
-    chips.push({
-      key: 'trace-issue-focus',
-      label: `异常组件: ${traceIssueFocusLabel.value}`,
-      kind: 'trace-issue-focus',
-    })
-  }
-  return chips
-})
+const filterChips = computed(() => buildFilterChips({
+  traceOnlyIssues: traceOnlyIssues.value,
+  onlyIssues: onlyIssues.value,
+  query,
+  traceQueryLabels: TRACE_QUERY_LABELS,
+  selectedTraceKind: selectedTraceKind.value,
+  traceKindOptions: traceKindOptions.value,
+  traceIssueFocusLabel: traceIssueFocusLabel.value,
+}))
 
 const selectedTraceDetail = computed(() => buildTraceDetail({
   ...(selectedTrace.value || {}),
@@ -1668,8 +1616,8 @@ const selectedStepErrorRows = computed(() =>
     },
   ]),
 )
-const selectedStepPayloadRows = computed(() => buildStructuredRows(selectedStep.value?.payload_text, 'payload'))
-const selectedStepMetricsRows = computed(() => buildStructuredRows(selectedStep.value?.metrics_text, 'metrics'))
+const selectedStepPayloadEntries = computed(() => buildStructuredPayloadEntries(selectedStep.value?.payload_text, 'payload'))
+const selectedStepMetricsEntries = computed(() => buildStructuredPayloadEntries(selectedStep.value?.metrics_text, 'metrics'))
 const eventMetaRows = computed(() =>
   buildDetailRows([
     {
@@ -1858,8 +1806,8 @@ const eventContextRows = computed(() => {
   }
   return buildStructuredRows(selectedEvent.value?.decision_context_text, 'context')
 })
-const eventPayloadRows = computed(() => buildStructuredRows(selectedEvent.value?.payload_text, 'payload'))
-const eventMetricsRows = computed(() => buildStructuredRows(selectedEvent.value?.metrics_text, 'metrics'))
+const eventPayloadEntries = computed(() => buildStructuredPayloadEntries(selectedEvent.value?.payload_text, 'payload'))
+const eventMetricsEntries = computed(() => buildStructuredPayloadEntries(selectedEvent.value?.metrics_text, 'metrics'))
 const embeddedRawLedgerRows = computed(() =>
   embeddedRawRecordCards.value.map((record, index) => ({
     key: `${record.title}-${index}`,
@@ -1871,40 +1819,14 @@ const embeddedRawLedgerRows = computed(() =>
   })),
 )
 
-const syncQueryState = (target, source = {}) => {
-  for (const field of TRACE_QUERY_FIELDS) {
-    target[field] = String(source?.[field] || '').trim()
-  }
-}
+const syncQueryState = (target, source = {}) => syncRuntimeQueryState(target, source, TRACE_QUERY_FIELDS)
 
-const summarizeRequestError = (fallback, error) => {
-  const detail = String(
-    error?.response?.data?.detail ||
-      error?.response?.data?.message ||
-      error?.message ||
-      '',
-  ).trim()
-  return detail ? `${fallback}：${detail}` : fallback
-}
-
-const mergeByKey = (items = [], keyField = 'trace_key') => {
-  const merged = []
-  const seen = new Set()
-  for (const item of items) {
-    const key = String(item?.[keyField] || item?.trace_id || item?.event_id || '').trim()
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    merged.push(item)
-  }
-  return merged
-}
-
-const resetSelectedTraceDetailState = () => {
-  selectedTracePayload.value = null
-  traceSteps.value = []
-  traceStepsNextCursor.value = null
-  selectedStep.value = null
-}
+const resetSelectedTraceDetailState = () => resetRuntimeSelectedTraceDetailState({
+  selectedTracePayload,
+  traceSteps,
+  traceStepsNextCursor,
+  selectedStep,
+})
 
 const loadOverview = async () => {
   loading.overview = true
@@ -1990,7 +1912,7 @@ const loadEvents = async (options = {}) => {
     ...(cursor?.ts ? { cursor_ts: cursor.ts } : {}),
     ...(cursor?.event_id ? { cursor_event_id: cursor.event_id } : {}),
   }
-  const requestKey = JSON.stringify(buildEventRequestParams())
+  const requestKey = buildEventRequestKey()
   eventLoadToken = loadToken
   loading.events = true
   try {
@@ -2240,11 +2162,7 @@ const handleTraceAnchorJump = async (mode) => {
   await scrollToSelectedStep()
 }
 
-const buildIdentityCopyValue = (item = {}) => {
-  return Array.isArray(item?.values) && item.values.length > 0
-    ? item.values.join('\n')
-    : String(item?.value || '').trim()
-}
+const buildIdentityCopyValue = (item = {}) => buildRuntimeIdentityCopyValue(item)
 
 const openRawBrowser = async () => {
   const target = activeView.value === 'events' ? selectedEvent.value : selectedStep.value
@@ -2315,14 +2233,7 @@ const loadRawTail = async (
   }
 }
 
-const stepKey = (step) => {
-  return [
-    step?.component || '',
-    step?.node || '',
-    step?.ts || '',
-    step?.index ?? '',
-  ].join('|')
-}
+const stepKey = (step) => buildRuntimeStepKey(step)
 
 const isActiveStep = (step) => {
   return stepKey(selectedStep.value) === stepKey(step)
@@ -2369,42 +2280,11 @@ const statusChipVariant = (status) => {
   return 'info'
 }
 
-const buildStepCopyText = (step) => {
-  if (!step) return ''
-  const lines = [
-    `${step.component}.${step.node}`,
-    `status: ${step.status || 'info'}`,
-    step.ts ? `ts: ${step.ts}` : '',
-    ...(step.detail_fields || []).map((field) => `${field.key}: ${field.value}`),
-    ...(step.tags || []).map((tag) => `${tag.label}: ${tag.value}`),
-  ].filter(Boolean)
-  return lines.join('\n')
-}
+const buildStepCopyText = (step) => buildRuntimeStepCopyText(step)
 
-const isActiveTraceRow = (row) => {
-  const selectedKey = selectedTrace.value?.trace_key || ''
-  const selectedId = selectedTrace.value?.trace_id || ''
-  return (
-    (row?.trace_key && row.trace_key === selectedKey) ||
-    (row?.trace_id && row.trace_id === selectedId)
-  )
-}
+const isActiveTraceRow = (row) => checkActiveTraceRow(selectedTrace.value, row)
 
-const isActiveEventRow = (row) => {
-  return [
-    row?.key || '',
-    row?.component || '',
-    row?.runtime_node || '',
-    row?.node || '',
-    row?.ts || '',
-  ].join('|') === [
-    selectedEvent.value?.key || '',
-    selectedEvent.value?.component || '',
-    selectedEvent.value?.runtime_node || '',
-    selectedEvent.value?.node || '',
-    selectedEvent.value?.ts || '',
-  ].join('|')
-}
+const isActiveEventRow = (row) => checkActiveEventRow(selectedEvent.value, row)
 
 const copyText = async (value) => {
   const text = String(value || '').trim()
@@ -2418,17 +2298,7 @@ const copyText = async (value) => {
   }
 }
 
-const buildEventCopyText = (event) => {
-  if (!event) return ''
-  return [
-    `${event.component}.${event.node}`,
-    `event_type: ${event.event_type || 'trace_step'}`,
-    `status: ${event.status || 'info'}`,
-    event.runtime_node ? `runtime_node: ${event.runtime_node}` : '',
-    event.ts ? `ts: ${event.ts}` : '',
-    ...(event.badges || []),
-  ].filter(Boolean).join('\n')
-}
+const buildEventCopyText = (event) => buildRuntimeEventCopyText(event)
 
 const resetOverviewTimer = () => {
   overviewTimer = stopPollingTimer(overviewTimer, { clearInterval: window.clearInterval.bind(window) })
@@ -2438,15 +2308,11 @@ const resetOverviewTimer = () => {
   }, 15000)
 }
 
-const syncSelectedStep = () => {
-  const steps = filteredSteps.value
-  if (!steps.length) {
-    selectedStep.value = null
-    return
-  }
-  const currentKey = stepKey(selectedStep.value)
-  selectedStep.value = steps.find((step) => stepKey(step) === currentKey) || pickDefaultTraceStep(steps)
-}
+const syncSelectedStep = () => syncRuntimeSelectedStep({
+  filteredSteps: filteredSteps.value,
+  selectedStep,
+  pickDefaultTraceStep,
+})
 
 const setRawRecordRef = (element, index) => {
   rawRecordRefs.set(index, element || null)
@@ -3070,9 +2936,7 @@ onBeforeUnmount(() => {
 }
 
 .component-ledger__header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   background: #f6f9fc;
   color: #68839d;
   border-bottom: 1px solid #e5edf5;
@@ -3151,7 +3015,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid #e5edf5;
   border-radius: 12px;
   background: #fff;
@@ -3162,21 +3027,33 @@ onBeforeUnmount(() => {
   display: grid;
   align-items: center;
   gap: 8px;
+  width: max-content;
+  min-width: 100%;
   padding: 8px 10px;
   font-size: 12px;
 }
 
 .runtime-ledger__header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   background: #f6f9fc;
   color: #68839d;
   border-bottom: 1px solid #e5edf5;
 }
 
+.runtime-ledger__viewport {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 100%;
+  width: max-content;
+  overflow-y: auto;
+  overflow-x: visible;
+  scrollbar-gutter: stable;
+}
+
 .runtime-ledger__row {
-  width: 100%;
+  flex: 0 0 auto;
   border: 0;
   border-top: 1px solid #eef3f8;
   background: transparent;
@@ -3190,10 +3067,11 @@ onBeforeUnmount(() => {
 }
 
 .runtime-trace-ledger-scroll {
+  display: flex;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .runtime-trace-ledger {
@@ -3918,11 +3796,24 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   min-height: 0;
   max-height: min(320px, calc(var(--trace-step-ledger-row-height) * 6 + 2px));
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid #e5edf5;
   border-radius: 12px;
   background: #fff;
   margin-bottom: 12px;
+}
+
+.trace-step-ledger__viewport {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 100%;
+  width: max-content;
+  overflow-y: auto;
+  overflow-x: visible;
+  scrollbar-gutter: stable;
 }
 
 .trace-step-ledger__header,
@@ -3942,22 +3833,22 @@ onBeforeUnmount(() => {
     minmax(190px, 1fr);
   align-items: center;
   gap: 8px;
+  width: max-content;
+  min-width: 100%;
   padding: 8px 10px;
   min-height: var(--trace-step-ledger-row-height);
   font-size: 12px;
 }
 
 .trace-step-ledger__header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   background: #f6f9fc;
   color: #68839d;
   border-bottom: 1px solid #e5edf5;
 }
 
 .trace-step-ledger__row {
-  width: 100%;
+  flex: 0 0 auto;
   border: 0;
   border-top: 1px solid #eef3f8;
   background: transparent;
@@ -4233,10 +4124,23 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid #e5edf5;
   border-radius: 12px;
   background: #fff;
+}
+
+.embedded-raw-ledger__viewport {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 100%;
+  width: max-content;
+  overflow-y: auto;
+  overflow-x: visible;
+  scrollbar-gutter: stable;
 }
 
 .embedded-raw-ledger__header,
@@ -4244,15 +4148,15 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(180px, 0.9fr) minmax(280px, 1.45fr) minmax(180px, 0.75fr);
   gap: 8px;
+  width: max-content;
+  min-width: 100%;
   padding: 8px 10px;
   font-size: 12px;
   align-items: center;
 }
 
 .embedded-raw-ledger__header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   background: #f6f9fc;
   color: #68839d;
   border-bottom: 1px solid #e5edf5;
@@ -4272,6 +4176,7 @@ onBeforeUnmount(() => {
 }
 
 .embedded-raw-ledger__row {
+  flex: 0 0 auto;
   background: transparent;
 }
 

@@ -5,7 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from freshquant.position_management.models import ALLOW_OPEN, HOLDING_ONLY
+from freshquant.position_management.models import (
+    ALLOW_OPEN,
+    FORCE_PROFIT_REDUCE,
+    HOLDING_ONLY,
+)
 from freshquant.position_management.snapshot_service import PositionSnapshotService
 
 
@@ -165,8 +169,14 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
     assert rules["buy_new"]["allowed"] is False
     assert rules["buy_holding"]["allowed"] is True
     assert rules["sell"]["allowed"] is True
+    assert "状态已过期，按默认 HOLDING_ONLY 处理" in rules["buy_new"]["reason_text"]
+    assert "只允许对当前已持仓标的继续买入" in rules["buy_new"]["reason_text"]
+    assert "不允许借此开新仓" in rules["buy_holding"]["reason_text"]
+    assert "仓位门禁不阻断卖出" in rules["sell"]["reason_text"]
+    assert "不会因为该状态自动发起卖单" in rules["sell"]["reason_text"]
     assert inventory["allow_open_min_bail"]["editable"] is True
     assert inventory["single_symbol_position_limit"]["editable"] is True
+    assert inventory["single_symbol_position_limit"]["label"] == "单标的默认持仓上限"
     assert inventory["single_symbol_position_limit"]["value"] == 800000.0
     assert inventory["state_stale_after_seconds"]["editable"] is False
     assert inventory["xtquant.account_type"]["value"] == "CREDIT"
@@ -176,6 +186,81 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
     assert payload["recent_decisions"][0]["source_module"] == "Guardian"
     assert payload["recent_decisions"][0]["trace_id"] == "trc_1"
     assert payload["recent_decisions"][0]["intent_id"] == "int_1"
+
+
+@pytest.mark.parametrize(
+    ("state", "available_bail_balance", "expected_rule_code"),
+    [
+        (ALLOW_OPEN, 900000.0, "allow_open_threshold"),
+        (HOLDING_ONLY, 300000.0, "holding_only_threshold"),
+        (FORCE_PROFIT_REDUCE, 50000.0, "force_profit_reduce_threshold"),
+    ],
+)
+def test_dashboard_rule_matrix_reason_text_explains_state_specific_gate_semantics(
+    state,
+    available_bail_balance,
+    expected_rule_code,
+):
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    repository = FakeRepository()
+    repository.config_doc = {
+        "code": "default",
+        "enabled": True,
+        "thresholds": {
+            "allow_open_min_bail": 800000.0,
+            "holding_only_min_bail": 100000.0,
+            "single_symbol_position_limit": 800000.0,
+        },
+        "updated_at": "2026-03-07T11:59:00+08:00",
+        "updated_by": "pytest",
+    }
+    repository.current_state_doc = {
+        "account_id": "1208970161",
+        "state": state,
+        "available_bail_balance": available_bail_balance,
+        "snapshot_id": "pms_1",
+        "data_source": "xtquant",
+        "evaluated_at": "2026-03-07T12:00:20+08:00",
+        "last_query_ok": "2026-03-07T12:00:20+08:00",
+    }
+    repository.snapshot_doc = {
+        "snapshot_id": "pms_1",
+        "available_amount": 102345.67,
+        "fetch_balance": 92345.67,
+        "total_asset": 1432100.0,
+        "market_value": 1210000.0,
+        "total_debt": 530000.0,
+        "source": "xtquant",
+    }
+
+    service = PositionManagementDashboardService(
+        repository=repository,
+        holding_codes_provider=lambda: ["000001"],
+        settings_provider=_system_settings_provider(),
+        now_provider=_fixed_now,
+    )
+
+    payload = service.get_dashboard()
+    rules = {item["key"]: item for item in payload["rule_matrix"]}
+
+    assert payload["state"]["matched_rule"]["code"] == expected_rule_code
+    assert "当前 effective_state=" in rules["buy_new"]["reason_text"]
+    assert "当前命中：" in rules["buy_new"]["reason_text"]
+    assert "仓位门禁不阻断卖出" in rules["sell"]["reason_text"]
+
+    if state == ALLOW_OPEN:
+        assert "允许对新标的发起买入" in rules["buy_new"]["reason_text"]
+        assert "已持仓标的也可继续买入" in rules["buy_holding"]["reason_text"]
+    elif state == HOLDING_ONLY:
+        assert "只允许对当前已持仓标的继续买入" in rules["buy_new"]["reason_text"]
+        assert "不允许借此开新仓" in rules["buy_holding"]["reason_text"]
+    else:
+        assert "禁止一切买入" in rules["buy_new"]["reason_text"]
+        assert "禁止一切买入" in rules["buy_holding"]["reason_text"]
+        assert "盈利减仓/退出条件" in rules["sell"]["reason_text"]
 
 
 def test_update_config_persists_thresholds_that_snapshot_service_consumes():

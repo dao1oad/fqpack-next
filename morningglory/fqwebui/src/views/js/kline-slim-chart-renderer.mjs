@@ -912,7 +912,12 @@ function normalizePriceGuideLines(priceGuides) {
         level: item?.level ?? null,
         price,
         color: item?.color || '#60a5fa',
-        lineStyle: item?.lineStyle === 'dashed' ? 'dashed' : 'solid',
+        lineStyle:
+          item?.lineStyle === 'dashed'
+            ? 'dashed'
+            : item?.lineStyle === 'dotted'
+              ? 'dotted'
+              : 'solid',
         active: item?.active !== false,
         manual_enabled: item?.manual_enabled !== false,
         placeholder: item?.placeholder === true

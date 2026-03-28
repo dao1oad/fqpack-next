@@ -33,7 +33,7 @@ test('DailyScreening renders dense workbench layout for grouped filters and work
   assert.ok(source.includes('handleWorkspaceRowClick'))
   assert.ok(source.includes('daily-detail-card-grid'))
   assert.ok(source.includes('daily-detail-history-panel'))
-  assert.ok(source.includes('buildDailyScreeningDefaultFilterState'))
+  assert.ok(source.includes('buildDailyScreeningFilterDefaults'))
   assert.match(source, /const applyDefaultFilterState = \(\) => \{/)
   assert.match(source, /const resetFilters = async \(\) => \{[\s\S]*applyDefaultFilterState\(\)/)
   assert.match(source, /watch\(selectedScopeId, async \(scopeId\) => \{[\s\S]*applyDefaultFilterState\(\)/)
@@ -56,6 +56,17 @@ test('DailyScreening moves scope into the top guide area and paginates intersect
   )
 })
 
+test('DailyScreening ledger headers stay outside scrollable viewports', () => {
+  const source = fs.readFileSync(componentPath, 'utf8')
+
+  assert.match(source, /<div class="runtime-ledger__viewport">[\s\S]*paginatedResultRows/)
+  assert.match(source, /<div class="runtime-ledger__viewport">[\s\S]*v-for="row in tab\.rows"/)
+  assert.match(source, /<div class="runtime-ledger__viewport">[\s\S]*v-for="\(row,\s*index\) in detail\.hot_reasons"/)
+  assert.match(source, /\.runtime-ledger__viewport \{[\s\S]*overflow-y:\s*auto;/)
+  assert.match(source, /\.runtime-ledger__header \{[\s\S]*flex:\s*0 0 auto;/)
+  assert.doesNotMatch(source, /\.runtime-ledger__header \{[\s\S]*position:\s*sticky;/)
+})
+
 test('DailyScreening routes guide summary and detail chips through shared StatusChip', () => {
   const source = fs.readFileSync(componentPath, 'utf8')
 
@@ -68,4 +79,12 @@ test('DailyScreening routes guide summary and detail chips through shared Status
   assert.match(source, /<StatusChip[\s\S]*v-for="item in detail\.hotMemberships"[\s\S]*variant="warning"/)
   assert.match(source, /<StatusChip[\s\S]*v-for="item in detail\.marketFlagMemberships"[\s\S]*variant="success"/)
   assert.match(source, /<StatusChip[\s\S]*:variant="detailBasePoolStatus\.inBasePool \? 'success' : 'warning'"/)
+})
+
+test('DailyScreening.vue imports split filter, workspace, and detail modules', async () => {
+  const content = await fs.promises.readFile(componentPath, 'utf8')
+
+  assert.match(content, /from '\.\/dailyScreeningFilters\.mjs'/)
+  assert.match(content, /from '\.\/dailyScreeningWorkspace\.mjs'/)
+  assert.match(content, /from '\.\/dailyScreeningDetail\.mjs'/)
 })

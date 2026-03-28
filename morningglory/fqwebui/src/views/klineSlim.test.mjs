@@ -19,6 +19,13 @@ test('KlineSlim keeps the price editor side panel but removes the duplicate ä»·æ
   assert.doesNotMatch(source, /v-model="guardianDraft\.enabled"/)
 })
 
+test('KlineSlim.vue imports the new sidebar and page state modules for the legacy bridge', () => {
+  const source = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /from '\.\/klineSlimSidebar\.mjs'/)
+  assert.match(source, /from '\.\/klineSlimPageState\.mjs'/)
+})
+
 test('KlineSlim keeps price guide and chanlun panels on the chart overlay instead of shrinking the chart area', () => {
   const source = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
 
@@ -45,13 +52,24 @@ test('KlineSlim toolbar keeps only draw-edit, subject and chanlun toggles for ov
 
 test('KlineSlim sidebar uses compact two-line summaries instead of stacked tags', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
-  const sidebarSource = fs.readFileSync(new URL('./js/kline-slim-sidebar.mjs', import.meta.url), 'utf8')
+  const sidebarSource = fs.readFileSync(new URL('./klineSlimSidebar.mjs', import.meta.url), 'utf8')
 
   assert.match(viewSource, /item\.titleLabel/)
   assert.match(viewSource, /item\.secondaryLabel/)
   assert.doesNotMatch(viewSource, /sidebar-item-tags/)
   assert.match(sidebarSource, /titleLabel/)
   assert.match(sidebarSource, /secondaryLabel/)
+})
+
+test('KlineSlim page state module centralizes symbol, period and overlay mutual exclusion state', () => {
+  const source = fs.readFileSync(new URL('./klineSlimPageState.mjs', import.meta.url), 'utf8')
+
+  assert.match(source, /routeSymbol/)
+  assert.match(source, /currentPeriod/)
+  assert.match(source, /showPriceGuidePanel/)
+  assert.match(source, /showSubjectPanel/)
+  assert.match(source, /showChanlunStructurePanel/)
+  assert.match(source, /closeOtherPanels/)
 })
 
 test('KlineSlim exposes a dedicated price-guide edit mode with drag-save handlers', () => {

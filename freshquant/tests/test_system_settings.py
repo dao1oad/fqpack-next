@@ -127,6 +127,7 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
                     "thresholds": {
                         "allow_open_min_bail": 900000.0,
                         "holding_only_min_bail": 300000.0,
+                        "single_symbol_position_limit": 950000.0,
                     },
                 }
             ],
@@ -164,6 +165,7 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
     }
     assert settings.position_management.allow_open_min_bail == 900000.0
     assert settings.position_management.holding_only_min_bail == 300000.0
+    assert settings.position_management.single_symbol_position_limit == 950000.0
     assert settings.get_instrument_strategy("002594.SZ") == {
         "instrument_code": "002594.SZ",
         "strategy_name": "g8txDZY5cclM7zbo",

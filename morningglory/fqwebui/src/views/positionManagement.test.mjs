@@ -23,7 +23,7 @@ test('buildInventoryRows keeps single symbol position limit editable inside merg
         },
         {
           key: 'single_symbol_position_limit',
-          label: '单标的实时仓位上限',
+          label: '单标的默认持仓上限',
           value: 800000,
           editable: true,
           group: 'editable_thresholds',
@@ -48,6 +48,7 @@ test('buildInventoryRows keeps single symbol position limit editable inside merg
     editableRows.map((item) => item.key),
     ['allow_open_min_bail', 'holding_only_min_bail', 'single_symbol_position_limit'],
   )
+  assert.equal(singleSymbolLimit.label, '单标的默认持仓上限')
   assert.equal(singleSymbolLimit.value_label, '800,000.00')
   assert.equal(singleSymbolLimit.group_label, '已生效且可编辑')
   assert.equal(singleSymbolLimit.editable, true)
@@ -193,6 +194,7 @@ test('PositionManagement view merges runtime state and inventory into left panel
   assert.match(source, /单标的仓位上限覆盖/)
   assert.match(source, /single_symbol_position_limit/)
   assert.match(source, /v-model="editableForm\.single_symbol_position_limit"/)
+  assert.match(source, /全局单标的默认持仓上限/)
   assert.match(source, /单标的上限设置/)
   assert.match(source, /当前来源/)
   assert.match(source, /<span>操作<\/span>\s*<span>当前来源<\/span>/)
@@ -201,7 +203,15 @@ test('PositionManagement view merges runtime state and inventory into left panel
   assert.match(source, /var\(--position-symbol-limit-position-column-width\)\s+var\(--position-symbol-limit-position-column-width\)\s+var\(--position-symbol-limit-position-column-width\)/)
   assert.doesNotMatch(source, /minmax\(var\(--position-symbol-limit-position-column-min-width\),\s*1fr\)/)
   assert.match(source, /\.position-source-cell--left\s*\{[\s\S]*align-items:\s*flex-start;[\s\S]*text-align:\s*left;/)
-  assert.match(source, /runtime-position-rule-ledger\s*\{[^}]*overflow:\s*visible;/)
+  assert.match(source, /class="runtime-ledger__cell runtime-position-rule-ledger__description"/)
+  assert.match(source, /\.position-panel-body\s*\{[\s\S]*overflow:\s*hidden;/)
+  assert.match(source, /\.position-state-scroll\s*\{[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
+  assert.match(source, /\.position-symbol-limit-scroll\s*\{[\s\S]*overflow:\s*hidden;/)
+  assert.match(source, /\.runtime-position-rule-ledger\s*\{[\s\S]*overflow:\s*hidden;/)
+  assert.match(source, /\.runtime-position-rule-ledger :is\(\.runtime-ledger__header, \.runtime-ledger__row\)\s*\{[\s\S]*min-width:\s*0;[\s\S]*width:\s*100%;/)
+  assert.match(source, /\.runtime-position-rule-ledger__description\s*\{[\s\S]*white-space:\s*normal;[\s\S]*word-break:\s*break-word;/)
+  assert.match(source, /\.runtime-position-symbol-limit-ledger\s*\{[\s\S]*flex:\s*1 1 auto;[\s\S]*max-height:\s*none;/)
+  assert.doesNotMatch(source, /runtime-position-rule-ledger\s*\{[^}]*overflow:\s*visible;/)
   assert.doesNotMatch(source, /<section class="workbench-toolbar">/)
   assert.doesNotMatch(source, /<div class="workbench-page-title">仓位管理<\/div>/)
   assert.doesNotMatch(source, /position-config-panel/)

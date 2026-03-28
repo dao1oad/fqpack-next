@@ -648,9 +648,17 @@
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
 import StatusChip from '../components/workbench/StatusChip.vue'
 import klineSlim from './js/kline-slim'
+import { buildSidebarSections } from './klineSlimSidebar.mjs'
+import { buildInitialKlineSlimPageState } from './klineSlimPageState.mjs'
+
+const klineSlimLegacyBridge = {
+  buildSidebarSections,
+  buildInitialKlineSlimPageState,
+}
 
 export default {
   ...klineSlim,
+  klineSlimLegacyBridge,
   components: {
     ...(klineSlim.components || {}),
     WorkbenchPage,

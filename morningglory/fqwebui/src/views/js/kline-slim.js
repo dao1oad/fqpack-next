@@ -38,7 +38,7 @@ import {
   getSidebarCode6,
   normalizeReasonItems,
   toggleSidebarExpandedKey
-} from './kline-slim-sidebar.mjs'
+} from '../klineSlimSidebar.mjs'
 import {
   SUPPORTED_CHANLUN_PERIODS,
   DEFAULT_MAIN_PERIOD,
@@ -57,6 +57,11 @@ import {
   resolveGuardianGuideDraft,
   resolveTakeprofitGuideDrafts
 } from './subject-price-guides.mjs'
+import {
+  buildInitialKlineSlimPageState,
+  buildKlineSlimRouteSymbol,
+  closeOtherPanels,
+} from '../klineSlimPageState.mjs'
 
 const MAIN_PERIODS = SUPPORTED_CHANLUN_PERIODS
 const DEFAULT_PERIOD = DEFAULT_MAIN_PERIOD
@@ -277,6 +282,9 @@ export default {
   name: 'kline-slim',
   data() {
     const pricePanelState = buildInitialKlineSlimPricePanelState()
+    const pageState = buildInitialKlineSlimPageState({
+      currentPeriod: DEFAULT_PERIOD,
+    })
     const subjectPanelState = buildInitialKlineSlimSubjectPanelState()
     return {
       pricePanelActions: createKlineSlimPricePanelActions(subjectManagementApi),
@@ -286,7 +294,7 @@ export default {
       chartViewport: createKlineSlimViewportState(),
       symbolInput: '',
       endDateModel: '',
-      currentPeriod: DEFAULT_PERIOD,
+      currentPeriod: pageState.currentPeriod,
       mainData: null,
       chanlunRefreshTimer: null,
       renderFrameId: 0,
@@ -332,12 +340,12 @@ export default {
       reasonCache: {},
       reasonLoading: {},
       reasonError: {},
-      showChanlunStructurePanel: false,
+      showChanlunStructurePanel: pageState.showChanlunStructurePanel,
       chanlunStructureLoading: false,
       chanlunStructureError: '',
       chanlunStructureRefreshError: '',
       chanlunStructureData: null,
-      showSubjectPanel: false,
+      showSubjectPanel: pageState.showSubjectPanel,
       subjectPanelState: {
         ...subjectPanelState,
         showSubjectPanel: false
@@ -347,7 +355,7 @@ export default {
   },
   computed: {
     routeSymbol() {
-      return (this.$route.query.symbol || '').trim()
+      return buildKlineSlimRouteSymbol(this.$route)
     },
     activeCode6() {
       return getSidebarCode6({ symbol: this.routeSymbol, code: this.routeSymbol })
@@ -423,7 +431,9 @@ export default {
         guardianDraft: this.guardianDraft,
         guardianState: this.guardianState,
         takeprofitDrafts: this.takeprofitDrafts,
-        takeprofitState: this.takeprofitState
+        takeprofitState: this.takeprofitState,
+        costBasisPrice: this.subjectPriceDetail?.costBasisPrice ?? null,
+        buyLots: this.subjectPriceDetail?.openBuyLots ?? []
       })
     },
     editablePriceGuides() {
@@ -982,8 +992,7 @@ export default {
         this.closePriceGuidePanel()
         return
       }
-      this.closeSubjectPanel()
-      this.closeChanlunStructurePanel()
+      closeOtherPanels(this, 'showPriceGuidePanel')
       this.showPriceGuidePanel = true
       if (!this.subjectPriceDetail && !this.subjectDetailLoading) {
         await this.loadSubjectPriceDetail({ force: true })
@@ -997,8 +1006,7 @@ export default {
         this.closePriceGuidePanel()
         return
       }
-      this.closeSubjectPanel()
-      this.closeChanlunStructurePanel()
+      closeOtherPanels(this, 'showPriceGuidePanel')
       this.showPriceGuidePanel = true
       this.priceGuideEditMode = true
       this.priceGuideDragDirty = false
@@ -1018,8 +1026,7 @@ export default {
         this.closeSubjectPanel()
         return
       }
-      this.closePriceGuidePanel()
-      this.closeChanlunStructurePanel()
+      closeOtherPanels(this, 'showSubjectPanel')
       this.showSubjectPanel = true
       this.subjectPanelState.showSubjectPanel = true
       if (!this.subjectPanelState.subjectPanelDetail || this.subjectPanelState.lastSubjectSymbol !== this.routeSymbol) {
@@ -1164,8 +1171,7 @@ export default {
         this.closeChanlunStructurePanel()
         return
       }
-      this.closePriceGuidePanel()
-      this.closeSubjectPanel()
+      closeOtherPanels(this, 'showChanlunStructurePanel')
       await this.openChanlunStructurePanel()
     },
     async openChanlunStructurePanel() {

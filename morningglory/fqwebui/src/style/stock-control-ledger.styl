@@ -12,25 +12,25 @@
   flex-direction column
   min-width 0
   min-height 0
-  overflow auto
+  overflow-x auto
+  overflow-y hidden
   border 1px solid #e5edf5
   border-radius 12px
   background #fff
-  scrollbar-gutter stable
 
 .stock-control-ledger__header,
 .stock-control-ledger__row
   display grid
   align-items center
   gap 6px
+  width max-content
+  min-width 100%
   padding 8px
   font-size 11px
   line-height 1.35
 
 .stock-control-ledger__header
-  position sticky
-  top 0
-  z-index 1
+  flex 0 0 auto
   background #f6f9fc
   color #68839d
   border-bottom 1px solid #e5edf5
@@ -40,8 +40,14 @@
   flex 1 1 auto
   flex-direction column
   min-height 0
+  min-width 100%
+  width max-content
+  overflow-y auto
+  overflow-x visible
+  scrollbar-gutter stable
 
 .stock-control-ledger__row
+  flex 0 0 auto
   border-top 1px solid #eef3f8
   color #35506c
 

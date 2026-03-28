@@ -49,6 +49,7 @@ def test_webui_paths_use_web_surface_and_correct_port() -> None:
     assert plan["deployment_surfaces"] == ["web"]
     assert plan["docker_services"] == ["fq_webui"]
     assert plan["host_surfaces"] == []
+    assert "--no-deps" in plan["docker_command"]
     assert "http://127.0.0.1:18080/" in plan["health_checks"]
 
 
@@ -170,6 +171,7 @@ def test_compose_parallel_changes_require_full_docker_runtime_redeploy() -> None
         "ta_backend",
         "ta_frontend",
     ]
+    assert "--no-deps" not in plan["docker_command"]
     assert any("compose.parallel.yaml" in note for note in plan["notes"])
 
 

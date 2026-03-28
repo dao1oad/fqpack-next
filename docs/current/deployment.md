@@ -56,6 +56,16 @@ powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ens
 ```
 
 - `script/fq_local_preflight.ps1` 是本地会话同步到远程 `main` 前的标准预检查入口；默认会对最新远程 `main` 做 fetch，并验证 governance / pre-commit / pytest / review threads。
+- `script/fq_local_preflight.ps1` 命中 `morningglory/fqwebui/**`、`.github/workflows/ci.yml` 或 `script/fq_local_preflight.ps1` 变更时，会把前端 gate 一并纳入正式预检：
+  - `npm run lint`
+  - `npm run test:browser-smoke`
+  - `npm run test:unit`
+  - `npm run build`
+- `npm run test:browser-smoke` 当前会先确保 Playwright Chromium 可用，再实际执行 `tests/daily-screening.browser.spec.mjs` 与 `tests/system-settings.browser.spec.mjs`。
+- `npm run test:unit` 当前默认跳过 7 个已登记的 known-red Node 用例；需要全量回归时改跑 `npm run test:unit:all`。
+- `script/fq_local_preflight.ps1` 当前按 `base ref -> 当前工作树` 识别前端 surface 改动，并在 dirty worktree 下禁用本地 preflight cache，避免未提交前端变更被旧记录跳过。
+- 当前机器如果没有 `uv.exe` 直接进 PATH，`script/fq_local_preflight.ps1` 会回退到当前 Python launcher 的 `python -m uv`
+- `.github/workflows/ci.yml` 当前也对同一前端 surface 执行上述四个 `fqwebui` gate；前端改动不能只靠本地 `npm run build` 作为唯一证据。
 - `script/fq_apply_deploy_plan.ps1` 仍然保留，用于手工 selective deploy 或断点续跑 deploy phase。
 
 ```powershell
@@ -85,7 +95,7 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 - Dagster 容器必须在容器内固定使用 `DAGSTER_HOME=/opt/dagster/home` 与 `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`；不要让主工作树 `.env` 里的 Windows 路径 `D:/fqpack/dagster` 直接透传进 Linux 容器。
 - 命中宿主机 deployment surface 时，把 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status` 与对应 stderr 日志一起当作正式证据；不要只看 `fqnext-supervisord` service 是否仍是 `Running`。
 - 如果宿主机 traceback 指向 vendored 包 API 不匹配，例如 `resolve_stock_account() got an unexpected keyword argument 'settings_provider'`，先确认实际 import 源文件是否落在 `.venv\\Lib\\site-packages\\fqxtrade\\xtquant\\account.py`，不要假设仓库里的 vendored 源码一定覆盖了宿主机 Python 环境。
-- `fq_webui` 的 compose 依赖当前仍会带出 `fq_apiserver` / `fq_qawebserver` 启动路径；因此即使本轮 deploy plan 只命中 Web，也要预期 rear image 构建链路可能被触发，不能把 Docker 构建失败简单当成纯前端问题。
+- `fq_webui` 的 compose 依赖当前仍声明了 `fq_apiserver` / `fq_qawebserver`；但正式 deploy 在“仅命中 Web surface”时会固定追加 `--no-deps`，避免把未改动的 API / QA 容器一起重建。只有显式命中 `api` / `qa` / compose 全量变更时，才会把这些依赖一并纳入 deploy。
 - 如果 Docker 构建阶段在 `fq_apiserver` 里编译 `fqchan04` 时出现 `g++ internal compiler error`、`Segmentation fault` 一类编译器崩溃，先保留失败 run_dir artifacts，再对同一 SHA 原样重跑 1 次 formal deploy；只有稳定复现后才进入代码修复或 Dockerfile 调整。
 - 只要本轮有实际 deploy，就必须保留 `CaptureBaseline -> deploy -> health check -> Verify` 的顺序；不能跳过 baseline，也不能把 runtime verify 替换成手工肉眼检查。
 

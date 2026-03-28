@@ -159,6 +159,7 @@ SETTINGS_SECTION_META = {
         "items": [
             ("allow_open_min_bail", "允许开新仓最低保证金"),
             ("holding_only_min_bail", "仅允许持仓内买入最低保证金"),
+            ("single_symbol_position_limit", "单标的默认持仓上限"),
         ],
     },
 }
@@ -253,6 +254,9 @@ class SystemConfigService:
                         "holding_only_min_bail": normalized["position_management"][
                             "holding_only_min_bail"
                         ],
+                        "single_symbol_position_limit": normalized[
+                            "position_management"
+                        ]["single_symbol_position_limit"],
                     },
                 }
             },
@@ -359,6 +363,7 @@ class SystemConfigService:
             "position_management": {
                 "allow_open_min_bail": provider.position_management.allow_open_min_bail,
                 "holding_only_min_bail": provider.position_management.holding_only_min_bail,
+                "single_symbol_position_limit": provider.position_management.single_symbol_position_limit,
             },
         }
 
@@ -557,6 +562,10 @@ class SystemConfigService:
                 "holding_only_min_bail": _require_float(
                     position_management.get("holding_only_min_bail"),
                     field_name="position_management.holding_only_min_bail",
+                ),
+                "single_symbol_position_limit": _require_float(
+                    position_management.get("single_symbol_position_limit"),
+                    field_name="position_management.single_symbol_position_limit",
                 ),
             },
         }

@@ -226,7 +226,9 @@ class InMemoryRepository:
 
     def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
         rows = [
-            item for item in self.entry_slices if int(item.get("remaining_quantity") or 0) > 0
+            item
+            for item in self.entry_slices
+            if int(item.get("remaining_quantity") or 0) > 0
         ]
         if symbol is not None:
             rows = [item for item in rows if item.get("symbol") == symbol]
@@ -347,7 +349,96 @@ def test_detect_external_candidates_from_position_delta():
     assert repository.reconciliation_gaps[0]["pending_until"] == 1_030
 
 
-def test_reconcile_matches_external_trade_report_to_existing_gap(monkeypatch):
+def test_detect_external_candidates_prefers_snapshot_last_price_over_avg_price():
+    repository, service = _build_service()
+
+    candidates = service.detect_external_candidates(
+        positions=[
+            {
+                "stock_code": "000001.SZ",
+                "volume": 200,
+                "avg_price": 10.5,
+                "last_price": 10.82,
+            },
+        ],
+        detected_at=1_000,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0]["price_estimate"] == pytest.approx(10.82)
+    assert candidates[0]["price_source"] == "position_last_price"
+    assert candidates[0]["price_asof"] == 1_000
+
+
+def test_candidate_observation_keeps_higher_quality_price_source():
+    updates = reconcile_service_module._build_gap_observation_updates(
+        {
+            "candidate_id": "cand-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity_delta": 200,
+            "price_estimate": 10.82,
+            "price_source": "position_last_price",
+            "price_asof": 1_000,
+            "detected_at": 1_000,
+            "first_detected_at": 1_000,
+            "last_detected_at": 1_000,
+            "observed_count": 1,
+        },
+        observed={
+            "symbol": "000001",
+            "side": "buy",
+            "quantity_delta": 200,
+            "price_estimate": 10.11,
+            "price_source": "previous_close",
+            "price_asof": 900,
+        },
+        detected_at=1_015,
+        confirm_interval_seconds=15,
+        confirm_observations=3,
+    )
+
+    assert updates["price_estimate"] == pytest.approx(10.82)
+    assert updates["price_source"] == "position_last_price"
+    assert updates["price_asof"] == 1_000
+
+
+def test_resolve_inferred_price_falls_back_to_previous_close(monkeypatch):
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_latest_realtime_price_snapshot",
+        lambda _symbol, _position: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_previous_close_price_snapshot",
+        lambda _symbol, detected_at: {
+            "price_estimate": 9.76,
+            "price_source": "previous_close",
+            "price_asof": int(detected_at) - 1,
+        },
+        raising=False,
+    )
+
+    resolved = reconcile_service_module._resolve_inferred_price_snapshot(
+        "000001",
+        {
+            "stock_code": "000001.SZ",
+            "volume": 200,
+            "avg_price": None,
+            "last_price": None,
+            "open_price": None,
+        },
+        detected_at=1_000,
+    )
+
+    assert resolved["price_estimate"] == pytest.approx(9.76)
+    assert resolved["price_source"] == "previous_close"
+    assert resolved["price_asof"] == 999
+
+
+def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypatch):
     marks = []
     repository, service = _build_service(monkeypatch, marks=marks, mark_label="matched")
     gap = service.detect_external_candidates(
@@ -373,7 +464,10 @@ def test_reconcile_matches_external_trade_report_to_existing_gap(monkeypatch):
     assert repository.reconciliation_gaps[0]["gap_id"] == gap["gap_id"]
     assert repository.reconciliation_gaps[0]["state"] == "MATCHED"
     assert len(repository.reconciliation_resolutions) == 1
-    assert repository.reconciliation_resolutions[0]["resolution_type"] == "matched_execution_fill"
+    assert (
+        repository.reconciliation_resolutions[0]["resolution_type"]
+        == "matched_execution_fill"
+    )
     assert len(repository.buy_lots) == 1
     assert repository.orders[0]["source_type"] == "external_reported"
     assert marks == ["matched"]
@@ -484,7 +578,9 @@ def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatc
     assert confirmed[0]["gap_id"] == gap["gap_id"]
     assert repository.reconciliation_gaps[0]["state"] == "AUTO_OPENED"
     assert len(repository.reconciliation_resolutions) == 1
-    assert repository.reconciliation_resolutions[0]["resolution_type"] == "auto_open_entry"
+    assert (
+        repository.reconciliation_resolutions[0]["resolution_type"] == "auto_open_entry"
+    )
     assert len(repository.position_entries) == 1
     assert repository.position_entries[0]["entry_type"] == "auto_reconciled_open"
     assert repository.position_entries[0]["remaining_quantity"] == 200
@@ -541,7 +637,10 @@ def test_non_board_lot_gap_is_rejected_without_creating_entry(monkeypatch):
     assert confirmed[0]["state"] == "REJECTED"
     assert repository.position_entries == []
     assert repository.entry_slices == []
-    assert repository.reconciliation_resolutions[0]["resolution_type"] == "board_lot_rejected"
+    assert (
+        repository.reconciliation_resolutions[0]["resolution_type"]
+        == "board_lot_rejected"
+    )
     recreated = service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 150, "avg_price": 10.5}],
         detected_at=1_045,
@@ -589,7 +688,10 @@ def test_sell_side_non_board_lot_gap_is_rejected_without_reducing_holdings(monke
     assert repository.buy_lots[0]["remaining_quantity"] == 200
     assert repository.sell_allocations == []
     assert repository.exit_allocations == []
-    assert repository.reconciliation_resolutions[0]["resolution_type"] == "board_lot_rejected"
+    assert (
+        repository.reconciliation_resolutions[0]["resolution_type"]
+        == "board_lot_rejected"
+    )
 
 
 def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
@@ -645,7 +747,9 @@ def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
     assert repository.reconciliation_gaps[0]["quantity_delta"] == 300
     assert len(confirmed) == 1
     assert confirmed[0]["resolution_type"] == "auto_close_allocation"
-    sell_trade_facts = [item for item in repository.trade_facts if item["side"] == "sell"]
+    sell_trade_facts = [
+        item for item in repository.trade_facts if item["side"] == "sell"
+    ]
     assert [item["quantity"] for item in sell_trade_facts] == [200]
     assert len(repository.sell_allocations) > 0
     assert len(repository.reconciliation_resolutions) == 2

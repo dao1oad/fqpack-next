@@ -404,7 +404,7 @@ test('PositionManagement.vue uses merged left panel and fully visible rule matri
   assert.match(content, /<div[\s\S]*class="runtime-ledger__cell position-source-cell position-source-cell--left"[\s\S]*:title="row\.reconciliation_detail_label"/)
   assert.doesNotMatch(content, /<div[\s\S]*class="runtime-ledger__cell position-source-cell position-source-cell--left"[\s\S]*:title="row\.broker_position_source_label"/)
   assert.match(content, /\.position-source-cell--left\s*\{[\s\S]*text-align:\s*left;/)
-  assert.match(content, /runtime-position-rule-ledger\s*\{[^}]*overflow:\s*visible;/)
+  assert.match(content, /runtime-position-rule-ledger\s*\{[^}]*overflow:\s*hidden;/)
   assert.doesNotMatch(content, /<section class="workbench-toolbar">/)
   assert.doesNotMatch(content, /决策上下文详情/)
   assert.doesNotMatch(content, /持仓范围/)

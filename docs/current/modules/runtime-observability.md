@@ -149,6 +149,7 @@ Runtime Observability 当前采用“双存储”：
   - 共享 token 位于 `morningglory/fqwebui/src/style/workbench-tokens.css`
   - 共享页面原语位于 `morningglory/fqwebui/src/components/workbench/`
   - `/runtime-observability` 当前已接入 page / toolbar / summary row / sidebar panel / ledger panel / detail panel 这组 workbench 原语
+  - 页面状态当前按职责拆成 `RuntimeObservability.vue + runtimeObservabilityQueries.mjs + runtimeObservabilitySelection.mjs + runtimeObservabilityFilters.mjs`
   - 只读摘要徽标当前统一复用 `StatusChip`，交互型筛选/跳转徽标继续保留 button 语义
 - 首屏拉：
   - 组件健康摘要
@@ -192,6 +193,7 @@ Runtime Observability 当前采用“双存储”：
   - `最终结论`
 - 自动刷新只刷新摘要列表，不自动刷新已打开的 Trace detail
 - 顶部时间范围默认覆盖“北京当天 + 前一天”两个自然日，避免跨午夜后首屏误判成空页面
+- 顶部日期时间选择器在只选到自然日时，会自动补齐为该日 `00:00:00 -> 23:59:59`；不会把“2026-03-27”误发成 `2026-03-27 00:00:00 -> 2026-03-27 00:00:00`
 - 页面内所有标的展示统一为 `symbol / symbol_name`
 - 写入 ClickHouse 与查询返回阶段都会优先复用现有 instrument lookup 补全 `symbol_name`
 - 名称最终仍缺失时，前端兜底显示 `symbol / 未知名称`
@@ -217,6 +219,7 @@ Runtime Observability 当前采用“双存储”：
   - `最慢节点`
   并在跳转后自动滚动到当前选中步骤
 - Trace 详情的 `步骤` tab 当前不再使用卡片式节点详情头块；当前选中节点统一使用高密度表格分区展示：
+- `Payload / Metrics` 当前不再复用通用 `detail-kv-table`；长机器串、长文本和空值统一走结构化字段面板，避免 `position_management_*` 这类超长字段在固定表格内重新出现文字重叠
   - `基础字段`
   - `Guardian 信号`
   - `判断字段`
@@ -238,6 +241,8 @@ Runtime Observability 当前采用“双存储”：
 - `issue_trace_count`
 - `issue_step_count`
 - `last_issue_ts`
+- 左侧组件卡片的 `主心跳` 优先复用 API 已返回的 `heartbeat_label`；若接口当前只返回 `heartbeat_age_s`，前端会直接按秒龄格式化，不依赖 Trace steps 才显示心跳
+- 左侧组件卡片的指标摘要优先复用 health summary 已带的 `highlights`；若接口当前只返回原始 `metrics`，前端会在卡片层按既定规则回填核心指标
 
 左侧组件导航仍固定展示核心组件全集：
 

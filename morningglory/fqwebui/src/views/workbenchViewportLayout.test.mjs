@@ -32,7 +32,10 @@ test('order, position, subject, tpsl and runtime pages no longer use page-level 
 
   assert.match(positionSource, /\.position-body \{[\s\S]*overflow:\s*hidden;/)
   assert.match(positionSource, /\.position-decision-panel \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(positionSource, /\.position-panel-body \{[\s\S]*overflow:\s*auto;/)
+  assert.match(positionSource, /\.position-panel-body \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(positionSource, /\.position-state-scroll \{[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
+  assert.match(positionSource, /\.position-symbol-limit-scroll \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(positionSource, /\.runtime-position-symbol-limit-ledger \{[\s\S]*overflow:\s*auto;/)
 
   assert.match(subjectSource, /\.subject-management-page \{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/)
   assert.doesNotMatch(subjectSource, /\.subject-management-page \{[\s\S]*max-height:\s*100dvh;/)
