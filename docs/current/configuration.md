@@ -168,8 +168,9 @@
 
 - `thresholds.allow_open_min_bail`
 - `thresholds.holding_only_min_bail`
+- `thresholds.single_symbol_position_limit`
 
-当前仓位管理页面只允许编辑 `pm_configs.thresholds` 下这两个阈值。
+当前系统设置页面会统一展示并编辑 `pm_configs.thresholds` 下这三个全局阈值。
 
 ### `instrument_strategy`
 

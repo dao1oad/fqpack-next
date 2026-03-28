@@ -2,13 +2,37 @@ const numberFormatter = new Intl.NumberFormat('en-US')
 
 const LEDGER_COLUMN_ORDER = ['left', 'middle', 'right']
 
+const COLUMN_SECTION_ORDER = {
+  left: [
+    'bootstrap:mongodb',
+    'bootstrap:redis',
+    'bootstrap:order_management',
+    'bootstrap:position_management',
+    'bootstrap:memory',
+  ],
+  middle: [
+    'settings:xtquant',
+    'settings:monitor',
+    'bootstrap:tdx',
+    'bootstrap:xtdata',
+    'bootstrap:api',
+    'bootstrap:runtime',
+    'settings:notification',
+  ],
+  right: [
+    'settings:guardian',
+    'settings:position_management',
+    'readonly:strategies',
+  ],
+}
+
 const SECTION_COLUMN_MAP = {
   bootstrap: {
     mongodb: 'left',
     redis: 'left',
+    order_management: 'left',
+    position_management: 'left',
     memory: 'left',
-    order_management: 'middle',
-    position_management: 'middle',
     tdx: 'middle',
     api: 'middle',
     xtdata: 'middle',
@@ -17,7 +41,7 @@ const SECTION_COLUMN_MAP = {
   settings: {
     notification: 'middle',
     monitor: 'middle',
-    xtquant: 'right',
+    xtquant: 'middle',
     guardian: 'right',
     position_management: 'right',
   },
@@ -68,6 +92,7 @@ const NUMBER_FIELD_META = {
   'guardian.stock.grid_interval.atr.multiplier': { min: 0.1, step: 0.1, precision: 2 },
   'position_management.allow_open_min_bail': { min: 0, step: 10000 },
   'position_management.holding_only_min_bail': { min: 0, step: 10000 },
+  'position_management.single_symbol_position_limit': { min: 0, step: 10000 },
 }
 
 const STRATEGY_SECTION = {
@@ -261,6 +286,18 @@ export const buildLedgerColumns = (sections = []) => {
   for (const section of Array.isArray(sections) ? sections : []) {
     const column = LEDGER_COLUMN_ORDER.includes(section?.column) ? section.column : 'middle'
     bucket[column].push(section)
+  }
+  for (const column of LEDGER_COLUMN_ORDER) {
+    const order = COLUMN_SECTION_ORDER[column] || []
+    bucket[column].sort((left, right) => {
+      const leftKey = left?.readonly ? `readonly:${left?.key}` : `${left?.scope || 'unknown'}:${left?.key}`
+      const rightKey = right?.readonly ? `readonly:${right?.key}` : `${right?.scope || 'unknown'}:${right?.key}`
+      const leftIndex = order.indexOf(leftKey)
+      const rightIndex = order.indexOf(rightKey)
+      const normalizedLeft = leftIndex === -1 ? 999 : leftIndex
+      const normalizedRight = rightIndex === -1 ? 999 : rightIndex
+      return normalizedLeft - normalizedRight || String(left?.title || '').localeCompare(String(right?.title || ''))
+    })
   }
   return LEDGER_COLUMN_ORDER.map((column) => ({
     key: column,

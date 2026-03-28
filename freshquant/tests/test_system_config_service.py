@@ -178,6 +178,7 @@ def _build_database():
                     "thresholds": {
                         "allow_open_min_bail": 910000.0,
                         "holding_only_min_bail": 210000.0,
+                        "single_symbol_position_limit": 880000.0,
                     },
                 }
             ],
@@ -238,8 +239,17 @@ def test_system_config_service_dashboard_reads_bootstrap_and_mongo_settings(
         dashboard["settings"]["values"]["guardian"]["stock"]["threshold"]["mode"]
         == "atr"
     )
+    assert (
+        dashboard["settings"]["values"]["position_management"][
+            "single_symbol_position_limit"
+        ]
+        == 880000.0
+    )
     assert dashboard["settings"]["sections"][0]["key"] == "notification"
     assert dashboard["settings"]["sections"][-1]["key"] == "position_management"
+    assert dashboard["settings"]["sections"][-1]["items"][-1]["key"] == (
+        "position_management.single_symbol_position_limit"
+    )
     assert dashboard["settings"]["strategies"][0]["code"] == "Guardian"
 
 
@@ -337,6 +347,7 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         "position_management": {
             "allow_open_min_bail": 950000,
             "holding_only_min_bail": 150000,
+            "single_symbol_position_limit": 780000,
         },
     }
 
@@ -364,5 +375,12 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         ]
         == 950000
     )
+    assert (
+        database["pm_configs"].find_one({"code": "default"})["thresholds"][
+            "single_symbol_position_limit"
+        ]
+        == 780000
+    )
     assert settings.xtquant.account == "123456"
     assert settings.position_management.holding_only_min_bail == 150000
+    assert settings.position_management.single_symbol_position_limit == 780000

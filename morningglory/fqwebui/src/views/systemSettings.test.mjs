@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 
 import {
   buildBootstrapLedgerSections,
+  buildLedgerColumns,
   buildSettingsLedgerSections,
   flattenLedgerRows,
   readSystemConfigPayload,
@@ -25,6 +26,22 @@ const createPayload = () => ({
         port: 6380,
         db: 1,
         password: 'secret',
+      },
+      order_management: {
+        mongo_database: 'freshquant_order_management',
+        projection_database: 'freshquant',
+      },
+      position_management: {
+        mongo_database: 'freshquant_position_management',
+      },
+      memory: {
+        mongodb: {
+          host: '127.0.0.1',
+          port: 27027,
+          db: 'fq_memory',
+        },
+        cold_root: 'D:/fqpack/runtime/memory',
+        artifact_root: 'D:/fqpack/runtime/memory/artifacts',
       },
     },
     sections: [
@@ -48,6 +65,36 @@ const createPayload = () => ({
         items: [
           { key: 'redis.password', label: '密码', value: 'secret' },
           { key: 'redis.port', label: '端口', value: 6380 },
+        ],
+      },
+      {
+        key: 'order_management',
+        title: '订单管理',
+        description: '订单管理写库与 projection 库配置。',
+        source: 'bootstrap_file',
+        restart_required: true,
+        items: [
+          { key: 'order_management.mongo_database', label: 'Mongo 库', value: 'freshquant_order_management' },
+        ],
+      },
+      {
+        key: 'position_management',
+        title: '仓位管理库',
+        description: '仓位管理单独 Mongo 库配置。',
+        source: 'bootstrap_file',
+        restart_required: true,
+        items: [
+          { key: 'position_management.mongo_database', label: 'Mongo 库', value: 'freshquant_position_management' },
+        ],
+      },
+      {
+        key: 'memory',
+        title: 'Memory',
+        description: 'Memory 服务冷数据和 artifact 根路径。',
+        source: 'bootstrap_file',
+        restart_required: true,
+        items: [
+          { key: 'memory.mongodb.host', label: 'Mongo 主机', value: '127.0.0.1' },
         ],
       },
     ],
@@ -86,6 +133,7 @@ const createPayload = () => ({
       position_management: {
         allow_open_min_bail: 800000,
         holding_only_min_bail: 100000,
+        single_symbol_position_limit: 600000,
       },
     },
     strategies: [
@@ -145,6 +193,7 @@ const createPayload = () => ({
         items: [
           { key: 'position_management.allow_open_min_bail', label: '允许开新仓最低保证金', value: 800000 },
           { key: 'position_management.holding_only_min_bail', label: '仅允许持仓内买入最低保证金', value: 100000 },
+          { key: 'position_management.single_symbol_position_limit', label: '单标的实时仓位上限', value: 600000 },
         ],
       },
     ],
@@ -171,6 +220,27 @@ test('bootstrap sections flatten into dense ledger rows with column and editor m
   assert.equal(mongodbHost.editor.type, 'text')
   assert.equal(redisPort.column, 'left')
   assert.equal(redisPort.editor.type, 'number')
+})
+
+test('module grouping keeps storage sections together and puts PM thresholds in the trading column', () => {
+  const payload = createPayload()
+  const bootstrapSections = buildBootstrapLedgerSections(payload, {
+    currentValues: payload.bootstrap.values,
+    baselineValues: payload.bootstrap.values,
+  })
+  const settingsSections = buildSettingsLedgerSections(payload, {
+    currentValues: payload.settings.values,
+    baselineValues: payload.settings.values,
+  })
+  const columns = buildLedgerColumns([...bootstrapSections, ...settingsSections])
+
+  const leftKeys = columns.find((column) => column.key === 'left').sections.map((section) => section.key)
+  const middleKeys = columns.find((column) => column.key === 'middle').sections.map((section) => section.key)
+  const rightKeys = columns.find((column) => column.key === 'right').sections.map((section) => section.key)
+
+  assert.deepEqual(leftKeys, ['mongodb', 'redis', 'order_management', 'position_management', 'memory'])
+  assert.deepEqual(middleKeys, ['xtquant', 'monitor'])
+  assert.deepEqual(rightKeys, ['guardian', 'position_management'])
 })
 
 test('settings rows keep guardian percent and atr rows visible while marking inactive mode rows', () => {
@@ -213,6 +283,11 @@ test('resolveEditorMeta returns official select options for enum settings', () =
     'percent',
     'atr',
   ])
+  assert.deepEqual(resolveEditorMeta('position_management.single_symbol_position_limit'), {
+    type: 'number',
+    min: 0,
+    step: 10000,
+  })
 })
 
 test('monitor mode editor only exposes official guardian and combined modes', () => {

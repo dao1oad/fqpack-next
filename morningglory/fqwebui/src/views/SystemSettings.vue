@@ -314,6 +314,7 @@ function defaultSettingsForm () {
     position_management: {
       allow_open_min_bail: 800000,
       holding_only_min_bail: 100000,
+      single_symbol_position_limit: 800000,
     },
   }
 }
