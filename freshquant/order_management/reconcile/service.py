@@ -668,7 +668,7 @@ _PRICE_SOURCE_PRIORITY = {
     "missing": 999,
 }
 _MONGO_PROBE_TTL_SECONDS = 5.0
-_mongo_probe_cache = {}
+_mongo_probe_cache: dict[tuple[str, int], tuple[float, bool]] = {}
 
 
 def _resolve_inferred_price_snapshot(symbol, position, *, detected_at):
