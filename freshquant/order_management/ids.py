@@ -27,6 +27,22 @@ def new_event_id() -> str:
     return _new_id("evt")
 
 
+def new_reconciliation_gap_id() -> str:
+    return _new_id("gap")
+
+
+def new_reconciliation_resolution_id() -> str:
+    return _new_id("resolution")
+
+
+def new_position_entry_id() -> str:
+    return _new_id("entry")
+
+
+def new_entry_slice_id() -> str:
+    return _new_id("entryslice")
+
+
 def new_buy_lot_id() -> str:
     return _new_id("lot")
 

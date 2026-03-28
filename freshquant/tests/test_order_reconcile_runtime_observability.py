@@ -17,16 +17,18 @@ class InMemoryRepository:
     def __init__(self):
         self.order_requests = []
         self.orders = []
+        self.broker_orders = []
         self.order_events = []
         self.trade_facts = []
+        self.execution_fills = []
         self.buy_lots = []
         self.lot_slices = []
         self.sell_allocations = []
-        self.external_candidates = []
-
-    @property
-    def external_candidates_collection(self):
-        return self.external_candidates
+        self.reconciliation_gaps = []
+        self.reconciliation_resolutions = []
+        self.position_entries = []
+        self.entry_slices = []
+        self.exit_allocations = []
 
     def insert_order_request(self, document):
         self.order_requests.append(document)
@@ -46,11 +48,26 @@ class InMemoryRepository:
         self.order_events.append(document)
         return document
 
+    def upsert_broker_order(self, document, unique_keys):
+        for existing in self.broker_orders:
+            if all(existing.get(key) == document.get(key) for key in unique_keys):
+                existing.update(document)
+                return existing, False
+        self.broker_orders.append(dict(document))
+        return document, True
+
     def upsert_trade_fact(self, document, unique_keys):
         for existing in self.trade_facts:
             if all(existing.get(key) == document.get(key) for key in unique_keys):
                 return existing, False
         self.trade_facts.append(document)
+        return document, True
+
+    def upsert_execution_fill(self, document, unique_keys):
+        for existing in self.execution_fills:
+            if all(existing.get(key) == document.get(key) for key in unique_keys):
+                return existing, False
+        self.execution_fills.append(dict(document))
         return document, True
 
     def find_order(self, internal_order_id):
@@ -68,6 +85,12 @@ class InMemoryRepository:
     def find_order_by_broker_order_id(self, broker_order_id):
         for order in self.orders:
             if str(order.get("broker_order_id")) == str(broker_order_id):
+                return order
+        return None
+
+    def find_broker_order(self, broker_order_key):
+        for order in self.broker_orders:
+            if order["broker_order_key"] == broker_order_key:
                 return order
         return None
 
@@ -137,21 +160,65 @@ class InMemoryRepository:
             return records
         return [item for item in records if item["symbol"] == symbol]
 
-    def insert_external_candidate(self, document):
-        self.external_candidates.append(document)
+    def insert_reconciliation_gap(self, document):
+        self.reconciliation_gaps.append(dict(document))
         return document
 
-    def list_external_candidates(self, state=None):
-        if state is None:
-            return list(self.external_candidates)
-        return [item for item in self.external_candidates if item["state"] == state]
+    def list_reconciliation_gaps(self, *, symbol=None, state=None):
+        rows = list(self.reconciliation_gaps)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if state is not None:
+            rows = [item for item in rows if item.get("state") == state]
+        return rows
 
-    def update_external_candidate(self, candidate_id, updates):
-        for item in self.external_candidates:
-            if item["candidate_id"] == candidate_id:
+    def update_reconciliation_gap(self, gap_id, updates):
+        for item in self.reconciliation_gaps:
+            if item["gap_id"] == gap_id:
                 item.update(updates)
                 return item
         return None
+
+    def insert_reconciliation_resolution(self, document):
+        self.reconciliation_resolutions.append(dict(document))
+        return document
+
+    def replace_position_entry(self, document):
+        self.position_entries.append(dict(document))
+        return document
+
+    def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+        rows = list(self.position_entries)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        if status is not None:
+            rows = [item for item in rows if item.get("status") == status]
+        return rows
+
+    def replace_entry_slices_for_entry(self, entry_id, slices):
+        self.entry_slices = [
+            item for item in self.entry_slices if item["entry_id"] != entry_id
+        ]
+        self.entry_slices.extend(dict(item) for item in slices)
+        return slices
+
+    def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+        rows = [
+            item for item in self.entry_slices if int(item.get("remaining_quantity") or 0) > 0
+        ]
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        return [dict(item) for item in rows]
+
+    def insert_exit_allocations(self, allocations):
+        self.exit_allocations.extend(dict(item) for item in allocations)
+        return allocations
 
 
 def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
@@ -226,7 +293,7 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
     assert runtime_logger.events[1]["internal_order_id"] == "ord_recon_1"
 
 
-def test_confirm_expired_candidates_emits_externalize_event(monkeypatch):
+def test_confirm_expired_candidates_emits_reconciliation_event(monkeypatch):
     monkeypatch.setattr(
         xt_reports_module,
         "_sync_stock_fills_compat",
@@ -270,7 +337,6 @@ def test_confirm_expired_candidates_emits_externalize_event(monkeypatch):
     service.confirm_expired_candidates(now=1030)
 
     assert [event["node"] for event in runtime_logger.events] == [
-        "externalize",
-        "projection_update",
+        "reconciliation",
     ]
     assert runtime_logger.events[0]["symbol"] == "000001"
