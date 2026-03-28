@@ -31,12 +31,6 @@ const formatPrice = (value) => {
   return Number.isInteger(parsed) ? parsed.toFixed(1) : String(parsed)
 }
 
-const formatAvgPrice = (value) => {
-  const parsed = toNullableNumber(value)
-  if (parsed === null) return '-'
-  return parsed.toFixed(3)
-}
-
 const formatInteger = (value) => {
   const parsed = toNullableNumber(value)
   if (parsed === null) return '-'
@@ -141,7 +135,7 @@ const buildBuyLotIdLabel = (value) => {
 const buildBuyLotMetaLabel = (row = {}, runtimeSummary = {}) => {
   const parts = []
   const dateTime = formatBuyLotDateTime(row)
-  const avgPriceLabel = formatAvgPrice(runtimeSummary?.avg_price)
+  const buyPriceLabel = formatPrice(row?.buy_price_real)
   const marketValueLabel = formatAmountWan(runtimeSummary?.position_amount)
   const originalQuantity = toNullableNumber(row?.original_quantity)
   const remainingQuantity = toNullableNumber(row?.remaining_quantity)
@@ -152,7 +146,7 @@ const buildBuyLotMetaLabel = (row = {}, runtimeSummary = {}) => {
   )
 
   if (dateTime) parts.push(dateTime)
-  if (avgPriceLabel !== '-') parts.push(`均价 ${avgPriceLabel}`)
+  if (buyPriceLabel !== '-') parts.push(`买入价 ${buyPriceLabel}`)
   if (marketValueLabel !== '-') parts.push(`市值 ${marketValueLabel}`)
   if (remainingPercentLabel !== '-') parts.push(`剩余 ${remainingPercentLabel}`)
 

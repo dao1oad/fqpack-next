@@ -71,6 +71,8 @@
 
 `om_trade_facts` 当前会保留 `trade_time` 以及同一笔成交对应的 `date/time`；旧的 `external_inferred` 历史 lot / slice 如果缺少 `date/time`，投影读取时会按已有 `trade_time` 回填，避免 Guardian 和持仓视图在消费投影时拿到 `None/None`。
 
+`external_inferred` 现在会把推断成交价直接写入 `om_trade_facts.price -> om_buy_lots.buy_price_real`。推断价优先级为：`xt_positions.last_price` -> `market_value / volume` 推导当前价 -> 最新 intraday `stock_realtime/index_realtime.close` -> 前一个交易日 `1d close`；只有这些实时/准实时来源都不可用时，才回退 `avg_price/open_price` 作为应急兜底，避免 buy lot 真值为空。
+
 当成交真正改变 open lots / open slices 时，XT ingest 会同步重建对应 symbol 的 `freshquant.stock_fills_compat`。这层镜像沿用 Guardian 旧 `stock_fills` 的“剩余买入 fill”语义，但真值仍来自 `om_buy_lots` / `om_lot_slices`。
 
 如果 XT callback 在进入标准 ingest 前就抛异常，`try_ingest_xt_trade_dict` / `try_ingest_xt_order_dict` 现在也会在 `xt_report_ingest.report_receive` 发出异常 step，不再只留下普通日志后直接吞掉。

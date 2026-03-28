@@ -259,6 +259,95 @@ def test_detect_external_candidates_from_position_delta():
     assert candidates[0]["pending_until"] == 1_030
 
 
+def test_detect_external_candidates_prefers_snapshot_last_price_over_avg_price():
+    repository, service = _build_service()
+
+    candidates = service.detect_external_candidates(
+        positions=[
+            {
+                "stock_code": "000001.SZ",
+                "volume": 200,
+                "avg_price": 10.5,
+                "last_price": 10.82,
+            },
+        ],
+        detected_at=1_000,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0]["price_estimate"] == pytest.approx(10.82)
+    assert candidates[0]["price_source"] == "position_last_price"
+    assert candidates[0]["price_asof"] == 1_000
+
+
+def test_candidate_observation_keeps_higher_quality_price_source():
+    updates = reconcile_service_module._build_candidate_observation_updates(
+        {
+            "candidate_id": "cand-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity_delta": 200,
+            "price_estimate": 10.82,
+            "price_source": "position_last_price",
+            "price_asof": 1_000,
+            "detected_at": 1_000,
+            "first_detected_at": 1_000,
+            "last_detected_at": 1_000,
+            "observed_count": 1,
+        },
+        observed={
+            "symbol": "000001",
+            "side": "buy",
+            "quantity_delta": 200,
+            "price_estimate": 10.11,
+            "price_source": "previous_close",
+            "price_asof": 900,
+        },
+        detected_at=1_015,
+        confirm_interval_seconds=15,
+        confirm_observations=3,
+    )
+
+    assert updates["price_estimate"] == pytest.approx(10.82)
+    assert updates["price_source"] == "position_last_price"
+    assert updates["price_asof"] == 1_000
+
+
+def test_resolve_inferred_price_falls_back_to_previous_close(monkeypatch):
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_latest_realtime_price_snapshot",
+        lambda _symbol, _position: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_previous_close_price_snapshot",
+        lambda _symbol, detected_at: {
+            "price_estimate": 9.76,
+            "price_source": "previous_close",
+            "price_asof": int(detected_at) - 1,
+        },
+        raising=False,
+    )
+
+    resolved = reconcile_service_module._resolve_inferred_price_snapshot(
+        "000001",
+        {
+            "stock_code": "000001.SZ",
+            "volume": 200,
+            "avg_price": None,
+            "last_price": None,
+            "open_price": None,
+        },
+        detected_at=1_000,
+    )
+
+    assert resolved["price_estimate"] == pytest.approx(9.76)
+    assert resolved["price_source"] == "previous_close"
+    assert resolved["price_asof"] == 999
+
+
 def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypatch):
     marks = []
     repository, service = _build_service(
