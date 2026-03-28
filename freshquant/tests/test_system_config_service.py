@@ -250,6 +250,10 @@ def test_system_config_service_dashboard_reads_bootstrap_and_mongo_settings(
     assert dashboard["settings"]["sections"][-1]["items"][-1]["key"] == (
         "position_management.single_symbol_position_limit"
     )
+    assert (
+        dashboard["settings"]["sections"][-1]["items"][-1]["label"],
+        dashboard["settings"]["sections"][-1]["items"][-1]["value"],
+    ) == ("单标的默认持仓上限", 880000.0)
     assert dashboard["settings"]["strategies"][0]["code"] == "Guardian"
 
 

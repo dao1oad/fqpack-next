@@ -159,7 +159,7 @@ SETTINGS_SECTION_META = {
         "items": [
             ("allow_open_min_bail", "允许开新仓最低保证金"),
             ("holding_only_min_bail", "仅允许持仓内买入最低保证金"),
-            ("single_symbol_position_limit", "单标的实时仓位上限"),
+            ("single_symbol_position_limit", "单标的默认持仓上限"),
         ],
     },
 }
