@@ -462,30 +462,16 @@
                             <section class="detail-ledger-section detail-ledger-section--full">
                               <div class="detail-ledger-section__title">Payload / Metrics</div>
                               <div class="detail-pane-grid detail-pane-grid--nested">
-                                <table class="detail-kv-table">
-                                  <tbody>
-                                    <tr v-if="!selectedStepPayloadRows.length">
-                                      <th>payload</th>
-                                      <td>-</td>
-                                    </tr>
-                                    <tr v-for="row in selectedStepPayloadRows" :key="`selected-step-payload-${row.key}`">
-                                      <th>{{ row.label }}</th>
-                                      <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                                <table class="detail-kv-table">
-                                  <tbody>
-                                    <tr v-if="!selectedStepMetricsRows.length">
-                                      <th>metrics</th>
-                                      <td>-</td>
-                                    </tr>
-                                    <tr v-for="row in selectedStepMetricsRows" :key="`selected-step-metrics-${row.key}`">
-                                      <th>{{ row.label }}</th>
-                                      <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
+                                <StructuredPayloadPanel
+                                  title="Payload"
+                                  empty-label="payload"
+                                  :entries="selectedStepPayloadEntries"
+                                />
+                                <StructuredPayloadPanel
+                                  title="Metrics"
+                                  empty-label="metrics"
+                                  :entries="selectedStepMetricsEntries"
+                                />
                               </div>
                               <div
                                 v-if="selectedStep.payload_text || selectedStep.metrics_text"
@@ -716,30 +702,16 @@
                           <section class="detail-ledger-section detail-ledger-section--full">
                             <div class="detail-ledger-section__title">Payload / Metrics</div>
                             <div class="detail-pane-grid detail-pane-grid--nested">
-                              <table class="detail-kv-table">
-                                <tbody>
-                                  <tr v-if="!eventPayloadRows.length">
-                                    <th>payload</th>
-                                    <td>-</td>
-                                  </tr>
-                                  <tr v-for="row in eventPayloadRows" :key="`event-payload-inline-${row.key}`">
-                                    <th>{{ row.label }}</th>
-                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                              <table class="detail-kv-table">
-                                <tbody>
-                                  <tr v-if="!eventMetricsRows.length">
-                                    <th>metrics</th>
-                                    <td>-</td>
-                                  </tr>
-                                  <tr v-for="row in eventMetricsRows" :key="`event-metrics-inline-${row.key}`">
-                                    <th>{{ row.label }}</th>
-                                    <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                  </tr>
-                                </tbody>
-                              </table>
+                              <StructuredPayloadPanel
+                                title="Payload"
+                                empty-label="payload"
+                                :entries="eventPayloadEntries"
+                              />
+                              <StructuredPayloadPanel
+                                title="Metrics"
+                                empty-label="metrics"
+                                :entries="eventMetricsEntries"
+                              />
                             </div>
                             <div class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw">
                               <section v-if="selectedEvent.payload_text" class="detail-json-section">
@@ -764,41 +736,27 @@
                       <template #label>
                         <div class="workspace-tab-label">
                           <span>载荷</span>
-                          <span class="tab-meta">{{ eventPayloadRows.length + eventMetricsRows.length }}</span>
+                          <span class="tab-meta">{{ eventPayloadEntries.length + eventMetricsEntries.length }}</span>
                         </div>
                       </template>
                       <section class="runtime-detail-panel runtime-detail-panel--fill event-detail-ledger">
                         <div class="detail-pane-grid">
                           <section class="detail-ledger-section">
                             <div class="detail-ledger-section__title">载荷字段</div>
-                            <table class="detail-kv-table">
-                              <tbody>
-                                <tr v-if="!eventPayloadRows.length">
-                                  <th>payload</th>
-                                  <td>-</td>
-                                </tr>
-                                <tr v-for="row in eventPayloadRows" :key="`event-payload-${row.key}`">
-                                  <th>{{ row.label }}</th>
-                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                </tr>
-                              </tbody>
-                            </table>
+                            <StructuredPayloadPanel
+                              title="Payload"
+                              empty-label="payload"
+                              :entries="eventPayloadEntries"
+                            />
                           </section>
 
                           <section class="detail-ledger-section">
                             <div class="detail-ledger-section__title">指标字段</div>
-                            <table class="detail-kv-table">
-                              <tbody>
-                                <tr v-if="!eventMetricsRows.length">
-                                  <th>metrics</th>
-                                  <td>-</td>
-                                </tr>
-                                <tr v-for="row in eventMetricsRows" :key="`event-metrics-${row.key}`">
-                                  <th>{{ row.label }}</th>
-                                  <td :class="{ 'is-mono': row.mono }">{{ row.value }}</td>
-                                </tr>
-                              </tbody>
-                            </table>
+                            <StructuredPayloadPanel
+                              title="Metrics"
+                              empty-label="metrics"
+                              :entries="eventMetricsEntries"
+                            />
                           </section>
                         </div>
                         <div class="detail-pane-grid detail-pane-grid--nested detail-pane-grid--raw">
@@ -922,6 +880,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
+import StructuredPayloadPanel from '../components/workbench/StructuredPayloadPanel.vue'
 import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
 import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
@@ -930,6 +889,7 @@ import StatusChip from '../components/workbench/StatusChip.vue'
 import WorkbenchSummaryRow from '../components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from './MyHeader.vue'
+import { buildStructuredPayloadEntries } from './runtimeObservabilityStructuredPayload.mjs'
 import {
   buildComponentEventFeed,
   buildComponentEventEmptyState,
@@ -1656,8 +1616,8 @@ const selectedStepErrorRows = computed(() =>
     },
   ]),
 )
-const selectedStepPayloadRows = computed(() => buildStructuredRows(selectedStep.value?.payload_text, 'payload'))
-const selectedStepMetricsRows = computed(() => buildStructuredRows(selectedStep.value?.metrics_text, 'metrics'))
+const selectedStepPayloadEntries = computed(() => buildStructuredPayloadEntries(selectedStep.value?.payload_text, 'payload'))
+const selectedStepMetricsEntries = computed(() => buildStructuredPayloadEntries(selectedStep.value?.metrics_text, 'metrics'))
 const eventMetaRows = computed(() =>
   buildDetailRows([
     {
@@ -1846,8 +1806,8 @@ const eventContextRows = computed(() => {
   }
   return buildStructuredRows(selectedEvent.value?.decision_context_text, 'context')
 })
-const eventPayloadRows = computed(() => buildStructuredRows(selectedEvent.value?.payload_text, 'payload'))
-const eventMetricsRows = computed(() => buildStructuredRows(selectedEvent.value?.metrics_text, 'metrics'))
+const eventPayloadEntries = computed(() => buildStructuredPayloadEntries(selectedEvent.value?.payload_text, 'payload'))
+const eventMetricsEntries = computed(() => buildStructuredPayloadEntries(selectedEvent.value?.metrics_text, 'metrics'))
 const embeddedRawLedgerRows = computed(() =>
   embeddedRawRecordCards.value.map((record, index) => ({
     key: `${record.title}-${index}`,

@@ -219,6 +219,7 @@ Runtime Observability 当前采用“双存储”：
   - `最慢节点`
   并在跳转后自动滚动到当前选中步骤
 - Trace 详情的 `步骤` tab 当前不再使用卡片式节点详情头块；当前选中节点统一使用高密度表格分区展示：
+- `Payload / Metrics` 当前不再复用通用 `detail-kv-table`；长机器串、长文本和空值统一走结构化字段面板，避免 `position_management_*` 这类超长字段在固定表格内重新出现文字重叠
   - `基础字段`
   - `Guardian 信号`
   - `判断字段`
