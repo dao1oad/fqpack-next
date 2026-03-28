@@ -542,6 +542,54 @@ def test_non_board_lot_gap_is_rejected_without_creating_entry(monkeypatch):
     assert repository.position_entries == []
     assert repository.entry_slices == []
     assert repository.reconciliation_resolutions[0]["resolution_type"] == "board_lot_rejected"
+    recreated = service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 150, "avg_price": 10.5}],
+        detected_at=1_045,
+    )
+    assert recreated == []
+    assert len(repository.reconciliation_gaps) == 1
+
+
+def test_sell_side_non_board_lot_gap_is_rejected_without_reducing_holdings(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    buy_lot = build_buy_lot_from_trade_fact(
+        {
+            "trade_fact_id": "trade_seed_buy_sell_odd",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 200,
+            "price": 10.0,
+            "trade_time": 1_000,
+            "date": 20240102,
+            "time": "09:31:00",
+        }
+    )
+    repository.insert_buy_lot(buy_lot)
+    repository.replace_lot_slices_for_lot(
+        buy_lot["buy_lot_id"],
+        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 50, "avg_price": 10.5}],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 50, "avg_price": 10.5}],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 50, "avg_price": 10.5}],
+        detected_at=1_030,
+    )
+
+    confirmed = service.confirm_expired_candidates(now=1_030)
+
+    assert len(confirmed) == 1
+    assert confirmed[0]["state"] == "REJECTED"
+    assert repository.buy_lots[0]["remaining_quantity"] == 200
+    assert repository.sell_allocations == []
+    assert repository.exit_allocations == []
+    assert repository.reconciliation_resolutions[0]["resolution_type"] == "board_lot_rejected"
 
 
 def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):

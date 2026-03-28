@@ -68,7 +68,8 @@ class ExternalOrderReconcileService:
     def detect_external_candidates(self, positions, detected_at):
         positions_by_symbol = _build_positions_by_symbol(positions)
         internal_by_symbol = _build_internal_remaining_by_symbol(self.repository)
-        pending_gaps = self.repository.list_reconciliation_gaps(state="OPEN")
+        pending_gaps = list(self.repository.list_reconciliation_gaps(state="OPEN"))
+        pending_gaps.extend(self.repository.list_reconciliation_gaps(state="REJECTED"))
         pending_index = _index_pending_gaps_by_symbol_side(pending_gaps)
         created = []
         observed_keys = set()
@@ -110,6 +111,33 @@ class ExternalOrderReconcileService:
                 )
                 continue
             observed_keys.add(key)
+            if gap.get("state") == "REJECTED":
+                observed_updates = {
+                    "quantity_delta": int(observed.get("quantity_delta") or 0),
+                    "price_estimate": observed.get("price_estimate") or 0.0,
+                    "last_detected_at": int(detected_at),
+                    "observed_count": int(gap.get("observed_count") or 1) + 1,
+                }
+                if _is_board_lot_delta(observed_updates["quantity_delta"]):
+                    observed_updates.update(
+                        {
+                            "state": "OPEN",
+                            "pending_until": _pending_until_for_observation(
+                                detected_at=int(detected_at),
+                                observed_count=1,
+                                confirm_interval_seconds=self.external_confirm_interval_seconds,
+                                confirm_observations=self.external_confirm_observations,
+                            ),
+                            "resolution_id": None,
+                            "resolution_type": None,
+                            "confirmed_at": None,
+                        }
+                    )
+                self.repository.update_reconciliation_gap(
+                    gap["gap_id"],
+                    observed_updates,
+                )
+                continue
             updates = _build_gap_observation_updates(
                 gap,
                 observed=observed,
@@ -466,6 +494,27 @@ class ExternalOrderReconcileService:
     def _confirm_close_gap(self, gap, *, now):
         remaining = int(gap.get("quantity_delta") or 0)
         resolution_id = new_reconciliation_resolution_id()
+        if remaining <= 0 or not _is_board_lot_delta(remaining):
+            resolution = {
+                "resolution_id": resolution_id,
+                "gap_id": gap["gap_id"],
+                "resolution_type": "board_lot_rejected",
+                "resolved_quantity": remaining,
+                "resolved_price": float(gap.get("price_estimate") or 0.0),
+                "resolved_at": int(now),
+                "source_ref_type": "reconciliation_gap",
+                "source_ref_id": gap["gap_id"],
+            }
+            self.repository.insert_reconciliation_resolution(resolution)
+            return self.repository.update_reconciliation_gap(
+                gap["gap_id"],
+                {
+                    "state": "REJECTED",
+                    "confirmed_at": int(now),
+                    "resolution_id": resolution_id,
+                    "resolution_type": resolution["resolution_type"],
+                },
+            )
         entry_allocations = []
         if remaining > 0:
             remaining, entry_allocations = _allocate_gap_to_entry_slices(
@@ -955,6 +1004,10 @@ def _resolve_entry_status(remaining_quantity, original_quantity):
     if int(remaining_quantity or 0) >= int(original_quantity or 0):
         return "OPEN"
     return "PARTIALLY_EXITED"
+
+
+def _is_board_lot_delta(quantity):
+    return int(quantity or 0) > 0 and int(quantity or 0) % 100 == 0
 
 
 _runtime_logger = None
