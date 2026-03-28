@@ -218,7 +218,7 @@ function cloneSubjectPanelPositionLimitDraft(draft = {}) {
 function cloneSubjectPanelStoplossDrafts(rows = []) {
   return Object.fromEntries(
     (Array.isArray(rows) ? rows : []).map((row) => [
-      row.buy_lot_id,
+      row.entry_id,
       {
         stop_price: row?.stoploss?.stop_price ?? null,
         enabled: Boolean(row?.stoploss?.enabled)
@@ -232,7 +232,7 @@ function applySubjectPanelDetailState(state, detail) {
   state.lastSubjectSymbol = detail?.symbol || ''
   state.mustPoolDraft = cloneSubjectPanelMustPoolDraft(detail?.mustPool || {})
   state.positionLimitDraft = cloneSubjectPanelPositionLimitDraft(detail?.positionLimit || {})
-  state.stoplossDrafts = cloneSubjectPanelStoplossDrafts(detail?.buyLots || [])
+  state.stoplossDrafts = cloneSubjectPanelStoplossDrafts(detail?.entries || [])
 }
 
 function resetSubjectPanelState(state, { preserveOpen = false } = {}) {
@@ -1126,33 +1126,33 @@ export default {
         this.subjectPanelState.savingSubjectConfigBundle = false
       }
     },
-    async handleSaveSubjectStoploss(buyLotId) {
-      if (!buyLotId) {
+    async handleSaveSubjectStoploss(entryId) {
+      if (!entryId) {
         return
       }
-      const draft = this.subjectPanelState.stoplossDrafts?.[buyLotId] || {}
+      const draft = this.subjectPanelState.stoplossDrafts?.[entryId] || {}
       if (draft.enabled) {
         const parsedPrice = Number(draft.stop_price)
         if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
-          this.$message?.warning?.(`开启止损前请先填写 ${buyLotId} 的 stop_price`)
+          this.$message?.warning?.(`开启止损前请先填写 ${entryId} 的 stop_price`)
           return
         }
       }
 
       this.subjectPanelState.savingStoploss = {
         ...this.subjectPanelState.savingStoploss,
-        [buyLotId]: true
+        [entryId]: true
       }
       try {
-        await this.subjectPanelActions.saveStoploss(buyLotId, draft)
+        await this.subjectPanelActions.saveStoploss(entryId, draft)
         await this.loadSubjectPanelDetail({ force: true })
-        this.$message?.success?.(`止损已更新 ${buyLotId}`)
+        this.$message?.success?.(`止损已更新 ${entryId}`)
       } catch (error) {
         this.subjectPanelState.pageError = resolvePanelErrorMessage(error, '止损保存失败')
       } finally {
         this.subjectPanelState.savingStoploss = {
           ...this.subjectPanelState.savingStoploss,
-          [buyLotId]: false
+          [entryId]: false
         }
       }
     },

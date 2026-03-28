@@ -293,45 +293,45 @@
               <section class="price-panel-section">
                 <div class="price-panel-section-header">
                   <div class="price-panel-section-title-wrap">
-                    <span class="price-panel-section-title">按 buy lot 止损</span>
-                    <span class="price-panel-section-note">只对 open buy lot 生效，按行保存</span>
+                    <span class="price-panel-section-title">按持仓入口止损</span>
+                    <span class="price-panel-section-note">只对 open entry 生效，按行保存</span>
                   </div>
                   <StatusChip class="price-panel-summary-status-chip" variant="muted">
-                    {{ (subjectPanelState.subjectPanelDetail.buyLots || []).length }} 条
+                    {{ (subjectPanelState.subjectPanelDetail.entries || []).length }} 条
                   </StatusChip>
                 </div>
 
-                <div v-if="!(subjectPanelState.subjectPanelDetail.buyLots || []).length" class="subject-panel-empty">
-                  暂无 open buy lot
+                <div v-if="!(subjectPanelState.subjectPanelDetail.entries || []).length" class="subject-panel-empty">
+                  暂无 open entry
                 </div>
                 <div v-else class="subject-panel-stoploss-list">
                   <div
-                    v-for="row in subjectPanelState.subjectPanelDetail.buyLots"
-                    :key="row.buy_lot_id"
+                    v-for="row in subjectPanelState.subjectPanelDetail.entries"
+                    :key="row.entry_id"
                     class="subject-panel-stoploss-row"
                   >
                     <div class="subject-panel-stoploss-head">
                       <div class="subject-panel-stoploss-title-wrap">
-                        <span class="subject-panel-stoploss-title">{{ row.buyLotDisplayLabel }}</span>
-                        <span class="subject-panel-stoploss-id" :title="row.buy_lot_id">{{ row.buyLotIdLabel }}</span>
+                        <span class="subject-panel-stoploss-title">{{ row.entryDisplayLabel }}</span>
+                        <span class="subject-panel-stoploss-id" :title="row.entry_id">{{ row.entryIdLabel }}</span>
                       </div>
-                      <span class="price-panel-state-chip" :class="{ active: subjectPanelState.stoplossDrafts[row.buy_lot_id].enabled }">
-                        {{ subjectPanelState.stoplossDrafts[row.buy_lot_id].enabled ? '生效中' : '未启用' }}
+                      <span class="price-panel-state-chip" :class="{ active: subjectPanelState.stoplossDrafts[row.entry_id].enabled }">
+                        {{ subjectPanelState.stoplossDrafts[row.entry_id].enabled ? '生效中' : '未启用' }}
                       </span>
                     </div>
 
-                    <span class="subject-panel-stoploss-meta" :title="row.buy_lot_id">{{ row.buyLotMetaLabel }}</span>
+                    <span class="subject-panel-stoploss-meta" :title="row.entry_id">{{ row.entryMetaLabel }}</span>
 
                     <div class="subject-panel-stoploss-editor">
                       <el-input-number
-                        v-model="subjectPanelState.stoplossDrafts[row.buy_lot_id].stop_price"
+                        v-model="subjectPanelState.stoplossDrafts[row.entry_id].stop_price"
                         size="small"
                         :min="0"
                         :step="0.01"
                         controls-position="right"
                       />
                       <el-switch
-                        v-model="subjectPanelState.stoplossDrafts[row.buy_lot_id].enabled"
+                        v-model="subjectPanelState.stoplossDrafts[row.entry_id].enabled"
                         size="small"
                         inline-prompt
                         active-text="开"
@@ -341,8 +341,8 @@
                         size="small"
                         type="primary"
                         text
-                        :loading="subjectPanelState.savingStoploss[row.buy_lot_id]"
-                        @click="handleSaveSubjectStoploss(row.buy_lot_id)"
+                        :loading="subjectPanelState.savingStoploss[row.entry_id]"
+                        @click="handleSaveSubjectStoploss(row.entry_id)"
                       >
                         保存
                       </el-button>

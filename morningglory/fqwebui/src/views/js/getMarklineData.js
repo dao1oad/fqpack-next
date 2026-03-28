@@ -4,6 +4,7 @@ import echartsConfig from './echartsConfig'
 export default (vueComp, klineData) => {
   const query = vueComp.$route.query
   const markLineData = []
+  const entryLedger = klineData.entry_ledger || klineData.stock_fills
   // 当前价格
   vueComp.currentPrice = klineData.close[klineData.close.length - 1]
   // 1手需要的保证金
@@ -19,12 +20,12 @@ export default (vueComp, klineData) => {
             vueComp.marginLevel
     ).toFixed(2)
   }
-  if (klineData.stock_fills) {
+  if (entryLedger) {
     // 跟据最新价格计算出来的信息
     let profitQuantity = 0
     let profitAmount = 0.0
     let color = echartsConfig.currentPriceColor
-    for (const fill of klineData.stock_fills) {
+    for (const fill of entryLedger) {
       if (vueComp.currentPrice > fill.price) {
         profitQuantity = profitQuantity + fill.quantity
         profitAmount = profitAmount + fill.quantity * (vueComp.currentPrice - fill.price)
@@ -55,8 +56,8 @@ export default (vueComp, klineData) => {
     }
     markLineData.push(markLineCurrent)
   }
-  if (klineData.stock_fills) {
-    const stockFills = _.reduce(klineData.stock_fills, (acc, cur) => {
+  if (entryLedger) {
+    const stockFills = _.reduce(entryLedger, (acc, cur) => {
       const item = _.find(acc, item => item.date === cur.date)
       if (item) {
         item.quantity = item.quantity + cur.quantity

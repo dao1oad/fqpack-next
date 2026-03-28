@@ -236,6 +236,8 @@ def get_stock_fill_list(symbol):
     records = _get_compat_stock_fill_list(symbol)
     if records:
         return records
+    if not _allow_legacy_runtime_fallback():
+        return None
     return _get_legacy_stock_fill_list(symbol)
 
 
@@ -300,6 +302,8 @@ def get_arranged_stock_fill_list(symbol):
     records = _get_compat_arranged_stock_fill_list(symbol)
     if records:
         return records
+    if not _allow_legacy_runtime_fallback():
+        return None
     return _get_legacy_arranged_stock_fill_list(symbol)
 
 
@@ -371,6 +375,14 @@ def _compare_with_legacy_arranged_fill_list(symbol, projected_records):
         logger.warning(
             "order_management arranged fills differ from legacy for {}", symbol
         )
+
+
+def _allow_legacy_runtime_fallback():
+    return bool(
+        settings.get("order_management", {}).get(
+            "enable_legacy_stock_fill_runtime_fallback", False
+        )
+    )
 
 
 def _normalize_records_for_compare(records):

@@ -31,6 +31,12 @@ const formatPrice = (value) => {
   return Number.isInteger(parsed) ? parsed.toFixed(1) : String(parsed)
 }
 
+const formatAvgPrice = (value) => {
+  const parsed = toNullableNumber(value)
+  if (parsed === null) return '-'
+  return parsed.toFixed(3)
+}
+
 const formatInteger = (value) => {
   const parsed = toNullableNumber(value)
   if (parsed === null) return '-'
@@ -121,21 +127,21 @@ const formatCompactTime = (value) => {
   return formatBeijingDateTimeParts('', value, '')
 }
 
-const formatBuyLotDateTime = (row = {}) => {
+const formatEntryDateTime = (row = {}) => {
   return formatBeijingDateTimeParts(formatCompactDate(row?.date), row?.time, '')
 }
 
-const buildBuyLotIdLabel = (value) => {
+const buildEntryIdLabel = (value) => {
   const text = toText(value)
   if (!text) return 'ID -'
   if (text.length <= 12) return `ID ${text}`
   return `ID 尾号 ${text.slice(-6)}`
 }
 
-const buildBuyLotMetaLabel = (row = {}, runtimeSummary = {}) => {
+const buildEntryMetaLabel = (row = {}, runtimeSummary = {}) => {
   const parts = []
-  const dateTime = formatBuyLotDateTime(row)
-  const buyPriceLabel = formatPrice(row?.buy_price_real)
+  const dateTime = formatEntryDateTime(row)
+  const avgPriceLabel = formatAvgPrice(runtimeSummary?.avg_price)
   const marketValueLabel = formatAmountWan(runtimeSummary?.position_amount)
   const originalQuantity = toNullableNumber(row?.original_quantity)
   const remainingQuantity = toNullableNumber(row?.remaining_quantity)
@@ -146,27 +152,31 @@ const buildBuyLotMetaLabel = (row = {}, runtimeSummary = {}) => {
   )
 
   if (dateTime) parts.push(dateTime)
-  if (buyPriceLabel !== '-') parts.push(`买入价 ${buyPriceLabel}`)
+  if (avgPriceLabel !== '-') parts.push(`均价 ${avgPriceLabel}`)
   if (marketValueLabel !== '-') parts.push(`市值 ${marketValueLabel}`)
   if (remainingPercentLabel !== '-') parts.push(`剩余 ${remainingPercentLabel}`)
 
-  return parts.join(' · ') || '暂无买入信息'
+  return parts.join(' · ') || '暂无持仓入口信息'
 }
 
-const buildBuyLots = (rows = [], runtimeSummary = {}) => {
+const buildEntries = (rows = [], runtimeSummary = {}) => {
   return (Array.isArray(rows) ? rows : []).map((row, index) => {
     const stoploss = row?.stoploss || {}
+    const entryPrice = row?.entry_price ?? row?.buy_price_real
     return {
       ...row,
+      entry_id: toText(row?.entry_id),
+      entry_price: entryPrice,
+      entry_price_label: formatPrice(entryPrice),
       stoploss: {
         stop_price: toNullableNumber(stoploss?.stop_price),
         ratio: toNullableNumber(stoploss?.ratio),
         enabled: Boolean(stoploss?.enabled),
       },
       stoplossLabel: formatPrice(stoploss?.stop_price),
-      buyLotDisplayLabel: `第 ${index + 1} 笔买入`,
-      buyLotIdLabel: buildBuyLotIdLabel(row?.buy_lot_id),
-      buyLotMetaLabel: buildBuyLotMetaLabel(row, runtimeSummary),
+      entryDisplayLabel: `第 ${index + 1} 笔持仓入口`,
+      entryIdLabel: buildEntryIdLabel(row?.entry_id),
+      entryMetaLabel: buildEntryMetaLabel(row, runtimeSummary),
     }
   })
 }
@@ -181,7 +191,7 @@ export const buildOverviewRows = (rows = []) => {
       const takeprofitSummary = buildTakeprofitSummary(row?.takeprofit?.tiers || [])
       const positionLimitSummary = normalizePositionLimitSummary(row?.position_limit_summary || {})
       const activeStoplossCount = toNumber(stoploss?.active_count)
-      const openBuyLotCount = toNumber(stoploss?.open_buy_lot_count)
+      const openEntryCount = toNumber(stoploss?.open_entry_count)
       const hasMustPoolConfig = Boolean(
         mustPool.category
         || mustPool.stop_loss_price !== null
@@ -210,7 +220,7 @@ export const buildOverviewRows = (rows = []) => {
           `首 ${formatInteger(mustPool.initial_lot_amount)}`,
           `常 ${formatInteger(mustPool.lot_amount)}`,
         ].join(' / '),
-        stoplossSummaryLabel: `${activeStoplossCount} / ${openBuyLotCount}`,
+        stoplossSummaryLabel: `${activeStoplossCount} / ${openEntryCount}`,
         positionLimitSummary,
         positionLimitSummaryLabel: [
           formatAmountWan(positionLimitSummary.market_value),
@@ -227,7 +237,7 @@ export const buildOverviewRows = (rows = []) => {
         position_quantity: toNumber(runtime?.position_quantity),
         position_amount: toNullableNumber(runtime?.position_amount),
         stoplossActiveCount: activeStoplossCount,
-        openBuyLotCount,
+        openEntryCount,
         hasMustPoolConfig,
         hasTakeprofitConfig: Array.isArray(row?.takeprofit?.tiers) && row.takeprofit.tiers.length > 0,
         hasActiveStoploss: activeStoplossCount > 0,
@@ -237,6 +247,8 @@ export const buildOverviewRows = (rows = []) => {
     .sort((left, right) => {
       const holdingDiff = Number(right.has_position) - Number(left.has_position)
       if (holdingDiff !== 0) return holdingDiff
+      const amountDiff = (right.position_amount ?? 0) - (left.position_amount ?? 0)
+      if (amountDiff !== 0) return amountDiff
       const quantityDiff = right.position_quantity - left.position_quantity
       if (quantityDiff !== 0) return quantityDiff
       return left.symbol.localeCompare(right.symbol)
@@ -272,7 +284,7 @@ export const buildDetailViewModel = (detail = {}) => {
     },
     takeprofitDrafts: priceDetail.takeprofitDrafts,
     runtimeSummary,
-    buyLots: buildBuyLots(detail?.buy_lots || [], runtimeSummary),
+    entries: buildEntries(detail?.entries || [], runtimeSummary),
     positionManagementSummary,
     positionLimitSummary,
   }
@@ -351,8 +363,8 @@ export const buildDetailSummaryChips = (detail = {}) => {
   const takeprofitDrafts = Array.isArray(detail?.takeprofitDrafts) ? detail.takeprofitDrafts : []
   const takeprofitVisible = takeprofitDrafts.filter((row) => row.level <= 3)
   const takeprofitEnabledCount = takeprofitVisible.filter((row) => row.manual_enabled && row.price !== null).length
-  const buyLots = Array.isArray(detail?.buyLots) ? detail.buyLots : []
-  const activeStoplossCount = buyLots.filter((row) => row?.stoploss?.enabled).length
+  const entries = Array.isArray(detail?.entries) ? detail.entries : []
+  const activeStoplossCount = entries.filter((row) => row?.stoploss?.enabled).length
   const positionQuantity = toNumber(detail?.runtimeSummary?.position_quantity)
   const pmState = toText(detail?.positionManagementSummary?.effective_state) || '-'
 
@@ -394,7 +406,7 @@ export const buildDetailSummaryChips = (detail = {}) => {
     {
       key: 'stoploss_active_count',
       label: '止损',
-      value: `${activeStoplossCount} / ${buyLots.length}`,
+      value: `${activeStoplossCount} / ${entries.length}`,
       tone: activeStoplossCount > 0 ? 'danger' : 'muted',
     },
     {
@@ -443,9 +455,9 @@ export const createSubjectManagementActions = (api) => ({
       tiers: buildTakeprofitPayload(tiers),
     })
   },
-  async saveStoploss (buyLotId, payload = {}) {
+  async saveStoploss (entryId, payload = {}) {
     return api.bindStoploss({
-      buy_lot_id: buyLotId,
+      entry_id: entryId,
       ...payload,
     })
   },

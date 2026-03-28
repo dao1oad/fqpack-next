@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from freshquant.db import DBfreshquant
+from freshquant.order_management.entry_adapter import list_open_entry_views
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.util.code import normalize_to_base_code
 
@@ -43,9 +44,9 @@ def list_compat_stock_fill_rows(symbol=None, database=None):
     return list(collection.find(query))
 
 
-def build_compat_stock_fill_records(buy_lots):
+def build_compat_stock_fill_records(entries):
     rows = []
-    for buy_lot in buy_lots or []:
+    for buy_lot in entries or []:
         symbol = _normalize_optional_symbol(
             buy_lot.get("symbol") or buy_lot.get("stock_code") or buy_lot.get("code")
         )
@@ -101,7 +102,11 @@ class StockFillsCompatibilityService:
 
         collection = _get_stock_fills_compat_collection(self.database)
         rows = build_compat_stock_fill_records(
-            self.repository.list_buy_lots(normalized_symbol) or []
+            list_open_entry_views(
+                symbol=normalized_symbol,
+                repository=self.repository,
+            )
+            or []
         )
         collection.delete_many({"symbol": normalized_symbol})
         if rows:
@@ -136,7 +141,11 @@ class StockFillsCompatibilityService:
             }
 
         projected_rows = build_compat_stock_fill_records(
-            self.repository.list_buy_lots(normalized_symbol) or []
+            list_open_entry_views(
+                symbol=normalized_symbol,
+                repository=self.repository,
+            )
+            or []
         )
         compat_rows = list_compat_stock_fill_rows(
             symbol=normalized_symbol,
@@ -282,7 +291,7 @@ def _collect_sync_symbols(symbols, *, repository, database):
             if normalized_symbol:
                 normalized_symbols.add(normalized_symbol)
     else:
-        for buy_lot in repository.list_buy_lots() or []:
+        for buy_lot in list_open_entry_views(repository=repository) or []:
             normalized_symbol = _normalize_optional_symbol(
                 buy_lot.get("symbol")
                 or buy_lot.get("stock_code")

@@ -67,7 +67,8 @@ class OrderManagementReadService:
         order_id = str(internal_order_id or "").strip()
         if not order_id:
             raise ValueError("order not found")
-        order = _sanitize_document(self.repository.find_order(order_id))
+        broker_order = _sanitize_document(self._find_broker_order(order_id))
+        order = broker_order
         if order is None:
             raise ValueError("order not found")
         request = _sanitize_document(
@@ -82,24 +83,27 @@ class OrderManagementReadService:
             ],
             key=lambda item: item.get("created_at") or "",
         )
-        trades = sorted(
+        fills = sorted(
             [
                 _sanitize_document(item)
-                for item in self.repository.list_trade_facts(
-                    internal_order_ids=[order_id]
+                for item in self._list_execution_fills(
+                    broker_order.get("broker_order_key") or order_id,
+                    internal_order_id=order_id,
                 )
             ],
             key=lambda item: (
                 str(item.get("trade_time") or ""),
-                item.get("trade_fact_id") or "",
+                item.get("execution_fill_id") or "",
             ),
         )
         assembled_order = _assemble_order_row(order, request)
         return {
             "order": assembled_order,
+            "broker_order": dict(broker_order or {}),
             "request": dict(request or {}),
             "events": [dict(item) for item in events],
-            "trades": [dict(item) for item in trades],
+            "fills": [dict(item) for item in fills],
+            "trades": [dict(item) for item in fills],
             "identifiers": {
                 "trace_id": assembled_order.get("trace_id"),
                 "intent_id": assembled_order.get("intent_id"),
@@ -216,7 +220,7 @@ class OrderManagementReadService:
         normalized_internal_order_id = _normalize_optional_text(internal_order_id)
         normalized_broker_order_id = _normalize_optional_text(broker_order_id)
 
-        orders = self.repository.list_orders(
+        orders = self._list_broker_orders(
             symbol=normalized_symbol,
             states=states or None,
             missing_broker_only=bool(missing_broker_only),
@@ -288,6 +292,44 @@ class OrderManagementReadService:
         rows.sort(key=_order_sort_key, reverse=True)
         return rows
 
+    def _list_broker_orders(self, *, symbol, states, missing_broker_only):
+        if hasattr(self.repository, "list_broker_orders"):
+            orders = self.repository.list_broker_orders(
+                symbol=symbol,
+                states=states,
+            )
+        else:
+            orders = self.repository.list_orders(
+                symbol=symbol,
+                states=states,
+                missing_broker_only=False,
+            )
+        if missing_broker_only:
+            orders = [
+                item for item in orders if item.get("broker_order_id") in (None, "")
+            ]
+        return orders
+
+    def _find_broker_order(self, internal_order_id):
+        if hasattr(self.repository, "find_broker_order"):
+            order = self.repository.find_broker_order(internal_order_id)
+            if order is not None:
+                return order
+        if hasattr(self.repository, "list_broker_orders"):
+            for item in self.repository.list_broker_orders():
+                if item.get("internal_order_id") == internal_order_id:
+                    return item
+                if str(item.get("broker_order_id") or "").strip() == internal_order_id:
+                    return item
+        return self.repository.find_order(internal_order_id)
+
+    def _list_execution_fills(self, broker_order_key, *, internal_order_id):
+        if hasattr(self.repository, "list_execution_fills"):
+            return self.repository.list_execution_fills(
+                broker_order_keys=[broker_order_key]
+            )
+        return self.repository.list_trade_facts(internal_order_ids=[internal_order_id])
+
 
 def _assemble_order_row(order, request):
     order_row = _sanitize_document(order or {})
@@ -313,7 +355,7 @@ def _assemble_order_row(order, request):
             transform=str.upper,
         ),
         "price": request_row.get("price"),
-        "quantity": request_row.get("quantity"),
+        "quantity": order_row.get("requested_quantity") or request_row.get("quantity"),
         "remark": _normalize_optional_text(request_row.get("remark")),
         "scope_type": _normalize_optional_text(request_row.get("scope_type")),
         "scope_ref_id": _normalize_optional_text(request_row.get("scope_ref_id")),

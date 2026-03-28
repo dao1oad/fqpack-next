@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from freshquant.order_management.entry_adapter import (
+    list_entry_stoploss_bindings_compat,
+    list_open_entry_slices_compat,
+    list_open_entry_views,
+)
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.tpsl.repository import TpslRepository
 from freshquant.tpsl.takeprofit_service import TakeprofitService
@@ -24,6 +29,7 @@ class TpslManagementService:
         order_repository=None,
         position_loader=None,
         symbol_position_loader=None,
+        entry_view_loader=None,
         stock_fills_loader=None,
     ):
         self.tpsl_repository = tpsl_repository or TpslRepository()
@@ -35,7 +41,13 @@ class TpslManagementService:
         self.symbol_position_loader = (
             symbol_position_loader or _default_symbol_position_loader
         )
-        self.stock_fills_loader = stock_fills_loader or _default_stock_fills_loader
+        self.entry_view_loader = entry_view_loader or (
+            lambda symbol: list_open_entry_views(
+                symbol=_clean_optional_symbol(symbol),
+                repository=self.order_repository,
+            )
+        )
+        self.stock_fills_loader = stock_fills_loader
 
     def get_overview(self):
         positions = self._load_positions()
@@ -44,15 +56,29 @@ class TpslManagementService:
             for item in self.tpsl_repository.list_takeprofit_profiles()
             if item.get("symbol")
         }
-        bindings = self.order_repository.list_stoploss_bindings(enabled=None)
+        bindings = list_entry_stoploss_bindings_compat(
+            enabled=None,
+            repository=self.order_repository,
+        )
         active_stoploss_counts = {}
         for binding in bindings:
             symbol = _normalize_symbol(binding.get("symbol"))
             if not symbol or not bool(binding.get("enabled")):
                 continue
             active_stoploss_counts[symbol] = active_stoploss_counts.get(symbol, 0) + 1
+        open_entry_counts = {}
+        for entry in self.entry_view_loader(None):
+            symbol = _normalize_symbol(entry.get("symbol"))
+            if not symbol or int(entry.get("remaining_quantity") or 0) <= 0:
+                continue
+            open_entry_counts[symbol] = open_entry_counts.get(symbol, 0) + 1
 
-        symbols = set(positions) | set(profile_map) | set(active_stoploss_counts)
+        symbols = (
+            set(positions)
+            | set(profile_map)
+            | set(active_stoploss_counts)
+            | set(open_entry_counts)
+        )
         latest_events = {}
         if symbols:
             if hasattr(
@@ -91,15 +117,17 @@ class TpslManagementService:
                         profile.get("tiers")
                     ),
                     "has_active_stoploss": active_stoploss_counts.get(symbol, 0) > 0,
-                    "active_stoploss_buy_lot_count": active_stoploss_counts.get(
+                    "active_stoploss_entry_count": active_stoploss_counts.get(
                         symbol, 0
                     ),
+                    "open_entry_count": open_entry_counts.get(symbol, 0),
                     "last_trigger": latest_events.get(symbol),
                 }
             )
         rows.sort(
             key=lambda item: (
                 -(1 if int(item.get("position_quantity") or 0) > 0 else 0),
+                -float(item.get("position_amount") or 0.0),
                 -int(item.get("position_quantity") or 0),
                 item["symbol"],
             )
@@ -124,33 +152,49 @@ class TpslManagementService:
             takeprofit = self.takeprofit_service.get_profile_with_state(
                 normalized_symbol
             )
-        stock_fills = _normalize_stock_fills(self.stock_fills_loader(normalized_symbol))
-
         bindings = {
-            item["buy_lot_id"]: item
-            for item in self.order_repository.list_stoploss_bindings(
+            item["entry_id"]: item
+            for item in list_entry_stoploss_bindings_compat(
                 symbol=normalized_symbol,
                 enabled=None,
+                repository=self.order_repository,
             )
-            if item.get("buy_lot_id")
+            if item.get("entry_id")
         }
-
-        buy_lots = []
-        for item in self.order_repository.list_buy_lots(normalized_symbol):
+        entries = []
+        for item in self.entry_view_loader(normalized_symbol):
             if int(item.get("remaining_quantity") or 0) <= 0:
                 continue
-            buy_lot = dict(item)
-            buy_lot["sell_history"] = list(buy_lot.get("sell_history") or [])
-            buy_lot["stoploss"] = bindings.get(item["buy_lot_id"])
-            buy_lots.append(buy_lot)
-        buy_lots.sort(
-            key=lambda item: (int(item.get("date") or 0), str(item.get("time") or "")),
+            entry = dict(item)
+            entry["sell_history"] = list(entry.get("sell_history") or [])
+            entry["stoploss"] = bindings.get(item["entry_id"])
+            entries.append(entry)
+        entries.sort(
+            key=lambda item: (
+                int(item.get("trade_time") or 0),
+                int(item.get("date") or 0),
+                str(item.get("time") or ""),
+            ),
             reverse=True,
+        )
+        entry_slices = _normalize_entry_slices(
+            list_open_entry_slices_compat(
+                symbol=normalized_symbol,
+                repository=self.order_repository,
+            )
+        )
+        reconciliation = _build_reconciliation_view(
+            normalized_symbol,
+            repository=self.order_repository,
+            broker_quantity=int(position.get("quantity") or 0),
+            ledger_quantity=sum(
+                int(item.get("remaining_quantity") or 0) for item in entries
+            ),
         )
 
         name = (
             position.get("name")
-            or (buy_lots[0].get("name") if buy_lots else "")
+            or (entries[0].get("name") if entries else "")
             or str(((takeprofit or {}).get("name") or "")).strip()
         )
         return _make_json_safe(
@@ -165,8 +209,9 @@ class TpslManagementService:
                     "market_value_source": symbol_position.get("market_value_source"),
                 },
                 "takeprofit": takeprofit,
-                "stock_fills": stock_fills,
-                "buy_lots": buy_lots,
+                "entries": entries,
+                "entry_slices": entry_slices,
+                "reconciliation": reconciliation,
                 "history": self.list_history(
                     symbol=normalized_symbol,
                     limit=history_limit,
@@ -179,13 +224,13 @@ class TpslManagementService:
         *,
         symbol=None,
         kind=None,
-        buy_lot_id=None,
+        entry_id=None,
         batch_id=None,
         limit=50,
     ):
         normalized_symbol = _clean_optional_symbol(symbol)
         normalized_kind = _clean_optional_text(kind)
-        normalized_buy_lot_id = _clean_optional_text(buy_lot_id)
+        normalized_entry_id = _clean_optional_text(entry_id)
         normalized_batch_id = _clean_optional_text(batch_id)
         rows = self.tpsl_repository.list_exit_trigger_events(
             symbol=normalized_symbol,
@@ -197,8 +242,8 @@ class TpslManagementService:
             normalized = _normalize_event(row)
             if normalized_kind and normalized["kind"] != normalized_kind:
                 continue
-            if normalized_buy_lot_id and not _event_matches_buy_lot(
-                normalized, normalized_buy_lot_id
+            if normalized_entry_id and not _event_matches_entry(
+                normalized, normalized_entry_id
             ):
                 continue
             history.append(normalized)
@@ -356,10 +401,102 @@ def _default_symbol_position_loader(symbol):
     return PositionManagementRepository().get_symbol_snapshot(_normalize_symbol(symbol))
 
 
-def _default_stock_fills_loader(symbol):
-    from freshquant.data.astock.holding import get_stock_fills
+def _normalize_entry_slices(rows):
+    normalized = []
+    for item in list(rows or []):
+        row = {key: _coerce_json_scalar(value) for key, value in dict(item).items()}
+        normalized.append(row)
+    normalized.sort(
+        key=lambda item: (
+            float(item.get("guardian_price") or 0.0),
+            int(item.get("slice_seq") or 0),
+            str(item.get("entry_slice_id") or ""),
+        ),
+        reverse=True,
+    )
+    return normalized
 
-    return get_stock_fills(_normalize_symbol(symbol))
+
+def _build_reconciliation_view(symbol, *, repository, broker_quantity, ledger_quantity):
+    if not hasattr(repository, "list_reconciliation_gaps"):
+        return {
+            "symbol": symbol,
+            "broker_quantity": int(broker_quantity or 0),
+            "ledger_quantity": int(ledger_quantity or 0),
+            "signed_gap_quantity": int(broker_quantity or 0)
+            - int(ledger_quantity or 0),
+            "open_gap_count": 0,
+            "rejected_gap_count": 0,
+            "latest_resolution_type": "",
+            "state": (
+                "aligned"
+                if int(broker_quantity or 0) == int(ledger_quantity or 0)
+                else "drift"
+            ),
+            "rows": [],
+        }
+
+    rows = []
+    gap_rows = list(repository.list_reconciliation_gaps(symbol=symbol) or [])
+    gap_ids = [item.get("gap_id") for item in gap_rows if item.get("gap_id")]
+    resolution_rows = []
+    if gap_ids and hasattr(repository, "list_reconciliation_resolutions"):
+        resolution_rows = list(
+            repository.list_reconciliation_resolutions(gap_ids=gap_ids) or []
+        )
+    latest_resolution = None
+    for item in resolution_rows:
+        resolved_at = str(item.get("resolved_at") or "")
+        if latest_resolution is None or resolved_at > str(
+            latest_resolution.get("resolved_at") or ""
+        ):
+            latest_resolution = item
+
+    signed_gap_quantity = 0
+    open_gap_count = 0
+    rejected_gap_count = 0
+    for item in gap_rows:
+        side = str(item.get("side") or "").strip().lower()
+        quantity_delta = int(item.get("quantity_delta") or 0)
+        signed_gap_quantity += quantity_delta if side == "buy" else -quantity_delta
+        state = str(item.get("state") or "").strip().upper()
+        if state in {"OPEN", "REJECTED"}:
+            open_gap_count += 1
+        if state == "REJECTED":
+            rejected_gap_count += 1
+        rows.append(
+            {
+                "gap_id": item.get("gap_id"),
+                "side": side,
+                "state": str(item.get("state") or ""),
+                "quantity_delta": quantity_delta,
+                "pending_until": item.get("pending_until"),
+                "resolution_type": item.get("resolution_type"),
+            }
+        )
+    derived_signed_gap = int(broker_quantity or 0) - int(ledger_quantity or 0)
+    effective_signed_gap = signed_gap_quantity if gap_rows else derived_signed_gap
+    if open_gap_count > 0:
+        state = "observing" if rejected_gap_count == 0 else "rejected"
+    elif effective_signed_gap == 0:
+        state = "aligned"
+    elif latest_resolution is not None:
+        state = "auto_reconciled"
+    else:
+        state = "drift"
+    return {
+        "symbol": symbol,
+        "broker_quantity": int(broker_quantity or 0),
+        "ledger_quantity": int(ledger_quantity or 0),
+        "signed_gap_quantity": effective_signed_gap,
+        "open_gap_count": open_gap_count,
+        "rejected_gap_count": rejected_gap_count,
+        "latest_resolution_type": str(
+            (latest_resolution or {}).get("resolution_type") or ""
+        ),
+        "state": state,
+        "rows": rows,
+    }
 
 
 def _resolve_position_amount(symbol_position, position):
@@ -386,48 +523,38 @@ def _normalize_takeprofit_tiers(tiers):
     return rows[:3]
 
 
-def _normalize_stock_fills(rows):
-    if rows is None:
-        return []
-    if hasattr(rows, "to_dict"):
-        rows = rows.to_dict(orient="records")
-    normalized = []
-    for item in list(rows or []):
-        row = {key: _coerce_json_scalar(value) for key, value in dict(item).items()}
-        row["direction_label"] = _resolve_stock_fill_direction_label(row)
-        normalized.append(row)
-    return normalized
-
-
-def _resolve_stock_fill_direction_label(row):
-    source = str(row.get("source") or "").strip().lower()
-    if source == "external_inferred":
-        return "推断持仓"
-    op = str(row.get("op") or row.get("direction") or "").strip().lower()
-    if op in {"buy", "b", "open", "long"}:
-        return "买入"
-    if op in {"sell", "s", "close", "short"}:
-        return "卖出"
-    if source:
-        return "买入"
-    return ""
-
-
 def _normalize_event(row):
+    base_row = {
+        key: value
+        for key, value in dict(row).items()
+        if key not in {"buy_lot_ids", "buy_lot_details"}
+    }
+    entry_details = list(row.get("entry_details") or [])
+    entry_ids = list(row.get("entry_ids") or [])
     buy_lot_details = list(row.get("buy_lot_details") or [])
     buy_lot_ids = list(row.get("buy_lot_ids") or [])
-    if not buy_lot_ids and buy_lot_details:
-        buy_lot_ids = [
-            item.get("buy_lot_id")
+    if not entry_details and buy_lot_details:
+        entry_details = [
+            {
+                **dict(item),
+                "entry_id": item.get("entry_id") or item.get("buy_lot_id"),
+            }
             for item in buy_lot_details
-            if item.get("buy_lot_id") is not None
         ]
+    if not entry_ids and entry_details:
+        entry_ids = [
+            item.get("entry_id")
+            for item in entry_details
+            if item.get("entry_id") is not None
+        ]
+    if not entry_ids and buy_lot_ids:
+        entry_ids = [item for item in buy_lot_ids if item is not None]
     return {
-        **dict(row),
+        **base_row,
         "kind": _derive_kind(row),
         "symbol": _normalize_symbol(row.get("symbol")),
-        "buy_lot_ids": buy_lot_ids,
-        "buy_lot_details": buy_lot_details,
+        "entry_ids": entry_ids,
+        "entry_details": entry_details,
     }
 
 
@@ -454,14 +581,14 @@ def _derive_kind(row):
     return ""
 
 
-def _event_matches_buy_lot(row, buy_lot_id):
-    buy_lot_id_text = str(buy_lot_id or "").strip()
-    if buy_lot_id_text in {
-        str(item or "").strip() for item in row.get("buy_lot_ids") or []
+def _event_matches_entry(row, entry_id):
+    entry_id_text = str(entry_id or "").strip()
+    if entry_id_text in {
+        str(item or "").strip() for item in row.get("entry_ids") or []
     }:
         return True
-    for item in row.get("buy_lot_details") or []:
-        if str(item.get("buy_lot_id") or "").strip() == buy_lot_id_text:
+    for item in row.get("entry_details") or []:
+        if str(item.get("entry_id") or "").strip() == entry_id_text:
             return True
     return False
 

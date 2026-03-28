@@ -30,7 +30,8 @@ test('buildOverviewRows sorts holding symbols before config-only symbols and kee
       position_quantity: 500,
       takeprofit_configured: true,
       has_active_stoploss: true,
-      active_stoploss_buy_lot_count: 2,
+      active_stoploss_entry_count: 2,
+      open_entry_count: 2,
       last_trigger: {
         kind: 'stoploss',
         created_at: '2026-03-13T02:00:00+00:00',
@@ -65,7 +66,7 @@ test('buildOverviewRows exposes position amount labels in chinese wan with two d
   assert.deepEqual(rows[0].takeprofitSummary, ['L1 10.2', 'L2 10.8', 'L3 11.5'])
 })
 
-test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstream order facts', () => {
+test('buildDetailViewModel and buildHistoryRows keep tiers, entries and downstream order facts', () => {
   const detail = buildDetailViewModel({
     symbol: '600000',
     name: '浦发银行',
@@ -82,10 +83,10 @@ test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstr
         armed_levels: { 1: true, 2: false },
       },
     },
-    buy_lots: [
+    entries: [
       {
-        buy_lot_id: 'lot_1',
-        buy_price_real: 10,
+        entry_id: 'entry_1',
+        entry_price: 10,
         original_quantity: 300,
         remaining_quantity: 200,
         stoploss: {
@@ -95,25 +96,31 @@ test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstr
         sell_history: [{ allocated_quantity: 100 }],
       },
     ],
-    stock_fills: [
+    entry_slices: [
       {
-        date: 20260312,
-        time: '09:31:00',
-        op: '买',
-        quantity: 300,
-        price: 10,
-        amount: 3000,
-        source: 'legacy_stock_fills',
+        entry_slice_id: 'slice_1',
+        entry_id: 'entry_1',
+        guardian_price: 10.8,
+        original_quantity: 100,
+        remaining_quantity: 100,
+        status: 'OPEN',
       },
     ],
+    reconciliation: {
+      state: 'aligned',
+      signed_gap_quantity: 0,
+      open_gap_count: 0,
+      rejected_gap_count: 0,
+      latest_resolution_type: '',
+    },
     history: [
       {
         event_id: 'evt_1',
         kind: 'stoploss',
         event_type: 'stoploss_hit',
         batch_id: 'sl_batch_1',
-        buy_lot_ids: ['lot_1'],
-        buy_lot_details: [{ buy_lot_id: 'lot_1', stop_price: 9.2, quantity: 200 }],
+        entry_ids: ['entry_1'],
+        entry_details: [{ entry_id: 'entry_1', stop_price: 9.2, quantity: 200 }],
         created_at: '2026-03-13T02:00:00+00:00',
         order_requests: [{ request_id: 'req_1' }],
         orders: [{ internal_order_id: 'ord_1', state: 'FILLED' }],
@@ -124,63 +131,17 @@ test('buildDetailViewModel and buildHistoryRows keep tiers, buy lots and downstr
 
   assert.equal(detail.takeprofitTierCount, 2)
   assert.equal(detail.positionAmountLabel, '23.46 万')
-  assert.equal(detail.buyLots[0].stoplossLabel, '9.2')
-  assert.equal(detail.buyLots[0].sellHistoryLabel, '1 次卖出分配')
-  assert.equal(detail.stockFills[0].op, '买')
-  assert.equal(detail.stockFills[0].source, 'legacy_stock_fills')
+  assert.equal(detail.entries[0].stoplossLabel, '9.2')
+  assert.equal(detail.entries[0].entry_price_label, '10.0')
+  assert.equal(detail.entries[0].sellHistoryLabel, '1 次卖出分配')
+  assert.equal(detail.entrySlices[0].entry_slice_id, 'slice_1')
+  assert.equal(detail.reconciliation.state, 'aligned')
   assert.equal(detail.historyRows[0].batch_id, 'sl_batch_1')
   assert.equal(detail.historyRows[0].created_at, '2026-03-13 10:00:00')
   assert.equal(detail.historyRows[0].triggerLabel, '9.2')
   assert.equal(detail.historyRows[0].triggerPriceLabel, '9.1')
   assert.equal(detail.historyRows[0].downstreamLabel, '1 request / 1 order / 1 trade')
-  assert.equal(buildHistoryRows(detail.historyRows)[0].buy_lot_label, 'lot_1')
-})
-
-test('buildDetailViewModel labels inferred stock-fills rows instead of leaving direction blank', () => {
-  const detail = buildDetailViewModel({
-    symbol: '512000',
-    stock_fills: [
-      {
-        date: 20260315,
-        time: '23:39:42',
-        quantity: 1470300,
-        price: 0.569677,
-        amount: 837596.09,
-        source: 'external_inferred',
-        direction_label: '推断持仓',
-      },
-    ],
-  })
-
-  assert.equal(detail.stockFills[0].opLabel, '推断持仓')
-  assert.equal(detail.stockFills[0].source, 'external_inferred')
-})
-
-test('buildDetailViewModel labels open stock-fills rows as 买入 when the backend omits op fields', () => {
-  const detail = buildDetailViewModel({
-    symbol: '512600',
-    stock_fills: [
-      {
-        date: 20260323,
-        time: '11:05:10',
-        quantity: 9900,
-        price: 0.633,
-        amount: 6266.7,
-        source: 'external_reported',
-      },
-      {
-        date: 20260323,
-        time: '11:05:10',
-        quantity: 69000,
-        price: 0.633,
-        amount: 43677.0,
-        source: 'xtquant',
-      },
-    ],
-  })
-
-  assert.equal(detail.stockFills[0].opLabel, '买入')
-  assert.equal(detail.stockFills[1].opLabel, '买入')
+  assert.equal(buildHistoryRows(detail.historyRows)[0].entry_label, 'entry_1')
 })
 
 test('buildHistoryRows derives level and stop price labels for unified timeline cards', () => {
@@ -191,16 +152,16 @@ test('buildHistoryRows derives level and stop price labels for unified timeline 
       level: 2,
       trigger_price: 10.8,
       batch_id: 'tp_batch_1',
-      buy_lot_ids: ['lot_1'],
+      entry_ids: ['entry_1'],
     },
     {
       event_id: 'evt_sl_1',
       kind: 'stoploss',
       trigger_price: 9.1,
       batch_id: 'sl_batch_1',
-      buy_lot_details: [
-        { buy_lot_id: 'lot_2', stop_price: 9.2 },
-        { buy_lot_id: 'lot_3', stop_price: 9.0 },
+      entry_details: [
+        { entry_id: 'entry_2', stop_price: 9.2 },
+        { entry_id: 'entry_3', stop_price: 9.0 },
       ],
     },
   ])
@@ -227,7 +188,7 @@ test('createTpslManagementActions calls takeprofit save, stoploss save and histo
         name: '浦发银行',
         position: { quantity: 200 },
         takeprofit: { tiers: [], state: { armed_levels: {} } },
-        buy_lots: [],
+        entries: [],
         history: [],
       }
     },
@@ -236,7 +197,7 @@ test('createTpslManagementActions calls takeprofit save, stoploss save and histo
       return { symbol, tiers: payload.tiers }
     },
     async bindStoploss(payload) {
-      calls.push(['bindStoploss', payload.buy_lot_id, payload.stop_price, payload.enabled])
+      calls.push(['bindStoploss', payload.entry_id, payload.stop_price, payload.enabled])
       return payload
     },
     async listHistory(filters) {
@@ -247,7 +208,7 @@ test('createTpslManagementActions calls takeprofit save, stoploss save and histo
             event_id: 'evt_1',
             kind: 'takeprofit',
             batch_id: 'tp_batch_1',
-            buy_lot_ids: ['lot_1'],
+            entry_ids: ['entry_1'],
             order_requests: [{ request_id: 'req_1' }],
             orders: [],
             trades: [],
@@ -263,28 +224,29 @@ test('createTpslManagementActions calls takeprofit save, stoploss save and histo
   const savedTakeprofit = await actions.saveTakeprofit('600000', [
     { level: 1, price: 10.2, manual_enabled: true },
   ])
-  const savedStoploss = await actions.saveStoploss('lot_1', { stop_price: 9.2, enabled: true })
+  const savedStoploss = await actions.saveStoploss('entry_1', { stop_price: 9.2, enabled: true })
   const history = await actions.loadHistory({ symbol: '600000', kind: 'takeprofit', limit: 5 })
 
   assert.equal(overview[0].symbol, '600000')
   assert.equal(detail.symbol, '600000')
   assert.equal(savedTakeprofit.symbol, '600000')
-  assert.equal(savedStoploss.buy_lot_id, 'lot_1')
+  assert.equal(savedStoploss.entry_id, 'entry_1')
   assert.equal(history[0].batch_id, 'tp_batch_1')
   assert.deepEqual(calls, [
     ['getManagementOverview'],
     ['getManagementDetail', '600000', 30],
     ['saveTakeprofitProfile', '600000', 1],
-    ['bindStoploss', 'lot_1', 9.2, true],
+    ['bindStoploss', 'entry_1', 9.2, true],
     ['listHistory', '600000', 'takeprofit', 5],
   ])
 })
 
-test('TpslManagement.vue widens quantity summary and renders stock-fill direction from opLabel', () => {
+test('TpslManagement.vue renders entry ledger and reconciliation sections', () => {
   const source = fs.readFileSync(new URL('./TpslManagement.vue', import.meta.url), 'utf8')
 
   assert.match(source, /<el-table-column label="原始\/剩余" width="156">/)
-  assert.match(source, /<el-table-column label="方向" width="96">[\s\S]*row\.opLabel/)
+  assert.match(source, /Entry Slice Ledger/)
+  assert.match(source, /对账状态/)
 })
 
 test('page controller runs takeprofit save, stoploss save and history refresh from selected symbol', async () => {
@@ -298,10 +260,10 @@ test('page controller runs takeprofit save, stoploss save and history refresh fr
       tiers: [{ level: 1, price: 10.2, manual_enabled: true }],
       state: { armed_levels: { 1: true } },
     },
-    buy_lots: [
+    entries: [
       {
-        buy_lot_id: 'lot_1',
-        buy_price_real: 10,
+        entry_id: 'entry_1',
+        entry_price: 10,
         original_quantity: 300,
         remaining_quantity: 200,
         stoploss: {
@@ -318,7 +280,7 @@ test('page controller runs takeprofit save, stoploss save and history refresh fr
         level: 1,
         trigger_price: 10.2,
         batch_id: 'tp_batch_1',
-        buy_lot_ids: ['lot_1'],
+        entry_ids: ['entry_1'],
         order_requests: [],
         orders: [],
         trades: [],
@@ -335,7 +297,8 @@ test('page controller runs takeprofit save, stoploss save and history refresh fr
           name: '浦发银行',
           position_quantity: 200,
           has_active_stoploss: true,
-          active_stoploss_buy_lot_count: 1,
+          active_stoploss_entry_count: 1,
+          open_entry_count: 1,
           badges: ['止盈', '止损'],
           last_trigger_label: 'takeprofit',
           last_trigger_time: '2026-03-13T10:00:00+08:00',
@@ -350,9 +313,9 @@ test('page controller runs takeprofit save, stoploss save and history refresh fr
       calls.push(['saveTakeprofit', symbol, tiers.map((row) => row.price)])
       return { symbol, tiers }
     },
-    async saveStoploss(buyLotId, payload) {
-      calls.push(['saveStoploss', buyLotId, payload.stop_price, payload.enabled])
-      return { buyLotId, ...payload }
+    async saveStoploss(entryId, payload) {
+      calls.push(['saveStoploss', entryId, payload.stop_price, payload.enabled])
+      return { entryId, ...payload }
     },
     async loadHistory(filters) {
       calls.push(['loadHistory', filters.symbol, filters.kind, filters.limit])
@@ -362,7 +325,7 @@ test('page controller runs takeprofit save, stoploss save and history refresh fr
           kind: 'stoploss',
           trigger_price: 9.1,
           batch_id: 'sl_batch_1',
-          buy_lot_details: [{ buy_lot_id: 'lot_1', stop_price: 9.2 }],
+          entry_details: [{ entry_id: 'entry_1', stop_price: 9.2 }],
           order_requests: [{ request_id: 'req_1' }],
           orders: [],
           trades: [],
@@ -385,10 +348,10 @@ test('page controller runs takeprofit save, stoploss save and history refresh fr
 
   await controller.refreshOverview()
   controller.state.takeprofitDrafts[0].price = 10.5
-  controller.state.stoplossDrafts.lot_1.stop_price = 9.15
+  controller.state.stoplossDrafts.entry_1.stop_price = 9.15
 
   await controller.handleSaveTakeprofit()
-  await controller.handleSaveStoploss('lot_1')
+  await controller.handleSaveStoploss('entry_1')
   controller.state.historyKind = 'stoploss'
   await controller.loadHistory()
 
@@ -400,13 +363,13 @@ test('page controller runs takeprofit save, stoploss save and history refresh fr
     ['loadSymbolDetail', '600000', 20],
     ['saveTakeprofit', '600000', [10.5]],
     ['loadSymbolDetail', '600000', 20],
-    ['saveStoploss', 'lot_1', 9.15, true],
+    ['saveStoploss', 'entry_1', 9.15, true],
     ['loadSymbolDetail', '600000', 20],
     ['loadHistory', '600000', 'stoploss', 20],
   ])
   assert.deepEqual(messages, [
     ['success', '止盈层级已保存'],
-    ['success', '已更新 lot_1'],
+    ['success', '已更新 entry_1'],
   ])
 })
 
@@ -415,7 +378,7 @@ test('TpslManagement view keeps symbol list scrollable inside the fixed viewport
   const source = fs.readFileSync(filePath, 'utf8')
 
   assert.ok(!source.includes('标的止盈层次'))
-  assert.ok(source.includes('stock_fills 对照视图'))
+  assert.ok(source.includes('Entry Slice Ledger'))
   assert.match(source, /\.symbol-list,\s*[\r\n]+\s*\.tpsl-main-stack\s*\{/)
   assert.match(source, /\.symbol-list[\s\S]*?overflow:\s*auto;/)
   assert.match(source, /\.symbol-list[\s\S]*?flex:\s*1 1 auto;/)

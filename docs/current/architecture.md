@@ -3,132 +3,129 @@
 ## 总体分层
 
 - 行情层
-  - `freshquant.market_data.xtdata.market_producer`
-  - `freshquant.market_data.xtdata.strategy_consumer`
-  - 负责 XTData 订阅、tick 分发、分钟 bar 生成、结构计算与缓存。
+  - `freshquant.market_data.xtdata.*`
 - 策略层
-  - `freshquant.signal.astock.job.monitor_stock_zh_a_min`
-  - `freshquant.strategy.guardian`
-  - 负责把信号转换成买卖意图，但不负责订单事实。
+  - `freshquant.strategy.*`
+  - `freshquant.signal.*`
 - 交易执行层
   - `freshquant.order_management.*`
   - `freshquant.position_management.*`
   - `freshquant.tpsl.*`
-  - `fqxtrade.xtquant.broker`
-  - 负责门禁、订单受理、broker 下发、回报 ingest、止盈止损。
 - 展示层
   - `freshquant.rear.*`
   - `morningglory/fqwebui`
-  - 负责 API、Web UI 与历史/实时视图展示；当前 Web UI 工作台页面统一走固定 viewport shell，并把长列表滚动收口到组件内部容器。
-  - `KlineSlim / OrderManagement / PositionManagement / TpslManagement / RuntimeObservability` 当前都使用“固定页壳 + 组件内滚动”模型；其中订单筛选默认折叠，仓位左栏把规则矩阵前置，Runtime 左侧组件选择保持 sticky。
-- 盘后选股工作台层
-  - `freshquant.daily_screening.*`
-  - `freshquant.screening.strategies.*`
-  - 负责把 `CLXS / chanlun / shouban30_agg90 / market_flags` 统一编排成正式盘后筛选工作台，并把结果写入 `fqscreening`。
-- 数据处理层
-  - `freshquant.data.gantt_readmodel`
-  - `freshquant.shouban30_pool_service`
-  - `morningglory/fqdagster`
-  - 负责热门板块读模型、首板筛选读模型与工作区落库。
 - 观测层
   - `freshquant.runtime_observability.*`
-  - 负责 runtime 事件写盘、聚合与可视化；前端组件事件面板对相同 query 做去重加载，避免左侧组件切换和自动刷新互相覆盖。
 - 记忆层
   - `freshquant.runtime.memory.*`
-  - 负责把冷记忆、热记忆和角色化 context pack 汇总成 agent 可复用的启动上下文。
 
-## 全局记忆层
+## 记忆层
 
-- 冷记忆
-  - 目录：`.codex/memory/**`
-  - 进入 git，保存长期有效的模块边界、deploy surfaces、workflow rules、pitfalls。
-  - refresh 时默认不直接读取当前工作树，而是读取远程 `origin/main` 的快照作为开发参考。
 - 热记忆
-  - 代码入口：`freshquant/runtime/memory/**`
-  - 存储：Mongo `fq_memory`
-  - 第一版写入 `task_state`、`task_events`、`deploy_runs`、`health_results`、`knowledge_items`、`module_status`、`context_packs`
-  - 当前 refresh 会从 `artifacts/cleanup-requests/<issue>.json` 提取 branch / issue / PR 元数据
-  - 当前 refresh 会从 `artifacts/<issue>/deployment-comment.md` 提取 deploy / health 摘要，并从 `artifacts/cleanup-results/<issue>.json` 提取 cleanup / done 状态
-- context pack
-  - 编译入口：`runtime/memory/scripts/compile_freshquant_context_pack.py`
-  - 自由 Codex 会话自举入口：`runtime/memory/scripts/bootstrap_freshquant_memory.py`
-  - 产物目录：`D:/fqpack/runtime/artifacts/memory/context-packs/**`
-  - 本地会话 wrapper 与 formal deploy wrapper 会预编译并注入 `FQ_MEMORY_CONTEXT_PATH`
-  - 自由 Codex 会话若没有现成 `FQ_MEMORY_CONTEXT_PATH`，应先执行 bootstrap 脚本再读取生成的 context pack
+  - 当前会话通过 `FQ_MEMORY_CONTEXT_PATH` 加载的 context pack
+- 冷记忆
+  - `runtime/memory/**` 中由 bootstrap / archive / retrieval 维护的长期记忆材料
+  - 自由会话通过 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 生成并加载 context pack
+- 正式边界
+  - 记忆层只提供上下文，不覆盖 GitHub、`docs/current/**` 与最新远程 `origin/main` / `main` 的正式真值
+  - 涉及运行交付时，以最新远程 `main` 的正式 deploy 与 health check 为准
+  - 所有代码更新的 PR + CI + merge gate 仍是交付收敛面的正式真值
 
-记忆层是旁路摘要，不替代 GitHub Issue、所有代码更新的 PR + CI、以及最新远程 `main` 的 deploy + health + cleanup 真值链。
-
-## 核心调用链
+## 订单相关核心调用链
 
 ### 实时交易链
 
-`XTData producer -> Redis tick/bar queue -> XTData consumer -> Guardian -> PositionManagement gate -> OrderManagement submit -> Redis STOCK_ORDER_QUEUE -> broker/puppet gateway -> XT 回报 ingest -> projection / TPSL profile`
+`XTData -> Guardian -> PositionManagement gate -> OrderManagement submit -> broker -> XT callback -> OrderManagement ingest -> Position/TPSL/Subject/Kline read models`
 
 ### 止盈止损链
 
-`XTData producer -> Redis TICK_QUOTE queue -> TpslTickConsumer -> TpslService -> OrderSubmitService -> broker -> XT 回报 ingest`
+`tick -> TpslTickConsumer -> TpslService -> OrderSubmitService -> broker -> XT callback -> OrderManagement ingest`
 
-### 图表与读模型链
+### 当前仓位链
 
-`Dagster / readmodel job -> Mongo gantt_db -> gantt routes -> GanttUnified / GanttShouban30Phase1 / KlineSlim`
+`xt_account_sync.worker -> xt_positions -> pm_symbol_position_snapshots -> PositionManagement / SubjectManagement / TpslManagement / KlineSlim`
 
-### 盘后选股工作台链
+## 当前订单账本边界
 
-`DailyScreening.vue -> /api/daily-screening/* -> DailyScreeningService -> CLXS / chanlun / shouban30_agg90 / market_flags -> fqscreening -> query/detail API`
+### 券商真值层
 
-### 每日筛选自动任务链
+- `xt_positions`
+- `xt_orders`
+- `xt_trades`
 
-`Dagster 19:00 schedule -> daily_screening_postclose_job (asset graph) -> DailyScreeningService DAG helpers -> fqscreening`
+### 订单账本层
 
-### 运行观测链
+- `om_order_requests`
+- `om_orders`
+- `om_broker_orders`
+- `om_order_events`
+- `om_execution_fills`
+- `om_trade_facts`
 
-`各模块 RuntimeEventLogger -> logs/runtime/<runtime_node>/<component>/<date>/*.jsonl -> fq_runtime_indexer -> ClickHouse(runtime_observability.runtime_events) -> /api/runtime/* -> RuntimeObservability.vue`
+### 持仓解释层
 
-### 记忆编译链
+- `om_position_entries`
+- `om_entry_slices`
+- `om_exit_allocations`
 
-`origin/main:.codex/memory/** + origin/main:docs/current/modules/*.md + artifacts/memory/** -> freshquant.runtime.memory.refresh -> Mongo fq_memory -> freshquant.runtime.memory.compiler -> context pack markdown -> local wrapper / formal deploy wrapper 或 bootstrap_freshquant_memory.py -> FQ_MEMORY_CONTEXT_PATH`
+### 自动平账层
 
-## 进程边界
+- `om_reconciliation_gaps`
+- `om_reconciliation_resolutions`
+- `om_ingest_rejections`
 
-- API Server
-  - `python -m freshquant.rear.api_server --port 5000`
-  - 聚合所有 HTTP 蓝图，不直接做重计算。
-- Guardian monitor
-  - `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event`
-  - 监听 bar 更新并调用 `StrategyGuardian`。
-- XTData producer
-  - `python -m freshquant.market_data.xtdata.market_producer`
-  - 唯一负责订阅 XTData 全量行情并向 Redis 推送 tick 事件。
-- XTData consumer
-  - `python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`
-  - 唯一负责 bar 队列消费、结构计算与缓存回写。
-- XT account sync worker
-- `python -m freshquant.xt_account_sync.worker --interval 15`
-  - 唯一负责 XT 主动查询；主循环每 15 秒串行刷新 `xt_assets / credit_detail / xt_positions / xt_orders / xt_trades / pm_*`，其中 `xt_orders / xt_trades` 只把新增快照送入 ingest；`om_credit_subjects` 只在启动和每日计划时间做低频同步。
-- TPSL worker
-  - `python -m freshquant.tpsl.tick_listener`
-  - 消费 tick 队列并触发止盈止损。
-- Broker / Puppet gateway
-  - 不在本目录直接暴露 HTTP，靠 Redis 队列与 XT 回报回流。
+### 兼容层
 
-## 模块边界
+- `om_buy_lots`
+- `om_lot_slices`
+- `om_sell_allocations`
+- `freshquant.stock_fills`
+- `freshquant.stock_fills_compat`
 
-- Guardian 只负责决定“要不要下这个策略单”，不是订单账本。
-- Position Management 只负责是否允许提交，不负责真正下单。
-- Order Management 是订单事实层，维护请求、内部订单、事件、买入 lot、卖出分配与外部单对齐。
-- TPSL 是独立退出策略，依赖订单事实和持仓，不跟 Guardian 共用状态机。
-- `SubjectManagementDashboardService` 读取仓位上限摘要时会兜底未跟踪 symbol 的异常，返回 `available=false / error` 而不是把 overview/detail 直接打成 500。
-- `TpslManagementService` 会为 `stock_fills` 补 `direction_label`；对 `external_inferred` 来源统一标记为“推断持仓”。
-- Gantt 与 Shouban30 只消费读模型与工作区集合，不参与交易链。
-- 每日选股正式结果真值在 `fqscreening`；`stock_pre_pools / stock_pools` 只保留人工工作区角色。
-- Runtime Observability 是旁路系统，允许丢日志，不允许卡住主交易链。
-- 全局记忆层也是旁路系统，只负责减少 agent 重复探索，不允许覆盖正式真值。
-- TradingAgents-CN 与主交易链完全解耦，只共享 Mongo/Redis 基础设施和宿主机配置。
+## 当前关键边界
 
-## 关键耦合点
+- `xt_positions`
+  - 定义当前券商仓位真值
+- `om_broker_orders + om_execution_fills`
+  - 定义执行事实
+- `om_position_entries`
+  - 定义系统可消费的持仓入口
+- `om_reconciliation_*`
+  - 只负责自动平账，不再伪造成 fake order / fake trade
+- `stock_fills_compat`
+  - 只做兼容投影，不再参与运行期真值判断
 
-- `must_pool` 与 `xt_positions` 同时影响 XTData 订阅池和 Guardian 买入范围。
-- 订单管理 ingest 会在买入成交后回写 buy lot，并为 TPSL 准备退出上下文。
-- 卖出成交后会重置 Guardian buy grid 状态，避免旧层级持续生效。
-- Shouban30 当前把页面结果同步到 `stock_pre_pools` / `stock_pools`，并在 `stock_pool` 工作区提供显式 `must_pool` upsert；`30RYZT.blk` 输出仍只由手动 sync-to-tdx/clear 控制。
-- 每日选股页面只在显式点击 `add-to-pre-pool` / `add-batch-to-pre-pool` 时把 `fqscreening` 结果复制到共享工作区，不会把正式结果库和人工池子混写。
+## 当前页面消费关系
+
+- `OrderManagement`
+  - 订单请求、内部订单、券商订单、成交事实
+- `PositionManagement`
+  - `券商仓位 / 账本仓位 / 对账状态`
+- `SubjectManagement`
+  - `entries + entry stoploss + must_pool + limit summary`
+- `TpslManagement`
+  - `entries + entry_slices + takeprofit + stoploss`
+- `KlineSlim`
+  - `entries + entry stoploss + guardian/takeprofit`
+
+## 当前规则
+
+- buy fill 默认按 broker order 聚合成一个 entry
+- stoploss 绑定对象是 `entry_id`
+- odd-lot 不进入 `position_entries`
+- odd-lot 进入 `om_ingest_rejections`
+
+## 当前部署边界
+
+- `freshquant/order_management/**`
+  - 重建 API Server
+  - 重启 `xt_account_sync.worker`
+  - 重启 `tpsl.tick_listener`
+- `freshquant/position_management/**`
+  - 重建 API Server
+  - 重启 `xt_account_sync.worker`
+- `freshquant/tpsl/**`
+  - 重建 API Server
+  - 重启 `tpsl.tick_listener`
+- `morningglory/fqwebui/**`
+  - 重建 Web UI

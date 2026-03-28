@@ -34,7 +34,7 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
       },
       stoploss: {
         active_count: 2,
-        open_buy_lot_count: 5,
+        open_entry_count: 5,
       },
       runtime: {
         position_quantity: 500,
@@ -99,12 +99,12 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
         armed_levels: { 1: true, 2: false, 3: true },
       },
     },
-    buy_lots: [
+    entries: [
       {
-        buy_lot_id: 'lot_c47155b437de422db9ea2eec0b316d2a',
+        entry_id: 'entry_c47155b437de422db9ea2eec0b316d2a',
         date: 20260316,
         time: '10:31:00',
-        buy_price_real: 10.0,
+        entry_price: 10.0,
         original_quantity: 300,
         remaining_quantity: 200,
         stoploss: {
@@ -140,12 +140,12 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.equal(detail.takeprofitDrafts.length, 3)
   assert.equal(detail.takeprofitDrafts[1].level, 2)
   assert.equal(detail.takeprofitDrafts[1].price, null)
-  assert.equal(detail.buyLots[0].stoplossLabel, '9.2')
-  assert.equal(detail.buyLots[0].buyLotDisplayLabel, '第 1 笔买入')
-  assert.equal(detail.buyLots[0].buyLotIdLabel, 'ID 尾号 316d2a')
+  assert.equal(detail.entries[0].stoplossLabel, '9.2')
+  assert.equal(detail.entries[0].entryDisplayLabel, '第 1 笔持仓入口')
+  assert.equal(detail.entries[0].entryIdLabel, 'ID 尾号 316d2a')
   assert.equal(
-    detail.buyLots[0].buyLotMetaLabel,
-    '2026-03-16 10:31:00 · 买入价 10.0 · 市值 12.35 万 · 剩余 66.67%'
+    detail.entries[0].entryMetaLabel,
+    '2026-03-16 10:31:00 · 均价 10.023 · 市值 12.35 万 · 剩余 66.67%'
   )
   assert.equal(detail.runtimeSummary.avg_price, 10.023)
   assert.equal(detail.runtimeSummary.last_trigger_time, '2026-03-16 10:40:00')
@@ -244,9 +244,9 @@ test('buildDetailSummaryChips compresses subject, runtime and pm state into head
       ],
       state: { armed_levels: { 1: true } },
     },
-    buy_lots: [
-      { buy_lot_id: 'lot-1', stoploss: { enabled: true } },
-      { buy_lot_id: 'lot-2', stoploss: { enabled: false } },
+    entries: [
+      { entry_id: 'entry-1', stoploss: { enabled: true } },
+      { entry_id: 'entry-2', stoploss: { enabled: false } },
     ],
     runtime_summary: {
       position_quantity: 500,
@@ -312,7 +312,7 @@ test('createSubjectManagementActions calls subject, position-limit and stoploss 
         guardian_buy_grid_config: {},
         guardian_buy_grid_state: {},
         takeprofit: { tiers: [], state: { armed_levels: {} } },
-        buy_lots: [],
+        entries: [],
         runtime_summary: {},
         position_management_summary: {},
         position_limit_summary: {
@@ -337,7 +337,7 @@ test('createSubjectManagementActions calls subject, position-limit and stoploss 
       return { symbol, tiers: payload.tiers }
     },
     async bindStoploss(payload) {
-      calls.push(['bindStoploss', payload.buy_lot_id, payload.stop_price, payload.enabled])
+      calls.push(['bindStoploss', payload.entry_id, payload.stop_price, payload.enabled])
       return payload
     },
   }
@@ -347,19 +347,19 @@ test('createSubjectManagementActions calls subject, position-limit and stoploss 
   const detail = await actions.loadSubjectDetail('600000')
   const mustPool = await actions.saveMustPool('600000', { category: '银行' })
   const positionLimit = await actions.savePositionLimit('600000', { limit: 500000 })
-  const stoploss = await actions.saveStoploss('lot_1', { stop_price: 9.2, enabled: true })
+  const stoploss = await actions.saveStoploss('entry_1', { stop_price: 9.2, enabled: true })
 
   assert.equal(overview[0].symbol, '600000')
   assert.equal(detail.symbol, '600000')
   assert.equal(mustPool.category, '银行')
   assert.equal(positionLimit.limit, 500000)
-  assert.equal(stoploss.buy_lot_id, 'lot_1')
+  assert.equal(stoploss.entry_id, 'entry_1')
   assert.deepEqual(calls, [
     ['getOverview'],
     ['getDetail', '600000'],
     ['saveMustPool', '600000', '银行'],
     ['saveSymbolPositionLimit', '600000', 500000],
-    ['bindStoploss', 'lot_1', 9.2, true],
+    ['bindStoploss', 'entry_1', 9.2, true],
   ])
 })
 

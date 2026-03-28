@@ -34,7 +34,6 @@ class InMemoryTpslRepository:
         symbol=None,
         batch_id=None,
         kind=None,
-        buy_lot_id=None,
         limit=50,
     ):
         rows = list(self.events)
@@ -44,12 +43,6 @@ class InMemoryTpslRepository:
             rows = [item for item in rows if item.get("batch_id") == batch_id]
         if kind is not None:
             rows = [item for item in rows if item.get("kind") == kind]
-        if buy_lot_id is not None:
-            rows = [
-                item
-                for item in rows
-                if buy_lot_id in list(item.get("buy_lot_ids") or [])
-            ]
         rows.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         if limit is None:
             return rows
@@ -254,7 +247,8 @@ def test_management_overview_unions_holdings_and_configured_symbols():
         {"level": 2, "price": 10.8, "manual_enabled": True},
         {"level": 3, "price": 11.5, "manual_enabled": False},
     ]
-    assert rows_by_symbol["600000"]["active_stoploss_buy_lot_count"] == 1
+    assert rows_by_symbol["600000"]["active_stoploss_entry_count"] == 1
+    assert rows_by_symbol["600000"]["open_entry_count"] == 0
     assert rows_by_symbol["600000"]["last_trigger"]["kind"] == "stoploss"
     assert rows_by_symbol["000001"]["position_quantity"] == 0
     assert rows_by_symbol["000001"]["takeprofit_configured"] is True
@@ -287,31 +281,6 @@ def test_management_overview_prefers_symbol_snapshot_market_value():
     assert rows[0]["position_amount"] == 123456.0
 
 
-def test_management_detail_marks_external_inferred_stock_fills_as_inferred_positions():
-    service = TpslManagementService(
-        tpsl_repository=InMemoryTpslRepository(),
-        order_repository=InMemoryOrderManagementRepository(),
-        position_loader=lambda: [],
-        symbol_position_loader=lambda symbol: None,
-        stock_fills_loader=lambda symbol: [
-            {
-                "symbol": symbol,
-                "date": 20260315,
-                "time": "23:39:42",
-                "price": 0.569677,
-                "quantity": 1470300,
-                "amount": 837596.09,
-                "source": "external_inferred",
-            }
-        ],
-    )
-
-    detail = service.get_symbol_detail("512000")
-
-    assert detail["stock_fills"][0]["source"] == "external_inferred"
-    assert detail["stock_fills"][0]["direction_label"] == "推断持仓"
-
-
 def test_management_overview_uses_latest_event_query_instead_of_full_scan():
     class OverviewAwareTpslRepository(InMemoryTpslRepository):
         def __init__(self):
@@ -324,22 +293,14 @@ def test_management_overview_uses_latest_event_query_instead_of_full_scan():
             symbol=None,
             batch_id=None,
             kind=None,
-            buy_lot_id=None,
             limit=50,
         ):
-            if (
-                symbol is None
-                and batch_id is None
-                and kind is None
-                and buy_lot_id is None
-                and limit is None
-            ):
+            if symbol is None and batch_id is None and kind is None and limit is None:
                 raise AssertionError("overview should not scan the full event stream")
             return super().list_exit_trigger_events(
                 symbol=symbol,
                 batch_id=batch_id,
                 kind=kind,
-                buy_lot_id=buy_lot_id,
                 limit=limit,
             )
 
@@ -419,7 +380,6 @@ def test_management_history_ignores_blank_optional_filters():
     rows = service.list_history(
         symbol="600000",
         kind=" ",
-        buy_lot_id="",
         batch_id="",
         limit=20,
     )
@@ -427,7 +387,7 @@ def test_management_history_ignores_blank_optional_filters():
     assert [item["event_id"] for item in rows] == ["evt_tp_1"]
 
 
-def test_management_detail_assembles_buy_lots_and_order_timeline():
+def test_management_detail_assembles_entries_and_order_timeline():
     tpsl_repository = InMemoryTpslRepository()
     tpsl_repository.profiles["600000"] = {
         "symbol": "600000",
@@ -599,10 +559,15 @@ def test_management_detail_assembles_buy_lots_and_order_timeline():
     assert detail["name"] == "浦发银行"
     assert detail["position"]["quantity"] == 200
     assert detail["takeprofit"]["state"]["armed_levels"] == {1: False, 2: True}
-    assert len(detail["buy_lots"]) == 1
-    assert detail["buy_lots"][0]["buy_lot_id"] == "lot_open_1"
-    assert detail["buy_lots"][0]["stoploss"]["stop_price"] == 9.2
+    assert len(detail["entries"]) == 1
+    assert detail["entries"][0]["entry_id"] == "lot_open_1"
+    assert "buy_lots" not in detail
+    assert detail["entries"][0]["stoploss"]["stop_price"] == 9.2
+    assert len(detail["entry_slices"]) == 0
+    assert detail["reconciliation"]["state"] == "aligned"
     assert detail["history"][0]["kind"] == "stoploss"
+    assert detail["history"][0]["entry_ids"] == ["lot_open_1"]
+    assert "buy_lot_ids" not in detail["history"][0]
     assert detail["history"][0]["order_requests"][0]["request_id"] == "req_stop_1"
     assert detail["history"][0]["orders"][0]["internal_order_id"] == "ord_stop_1"
     assert detail["history"][0]["trades"][0]["trade_fact_id"] == "trade_stop_1"
@@ -636,7 +601,7 @@ def test_management_detail_prefers_symbol_snapshot_market_value():
     assert detail["position"]["amount"] == 234567.0
 
 
-def test_management_detail_includes_stock_fills_comparison_rows():
+def test_management_detail_exposes_entry_slices_and_reconciliation_summary():
     service = TpslManagementService(
         tpsl_repository=InMemoryTpslRepository(),
         order_repository=InMemoryOrderManagementRepository(),
@@ -650,34 +615,15 @@ def test_management_detail_includes_stock_fills_comparison_rows():
             }
         ],
         symbol_position_loader=lambda symbol: None,
-        stock_fills_loader=lambda symbol: [
-            {
-                "symbol": symbol,
-                "date": 20260312,
-                "time": "09:31:00",
-                "op": "买",
-                "quantity": 300,
-                "price": 10.0,
-                "amount": 3000.0,
-                "source": "legacy_stock_fills",
-            },
-            {
-                "symbol": symbol,
-                "date": 20260313,
-                "time": "09:35:00",
-                "op": "卖",
-                "quantity": 100,
-                "price": 10.8,
-                "amount": 1080.0,
-                "source": "legacy_stock_fills",
-            },
-        ],
     )
 
     detail = service.get_symbol_detail("600000")
 
-    assert [item["op"] for item in detail["stock_fills"]] == ["买", "卖"]
-    assert detail["stock_fills"][0]["source"] == "legacy_stock_fills"
+    assert detail["entry_slices"] == []
+    assert detail["reconciliation"]["broker_quantity"] == 500
+    assert detail["reconciliation"]["ledger_quantity"] == 0
+    assert detail["reconciliation"]["signed_gap_quantity"] == 500
+    assert detail["reconciliation"]["state"] == "drift"
 
 
 def test_management_detail_is_json_serializable_with_mongo_object_ids():
@@ -794,40 +740,6 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
     detail = service.get_symbol_detail("sh600000", history_limit=10)
     payload = json.loads(json.dumps(detail))
 
-    assert payload["buy_lots"][0]["buy_lot_id"] == "lot_open_1"
-    assert payload["buy_lots"][0]["stoploss"]["stop_price"] == 9.2
+    assert payload["entries"][0]["entry_id"] == "lot_open_1"
+    assert payload["entries"][0]["stoploss"]["stop_price"] == 9.2
     assert payload["history"][0]["order_requests"][0]["request_id"] == "req_stop_1"
-
-
-def test_symbol_detail_marks_open_stock_fills_as_buy_when_direction_is_missing():
-    service = TpslManagementService(
-        tpsl_repository=InMemoryTpslRepository(),
-        order_repository=InMemoryOrderManagementRepository(),
-        position_loader=lambda: [],
-        symbol_position_loader=lambda symbol: None,
-        stock_fills_loader=lambda symbol: [
-            {
-                "symbol": symbol,
-                "date": 20260323,
-                "time": "11:05:10",
-                "price": 0.633,
-                "quantity": 9900,
-                "amount": 6266.7,
-                "source": "external_reported",
-            },
-            {
-                "symbol": symbol,
-                "date": 20260323,
-                "time": "11:05:10",
-                "price": 0.633,
-                "quantity": 69000,
-                "amount": 43677.0,
-                "source": "xtquant",
-            },
-        ],
-    )
-
-    detail = service.get_symbol_detail("512600")
-
-    assert detail["stock_fills"][0]["direction_label"] == "买入"
-    assert detail["stock_fills"][1]["direction_label"] == "买入"

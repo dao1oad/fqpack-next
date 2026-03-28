@@ -303,14 +303,14 @@ export default {
 
       try {
         const res = await stockApi.query_stock_fills(this.inputSymbol)
-        const stockFills = res?.data?.stock_fills
+        const entryLedger = res?.data?.entry_ledger || res?.data?.stock_fills
 
-        if (stockFills && stockFills.length > 0) {
-          const prices = stockFills.map(fill => fill.price)
+        if (entryLedger && entryLedger.length > 0) {
+          const prices = entryLedger.map(fill => fill.price)
           this.gridParams = {
             ceiling_price: Math.max(...prices),
             floor_price: Math.min(...prices),
-            grid_num: stockFills.length,
+            grid_num: entryLedger.length,
             code
           }
         } else {

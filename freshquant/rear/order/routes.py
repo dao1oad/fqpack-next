@@ -3,7 +3,7 @@
 from flask import Blueprint, jsonify, request
 
 from freshquant.order_management.read_service import OrderManagementReadService
-from freshquant.order_management.stoploss.service import BuyLotStoplossService
+from freshquant.order_management.stoploss.service import EntryStoplossService
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.util.code import normalize_to_base_code
 
@@ -15,7 +15,7 @@ def _get_order_submit_service():
 
 
 def _get_stoploss_service():
-    return BuyLotStoplossService()
+    return EntryStoplossService()
 
 
 def _get_order_management_read_service():
@@ -146,24 +146,24 @@ def get_order_management_stats():
     return jsonify(payload)
 
 
-@order_bp.route("/order-management/buy-lots/<buy_lot_id>", methods=["GET"])
-def get_buy_lot_detail(buy_lot_id):
+@order_bp.route("/order-management/entries/<entry_id>", methods=["GET"])
+def get_entry_detail(entry_id):
     try:
-        detail = _get_stoploss_service().get_buy_lot_detail(buy_lot_id)
+        detail = _get_stoploss_service().get_entry_detail(entry_id)
     except ValueError as error:
         return jsonify({"error": str(error)}), 404
     return jsonify(detail)
 
 
 @order_bp.route("/order-management/stoploss/bind", methods=["POST"])
-def bind_buy_lot_stoploss():
+def bind_entry_stoploss():
     payload = request.get_json(silent=True) or {}
-    buy_lot_id = payload.get("buy_lot_id")
-    if not buy_lot_id:
-        return jsonify({"error": "buy_lot_id is required"}), 400
+    entry_id = payload.get("entry_id")
+    if not entry_id:
+        return jsonify({"error": "entry_id is required"}), 400
     try:
         binding = _get_stoploss_service().bind_stoploss(
-            buy_lot_id,
+            entry_id,
             stop_price=payload.get("stop_price"),
             ratio=payload.get("ratio"),
             enabled=payload.get("enabled", True),

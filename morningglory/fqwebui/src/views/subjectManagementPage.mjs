@@ -24,8 +24,8 @@ const cloneMustPoolDraft = (draft = {}) => ({
 
 const cloneStoplossDrafts = (drafts = {}) => {
   return Object.fromEntries(
-    Object.entries(drafts).map(([buyLotId, payload]) => [
-      buyLotId,
+    Object.entries(drafts).map(([entryId, payload]) => [
+      entryId,
       {
         stop_price: payload?.stop_price ?? null,
         enabled: Boolean(payload?.enabled),
@@ -94,7 +94,7 @@ export const createSubjectManagementPageController = ({
       delete state.stoplossDrafts[key]
     }
     for (const row of rows) {
-      state.stoplossDrafts[row.buy_lot_id] = {
+      state.stoplossDrafts[row.entry_id] = {
         stop_price: row.stoploss?.stop_price ?? null,
         enabled: Boolean(row.stoploss?.enabled),
       }
@@ -112,7 +112,7 @@ export const createSubjectManagementPageController = ({
     })
     state.positionLimitDraft = clonePositionLimitDraft(detail.positionLimitSummary)
     state.takeprofitDrafts = cloneSubjectManagementTakeprofitDrafts(detail.takeprofitDrafts || [])
-    syncStoplossDrafts(detail.buyLots)
+    syncStoplossDrafts(detail.entries || [])
   }
 
   const hydrateDetail = async (
@@ -132,10 +132,10 @@ export const createSubjectManagementPageController = ({
         state.positionLimitDraft = previousPositionLimitDraft
       }
       if (preserveStoplossDrafts) {
-        for (const [buyLotId, payload] of Object.entries(previousStoplossDrafts)) {
-          if (state.stoplossDrafts[buyLotId]) {
-            state.stoplossDrafts[buyLotId] = {
-              ...state.stoplossDrafts[buyLotId],
+        for (const [entryId, payload] of Object.entries(previousStoplossDrafts)) {
+          if (state.stoplossDrafts[entryId]) {
+            state.stoplossDrafts[entryId] = {
+              ...state.stoplossDrafts[entryId],
               ...payload,
             }
           }
@@ -250,12 +250,12 @@ export const createSubjectManagementPageController = ({
     }
   }
 
-  const handleSaveStoploss = async (buyLotId) => {
-    if (!buyLotId) return
-    state.savingStoploss[buyLotId] = true
+  const handleSaveStoploss = async (entryId) => {
+    if (!entryId) return
+    state.savingStoploss[entryId] = true
     try {
-      await actions.saveStoploss(buyLotId, state.stoplossDrafts[buyLotId] || {})
-      emitNotify(notify, 'success', `止损已更新 ${buyLotId}`)
+      await actions.saveStoploss(entryId, state.stoplossDrafts[entryId] || {})
+      emitNotify(notify, 'success', `止损已更新 ${entryId}`)
       await hydrateDetail(state.selectedSymbol, {
         preservePositionLimitDraft: true,
         preserveStoplossDrafts: true,
@@ -264,7 +264,7 @@ export const createSubjectManagementPageController = ({
     } catch (error) {
       state.pageError = errorMessage(error)
     } finally {
-      state.savingStoploss[buyLotId] = false
+      state.savingStoploss[entryId] = false
     }
   }
 

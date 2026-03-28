@@ -42,7 +42,7 @@ class PositionManagementDashboardService:
         holding_codes_provider=None,
         tracked_symbol_context_provider=None,
         inferred_position_loader=None,
-        legacy_position_loader=None,
+        reconciliation_loader=None,
         settings_provider=None,
         query_param_loader=None,
         now_provider=None,
@@ -66,10 +66,10 @@ class PositionManagementDashboardService:
             if use_default_position_loaders
             else _empty_position_loader
         )
-        self.legacy_position_loader = legacy_position_loader or (
-            _default_legacy_position_loader
+        self.reconciliation_loader = reconciliation_loader or (
+            _default_reconciliation_loader
             if use_default_position_loaders
-            else _empty_position_loader
+            else _empty_reconciliation_loader
         )
         self.settings_provider = settings_provider or _resolve_settings_provider(
             query_param_loader
@@ -185,26 +185,17 @@ class PositionManagementDashboardService:
             for item in snapshots
             if normalize_to_base_code(item.get("symbol"))
         }
-        inferred_position_map = _build_position_view_map(
+        ledger_position_map = _build_position_view_map(
             self.inferred_position_loader(),
-            default_quantity_source="order_management_projected_positions",
-            default_market_value_source="order_management_projected_positions",
+            default_quantity_source="order_management_position_entries",
+            default_market_value_source="order_management_position_entries",
         )
-        inferred_position_map = _align_position_view_map_to_broker_truth(
-            inferred_position_map,
+        ledger_position_map = _align_position_view_map_to_broker_truth(
+            ledger_position_map,
             snapshot_map,
-            default_source="order_management_projected_positions",
+            default_source="order_management_position_entries",
         )
-        legacy_position_map = _build_position_view_map(
-            self.legacy_position_loader(),
-            default_quantity_source="legacy_stock_fills",
-            default_market_value_source="legacy_stock_fills",
-        )
-        legacy_position_map = _align_position_view_map_to_broker_truth(
-            legacy_position_map,
-            snapshot_map,
-            default_source="stock_fills_compat",
-        )
+        reconciliation_map = dict(self.reconciliation_loader() or {})
         symbols = {
             symbol
             for symbol, context in tracked_symbol_context.items()
@@ -216,8 +207,8 @@ class PositionManagementDashboardService:
                 default_limit=default_limit,
                 override=overrides.get(symbol),
                 snapshot=snapshot_map.get(symbol),
-                inferred_position=inferred_position_map.get(symbol),
-                legacy_position=legacy_position_map.get(symbol),
+                ledger_position=ledger_position_map.get(symbol),
+                reconciliation=reconciliation_map.get(symbol),
                 is_holding_symbol=symbol in holding_codes,
                 scope_memberships=(
                     tracked_symbol_context.get(symbol, {}).get("scope_memberships")
@@ -255,31 +246,23 @@ class PositionManagementDashboardService:
             snapshot = rows[0] if rows else None
         holding_codes = self._get_holding_codes()
         snapshot_map = {normalized_symbol: snapshot} if snapshot else {}
-        inferred_position_map = _align_position_view_map_to_broker_truth(
+        ledger_position_map = _align_position_view_map_to_broker_truth(
             _build_position_view_map(
                 self.inferred_position_loader(),
-                default_quantity_source="order_management_projected_positions",
-                default_market_value_source="order_management_projected_positions",
+                default_quantity_source="order_management_position_entries",
+                default_market_value_source="order_management_position_entries",
             ),
             snapshot_map,
-            default_source="order_management_projected_positions",
+            default_source="order_management_position_entries",
         )
-        legacy_position_map = _align_position_view_map_to_broker_truth(
-            _build_position_view_map(
-                self.legacy_position_loader(),
-                default_quantity_source="legacy_stock_fills",
-                default_market_value_source="legacy_stock_fills",
-            ),
-            snapshot_map,
-            default_source="stock_fills_compat",
-        )
+        reconciliation_map = dict(self.reconciliation_loader() or {})
         return self._build_symbol_limit_row(
             normalized_symbol,
             default_limit=default_limit,
             override=overrides.get(normalized_symbol),
             snapshot=snapshot,
-            inferred_position=inferred_position_map.get(normalized_symbol),
-            legacy_position=legacy_position_map.get(normalized_symbol),
+            ledger_position=ledger_position_map.get(normalized_symbol),
+            reconciliation=reconciliation_map.get(normalized_symbol),
             is_holding_symbol=normalized_symbol in holding_codes,
             scope_memberships=tracked_context.get("scope_memberships") or [],
         )
@@ -367,8 +350,8 @@ class PositionManagementDashboardService:
         default_limit,
         override=None,
         snapshot=None,
-        inferred_position=None,
-        legacy_position=None,
+        ledger_position=None,
+        reconciliation=None,
         is_holding_symbol=False,
         scope_memberships=None,
     ):
@@ -380,16 +363,12 @@ class PositionManagementDashboardService:
             snapshot,
             is_holding_symbol=is_holding_symbol,
         )
-        inferred_position_view = _build_optional_position_view(
-            inferred_position,
-            empty_quantity_source="order_management_projected_positions",
-            empty_market_value_source="order_management_projected_positions",
+        ledger_position_view = _build_optional_position_view(
+            ledger_position,
+            empty_quantity_source="order_management_position_entries",
+            empty_market_value_source="order_management_position_entries",
         )
-        legacy_position_view = _build_optional_position_view(
-            legacy_position,
-            empty_quantity_source="legacy_stock_fills",
-            empty_market_value_source="legacy_stock_fills",
-        )
+        reconciliation_view = _build_reconciliation_view(reconciliation)
         market_value = broker_position["market_value"]
         market_value_available = broker_position["available"]
         blocked = (
@@ -405,8 +384,7 @@ class PositionManagementDashboardService:
             blocked_reason = "buy_allowed"
         name = (
             broker_position.get("name")
-            or inferred_position_view.get("name")
-            or legacy_position_view.get("name")
+            or ledger_position_view.get("name")
             or _resolve_instrument_name(symbol)
         )
         return {
@@ -429,12 +407,11 @@ class PositionManagementDashboardService:
                 _sort_scope_memberships(scope_memberships or [])
             ),
             "broker_position": broker_position,
-            "inferred_position": inferred_position_view,
-            "legacy_position": legacy_position_view,
+            "ledger_position": ledger_position_view,
+            "reconciliation": reconciliation_view,
             "position_consistency": _build_position_consistency(
                 broker_position,
-                inferred_position_view,
-                legacy_position_view,
+                ledger_position_view,
             ),
         }
 
@@ -570,8 +547,8 @@ class PositionManagementDashboardService:
                 default_limit=default_limit,
                 override=overrides.get(normalized_symbol),
                 snapshot=snapshot_map.get(normalized_symbol),
-                inferred_position=None,
-                legacy_position=None,
+                ledger_position=None,
+                reconciliation=None,
                 is_holding_symbol=normalized_symbol in holding_codes,
                 scope_memberships=(
                     tracked_symbol_context.get(normalized_symbol, {}).get(
@@ -1104,13 +1081,11 @@ def _build_optional_position_view(
 
 def _build_position_consistency(
     broker_position,
-    inferred_position,
-    legacy_position,
+    ledger_position,
 ):
     quantity_values = {
         "broker": _coerce_int(broker_position.get("quantity"), 0),
-        "inferred": _coerce_int(inferred_position.get("quantity"), 0),
-        "legacy_stock_fills": _coerce_int(legacy_position.get("quantity"), 0),
+        "ledger": _coerce_int(ledger_position.get("quantity"), 0),
     }
     quantity_consistent = (
         bool(broker_position.get("available"))
@@ -1119,6 +1094,22 @@ def _build_position_consistency(
     return {
         "quantity_values": quantity_values,
         "quantity_consistent": quantity_consistent,
+    }
+
+
+def _build_reconciliation_view(row):
+    payload = dict(row or {})
+    state = _normalize_optional_text(payload.get("state")) or "ALIGNED"
+    latest_state = _normalize_optional_text(payload.get("latest_gap_state")) or state
+    return {
+        "state": state,
+        "latest_gap_state": latest_state,
+        "signed_gap_quantity": _coerce_int(payload.get("signed_gap_quantity"), 0),
+        "open_gap_count": _coerce_int(payload.get("open_gap_count"), 0),
+        "latest_resolution_type": _normalize_optional_text(
+            payload.get("latest_resolution_type")
+        ),
+        "ingest_rejection_count": _coerce_int(payload.get("ingest_rejection_count"), 0),
     }
 
 
@@ -1299,6 +1290,10 @@ def _empty_position_loader():
     return []
 
 
+def _empty_reconciliation_loader():
+    return {}
+
+
 def _default_holding_codes_provider():
     from freshquant.data.astock.holding import get_stock_holding_codes
 
@@ -1313,12 +1308,82 @@ def _default_inferred_position_loader():
     return list_stock_positions()
 
 
-def _default_legacy_position_loader():
-    from freshquant.order_management.projection.stock_fills_compat import (
-        list_compat_stock_positions,
-    )
+def _default_reconciliation_loader():
+    from freshquant.order_management.repository import OrderManagementRepository
 
-    return list_compat_stock_positions()
+    repository = OrderManagementRepository()
+    summaries = {}
+
+    for gap in repository.list_reconciliation_gaps():
+        symbol = normalize_to_base_code(gap.get("symbol"))
+        if not symbol:
+            continue
+        current = summaries.setdefault(
+            symbol,
+            {
+                "state": "ALIGNED",
+                "latest_gap_state": "",
+                "signed_gap_quantity": 0,
+                "open_gap_count": 0,
+                "latest_resolution_type": None,
+                "ingest_rejection_count": 0,
+                "_latest_sort_value": -1,
+            },
+        )
+        latest_sort_value = _coerce_int(
+            gap.get("confirmed_at")
+            or gap.get("dismissed_at")
+            or gap.get("pending_until")
+            or gap.get("detected_at"),
+            0,
+        )
+        gap_state = _normalize_optional_text(gap.get("state")) or ""
+        if gap_state in {"OPEN", "REJECTED"}:
+            current["open_gap_count"] += 1
+            current["signed_gap_quantity"] = _coerce_int(
+                gap.get("quantity_delta"), current["signed_gap_quantity"]
+            )
+        if latest_sort_value >= current["_latest_sort_value"]:
+            current["_latest_sort_value"] = latest_sort_value
+            current["latest_gap_state"] = gap_state
+            current["latest_resolution_type"] = _normalize_optional_text(
+                gap.get("resolution_type")
+            )
+
+    for rejection in repository.list_ingest_rejections():
+        symbol = normalize_to_base_code(rejection.get("symbol"))
+        if not symbol:
+            continue
+        current = summaries.setdefault(
+            symbol,
+            {
+                "state": "ALIGNED",
+                "latest_gap_state": "",
+                "signed_gap_quantity": 0,
+                "open_gap_count": 0,
+                "latest_resolution_type": None,
+                "ingest_rejection_count": 0,
+                "_latest_sort_value": -1,
+            },
+        )
+        current["ingest_rejection_count"] += 1
+
+    for current in summaries.values():
+        latest_gap_state = current.get("latest_gap_state") or ""
+        if current["open_gap_count"] > 0:
+            current["state"] = (
+                "BROKEN"
+                if latest_gap_state == "REJECTED"
+                or current["ingest_rejection_count"] > 0
+                else "OBSERVING"
+            )
+        elif latest_gap_state in {"AUTO_OPENED", "AUTO_CLOSED", "MATCHED"}:
+            current["state"] = "AUTO_RECONCILED"
+        else:
+            current["state"] = "ALIGNED"
+        current.pop("_latest_sort_value", None)
+
+    return summaries
 
 
 def _resolve_settings_provider(query_param_loader=None):

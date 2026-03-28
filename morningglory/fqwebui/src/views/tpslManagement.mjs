@@ -42,11 +42,11 @@ const buildBadges = (row = {}) => {
 }
 
 const buildHistoryLabel = (row = {}) => {
-  const ids = Array.isArray(row.buy_lot_ids) ? row.buy_lot_ids : []
+  const ids = Array.isArray(row.entry_ids) ? row.entry_ids : []
   if (ids.length) return ids.join(', ')
-  const details = Array.isArray(row.buy_lot_details) ? row.buy_lot_details : []
+  const details = Array.isArray(row.entry_details) ? row.entry_details : []
   const detailIds = details
-    .map((item) => toText(item?.buy_lot_id))
+    .map((item) => toText(item?.entry_id))
     .filter(Boolean)
   return detailIds.length ? detailIds.join(', ') : '-'
 }
@@ -60,7 +60,7 @@ const buildTriggerLabel = (row = {}) => {
   if (kind === 'stoploss') {
     const stopPrices = Array.from(
       new Set(
-        (Array.isArray(row?.buy_lot_details) ? row.buy_lot_details : [])
+        (Array.isArray(row?.entry_details) ? row.entry_details : [])
           .map((item) => formatNumericLabel(item?.stop_price))
           .filter(Boolean),
       ),
@@ -78,32 +78,6 @@ const buildTriggerPriceLabel = (row = {}) => {
   return formatNumericLabel(firstTradePrice) || '-'
 }
 
-const buildStockFillDirectionLabel = (row = {}) => {
-  const backendLabel = toText(row?.direction_label)
-  if (backendLabel) return backendLabel
-  const source = toText(row?.source).toLowerCase()
-  if (source === 'external_inferred') return '推断持仓'
-  const op = toText(row?.op).toLowerCase()
-  if (['buy', 'b', 'open', 'long'].includes(op)) return '买入'
-  if (['sell', 's', 'close', 'short'].includes(op)) return '卖出'
-  if (source) return '买入'
-  return toText(row?.op)
-}
-
-const buildStockFillRows = (rows = []) => {
-  return (Array.isArray(rows) ? rows : []).map((row) => ({
-    ...row,
-    date: toText(row?.date),
-    time: toText(row?.time),
-    op: toText(row?.op),
-    opLabel: buildStockFillDirectionLabel(row),
-    quantity: toNumber(row?.quantity),
-    price: row?.price,
-    amount: row?.amount,
-    source: toText(row?.source),
-  }))
-}
-
 export const buildOverviewRows = (rows = []) => {
   return [...(Array.isArray(rows) ? rows : [])]
     .map((row) => ({
@@ -113,7 +87,8 @@ export const buildOverviewRows = (rows = []) => {
       position_quantity: toNumber(row?.position_quantity),
       position_amount: toNumber(row?.position_amount),
       position_amount_label: formatAmountWanLabel(row?.position_amount),
-      active_stoploss_buy_lot_count: toNumber(row?.active_stoploss_buy_lot_count),
+      active_stoploss_entry_count: toNumber(row?.active_stoploss_entry_count),
+      open_entry_count: toNumber(row?.open_entry_count),
       badges: buildBadges(row),
       takeprofitSummary: buildTakeprofitSummary(row),
       last_trigger_label: toText(row?.last_trigger?.kind) || '-',
@@ -122,6 +97,8 @@ export const buildOverviewRows = (rows = []) => {
     .sort((left, right) => {
       const holdingDiff = Number(right.position_quantity > 0) - Number(left.position_quantity > 0)
       if (holdingDiff !== 0) return holdingDiff
+      const amountDiff = right.position_amount - left.position_amount
+      if (amountDiff !== 0) return amountDiff
       const quantityDiff = right.position_quantity - left.position_quantity
       if (quantityDiff !== 0) return quantityDiff
       return left.symbol.localeCompare(right.symbol)
@@ -139,7 +116,7 @@ export const buildHistoryRows = (rows = []) => {
       event_type: toText(row?.event_type),
       batch_id: toText(row?.batch_id),
       created_at: formatBeijingTimestamp(row?.created_at),
-      buy_lot_label: buildHistoryLabel(row),
+      entry_label: buildHistoryLabel(row),
       triggerLabel: buildTriggerLabel(row),
       triggerPriceLabel: buildTriggerPriceLabel(row),
       downstreamLabel: `${requestCount} request / ${orderCount} order / ${tradeCount} trade`,
@@ -149,11 +126,16 @@ export const buildHistoryRows = (rows = []) => {
 
 export const buildDetailViewModel = (detail = {}) => {
   const takeprofit = detail?.takeprofit || { tiers: [], state: { armed_levels: {} } }
-  const buyLots = (Array.isArray(detail?.buy_lots) ? detail.buy_lots : []).map((row) => {
+  const rawEntries = Array.isArray(detail?.entries) ? detail.entries : []
+  const entries = rawEntries.map((row) => {
     const stoploss = row?.stoploss || {}
     const sellHistory = Array.isArray(row?.sell_history) ? row.sell_history : []
+    const entryPrice = row?.entry_price ?? row?.buy_price_real
     return {
       ...row,
+      entry_id: toText(row?.entry_id),
+      entry_price: entryPrice,
+      entry_price_label: formatNumericLabel(entryPrice) || '-',
       buy_time_label: formatBeijingDateTimeParts(row?.date, row?.time),
       stoploss,
       sell_history: sellHistory,
@@ -163,6 +145,22 @@ export const buildDetailViewModel = (detail = {}) => {
       sellHistoryLabel: `${sellHistory.length} 次卖出分配`,
     }
   })
+  const entrySlices = (Array.isArray(detail?.entry_slices) ? detail.entry_slices : []).map((row) => ({
+    ...row,
+    entry_slice_id: toText(row?.entry_slice_id || row?.lot_slice_id),
+    entry_id: toText(row?.entry_id),
+    guardian_price: row?.guardian_price,
+    original_quantity: toNumber(row?.original_quantity),
+    remaining_quantity: toNumber(row?.remaining_quantity),
+    status: toText(row?.status),
+  }))
+  const reconciliation = {
+    state: toText(detail?.reconciliation?.state) || 'aligned',
+    signed_gap_quantity: toNumber(detail?.reconciliation?.signed_gap_quantity),
+    open_gap_count: toNumber(detail?.reconciliation?.open_gap_count),
+    rejected_gap_count: toNumber(detail?.reconciliation?.rejected_gap_count),
+    latest_resolution_type: toText(detail?.reconciliation?.latest_resolution_type),
+  }
   return {
     ...detail,
     symbol: toText(detail?.symbol),
@@ -171,8 +169,9 @@ export const buildDetailViewModel = (detail = {}) => {
     positionAmountLabel: formatAmountWanLabel(detail?.position?.amount),
     takeprofit,
     takeprofitTierCount: Array.isArray(takeprofit?.tiers) ? takeprofit.tiers.length : 0,
-    stockFills: buildStockFillRows(detail?.stock_fills),
-    buyLots,
+    entries,
+    entrySlices,
+    reconciliation,
     historyRows: buildHistoryRows(detail?.history || detail?.historyRows || []),
   }
 }
@@ -197,9 +196,9 @@ export const createTpslManagementActions = (api) => ({
   async rearmTakeprofit (symbol) {
     return api.rearmTakeprofit(symbol)
   },
-  async saveStoploss (buyLotId, payload = {}) {
+  async saveStoploss (entryId, payload = {}) {
     return api.bindStoploss({
-      buy_lot_id: buyLotId,
+      entry_id: entryId,
       ...payload,
     })
   },

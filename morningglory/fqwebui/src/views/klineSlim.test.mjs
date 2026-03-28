@@ -192,7 +192,7 @@ test('KlineSlim exposes a subject settings overlay next to price guides', () => 
   assert.match(viewSource, /kline-slim-subject-panel/)
   assert.match(viewSource, /基础配置/)
   assert.match(viewSource, /单标的上限设置/)
-  assert.match(viewSource, /按 buy lot 止损/)
+  assert.match(viewSource, /按持仓入口止损/)
   assert.equal(
     viewSource.indexOf('class="kline-slim-subject-panel kline-slim-overlay-panel"') <
       viewSource.indexOf('Guardian 倍量价格'),
@@ -261,12 +261,12 @@ test('KlineSlim subject panel uses a two-column base grid inside the narrow over
   assert.equal(viewSource.includes('grid-template-columns repeat(4, minmax(0, 1fr))'), false)
 })
 
-test('KlineSlim subject panel keeps readable buy-lot stoploss rows after header cleanup', () => {
+test('KlineSlim subject panel keeps readable entry stoploss rows after header cleanup', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
-  assert.match(viewSource, /row\.buyLotDisplayLabel/)
-  assert.match(viewSource, /row\.buyLotMetaLabel/)
-  assert.match(viewSource, /row\.buyLotIdLabel/)
+  assert.match(viewSource, /row\.entryDisplayLabel/)
+  assert.match(viewSource, /row\.entryMetaLabel/)
+  assert.match(viewSource, /row\.entryIdLabel/)
   assert.match(viewSource, /class="subject-panel-stoploss-head"/)
   assert.match(viewSource, /class="subject-panel-stoploss-title-wrap"/)
   assert.match(viewSource, /class="subject-panel-stoploss-id"/)

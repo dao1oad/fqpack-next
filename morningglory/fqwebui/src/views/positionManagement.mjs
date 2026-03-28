@@ -153,8 +153,14 @@ const joinLabels = (...values) => values.filter((item) => toText(item)).join(' /
 
 const POSITION_SOURCE_NAME_LABELS = {
   broker: '券商',
-  inferred: '推断',
-  legacy_stock_fills: 'stock_fills',
+  ledger: '账本',
+}
+
+const RECONCILIATION_STATE_LABELS = {
+  ALIGNED: '已对齐',
+  OBSERVING: '观察中',
+  AUTO_RECONCILED: '自动补齐',
+  BROKEN: '异常',
 }
 
 const buildHoldingCodeSet = (dashboard = {}) => {
@@ -179,8 +185,7 @@ const resolveSymbolLimitSortMarketValue = (row = {}) => {
   const values = [
     row?.market_value,
     row?.broker_position?.market_value,
-    row?.inferred_position?.market_value,
-    row?.legacy_position?.market_value,
+    row?.ledger_position?.market_value,
   ]
   for (const value of values) {
     const parsed = toNumber(value)
@@ -215,6 +220,33 @@ const buildConsistencyDetailLabel = (quantityValues = {}) => {
   return entries
     .map(([key, value]) => `${POSITION_SOURCE_NAME_LABELS[key] || key} ${formatQuantity(value)}`)
     .join(' / ')
+}
+
+const formatReconciliationStateLabel = (value) => (
+  RECONCILIATION_STATE_LABELS[toText(value)] || toText(value) || '-'
+)
+
+const buildReconciliationView = (view = {}) => {
+  const state = toText(view?.state)
+  const signedGapQuantity = toNumber(view?.signed_gap_quantity) ?? 0
+  const openGapCount = toNumber(view?.open_gap_count) ?? 0
+  const ingestRejectionCount = toNumber(view?.ingest_rejection_count) ?? 0
+  const detailParts = [
+    `gap ${formatQuantity(signedGapQuantity)}`,
+    `open ${formatQuantity(openGapCount)}`,
+  ]
+  const latestResolutionType = toText(view?.latest_resolution_type)
+  if (latestResolutionType) detailParts.push(latestResolutionType)
+  if (ingestRejectionCount > 0) detailParts.push(`reject ${formatQuantity(ingestRejectionCount)}`)
+  return {
+    state,
+    state_label: formatReconciliationStateLabel(state),
+    summary_label: joinLabels(
+      formatReconciliationStateLabel(state),
+      detailParts.join(' / '),
+    ) || '-',
+    detail_label: detailParts.join(' / ') || '-',
+  }
 }
 
 const formatBeijingDateTime = (value) => {
@@ -389,20 +421,15 @@ export const buildSymbolLimitRows = (dashboard = {}) => {
         'no_broker_position',
         { amountFormatter: formatWanAmount },
       )
-      const inferredPosition = buildPositionSourceView(
-        row?.inferred_position,
-        'order_management_projected_positions',
+      const ledgerPosition = buildPositionSourceView(
+        row?.ledger_position,
+        'order_management_position_entries',
         { amountFormatter: formatWanAmount },
       )
-      const legacyPosition = buildPositionSourceView(
-        row?.legacy_position,
-        'legacy_stock_fills',
-        { amountFormatter: formatWanAmount },
-      )
+      const reconciliation = buildReconciliationView(row?.reconciliation)
       const quantityValues = row?.position_consistency?.quantity_values || {
         broker: brokerPosition.quantity ?? 0,
-        inferred: inferredPosition.quantity ?? 0,
-        legacy_stock_fills: legacyPosition.quantity ?? 0,
+        ledger: ledgerPosition.quantity ?? 0,
       }
       const quantityMismatch = row?.position_consistency?.quantity_consistent === false
       return {
@@ -412,13 +439,15 @@ export const buildSymbolLimitRows = (dashboard = {}) => {
         market_value_label: formatWanAmount(row?.market_value),
         broker_position_label: brokerPosition.summary_label,
         broker_position_source_label: brokerPosition.source_label,
-        inferred_position_label: inferredPosition.summary_label,
-        inferred_position_source_label: inferredPosition.source_label,
-        legacy_position_label: legacyPosition.summary_label,
-        legacy_position_source_label: legacyPosition.source_label,
+        ledger_position_label: ledgerPosition.summary_label,
+        ledger_position_source_label: ledgerPosition.source_label,
+        reconciliation_label: reconciliation.summary_label,
+        reconciliation_detail_label: reconciliation.detail_label,
+        reconciliation_state_label: reconciliation.state_label,
+        reconciliation_state: reconciliation.state,
         broker_position: brokerPosition,
-        inferred_position: inferredPosition,
-        legacy_position: legacyPosition,
+        ledger_position: ledgerPosition,
+        reconciliation,
         default_limit_label: formatWanAmount(row?.default_limit),
         effective_limit_label: formatWanAmount(row?.effective_limit),
         source_label: row?.using_override ? '单独设置' : '系统默认值',

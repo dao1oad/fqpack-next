@@ -51,7 +51,9 @@ export const createTpslManagementPageController = ({
       delete state.stoplossDrafts[key]
     }
     for (const row of rows) {
-      state.stoplossDrafts[row.buy_lot_id] = {
+      const entryId = row.entry_id
+      if (!entryId) continue
+      state.stoplossDrafts[entryId] = {
         stop_price: row.stoploss?.stop_price ?? null,
         enabled: Boolean(row.stoploss?.enabled),
       }
@@ -69,8 +71,8 @@ export const createTpslManagementPageController = ({
     const previousSymbol = state.selectedSymbol
     const previousTakeprofitDrafts = cloneTiers(state.takeprofitDrafts)
     const previousStoplossDrafts = Object.fromEntries(
-      Object.entries(state.stoplossDrafts).map(([buyLotId, payload]) => [
-        buyLotId,
+      Object.entries(state.stoplossDrafts).map(([entryId, payload]) => [
+        entryId,
         {
           stop_price: payload?.stop_price ?? null,
           enabled: Boolean(payload?.enabled),
@@ -82,15 +84,15 @@ export const createTpslManagementPageController = ({
       const nextDetail = await actions.loadSymbolDetail(symbol, { historyLimit })
       state.detail = nextDetail
       state.takeprofitDrafts = cloneTiers(nextDetail.takeprofit?.tiers || [])
-      syncStoplossDrafts(nextDetail.buyLots || [])
+      syncStoplossDrafts(nextDetail.entries || [])
       if (previousSymbol === nextDetail.symbol && preserveTakeprofitDrafts && previousTakeprofitDrafts.length > 0) {
         state.takeprofitDrafts = previousTakeprofitDrafts
       }
       if (previousSymbol === nextDetail.symbol && preserveStoplossDrafts) {
-        for (const [buyLotId, payload] of Object.entries(previousStoplossDrafts)) {
-          if (state.stoplossDrafts[buyLotId]) {
-            state.stoplossDrafts[buyLotId] = {
-              ...state.stoplossDrafts[buyLotId],
+        for (const [entryId, payload] of Object.entries(previousStoplossDrafts)) {
+          if (state.stoplossDrafts[entryId]) {
+            state.stoplossDrafts[entryId] = {
+              ...state.stoplossDrafts[entryId],
               ...payload,
             }
           }
@@ -200,12 +202,12 @@ export const createTpslManagementPageController = ({
     }
   }
 
-  const handleSaveStoploss = async (buyLotId) => {
-    if (!buyLotId) return
-    state.savingStoploss[buyLotId] = true
+  const handleSaveStoploss = async (entryId) => {
+    if (!entryId) return
+    state.savingStoploss[entryId] = true
     try {
-      await actions.saveStoploss(buyLotId, state.stoplossDrafts[buyLotId] || {})
-      emitNotify(notify, 'success', `已更新 ${buyLotId}`)
+      await actions.saveStoploss(entryId, state.stoplossDrafts[entryId] || {})
+      emitNotify(notify, 'success', `已更新 ${entryId}`)
       await hydrateDetail(state.selectedSymbol, {
         historyLimit: HISTORY_LIMIT,
         preserveTakeprofitDrafts: true,
@@ -214,7 +216,7 @@ export const createTpslManagementPageController = ({
     } catch (error) {
       state.pageError = errorMessage(error)
     } finally {
-      state.savingStoploss[buyLotId] = false
+      state.savingStoploss[entryId] = false
     }
   }
 

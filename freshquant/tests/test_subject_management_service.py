@@ -312,7 +312,8 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["takeprofit"]["tiers"][0]["level"] == 1
     assert rows[0]["takeprofit"]["tiers"][1]["enabled"] is False
     assert rows[0]["stoploss"]["active_count"] == 1
-    assert rows[0]["stoploss"]["open_buy_lot_count"] == 1
+    assert rows[0]["stoploss"]["active_stoploss_entry_count"] == 1
+    assert rows[0]["stoploss"]["open_entry_count"] == 1
     assert rows[0]["runtime"]["position_quantity"] == 500
     assert rows[0]["runtime"]["position_amount"] == 0.0
     assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:40:00+08:00"
@@ -453,7 +454,7 @@ def test_subject_management_overview_normalizes_must_pool_codes_before_grouping(
     assert rows[0]["must_pool"]["stop_loss_price"] == 9.2
 
 
-def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lots_and_pm_summary():
+def test_subject_management_detail_returns_must_pool_guardian_takeprofit_entries_and_pm_summary():
     database = FakeDatabase(
         {
             "must_pool": FakeCollection(
@@ -570,8 +571,10 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_buy_lot
     assert detail["guardian_buy_grid_state"]["last_hit_level"] == "BUY-2"
     assert detail["takeprofit"]["tiers"][2]["level"] == 3
     assert detail["takeprofit"]["state"]["armed_levels"][2] is False
-    assert len(detail["buy_lots"]) == 1
-    assert detail["buy_lots"][0]["stoploss"]["stop_price"] == 9.2
+    assert len(detail["entries"]) == 1
+    assert detail["entries"][0]["entry_id"] == "lot_1"
+    assert "buy_lots" not in detail
+    assert detail["entries"][0]["stoploss"]["stop_price"] == 9.2
     assert detail["runtime_summary"]["position_quantity"] == 500
     assert detail["runtime_summary"]["avg_price"] == 10.023
     assert detail["position_management_summary"]["effective_state"] == "HOLDING_ONLY"
@@ -668,8 +671,8 @@ def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
 
     json.dumps(detail)
     assert "_id" not in detail["takeprofit"]["state"]
-    assert "_id" not in detail["buy_lots"][0]
-    assert "_id" not in detail["buy_lots"][0]["stoploss"]
+    assert "_id" not in detail["entries"][0]
+    assert "_id" not in detail["entries"][0]["stoploss"]
 
 
 def test_subject_management_uses_default_position_loader_when_not_injected(monkeypatch):

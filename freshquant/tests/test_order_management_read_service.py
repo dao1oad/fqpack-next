@@ -9,25 +9,27 @@ instrument_general_stub = types.ModuleType("freshquant.instrument.general")
 setattr(instrument_general_stub, "query_instrument_info", lambda symbol: None)
 sys.modules.setdefault("freshquant.instrument.general", instrument_general_stub)
 
-repository_stub = types.ModuleType("freshquant.order_management.repository")
-
-
-class StubOrderManagementRepository:
-    pass
-
-
-setattr(repository_stub, "OrderManagementRepository", StubOrderManagementRepository)
-sys.modules.setdefault("freshquant.order_management.repository", repository_stub)
-
 code_stub = types.ModuleType("freshquant.util.code")
 
 
 def _normalize_to_base_code(value):
     text = str(value or "").strip()
+    if "." in text:
+        text = text.split(".", 1)[0]
     return text[-6:] if len(text) >= 6 else text
 
 
 setattr(code_stub, "normalize_to_base_code", _normalize_to_base_code)
+setattr(
+    code_stub,
+    "fq_util_code_append_market_code",
+    lambda value: str(value or "").strip(),
+)
+setattr(
+    code_stub,
+    "fq_util_code_append_market_code_suffix",
+    lambda value: str(value or "").strip(),
+)
 sys.modules.setdefault("freshquant.util.code", code_stub)
 
 from freshquant.order_management.read_service import (
@@ -39,13 +41,13 @@ from freshquant.order_management.read_service import (
 class InMemoryOrderManagementRepository:
     def __init__(self):
         self.order_requests = []
-        self.orders = []
+        self.broker_orders = []
         self.order_events = []
-        self.trade_facts = []
+        self.execution_fills = []
 
-    def find_order(self, internal_order_id):
-        for item in self.orders:
-            if item.get("internal_order_id") == internal_order_id:
+    def find_broker_order(self, broker_order_key):
+        for item in self.broker_orders:
+            if item.get("broker_order_key") == broker_order_key:
                 return item
         return None
 
@@ -91,7 +93,7 @@ class InMemoryOrderManagementRepository:
         request_ids=None,
         internal_order_ids=None,
     ):
-        rows = list(self.orders)
+        rows = list(self.broker_orders)
         if symbol is not None:
             rows = [item for item in rows if item.get("symbol") == symbol]
         if states is not None:
@@ -117,6 +119,30 @@ class InMemoryOrderManagementRepository:
             ]
         return rows
 
+    def list_broker_orders(
+        self,
+        *,
+        symbol=None,
+        states=None,
+        broker_order_keys=None,
+    ):
+        rows = list(self.broker_orders)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if states is not None:
+            allowed_states = {str(item).strip().upper() for item in states}
+            rows = [
+                item
+                for item in rows
+                if str(item.get("state") or "").strip().upper() in allowed_states
+            ]
+        if broker_order_keys is not None:
+            allowed_keys = set(broker_order_keys)
+            rows = [
+                item for item in rows if item.get("broker_order_key") in allowed_keys
+            ]
+        return rows
+
     def list_order_events(self, *, internal_order_ids=None):
         rows = list(self.order_events)
         if internal_order_ids is not None:
@@ -128,16 +154,25 @@ class InMemoryOrderManagementRepository:
             ]
         return rows
 
-    def list_trade_facts(self, symbol=None, internal_order_ids=None):
-        rows = list(self.trade_facts)
+    def list_execution_fills(
+        self, symbol=None, broker_order_keys=None, execution_fill_ids=None
+    ):
+        rows = list(self.execution_fills)
         if symbol is not None:
             rows = [item for item in rows if item.get("symbol") == symbol]
-        if internal_order_ids is not None:
-            allowed_order_ids = set(internal_order_ids)
+        if broker_order_keys is not None:
+            allowed_order_ids = set(broker_order_keys)
             rows = [
                 item
                 for item in rows
-                if item.get("internal_order_id") in allowed_order_ids
+                if item.get("broker_order_key") in allowed_order_ids
+            ]
+        if execution_fill_ids is not None:
+            allowed_fill_ids = set(execution_fill_ids)
+            rows = [
+                item
+                for item in rows
+                if item.get("execution_fill_id") in allowed_fill_ids
             ]
         return rows
 
@@ -199,9 +234,10 @@ def _build_repository():
             },
         ]
     )
-    repository.orders.extend(
+    repository.broker_orders.extend(
         [
             {
+                "broker_order_key": "ord_fill_1",
                 "internal_order_id": "ord_fill_1",
                 "request_id": "req_fill_1",
                 "broker_order_id": "BRK-1",
@@ -213,11 +249,16 @@ def _build_repository():
                 "state": "FILLED",
                 "source_type": "strategy",
                 "submitted_at": "2026-03-13T09:01:00+00:00",
+                "requested_quantity": 100,
                 "filled_quantity": 100,
                 "avg_filled_price": 10.1,
+                "fill_count": 1,
+                "first_fill_time": 1710311100,
+                "last_fill_time": 1710311100,
                 "updated_at": "2026-03-13T09:05:00+00:00",
             },
             {
+                "broker_order_key": "ord_queue_1",
                 "internal_order_id": "ord_queue_1",
                 "request_id": "req_queue_1",
                 "broker_order_id": "",
@@ -229,11 +270,16 @@ def _build_repository():
                 "state": "QUEUED",
                 "source_type": "web",
                 "submitted_at": None,
+                "requested_quantity": 200,
                 "filled_quantity": 0,
                 "avg_filled_price": None,
+                "fill_count": 0,
+                "first_fill_time": None,
+                "last_fill_time": None,
                 "updated_at": "2026-03-13T10:05:00+00:00",
             },
             {
+                "broker_order_key": "ord_cancel_1",
                 "internal_order_id": "ord_cancel_1",
                 "request_id": "req_cancel_1",
                 "broker_order_id": "BRK-3",
@@ -245,8 +291,12 @@ def _build_repository():
                 "state": "CANCELLED",
                 "source_type": "api",
                 "submitted_at": "2026-03-13T11:01:00+00:00",
+                "requested_quantity": 300,
                 "filled_quantity": 0,
                 "avg_filled_price": None,
+                "fill_count": 0,
+                "first_fill_time": None,
+                "last_fill_time": None,
                 "updated_at": "2026-03-13T11:06:00+00:00",
             },
         ]
@@ -279,10 +329,12 @@ def _build_repository():
             },
         ]
     )
-    repository.trade_facts.extend(
+    repository.execution_fills.extend(
         [
             {
-                "trade_fact_id": "trade_fill_1",
+                "execution_fill_id": "fill_1",
+                "broker_order_key": "ord_fill_1",
+                "broker_order_id": "BRK-1",
                 "internal_order_id": "ord_fill_1",
                 "symbol": "600000",
                 "side": "buy",
@@ -292,7 +344,9 @@ def _build_repository():
                 "source": "xt_report",
             },
             {
-                "trade_fact_id": "trade_other_1",
+                "execution_fill_id": "fill_other_1",
+                "broker_order_key": "ord_other_1",
+                "broker_order_id": "BRK-other-1",
                 "internal_order_id": "ord_other_1",
                 "symbol": "300001",
                 "side": "buy",
@@ -379,7 +433,9 @@ def test_get_order_detail_assembles_request_events_and_trades():
         "accepted",
         "trade_reported",
     ]
-    assert detail["trades"][0]["trade_fact_id"] == "trade_fill_1"
+    assert detail["broker_order"]["broker_order_key"] == "ord_fill_1"
+    assert detail["fills"][0]["execution_fill_id"] == "fill_1"
+    assert detail["trades"][0]["execution_fill_id"] == "fill_1"
     assert detail["identifiers"] == {
         "trace_id": "trc_fill_1",
         "intent_id": "int_fill_1",
@@ -387,6 +443,18 @@ def test_get_order_detail_assembles_request_events_and_trades():
         "internal_order_id": "ord_fill_1",
         "broker_order_id": "BRK-1",
     }
+
+
+def test_get_order_detail_uses_broker_order_key_to_load_execution_fills():
+    repository = _build_repository()
+    repository.broker_orders[0]["broker_order_key"] = "border_fill_1"
+    repository.execution_fills[0]["broker_order_key"] = "border_fill_1"
+    service = OrderManagementReadService(repository=repository)
+
+    detail = service.get_order_detail("ord_fill_1")
+
+    assert detail["broker_order"]["broker_order_key"] == "border_fill_1"
+    assert [item["execution_fill_id"] for item in detail["fills"]] == ["fill_1"]
 
 
 def test_get_stats_aggregates_side_state_and_missing_broker_counts():
@@ -416,10 +484,10 @@ def test_list_orders_rejects_unknown_time_field():
 
 def test_read_service_removes_mongo_ids_from_list_and_detail_payloads():
     repository = _build_repository()
-    repository.orders[0]["_id"] = object()
+    repository.broker_orders[0]["_id"] = object()
     repository.order_requests[0]["_id"] = object()
     repository.order_events[0]["_id"] = object()
-    repository.trade_facts[0]["_id"] = object()
+    repository.execution_fills[0]["_id"] = object()
     service = OrderManagementReadService(repository=repository)
 
     orders_payload = service.list_orders(symbol="600000", state="FILLED")
@@ -429,4 +497,4 @@ def test_read_service_removes_mongo_ids_from_list_and_detail_payloads():
     assert "_id" not in detail_payload["order"]
     assert "_id" not in detail_payload["request"]
     assert "_id" not in detail_payload["events"][0]
-    assert "_id" not in detail_payload["trades"][0]
+    assert "_id" not in detail_payload["fills"][0]

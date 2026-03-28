@@ -729,6 +729,7 @@ def query_stock_fills():
                     "code": "0",
                     "data": {
                         "instrument_type": InstrumentType.STOCK_CN.value,
+                        "entry_ledger": stock_fills,
                         "stock_fills": stock_fills,
                     },
                 }

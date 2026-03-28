@@ -7,16 +7,16 @@ from freshquant.tpsl.takeprofit_quantity import (
 def test_takeprofit_quantity_uses_guardian_profit_slices_only():
     open_slices = [
         {
-            "buy_lot_id": "lot1",
-            "lot_slice_id": "s1",
+            "entry_id": "entry1",
+            "entry_slice_id": "s1",
             "guardian_price": 9.5,
             "remaining_quantity": 200,
             "sort_key": 2,
             "symbol": "000001",
         },
         {
-            "buy_lot_id": "lot1",
-            "lot_slice_id": "s2",
+            "entry_id": "entry1",
+            "entry_slice_id": "s2",
             "guardian_price": 10.4,
             "remaining_quantity": 100,
             "sort_key": 1,
@@ -28,7 +28,7 @@ def test_takeprofit_quantity_uses_guardian_profit_slices_only():
 
     assert result["quantity"] == 200
     assert result["slice_quantities"] == {"s1": 200}
-    assert result["buy_lot_quantities"] == {"lot1": 200}
+    assert result["entry_quantities"] == {"entry1": 200}
 
 
 def test_takeprofit_hit_level_three_does_not_sell_lower_levels_implicitly():
