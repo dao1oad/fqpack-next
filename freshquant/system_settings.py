@@ -44,6 +44,7 @@ DEFAULT_PM_CONFIG = {
     "thresholds": {
         "allow_open_min_bail": 800000.0,
         "holding_only_min_bail": 100000.0,
+        "single_symbol_position_limit": 800000.0,
     },
 }
 DEFAULT_STRATEGIES = {
@@ -97,6 +98,7 @@ class GuardianSettings:
 class PositionManagementSettings:
     allow_open_min_bail: float = 800000.0
     holding_only_min_bail: float = 100000.0
+    single_symbol_position_limit: float = 800000.0
 
 
 class SystemSettings:
@@ -181,6 +183,10 @@ class SystemSettings:
             ),
             holding_only_min_bail=float(
                 get(pm_config, "thresholds.holding_only_min_bail", 100000.0) or 100000.0
+            ),
+            single_symbol_position_limit=float(
+                get(pm_config, "thresholds.single_symbol_position_limit", 800000.0)
+                or 800000.0
             ),
         )
         self._strategies_by_code = strategies
