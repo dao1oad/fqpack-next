@@ -45,7 +45,7 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
   assert.equal(detail.buyLots[0].buyLotIdLabel, 'ID 尾号 316d2a')
   assert.equal(
     detail.buyLots[0].buyLotMetaLabel,
-    '2026-03-16 10:31 · 均价 10.023 · 市值 12.35 万 · 剩余 66.67%'
+    '2026-03-16 10:31:00 · 买入价 10.0 · 市值 12.35 万 · 剩余 66.67%'
   )
   assert.equal(Object.hasOwn(detail.mustPool, 'forever'), false)
   assert.equal(Object.hasOwn(detail.positionLimit, 'use_default'), false)

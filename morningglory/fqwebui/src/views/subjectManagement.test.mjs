@@ -145,7 +145,7 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.equal(detail.buyLots[0].buyLotIdLabel, 'ID 尾号 316d2a')
   assert.equal(
     detail.buyLots[0].buyLotMetaLabel,
-    '2026-03-16 10:31:00 · 均价 10.023 · 市值 12.35 万 · 剩余 66.67%'
+    '2026-03-16 10:31:00 · 买入价 10.0 · 市值 12.35 万 · 剩余 66.67%'
   )
   assert.equal(detail.runtimeSummary.avg_price, 10.023)
   assert.equal(detail.runtimeSummary.last_trigger_time, '2026-03-16 10:40:00')
