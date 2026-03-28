@@ -5,6 +5,7 @@ import {
   buildGuardianPriceGuides,
   buildKlineSubjectPriceDetail,
   buildTakeprofitPriceGuides,
+  getPriceGuideLegendName,
   validateGuardianGuideDraft,
   validateTakeprofitDrafts,
 } from './subject-price-guides.mjs'
@@ -39,6 +40,55 @@ test('buildKlineSubjectPriceDetail keeps guardian, takeprofit and runtime state'
   assert.deepEqual(detail.takeprofitState.armed_levels, { 1: true, 2: false, 3: true })
   assert.equal(detail.chartPriceGuides.lines.length, 5)
   assert.equal(detail.chartPriceGuides.bands.length, 0)
+})
+
+test('buildKlineSubjectPriceDetail adds cost basis and open buy lot guides', () => {
+  const detail = buildKlineSubjectPriceDetail({
+    runtime_summary: {
+      avg_price: 10.0234,
+    },
+    buy_lots: [
+      {
+        buy_lot_id: 'lot_1',
+        buy_price_real: 10.02,
+        remaining_quantity: 200,
+      },
+      {
+        buy_lot_id: 'lot_2',
+        buy_price_real: 9.88,
+        remaining_quantity: 100,
+      },
+      {
+        buy_lot_id: 'lot_3',
+        buy_price_real: null,
+        remaining_quantity: 50,
+      },
+    ],
+  })
+
+  const costBasisLine = detail.chartPriceGuides.lines.find((row) => row.group === 'cost_basis')
+  const buyLotLines = detail.chartPriceGuides.lines.filter((row) => row.group === 'buy_lot')
+
+  assert.equal(costBasisLine?.price, 10.023)
+  assert.equal(costBasisLine?.label, '成本 10.023')
+  assert.equal(costBasisLine?.lineStyle, 'solid')
+  assert.deepEqual(
+    buyLotLines.map((row) => ({
+      id: row.id,
+      price: row.price,
+      label: row.label,
+      lineStyle: row.lineStyle,
+    })),
+    [
+      { id: 'buy-lot-lot_1', price: 10.02, label: '买1 10.020 / 200股', lineStyle: 'dotted' },
+      { id: 'buy-lot-lot_2', price: 9.88, label: '买2 9.880 / 100股', lineStyle: 'dotted' },
+    ],
+  )
+})
+
+test('getPriceGuideLegendName exposes cost basis and buy lot legend labels', () => {
+  assert.equal(getPriceGuideLegendName('cost_basis'), '成本价线')
+  assert.equal(getPriceGuideLegendName('buy_lot'), '买入订单线')
 })
 
 test('buildGuardianPriceGuides keeps blue red green order from high to low', () => {

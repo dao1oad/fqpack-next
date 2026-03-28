@@ -431,7 +431,9 @@ export default {
         guardianDraft: this.guardianDraft,
         guardianState: this.guardianState,
         takeprofitDrafts: this.takeprofitDrafts,
-        takeprofitState: this.takeprofitState
+        takeprofitState: this.takeprofitState,
+        costBasisPrice: this.subjectPriceDetail?.costBasisPrice ?? null,
+        buyLots: this.subjectPriceDetail?.openBuyLots ?? []
       })
     },
     editablePriceGuides() {

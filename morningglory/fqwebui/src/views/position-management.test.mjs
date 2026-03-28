@@ -480,7 +480,7 @@ test('position-management module doc reflects merged left panel, dirty-symbol fi
   assert.match(content, /顶部双栏当前恢复等高面板/)
   assert.match(content, /最近决策 ledger 默认分页 `100` 条，表体默认显示约 `15` 行/)
   assert.match(content, /当前命中规则.*与“可用保证金”等小指标卡保持同尺寸/)
-  assert.match(content, /系统默认值[\s\S]*单标的默认持仓上限[\s\S]*列已移除[\s\S]*操作[\s\S]*当前来源/)
+  assert.match(content, /系统默认值[\s\S]*单标的默认持仓上限[\s\S]*列已移除[\s\S]*当前生效值[\s\S]*操作[\s\S]*当前来源/)
   assert.match(content, /券商.*订单推断仓位.*stock_fills.*扩展占满右栏剩余宽度/)
   assert.match(content, /订单推断仓位 \/ stock_fills 仓位.*左对齐/)
   assert.match(content, /表头与数据行共用固定列宽，避免右侧三列在长来源文本下发生错位/)
