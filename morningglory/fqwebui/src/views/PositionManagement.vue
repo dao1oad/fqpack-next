@@ -158,7 +158,7 @@
                 </el-table>
 
                 <div class="position-edit-footer">
-                  <span class="workbench-muted">当前开放账户阈值和全局单标的实时仓位上限保持可编辑，其余参数继续只读展示。</span>
+                  <span class="workbench-muted">当前开放账户阈值和全局单标的默认持仓上限保持可编辑，其余参数继续只读展示。</span>
                   <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
                 </div>
               </div>

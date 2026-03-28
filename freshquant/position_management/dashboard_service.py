@@ -678,7 +678,7 @@ class PositionManagementDashboardService:
             },
             {
                 "key": "single_symbol_position_limit",
-                "label": "单标的实时仓位上限",
+                "label": "单标的默认持仓上限",
                 "value": thresholds["single_symbol_position_limit"],
                 "editable": True,
                 "group": "editable_thresholds",

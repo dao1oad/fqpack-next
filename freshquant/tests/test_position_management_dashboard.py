@@ -167,6 +167,7 @@ def test_dashboard_surfaces_effective_state_holding_scope_and_rule_matrix():
     assert rules["sell"]["allowed"] is True
     assert inventory["allow_open_min_bail"]["editable"] is True
     assert inventory["single_symbol_position_limit"]["editable"] is True
+    assert inventory["single_symbol_position_limit"]["label"] == "单标的默认持仓上限"
     assert inventory["single_symbol_position_limit"]["value"] == 800000.0
     assert inventory["state_stale_after_seconds"]["editable"] is False
     assert inventory["xtquant.account_type"]["value"] == "CREDIT"
