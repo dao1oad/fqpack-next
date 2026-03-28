@@ -28,6 +28,11 @@ TRACKED_SCOPE_MEMBERSHIP_ORDER = {
     "stock_pool": 2,
     "pre_pool": 3,
 }
+STATE_LABELS = {
+    ALLOW_OPEN: "允许开新仓",
+    HOLDING_ONLY: "仅允许持仓内买入",
+    FORCE_PROFIT_REDUCE: "强制盈利减仓",
+}
 
 
 class PositionManagementDashboardService:
@@ -81,7 +86,7 @@ class PositionManagementDashboardService:
             "config": config_view,
             "state": state_view,
             "holding_scope": holding_scope,
-            "rule_matrix": self._build_rule_matrix(state_view["effective_state"]),
+            "rule_matrix": self._build_rule_matrix(state_view),
             "recent_decisions": self._build_recent_decisions(limit=10),
             "symbol_position_limits": self.get_symbol_limits(),
         }
@@ -502,7 +507,9 @@ class PositionManagementDashboardService:
             "description": "与仓位门禁一致，使用最新一次券商同步的 xt_positions 作为当前持仓真值。",
         }
 
-    def _build_rule_matrix(self, effective_state):
+    def _build_rule_matrix(self, state_view):
+        effective_state = state_view.get("effective_state")
+        matched_rule = state_view.get("matched_rule") or {}
         rows = []
         for key, label, action, is_holding_symbol in (
             ("buy_new", "新标的买入", "buy", False),
@@ -521,7 +528,13 @@ class PositionManagementDashboardService:
                     "action": action,
                     "allowed": allowed,
                     "reason_code": reason_code,
-                    "reason_text": reason_text,
+                    "reason_text": _build_rule_matrix_reason_text(
+                        effective_state=effective_state,
+                        action=action,
+                        is_holding_symbol=is_holding_symbol,
+                        fallback_reason_text=reason_text,
+                        matched_rule=matched_rule,
+                    ),
                 }
             )
         return rows
@@ -814,6 +827,58 @@ def _build_threshold_refresh_rule(
             "snapshot 刷新完成。"
         ),
     }
+
+
+def _build_rule_matrix_reason_text(
+    *,
+    effective_state,
+    action,
+    is_holding_symbol,
+    fallback_reason_text,
+    matched_rule,
+):
+    state_text = _normalize_optional_text(effective_state) or "-"
+    state_label = STATE_LABELS.get(effective_state, state_text)
+    matched_rule_title = _normalize_optional_text((matched_rule or {}).get("title"))
+    prefix = f"当前 effective_state={state_text}（{state_label}）。"
+    suffix = f"当前命中：{matched_rule_title}。" if matched_rule_title else ""
+
+    if action == "sell":
+        if effective_state == FORCE_PROFIT_REDUCE:
+            body = (
+                "仓位门禁不阻断卖出；此状态通常用于已有持仓在满足上游盈利减仓/退出条件时提交卖单，"
+                "而不是系统自行随意卖出。"
+            )
+        else:
+            body = (
+                "仓位门禁不阻断卖出；是否真正卖出仍取决于上游策略、人工操作和持仓本身，"
+                "本页不会因为该状态自动发起卖单。"
+            )
+        return " ".join(part for part in (prefix, body, suffix) if part)
+
+    if effective_state == ALLOW_OPEN:
+        if is_holding_symbol:
+            body = "仓位门禁允许已持仓标的也可继续买入。"
+        else:
+            body = "仓位门禁允许对新标的发起买入。"
+        return " ".join(part for part in (prefix, body, suffix) if part)
+
+    if effective_state == HOLDING_ONLY:
+        if is_holding_symbol:
+            body = "仓位门禁允许对当前已持仓标的继续买入，但不允许借此开新仓。"
+        else:
+            body = "仓位门禁只允许对当前已持仓标的继续买入；新标的买入会被拒绝。"
+        return " ".join(part for part in (prefix, body, suffix) if part)
+
+    if effective_state == FORCE_PROFIT_REDUCE:
+        body = "仓位门禁禁止一切买入；需要先通过卖出回收保证金。"
+        return " ".join(part for part in (prefix, body, suffix) if part)
+
+    fallback = (
+        _normalize_optional_text(fallback_reason_text)
+        or "未知仓位状态，门禁按拒绝处理。"
+    )
+    return " ".join(part for part in (prefix, fallback, suffix) if part)
 
 
 def _resolve_recent_decision_symbol_name(item, *, meta=None):

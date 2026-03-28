@@ -48,22 +48,21 @@
                     <span>原因码</span>
                     <span>说明</span>
                   </div>
-                  <div class="runtime-ledger__viewport">
-                    <div
-                      v-for="row in ruleMatrix"
-                      :key="row.key"
-                      class="runtime-ledger__row runtime-position-rule-ledger__grid"
-                      :class="{ 'runtime-ledger__row--blocked': !row.allowed }"
-                    >
-                      <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.label }}</span>
-                      <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                        <StatusChip class="runtime-inline-status" :variant="ruleStatusChipVariant(row.allowed)">
-                          {{ row.allowed_label }}
-                        </StatusChip>
-                      </span>
-                      <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.reason_code">{{ row.reason_code }}</span>
-                      <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_text">{{ row.reason_text }}</span>
-                    </div>
+
+                  <div
+                    v-for="row in ruleMatrix"
+                    :key="row.key"
+                    class="runtime-ledger__row runtime-position-rule-ledger__grid"
+                    :class="{ 'runtime-ledger__row--blocked': !row.allowed }"
+                  >
+                    <span class="runtime-ledger__cell runtime-ledger__cell--strong">{{ row.label }}</span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                      <StatusChip class="runtime-inline-status" :variant="ruleStatusChipVariant(row.allowed)">
+                        {{ row.allowed_label }}
+                      </StatusChip>
+                    </span>
+                    <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.reason_code">{{ row.reason_code }}</span>
+                    <span class="runtime-ledger__cell runtime-position-rule-ledger__description" :title="row.reason_text">{{ row.reason_text }}</span>
                   </div>
                 </div>
               </div>
@@ -199,68 +198,67 @@
                   <span>推断仓位</span>
                   <span>stock_fills仓位</span>
                 </div>
-                <div class="runtime-ledger__viewport">
+
+                <div
+                  v-for="row in symbolLimitRows"
+                  :key="row.symbol"
+                  class="runtime-ledger__row runtime-position-symbol-limit-ledger__grid"
+                  :class="{
+                    'runtime-ledger__row--blocked': row.blocked,
+                    'runtime-ledger__row--inconsistent': row.quantity_mismatch,
+                  }"
+                >
+                  <div class="runtime-ledger__cell position-limit-symbol">
+                    <strong>{{ row.symbol }}</strong>
+                    <span>{{ row.name }}</span>
+                  </div>
+                  <div class="runtime-ledger__cell position-symbol-limit-input">
+                    <el-input-number
+                      v-model="symbolLimitDrafts[row.symbol]"
+                      size="small"
+                      :min="0"
+                      :step="10000"
+                      controls-position="right"
+                    />
+                  </div>
+                  <div class="runtime-ledger__cell position-symbol-limit-actions">
+                    <el-button
+                      type="primary"
+                      text
+                      :loading="Boolean(symbolLimitSaving[row.symbol])"
+                      @click="saveSymbolLimit(row)"
+                    >
+                      保存
+                    </el-button>
+                  </div>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status">{{ row.source_label }}</span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status" :title="row.consistency_detail_label">
+                    <StatusChip class="runtime-inline-status" :variant="positionConsistencyChipVariant(row.quantity_mismatch)">
+                      {{ row.consistency_label }}
+                    </StatusChip>
+                  </span>
+                  <span class="runtime-ledger__cell runtime-ledger__cell--status">
+                    <StatusChip class="runtime-inline-status" :variant="symbolLimitStatusChipVariant(row.blocked)">
+                      {{ row.blocked_label }}
+                    </StatusChip>
+                  </span>
+                  <div class="runtime-ledger__cell position-source-cell" :title="row.broker_position_source_label">
+                    <strong>{{ row.broker_position_label }}</strong>
+                    <span>{{ row.broker_position_source_label }}</span>
+                  </div>
                   <div
-                    v-for="row in symbolLimitRows"
-                    :key="row.symbol"
-                    class="runtime-ledger__row runtime-position-symbol-limit-ledger__grid"
-                    :class="{
-                      'runtime-ledger__row--blocked': row.blocked,
-                      'runtime-ledger__row--inconsistent': row.quantity_mismatch,
-                    }"
+                    class="runtime-ledger__cell position-source-cell position-source-cell--left"
+                    :title="row.inferred_position_source_label"
                   >
-                    <div class="runtime-ledger__cell position-limit-symbol">
-                      <strong>{{ row.symbol }}</strong>
-                      <span>{{ row.name }}</span>
-                    </div>
-                    <div class="runtime-ledger__cell position-symbol-limit-input">
-                      <el-input-number
-                        v-model="symbolLimitDrafts[row.symbol]"
-                        size="small"
-                        :min="0"
-                        :step="10000"
-                        controls-position="right"
-                      />
-                    </div>
-                    <div class="runtime-ledger__cell position-symbol-limit-actions">
-                      <el-button
-                        type="primary"
-                        text
-                        :loading="Boolean(symbolLimitSaving[row.symbol])"
-                        @click="saveSymbolLimit(row)"
-                      >
-                        保存
-                      </el-button>
-                    </div>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--status">{{ row.source_label }}</span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--status" :title="row.consistency_detail_label">
-                      <StatusChip class="runtime-inline-status" :variant="positionConsistencyChipVariant(row.quantity_mismatch)">
-                        {{ row.consistency_label }}
-                      </StatusChip>
-                    </span>
-                    <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                      <StatusChip class="runtime-inline-status" :variant="symbolLimitStatusChipVariant(row.blocked)">
-                        {{ row.blocked_label }}
-                      </StatusChip>
-                    </span>
-                    <div class="runtime-ledger__cell position-source-cell" :title="row.broker_position_source_label">
-                      <strong>{{ row.broker_position_label }}</strong>
-                      <span>{{ row.broker_position_source_label }}</span>
-                    </div>
-                    <div
-                      class="runtime-ledger__cell position-source-cell position-source-cell--left"
-                      :title="row.inferred_position_source_label"
-                    >
-                      <strong>{{ row.inferred_position_label }}</strong>
-                      <span>{{ row.inferred_position_source_label }}</span>
-                    </div>
-                    <div
-                      class="runtime-ledger__cell position-source-cell position-source-cell--left"
-                      :title="row.legacy_position_source_label"
-                    >
-                      <strong>{{ row.legacy_position_label }}</strong>
-                      <span>{{ row.legacy_position_source_label }}</span>
-                    </div>
+                    <strong>{{ row.inferred_position_label }}</strong>
+                    <span>{{ row.inferred_position_source_label }}</span>
+                  </div>
+                  <div
+                    class="runtime-ledger__cell position-source-cell position-source-cell--left"
+                    :title="row.legacy_position_source_label"
+                  >
+                    <strong>{{ row.legacy_position_label }}</strong>
+                    <span>{{ row.legacy_position_source_label }}</span>
                   </div>
                 </div>
               </div>
@@ -313,36 +311,35 @@
             <span>Intent</span>
             <span>附加上下文</span>
           </div>
-          <div class="runtime-ledger__viewport">
-            <div
-              v-for="row in pagedDecisionRows"
-              :key="row.selection_key"
-              class="runtime-ledger__row runtime-position-decision-ledger__grid"
-              :class="{ 'runtime-ledger__row--blocked': row.tone === 'reject' }"
-            >
-              <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.evaluated_at_label }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
-              <span class="runtime-ledger__cell">{{ row.action_label }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                <StatusChip class="runtime-inline-status" :variant="decisionStatusChipVariant(row.tone)">
-                  {{ row.allowed_label }}
-                </StatusChip>
-              </span>
-              <span class="runtime-ledger__cell">{{ row.state_label }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.source_display">{{ row.source_display }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.strategy_label">{{ row.strategy_label }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_display">{{ row.reason_display }}</span>
-              <span class="runtime-ledger__cell">{{ row.holding_symbol_display }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.symbol_market_value_label }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.symbol_position_limit_label }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.market_value_source_display">{{ row.market_value_source_display }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.quantity_source_display">{{ row.quantity_source_display }}</span>
-              <span class="runtime-ledger__cell">{{ row.force_profit_reduce_display }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.profit_reduce_mode_display">{{ row.profit_reduce_mode_display }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.trace_display">{{ row.trace_display }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.intent_display">{{ row.intent_display }}</span>
-              <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.extra_context_label">{{ row.extra_context_label }}</span>
-            </div>
+
+          <div
+            v-for="row in pagedDecisionRows"
+            :key="row.selection_key"
+            class="runtime-ledger__row runtime-position-decision-ledger__grid"
+            :class="{ 'runtime-ledger__row--blocked': row.tone === 'reject' }"
+          >
+            <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.evaluated_at_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
+            <span class="runtime-ledger__cell">{{ row.action_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--status">
+              <StatusChip class="runtime-inline-status" :variant="decisionStatusChipVariant(row.tone)">
+                {{ row.allowed_label }}
+              </StatusChip>
+            </span>
+            <span class="runtime-ledger__cell">{{ row.state_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.source_display">{{ row.source_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.strategy_label">{{ row.strategy_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_display">{{ row.reason_display }}</span>
+            <span class="runtime-ledger__cell">{{ row.holding_symbol_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.symbol_market_value_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.symbol_position_limit_label }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.market_value_source_display">{{ row.market_value_source_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.quantity_source_display">{{ row.quantity_source_display }}</span>
+            <span class="runtime-ledger__cell">{{ row.force_profit_reduce_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.profit_reduce_mode_display">{{ row.profit_reduce_mode_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.trace_display">{{ row.trace_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.intent_display">{{ row.intent_display }}</span>
+            <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.extra_context_label">{{ row.extra_context_label }}</span>
           </div>
         </div>
 
@@ -618,12 +615,23 @@ onMounted(() => {
   min-height: 0;
   flex-direction: column;
   gap: 6px;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .position-state-scroll,
 .position-symbol-limit-scroll {
+  min-width: 0;
   padding-right: 4px;
+}
+
+.position-state-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable both-edges;
+}
+
+.position-symbol-limit-scroll {
+  overflow: hidden;
 }
 
 .position-config-table {
@@ -770,8 +778,7 @@ onMounted(() => {
   flex-direction: column;
   flex: 0 0 auto;
   min-height: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: auto;
   border: 1px solid #e5edf5;
   border-radius: 12px;
   background: #fff;
@@ -782,33 +789,21 @@ onMounted(() => {
   display: grid;
   align-items: center;
   gap: 8px;
-  width: max-content;
-  min-width: 100%;
+  min-width: max-content;
   padding: 8px 10px;
   font-size: 12px;
 }
 
 .runtime-ledger__header {
-  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: #f6f9fc;
   color: #68839d;
   border-bottom: 1px solid #e5edf5;
 }
 
-.runtime-ledger__viewport {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 100%;
-  width: max-content;
-  overflow-y: auto;
-  overflow-x: visible;
-  scrollbar-gutter: stable;
-}
-
 .runtime-ledger__row {
-  flex: 0 0 auto;
   border-top: 1px solid #eef3f8;
   background: transparent;
 }
@@ -874,18 +869,30 @@ onMounted(() => {
 
 .runtime-position-rule-ledger :is(.runtime-ledger__header, .runtime-ledger__row) {
   min-height: 34px;
-}
-
-.runtime-position-rule-ledger .runtime-ledger__viewport {
-  overflow: visible;
+  min-width: 0;
+  width: 100%;
 }
 
 .runtime-position-rule-ledger__grid {
-  grid-template-columns: 102px 80px 136px minmax(180px, 1fr);
+  grid-template-columns: 102px 80px 136px minmax(0, 1fr);
+}
+
+.runtime-position-rule-ledger {
+  overflow: hidden;
+}
+
+.runtime-position-rule-ledger__description {
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .runtime-position-symbol-limit-ledger {
-  max-height: var(--position-symbol-limit-ledger-body-height);
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
 }
 
 .runtime-position-symbol-limit-ledger :is(.runtime-ledger__header, .runtime-ledger__row) {

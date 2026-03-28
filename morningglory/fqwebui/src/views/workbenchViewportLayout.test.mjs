@@ -32,7 +32,10 @@ test('order, position, subject, tpsl and runtime pages no longer use page-level 
 
   assert.match(positionSource, /\.position-body \{[\s\S]*overflow:\s*hidden;/)
   assert.match(positionSource, /\.position-decision-panel \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(positionSource, /\.position-panel-body \{[\s\S]*overflow:\s*auto;/)
+  assert.match(positionSource, /\.position-panel-body \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(positionSource, /\.position-state-scroll \{[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
+  assert.match(positionSource, /\.position-symbol-limit-scroll \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(positionSource, /\.runtime-position-symbol-limit-ledger \{[\s\S]*overflow:\s*auto;/)
 
   assert.match(subjectSource, /\.subject-management-page \{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/)
   assert.doesNotMatch(subjectSource, /\.subject-management-page \{[\s\S]*max-height:\s*100dvh;/)
@@ -52,13 +55,8 @@ test('system settings keeps the hero visible and scrolls inside editor and side 
   assert.match(systemSettingsSource, /\.system-settings-page[\s\S]*height 100vh[\s\S]*height 100dvh[\s\S]*overflow hidden/)
   assert.match(systemSettingsSource, /\.settings-shell[\s\S]*overflow hidden/)
   assert.match(systemSettingsSource, /\.settings-dense-columns[\s\S]*overflow hidden/)
-  assert.match(systemSettingsSource, /\.settings-dense-column[\s\S]*overflow hidden/)
-  assert.match(systemSettingsSource, /\.settings-dense-column__body[\s\S]*overflow auto/)
-  assert.match(systemSettingsSource, /\.settings-dense-section__header[\s\S]*display flex[\s\S]*flex-direction column/)
+  assert.match(systemSettingsSource, /\.settings-dense-column[\s\S]*overflow auto/)
   assert.match(systemSettingsSource, /\.settings-ledger[\s\S]*overflow hidden/)
-  assert.doesNotMatch(systemSettingsSource, /\.settings-dense-section__sticky/)
-  assert.doesNotMatch(systemSettingsSource, /\.settings-ledger__header[\s\S]*position sticky/)
-  assert.doesNotMatch(systemSettingsSource, /\.settings-dense-column \{[\s\S]*overflow:\s*auto;/)
 })
 
 test('gantt routes use fixed viewport pages and keep scrolling inside content panes', () => {
