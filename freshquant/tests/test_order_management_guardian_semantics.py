@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from freshquant.order_management.guardian.allocation_policy import (
@@ -166,7 +166,10 @@ def test_build_buy_lot_from_trade_fact_backfills_date_and_time_from_trade_time()
 
 def test_list_arranged_fills_backfills_date_and_time_from_buy_lot_trade_time():
     trade_time = 1710000000
-    expected_dt = datetime.fromtimestamp(trade_time)
+    expected_dt = datetime.fromtimestamp(
+        trade_time,
+        tz=timezone(timedelta(hours=8)),
+    )
 
     class FakeRepository:
         def list_open_slices(self, symbol=None):
