@@ -9,6 +9,11 @@ from freshquant.order_management.guardian.arranger import (
     arrange_entry,
     build_position_entry_from_trade_fact,
 )
+from freshquant.order_management.ids import (
+    new_reconciliation_gap_id,
+    new_reconciliation_resolution_id,
+    new_trade_fact_id,
+)
 
 # Rebuild only needs stable Beijing wall-clock derivation, so use a fixed UTC+8
 # offset instead of relying on system tzdata availability.
@@ -41,7 +46,7 @@ class OrderLedgerV2RebuildService:
         xt_positions=None,
         now_ts=None,
     ):
-        del xt_positions, now_ts
+        rebuild_ts = _resolve_rebuild_timestamp(now_ts)
 
         broker_orders_by_key = {}
         broker_order_keys = []
@@ -85,23 +90,48 @@ class OrderLedgerV2RebuildService:
             exit_allocation_documents,
             unmatched_sell_trade_facts,
             replay_warnings,
+            ingest_rejection_documents,
         ) = _rebuild_position_entries(
             broker_order_documents=broker_order_documents,
             execution_fill_documents=execution_fill_documents,
             lot_amount_lookup=self.lot_amount_lookup,
             grid_interval_lookup=self.grid_interval_lookup,
         )
+        (
+            reconciliation_gap_documents,
+            reconciliation_resolution_documents,
+            auto_open_entries,
+            auto_close_allocations,
+            reconciliation_ingest_rejections,
+        ) = _reconcile_positions_against_xt_positions(
+            xt_positions=xt_positions,
+            now_ts=rebuild_ts,
+            position_entry_documents=position_entry_documents,
+            entry_slice_documents=entry_slice_documents,
+            exit_allocation_documents=exit_allocation_documents,
+            lot_amount_lookup=self.lot_amount_lookup,
+            grid_interval_lookup=self.grid_interval_lookup,
+        )
+        ingest_rejection_documents.extend(reconciliation_ingest_rejections)
         return {
             "broker_orders": len(broker_order_documents),
             "execution_fills": len(execution_fill_documents),
             "position_entries": len(position_entry_documents),
             "entry_slices": len(entry_slice_documents),
             "exit_allocations": len(exit_allocation_documents),
+            "reconciliation_gaps": len(reconciliation_gap_documents),
+            "reconciliation_resolutions": len(reconciliation_resolution_documents),
+            "auto_open_entries": auto_open_entries,
+            "auto_close_allocations": auto_close_allocations,
+            "ingest_rejections": len(ingest_rejection_documents),
             "broker_order_documents": broker_order_documents,
             "execution_fill_documents": execution_fill_documents,
             "position_entry_documents": position_entry_documents,
             "entry_slice_documents": entry_slice_documents,
             "exit_allocation_documents": exit_allocation_documents,
+            "reconciliation_gap_documents": reconciliation_gap_documents,
+            "reconciliation_resolution_documents": reconciliation_resolution_documents,
+            "ingest_rejection_documents": ingest_rejection_documents,
             "unmatched_sell_trade_facts": unmatched_sell_trade_facts,
             "replay_warnings": replay_warnings,
         }
@@ -126,16 +156,30 @@ def _rebuild_position_entries(
     exit_allocation_documents = []
     unmatched_sell_trade_facts = []
     replay_warnings = []
+    ingest_rejection_documents = []
 
     for broker_order in broker_order_documents:
         if broker_order.get("side") != "buy":
             continue
         broker_order_key = broker_order.get("broker_order_key")
-        buy_fills = fills_by_broker_order_key.get(broker_order_key) or []
-        if not buy_fills:
+        accepted_buy_fills = []
+        for execution_fill in fills_by_broker_order_key.get(broker_order_key) or []:
+            if not _is_board_lot_quantity(execution_fill.get("quantity")):
+                ingest_rejection_documents.append(
+                    _build_ingest_rejection_from_execution_fill(execution_fill)
+                )
+                continue
+            accepted_buy_fills.append(execution_fill)
+        if not accepted_buy_fills:
             continue
 
-        trade_fact = _build_grouped_trade_fact(broker_order=broker_order, fills=buy_fills)
+        trade_fact = _build_grouped_trade_fact(
+            broker_order=_build_entry_broker_order(
+                broker_order=broker_order,
+                fills=accepted_buy_fills,
+            ),
+            fills=accepted_buy_fills,
+        )
         position_entry = build_position_entry_from_trade_fact(
             trade_fact,
             source_ref_type="broker_order",
@@ -162,6 +206,11 @@ def _rebuild_position_entries(
 
     for execution_fill in execution_fills:
         if execution_fill.get("side") != "sell":
+            continue
+        if not _is_board_lot_quantity(execution_fill.get("quantity")):
+            ingest_rejection_documents.append(
+                _build_ingest_rejection_from_execution_fill(execution_fill)
+            )
             continue
         sell_trade_fact = _build_trade_fact_from_execution_fill(execution_fill)
         symbol = sell_trade_fact["symbol"]
@@ -210,6 +259,7 @@ def _rebuild_position_entries(
         exit_allocation_documents,
         unmatched_sell_trade_facts,
         replay_warnings,
+        ingest_rejection_documents,
     )
 
 
@@ -469,6 +519,321 @@ def _weighted_average_fill_price(fills):
     if total_quantity <= 0:
         return 0.0
     return round(total_notional / total_quantity, 6)
+
+
+def _resolve_rebuild_timestamp(now_ts):
+    normalized = _coerce_int(now_ts)
+    if normalized is not None:
+        return normalized
+    return int(datetime.now(tz=timezone.utc).timestamp())
+
+
+def _is_board_lot_quantity(quantity):
+    normalized = _coerce_int(quantity) or 0
+    return normalized > 0 and normalized % 100 == 0
+
+
+def _build_entry_broker_order(*, broker_order, fills):
+    filled_quantity = sum(_coerce_int(item.get("quantity")) or 0 for item in fills)
+    return {
+        **broker_order,
+        "filled_quantity": filled_quantity,
+        "avg_filled_price": _weighted_average_fill_price(fills),
+        "first_fill_time": min(
+            (
+                _coerce_int(item.get("trade_time"))
+                for item in fills
+                if _coerce_int(item.get("trade_time")) is not None
+            ),
+            default=None,
+        ),
+        "last_fill_time": max(
+            (
+                _coerce_int(item.get("trade_time"))
+                for item in fills
+                if _coerce_int(item.get("trade_time")) is not None
+            ),
+            default=None,
+        ),
+    }
+
+
+def _build_ingest_rejection_from_execution_fill(execution_fill):
+    return {
+        "rejection_id": f"reject_{new_reconciliation_resolution_id()}",
+        "symbol": execution_fill.get("symbol"),
+        "broker_trade_id": execution_fill.get("broker_trade_id"),
+        "internal_order_id": None,
+        "reason_code": "non_board_lot_quantity",
+        "quantity": _coerce_int(execution_fill.get("quantity")) or 0,
+        "trade_time": execution_fill.get("trade_time"),
+        "date": execution_fill.get("date"),
+        "time": execution_fill.get("time"),
+        "source": execution_fill.get("source") or "broker_rebuild",
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+    }
+
+
+def _build_ingest_rejection_from_gap(gap):
+    return {
+        "rejection_id": f"reject_{new_reconciliation_resolution_id()}",
+        "symbol": gap.get("symbol"),
+        "broker_trade_id": None,
+        "internal_order_id": None,
+        "reason_code": "non_board_lot_quantity",
+        "quantity": _coerce_int(gap.get("quantity_delta")) or 0,
+        "trade_time": gap.get("detected_at"),
+        "date": gap.get("date"),
+        "time": gap.get("time"),
+        "source": "rebuild_reconciliation",
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+    }
+
+
+def _normalize_xt_positions(xt_positions):
+    positions_by_symbol = {}
+    for raw_position in list(xt_positions or []):
+        symbol = _normalize_symbol(raw_position)
+        if not symbol:
+            continue
+        position = positions_by_symbol.setdefault(
+            symbol,
+            {
+                "symbol": symbol,
+                "volume": 0,
+                "price_notional": 0.0,
+                "priced_volume": 0,
+            },
+        )
+        volume = _coerce_int(raw_position.get("volume")) or 0
+        avg_price = _coerce_float(raw_position.get("avg_price"))
+        position["volume"] += volume
+        if avg_price is not None and volume > 0:
+            position["price_notional"] += volume * avg_price
+            position["priced_volume"] += volume
+    normalized = {}
+    for symbol, position in positions_by_symbol.items():
+        priced_volume = position["priced_volume"]
+        avg_price = None
+        if priced_volume > 0:
+            avg_price = round(position["price_notional"] / priced_volume, 6)
+        normalized[symbol] = {
+            "symbol": symbol,
+            "volume": int(position["volume"]),
+            "avg_price": avg_price,
+        }
+    return normalized
+
+
+def _estimate_ledger_price(symbol, position_entry_documents):
+    symbol_entries = [
+        item
+        for item in position_entry_documents
+        if item.get("symbol") == symbol and (_coerce_int(item.get("remaining_quantity")) or 0) > 0
+    ]
+    total_quantity = 0
+    total_notional = 0.0
+    for item in symbol_entries:
+        quantity = _coerce_int(item.get("remaining_quantity")) or 0
+        price = _coerce_float(item.get("entry_price")) or 0.0
+        total_quantity += quantity
+        total_notional += quantity * price
+    if total_quantity <= 0:
+        return None
+    return round(total_notional / total_quantity, 6)
+
+
+def _reconcile_positions_against_xt_positions(
+    *,
+    xt_positions,
+    now_ts,
+    position_entry_documents,
+    entry_slice_documents,
+    exit_allocation_documents,
+    lot_amount_lookup,
+    grid_interval_lookup,
+):
+    reconciliation_gap_documents = []
+    reconciliation_resolution_documents = []
+    ingest_rejection_documents = []
+    auto_open_entries = 0
+    auto_close_allocations = 0
+
+    if xt_positions is None:
+        return (
+            reconciliation_gap_documents,
+            reconciliation_resolution_documents,
+            auto_open_entries,
+            auto_close_allocations,
+            ingest_rejection_documents,
+        )
+
+    positions_by_symbol = _normalize_xt_positions(xt_positions)
+    ledger_remaining_by_symbol = {}
+    for entry in position_entry_documents:
+        symbol = entry.get("symbol")
+        if not symbol:
+            continue
+        ledger_remaining_by_symbol[symbol] = ledger_remaining_by_symbol.get(symbol, 0) + (
+            _coerce_int(entry.get("remaining_quantity")) or 0
+        )
+
+    date_value, time_value = _resolve_beijing_date_time(None, None, now_ts)
+    for symbol in sorted(set(positions_by_symbol) | set(ledger_remaining_by_symbol)):
+        ledger_quantity = int(ledger_remaining_by_symbol.get(symbol) or 0)
+        broker_position = positions_by_symbol.get(symbol) or {
+            "symbol": symbol,
+            "volume": 0,
+            "avg_price": None,
+        }
+        broker_quantity = _coerce_int(broker_position.get("volume")) or 0
+        delta = broker_quantity - ledger_quantity
+        if delta == 0:
+            continue
+
+        quantity_delta = abs(delta)
+        gap_id = new_reconciliation_gap_id()
+        resolution_id = new_reconciliation_resolution_id()
+        side = "buy" if delta > 0 else "sell"
+        price_estimate = _coerce_float(broker_position.get("avg_price"))
+        if price_estimate is None:
+            price_estimate = _estimate_ledger_price(symbol, position_entry_documents)
+        gap = {
+            "gap_id": gap_id,
+            "symbol": symbol,
+            "side": side,
+            "quantity_delta": quantity_delta,
+            "price_estimate": price_estimate,
+            "detected_at": now_ts,
+            "first_detected_at": now_ts,
+            "last_detected_at": now_ts,
+            "observed_count": 1,
+            "pending_until": now_ts,
+            "state": "OPEN",
+            "source": "position_diff",
+            "matched_order_id": None,
+            "matched_trade_fact_id": None,
+            "date": date_value,
+            "time": time_value,
+        }
+        resolution = {
+            "resolution_id": resolution_id,
+            "gap_id": gap_id,
+            "resolved_quantity": quantity_delta,
+            "resolved_price": float(price_estimate or 0.0),
+            "resolved_at": now_ts,
+            "source_ref_type": "reconciliation_gap",
+            "source_ref_id": gap_id,
+        }
+
+        if not _is_board_lot_quantity(quantity_delta):
+            gap["state"] = "REJECTED"
+            gap["resolution_id"] = resolution_id
+            gap["resolution_type"] = "board_lot_rejected"
+            resolution["resolution_type"] = "board_lot_rejected"
+            reconciliation_gap_documents.append(gap)
+            reconciliation_resolution_documents.append(resolution)
+            ingest_rejection_documents.append(_build_ingest_rejection_from_gap(gap))
+            continue
+
+        if delta > 0:
+            trade_fact = {
+                "trade_fact_id": new_trade_fact_id(),
+                "symbol": symbol,
+                "side": "buy",
+                "quantity": quantity_delta,
+                "price": float(price_estimate or 0.0),
+                "trade_time": now_ts,
+                "date": date_value,
+                "time": time_value,
+                "source": "external_inferred",
+            }
+            position_entry = build_position_entry_from_trade_fact(
+                trade_fact,
+                source_ref_type="reconciliation_resolution",
+                source_ref_id=resolution_id,
+                entry_type="auto_reconciled_open",
+                original_quantity=quantity_delta,
+                remaining_quantity=quantity_delta,
+                entry_price=float(price_estimate or 0.0),
+                amount=round(float(price_estimate or 0.0) * quantity_delta, 2),
+                source="external_inferred",
+                arrange_mode="runtime_grid",
+                sell_history=[],
+            )
+            entry_slices = arrange_entry(
+                position_entry,
+                lot_amount=int(lot_amount_lookup(symbol)),
+                grid_interval=float(grid_interval_lookup(symbol, trade_fact)),
+            )
+            position_entry_documents.append(position_entry)
+            entry_slice_documents.extend(entry_slices)
+
+            gap["state"] = "AUTO_OPENED"
+            gap["resolution_id"] = resolution_id
+            gap["resolution_type"] = "auto_open_entry"
+            gap["entry_id"] = position_entry["entry_id"]
+            resolution["resolution_type"] = "auto_open_entry"
+            resolution["source_ref_type"] = "position_entry"
+            resolution["source_ref_id"] = position_entry["entry_id"]
+            auto_open_entries += 1
+        else:
+            sell_trade_fact = {
+                "trade_fact_id": new_trade_fact_id(),
+                "symbol": symbol,
+                "side": "sell",
+                "quantity": quantity_delta,
+                "price": float(price_estimate or 0.0),
+                "trade_time": now_ts,
+                "date": date_value,
+                "time": time_value,
+                "source": "external_inferred",
+            }
+            symbol_entries = [
+                item
+                for item in position_entry_documents
+                if item.get("symbol") == symbol
+                and (_coerce_int(item.get("remaining_quantity")) or 0) > 0
+            ]
+            symbol_open_slices = [
+                item
+                for item in entry_slice_documents
+                if item.get("symbol") == symbol
+                and (_coerce_int(item.get("remaining_quantity")) or 0) > 0
+            ]
+            symbol_open_slices.sort(
+                key=lambda item: (
+                    _coerce_float(item.get("sort_key")) or 0.0,
+                    _coerce_int(item.get("slice_seq")) or 0,
+                ),
+                reverse=True,
+            )
+            allocations = allocate_sell_to_entry_slices(
+                entries=symbol_entries,
+                open_slices=symbol_open_slices,
+                sell_trade_fact=sell_trade_fact,
+            )
+            exit_allocation_documents.extend(allocations)
+
+            gap["state"] = "AUTO_CLOSED"
+            gap["resolution_id"] = resolution_id
+            gap["resolution_type"] = "auto_close_allocation"
+            resolution["resolution_type"] = "auto_close_allocation"
+            resolution["entry_allocation_ids"] = [
+                item["allocation_id"] for item in allocations
+            ]
+            auto_close_allocations += len(allocations)
+
+        reconciliation_gap_documents.append(gap)
+        reconciliation_resolution_documents.append(resolution)
+
+    return (
+        reconciliation_gap_documents,
+        reconciliation_resolution_documents,
+        auto_open_entries,
+        auto_close_allocations,
+        ingest_rejection_documents,
+    )
 
 
 def _default_lot_amount_lookup(_symbol):
