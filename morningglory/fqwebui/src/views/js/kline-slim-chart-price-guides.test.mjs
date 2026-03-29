@@ -173,7 +173,7 @@ test('buildKlineSlimChartOption renders price lines without background bands and
   assert.equal(option.legend.selected['止盈价格线'], true)
 })
 
-test('buildKlineSlimChartOption exposes cost basis and buy lot legend toggles', () => {
+test('buildKlineSlimChartOption exposes cost basis and entry legend toggles', () => {
   const scene = buildKlineSlimChartScene({
     mainData: makeMainData(),
     currentPeriod: '30m',
@@ -190,13 +190,13 @@ test('buildKlineSlimChartOption exposes cost basis and buy lot legend toggles', 
           group: 'cost_basis',
         },
         {
-          id: 'buy-lot-lot_1',
-          key: 'lot_1',
+          id: 'entry-entry_1',
+          key: 'entry_1',
           price: 10.02,
           color: '#06b6d4',
-          label: '买1 10.020 / 200股',
+          label: '入口1 10.020 / 200股',
           lineStyle: 'dotted',
-          group: 'buy_lot',
+          group: 'entry',
         },
       ],
       bands: [],
@@ -219,12 +219,12 @@ test('buildKlineSlimChartOption exposes cost basis and buy lot legend toggles', 
 
   assert.deepEqual(
     option.legend.data.slice(-2),
-    ['成本价线', '买入订单线'],
+    ['成本价线', '持仓入口线'],
   )
   assert.equal(option.legend.selected['成本价线'], true)
-  assert.equal(option.legend.selected['买入订单线'], true)
+  assert.equal(option.legend.selected['持仓入口线'], true)
   assert.equal(option.series.find((item) => item.id === 'cost-basis')?.lineStyle.type, 'solid')
-  assert.equal(option.series.find((item) => item.id === 'buy-lot-lot_1')?.lineStyle.type, 'dotted')
+  assert.equal(option.series.find((item) => item.id === 'entry-entry_1')?.lineStyle.type, 'dotted')
 })
 
 test('buildChartPriceGuides does not mark guardian lines active when runtime state is missing', () => {
@@ -270,14 +270,14 @@ test('deriveViewportStateForScene keeps low-price auto y range tight', () => {
   assert.equal(viewport.yRange.max - viewport.yRange.min < 0.05, true)
 })
 
-test('deriveViewportStateForScene includes visible cost basis and buy lot guides in auto y range', () => {
+test('deriveViewportStateForScene includes visible cost basis and entry guides in auto y range', () => {
   const scene = buildKlineSlimChartScene({
     mainData: makeMainData(),
     currentPeriod: '30m',
     visiblePeriods: ['30m'],
     legendSelected: {
       '成本价线': true,
-      '买入订单线': true,
+      '持仓入口线': true,
     },
     priceGuides: {
       lines: [
@@ -293,13 +293,13 @@ test('deriveViewportStateForScene includes visible cost basis and buy lot guides
           manual_enabled: false,
         },
         {
-          id: 'buy-lot-lot_1',
-          key: 'lot_1',
+          id: 'entry-entry_1',
+          key: 'entry_1',
           price: 8.2,
           color: '#06b6d4',
-          label: '买1 8.200 / 200股',
+          label: '入口1 8.200 / 200股',
           lineStyle: 'dotted',
-          group: 'buy_lot',
+          group: 'entry',
           active: false,
           manual_enabled: false,
         },
@@ -320,14 +320,14 @@ test('deriveViewportStateForScene includes visible cost basis and buy lot guides
   assert.equal(viewport.yRange.min < 9, true)
 })
 
-test('deriveViewportStateForScene excludes hidden cost basis and buy lot guides from auto y range', () => {
+test('deriveViewportStateForScene excludes hidden cost basis and entry guides from auto y range', () => {
   const scene = buildKlineSlimChartScene({
     mainData: makeMainData(),
     currentPeriod: '30m',
     visiblePeriods: ['30m'],
     legendSelected: {
       '成本价线': false,
-      '买入订单线': false,
+      '持仓入口线': false,
     },
     priceGuides: {
       lines: [
@@ -343,13 +343,13 @@ test('deriveViewportStateForScene excludes hidden cost basis and buy lot guides 
           manual_enabled: false,
         },
         {
-          id: 'buy-lot-lot_1',
-          key: 'lot_1',
+          id: 'entry-entry_1',
+          key: 'entry_1',
           price: 8.2,
           color: '#06b6d4',
-          label: '买1 8.200 / 200股',
+          label: '入口1 8.200 / 200股',
           lineStyle: 'dotted',
-          group: 'buy_lot',
+          group: 'entry',
           active: false,
           manual_enabled: false,
         },
