@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from freshquant.order_management.entry_adapter import (
     list_open_entry_slices_compat,
@@ -14,6 +14,8 @@ from freshquant.util.code import (
     fq_util_code_append_market_code,
     fq_util_code_append_market_code_suffix,
 )
+
+CHINA_TZ = timezone(timedelta(hours=8))
 
 
 def build_raw_fills_view(trade_facts):
@@ -228,7 +230,7 @@ def _resolve_date_time_fields(record, *, fallback=None):
     if trade_time in {None, ""}:
         return date_value, time_value
     try:
-        trade_dt = datetime.fromtimestamp(int(trade_time))
+        trade_dt = datetime.fromtimestamp(int(trade_time), tz=CHINA_TZ)
     except (OSError, OverflowError, TypeError, ValueError):
         return date_value, time_value
     return int(trade_dt.strftime("%Y%m%d")), trade_dt.strftime("%H:%M:%S")

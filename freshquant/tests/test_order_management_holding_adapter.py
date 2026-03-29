@@ -349,6 +349,51 @@ def test_arranged_fill_projection_does_not_require_legacy_buy_lots_when_v2_entri
     ]
 
 
+def test_arranged_fill_projection_resolves_trade_time_in_china_timezone(monkeypatch):
+    _reload_modules(monkeypatch)
+    import freshquant.order_management.projection.stock_fills as stock_fills_module
+
+    class Repo:
+        def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+            return [
+                {
+                    "entry_id": "entry_v2_1",
+                    "symbol": "000001",
+                    "trade_time": 1773589182,
+                    "original_quantity": 200,
+                    "remaining_quantity": 200,
+                }
+            ]
+
+        def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+            return [
+                {
+                    "entry_slice_id": "slice_v2_1",
+                    "entry_id": "entry_v2_1",
+                    "symbol": "000001",
+                    "guardian_price": 10.93,
+                    "remaining_quantity": 200,
+                    "sort_key": 1,
+                    "date": None,
+                    "time": None,
+                    "trade_time": None,
+                }
+            ]
+
+    rows = stock_fills_module.list_arranged_fills("000001", repository=Repo())
+
+    assert rows == [
+        {
+            "symbol": "000001",
+            "date": 20260315,
+            "time": "23:39:42",
+            "price": 10.93,
+            "quantity": 200,
+            "amount": 2186.0,
+        }
+    ]
+
+
 def test_entry_stoploss_binding_adapter_does_not_require_legacy_bindings_when_v2_exists(
     monkeypatch,
 ):
