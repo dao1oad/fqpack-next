@@ -7,6 +7,7 @@ import click
 from freshquant.order_management.db import (
     ORDER_LEDGER_REBUILD_PURGE_COLLECTIONS,
     get_order_management_db,
+    get_projection_db,
 )
 from freshquant.order_management.rebuild import OrderLedgerV2RebuildService
 
@@ -37,6 +38,10 @@ _SUMMARY_COUNT_KEYS = (
 
 def _get_order_management_db():
     return get_order_management_db()
+
+
+def _get_broker_truth_db():
+    return get_projection_db()
 
 
 def _get_rebuild_service():
@@ -101,7 +106,9 @@ def run_rebuild(
     if should_execute and normalized_backup_db is None:
         raise click.UsageError("--execute requires --backup-db")
 
-    database = database if database is not None else _get_order_management_db()
+    provided_database = database is not None
+    database = database if provided_database else _get_order_management_db()
+    broker_truth_database = database if provided_database else _get_broker_truth_db()
     if should_execute and normalized_backup_db == _normalize_optional_text(
         getattr(database, "name", None)
     ):
@@ -112,7 +119,7 @@ def run_rebuild(
     )
 
     truth_snapshots = _load_broker_truth(
-        database=database,
+        database=broker_truth_database,
         account_id=normalized_account_id,
     )
     rebuild_result = rebuild_service.build_from_truth(**truth_snapshots)
