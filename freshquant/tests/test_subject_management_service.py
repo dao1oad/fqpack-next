@@ -419,6 +419,73 @@ def test_subject_management_overview_prefers_symbol_snapshot_market_value():
     assert rows[0]["runtime"]["position_amount"] == 123456.0
 
 
+def test_subject_management_overview_uses_default_symbol_limit_batch_loader_once(
+    monkeypatch,
+):
+    import freshquant.position_management.dashboard_service as pm_dashboard_module
+
+    call_counts = {"dashboard": 0, "symbol": 0}
+
+    class FakePositionManagementDashboardService:
+        def get_dashboard(self):
+            call_counts["dashboard"] += 1
+            return {
+                "rows": [
+                    {
+                        "symbol": "600000",
+                        "default_limit": 800000.0,
+                        "override_limit": 500000.0,
+                        "effective_limit": 500000.0,
+                        "using_override": True,
+                        "blocked": False,
+                    },
+                    {
+                        "symbol": "000001",
+                        "default_limit": 800000.0,
+                        "override_limit": None,
+                        "effective_limit": 800000.0,
+                        "using_override": False,
+                        "blocked": False,
+                    },
+                ]
+            }
+
+        def get_symbol_limit(self, symbol):
+            call_counts["symbol"] += 1
+            return {
+                "symbol": symbol,
+                "default_limit": 800000.0,
+                "override_limit": None,
+                "effective_limit": 800000.0,
+                "using_override": False,
+                "blocked": False,
+            }
+
+    monkeypatch.setattr(
+        pm_dashboard_module,
+        "PositionManagementDashboardService",
+        FakePositionManagementDashboardService,
+    )
+
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {"symbol": "600000.SH", "name": "浦发银行", "quantity": 500},
+            {"symbol": "000001.SZ", "name": "平安银行", "quantity": 300},
+        ],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+    )
+
+    rows = service.get_overview()
+
+    assert len(rows) == 2
+    assert call_counts == {"dashboard": 1, "symbol": 0}
+    assert rows[0]["position_limit_summary"]["effective_limit"] in {500000.0, 800000.0}
+
+
 def test_subject_management_overview_keeps_rows_when_symbol_limit_loader_rejects_untracked_symbol():
     service = SubjectManagementDashboardService(
         database=FakeDatabase(

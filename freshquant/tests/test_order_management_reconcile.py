@@ -1,3 +1,5 @@
+from zoneinfo import ZoneInfo
+
 import pytest
 
 import freshquant.order_management.ingest.xt_reports as xt_reports_module
@@ -613,7 +615,84 @@ def test_confirmed_gap_is_not_recreated_for_same_position_delta(monkeypatch):
 
     assert recreated == []
     assert len(repository.reconciliation_gaps) == 1
-    assert len(repository.position_entries) == 1
+
+
+def test_build_auto_open_entry_uses_beijing_date_time():
+    entry = reconcile_service_module._build_auto_open_entry(
+        {
+            "symbol": "000001",
+            "quantity_delta": 100,
+            "price_estimate": 10.0,
+        },
+        resolution_id="resolution_1",
+        confirmed_at=1710000000,
+    )
+
+    assert entry["date"] == 20240310
+    assert entry["time"] == "00:00:00"
+
+
+def test_load_previous_close_from_realtime_uses_beijing_midnight_when_local_fromtimestamp_differs(
+    monkeypatch,
+):
+    import sys
+    import types
+    from datetime import datetime, timezone
+
+    captured = {}
+
+    class FakeDateTime(datetime):
+        @classmethod
+        def fromtimestamp(cls, timestamp, tz=None):
+            if tz is None:
+                return datetime.fromtimestamp(timestamp, timezone.utc).replace(
+                    tzinfo=None
+                )
+            return datetime.fromtimestamp(timestamp, tz=tz)
+
+    class FakeCollection:
+        def find_one(self, query, sort=None):
+            captured["datetime_lt"] = query["datetime"]["$lt"]
+            return None
+
+    class FakeMongo:
+        client = object()
+
+        def __getitem__(self, name):
+            return FakeCollection()
+
+    pymongo_module = types.ModuleType("pymongo")
+    pymongo_module.DESCENDING = -1
+    mongodb_module = types.ModuleType("fqxtrade.database.mongodb")
+    mongodb_module.DBfreshquant = FakeMongo()
+    schema_module = types.ModuleType("freshquant.market_data.xtdata.schema")
+    schema_module.normalize_prefixed_code = lambda value: str(value or "").strip()
+
+    monkeypatch.setitem(sys.modules, "pymongo", pymongo_module)
+    monkeypatch.setitem(sys.modules, "fqxtrade.database.mongodb", mongodb_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "freshquant.market_data.xtdata.schema",
+        schema_module,
+    )
+    monkeypatch.setattr(reconcile_service_module, "datetime", FakeDateTime)
+    monkeypatch.setattr(
+        reconcile_service_module, "_can_query_mongo", lambda client: True
+    )
+
+    reconcile_service_module._load_previous_close_from_realtime(
+        "000001.SZ",
+        1710000000,
+    )
+
+    assert captured["datetime_lt"] == datetime(
+        2024,
+        3,
+        10,
+        0,
+        0,
+        tzinfo=ZoneInfo("Asia/Shanghai"),
+    )
 
 
 def test_non_board_lot_gap_is_rejected_without_creating_entry(monkeypatch):

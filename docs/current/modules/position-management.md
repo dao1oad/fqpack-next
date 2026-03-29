@@ -85,6 +85,12 @@
 
 这里的正式对照语义是：`券商真值 / 账本仓位 / reconciliation`。页面展示文案对应为 `券商仓位 / 账本仓位 / 对账状态`，不再返回三套并列仓位真值。
 
+`reconciliation.signed_gap_quantity` 当前表示同一 symbol 所有未闭合 gap 的净差额：
+
+- `buy` gap 记正
+- `sell` gap 记负
+- 多条 OPEN / REJECTED gap 需要做净额累计，不能只取最后一条
+
 ## tracked scope
 
 单标的仓位上限摘要行只保留 tracked scope 内的 symbol：

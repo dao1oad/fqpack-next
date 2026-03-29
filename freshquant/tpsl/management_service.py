@@ -9,6 +9,9 @@ from freshquant.order_management.entry_adapter import (
     list_open_entry_slices_compat,
     list_open_entry_views,
 )
+from freshquant.order_management.reconcile.summary import (
+    summarize_symbol_reconciliation,
+)
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.tpsl.repository import TpslRepository
 from freshquant.tpsl.takeprofit_service import TakeprofitService
@@ -436,66 +439,17 @@ def _build_reconciliation_view(symbol, *, repository, broker_quantity, ledger_qu
             "rows": [],
         }
 
-    rows = []
-    gap_rows = list(repository.list_reconciliation_gaps(symbol=symbol) or [])
-    gap_ids = [item.get("gap_id") for item in gap_rows if item.get("gap_id")]
-    resolution_rows = []
-    if gap_ids and hasattr(repository, "list_reconciliation_resolutions"):
-        resolution_rows = list(
-            repository.list_reconciliation_resolutions(gap_ids=gap_ids) or []
-        )
-    latest_resolution = None
-    for item in resolution_rows:
-        resolved_at = str(item.get("resolved_at") or "")
-        if latest_resolution is None or resolved_at > str(
-            latest_resolution.get("resolved_at") or ""
-        ):
-            latest_resolution = item
-
-    signed_gap_quantity = 0
-    open_gap_count = 0
-    rejected_gap_count = 0
-    for item in gap_rows:
-        side = str(item.get("side") or "").strip().lower()
-        quantity_delta = int(item.get("quantity_delta") or 0)
-        signed_gap_quantity += quantity_delta if side == "buy" else -quantity_delta
-        state = str(item.get("state") or "").strip().upper()
-        if state in {"OPEN", "REJECTED"}:
-            open_gap_count += 1
-        if state == "REJECTED":
-            rejected_gap_count += 1
-        rows.append(
-            {
-                "gap_id": item.get("gap_id"),
-                "side": side,
-                "state": str(item.get("state") or ""),
-                "quantity_delta": quantity_delta,
-                "pending_until": item.get("pending_until"),
-                "resolution_type": item.get("resolution_type"),
-            }
-        )
-    derived_signed_gap = int(broker_quantity or 0) - int(ledger_quantity or 0)
-    effective_signed_gap = signed_gap_quantity if gap_rows else derived_signed_gap
-    if open_gap_count > 0:
-        state = "observing" if rejected_gap_count == 0 else "rejected"
-    elif effective_signed_gap == 0:
-        state = "aligned"
-    elif latest_resolution is not None:
-        state = "auto_reconciled"
-    else:
-        state = "drift"
+    summary = summarize_symbol_reconciliation(
+        symbol=symbol,
+        gap_rows=list(repository.list_reconciliation_gaps(symbol=symbol) or []),
+        broker_quantity=broker_quantity,
+        ledger_quantity=ledger_quantity,
+        include_rows=True,
+    )
     return {
-        "symbol": symbol,
-        "broker_quantity": int(broker_quantity or 0),
-        "ledger_quantity": int(ledger_quantity or 0),
-        "signed_gap_quantity": effective_signed_gap,
-        "open_gap_count": open_gap_count,
-        "rejected_gap_count": rejected_gap_count,
-        "latest_resolution_type": str(
-            (latest_resolution or {}).get("resolution_type") or ""
-        ),
-        "state": state,
-        "rows": rows,
+        **summary,
+        "latest_resolution_type": str(summary.get("latest_resolution_type") or ""),
+        "state": str(summary.get("state") or "ALIGNED").lower(),
     }
 
 

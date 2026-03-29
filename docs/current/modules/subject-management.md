@@ -49,6 +49,8 @@
 - entry 级止损摘要
 - 单标的仓位上限摘要
 
+overview 里的“单标的仓位上限摘要”当前按批量 PM dashboard 结果一次性装载，不再按 symbol 重复调用单标的 limit 读路径。
+
 左表 symbol 集合来自这些来源的并集，不再单独把孤儿 `guardian_buy_grid_states` 带进页面。
 
 ### detail

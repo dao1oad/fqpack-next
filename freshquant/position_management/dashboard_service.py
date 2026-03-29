@@ -4,6 +4,9 @@ import math
 from datetime import datetime, timezone
 
 from freshquant.instrument.general import query_instrument_info
+from freshquant.order_management.reconcile.summary import (
+    build_reconciliation_summary_map,
+)
 from freshquant.position_management.models import (
     ALLOW_OPEN,
     FORCE_PROFIT_REDUCE,
@@ -1312,78 +1315,11 @@ def _default_reconciliation_loader():
     from freshquant.order_management.repository import OrderManagementRepository
 
     repository = OrderManagementRepository()
-    summaries = {}
-
-    for gap in repository.list_reconciliation_gaps():
-        symbol = normalize_to_base_code(gap.get("symbol"))
-        if not symbol:
-            continue
-        current = summaries.setdefault(
-            symbol,
-            {
-                "state": "ALIGNED",
-                "latest_gap_state": "",
-                "signed_gap_quantity": 0,
-                "open_gap_count": 0,
-                "latest_resolution_type": None,
-                "ingest_rejection_count": 0,
-                "_latest_sort_value": -1,
-            },
-        )
-        latest_sort_value = _coerce_int(
-            gap.get("confirmed_at")
-            or gap.get("dismissed_at")
-            or gap.get("pending_until")
-            or gap.get("detected_at"),
-            0,
-        )
-        gap_state = _normalize_optional_text(gap.get("state")) or ""
-        if gap_state in {"OPEN", "REJECTED"}:
-            current["open_gap_count"] += 1
-            current["signed_gap_quantity"] = _coerce_int(
-                gap.get("quantity_delta"), current["signed_gap_quantity"]
-            )
-        if latest_sort_value >= current["_latest_sort_value"]:
-            current["_latest_sort_value"] = latest_sort_value
-            current["latest_gap_state"] = gap_state
-            current["latest_resolution_type"] = _normalize_optional_text(
-                gap.get("resolution_type")
-            )
-
-    for rejection in repository.list_ingest_rejections():
-        symbol = normalize_to_base_code(rejection.get("symbol"))
-        if not symbol:
-            continue
-        current = summaries.setdefault(
-            symbol,
-            {
-                "state": "ALIGNED",
-                "latest_gap_state": "",
-                "signed_gap_quantity": 0,
-                "open_gap_count": 0,
-                "latest_resolution_type": None,
-                "ingest_rejection_count": 0,
-                "_latest_sort_value": -1,
-            },
-        )
-        current["ingest_rejection_count"] += 1
-
-    for current in summaries.values():
-        latest_gap_state = current.get("latest_gap_state") or ""
-        if current["open_gap_count"] > 0:
-            current["state"] = (
-                "BROKEN"
-                if latest_gap_state == "REJECTED"
-                or current["ingest_rejection_count"] > 0
-                else "OBSERVING"
-            )
-        elif latest_gap_state in {"AUTO_OPENED", "AUTO_CLOSED", "MATCHED"}:
-            current["state"] = "AUTO_RECONCILED"
-        else:
-            current["state"] = "ALIGNED"
-        current.pop("_latest_sort_value", None)
-
-    return summaries
+    return build_reconciliation_summary_map(
+        repository.list_reconciliation_gaps(),
+        rejection_rows=repository.list_ingest_rejections(),
+        normalize_symbol=normalize_to_base_code,
+    )
 
 
 def _resolve_settings_provider(query_param_loader=None):

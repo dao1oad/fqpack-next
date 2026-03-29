@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 
-from datetime import datetime
-
 from freshquant.order_management.ids import (
     new_buy_lot_id,
     new_entry_slice_id,
     new_lot_slice_id,
     new_position_entry_id,
 )
+from freshquant.order_management.time_helpers import beijing_date_time_from_epoch
 
 
 def build_position_entry_from_trade_fact(
@@ -328,10 +327,9 @@ def _resolve_trade_date_time(trade_fact):
     if trade_time in {None, ""}:
         return date_value, time_value
     try:
-        trade_dt = datetime.fromtimestamp(int(trade_time))
+        return beijing_date_time_from_epoch(trade_time)
     except (OSError, OverflowError, TypeError, ValueError):
         return date_value, time_value
-    return int(trade_dt.strftime("%Y%m%d")), trade_dt.strftime("%H:%M:%S")
 
 
 def _has_date_time(date_value, time_value):

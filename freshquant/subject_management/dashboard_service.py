@@ -24,6 +24,7 @@ class SubjectManagementDashboardService:
         symbol_position_loader=None,
         pm_summary_loader=None,
         symbol_limit_loader=None,
+        symbol_limit_map_loader=None,
     ):
         if database is None:
             from freshquant.db import DBfreshquant
@@ -38,6 +39,15 @@ class SubjectManagementDashboardService:
         )
         self.pm_summary_loader = pm_summary_loader or _default_pm_summary_loader
         self.symbol_limit_loader = symbol_limit_loader or _default_symbol_limit_loader
+        self.symbol_limit_map_loader = (
+            symbol_limit_map_loader
+            if symbol_limit_map_loader is not None
+            else (
+                _default_symbol_limit_map_loader
+                if symbol_limit_loader is None
+                else None
+            )
+        )
 
     def get_overview(self):
         must_pool_rows = self._must_pool_map()
@@ -52,6 +62,7 @@ class SubjectManagementDashboardService:
         symbols.update(takeprofit_profiles)
         symbols.update(positions)
         symbols.update(stoploss_summary)
+        position_limit_summary_map = self._load_overview_position_limit_summary_map()
 
         latest_events = self._latest_trigger_map(symbols)
         rows = []
@@ -71,7 +82,9 @@ class SubjectManagementDashboardService:
                 },
             )
             latest_event = latest_events.get(symbol) or {}
-            position_limit_summary = self._load_position_limit_summary(symbol)
+            position_limit_summary = position_limit_summary_map.get(symbol)
+            if position_limit_summary is None:
+                position_limit_summary = self._load_position_limit_summary(symbol)
 
             rows.append(
                 {
@@ -243,6 +256,24 @@ class SubjectManagementDashboardService:
             "available": bool(summary),
             **summary,
         }
+
+    def _load_overview_position_limit_summary_map(self):
+        if self.symbol_limit_map_loader is None:
+            return {}
+        try:
+            rows = dict(self.symbol_limit_map_loader() or {})
+        except Exception:
+            return {}
+        normalized = {}
+        for symbol, summary in rows.items():
+            normalized_symbol = _normalize_symbol(symbol)
+            if not normalized_symbol:
+                continue
+            payload = dict(summary or {})
+            payload["symbol"] = normalized_symbol
+            payload["available"] = bool(payload)
+            normalized[normalized_symbol] = payload
+        return normalized
 
     def _must_pool_map(self):
         rows = {}
@@ -505,6 +536,32 @@ def _default_symbol_limit_loader(symbol):
     )
 
     return PositionManagementDashboardService().get_symbol_limit(symbol)
+
+
+def _default_symbol_limit_map_loader():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
+    payload = PositionManagementDashboardService().get_dashboard()
+    rows = (payload or {}).get("rows") or []
+    summary_map = {}
+    for item in rows:
+        symbol = _normalize_symbol((item or {}).get("symbol"))
+        if not symbol:
+            continue
+        summary_map[symbol] = {
+            "symbol": symbol,
+            "default_limit": item.get("default_limit"),
+            "override_limit": item.get("override_limit"),
+            "effective_limit": item.get("effective_limit"),
+            "using_override": bool(item.get("using_override")),
+            "blocked": bool(item.get("blocked")),
+            "blocked_reason": item.get("blocked_reason"),
+            "market_value": item.get("market_value"),
+            "market_value_source": item.get("market_value_source"),
+        }
+    return summary_map
 
 
 def _default_position_loader():

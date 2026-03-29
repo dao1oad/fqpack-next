@@ -25,6 +25,10 @@ from freshquant.order_management.ingest.xt_reports import (
 )
 from freshquant.order_management.reconcile.matcher import match_candidate_to_trade
 from freshquant.order_management.repository import OrderManagementRepository
+from freshquant.order_management.time_helpers import (
+    beijing_date_time_from_epoch,
+    beijing_day_start_from_epoch,
+)
 from freshquant.order_management.tracking.service import OrderTrackingService
 from freshquant.runtime_observability.failures import (
     build_exception_payload,
@@ -793,7 +797,7 @@ def _pending_until_for_observation(
 
 def _build_inferred_trade_report(candidate, internal_order_id):
     trade_time = int(candidate["pending_until"])
-    trade_datetime = datetime.fromtimestamp(trade_time)
+    date_value, time_value = beijing_date_time_from_epoch(trade_time)
     return {
         "internal_order_id": internal_order_id,
         "broker_order_id": None,
@@ -803,8 +807,8 @@ def _build_inferred_trade_report(candidate, internal_order_id):
         "quantity": candidate["quantity_delta"],
         "price": candidate.get("price_estimate") or 0.0,
         "trade_time": trade_time,
-        "date": int(trade_datetime.strftime("%Y%m%d")),
-        "time": trade_datetime.strftime("%H:%M:%S"),
+        "date": date_value,
+        "time": time_value,
         "source": "external_inferred",
         "provisional": True,
     }
@@ -948,12 +952,7 @@ def _load_previous_close_from_realtime(symbol, detected_at):
         if not code:
             return None
 
-        day_start = datetime.fromtimestamp(int(detected_at)).replace(
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        )
+        day_start = beijing_day_start_from_epoch(detected_at)
         for collection_name in ("stock_realtime", "index_realtime"):
             document = DBfreshquant[collection_name].find_one(
                 {
@@ -1102,9 +1101,7 @@ def _safe_grid_interval_lookup(symbol, trade_fact):
 
 
 def _build_auto_open_entry(gap, *, resolution_id, confirmed_at):
-    trade_datetime = datetime.fromtimestamp(int(confirmed_at), tz=timezone.utc)
-    date_value = int(trade_datetime.strftime("%Y%m%d"))
-    time_value = trade_datetime.strftime("%H:%M:%S")
+    date_value, time_value = beijing_date_time_from_epoch(confirmed_at)
     quantity = int(gap.get("quantity_delta") or 0)
     price = float(gap.get("price_estimate") or 0.0)
     return {
