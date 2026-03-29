@@ -1,10 +1,8 @@
+import importlib
+import sys
+import types
 from datetime import datetime
 from types import SimpleNamespace
-
-import freshquant.command.order as order_module
-import freshquant.command.trade as trade_module
-import freshquant.data.digital.fill as digital_fill_module
-import freshquant.data.future.fill as future_fill_module
 
 
 class _FakeSortedCursor:
@@ -57,7 +55,50 @@ def _install_rich_spies(module, monkeypatch):
     return captured_rows
 
 
+def _load_order_module():
+    import freshquant.command.order as module
+
+    return importlib.reload(module)
+
+
+def _load_trade_module():
+    import freshquant.command.trade as module
+
+    return importlib.reload(module)
+
+
+def _load_digital_fill_module():
+    import freshquant.data.digital.fill as module
+
+    return importlib.reload(module)
+
+
+def _load_future_fill_module(monkeypatch):
+    kline_module = types.ModuleType("freshquant.KlineDataTool")
+    kline_module.get_future_data_v2 = lambda *args, **kwargs: []
+    instrument_code_module = types.ModuleType("freshquant.instrument.code")
+    instrument_code_module.convert_code_to_tdx = lambda value: value
+    instrument_code_module.convert_code_to_tq = lambda value: value
+    instrument_general_module = types.ModuleType("freshquant.instrument.general")
+    instrument_general_module.query_instrument_info = lambda *args, **kwargs: {}
+
+    monkeypatch.setitem(sys.modules, "freshquant.KlineDataTool", kline_module)
+    monkeypatch.setitem(
+        sys.modules, "freshquant.instrument.code", instrument_code_module
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "freshquant.instrument.general",
+        instrument_general_module,
+    )
+
+    import freshquant.data.future.fill as module
+
+    return importlib.reload(module)
+
+
 def test_xt_order_list_uses_beijing_day_range_helper(monkeypatch):
+    order_module = _load_order_module()
     observed = {}
     collection = _FakeCollection([])
     _install_rich_spies(order_module, monkeypatch)
@@ -81,6 +122,7 @@ def test_xt_order_list_uses_beijing_day_range_helper(monkeypatch):
 
 
 def test_xt_order_list_formats_order_time_with_beijing_helper(monkeypatch):
+    order_module = _load_order_module()
     observed = {}
     collection = _FakeCollection([{"_id": "row1", "order_time": 1710000000}])
     captured_rows = _install_rich_spies(order_module, monkeypatch)
@@ -104,6 +146,7 @@ def test_xt_order_list_formats_order_time_with_beijing_helper(monkeypatch):
 
 
 def test_xt_trade_list_uses_beijing_day_range_helper(monkeypatch):
+    trade_module = _load_trade_module()
     observed = {}
     collection = _FakeCollection([])
     _install_rich_spies(trade_module, monkeypatch)
@@ -130,6 +173,7 @@ def test_xt_trade_list_uses_beijing_day_range_helper(monkeypatch):
 
 
 def test_digital_fill_list_formats_trade_time_with_beijing_helper(monkeypatch):
+    digital_fill_module = _load_digital_fill_module()
     observed = {}
     collection = _FakeCollection(
         [
@@ -169,6 +213,7 @@ def test_digital_fill_list_formats_trade_time_with_beijing_helper(monkeypatch):
 
 
 def test_future_fill_list_formats_trade_time_with_beijing_helper(monkeypatch):
+    future_fill_module = _load_future_fill_module(monkeypatch)
     observed = {}
     collection = _FakeCollection(
         [
