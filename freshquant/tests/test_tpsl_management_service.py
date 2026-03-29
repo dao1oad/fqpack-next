@@ -67,12 +67,28 @@ class InMemoryTpslRepository:
 
 class InMemoryOrderManagementRepository:
     def __init__(self):
+        self.position_entries = []
+        self.entry_stoploss_bindings = []
+        self.entry_slices = []
+        self.reconciliation_gaps = []
+        self.reconciliation_resolutions = []
         self.buy_lots = []
         self.stoploss_bindings = []
         self.order_requests = []
         self.orders = []
         self.order_events = []
         self.trade_facts = []
+
+    def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+        rows = list(self.position_entries)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        if status is not None:
+            rows = [item for item in rows if item.get("status") == status]
+        return rows
 
     def list_buy_lots(self, symbol=None, buy_lot_ids=None):
         rows = list(self.buy_lots)
@@ -83,12 +99,33 @@ class InMemoryOrderManagementRepository:
             rows = [item for item in rows if item.get("buy_lot_id") in allowed]
         return rows
 
+    def list_entry_stoploss_bindings(self, symbol=None, enabled=None):
+        rows = list(self.entry_stoploss_bindings)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if enabled is not None:
+            rows = [item for item in rows if bool(item.get("enabled")) == bool(enabled)]
+        return rows
+
     def list_stoploss_bindings(self, symbol=None, enabled=None):
         rows = list(self.stoploss_bindings)
         if symbol is not None:
             rows = [item for item in rows if item.get("symbol") == symbol]
         if enabled is not None:
             rows = [item for item in rows if bool(item.get("enabled")) == bool(enabled)]
+        return rows
+
+    def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+        rows = [
+            item
+            for item in self.entry_slices
+            if int(item.get("remaining_quantity") or 0) > 0
+        ]
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
         return rows
 
     def list_order_requests(
@@ -163,6 +200,21 @@ class InMemoryOrderManagementRepository:
         if internal_order_ids is not None:
             allowed = set(internal_order_ids)
             rows = [item for item in rows if item.get("internal_order_id") in allowed]
+        return rows
+
+    def list_reconciliation_gaps(self, *, symbol=None, state=None):
+        rows = list(self.reconciliation_gaps)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if state is not None:
+            rows = [item for item in rows if item.get("state") == state]
+        return rows
+
+    def list_reconciliation_resolutions(self, *, gap_ids=None):
+        rows = list(self.reconciliation_resolutions)
+        if gap_ids is not None:
+            allowed = set(gap_ids)
+            rows = [item for item in rows if item.get("gap_id") in allowed]
         return rows
 
 
@@ -279,6 +331,73 @@ def test_management_overview_prefers_symbol_snapshot_market_value():
 
     assert rows[0]["symbol"] == "600000"
     assert rows[0]["position_amount"] == 123456.0
+
+
+def test_management_overview_prefers_v2_entry_bindings_without_legacy_stoploss_rows():
+    order_repository = InMemoryOrderManagementRepository()
+    order_repository.position_entries.append(
+        {
+            "entry_id": "entry_v2_1",
+            "symbol": "600000",
+            "name": "浦发银行",
+            "date": 20260313,
+            "time": "09:30:00",
+            "trade_time": 1773355800,
+            "entry_price": 10.0,
+            "original_quantity": 300,
+            "remaining_quantity": 200,
+            "status": "OPEN",
+        }
+    )
+    order_repository.entry_stoploss_bindings.append(
+        {
+            "entry_id": "entry_v2_1",
+            "symbol": "600000",
+            "stop_price": 9.2,
+            "enabled": True,
+        }
+    )
+    order_repository.stoploss_bindings.append(
+        {
+            "buy_lot_id": "legacy_lot_1",
+            "symbol": "600000",
+            "stop_price": 8.8,
+            "enabled": True,
+        }
+    )
+
+    service = TpslManagementService(
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=order_repository,
+        position_loader=lambda: [
+            {
+                "symbol": "sh600000",
+                "stock_code": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 200,
+                "amount_adjusted": -2000.0,
+            }
+        ],
+        symbol_position_loader=lambda symbol: None,
+        stock_fills_loader=lambda symbol: [],
+    )
+
+    rows = service.get_overview()
+
+    assert rows == [
+        {
+            "symbol": "600000",
+            "name": "浦发银行",
+            "position_quantity": 200,
+            "position_amount": -2000.0,
+            "takeprofit_configured": False,
+            "takeprofit_tiers": [],
+            "has_active_stoploss": True,
+            "active_stoploss_entry_count": 1,
+            "open_entry_count": 1,
+            "last_trigger": None,
+        }
+    ]
 
 
 def test_management_overview_uses_latest_event_query_instead_of_full_scan():

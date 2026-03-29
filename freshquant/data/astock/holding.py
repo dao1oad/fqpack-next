@@ -230,7 +230,7 @@ def accArrangedStockTrades(acc: List, cur: Dict, lotAmount: int):
 
 def get_stock_fill_list(symbol):
     records = _get_order_management_stock_fill_list(symbol)
-    if records:
+    if records is not None:
         _compare_with_legacy_fill_list(symbol, records)
         return records
     records = _get_compat_stock_fill_list(symbol)
@@ -242,8 +242,7 @@ def get_stock_fill_list(symbol):
 
 
 def _get_order_management_stock_fill_list(symbol):
-    records = list_open_buy_fills(symbol)
-    return records or None
+    return list_open_buy_fills(symbol)
 
 
 def _get_legacy_stock_fill_list(symbol):
@@ -296,7 +295,7 @@ def getInstrumentStrategy(instrumentCode: str):
 
 def get_arranged_stock_fill_list(symbol):
     records = _get_order_management_arranged_fill_list(symbol)
-    if records:
+    if records is not None:
         _compare_with_legacy_arranged_fill_list(symbol, records)
         return records
     records = _get_compat_arranged_stock_fill_list(symbol)
@@ -308,8 +307,7 @@ def get_arranged_stock_fill_list(symbol):
 
 
 def _get_order_management_arranged_fill_list(symbol):
-    records = list_arranged_fills(symbol)
-    return records or None
+    return list_arranged_fills(symbol)
 
 
 def _get_legacy_arranged_stock_fill_list(symbol):

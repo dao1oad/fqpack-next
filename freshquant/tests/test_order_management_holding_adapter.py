@@ -194,6 +194,35 @@ def test_get_stock_fill_list_prefers_compat_fallback_before_raw_legacy(monkeypat
     assert holding_module.get_stock_fill_list("000001") == sample
 
 
+def test_get_stock_fill_list_treats_empty_order_management_projection_as_authoritative(
+    monkeypatch,
+):
+    _, holding_module, _ = _reload_modules(monkeypatch)
+
+    monkeypatch.setattr(
+        holding_module, "_get_order_management_stock_fill_list", lambda symbol: []
+    )
+    monkeypatch.setattr(
+        holding_module, "_compare_with_legacy_fill_list", lambda symbol, records: None
+    )
+    monkeypatch.setattr(
+        holding_module,
+        "_get_compat_stock_fill_list",
+        lambda symbol: (_ for _ in ()).throw(
+            AssertionError("compat fallback should not run after authoritative v2 read")
+        ),
+    )
+    monkeypatch.setattr(
+        holding_module,
+        "_get_legacy_stock_fill_list",
+        lambda symbol: (_ for _ in ()).throw(
+            AssertionError("raw legacy fallback should not run after authoritative v2 read")
+        ),
+    )
+
+    assert holding_module.get_stock_fill_list("000001") == []
+
+
 def test_get_arranged_stock_fill_list_prefers_compat_fallback_before_raw_legacy(
     monkeypatch,
 ):
@@ -227,6 +256,132 @@ def test_get_arranged_stock_fill_list_prefers_compat_fallback_before_raw_legacy(
     )
 
     assert holding_module.get_arranged_stock_fill_list("000001") == sample
+
+
+def test_get_arranged_stock_fill_list_treats_empty_order_management_projection_as_authoritative(
+    monkeypatch,
+):
+    _, holding_module, _ = _reload_modules(monkeypatch)
+
+    monkeypatch.setattr(
+        holding_module,
+        "_get_order_management_arranged_fill_list",
+        lambda symbol: [],
+    )
+    monkeypatch.setattr(
+        holding_module,
+        "_compare_with_legacy_arranged_fill_list",
+        lambda symbol, records: None,
+    )
+    monkeypatch.setattr(
+        holding_module,
+        "_get_compat_arranged_stock_fill_list",
+        lambda symbol: (_ for _ in ()).throw(
+            AssertionError("compat fallback should not run after authoritative v2 read")
+        ),
+    )
+    monkeypatch.setattr(
+        holding_module,
+        "_get_legacy_arranged_stock_fill_list",
+        lambda symbol: (_ for _ in ()).throw(
+            AssertionError("raw legacy fallback should not run after authoritative v2 read")
+        ),
+    )
+
+    assert holding_module.get_arranged_stock_fill_list("000001") == []
+
+
+def test_arranged_fill_projection_does_not_require_legacy_buy_lots_when_v2_entries_exist(
+    monkeypatch,
+):
+    _reload_modules(monkeypatch)
+    import freshquant.order_management.projection.stock_fills as stock_fills_module
+
+    class Repo:
+        def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+            return [
+                {
+                    "entry_id": "entry_v2_1",
+                    "symbol": "000001",
+                    "date": 20260329,
+                    "time": "09:31:00",
+                    "trade_time": 1774747860,
+                    "original_quantity": 200,
+                    "remaining_quantity": 200,
+                }
+            ]
+
+        def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+            return [
+                {
+                    "entry_slice_id": "slice_v2_1",
+                    "entry_id": "entry_v2_1",
+                    "symbol": "000001",
+                    "guardian_price": 10.93,
+                    "remaining_quantity": 200,
+                    "sort_key": 1,
+                    "date": None,
+                    "time": None,
+                    "trade_time": None,
+                }
+            ]
+
+        def list_buy_lots(self, symbol=None, buy_lot_ids=None):
+            raise AssertionError(
+                "legacy buy lots should not be consulted when v2 entries exist"
+            )
+
+    rows = stock_fills_module.list_arranged_fills("000001", repository=Repo())
+
+    assert rows == [
+        {
+            "symbol": "000001",
+            "date": 20260329,
+            "time": "09:31:00",
+            "price": 10.93,
+            "quantity": 200,
+            "amount": 2186.0,
+        }
+    ]
+
+
+def test_entry_stoploss_binding_adapter_does_not_require_legacy_bindings_when_v2_exists(
+    monkeypatch,
+):
+    _reload_modules(monkeypatch)
+    import freshquant.order_management.entry_adapter as entry_adapter_module
+
+    class Repo:
+        def list_entry_stoploss_bindings(self, symbol=None, enabled=None):
+            return [
+                {
+                    "entry_id": "entry_v2_1",
+                    "symbol": "000001",
+                    "stop_price": 9.2,
+                    "enabled": True,
+                }
+            ]
+
+        def list_stoploss_bindings(self, symbol=None, enabled=None):
+            raise AssertionError(
+                "legacy stoploss bindings should not be consulted when v2 bindings exist"
+            )
+
+    rows = entry_adapter_module.list_entry_stoploss_bindings_compat(
+        symbol="000001",
+        enabled=None,
+        repository=Repo(),
+    )
+
+    assert rows == [
+        {
+            "entry_id": "entry_v2_1",
+            "symbol": "000001",
+            "stop_price": 9.2,
+            "enabled": True,
+            "binding_scope": "position_entry",
+        }
+    ]
 
 
 def test_projection_refresh_invalidates_holding_code_cache(monkeypatch):

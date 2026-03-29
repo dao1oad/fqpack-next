@@ -107,6 +107,7 @@ def list_open_entry_slices_compat(symbol=None, entry_ids=None, repository=None):
 def list_entry_stoploss_bindings_compat(symbol=None, enabled=True, repository=None):
     repository = repository or OrderManagementRepository()
     rows = {}
+    has_v2_rows = False
 
     if hasattr(repository, "list_entry_stoploss_bindings"):
         for item in repository.list_entry_stoploss_bindings(
@@ -114,8 +115,9 @@ def list_entry_stoploss_bindings_compat(symbol=None, enabled=True, repository=No
         ):
             normalized = _normalize_entry_binding(item)
             rows[normalized["entry_id"]] = normalized
+            has_v2_rows = True
 
-    if hasattr(repository, "list_stoploss_bindings"):
+    if not has_v2_rows and hasattr(repository, "list_stoploss_bindings"):
         legacy_bindings = repository.list_stoploss_bindings(
             symbol=symbol,
             enabled=enabled,

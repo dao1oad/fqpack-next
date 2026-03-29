@@ -103,12 +103,30 @@ def list_open_buy_fills(symbol, repository=None):
 def list_arranged_fills(symbol, repository=None):
     repository = repository or OrderManagementRepository()
     open_slices = list_open_entry_slices_compat(symbol=symbol, repository=repository)
+    entry_views = list_open_entry_views(symbol, repository=repository)
     entry_by_id = {
         item.get("entry_id"): item
-        for item in list_open_entry_views(symbol, repository=repository)
+        for item in entry_views
         if item.get("entry_id") is not None
     }
-    if hasattr(repository, "list_buy_lots"):
+    has_v2_entries = any(
+        str(item.get("entry_type") or "").strip() != "legacy_buy_lot"
+        for item in entry_views
+    )
+    if has_v2_entries:
+        missing_entry_ids = {
+            str(item.get("entry_id") or "").strip()
+            for item in open_slices
+            if str(item.get("entry_id") or "").strip()
+            and str(item.get("entry_id") or "").strip() not in entry_by_id
+        }
+        if hasattr(repository, "find_position_entry"):
+            for entry_id in missing_entry_ids:
+                entry = repository.find_position_entry(entry_id)
+                if entry is None:
+                    continue
+                entry_by_id[entry_id] = dict(entry)
+    elif hasattr(repository, "list_buy_lots"):
         for item in repository.list_buy_lots(symbol):
             entry_id = str(item.get("buy_lot_id") or "").strip()
             if not entry_id or entry_id in entry_by_id:
