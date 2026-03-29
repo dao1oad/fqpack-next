@@ -168,6 +168,57 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 若方案不是 broker truth 驱动，立即停止；重写为只基于 `xt_orders`、`xt_trades`、`xt_positions` 的 rebuild 输入
 - 不要用 legacy `om_*`、`stock_fills`、`stock_fills_compat` 反推正式 rebuild 主账本
 
+## Order Ledger V2 rebuild 后仍出现空日期/空时间
+
+现象：
+
+- `SubjectManagement` / `TPSL` / `/api/stock_fills` 仍看到 entry 或 arranged fill 缺 `date/time`
+
+先检查：
+
+- `@'
+from freshquant.order_management.repository import OrderManagementRepository
+repo = OrderManagementRepository()
+print(repo.list_position_entries(symbol='300760'))
+print(repo.list_open_entry_slices(symbol='300760'))
+'@ | py -3.12 -m uv run -`
+
+常见根因：
+
+- 重建前 legacy 数据缺 `date/time`，但本轮还没有真正执行 v2 rebuild
+- 运行期仍在读 legacy fallback，而不是 rebuilt v2 主链
+- 某条记录缺 `date/time` 但保留了 `trade_time`，需要通过 v2 读侧回填
+
+处理：
+
+- 先确认已执行 `script/maintenance/rebuild_order_ledger_v2.py --execute --backup-db <backup>`
+- 再确认 `holding.py` / `entry_adapter` 当前已经优先返回 v2 entry / slice，而不是回退 legacy `stock_fills` 或 `buy_lots`
+- 若记录仍缺 `date/time`，优先查对应 `trade_time` 是否存在，再查该 symbol 是否还停留在旧账本
+
+## Order Ledger V2 rebuild 后出现 odd-lot 拒绝
+
+现象：
+
+- 某 symbol 在页面中没有生成 `position_entry`
+- `PositionManagement` 或 `TPSL` 显示对账异常
+- `om_ingest_rejections` 出现 `reason_code=non_board_lot_quantity`
+
+先检查：
+
+- `@'
+from freshquant.order_management.repository import OrderManagementRepository
+repo = OrderManagementRepository()
+print(repo.list_ingest_rejections(symbol='300760'))
+print(repo.list_reconciliation_gaps(symbol='300760'))
+print(repo.list_reconciliation_resolutions())
+'@ | py -3.12 -m uv run -`
+
+处理：
+
+- odd-lot 当前只保留在 `execution_fill / ingest_rejection` 审计层，不会进入 `position_entry / entry_slice`
+- 若券商当前仓位仍存在合法 board-lot 差额，系统会通过 `auto_open_entry / auto_close_allocation` 收敛
+- 若差额本身仍不是 `100` 股整数倍，当前口径是继续保留 `REJECTED gap`，不要手工伪造 entry
+
 ## Dagster 容器持续重启
 
 现象：

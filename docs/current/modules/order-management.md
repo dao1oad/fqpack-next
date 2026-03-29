@@ -131,6 +131,43 @@
 
 手工入口当前也强制执行 `100` 股整数倍校验。
 
+## Order Ledger V2 Rebuild
+
+当前正式重建入口：
+
+```powershell
+py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --dry-run
+py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --backup-db <backup_db_name>
+```
+
+当前约束：
+
+- dry-run 允许配合 `--account-id` 做单账户演练
+- destructive execute 不允许 `--account-id`
+- destructive execute 必须显式提供 `--backup-db`
+- `--backup-db` 不能和当前订单账本数据库同名
+
+当前重建输入只允许：
+
+- `xt_orders`
+- `xt_trades`
+- `xt_positions`
+
+当前重建输出会覆盖：
+
+- `om_order_requests / om_order_events / om_orders`
+- `om_broker_orders / om_execution_fills / om_trade_facts`
+- `om_position_entries / om_entry_slices / om_exit_allocations`
+- `om_buy_lots / om_lot_slices / om_sell_allocations`
+- `om_external_candidates / om_reconciliation_gaps / om_reconciliation_resolutions`
+- `om_stoploss_bindings / om_entry_stoploss_bindings / om_ingest_rejections`
+
+重建后的运行期读侧：
+
+- `holding.py` / `/api/stock_fills` 把 OM 主链返回的空列表视为 authoritative，不再因此掉回 compat/raw legacy
+- `entry_adapter` 在存在 v2 entry / binding 时不再混读 legacy `buy_lot / stoploss_binding`
+- `SubjectManagement`、`TPSL` 现在可以在没有 legacy `buy_lots` 的情况下直接读取 v2 `position_entries`
+
 ## Board Lot 规则
 
 系统当前把普通 A 股 `100` 股整数倍视为硬约束：
