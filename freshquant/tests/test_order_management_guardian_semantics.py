@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import freshquant.order_management.guardian.arranger as arranger_module
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_entry_slices,
     allocate_sell_to_slices,
@@ -162,6 +163,39 @@ def test_build_buy_lot_from_trade_fact_backfills_date_and_time_from_trade_time()
 
     assert buy_lot["date"] == int(expected_dt.strftime("%Y%m%d"))
     assert buy_lot["time"] == expected_dt.strftime("%H:%M:%S")
+
+
+def test_build_buy_lot_from_trade_fact_uses_beijing_time_even_if_local_fromtimestamp_differs(
+    monkeypatch,
+):
+    observed = {}
+
+    def _fake_beijing_date_time_from_epoch(timestamp):
+        observed["timestamp"] = timestamp
+        return 20240310, "00:00:00"
+
+    monkeypatch.setattr(
+        arranger_module,
+        "beijing_date_time_from_epoch",
+        _fake_beijing_date_time_from_epoch,
+    )
+
+    buy_lot = arranger_module.build_buy_lot_from_trade_fact(
+        {
+            "trade_fact_id": "trade_buy_missing_date_time_local_drift",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": None,
+            "time": None,
+        }
+    )
+
+    assert buy_lot["date"] == 20240310
+    assert buy_lot["time"] == "00:00:00"
+    assert observed["timestamp"] == 1710000000
 
 
 def test_list_arranged_fills_backfills_date_and_time_from_buy_lot_trade_time():

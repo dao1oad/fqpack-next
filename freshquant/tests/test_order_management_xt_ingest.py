@@ -351,6 +351,53 @@ def test_normalize_xt_trade_report_prefers_order_domain_broker_order_type():
     assert normalized["side"] == "buy"
 
 
+def test_upsert_broker_position_entry_uses_beijing_time_when_local_fromtimestamp_differs(
+    monkeypatch,
+):
+    from datetime import datetime, timezone
+
+    class FakeDateTime(datetime):
+        @classmethod
+        def fromtimestamp(cls, timestamp, tz=None):
+            if tz is None:
+                return datetime.fromtimestamp(timestamp, timezone.utc).replace(
+                    tzinfo=None
+                )
+            return datetime.fromtimestamp(timestamp, tz=tz)
+
+    monkeypatch.setattr(xt_reports_module, "datetime", FakeDateTime)
+
+    repository = InMemoryRepository()
+    repository.broker_orders.append(
+        {
+            "broker_order_key": "ord_test_fill_time_backfill",
+            "filled_quantity": 100,
+            "first_fill_time": 1710000000,
+            "avg_filled_price": 10.0,
+        }
+    )
+
+    entry, _ = xt_reports_module._upsert_broker_position_entry(
+        repository=repository,
+        trade_fact={
+            "internal_order_id": "ord_test_fill_time_backfill",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 100,
+            "price": 10.0,
+            "trade_time": None,
+            "date": None,
+            "time": None,
+            "source": "xt_trade_callback",
+        },
+        lot_amount=50000,
+        grid_interval=1.03,
+    )
+
+    assert entry["date"] == 20240310
+    assert entry["time"] == "00:00:00"
+
+
 def test_normalize_xt_order_report_maps_broker_order_back_to_internal_order():
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)

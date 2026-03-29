@@ -2,7 +2,6 @@
 
 from datetime import datetime, timezone
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 from loguru import logger
 
@@ -30,6 +29,10 @@ from freshquant.order_management.projection.stock_fills import (
     build_raw_fills_view,
 )
 from freshquant.order_management.repository import OrderManagementRepository
+from freshquant.order_management.time_helpers import (
+    beijing_date_time_from_epoch,
+    beijing_datetime_from_epoch,
+)
 from freshquant.order_management.tracking.service import OrderTrackingService
 from freshquant.runtime_observability.failures import (
     build_exception_payload,
@@ -60,7 +63,6 @@ _SELL_ORDER_TYPES = {
     "sell",
     "SELL",
 }
-_XT_REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 class OrderManagementXtIngestService:
@@ -615,9 +617,9 @@ def _upsert_broker_position_entry(
     if trade_payload.get("trade_time") and not (
         trade_payload.get("date") and trade_payload.get("time")
     ):
-        trade_dt = datetime.fromtimestamp(int(trade_payload["trade_time"]))
-        trade_payload["date"] = int(trade_dt.strftime("%Y%m%d"))
-        trade_payload["time"] = trade_dt.strftime("%H:%M:%S")
+        trade_payload["date"], trade_payload["time"] = beijing_date_time_from_epoch(
+            trade_payload["trade_time"]
+        )
     if existing_entry is not None:
         trade_payload["date"] = existing_entry.get("date") or trade_payload.get("date")
         trade_payload["time"] = existing_entry.get("time") or trade_payload.get("time")
@@ -702,7 +704,7 @@ def _map_xt_order_type_to_side(order_type):
 
 
 def _xt_timestamp_to_datetime(timestamp):
-    return datetime.fromtimestamp(timestamp, _XT_REPORT_TIMEZONE).replace(tzinfo=None)
+    return beijing_datetime_from_epoch(timestamp).replace(tzinfo=None)
 
 
 def _get_tpsl_service():

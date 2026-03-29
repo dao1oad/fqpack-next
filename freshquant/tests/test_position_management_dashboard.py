@@ -857,12 +857,62 @@ def test_dashboard_reconciliation_loader_summarizes_gap_and_rejection_state(
 
     assert dashboard_service._default_reconciliation_loader() == {
         "000001": {
+            "symbol": "000001",
             "state": "BROKEN",
             "latest_gap_state": "OPEN",
             "signed_gap_quantity": 200,
             "open_gap_count": 1,
             "latest_resolution_type": None,
             "ingest_rejection_count": 1,
+        }
+    }
+
+
+def test_dashboard_reconciliation_loader_sums_multiple_gap_deltas_by_side(
+    monkeypatch,
+):
+    import freshquant.order_management.repository as order_repository_module
+    from freshquant.position_management import dashboard_service
+
+    class FakeOrderRepository:
+        def list_reconciliation_gaps(self):
+            return [
+                {
+                    "symbol": "600000.SH",
+                    "state": "OPEN",
+                    "quantity_delta": 200,
+                    "side": "buy",
+                    "detected_at": 10,
+                    "resolution_type": "",
+                },
+                {
+                    "symbol": "600000.SH",
+                    "state": "OPEN",
+                    "quantity_delta": 50,
+                    "side": "sell",
+                    "detected_at": 20,
+                    "resolution_type": "",
+                },
+            ]
+
+        def list_ingest_rejections(self):
+            return []
+
+    monkeypatch.setattr(
+        order_repository_module,
+        "OrderManagementRepository",
+        lambda: FakeOrderRepository(),
+    )
+
+    assert dashboard_service._default_reconciliation_loader() == {
+        "600000": {
+            "symbol": "600000",
+            "state": "OBSERVING",
+            "latest_gap_state": "OPEN",
+            "signed_gap_quantity": 150,
+            "open_gap_count": 2,
+            "latest_resolution_type": None,
+            "ingest_rejection_count": 0,
         }
     }
 
