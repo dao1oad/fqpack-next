@@ -50,7 +50,7 @@ class OrderLedgerV2RebuildService:
 
         broker_orders_by_key = {}
         broker_order_keys = []
-        order_id_to_broker_order_key = {}
+        order_match_to_broker_order_key = {}
 
         for raw_order in list(xt_orders or []):
             broker_order = _normalize_broker_order(raw_order)
@@ -58,24 +58,40 @@ class OrderLedgerV2RebuildService:
             if broker_order_key not in broker_orders_by_key:
                 broker_order_keys.append(broker_order_key)
             broker_orders_by_key[broker_order_key] = broker_order
-            order_id = _normalize_identifier(raw_order.get("order_id"))
-            if order_id:
-                order_id_to_broker_order_key[order_id] = broker_order_key
+            match_key = _build_broker_order_match_key(
+                symbol=broker_order.get("symbol"),
+                side=broker_order.get("side"),
+                order_id=raw_order.get("order_id"),
+            )
+            if match_key:
+                order_match_to_broker_order_key[match_key] = broker_order_key
 
         execution_fill_documents = []
         for raw_trade in list(xt_trades or []):
             order_id = _normalize_identifier(raw_trade.get("order_id"))
-            broker_order_key = order_id_to_broker_order_key.get(order_id) or order_id
+            trade_symbol = _normalize_symbol(raw_trade)
+            trade_side = _normalize_side(raw_trade.get("order_type") or raw_trade.get("side"))
+            match_key = _build_broker_order_match_key(
+                symbol=trade_symbol,
+                side=trade_side,
+                order_id=order_id,
+            )
+            broker_order_key = order_match_to_broker_order_key.get(match_key)
             if not broker_order_key:
-                broker_order_key = f"trade_only:{_normalize_identifier(raw_trade.get('traded_id'))}"
+                broker_order_key = _build_trade_only_broker_order_key(
+                    symbol=trade_symbol,
+                    side=trade_side,
+                    order_id=order_id,
+                    traded_id=raw_trade.get("traded_id"),
+                )
 
             broker_order = broker_orders_by_key.get(broker_order_key)
             if broker_order is None:
                 broker_order = _build_trade_only_broker_order(raw_trade, broker_order_key)
                 broker_orders_by_key[broker_order_key] = broker_order
                 broker_order_keys.append(broker_order_key)
-                if order_id:
-                    order_id_to_broker_order_key[order_id] = broker_order_key
+                if match_key:
+                    order_match_to_broker_order_key[match_key] = broker_order_key
 
             execution_fill = _normalize_execution_fill(raw_trade, broker_order)
             execution_fill_documents.append(execution_fill)
@@ -158,6 +174,7 @@ def _rebuild_position_entries(
     replay_warnings = []
     ingest_rejection_documents = []
 
+    replay_events = []
     for broker_order in broker_order_documents:
         if broker_order.get("side") != "buy":
             continue
@@ -180,28 +197,16 @@ def _rebuild_position_entries(
             ),
             fills=accepted_buy_fills,
         )
-        position_entry = build_position_entry_from_trade_fact(
-            trade_fact,
-            source_ref_type="broker_order",
-            source_ref_id=broker_order_key,
-            entry_type="broker_execution_group",
-            original_quantity=trade_fact["quantity"],
-            remaining_quantity=trade_fact["quantity"],
-            entry_price=trade_fact["price"],
-            amount=round(float(trade_fact["price"]) * float(trade_fact["quantity"]), 2),
-            source=trade_fact["source"],
-            arrange_mode="runtime_grid",
-            sell_history=[],
-        )
-        position_entry_documents.append(position_entry)
-        entry_slice_documents.extend(
-            arrange_entry(
-                position_entry,
-                lot_amount=int(lot_amount_lookup(position_entry["symbol"])),
-                grid_interval=float(
-                    grid_interval_lookup(position_entry["symbol"], trade_fact)
-                ),
-            )
+        replay_events.append(
+            {
+                "kind": "buy_group",
+                "trade_time": trade_fact.get("trade_time"),
+                "date": trade_fact.get("date"),
+                "time": trade_fact.get("time"),
+                "sort_id": trade_fact.get("trade_fact_id"),
+                "broker_order_key": broker_order_key,
+                "trade_fact": trade_fact,
+            }
         )
 
     for execution_fill in execution_fills:
@@ -213,6 +218,60 @@ def _rebuild_position_entries(
             )
             continue
         sell_trade_fact = _build_trade_fact_from_execution_fill(execution_fill)
+        replay_events.append(
+            {
+                "kind": "sell_fill",
+                "trade_time": sell_trade_fact.get("trade_time"),
+                "date": sell_trade_fact.get("date"),
+                "time": sell_trade_fact.get("time"),
+                "sort_id": sell_trade_fact.get("trade_fact_id"),
+                "execution_fill": execution_fill,
+                "trade_fact": sell_trade_fact,
+            }
+        )
+
+    replay_events.sort(
+        key=lambda item: (
+            _coerce_int(item.get("trade_time")) or 0,
+            _coerce_int(item.get("date")) or 0,
+            str(item.get("time") or ""),
+            0 if item.get("kind") == "buy_group" else 1,
+            str(item.get("sort_id") or ""),
+        )
+    )
+
+    for replay_event in replay_events:
+        if replay_event.get("kind") == "buy_group":
+            trade_fact = dict(replay_event["trade_fact"])
+            position_entry = build_position_entry_from_trade_fact(
+                trade_fact,
+                source_ref_type="broker_order",
+                source_ref_id=replay_event.get("broker_order_key"),
+                entry_type="broker_execution_group",
+                original_quantity=trade_fact["quantity"],
+                remaining_quantity=trade_fact["quantity"],
+                entry_price=trade_fact["price"],
+                amount=round(
+                    float(trade_fact["price"]) * float(trade_fact["quantity"]), 2
+                ),
+                source=trade_fact["source"],
+                arrange_mode="runtime_grid",
+                sell_history=[],
+            )
+            position_entry_documents.append(position_entry)
+            entry_slice_documents.extend(
+                arrange_entry(
+                    position_entry,
+                    lot_amount=int(lot_amount_lookup(position_entry["symbol"])),
+                    grid_interval=float(
+                        grid_interval_lookup(position_entry["symbol"], trade_fact)
+                    ),
+                )
+            )
+            continue
+
+        execution_fill = replay_event["execution_fill"]
+        sell_trade_fact = dict(replay_event["trade_fact"])
         symbol = sell_trade_fact["symbol"]
         symbol_entries = [
             item
@@ -245,6 +304,39 @@ def _rebuild_position_entries(
             ),
             reverse=True,
         )
+        available_quantity = sum(
+            _coerce_int(item.get("remaining_quantity")) or 0
+            for item in symbol_open_slices
+        )
+        if available_quantity < sell_trade_fact["quantity"]:
+            if available_quantity > 0:
+                allocatable_trade_fact = dict(sell_trade_fact)
+                allocatable_trade_fact["quantity"] = available_quantity
+                exit_allocation_documents.extend(
+                    allocate_sell_to_entry_slices(
+                        entries=symbol_entries,
+                        open_slices=symbol_open_slices,
+                        sell_trade_fact=allocatable_trade_fact,
+                    )
+                )
+            unmatched_quantity = sell_trade_fact["quantity"] - available_quantity
+            unmatched_trade_fact = dict(sell_trade_fact)
+            unmatched_trade_fact["trade_fact_id"] = (
+                f"{sell_trade_fact['trade_fact_id']}:unmatched"
+            )
+            unmatched_trade_fact["quantity"] = unmatched_quantity
+            unmatched_sell_trade_facts.append(unmatched_trade_fact)
+            replay_warnings.append(
+                {
+                    "code": "sell_exceeds_known_inventory",
+                    "broker_order_key": execution_fill.get("broker_order_key"),
+                    "execution_fill_id": execution_fill.get("execution_fill_id"),
+                    "symbol": symbol,
+                    "allocated_quantity": available_quantity,
+                    "unmatched_quantity": unmatched_quantity,
+                }
+            )
+            continue
         exit_allocation_documents.extend(
             allocate_sell_to_entry_slices(
                 entries=symbol_entries,
@@ -433,6 +525,29 @@ def _normalize_side(order_type):
     if order_type in _SELL_ORDER_TYPES:
         return "sell"
     return str(order_type or "").strip().lower() or None
+
+
+def _build_broker_order_match_key(*, symbol, side, order_id):
+    normalized_symbol = str(symbol or "").strip()
+    normalized_side = str(side or "").strip().lower()
+    normalized_order_id = _normalize_identifier(order_id)
+    if not normalized_symbol or not normalized_side or not normalized_order_id:
+        return None
+    return f"{normalized_symbol}:{normalized_side}:{normalized_order_id}"
+
+
+def _build_trade_only_broker_order_key(*, symbol, side, order_id, traded_id):
+    match_key = _build_broker_order_match_key(
+        symbol=symbol,
+        side=side,
+        order_id=order_id,
+    )
+    if match_key:
+        return f"trade_only:{match_key}"
+    normalized_traded_id = _normalize_identifier(traded_id)
+    if normalized_traded_id:
+        return f"trade_only:{normalized_traded_id}"
+    return "trade_only:unknown"
 
 
 def _normalize_broker_order_state(order_status):

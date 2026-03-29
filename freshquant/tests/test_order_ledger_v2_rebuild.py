@@ -196,6 +196,54 @@ def test_rebuild_service_creates_trade_only_broker_order_fallback():
     assert execution_fill["time"] == "14:05:06"
 
 
+def test_rebuild_service_matches_orders_by_symbol_and_side_not_raw_order_id_only():
+    service = _get_rebuild_service_class()()
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_sell_order(
+                order_id=940572674,
+                stock_code="300760.SZ",
+                order_volume=500,
+                order_time=1774590970,
+                order_status="filled",
+            )
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-CROSS-SYMBOL-1",
+                order_id=940572674,
+                stock_code="002475.SZ",
+                order_type="buy",
+                traded_volume=200,
+                traded_price=48.2,
+                traded_time=1773886692,
+            )
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["broker_orders"] == 2
+    assert result["execution_fills"] == 1
+
+    broker_orders = {item["broker_order_key"]: item for item in result["broker_order_documents"]}
+    execution_fill = result["execution_fill_documents"][0]
+
+    assert broker_orders["940572674"]["symbol"] == "300760"
+    assert broker_orders["940572674"]["side"] == "sell"
+    assert broker_orders["940572674"]["filled_quantity"] == 0
+    assert any(
+        item["source_type"] == "trade_only"
+        and item["symbol"] == "002475"
+        and item["side"] == "buy"
+        and item["filled_quantity"] == 200
+        for item in broker_orders.values()
+    )
+    assert execution_fill["symbol"] == "002475"
+    assert execution_fill["side"] == "buy"
+
+
 def test_rebuild_service_aggregates_buy_fills_into_single_broker_order_entry():
     service = _get_rebuild_service_class()(
         lot_amount_lookup=lambda _symbol: 3000,
@@ -317,6 +365,168 @@ def test_rebuild_service_replays_buy_and_sell_into_open_entries():
     assert exit_allocation["allocated_quantity"] == 200
 
 
+def test_rebuild_service_keeps_sell_before_future_buy_as_unmatched():
+    service = _get_rebuild_service_class()(
+        lot_amount_lookup=lambda _symbol: 3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_sell_order(
+                order_id=85001,
+                stock_code="002475.SZ",
+                order_volume=1600,
+                order_time=1710000000,
+                order_status="filled",
+            ),
+            _sample_xt_order(
+                order_id=85002,
+                stock_code="002475.SZ",
+                order_volume=1000,
+                order_time=1710003600,
+                order_status="filled",
+            ),
+        ],
+        xt_trades=[
+            _sample_xt_sell_trade(
+                traded_id="T-SELL-85001",
+                order_id=85001,
+                stock_code="002475.SZ",
+                traded_volume=1600,
+                traded_price=49.02,
+                traded_time=1710000000,
+                date=None,
+                time=None,
+            ),
+            _sample_xt_trade(
+                traded_id="T-BUY-85002",
+                order_id=85002,
+                stock_code="002475.SZ",
+                traded_volume=1000,
+                traded_price=48.2,
+                traded_time=1710003600,
+                date=None,
+                time=None,
+            ),
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["position_entries"] == 1
+    assert result["exit_allocations"] == 0
+    assert result["unmatched_sell_trade_facts"] == [
+        {
+            "trade_fact_id": "T-SELL-85001",
+            "symbol": "002475",
+            "side": "sell",
+            "quantity": 1600,
+            "price": 49.02,
+            "trade_time": 1710000000,
+            "date": 20240310,
+            "time": "00:00:00",
+            "source": "broker_rebuild",
+        }
+    ]
+    assert result["position_entry_documents"][0]["remaining_quantity"] == 1000
+
+
+def test_rebuild_service_partially_allocates_known_inventory_before_marking_unmatched_sell():
+    service = _get_rebuild_service_class()(
+        lot_amount_lookup=lambda _symbol: 3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_order(
+                order_id=86001,
+                stock_code="300760.SZ",
+                order_volume=100,
+                order_time=1710000000,
+                order_status="filled",
+            ),
+            _sample_xt_sell_order(
+                order_id=86002,
+                stock_code="300760.SZ",
+                order_volume=200,
+                order_time=1710000600,
+                order_status="filled",
+            ),
+            _sample_xt_order(
+                order_id=86003,
+                stock_code="300760.SZ",
+                order_volume=200,
+                order_time=1710001200,
+                order_status="filled",
+            ),
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-BUY-86001",
+                order_id=86001,
+                stock_code="300760.SZ",
+                traded_volume=100,
+                traded_price=173.26,
+                traded_time=1710000000,
+                date=None,
+                time=None,
+            ),
+            _sample_xt_sell_trade(
+                traded_id="T-SELL-86002",
+                order_id=86002,
+                stock_code="300760.SZ",
+                traded_volume=200,
+                traded_price=166.7,
+                traded_time=1710000600,
+                date=None,
+                time=None,
+            ),
+            _sample_xt_trade(
+                traded_id="T-BUY-86003",
+                order_id=86003,
+                stock_code="300760.SZ",
+                traded_volume=200,
+                traded_price=172.66,
+                traded_time=1710001200,
+                date=None,
+                time=None,
+            ),
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["position_entries"] == 2
+    assert result["exit_allocations"] == 1
+    assert result["position_entry_documents"][0]["remaining_quantity"] == 0
+    assert result["position_entry_documents"][1]["remaining_quantity"] == 200
+    assert result["unmatched_sell_trade_facts"] == [
+        {
+            "trade_fact_id": "T-SELL-86002:unmatched",
+            "symbol": "300760",
+            "side": "sell",
+            "quantity": 100,
+            "price": 166.7,
+            "trade_time": 1710000600,
+            "date": 20240310,
+            "time": "00:10:00",
+            "source": "broker_rebuild",
+        }
+    ]
+    assert result["replay_warnings"] == [
+        {
+            "code": "sell_exceeds_known_inventory",
+            "broker_order_key": "86002",
+            "execution_fill_id": "T-SELL-86002",
+            "symbol": "300760",
+            "allocated_quantity": 100,
+            "unmatched_quantity": 100,
+        }
+    ]
+
+
 def test_rebuild_service_keeps_unmatched_sell_evidence_when_no_entry_can_be_replayed():
     service = _get_rebuild_service_class()(
         lot_amount_lookup=lambda _symbol: 3000,
@@ -354,6 +564,75 @@ def test_rebuild_service_keeps_unmatched_sell_evidence_when_no_entry_can_be_repl
             "quantity": 300,
         }
     ]
+
+
+def test_rebuild_service_records_shortfall_when_sell_exceeds_open_entries():
+    service = _get_rebuild_service_class()(
+        lot_amount_lookup=lambda _symbol: 3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_order(
+                order_id=83011,
+                stock_code="000001.SZ",
+                order_volume=1000,
+                order_status="filled",
+            ),
+            _sample_xt_sell_order(
+                order_id=83012,
+                stock_code="000001.SZ",
+                order_volume=1600,
+                order_status="filled",
+            ),
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-BUY-83011",
+                order_id=83011,
+                stock_code="000001.SZ",
+                traded_volume=1000,
+                traded_price=10.0,
+                traded_time=1710000000,
+                date=None,
+                time=None,
+            ),
+            _sample_xt_sell_trade(
+                traded_id="T-SELL-83012",
+                order_id=83012,
+                stock_code="000001.SZ",
+                traded_volume=1600,
+                traded_price=10.8,
+                traded_time=1710003600,
+                date=None,
+                time=None,
+            ),
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["position_entries"] == 1
+    assert result["exit_allocations"] > 0
+    assert len(result["unmatched_sell_trade_facts"]) == 1
+    assert (
+        result["unmatched_sell_trade_facts"][0]["trade_fact_id"]
+        == "T-SELL-83012:unmatched"
+    )
+    assert result["unmatched_sell_trade_facts"][0]["quantity"] == 600
+    assert result["replay_warnings"] == [
+        {
+            "code": "sell_exceeds_known_inventory",
+            "broker_order_key": "83012",
+            "execution_fill_id": "T-SELL-83012",
+            "symbol": "000001",
+            "allocated_quantity": 1000,
+            "unmatched_quantity": 600,
+        }
+    ]
+    assert result["position_entry_documents"][0]["remaining_quantity"] == 0
+    assert result["position_entry_documents"][0]["status"] == "CLOSED"
 
 
 def test_rebuild_service_creates_auto_reconciled_open_entry_from_xt_positions_gap():
