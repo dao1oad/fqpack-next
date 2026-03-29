@@ -10,8 +10,9 @@ from click.testing import CliRunner
 
 
 def test_rebuild_module_import_does_not_require_tzdata(monkeypatch):
-    import freshquant.order_management as order_management_package
     import zoneinfo
+
+    import freshquant.order_management as order_management_package
 
     def _broken_zoneinfo(_key):
         raise zoneinfo.ZoneInfoNotFoundError("Asia/Shanghai")
@@ -227,7 +228,9 @@ def test_rebuild_service_matches_orders_by_symbol_and_side_not_raw_order_id_only
     assert result["broker_orders"] == 2
     assert result["execution_fills"] == 1
 
-    broker_orders = {item["broker_order_key"]: item for item in result["broker_order_documents"]}
+    broker_orders = {
+        item["broker_order_key"]: item for item in result["broker_order_documents"]
+    }
     execution_fill = result["execution_fill_documents"][0]
 
     assert broker_orders["940572674"]["symbol"] == "300760"
@@ -957,9 +960,7 @@ class _FakeRebuildService:
     def build_from_truth(self, **kwargs):
         self.calls.append(kwargs)
         return {
-            key: [dict(item) for item in value]
-            if isinstance(value, list)
-            else value
+            key: [dict(item) for item in value] if isinstance(value, list) else value
             for key, value in self.result.items()
         }
 

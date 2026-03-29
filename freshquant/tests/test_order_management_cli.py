@@ -141,9 +141,7 @@ class _FakeRebuildService:
     def build_from_truth(self, **kwargs):
         self.calls.append(kwargs)
         return {
-            key: [dict(item) for item in value]
-            if isinstance(value, list)
-            else value
+            key: [dict(item) for item in value] if isinstance(value, list) else value
             for key, value in self.result.items()
         }
 
@@ -210,7 +208,9 @@ def test_rebuild_cli_without_execute_does_not_run_backup_purge_or_write(monkeypa
     backup_calls = []
 
     monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
-    monkeypatch.setattr(rebuild_cli, "_get_broker_truth_db", lambda: database, raising=False)
+    monkeypatch.setattr(
+        rebuild_cli, "_get_broker_truth_db", lambda: database, raising=False
+    )
     monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
     monkeypatch.setattr(
         rebuild_cli,
@@ -269,7 +269,9 @@ def test_rebuild_cli_execute_requires_backup_db(monkeypatch):
     backup_calls = []
 
     monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
-    monkeypatch.setattr(rebuild_cli, "_get_broker_truth_db", lambda: database, raising=False)
+    monkeypatch.setattr(
+        rebuild_cli, "_get_broker_truth_db", lambda: database, raising=False
+    )
     monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
     monkeypatch.setattr(
         rebuild_cli,
@@ -323,7 +325,9 @@ def test_rebuild_cli_execute_rejects_same_backup_db_name(monkeypatch):
     backup_calls = []
 
     monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
-    monkeypatch.setattr(rebuild_cli, "_get_broker_truth_db", lambda: database, raising=False)
+    monkeypatch.setattr(
+        rebuild_cli, "_get_broker_truth_db", lambda: database, raising=False
+    )
     monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
     monkeypatch.setattr(
         rebuild_cli,
@@ -384,9 +388,7 @@ def test_rebuild_cli_reads_broker_truth_from_projection_db(monkeypatch):
         }
     )
 
-    monkeypatch.setattr(
-        rebuild_cli, "_get_order_management_db", lambda: order_database
-    )
+    monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: order_database)
     monkeypatch.setattr(
         rebuild_cli,
         "_get_broker_truth_db",

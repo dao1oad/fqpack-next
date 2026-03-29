@@ -104,16 +104,13 @@ def list_arranged_fills(symbol, repository=None):
     repository = repository or OrderManagementRepository()
     open_slices = list_open_entry_slices_compat(symbol=symbol, repository=repository)
     entry_views = list_open_entry_views(symbol, repository=repository)
+    supports_v2_entries = hasattr(repository, "list_position_entries")
     entry_by_id = {
         item.get("entry_id"): item
         for item in entry_views
         if item.get("entry_id") is not None
     }
-    has_v2_entries = any(
-        str(item.get("entry_type") or "").strip() != "legacy_buy_lot"
-        for item in entry_views
-    )
-    if has_v2_entries:
+    if supports_v2_entries:
         missing_entry_ids = {
             str(item.get("entry_id") or "").strip()
             for item in open_slices

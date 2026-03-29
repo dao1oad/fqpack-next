@@ -568,54 +568,6 @@ def get_stock_hold_position(code):
     for position in current_positions:
         if position["symbol"][2:] == code:
             return position
-
-    records = (
-        DBfreshquant["stock_fills"]
-        .find({"symbol": code})
-        .sort([("date", pymongo.DESCENDING), ("time", pymongo.DESCENDING)])
-    )
-    df = pd.DataFrame(records)
-    if len(df) > 0:
-        df.drop(columns=["_id"], inplace=True)
-        if "amount_adjust" not in df.columns:
-            df["amount_adjust"] = 1
-        df["amount_adjust"].fillna(1, inplace=True)
-        df["symbol"] = df["symbol"].apply(lambda x: fq_util_code_append_market_code(x))
-        df["direction"] = df["op"].apply(lambda op: -1 if "买" in op else 1)
-        df["amount"] = df["amount"] * df["direction"]
-        df["amount_adjusted"] = df["amount"] * df["amount_adjust"]
-        df["quantity"] = df["quantity"] * df["direction"] * -1
-
-        # 重置索引以避免分组时的歧义
-        df = df.reset_index(drop=True)
-
-        # 先分组聚合
-        grouped = (
-            df.groupby(by=["symbol"])
-            .agg(
-                {
-                    "symbol": "first",
-                    "stock_code": "first",
-                    "name": "first",
-                    "quantity": "sum",
-                    "amount": "sum",
-                    "amount_adjusted": "sum",
-                    "date": "last",
-                    "time": "last",
-                }
-            )
-            .reset_index(drop=True)
-        )  # 重置索引以避免歧义
-
-        # 筛选条件：持仓数量>0 且 调整后金额<0
-        grouped = grouped[(grouped["amount_adjusted"] < 0) | (grouped["quantity"] > 0)]
-        grouped = grouped.sort_values(by=["date", "time"])
-        grouped = grouped.round({"amount": 2})
-
-        # 转换为字典并返回单个股票的信息
-        result = grouped.to_dict(orient="records")
-        if result:
-            return result[0]  # 返回第一个匹配的股票信息
     return None
 
 

@@ -10,11 +10,13 @@ def get_entry_view(entry_id, repository=None):
     entry_id_text = str(entry_id or "").strip()
     if not entry_id_text:
         return None
-    entry = None
     if hasattr(repository, "find_position_entry"):
         entry = repository.find_position_entry(entry_id_text)
-    if entry is not None:
+        if entry is None:
+            return None
         return _normalize_entry(entry)
+    if not hasattr(repository, "find_buy_lot"):
+        return None
     buy_lot = repository.find_buy_lot(entry_id_text)
     if buy_lot is None:
         return None
@@ -25,18 +27,17 @@ def list_open_entry_views(symbol=None, repository=None):
     repository = repository or OrderManagementRepository()
     rows = []
     seen_entry_ids = set()
-    has_v2_rows = False
+    supports_v2_entries = hasattr(repository, "list_position_entries")
 
-    if hasattr(repository, "list_position_entries"):
+    if supports_v2_entries:
         for item in repository.list_position_entries(symbol=symbol):
             normalized = _normalize_entry(item)
             if int(normalized.get("remaining_quantity") or 0) <= 0:
                 continue
             rows.append(normalized)
             seen_entry_ids.add(normalized["entry_id"])
-            has_v2_rows = True
 
-    if not has_v2_rows:
+    if not supports_v2_entries and hasattr(repository, "list_buy_lots"):
         for item in repository.list_buy_lots(symbol):
             normalized = _legacy_buy_lot_to_entry(item)
             if normalized["entry_id"] in seen_entry_ids:
@@ -64,9 +65,9 @@ def list_open_entry_slices_compat(symbol=None, entry_ids=None, repository=None):
     }
     rows = []
     seen_slice_ids = set()
-    has_v2_rows = False
+    supports_v2_slices = hasattr(repository, "list_open_entry_slices")
 
-    if hasattr(repository, "list_open_entry_slices"):
+    if supports_v2_slices:
         for item in repository.list_open_entry_slices(
             symbol=symbol,
             entry_ids=list(normalized_entry_ids) if normalized_entry_ids else None,
@@ -74,9 +75,8 @@ def list_open_entry_slices_compat(symbol=None, entry_ids=None, repository=None):
             normalized = _normalize_entry_slice(item)
             rows.append(normalized)
             seen_slice_ids.add(normalized["entry_slice_id"])
-            has_v2_rows = True
 
-    if not has_v2_rows:
+    if not supports_v2_slices:
         legacy_rows = (
             repository.list_open_slices(symbol)
             if hasattr(repository, "list_open_slices")
@@ -107,17 +107,16 @@ def list_open_entry_slices_compat(symbol=None, entry_ids=None, repository=None):
 def list_entry_stoploss_bindings_compat(symbol=None, enabled=True, repository=None):
     repository = repository or OrderManagementRepository()
     rows = {}
-    has_v2_rows = False
+    supports_v2_bindings = hasattr(repository, "list_entry_stoploss_bindings")
 
-    if hasattr(repository, "list_entry_stoploss_bindings"):
+    if supports_v2_bindings:
         for item in repository.list_entry_stoploss_bindings(
             symbol=symbol, enabled=enabled
         ):
             normalized = _normalize_entry_binding(item)
             rows[normalized["entry_id"]] = normalized
-            has_v2_rows = True
 
-    if not has_v2_rows and hasattr(repository, "list_stoploss_bindings"):
+    if not supports_v2_bindings and hasattr(repository, "list_stoploss_bindings"):
         legacy_bindings = repository.list_stoploss_bindings(
             symbol=symbol,
             enabled=enabled,
@@ -137,8 +136,9 @@ def get_entry_stoploss_binding(entry_id, repository=None):
 
     if hasattr(repository, "find_entry_stoploss_binding"):
         binding = repository.find_entry_stoploss_binding(entry_id_text)
-        if binding is not None:
-            return _normalize_entry_binding(binding)
+        if binding is None:
+            return None
+        return _normalize_entry_binding(binding)
 
     if not hasattr(repository, "find_stoploss_binding"):
         return None

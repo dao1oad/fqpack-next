@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 BROKER_TRUTH_COLLECTIONS = ["xt_orders", "xt_trades", "xt_positions"]
 
 
@@ -31,7 +30,6 @@ def build_rebuild_state(
 
 
 from .service import OrderLedgerV2RebuildService
-
 
 __all__ = [
     "BROKER_TRUTH_COLLECTIONS",

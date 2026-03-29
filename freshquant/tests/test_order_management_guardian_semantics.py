@@ -7,8 +7,8 @@ from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_slices,
 )
 from freshquant.order_management.guardian.arranger import (
-    arrange_entry,
     arrange_buy_lot,
+    arrange_entry,
     build_buy_lot_from_trade_fact,
     build_position_entry_from_trade_fact,
     rebuild_guardian_position,

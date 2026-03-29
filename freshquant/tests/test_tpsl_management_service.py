@@ -254,6 +254,22 @@ def test_management_overview_unions_holdings_and_configured_symbols():
     )
 
     order_repository = InMemoryOrderManagementRepository()
+    order_repository.entry_stoploss_bindings.extend(
+        [
+            {
+                "entry_id": "lot_1",
+                "symbol": "600000",
+                "stop_price": 9.2,
+                "enabled": True,
+            },
+            {
+                "entry_id": "lot_2",
+                "symbol": "000001",
+                "stop_price": 8.8,
+                "enabled": False,
+            },
+        ]
+    )
     order_repository.stoploss_bindings.extend(
         [
             {
@@ -551,6 +567,36 @@ def test_management_detail_assembles_entries_and_order_timeline():
     )
 
     order_repository = InMemoryOrderManagementRepository()
+    order_repository.position_entries.extend(
+        [
+            {
+                "entry_id": "lot_open_1",
+                "symbol": "600000",
+                "name": "浦发银行",
+                "date": 20260313,
+                "time": "09:30:00",
+                "trade_time": 1710000000,
+                "entry_price": 10.0,
+                "original_quantity": 300,
+                "remaining_quantity": 200,
+                "sell_history": [{"allocated_quantity": 100}],
+                "status": "PARTIALLY_EXITED",
+            },
+            {
+                "entry_id": "lot_closed_1",
+                "symbol": "600000",
+                "name": "浦发银行",
+                "date": 20260312,
+                "time": "09:30:00",
+                "trade_time": 1709913600,
+                "entry_price": 9.8,
+                "original_quantity": 100,
+                "remaining_quantity": 0,
+                "sell_history": [{"allocated_quantity": 100}],
+                "status": "CLOSED",
+            },
+        ]
+    )
     order_repository.buy_lots.extend(
         [
             {
@@ -575,7 +621,17 @@ def test_management_detail_assembles_entries_and_order_timeline():
                 "sell_history": [{"allocated_quantity": 100}],
                 "status": "closed",
             },
-        ]
+            ]
+        )
+    order_repository.entry_stoploss_bindings.append(
+        {
+            "binding_id": "bind_1",
+            "entry_id": "lot_open_1",
+            "symbol": "600000",
+            "stop_price": 9.2,
+            "enabled": True,
+            "state": "active",
+        }
     )
     order_repository.stoploss_bindings.append(
         {
@@ -770,6 +826,22 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
     )
 
     order_repository = InMemoryOrderManagementRepository()
+    order_repository.position_entries.append(
+        {
+            "_id": ObjectId(),
+            "entry_id": "lot_open_1",
+            "symbol": "600000",
+            "name": "浦发银行",
+            "date": 20260313,
+            "time": "09:30:00",
+            "trade_time": 1710000000,
+            "entry_price": 10.0,
+            "original_quantity": 300,
+            "remaining_quantity": 200,
+            "sell_history": [{"_id": ObjectId(), "allocated_quantity": 100}],
+            "status": "PARTIALLY_EXITED",
+        }
+    )
     order_repository.buy_lots.append(
         {
             "_id": ObjectId(),
@@ -783,6 +855,17 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
             "remaining_quantity": 200,
             "sell_history": [{"_id": ObjectId(), "allocated_quantity": 100}],
             "status": "partial",
+        }
+    )
+    order_repository.entry_stoploss_bindings.append(
+        {
+            "_id": ObjectId(),
+            "binding_id": "bind_1",
+            "entry_id": "lot_open_1",
+            "symbol": "600000",
+            "stop_price": 9.2,
+            "enabled": True,
+            "state": "active",
         }
     )
     order_repository.stoploss_bindings.append(

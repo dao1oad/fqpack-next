@@ -262,6 +262,32 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
         ]
     )
     order_repository = InMemoryOrderManagementRepository()
+    order_repository.position_entries.extend(
+        [
+            {
+                "entry_id": "lot_1",
+                "symbol": "600000",
+                "date": 20260316,
+                "time": "10:31:00",
+                "trade_time": 1773628260,
+                "entry_price": 10.02,
+                "original_quantity": 300,
+                "remaining_quantity": 200,
+                "status": "OPEN",
+            },
+            {
+                "entry_id": "lot_2",
+                "symbol": "600000",
+                "date": 20260315,
+                "time": "09:30:00",
+                "trade_time": 1773547800,
+                "entry_price": 9.88,
+                "original_quantity": 200,
+                "remaining_quantity": 0,
+                "status": "CLOSED",
+            },
+        ]
+    )
     order_repository.buy_lots.extend(
         [
             {
@@ -273,6 +299,22 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
                 "buy_lot_id": "lot_2",
                 "symbol": "600000",
                 "remaining_quantity": 0,
+            },
+        ]
+    )
+    order_repository.entry_stoploss_bindings.extend(
+        [
+            {
+                "entry_id": "lot_1",
+                "symbol": "600000",
+                "stop_price": 9.2,
+                "enabled": True,
+            },
+            {
+                "entry_id": "lot_2",
+                "symbol": "600000",
+                "stop_price": 9.0,
+                "enabled": False,
             },
         ]
     )
@@ -530,6 +572,22 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_entries
         "armed_levels": {1: True, 2: False, 3: True},
     }
     order_repository = InMemoryOrderManagementRepository()
+    order_repository.position_entries.extend(
+        [
+            {
+                "entry_id": "lot_1",
+                "symbol": "600000",
+                "date": 20260316,
+                "time": "10:31:00",
+                "trade_time": 1773628260,
+                "entry_price": 10.02,
+                "original_quantity": 300,
+                "remaining_quantity": 200,
+                "name": "浦发银行",
+                "status": "OPEN",
+            }
+        ]
+    )
     order_repository.buy_lots.extend(
         [
             {
@@ -540,6 +598,16 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_entries
                 "buy_price_real": 10.02,
                 "original_quantity": 300,
                 "remaining_quantity": 200,
+            }
+            ]
+        )
+    order_repository.entry_stoploss_bindings.extend(
+        [
+            {
+                "entry_id": "lot_1",
+                "symbol": "600000",
+                "stop_price": 9.2,
+                "enabled": True,
             }
         ]
     )
@@ -704,6 +772,22 @@ def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
         "armed_levels": {1: True},
     }
     order_repository = InMemoryOrderManagementRepository()
+    order_repository.position_entries.extend(
+        [
+            {
+                "_id": ObjectId(),
+                "entry_id": "lot_1",
+                "symbol": "002262",
+                "date": 20260316,
+                "time": "10:31:00",
+                "trade_time": 1773628260,
+                "entry_price": 18.88,
+                "original_quantity": 200,
+                "remaining_quantity": 200,
+                "status": "OPEN",
+            }
+        ]
+    )
     order_repository.buy_lots.extend(
         [
             {
@@ -713,6 +797,17 @@ def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
                 "date": 20260316,
                 "time": "10:31:00",
                 "remaining_quantity": 200,
+            }
+            ]
+        )
+    order_repository.entry_stoploss_bindings.extend(
+        [
+            {
+                "_id": ObjectId(),
+                "entry_id": "lot_1",
+                "symbol": "002262",
+                "stop_price": 18.6,
+                "enabled": True,
             }
         ]
     )

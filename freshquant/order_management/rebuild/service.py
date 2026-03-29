@@ -70,7 +70,9 @@ class OrderLedgerV2RebuildService:
         for raw_trade in list(xt_trades or []):
             order_id = _normalize_identifier(raw_trade.get("order_id"))
             trade_symbol = _normalize_symbol(raw_trade)
-            trade_side = _normalize_side(raw_trade.get("order_type") or raw_trade.get("side"))
+            trade_side = _normalize_side(
+                raw_trade.get("order_type") or raw_trade.get("side")
+            )
             match_key = _build_broker_order_match_key(
                 symbol=trade_symbol,
                 side=trade_side,
@@ -87,7 +89,9 @@ class OrderLedgerV2RebuildService:
 
             broker_order = broker_orders_by_key.get(broker_order_key)
             if broker_order is None:
-                broker_order = _build_trade_only_broker_order(raw_trade, broker_order_key)
+                broker_order = _build_trade_only_broker_order(
+                    raw_trade, broker_order_key
+                )
                 broker_orders_by_key[broker_order_key] = broker_order
                 broker_order_keys.append(broker_order_key)
                 if match_key:
@@ -98,7 +102,8 @@ class OrderLedgerV2RebuildService:
             _apply_execution_fill_to_broker_order(broker_order, execution_fill)
 
         broker_order_documents = [
-            broker_orders_by_key[broker_order_key] for broker_order_key in broker_order_keys
+            broker_orders_by_key[broker_order_key]
+            for broker_order_key in broker_order_keys
         ]
         (
             position_entry_documents,
@@ -378,7 +383,9 @@ def _normalize_broker_order(raw_order):
 
 
 def _build_trade_only_broker_order(raw_trade, broker_order_key):
-    broker_order_id = _normalize_identifier(raw_trade.get("order_id")) or broker_order_key
+    broker_order_id = (
+        _normalize_identifier(raw_trade.get("order_id")) or broker_order_key
+    )
     return {
         "broker_order_key": broker_order_key,
         "broker_order_id": broker_order_id,
@@ -428,7 +435,9 @@ def _build_grouped_trade_fact(*, broker_order, fills):
 
 
 def _normalize_execution_fill(raw_trade, broker_order):
-    trade_time = _coerce_int(raw_trade.get("traded_time") or raw_trade.get("trade_time"))
+    trade_time = _coerce_int(
+        raw_trade.get("traded_time") or raw_trade.get("trade_time")
+    )
     date_value, time_value = _resolve_beijing_date_time(
         raw_trade.get("date"),
         raw_trade.get("time"),
@@ -744,7 +753,8 @@ def _estimate_ledger_price(symbol, position_entry_documents):
     symbol_entries = [
         item
         for item in position_entry_documents
-        if item.get("symbol") == symbol and (_coerce_int(item.get("remaining_quantity")) or 0) > 0
+        if item.get("symbol") == symbol
+        and (_coerce_int(item.get("remaining_quantity")) or 0) > 0
     ]
     total_quantity = 0
     total_notional = 0.0
@@ -789,9 +799,9 @@ def _reconcile_positions_against_xt_positions(
         symbol = entry.get("symbol")
         if not symbol:
             continue
-        ledger_remaining_by_symbol[symbol] = ledger_remaining_by_symbol.get(symbol, 0) + (
-            _coerce_int(entry.get("remaining_quantity")) or 0
-        )
+        ledger_remaining_by_symbol[symbol] = ledger_remaining_by_symbol.get(
+            symbol, 0
+        ) + (_coerce_int(entry.get("remaining_quantity")) or 0)
 
     date_value, time_value = _resolve_beijing_date_time(None, None, now_ts)
     for symbol in sorted(set(positions_by_symbol) | set(ledger_remaining_by_symbol)):
