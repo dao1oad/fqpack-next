@@ -112,8 +112,8 @@ class _FakeMaintenanceCollection:
 
 
 class _FakeMaintenanceDatabase:
-    def __init__(self, collections=None):
-        self.name = "freshquant_order_management"
+    def __init__(self, collections=None, *, name="freshquant_order_management"):
+        self.name = name
         self.event_log = []
         self._collections = {}
         for collection_name, rows in (collections or {}).items():
@@ -136,8 +136,10 @@ class _FakeMaintenanceDatabase:
 class _FakeRebuildService:
     def __init__(self, result):
         self.result = result
+        self.calls = []
 
-    def build_from_truth(self, **_kwargs):
+    def build_from_truth(self, **kwargs):
+        self.calls.append(kwargs)
         return {
             key: [dict(item) for item in value]
             if isinstance(value, list)
@@ -208,6 +210,7 @@ def test_rebuild_cli_without_execute_does_not_run_backup_purge_or_write(monkeypa
     backup_calls = []
 
     monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
+    monkeypatch.setattr(rebuild_cli, "_get_broker_truth_db", lambda: database, raising=False)
     monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
     monkeypatch.setattr(
         rebuild_cli,
@@ -266,6 +269,7 @@ def test_rebuild_cli_execute_requires_backup_db(monkeypatch):
     backup_calls = []
 
     monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
+    monkeypatch.setattr(rebuild_cli, "_get_broker_truth_db", lambda: database, raising=False)
     monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
     monkeypatch.setattr(
         rebuild_cli,
@@ -319,6 +323,7 @@ def test_rebuild_cli_execute_rejects_same_backup_db_name(monkeypatch):
     backup_calls = []
 
     monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
+    monkeypatch.setattr(rebuild_cli, "_get_broker_truth_db", lambda: database, raising=False)
     monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
     monkeypatch.setattr(
         rebuild_cli,
@@ -336,3 +341,78 @@ def test_rebuild_cli_execute_rejects_same_backup_db_name(monkeypatch):
     assert "--backup-db must differ from source database name" in result.output
     assert backup_calls == []
     assert database.event_log == []
+
+
+def test_rebuild_cli_reads_broker_truth_from_projection_db(monkeypatch):
+    rebuild_cli = _load_rebuild_cli_module()
+    order_database = _FakeMaintenanceDatabase(
+        {
+            "xt_orders": [],
+            "xt_trades": [],
+            "xt_positions": [],
+            "om_broker_orders": [{"broker_order_key": "legacy-1"}],
+        }
+    )
+    projection_database = _FakeMaintenanceDatabase(
+        {
+            "xt_orders": [{"order_id": 1, "account_id": "acct-1"}],
+            "xt_trades": [{"traded_id": "trade-1", "account_id": "acct-1"}],
+            "xt_positions": [{"stock_code": "600000.SH", "account_id": "acct-1"}],
+        },
+        name="freshquant",
+    )
+    service = _FakeRebuildService(
+        {
+            "broker_orders": 1,
+            "execution_fills": 1,
+            "position_entries": 0,
+            "entry_slices": 0,
+            "exit_allocations": 0,
+            "reconciliation_gaps": 0,
+            "reconciliation_resolutions": 0,
+            "ingest_rejections": 0,
+            "broker_order_documents": [{"broker_order_key": "70001"}],
+            "execution_fill_documents": [{"execution_fill_id": "fill-1"}],
+            "position_entry_documents": [],
+            "entry_slice_documents": [],
+            "exit_allocation_documents": [],
+            "reconciliation_gap_documents": [],
+            "reconciliation_resolution_documents": [],
+            "ingest_rejection_documents": [],
+            "unmatched_sell_trade_facts": [],
+            "replay_warnings": [],
+        }
+    )
+
+    monkeypatch.setattr(
+        rebuild_cli, "_get_order_management_db", lambda: order_database
+    )
+    monkeypatch.setattr(
+        rebuild_cli,
+        "_get_broker_truth_db",
+        lambda: projection_database,
+        raising=False,
+    )
+    monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        rebuild_cli.rebuild_order_ledger_v2_command,
+        ["--dry-run", "--account-id", "acct-1"],
+    )
+
+    assert result.exit_code == 0
+    summary = json.loads(result.output)
+    assert summary["source_counts"] == {
+        "xt_orders": 1,
+        "xt_trades": 1,
+        "xt_positions": 1,
+    }
+    assert order_database["om_broker_orders"].rows == [{"broker_order_key": "legacy-1"}]
+    assert service.calls == [
+        {
+            "xt_orders": [{"order_id": 1, "account_id": "acct-1"}],
+            "xt_trades": [{"traded_id": "trade-1", "account_id": "acct-1"}],
+            "xt_positions": [{"stock_code": "600000.SH", "account_id": "acct-1"}],
+        }
+    ]

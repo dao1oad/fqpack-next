@@ -767,6 +767,12 @@ def test_rebuild_cli_dry_run_reports_counts_without_mutation(monkeypatch):
     )
 
     monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
+    monkeypatch.setattr(
+        rebuild_cli,
+        "_get_broker_truth_db",
+        lambda: database,
+        raising=False,
+    )
     monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
 
     runner = CliRunner()
@@ -814,6 +820,12 @@ def test_rebuild_cli_execute_rejects_account_scoped_mutation(monkeypatch):
     backup_calls = []
 
     monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
+    monkeypatch.setattr(
+        rebuild_cli,
+        "_get_broker_truth_db",
+        lambda: database,
+        raising=False,
+    )
     monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
     monkeypatch.setattr(
         rebuild_cli,
@@ -856,6 +868,12 @@ def test_rebuild_cli_execute_with_backup_purges_then_writes(monkeypatch):
     backup_calls = []
 
     monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
+    monkeypatch.setattr(
+        rebuild_cli,
+        "_get_broker_truth_db",
+        lambda: database,
+        raising=False,
+    )
     monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
 
     def _fake_backup_database(*, database, backup_db_name, collection_names):
