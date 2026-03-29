@@ -44,6 +44,12 @@
 - 当前仓位真值只认 `xt_positions`
 - 当前委托/成交回报真值只认 XT callback 与 `xt_account_sync.worker` 增量刷新
 
+### 破坏性 rebuild 治理
+
+- 破坏性 `order-ledger rebuild` 只能由 broker truth 驱动，primary truth 只允许 `xt_orders`、`xt_trades`、`xt_positions`
+- `om_*`、`stock_fills`、`stock_fills_compat` 只能作为迁移期兼容投影或排障线索，不能作为 rebuild 主输入
+- 这类破坏性 rebuild 在编码前必须先建立 GitHub Issue，写清影响面、验收标准与部署影响
+
 ### OM 主账本
 
 - `om_order_requests`

@@ -144,6 +144,30 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 本地未 merge 的 worktree 不能直接当正式 deploy 来源
 - 先 merge，再从 deploy mirror 执行 `script/ci/run_formal_deploy.py`
 
+## 破坏性 order-ledger rebuild 治理不满足
+
+现象：
+
+- 准备做破坏性 `order-ledger rebuild`，但输入计划依赖 `om_*`、`stock_fills` 或其他 legacy 集合作为主真值
+- 尚未创建 GitHub Issue，就已经开始编码或准备执行 destructive rebuild
+
+先检查：
+
+- GitHub 上是否已有本次 rebuild 的正式 Issue，且写清影响面、验收标准、部署影响
+- 当前 rebuild 输入是否只包含 `xt_orders`、`xt_trades`、`xt_positions`
+- 当前方案是否把 `om_*` / `stock_fills` 仅作为兼容投影或排障参考，而不是 primary truth
+
+常见根因：
+
+- 把现有 `om_*` 账本误当成 rebuild 真值来源
+- 先写代码、后补治理，跳过 GitHub Issue 前置要求
+
+处理：
+
+- 先补 GitHub Issue，再进入编码或执行阶段
+- 若方案不是 broker truth 驱动，立即停止；重写为只基于 `xt_orders`、`xt_trades`、`xt_positions` 的 rebuild 输入
+- 不要用 legacy `om_*`、`stock_fills`、`stock_fills_compat` 反推正式 rebuild 主账本
+
 ## Dagster 容器持续重启
 
 现象：
