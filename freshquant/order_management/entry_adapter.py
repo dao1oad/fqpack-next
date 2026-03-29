@@ -12,9 +12,10 @@ def get_entry_view(entry_id, repository=None):
         return None
     if hasattr(repository, "find_position_entry"):
         entry = repository.find_position_entry(entry_id_text)
-        if entry is None:
+        if entry is not None:
+            return _normalize_entry(entry)
+        if not _is_legacy_buy_lot_id(entry_id_text):
             return None
-        return _normalize_entry(entry)
     if not hasattr(repository, "find_buy_lot"):
         return None
     buy_lot = repository.find_buy_lot(entry_id_text)
@@ -136,9 +137,10 @@ def get_entry_stoploss_binding(entry_id, repository=None):
 
     if hasattr(repository, "find_entry_stoploss_binding"):
         binding = repository.find_entry_stoploss_binding(entry_id_text)
-        if binding is None:
+        if binding is not None:
+            return _normalize_entry_binding(binding)
+        if not _is_legacy_buy_lot_id(entry_id_text):
             return None
-        return _normalize_entry_binding(binding)
 
     if not hasattr(repository, "find_stoploss_binding"):
         return None
@@ -156,6 +158,10 @@ def _normalize_entry(entry):
     row["status"] = row.get("status") or "OPEN"
     row["sell_history"] = list(row.get("sell_history") or [])
     return row
+
+
+def _is_legacy_buy_lot_id(entry_id):
+    return str(entry_id or "").strip().startswith("lot_")
 
 
 def _legacy_buy_lot_to_entry(buy_lot):

@@ -240,13 +240,14 @@ def test_evaluate_takeprofit_blocks_when_sellable_volume_is_zero():
         updated_by="api",
     )
     order_repo = FakeOrderManagementRepository(
-        open_slices=[
+        open_entry_slices=[
             {
-                "buy_lot_id": "lot1",
-                "lot_slice_id": "slice1",
+                "entry_id": "entry1",
+                "entry_slice_id": "slice1",
                 "guardian_price": 9.5,
                 "remaining_quantity": 300,
-                "sort_key": 1,
+                "slice_seq": 1,
+                "sort_key": 9.5,
                 "symbol": "000001",
             }
         ]

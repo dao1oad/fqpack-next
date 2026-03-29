@@ -599,8 +599,8 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_entries
                 "original_quantity": 300,
                 "remaining_quantity": 200,
             }
-            ]
-        )
+        ]
+    )
     order_repository.entry_stoploss_bindings.extend(
         [
             {
@@ -798,8 +798,8 @@ def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
                 "time": "10:31:00",
                 "remaining_quantity": 200,
             }
-            ]
-        )
+        ]
+    )
     order_repository.entry_stoploss_bindings.extend(
         [
             {

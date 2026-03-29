@@ -621,8 +621,8 @@ def test_management_detail_assembles_entries_and_order_timeline():
                 "sell_history": [{"allocated_quantity": 100}],
                 "status": "closed",
             },
-            ]
-        )
+        ]
+    )
     order_repository.entry_stoploss_bindings.append(
         {
             "binding_id": "bind_1",

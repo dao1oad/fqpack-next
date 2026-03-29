@@ -404,6 +404,31 @@ def test_entry_view_adapter_treats_v2_miss_as_authoritative(monkeypatch):
     )
 
 
+def test_entry_view_adapter_keeps_legacy_lookup_for_lot_compat_ids(monkeypatch):
+    _reload_modules(monkeypatch)
+    import freshquant.order_management.entry_adapter as entry_adapter_module
+
+    class Repo:
+        def find_position_entry(self, entry_id):
+            return None
+
+        def find_buy_lot(self, buy_lot_id):
+            assert buy_lot_id == "lot_1"
+            return {
+                "buy_lot_id": "lot_1",
+                "symbol": "000001",
+                "buy_price_real": 10.2,
+                "remaining_quantity": 200,
+                "original_quantity": 300,
+                "status": "partial",
+            }
+
+    row = entry_adapter_module.get_entry_view("lot_1", repository=Repo())
+
+    assert row["entry_id"] == "lot_1"
+    assert row["entry_type"] == "legacy_buy_lot"
+
+
 def test_open_entry_view_adapter_treats_empty_v2_result_as_authoritative(monkeypatch):
     _reload_modules(monkeypatch)
     import freshquant.order_management.entry_adapter as entry_adapter_module
@@ -485,6 +510,34 @@ def test_entry_stoploss_binding_lookup_treats_v2_miss_as_authoritative(monkeypat
         )
         is None
     )
+
+
+def test_entry_stoploss_binding_lookup_keeps_legacy_lookup_for_lot_compat_ids(
+    monkeypatch,
+):
+    _reload_modules(monkeypatch)
+    import freshquant.order_management.entry_adapter as entry_adapter_module
+
+    class Repo:
+        def find_entry_stoploss_binding(self, entry_id):
+            return None
+
+        def find_stoploss_binding(self, buy_lot_id):
+            assert buy_lot_id == "lot_1"
+            return {
+                "buy_lot_id": "lot_1",
+                "symbol": "000001",
+                "enabled": True,
+                "stop_price": 9.2,
+            }
+
+    row = entry_adapter_module.get_entry_stoploss_binding(
+        "lot_1",
+        repository=Repo(),
+    )
+
+    assert row["entry_id"] == "lot_1"
+    assert row["binding_scope"] == "legacy_buy_lot"
 
 
 def test_arranged_fill_projection_does_not_fallback_to_legacy_when_v2_api_is_empty(
