@@ -1,9 +1,9 @@
 from bson import ObjectId
-from datetime import datetime
 from rich.console import Console
 from rich.table import Table
 
 from freshquant.db import DBfreshquant
+from freshquant.order_management.time_helpers import beijing_datetime_from_epoch
 
 
 def list_fill(instrument_id: str = None, dt: str = None):
@@ -21,7 +21,7 @@ def list_fill(instrument_id: str = None, dt: str = None):
         'instrument_id': 1,
         'volume': 1,
         'price': 1,
-        'trade_date_time': 1
+        'trade_date_time': 1,
     }
 
     results = list(collection.find(query, fields))
@@ -38,7 +38,9 @@ def list_fill(instrument_id: str = None, dt: str = None):
 
     for result in results:
         # 将时间戳转换为可读的日期时间格式
-        readable_time = datetime.fromtimestamp(result['trade_date_time']).strftime('%Y-%m-%d %H:%M:%S')
+        readable_time = beijing_datetime_from_epoch(result['trade_date_time']).strftime(
+            '%Y-%m-%d %H:%M:%S'
+        )
         table.add_row(
             str(result['_id']),
             result['direction'],
@@ -46,7 +48,7 @@ def list_fill(instrument_id: str = None, dt: str = None):
             result['instrument_id'],
             f"{result['volume']:.8f}".rstrip('0').rstrip('.'),
             f"{float(result['price']):.8f}".rstrip('0').rstrip('.'),
-            readable_time
+            readable_time,
         )
 
     # 创建控制台实例并打印表格
@@ -77,21 +79,41 @@ def list_fill(instrument_id: str = None, dt: str = None):
 
         if total_long_quantity > 0:
             avg_long_price = total_long_cost / total_long_quantity
-            print(f"当前多头持仓数量: {total_long_quantity:.8f}".rstrip('0').rstrip('.') + f", 占用资金: {total_long_cost:.8f}".rstrip('0').rstrip('.') + f", 成本价: {avg_long_price:.8f}".rstrip('0').rstrip('.'))
+            print(
+                f"当前多头持仓数量: {total_long_quantity:.8f}".rstrip('0').rstrip('.')
+                + f", 占用资金: {total_long_cost:.8f}".rstrip('0').rstrip('.')
+                + f", 成本价: {avg_long_price:.8f}".rstrip('0').rstrip('.')
+            )
             profit_ratio = (last_trade_price - avg_long_price) / avg_long_price
             profit_amount = (last_trade_price - avg_long_price) * total_long_quantity
-            print(f"盈亏比率: {profit_ratio * 100:.8f}".rstrip('0').rstrip('.') + f"%, 盈亏金额: {profit_amount:.8f}".rstrip('0').rstrip('.'))
+            print(
+                f"盈亏比率: {profit_ratio * 100:.8f}".rstrip('0').rstrip('.')
+                + f"%, 盈亏金额: {profit_amount:.8f}".rstrip('0').rstrip('.')
+            )
         else:
-            print(f"当前多头持仓数量: {total_long_quantity:.8f}".rstrip('0').rstrip('.') + f", 盈亏金额: {-total_long_cost:.8f}".rstrip('0').rstrip('.'))
+            print(
+                f"当前多头持仓数量: {total_long_quantity:.8f}".rstrip('0').rstrip('.')
+                + f", 盈亏金额: {-total_long_cost:.8f}".rstrip('0').rstrip('.')
+            )
 
         if total_short_quantity > 0:
             avg_short_price = total_short_cost / total_short_quantity
-            print(f"当前空头持仓数量: {total_short_quantity:.8f}".rstrip('0').rstrip('.') + f", 占用资金: {total_short_cost:.8f}".rstrip('0').rstrip('.') + f", 成本价: {avg_short_price:.8f}".rstrip('0').rstrip('.'))
+            print(
+                f"当前空头持仓数量: {total_short_quantity:.8f}".rstrip('0').rstrip('.')
+                + f", 占用资金: {total_short_cost:.8f}".rstrip('0').rstrip('.')
+                + f", 成本价: {avg_short_price:.8f}".rstrip('0').rstrip('.')
+            )
             profit_ratio = (avg_short_price - last_trade_price) / avg_short_price
             profit_amount = (avg_short_price - last_trade_price) * total_short_quantity
-            print(f"盈亏比率: {profit_ratio * 100:.8f}".rstrip('0').rstrip('.') + f"%, 盈亏金额: {profit_amount:.8f}".rstrip('0').rstrip('.'))
+            print(
+                f"盈亏比率: {profit_ratio * 100:.8f}".rstrip('0').rstrip('.')
+                + f"%, 盈亏金额: {profit_amount:.8f}".rstrip('0').rstrip('.')
+            )
         else:
-            print(f"当前空头持仓数量: {total_short_quantity:.8f}".rstrip('0').rstrip('.') + f", 盈亏金额: {-total_short_cost:.8f}".rstrip('0').rstrip('.'))
+            print(
+                f"当前空头持仓数量: {total_short_quantity:.8f}".rstrip('0').rstrip('.')
+                + f", 盈亏金额: {-total_short_cost:.8f}".rstrip('0').rstrip('.')
+            )
 
 
 def remove_fill(id=None, instrument_id=None):
@@ -131,7 +153,7 @@ def import_fill(op: str, instrument_id: str, volume: float, price: float, dt: st
         'offset': offset,
         'volume': volume,
         'price': price,
-        'trade_date_time': trade_date_time
+        'trade_date_time': trade_date_time,
     }
 
     # 插入数据库
