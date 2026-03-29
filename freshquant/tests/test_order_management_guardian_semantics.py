@@ -1,13 +1,16 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from freshquant.order_management.guardian.allocation_policy import (
+    allocate_sell_to_entry_slices,
     allocate_sell_to_slices,
 )
 from freshquant.order_management.guardian.arranger import (
     arrange_buy_lot,
+    arrange_entry,
     build_buy_lot_from_trade_fact,
+    build_position_entry_from_trade_fact,
     rebuild_guardian_position,
 )
 from freshquant.order_management.guardian.read_model import (
@@ -163,7 +166,10 @@ def test_build_buy_lot_from_trade_fact_backfills_date_and_time_from_trade_time()
 
 def test_list_arranged_fills_backfills_date_and_time_from_buy_lot_trade_time():
     trade_time = 1710000000
-    expected_dt = datetime.fromtimestamp(trade_time)
+    expected_dt = datetime.fromtimestamp(
+        trade_time,
+        tz=timezone(timedelta(hours=8)),
+    )
 
     class FakeRepository:
         def list_open_slices(self, symbol=None):
@@ -196,3 +202,45 @@ def test_list_arranged_fills_backfills_date_and_time_from_buy_lot_trade_time():
 
     assert arranged[0]["date"] == int(expected_dt.strftime("%Y%m%d"))
     assert arranged[0]["time"] == expected_dt.strftime("%H:%M:%S")
+
+
+def test_entry_arrangement_and_sell_allocation_update_entry_semantics():
+    entry = build_position_entry_from_trade_fact(
+        {
+            "trade_fact_id": "trade_entry_buy_1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 900,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": None,
+            "time": None,
+        },
+        source_ref_type="broker_order",
+        source_ref_id="81011",
+        entry_type="broker_execution_group",
+    )
+
+    slices = arrange_entry(entry, lot_amount=3000, grid_interval=1.03)
+    allocations = allocate_sell_to_entry_slices(
+        entries=[entry],
+        open_slices=slices,
+        sell_trade_fact={
+            "trade_fact_id": "trade_entry_sell_1",
+            "symbol": "000001",
+            "side": "sell",
+            "quantity": 250,
+            "price": 10.8,
+        },
+    )
+
+    assert entry["date"] is not None
+    assert entry["time"] is not None
+    assert all(item["date"] == entry["date"] for item in slices)
+    assert all(item["time"] == entry["time"] for item in slices)
+    assert entry["remaining_quantity"] == 650
+    assert entry["status"] == "PARTIALLY_EXITED"
+    assert len(allocations) == 1
+    assert entry["sell_history"][0]["allocated_quantity"] == 250
+    assert slices[-1]["remaining_quantity"] == 50
+    assert slices[-1]["status"] == "OPEN"

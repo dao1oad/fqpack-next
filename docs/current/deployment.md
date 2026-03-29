@@ -137,6 +137,29 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 
 - `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` 当前会先做 surface reconcile；若首次重启失败且启用了 `-BridgeIfServiceUnavailable`，即使 `fqnext-supervisord` service 仍是 `Running`，也允许触发一次管理员桥接并重试一次
 
+## Order Ledger V2 重建执行口径
+
+当本轮命中订单账本 destructive rebuild 时，当前执行顺序固定为：
+
+1. 停止命中的写入面
+2. 先跑 `--dry-run`
+3. 再跑 `--execute --backup-db <backup>`
+4. 重建完成后做接口健康检查
+5. 再做 runtime verify
+
+当前命中的写入面至少包括：
+
+- `fqnext_xtquant_broker`
+- `fqnext_xt_account_sync_worker`
+- `fqnext_tpsl_worker`
+- API order-write surface
+
+当前 rollback 口径：
+
+- destructive rebuild 前必须先备份目标订单账本数据库
+- 若重建后验证失败，先停写入面，再清理新 `om_*` 集合，并用备份库整库恢复
+- 不做局部回滚；当前正式口径只接受整库恢复
+
 ## 健康检查
 
 ### API
