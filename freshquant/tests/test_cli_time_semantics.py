@@ -250,3 +250,84 @@ def test_future_fill_list_formats_trade_time_with_beijing_helper(monkeypatch):
 
     assert observed["timestamp"] == 1710000000
     assert captured_rows[0][-1] == "2024-03-10 00:00:00"
+
+
+def test_digital_fill_import_uses_beijing_datetime_parser(monkeypatch):
+    digital_fill_module = _load_digital_fill_module()
+    observed = {}
+    inserted = {}
+
+    def _fake_beijing_epoch_from_datetime_text(value):
+        observed["value"] = value
+        return 1710000000
+
+    monkeypatch.setattr(
+        digital_fill_module,
+        "beijing_epoch_from_datetime_text",
+        _fake_beijing_epoch_from_datetime_text,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        digital_fill_module,
+        "DBfreshquant",
+        SimpleNamespace(
+            digital_fills=SimpleNamespace(
+                insert_one=lambda document: inserted.update(document)
+            )
+        ),
+    )
+    monkeypatch.setattr(digital_fill_module, "list_fill", lambda *args, **kwargs: None)
+
+    digital_fill_module.import_fill(
+        "buy_open",
+        "BTCUSDT",
+        1.0,
+        10.0,
+        "2024-03-10 00:00:00",
+    )
+
+    assert observed["value"] == "2024-03-10 00:00:00"
+    assert inserted["trade_date_time"] == 1710000000
+
+
+def test_future_fill_import_uses_beijing_datetime_parser(monkeypatch):
+    future_fill_module = _load_future_fill_module(monkeypatch)
+    observed = {}
+    inserted = {}
+
+    def _fake_beijing_epoch_from_datetime_text(value):
+        observed["value"] = value
+        return 1710000000
+
+    monkeypatch.setattr(
+        future_fill_module,
+        "beijing_epoch_from_datetime_text",
+        _fake_beijing_epoch_from_datetime_text,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        future_fill_module,
+        "DBfreshquant",
+        SimpleNamespace(
+            future_fills=SimpleNamespace(
+                insert_one=lambda document: inserted.update(document)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        future_fill_module,
+        "query_instrument_info",
+        lambda *args, **kwargs: {"name": "Rebar"},
+    )
+    monkeypatch.setattr(future_fill_module, "list_fill", lambda *args, **kwargs: None)
+
+    future_fill_module.import_fill(
+        "buy_open",
+        "rb2405.SHFE",
+        2,
+        3550.0,
+        "2024-03-10 00:00:00",
+    )
+
+    assert observed["value"] == "2024-03-10 00:00:00"
+    assert inserted["trade_date_time"] == 1710000000

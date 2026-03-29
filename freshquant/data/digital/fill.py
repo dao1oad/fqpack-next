@@ -3,7 +3,10 @@ from rich.console import Console
 from rich.table import Table
 
 from freshquant.db import DBfreshquant
-from freshquant.order_management.time_helpers import beijing_datetime_from_epoch
+from freshquant.order_management.time_helpers import (
+    beijing_datetime_from_epoch,
+    beijing_epoch_from_datetime_text,
+)
 
 
 def list_fill(instrument_id: str = None, dt: str = None):
@@ -144,7 +147,7 @@ def import_fill(op: str, instrument_id: str, volume: float, price: float, dt: st
     offset = offset.upper()
 
     # 把dt转成时间戳timestamp，保存在trade_date_time字段
-    trade_date_time = datetime.strptime(dt, '%Y-%m-%d %H:%M:%S').timestamp()
+    trade_date_time = beijing_epoch_from_datetime_text(dt)
 
     # 构建插入文档
     document = {
