@@ -1,8 +1,12 @@
 import importlib
 import importlib.util
+import json
 import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from click.testing import CliRunner
 
 
 def test_rebuild_module_import_does_not_require_tzdata(monkeypatch):
@@ -604,3 +608,309 @@ def test_rebuild_service_treats_empty_xt_positions_snapshot_as_broker_flat_and_a
     assert len(resolution["entry_allocation_ids"]) == 4
     assert position_entry["remaining_quantity"] == 0
     assert position_entry["status"] == "CLOSED"
+
+
+class _FakeMaintenanceCollection:
+    def __init__(self, rows=None, *, name, event_log):
+        self.rows = [dict(item) for item in rows or []]
+        self.name = name
+        self.event_log = event_log
+        self.find_queries = []
+        self.insert_many_calls = []
+        self.insert_one_calls = []
+        self.delete_many_calls = []
+
+    def find(self, query=None):
+        query = dict(query or {})
+        self.find_queries.append(query)
+        return [dict(item) for item in self.rows if _matches_query(item, query)]
+
+    def insert_many(self, documents, ordered=False):
+        docs = [dict(item) for item in documents]
+        self.insert_many_calls.append(docs)
+        self.rows.extend(docs)
+        self.event_log.append(f"insert_many:{self.name}")
+        return SimpleNamespace(inserted_ids=list(range(len(docs))))
+
+    def insert_one(self, document):
+        doc = dict(document)
+        self.insert_one_calls.append(doc)
+        self.rows.append(doc)
+        self.event_log.append(f"insert_one:{self.name}")
+        return SimpleNamespace(inserted_id=len(self.rows))
+
+    def delete_many(self, query):
+        query = dict(query or {})
+        self.delete_many_calls.append(query)
+        before = len(self.rows)
+        self.rows = [item for item in self.rows if not _matches_query(item, query)]
+        self.event_log.append(f"delete_many:{self.name}")
+        return SimpleNamespace(deleted_count=before - len(self.rows))
+
+
+class _FakeMaintenanceDatabase:
+    def __init__(self, collections=None, *, name="freshquant_order_management"):
+        self.name = name
+        self.event_log = []
+        self._collections = {}
+        for collection_name, rows in (collections or {}).items():
+            self._collections[collection_name] = _FakeMaintenanceCollection(
+                rows,
+                name=collection_name,
+                event_log=self.event_log,
+            )
+
+    def __getitem__(self, name):
+        if name not in self._collections:
+            self._collections[name] = _FakeMaintenanceCollection(
+                [],
+                name=name,
+                event_log=self.event_log,
+            )
+        return self._collections[name]
+
+
+class _FakeRebuildService:
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def build_from_truth(self, **kwargs):
+        self.calls.append(kwargs)
+        return {
+            key: [dict(item) for item in value]
+            if isinstance(value, list)
+            else value
+            for key, value in self.result.items()
+        }
+
+
+def _matches_query(document, query):
+    for key, expected in (query or {}).items():
+        actual = document.get(key)
+        if isinstance(expected, dict):
+            if "$in" in expected and actual not in set(expected["$in"]):
+                return False
+            continue
+        if actual != expected:
+            return False
+    return True
+
+
+def _load_rebuild_cli_module():
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "script"
+        / "maintenance"
+        / "rebuild_order_ledger_v2.py"
+    )
+    assert (
+        module_path.exists()
+    ), "script/maintenance/rebuild_order_ledger_v2.py must exist"
+    spec = importlib.util.spec_from_file_location(
+        "test_rebuild_order_ledger_v2_script",
+        module_path,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _sample_rebuild_summary(**overrides):
+    payload = {
+        "broker_orders": 1,
+        "execution_fills": 1,
+        "position_entries": 1,
+        "entry_slices": 1,
+        "exit_allocations": 0,
+        "reconciliation_gaps": 1,
+        "reconciliation_resolutions": 1,
+        "ingest_rejections": 1,
+        "broker_order_documents": [{"broker_order_key": "70001"}],
+        "execution_fill_documents": [{"execution_fill_id": "fill-1"}],
+        "position_entry_documents": [{"entry_id": "entry-1"}],
+        "entry_slice_documents": [{"entry_slice_id": "slice-1"}],
+        "exit_allocation_documents": [],
+        "reconciliation_gap_documents": [{"gap_id": "gap-1"}],
+        "reconciliation_resolution_documents": [{"resolution_id": "resolution-1"}],
+        "ingest_rejection_documents": [{"rejection_id": "reject-1"}],
+        "unmatched_sell_trade_facts": [],
+        "replay_warnings": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_rebuild_cli_dry_run_reports_counts_without_mutation(monkeypatch):
+    rebuild_cli = _load_rebuild_cli_module()
+    database = _FakeMaintenanceDatabase(
+        {
+            "xt_orders": [{"order_id": 1, "account_id": "acct-1"}],
+            "xt_trades": [{"traded_id": "trade-1", "account_id": "acct-1"}],
+            "xt_positions": [{"stock_code": "600000.SH", "account_id": "acct-1"}],
+            "om_broker_orders": [{"broker_order_key": "legacy-1"}],
+        }
+    )
+    service = _FakeRebuildService(
+        _sample_rebuild_summary(
+            broker_orders=2,
+            execution_fills=3,
+            broker_order_documents=[],
+            execution_fill_documents=[],
+            position_entry_documents=[],
+            entry_slice_documents=[],
+            reconciliation_gap_documents=[],
+            reconciliation_resolution_documents=[],
+            ingest_rejection_documents=[],
+        )
+    )
+
+    monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
+    monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        rebuild_cli.rebuild_order_ledger_v2_command,
+        ["--dry-run", "--account-id", "acct-1"],
+    )
+
+    assert result.exit_code == 0
+    summary = json.loads(result.output)
+    assert summary["dry_run"] is True
+    assert summary["execute"] is False
+    assert summary["broker_orders"] == 2
+    assert summary["execution_fills"] == 3
+    assert summary["source_counts"] == {
+        "xt_orders": 1,
+        "xt_trades": 1,
+        "xt_positions": 1,
+    }
+    assert "om_broker_orders" in summary["would_purge_collections"]
+    assert "om_execution_fills" in summary["would_purge_collections"]
+    assert database["om_broker_orders"].rows == [{"broker_order_key": "legacy-1"}]
+    assert database["om_broker_orders"].delete_many_calls == []
+    assert database["om_broker_orders"].insert_many_calls == []
+    assert database["om_broker_orders"].insert_one_calls == []
+    assert service.calls == [
+        {
+            "xt_orders": [{"order_id": 1, "account_id": "acct-1"}],
+            "xt_trades": [{"traded_id": "trade-1", "account_id": "acct-1"}],
+            "xt_positions": [{"stock_code": "600000.SH", "account_id": "acct-1"}],
+        }
+    ]
+
+
+def test_rebuild_cli_execute_rejects_account_scoped_mutation(monkeypatch):
+    rebuild_cli = _load_rebuild_cli_module()
+    database = _FakeMaintenanceDatabase(
+        {
+            "xt_orders": [{"order_id": 1, "account_id": "acct-1"}],
+            "xt_trades": [{"traded_id": "trade-1", "account_id": "acct-1"}],
+            "xt_positions": [{"stock_code": "600000.SH", "account_id": "acct-1"}],
+        }
+    )
+    service = _FakeRebuildService(_sample_rebuild_summary())
+    backup_calls = []
+
+    monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
+    monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
+    monkeypatch.setattr(
+        rebuild_cli,
+        "_backup_database",
+        lambda **kwargs: backup_calls.append(kwargs),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        rebuild_cli.rebuild_order_ledger_v2_command,
+        [
+            "--execute",
+            "--backup-db",
+            "freshquant_order_management_backup_unit",
+            "--account-id",
+            "acct-1",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--account-id is only allowed with dry-run" in result.output
+    assert backup_calls == []
+    assert service.calls == []
+    assert database.event_log == []
+
+
+def test_rebuild_cli_execute_with_backup_purges_then_writes(monkeypatch):
+    rebuild_cli = _load_rebuild_cli_module()
+    database = _FakeMaintenanceDatabase(
+        {
+            "xt_orders": [{"order_id": 1, "account_id": "acct-1"}],
+            "xt_trades": [{"traded_id": "trade-1", "account_id": "acct-1"}],
+            "xt_positions": [{"stock_code": "600000.SH", "account_id": "acct-1"}],
+            "om_orders": [{"internal_order_id": "legacy-order"}],
+            "om_broker_orders": [{"broker_order_key": "legacy-1"}],
+            "om_execution_fills": [{"execution_fill_id": "legacy-fill"}],
+        }
+    )
+    service = _FakeRebuildService(_sample_rebuild_summary())
+    backup_calls = []
+
+    monkeypatch.setattr(rebuild_cli, "_get_order_management_db", lambda: database)
+    monkeypatch.setattr(rebuild_cli, "_get_rebuild_service", lambda: service)
+
+    def _fake_backup_database(*, database, backup_db_name, collection_names):
+        backup_calls.append(
+            {
+                "database_name": database.name,
+                "backup_db_name": backup_db_name,
+                "collection_names": list(collection_names),
+            }
+        )
+        database.event_log.append(f"backup:{backup_db_name}")
+
+    monkeypatch.setattr(rebuild_cli, "_backup_database", _fake_backup_database)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        rebuild_cli.rebuild_order_ledger_v2_command,
+        [
+            "--execute",
+            "--backup-db",
+            "freshquant_order_management_backup_unit",
+        ],
+    )
+
+    assert result.exit_code == 0
+    summary = json.loads(result.output)
+    assert summary["dry_run"] is False
+    assert summary["execute"] is True
+    assert summary["backup_db"] == "freshquant_order_management_backup_unit"
+    assert summary["backup_performed"] is True
+    assert summary["purged_collections"] == summary["would_purge_collections"]
+    assert backup_calls == [
+        {
+            "database_name": "freshquant_order_management",
+            "backup_db_name": "freshquant_order_management_backup_unit",
+            "collection_names": summary["would_purge_collections"],
+        }
+    ]
+    assert database.event_log[0] == "backup:freshquant_order_management_backup_unit"
+    first_insert_index = next(
+        index
+        for index, event in enumerate(database.event_log)
+        if event.startswith("insert_")
+    )
+    assert all(
+        event.startswith("delete_many:")
+        for event in database.event_log[1:first_insert_index]
+    )
+    assert database["om_orders"].rows == []
+    assert database["om_broker_orders"].rows == [{"broker_order_key": "70001"}]
+    assert database["om_execution_fills"].rows == [{"execution_fill_id": "fill-1"}]
+    assert database["om_position_entries"].rows == [{"entry_id": "entry-1"}]
+    assert database["om_entry_slices"].rows == [{"entry_slice_id": "slice-1"}]
+    assert database["om_reconciliation_gaps"].rows == [{"gap_id": "gap-1"}]
+    assert database["om_reconciliation_resolutions"].rows == [
+        {"resolution_id": "resolution-1"}
+    ]
+    assert database["om_ingest_rejections"].rows == [{"rejection_id": "reject-1"}]

@@ -32,6 +32,27 @@ ORDER_LEDGER_V2_COLLECTIONS = (
     "om_credit_subjects",
 )
 
+ORDER_LEDGER_REBUILD_PURGE_COLLECTIONS = (
+    "om_order_requests",
+    "om_order_events",
+    "om_orders",
+    "om_broker_orders",
+    "om_trade_facts",
+    "om_execution_fills",
+    "om_buy_lots",
+    "om_position_entries",
+    "om_lot_slices",
+    "om_entry_slices",
+    "om_sell_allocations",
+    "om_exit_allocations",
+    "om_external_candidates",
+    "om_reconciliation_gaps",
+    "om_reconciliation_resolutions",
+    "om_stoploss_bindings",
+    "om_entry_stoploss_bindings",
+    "om_ingest_rejections",
+)
+
 # 迁移期只读集合；保留给 legacy adapter / 历史排障，避免继续新增主链写入。
 ORDER_LEDGER_LEGACY_COLLECTIONS = (
     "om_orders",
