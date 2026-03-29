@@ -41,3 +41,8 @@ def beijing_epoch_range_for_date(date_text):
     )
     next_day_start = day_start + timedelta(days=1)
     return int(day_start.timestamp()), int(next_day_start.timestamp())
+
+
+def beijing_epoch_from_datetime_text(value, fmt="%Y-%m-%d %H:%M:%S"):
+    dt = datetime.strptime(str(value), fmt).replace(tzinfo=_BEIJING_TIMEZONE)
+    return dt.timestamp()
