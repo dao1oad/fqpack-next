@@ -1,27 +1,52 @@
 import click
 from bson import ObjectId
-from freshquant.db import DBfreshquant
-from rich.table import Table
 from rich.console import Console
 from rich.padding import Padding
-from datetime import datetime, timedelta
-from freshquant.util.xtquant import translate_order_type, translate_broker_price_type  # 导入 translate_broker_price_type 函数
+from rich.table import Table
+
+from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_info
+from freshquant.order_management.time_helpers import (
+    beijing_datetime_from_epoch,
+    beijing_epoch_range_for_date,
+    normalize_cli_date_input,
+)
+from freshquant.util.xtquant import (  # 导入 translate_broker_price_type 函数
+    translate_broker_price_type,
+    translate_order_type,
+)
+
 
 @click.group(name="xt-order")
 def xt_order_command_group():
     pass
 
+
 @xt_order_command_group.command(name="list")
-@click.option("--code", required=False, help="Filter by stock code (e.g., 300888 or 300888.SZ)")
-@click.option("--date", required=False, help="Filter by date (e.g., YYYYMMDD, YYYY.MM.DD, or YYYY-MM-DD)")
-@click.option("--fields", required=False, help="Comma-separated list of fields to display (e.g., id,stock_code,traded_price)")
+@click.option(
+    "--code", required=False, help="Filter by stock code (e.g., 300888 or 300888.SZ)"
+)
+@click.option(
+    "--date",
+    required=False,
+    help="Filter by date (e.g., YYYYMMDD, YYYY.MM.DD, or YYYY-MM-DD)",
+)
+@click.option(
+    "--fields",
+    required=False,
+    help="Comma-separated list of fields to display (e.g., id,stock_code,traded_price)",
+)
 def xt_order_list_command(code: str, date: str, fields: str):
     list_xt_order(code, date, fields)
 
+
 @xt_order_command_group.command(name="rm")
 @click.option("--id", required=False, help="The ID of the record to delete")
-@click.option("--code", required=False, help="Delete records by stock code (e.g., 300888 or 300888.SZ)")
+@click.option(
+    "--code",
+    required=False,
+    help="Delete records by stock code (e.g., 300888 or 300888.SZ)",
+)
 def xt_order_rm_command(id: str, code: str):
     """Delete a record by its ID or stock code and display the remaining records."""
     query = {}
@@ -38,7 +63,10 @@ def xt_order_rm_command(id: str, code: str):
     if code:
         # Normalize the code by removing the suffix (e.g., ".SZ" or ".SH") if present
         normalized_code = code.split(".")[0]
-        query["stock_code"] = {"$regex": f"^{normalized_code}(\\..*)?$", "$options": "i"}
+        query["stock_code"] = {
+            "$regex": f"^{normalized_code}(\\..*)?$",
+            "$options": "i",
+        }
 
     if not query:
         click.echo("Either --id or --code must be provided.")
@@ -56,46 +84,57 @@ def list_xt_order(code: str = None, date: str = None, fields: str = None):
     if code:
         # Normalize the code by removing the suffix (e.g., ".SZ" or ".SH") if present
         normalized_code = code.split(".")[0]
-        query["stock_code"] = {"$regex": f"^{normalized_code}(\\..*)?$", "$options": "i"}
-    
+        query["stock_code"] = {
+            "$regex": f"^{normalized_code}(\\..*)?$",
+            "$options": "i",
+        }
+
     if date:
         # Normalize the date format to YYYY-MM-DD
         try:
-            if len(date) == 8 and date.isdigit():  # YYYYMMDD format
-                normalized_date = f"{date[:4]}-{date[4:6]}-{date[6:]}"
-            elif "." in date:  # YYYY.MM.DD format
-                parts = date.split(".")
-                normalized_date = f"{parts[0]}-{parts[1]}-{parts[2]}"
-            elif "-" in date:  # YYYY-MM-DD format
-                parts = date.split("-")
-                normalized_date = f"{parts[0]}-{parts[1]}-{parts[2]}"
-            else:
-                raise ValueError("Invalid date format")
-            
+            normalized_date = normalize_cli_date_input(date)
+            start_ts, end_ts = beijing_epoch_range_for_date(normalized_date)
             # Add the date filter to the query
             query["order_time"] = {
-                "$gte": int(datetime.strptime(normalized_date, "%Y-%m-%d").timestamp()),
-                "$lt": int((datetime.strptime(normalized_date, "%Y-%m-%d") + timedelta(days=1)).timestamp())
+                "$gte": start_ts,
+                "$lt": end_ts,
             }
         except Exception as e:
             click.echo(f"Error parsing date: {e}")
             return
-    
+
     records = list(DBfreshquant["xt_orders"].find(query).sort([('order_time', 1)]))
-    
+
     # Default fields to display if not specified
     default_fields = [
-        "id", "account_id", "stock_code", "name", "order_id", "order_type",
-        "price", "order_volume", "traded_price", "traded_volume",
-        "order_time", "strategy_name", "source", "price_type"  # 添加 price_type 字段
+        "id",
+        "account_id",
+        "stock_code",
+        "name",
+        "order_id",
+        "order_type",
+        "price",
+        "order_volume",
+        "traded_price",
+        "traded_volume",
+        "order_time",
+        "strategy_name",
+        "source",
+        "price_type",  # 添加 price_type 字段
     ]
-    
+
     # Parse the fields option
     selected_fields = fields.split(",") if fields else default_fields
-    
+
     # Create a Rich Table with borders
-    table = Table(show_header=True, header_style="bold magenta", show_lines=True, title="委托记录", title_style="bold")
-    
+    table = Table(
+        show_header=True,
+        header_style="bold magenta",
+        show_lines=True,
+        title="委托记录",
+        title_style="bold",
+    )
+
     # Define all possible columns with their styles
     column_definitions = {
         "id": {"style": "dim", "overflow": "fold"},
@@ -111,23 +150,34 @@ def list_xt_order(code: str = None, date: str = None, fields: str = None):
         "order_time": {"overflow": "fold"},
         "strategy_name": {"overflow": "fold"},
         "source": {"overflow": "fold"},
-        "price_type": {"justify": "right", "overflow": "fold"}  # 新增 price_type 列定义
+        "price_type": {
+            "justify": "right",
+            "overflow": "fold",
+        },  # 新增 price_type 列定义
     }
-    
+
     # Add only the selected fields as columns
     for field in selected_fields:
         if field in column_definitions:
             table.add_column(field, **column_definitions[field])
-    
+
     for record in records:
         row_data = []
-        
+
         for field in selected_fields:
             if field == "id":
                 row_data.append(str(record.get('_id', "")))
             elif field == "account_id":
                 account_id = str(record.get('account_id'))
-                masked_account_id = (lambda x: x[:len(x)//3] + '*'*(len(x)//3) + x[-(len(x)-2*(len(x)//3)):] if len(x) >= 3 else x)(str(account_id))
+                masked_account_id = (
+                    lambda x: (
+                        x[: len(x) // 3]
+                        + '*' * (len(x) // 3)
+                        + x[-(len(x) - 2 * (len(x) // 3)) :]
+                        if len(x) >= 3
+                        else x
+                    )
+                )(str(account_id))
                 row_data.append(masked_account_id)
             elif field == "order_type":
                 order_type = record.get('order_type')
@@ -144,7 +194,9 @@ def list_xt_order(code: str = None, date: str = None, fields: str = None):
             elif field == "order_time":
                 order_time = record.get('order_time')
                 if order_time:
-                    order_time = datetime.fromtimestamp(order_time).strftime('%Y-%m-%d %H:%M:%S')
+                    order_time = beijing_datetime_from_epoch(order_time).strftime(
+                        '%Y-%m-%d %H:%M:%S'
+                    )
                 else:
                     order_time = "N/A"
                 row_data.append(order_time)
@@ -154,7 +206,9 @@ def list_xt_order(code: str = None, date: str = None, fields: str = None):
                 stock_code = record.get('stock_code')
                 if stock_code:
                     stock_info = query_instrument_info(stock_code)
-                    stock_name = stock_info.get('name', 'Unknown') if stock_info else 'Unknown'
+                    stock_name = (
+                        stock_info.get('name', 'Unknown') if stock_info else 'Unknown'
+                    )
                 else:
                     stock_name = 'Unknown'
                 row_data.append(stock_name)
@@ -164,15 +218,14 @@ def list_xt_order(code: str = None, date: str = None, fields: str = None):
                 row_data.append(price_type_desc)
             else:
                 row_data.append("")  # For fields that don't exist
-        
+
         # Add rows to the table
         table.add_row(*row_data)
-    
+
     # Print the table using Rich Console with expanded width
     console = Console()  # Set a wider console width
     t = Padding(table, (1, 0, 0, 0))
     console.print(t)
-
 
 
 # Entry point to run tests
