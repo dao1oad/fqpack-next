@@ -146,7 +146,10 @@ def test_guardian_read_model_matches_legacy_sell_quantity_cases():
 
 def test_build_buy_lot_from_trade_fact_backfills_date_and_time_from_trade_time():
     trade_time = 1710000000
-    expected_dt = datetime.fromtimestamp(trade_time)
+    expected_dt = datetime.fromtimestamp(
+        trade_time,
+        tz=timezone(timedelta(hours=8)),
+    )
 
     buy_lot = build_buy_lot_from_trade_fact(
         {
