@@ -433,7 +433,7 @@ export default {
         takeprofitDrafts: this.takeprofitDrafts,
         takeprofitState: this.takeprofitState,
         costBasisPrice: this.subjectPriceDetail?.costBasisPrice ?? null,
-        buyLots: this.subjectPriceDetail?.openBuyLots ?? []
+        entries: this.subjectPriceDetail?.openEntries ?? []
       })
     },
     editablePriceGuides() {

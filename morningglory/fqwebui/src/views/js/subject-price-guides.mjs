@@ -24,7 +24,7 @@ export const PRICE_GUIDE_LEGEND_GROUPS = [
   { key: 'guardian', legendName: 'Guardian 价格线', color: GUIDE_COLORS[0] },
   { key: 'takeprofit', legendName: '止盈价格线', color: GUIDE_COLORS[2] },
   { key: 'cost_basis', legendName: '成本价线', color: '#f59e0b' },
-  { key: 'buy_lot', legendName: '买入订单线', color: '#06b6d4' },
+  { key: 'entry', legendName: '持仓入口线', color: '#06b6d4' },
 ]
 
 const toText = (value) => String(value ?? '').trim()
@@ -238,24 +238,24 @@ export const buildCostBasisPriceGuide = (avgPrice = null) => {
   }
 }
 
-export const buildBuyLotPriceGuides = (buyLots = []) => {
-  return (Array.isArray(buyLots) ? buyLots : [])
+export const buildEntryPriceGuides = (entries = []) => {
+  return (Array.isArray(entries) ? entries : [])
     .map((row, index) => {
-      const price = toPositiveGuidePrice(row?.buy_price_real)
+      const price = toPositiveGuidePrice(row?.entry_price ?? row?.buy_price_real)
       const remainingQuantity = toNullableNumber(row?.remaining_quantity)
-      const buyLotId = toText(row?.buy_lot_id)
+      const entryId = toText(row?.entry_id || row?.buy_lot_id)
       if (price === null) {
         return null
       }
       const quantityLabel = remainingQuantity !== null ? ` / ${Math.trunc(remainingQuantity)}股` : ''
       return {
-        id: `buy-lot-${buyLotId || index + 1}`,
-        key: buyLotId || `lot_${index + 1}`,
+        id: `entry-${entryId || index + 1}`,
+        key: entryId || `entry_${index + 1}`,
         level: index + 1,
-        group: 'buy_lot',
+        group: 'entry',
         price,
         color: '#06b6d4',
-        label: `买${index + 1} ${formatGuidePrice(price)}${quantityLabel}`,
+        label: `入口${index + 1} ${formatGuidePrice(price)}${quantityLabel}`,
         active: true,
         manual_enabled: true,
         lineStyle: 'dotted',
@@ -291,18 +291,18 @@ export const buildChartPriceGuides = ({
   takeprofitDrafts = [],
   takeprofitState = {},
   costBasisPrice = null,
-  buyLots = [],
+  entries = [],
 } = {}) => {
   const guardianLines = buildGuardianPriceGuides(guardianDraft, guardianState)
   const takeprofitLines = buildTakeprofitPriceGuides(takeprofitDrafts, takeprofitState)
   const costBasisLine = buildCostBasisPriceGuide(costBasisPrice)
-  const buyLotLines = buildBuyLotPriceGuides(buyLots)
+  const entryLines = buildEntryPriceGuides(entries)
 
   return {
     lines: guardianLines
       .concat(takeprofitLines)
       .concat(costBasisLine ? [costBasisLine] : [])
-      .concat(buyLotLines),
+      .concat(entryLines),
     bands: [],
   }
 }
@@ -418,11 +418,13 @@ export const buildKlineSubjectPriceDetail = (detail = {}) => {
   const takeprofitDrafts = buildTakeprofitDrafts(takeprofitTiers)
   const takeprofitState = detail?.takeprofit?.state || { armed_levels: {} }
   const costBasisPrice = toPositiveGuidePrice(detail?.runtime_summary?.avg_price)
-  const openBuyLots = Array.isArray(detail?.buy_lots)
-    ? detail.buy_lots.filter((row) => toPositiveGuidePrice(row?.buy_price_real) !== null)
+  const openEntries = Array.isArray(detail?.entries)
+    ? detail.entries.filter((row) => toPositiveGuidePrice(row?.entry_price ?? row?.buy_price_real) !== null)
+    : Array.isArray(detail?.buy_lots)
+      ? detail.buy_lots.filter((row) => toPositiveGuidePrice(row?.entry_price ?? row?.buy_price_real) !== null)
     : []
   const costBasisPriceGuide = buildCostBasisPriceGuide(costBasisPrice)
-  const buyLotPriceGuides = buildBuyLotPriceGuides(openBuyLots)
+  const entryPriceGuides = buildEntryPriceGuides(openEntries)
 
   return {
     guardianDraft,
@@ -433,15 +435,15 @@ export const buildKlineSubjectPriceDetail = (detail = {}) => {
     takeprofitPriceGuides: buildTakeprofitPriceGuides(takeprofitDrafts, takeprofitState),
     costBasisPrice,
     costBasisPriceGuide,
-    openBuyLots,
-    buyLotPriceGuides,
+    openEntries,
+    entryPriceGuides,
     chartPriceGuides: buildChartPriceGuides({
       guardianDraft,
       guardianState,
       takeprofitDrafts,
       takeprofitState,
       costBasisPrice,
-      buyLots: openBuyLots,
+      entries: openEntries,
     }),
   }
 }

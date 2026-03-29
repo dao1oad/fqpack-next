@@ -182,7 +182,7 @@ function isPriceGuideVisible(scene, group) {
 
 function shouldAlwaysIncludePriceGuideInAutoYRange(line) {
   const group = String(line?.group || '').trim()
-  return group === 'cost_basis' || group === 'buy_lot'
+  return group === 'cost_basis' || group === 'entry'
 }
 
 function shouldIncludePriceGuideInYRange(scene, line, { includeAllPriceGuides = false } = {}) {

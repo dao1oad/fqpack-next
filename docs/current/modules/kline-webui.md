@@ -25,6 +25,7 @@
 - 标的设置浮层中的止损对象已经是 open `entries`
 - 保存止损时只提交 `entry_id`
 - 浮层详情返回 `entries`，不再依赖 `buy_lots`
+- 图表价格引导里的持仓参考线已经改成 `entry` 语义，对外文案是“持仓入口线”
 - 持仓股侧边栏排序与 SubjectManagement、PositionManagement 保持一致，按持仓金额从大到小排序
 
 ## 当前页面结构
@@ -70,7 +71,7 @@
 - 查返回的持仓金额字段
 - 当前排序口径是 `position_amount -> market_value -> amount`
 
-### 浮层仍出现 `buy_lot` 文案
+### 图表未显示持仓入口线
 
-- 查 `subjectManagement` / `kline-slim-subject-panel` 的 detail 归一逻辑
-- 当前页面只应使用 `entryDisplayLabel / entryMetaLabel / entryIdLabel`
+- 查 `/api/subject-management/<symbol>` 是否返回 `entries`
+- 查 `subject-price-guides` 是否从 `entry_price / remaining_quantity` 生成价格线
