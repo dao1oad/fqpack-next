@@ -14,7 +14,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+# Script lives under repo_root/script in both the canonical repo and deploy worktrees.
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 function Write-Utf8NoBomFile {
     param(

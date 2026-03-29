@@ -11,6 +11,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "script" / "check_freshquant_runtime_post_deploy.ps1"
 
 
+def test_runtime_post_deploy_check_resolves_repo_root_from_script_parent() -> None:
+    script_text = SCRIPT.read_text(encoding="utf-8")
+
+    assert "Join-Path $PSScriptRoot '..')).Path" in script_text
+    assert "Join-Path $PSScriptRoot '..\\..\\..')).Path" not in script_text
+
+
 def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:
