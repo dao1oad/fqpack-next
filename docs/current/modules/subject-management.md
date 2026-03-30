@@ -51,7 +51,12 @@
 
 overview 里的“单标的仓位上限摘要”当前按批量 PM dashboard 结果一次性装载，不再按 symbol 重复调用单标的 limit 读路径。
 
-左表 symbol 集合来自这些来源的并集，不再单独把孤儿 `guardian_buy_grid_states` 带进页面。
+左表 symbol 集合当前只来自：
+
+- `must_pool`
+- 当前持仓聚合
+
+Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只作为这些标的的补充信息，不再把“仅残留配置、但不在持仓且不在 must_pool”的孤儿标的带进页面。
 
 ### detail
 
