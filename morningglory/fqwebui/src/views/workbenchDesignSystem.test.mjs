@@ -284,8 +284,10 @@ test('KlineSlim.vue consumes WorkbenchPage for the chart workbench shell', () =>
 test('StockControl.vue consumes shared workbench page and ledger panel primitives for the three signal columns', () => {
   assert.match(stockControlSource, /import WorkbenchPage from ['"][^'"]*WorkbenchPage\.vue['"]/)
   assert.match(stockControlSource, /import WorkbenchToolbar from ['"][^'"]*WorkbenchToolbar\.vue['"]/)
+  assert.match(stockControlSource, /import WorkbenchSummaryRow from ['"][^'"]*WorkbenchSummaryRow\.vue['"]/)
   assert.match(stockControlSource, /import WorkbenchLedgerPanel from ['"][^'"]*WorkbenchLedgerPanel\.vue['"]/)
   assert.match(stockControlSource, /<WorkbenchPage class="stock-control-page">/)
+  assert.match(stockControlSource, /<MyHeader\s*\/>/)
   assert.match(stockControlSource, /<WorkbenchToolbar class="stock-control-toolbar">/)
   assert.match(stockControlSource, /<WorkbenchLedgerPanel class="stock-control-panel">/)
   assert.doesNotMatch(stockControlSource, /class="panel-card"/)
@@ -294,6 +296,7 @@ test('StockControl.vue consumes shared workbench page and ledger panel primitive
 test('StockControl.vue follows the main workbench contract instead of a stock-only special shell', () => {
   assert.match(stockControlSource, /<div class="workbench-page-title">股票<\/div>/)
   assert.match(stockControlSource, /<div class="workbench-page-meta">[\s\S]*三栏信号工作台[\s\S]*持仓股、模型信号、must_pool 买入信号/)
+  assert.match(stockControlSource, /<el-alert[\s\S]*class="workbench-alert"[\s\S]*type="info"[\s\S]*title="各栏独立加载；无信号时保持统一空表结构。"/)
   assert.match(stockControlSource, /<WorkbenchSummaryRow class="stock-control-summary">/)
   assert.match(stockControlSource, /<StatusChip variant="muted">持仓股信号<\/StatusChip>/)
   assert.match(stockControlSource, /<StatusChip variant="info">stock_pools 模型信号<\/StatusChip>/)
