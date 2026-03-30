@@ -13,6 +13,13 @@ dashboard_service_module = None
 SubjectManagementDashboardService = None
 
 
+class FakeMongoClient(dict):
+    def __getitem__(self, name):
+        if name not in self:
+            self[name] = {}
+        return dict.__getitem__(self, name)
+
+
 @pytest.fixture(autouse=True)
 def _install_dashboard_service_stubs(monkeypatch):
     global dashboard_service_module, SubjectManagementDashboardService
@@ -25,6 +32,7 @@ def _install_dashboard_service_stubs(monkeypatch):
 
     db_module: Any = types.ModuleType("freshquant.db")
     db_module.DBfreshquant = {}
+    db_module.MongoClient = FakeMongoClient()
     monkeypatch.setitem(sys.modules, "freshquant.db", db_module)
 
     strategy_common_module: Any = types.ModuleType("freshquant.strategy.common")
@@ -422,49 +430,51 @@ def test_subject_management_overview_prefers_symbol_snapshot_market_value():
 def test_subject_management_overview_uses_default_symbol_limit_batch_loader_once(
     monkeypatch,
 ):
-    import freshquant.position_management.dashboard_service as pm_dashboard_module
+    import freshquant.subject_management.dashboard_service as sm_dashboard_module
 
     call_counts = {"dashboard": 0, "symbol": 0}
 
-    class FakePositionManagementDashboardService:
-        def get_dashboard(self):
-            call_counts["dashboard"] += 1
-            return {
-                "rows": [
-                    {
-                        "symbol": "600000",
-                        "default_limit": 800000.0,
-                        "override_limit": 500000.0,
-                        "effective_limit": 500000.0,
-                        "using_override": True,
-                        "blocked": False,
-                    },
-                    {
-                        "symbol": "000001",
-                        "default_limit": 800000.0,
-                        "override_limit": None,
-                        "effective_limit": 800000.0,
-                        "using_override": False,
-                        "blocked": False,
-                    },
-                ]
-            }
-
-        def get_symbol_limit(self, symbol):
-            call_counts["symbol"] += 1
-            return {
-                "symbol": symbol,
+    def fake_symbol_limit_map_loader():
+        call_counts["dashboard"] += 1
+        return {
+            "600000": {
+                "symbol": "600000",
+                "default_limit": 800000.0,
+                "override_limit": 500000.0,
+                "effective_limit": 500000.0,
+                "using_override": True,
+                "blocked": False,
+            },
+            "000001": {
+                "symbol": "000001",
                 "default_limit": 800000.0,
                 "override_limit": None,
                 "effective_limit": 800000.0,
                 "using_override": False,
                 "blocked": False,
-            }
+            },
+        }
+
+    def fake_symbol_limit_loader(symbol):
+        call_counts["symbol"] += 1
+        return {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        }
 
     monkeypatch.setattr(
-        pm_dashboard_module,
-        "PositionManagementDashboardService",
-        FakePositionManagementDashboardService,
+        sm_dashboard_module,
+        "_default_symbol_limit_map_loader",
+        fake_symbol_limit_map_loader,
+    )
+    monkeypatch.setattr(
+        sm_dashboard_module,
+        "_default_symbol_limit_loader",
+        fake_symbol_limit_loader,
     )
 
     service = SubjectManagementDashboardService(
@@ -520,6 +530,63 @@ def test_subject_management_overview_keeps_rows_when_symbol_limit_loader_rejects
         == "symbol is not tracked by holdings or pools"
     )
     assert rows[0]["position_limit_summary"]["using_override"] is False
+
+
+def test_subject_management_overview_excludes_symbols_without_holdings_or_must_pool():
+    tpsl_repository = InMemoryTpslRepository()
+    tpsl_repository.profiles["002594"] = {
+        "symbol": "002594",
+        "tiers": [
+            {"level": 1, "price": 110.98, "manual_enabled": True},
+            {"level": 2, "price": 116.19, "manual_enabled": True},
+            {"level": 3, "price": 127.49, "manual_enabled": True},
+        ],
+    }
+
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(
+            {
+                "guardian_buy_grid_configs": FakeCollection(
+                    [
+                        {
+                            "code": "002594",
+                            "BUY-1": 98.21,
+                            "BUY-2": 93.66,
+                            "BUY-3": 89.21,
+                            "buy_enabled": [True, True, True],
+                            "enabled": True,
+                        }
+                    ]
+                ),
+                "guardian_buy_grid_states": FakeCollection(
+                    [
+                        {
+                            "code": "002594",
+                            "buy_active": [True, True, True],
+                            "last_reset_reason": "sell_trade_fact",
+                        }
+                    ]
+                ),
+            }
+        ),
+        tpsl_repository=tpsl_repository,
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    rows = service.get_overview()
+
+    assert rows == []
 
 
 def test_subject_management_overview_normalizes_must_pool_codes_before_grouping():

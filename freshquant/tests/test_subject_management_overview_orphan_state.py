@@ -153,13 +153,21 @@ def test_overview_ignores_symbol_sourced_only_from_guardian_state(
     assert rows == []
 
 
-def test_overview_keeps_guardian_state_for_symbol_present_in_guardian_config(
+def test_overview_keeps_guardian_state_for_symbol_present_in_must_pool(
     dashboard_service_module,
 ):
     service = _build_service(
         dashboard_service_module,
         FakeDatabase(
             {
+                "must_pool": FakeCollection(
+                    [
+                        {
+                            "code": "000001",
+                            "name": "平安银行",
+                        }
+                    ]
+                ),
                 "guardian_buy_grid_configs": FakeCollection(
                     [
                         {
