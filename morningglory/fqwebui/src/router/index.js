@@ -33,7 +33,7 @@ const withRouteTitle = (route) => ({
 const routes = [
   {
     path: '/',
-    redirect: '/stock-control'
+    redirect: '/runtime-observability'
   },
   withRouteTitle({
     path: '/futures-control',
