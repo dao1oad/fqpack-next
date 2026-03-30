@@ -90,6 +90,26 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
   - 最后再恢复 indexer
 - 不要直接删除 progress 后让 indexer 从 0 全量重扫；`runtime_events` 当前不是去重表，这样会把历史事件重复写入 ClickHouse。
 
+## broker_gateway 健康摘要停留在旧 warning
+
+现象：
+
+- `fqnext_xtquant_broker` 已经恢复 `Running`
+- broker stderr 已出现 `连接成功`、`订阅成功`
+- `/api/runtime/health/summary` 里的 `broker_gateway` 仍显示旧的 `connected=0` / `retry_count>0`
+
+先检查：
+
+- `Get-Content D:/fqdata/log/fqnext_xtquant_broker_err.log -Tail 200`
+- `Get-ChildItem logs/runtime/host_broker/broker_gateway -Recurse -Filter *.jsonl | Sort-Object LastWriteTime -Descending | Select-Object -First 5 FullName,LastWriteTime`
+- `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/api/runtime/health/summary`
+
+处理：
+
+- 先确认宿主机 broker 实际 import 的 `fqxtrade.xtquant.broker` 已经是最新已合并代码，而不是旧的本地 wheel / 非 editable 快照
+- 当前 `main` 已在 broker 主循环的成功连接路径补发 `heartbeat connected=1`；如果运行面仍停在旧 warning，优先重新部署并重启 `order_management` host surface
+- 如果 stderr 只有 `connect()/subscribe()` 普通日志，没有新的 `broker_gateway` jsonl 心跳，说明宿主机还没跑到这版 broker 代码，不要只盯页面缓存
+
 ## Memory context 缺失或过期
 
 现象：
