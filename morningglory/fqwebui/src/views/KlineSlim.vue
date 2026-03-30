@@ -1520,7 +1520,8 @@ export default {
 
 @media (max-width: 1200px)
   .kline-slim-toolbar
-    align-items stretch
+    align-items flex-start
+    flex-direction column
 
   .toolbar-right
     justify-content flex-start

@@ -6,7 +6,7 @@
       <WorkbenchToolbar class="position-toolbar">
         <div class="workbench-toolbar__header">
           <div class="workbench-title-group">
-            <div class="workbench-page-title">仓位管理</div>
+            <h1 class="workbench-page-title">仓位管理</h1>
             <div class="workbench-page-meta">
               <span>统一查看 PM 状态、单标的上限和最近决策。</span>
             </div>

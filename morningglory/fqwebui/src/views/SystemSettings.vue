@@ -6,7 +6,7 @@
         <div class="settings-dense-toolbar__title">
           <div class="workbench-title-group">
             <p class="settings-toolbar-kicker">System Config</p>
-            <div class="workbench-page-title">系统设置</div>
+            <h1 class="workbench-page-title">系统设置</h1>
             <div class="workbench-page-meta">
               <span>正式真值只保留 Bootstrap 文件与 Mongo。</span>
               <span>/</span>
