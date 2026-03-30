@@ -4,12 +4,16 @@
     <div class="workbench-body settings-shell" v-loading="loading">
       <WorkbenchToolbar class="settings-dense-toolbar">
         <div class="settings-dense-toolbar__title">
-          <p class="settings-toolbar-kicker">System Config</p>
-          <h1>系统设置</h1>
-          <p class="settings-toolbar-copy">
-            正式真值只保留 Bootstrap 文件与 Mongo。当前页面直接以内嵌列表编辑全部正式设置项。
-          </p>
-          <div class="settings-toolbar-meta">
+          <div class="workbench-title-group">
+            <p class="settings-toolbar-kicker">System Config</p>
+            <div class="workbench-page-title">系统设置</div>
+            <div class="workbench-page-meta">
+              <span>正式真值只保留 Bootstrap 文件与 Mongo。</span>
+              <span>/</span>
+              <span>当前页面直接以内嵌列表编辑全部正式设置项。</span>
+            </div>
+          </div>
+          <WorkbenchSummaryRow class="settings-toolbar-meta">
             <StatusChip class="settings-toolbar-chip settings-toolbar-chip--path" variant="info" :title="bootstrapFilePath">
               Bootstrap
               <strong>{{ bootstrapFilePath }}</strong>
@@ -22,7 +26,7 @@
               Mongo 已改
               <strong>{{ settingsDirtyCount }}</strong>
             </StatusChip>
-          </div>
+          </WorkbenchSummaryRow>
         </div>
 
         <div class="settings-dense-toolbar__actions">
@@ -49,7 +53,7 @@
 
       <el-alert
         v-if="pageError"
-        class="page-error"
+        class="workbench-alert page-error"
         type="error"
         :title="pageError"
         show-icon
@@ -213,6 +217,7 @@ import { ElMessage } from 'element-plus'
 
 import StatusChip from '@/components/workbench/StatusChip.vue'
 import WorkbenchPage from '@/components/workbench/WorkbenchPage.vue'
+import WorkbenchSummaryRow from '@/components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '@/components/workbench/WorkbenchToolbar.vue'
 import MyHeader from '@/views/MyHeader.vue'
 import { systemConfigApi } from '@/api/systemConfigApi'
@@ -526,7 +531,7 @@ onMounted(() => {
   margin 6px 0 0
   font-size 24px
 
-.settings-toolbar-copy
+.settings-dense-toolbar .workbench-page-meta
   margin 6px 0 0
   color #5b738c
   line-height 1.5
