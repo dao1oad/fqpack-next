@@ -89,10 +89,7 @@ export const HEADER_NAV_GROUPS = [
 ]
 
 export const ROUTE_TITLES_BY_NAME = {
-  'futures-control': '期货',
   'stock-control': '股票',
-  'stock-pools': '股票池',
-  'stock-cjsd': '超级赛道',
   'multi-period': '多周期',
   'kline-big': '行情图表',
   'kline-slim': '行情图表',

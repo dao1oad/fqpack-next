@@ -7,6 +7,7 @@ import {
   getHeaderNavTarget,
   resolveHeaderNavGroups,
   resolveDocumentTitle,
+  resolveRouteMetaTitle,
 } from './pageMeta.mjs'
 
 const ACTIVE_CORE_ROUTE_SPECS = [
@@ -39,6 +40,27 @@ const ACTIVE_CORE_ROUTE_SPECS = [
     importPath: '../views/RuntimeObservability.vue',
     routePath: '/runtime-observability',
     routeName: 'runtime-observability',
+  },
+]
+
+const RETIRED_ROUTE_SPECS = [
+  {
+    componentName: 'FuturesControl',
+    importPath: '../views/FuturesControl.vue',
+    routePath: '/futures-control',
+    routeName: 'futures-control',
+  },
+  {
+    componentName: 'StockPools',
+    importPath: '../components/StockPools.vue',
+    routePath: '/stock-pools',
+    routeName: 'stock-pools',
+  },
+  {
+    componentName: 'StockCjsd',
+    importPath: '../components/StockCjsd.vue',
+    routePath: '/stock-cjsd',
+    routeName: 'stock-cjsd',
   },
 ]
 
@@ -182,6 +204,15 @@ test('header nav groups remove deprecated pages while preserving active workbenc
   )
 })
 
+test('retired route names no longer resolve page-meta titles', async () => {
+  const pageMetaSource = (await readFile(new URL('./pageMeta.mjs', import.meta.url), 'utf8')).replace(/\r/g, '')
+
+  for (const { routeName } of RETIRED_ROUTE_SPECS) {
+    assert.equal(resolveRouteMetaTitle(routeName), '')
+    assert.doesNotMatch(pageMetaSource, new RegExp(`['"]${escapeForRegex(routeName)}['"]\\s*:`))
+  }
+})
+
 test('router redirects root to runtime observability and keeps active core routes lazy-loaded with route bindings', async () => {
   const routerSource = (await readFile(new URL('./index.js', import.meta.url), 'utf8')).replace(/\r/g, '')
 
@@ -203,6 +234,24 @@ test('router redirects root to runtime observability and keeps active core route
       new RegExp(`const\\s+${componentName}\\s*=\\s*\\(\\)\\s*=>\\s*import\\('${escapeForRegex(importPath)}'\\)`),
     )
     assert.match(
+      routerSource,
+      new RegExp(
+        `path:\\s*'${escapeForRegex(routePath)}',[\\s\\S]*?name:\\s*'${escapeForRegex(routeName)}',[\\s\\S]*?component:\\s*${componentName}`,
+      ),
+    )
+  }
+
+  for (const {
+    componentName,
+    importPath,
+    routePath,
+    routeName,
+  } of RETIRED_ROUTE_SPECS) {
+    assert.doesNotMatch(
+      routerSource,
+      new RegExp(`const\\s+${componentName}\\s*=\\s*\\(\\)\\s*=>\\s*import\\('${escapeForRegex(importPath)}'\\)`),
+    )
+    assert.doesNotMatch(
       routerSource,
       new RegExp(
         `path:\\s*'${escapeForRegex(routePath)}',[\\s\\S]*?name:\\s*'${escapeForRegex(routeName)}',[\\s\\S]*?component:\\s*${componentName}`,

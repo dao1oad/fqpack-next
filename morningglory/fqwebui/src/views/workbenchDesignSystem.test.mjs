@@ -16,13 +16,11 @@ const orderSource = readSource('./OrderManagement.vue')
 const tpslSource = readSource('./TpslManagement.vue')
 const subjectSource = readSource('./SubjectManagement.vue')
 const dailySource = readSource('./DailyScreening.vue')
+const klineHeaderSource = readSource('./KlineHeader.vue')
 const klineSlimSource = readSource('./KlineSlim.vue')
 const stockControlSource = readSource('./StockControl.vue')
-const stockPoolsSource = readSource('../components/StockPools.vue')
-const stockCjsdSource = readSource('../components/StockCjsd.vue')
 const ganttSource = readSource('./GanttUnified.vue')
 const ganttStocksSource = readSource('./GanttUnifiedStocks.vue')
-const futuresSource = readSource('./FuturesControl.vue')
 const systemSettingsSource = readSource('./SystemSettings.vue')
 const shoubanSource = readSource('./GanttShouban30Phase1.vue')
 const klineBigSource = readSource('./KlineBig.vue')
@@ -244,6 +242,14 @@ test('KlineSlim.vue reuses StatusChip for toolbar, overlay summaries and chanlun
   assert.match(klineSlimSource, /<StatusChip[\s\S]*v-for="field in chanlunBiSummary"[\s\S]*variant="info"/)
 })
 
+test('KlineHeader.vue no longer exposes a retired futures main-entry button', () => {
+  assert.match(klineHeaderSource, /jumpToControl\('stock'\)/)
+  assert.match(klineHeaderSource, />股票<\/el-button/)
+  assert.match(klineHeaderSource, />多周期<\/el-button/)
+  assert.doesNotMatch(klineHeaderSource, /jumpToControl\('futures'\)/)
+  assert.doesNotMatch(klineHeaderSource, />期货<\/el-button/)
+})
+
 test('KlineSlim.vue consumes WorkbenchPage for the chart workbench shell', () => {
   assert.match(klineSlimSource, /import WorkbenchPage from ['"][^'"]*WorkbenchPage\.vue['"]/)
   assert.match(klineSlimSource, /<WorkbenchPage class="kline-big-main kline-slim-main">/)
@@ -259,26 +265,16 @@ test('StockControl.vue consumes shared workbench page and ledger panel primitive
   assert.doesNotMatch(stockControlSource, /class="panel-card"/)
 })
 
-test('StockPools.vue consumes shared workbench page toolbar and sidebar panel primitives', () => {
-  assert.match(stockPoolsSource, /import WorkbenchPage from ['"][^'"]*WorkbenchPage\.vue['"]/)
-  assert.match(stockPoolsSource, /import WorkbenchToolbar from ['"][^'"]*WorkbenchToolbar\.vue['"]/)
-  assert.match(stockPoolsSource, /import WorkbenchLedgerPanel from ['"][^'"]*WorkbenchLedgerPanel\.vue['"]/)
-  assert.match(stockPoolsSource, /import WorkbenchSidebarPanel from ['"][^'"]*WorkbenchSidebarPanel\.vue['"]/)
-  assert.match(stockPoolsSource, /<WorkbenchPage class="stock-pool-page">/)
-  assert.match(stockPoolsSource, /<WorkbenchToolbar class="stock-pool-toolbar">/)
-  assert.match(stockPoolsSource, /<WorkbenchLedgerPanel class="stock-pool-panel stock-pool-panel--main">/)
-  assert.match(stockPoolsSource, /<WorkbenchSidebarPanel class="stock-pool-panel stock-pool-panel--side">/)
-  assert.doesNotMatch(stockPoolsSource, /<section class="stock-pool-panel">/)
-})
+test('retired standalone workbench pages are removed from the design-system surface', () => {
+  const retiredPageFiles = [
+    new URL('../components/StockPools.vue', import.meta.url),
+    new URL('../components/StockCjsd.vue', import.meta.url),
+    new URL('./FuturesControl.vue', import.meta.url),
+  ]
 
-test('StockCjsd.vue consumes shared workbench page toolbar and ledger panel primitives', () => {
-  assert.match(stockCjsdSource, /import WorkbenchPage from ['"][^'"]*WorkbenchPage\.vue['"]/)
-  assert.match(stockCjsdSource, /import WorkbenchToolbar from ['"][^'"]*WorkbenchToolbar\.vue['"]/)
-  assert.match(stockCjsdSource, /import WorkbenchLedgerPanel from ['"][^'"]*WorkbenchLedgerPanel\.vue['"]/)
-  assert.match(stockCjsdSource, /<WorkbenchPage class="stock-cjsd-page">/)
-  assert.match(stockCjsdSource, /<WorkbenchToolbar class="stock-cjsd-toolbar">/)
-  assert.match(stockCjsdSource, /<WorkbenchLedgerPanel class="stock-cjsd-panel">/)
-  assert.doesNotMatch(stockCjsdSource, /<section class="stock-cjsd-panel">/)
+  for (const fileUrl of retiredPageFiles) {
+    assert.equal(existsSync(fileUrl), false, `${fileUrl} should be removed`)
+  }
 })
 
 test('GanttUnified.vue consumes shared workbench page and toolbar primitives while keeping provider switch radio buttons', () => {
@@ -299,9 +295,8 @@ test('GanttUnifiedStocks.vue consumes shared workbench page and toolbar primitiv
   assert.doesNotMatch(ganttStocksSource, /<div class="gantt-tabs">/)
 })
 
-test('legacy chart and control routes still consume WorkbenchPage as the shared shell even when they keep specialized internals', () => {
+test('active chart routes still consume WorkbenchPage as the shared shell even when they keep specialized internals', () => {
   for (const [label, source] of [
-    ['FuturesControl.vue', futuresSource],
     ['KlineBig.vue', klineBigSource],
     ['KlineSlim.vue', klineSlimSource],
     ['MultiPeriod.vue', multiPeriodSource],

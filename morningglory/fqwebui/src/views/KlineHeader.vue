@@ -3,13 +3,6 @@
     <div class="input-form">
       <el-space>
         <el-button
-          type="primary"
-          @click="jumpToControl('futures')"
-          size="small"
-          class="primary-button"
-          >期货</el-button
-        >
-        <el-button
           type="danger"
           @click="jumpToControl('stock')"
           size="small"

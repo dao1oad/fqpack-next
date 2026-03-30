@@ -1,23 +1,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 
-test('legacy pages use viewport shells instead of browser scrolling', async () => {
-  const [futures, stockPools, stockCjsd] = await Promise.all([
-    readFile(new URL('./FuturesControl.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../components/StockPools.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../components/StockCjsd.vue', import.meta.url), 'utf8'),
-  ])
+test('retired route shells are removed from the source tree', () => {
+  const retiredShellFiles = [
+    new URL('./FuturesControl.vue', import.meta.url),
+    new URL('../components/StockPools.vue', import.meta.url),
+    new URL('../components/StockCjsd.vue', import.meta.url),
+    new URL('../style/futures-control.styl', import.meta.url),
+  ]
 
-  assert.match(futures, /future-control-shell/)
-  assert.match(futures, /future-control-body/)
-
-  assert.match(stockPools, /stock-pool-page/)
-  assert.match(stockPools, /stock-pool-body/)
-  assert.match(stockPools, /stock-pool-panel__table/)
-
-  assert.match(stockCjsd, /stock-cjsd-page/)
-  assert.match(stockCjsd, /stock-cjsd-panel__table/)
+  for (const fileUrl of retiredShellFiles) {
+    assert.equal(existsSync(fileUrl), false, `${fileUrl} should be removed`)
+  }
 })
 
 test('stock pool subviews expose dedicated table scroll containers', async () => {
