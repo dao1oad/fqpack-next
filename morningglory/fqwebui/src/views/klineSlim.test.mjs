@@ -2,6 +2,50 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
+test('KlineSlim page script delegates lifecycle hooks and orchestration to a dedicated controller module', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /import klineSlim from '\.\/js\/kline-slim'/)
+  assert.doesNotMatch(viewSource, /from '\.\/klineSlimController\.mjs'/)
+  assert.match(scriptSource, /from '\.\.\/klineSlimController\.mjs'/)
+  assert.match(scriptSource, /watch:\s*klineSlimController\.watch/)
+  assert.match(scriptSource, /created:\s*klineSlimController\.created/)
+  assert.match(scriptSource, /mounted:\s*klineSlimController\.mounted/)
+  assert.match(scriptSource, /beforeUnmount:\s*klineSlimController\.beforeUnmount/)
+  assert.match(scriptSource, /methods:\s*\{[\s\S]*\.\.\.klineSlimController\.methods/)
+  assert.doesNotMatch(scriptSource, /^\s*handleRouteChange\(/m)
+  assert.doesNotMatch(scriptSource, /^\s*loadSidebarData\(/m)
+  assert.doesNotMatch(scriptSource, /^\s*refreshVisibleChanlunPeriods\(/m)
+  assert.doesNotMatch(scriptSource, /^\s*scheduleRender\(/m)
+  assert.doesNotMatch(scriptSource, /^\s*toggleSubjectPanel\(/m)
+})
+
+test('KlineSlim controller owns route, polling, sidebar and panel orchestration boundaries', () => {
+  const controllerSource = fs.readFileSync(new URL('./klineSlimController.mjs', import.meta.url), 'utf8')
+
+  assert.match(controllerSource, /watch:\s*\{/)
+  assert.match(controllerSource, /created\(\)/)
+  assert.match(controllerSource, /mounted\(\)/)
+  assert.match(controllerSource, /beforeUnmount\(\)/)
+  assert.match(controllerSource, /async loadSidebarData\(/)
+  assert.match(controllerSource, /handleRouteChange\(/)
+  assert.match(controllerSource, /async resolveDefaultSymbol\(/)
+  assert.match(controllerSource, /async refreshVisibleChanlunPeriods\(/)
+  assert.match(controllerSource, /scheduleRender\(/)
+  assert.match(controllerSource, /applySymbol\(/)
+  assert.match(controllerSource, /applyEndDate\(/)
+  assert.match(controllerSource, /switchPeriod\(/)
+  assert.match(controllerSource, /reloadNow\(/)
+  assert.match(controllerSource, /resetChartViewport\(/)
+  assert.match(controllerSource, /async togglePriceGuideEditMode\(/)
+  assert.match(controllerSource, /async toggleSubjectPanel\(/)
+  assert.match(controllerSource, /async toggleChanlunStructurePanel\(/)
+  assert.match(controllerSource, /stopPolling\(/)
+  assert.match(controllerSource, /async handleReasonPopoverShow\(/)
+  assert.match(controllerSource, /async deleteSidebarItem\(/)
+})
+
 test('KlineSlim keeps the price editor side panel but removes the duplicate 价格层级 trigger copy', () => {
   const source = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
 
@@ -37,17 +81,19 @@ test('KlineSlim keeps price guide and chanlun panels on the chart overlay instea
 test('KlineSlim toolbar keeps only draw-edit, subject and chanlun toggles for overlay panels', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+  const controllerSource = fs.readFileSync(new URL('./klineSlimController.mjs', import.meta.url), 'utf8')
+  const orchestrationSource = `${scriptSource}\n${controllerSource}`
 
   assert.match(viewSource, /@click="toggleSubjectPanel"/)
   assert.match(viewSource, /@click="toggleChanlunStructurePanel"/)
   assert.match(viewSource, /@click="togglePriceGuideEditMode"/)
   assert.match(viewSource, /:type="showChanlunStructurePanel \? 'primary' : 'default'"/)
 
-  assert.match(scriptSource, /toggleSubjectPanel\(\)/)
-  assert.match(scriptSource, /toggleChanlunStructurePanel\(\)/)
-  assert.match(scriptSource, /this\.showPriceGuidePanel = false/)
-  assert.match(scriptSource, /this\.showSubjectPanel = false/)
-  assert.match(scriptSource, /this\.showChanlunStructurePanel = false/)
+  assert.match(orchestrationSource, /toggleSubjectPanel\(\)/)
+  assert.match(orchestrationSource, /toggleChanlunStructurePanel\(\)/)
+  assert.match(orchestrationSource, /this\.showPriceGuidePanel = false/)
+  assert.match(orchestrationSource, /this\.showSubjectPanel = false/)
+  assert.match(orchestrationSource, /this\.showChanlunStructurePanel = false/)
 })
 
 test('KlineSlim sidebar uses compact two-line summaries instead of stacked tags', () => {
@@ -75,13 +121,15 @@ test('KlineSlim page state module centralizes symbol, period and overlay mutual 
 test('KlineSlim exposes a dedicated price-guide edit mode with drag-save handlers', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+  const controllerSource = fs.readFileSync(new URL('./klineSlimController.mjs', import.meta.url), 'utf8')
+  const orchestrationSource = `${scriptSource}\n${controllerSource}`
 
   assert.match(viewSource, /画线编辑/)
   assert.match(viewSource, /@click="togglePriceGuideEditMode"/)
   assert.match(scriptSource, /priceGuideEditMode:/)
-  assert.match(scriptSource, /togglePriceGuideEditMode\(\)/)
+  assert.match(orchestrationSource, /togglePriceGuideEditMode\(\)/)
   assert.match(
-    scriptSource,
+    orchestrationSource,
     /if \(this\.priceGuideEditMode\) \{[\s\S]*this\.closePriceGuidePanel\(\)/
   )
   assert.match(scriptSource, /handlePriceGuideDrag\(/)
@@ -153,13 +201,13 @@ test('KlineSlim price guide panel shows read-only runtime states for Guardian an
 
 test('KlineSlim exposes a reset viewport control that returns the chart to auto mode', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
-  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+  const controllerSource = fs.readFileSync(new URL('./klineSlimController.mjs', import.meta.url), 'utf8')
 
   assert.match(viewSource, /重置视图/)
   assert.match(viewSource, /@click="resetChartViewport"/)
-  assert.match(scriptSource, /resetChartViewport\(\)/)
-  assert.match(scriptSource, /this\.chartViewport = createKlineSlimViewportState\(\)/)
-  assert.match(scriptSource, /this\.resetViewportOnNextRender = true/)
+  assert.match(controllerSource, /resetChartViewport\(\)/)
+  assert.match(controllerSource, /this\.chartViewport = createKlineSlimViewportState\(\)/)
+  assert.match(controllerSource, /this\.resetViewportOnNextRender = true/)
 })
 
 test('KlineSlim lets the body flow below a wrapping toolbar instead of relying on a fixed top offset', () => {

@@ -6,6 +6,7 @@ import queryParamTool from '@/tool/queryParamTool'
 import _ from 'lodash'
 import { reactive } from 'vue'
 import manba from 'manba'
+import { pollingFast } from '../../lib/queryPolicies.mjs'
 
 async function loadKlinePeriodData({ query, period }) {
   const { symbol, endDate } = queryParamTool.getLocationQueryParams()
@@ -33,38 +34,32 @@ export default {
     const { data: klineData1Min } = useQuery({
       queryKey: ['klineData1Min'],
       queryFn: async () => loadKlinePeriodData({ query, period: '1m' }),
-      refetchInterval: 10000,
-      staleTime: 5000
+      ...pollingFast
     })
     const { data: klineData5Min } = useQuery({
       queryKey: ['klineData5Min'],
       queryFn: async () => loadKlinePeriodData({ query, period: '5m' }),
-      refetchInterval: 10000,
-      staleTime: 5000
+      ...pollingFast
     })
     const { data: klineData15Min } = useQuery({
       queryKey: ['klineData15Min'],
       queryFn: async () => loadKlinePeriodData({ query, period: '15m' }),
-      refetchInterval: 10000,
-      staleTime: 5000
+      ...pollingFast
     })
     const { data: klineData30Min } = useQuery({
       queryKey: ['klineData30Min'],
       queryFn: async () => loadKlinePeriodData({ query, period: '30m' }),
-      refetchInterval: 10000,
-      staleTime: 5000
+      ...pollingFast
     })
     const { data: klineData60Min } = useQuery({
       queryKey: ['klineData60Min'],
       queryFn: async () => loadKlinePeriodData({ query, period: '60m' }),
-      refetchInterval: 10000,
-      staleTime: 5000
+      ...pollingFast
     })
     const { data: klineData1D } = useQuery({
       queryKey: ['klineData1D'],
       queryFn: async () => loadKlinePeriodData({ query, period: '1d' }),
-      refetchInterval: 10000,
-      staleTime: 5000
+      ...pollingFast
     })
     const queryClient = useQueryClient()
     return {

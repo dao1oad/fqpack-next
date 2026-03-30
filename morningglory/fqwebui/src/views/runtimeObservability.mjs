@@ -363,14 +363,6 @@ export const formatDurationMs = (value) => {
   return `${minutes}m ${seconds}s`
 }
 
-export const stopPollingTimer = (timerHandle, options = {}) => {
-  const clearIntervalFn = options?.clearInterval
-  if (timerHandle && typeof clearIntervalFn === 'function') {
-    clearIntervalFn(timerHandle)
-  }
-  return null
-}
-
 export const readApiPayload = (response, key, fallback = null) => {
   if (response && typeof response === 'object') {
     if (response[key] !== undefined) return response[key]
@@ -2315,17 +2307,4 @@ export const buildComponentSidebarItems = (traces = [], components = []) => {
       runtime_details: runtimeDetails,
     }
   })
-}
-
-export const pickDefaultSidebarComponent = (items = [], currentComponent = '') => {
-  const current = toText(currentComponent)
-  const normalizedItems = Array.isArray(items) ? items : []
-  if (current && normalizedItems.some((item) => toText(item?.component) === current)) {
-    return current
-  }
-  return (
-    normalizedItems.find(
-      (item) => Number(item?.trace_count || 0) > 0 || Number(item?.issue_trace_count || 0) > 0,
-    )?.component || ''
-  )
 }

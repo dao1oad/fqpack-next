@@ -2,6 +2,16 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
+export const bundleBudget = Object.freeze({
+  warningLimitKb: 1000,
+  maxChunkSizeBytes: Object.freeze({
+    'vendor-echarts': 940 * 1024,
+    'vendor-element-plus': 800 * 1024,
+    'vendor-core': 560 * 1024,
+    index: 220 * 1024,
+  }),
+})
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // 加载环境变量
@@ -75,7 +85,7 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'web',
       sourcemap: false,
-      chunkSizeWarningLimit: 1000,
+      chunkSizeWarningLimit: bundleBudget.warningLimitKb,
       rollupOptions: {
         output: {
           manualChunks: resolveManualChunk

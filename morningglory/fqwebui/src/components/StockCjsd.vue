@@ -237,6 +237,7 @@ import MyHeader from '../views/MyHeader.vue'
 import _ from 'lodash'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { reactive } from 'vue'
+import { pollingSlow } from '../lib/queryPolicies.mjs'
 import StatusChip from '@/components/workbench/StatusChip.vue'
 import WorkbenchLedgerPanel from '@/components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '@/components/workbench/WorkbenchPage.vue'
@@ -271,8 +272,7 @@ export default {
         const end = start + listQuery.size
         return _.slice(cjsdList, start, end)
       },
-      refetchInterval: 600000,
-      staleTime: 5000,
+      ...pollingSlow,
     })
     const queryClient = useQueryClient()
     return { isLoading, cjsdList, listQuery, queryClient }

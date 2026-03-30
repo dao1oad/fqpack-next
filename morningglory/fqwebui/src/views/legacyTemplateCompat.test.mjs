@@ -53,6 +53,17 @@ test('FuturePositionList.vue expansion rows bind nested table data from the curr
   assert.doesNotMatch(content, /:data="props\.row\.dynamicPositionList"/)
 })
 
+test('FuturePositionList keeps a refresh timer handle and clears it on unmount', async () => {
+  const content = (await read('./FuturePositionList.vue')).replace(/\r/g, '')
+
+  assert.match(content, /positionListRefreshTimer:\s*null/)
+  assert.match(content, /this\.positionListRefreshTimer = window\.setInterval\(/)
+  assert.match(
+    content,
+    /beforeUnmount \(\) \{[\s\S]*if \(this\.positionListRefreshTimer\) \{[\s\S]*window\.clearInterval\(this\.positionListRefreshTimer\)[\s\S]*this\.positionListRefreshTimer = null[\s\S]*\}/
+  )
+})
+
 test('DailyScreening.vue no longer uses the deprecated el-pagination small prop', async () => {
   const content = await read('./DailyScreening.vue')
 
@@ -110,6 +121,17 @@ test('FuturesControl defers statistics mounting and prejudge fetching until the 
   assert.match(
     normalizedScript,
     /handleChangeTab \(tab\) \{[\s\S]*const tabName = tab\?\.props\?\.name \|\| tab\?\.paneName \|\| tab\?\.name[\s\S]*if \(tabName === 'second' && !this\.prejudgeTabLoaded\) \{[\s\S]*this\.prejudgeTabLoaded = true[\s\S]*this\.getPrejudgeList\(\)[\s\S]*\}[\s\S]*if \(tabName === 'third' && !this\.statisticsTabLoaded\) \{[\s\S]*this\.statisticsTabLoaded = true[\s\S]*\}/
+  )
+})
+
+test('future-control stores its dashboard polling handle and clears it on unmount', async () => {
+  const content = (await read('./js/future-control.js')).replace(/\r/g, '')
+
+  assert.match(content, /dashboardRefreshTimer:\s*null/)
+  assert.match(content, /this\.dashboardRefreshTimer = window\.setInterval\(/)
+  assert.match(
+    content,
+    /beforeUnmount \(\) \{[\s\S]*if \(this\.dashboardRefreshTimer\) \{[\s\S]*window\.clearInterval\(this\.dashboardRefreshTimer\)[\s\S]*this\.dashboardRefreshTimer = null[\s\S]*\}/
   )
 })
 

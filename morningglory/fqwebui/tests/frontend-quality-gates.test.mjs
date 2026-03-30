@@ -1,10 +1,38 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const readSource = (relativePath) => (
   readFileSync(new URL(relativePath, import.meta.url), 'utf8').replace(/\r/g, '')
 )
+
+const collectSourceFiles = (relativeDir) => {
+  const rootDir = fileURLToPath(new URL(relativeDir, import.meta.url))
+  const files = []
+
+  const walk = (currentDir) => {
+    for (const entry of readdirSync(currentDir, { withFileTypes: true })) {
+      const nextPath = path.join(currentDir, entry.name)
+
+      if (entry.isDirectory()) {
+        walk(nextPath)
+        continue
+      }
+
+      if (/\.(js|mjs|vue)$/.test(entry.name)) {
+        files.push({
+          path: nextPath,
+          content: readFileSync(nextPath, 'utf8').replace(/\r/g, '')
+        })
+      }
+    }
+  }
+
+  walk(rootDir)
+  return files
+}
 
 const packageJson = readSource('../package.json')
 const eslintConfig = readSource('../eslint.config.mjs')
@@ -12,6 +40,9 @@ const browserSmokeRunner = readSource('../scripts/run-browser-smoke.mjs')
 const nodeTestRunner = readSource('../scripts/run-node-tests.mjs')
 const ciYaml = readSource('../../../.github/workflows/ci.yml')
 const preflightScript = readSource('../../../script/fq_local_preflight.ps1')
+const mainSource = readSource('../src/main.js')
+const globalSource = readSource('../src/global.js')
+const sourceFiles = collectSourceFiles('../src/')
 
 test('fqwebui exposes frontend quality gate entrypoints', () => {
   assert.match(packageJson, /"lint"/)
@@ -41,6 +72,91 @@ test('test:unit discovers src and tests suites through a shared runner with expl
   assert.match(nodeTestRunner, /new URL\('\.\.\/tests\/', import\.meta\.url\)/)
   assert.match(nodeTestRunner, /kline-slim-subject-panel\.test\.mjs/)
   assert.match(nodeTestRunner, /stock-control-signal-lists\.test\.mjs/)
+})
+
+test('known-red frontend Node tests do not grow beyond the current 7-file ceiling', () => {
+  const knownRedMatch = nodeTestRunner.match(/KNOWN_RED_TEST_FILES = new Set\(\[([\s\S]*?)\]\)/)
+
+  assert.ok(knownRedMatch, 'KNOWN_RED_TEST_FILES definition should exist')
+
+  const knownRedEntries = [...knownRedMatch[1].matchAll(/'([^']+\.test\.mjs)'/g)].map((match) => match[1])
+
+  assert.ok(knownRedEntries.length > 0, 'KNOWN_RED_TEST_FILES should stay explicit')
+  assert.ok(knownRedEntries.length <= 7, `KNOWN_RED_TEST_FILES grew to ${knownRedEntries.length}`)
+})
+
+test('empty Vuex wiring is removed once fqwebui no longer has real store consumers', () => {
+  const vuexConsumerPattern = /\$store\b|useStore\(|mapState\b|mapGetters\b|mapActions\b|mapMutations\b|store\.(commit|dispatch)\(/
+  const storeDirFragment = `${path.sep}src${path.sep}store${path.sep}`
+  const storeFileUrl = new URL('../src/store/index.js', import.meta.url)
+  const storeDirPath = fileURLToPath(new URL('../src/store/', import.meta.url))
+  const consumerFiles = sourceFiles.filter(
+    ({ path: filePath, content }) => !filePath.includes(storeDirFragment) && vuexConsumerPattern.test(content)
+  )
+  const vuexImportFiles = sourceFiles.filter(({ content }) => /\bfrom ['"]vuex['"]|\brequire\(['"]vuex['"]\)/.test(content))
+  const lingeringStoreFiles = existsSync(storeDirPath)
+    ? readdirSync(storeDirPath).filter((entry) => /\.(js|mjs|ts|vue)$/.test(entry))
+    : []
+
+  assert.equal(
+    consumerFiles.length,
+    0,
+    `unexpected Vuex consumer(s): ${consumerFiles.map(({ path: filePath }) => path.relative(fileURLToPath(new URL('../src/', import.meta.url)), filePath)).join(', ')}`
+  )
+  assert.doesNotMatch(mainSource, /import store from '\.\/store'/)
+  assert.doesNotMatch(mainSource, /\.use\(store\)/)
+  assert.equal(
+    existsSync(storeFileUrl),
+    false,
+    'src/store/index.js should be removed once fqwebui no longer has real Vuex consumers'
+  )
+  assert.equal(
+    lingeringStoreFiles.length,
+    0,
+    `src/store should not retain Vuex source files: ${lingeringStoreFiles.join(', ')}`
+  )
+  assert.equal(
+    vuexImportFiles.length,
+    0,
+    `unexpected vuex import(s): ${vuexImportFiles.map(({ path: filePath }) => path.relative(fileURLToPath(new URL('../src/', import.meta.url)), filePath)).join(', ')}`
+  )
+  assert.doesNotMatch(packageJson, /"vuex"\s*:/)
+})
+
+test('legacy futures pages import trading constants explicitly instead of relying on globalProperties injections', () => {
+  const tradingConstantsSource = readSource('../src/config/tradingConstants.mjs')
+  const tradingConstantNames = [
+    'futureAccount',
+    'stockAccount',
+    'digitCoinAccount',
+    'globalFutureAccount',
+    'digitCoinLevel',
+    'globalFutureSymbol',
+    'maxAccountUseRate',
+    'stopRate'
+  ]
+  const legacyTradingGlobalPattern = /(this|that)\.\$(futureAccount|stockAccount|digitCoinAccount|globalFutureAccount|digitCoinLevel|globalFutureSymbol|maxAccountUseRate|stopRate)\b/
+  const legacyTradingFiles = [
+    '../src/views/js/future-control.js',
+    '../src/views/js/kline-mixin.js',
+    '../src/views/FuturePositionList.vue',
+    '../src/views/StatisticsChat.vue'
+  ]
+
+  for (const constantName of tradingConstantNames) {
+    assert.match(tradingConstantsSource, new RegExp(`export const ${constantName} =`))
+  }
+
+  for (const relativePath of legacyTradingFiles) {
+    const content = readSource(relativePath)
+    assert.match(content, /tradingConstants\.mjs/)
+    assert.doesNotMatch(content, legacyTradingGlobalPattern)
+  }
+
+  assert.doesNotMatch(
+    globalSource,
+    /app\.config\.globalProperties\.\$(futureAccount|stockAccount|digitCoinAccount|globalFutureAccount|digitCoinLevel|globalFutureSymbol|maxAccountUseRate|stopRate)\b/
+  )
 })
 
 test('preflight computes frontendChanged after the base ref is fetched and resolved', () => {

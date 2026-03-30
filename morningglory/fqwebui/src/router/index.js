@@ -1,16 +1,16 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import FuturesControl from '../views/FuturesControl.vue'
-import StockControl from '../views/StockControl.vue'
-import MultiPeriod from '../views/MultiPeriod.vue'
-import KlineBig from '../views/KlineBig.vue'
-import KlineSlim from '../views/KlineSlim.vue'
-import StockPools from '../components/StockPools.vue'
-import StockCjsd from '../components/StockCjsd.vue'
 import {
   resolveDocumentTitle,
   resolveRouteMetaTitle,
 } from './pageMeta.mjs'
 
+const FuturesControl = () => import('../views/FuturesControl.vue')
+const StockControl = () => import('../views/StockControl.vue')
+const MultiPeriod = () => import('../views/MultiPeriod.vue')
+const KlineBig = () => import('../views/KlineBig.vue')
+const KlineSlim = () => import('../views/KlineSlim.vue')
+const StockPools = () => import('../components/StockPools.vue')
+const StockCjsd = () => import('../components/StockCjsd.vue')
 const GanttUnified = () => import('../views/GanttUnified.vue')
 const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
 const GanttShouban30Phase1 = () => import('../views/GanttShouban30Phase1.vue')

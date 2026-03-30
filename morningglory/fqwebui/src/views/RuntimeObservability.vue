@@ -877,8 +877,6 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
-
 import { runtimeObservabilityApi } from '../api/runtimeObservabilityApi'
 import StructuredPayloadPanel from '../components/workbench/StructuredPayloadPanel.vue'
 import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
@@ -889,72 +887,20 @@ import StatusChip from '../components/workbench/StatusChip.vue'
 import WorkbenchSummaryRow from '../components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from './MyHeader.vue'
-import { buildStructuredPayloadEntries } from './runtimeObservabilityStructuredPayload.mjs'
 import {
-  buildComponentEventFeed,
-  buildComponentEventEmptyState,
-  buildEventLedgerRows,
-  buildComponentSidebarItems,
-  buildRuntimeDefaultTimeRange,
-  formatTimeRangeLabel,
-  buildTimeRangeQuery,
-  buildIssuePriorityCards,
-  buildTraceKindOptions,
-  buildTraceListSummary,
-  buildIssueSummary,
-  buildRawRecordSummary,
-  buildRawSelectionKey,
-  buildTraceLedgerRows,
-  buildTraceSummaryMeta,
-  buildTraceDetail,
-  buildTraceStepLedgerRows,
-  buildHealthCards,
-  buildRawLookupFromStep,
-  buildBoardScopedQuery,
-  buildTraceQuery,
   createTraceQueryState,
-  filterVisibleTraces,
-  findTraceByRow,
-  findRawRecordIndex,
-  filterTraceSteps,
-  pickTraceAnchorStep,
-  hasMatchingRawSelection,
-  pickDefaultSidebarComponent,
-  pickDefaultTraceStep,
-  readApiPayload,
-  resolveEventSemanticColumnLabel,
-  stopPollingTimer,
-  TRACE_QUERY_FIELDS,
+  buildRuntimeDefaultTimeRange,
   TRACE_QUERY_LABELS,
 } from './runtimeObservability.mjs'
+import { createRuntimeObservabilityController } from './runtimeObservabilityController.mjs'
+import { createRuntimeObservabilityDerivedState } from './runtimeObservabilityDerived.mjs'
+import { createRuntimeObservabilityPolling } from './runtimeObservabilityPolling.mjs'
+import { createRuntimeObservabilityQueryState } from './runtimeObservabilityQueries.mjs'
 import {
-  EVENT_PAGE_SIZE,
-  TRACE_PAGE_SIZE,
-  TRACE_STEP_PAGE_SIZE,
-  buildEventRequestKey as buildRuntimeEventRequestKey,
-  buildEventRequestParams as buildRuntimeEventRequestParams,
-  buildTraceRequestParams as buildRuntimeTraceRequestParams,
-  createRuntimeObservabilityQueryState,
-  mergeByKey,
-  summarizeRequestError,
-} from './runtimeObservabilityQueries.mjs'
-import {
-  buildEventCopyText as buildRuntimeEventCopyText,
-  buildIdentityCopyValue as buildRuntimeIdentityCopyValue,
-  buildStepCopyText as buildRuntimeStepCopyText,
   createRuntimeObservabilitySelectionState,
-  isActiveEventRow as checkActiveEventRow,
-  isActiveTraceRow as checkActiveTraceRow,
-  resetSelectedTraceDetailState as resetRuntimeSelectedTraceDetailState,
   stepKey as buildRuntimeStepKey,
-  syncSelectedStep as syncRuntimeSelectedStep,
 } from './runtimeObservabilitySelection.mjs'
-import {
-  buildFilterChips,
-  createRuntimeObservabilityFilterState,
-  normalizeTimeRangeState as normalizeRuntimeTimeRangeState,
-  syncQueryState as syncRuntimeQueryState,
-} from './runtimeObservabilityFilters.mjs'
+import { createRuntimeObservabilityFilterState } from './runtimeObservabilityFilters.mjs'
 
 const {
   loading,
@@ -1000,1435 +946,185 @@ const {
   rawQuery,
   lastLoadedEventQueryKey,
 } = createRuntimeObservabilitySelectionState()
-const rawRecordRefs = new Map()
-const stepRowRefs = new Map()
-let eventLoadToken = 0
-let traceDetailLoadToken = 0
-let overviewTimer = null
 const TIME_RANGE_PICKER_DEFAULT_TIME = [
   new Date(2000, 0, 1, 0, 0, 0),
   new Date(2000, 0, 1, 23, 59, 59),
 ]
 
-const hasDetailValue = (value) => {
-  if (value === null || value === undefined) return false
-  if (Array.isArray(value)) return value.some((item) => hasDetailValue(item))
-  if (typeof value === 'object') return Object.keys(value).length > 0
-  return String(value).trim() !== ''
-}
-
-const formatDetailValue = (value, fallback = '-') => {
-  if (value === null || value === undefined) return fallback
-  if (typeof value === 'string') {
-    const normalized = value.trim()
-    return normalized || fallback
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((item) => formatDetailValue(item, ''))
-      .filter(Boolean)
-    return parts.length ? parts.join(' · ') : fallback
-  }
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return fallback
-  }
-}
-
-const buildDetailRows = (rows = []) => {
-  return rows
-    .filter((row) => row && (row.always || hasDetailValue(row.value)))
-    .map((row, index) => ({
-      key: row.key || `row-${index}`,
-      label: row.label || row.key || '-',
-      value: formatDetailValue(row.value, row.fallback || '-'),
-      copyValue: hasDetailValue(row.copyValue ?? row.value)
-        ? formatDetailValue(row.copyValue ?? row.value, '')
-        : '',
-      mono: Boolean(row.mono),
-    }))
-}
-
-const buildNodeLabel = (component, node) => {
-  const normalizedComponent = String(component || '').trim()
-  const normalizedNode = String(node || '').trim()
-  const parts = []
-  if (normalizedComponent) {
-    const matchedComponent = componentSidebarItems.value.find((item) => item.component === normalizedComponent)
-    parts.push(matchedComponent?.component_label || normalizedComponent)
-  }
-  if (normalizedNode) {
-    const matchedNode = eventLedgerRows.value.find((item) => item.component === normalizedComponent && item.node === normalizedNode)
-    parts.push(matchedNode?.node_label || normalizedNode)
-  }
-  return parts.length ? parts.join('.') : '-'
-}
-
-const flattenDetailEntries = (value, prefix = '') => {
-  if (value === null || value === undefined) return []
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return prefix ? [{ key: prefix, value: '[]' }] : []
-    }
-    return value.flatMap((item, index) =>
-      flattenDetailEntries(item, prefix ? `${prefix}[${index}]` : `[${index}]`),
-    )
-  }
-  if (typeof value === 'object') {
-    const entries = Object.entries(value)
-    if (entries.length === 0) {
-      return prefix ? [{ key: prefix, value: '{}' }] : []
-    }
-    return entries.flatMap(([key, nestedValue]) =>
-      flattenDetailEntries(nestedValue, prefix ? `${prefix}.${key}` : key),
-    )
-  }
-  return [
-    {
-      key: prefix || 'value',
-      value: formatDetailValue(value),
-    },
-  ]
-}
-
-const buildStructuredRows = (text, fallbackLabel) => {
-  const normalized = String(text || '').trim()
-  if (!normalized) return []
-  try {
-    const parsed = JSON.parse(normalized)
-    return buildDetailRows(
-      flattenDetailEntries(parsed)
-        .slice(0, 32)
-        .map((entry, index) => ({
-          key: `${fallbackLabel}-${index}`,
-          label: entry.key || fallbackLabel,
-          value: entry.value,
-          mono: true,
-        })),
-    )
-  } catch {
-    return buildDetailRows([
-      {
-        key: `${fallbackLabel}-raw`,
-        label: fallbackLabel,
-        value: normalized,
-      },
-    ])
-  }
-}
-
-const buildContextRows = (blocks = []) => {
-  return buildDetailRows(
-    (Array.isArray(blocks) ? blocks : []).flatMap((block) =>
-      (Array.isArray(block?.items) ? block.items : []).map((item) => ({
-        key: `${block.key}-${item.key}`,
-        label: `${block.label}.${item.key}`,
-        value: item.value,
-      })),
-    ),
-  )
-}
-
-const normalizeTimeRangeState = (value) => normalizeRuntimeTimeRangeState(value, {
-  buildRuntimeDefaultTimeRange,
-})
-
-const buildTraceRequestParams = () => buildRuntimeTraceRequestParams({
-  buildTraceQuery,
-  query,
-  timeRange: timeRange.value,
-  selectedTraceKind: selectedTraceKind.value,
-})
-
-const buildEventRequestParams = () => buildRuntimeEventRequestParams({
-  buildBoardScopedQuery,
-  query,
+const {
+  activeComponent,
+  componentEventEmptyState,
+  componentEventFeed,
+  componentSidebarItems,
+  embeddedRawFocusedIndex,
+  embeddedRawLedgerRows,
+  embeddedRawRecordCards,
+  eventContextRows,
+  eventDecisionRows,
+  eventDetailFieldRows,
+  eventGuardianRows,
+  eventLedgerRows,
+  eventMetaRows,
+  eventMetricRows,
+  eventMetricsEntries,
+  eventPayloadEntries,
+  eventSemanticColumnLabel,
+  eventSignalRows,
+  eventSummaryRows,
+  filterChips,
+  filteredSteps,
+  firstIssueTraceStep,
+  guardianDecisionContextRows,
+  guardianSignalRows,
+  guardianTrace,
+  guardianTraceRows,
+  hydratedTraces,
+  issuePriorityCards,
+  issueSummary,
+  nextIssueTraceStep,
+  previousIssueTraceStep,
+  rawRecordCards,
+  selectedStepContextRows,
+  selectedStepDecisionRows,
+  selectedStepErrorRows,
+  selectedStepGuardianRows,
+  selectedStepMetricsEntries,
+  selectedStepOverviewRows,
+  selectedStepPayloadEntries,
+  selectedStepSignalRows,
+  selectedTraceDetail,
+  slowestTraceStep,
+  timeRangeDisplayLabel,
+  traceIssueFocusLabel,
+  traceIssueRows,
+  traceKindOptions,
+  traceLedgerRows,
+  traceListSummary,
+  traceStepLedgerRows,
+  traceSummaryMeta,
+  traceSummaryRows,
+  visibleTraces,
+} = createRuntimeObservabilityDerivedState({
+  timeRange,
+  traces,
+  events,
+  healthSummaryItems,
   boardFilter,
-  timeRange: timeRange.value,
-})
-
-const buildEventRequestKey = () => buildRuntimeEventRequestKey(buildEventRequestParams())
-const timeRangeDisplayLabel = computed(() => formatTimeRangeLabel(timeRange.value))
-
-const hydratedTraces = computed(() => traces.value.map((trace) => buildTraceDetail(trace)))
-const visibleTraces = computed(() =>
-  filterVisibleTraces(hydratedTraces.value, {
-    issueComponent: traceIssueFocus.component,
-    onlyIssueTraces: traceOnlyIssues.value,
-  }),
-)
-const traceKindOptions = computed(() => buildTraceKindOptions(hydratedTraces.value))
-const traceListSummary = computed(() => buildTraceListSummary(visibleTraces.value))
-const issuePriorityCards = computed(() => buildIssuePriorityCards(visibleTraces.value))
-const traceLedgerRows = computed(() => buildTraceLedgerRows(visibleTraces.value))
-const componentSidebarItems = computed(() => buildComponentSidebarItems(hydratedTraces.value, healthSummaryItems.value))
-const activeComponent = computed(() => String(boardFilter.component || '').trim())
-const traceIssueFocusLabel = computed(() => {
-  const component = String(traceIssueFocus.component || '').trim()
-  if (!component) return ''
-  return componentSidebarItems.value.find((item) => item.component === component)?.component_label || component
-})
-const allComponentEventFeed = computed(() => {
-  if (!activeComponent.value) return []
-  return buildComponentEventFeed(events.value, {
-    component: activeComponent.value,
-    runtime_node: boardFilter.runtime_node,
-    onlyIssues: false,
-  })
-})
-const componentEventFeed = computed(() => {
-  if (!activeComponent.value) return []
-  return buildComponentEventFeed(events.value, {
-    component: activeComponent.value,
-    runtime_node: boardFilter.runtime_node,
-    onlyIssues: onlyIssues.value,
-  })
-})
-const eventSemanticColumnLabel = computed(() => resolveEventSemanticColumnLabel(activeComponent.value))
-const eventLedgerRows = computed(() => buildEventLedgerRows(componentEventFeed.value))
-const componentEventEmptyState = computed(() => buildComponentEventEmptyState({
-  component: activeComponent.value,
-  allEvents: allComponentEventFeed.value,
-  visibleEvents: componentEventFeed.value,
-  onlyIssues: onlyIssues.value,
-}))
-const filterChips = computed(() => buildFilterChips({
-  traceOnlyIssues: traceOnlyIssues.value,
-  onlyIssues: onlyIssues.value,
+  traceIssueFocus,
+  traceOnlyIssues,
+  onlyIssues,
   query,
   traceQueryLabels: TRACE_QUERY_LABELS,
-  selectedTraceKind: selectedTraceKind.value,
-  traceKindOptions: traceKindOptions.value,
-  traceIssueFocusLabel: traceIssueFocusLabel.value,
-}))
-
-const selectedTraceDetail = computed(() => buildTraceDetail({
-  ...(selectedTrace.value || {}),
-  ...(selectedTracePayload.value?.trace || {}),
-  steps: traceSteps.value,
-}))
-const guardianTrace = computed(() => selectedTraceDetail.value.guardian_trace || null)
-const traceSummaryMeta = computed(() => buildTraceSummaryMeta(selectedTraceDetail.value))
-const issueSummary = computed(() => buildIssueSummary(selectedTraceDetail.value))
-const filteredSteps = computed(() => {
-  return filterTraceSteps(selectedTraceDetail.value.steps, { onlyIssues: onlyIssues.value })
+  selectedTraceKind,
+  selectedTrace,
+  selectedTracePayload,
+  traceSteps,
+  selectedStep,
+  selectedEvent,
+  rawRecords,
+  rawFocusedIndex,
+  rawSelectionKey,
+  activeView,
+  stepKey: buildRuntimeStepKey,
 })
-const firstIssueTraceStep = computed(() => pickTraceAnchorStep(selectedTraceDetail.value, null, 'first-issue'))
-const previousIssueTraceStep = computed(() => pickTraceAnchorStep(selectedTraceDetail.value, selectedStep.value, 'previous-issue'))
-const nextIssueTraceStep = computed(() => pickTraceAnchorStep(selectedTraceDetail.value, selectedStep.value, 'next-issue'))
-const slowestTraceStep = computed(() => pickTraceAnchorStep(selectedTraceDetail.value, selectedStep.value, 'slowest-step'))
-const traceStepLedgerRows = computed(() =>
-  buildTraceStepLedgerRows({
-    ...selectedTraceDetail.value,
-    steps: filteredSteps.value,
-  }),
-)
-const rawRecordCards = computed(() => rawRecords.value.map((record) => buildRawRecordSummary(record)))
-const activeEmbeddedRawTarget = computed(() => (activeView.value === 'events' ? selectedEvent.value : selectedStep.value))
-const embeddedRawRecordCards = computed(() => {
-  return hasMatchingRawSelection(rawSelectionKey.value, activeEmbeddedRawTarget.value, activeView.value)
-    ? rawRecordCards.value
-    : []
-})
-const embeddedRawFocusedIndex = computed(() => (embeddedRawRecordCards.value.length > 0 ? rawFocusedIndex.value : -1))
-const traceSummaryRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'trace',
-      label: 'Trace',
-      value: selectedTraceDetail.value.trace_id || selectedTrace.value?.trace_key,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'symbol',
-      label: '标的',
-      value: selectedTraceDetail.value.symbol_display,
-      always: true,
-    },
-    {
-      key: 'kind',
-      label: '链路类型',
-      value: traceLedgerRows.value.find((item) => item.trace_id === selectedTraceDetail.value.trace_id)?.trace_kind_label || selectedTraceDetail.value.trace_kind,
-      always: true,
-    },
-    {
-      key: 'status',
-      label: '链路状态',
-      value: traceLedgerRows.value.find((item) => item.trace_id === selectedTraceDetail.value.trace_id)?.trace_status_label || selectedTraceDetail.value.trace_status,
-      always: true,
-    },
-    {
-      key: 'first_ts',
-      label: '开始',
-      value: selectedTraceDetail.value.first_ts_label,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'last_ts',
-      label: '结束',
-      value: selectedTraceDetail.value.last_ts_label,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'duration',
-      label: '总耗时',
-      value: selectedTraceDetail.value.duration_label || selectedTraceDetail.value.total_duration_label,
-      always: true,
-    },
-    {
-      key: 'step_count',
-      label: '节点数',
-      value: selectedTraceDetail.value.step_count,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'issue_count',
-      label: '异常节点数',
-      value: selectedTraceDetail.value.issue_count,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'entry',
-      label: '入口',
-      value: buildNodeLabel(selectedTraceDetail.value.entry_component, selectedTraceDetail.value.entry_node),
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'exit',
-      label: '出口',
-      value: buildNodeLabel(selectedTraceDetail.value.exit_component, selectedTraceDetail.value.exit_node),
-      mono: true,
-      always: true,
-    },
-  ]),
-)
-const traceIssueRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'issue_headline',
-      label: '异常概览',
-      value: issueSummary.value.headline,
-      always: true,
-    },
-    {
-      key: 'issue_nodes',
-      label: '异常阶段',
-      value: selectedTraceDetail.value.steps
-        .filter((step) => step?.is_issue)
-        .map((step) => buildNodeLabel(step.component, step.node)),
-      always: true,
-    },
-    {
-      key: 'break_reason',
-      label: '断裂原因',
-      value: selectedTraceDetail.value.break_reason,
-      always: true,
-    },
-    {
-      key: 'first_issue',
-      label: '首个异常',
-      value: traceSummaryMeta.value.first_issue
-        ? buildNodeLabel(traceSummaryMeta.value.first_issue.component, traceSummaryMeta.value.first_issue.node)
-        : '-',
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'last_issue',
-      label: '最后异常',
-      value: traceSummaryMeta.value.last_issue
-        ? buildNodeLabel(traceSummaryMeta.value.last_issue.component, traceSummaryMeta.value.last_issue.node)
-        : '-',
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'slowest',
-      label: '慢点',
-      value: traceSummaryMeta.value.slowest_step
-        ? `${buildNodeLabel(traceSummaryMeta.value.slowest_step.component, traceSummaryMeta.value.slowest_step.node)} · ${traceSummaryMeta.value.slowest_step.delta_from_prev_label || '-'}`
-        : '-',
-      always: true,
-    },
-    {
-      key: 'affected_components',
-      label: '涉及组件',
-      value: traceSummaryMeta.value.affected_components,
-      always: true,
-    },
-    {
-      key: 'issue_reasons',
-      label: '异常原因',
-      value: issueSummary.value.items.map((item) => `${item.label} x${item.count}`),
-      always: true,
-    },
-  ]),
-)
-const guardianTraceRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'guardian_signal',
-      label: '信号',
-      value: guardianTrace.value?.signal?.title,
-      always: true,
-    },
-    {
-      key: 'guardian_signal_subtitle',
-      label: '摘要',
-      value: guardianTrace.value?.signal?.subtitle,
-      always: true,
-    },
-    {
-      key: 'guardian_tags',
-      label: '标签',
-      value: guardianTrace.value?.signal?.tags || [],
-      always: true,
-    },
-    {
-      key: 'guardian_conclusion',
-      label: '结论',
-      value: guardianTrace.value?.conclusion?.label,
-      always: true,
-    },
-    {
-      key: 'guardian_node',
-      label: '节点',
-      value: guardianTrace.value?.conclusion?.node_label,
-      always: true,
-    },
-    {
-      key: 'guardian_reason',
-      label: '原因',
-      value: guardianTrace.value?.conclusion?.reason_code,
-      always: true,
-    },
-    {
-      key: 'guardian_branch',
-      label: '分支',
-      value: guardianTrace.value?.conclusion?.branch,
-      always: true,
-    },
-    {
-      key: 'guardian_expr',
-      label: '条件',
-      value: guardianTrace.value?.conclusion?.expr,
-      always: true,
-    },
-  ]),
-)
-const guardianSignalRows = computed(() =>
-  buildDetailRows(
-    (guardianTrace.value?.signal?.items || []).map((item) => ({
-      key: item.key,
-      label: item.label,
-      value: item.value,
-    })),
-  ),
-)
-const guardianDecisionContextRows = computed(() =>
-  buildContextRows(guardianTrace.value?.latest_decision?.context_blocks || []),
-)
-const selectedStepOverviewRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'step_index',
-      label: 'Step',
-      value: selectedStep.value ? `#${selectedStep.value.index + 1}` : '-',
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'component',
-      label: '组件',
-      value: selectedStep.value?.component,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'component_node',
-      label: '节点',
-      value: selectedStep.value ? buildNodeLabel(selectedStep.value.component, selectedStep.value.node) : '-',
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      value: selectedStep.value?.status,
-      always: true,
-    },
-    {
-      key: 'ts',
-      label: '时间',
-      value: selectedStep.value?.ts_label,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'delta',
-      label: 'Delta',
-      value: selectedStep.value?.delta_from_prev_label,
-      always: true,
-    },
-    {
-      key: 'offset',
-      label: 'Offset',
-      value:
-        selectedStep.value?.offset_ms !== null && selectedStep.value?.offset_ms !== undefined
-          ? `${selectedStep.value.offset_ms}ms`
-          : '-',
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'event_type',
-      label: 'Event',
-      value: selectedStep.value?.event_type,
-      always: true,
-    },
-    {
-      key: 'symbol',
-      label: '标的',
-      value: selectedStep.value?.symbol_display,
-      always: true,
-    },
-    {
-      key: 'flags',
-      label: '标记',
-      value: [
-        isFirstIssueStep(selectedStep.value) ? '首个异常' : '',
-        isSlowestStep(selectedStep.value) ? '最长耗时节点' : '',
-      ].filter(Boolean),
-      always: true,
-    },
-  ]),
-)
-const selectedStepGuardianRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'guardian_node',
-      label: 'Guardian 节点',
-      value: selectedStep.value?.guardian_step?.node_label,
-      always: true,
-    },
-    {
-      key: 'guardian_outcome',
-      label: '判断结果',
-      value: selectedStep.value?.guardian_step?.outcome?.label,
-      always: true,
-    },
-    {
-      key: 'guardian_branch',
-      label: '分支',
-      value: selectedStep.value?.guardian_step?.outcome?.branch,
-      always: true,
-    },
-    {
-      key: 'guardian_reason',
-      label: '原因',
-      value: selectedStep.value?.guardian_step?.outcome?.reason_code,
-      always: true,
-    },
-    {
-      key: 'guardian_expr',
-      label: '条件',
-      value: selectedStep.value?.guardian_step?.outcome?.expr,
-      always: true,
-    },
-  ]),
-)
-const selectedStepDecisionRows = computed(() =>
-  buildDetailRows([
-    ...(selectedStepGuardianRows.value || []).map((row) => ({
-      key: row.key,
-      label: row.label,
-      value: row.value,
-      mono: row.mono,
-      always: true,
-    })),
-    ...((selectedStep.value?.tags || []).map((tag) => ({
-      key: `tag-${tag.key}`,
-      label: tag.label,
-      value: tag.value,
-      always: true,
-    }))),
-    ...((selectedStep.value?.detail_fields || []).map((field) => ({
-      key: `field-${field.key}`,
-      label: field.key,
-      value: field.value,
-      mono: true,
-      always: true,
-    }))),
-  ]),
-)
-const selectedStepSignalRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'signal_title',
-      label: '信号',
-      value: selectedStep.value?.guardian_step?.signal?.title,
-      always: true,
-    },
-    {
-      key: 'signal_subtitle',
-      label: '摘要',
-      value: selectedStep.value?.guardian_step?.signal?.subtitle,
-      always: true,
-    },
-    {
-      key: 'signal_tags',
-      label: '标签',
-      value: selectedStep.value?.guardian_step?.signal?.tags || [],
-      always: true,
-    },
-    ...((selectedStep.value?.guardian_step?.signal?.items || []).map((item) => ({
-      key: `signal-${item.key}`,
-      label: item.label,
-      value: item.value,
-    }))),
-  ]),
-)
-const selectedStepContextRows = computed(() =>
-  buildContextRows(selectedStep.value?.guardian_step?.context_blocks || []),
-)
-const selectedStepErrorRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'error_type',
-      label: '异常类型',
-      value: selectedStep.value?.error_type || selectedStep.value?.payload?.error_type,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'error_message',
-      label: '异常信息',
-      value: selectedStep.value?.error_message || selectedStep.value?.payload?.error_message,
-      always: true,
-    },
-  ]),
-)
-const selectedStepPayloadEntries = computed(() => buildStructuredPayloadEntries(selectedStep.value?.payload_text, 'payload'))
-const selectedStepMetricsEntries = computed(() => buildStructuredPayloadEntries(selectedStep.value?.metrics_text, 'metrics'))
-const eventMetaRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'event_node',
-      label: '事件',
-      value: selectedEvent.value ? buildNodeLabel(selectedEvent.value.component, selectedEvent.value.node) : '-',
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'event_type',
-      label: 'Type',
-      value: selectedEvent.value?.event_type,
-      always: true,
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      value: selectedEvent.value?.status,
-      always: true,
-    },
-    {
-      key: 'runtime_node',
-      label: 'Runtime Node',
-      value: selectedEvent.value?.runtime_node,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'ts',
-      label: '时间',
-      value: selectedEvent.value?.ts_label,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'symbol',
-      label: 'Symbol',
-      value: selectedEvent.value?.symbol_display,
-      always: true,
-    },
-    {
-      key: 'identity',
-      label: 'Identity',
-      value: selectedEvent.value?.identity,
-      mono: true,
-      always: true,
-    },
-    {
-      key: 'is_issue',
-      label: '异常',
-      value: selectedEvent.value?.is_issue ? 'yes' : 'no',
-      always: true,
-    },
-  ]),
-)
-const eventSummaryRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'summary',
-      label: '摘要',
-      value: selectedEvent.value?.summary,
-      always: true,
-    },
-    {
-      key: 'badges',
-      label: 'Badges',
-      value: selectedEvent.value?.badges || [],
-      always: true,
-    },
-    {
-      key: 'message',
-      label: '消息',
-      value: selectedEvent.value?.message,
-      always: true,
-    },
-    {
-      key: 'metrics_summary',
-      label: 'Metrics',
-      value: (selectedEvent.value?.summary_metrics || []).map((metric) => `${metric.label} ${metric.display}`),
-      always: true,
-    },
-  ]),
-)
-const eventMetricRows = computed(() =>
-  buildDetailRows(
-    (selectedEvent.value?.summary_metrics || []).map((metric) => ({
-      key: metric.key,
-      label: metric.label,
-      value: metric.display,
-    })),
-  ),
-)
-const eventDecisionRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'decision_outcome',
-      label: '判断结果',
-      value:
-        selectedEvent.value?.guardian_step?.outcome?.label ||
-        selectedEvent.value?.decision_outcome?.label ||
-        selectedEvent.value?.decision_outcome?.outcome,
-      always: true,
-    },
-    ...((selectedEvent.value?.tags || []).map((tag) => ({
-      key: `decision-${tag.key}`,
-      label: tag.label,
-      value: tag.value,
-    }))),
-  ]),
-)
-const eventDetailFieldRows = computed(() =>
-  buildDetailRows(
-    (selectedEvent.value?.detail_fields || []).map((field) => ({
-      key: field.key,
-      label: field.key,
-      value: field.value,
-      mono: true,
-    })),
-  ),
-)
-const eventGuardianRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'guardian_node',
-      label: 'Guardian 节点',
-      value: selectedEvent.value?.guardian_step?.node_label,
-      always: true,
-    },
-    {
-      key: 'guardian_outcome',
-      label: '判断结果',
-      value: selectedEvent.value?.guardian_step?.outcome?.label,
-      always: true,
-    },
-    {
-      key: 'guardian_branch',
-      label: '分支',
-      value: selectedEvent.value?.guardian_step?.outcome?.branch,
-      always: true,
-    },
-    {
-      key: 'guardian_reason',
-      label: '原因',
-      value: selectedEvent.value?.guardian_step?.outcome?.reason_code,
-      always: true,
-    },
-    {
-      key: 'guardian_expr',
-      label: '条件',
-      value: selectedEvent.value?.guardian_step?.outcome?.expr,
-      always: true,
-    },
-  ]),
-)
-const eventSignalRows = computed(() =>
-  buildDetailRows([
-    {
-      key: 'signal_title',
-      label: '信号',
-      value: selectedEvent.value?.guardian_step?.signal?.title,
-      always: true,
-    },
-    {
-      key: 'signal_subtitle',
-      label: '摘要',
-      value: selectedEvent.value?.guardian_step?.signal?.subtitle,
-      always: true,
-    },
-    {
-      key: 'signal_tags',
-      label: '标签',
-      value: selectedEvent.value?.guardian_step?.signal?.tags || [],
-      always: true,
-    },
-    ...((selectedEvent.value?.guardian_step?.signal?.items || []).map((item) => ({
-      key: `signal-${item.key}`,
-      label: item.label,
-      value: item.value,
-    }))),
-  ]),
-)
-const eventContextRows = computed(() => {
-  if (selectedEvent.value?.guardian_step?.context_blocks?.length) {
-    return buildContextRows(selectedEvent.value.guardian_step.context_blocks)
-  }
-  return buildStructuredRows(selectedEvent.value?.decision_context_text, 'context')
-})
-const eventPayloadEntries = computed(() => buildStructuredPayloadEntries(selectedEvent.value?.payload_text, 'payload'))
-const eventMetricsEntries = computed(() => buildStructuredPayloadEntries(selectedEvent.value?.metrics_text, 'metrics'))
-const embeddedRawLedgerRows = computed(() =>
-  embeddedRawRecordCards.value.map((record, index) => ({
-    key: `${record.title}-${index}`,
-    title: record.title || '-',
-    subtitle: record.subtitle || '-',
-    badges: Array.isArray(record.badges) ? record.badges : [],
-    body: record.body || '',
-    active: embeddedRawFocusedIndex.value === index,
-  })),
-)
 
-const syncQueryState = (target, source = {}) => syncRuntimeQueryState(target, source, TRACE_QUERY_FIELDS)
+let runtimeObservabilityController = null
+const {
+  resetOverviewPolling,
+  disposeOverviewPolling,
+} = createRuntimeObservabilityPolling({
+  autoRefresh,
+  loadOverview: () => runtimeObservabilityController?.loadOverview?.(),
+})
 
-const resetSelectedTraceDetailState = () => resetRuntimeSelectedTraceDetailState({
+runtimeObservabilityController = createRuntimeObservabilityController({
+  runtimeObservabilityApi,
+  loading,
+  healthSummaryItems,
+  healthCards,
+  traces,
+  traceNextCursor,
+  events,
+  eventNextCursor,
+  pageError,
+  query,
+  draftQuery,
+  timeRange,
+  activeView,
+  onlyIssues,
+  traceOnlyIssues,
+  autoRefresh,
+  advancedFilterVisible,
+  userSelectedComponent,
+  selectedTraceKind,
+  boardFilter,
+  traceIssueFocus,
+  selectedTrace,
   selectedTracePayload,
   traceSteps,
   traceStepsNextCursor,
   selectedStep,
+  selectedEvent,
+  activeTraceDetailTab,
+  activeEventDetailTab,
+  rawDrawerVisible,
+  rawFiles,
+  rawRecords,
+  rawFocusedIndex,
+  rawSelectionKey,
+  rawQuery,
+  lastLoadedEventQueryKey,
+  hydratedTraces,
+  visibleTraces,
+  traceListSummary,
+  selectedTraceDetail,
+  filteredSteps,
+  componentEventFeed,
+  componentSidebarItems,
+  traceStepLedgerRows,
+  resetOverviewPolling,
+  disposeOverviewPolling,
 })
 
-const loadOverview = async () => {
-  loading.overview = true
-  try {
-    pageError.value = ''
-    const currentTimeRange = normalizeTimeRangeState(timeRange.value)
-    timeRange.value = currentTimeRange
-    const [healthResult, traceResult, eventResult] = await Promise.allSettled([
-      runtimeObservabilityApi.getHealthSummary(buildTimeRangeQuery(currentTimeRange)),
-      loadTraces({ suppressError: true }),
-      ...(activeView.value === 'events' ? [loadEvents({ suppressError: true })] : []),
-    ])
-    const errors = []
-    if (healthResult.status === 'fulfilled') {
-      healthSummaryItems.value = readApiPayload(healthResult.value, 'components', [])
-      healthCards.value = buildHealthCards(healthSummaryItems.value)
-    } else {
-      errors.push(summarizeRequestError('健康摘要加载失败', healthResult.reason))
-    }
-    if (traceResult.status === 'rejected') {
-      errors.push(summarizeRequestError('Trace 列表加载失败', traceResult.reason))
-    }
-    if (eventResult?.status === 'rejected') {
-      errors.push(summarizeRequestError('Event 列表加载失败', eventResult.reason))
-    }
-    pageError.value = errors.join('；')
-  } finally {
-    loading.overview = false
-  }
-}
-
-const loadTraces = async (options = {}) => {
-  const suppressError = Boolean(options?.suppressError)
-  const append = Boolean(options?.append)
-  loading.traces = true
-  try {
-    if (!suppressError) pageError.value = ''
-    const cursor = append ? traceNextCursor.value : null
-    const response = await runtimeObservabilityApi.listTraces({
-      ...buildTraceRequestParams(),
-      ...(cursor?.ts ? { cursor_ts: cursor.ts } : {}),
-      ...(cursor?.trace_key ? { cursor_trace_key: cursor.trace_key } : {}),
-    })
-    const items = readApiPayload(response, 'items', [])
-    const nextCursor = readApiPayload(response, 'next_cursor', null)
-    traces.value = append
-      ? mergeByKey([...traces.value, ...items], 'trace_key')
-      : items
-    traceNextCursor.value = nextCursor
-    if (!append) {
-      const currentTraceRow = {
-        trace_key: selectedTrace.value?.trace_key,
-        trace_id: selectedTrace.value?.trace_id,
-      }
-      const nextSelected = findTraceByRow(traces.value, currentTraceRow) || traces.value[0] || null
-      if ((nextSelected?.trace_key || '') !== (selectedTrace.value?.trace_key || '')) {
-        resetSelectedTraceDetailState()
-      }
-      selectedTrace.value = nextSelected
-    }
-  } catch (error) {
-    if (!suppressError) {
-      pageError.value = summarizeRequestError('Trace 列表加载失败', error)
-    }
-    throw error
-  } finally {
-    loading.traces = false
-  }
-}
-
-const loadMoreTraces = async () => {
-  if (!traceNextCursor.value || loading.traces) return
-  await loadTraces({ append: true })
-}
-
-const loadEvents = async (options = {}) => {
-  const suppressError = Boolean(options?.suppressError)
-  const append = Boolean(options?.append)
-  const loadToken = eventLoadToken + 1
-  const cursor = append ? eventNextCursor.value : null
-  const params = {
-    ...buildEventRequestParams(),
-    ...(cursor?.ts ? { cursor_ts: cursor.ts } : {}),
-    ...(cursor?.event_id ? { cursor_event_id: cursor.event_id } : {}),
-  }
-  const requestKey = buildEventRequestKey()
-  eventLoadToken = loadToken
-  loading.events = true
-  try {
-    if (!suppressError) pageError.value = ''
-    const response = await runtimeObservabilityApi.listEvents(params)
-    if (loadToken !== eventLoadToken) return
-    const items = readApiPayload(response, 'items', [])
-    events.value = append
-      ? mergeByKey([...events.value, ...items], 'event_id')
-      : items
-    eventNextCursor.value = readApiPayload(response, 'next_cursor', null)
-    lastLoadedEventQueryKey.value = requestKey
-  } catch (error) {
-    if (loadToken !== eventLoadToken) return
-    if (!suppressError) {
-      pageError.value = summarizeRequestError('Event 列表加载失败', error)
-    }
-    throw error
-  } finally {
-    if (loadToken === eventLoadToken) {
-      loading.events = false
-    }
-  }
-}
-
-const loadMoreEvents = async () => {
-  if (!eventNextCursor.value || loading.events) return
-  await loadEvents({ append: true })
-}
-
-const loadTraceDetail = async (traceRow, options = {}) => {
-  const suppressError = Boolean(options?.suppressError)
-  const targetTrace = traceRow || selectedTrace.value
-  const traceKey = String(targetTrace?.trace_key || targetTrace?.trace_id || '').trim()
-  if (!traceKey) {
-    traceDetailLoadToken += 1
-    resetSelectedTraceDetailState()
-    return
-  }
-  const loadToken = ++traceDetailLoadToken
-  loading.traceDetail = true
-  try {
-    if (!suppressError) pageError.value = ''
-    const response = await runtimeObservabilityApi.getTraceDetail(traceKey, {
-      ...buildTimeRangeQuery(timeRange.value),
-      step_limit: TRACE_STEP_PAGE_SIZE,
-    })
-    if (loadToken !== traceDetailLoadToken) return
-    const trace = readApiPayload(response, 'trace', null)
-    const steps = readApiPayload(response, 'steps', [])
-    selectedTracePayload.value = { trace }
-    traceSteps.value = Array.isArray(steps) ? steps : []
-    traceStepsNextCursor.value = readApiPayload(response, 'steps_next_cursor', null)
-  } catch (error) {
-    if (loadToken !== traceDetailLoadToken) return
-    resetSelectedTraceDetailState()
-    if (!suppressError) {
-      pageError.value = summarizeRequestError('Trace 详情加载失败', error)
-    }
-    throw error
-  } finally {
-    if (loadToken === traceDetailLoadToken) {
-      loading.traceDetail = false
-    }
-  }
-}
-
-const loadMoreTraceSteps = async () => {
-  const targetTraceKey = String(selectedTrace.value?.trace_key || selectedTrace.value?.trace_id || '').trim()
-  if (!targetTraceKey || !traceStepsNextCursor.value || loading.traceSteps) return
-  loading.traceSteps = true
-  try {
-    const response = await runtimeObservabilityApi.listTraceSteps(targetTraceKey, {
-      ...buildTimeRangeQuery(timeRange.value),
-      limit: TRACE_STEP_PAGE_SIZE,
-      cursor_ts: traceStepsNextCursor.value?.ts,
-      cursor_event_id: traceStepsNextCursor.value?.event_id,
-    })
-    const items = readApiPayload(response, 'items', [])
-    traceSteps.value = [...items, ...traceSteps.value]
-    traceStepsNextCursor.value = readApiPayload(response, 'next_cursor', null)
-  } catch (error) {
-    pageError.value = summarizeRequestError('Trace 步骤加载失败', error)
-    throw error
-  } finally {
-    loading.traceSteps = false
-  }
-}
-
-const openAdvancedFilter = () => {
-  syncQueryState(draftQuery, query)
-  advancedFilterVisible.value = true
-}
-
-const applyAdvancedFilter = async () => {
-  syncQueryState(query, draftQuery)
-  const tasks = [loadTraces()]
-  if (activeView.value === 'events') {
-    tasks.push(loadEvents())
-  }
-  await Promise.all(tasks)
-  advancedFilterVisible.value = false
-}
-
-const resetAdvancedFilter = () => {
-  syncQueryState(draftQuery)
-}
-
-const handleTraceClick = async (row) => {
-  const selected = findTraceByRow(hydratedTraces.value, row)
-  if (!selected) return
-  const previousTraceKey = selectedTrace.value?.trace_key || selectedTrace.value?.trace_id || ''
-  const nextTraceKey = selected.trace_key || selected.trace_id || ''
-  if (previousTraceKey !== nextTraceKey) {
-    resetSelectedTraceDetailState()
-  }
-  selectedTrace.value = selected
-  activeTraceDetailTab.value = 'steps'
-  if (previousTraceKey === nextTraceKey && !selectedTracePayload.value?.trace?.trace_key) {
-    await loadTraceDetail(selected, { suppressError: true })
-  }
-}
-
-const handleIssueCardClick = async (card) => {
-  await handleTraceClick(card)
-}
-
-const handleRecentTraceClick = async (row) => {
-  await handleTraceClick(row)
-}
-
-const handleEventClick = (event) => {
-  selectedEvent.value = event || null
-  activeEventDetailTab.value = 'event'
-}
-
-const handleTimeRangeChange = async (value) => {
-  timeRange.value = normalizeTimeRangeState(value)
-  await loadOverview()
-}
-
-const handleTraceKindClick = async (kind) => {
-  const normalizedKind = String(kind || '').trim() || 'all'
-  selectedTraceKind.value = normalizedKind
-  await loadTraces()
-}
-
-const switchToComponentEvents = async (component, options = {}) => {
-  const normalizedComponent = String(component || '').trim()
-  if (!normalizedComponent) return
-  const nextOnlyIssues = Object.prototype.hasOwnProperty.call(options, 'onlyIssues')
-    ? Boolean(options.onlyIssues)
-    : onlyIssues.value
-  traceIssueFocus.component = ''
-  traceOnlyIssues.value = false
-  userSelectedComponent.value = true
-  boardFilter.component = normalizedComponent
-  boardFilter.runtime_node = ''
-  onlyIssues.value = nextOnlyIssues
-  activeView.value = 'events'
-  if (lastLoadedEventQueryKey.value === buildEventRequestKey()) return
-  await loadEvents({ suppressError: true })
-}
-
-const handleComponentFilter = async (target) => {
-  const normalizedComponent =
-    typeof target === 'string'
-      ? String(target || '').trim()
-      : String(target?.component || '').trim()
-  if (!normalizedComponent) return
-  await switchToComponentEvents(normalizedComponent, { onlyIssues: false })
-}
-
-const handleSummaryJump = async (target) => {
-  if (target === 'issue-traces' && traceListSummary.value.issue_trace_count <= 0) return
-  if (target === 'issue-steps' && traceListSummary.value.issue_step_count <= 0) return
-  traceIssueFocus.component = ''
-  traceOnlyIssues.value = true
-  onlyIssues.value = target === 'issue-steps'
-  activeView.value = 'traces'
-  activeTraceDetailTab.value = 'steps'
-  if (selectedTraceKind.value !== 'all') {
-    await handleTraceKindClick('all')
-  }
-}
-
-const handleComponentIssueTraceJump = async (item) => {
-  const normalizedComponent = String(item?.component || '').trim()
-  if (!normalizedComponent || Number(item?.issue_trace_count || 0) <= 0) return
-  traceIssueFocus.component = normalizedComponent
-  traceOnlyIssues.value = true
-  onlyIssues.value = false
-  activeView.value = 'traces'
-  activeTraceDetailTab.value = 'steps'
-  if (selectedTraceKind.value !== 'all') {
-    await handleTraceKindClick('all')
-  }
-}
-
-const handleComponentIssueEventJump = async (item) => {
-  const normalizedComponent = String(item?.component || '').trim()
-  if (!normalizedComponent || Number(item?.issue_step_count || 0) <= 0) return
-  await switchToComponentEvents(normalizedComponent, { onlyIssues: true })
-}
-
-const clearFilterChip = async (chip) => {
-  if (!chip) return
-  if (chip.kind === 'trace-only-issues') {
-    traceOnlyIssues.value = false
-    return
-  }
-  if (chip.kind === 'toggle') {
-    onlyIssues.value = false
-    return
-  }
-  if (chip.kind === 'trace-kind') {
-    await handleTraceKindClick('all')
-    return
-  }
-  if (chip.kind === 'trace-issue-focus') {
-    traceIssueFocus.component = ''
-    return
-  }
-  if (chip.kind === 'query' && chip.field) {
-    query[chip.field] = ''
-    draftQuery[chip.field] = ''
-    const tasks = [loadTraces()]
-    if (activeView.value === 'events') {
-      tasks.push(loadEvents())
-    }
-    await Promise.all(tasks)
-  }
-}
-
-const handleStepSelect = (step) => {
-  selectedStep.value = step || null
-}
-
-const handleTraceAnchorJump = async (mode) => {
-  const target = pickTraceAnchorStep(selectedTraceDetail.value, selectedStep.value, mode)
-  if (!target) return
-  if (mode === 'slowest-step') {
-    onlyIssues.value = false
-  }
-  activeTraceDetailTab.value = 'steps'
-  selectedStep.value = target
-  await scrollToSelectedStep()
-}
-
-const buildIdentityCopyValue = (item = {}) => buildRuntimeIdentityCopyValue(item)
-
-const openRawBrowser = async () => {
-  const target = activeView.value === 'events' ? selectedEvent.value : selectedStep.value
-  if (target) {
-    await openRawFromStep(target)
-    return
-  }
-  if (selectedStep.value) {
-    await openRawFromStep(selectedStep.value)
-    return
-  }
-  rawDrawerVisible.value = true
-}
-
-const openRawFromStep = async (step) => {
-  const lookup = buildRawLookupFromStep(step)
-  if (!lookup) return
-  const selectionKey = buildRawSelectionKey(step, activeView.value)
-  rawSelectionKey.value = selectionKey
-  rawQuery.runtime_node = lookup.runtime_node
-  rawQuery.component = lookup.component
-  rawQuery.date = lookup.date
-  rawQuery.file = ''
-  rawDrawerVisible.value = true
-  await loadRawFiles()
-  if (rawFiles.value.length > 0) {
-    rawQuery.file = rawFiles.value[0].name
-    await loadRawTail(step, selectionKey)
-  }
-}
-
-const loadRawFiles = async () => {
-  loading.raw = true
-  try {
-    const response = await runtimeObservabilityApi.listRawFiles({
-      runtime_node: rawQuery.runtime_node,
-      component: rawQuery.component,
-      date: rawQuery.date,
-    })
-    rawFiles.value = readApiPayload(response, 'files', [])
-  } finally {
-    loading.raw = false
-  }
-}
-
-const loadRawTail = async (
-  targetStep = activeView.value === 'events' ? selectedEvent.value : selectedStep.value,
-  targetSelectionKey = buildRawSelectionKey(targetStep, activeView.value),
-) => {
-  if (!rawQuery.file) return
-  rawSelectionKey.value = targetSelectionKey || ''
-  loading.raw = true
-  try {
-    const response = await runtimeObservabilityApi.tailRawFile({
-      runtime_node: rawQuery.runtime_node,
-      component: rawQuery.component,
-      date: rawQuery.date,
-      file: rawQuery.file,
-      lines: 120,
-    })
-    const records = readApiPayload(response, 'records', [])
-    if (targetSelectionKey && targetSelectionKey !== rawSelectionKey.value) return
-    rawRecords.value = records
-    rawFocusedIndex.value = findRawRecordIndex(records, targetStep)
-    await scrollToFocusedRawRecord()
-  } finally {
-    loading.raw = false
-  }
-}
-
-const stepKey = (step) => buildRuntimeStepKey(step)
-
-const isActiveStep = (step) => {
-  return stepKey(selectedStep.value) === stepKey(step)
-}
-
-const isFirstIssueStep = (step) => {
-  return stepKey(traceSummaryMeta.value.first_issue) === stepKey(step)
-}
-
-const isSlowestStep = (step) => {
-  return stepKey(traceSummaryMeta.value.slowest_step) === stepKey(step)
-}
-
-const setStepRowRef = (element, key) => {
-  if (!key) return
-  stepRowRefs.set(key, element || null)
-}
-
-const scrollToSelectedStep = async () => {
-  const key = stepKey(selectedStep.value)
-  if (!key) return
-  await nextTick()
-  stepRowRefs.get(key)?.scrollIntoView({
-    block: 'nearest',
-    behavior: 'smooth',
-  })
-}
-
-const statusClass = (status) => {
-  const normalized = String(status || 'info').trim()
-  if (normalized === 'success') return 'is-success'
-  if (normalized === 'warning') return 'is-warning'
-  if (normalized === 'failed' || normalized === 'error') return 'is-failed'
-  if (normalized === 'skipped') return 'is-skipped'
-  return 'is-info'
-}
+const {
+  loadOverview,
+  loadMoreTraces,
+  loadMoreEvents,
+  loadMoreTraceSteps,
+  openAdvancedFilter,
+  applyAdvancedFilter,
+  resetAdvancedFilter,
+  handleIssueCardClick,
+  handleRecentTraceClick,
+  handleEventClick,
+  handleTimeRangeChange,
+  handleTraceKindClick,
+  handleComponentFilter,
+  handleSummaryJump,
+  handleComponentIssueTraceJump,
+  handleComponentIssueEventJump,
+  clearFilterChip,
+  handleStepSelect,
+  handleTraceAnchorJump,
+  openRawBrowser,
+  openRawFromStep,
+  loadRawFiles,
+  loadRawTail,
+  isActiveStep,
+  setStepRowRef,
+  statusClass,
+  statusChipVariant: resolveStatusChipVariant,
+  buildStepCopyText,
+  isActiveTraceRow,
+  isActiveEventRow,
+  copyText,
+  buildEventCopyText,
+  setRawRecordRef,
+} = runtimeObservabilityController
 
 const statusChipVariant = (status) => {
-  const normalized = String(status || 'info').trim()
-  if (normalized === 'success') return 'success'
-  if (normalized === 'warning') return 'warning'
-  if (normalized === 'failed' || normalized === 'error') return 'danger'
-  if (normalized === 'skipped') return 'skipped'
-  return 'info'
+  return resolveStatusChipVariant(status)
 }
-
-const buildStepCopyText = (step) => buildRuntimeStepCopyText(step)
-
-const isActiveTraceRow = (row) => checkActiveTraceRow(selectedTrace.value, row)
-
-const isActiveEventRow = (row) => checkActiveEventRow(selectedEvent.value, row)
-
-const copyText = async (value) => {
-  const text = String(value || '').trim()
-  if (!text) return
-  try {
-    if (window?.navigator?.clipboard?.writeText) {
-      await window.navigator.clipboard.writeText(text)
-    }
-  } catch {
-    return
-  }
-}
-
-const buildEventCopyText = (event) => buildRuntimeEventCopyText(event)
-
-const resetOverviewTimer = () => {
-  overviewTimer = stopPollingTimer(overviewTimer, { clearInterval: window.clearInterval.bind(window) })
-  if (!autoRefresh.value) return
-  overviewTimer = window.setInterval(() => {
-    loadOverview()
-  }, 15000)
-}
-
-const syncSelectedStep = () => syncRuntimeSelectedStep({
-  filteredSteps: filteredSteps.value,
-  selectedStep,
-  pickDefaultTraceStep,
-})
-
-const setRawRecordRef = (element, index) => {
-  rawRecordRefs.set(index, element || null)
-}
-
-const scrollToFocusedRawRecord = async () => {
-  if (rawFocusedIndex.value < 0) return
-  await nextTick()
-  rawRecordRefs.get(rawFocusedIndex.value)?.scrollIntoView({
-    block: 'nearest',
-    behavior: 'smooth',
-  })
-}
-
-watch([selectedTraceDetail, onlyIssues], () => {
-  syncSelectedStep()
-})
-
-watch(componentEventFeed, (items) => {
-  const currentKey = selectedEvent.value?.key || ''
-  selectedEvent.value = items.find((item) => item.key === currentKey) || items[0] || null
-}, { immediate: true })
-
-watch(componentSidebarItems, (items) => {
-  if (items.length === 0) {
-    userSelectedComponent.value = false
-    boardFilter.component = ''
-    boardFilter.runtime_node = ''
-    return
-  }
-  if (userSelectedComponent.value && boardFilter.component) return
-  const fallback = pickDefaultSidebarComponent(items, boardFilter.component)
-  if (fallback === boardFilter.component) return
-  boardFilter.component = fallback
-  boardFilter.runtime_node = ''
-}, { immediate: true })
-
-watch(
-  () => [boardFilter.component, boardFilter.runtime_node],
-  async ([component, runtimeNode], [prevComponent, prevRuntimeNode] = []) => {
-    if (component === prevComponent && runtimeNode === prevRuntimeNode) return
-    if (!component && !runtimeNode) return
-    if (activeView.value !== 'events') return
-    if (lastLoadedEventQueryKey.value === buildEventRequestKey()) return
-    await loadEvents({ suppressError: true })
-  },
-)
-
-watch(activeView, async (view, previousView) => {
-  if (view !== 'events' || view === previousView) return
-  if (lastLoadedEventQueryKey.value === buildEventRequestKey()) return
-  await loadEvents({ suppressError: true })
-})
-
-watch(visibleTraces, (items) => {
-  if (items.length === 0) {
-    selectedTrace.value = null
-    resetSelectedTraceDetailState()
-    return
-  }
-  const currentRow = {
-    trace_key: selectedTrace.value?.trace_key,
-    trace_id: selectedTrace.value?.trace_id,
-  }
-  selectedTrace.value = findTraceByRow(items, currentRow) || items[0] || null
-}, { immediate: true })
-
-watch(
-  () => [
-    selectedTrace.value?.trace_key || selectedTrace.value?.trace_id || '',
-    ...normalizeTimeRangeState(timeRange.value),
-  ],
-  async ([traceKey], [previousTraceKey] = []) => {
-    activeTraceDetailTab.value = 'steps'
-    if (!traceKey) {
-      resetSelectedTraceDetailState()
-      return
-    }
-    if (traceKey === previousTraceKey && selectedTracePayload.value?.trace?.trace_key === traceKey) {
-      return
-    }
-    await loadTraceDetail(selectedTrace.value, { suppressError: true })
-  },
-  { immediate: true },
-)
-
-watch(rawRecords, () => {
-  rawRecordRefs.clear()
-})
-
-watch(traceStepLedgerRows, () => {
-  stepRowRefs.clear()
-})
-
-watch(selectedStep, () => {
-  scrollToSelectedStep()
-})
-
-watch(activeTraceDetailTab, (tab) => {
-  if (tab === 'steps') {
-    scrollToSelectedStep()
-  }
-})
-
-watch(autoRefresh, () => {
-  resetOverviewTimer()
-})
-
-onMounted(() => {
-  resetOverviewTimer()
-  loadOverview()
-})
-
-onBeforeUnmount(() => {
-  overviewTimer = stopPollingTimer(overviewTimer, { clearInterval: window.clearInterval.bind(window) })
-})
 </script>
 
 <style scoped>

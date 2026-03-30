@@ -15,7 +15,7 @@ import {
 } from '../src/views/js/kline-slim-chanlun-periods.mjs'
 
 test('supported periods stay within redis producer periods and default to 5m main chart', () => {
-  assert.deepEqual(SUPPORTED_CHANLUN_PERIODS, ['1m', '5m', '15m', '30m'])
+  assert.deepEqual(SUPPORTED_CHANLUN_PERIODS, ['1m', '5m', '15m', '30m', '1d'])
   assert.equal(DEFAULT_MAIN_PERIOD, '5m')
   assert.deepEqual(DEFAULT_VISIBLE_CHANLUN_PERIODS, [])
 })
@@ -25,12 +25,14 @@ test('period style map and duration map stay aligned with current multi-period r
   assert.equal(PERIOD_STYLE_MAP['5m'].duan, '#3b82f6')
   assert.equal(PERIOD_STYLE_MAP['15m'].higherDuan, '#ef4444')
   assert.equal(PERIOD_STYLE_MAP['30m'].higherDuanZhongshu, '#22c55e')
-  assert.deepEqual(PERIOD_WIDTH_FACTOR, { '1m': 1, '5m': 3, '15m': 4, '30m': 5 })
+  assert.equal(PERIOD_STYLE_MAP['1d'].higherDuanZhongshu, '#a855f7')
+  assert.deepEqual(PERIOD_WIDTH_FACTOR, { '1m': 1, '5m': 3, '15m': 4, '30m': 5, '1d': 7 })
   assert.deepEqual(PERIOD_DURATION_MS, {
     '1m': 60 * 1000,
     '5m': 5 * 60 * 1000,
     '15m': 15 * 60 * 1000,
-    '30m': 30 * 60 * 1000
+    '30m': 30 * 60 * 1000,
+    '1d': 24 * 60 * 60 * 1000
   })
 })
 
@@ -43,7 +45,8 @@ test('legend selection includes current main period while visible extras still e
       '1m': false,
       '5m': true,
       '15m': false,
-      '30m': false
+      '30m': false,
+      '1d': false
     }
   )
 
@@ -63,7 +66,8 @@ test('legend selection includes current main period while visible extras still e
       '1m': true,
       '5m': false,
       '15m': true,
-      '30m': true
+      '30m': true,
+      '1d': false
     }
   )
 
@@ -92,20 +96,21 @@ test('realtime refresh periods keep current period first and append visible extr
 })
 
 test('kline-slim controller imports new chart renderer/controller and removes legacy draw-slim state machine', async () => {
-  const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+  const scriptContent = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('../src/views/klineSlimController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /createKlineSlimChartController/)
-  assert.match(content, /buildKlineSlimChartScene/)
-  assert.match(content, /chartController/)
-  assert.match(content, /periodLegendSelected/)
-  assert.match(content, /resetViewportOnNextRender/)
-  assert.doesNotMatch(content, /import drawSlim/)
-  assert.doesNotMatch(content, /lastStructuralRouteKey/)
-  assert.doesNotMatch(content, /handleSlimLegendSelectChanged/)
+  assert.match(scriptContent, /createKlineSlimChartController/)
+  assert.match(scriptContent, /chartController/)
+  assert.match(scriptContent, /periodLegendSelected/)
+  assert.match(scriptContent, /resetViewportOnNextRender/)
+  assert.match(controllerContent, /buildKlineSlimChartScene/)
+  assert.doesNotMatch(`${scriptContent}\n${controllerContent}`, /import drawSlim/)
+  assert.doesNotMatch(`${scriptContent}\n${controllerContent}`, /lastStructuralRouteKey/)
+  assert.doesNotMatch(`${scriptContent}\n${controllerContent}`, /handleSlimLegendSelectChanged/)
 })
 
 test('kline-slim controller schedules scene rendering through chartController instead of draw-slim', async () => {
-  const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+  const content = await readFile(new URL('../src/views/klineSlimController.mjs', import.meta.url), 'utf8')
   const scheduleRenderSection = content
     .split('scheduleRender() {')[1]
     ?.split('applySymbol() {')[0]
@@ -119,11 +124,12 @@ test('kline-slim controller schedules scene rendering through chartController in
 })
 
 test('initChart creates chart controller and browser hooks publish the controller for regression tests', async () => {
-  const content = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+  const scriptContent = await readFile(new URL('../src/views/js/kline-slim.js', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('../src/views/klineSlimController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /this\.chartController = createKlineSlimChartController\(/)
-  assert.match(content, /window\.__klineSlimChartController = this\.chartController \|\| null/)
-  assert.match(content, /this\.chartController\.dispose\(\)/)
+  assert.match(scriptContent, /this\.chartController = createKlineSlimChartController\(/)
+  assert.match(scriptContent, /window\.__klineSlimChartController = this\.chartController \|\| null/)
+  assert.match(controllerContent, /this\.chartController\.dispose\(\)/)
 })
 
 test('KlineSlim keeps extra-period legend guidance and removes fixed overlay copy', async () => {

@@ -209,7 +209,8 @@ test('legend selection keeps current main period visible and removes independent
       '1m': false,
       '5m': true,
       '15m': false,
-      '30m': false
+      '30m': false,
+      '1d': false
     }
   )
 
@@ -229,7 +230,8 @@ test('legend selection keeps current main period visible and removes independent
       '1m': true,
       '5m': true,
       '15m': true,
-      '30m': false
+      '30m': false,
+      '1d': false
     }
   )
 })
@@ -644,7 +646,7 @@ test('controller forwards legend action events to the period selection callback'
   ])
 })
 
-test('controller replaces the full scene option instead of series replaceMerge when applying markArea layers', () => {
+test('controller replaces the full scene option with explicit replaceMerge scopes when applying markArea layers', () => {
   const chart = createControllerStubChart()
   const controller = createKlineSlimChartController({
     chart
@@ -662,7 +664,7 @@ test('controller replaces the full scene option instead of series replaceMerge w
 
   assert.equal(chart.setOptionCalls.length, 1)
   assert.equal(chart.setOptionCalls[0].options?.notMerge, true)
-  assert.equal(chart.setOptionCalls[0].options?.replaceMerge, undefined)
+  assert.deepEqual(chart.setOptionCalls[0].options?.replaceMerge, ['series', 'xAxis', 'yAxis', 'dataZoom', 'graphic'])
 })
 
 test('controller synchronously writes dataZoom and yAxis during datazoom handling', () => {

@@ -166,6 +166,7 @@
 import CommonTool from '../tool/CommonTool'
 import { futureApi } from '../api/futureApi'
 import * as echarts from 'echarts'
+import { futureAccount } from '@/config/tradingConstants.mjs'
 
 export default {
   data () {
@@ -807,7 +808,7 @@ export default {
             itemStyle: {
               color: function (params) {
                 return parseInt(
-                  (params.data / (that.$futureAccount * 10000)) * 100
+                  (params.data / (futureAccount * 10000)) * 100
                 ) > 50
                   ? 'rgba(255,144,128,1)'
                   : 'rgba(0,191,183,1)'
@@ -823,7 +824,7 @@ export default {
                     p.value +
                     '\n\n占比' +
                     parseInt(
-                      (p.value / (that.$futureAccount * 10000)) * 100
+                      (p.value / (futureAccount * 10000)) * 100
                     ) +
                     '%'
                   )

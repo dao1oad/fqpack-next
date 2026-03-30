@@ -162,6 +162,7 @@ import MyHeader from '../views/MyHeader.vue'
 import _ from 'lodash'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { reactive } from 'vue'
+import { pollingSlow } from '../lib/queryPolicies.mjs'
 import StatusChip from '@/components/workbench/StatusChip.vue'
 import StockPrePools from '@/components/StockPrePools.vue'
 import StockMustPools from '@/components/StockMustPools.vue'
@@ -220,8 +221,7 @@ export default {
         const end = start + listQuery.size
         return _.slice(stockList, start, end)
       },
-      refetchInterval: 600000,
-      staleTime: 5000,
+      ...pollingSlow,
     })
     const queryClient = useQueryClient()
     return { isLoading, stockList, listQuery, queryClient }
