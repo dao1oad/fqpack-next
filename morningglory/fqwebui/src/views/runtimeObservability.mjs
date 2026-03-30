@@ -2308,4 +2308,3 @@ export const buildComponentSidebarItems = (traces = [], components = []) => {
     }
   })
 }
-
