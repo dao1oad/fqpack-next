@@ -12,8 +12,8 @@ from freshquant.data.astock.holding import (
     get_arranged_stock_fill_list,
     get_stock_holding_codes,
 )
-from freshquant.db import DBfreshquant
 from freshquant.database.redis import redis_db
+from freshquant.db import DBfreshquant
 from freshquant.order_management.sell_constraints import (
     PositionVolumeReader,
     resolve_sell_submission_quantity,
@@ -961,9 +961,15 @@ class StrategyGuardian(metaclass=SingletonType):
                     decision_context=sellable_context,
                 )
                 if sell_quantity["blocked_reason"] == "can_use_volume":
-                    logger.info("{code} {name} 当前可卖数量不足，跳过下单", code=code, name=name)
+                    logger.info(
+                        "{code} {name} 当前可卖数量不足，跳过下单", code=code, name=name
+                    )
                 else:
-                    logger.info("{code} {name} 当前可卖数量不足一手，跳过下单", code=code, name=name)
+                    logger.info(
+                        "{code} {name} 当前可卖数量不足一手，跳过下单",
+                        code=code,
+                        name=name,
+                    )
                 return
 
             quantity = int(sell_quantity["quantity"])

@@ -102,7 +102,9 @@ def _parse_non_negative_int(value, *, field_name, symbol, default):
     try:
         parsed = int(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} invalid for {symbol or '-'}: {value!r}") from exc
+        raise ValueError(
+            f"{field_name} invalid for {symbol or '-'}: {value!r}"
+        ) from exc
     if parsed < 0:
         raise ValueError(f"{field_name} invalid for {symbol or '-'}: {value!r}")
     return parsed

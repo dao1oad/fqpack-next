@@ -15,6 +15,8 @@ from freshquant.order_management.ids import new_event_id
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.sell_constraints import (
     PositionVolumeReader as _PositionReader,
+)
+from freshquant.order_management.sell_constraints import (
     resolve_sell_submission_quantity as _resolve_sell_submission_quantity,
 )
 from freshquant.order_management.submit.service import OrderSubmitService

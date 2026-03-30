@@ -660,7 +660,9 @@ def test_guardian_sell_board_lot_check_emits_structured_skip_finish(monkeypatch)
     guardian.on_signal(signal)
 
     sellable_event = next(
-        event for event in runtime_logger.events if event["node"] == "sellable_volume_check"
+        event
+        for event in runtime_logger.events
+        if event["node"] == "sellable_volume_check"
     )
     finish_event = next(
         event for event in runtime_logger.events if event["node"] == "finish"
@@ -668,12 +670,8 @@ def test_guardian_sell_board_lot_check_emits_structured_skip_finish(monkeypatch)
 
     assert sellable_event["reason_code"] == "sell_board_lot_blocked"
     assert sellable_event["decision_outcome"]["outcome"] == "skip"
-    assert (
-        sellable_event["decision_context"]["quantity"]["raw_quantity"] == 50
-    )
-    assert (
-        sellable_event["decision_context"]["quantity"]["submit_quantity"] == 0
-    )
+    assert sellable_event["decision_context"]["quantity"]["raw_quantity"] == 50
+    assert sellable_event["decision_context"]["quantity"]["submit_quantity"] == 0
     assert finish_event["reason_code"] == "sell_board_lot_blocked"
     assert finish_event["decision_outcome"]["outcome"] == "skip"
 
