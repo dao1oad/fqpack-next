@@ -617,6 +617,49 @@ def test_confirmed_gap_is_not_recreated_for_same_position_delta(monkeypatch):
     assert len(repository.reconciliation_gaps) == 1
 
 
+def test_detect_external_candidates_ignores_legacy_buy_lot_when_open_entry_exists(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
+    repository.replace_position_entry(
+        reconcile_service_module._build_auto_open_entry(
+            {
+                "symbol": "000001",
+                "quantity_delta": 200,
+                "price_estimate": 10.5,
+            },
+            resolution_id="resolution_existing_entry",
+            confirmed_at=1_000,
+        )
+    )
+    buy_lot = build_buy_lot_from_trade_fact(
+        {
+            "trade_fact_id": "trade_existing_legacy",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 200,
+            "price": 10.5,
+            "trade_time": 1_000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "source": "external_inferred",
+        }
+    )
+    repository.insert_buy_lot(buy_lot)
+    repository.replace_lot_slices_for_lot(
+        buy_lot["buy_lot_id"],
+        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
+    )
+
+    gaps = service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_015,
+    )
+
+    assert gaps == []
+    assert repository.reconciliation_gaps == []
+
+
 def test_build_auto_open_entry_uses_beijing_date_time():
     entry = reconcile_service_module._build_auto_open_entry(
         {
