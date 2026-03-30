@@ -70,6 +70,7 @@ import CommonTool from '@/tool/CommonTool'
 import _ from 'lodash'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { reactive } from 'vue'
+import { pollingSlow } from '../lib/queryPolicies.mjs'
 
 export default {
   name: 'StockMustPools',
@@ -94,8 +95,7 @@ export default {
         const end = start + listQuery.size
         return _.slice(stockList, start, end)
       },
-      refetchInterval: 600000,
-      staleTime: 5000
+      ...pollingSlow
     })
     const queryClient = useQueryClient()
     return { isLoading, stockList, listQuery, queryClient }

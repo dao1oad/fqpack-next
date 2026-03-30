@@ -1,10 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import http from './http.js'
+import * as httpModule from './http.js'
+
+const { default: http, HTTP_CONFIG } = httpModule
 
 test('http client exposes the shared base config', () => {
-  assert.equal(http.defaults.baseURL, '')
-  assert.equal(http.defaults.timeout, 0)
+  assert.equal(typeof HTTP_CONFIG, 'object')
+  assert.equal(HTTP_CONFIG.baseURL, '')
+  assert.equal(Number.isFinite(HTTP_CONFIG.timeout), true)
+  assert.ok(HTTP_CONFIG.timeout > 0)
+  assert.equal(http.defaults.baseURL, HTTP_CONFIG.baseURL)
+  assert.equal(http.defaults.timeout, HTTP_CONFIG.timeout)
 })
 
 test('http response interceptor unwraps payloads', async () => {

@@ -51,6 +51,7 @@ import { stockApi } from '@/api/stockApi'
 import _ from 'lodash'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, reactive } from 'vue'
+import { pollingNormal } from '../lib/queryPolicies.mjs'
 import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
 
 export default {
@@ -84,8 +85,7 @@ export default {
         const end = start + listQuery.size
         return _.slice(rows, start, end)
       },
-      refetchInterval: 30000,
-      staleTime: 5000
+      ...pollingNormal
     })
     const signalRows = computed(() => signalList.value || [])
     const queryClient = useQueryClient()

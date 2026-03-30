@@ -6,6 +6,7 @@ import { reactive } from 'vue'
 import queryParamTool from '@/tool/queryParamTool'
 import _ from 'lodash'
 import manba from 'manba'
+import { pollingFast } from '../../lib/queryPolicies.mjs'
 
 export default {
   name: 'kline-big',
@@ -32,8 +33,7 @@ export default {
         data._dtString = manba(data.dt).format('YYYY-MM-DD HH:mm:ss')
         return data
       },
-      refetchInterval: 10000,
-      staleTime: 5000
+      ...pollingFast
     })
     const queryClient = useQueryClient()
     return { myChart: null, query, queryClient, klineData, isLoading }

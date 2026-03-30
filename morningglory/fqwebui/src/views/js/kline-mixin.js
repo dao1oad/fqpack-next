@@ -20,6 +20,15 @@ import icon1d from '@/assets/img/icon_1d.png'
 import icon1w from '@/assets/img/icon_1w.png'
 import iconRefresh from '@/assets/img/icon_refresh.svg'
 import bigKline from '@/assets/img/big-kline.png'
+import {
+  futureAccount,
+  globalFutureAccount,
+  digitCoinAccount,
+  maxAccountUseRate,
+  stopRate,
+  digitCoinLevel,
+  globalFutureSymbol
+} from '@/config/tradingConstants.mjs'
 
 export default {
   components: {
@@ -57,10 +66,10 @@ export default {
       // 账户总额
       account: 0,
       // 期货账户总额
-      futureAccount: this.$futureAccount,
-      globalFutureAccount: this.$globalFutureAccount,
+      futureAccount: futureAccount,
+      globalFutureAccount: globalFutureAccount,
       // 数字货币账户总额
-      digitCoinAccount: this.$digitCoinAccount,
+      digitCoinAccount: digitCoinAccount,
       // 开仓价格
       openPrice: null,
       // 止损价格
@@ -70,13 +79,13 @@ export default {
       // 资金使用率
       accountUseRate: null,
       // 最大资金使用率
-      maxAccountUseRate: this.$maxAccountUseRate,
+      maxAccountUseRate: maxAccountUseRate,
       // 止损系数
-      stopRate: this.$stopRate,
+      stopRate: stopRate,
       // 数字货币手续费 20倍杠杆 双向 0.05%*2
       digitCoinFee: 0.001,
       // okex 开仓起始杠杆
-      digitCoinLevel: this.$digitCoinLevel,
+      digitCoinLevel: digitCoinLevel,
       // 1手需要的保证金
       perOrderMargin: 0,
       // 1手止损金额
@@ -111,7 +120,7 @@ export default {
       futureConfig: {},
       symbolInfo: null,
       show1MinSymbol: ['BTC'],
-      globalFutureSymbol: this.$globalFutureSymbol,
+      globalFutureSymbol: globalFutureSymbol,
       //    快速计算开仓手数
       quickCalc: {
         openPrice: '',
@@ -468,8 +477,8 @@ export default {
         this.perOrderStopRate = (
           this.perOrderStopMoney / this.perOrderMargin
         ).toFixed(2)
-        this.maxAccountUseRate = this.$maxAccountUseRate
-        this.stopRate = this.$stopRate
+        this.maxAccountUseRate = maxAccountUseRate
+        this.stopRate = stopRate
       }
 
       // 计算最大能使用的资金

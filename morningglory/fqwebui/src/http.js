@@ -1,7 +1,12 @@
 import axios from 'axios'
 
-const http = axios.create({
+export const HTTP_CONFIG = Object.freeze({
   baseURL: '',
+  timeout: 15000
+})
+
+const http = axios.create({
+  ...HTTP_CONFIG
 })
 
 http.interceptors.response.use(

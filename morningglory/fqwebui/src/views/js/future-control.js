@@ -5,6 +5,14 @@ import FuturePositionList from '../FuturePositionList.vue'
 import StatisticsChat from '../StatisticsChat.vue'
 import PieChart from '../PieChart.vue'
 import manba from 'manba'
+import {
+  futureAccount,
+  digitCoinAccount,
+  globalFutureAccount,
+  globalFutureSymbol,
+  maxAccountUseRate,
+  stopRate
+} from '@/config/tradingConstants.mjs'
 
 export default {
   name: 'futures-control',
@@ -29,10 +37,10 @@ export default {
         account: 0,
 
         // 期货账户总额
-        futureAccount: this.$futureAccount,
+        futureAccount: futureAccount,
         // 数字货币账户总额
-        digitCoinAccount: this.$digitCoinAccount,
-        globalFutureAccount: this.$globalFutureAccount,
+        digitCoinAccount: digitCoinAccount,
+        globalFutureAccount: globalFutureAccount,
         // 开仓价格
         openPrice: null,
         // 止损价格
@@ -84,9 +92,9 @@ export default {
       account: 0,
 
       // 期货账户总额
-      futureAccount: this.$futureAccount,
+      futureAccount: futureAccount,
       // 数字货币账户总额
-      digitCoinAccount: this.$digitCoinAccount,
+      digitCoinAccount: digitCoinAccount,
       // 开仓价格
       openPrice: null,
       // 止损价格
@@ -154,11 +162,12 @@ export default {
       // 显示更新还是新增按钮
       prejudgeCreateFlag: true,
       btnPrejudgeLoading: false,
+      dashboardRefreshTimer: null,
       // current  新增状态 获取的是主力合约 ,提交的时候触发新增
       // history 历史状态 获取的不一定是主力合约 ，提交表格触发更新
       prejudgeTableStatus: 'current',
       prejudgeTableId: '',
-      globalFutureSymbol: this.$globalFutureSymbol,
+      globalFutureSymbol: globalFutureSymbol,
       // 5大板块列表
       groupList: [
         // 有色板块
@@ -204,13 +213,22 @@ export default {
     this.handleChangeTab({ name: this.activeTab })
     // this.getBTCTicker()
     // this.getGlobalFutureChangeList()
-    setInterval(() => {
+    if (this.dashboardRefreshTimer) {
+      window.clearInterval(this.dashboardRefreshTimer)
+    }
+    this.dashboardRefreshTimer = window.setInterval(() => {
       this.getSignalList()
       this.getChangeiList()
       // this.getLevelDirectionList()
       // this.getBTCTicker()
       // this.getGlobalFutureChangeList()
     }, 20000)
+  },
+  beforeUnmount () {
+    if (this.dashboardRefreshTimer) {
+      window.clearInterval(this.dashboardRefreshTimer)
+      this.dashboardRefreshTimer = null
+    }
   },
   methods: {
     onInputChange () {
@@ -497,8 +515,8 @@ export default {
           (symbolInfo.margin_rate + this.marginLevelCompany).toFixed(3)
         )
         this.calcPosForm.account = this.calcPosForm.futureAccount
-        this.calcPosForm.maxAccountUseRate = this.$maxAccountUseRate
-        this.calcPosForm.stopRate = this.$stopRate
+        this.calcPosForm.maxAccountUseRate = maxAccountUseRate
+        this.calcPosForm.stopRate = stopRate
       }
       this.calcPosForm.marginLevel = (
         1 / this.calcPosForm.currentMarginRate

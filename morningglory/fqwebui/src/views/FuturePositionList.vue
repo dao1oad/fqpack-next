@@ -807,6 +807,10 @@
 <script>
 import CommonTool from '@/tool/CommonTool'
 import { futureApi } from '@/api/futureApi'
+import {
+  futureAccount,
+  globalFutureSymbol as defaultGlobalFutureSymbol
+} from '@/config/tradingConstants.mjs'
 
 const signalTypeOptions = [
   { key: 'tupo', display_name: '突破' },
@@ -867,7 +871,10 @@ export default {
       type: Number,
       default: 0
     },
-    globalFutureSymbol: null
+    globalFutureSymbol: {
+      type: Array,
+      default: () => [...defaultGlobalFutureSymbol]
+    }
   },
   data () {
     return {
@@ -907,6 +914,7 @@ export default {
       rateColors: ['#99A9BF', '#F7BA2A', '#FF9900'],
       tableKey: 0,
       listLoading: false,
+      positionListRefreshTimer: null,
       // 持仓列表
       positionList: [],
       positionQueryForm: {
@@ -995,6 +1003,12 @@ export default {
     // 静默更新合约配置
     this.getFutureConfig()
   },
+  beforeUnmount () {
+    if (this.positionListRefreshTimer) {
+      window.clearInterval(this.positionListRefreshTimer)
+      this.positionListRefreshTimer = null
+    }
+  },
   methods: {
     directionTagFilter (direction) {
       const directionMap = {
@@ -1061,7 +1075,10 @@ export default {
             'symbolConfig',
             JSON.stringify(this.futureConfig)
           )
-          setInterval(() => {
+          if (this.positionListRefreshTimer) {
+            window.clearInterval(this.positionListRefreshTimer)
+          }
+          this.positionListRefreshTimer = window.setInterval(() => {
             this.getPositionList()
           }, 5000)
         })
@@ -1461,17 +1478,17 @@ export default {
           this.sumObj.marginSum += Math.round(item.total_margin, 0)
           this.sumObj.marginSumRate =
             (
-              (this.sumObj.marginSum / (this.$futureAccount * 10000)) *
+              (this.sumObj.marginSum / (futureAccount * 10000)) *
               100
             ).toFixed(1) + '%'
           this.sumObj.winEndSumRate =
             (
-              (this.sumObj.winEndSum / (this.$futureAccount * 10000)) *
+              (this.sumObj.winEndSum / (futureAccount * 10000)) *
               100
             ).toFixed(1) + '%'
           this.sumObj.currentProfitSumRate =
             (
-              (this.sumObj.currentProfitSum / (this.$futureAccount * 10000)) *
+              (this.sumObj.currentProfitSum / (futureAccount * 10000)) *
               100
             ).toFixed(1) + '%'
         }
@@ -1522,7 +1539,7 @@ export default {
         } else if (label === '已盈利比率') {
           sums[index] =
             (
-              (this.sumObj.winEndSum / (this.$futureAccount * 10000)) *
+              (this.sumObj.winEndSum / (futureAccount * 10000)) *
               100
             ).toFixed(1) + '%'
         } else if (label === '浮盈额') {
@@ -1549,13 +1566,13 @@ export default {
         } else if (label === '浮盈率') {
           sums[index] =
             (
-              (this.sumObj.currentProfitSum / (this.$futureAccount * 10000)) *
+              (this.sumObj.currentProfitSum / (futureAccount * 10000)) *
               100
             ).toFixed(1) + '%'
         } else if (label === '止损率') {
           sums[index] =
             (
-              (this.sumObj.loseEndSum / (this.$futureAccount * 10000)) *
+              (this.sumObj.loseEndSum / (futureAccount * 10000)) *
               100
             ).toFixed(1) + '%'
         } else {

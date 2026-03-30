@@ -2,6 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import * as runtimeObservability from './runtimeObservability.mjs'
+import {
+  pickDefaultSidebarComponent,
+  syncRuntimeComponentSidebarSelection,
+} from './runtimeObservabilityController.mjs'
+import {
+  createRuntimeObservabilityPolling,
+  stopPollingTimer,
+} from './runtimeObservabilityPolling.mjs'
 
 import {
   buildEventLedgerRows,
@@ -46,7 +54,6 @@ import {
   groupStepsByComponent,
   hasMatchingRawSelection,
   pickTraceAnchorStep,
-  pickDefaultSidebarComponent,
   pickDefaultTraceKind,
   pickDefaultTraceStep,
   sortTraceSummaries,
@@ -442,11 +449,11 @@ test('filterVisibleTraces keeps issue trace filtering separate from issue step f
 })
 
 test('stopPollingTimer clears current timer without arming a new one', () => {
-  assert.equal(typeof runtimeObservability.stopPollingTimer, 'function')
+  assert.equal(typeof stopPollingTimer, 'function')
 
   const cleared = []
   const timerHandle = { id: 'overview-1' }
-  const nextHandle = runtimeObservability.stopPollingTimer(timerHandle, {
+  const nextHandle = stopPollingTimer(timerHandle, {
     clearInterval: (handle) => {
       cleared.push(handle)
     },
@@ -454,6 +461,78 @@ test('stopPollingTimer clears current timer without arming a new one', () => {
 
   assert.deepEqual(cleared, [timerHandle])
   assert.equal(nextHandle, null)
+})
+
+test('createRuntimeObservabilityPolling centralizes overview polling reset and cleanup', () => {
+  const armed = []
+  const cleared = []
+  const calls = []
+  const autoRefresh = { value: true }
+
+  const polling = createRuntimeObservabilityPolling({
+    autoRefresh,
+    loadOverview: () => {
+      calls.push('overview')
+    },
+    intervalMs: 15000,
+    setInterval: (callback, intervalMs) => {
+      const handle = { callback, intervalMs, id: armed.length + 1 }
+      armed.push(handle)
+      return handle
+    },
+    clearInterval: (handle) => {
+      cleared.push(handle)
+    },
+  })
+
+  polling.resetOverviewPolling()
+  assert.equal(armed.length, 1)
+  assert.equal(armed[0].intervalMs, 15000)
+  armed[0].callback()
+  assert.deepEqual(calls, ['overview'])
+
+  autoRefresh.value = false
+  polling.resetOverviewPolling()
+  assert.deepEqual(cleared, [armed[0]])
+  assert.equal(polling.getOverviewTimer(), null)
+
+  polling.disposeOverviewPolling()
+  assert.deepEqual(cleared, [armed[0]])
+})
+
+test('syncRuntimeComponentSidebarSelection keeps the user-selected component instead of auto-backfilling another one', () => {
+  const state = {
+    value: true,
+  }
+  const boardFilter = {
+    component: 'xt_producer',
+    runtime_node: 'host:xt_producer',
+  }
+  const items = [
+    {
+      component: 'guardian_strategy',
+      trace_count: 12,
+      issue_trace_count: 2,
+    },
+    {
+      component: 'xt_producer',
+      trace_count: 0,
+      issue_trace_count: 0,
+    },
+  ]
+
+  syncRuntimeComponentSidebarSelection({
+    items,
+    boardFilter,
+    userSelectedComponent: state,
+    pickDefaultComponent: pickDefaultSidebarComponent,
+  })
+
+  assert.deepEqual(boardFilter, {
+    component: 'xt_producer',
+    runtime_node: 'host:xt_producer',
+  })
+  assert.equal(state.value, true)
 })
 
 test('readApiPayload supports interceptor-unwrapped axios payloads', () => {
@@ -1399,12 +1478,14 @@ test('pickDefaultTraceKind keeps a valid current kind and otherwise falls back t
 })
 
 test('RuntimeObservability.vue reloads traces from the server when a trace-kind button is clicked', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /<div v-if="activeView === 'traces'" class="runtime-trace-kind-actions">[\s\S]*v-for="option in traceKindOptions"[\s\S]*@click="handleTraceKindClick\(option.value\)"/)
-  assert.match(content, /const buildTraceRequestParams = \(\) => buildRuntimeTraceRequestParams\(\{[\s\S]*buildTraceQuery,[\s\S]*query,[\s\S]*timeRange:\s*timeRange\.value,[\s\S]*selectedTraceKind:\s*selectedTraceKind\.value,[\s\S]*\}\)/)
-  assert.match(content, /const handleTraceKindClick = async \(kind\) => \{[\s\S]*selectedTraceKind\.value = normalizedKind[\s\S]*await loadTraces\(\)/)
-  assert.match(content, /if \(chip\.kind === 'trace-kind'\) \{[\s\S]*await handleTraceKindClick\('all'\)/)
+  assert.match(vueContent, /<div v-if="activeView === 'traces'" class="runtime-trace-kind-actions">[\s\S]*v-for="option in traceKindOptions"[\s\S]*@click="handleTraceKindClick\(option.value\)"/)
+  assert.match(vueContent, /const \{[\s\S]*handleTraceKindClick,[\s\S]*\} = runtimeObservabilityController/)
+  assert.match(controllerContent, /const buildTraceRequestParams = \(\) => buildRuntimeTraceRequestParams\(\{[\s\S]*buildTraceQuery,[\s\S]*query,[\s\S]*timeRange:\s*timeRange\.value,[\s\S]*selectedTraceKind:\s*selectedTraceKind\.value,[\s\S]*\}\)/)
+  assert.match(controllerContent, /const handleTraceKindClick = async \(kind\) => \{[\s\S]*selectedTraceKind\.value = normalizedKind[\s\S]*await loadTraces\(\)/)
+  assert.match(controllerContent, /if \(chip\.kind === 'trace-kind'\) \{[\s\S]*await handleTraceKindClick\('all'\)/)
 })
 
 test('RuntimeObservability.vue uses trace-kind buttons instead of a trace-kind select dropdown', async () => {
@@ -1415,55 +1496,66 @@ test('RuntimeObservability.vue uses trace-kind buttons instead of a trace-kind s
 })
 
 test('RuntimeObservability.vue scopes event reloads with the active sidebar component', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /const buildEventRequestParams = \(\) => buildRuntimeEventRequestParams\(\{[\s\S]*buildBoardScopedQuery,[\s\S]*query,[\s\S]*boardFilter,[\s\S]*timeRange:\s*timeRange\.value,[\s\S]*\}\)/)
-  assert.match(content, /const params = \{[\s\S]*buildEventRequestParams\(\)[\s\S]*cursor_ts[\s\S]*cursor_event_id[\s\S]*\}/)
-  assert.match(content, /runtimeObservabilityApi\.listEvents\(params\)/)
-  assert.match(content, /watch\(\s*\(\) => \[boardFilter\.component,\s*boardFilter\.runtime_node\],/)
-  assert.match(content, /if \(activeView\.value !== 'events'\) return/)
-  assert.match(content, /watch\(activeView,\s*async \(view,\s*previousView\) => \{/)
-  assert.match(content, /lastLoadedEventQueryKey\.value === buildEventRequestKey\(\)/)
+  assert.match(vueContent, /runtimeObservabilityController = createRuntimeObservabilityController\(/)
+  assert.match(controllerContent, /const buildEventRequestParams = \(\) => buildRuntimeEventRequestParams\(\{[\s\S]*buildBoardScopedQuery,[\s\S]*query,[\s\S]*boardFilter,[\s\S]*timeRange:\s*timeRange\.value,[\s\S]*\}\)/)
+  assert.match(controllerContent, /const params = \{[\s\S]*buildEventRequestParams\(\)[\s\S]*cursor_ts[\s\S]*cursor_event_id[\s\S]*\}/)
+  assert.match(controllerContent, /runtimeObservabilityApi\.listEvents\(params\)/)
+  assert.match(controllerContent, /watch\(\s*\(\) => \[boardFilter\.component,\s*boardFilter\.runtime_node\],/)
+  assert.match(controllerContent, /if \(activeView\?\.value !== 'events'\) return/)
+  assert.match(controllerContent, /watch\(activeView,\s*async \(view,\s*previousView\) => \{/)
+  assert.match(controllerContent, /lastLoadedEventQueryKey\?\.value === buildEventRequestKey\?\.\(\)/)
 })
 
 test('RuntimeObservability.vue switches to component event view when sidebar component is clicked from global trace', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(/)
+  assert.match(vueContent, /@click="handleComponentFilter\(item\.component\)"/)
+  assert.match(vueContent, /const \{[\s\S]*handleComponentFilter,[\s\S]*\} = runtimeObservabilityController/)
+  assert.match(controllerContent, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(/)
 })
 
 test('RuntimeObservability.vue keeps trace issue filtering separate from step issue filtering', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
+  const derivedContent = await readFile(new URL('./runtimeObservabilityDerived.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /const \{[\s\S]*traceOnlyIssues,[\s\S]*\} = createRuntimeObservabilityFilterState\(/)
-  assert.match(content, /const visibleTraces = computed\(\(\) =>[\s\S]*filterVisibleTraces\(hydratedTraces\.value,\s*\{[\s\S]*issueComponent:\s*traceIssueFocus\.component,[\s\S]*onlyIssueTraces:\s*traceOnlyIssues\.value,[\s\S]*\}\)/)
-  assert.match(content, /const handleSummaryJump = async \(target\) => \{[\s\S]*traceOnlyIssues\.value = true[\s\S]*onlyIssues\.value = target === 'issue-steps'/)
-  assert.match(content, /const handleComponentIssueTraceJump = async \(item\) => \{[\s\S]*traceOnlyIssues\.value = true[\s\S]*onlyIssues\.value = false/)
+  assert.match(vueContent, /const \{[\s\S]*traceOnlyIssues,[\s\S]*\} = createRuntimeObservabilityFilterState\(/)
+  assert.match(derivedContent, /const visibleTraces = computed\(\(\) =>[\s\S]*filterVisibleTraces\(hydratedTraces\.value,\s*\{[\s\S]*issueComponent:\s*traceIssueFocus\.component,[\s\S]*onlyIssueTraces:\s*traceOnlyIssues\.value,[\s\S]*\}\)/)
+  assert.match(controllerContent, /const handleSummaryJump = async \(target\) => \{[\s\S]*traceOnlyIssues\.value = true[\s\S]*onlyIssues\.value = target === 'issue-steps'/)
+  assert.match(controllerContent, /const handleComponentIssueTraceJump = async \(item\) => \{[\s\S]*traceOnlyIssues\.value = true[\s\S]*onlyIssues\.value = false/)
 })
 
 test('RuntimeObservability.vue resets component event issue filtering when clicking a component card', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(normalizedComponent,\s*\{\s*onlyIssues:\s*false\s*\}\)/)
+  assert.match(controllerContent, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(normalizedComponent,\s*\{\s*onlyIssues:\s*false\s*\}\)/)
 })
 
 test('RuntimeObservability.vue renders explicit component event empty-state guidance', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const derivedContent = await readFile(new URL('./runtimeObservabilityDerived.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /buildComponentEventEmptyState/)
-  assert.match(content, /const allComponentEventFeed = computed\(\(\) => \{[\s\S]*onlyIssues: false,[\s\S]*\}\)/)
-  assert.match(content, /const componentEventEmptyState = computed\(\(\) => buildComponentEventEmptyState\(\{[\s\S]*component: activeComponent\.value,[\s\S]*allEvents: allComponentEventFeed\.value,[\s\S]*visibleEvents: componentEventFeed\.value,[\s\S]*onlyIssues: onlyIssues\.value,[\s\S]*\}\)\)/)
-  assert.match(content, /<strong>{{ componentEventEmptyState\.title }}<\/strong>/)
-  assert.match(content, /<p v-if="componentEventEmptyState\.detail">{{ componentEventEmptyState\.detail }}<\/p>/)
+  assert.match(derivedContent, /buildComponentEventEmptyState/)
+  assert.match(derivedContent, /const allComponentEventFeed = computed\(\(\) => \{[\s\S]*onlyIssues: false,[\s\S]*\}\)/)
+  assert.match(derivedContent, /const componentEventEmptyState = computed\(\(\) => buildComponentEventEmptyState\(\{[\s\S]*component: activeComponent\.value,[\s\S]*allEvents: allComponentEventFeed\.value,[\s\S]*visibleEvents: componentEventFeed\.value,[\s\S]*onlyIssues: onlyIssues\.value,[\s\S]*\}\)\)/)
+  assert.match(vueContent, /<strong>{{ componentEventEmptyState\.title }}<\/strong>/)
+  assert.match(vueContent, /<p v-if="componentEventEmptyState\.detail">{{ componentEventEmptyState\.detail }}<\/p>/)
 })
 
 test('RuntimeObservability.vue keeps explicit sidebar selection sticky and routes component clicks through one event-switch helper', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /const \{[\s\S]*userSelectedComponent,[\s\S]*\} = createRuntimeObservabilityFilterState\(/)
-  assert.match(content, /const switchToComponentEvents = async \(component, options = \{\}\) => \{[\s\S]*userSelectedComponent\.value = true[\s\S]*activeView\.value = 'events'[\s\S]*await loadEvents\(\{ suppressError: true \}\)/)
-  assert.match(content, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(/)
-  assert.match(content, /watch\(componentSidebarItems, \(items\) => \{[\s\S]*if \(userSelectedComponent\.value && boardFilter\.component\) return/)
+  assert.match(vueContent, /const \{[\s\S]*userSelectedComponent,[\s\S]*\} = createRuntimeObservabilityFilterState\(/)
+  assert.match(vueContent, /const \{[\s\S]*handleComponentFilter,[\s\S]*\} = runtimeObservabilityController/)
+  assert.match(controllerContent, /const switchToComponentEvents = async \(component, options = \{\}\) => switchToRuntimeComponentEvents\(/)
+  assert.match(controllerContent, /const handleComponentFilter = async \(target\) => \{[\s\S]*await switchToComponentEvents\(/)
+  assert.match(controllerContent, /userSelectedComponent\?\.value && boardFilter\?\.component/)
+  assert.match(controllerContent, /userSelectedComponent\.value = true/)
 })
 
 test('RuntimeObservability.vue scopes sidebar helper text styling so status chips keep their shared variants', async () => {
@@ -1480,26 +1572,32 @@ test('RuntimeObservability.vue keeps toolbar actions in the left title block and
   assert.match(content, /<el-date-picker[\s\S]*type="datetimerange"/)
   assert.match(content, /:default-time="TIME_RANGE_PICKER_DEFAULT_TIME"/)
   assert.match(content, /const \{[\s\S]*timeRange,[\s\S]*\} = createRuntimeObservabilityFilterState\(/)
-  assert.match(content, /const buildTraceRequestParams = \(\) => buildRuntimeTraceRequestParams\(\{[\s\S]*buildTraceQuery,[\s\S]*timeRange: timeRange\.value,[\s\S]*selectedTraceKind: selectedTraceKind\.value,[\s\S]*\}\)/)
-  assert.match(content, /const buildEventRequestParams = \(\) => buildRuntimeEventRequestParams\(\{[\s\S]*buildBoardScopedQuery,[\s\S]*boardFilter,[\s\S]*timeRange: timeRange\.value,[\s\S]*\}\)/)
+  assert.match(content, /runtimeObservabilityController = createRuntimeObservabilityController\([\s\S]*query,[\s\S]*draftQuery,[\s\S]*timeRange,[\s\S]*activeView,[\s\S]*selectedTraceKind,[\s\S]*boardFilter,/)
 })
 
 test('RuntimeObservability.vue defaults to auto refresh and hides the manual auto-refresh switch', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /const \{[\s\S]*autoRefresh,[\s\S]*\} = createRuntimeObservabilityFilterState\(/)
-  assert.doesNotMatch(content, /v-model="autoRefresh"/)
-  assert.match(content, /onMounted\(\(\) => \{[\s\S]*resetOverviewTimer\(\)[\s\S]*loadOverview\(\)[\s\S]*\}\)/)
+  assert.match(vueContent, /const \{[\s\S]*autoRefresh,[\s\S]*\} = createRuntimeObservabilityFilterState\(/)
+  assert.doesNotMatch(vueContent, /v-model="autoRefresh"/)
+  assert.match(vueContent, /createRuntimeObservabilityPolling\(/)
+  assert.match(vueContent, /createRuntimeObservabilityController\([\s\S]*autoRefresh,[\s\S]*[\r\n\s]*advancedFilterVisible,[\s\S]*resetOverviewPolling,[\s\S]*disposeOverviewPolling,/)
+  assert.match(controllerContent, /watch\(autoRefresh, \(\) => \{[\s\S]*resetOverviewPolling\?\.\(\)/)
+  assert.match(controllerContent, /onMounted\(\(\) => \{[\s\S]*resetOverviewPolling\?\.\(\)[\s\S]*loadOverview\?\.\(\)/)
 })
 
 test('RuntimeObservability.vue lazily requests trace detail and older step pages for the selected trace', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /runtimeObservabilityApi\.getTraceDetail\(/)
-  assert.match(content, /runtimeObservabilityApi\.listTraceSteps\(/)
-  assert.match(content, /const loadTraceDetail = async \(traceRow/)
-  assert.match(content, /const loadMoreTraceSteps = async \(\) => \{/)
-  assert.match(content, /const handleTraceClick = async \(row\) => \{[\s\S]*selectedTrace\.value = selected/)
+  assert.match(vueContent, /@click="handleRecentTraceClick\(row\)"/)
+  assert.match(vueContent, /@click="loadMoreTraceSteps"/)
+  assert.match(controllerContent, /runtimeObservabilityApi\.getTraceDetail\(/)
+  assert.match(controllerContent, /runtimeObservabilityApi\.listTraceSteps\(/)
+  assert.match(controllerContent, /const loadTraceDetail = async \(traceRow/)
+  assert.match(controllerContent, /const loadMoreTraceSteps = async \(\) => \{/)
+  assert.match(controllerContent, /const handleTraceClick = async \(row\) => \{[\s\S]*selectedTrace\.value = selected/)
 })
 
 test('RuntimeObservability.vue keeps the right detail pane scrollable at full zoom instead of clipping content', async () => {
@@ -1551,11 +1649,11 @@ test('RuntimeObservability.vue renders selected-step detail as dense tables with
 })
 
 test('RuntimeObservability.vue resets stale trace detail before loading a different trace and ignores stale detail responses', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /let traceDetailLoadToken = 0/)
-  assert.match(content, /const handleTraceClick = async \(row\) => \{[\s\S]*const previousTraceKey = selectedTrace\.value\?\.trace_key \|\| selectedTrace\.value\?\.trace_id \|\| ''[\s\S]*const nextTraceKey = selected\.trace_key \|\| selected\.trace_id \|\| ''[\s\S]*if \(previousTraceKey !== nextTraceKey\) \{[\s\S]*resetSelectedTraceDetailState\(\)/)
-  assert.match(content, /const loadTraceDetail = async \(traceRow, options = \{\}\) => \{[\s\S]*const loadToken = \+\+traceDetailLoadToken[\s\S]*if \(loadToken !== traceDetailLoadToken\) return/)
+  assert.match(controllerContent, /let traceDetailLoadToken = 0/)
+  assert.match(controllerContent, /const handleTraceClick = async \(row\) => \{[\s\S]*const previousTraceKey = selectedTrace\.value\?\.trace_key \|\| selectedTrace\.value\?\.trace_id \|\| ''[\s\S]*const nextTraceKey = selected\.trace_key \|\| selected\.trace_id \|\| ''[\s\S]*if \(previousTraceKey !== nextTraceKey\) \{[\s\S]*resetSelectedTraceDetailState\(\)/)
+  assert.match(controllerContent, /const loadTraceDetail = async \(traceRow, options = \{\}\) => \{[\s\S]*const loadToken = \+\+traceDetailLoadToken[\s\S]*if \(loadToken !== traceDetailLoadToken\) return/)
 })
 
 test('RuntimeObservability.vue only shows the trace step empty-state when no visible steps remain and keeps it compact', async () => {
@@ -1573,20 +1671,22 @@ test('RuntimeObservability.vue only renders guardian step tables when guardian m
 })
 
 test('RuntimeObservability.vue requests explicit symbol-name enrichment for traces and events', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
+  const derivedContent = await readFile(new URL('./runtimeObservabilityDerived.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /const buildTraceRequestParams = \(\) => buildRuntimeTraceRequestParams\(/)
-  assert.match(content, /const buildEventRequestParams = \(\) => buildRuntimeEventRequestParams\(/)
-  assert.match(content, /value: selectedTraceDetail\.value\.symbol_display/)
-  assert.match(content, /value: selectedEvent\.value\?\.symbol_display/)
+  assert.match(controllerContent, /const buildTraceRequestParams = \(\) => buildRuntimeTraceRequestParams\(/)
+  assert.match(controllerContent, /const buildEventRequestParams = \(\) => buildRuntimeEventRequestParams\(/)
+  assert.match(derivedContent, /value: selectedTraceDetail\.value\.symbol_display/)
+  assert.match(derivedContent, /value: selectedEvent\.value\?\.symbol_display/)
 })
 
 test('RuntimeObservability.vue surfaces the selected time range as a visible summary chip', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const derivedContent = await readFile(new URL('./runtimeObservabilityDerived.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /formatTimeRangeLabel/)
-  assert.match(content, /const timeRangeDisplayLabel = computed\(\(\) => formatTimeRangeLabel\(timeRange\.value\)\)/)
-  assert.match(content, /展示范围 <strong>{{ timeRangeDisplayLabel }}<\/strong>/)
+  assert.match(derivedContent, /formatTimeRangeLabel/)
+  assert.match(derivedContent, /const timeRangeDisplayLabel = computed\(\(\) => formatTimeRangeLabel\(timeRange\?\.value\)\)/)
+  assert.match(vueContent, /展示范围 <strong>{{ timeRangeDisplayLabel }}<\/strong>/)
 })
 
 test('RuntimeObservability.vue uses value-based radio buttons for the view switch', async () => {
@@ -2610,6 +2710,7 @@ test('pickTraceAnchorStep locates first previous next issue steps and the slowes
 
 test('runtime observability trace mode uses dense ledger layout instead of trace feed cards', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const derivedContent = await readFile(new URL('./runtimeObservabilityDerived.mjs', import.meta.url), 'utf8')
 
   assert.match(content, /runtime-ledger runtime-trace-ledger/)
   assert.match(content, /runtime-ledger__viewport runtime-trace-ledger__viewport/)
@@ -2627,8 +2728,8 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /trace-step-ledger/)
   assert.match(content, /trace-step-ledger__viewport/)
   assert.match(content, /<el-tab-pane name="steps">[\s\S]*<section class="runtime-detail-panel runtime-detail-panel--steps">/)
-  assert.match(content, /buildTraceLedgerRows/)
-  assert.match(content, /buildTraceStepLedgerRows/)
+  assert.match(derivedContent, /buildTraceLedgerRows/)
+  assert.match(derivedContent, /buildTraceStepLedgerRows/)
   assert.match(content, /traceKindOptions/)
   assert.match(content, /handleSummaryJump\('issue-traces'\)/)
   assert.match(content, /handleSummaryJump\('issue-steps'\)/)
@@ -2641,7 +2742,7 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
   assert.match(content, /最慢节点/)
   assert.match(content, /<span>标的<\/span>/)
   assert.match(content, /row\.symbol_display/)
-  assert.match(content, /value: selectedTraceDetail\.value\.symbol_display/)
+  assert.match(derivedContent, /value: selectedTraceDetail\.value\.symbol_display/)
   assert.match(content, /<span>信号备注<\/span>/)
   assert.match(content, /row\.signal_remark \|\| '-'/)
   assert.match(content, /runtime-ledger__cell--entry-exit/)
@@ -2682,6 +2783,7 @@ test('runtime observability trace mode uses dense ledger layout instead of trace
 
 test('runtime observability event mode uses dense ledger layout instead of event feed cards', async () => {
   const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const derivedContent = await readFile(new URL('./runtimeObservabilityDerived.mjs', import.meta.url), 'utf8')
 
   assert.match(content, /runtime-ledger runtime-event-ledger/)
   assert.match(content, /<div class="runtime-ledger__viewport">[\s\S]*v-for="\(row,\s*rowIndex\) in eventLedgerRows"/)
@@ -2689,7 +2791,7 @@ test('runtime observability event mode uses dense ledger layout instead of event
   assert.match(content, /<div class="workspace-tab-label">\s*<span>事件<\/span>/)
   assert.match(content, /<div class="workspace-tab-label">\s*<span>载荷<\/span>/)
   assert.match(content, /<div class="workspace-tab-label">\s*<span>原始数据<\/span>/)
-  assert.match(content, /buildEventLedgerRows/)
+  assert.match(derivedContent, /buildEventLedgerRows/)
   assert.match(content, /embeddedRawRecordCards/)
   assert.match(content, /event-detail-ledger/)
   assert.match(content, /detail-kv-table/)
@@ -2702,7 +2804,7 @@ test('runtime observability event mode uses dense ledger layout instead of event
   assert.match(content, /<span>\{\{\s*eventSemanticColumnLabel\s*\}\}<\/span>/)
   assert.match(content, /<span>标的<\/span>/)
   assert.match(content, /\{\{\s*row\.semantic_value\s*\|\|\s*'-'\s*\}\}/)
-  assert.match(content, /const eventSemanticColumnLabel = computed\(\(\) => resolveEventSemanticColumnLabel\(activeComponent\.value\)\)/)
+  assert.match(derivedContent, /const eventSemanticColumnLabel = computed\(\(\) => resolveEventSemanticColumnLabel\(activeComponent\.value\)\)/)
   assert.match(content, /:deep\(\.workspace-tabs \.el-tabs__content\)/)
   assert.doesNotMatch(content, /event-feed-row/)
   assert.doesNotMatch(content, /<section v-show="activeEventDetailTab === 'payload'" class="runtime-detail-panel">/)
@@ -2746,24 +2848,47 @@ test('RuntimeObservability.vue lets zero-issue chips pass clicks through to the 
 })
 
 test('RuntimeObservability.vue keeps step and raw DOM registries outside Vue reactivity to avoid render-time update loops', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /const stepRowRefs = new Map\(\)/)
-  assert.match(content, /const rawRecordRefs = new Map\(\)/)
-  assert.match(content, /const setStepRowRef = \(element, key\) => \{[\s\S]*stepRowRefs\.set\(key, element \|\| null\)/)
-  assert.match(content, /const setRawRecordRef = \(element, index\) => \{[\s\S]*rawRecordRefs\.set\(index, element \|\| null\)/)
-  assert.match(content, /stepRowRefs\.get\(key\)\?\.scrollIntoView/)
-  assert.match(content, /rawRecordRefs\.get\(rawFocusedIndex\.value\)\?\.scrollIntoView/)
-  assert.doesNotMatch(content, /stepRowRefs\.value = \{/)
-  assert.doesNotMatch(content, /rawRecordRefs\.value = \{/)
+  assert.match(vueContent, /const \{[\s\S]*setStepRowRef,[\s\S]*setRawRecordRef,[\s\S]*\} = runtimeObservabilityController/)
+  assert.match(controllerContent, /const rawRecordRefs = new Map\(\)/)
+  assert.match(controllerContent, /const stepRowRefs = new Map\(\)/)
+  assert.match(controllerContent, /const setStepRowRef = \(element, key\) => \{[\s\S]*stepRowRefs\.set\(key, element \|\| null\)/)
+  assert.match(controllerContent, /const setRawRecordRef = \(element, index\) => \{[\s\S]*rawRecordRefs\.set\(index, element \|\| null\)/)
+  assert.match(controllerContent, /stepRowRefs\.get\(key\)\?\.scrollIntoView/)
+  assert.match(controllerContent, /rawRecordRefs\.get\(rawFocusedIndex\.value\)\?\.scrollIntoView/)
+  assert.doesNotMatch(controllerContent, /stepRowRefs\.value = \{/)
+  assert.doesNotMatch(controllerContent, /rawRecordRefs\.value = \{/)
 })
 
 test('RuntimeObservability.vue splits query selection and filter logic into focused modules', async () => {
-  const content = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+  const controllerContent = await readFile(new URL('./runtimeObservabilityController.mjs', import.meta.url), 'utf8')
 
-  assert.match(content, /from '\.\/runtimeObservabilityQueries\.mjs'/)
-  assert.match(content, /from '\.\/runtimeObservabilitySelection\.mjs'/)
-  assert.match(content, /from '\.\/runtimeObservabilityFilters\.mjs'/)
-  assert.match(content, /const buildEventRequestKey = \(\) => buildRuntimeEventRequestKey\(buildEventRequestParams\(\)\)/)
-  assert.match(content, /const requestKey = buildEventRequestKey\(\)/)
+  assert.match(vueContent, /from '\.\/runtimeObservabilityQueries\.mjs'/)
+  assert.match(vueContent, /from '\.\/runtimeObservabilitySelection\.mjs'/)
+  assert.match(vueContent, /from '\.\/runtimeObservabilityFilters\.mjs'/)
+  assert.match(vueContent, /const \{[\s\S]*query,[\s\S]*draftQuery,[\s\S]*timeRange,[\s\S]*\} = createRuntimeObservabilityFilterState\(/)
+  assert.match(vueContent, /const \{[\s\S]*selectedTrace,[\s\S]*selectedEvent,[\s\S]*rawQuery,[\s\S]*\} = createRuntimeObservabilitySelectionState\(/)
+  assert.match(controllerContent, /const buildEventRequestKey = \(\) => buildRuntimeEventRequestKey\(buildEventRequestParams\(\)\)/)
+  assert.match(controllerContent, /const requestKey = buildEventRequestKey\(\)/)
+})
+
+test('RuntimeObservability.vue delegates controller derived state and polling lifecycle to focused modules', async () => {
+  const vueContent = await readFile(new URL('./RuntimeObservability.vue', import.meta.url), 'utf8')
+
+  assert.match(vueContent, /from '\.\/runtimeObservabilityController\.mjs'/)
+  assert.match(vueContent, /from '\.\/runtimeObservabilityDerived\.mjs'/)
+  assert.match(vueContent, /from '\.\/runtimeObservabilityPolling\.mjs'/)
+  assert.match(vueContent, /createRuntimeObservabilityDerivedState\(/)
+  assert.match(vueContent, /createRuntimeObservabilityController\(/)
+  assert.match(vueContent, /createRuntimeObservabilityPolling\(/)
+  assert.match(vueContent, /const \{[\s\S]*loadOverview,[\s\S]*handleTimeRangeChange,[\s\S]*openRawBrowser,[\s\S]*\} = runtimeObservabilityController/)
+  assert.doesNotMatch(vueContent, /const load[A-Za-z0-9_]+\s*=/)
+  assert.doesNotMatch(vueContent, /const handle[A-Za-z0-9_]+\s*=/)
+  assert.doesNotMatch(vueContent, /const openRaw[A-Za-z0-9_]+\s*=/)
+  assert.doesNotMatch(vueContent, /watch\(componentSidebarItems, \(items\) => \{/)
+  assert.doesNotMatch(vueContent, /onMounted\(\(\) => \{/)
+  assert.doesNotMatch(vueContent, /const traceSummaryRows = computed\(\(\) =>/)
 })

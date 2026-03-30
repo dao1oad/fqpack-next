@@ -64,6 +64,7 @@ import { stockApi } from '@/api/stockApi'
 import _ from 'lodash'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { reactive } from 'vue'
+import { pollingNormal } from '../lib/queryPolicies.mjs'
 
 export default {
   name: 'PositionList',
@@ -86,8 +87,7 @@ export default {
         const end = start + listQuery.size
         return _.slice(positionList, start, end)
       },
-      refetchInterval: 30000,
-      staleTime: 5000
+      ...pollingNormal
     })
     const queryClient = useQueryClient()
     return { isLoading, positionList, listQuery, queryClient }

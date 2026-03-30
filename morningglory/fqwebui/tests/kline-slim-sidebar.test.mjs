@@ -67,6 +67,10 @@ test('normalizeSidebarItem fills symbol and code6 from code', () => {
     code6: '000001',
     symbol: 'sz000001',
     name: 'pingan',
+    sourceLabels: '',
+    categoryLabels: '',
+    titleLabel: 'pingan(000001)',
+    secondaryLabel: '',
     raw: { code: '000001', name: 'pingan' }
   })
   assert.equal(getSidebarCode6({ symbol: 'sh600000' }), '600000')
@@ -168,6 +172,6 @@ test('KlineSlim loads holding API data and renders item.name before code fallbac
 
   assert.match(scriptContent, /const items = await stockApi\.getHoldingPositionList\(\)/)
   assert.match(scriptContent, /this\.holdings = Array\.isArray\(items\) \? items : \[\]/)
-  assert.match(viewContent, /class="sidebar-item-title">{{ item\.name \|\| item\.code6 }}/)
-  assert.match(viewContent, /<span>{{ item\.name \|\| item\.code6 }}<\/span>/)
+  assert.match(viewContent, /class="sidebar-item-title">{{ item\.titleLabel \|\| item\.name \|\| item\.code6 }}/)
+  assert.match(viewContent, /class="sidebar-item-subtitle">{{ item\.secondaryLabel }}/)
 })
