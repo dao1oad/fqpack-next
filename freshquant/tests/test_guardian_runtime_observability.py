@@ -608,6 +608,74 @@ def test_guardian_sell_unexpected_exception_emits_error_and_failed_finish(monkey
     assert runtime_logger.events[-1] == error_event
 
 
+def test_guardian_sell_board_lot_check_emits_structured_skip_finish(monkeypatch):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+    signal["position"] = "SELL_SHORT"
+    signal["price"] = 12.5
+    fire_time = signal["fire_time"]
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
+        lambda _code: [
+            {
+                "date": int(fire_time.subtract(minutes=2).format("YYYYMMDD")),
+                "time": fire_time.subtract(minutes=2).format("HH:mm:ss"),
+                "price": 10.0,
+                "quantity": 50,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.eval_stock_threshold_price",
+        lambda _code, _price: {"bot_river_price": 9.0, "top_river_price": 12.0},
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian._get_position_reader",
+        lambda: types.SimpleNamespace(get_can_use_volume=lambda _code: 500),
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("submit should not be called")
+        ),
+    )
+
+    guardian.on_signal(signal)
+
+    sellable_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "sellable_volume_check"
+    )
+    finish_event = next(
+        event for event in runtime_logger.events if event["node"] == "finish"
+    )
+
+    assert sellable_event["reason_code"] == "sell_board_lot_blocked"
+    assert sellable_event["decision_outcome"]["outcome"] == "skip"
+    assert sellable_event["decision_context"]["quantity"]["raw_quantity"] == 50
+    assert sellable_event["decision_context"]["quantity"]["submit_quantity"] == 0
+    assert finish_event["reason_code"] == "sell_board_lot_blocked"
+    assert finish_event["decision_outcome"]["outcome"] == "skip"
+
+
 def _make_signal():
     now = pendulum.now()
     return {

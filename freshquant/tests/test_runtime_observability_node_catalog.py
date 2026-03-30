@@ -10,6 +10,7 @@ def test_guardian_strategy_catalog_matches_structured_observability_nodes():
         "signal_structure_check",
         "cooldown_check",
         "quantity_check",
+        "sellable_volume_check",
         "position_management_check",
         "submit_intent",
         "finish",

@@ -13,6 +13,12 @@ from freshquant.order_management.entry_adapter import (
 )
 from freshquant.order_management.ids import new_event_id
 from freshquant.order_management.repository import OrderManagementRepository
+from freshquant.order_management.sell_constraints import (
+    PositionVolumeReader as _PositionReader,
+)
+from freshquant.order_management.sell_constraints import (
+    resolve_sell_submission_quantity as _resolve_sell_submission_quantity,
+)
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.runtime_observability.failures import (
     build_exception_payload,
@@ -223,7 +229,11 @@ class TpslService:
                 return None
 
             sell_cap = self.position_reader.get_can_use_volume(base_symbol)
-            if int(sell_cap or 0) <= 0:
+            sell_quantity = _resolve_sell_submission_quantity(
+                requested_quantity=quantity_result["quantity"],
+                can_use_volume=sell_cap,
+            )
+            if sell_quantity["status"] == "blocked":
                 self._emit_runtime(
                     "trigger_eval",
                     symbol=base_symbol,
@@ -232,23 +242,11 @@ class TpslService:
                 return {
                     "status": "blocked",
                     "symbol": base_symbol,
-                    "blocked_reason": "can_use_volume",
+                    "blocked_reason": sell_quantity["blocked_reason"],
                     "quantity": 0,
                 }
-            quantity_cap = min(int(quantity_result["quantity"]), int(sell_cap))
-            order_quantity = _floor_to_board_lot(quantity_cap)
-            if order_quantity < 100:
-                self._emit_runtime(
-                    "trigger_eval",
-                    symbol=base_symbol,
-                    payload=trigger_payload,
-                )
-                return {
-                    "status": "blocked",
-                    "symbol": base_symbol,
-                    "blocked_reason": "board_lot",
-                    "quantity": 0,
-                }
+            quantity_cap = int(sell_quantity["quantity_cap"])
+            order_quantity = int(sell_quantity["quantity"])
 
             trace_id_value = str(trace_id or "").strip() or new_trace_id()
             self._emit_runtime(
@@ -556,48 +554,8 @@ class _CooldownLockClient:
         return True
 
 
-class _PositionReader:
-    def __init__(self, database):
-        self.database = database
-
-    def get_can_use_volume(self, symbol):
-        base_symbol = _normalize_symbol(symbol)
-        for doc in self.database["xt_positions"].find(
-            {},
-            {
-                "stock_code": 1,
-                "code": 1,
-                "symbol": 1,
-                "can_use_volume": 1,
-                "volume": 1,
-            },
-        ):
-            raw = doc.get("stock_code") or doc.get("code") or doc.get("symbol") or ""
-            if _normalize_symbol(raw) != base_symbol:
-                continue
-            can_use_volume = _parse_non_negative_int(
-                doc.get("can_use_volume"),
-                field_name="xt_positions can_use_volume",
-                symbol=raw,
-                default=0,
-            )
-            volume = _parse_non_negative_int(
-                doc.get("volume"),
-                field_name="xt_positions volume",
-                symbol=raw,
-                default=0,
-            )
-            return max(can_use_volume, volume)
-        return 0
-
-
 def _normalize_symbol(symbol):
     return normalize_to_base_code(str(symbol or ""))
-
-
-def _floor_to_board_lot(quantity):
-    value = max(int(quantity or 0), 0)
-    return value - (value % 100)
 
 
 def _cap_takeprofit_breakdown(profit_slices, *, quantity_cap):
@@ -668,20 +626,6 @@ def _build_buy_lot_details(buy_lot_quantities):
             }
         )
     return details
-
-
-def _parse_non_negative_int(value, *, field_name, symbol, default):
-    if value in (None, ""):
-        return int(default)
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"{field_name} invalid for {symbol or '-'}: {value!r}"
-        ) from exc
-    if parsed < 0:
-        raise ValueError(f"{field_name} invalid for {symbol or '-'}: {value!r}")
-    return parsed
 
 
 _runtime_logger = None

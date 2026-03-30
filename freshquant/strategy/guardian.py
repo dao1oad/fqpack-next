@@ -13,6 +13,11 @@ from freshquant.data.astock.holding import (
     get_stock_holding_codes,
 )
 from freshquant.database.redis import redis_db
+from freshquant.db import DBfreshquant
+from freshquant.order_management.sell_constraints import (
+    PositionVolumeReader,
+    resolve_sell_submission_quantity,
+)
 from freshquant.order_management.submit.guardian import submit_guardian_order
 from freshquant.pool.general import queryMustPoolCodes
 from freshquant.position_management.errors import PositionManagementRejectedError
@@ -915,6 +920,71 @@ class StrategyGuardian(metaclass=SingletonType):
                 decision_outcome={"outcome": "pass"},
             )
 
+            current_node = "sellable_volume_check"
+            sell_quantity = resolve_sell_submission_quantity(
+                requested_quantity=quantity,
+                can_use_volume=_get_position_reader().get_can_use_volume(code),
+            )
+            sellable_context = {
+                "quantity": {
+                    **quantity_context["quantity"],
+                    "raw_quantity": int(sell_quantity["raw_quantity"] or 0),
+                    "can_use_volume": int(sell_quantity["can_use_volume"] or 0),
+                    "quantity_cap": int(sell_quantity["quantity_cap"] or 0),
+                    "submit_quantity": int(sell_quantity["quantity"] or 0),
+                }
+            }
+            if sell_quantity["status"] != "ready":
+                reason_code = {
+                    "can_use_volume": "sell_can_use_volume_blocked",
+                    "board_lot": "sell_board_lot_blocked",
+                }.get(sell_quantity["blocked_reason"], "sell_quantity_invalid")
+                self._emit_runtime(
+                    signal,
+                    "sellable_volume_check",
+                    action="sell",
+                    status="skipped",
+                    reason_code=reason_code,
+                    decision_branch="sell_submit_quantity",
+                    decision_expr="submit_quantity >= 100 and submit_quantity <= can_use_volume",
+                    decision_context=sellable_context,
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="sell",
+                    status="skipped",
+                    reason_code=reason_code,
+                    outcome="skip",
+                    decision_branch="sell_submit_quantity",
+                    decision_expr="submit_quantity >= 100 and submit_quantity <= can_use_volume",
+                    decision_context=sellable_context,
+                )
+                if sell_quantity["blocked_reason"] == "can_use_volume":
+                    logger.info(
+                        "{code} {name} 当前可卖数量不足，跳过下单", code=code, name=name
+                    )
+                else:
+                    logger.info(
+                        "{code} {name} 当前可卖数量不足一手，跳过下单",
+                        code=code,
+                        name=name,
+                    )
+                return
+
+            quantity = int(sell_quantity["quantity"])
+            quantity_context = sellable_context
+            self._emit_runtime(
+                signal,
+                "sellable_volume_check",
+                action="sell",
+                status="success",
+                decision_branch="sell_submit_quantity",
+                decision_expr="submit_quantity >= 100 and submit_quantity <= can_use_volume",
+                decision_context=quantity_context,
+                decision_outcome={"outcome": "pass"},
+            )
+
             current_node = "cooldown_check"
             cooldown_key = f"sell:{code}"
             cooldown_active = redis_db.get(cooldown_key) is not None
@@ -1277,6 +1347,7 @@ if __name__ == "__main__":
 
 
 _runtime_logger = None
+_position_reader = None
 
 
 def _get_runtime_logger():
@@ -1284,3 +1355,10 @@ def _get_runtime_logger():
     if _runtime_logger is None:
         _runtime_logger = RuntimeEventLogger("guardian_strategy")
     return _runtime_logger
+
+
+def _get_position_reader():
+    global _position_reader
+    if _position_reader is None:
+        _position_reader = PositionVolumeReader(DBfreshquant)
+    return _position_reader

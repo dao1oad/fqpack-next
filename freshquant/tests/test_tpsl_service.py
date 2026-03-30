@@ -296,6 +296,24 @@ def test_position_reader_raises_when_sellable_volume_fields_are_invalid():
         _PositionReader(database).get_can_use_volume("000001")
 
 
+def test_position_reader_prefers_can_use_volume_over_total_volume():
+    database = FakeDb(
+        {
+            "xt_positions": FakeCollection(
+                [
+                    {
+                        "stock_code": "000001.SZ",
+                        "can_use_volume": 200,
+                        "volume": 300,
+                    }
+                ]
+            )
+        }
+    )
+
+    assert _PositionReader(database).get_can_use_volume("000001") == 200
+
+
 def test_cooldown_lock_client_raises_when_redis_lock_write_fails():
     class FailingRedis:
         def set(self, *_args, **_kwargs):
