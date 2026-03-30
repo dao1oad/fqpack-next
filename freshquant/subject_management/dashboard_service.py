@@ -58,10 +58,7 @@ class SubjectManagementDashboardService:
         stoploss_summary = self._stoploss_summary_map()
 
         symbols = set(must_pool_rows)
-        symbols.update(guardian_config_rows)
-        symbols.update(takeprofit_profiles)
         symbols.update(positions)
-        symbols.update(stoploss_summary)
         position_limit_summary_map = self._load_overview_position_limit_summary_map()
 
         latest_events = self._latest_trigger_map(symbols)

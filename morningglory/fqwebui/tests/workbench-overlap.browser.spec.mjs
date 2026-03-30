@@ -102,6 +102,61 @@ function assertNoOverlap(metrics) {
   }
 }
 
+async function measureTextHorizontalOverflow(rootLocator, {
+  name,
+  rowSelector,
+  detailSelector,
+  rowLimit = 6,
+}) {
+  await expect(rootLocator, `${name} root should be visible`).toBeVisible()
+  return await rootLocator.evaluate((root, options) => {
+    const rows = Array.from(root.querySelectorAll(options.rowSelector)).slice(0, options.rowLimit)
+    const violations = []
+    rows.forEach((row, rowIndex) => {
+      const details = Array.from(row.querySelectorAll(options.detailSelector))
+      details.forEach((detail, detailIndex) => {
+        const text = (detail.textContent || '').trim()
+        if (!text || text === '-') return
+        const parent = detail.parentElement
+        const detailRect = detail.getBoundingClientRect()
+        const parentRect = parent?.getBoundingClientRect()
+        const widthOverflow = detailRect.width - (parentRect?.width || 0)
+        const rightOverflow = detailRect.right - (parentRect?.right || 0)
+        if (
+          widthOverflow > 1 ||
+          rightOverflow > 1
+        ) {
+          violations.push({
+            rowIndex,
+            detailIndex,
+            detailWidth: Number(detailRect.width || 0),
+            parentWidth: Number(parentRect?.width || 0),
+            rightOverflow: Number(rightOverflow || 0),
+            clientWidth: Number(detail.clientWidth || 0),
+            scrollWidth: Number(detail.scrollWidth || 0),
+            text,
+          })
+        }
+      })
+    })
+    return {
+      name: options.name,
+      rowCount: rows.length,
+      violations,
+    }
+  }, {
+    name,
+    rowSelector,
+    detailSelector,
+    rowLimit,
+  })
+}
+
+function assertNoTextHorizontalOverflow(metric) {
+  expect(metric.rowCount, `${metric.name}: expected at least one visible row`).toBeGreaterThan(0)
+  expect(metric.violations, `${metric.name}: detail text overflowed horizontally`).toEqual([])
+}
+
 function buildDailyRows(count = 24) {
   return buildRows(count, (index) => {
     const code = String(index + 1).padStart(6, '0')
@@ -375,9 +430,25 @@ function buildPositionManagementDashboard() {
           name: `标的${index + 1}`,
           is_holding_symbol: true,
           market_value: 920000 - index * 24000,
-          broker_position: { quantity: 1000 + index * 20, market_value: 920000 - index * 24000, quantity_source: 'xt_positions', market_value_source: 'xt_positions.market_value' },
-          inferred_position: { quantity: 1000 + index * 20, market_value: 920000 - index * 24000, quantity_source: 'order_management_projected_positions', market_value_source: 'order_management_projected_positions' },
-          legacy_position: { quantity: 980 + index * 18, market_value: 900000 - index * 23000, quantity_source: 'stock_fills_compat', market_value_source: 'stock_fills_compat' },
+          broker_position: {
+            quantity: 1000 + index * 20,
+            market_value: 920000 - index * 24000,
+            quantity_source: 'xt_positions',
+            market_value_source: 'xt_positions_market_value',
+          },
+          ledger_position: {
+            quantity: (index % 5 === 0 ? 980 : 1000) + index * 20,
+            market_value: 915000 - index * 23000,
+            quantity_source: 'order_management_position_entries/broker_truth',
+            market_value_source: 'order_management_position_entries/broker_truth',
+          },
+          reconciliation: {
+            state: index % 5 === 0 ? 'OBSERVING' : 'AUTO_RECONCILED',
+            signed_gap_quantity: index % 5 === 0 ? 20 : 0,
+            open_gap_count: 0,
+            latest_resolution_type: 'auto_close_allocation',
+            ingest_rejection_count: index % 7 === 0 ? 2 : 0,
+          },
           position_consistency: { quantity_consistent: index % 5 !== 0 },
           default_limit: 800000,
           override_limit: index % 3 === 0 ? 650000 : null,
@@ -644,6 +715,21 @@ test('position-management ledgers keep the first row clear of the header after s
     measureLedger(page.locator('.runtime-position-decision-ledger'), { name: 'position decision ledger', headerSelector: '.runtime-ledger__header', rowSelector: '.runtime-ledger__row', viewportSelector: '.runtime-ledger__viewport' }),
   ])
   assertNoOverlap(metrics)
+})
+
+test('position-management symbol-limit detail text stays inside each cell with long source labels', async ({ page }) => {
+  await page.setViewportSize(DESKTOP_VIEWPORT)
+  await setupPositionManagementRoutes(page)
+  await page.goto(`${DEV_SERVER_URL}/position-management`)
+  const metric = await measureTextHorizontalOverflow(
+    page.locator('.runtime-position-symbol-limit-ledger'),
+    {
+      name: 'position symbol-limit detail text',
+      rowSelector: '.runtime-ledger__row',
+      detailSelector: '.position-source-cell > span',
+    },
+  )
+  assertNoTextHorizontalOverflow(metric)
 })
 
 test('runtime-observability ledgers keep the first row clear of the header after scrolling', async ({ page }) => {
