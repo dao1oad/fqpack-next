@@ -991,11 +991,17 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .position-source-cell--left {
   align-items: flex-start;
   text-align: left;
+}
+
+.position-source-cell > * {
+  max-width: 100%;
+  min-width: 0;
 }
 
 .position-source-cell strong {
@@ -1004,12 +1010,19 @@ onMounted(() => {
 }
 
 .position-source-cell span {
+  display: -webkit-box;
+  width: 100%;
   color: #68839d;
   font-size: 11px;
-  line-height: 1.2;
+  line-height: 1.35;
   overflow: hidden;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   text-overflow: ellipsis;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .position-symbol-limit-input :deep(.el-input-number) {
