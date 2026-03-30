@@ -108,6 +108,24 @@ test('RuntimeObservability.vue routes runtime status badges through StatusChip v
   assert.doesNotMatch(runtimeSource, /<span class="runtime-inline-status" :class="statusClass\(row\.status\)">/)
 })
 
+test('RuntimeObservability.vue stays the canonical workbench template with header, toolbar, summary, panel stack, and page-state hooks', () => {
+  assert.match(runtimeSource, /<WorkbenchPage class="runtime-page">/)
+  assert.match(runtimeSource, /<MyHeader\s*\/>/)
+  assert.match(runtimeSource, /<WorkbenchToolbar class="runtime-section runtime-section--workbench">/)
+  assert.match(runtimeSource, /<div class="workbench-page-title">运行观测<\/div>/)
+  assert.match(runtimeSource, /<div class="workbench-page-meta">/)
+  assert.match(runtimeSource, /<el-button type="primary" :loading="loading\.overview" @click="loadOverview">刷新<\/el-button>/)
+  assert.match(runtimeSource, /<el-alert[\s\S]*v-if="pageError"[\s\S]*class="workbench-alert"[\s\S]*type="error"/)
+  assert.match(runtimeSource, /<WorkbenchSummaryRow class="runtime-summary-row">/)
+  assert.match(runtimeSource, /<WorkbenchSidebarPanel class="runtime-browser-panel runtime-browser-panel--components">/)
+  assert.match(runtimeSource, /<WorkbenchLedgerPanel class="runtime-browser-panel runtime-browser-panel--feed">/)
+  assert.match(runtimeSource, /<WorkbenchDetailPanel class="runtime-browser-panel runtime-browser-panel--detail">/)
+  assert.match(runtimeSource, /<div v-else-if="!traceLedgerRows\.length" class="runtime-empty-panel">[\s\S]*暂无最近 Trace/)
+  assert.match(runtimeSource, /<div v-else-if="!eventLedgerRows\.length" class="runtime-empty-panel">[\s\S]*componentEventEmptyState\.title/)
+  assert.match(runtimeSource, /<el-button plain :loading="loading\.traces" @click="loadMoreTraces">加载更多 Trace<\/el-button>/)
+  assert.match(runtimeSource, /<el-button plain :loading="loading\.events" @click="loadMoreEvents">加载更多 Event<\/el-button>/)
+})
+
 test('PositionManagement.vue reuses StatusChip for summary chips and inline ledger states', () => {
   assert.match(positionSource, /import StatusChip from '\.\.\/components\/workbench\/StatusChip\.vue'/)
   assert.match(positionSource, /<StatusChip :variant="stateToneChipVariant">/)
@@ -263,6 +281,19 @@ test('StockControl.vue consumes shared workbench page and ledger panel primitive
   assert.match(stockControlSource, /<WorkbenchToolbar class="stock-control-toolbar">/)
   assert.match(stockControlSource, /<WorkbenchLedgerPanel class="stock-control-panel">/)
   assert.doesNotMatch(stockControlSource, /class="panel-card"/)
+})
+
+test('StockControl.vue follows the main workbench contract instead of a stock-only special shell', () => {
+  assert.match(stockControlSource, /<div class="workbench-page-title">股票<\/div>/)
+  assert.match(stockControlSource, /<div class="workbench-page-meta">[\s\S]*三栏信号工作台[\s\S]*持仓股、模型信号、must_pool 买入信号/)
+  assert.match(stockControlSource, /<WorkbenchSummaryRow class="stock-control-summary">/)
+  assert.match(stockControlSource, /<StatusChip variant="muted">持仓股信号<\/StatusChip>/)
+  assert.match(stockControlSource, /<StatusChip variant="info">stock_pools 模型信号<\/StatusChip>/)
+  assert.match(stockControlSource, /<StatusChip variant="warning">must_pool 买入信号<\/StatusChip>/)
+  assert.match(stockControlSource, /<div class="workbench-panel__title">持仓股信号<\/div>/)
+  assert.match(stockControlSource, /<div class="workbench-panel__title">stock_pools 模型信号<\/div>/)
+  assert.match(stockControlSource, /<div class="workbench-panel__title">must_pool 买入信号<\/div>/)
+  assert.doesNotMatch(stockControlSource, /<div class="stock-control-page-title">/)
 })
 
 test('retired standalone workbench pages are removed from the design-system surface', () => {
