@@ -143,9 +143,16 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.equal(detail.entries[0].stoplossLabel, '9.2')
   assert.equal(detail.entries[0].entryDisplayLabel, '第 1 笔持仓入口')
   assert.equal(detail.entries[0].entryIdLabel, 'ID 尾号 316d2a')
+  assert.deepEqual(detail.entries[0].entrySummaryItems, [
+    { key: 'entry_price', label: '买入价', value: '10.0' },
+    { key: 'original_quantity', label: '原始数量', value: '300 股' },
+    { key: 'remaining_quantity', label: '剩余数量', value: '200 股 / 66.67%' },
+    { key: 'remaining_market_value', label: '剩余市值', value: '2,004.60' },
+    { key: 'entry_time', label: '买入时间', value: '2026-03-16 10:31:00' },
+  ])
   assert.equal(
     detail.entries[0].entryMetaLabel,
-    '2026-03-16 10:31:00 · 均价 10.023 · 市值 12.35 万 · 剩余 66.67%'
+    '买入价 10.0 · 原始数量 300 股 · 剩余数量 200 股 / 66.67% · 剩余市值 2,004.60 · 买入时间 2026-03-16 10:31:00'
   )
   assert.equal(detail.runtimeSummary.avg_price, 10.023)
   assert.equal(detail.runtimeSummary.last_trigger_time, '2026-03-16 10:40:00')

@@ -14,6 +14,11 @@ export { buildTakeprofitDrafts }
 
 const toText = (value) => String(value ?? '').trim()
 
+const amountFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -47,6 +52,12 @@ const formatAmountWan = (value) => {
   const parsed = toNullableNumber(value)
   if (parsed === null) return '-'
   return `${(parsed / 10000).toFixed(2)} 万`
+}
+
+const formatAmount = (value) => {
+  const parsed = toNullableNumber(value)
+  if (parsed === null) return '-'
+  return amountFormatter.format(parsed)
 }
 
 const formatPercent = (value) => {
@@ -138,23 +149,68 @@ const buildEntryIdLabel = (value) => {
   return `ID 尾号 ${text.slice(-6)}`
 }
 
-const buildEntryMetaLabel = (row = {}, runtimeSummary = {}) => {
-  const parts = []
-  const dateTime = formatEntryDateTime(row)
-  const avgPriceLabel = formatAvgPrice(runtimeSummary?.avg_price)
-  const marketValueLabel = formatAmountWan(runtimeSummary?.position_amount)
+const formatQuantityLabel = (value) => {
+  const label = formatInteger(value)
+  return label === '-' ? label : `${label} 股`
+}
+
+const buildEntrySummaryItems = (row = {}, runtimeSummary = {}) => {
   const originalQuantity = toNullableNumber(row?.original_quantity)
   const remainingQuantity = toNullableNumber(row?.remaining_quantity)
-  const remainingPercentLabel = (
+  const remainingPercent = (
     originalQuantity && originalQuantity > 0 && remainingQuantity !== null
       ? formatPercent((remainingQuantity / originalQuantity) * 100)
       : '-'
   )
+  const remainingQuantityLabel = (
+    remainingQuantity === null
+      ? '-'
+      : remainingPercent === '-'
+        ? formatQuantityLabel(remainingQuantity)
+        : `${formatQuantityLabel(remainingQuantity)} / ${remainingPercent}`
+  )
+  const avgPrice = toNullableNumber(runtimeSummary?.avg_price)
+  const remainingMarketValue = (
+    avgPrice === null || remainingQuantity === null
+      ? null
+      : avgPrice * remainingQuantity
+  )
+  const entryDateTime = formatEntryDateTime(row) || '-'
+  const entryPrice = row?.entry_price ?? row?.buy_price_real
 
-  if (dateTime) parts.push(dateTime)
-  if (avgPriceLabel !== '-') parts.push(`均价 ${avgPriceLabel}`)
-  if (marketValueLabel !== '-') parts.push(`市值 ${marketValueLabel}`)
-  if (remainingPercentLabel !== '-') parts.push(`剩余 ${remainingPercentLabel}`)
+  return [
+    {
+      key: 'entry_price',
+      label: '买入价',
+      value: formatPrice(entryPrice),
+    },
+    {
+      key: 'original_quantity',
+      label: '原始数量',
+      value: formatQuantityLabel(originalQuantity),
+    },
+    {
+      key: 'remaining_quantity',
+      label: '剩余数量',
+      value: remainingQuantityLabel,
+    },
+    {
+      key: 'remaining_market_value',
+      label: '剩余市值',
+      value: formatAmount(remainingMarketValue),
+    },
+    {
+      key: 'entry_time',
+      label: '买入时间',
+      value: entryDateTime,
+    },
+  ]
+}
+
+const buildEntryMetaLabel = (row = {}, runtimeSummary = {}) => {
+  const parts = buildEntrySummaryItems(row, runtimeSummary)
+    .filter((item) => item.value !== '-')
+    .map((item) => `${item.label} ${item.value}`)
 
   return parts.join(' · ') || '暂无持仓入口信息'
 }
@@ -163,6 +219,7 @@ const buildEntries = (rows = [], runtimeSummary = {}) => {
   return (Array.isArray(rows) ? rows : []).map((row, index) => {
     const stoploss = row?.stoploss || {}
     const entryPrice = row?.entry_price ?? row?.buy_price_real
+    const entrySummaryItems = buildEntrySummaryItems(row, runtimeSummary)
     return {
       ...row,
       entry_id: toText(row?.entry_id),
@@ -176,6 +233,7 @@ const buildEntries = (rows = [], runtimeSummary = {}) => {
       stoplossLabel: formatPrice(stoploss?.stop_price),
       entryDisplayLabel: `第 ${index + 1} 笔持仓入口`,
       entryIdLabel: buildEntryIdLabel(row?.entry_id),
+      entrySummaryItems,
       entryMetaLabel: buildEntryMetaLabel(row, runtimeSummary),
     }
   })
