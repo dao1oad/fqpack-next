@@ -322,12 +322,11 @@
 
                     <div class="subject-panel-stoploss-meta" :title="row.entryMetaLabel">
                       <span
-                        v-for="item in row.entrySummaryItems"
-                        :key="`${row.entry_id}:${item.key}`"
-                        class="subject-panel-stoploss-meta-item"
+                        v-for="(line, index) in row.entrySummaryLines"
+                        :key="`${row.entry_id}:line:${index}`"
+                        class="subject-panel-stoploss-meta-line"
                       >
-                        <span class="subject-panel-stoploss-meta-label">{{ item.label }}</span>
-                        <span class="subject-panel-stoploss-meta-value">{{ item.value }}</span>
+                        {{ line }}
                       </span>
                     </div>
 
@@ -1207,25 +1206,18 @@ export default {
 
 .subject-panel-stoploss-meta
   display flex
-  flex-wrap wrap
-  gap 6px 12px
+  flex-direction column
+  gap 4px
   font-size 12px
   line-height 1.5
   color #94a3b8
   overflow-wrap anywhere
 
-.subject-panel-stoploss-meta-item
-  display inline-flex
-  align-items center
-  gap 4px
+.subject-panel-stoploss-meta-line
+  display block
   min-width 0
-  white-space nowrap
-
-.subject-panel-stoploss-meta-label
-  color #93c5fd
-
-.subject-panel-stoploss-meta-value
   color #cbd5e1
+  overflow-wrap anywhere
 
 .subject-panel-stoploss-main
   display flex

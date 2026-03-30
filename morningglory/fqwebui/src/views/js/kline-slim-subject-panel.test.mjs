@@ -43,16 +43,13 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
   assert.equal(detail.entries[0].stoploss.enabled, true)
   assert.equal(detail.entries[0].entryDisplayLabel, '第 1 笔持仓入口')
   assert.equal(detail.entries[0].entryIdLabel, 'ID 尾号 316d2a')
-  assert.deepEqual(detail.entries[0].entrySummaryItems, [
-    { key: 'entry_price', label: '买入价', value: '10.0' },
-    { key: 'original_quantity', label: '原始数量', value: '300 股' },
-    { key: 'remaining_quantity', label: '剩余数量', value: '200 股 / 66.67%' },
-    { key: 'remaining_market_value', label: '剩余市值', value: '2,004.60' },
-    { key: 'entry_time', label: '买入时间', value: '2026-03-16 10:31:00' },
+  assert.deepEqual(detail.entries[0].entrySummaryLines, [
+    '买入价：10.000；买入300 股 剩 200 股 / 66.67%',
+    '买入时间：2026-03-16 10:31:00；剩余市值：0.20 万',
   ])
   assert.equal(
     detail.entries[0].entryMetaLabel,
-    '买入价 10.0 · 原始数量 300 股 · 剩余数量 200 股 / 66.67% · 剩余市值 2,004.60 · 买入时间 2026-03-16 10:31:00'
+    '买入价：10.000；买入300 股 剩 200 股 / 66.67% · 买入时间：2026-03-16 10:31:00；剩余市值：0.20 万'
   )
   assert.equal(Object.hasOwn(detail.mustPool, 'forever'), false)
   assert.equal(Object.hasOwn(detail.positionLimit, 'use_default'), false)
