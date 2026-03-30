@@ -536,7 +536,7 @@ class RuntimeObservabilityClickHouseStore:
                 "event_id": _normalized_text(cursor_row.get("event_id")),
             }
             rows = rows[:safe_limit]
-        items = list(reversed(_serialize_event_rows(rows)))
+        items = _serialize_event_rows(_sort_event_rows_ascending(rows))
         return {"items": items, "next_cursor": next_cursor}
 
     def _list_trace_preview_steps(
@@ -620,7 +620,7 @@ class RuntimeObservabilityClickHouseStore:
                     error_message,
                     row_number() OVER (
                         PARTITION BY session_key
-                        ORDER BY ts ASC, event_id ASC
+                        ORDER BY ts ASC, raw_file ASC, raw_line ASC, event_id ASC
                     ) AS step_rank
                 FROM runtime_events
                 WHERE session_key IN ({key_list})
@@ -628,11 +628,11 @@ class RuntimeObservabilityClickHouseStore:
                   AND {visibility_condition}
             )
             WHERE step_rank <= {safe_limit}
-            ORDER BY session_key ASC, ts ASC, event_id ASC
+            ORDER BY session_key ASC, ts ASC, raw_file ASC, raw_line ASC, event_id ASC
             """
         )
         preview_by_trace: dict[str, list[dict[str, Any]]] = {}
-        for row in _serialize_event_rows(rows):
+        for row in _serialize_event_rows(_sort_trace_preview_rows(rows)):
             preview_by_trace.setdefault(
                 _normalized_text(row.get("session_key")),
                 [],
@@ -1034,6 +1034,31 @@ def _serialize_trace_summary_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def _serialize_event_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [_serialize_event_row(row) for row in rows]
+
+
+def _sort_event_rows_ascending(
+    rows: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    return sorted(rows or [], key=_event_row_sort_key)
+
+
+def _sort_trace_preview_rows(
+    rows: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    return sorted(
+        rows or [],
+        key=lambda row: (_normalized_text(row.get("session_key")),)
+        + _event_row_sort_key(row),
+    )
+
+
+def _event_row_sort_key(row: dict[str, Any]) -> tuple[str, str, int, str]:
+    return (
+        _clickhouse_ts_to_iso(row.get("ts")) or _normalized_text(row.get("ts")),
+        _normalized_text(row.get("raw_file")),
+        int(row.get("raw_line") or 0),
+        _normalized_text(row.get("event_id")),
+    )
 
 
 def _serialize_event_row(row: dict[str, Any]) -> dict[str, Any]:

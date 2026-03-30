@@ -162,6 +162,7 @@ Runtime Observability 当前采用“双存储”：
 - 全局 Trace 顶部的类型按钮会带 `trace_kind` 重新请求最新 Trace；不是在当前已加载列表上做本地筛选
 - 全局 Trace 主表当前新增 `信号备注` 列，优先显示 Guardian `signal_summary.remark`
 - 全局 Trace 主表的 `节点路径` 当前不再是纯文本；Guardian 会直接渲染中文判断节点 pill，并在 hover 时展示该节点判断上下文
+- Guardian trace preview / detail steps 在同毫秒碰撞时，会继续按原始 `raw_file + raw_line` 保持日志顺序；不会把 `finish` / `最终结论` 错排到中间
 - 全局 Trace 主表当前会优先把横向空间让给 `节点路径`：
   - `标的` 与 `信号备注` 列宽被刻意压缩
   - `节点数 / 总耗时 / 断裂原因` 继续保留在右侧
