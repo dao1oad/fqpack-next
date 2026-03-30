@@ -679,9 +679,7 @@ def _build_internal_remaining_by_symbol(repository):
         symbol = item["symbol"]
         if symbol in symbols_with_open_v2_entries:
             continue
-        result[symbol] = result.get(symbol, 0) + int(
-            item.get("remaining_quantity", 0)
-        )
+        result[symbol] = result.get(symbol, 0) + int(item.get("remaining_quantity", 0))
     return result
 
 

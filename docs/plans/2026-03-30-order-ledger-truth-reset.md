@@ -91,4 +91,3 @@ Run: `D:\\fqpack\\freshquant-2026.2.23\\.venv\\Scripts\\python.exe -m pytest fre
 - `subject/tpsl/kline` 明细返回非空 entries
 
 **Step 3: 如有代码语义变更，同步模块文档**
-
