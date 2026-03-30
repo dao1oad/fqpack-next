@@ -195,6 +195,38 @@ print(repo.list_open_entry_slices(symbol='300760'))
 - 再确认 `holding.py` / `entry_adapter` 当前已经优先返回 v2 entry / slice，而不是回退 legacy `stock_fills` 或 `buy_lots`
 - 若记录仍缺 `date/time`，优先查对应 `trade_time` 是否存在，再查该 symbol 是否还停留在旧账本
 
+## 券商有持仓但没有“按持仓入口止损”
+
+现象：
+
+- `xt_positions` 显示某 symbol 仍有仓位
+- `SubjectManagement` / `TPSL` / `KlineSlim` 看不到任何 open entry
+- `PositionManagement` 仍可能显示 broker-aligned 持仓数量
+
+先检查：
+
+- `@'
+from freshquant.order_management.repository import OrderManagementRepository
+repo = OrderManagementRepository()
+symbol = '512000'
+print('entries', repo.list_position_entries(symbol=symbol))
+print('buy_lots', repo.list_buy_lots(symbol=symbol))
+print('gaps', repo.list_reconciliation_gaps(symbol=symbol))
+print('resolutions', repo.list_reconciliation_resolutions(symbol=symbol))
+'@ | py -3.12 -m uv run -`
+
+常见根因：
+
+- 历史 mixed-state 同时保留了 open `om_position_entries` 和 open legacy `om_buy_lots`
+- 旧对账口径把两者同时计入 internal remaining，随后误判为 `ledger > broker`
+- 错误 `auto_close_allocation` 先把 V2 entry 关掉，只剩 legacy lot 留在兼容层
+
+处理：
+
+- 先确认当前代码已包含“有 open V2 entry 时不再把 legacy buy_lot 叠加进 internal remaining”的修复
+- 再停止订单写入面，执行 `script/maintenance/rebuild_order_ledger_v2.py --execute --backup-db <backup>`
+- 重建后复查 `xt_positions`、`om_position_entries`、`om_reconciliation_resolutions` 与页面读模是否一致
+
 ## Order Ledger V2 rebuild 后出现 odd-lot 拒绝
 
 现象：

@@ -664,6 +664,7 @@ def _build_positions_by_symbol(positions):
 
 def _build_internal_remaining_by_symbol(repository):
     result = {}
+    symbols_with_open_v2_entries = set()
     position_entries = []
     if hasattr(repository, "list_position_entries"):
         position_entries = list(repository.list_position_entries() or [])
@@ -671,9 +672,14 @@ def _build_internal_remaining_by_symbol(repository):
         remaining_quantity = int(item.get("remaining_quantity", 0) or 0)
         if remaining_quantity <= 0:
             continue
-        result[item["symbol"]] = result.get(item["symbol"], 0) + remaining_quantity
+        symbol = item["symbol"]
+        symbols_with_open_v2_entries.add(symbol)
+        result[symbol] = result.get(symbol, 0) + remaining_quantity
     for item in repository.list_buy_lots():
-        result[item["symbol"]] = result.get(item["symbol"], 0) + int(
+        symbol = item["symbol"]
+        if symbol in symbols_with_open_v2_entries:
+            continue
+        result[symbol] = result.get(symbol, 0) + int(
             item.get("remaining_quantity", 0)
         )
     return result
