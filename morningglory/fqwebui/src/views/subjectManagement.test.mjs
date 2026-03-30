@@ -143,6 +143,13 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.equal(detail.entries[0].stoplossLabel, '9.2')
   assert.equal(detail.entries[0].entryDisplayLabel, '第 1 笔持仓入口')
   assert.equal(detail.entries[0].entryIdLabel, 'ID 尾号 316d2a')
+  assert.deepEqual(detail.entries[0].entrySummaryDisplay, {
+    entryPriceLabel: '10.000',
+    originalQuantityLabel: '300 股',
+    remainingQuantityLabel: '200 股 / 66.67%',
+    entryDateTimeLabel: '2026-03-16 10:31:00',
+    remainingMarketValueLabel: '0.20 万',
+  })
   assert.deepEqual(detail.entries[0].entrySummaryLines, [
     '买入价：10.000；买入300 股 剩 200 股 / 66.67%',
     '买入时间：2026-03-16 10:31:00；剩余市值：0.20 万',

@@ -321,12 +321,31 @@
                     </div>
 
                     <div class="subject-panel-stoploss-meta" :title="row.entryMetaLabel">
-                      <span
-                        v-for="(line, index) in row.entrySummaryLines"
-                        :key="`${row.entry_id}:line:${index}`"
-                        class="subject-panel-stoploss-meta-line"
-                      >
-                        {{ line }}
+                      <span class="subject-panel-stoploss-meta-line">
+                        <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
+                          <span class="subject-panel-stoploss-meta-label">买入价：</span>
+                          <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.entryPriceLabel }}</span>
+                        </span>
+                        <span class="subject-panel-stoploss-meta-separator">；</span>
+                        <span class="subject-panel-stoploss-meta-item">
+                          <span class="subject-panel-stoploss-meta-label">买入</span>
+                          <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.originalQuantityLabel }}</span>
+                        </span>
+                        <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
+                          <span class="subject-panel-stoploss-meta-label">剩</span>
+                          <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.remainingQuantityLabel }}</span>
+                        </span>
+                      </span>
+                      <span class="subject-panel-stoploss-meta-line">
+                        <span class="subject-panel-stoploss-meta-item">
+                          <span class="subject-panel-stoploss-meta-label">买入时间：</span>
+                          <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.entryDateTimeLabel }}</span>
+                        </span>
+                        <span class="subject-panel-stoploss-meta-separator">；</span>
+                        <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
+                          <span class="subject-panel-stoploss-meta-label">剩余市值：</span>
+                          <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.remainingMarketValueLabel }}</span>
+                        </span>
                       </span>
                     </div>
 
@@ -1214,10 +1233,42 @@ export default {
   overflow-wrap anywhere
 
 .subject-panel-stoploss-meta-line
-  display block
+  display flex
+  flex-wrap wrap
+  align-items baseline
+  gap 6px
   min-width 0
   color #cbd5e1
   overflow-wrap anywhere
+
+.subject-panel-stoploss-meta-item
+  display inline-flex
+  align-items baseline
+  gap 2px
+  min-width 0
+  padding 2px 0
+
+.subject-panel-stoploss-meta-item--accent
+  padding 2px 6px
+  border-radius 8px
+  background rgba(30, 41, 59, 0.52)
+
+.subject-panel-stoploss-meta-label
+  color #94a3b8
+  white-space nowrap
+
+.subject-panel-stoploss-meta-value
+  color #e2e8f0
+  font-weight 600
+  min-width 0
+  overflow-wrap anywhere
+
+.subject-panel-stoploss-meta-item--accent .subject-panel-stoploss-meta-value
+  color #f8fafc
+
+.subject-panel-stoploss-meta-separator
+  color rgba(148, 163, 184, 0.62)
+  white-space nowrap
 
 .subject-panel-stoploss-main
   display flex
