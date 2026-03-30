@@ -286,6 +286,15 @@ def trading_main_loop():
                     else:
                         with trading_manager.lock():
                             trading_manager.update_connection(xt_trader, acc, success)
+                        _emit_broker_event(
+                            "watchdog",
+                            event_type="heartbeat",
+                            metrics={
+                                "connected": 1,
+                                "retry_count": connection_manager.retry_count,
+                                "retry_delay_s": 0,
+                            },
+                        )
                 nextStart = tool_trade_date_seconds_to_start()
                 order = redis_db.brpop([ORDER_QUEUE], 300)
                 if order is not None:

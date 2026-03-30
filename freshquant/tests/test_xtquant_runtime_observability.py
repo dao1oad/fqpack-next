@@ -844,6 +844,50 @@ def test_broker_trading_loop_still_connects_in_observe_only_mode(monkeypatch):
     assert observed["brpop_calls"] == 1
 
 
+def test_broker_trading_loop_emits_success_heartbeat_after_connect(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_connect_heartbeat", BROKER_PATH)
+    collector = EventCollector()
+    broker._runtime_logger = collector
+
+    monkeypatch.setattr(
+        broker,
+        "resolve_broker_submit_mode",
+        lambda settings_provider=None: "observe_only",
+    )
+    monkeypatch.setattr(broker.random, "shuffle", lambda _values: None)
+    monkeypatch.setattr(broker, "tool_trade_date_seconds_to_start", lambda: 1)
+    monkeypatch.setattr(
+        broker,
+        "connect",
+        lambda session_id=100: (
+            "xt-trader",
+            types.SimpleNamespace(account_id="acct-1"),
+            True,
+        ),
+    )
+    broker.redis_db = types.SimpleNamespace(
+        brpop=lambda _queues, _timeout: (_ for _ in ()).throw(KeyboardInterrupt())
+    )
+
+    broker.trading_main_loop()
+
+    assert collector.events[-1] == {
+        "component": "broker_gateway",
+        "node": "watchdog",
+        "event_type": "heartbeat",
+        "status": "info",
+        "trace_id": None,
+        "intent_id": None,
+        "request_id": None,
+        "internal_order_id": None,
+        "symbol": None,
+        "action": None,
+        "payload": {},
+        "metrics": {"connected": 1, "retry_count": 0, "retry_delay_s": 0},
+    }
+
+
 def test_broker_source_no_longer_contains_sync_maintenance_actions():
     broker_source = BROKER_PATH.read_text(encoding="utf-8")
 
