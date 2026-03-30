@@ -320,7 +320,16 @@
                       </span>
                     </div>
 
-                    <span class="subject-panel-stoploss-meta" :title="row.entry_id">{{ row.entryMetaLabel }}</span>
+                    <div class="subject-panel-stoploss-meta" :title="row.entryMetaLabel">
+                      <span
+                        v-for="item in row.entrySummaryItems"
+                        :key="`${row.entry_id}:${item.key}`"
+                        class="subject-panel-stoploss-meta-item"
+                      >
+                        <span class="subject-panel-stoploss-meta-label">{{ item.label }}</span>
+                        <span class="subject-panel-stoploss-meta-value">{{ item.value }}</span>
+                      </span>
+                    </div>
 
                     <div class="subject-panel-stoploss-editor">
                       <el-input-number
@@ -1197,10 +1206,26 @@ export default {
   font-size 11px
 
 .subject-panel-stoploss-meta
+  display flex
+  flex-wrap wrap
+  gap 6px 12px
   font-size 12px
   line-height 1.5
   color #94a3b8
   overflow-wrap anywhere
+
+.subject-panel-stoploss-meta-item
+  display inline-flex
+  align-items center
+  gap 4px
+  min-width 0
+  white-space nowrap
+
+.subject-panel-stoploss-meta-label
+  color #93c5fd
+
+.subject-panel-stoploss-meta-value
+  color #cbd5e1
 
 .subject-panel-stoploss-main
   display flex
