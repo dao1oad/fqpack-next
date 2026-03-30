@@ -154,7 +154,13 @@ const formatQuantityLabel = (value) => {
   return label === '-' ? label : `${label} 股`
 }
 
-const buildEntrySummaryItems = (row = {}, runtimeSummary = {}) => {
+const formatEntryPriceLabel = (value) => {
+  const parsed = toNullableNumber(value)
+  if (parsed === null) return '-'
+  return parsed.toFixed(3)
+}
+
+const buildEntrySummaryLines = (row = {}, runtimeSummary = {}) => {
   const originalQuantity = toNullableNumber(row?.original_quantity)
   const remainingQuantity = toNullableNumber(row?.remaining_quantity)
   const remainingPercent = (
@@ -179,47 +185,21 @@ const buildEntrySummaryItems = (row = {}, runtimeSummary = {}) => {
   const entryPrice = row?.entry_price ?? row?.buy_price_real
 
   return [
-    {
-      key: 'entry_price',
-      label: '买入价',
-      value: formatPrice(entryPrice),
-    },
-    {
-      key: 'original_quantity',
-      label: '原始数量',
-      value: formatQuantityLabel(originalQuantity),
-    },
-    {
-      key: 'remaining_quantity',
-      label: '剩余数量',
-      value: remainingQuantityLabel,
-    },
-    {
-      key: 'remaining_market_value',
-      label: '剩余市值',
-      value: formatAmount(remainingMarketValue),
-    },
-    {
-      key: 'entry_time',
-      label: '买入时间',
-      value: entryDateTime,
-    },
+    `买入价：${formatEntryPriceLabel(entryPrice)}；买入${formatQuantityLabel(originalQuantity)} 剩 ${remainingQuantityLabel}`,
+    `买入时间：${entryDateTime}；剩余市值：${formatAmountWan(remainingMarketValue)}`,
   ]
 }
 
 const buildEntryMetaLabel = (row = {}, runtimeSummary = {}) => {
-  const parts = buildEntrySummaryItems(row, runtimeSummary)
-    .filter((item) => item.value !== '-')
-    .map((item) => `${item.label} ${item.value}`)
-
-  return parts.join(' · ') || '暂无持仓入口信息'
+  const lines = buildEntrySummaryLines(row, runtimeSummary)
+  return lines.join(' · ') || '暂无持仓入口信息'
 }
 
 const buildEntries = (rows = [], runtimeSummary = {}) => {
   return (Array.isArray(rows) ? rows : []).map((row, index) => {
     const stoploss = row?.stoploss || {}
     const entryPrice = row?.entry_price ?? row?.buy_price_real
-    const entrySummaryItems = buildEntrySummaryItems(row, runtimeSummary)
+    const entrySummaryLines = buildEntrySummaryLines(row, runtimeSummary)
     return {
       ...row,
       entry_id: toText(row?.entry_id),
@@ -233,7 +213,7 @@ const buildEntries = (rows = [], runtimeSummary = {}) => {
       stoplossLabel: formatPrice(stoploss?.stop_price),
       entryDisplayLabel: `第 ${index + 1} 笔持仓入口`,
       entryIdLabel: buildEntryIdLabel(row?.entry_id),
-      entrySummaryItems,
+      entrySummaryLines,
       entryMetaLabel: buildEntryMetaLabel(row, runtimeSummary),
     }
   })

@@ -265,17 +265,15 @@ test('KlineSlim subject panel keeps readable entry stoploss rows after header cl
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
   assert.match(viewSource, /row\.entryDisplayLabel/)
-  assert.match(viewSource, /v-for="item in row\.entrySummaryItems"/)
+  assert.match(viewSource, /v-for="\(\s*line,\s*index\s*\)\s+in\s+row\.entrySummaryLines"/)
   assert.match(viewSource, /row\.entryIdLabel/)
   assert.match(viewSource, /class="subject-panel-stoploss-head"/)
   assert.match(viewSource, /class="subject-panel-stoploss-title-wrap"/)
   assert.match(viewSource, /class="subject-panel-stoploss-id"/)
-  assert.match(viewSource, /class="subject-panel-stoploss-meta-item"/)
-  assert.match(viewSource, /class="subject-panel-stoploss-meta-label"/)
-  assert.match(viewSource, /class="subject-panel-stoploss-meta-value"/)
+  assert.match(viewSource, /class="subject-panel-stoploss-meta-line"/)
   assert.equal(viewSource.includes('.kline-slim-subject-panel\n  left 12px\n  width 436px'), true)
   assert.equal(viewSource.includes('.subject-panel-stoploss-row\n  display flex\n  flex-direction column'), true)
-  assert.equal(viewSource.includes('.subject-panel-stoploss-meta\n  display flex\n  flex-wrap wrap'), true)
+  assert.equal(viewSource.includes('.subject-panel-stoploss-meta\n  display flex\n  flex-direction column'), true)
 })
 
 test('KlineSlim price guide panel removes refresh noise and keeps full color badges', () => {
