@@ -418,3 +418,69 @@ def test_position_management_rejection_does_not_write_buy_cooldown(monkeypatch):
 
     assert decision_service.calls == [("holding_add", "000001", 9.8)]
     assert fake_redis.events == []
+
+
+def test_guardian_sell_caps_quantity_by_can_use_volume_and_board_lot(monkeypatch):
+    captured = {}
+    fake_redis = FakeRedis()
+    fake_order_alert = FakeOrderAlert()
+    signal = _make_signal(position="SELL_SHORT", price=12.5)
+    fire_time = signal["fire_time"]
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
+        lambda _code: [
+            {
+                "date": int(fire_time.subtract(minutes=2).format("YYYYMMDD")),
+                "time": fire_time.subtract(minutes=2).format("HH:mm:ss"),
+                "price": 10.0,
+                "quantity": 300,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.eval_stock_threshold_price",
+        lambda _code, _price: {"bot_river_price": 9.0, "top_river_price": 12.0},
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", fake_redis)
+    monkeypatch.setattr("freshquant.strategy.guardian.order_alert", fake_order_alert)
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian._get_position_reader",
+        lambda: types.SimpleNamespace(get_can_use_volume=lambda _code: 250),
+    )
+
+    def fake_submit(action, symbol, price, quantity, **kwargs):
+        captured.update(
+            {
+                "action": action,
+                "symbol": symbol,
+                "price": price,
+                "quantity": quantity,
+                "kwargs": kwargs,
+            }
+        )
+        return {
+            "request_id": "req_sell_1",
+            "internal_order_id": "ord_sell_1",
+            "queue_payload": {},
+        }
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order", fake_submit
+    )
+
+    StrategyGuardian().on_signal(signal)
+
+    assert captured["action"] == "sell"
+    assert captured["symbol"] == "000001"
+    assert captured["quantity"] == 200
+    assert signal["quantity"] == 200
