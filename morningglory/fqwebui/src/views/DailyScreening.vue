@@ -51,7 +51,7 @@
           </div>
         </div>
 
-        <div class="workbench-summary-row">
+        <WorkbenchSummaryRow class="daily-screening-summary">
           <StatusChip variant="muted">
             当前 scope <strong>{{ selectedScopeLabel }}</strong>
           </StatusChip>
@@ -64,7 +64,7 @@
           <StatusChip variant="muted">
             已选条件 <strong>{{ activeConditionCount }}</strong>
           </StatusChip>
-        </div>
+        </WorkbenchSummaryRow>
       </WorkbenchToolbar>
 
       <el-alert
@@ -588,7 +588,7 @@
                 </StatusChip>
               </div>
             </div>
-            <div v-else class="daily-empty">请先选择一只股票。</div>
+            <div v-else class="workbench-empty daily-empty">请先选择一只股票。</div>
           </WorkbenchDetailPanel>
 
           <WorkbenchDetailPanel class="daily-detail-condition-panel">
@@ -687,7 +687,7 @@
                 </div>
               </article>
             </div>
-            <div v-else class="daily-empty">请先选择一只股票。</div>
+            <div v-else class="workbench-empty daily-empty">请先选择一只股票。</div>
           </WorkbenchDetailPanel>
 
           <WorkbenchDetailPanel class="daily-detail-history-panel">
@@ -758,6 +758,7 @@ import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.v
 import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
 import WorkbenchSidebarPanel from '../components/workbench/WorkbenchSidebarPanel.vue'
+import WorkbenchSummaryRow from '../components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from './MyHeader.vue'
 import Shouban30ReasonPopover from './components/Shouban30ReasonPopover.vue'

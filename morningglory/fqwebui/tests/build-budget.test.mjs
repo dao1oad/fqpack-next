@@ -9,12 +9,14 @@ import { runLockedBuild } from './vite-build-lock.mjs'
 const projectDir = new URL('..', import.meta.url)
 const projectRootPath = fileURLToPath(new URL('../', import.meta.url))
 const isolatedOutDir = '.playwright-vite/build-budget-test'
-const legacyCoreRouteChunks = [
-  ['FuturesControl'],
+const activeCoreRouteChunks = [
   ['StockControl'],
   ['MultiPeriod'],
   ['KlineBig'],
   ['KlineSlim', 'page-kline-slim'],
+]
+const retiredRouteChunks = [
+  ['FuturesControl'],
   ['StockPools'],
   ['StockCjsd'],
 ]
@@ -73,16 +75,30 @@ test('vite config keeps chunkSizeWarningLimit wired to bundleBudget.warningLimit
   assert.match(viteConfigSource.replace(/\r/g, ''), /chunkSizeWarningLimit:\s*bundleBudget\.warningLimitKb/)
 })
 
-test('isolated Vite build emits async route chunks for the legacy core pages', async () => {
+test('isolated Vite build emits async route chunks for the active core pages', async () => {
   const assetSizes = await loadBuiltAssetSizes()
   const assetNames = [...assetSizes.keys()]
 
-  for (const chunkNameAliases of legacyCoreRouteChunks) {
+  for (const chunkNameAliases of activeCoreRouteChunks) {
     assert.ok(
       chunkNameAliases.some((chunkName) => (
         assetNames.some((assetName) => assetName === `${chunkName}.js` || assetName.startsWith(`${chunkName}-`))
       )),
       `Missing async route chunk for ${chunkNameAliases.join(' / ')}`,
+    )
+  }
+})
+
+test('isolated Vite build no longer emits async route chunks for the retired standalone pages', async () => {
+  const assetSizes = await loadBuiltAssetSizes()
+  const assetNames = [...assetSizes.keys()]
+
+  for (const chunkNameAliases of retiredRouteChunks) {
+    assert.ok(
+      chunkNameAliases.every((chunkName) => (
+        assetNames.every((assetName) => assetName !== `${chunkName}.js` && !assetName.startsWith(`${chunkName}-`))
+      )),
+      `Unexpected async route chunk for ${chunkNameAliases.join(' / ')}`,
     )
   }
 })

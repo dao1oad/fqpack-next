@@ -21,20 +21,48 @@
             </el-radio-group>
           </div>
         </div>
+
+        <WorkbenchSummaryRow class="gantt-summary-row">
+          <StatusChip variant="info">
+            provider <strong>{{ activeProviderLabel }}</strong>
+          </StatusChip>
+          <StatusChip variant="muted">
+            时间窗 <strong>{{ windowDays }} 日</strong>
+          </StatusChip>
+          <StatusChip :variant="plateKey ? 'success' : 'warning'">
+            当前板块 <strong>{{ plateName || plateKey || '未选板块' }}</strong>
+          </StatusChip>
+        </WorkbenchSummaryRow>
       </WorkbenchToolbar>
 
-      <div class="gantt-page-content">
-        <GanttHistory
-          mode="stocks"
-          :provider="activeProvider"
-          :plate-key="plateKey"
-          :plate-name="plateName"
-          :window-days="windowDays"
-          title="板块趋势"
-          @update:window-days="handleWindowDaysChange"
-          @back="handleBack"
-        />
-      </div>
+      <el-alert
+        class="workbench-alert gantt-page-alert"
+        :type="plateKey ? 'info' : 'warning'"
+        :title="plateKey ? '当前页保留 provider 切换和板块内个股 drill-down。' : '请先从板块趋势页选择一个板块。'"
+        :closable="false"
+        show-icon
+      />
+
+      <WorkbenchLedgerPanel class="gantt-history-panel">
+        <div class="workbench-panel__header">
+          <div class="workbench-panel__title">板块内个股回看</div>
+        </div>
+
+        <div v-if="!plateKey" class="workbench-empty gantt-empty">请先从板块趋势页选择一个板块。</div>
+
+        <div v-else class="gantt-page-content">
+          <GanttHistory
+            mode="stocks"
+            :provider="activeProvider"
+            :plate-key="plateKey"
+            :plate-name="plateName"
+            :window-days="windowDays"
+            title="板块趋势"
+            @update:window-days="handleWindowDaysChange"
+            @back="handleBack"
+          />
+        </div>
+      </WorkbenchLedgerPanel>
     </div>
   </WorkbenchPage>
 </template>
@@ -42,13 +70,20 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import StatusChip from '@/components/workbench/StatusChip.vue'
+import WorkbenchLedgerPanel from '@/components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '@/components/workbench/WorkbenchPage.vue'
+import WorkbenchSummaryRow from '@/components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '@/components/workbench/WorkbenchToolbar.vue'
 import MyHeader from './MyHeader.vue'
 import GanttHistory from './components/GanttHistory.vue'
 
 const route = useRoute()
 const router = useRouter()
+const PROVIDER_LABELS = {
+  xgb: '选股通',
+  jygs: '韭研公社',
+}
 
 const normalizeProvider = (value) => {
   return String(value || '').trim() === 'jygs' ? 'jygs' : 'xgb'
@@ -62,6 +97,7 @@ const normalizeDays = (value, fallback = 30) => {
 
 const activeProvider = ref(normalizeProvider(route.query.p))
 const windowDays = ref(normalizeDays(route.query.days))
+const activeProviderLabel = computed(() => PROVIDER_LABELS[activeProvider.value] || '选股通')
 
 const plateKey = computed(() => {
   return String(route.params.plateKey || '').trim()
@@ -135,8 +171,24 @@ const handleBack = () => {
   flex: 0 0 auto;
 }
 
+.gantt-summary-row {
+  margin-top: 12px;
+}
+
+.gantt-page-alert {
+  flex: 0 0 auto;
+}
+
 .gantt-provider-switch {
   flex: 0 0 auto;
+}
+
+.gantt-history-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .gantt-page-content {
@@ -144,5 +196,13 @@ const handleBack = () => {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+}
+
+.gantt-empty {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: center;
+  min-height: 240px;
 }
 </style>

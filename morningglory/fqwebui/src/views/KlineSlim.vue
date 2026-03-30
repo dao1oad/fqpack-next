@@ -1,72 +1,95 @@
 <template>
   <WorkbenchPage class="kline-big-main kline-slim-main">
-    <div class="kline-slim-toolbar">
-      <div class="toolbar-left">
-        <el-button size="small" @click="jumpToControl">股票</el-button>
-        <el-input
-          v-model="symbolInput"
-          size="small"
-          class="symbol-input"
-          placeholder="请输入 symbol，例如 sh510050"
-          @keyup.enter="applySymbol"
-        />
-        <el-button size="small" @click="applySymbol">切换</el-button>
-        <el-button-group>
-          <el-button
-            v-for="period in periodList"
-            :key="period"
+    <MyHeader />
+
+    <WorkbenchToolbar class="kline-slim-toolbar">
+      <div class="kline-slim-toolbar__header">
+        <div class="workbench-title-group">
+          <div class="workbench-page-title">焦点图表</div>
+          <div class="workbench-page-meta">
+            <span>主图 + 侧栏观察清单</span>
+            <span>/</span>
+            <span>同页联动标的设置、画线编辑、缠论结构</span>
+          </div>
+        </div>
+
+        <div class="toolbar-left workbench-toolbar__actions">
+          <el-button size="small" @click="jumpToControl">股票</el-button>
+          <el-input
+            v-model="symbolInput"
             size="small"
-            :type="currentPeriod === period ? 'primary' : 'default'"
-            @click="switchPeriod(period)"
+            class="symbol-input"
+            placeholder="请输入 symbol，例如 sh510050"
+            @keyup.enter="applySymbol"
+          />
+          <el-button size="small" @click="applySymbol">切换</el-button>
+          <el-button-group>
+            <el-button
+              v-for="period in periodList"
+              :key="period"
+              size="small"
+              :type="currentPeriod === period ? 'primary' : 'default'"
+              @click="switchPeriod(period)"
+            >
+              {{ period }}
+            </el-button>
+          </el-button-group>
+          <el-date-picker
+            v-model="endDateModel"
+            type="date"
+            size="small"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
+            clearable
+            placeholder="历史日期"
+            @change="applyEndDate"
+          />
+          <el-button size="small" @click="reloadNow">刷新</el-button>
+          <el-button size="small" :disabled="!routeSymbol" @click="resetChartViewport">重置视图</el-button>
+          <el-button
+            size="small"
+            :type="showSubjectPanel ? 'primary' : 'default'"
+            :disabled="!routeSymbol"
+            @click="toggleSubjectPanel"
           >
-            {{ period }}
+            标的设置
           </el-button>
-        </el-button-group>
-        <el-date-picker
-          v-model="endDateModel"
-          type="date"
-          size="small"
-          value-format="YYYY-MM-DD"
-          format="YYYY-MM-DD"
-          clearable
-          placeholder="历史日期"
-          @change="applyEndDate"
-        />
-        <el-button size="small" @click="reloadNow">刷新</el-button>
-        <el-button size="small" :disabled="!routeSymbol" @click="resetChartViewport">重置视图</el-button>
-        <el-button
-          size="small"
-          :type="showSubjectPanel ? 'primary' : 'default'"
-          :disabled="!routeSymbol"
-          @click="toggleSubjectPanel"
-        >
-          标的设置
-        </el-button>
-        <el-button
-          size="small"
-          :type="priceGuideEditMode ? 'warning' : 'default'"
-          :disabled="!routeSymbol"
-          @click="togglePriceGuideEditMode"
-        >
-          画线编辑
-        </el-button>
-        <el-button
-          size="small"
-          :type="showChanlunStructurePanel ? 'primary' : 'default'"
-          :disabled="!routeSymbol"
-          @click="toggleChanlunStructurePanel"
-        >
-          缠论结构
-        </el-button>
-        <el-button size="small" @click="jumpToBigChart">大图</el-button>
+          <el-button
+            size="small"
+            :type="priceGuideEditMode ? 'warning' : 'default'"
+            :disabled="!routeSymbol"
+            @click="togglePriceGuideEditMode"
+          >
+            画线编辑
+          </el-button>
+          <el-button
+            size="small"
+            :type="showChanlunStructurePanel ? 'primary' : 'default'"
+            :disabled="!routeSymbol"
+            @click="toggleChanlunStructurePanel"
+          >
+            缠论结构
+          </el-button>
+          <el-button size="small" @click="jumpToBigChart">大图</el-button>
+        </div>
       </div>
-      <div class="toolbar-right">
+
+      <div class="workbench-summary-row toolbar-right">
         <StatusChip class="kline-slim-toolbar-chip" variant="muted">主图 {{ currentPeriod }}</StatusChip>
         <StatusChip class="kline-slim-toolbar-chip" variant="muted">图例控制主图缠论层与额外周期叠加，并可关闭价格横线</StatusChip>
         <StatusChip class="kline-slim-toolbar-chip" variant="muted">主图末 bar {{ lastMainBarLabel }}</StatusChip>
         <StatusChip class="kline-slim-toolbar-chip" :variant="toolbarStatusChipVariant">{{ statusText }}</StatusChip>
       </div>
-    </div>
+    </WorkbenchToolbar>
+
+    <el-alert
+      v-if="pageAlertVisible"
+      class="workbench-alert kline-slim-page-alert"
+      :type="pageAlertType"
+      :title="pageAlertTitle"
+      :closable="false"
+      show-icon
+    />
 
     <div class="kline-slim-body">
       <aside class="kline-slim-sidebar">
@@ -82,7 +105,7 @@
               @click="toggleSidebarSection(section.key)"
             >
               <span class="sidebar-section-heading">
-                <span>{{ section.label }}</span>
+                <span class="workbench-panel__title">{{ section.label }}</span>
                 <span class="sidebar-section-count">{{ section.items.length }}</span>
               </span>
               <span class="sidebar-section-action">{{ section.expanded ? '收起' : '展开' }}</span>
@@ -181,7 +204,7 @@
             <div class="price-panel-header subject-panel-header">
               <div class="price-panel-header-main subject-panel-header-main">
                 <div class="price-panel-title-row">
-                  <span class="price-panel-title">标的设置</span>
+                  <span class="price-panel-title workbench-panel__title">标的设置</span>
                   <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
                 <span v-if="subjectPanelState.subjectPanelDetail" class="price-panel-chip">
                   {{ subjectPanelState.subjectPanelDetail.name || subjectPanelState.subjectPanelDetail.symbol }}
@@ -385,7 +408,7 @@
           <div class="price-panel-header">
             <div class="price-panel-header-main">
               <div class="price-panel-title-row">
-                <span class="price-panel-title">画线编辑</span>
+                <span class="price-panel-title workbench-panel__title">画线编辑</span>
                 <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
                 <span v-if="subjectDetailLoading" class="price-panel-chip">同步中</span>
               </div>
@@ -580,7 +603,7 @@
           <div class="chanlun-panel-header">
             <div class="chanlun-panel-header-main">
               <div class="chanlun-panel-title-row">
-                <span class="chanlun-panel-title">缠论结构</span>
+                <span class="chanlun-panel-title workbench-panel__title">缠论结构</span>
                 <span class="chanlun-panel-chip">{{ routeSymbol || '--' }}</span>
                 <span class="chanlun-panel-chip">{{ currentPeriod }}</span>
                 <span v-if="chanlunStructureAsof" class="chanlun-panel-chip">
@@ -663,7 +686,7 @@
           </div>
         </div>
         <div ref="chartHost" class="kline-slim-chart"></div>
-        <div v-if="!routeSymbol" class="kline-slim-empty">
+        <div v-if="!routeSymbol" class="workbench-empty kline-slim-empty">
           {{ emptyMessage }}
         </div>
       </section>
@@ -673,7 +696,9 @@
 
 <script>
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
+import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import StatusChip from '../components/workbench/StatusChip.vue'
+import MyHeader from '@/views/MyHeader.vue'
 import klineSlim from './js/kline-slim'
 import { buildSidebarSections } from './klineSlimSidebar.mjs'
 import { buildInitialKlineSlimPageState } from './klineSlimPageState.mjs'
@@ -686,9 +711,32 @@ const klineSlimLegacyBridge = {
 export default {
   ...klineSlim,
   klineSlimLegacyBridge,
+  computed: {
+    ...(klineSlim.computed || {}),
+    pageAlertVisible() {
+      return !this.routeSymbol || this.toolbarStatusChipVariant === 'danger' || this.toolbarStatusChipVariant === 'warning'
+    },
+    pageAlertType() {
+      if (!this.routeSymbol) {
+        if (this.defaultSymbolResolveError) {
+          return 'error'
+        }
+        if (this.resolvingDefaultSymbol) {
+          return 'warning'
+        }
+        return 'info'
+      }
+      return this.toolbarStatusChipVariant === 'danger' ? 'error' : 'warning'
+    },
+    pageAlertTitle() {
+      return !this.routeSymbol ? this.emptyMessage : this.statusText
+    },
+  },
   components: {
     ...(klineSlim.components || {}),
+    MyHeader,
     WorkbenchPage,
+    WorkbenchToolbar,
     StatusChip,
   },
 }
@@ -707,11 +755,15 @@ export default {
   padding 8px 12px
   z-index 10
   display flex
-  align-items center
-  justify-content space-between
+  flex-direction column
   gap 12px
   border-bottom 1px solid rgba(127, 127, 122, 0.2)
   background rgba(18, 22, 28, 0.96)
+
+.kline-slim-toolbar__header
+  display flex
+  flex-direction column
+  gap 12px
 
 .toolbar-left
   display flex
@@ -723,7 +775,6 @@ export default {
   display flex
   align-items center
   flex-wrap wrap
-  justify-content flex-end
   gap 8px
 
 .symbol-input

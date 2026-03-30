@@ -53,7 +53,7 @@
           </div>
         </div>
 
-        <div class="workbench-summary-row">
+        <WorkbenchSummaryRow class="subject-management-summary">
           <StatusChip>
             总标的 <strong>{{ overviewRows.length }}</strong>
           </StatusChip>
@@ -75,7 +75,7 @@
           <StatusChip v-if="pmSummary.holding_only_min_bail !== null" variant="muted">
             持仓阈值 <strong>{{ formatInteger(pmSummary.holding_only_min_bail) }}</strong>
           </StatusChip>
-        </div>
+        </WorkbenchSummaryRow>
       </WorkbenchToolbar>
 
       <div class="subject-layout">
@@ -243,10 +243,10 @@
             </section>
 
             <WorkbenchDetailPanel class="subject-editor-table-panel">
-              <div class="subject-editor-table-header">
-                <div class="subject-editor-table-heading">
-                  <div class="subject-editor-table-title">基础配置 + 单标的仓位上限</div>
-                  <div class="subject-editor-table-subtitle">单标的上限设置默认显示当前生效值；保存成系统默认值时后端会自动删除单独设置</div>
+              <div class="workbench-panel__header subject-editor-table-header">
+                <div class="workbench-title-group subject-editor-table-heading">
+                  <div class="workbench-panel__title">基础配置 + 单标的仓位上限</div>
+                  <p class="workbench-panel__desc subject-editor-table-subtitle">单标的上限设置默认显示当前生效值；保存成系统默认值时后端会自动删除单独设置</p>
                 </div>
                 <el-button
                   size="small"
@@ -334,12 +334,12 @@
             </WorkbenchDetailPanel>
 
             <WorkbenchDetailPanel class="subject-editor-table-panel">
-              <div class="subject-editor-table-header">
-                <div class="subject-editor-table-heading">
-                  <div class="subject-editor-table-title">按持仓入口止损</div>
-                  <div class="subject-editor-table-subtitle">只展示 open entry，按行保存</div>
+              <div class="workbench-panel__header subject-editor-table-header">
+                <div class="workbench-title-group subject-editor-table-heading">
+                  <div class="workbench-panel__title">按持仓入口止损</div>
+                  <p class="workbench-panel__desc subject-editor-table-subtitle">只展示 open entry，按行保存</p>
                 </div>
-                <div class="subject-editor-table-meta">{{ detail.entries.length }} 条 open entry</div>
+                <div class="workbench-panel__meta subject-editor-table-meta">{{ detail.entries.length }} 条 open entry</div>
               </div>
 
               <el-table
@@ -432,6 +432,7 @@ import StatusChip from '../components/workbench/StatusChip.vue'
 import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
 import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
+import WorkbenchSummaryRow from '../components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import { subjectManagementApi } from '@/api/subjectManagementApi'
 import MyHeader from '@/views/MyHeader.vue'

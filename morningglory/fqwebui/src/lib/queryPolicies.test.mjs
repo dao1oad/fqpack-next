@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -60,9 +61,7 @@ test('query pages use named policies instead of staleTime and refetch magic numb
     ['views/StockPositionList.vue', 'pollingNormal'],
     ['views/js/kline-big.js', 'pollingFast'],
     ['views/js/multi-period.js', 'pollingFast'],
-    ['components/StockPools.vue', 'pollingSlow'],
     ['components/StockMustPools.vue', 'pollingSlow'],
-    ['components/StockCjsd.vue', 'pollingSlow']
   ]
 
   for (const [filePath, expectedPolicy] of expectedPoliciesByFile) {
@@ -71,5 +70,16 @@ test('query pages use named policies instead of staleTime and refetch magic numb
     assert.match(content, new RegExp(`\\.\\.\\.${expectedPolicy}`))
     assert.doesNotMatch(content, /refetchInterval:\s*(10000|30000|600000)/)
     assert.doesNotMatch(content, /staleTime:\s*5000/)
+  }
+})
+
+test('retired standalone stock-pool pages are removed from query policy coverage', () => {
+  const retiredQueryPolicyFiles = [
+    path.join(srcDir, 'components', 'StockPools.vue'),
+    path.join(srcDir, 'components', 'StockCjsd.vue'),
+  ]
+
+  for (const filePath of retiredQueryPolicyFiles) {
+    assert.equal(existsSync(filePath), false, `${filePath} should be removed`)
   }
 })

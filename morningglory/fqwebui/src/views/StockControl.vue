@@ -22,6 +22,14 @@
         </WorkbenchSummaryRow>
       </WorkbenchToolbar>
 
+      <el-alert
+        class="workbench-alert"
+        type="info"
+        title="各栏独立加载；无信号时保持统一空表结构。"
+        show-icon
+        :closable="false"
+      />
+
       <div class="stock-control-grid">
         <WorkbenchLedgerPanel class="stock-control-panel">
           <div class="workbench-panel__header">
