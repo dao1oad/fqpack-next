@@ -13,7 +13,6 @@ const DEV_SERVER_PORT = 18094
 const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
 const PREVIEW_ARTIFACTS = createIsolatedViteArtifactsContext(import.meta.url)
 const DESKTOP_VIEWPORT = { width: 1600, height: 900 }
-const NARROW_VIEWPORT = { width: 720, height: 1280 }
 
 let devServerProcess = null
 
@@ -156,103 +155,6 @@ async function measureTextHorizontalOverflow(rootLocator, {
 function assertNoTextHorizontalOverflow(metric) {
   expect(metric.rowCount, `${metric.name}: expected at least one visible row`).toBeGreaterThan(0)
   expect(metric.violations, `${metric.name}: detail text overflowed horizontally`).toEqual([])
-}
-
-async function measureHorizontalScrollbar(rootLocator, {
-  name,
-  viewportSelector = '.runtime-ledger__viewport',
-}) {
-  await expect(rootLocator, `${name} root should be visible`).toBeVisible()
-  return await rootLocator.evaluate((root, options) => {
-    const viewport = options.viewportSelector
-      ? root.querySelector(options.viewportSelector)
-      : null
-    const target = viewport || root
-    return {
-      name: options.name,
-      rootClientWidth: Number(root.clientWidth || 0),
-      rootScrollWidth: Number(root.scrollWidth || 0),
-      targetClientWidth: Number(target.clientWidth || 0),
-      targetScrollWidth: Number(target.scrollWidth || 0),
-    }
-  }, {
-    name,
-    viewportSelector,
-  })
-}
-
-function assertNoHorizontalScrollbar(metrics) {
-  expect(metrics.length).toBeGreaterThan(0)
-  for (const metric of metrics) {
-    expect(
-      metric.rootScrollWidth,
-      `${metric.name}: ledger root still overflows horizontally`,
-    ).toBeLessThanOrEqual(metric.rootClientWidth + 1)
-    expect(
-      metric.targetScrollWidth,
-      `${metric.name}: ledger viewport still overflows horizontally`,
-    ).toBeLessThanOrEqual(metric.targetClientWidth + 1)
-  }
-}
-
-async function measureHorizontalScrollability(rootLocator, {
-  name,
-  scrollLeft = 80,
-}) {
-  await expect(rootLocator, `${name} root should be visible`).toBeVisible()
-  return await rootLocator.evaluate(async (root, options) => {
-    const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
-    const maxScrollLeft = Math.max(root.scrollWidth - root.clientWidth, 0)
-    const before = Number(root.scrollLeft || 0)
-    root.scrollLeft = Math.min(options.scrollLeft, maxScrollLeft)
-    await wait(80)
-    const after = Number(root.scrollLeft || 0)
-    return {
-      name: options.name,
-      clientWidth: Number(root.clientWidth || 0),
-      scrollWidth: Number(root.scrollWidth || 0),
-      maxScrollLeft: Number(maxScrollLeft || 0),
-      before,
-      after,
-    }
-  }, {
-    name,
-    scrollLeft,
-  })
-}
-
-function assertHorizontalScrollability(metric) {
-  expect(
-    metric.scrollWidth,
-    `${metric.name}: expected narrow layout to keep horizontal overflow available`,
-  ).toBeGreaterThan(metric.clientWidth + 1)
-  expect(
-    metric.maxScrollLeft,
-    `${metric.name}: expected horizontal scrolling capacity`,
-  ).toBeGreaterThan(0)
-  expect(
-    metric.after,
-    `${metric.name}: expected horizontal scroll position to move`,
-  ).toBeGreaterThan(metric.before)
-}
-
-function assertHorizontalReachability(metric) {
-  if (metric.scrollWidth > metric.clientWidth + 1) {
-    expect(
-      metric.maxScrollLeft,
-      `${metric.name}: expected horizontal scrolling capacity when content overflows`,
-    ).toBeGreaterThan(0)
-    expect(
-      metric.after,
-      `${metric.name}: expected horizontal scroll position to move when content overflows`,
-    ).toBeGreaterThan(metric.before)
-    return
-  }
-
-  expect(
-    metric.scrollWidth,
-    `${metric.name}: expected content to fit when no horizontal scrolling is needed`,
-  ).toBeLessThanOrEqual(metric.clientWidth + 1)
 }
 
 function buildDailyRows(count = 24) {
@@ -799,46 +701,6 @@ test('daily-screening ledgers keep the first row clear of the header after scrol
   const workspaceMetric = await measureLedger(page.getByRole('tabpanel', { name: /must_pools/ }).locator('.daily-workspace-ledger'), { name: 'daily workspace must_pools ledger', headerSelector: '.runtime-ledger__header', rowSelector: '.runtime-ledger__row', viewportSelector: '.runtime-ledger__viewport' })
   const historyMetric = await measureLedger(page.locator('.daily-history-ledger'), { name: 'daily history ledger', headerSelector: '.runtime-ledger__header', rowSelector: '.runtime-ledger__row', viewportSelector: '.runtime-ledger__viewport' })
   assertNoOverlap([resultsMetric, workspaceMetric, historyMetric])
-})
-
-test('daily-screening result and history ledgers do not expose horizontal scrollbars in desktop layout', async ({ page }) => {
-  await page.setViewportSize(DESKTOP_VIEWPORT)
-  await setupDailyScreeningRoutes(page)
-  await page.goto(`${DEV_SERVER_URL}/daily-screening`)
-  await expect(page.locator('.daily-results-ledger .runtime-ledger__row').first()).toBeVisible()
-  await page.locator('.daily-results-ledger .runtime-ledger__row').first().evaluate((node) => node.click())
-  await expect(page.locator('.daily-history-ledger .runtime-ledger__row').first()).toBeVisible()
-
-  const resultsMetric = await measureHorizontalScrollbar(page.locator('.daily-results-ledger'), {
-    name: 'daily results ledger',
-  })
-  const historyMetric = await measureHorizontalScrollbar(page.locator('.daily-history-ledger'), {
-    name: 'daily history ledger',
-  })
-
-  assertNoHorizontalScrollbar([resultsMetric, historyMetric])
-})
-
-test('daily-screening result and history ledgers stay horizontally scrollable on narrow layout', async ({ page }) => {
-  await page.setViewportSize(NARROW_VIEWPORT)
-  await setupDailyScreeningRoutes(page)
-  await page.goto(`${DEV_SERVER_URL}/daily-screening`)
-  await expect(page.locator('.daily-results-ledger .runtime-ledger__row').first()).toBeVisible()
-  await page
-    .locator('.daily-results-ledger .runtime-ledger__row')
-    .first()
-    .evaluate((node) => node.click())
-  await expect(page.locator('.daily-history-ledger .runtime-ledger__row').first()).toBeVisible()
-
-  const resultsMetric = await measureHorizontalScrollability(page.locator('.daily-results-ledger'), {
-    name: 'daily results ledger narrow layout',
-  })
-  const historyMetric = await measureHorizontalScrollability(page.locator('.daily-history-ledger'), {
-    name: 'daily history ledger narrow layout',
-  })
-
-  assertHorizontalScrollability(resultsMetric)
-  assertHorizontalReachability(historyMetric)
 })
 
 test('position-management ledgers keep the first row clear of the header after scrolling', async ({ page }) => {

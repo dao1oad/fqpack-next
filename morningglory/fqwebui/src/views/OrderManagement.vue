@@ -79,7 +79,7 @@
             <span class="workbench-muted">时间筛选支持 `2026-03-13` 或 ISO 时间。</span>
           </div>
 
-          <WorkbenchSummaryRow class="order-filter-chips">
+          <div class="workbench-summary-row order-filter-chips">
             <StatusChip
               v-for="chip in activeFilterChips"
               :key="chip"
@@ -93,7 +93,7 @@
             >
               当前无额外筛选
             </StatusChip>
-          </WorkbenchSummaryRow>
+          </div>
         </div>
       </WorkbenchToolbar>
 
@@ -332,7 +332,6 @@ import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.v
 import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
 import WorkbenchPanel from '../components/workbench/WorkbenchPanel.vue'
-import WorkbenchSummaryRow from '../components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from '@/views/MyHeader.vue'
 import { orderManagementApi } from '@/api/orderManagementApi'

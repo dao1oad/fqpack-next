@@ -21,62 +21,32 @@
             </el-radio-group>
           </div>
         </div>
-
-        <WorkbenchSummaryRow class="gantt-summary-row">
-          <StatusChip variant="info">
-            provider <strong>{{ activeProviderLabel }}</strong>
-          </StatusChip>
-          <StatusChip variant="muted">
-            时间窗 <strong>{{ windowDays }} 日</strong>
-          </StatusChip>
-        </WorkbenchSummaryRow>
       </WorkbenchToolbar>
 
-      <el-alert
-        class="workbench-alert gantt-page-alert"
-        type="info"
-        :closable="false"
-        title="支持 provider 切换与 drill-down；主区保留原有趋势时间窗工作流。"
-        show-icon
-      />
-
-      <WorkbenchLedgerPanel class="gantt-history-panel">
-        <div class="workbench-panel__header">
-          <div class="workbench-panel__title">板块趋势时间窗</div>
-        </div>
-
-        <div class="gantt-page-content">
-          <GanttHistory
-            mode="plates"
-            :provider="activeProvider"
-            :window-days="windowDays"
-            title="板块趋势"
-            @update:window-days="handleWindowDaysChange"
-            @drill-down="handleDrillDown"
-          />
-        </div>
-      </WorkbenchLedgerPanel>
+      <div class="gantt-page-content">
+        <GanttHistory
+          mode="plates"
+          :provider="activeProvider"
+          :window-days="windowDays"
+          title="板块趋势"
+          @update:window-days="handleWindowDaysChange"
+          @drill-down="handleDrillDown"
+        />
+      </div>
     </div>
   </WorkbenchPage>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import StatusChip from '@/components/workbench/StatusChip.vue'
-import WorkbenchLedgerPanel from '@/components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '@/components/workbench/WorkbenchPage.vue'
-import WorkbenchSummaryRow from '@/components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '@/components/workbench/WorkbenchToolbar.vue'
 import MyHeader from './MyHeader.vue'
 import GanttHistory from './components/GanttHistory.vue'
 
 const route = useRoute()
 const router = useRouter()
-const PROVIDER_LABELS = {
-  xgb: '选股通',
-  jygs: '韭研公社',
-}
 
 const normalizeProvider = (value) => {
   return String(value || '').trim() === 'jygs' ? 'jygs' : 'xgb'
@@ -90,7 +60,6 @@ const normalizeDays = (value, fallback = 30) => {
 
 const activeProvider = ref(normalizeProvider(route.query.p))
 const windowDays = ref(normalizeDays(route.query.days))
-const activeProviderLabel = computed(() => PROVIDER_LABELS[activeProvider.value] || '选股通')
 
 watch(
   () => route.query.p,
@@ -162,24 +131,8 @@ const handleDrillDown = ({ plateKey, plateName, days }) => {
   flex: 0 0 auto;
 }
 
-.gantt-summary-row {
-  margin-top: 12px;
-}
-
-.gantt-page-alert {
-  flex: 0 0 auto;
-}
-
 .gantt-provider-switch {
   flex: 0 0 auto;
-}
-
-.gantt-history-panel {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .gantt-page-content {

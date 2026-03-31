@@ -9,6 +9,12 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'primary',
     size: 'default',
   },
+  futures: {
+    label: '期货',
+    path: '/futures-control',
+    buttonType: 'primary',
+    size: 'small',
+  },
   klineSlim: {
     label: '行情图表',
     path: '/kline-slim',
@@ -79,17 +85,33 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'primary',
     size: 'small',
   },
+  pool: {
+    label: '股票池',
+    path: '/stock-pools',
+    buttonType: 'primary',
+    size: 'small',
+  },
+  cjsd: {
+    label: '超级赛道',
+    path: '/stock-cjsd',
+    buttonType: 'primary',
+    size: 'small',
+  },
 }
 
 export const HEADER_NAV_GROUPS = [
   ['systemSettings'],
+  ['futures'],
   ['klineSlim', 'orders', 'positionManagement', 'subjectManagement', 'tpsl', 'runtime'],
   ['gantt', 'shouban30', 'dailyScreening'],
-  ['stock'],
+  ['stock', 'pool', 'cjsd'],
 ]
 
 export const ROUTE_TITLES_BY_NAME = {
+  'futures-control': '期货',
   'stock-control': '股票',
+  'stock-pools': '股票池',
+  'stock-cjsd': '超级赛道',
   'multi-period': '多周期',
   'kline-big': '行情图表',
   'kline-slim': '行情图表',

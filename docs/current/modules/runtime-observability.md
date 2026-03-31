@@ -13,7 +13,6 @@ Runtime Observability 当前采用“双存储”：
 
 - 页面
   - `/runtime-observability`
-  - 当前 `/` 默认直接跳转到 `/runtime-observability`
 - API
   - `/api/runtime/components`
   - `/api/runtime/health/summary`
@@ -149,7 +148,7 @@ Runtime Observability 当前采用“双存储”：
 - 前端页面壳当前开始收口到共享 workbench 设计系统：
   - 共享 token 位于 `morningglory/fqwebui/src/style/workbench-tokens.css`
   - 共享页面原语位于 `morningglory/fqwebui/src/components/workbench/`
-  - `/runtime-observability` 当前既是默认首页，也是 page / toolbar / summary row / sidebar panel / ledger panel / detail panel 这组 workbench 原语的模板页
+  - `/runtime-observability` 当前已接入 page / toolbar / summary row / sidebar panel / ledger panel / detail panel 这组 workbench 原语
   - 页面状态当前按职责拆成 `RuntimeObservability.vue + runtimeObservabilityQueries.mjs + runtimeObservabilitySelection.mjs + runtimeObservabilityFilters.mjs`
   - 只读摘要徽标当前统一复用 `StatusChip`，交互型筛选/跳转徽标继续保留 button 语义
 - 首屏拉：
