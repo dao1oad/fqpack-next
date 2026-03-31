@@ -409,6 +409,39 @@ def test_list_compat_stock_positions_reads_compat_collection_only():
     assert database.stock_fills_compat.find_calls == [{}]
 
 
+def test_list_compat_stock_positions_accepts_database_objects_without_truthiness():
+    from freshquant.order_management.projection.stock_fills_compat import (
+        list_compat_stock_positions,
+    )
+
+    class BoolTrapDatabase:
+        def __init__(self):
+            self.stock_fills_compat = FakeStockFillsCollection(
+                [
+                    {
+                        "symbol": "000001",
+                        "op": "买",
+                        "quantity": 300,
+                        "price": 10.0,
+                        "amount": 3000.0,
+                        "amount_adjust": 1.0,
+                        "date": 20240102,
+                        "time": "09:31:00",
+                        "name": "平安银行",
+                        "stock_code": "000001.SZ",
+                    }
+                ]
+            )
+
+        def __bool__(self):
+            raise AssertionError("database truthiness must not be evaluated")
+
+    rows = list_compat_stock_positions(database=BoolTrapDatabase())
+
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "000001"
+
+
 def test_stock_fills_compat_service_sync_symbols_rebuilds_all_known_symbols():
     from freshquant.order_management.projection.stock_fills_compat import (
         StockFillsCompatibilityService,

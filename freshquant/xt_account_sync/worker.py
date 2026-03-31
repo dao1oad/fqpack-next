@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import logging
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -8,14 +9,17 @@ from zoneinfo import ZoneInfo
 from freshquant.xt_account_sync.service import XtAccountSyncService
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+logger = logging.getLogger(__name__)
 
 
 def run_once(service=None):
     sync_service = service or XtAccountSyncService.build_default()
-    return sync_service.sync_once(
+    result = sync_service.sync_once(
         include_credit_subjects=False,
         seed_symbol_snapshots=True,
     )
+    _log_positions_quarantine(result)
+    return result
 
 
 def run_forever(
@@ -36,10 +40,11 @@ def run_forever(
     # position management. Only credit_subjects is reduced to startup/daily sync.
     if symbol_position_service is not None:
         symbol_position_service.refresh_all_from_positions()
-    sync_service.sync_once(
+    startup_result = sync_service.sync_once(
         include_credit_subjects=include_credit_subjects_on_startup,
         seed_symbol_snapshots=True,
     )
+    _log_positions_quarantine(startup_result)
 
     last_scheduled_date = None
     if include_credit_subjects_on_startup and _is_schedule_due(
@@ -57,10 +62,11 @@ def run_forever(
             scheduled_hour,
             scheduled_minute,
         )
-        sync_service.sync_once(
+        loop_result = sync_service.sync_once(
             include_credit_subjects=include_credit_subjects,
             seed_symbol_snapshots=False,
         )
+        _log_positions_quarantine(loop_result)
         if include_credit_subjects:
             last_scheduled_date = current_time.date()
         sleep_fn(interval_seconds)
@@ -128,6 +134,16 @@ def _is_schedule_due(current_time, scheduled_hour, scheduled_minute):
 
 def _shanghai_now():
     return datetime.now(SHANGHAI_TZ)
+
+
+def _log_positions_quarantine(result):
+    positions = result.get("positions") if isinstance(result, dict) else None
+    if not isinstance(positions, dict) or not positions.get("quarantined"):
+        return
+    logger.warning(
+        "xt_account_sync positions snapshot quarantined: %s",
+        positions.get("reason") or "unknown",
+    )
 
 
 if __name__ == "__main__":

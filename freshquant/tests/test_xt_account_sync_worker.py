@@ -4,6 +4,7 @@ import runpy
 import sys
 import types
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -78,6 +79,33 @@ def test_worker_run_once_calls_sync_service_without_credit_subjects_by_default()
             "include_credit_subjects": False,
             "seed_symbol_snapshots": True,
         }
+    ]
+
+
+def test_worker_run_once_logs_when_positions_snapshot_is_quarantined(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync import worker as worker_module
+
+    service = FakeSyncService(
+        result={
+            "positions": {
+                "quarantined": True,
+                "reason": "empty_snapshot_with_positive_market_value",
+            }
+        }
+    )
+    warnings = []
+    monkeypatch.setattr(
+        worker_module,
+        "logger",
+        SimpleNamespace(warning=lambda message, *args: warnings.append(message % args)),
+    )
+
+    worker_module.run_once(service=service)
+
+    assert warnings == [
+        "xt_account_sync positions snapshot quarantined: empty_snapshot_with_positive_market_value"
     ]
 
 
@@ -346,6 +374,302 @@ def test_build_default_sync_service_filters_replayed_orders_and_trades_by_cursor
             },
         ]
     ]
+
+
+def test_build_default_sync_positions_quarantines_empty_snapshot_with_positive_market_value(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync.service import XtAccountSyncService
+
+    class FakeQueryClient:
+        account_id = "acct-sync"
+        account_type = "CREDIT"
+
+        def query_stock_positions(self):
+            return []
+
+    class FakePositionRepository:
+        def get_latest_snapshot(self):
+            return {
+                "account_id": "acct-sync",
+                "market_value": 128000.0,
+            }
+
+    class FakePositionsCollection:
+        def find(self, query):
+            assert query == {"account_id": "acct-sync"}
+            return [
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "512600.SH",
+                    "volume": 4700,
+                    "avg_price": 1.02,
+                }
+            ]
+
+    persist_calls = []
+    reconcile_calls = []
+
+    def _capture_persist(*args, **kwargs):
+        persist_calls.append((args, kwargs))
+        return {"count": 0, "account_id": "acct-sync"}
+
+    def _capture_reconcile(*args, **kwargs):
+        reconcile_calls.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(
+        "freshquant.xt_account_sync.service.persist_positions",
+        _capture_persist,
+    )
+
+    service = XtAccountSyncService.build_default(
+        client=FakeQueryClient(),
+        position_repository=FakePositionRepository(),
+        reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
+        positions_collection=FakePositionsCollection(),
+    )
+
+    result = service.sync_positions()
+
+    assert result["quarantined"] is True
+    assert result["reason"] == "empty_snapshot_with_positive_market_value"
+    assert result["previous_summary"]["symbol_count"] == 1
+    assert result["current_summary"]["symbol_count"] == 0
+    assert result["latest_credit_market_value"] == 128000.0
+    assert persist_calls == []
+    assert reconcile_calls == []
+
+
+def test_build_default_sync_positions_quarantines_severely_shrunk_snapshot_when_credit_market_value_stays_high(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync.service import XtAccountSyncService
+
+    class FakeQueryClient:
+        account_id = "acct-sync"
+        account_type = "CREDIT"
+
+        def query_stock_positions(self):
+            return [
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "300760.SZ",
+                    "volume": 100,
+                    "avg_price": 10.0,
+                }
+            ]
+
+    class FakePositionRepository:
+        def get_latest_snapshot(self):
+            return {
+                "account_id": "acct-sync",
+                "market_value": 98000.0,
+            }
+
+    class FakePositionsCollection:
+        def find(self, query):
+            assert query == {"account_id": "acct-sync"}
+            return [
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "300760.SZ",
+                    "volume": 900,
+                    "avg_price": 170.0,
+                },
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "600570.SH",
+                    "volume": 800,
+                    "avg_price": 25.0,
+                },
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "512600.SH",
+                    "volume": 4700,
+                    "avg_price": 1.0,
+                },
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "603919.SH",
+                    "volume": 2800,
+                    "avg_price": 18.0,
+                },
+            ]
+
+    persist_calls = []
+    reconcile_calls = []
+
+    def _capture_persist(*args, **kwargs):
+        persist_calls.append((args, kwargs))
+        return {"count": 1, "account_id": "acct-sync"}
+
+    def _capture_reconcile(*args, **kwargs):
+        reconcile_calls.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(
+        "freshquant.xt_account_sync.service.persist_positions",
+        _capture_persist,
+    )
+
+    service = XtAccountSyncService.build_default(
+        client=FakeQueryClient(),
+        position_repository=FakePositionRepository(),
+        reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
+        positions_collection=FakePositionsCollection(),
+    )
+
+    result = service.sync_positions()
+
+    assert result["quarantined"] is True
+    assert result["reason"] == "shrunk_snapshot_with_positive_market_value"
+    assert result["previous_summary"]["symbol_count"] == 4
+    assert result["current_summary"]["symbol_count"] == 1
+    assert result["current_summary"]["estimated_market_value"] == 1000.0
+    assert result["latest_credit_market_value"] == 98000.0
+    assert persist_calls == []
+    assert reconcile_calls == []
+
+
+def test_build_default_sync_positions_quarantines_small_account_severe_shrink_when_credit_market_value_stays_high(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync.service import XtAccountSyncService
+
+    class FakeQueryClient:
+        account_id = "acct-sync"
+        account_type = "CREDIT"
+
+        def query_stock_positions(self):
+            return [
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "300760.SZ",
+                    "volume": 100,
+                    "avg_price": 170.0,
+                }
+            ]
+
+    class FakePositionRepository:
+        def get_latest_snapshot(self):
+            return {
+                "account_id": "acct-sync",
+                "market_value": 153000.0,
+            }
+
+    class FakePositionsCollection:
+        def find(self, query):
+            assert query == {"account_id": "acct-sync"}
+            return [
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "300760.SZ",
+                    "volume": 900,
+                    "avg_price": 170.0,
+                }
+            ]
+
+    persist_calls = []
+    reconcile_calls = []
+
+    def _capture_persist(*args, **kwargs):
+        persist_calls.append((args, kwargs))
+        return {"count": 1, "account_id": "acct-sync"}
+
+    def _capture_reconcile(*args, **kwargs):
+        reconcile_calls.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(
+        "freshquant.xt_account_sync.service.persist_positions",
+        _capture_persist,
+    )
+
+    service = XtAccountSyncService.build_default(
+        client=FakeQueryClient(),
+        position_repository=FakePositionRepository(),
+        reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
+        positions_collection=FakePositionsCollection(),
+    )
+
+    result = service.sync_positions()
+
+    assert result["quarantined"] is True
+    assert (
+        result["reason"] == "small_account_shrunk_snapshot_with_positive_market_value"
+    )
+    assert result["previous_summary"]["symbol_count"] == 1
+    assert result["current_summary"]["symbol_count"] == 1
+    assert result["current_summary"]["total_volume"] == 100
+    assert result["latest_credit_market_value"] == 153000.0
+    assert persist_calls == []
+    assert reconcile_calls == []
+
+
+def test_build_default_sync_positions_allows_empty_snapshot_when_credit_market_value_is_flat(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync.service import XtAccountSyncService
+
+    class FakeQueryClient:
+        account_id = "acct-sync"
+        account_type = "CREDIT"
+
+        def query_stock_positions(self):
+            return []
+
+    class FakePositionRepository:
+        def get_latest_snapshot(self):
+            return {
+                "account_id": "acct-sync",
+                "market_value": 0.0,
+            }
+
+    class FakePositionsCollection:
+        def find(self, query):
+            assert query == {"account_id": "acct-sync"}
+            return [
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "512600.SH",
+                    "volume": 4700,
+                    "avg_price": 1.02,
+                }
+            ]
+
+    persist_calls = []
+    reconcile_calls = []
+
+    def _capture_persist(positions, **kwargs):
+        persist_calls.append((positions, kwargs))
+        return {"count": 0, "account_id": "acct-sync"}
+
+    def _capture_reconcile(*args, **kwargs):
+        reconcile_calls.append((args, kwargs))
+        return {"confirmed_candidates": []}
+
+    monkeypatch.setattr(
+        "freshquant.xt_account_sync.service.persist_positions",
+        _capture_persist,
+    )
+
+    service = XtAccountSyncService.build_default(
+        client=FakeQueryClient(),
+        position_repository=FakePositionRepository(),
+        reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
+        positions_collection=FakePositionsCollection(),
+    )
+
+    result = service.sync_positions()
+
+    assert result["count"] == 0
+    assert result["account_id"] == "acct-sync"
+    assert result["reconcile"] == {"confirmed_candidates": []}
+    assert "quarantined" not in result
+    assert len(persist_calls) == 1
+    assert persist_calls[0][0] == []
+    assert len(reconcile_calls) == 1
 
 
 def test_persist_positions_clears_only_current_account_and_invalidates_holdings():

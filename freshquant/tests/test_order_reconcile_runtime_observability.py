@@ -232,6 +232,12 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
     )
     monkeypatch.setattr(
         reconcile_service_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
         "_safe_resolve_lot_amount",
         lambda _symbol: 3000,
         raising=False,
@@ -298,6 +304,12 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
 def test_confirm_expired_candidates_emits_reconciliation_event(monkeypatch):
     monkeypatch.setattr(
         xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
         "_sync_stock_fills_compat",
         lambda _symbol, repository=None: None,
         raising=False,

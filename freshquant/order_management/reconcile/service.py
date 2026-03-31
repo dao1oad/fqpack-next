@@ -36,6 +36,11 @@ from freshquant.runtime_observability.failures import (
 )
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 
+_DEFAULT_RECONCILE_LOT_AMOUNT = 3000
+_SELL_GAP_FUSE_MIN_SYMBOLS = 3
+_SELL_GAP_FUSE_MIN_QUANTITY_RATIO = 0.5
+_SELL_GAP_EVIDENCE_WINDOW_SECONDS = 300
+
 
 @dataclass
 class TradeReportReconcileOutcome:
@@ -70,8 +75,10 @@ class ExternalOrderReconcileService:
             int(external_confirm_observations or 3), 1
         )
         self.runtime_logger = runtime_logger or _get_runtime_logger()
+        self._skip_sell_confirmation = False
 
     def detect_external_candidates(self, positions, detected_at):
+        self._skip_sell_confirmation = False
         positions_by_symbol = _build_positions_by_symbol(positions)
         internal_by_symbol = _build_internal_remaining_by_symbol(self.repository)
         pending_gaps = list(self.repository.list_reconciliation_gaps(state="OPEN"))
@@ -104,10 +111,28 @@ class ExternalOrderReconcileService:
                 }
             )
 
+        sell_gap_fuse = _detect_sell_gap_blast(
+            current_deltas=current_deltas,
+            internal_by_symbol=internal_by_symbol,
+            repository=self.repository,
+            detected_at=int(detected_at),
+        )
+        if sell_gap_fuse is not None:
+            self._skip_sell_confirmation = True
+            self._emit_runtime(
+                "snapshot_fuse",
+                {},
+                status="warning",
+                reason_code="sell_gap_blast_fused",
+                payload=sell_gap_fuse,
+            )
+
         current_index = {
             (item["symbol"], item["side"]): item for item in current_deltas
         }
         for key, gap in pending_index.items():
+            if sell_gap_fuse is not None and key[1] == "sell":
+                continue
             observed = current_index.get(key)
             if observed is None:
                 self.repository.update_reconciliation_gap(
@@ -162,6 +187,8 @@ class ExternalOrderReconcileService:
         for item in current_deltas:
             key = (item["symbol"], item["side"])
             if key in observed_keys:
+                continue
+            if sell_gap_fuse is not None and item["side"] == "sell":
                 continue
             gap = {
                 "gap_id": new_reconciliation_gap_id(),
@@ -391,36 +418,42 @@ class ExternalOrderReconcileService:
 
     def confirm_expired_candidates(self, now):
         confirmed = []
-        for gap in self.repository.list_reconciliation_gaps(state="OPEN"):
-            if int(gap.get("observed_count") or 1) < int(
-                self.external_confirm_observations
-            ):
-                continue
-            if int(gap["pending_until"]) > int(now):
-                continue
-            current_node = "reconciliation"
-            ids = {"symbol": gap["symbol"]}
-            try:
-                updated_candidate = self._confirm_gap(gap, now=int(now))
-                self._emit_runtime(
-                    "reconciliation",
-                    ids,
-                    payload={
-                        "resolution_type": updated_candidate.get("resolution_type"),
-                        "gap_state": updated_candidate.get("state"),
-                    },
-                )
-                confirmed.append(updated_candidate)
-            except Exception as exc:
-                self._emit_runtime(
-                    current_node,
-                    ids,
-                    status="error",
-                    reason_code="unexpected_exception",
-                    payload=build_exception_payload(exc),
-                )
-                mark_exception_emitted(exc)
-                raise
+        skip_sell_confirmation = self._skip_sell_confirmation
+        try:
+            for gap in self.repository.list_reconciliation_gaps(state="OPEN"):
+                if skip_sell_confirmation and gap.get("side") == "sell":
+                    continue
+                if int(gap.get("observed_count") or 1) < int(
+                    self.external_confirm_observations
+                ):
+                    continue
+                if int(gap["pending_until"]) > int(now):
+                    continue
+                current_node = "reconciliation"
+                ids = {"symbol": gap["symbol"]}
+                try:
+                    updated_candidate = self._confirm_gap(gap, now=int(now))
+                    self._emit_runtime(
+                        "reconciliation",
+                        ids,
+                        payload={
+                            "resolution_type": updated_candidate.get("resolution_type"),
+                            "gap_state": updated_candidate.get("state"),
+                        },
+                    )
+                    confirmed.append(updated_candidate)
+                except Exception as exc:
+                    self._emit_runtime(
+                        current_node,
+                        ids,
+                        status="error",
+                        reason_code="unexpected_exception",
+                        payload=build_exception_payload(exc),
+                    )
+                    mark_exception_emitted(exc)
+                    raise
+        finally:
+            self._skip_sell_confirmation = False
         return confirmed
 
     def reconcile_account(self, account_id, positions=None, xt_trades=None, now=None):
@@ -493,7 +526,7 @@ class ExternalOrderReconcileService:
         self.repository.insert_reconciliation_resolution(resolution)
         self.repository.replace_position_entry(entry)
         self.repository.replace_entry_slices_for_entry(entry["entry_id"], entry_slices)
-        return self.repository.update_reconciliation_gap(
+        updated_gap = self.repository.update_reconciliation_gap(
             gap["gap_id"],
             {
                 "state": "AUTO_OPENED",
@@ -503,6 +536,8 @@ class ExternalOrderReconcileService:
                 "entry_id": entry["entry_id"],
             },
         )
+        _after_holdings_reconciled(gap["symbol"], repository=self.repository)
+        return updated_gap
 
     def _confirm_close_gap(self, gap, *, now):
         remaining = int(gap.get("quantity_delta") or 0)
@@ -566,7 +601,7 @@ class ExternalOrderReconcileService:
             ],
         }
         self.repository.insert_reconciliation_resolution(resolution)
-        return self.repository.update_reconciliation_gap(
+        updated_gap = self.repository.update_reconciliation_gap(
             gap["gap_id"],
             {
                 "state": "AUTO_CLOSED",
@@ -575,6 +610,8 @@ class ExternalOrderReconcileService:
                 "resolution_type": resolution["resolution_type"],
             },
         )
+        _after_holdings_reconciled(gap["symbol"], repository=self.repository)
+        return updated_gap
 
     def _create_external_order(
         self,
@@ -681,6 +718,94 @@ def _build_internal_remaining_by_symbol(repository):
             continue
         result[symbol] = result.get(symbol, 0) + int(item.get("remaining_quantity", 0))
     return result
+
+
+def _detect_sell_gap_blast(
+    *, current_deltas, internal_by_symbol, repository, detected_at
+):
+    sell_deltas = [
+        item
+        for item in list(current_deltas or [])
+        if item.get("side") == "sell" and int(item.get("quantity_delta") or 0) > 0
+    ]
+    if len(sell_deltas) < _SELL_GAP_FUSE_MIN_SYMBOLS:
+        return None
+    if any(item.get("side") == "buy" for item in list(current_deltas or [])):
+        return None
+
+    internal_total_quantity = sum(
+        max(int(value or 0), 0) for value in internal_by_symbol.values()
+    )
+    if internal_total_quantity <= 0:
+        return None
+    sell_quantity_total = sum(
+        int(item.get("quantity_delta") or 0) for item in sell_deltas
+    )
+    sell_quantity_ratio = sell_quantity_total / internal_total_quantity
+    if sell_quantity_ratio < _SELL_GAP_FUSE_MIN_QUANTITY_RATIO:
+        return None
+
+    evidence = _collect_recent_sell_evidence(
+        repository=repository,
+        detected_at=int(detected_at),
+        symbols={item["symbol"] for item in sell_deltas},
+    )
+    required_symbol_evidence = max(1, (len(sell_deltas) + 1) // 2)
+    if (
+        evidence["symbol_count"] >= required_symbol_evidence
+        or evidence["quantity_total"] >= sell_quantity_total * 0.5
+    ):
+        return None
+
+    return {
+        "sell_symbol_count": len(sell_deltas),
+        "sell_quantity_total": sell_quantity_total,
+        "internal_total_quantity": internal_total_quantity,
+        "sell_quantity_ratio": round(sell_quantity_ratio, 6),
+        "recent_sell_evidence_symbol_count": evidence["symbol_count"],
+        "recent_sell_evidence_quantity_total": evidence["quantity_total"],
+    }
+
+
+def _collect_recent_sell_evidence(*, repository, detected_at, symbols):
+    tracked_symbols = {
+        str(item or "").strip()
+        for item in set(symbols or [])
+        if str(item or "").strip()
+    }
+    if not tracked_symbols:
+        return {"symbol_count": 0, "quantity_total": 0}
+
+    lower_bound = int(detected_at) - _SELL_GAP_EVIDENCE_WINDOW_SECONDS
+    evidence_symbols = set()
+    quantity_total = 0
+
+    if hasattr(repository, "list_trade_facts"):
+        for symbol in tracked_symbols:
+            for item in repository.list_trade_facts(symbol=symbol) or []:
+                if str(item.get("side") or "").lower() != "sell":
+                    continue
+                trade_time = int(item.get("trade_time") or 0)
+                if trade_time < lower_bound:
+                    continue
+                evidence_symbols.add(symbol)
+                quantity_total += int(item.get("quantity") or 0)
+
+    if hasattr(repository, "list_execution_fills"):
+        for symbol in tracked_symbols:
+            for item in repository.list_execution_fills(symbol=symbol) or []:
+                if str(item.get("side") or "").lower() != "sell":
+                    continue
+                trade_time = int(item.get("trade_time") or 0)
+                if trade_time < lower_bound:
+                    continue
+                evidence_symbols.add(symbol)
+                quantity_total += int(item.get("quantity") or 0)
+
+    return {
+        "symbol_count": len(evidence_symbols),
+        "quantity_total": quantity_total,
+    }
 
 
 def _find_pending_candidate(candidates, symbol, side, quantity_delta):
@@ -1089,19 +1214,19 @@ def _safe_resolve_lot_amount(symbol):
         from freshquant.order_management.ingest.xt_reports import _resolve_lot_amount
 
         return _resolve_lot_amount(symbol)
-    except Exception as exc:
-        raise RuntimeError(
-            f"lot amount unavailable for external reconcile: {symbol}"
-        ) from exc
+    except Exception:
+        # External reconcile should prefer converging broker truth over blocking on
+        # optional lot-amount metadata lookups.
+        return _DEFAULT_RECONCILE_LOT_AMOUNT
 
 
 def _safe_grid_interval_lookup(symbol, trade_fact):
     try:
         return _default_grid_interval_lookup(symbol, trade_fact)
-    except Exception as exc:
-        raise RuntimeError(
-            f"grid interval unavailable for external reconcile: {symbol}"
-        ) from exc
+    except Exception:
+        # External reconcile should converge broker truth even when the optional
+        # market-data-based grid lookup is temporarily unavailable.
+        return 1.03
 
 
 def _build_auto_open_entry(gap, *, resolution_id, confirmed_at):
@@ -1321,6 +1446,27 @@ def _resolve_entry_status(remaining_quantity, original_quantity):
 
 def _is_board_lot_delta(quantity):
     return int(quantity or 0) > 0 and int(quantity or 0) % 100 == 0
+
+
+def _after_holdings_reconciled(symbol, *, repository):
+    _mark_stock_holdings_projection_updated()
+    _sync_stock_fills_compat(symbol, repository=repository)
+
+
+def _mark_stock_holdings_projection_updated():
+    from freshquant.order_management.ingest.xt_reports import (
+        mark_stock_holdings_projection_updated,
+    )
+
+    return mark_stock_holdings_projection_updated()
+
+
+def _sync_stock_fills_compat(symbol, *, repository):
+    from freshquant.order_management.projection.stock_fills_compat import (
+        sync_symbol,
+    )
+
+    return sync_symbol(symbol, repository=repository)
 
 
 _runtime_logger = None

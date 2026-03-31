@@ -307,6 +307,21 @@ def test_default_credit_detail_loader_accepts_credit_detail_object(monkeypatch):
     assert execution_bridge._default_credit_detail_loader() is detail
 
 
+def test_default_continuous_auction_provider_returns_true_during_morning_session(
+    monkeypatch,
+):
+    real_datetime = execution_bridge.datetime
+
+    class FixedDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 3, 31, 9, 41, 30, tzinfo=tz)
+
+    monkeypatch.setattr(execution_bridge, "datetime", FixedDateTime)
+
+    assert execution_bridge._default_continuous_auction_provider() is True
+
+
 def test_prepare_submit_execution_rejects_credit_auto_sell_when_credit_detail_missing():
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)

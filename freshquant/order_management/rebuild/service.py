@@ -45,14 +45,18 @@ class OrderLedgerV2RebuildService:
         xt_trades=None,
         xt_positions=None,
         now_ts=None,
+        allow_empty_xt_positions_flatten=False,
     ):
         rebuild_ts = _resolve_rebuild_timestamp(now_ts)
+        xt_orders = list(xt_orders or [])
+        xt_trades = list(xt_trades or [])
+        xt_positions = list(xt_positions or []) if xt_positions is not None else None
 
         broker_orders_by_key = {}
         broker_order_keys = []
         order_match_to_broker_order_key = {}
 
-        for raw_order in list(xt_orders or []):
+        for raw_order in xt_orders:
             broker_order = _normalize_broker_order(raw_order)
             broker_order_key = broker_order["broker_order_key"]
             if broker_order_key not in broker_orders_by_key:
@@ -67,7 +71,7 @@ class OrderLedgerV2RebuildService:
                 order_match_to_broker_order_key[match_key] = broker_order_key
 
         execution_fill_documents = []
-        for raw_trade in list(xt_trades or []):
+        for raw_trade in xt_trades:
             order_id = _normalize_identifier(raw_trade.get("order_id"))
             trade_symbol = _normalize_symbol(raw_trade)
             trade_side = _normalize_side(
@@ -132,6 +136,7 @@ class OrderLedgerV2RebuildService:
             exit_allocation_documents=exit_allocation_documents,
             lot_amount_lookup=self.lot_amount_lookup,
             grid_interval_lookup=self.grid_interval_lookup,
+            allow_empty_xt_positions_flatten=allow_empty_xt_positions_flatten,
         )
         ingest_rejection_documents.extend(reconciliation_ingest_rejections)
         return {
@@ -777,6 +782,7 @@ def _reconcile_positions_against_xt_positions(
     exit_allocation_documents,
     lot_amount_lookup,
     grid_interval_lookup,
+    allow_empty_xt_positions_flatten,
 ):
     reconciliation_gap_documents = []
     reconciliation_resolution_documents = []
@@ -802,6 +808,16 @@ def _reconcile_positions_against_xt_positions(
         ledger_remaining_by_symbol[symbol] = ledger_remaining_by_symbol.get(
             symbol, 0
         ) + (_coerce_int(entry.get("remaining_quantity")) or 0)
+
+    if (
+        xt_positions == []
+        and any(quantity > 0 for quantity in ledger_remaining_by_symbol.values())
+        and not allow_empty_xt_positions_flatten
+    ):
+        raise ValueError(
+            "empty xt_positions snapshot cannot flatten non-empty ledger; "
+            "pass allow_empty_xt_positions_flatten=True to override"
+        )
 
     date_value, time_value = _resolve_beijing_date_time(None, None, now_ts)
     for symbol in sorted(set(positions_by_symbol) | set(ledger_remaining_by_symbol)):

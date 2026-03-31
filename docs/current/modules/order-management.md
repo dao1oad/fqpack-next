@@ -42,12 +42,16 @@
 ### 券商真值
 
 - 当前仓位真值只认 `xt_positions`
+- `xt_account_sync.worker` 对空快照或严重缩水且与同轮 `credit_detail.market_value` 明显冲突的 `xt_positions` 会先 quarantine；被隔离的快照不会覆盖 `xt_positions`，也不会进入自动平账
+- 小账户（`1-2` 个 symbol）如果出现“symbol 没清空、但数量和估值同时严重缩水，而 `credit_detail.market_value` 仍显著为正”的快照，当前也会 quarantine
+- `xt_account_sync.worker` 遇到 quarantine 的 `positions` 快照会显式打 warning，便于运行面第一时间发现真值冻结
 - 当前委托/成交回报真值只认 XT callback 与 `xt_account_sync.worker` 增量刷新
 
 ### 破坏性 rebuild 治理
 
 - 破坏性 `order-ledger rebuild` 只能由 broker truth 驱动，primary truth 只允许 `xt_orders`、`xt_trades`、`xt_positions`
 - `om_*`、`stock_fills`、`stock_fills_compat` 只能作为迁移期兼容投影或排障线索，不能作为 rebuild 主输入
+- rebuild 默认拒绝用空 `xt_positions` 快照去 flatten 非空账本；只有显式允许空快照 flatten 时，才会把空 `xt_positions` 视为券商已清仓
 - 这类破坏性 rebuild 在编码前必须先建立 GitHub Issue，写清影响面、验收标准与部署影响
 
 ### OM 主账本
@@ -125,10 +129,22 @@
 - `board_lot_rejected`
 - `matched_execution_fill`
 
+自动平账成功写入 `auto_open_entry / auto_close_allocation` 后，当前也会同步：
+
+- 刷新 stock holdings projection cache
+- 刷新 `stock_fills_compat` 镜像，避免 legacy 兼容视图滞后于 OM 主账本
+
 当前内部仓位累计规则：
 
 - 若某个 symbol 已存在 open `om_position_entries`，对账只以 V2 entry remaining quantity 作为内部仓位真值
 - 同 symbol 的 legacy `om_buy_lots` 仅保留给兼容读链与排障，不再额外叠加进对账 internal remaining，避免 mixed-state 双计数后误生成 `sell gap`
+
+自动平账在检测到“同一轮快照对账户内多只持仓同时形成大比例 sell-gap、且近期缺少足够卖出成交证据”时，当前会熔断该轮 sell reconcile，不新建 sell gap，也不推进 sell-side gap 自动确认。
+
+自动平账在解析运行期辅助元数据失败时，当前会优先收敛 broker truth：
+
+- `grid_interval` 解析失败时回退 `1.03`
+- `lot_amount` 解析失败时回退 `3000`
 
 自动平账与 XT 回报补录路径里，凡是由 `trade_time / confirmed_at` 回填 `date/time` 的订单域记录，当前统一按北京时间（`Asia/Shanghai`）落地，避免同一笔成交在不同读模型里出现跨日漂移。
 

@@ -74,6 +74,7 @@ class XtAccountSyncService:
         credit_subject_repository=None,
         now_provider=None,
         sync_state_collection=None,
+        positions_collection=None,
     ):
         query_client = client or XtAccountQueryClient()
         position_repository = position_repository or PositionManagementRepository()
@@ -85,6 +86,7 @@ class XtAccountSyncService:
             credit_subject_repository or CreditSubjectRepository()
         )
         now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        positions_collection = positions_collection or _load_positions_collection()
 
         def sync_assets_once():
             puppet = _load_puppet_module()
@@ -128,6 +130,29 @@ class XtAccountSyncService:
             normalized_positions = [
                 _normalize_xt_position(position) for position in positions
             ]
+            previous_positions = _load_existing_positions_snapshot(
+                account_id=query_client.account_id,
+                collection=positions_collection,
+            )
+            latest_credit_snapshot = _load_latest_credit_snapshot_for_account(
+                position_repository,
+                account_id=query_client.account_id,
+            )
+            quarantine = _detect_suspicious_position_snapshot(
+                current_positions=normalized_positions,
+                previous_positions=previous_positions,
+                latest_credit_snapshot=latest_credit_snapshot,
+            )
+            if quarantine is not None:
+                return {
+                    "count": len(normalized_positions),
+                    "account_id": query_client.account_id,
+                    "account_type": query_client.account_type,
+                    "quarantined": True,
+                    "persist_skipped": True,
+                    "reconcile_skipped": True,
+                    **quarantine,
+                }
             result = persist_positions(
                 normalized_positions,
                 account_id=query_client.account_id,
@@ -260,3 +285,179 @@ def _normalize_xt_position(position):
     from fqxtrade.xtquant.fqtype import FqXtPosition
 
     return FqXtPosition(position).to_dict()
+
+
+def _load_positions_collection():
+    from fqxtrade.database.mongodb import DBfreshquant
+
+    return DBfreshquant["xt_positions"]
+
+
+def _load_existing_positions_snapshot(*, account_id, collection):
+    normalized_account_id = str(account_id or "").strip()
+    if not normalized_account_id or collection is None:
+        return []
+    cursor = collection.find({"account_id": normalized_account_id})
+    return [dict(item) for item in list(cursor or [])]
+
+
+def _load_latest_credit_snapshot_for_account(repository, *, account_id):
+    normalized_account_id = str(account_id or "").strip()
+    if not normalized_account_id or repository is None:
+        return None
+
+    snapshots = getattr(repository, "credit_asset_snapshots", None)
+    if snapshots is not None and hasattr(snapshots, "find_one"):
+        document = snapshots.find_one(
+            {"account_id": normalized_account_id},
+            sort=[("queried_at", -1)],
+        )
+        if document is not None:
+            return document
+
+    getter = getattr(repository, "get_latest_snapshot", None)
+    if callable(getter):
+        document = getter()
+        if document is None:
+            return None
+        if (
+            not document.get("account_id")
+            or document.get("account_id") == normalized_account_id
+        ):
+            return document
+    return None
+
+
+def _detect_suspicious_position_snapshot(
+    *,
+    current_positions,
+    previous_positions,
+    latest_credit_snapshot,
+):
+    previous_summary = _summarize_position_snapshot(previous_positions)
+    if previous_summary["symbol_count"] <= 0:
+        return None
+
+    latest_credit_market_value = _coerce_float(
+        (latest_credit_snapshot or {}).get("market_value")
+    )
+    if latest_credit_market_value is None or latest_credit_market_value <= 0.01:
+        return None
+
+    current_summary = _summarize_position_snapshot(current_positions)
+    if current_summary["symbol_count"] == 0:
+        return {
+            "reason": "empty_snapshot_with_positive_market_value",
+            "latest_credit_market_value": latest_credit_market_value,
+            "previous_summary": previous_summary,
+            "current_summary": current_summary,
+        }
+
+    previous_symbol_count = previous_summary["symbol_count"]
+    previous_total_volume = previous_summary["total_volume"]
+    current_estimated_market_value = current_summary["estimated_market_value"]
+    symbol_ratio = current_summary["symbol_count"] / max(previous_symbol_count, 1)
+    volume_ratio = None
+    if previous_total_volume > 0:
+        volume_ratio = current_summary["total_volume"] / previous_total_volume
+    value_ratio = current_estimated_market_value / latest_credit_market_value
+    severe_value_and_volume_shrink = (
+        current_summary["priced_symbol_count"] > 0
+        and current_estimated_market_value > 0
+        and value_ratio <= 0.2
+        and volume_ratio is not None
+        and volume_ratio <= 0.2
+    )
+
+    if (
+        previous_symbol_count >= 3
+        and current_summary["symbol_count"] < previous_symbol_count
+        and symbol_ratio <= 0.5
+        and severe_value_and_volume_shrink
+    ):
+        return {
+            "reason": "shrunk_snapshot_with_positive_market_value",
+            "latest_credit_market_value": latest_credit_market_value,
+            "previous_summary": previous_summary,
+            "current_summary": current_summary,
+            "symbol_ratio": round(symbol_ratio, 6),
+            "volume_ratio": round(volume_ratio, 6),
+            "value_ratio": round(value_ratio, 6),
+        }
+
+    if (
+        previous_symbol_count <= 2
+        and previous_total_volume > 0
+        and current_summary["total_volume"] < previous_total_volume
+        and severe_value_and_volume_shrink
+    ):
+        return {
+            "reason": "small_account_shrunk_snapshot_with_positive_market_value",
+            "latest_credit_market_value": latest_credit_market_value,
+            "previous_summary": previous_summary,
+            "current_summary": current_summary,
+            "symbol_ratio": round(symbol_ratio, 6),
+            "volume_ratio": round(volume_ratio, 6),
+            "value_ratio": round(value_ratio, 6),
+        }
+
+    return None
+
+
+def _summarize_position_snapshot(positions):
+    symbols = {}
+    for raw_position in list(positions or []):
+        symbol = _normalize_snapshot_symbol(raw_position)
+        if not symbol:
+            continue
+        summary = symbols.setdefault(
+            symbol,
+            {
+                "volume": 0,
+                "estimated_market_value": 0.0,
+                "has_price": False,
+            },
+        )
+        volume = _coerce_int(_position_field(raw_position, "volume")) or 0
+        avg_price = _coerce_float(_position_field(raw_position, "avg_price"))
+        summary["volume"] += volume
+        if avg_price is not None and volume > 0:
+            summary["estimated_market_value"] += volume * avg_price
+            summary["has_price"] = True
+
+    return {
+        "symbol_count": len(symbols),
+        "total_volume": sum(item["volume"] for item in symbols.values()),
+        "estimated_market_value": round(
+            sum(item["estimated_market_value"] for item in symbols.values()),
+            2,
+        ),
+        "priced_symbol_count": sum(1 for item in symbols.values() if item["has_price"]),
+    }
+
+
+def _normalize_snapshot_symbol(position):
+    stock_code = str(_position_field(position, "stock_code") or "").strip()
+    symbol = str(_position_field(position, "symbol") or "").strip()
+    value = stock_code or symbol
+    if "." in value:
+        value = value.split(".", 1)[0]
+    return value
+
+
+def _position_field(position, field):
+    if isinstance(position, dict):
+        return position.get(field)
+    return getattr(position, field, None)
+
+
+def _coerce_int(value):
+    if value in {None, ""}:
+        return None
+    return int(value)
+
+
+def _coerce_float(value):
+    if value in {None, ""}:
+        return None
+    return float(value)

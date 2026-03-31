@@ -167,7 +167,7 @@ class StockFillsCompatibilityService:
 
 
 def _get_stock_fills_compat_collection(database):
-    target = database or DBfreshquant
+    target = DBfreshquant if database is None else database
     if hasattr(target, "stock_fills_compat"):
         return target.stock_fills_compat
     return target["stock_fills_compat"]
