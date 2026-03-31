@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
-from datetime import datetime, time as dt_time, timezone
+from datetime import datetime
+from datetime import time as dt_time
+from datetime import timezone
 
 from freshquant.carnation import xtconstant
 from freshquant.order_management.repository import OrderManagementRepository

@@ -410,20 +410,23 @@ def test_build_default_sync_positions_quarantines_empty_snapshot_with_positive_m
     persist_calls = []
     reconcile_calls = []
 
+    def _capture_persist(*args, **kwargs):
+        persist_calls.append((args, kwargs))
+        return {"count": 0, "account_id": "acct-sync"}
+
+    def _capture_reconcile(*args, **kwargs):
+        reconcile_calls.append((args, kwargs))
+        return None
+
     monkeypatch.setattr(
         "freshquant.xt_account_sync.service.persist_positions",
-        lambda *args, **kwargs: persist_calls.append((args, kwargs))
-        or {"count": 0, "account_id": "acct-sync"},
+        _capture_persist,
     )
 
     service = XtAccountSyncService.build_default(
         client=FakeQueryClient(),
         position_repository=FakePositionRepository(),
-        reconcile_service=SimpleNamespace(
-            reconcile_account=lambda *args, **kwargs: reconcile_calls.append(
-                (args, kwargs)
-            )
-        ),
+        reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
     )
 
@@ -497,20 +500,23 @@ def test_build_default_sync_positions_quarantines_severely_shrunk_snapshot_when_
     persist_calls = []
     reconcile_calls = []
 
+    def _capture_persist(*args, **kwargs):
+        persist_calls.append((args, kwargs))
+        return {"count": 1, "account_id": "acct-sync"}
+
+    def _capture_reconcile(*args, **kwargs):
+        reconcile_calls.append((args, kwargs))
+        return None
+
     monkeypatch.setattr(
         "freshquant.xt_account_sync.service.persist_positions",
-        lambda *args, **kwargs: persist_calls.append((args, kwargs))
-        or {"count": 1, "account_id": "acct-sync"},
+        _capture_persist,
     )
 
     service = XtAccountSyncService.build_default(
         client=FakeQueryClient(),
         position_repository=FakePositionRepository(),
-        reconcile_service=SimpleNamespace(
-            reconcile_account=lambda *args, **kwargs: reconcile_calls.append(
-                (args, kwargs)
-            )
-        ),
+        reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
     )
 
@@ -567,20 +573,23 @@ def test_build_default_sync_positions_quarantines_small_account_severe_shrink_wh
     persist_calls = []
     reconcile_calls = []
 
+    def _capture_persist(*args, **kwargs):
+        persist_calls.append((args, kwargs))
+        return {"count": 1, "account_id": "acct-sync"}
+
+    def _capture_reconcile(*args, **kwargs):
+        reconcile_calls.append((args, kwargs))
+        return None
+
     monkeypatch.setattr(
         "freshquant.xt_account_sync.service.persist_positions",
-        lambda *args, **kwargs: persist_calls.append((args, kwargs))
-        or {"count": 1, "account_id": "acct-sync"},
+        _capture_persist,
     )
 
     service = XtAccountSyncService.build_default(
         client=FakeQueryClient(),
         position_repository=FakePositionRepository(),
-        reconcile_service=SimpleNamespace(
-            reconcile_account=lambda *args, **kwargs: reconcile_calls.append(
-                (args, kwargs)
-            )
-        ),
+        reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
     )
 
@@ -588,8 +597,7 @@ def test_build_default_sync_positions_quarantines_small_account_severe_shrink_wh
 
     assert result["quarantined"] is True
     assert (
-        result["reason"]
-        == "small_account_shrunk_snapshot_with_positive_market_value"
+        result["reason"] == "small_account_shrunk_snapshot_with_positive_market_value"
     )
     assert result["previous_summary"]["symbol_count"] == 1
     assert result["current_summary"]["symbol_count"] == 1
@@ -633,21 +641,23 @@ def test_build_default_sync_positions_allows_empty_snapshot_when_credit_market_v
     persist_calls = []
     reconcile_calls = []
 
+    def _capture_persist(positions, **kwargs):
+        persist_calls.append((positions, kwargs))
+        return {"count": 0, "account_id": "acct-sync"}
+
+    def _capture_reconcile(*args, **kwargs):
+        reconcile_calls.append((args, kwargs))
+        return {"confirmed_candidates": []}
+
     monkeypatch.setattr(
         "freshquant.xt_account_sync.service.persist_positions",
-        lambda positions, **kwargs: persist_calls.append((positions, kwargs))
-        or {"count": 0, "account_id": "acct-sync"},
+        _capture_persist,
     )
 
     service = XtAccountSyncService.build_default(
         client=FakeQueryClient(),
         position_repository=FakePositionRepository(),
-        reconcile_service=SimpleNamespace(
-            reconcile_account=lambda *args, **kwargs: reconcile_calls.append(
-                (args, kwargs)
-            )
-            or {"confirmed_candidates": []}
-        ),
+        reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
     )
 

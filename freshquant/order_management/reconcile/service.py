@@ -36,7 +36,6 @@ from freshquant.runtime_observability.failures import (
 )
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 
-
 _DEFAULT_RECONCILE_LOT_AMOUNT = 3000
 _SELL_GAP_FUSE_MIN_SYMBOLS = 3
 _SELL_GAP_FUSE_MIN_QUANTITY_RATIO = 0.5
@@ -721,7 +720,9 @@ def _build_internal_remaining_by_symbol(repository):
     return result
 
 
-def _detect_sell_gap_blast(*, current_deltas, internal_by_symbol, repository, detected_at):
+def _detect_sell_gap_blast(
+    *, current_deltas, internal_by_symbol, repository, detected_at
+):
     sell_deltas = [
         item
         for item in list(current_deltas or [])
@@ -732,10 +733,14 @@ def _detect_sell_gap_blast(*, current_deltas, internal_by_symbol, repository, de
     if any(item.get("side") == "buy" for item in list(current_deltas or [])):
         return None
 
-    internal_total_quantity = sum(max(int(value or 0), 0) for value in internal_by_symbol.values())
+    internal_total_quantity = sum(
+        max(int(value or 0), 0) for value in internal_by_symbol.values()
+    )
     if internal_total_quantity <= 0:
         return None
-    sell_quantity_total = sum(int(item.get("quantity_delta") or 0) for item in sell_deltas)
+    sell_quantity_total = sum(
+        int(item.get("quantity_delta") or 0) for item in sell_deltas
+    )
     sell_quantity_ratio = sell_quantity_total / internal_total_quantity
     if sell_quantity_ratio < _SELL_GAP_FUSE_MIN_QUANTITY_RATIO:
         return None
@@ -763,7 +768,11 @@ def _detect_sell_gap_blast(*, current_deltas, internal_by_symbol, repository, de
 
 
 def _collect_recent_sell_evidence(*, repository, detected_at, symbols):
-    tracked_symbols = {str(item or "").strip() for item in set(symbols or []) if str(item or "").strip()}
+    tracked_symbols = {
+        str(item or "").strip()
+        for item in set(symbols or [])
+        if str(item or "").strip()
+    }
     if not tracked_symbols:
         return {"symbol_count": 0, "quantity_total": 0}
 

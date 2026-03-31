@@ -320,7 +320,10 @@ def _load_latest_credit_snapshot_for_account(repository, *, account_id):
         document = getter()
         if document is None:
             return None
-        if not document.get("account_id") or document.get("account_id") == normalized_account_id:
+        if (
+            not document.get("account_id")
+            or document.get("account_id") == normalized_account_id
+        ):
             return document
     return None
 

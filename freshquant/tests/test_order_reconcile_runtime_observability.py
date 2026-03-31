@@ -225,7 +225,7 @@ class InMemoryRepository:
 
 def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
     monkeypatch.setattr(
-        xt_reports_module,
+        reconcile_service_module,
         "_sync_stock_fills_compat",
         lambda _symbol, repository=None: None,
         raising=False,

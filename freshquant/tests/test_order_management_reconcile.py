@@ -1,5 +1,5 @@
-from zoneinfo import ZoneInfo
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -307,6 +307,12 @@ def _stub_ingest_side_effects(monkeypatch, *, marks=None, mark_label="updated"):
     )
     monkeypatch.setattr(
         xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
         "_sync_stock_fills_compat",
         lambda _symbol, repository=None: None,
         raising=False,
