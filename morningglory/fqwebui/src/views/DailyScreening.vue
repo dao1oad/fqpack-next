@@ -1488,6 +1488,7 @@ onMounted(async () => {
 .daily-center-stack,
 .daily-detail-stack {
   min-height: 0;
+  min-width: 0;
   max-height: 100%;
 }
 
@@ -1630,6 +1631,7 @@ onMounted(async () => {
 .daily-detail-condition-panel,
 .daily-detail-history-panel {
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -1853,6 +1855,31 @@ onMounted(async () => {
   scrollbar-gutter: stable;
 }
 
+@media (min-width: 961px) {
+  .daily-results-ledger,
+  .daily-history-ledger {
+    overflow-x: hidden;
+    overflow-y: hidden;
+  }
+
+  .daily-results-ledger .runtime-ledger__viewport,
+  .daily-history-ledger .runtime-ledger__viewport {
+    min-width: 0;
+    width: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .daily-results-ledger .runtime-ledger__header,
+  .daily-results-ledger .runtime-ledger__row,
+  .daily-history-ledger .runtime-ledger__header,
+  .daily-history-ledger .runtime-ledger__row {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+  }
+}
+
 .runtime-ledger__row {
   flex: 0 0 auto;
   border-top: 1px solid #eef3f8;
@@ -1914,13 +1941,13 @@ onMounted(async () => {
 
 .daily-results-ledger__grid {
   grid-template-columns:
-    76px
-    minmax(132px, 0.95fr)
-    112px
-    104px
-    96px
-    96px
-    minmax(220px, 1.8fr);
+      76px
+      minmax(96px, 0.95fr)
+      124px
+      88px
+      88px
+      88px
+      minmax(0, 1.35fr);
 }
 
 .daily-workspace-ledger__grid {
@@ -1944,12 +1971,16 @@ onMounted(async () => {
 
 .daily-history-ledger__grid {
   grid-template-columns:
-    108px
-    72px
-    76px
-    108px
-    minmax(220px, 1.2fr)
-    minmax(220px, 1.2fr);
+      100px
+      64px
+      72px
+      96px
+      minmax(0, 1fr)
+      minmax(0, 1fr);
+}
+
+.daily-history-ledger :deep(.shouban30-reason-trigger) {
+  width: 100%;
 }
 
 @media (max-width: 1480px) {
@@ -1999,6 +2030,29 @@ onMounted(async () => {
 
   .daily-screening-grid {
     grid-template-columns: 1fr;
+  }
+
+  .daily-results-ledger,
+  .daily-history-ledger {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .daily-results-ledger .runtime-ledger__viewport,
+  .daily-history-ledger .runtime-ledger__viewport {
+    min-width: 100%;
+    width: max-content;
+    overflow-y: auto;
+    overflow-x: visible;
+  }
+
+  .daily-results-ledger .runtime-ledger__header,
+  .daily-results-ledger .runtime-ledger__row,
+  .daily-history-ledger .runtime-ledger__header,
+  .daily-history-ledger .runtime-ledger__row {
+    box-sizing: border-box;
+    width: max-content;
+    min-width: 100%;
   }
 
   .daily-center-stack,

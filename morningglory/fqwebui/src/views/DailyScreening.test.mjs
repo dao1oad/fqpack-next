@@ -56,7 +56,7 @@ test('DailyScreening moves scope into the top guide area and paginates intersect
   )
 })
 
-test('DailyScreening ledger headers stay outside scrollable viewports', () => {
+test('DailyScreening ledgers keep headers outside the viewport and avoid horizontal scrollbars', () => {
   const source = fs.readFileSync(componentPath, 'utf8')
 
   assert.match(source, /<div class="runtime-ledger__viewport">[\s\S]*paginatedResultRows/)
@@ -64,6 +64,10 @@ test('DailyScreening ledger headers stay outside scrollable viewports', () => {
   assert.match(source, /<div class="runtime-ledger__viewport">[\s\S]*v-for="\(row,\s*index\) in detail\.hot_reasons"/)
   assert.match(source, /\.runtime-ledger__viewport \{[\s\S]*overflow-y:\s*auto;/)
   assert.match(source, /\.runtime-ledger__header \{[\s\S]*flex:\s*0 0 auto;/)
+  assert.match(source, /@media \(min-width:\s*961px\) \{[\s\S]*\.daily-results-ledger,\s*\.daily-history-ledger \{[\s\S]*overflow-x:\s*hidden;[\s\S]*overflow-y:\s*hidden;/)
+  assert.match(source, /@media \(min-width:\s*961px\) \{[\s\S]*\.daily-results-ledger \.runtime-ledger__viewport,\s*\.daily-history-ledger \.runtime-ledger__viewport \{[\s\S]*min-width:\s*0;[\s\S]*width:\s*100%;[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
+  assert.match(source, /@media \(max-width:\s*960px\) \{[\s\S]*\.daily-results-ledger,\s*\.daily-history-ledger \{[\s\S]*overflow-x:\s*auto;[\s\S]*overflow-y:\s*hidden;/)
+  assert.match(source, /@media \(max-width:\s*960px\) \{[\s\S]*\.daily-results-ledger \.runtime-ledger__viewport,\s*\.daily-history-ledger \.runtime-ledger__viewport \{[\s\S]*min-width:\s*100%;[\s\S]*width:\s*max-content;[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*visible;/)
   assert.doesNotMatch(source, /\.runtime-ledger__header \{[\s\S]*position:\s*sticky;/)
 })
 
