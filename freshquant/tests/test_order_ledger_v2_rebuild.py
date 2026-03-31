@@ -837,7 +837,40 @@ def test_rebuild_service_auto_closes_entries_when_xt_positions_are_smaller_than_
     assert exit_allocation["allocated_quantity"] == 200
 
 
-def test_rebuild_service_treats_empty_xt_positions_snapshot_as_broker_flat_and_auto_closes():
+def test_rebuild_service_rejects_empty_xt_positions_snapshot_when_ledger_has_open_entries_by_default():
+    service = _get_rebuild_service_class()(
+        lot_amount_lookup=lambda _symbol: 3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    with pytest.raises(ValueError, match="empty xt_positions snapshot"):
+        service.build_from_truth(
+            xt_orders=[
+                _sample_xt_order(
+                    order_id=84011,
+                    stock_code="000001.SZ",
+                    order_volume=900,
+                    order_status="filled",
+                )
+            ],
+            xt_trades=[
+                _sample_xt_trade(
+                    traded_id="T-BUY-84011",
+                    order_id=84011,
+                    stock_code="000001.SZ",
+                    traded_volume=900,
+                    traded_price=10.0,
+                    traded_time=1710000000,
+                    date=None,
+                    time=None,
+                )
+            ],
+            xt_positions=[],
+            now_ts=1775000000,
+        )
+
+
+def test_rebuild_service_allows_empty_xt_positions_snapshot_flatten_when_explicitly_enabled():
     service = _get_rebuild_service_class()(
         lot_amount_lookup=lambda _symbol: 3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
@@ -866,6 +899,7 @@ def test_rebuild_service_treats_empty_xt_positions_snapshot_as_broker_flat_and_a
         ],
         xt_positions=[],
         now_ts=1775000000,
+        allow_empty_xt_positions_flatten=True,
     )
 
     assert result["reconciliation_gaps"] == 1

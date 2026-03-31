@@ -1,4 +1,5 @@
 from zoneinfo import ZoneInfo
+from types import SimpleNamespace
 
 import pytest
 
@@ -171,6 +172,39 @@ class InMemoryRepository:
             ]
         return records
 
+    def list_trade_facts(self, symbol=None, internal_order_ids=None):
+        records = list(self.trade_facts)
+        if symbol is not None:
+            records = [item for item in records if item.get("symbol") == symbol]
+        if internal_order_ids is not None:
+            allowed = set(internal_order_ids)
+            records = [
+                item for item in records if item.get("internal_order_id") in allowed
+            ]
+        return [dict(item) for item in records]
+
+    def list_execution_fills(
+        self,
+        *,
+        symbol=None,
+        broker_order_keys=None,
+        execution_fill_ids=None,
+    ):
+        records = list(self.execution_fills)
+        if symbol is not None:
+            records = [item for item in records if item.get("symbol") == symbol]
+        if broker_order_keys is not None:
+            allowed = set(broker_order_keys)
+            records = [
+                item for item in records if item.get("broker_order_key") in allowed
+            ]
+        if execution_fill_ids is not None:
+            allowed = set(execution_fill_ids)
+            records = [
+                item for item in records if item.get("execution_fill_id") in allowed
+            ]
+        return [dict(item) for item in records]
+
     def list_open_slices(self, symbol=None):
         records = [item for item in self.lot_slices if item["remaining_quantity"] > 0]
         if symbol is None:
@@ -279,7 +313,13 @@ def _stub_ingest_side_effects(monkeypatch, *, marks=None, mark_label="updated"):
     )
 
 
-def _build_service(monkeypatch=None, *, marks=None, mark_label="updated"):
+def _build_service(
+    monkeypatch=None,
+    *,
+    marks=None,
+    mark_label="updated",
+    runtime_events=None,
+):
     if monkeypatch is not None:
         _stub_ingest_side_effects(
             monkeypatch,
@@ -305,6 +345,11 @@ def _build_service(monkeypatch=None, *, marks=None, mark_label="updated"):
         tracking_service=tracking_service,
         external_confirm_interval_seconds=15,
         external_confirm_observations=3,
+        runtime_logger=(
+            SimpleNamespace(emit=lambda event: runtime_events.append(dict(event)))
+            if runtime_events is not None
+            else None
+        ),
     )
     return repository, service
 
@@ -370,6 +415,85 @@ def test_detect_external_candidates_prefers_snapshot_last_price_over_avg_price()
     assert candidates[0]["price_estimate"] == pytest.approx(10.82)
     assert candidates[0]["price_source"] == "position_last_price"
     assert candidates[0]["price_asof"] == 1_000
+
+
+def test_detect_external_candidates_fuses_batch_sell_gap_without_recent_sell_evidence(
+    monkeypatch,
+):
+    runtime_events = []
+    repository, service = _build_service(
+        monkeypatch,
+        runtime_events=runtime_events,
+    )
+    for symbol in ("000001", "000002", "000003", "000004"):
+        repository.insert_buy_lot(
+            {
+                "buy_lot_id": f"lot_{symbol}",
+                "origin_trade_fact_id": f"trade_{symbol}",
+                "symbol": symbol,
+                "remaining_quantity": 100,
+            }
+        )
+
+    gaps = service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 100, "avg_price": 10.0}],
+        detected_at=1_000,
+    )
+
+    assert gaps == []
+    assert repository.reconciliation_gaps == []
+    assert runtime_events[-1]["reason_code"] == "sell_gap_blast_fused"
+    assert runtime_events[-1]["payload"]["sell_symbol_count"] == 3
+    assert runtime_events[-1]["payload"]["sell_quantity_total"] == 300
+
+
+def test_detect_external_candidates_allows_batch_sell_gap_when_recent_sell_evidence_is_sufficient(
+    monkeypatch,
+):
+    runtime_events = []
+    repository, service = _build_service(
+        monkeypatch,
+        runtime_events=runtime_events,
+    )
+    for symbol in ("000001", "000002", "000003", "000004"):
+        repository.insert_buy_lot(
+            {
+                "buy_lot_id": f"lot_{symbol}",
+                "origin_trade_fact_id": f"trade_{symbol}",
+                "symbol": symbol,
+                "remaining_quantity": 100,
+            }
+        )
+    repository.trade_facts.extend(
+        [
+            {
+                "trade_fact_id": "sell_evidence_1",
+                "symbol": "000002",
+                "side": "sell",
+                "quantity": 100,
+                "trade_time": 990,
+            },
+            {
+                "trade_fact_id": "sell_evidence_2",
+                "symbol": "000003",
+                "side": "sell",
+                "quantity": 100,
+                "trade_time": 995,
+            },
+        ]
+    )
+
+    gaps = service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 100, "avg_price": 10.0}],
+        detected_at=1_000,
+    )
+
+    assert len(gaps) == 3
+    assert {item["symbol"] for item in gaps} == {"000002", "000003", "000004"}
+    assert all(item["side"] == "sell" for item in gaps)
+    assert not any(
+        item.get("reason_code") == "sell_gap_blast_fused" for item in runtime_events
+    )
 
 
 def test_candidate_observation_keeps_higher_quality_price_source():
@@ -592,6 +716,37 @@ def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatc
     assert repository.buy_lots == []
 
 
+def test_confirm_expired_candidates_marks_and_syncs_compat_after_auto_open(
+    monkeypatch,
+):
+    marks = []
+    sync_calls = []
+    repository, service = _build_service(monkeypatch, marks=marks, mark_label="open")
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_sync_stock_fills_compat",
+        lambda symbol, *, repository: sync_calls.append((symbol, repository)),
+        raising=False,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_030,
+    )
+
+    service.confirm_expired_candidates(now=1_030)
+
+    assert marks == ["open"]
+    assert sync_calls == [("000001", repository)]
+
+
 def test_confirmed_gap_is_not_recreated_for_same_position_delta(monkeypatch):
     repository, service = _build_service(monkeypatch)
     service.detect_external_candidates(
@@ -615,49 +770,6 @@ def test_confirmed_gap_is_not_recreated_for_same_position_delta(monkeypatch):
 
     assert recreated == []
     assert len(repository.reconciliation_gaps) == 1
-
-
-def test_detect_external_candidates_ignores_legacy_buy_lot_when_open_entry_exists(
-    monkeypatch,
-):
-    repository, service = _build_service(monkeypatch)
-    repository.replace_position_entry(
-        reconcile_service_module._build_auto_open_entry(
-            {
-                "symbol": "000001",
-                "quantity_delta": 200,
-                "price_estimate": 10.5,
-            },
-            resolution_id="resolution_existing_entry",
-            confirmed_at=1_000,
-        )
-    )
-    buy_lot = build_buy_lot_from_trade_fact(
-        {
-            "trade_fact_id": "trade_existing_legacy",
-            "symbol": "000001",
-            "side": "buy",
-            "quantity": 200,
-            "price": 10.5,
-            "trade_time": 1_000,
-            "date": 20240102,
-            "time": "09:31:00",
-            "source": "external_inferred",
-        }
-    )
-    repository.insert_buy_lot(buy_lot)
-    repository.replace_lot_slices_for_lot(
-        buy_lot["buy_lot_id"],
-        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
-    )
-
-    gaps = service.detect_external_candidates(
-        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
-        detected_at=1_015,
-    )
-
-    assert gaps == []
-    assert repository.reconciliation_gaps == []
 
 
 def test_build_auto_open_entry_uses_beijing_date_time():
@@ -877,6 +989,54 @@ def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
     assert len(repository.reconciliation_resolutions) == 2
 
 
+def test_confirm_expired_candidates_marks_and_syncs_compat_after_auto_close(
+    monkeypatch,
+):
+    marks = []
+    sync_calls = []
+    repository, service = _build_service(monkeypatch, marks=marks, mark_label="close")
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_sync_stock_fills_compat",
+        lambda symbol, *, repository: sync_calls.append((symbol, repository)),
+        raising=False,
+    )
+    buy_lot = build_buy_lot_from_trade_fact(
+        {
+            "trade_fact_id": "trade_seed_buy_close_sync",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 900,
+            "price": 10.0,
+            "trade_time": 1_000,
+            "date": 20240102,
+            "time": "09:31:00",
+        }
+    )
+    repository.insert_buy_lot(buy_lot)
+    repository.replace_lot_slices_for_lot(
+        buy_lot["buy_lot_id"],
+        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
+        detected_at=1_030,
+    )
+
+    service.confirm_expired_candidates(now=1_030)
+
+    assert marks == ["close"]
+    assert sync_calls == [("000001", repository)]
+
+
 def test_pending_gap_is_dismissed_when_position_delta_resolves(monkeypatch):
     repository, service = _build_service(monkeypatch)
     gap = service.detect_external_candidates(
@@ -893,10 +1053,19 @@ def test_pending_gap_is_dismissed_when_position_delta_resolves(monkeypatch):
     assert repository.reconciliation_gaps[0]["state"] == "DISMISSED"
 
 
-def test_confirm_expired_candidates_raises_when_grid_interval_resolution_fails(
+def test_confirm_expired_candidates_falls_back_to_default_grid_interval_when_resolution_fails(
     monkeypatch,
 ):
+    original_safe_grid_interval_lookup = (
+        reconcile_service_module._safe_grid_interval_lookup
+    )
     repository, service = _build_service(monkeypatch)
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_grid_interval_lookup",
+        original_safe_grid_interval_lookup,
+        raising=False,
+    )
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
         detected_at=1_000,
@@ -911,12 +1080,57 @@ def test_confirm_expired_candidates_raises_when_grid_interval_resolution_fails(
     )
     monkeypatch.setattr(
         reconcile_service_module,
-        "_safe_grid_interval_lookup",
+        "_default_grid_interval_lookup",
         lambda _symbol, _trade_fact: (_ for _ in ()).throw(
             RuntimeError("grid interval unavailable")
         ),
         raising=False,
     )
 
-    with pytest.raises(RuntimeError, match="grid interval unavailable"):
-        service.confirm_expired_candidates(now=1_030)
+    confirmed = service.confirm_expired_candidates(now=1_030)
+
+    assert len(confirmed) == 1
+    assert repository.reconciliation_gaps[0]["state"] == "AUTO_OPENED"
+    assert repository.reconciliation_gaps[0]["resolution_type"] == "auto_open_entry"
+    assert len(repository.position_entries) == 1
+    assert repository.position_entries[0]["entry_type"] == "auto_reconciled_open"
+    assert repository.position_entries[0]["remaining_quantity"] == 200
+    assert repository.entry_slices
+
+
+def test_confirm_expired_candidates_falls_back_to_default_lot_amount_when_resolution_fails(
+    monkeypatch,
+):
+    original_safe_resolve_lot_amount = reconcile_service_module._safe_resolve_lot_amount
+    repository, service = _build_service(monkeypatch)
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_resolve_lot_amount",
+        original_safe_resolve_lot_amount,
+        raising=False,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_030,
+    )
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_resolve_lot_amount",
+        lambda _symbol: (_ for _ in ()).throw(RuntimeError("lot amount unavailable")),
+        raising=False,
+    )
+
+    confirmed = service.confirm_expired_candidates(now=1_030)
+
+    assert len(confirmed) == 1
+    assert repository.reconciliation_gaps[0]["state"] == "AUTO_OPENED"
+    assert repository.position_entries[0]["remaining_quantity"] == 200
+    assert repository.entry_slices

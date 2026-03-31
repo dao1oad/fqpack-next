@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from datetime import datetime, timezone
+from datetime import datetime, time as dt_time, timezone
 
 from freshquant.carnation import xtconstant
 from freshquant.order_management.repository import OrderManagementRepository
@@ -421,14 +421,18 @@ def _default_credit_detail_loader():
 
 
 def _default_continuous_auction_provider():
-    try:
-        from fqxtrade.util.trading_time import is_continuous_auction_time
-    except Exception as exc:
-        raise RuntimeError("continuous auction state unavailable") from exc
-    try:
-        return bool(is_continuous_auction_time())
-    except Exception as exc:
-        raise RuntimeError("continuous auction state unavailable") from exc
+    now = datetime.now()
+    if now.weekday() > 4:
+        return False
+
+    current_time = now.time().replace(tzinfo=None)
+    morning_start = dt_time(9, 30)
+    morning_end = dt_time(11, 30)
+    afternoon_start = dt_time(13, 0)
+    closing_call_start = dt_time(14, 57)
+    return (morning_start <= current_time <= morning_end) or (
+        afternoon_start <= current_time < closing_call_start
+    )
 
 
 def _market_5_cancel_resolution(symbol, action, requested_mode, price_value):
