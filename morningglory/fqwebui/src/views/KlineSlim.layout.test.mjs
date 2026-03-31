@@ -27,6 +27,20 @@ test('KlineSlim keeps overlay panels anchored to the chart content without side-
   assert.equal(source.includes('has-side-panel'), false)
 })
 
+test('KlineSlim toolbar stays close to the original single-row shell instead of a workbench title block', () => {
+  assert.equal(
+    source.includes('.kline-slim-toolbar\n  position relative\n  min-height 52px\n  padding 8px 12px\n  z-index 10\n  display flex'),
+    true
+  )
+  assert.equal(source.includes('.kline-slim-toolbar\n  position relative'), true)
+  assert.equal(source.includes('  align-items center'), true)
+  assert.equal(source.includes('  justify-content space-between'), true)
+  assert.equal(source.includes('.kline-slim-toolbar__header'), false)
+  assert.equal(source.includes('<MyHeader />'), false)
+  assert.equal(source.includes('<WorkbenchToolbar class="kline-slim-toolbar">'), false)
+  assert.equal(source.includes('class="workbench-page-title"'), false)
+})
+
 test('KlineSlim medium breakpoint keeps the flow layout and only narrows the price panel', () => {
   assert.equal(
     mediumLayoutBlock.includes('.kline-slim-toolbar\n    align-items flex-start\n    flex-direction column'),
@@ -80,4 +94,10 @@ test('KlineSlim sidebar keeps each item to a title line and one summary line', (
   )
   assert.equal(source.includes('.sidebar-item-runtime'), false)
   assert.equal(source.includes('.sidebar-item-tags'), false)
+})
+
+test('KlineSlim local section titles and empty state stay out of the shared workbench title wrappers', () => {
+  assert.equal(source.includes('workbench-panel__title'), false)
+  assert.equal(source.includes('class="workbench-empty kline-slim-empty"'), false)
+  assert.equal(source.includes('class="kline-slim-empty"'), true)
 })

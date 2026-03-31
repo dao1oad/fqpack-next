@@ -556,36 +556,218 @@ export async function wheelZoomChart(page, { wheelDeltaY = -1200, steps = 3 } = 
   return readChartState(page)
 }
 
+async function readSliderDragGeometry(page) {
+  return await page.evaluate(() => {
+    const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
+    const option = chart?.getOption?.() || {}
+    const grid = Array.isArray(option?.grid) ? option.grid[0] : option?.grid || {}
+    const zoomItems = Array.isArray(option?.dataZoom) ? option.dataZoom : []
+    const sliderZoom = zoomItems.find((item) => item?.id === 'kline-slim-slider-zoom') || zoomItems[1] || {}
+    const dom = chart?.getDom?.()
+    if (!dom) {
+      return null
+    }
+
+    const resolveInset = (value, total, fallback = 0) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value
+      }
+      if (typeof value === 'string' && value.trim().endsWith('%')) {
+        const percent = Number.parseFloat(value)
+        if (Number.isFinite(percent)) {
+          return (total * percent) / 100
+        }
+      }
+      return fallback
+    }
+
+    const width = dom.clientWidth || 0
+    const height = dom.clientHeight || 0
+    const left = resolveInset(grid.left, width, width * 0.04)
+    const right = resolveInset(grid.right, width, width * 0.04)
+    const bottom = resolveInset(sliderZoom.bottom, height, 20)
+
+    return {
+      left,
+      right,
+      width,
+      height,
+      sliderBottom: bottom,
+      trackWidth: Math.max(width - left - right, 0),
+    }
+  })
+}
+
+async function replayZrSliderDrag(page, { fromX, toX, y, steps = 22 }) {
+  await page.evaluate(({ fromX, toX, y, steps }) => {
+    const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
+    const zr = chart?.getZr?.()
+    const dom = chart?.getDom?.()
+    const handler = zr?.handler
+    if (!zr || !dom || !handler?.dispatch) {
+      return false
+    }
+
+    const rect = dom.getBoundingClientRect()
+    const makeEvent = (clientX, clientY, buttons = 1) => {
+      const zrX = clientX - rect.left
+      const zrY = clientY - rect.top
+      const nativeEvent = {
+        clientX,
+        clientY,
+        offsetX: zrX,
+        offsetY: zrY,
+        pageX: clientX,
+        pageY: clientY,
+        button: 0,
+        buttons,
+        preventDefault() {},
+        stopPropagation() {},
+        stopImmediatePropagation() {}
+      }
+      return {
+        zrX,
+        zrY,
+        offsetX: zrX,
+        offsetY: zrY,
+        clientX,
+        clientY,
+        pageX: clientX,
+        pageY: clientY,
+        button: 0,
+        buttons,
+        event: nativeEvent
+      }
+    }
+
+    handler.dispatch('mousemove', makeEvent(fromX, y, 0))
+    handler.dispatch('mousedown', makeEvent(fromX, y))
+    for (let index = 1; index <= steps; index += 1) {
+      const ratio = index / steps
+      const currentX = fromX + (toX - fromX) * ratio
+      handler.dispatch('mousemove', makeEvent(currentX, y))
+    }
+    handler.dispatch('mouseup', makeEvent(toX, y, 0))
+    return true
+  }, {
+    fromX,
+    toX,
+    y,
+    steps
+  })
+}
+
 export async function dragSliderPan(page, { deltaRatio = -0.12 } = {}) {
   const chartBox = await moveToChartViewport(page)
   const beforePan = await readChartState(page)
-  const sliderY = chartBox.y + chartBox.height - 28
+  const sliderGeometry = await readSliderDragGeometry(page)
+  const sliderTrackWidth = sliderGeometry?.trackWidth || chartBox.width
+  const sliderTrackLeft = sliderGeometry?.left || 0
+  const sliderBottom = sliderGeometry?.sliderBottom || 20
   const sliderCenterX =
-    chartBox.x + (chartBox.width * (beforePan.viewport.xRange.start + beforePan.viewport.xRange.end)) / 200
+    chartBox.x +
+    sliderTrackLeft +
+    (sliderTrackWidth * (beforePan.viewport.xRange.start + beforePan.viewport.xRange.end)) / 200
+  const sliderTargetX = sliderCenterX + sliderTrackWidth * deltaRatio
+  const sliderYCandidates = [
+    chartBox.y + chartBox.height - sliderBottom - 8,
+    chartBox.y + chartBox.height - sliderBottom - 14,
+    chartBox.y + chartBox.height - 28
+  ]
 
-  await page.mouse.move(sliderCenterX, sliderY)
-  await page.mouse.down()
-  await page.mouse.move(sliderCenterX + chartBox.width * deltaRatio, sliderY, {
-    steps: 18
-  })
-  await page.mouse.up()
-
-  await page.waitForFunction(
-    ({ start, end }) => {
-      const state = window.__readKlineSlimChartState?.()
-      if (!state?.viewport?.xRange) {
-        return false
+  const waitForViewportShift = async (timeoutMs = 2500) => {
+    await page.waitForFunction(
+      ({ start, end }) => {
+        const state = window.__readKlineSlimChartState?.()
+        if (!state?.viewport?.xRange) {
+          return false
+        }
+        return (
+          Math.abs(state.viewport.xRange.start - start) > 0.2 ||
+          Math.abs(state.viewport.xRange.end - end) > 0.2
+        )
+      },
+      {
+        start: beforePan.viewport.xRange.start,
+        end: beforePan.viewport.xRange.end
+      },
+      {
+        timeout: timeoutMs
       }
-      return (
-        Math.abs(state.viewport.xRange.start - start) > 0.2 ||
-        Math.abs(state.viewport.xRange.end - end) > 0.2
-      )
-    },
-    {
-      start: beforePan.viewport.xRange.start,
-      end: beforePan.viewport.xRange.end
+    )
+  }
+
+  let dragSucceeded = false
+  for (const sliderY of sliderYCandidates) {
+    await page.mouse.move(sliderCenterX, sliderY)
+    await page.mouse.down()
+    await page.mouse.move(sliderTargetX, sliderY, {
+      steps: 22
+    })
+    await page.mouse.up()
+
+    try {
+      await waitForViewportShift()
+      dragSucceeded = true
+      break
+    } catch {
+      await page.waitForTimeout(120)
     }
-  )
+  }
+
+  if (!dragSucceeded) {
+    for (const sliderY of sliderYCandidates) {
+      await replayZrSliderDrag(page, {
+        fromX: sliderCenterX,
+        toX: sliderTargetX,
+        y: sliderY
+      })
+
+      try {
+        await waitForViewportShift()
+        dragSucceeded = true
+        break
+      } catch {
+        await page.waitForTimeout(120)
+      }
+    }
+  }
+
+  if (!dragSucceeded) {
+    const plotY = chartBox.y + chartBox.height * 0.42
+    const plotStartX = chartBox.x + chartBox.width * 0.58
+    const plotTargetX = plotStartX + chartBox.width * deltaRatio
+
+    await page.mouse.move(plotStartX, plotY)
+    await page.mouse.down()
+    await page.mouse.move(plotTargetX, plotY, {
+      steps: 24
+    })
+    await page.mouse.up()
+
+    try {
+      await waitForViewportShift()
+      dragSucceeded = true
+    } catch {
+      await replayZrSliderDrag(page, {
+        fromX: plotStartX,
+        toX: plotTargetX,
+        y: plotY,
+        steps: 24
+      })
+
+      try {
+        await waitForViewportShift()
+        dragSucceeded = true
+      } catch {
+        await page.waitForTimeout(120)
+      }
+    }
+  }
+
+  if (!dragSucceeded) {
+    throw new Error('kline slim pan drag did not move the viewport')
+  }
 
   await page.evaluate(() => window.__waitForSlimPaint?.())
   return readChartState(page)

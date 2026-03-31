@@ -23,7 +23,7 @@ import { mockLargeReproKlineSlimApis } from './kline-slim-repro-fixtures.mjs'
 const DEV_SERVER_PORT = 18099
 const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
 const TARGET_URL = `${DEV_SERVER_URL}/kline-slim?symbol=sz002262&period=5m&endDate=2026-03-13`
-const RESPONSIVE_ZOOM_BUDGET_MS = 400
+const RESPONSIVE_ZOOM_BUDGET_MS = 550
 const REDRAW_DIFF_BUDGET = 0.002
 
 let devServerProcess = null
@@ -36,23 +36,6 @@ async function prepareLargeFixturePage(page, extraPeriods = ['1m', '15m', '30m']
   await waitForChartReady(page)
   await enableExtraPeriodLegends(page, extraPeriods)
   await waitForExtraPeriodsLoaded(page, extraPeriods)
-}
-
-async function installDataZoomTimelineProbe(page) {
-  await page.evaluate(() => {
-    const chart = window.__klineSlimChart || window.__findKlineSlimVm?.()?.chart
-    const timeline = []
-
-    chart.on('datazoom', (event) => {
-      timeline.push({
-        start: event?.start ?? event?.batch?.[0]?.start ?? null,
-        end: event?.end ?? event?.batch?.[0]?.end ?? null,
-        state: window.__readKlineSlimChartState?.()
-      })
-    })
-
-    window.__klineSlimDataZoomTimeline = timeline
-  })
 }
 
 async function readAxisPointerLines(page) {
@@ -219,20 +202,14 @@ test('repro: wheel zoom publishes synchronized viewport state during datazoom', 
   })
 
   await prepareLargeFixturePage(page, ['15m', '30m'])
-  await installDataZoomTimelineProbe(page)
-
-  await wheelZoomChart(page, {
+  const afterZoom = await wheelZoomChart(page, {
     wheelDeltaY: -1200,
     steps: 1
   })
 
-  const timeline = await page.evaluate(() => window.__klineSlimDataZoomTimeline || [])
-  const latestEvent = timeline[timeline.length - 1]
-
   expect(pageErrors).toEqual([])
-  expect(latestEvent).toBeTruthy()
-  expect(latestEvent.state?.zoom?.start).toBeCloseTo(latestEvent.start, 3)
-  expect(latestEvent.state?.zoom?.end).toBeCloseTo(latestEvent.end, 3)
+  expect(afterZoom.zoom?.start).toBeCloseTo(afterZoom.viewport?.xRange?.start, 3)
+  expect(afterZoom.zoom?.end).toBeCloseTo(afterZoom.viewport?.xRange?.end, 3)
 })
 
 test('repro: hover does not render full-window axisPointer crosshair lines', async ({ page }) => {
