@@ -3,44 +3,26 @@
     <MyHeader />
     <div class="workbench-body shouban30-page-body">
       <WorkbenchToolbar class="shouban30-toolbar">
-        <div class="workbench-title-group">
-          <div class="workbench-page-title">首板筛选</div>
-          <div class="workbench-page-meta">
-            <span>多 provider 首板观察</span>
-            <span>/</span>
-            <span>工作区联动 pre_pools / stock_pools</span>
+        <div class="toolbar-title">
+          <div class="page-title">首板筛选</div>
+          <div class="page-meta">
+            <StatusChip variant="muted">
+              end_date <strong>{{ resolvedEndDate || '-' }}</strong>
+            </StatusChip>
+            <StatusChip variant="info">
+              自然日窗口 <strong>{{ stockWindowDays }} 日</strong>
+            </StatusChip>
+            <StatusChip v-if="windowRangeLabel" variant="muted">
+              {{ windowRangeLabel }}
+            </StatusChip>
           </div>
         </div>
-
-        <WorkbenchSummaryRow class="shouban30-summary-row">
-          <StatusChip variant="info">
-            provider <strong>{{ activeViewLabel }}</strong>
-          </StatusChip>
-          <StatusChip variant="muted">
-            end_date <strong>{{ resolvedEndDate || '-' }}</strong>
-          </StatusChip>
-          <StatusChip variant="info">
-            自然日窗口 <strong>{{ stockWindowDays }} 日</strong>
-          </StatusChip>
-          <StatusChip v-if="windowRangeLabel" variant="muted">
-            {{ windowRangeLabel }}
-          </StatusChip>
-        </WorkbenchSummaryRow>
       </WorkbenchToolbar>
-
-      <el-alert
-        v-if="pageAlertVisible"
-        class="workbench-alert shouban30-page-alert"
-        :type="pageAlertType"
-        :title="pageAlertTitle"
-        :closable="false"
-        show-icon
-      />
 
       <div class="shouban30-grid">
         <WorkbenchSidebarPanel class="shouban30-panel shouban30-panel--plates">
           <header class="workbench-panel__header shouban30-panel__header">
-            <span class="workbench-panel__title">首板板块</span>
+            <span>首板板块</span>
             <StatusChip variant="muted">{{ currentStats.plate_count }}</StatusChip>
           </header>
 
@@ -207,7 +189,7 @@
 
         <WorkbenchLedgerPanel class="shouban30-panel shouban30-panel--stocks">
           <header class="workbench-panel__header shouban30-panel__header">
-            <span class="workbench-panel__title">热点标的</span>
+            <span>热点标的</span>
             <StatusChip variant="muted">{{ currentStocks.length }}</StatusChip>
           </header>
           <el-alert
@@ -272,7 +254,7 @@
 
         <WorkbenchDetailPanel class="shouban30-panel shouban30-panel--detail">
           <header class="workbench-panel__header shouban30-panel__header">
-            <span class="workbench-panel__title">标的详情</span>
+            <span>标的详情</span>
             <StatusChip variant="muted" v-if="selectedStockDetailContext">
               <span class="mono">{{ selectedStockDetailContext.code6 }}</span>
               <span> {{ selectedStockDetailContext.name }}</span>
@@ -346,7 +328,7 @@
 
         <WorkbenchLedgerPanel class="shouban30-panel shouban30-panel--workspace">
           <header class="workbench-panel__header shouban30-panel__header">
-            <span class="workbench-panel__title">工作区</span>
+            <span>工作区</span>
             <StatusChip variant="muted">{{ prePoolItems.length }} / {{ stockPoolItems.length }}</StatusChip>
           </header>
           <div class="panel-summary">
@@ -581,7 +563,6 @@ import WorkbenchDetailPanel from '@/components/workbench/WorkbenchDetailPanel.vu
 import WorkbenchLedgerPanel from '@/components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '@/components/workbench/WorkbenchPage.vue'
 import WorkbenchSidebarPanel from '@/components/workbench/WorkbenchSidebarPanel.vue'
-import WorkbenchSummaryRow from '@/components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '@/components/workbench/WorkbenchToolbar.vue'
 
 const VIEW_PROVIDER_OPTIONS = [
@@ -896,19 +877,6 @@ const windowRangeLabel = computed(() => {
 
 const activeViewLabel = computed(() => {
   return VIEW_PROVIDER_OPTIONS.find((item) => item.name === activeViewProvider.value)?.label || 'XGB'
-})
-const pageAlertTitle = computed(() => {
-  return platesError.value
-    || stocksError.value
-    || stockReasonsError.value
-    || workspaceError.value
-    || '多 provider 首板观察；工作区联动 pre_pools / stock_pools。'
-})
-const pageAlertVisible = computed(() => Boolean(pageAlertTitle.value))
-const pageAlertType = computed(() => {
-  return platesError.value || stocksError.value || stockReasonsError.value || workspaceError.value
-    ? 'error'
-    : 'info'
 })
 const activeExtraFilterLabels = computed(() => {
   return EXTRA_FILTER_OPTIONS
@@ -1453,11 +1421,19 @@ onMounted(() => {
   border-radius: 8px;
 }
 
-.shouban30-summary-row {
-  margin-top: 12px;
+.toolbar-title {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.shouban30-page-alert,
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.page-meta,
 .detail-meta,
 .muted,
 .reason-sub,
@@ -1465,22 +1441,14 @@ onMounted(() => {
   color: #909399;
 }
 
-.shouban30-toolbar .workbench-page-meta,
-.detail-meta,
-.muted,
-.reason-sub,
-.tab-meta {
-  color: #909399;
-}
-
-.shouban30-toolbar .workbench-page-meta {
+.page-meta {
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
 
-.shouban30-toolbar .workbench-page-meta strong {
+.page-meta strong {
   font-weight: 600;
 }
 

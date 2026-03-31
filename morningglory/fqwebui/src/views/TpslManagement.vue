@@ -30,7 +30,7 @@
           show-icon
         />
 
-        <WorkbenchSummaryRow class="tpsl-summary-row">
+        <div class="workbench-summary-row">
           <StatusChip>
             标的数 <strong>{{ overviewRows.length }}</strong>
           </StatusChip>
@@ -55,7 +55,7 @@
           <StatusChip v-if="detail" variant="muted">
             历史 <strong>{{ detail.historyRows.length }}</strong>
           </StatusChip>
-        </WorkbenchSummaryRow>
+        </div>
       </WorkbenchToolbar>
 
       <div class="tpsl-layout">
@@ -331,7 +331,6 @@ import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.v
 import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
 import WorkbenchSidebarPanel from '../components/workbench/WorkbenchSidebarPanel.vue'
-import WorkbenchSummaryRow from '../components/workbench/WorkbenchSummaryRow.vue'
 import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import { tpslApi } from '@/api/tpslApi'
 import MyHeader from '@/views/MyHeader.vue'

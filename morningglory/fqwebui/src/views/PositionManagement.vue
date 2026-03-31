@@ -3,36 +3,6 @@
     <MyHeader />
 
     <div class="workbench-body position-body" v-loading="loading">
-      <WorkbenchToolbar class="position-toolbar">
-        <div class="workbench-toolbar__header">
-          <div class="workbench-title-group">
-            <h1 class="workbench-page-title">仓位管理</h1>
-            <div class="workbench-page-meta">
-              <span>统一查看 PM 状态、单标的上限和最近决策。</span>
-            </div>
-          </div>
-
-          <div class="workbench-toolbar__actions">
-            <el-button @click="loadDashboard">刷新</el-button>
-          </div>
-        </div>
-
-        <WorkbenchSummaryRow class="position-summary-row">
-          <StatusChip :variant="stateToneChipVariant">
-            {{ statePanel.hero.effective_state_label }}
-          </StatusChip>
-          <StatusChip :variant="staleChipVariant">
-            {{ statePanel.hero.stale_label }}
-          </StatusChip>
-          <StatusChip variant="muted">
-            raw state <strong>{{ statePanel.hero.raw_state_label }}</strong>
-          </StatusChip>
-          <StatusChip variant="warning">
-            仓位不一致 <strong>{{ mismatchSymbolCount }}</strong>
-          </StatusChip>
-        </WorkbenchSummaryRow>
-      </WorkbenchToolbar>
-
       <el-alert
         v-if="pageError"
         class="workbench-alert"
@@ -48,6 +18,10 @@
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">当前仓位状态</div>
+              </div>
+
+              <div class="workbench-toolbar__actions">
+                <el-button @click="loadDashboard">刷新</el-button>
               </div>
             </div>
 
@@ -402,8 +376,6 @@ import StatusChip from '../components/workbench/StatusChip.vue'
 import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
 import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
-import WorkbenchSummaryRow from '../components/workbench/WorkbenchSummaryRow.vue'
-import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from '@/views/MyHeader.vue'
 import { positionManagementApi } from '@/api/positionManagementApi'
 import {

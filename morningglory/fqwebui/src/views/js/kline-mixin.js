@@ -294,7 +294,11 @@ export default {
     },
 
     jumpToControl (type) {
-      this.$router.replace('/stock-control')
+      if (type === 'futures') {
+        this.$router.replace('/futures-control')
+      } else {
+        this.$router.replace('/stock-control')
+      }
     },
     changeDate (val) {
       const { ...query } = this.$route.query

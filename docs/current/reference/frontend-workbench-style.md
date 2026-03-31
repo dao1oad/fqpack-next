@@ -6,9 +6,8 @@
 
 ## 当前采用范围
 
-当前默认页与来源页：
+来源页：
 
-- `/runtime-observability`（默认首页）
 - `/gantt`
 - `/gantt/shouban30`
 - `/runtime-observability`
@@ -20,27 +19,29 @@
 - `/gantt/stocks/:plateKey`
 - `/gantt/shouban30`
 - `/stock-control`
+- `/stock-pools`
+- `/stock-cjsd`
 - `/order-management`
 - `/position-management`
 - `/runtime-observability`
 - `/subject-management`
 - `/system-settings`
 - `/tpsl`
+- `/futures-control`
 - `/kline-big`
 - `/kline-slim`
 - `/multi-period`
 
 补充事实：
 
-- `/runtime-observability` 当前既是默认首页，也是主工作台页面 contract 的模板页；`page title / page meta / summary row / page-level alert / sidebar|ledger|detail panel` 这套页面语法优先以它为真值
-- `/stock-control`、`/daily-screening`、`/gantt`、`/gantt/stocks/:plateKey`、`/gantt/shouban30`、`/order-management`、`/position-management`、`/subject-management`、`/system-settings`、`/tpsl` 当前都已经直接消费共享 `WorkbenchPage / WorkbenchToolbar / WorkbenchSummaryRow / WorkbenchPanel` primitives
+- `/stock-control`、`/stock-pools`、`/stock-cjsd`、`/gantt`、`/gantt/stocks/:plateKey`、`/gantt/shouban30`、`/system-settings` 当前已经直接消费共享 `WorkbenchPage / WorkbenchToolbar / WorkbenchPanel` primitives
 - `/system-settings` 当前把顶部摘要与 dense ledger 行内状态统一收口到共享 `StatusChip`
 - `/system-settings` 当前把每列拆成固定列头和独立滚动 body；每个 section 的标题摘要与 ledger 表头都改成静态头部，滚动时不再出现 sticky 叠层遮挡首行
 - `/daily-screening`、`/position-management`、`/runtime-observability` 与 `/stock-control` 当前也已经把 dense ledger 改成“静态表头 + 独立 viewport”结构；表头不再使用 sticky 叠层，纵向滚动只发生在 viewport 内
-- `/gantt`、`/gantt/stocks/:plateKey`、`/gantt/shouban30` 当前已经补齐研究页 contract：统一页头 title/meta、summary row、页面级 `workbench-alert`、主 panel header 语法，同时继续保留 provider switch / drill-down / workspace 工作流
-- `/kline-big`、`/kline-slim`、`/multi-period` 当前至少统一接入共享 `page-shell contract`：根容器显式带 `workbench-page`，并复用同一套视口高度、背景与滚动兜底语义
-- `/kline-slim` 当前进一步补齐 `MyHeader / WorkbenchToolbar / page title / page meta / page-level alert / workbench-empty / panel title` 这组焦点图表页语法；图表、chanlun 与 controller 仍保持专用实现
-- `/futures-control`、`/stock-pools`、`/stock-cjsd` 当前已经下线，不再作为活跃 workbench 页面维护
+- `/gantt/shouban30` 当前把 `首板板块 / 热点标的 / 标的详情 / 工作区` 四个主区域统一落到共享 `WorkbenchSidebarPanel / WorkbenchLedgerPanel / WorkbenchDetailPanel`，provider 切换也改成共享 workbench 常用的 `radio-button switch`
+- `/futures-control`、`/kline-big`、`/kline-slim`、`/multi-period` 当前至少统一接入共享 `page-shell contract`：根容器显式带 `workbench-page`，并复用同一套视口高度、背景与滚动兜底语义
+- `/futures-control` 当前把 `每日复盘 / 统计数据` 设为按 tab 延迟挂载；`统计数据` 图表宿主节点会先保留固定尺寸，再初始化 ECharts，切换 tab 时不应再因为 0 宽/0 高发出控制台 warning
+- `/kline-slim` 仍保留暗色图表页语法，不纳入白底 workbench 页面壳；但它的工具栏状态条、浮层摘要和缠论摘要当前也统一复用共享 `StatusChip`
 
 ## 页面壳
 

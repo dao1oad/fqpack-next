@@ -136,24 +136,18 @@ test('legacy futures pages import trading constants explicitly instead of relyin
     'stopRate'
   ]
   const legacyTradingGlobalPattern = /(this|that)\.\$(futureAccount|stockAccount|digitCoinAccount|globalFutureAccount|digitCoinLevel|globalFutureSymbol|maxAccountUseRate|stopRate)\b/
-  const remainingTradingFiles = [
+  const legacyTradingFiles = [
+    '../src/views/js/future-control.js',
     '../src/views/js/kline-mixin.js',
+    '../src/views/FuturePositionList.vue',
     '../src/views/StatisticsChat.vue'
-  ]
-  const retiredTradingFiles = [
-    new URL('../src/views/js/future-control.js', import.meta.url),
-    new URL('../src/views/FuturePositionList.vue', import.meta.url),
   ]
 
   for (const constantName of tradingConstantNames) {
     assert.match(tradingConstantsSource, new RegExp(`export const ${constantName} =`))
   }
 
-  for (const fileUrl of retiredTradingFiles) {
-    assert.equal(existsSync(fileUrl), false, `${fileUrl} should be removed`)
-  }
-
-  for (const relativePath of remainingTradingFiles) {
+  for (const relativePath of legacyTradingFiles) {
     const content = readSource(relativePath)
     assert.match(content, /tradingConstants\.mjs/)
     assert.doesNotMatch(content, legacyTradingGlobalPattern)

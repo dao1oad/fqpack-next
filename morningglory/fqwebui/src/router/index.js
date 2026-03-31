@@ -4,10 +4,13 @@ import {
   resolveRouteMetaTitle,
 } from './pageMeta.mjs'
 
+const FuturesControl = () => import('../views/FuturesControl.vue')
 const StockControl = () => import('../views/StockControl.vue')
 const MultiPeriod = () => import('../views/MultiPeriod.vue')
 const KlineBig = () => import('../views/KlineBig.vue')
 const KlineSlim = () => import('../views/KlineSlim.vue')
+const StockPools = () => import('../components/StockPools.vue')
+const StockCjsd = () => import('../components/StockCjsd.vue')
 const GanttUnified = () => import('../views/GanttUnified.vue')
 const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
 const GanttShouban30Phase1 = () => import('../views/GanttShouban30Phase1.vue')
@@ -30,12 +33,27 @@ const withRouteTitle = (route) => ({
 const routes = [
   {
     path: '/',
-    redirect: '/runtime-observability'
+    redirect: '/stock-control'
   },
+  withRouteTitle({
+    path: '/futures-control',
+    name: 'futures-control',
+    component: FuturesControl
+  }),
   withRouteTitle({
     path: '/stock-control',
     name: 'stock-control',
     component: StockControl
+  }),
+  withRouteTitle({
+    path: '/stock-pools',
+    name: 'stock-pools',
+    component: StockPools
+  }),
+  withRouteTitle({
+    path: '/stock-cjsd',
+    name: 'stock-cjsd',
+    component: StockCjsd
   }),
   withRouteTitle({
     path: '/multi-period',
