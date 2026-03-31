@@ -312,6 +312,7 @@ test('KlineSlim.vue reuses StatusChip for toolbar, overlay summaries and chanlun
   assert.match(klineSlimSource, /<StatusChip[\s\S]*v-for="field in chanlunHigherSegmentSummary"[\s\S]*variant="info"/)
   assert.match(klineSlimSource, /<StatusChip[\s\S]*v-for="field in chanlunSegmentSummary"[\s\S]*variant="info"/)
   assert.match(klineSlimSource, /<StatusChip[\s\S]*v-for="field in chanlunBiSummary"[\s\S]*variant="info"/)
+  assert.match(klineSlimSource, /<el-alert[\s\S]*v-if="pageAlertVisible"[\s\S]*class="workbench-alert kline-slim-page-alert"[\s\S]*:type="pageAlertType"[\s\S]*:title="pageAlertTitle"/)
 })
 
 test('KlineHeader.vue no longer exposes a retired futures main-entry button', () => {
@@ -322,23 +323,20 @@ test('KlineHeader.vue no longer exposes a retired futures main-entry button', ()
   assert.doesNotMatch(klineHeaderSource, />期货<\/el-button/)
 })
 
-test('KlineSlim.vue keeps the legacy chart shell rhythm while retaining WorkbenchPage as the outer container', () => {
+test('KlineSlim.vue consumes WorkbenchPage for the chart workbench shell', () => {
   assert.match(klineSlimSource, /import WorkbenchPage from ['"][^'"]*WorkbenchPage\.vue['"]/)
-  assert.doesNotMatch(klineSlimSource, /import WorkbenchToolbar from ['"][^'"]*WorkbenchToolbar\.vue['"]/)
-  assert.doesNotMatch(klineSlimSource, /import MyHeader from ['"][^'"]*MyHeader\.vue['"]/)
+  assert.match(klineSlimSource, /import WorkbenchToolbar from ['"][^'"]*WorkbenchToolbar\.vue['"]/)
+  assert.match(klineSlimSource, /import MyHeader from ['"][^'"]*MyHeader\.vue['"]/)
   assert.match(klineSlimSource, /<WorkbenchPage class="kline-big-main kline-slim-main">/)
-  assert.match(klineSlimSource, /<div class="kline-slim-toolbar">/)
-  assert.match(klineSlimSource, /<span>\{\{\s*section\.label\s*\}\}<\/span>/)
-  assert.match(klineSlimSource, /<span class="price-panel-title">标的设置<\/span>/)
-  assert.match(klineSlimSource, /<span class="price-panel-title">画线编辑<\/span>/)
-  assert.match(klineSlimSource, /<span class="chanlun-panel-title">缠论结构<\/span>/)
-  assert.match(klineSlimSource, /<div v-if="!routeSymbol" class="kline-slim-empty">/)
-  assert.doesNotMatch(klineSlimSource, /<MyHeader\s*\/>/)
-  assert.doesNotMatch(klineSlimSource, /<WorkbenchToolbar class="kline-slim-toolbar">/)
-  assert.doesNotMatch(klineSlimSource, /<div class="workbench-page-title">焦点图表<\/div>/)
-  assert.doesNotMatch(klineSlimSource, /<div class="workbench-page-meta">/)
-  assert.doesNotMatch(klineSlimSource, /class="workbench-empty kline-slim-empty"/)
-  assert.doesNotMatch(klineSlimSource, /pageAlertVisible/)
+  assert.match(klineSlimSource, /<MyHeader\s*\/>/)
+  assert.match(klineSlimSource, /<WorkbenchToolbar class="kline-slim-toolbar">/)
+  assert.match(klineSlimSource, /<div class="workbench-page-title">焦点图表<\/div>/)
+  assert.match(klineSlimSource, /<div class="workbench-page-meta">[\s\S]*主图 \+ 侧栏观察清单[\s\S]*标的设置、画线编辑、缠论结构/)
+  assert.match(klineSlimSource, /<span class="workbench-panel__title">\{\{\s*section\.label\s*\}\}<\/span>/)
+  assert.match(klineSlimSource, /<span class="price-panel-title workbench-panel__title">标的设置<\/span>/)
+  assert.match(klineSlimSource, /<span class="price-panel-title workbench-panel__title">画线编辑<\/span>/)
+  assert.match(klineSlimSource, /<span class="chanlun-panel-title workbench-panel__title">缠论结构<\/span>/)
+  assert.match(klineSlimSource, /<div v-if="!routeSymbol" class="workbench-empty kline-slim-empty">/)
 })
 
 test('StockControl.vue consumes shared workbench page and ledger panel primitives for the three signal columns', () => {

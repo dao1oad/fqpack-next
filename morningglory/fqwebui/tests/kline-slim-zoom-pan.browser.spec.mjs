@@ -303,7 +303,7 @@ test('KlineSlim zoom and pan keep scene version stable while x/y viewport move t
   })
 
   await page.waitForFunction(
-    () => {
+    ({ min, max }) => {
       const state = window.__readKlineSlimChartState?.()
       if (!state?.viewport?.xRange || !state?.viewport?.yRange) {
         return false
@@ -311,8 +311,14 @@ test('KlineSlim zoom and pan keep scene version stable while x/y viewport move t
 
       return (
         Math.abs(state.viewport.xRange.start - 82) < 0.25 &&
-        Math.abs(state.viewport.xRange.end - 92) < 0.25
+        Math.abs(state.viewport.xRange.end - 92) < 0.25 &&
+        (Math.abs(state.viewport.yRange.min - min) > 0.01 ||
+          Math.abs(state.viewport.yRange.max - max) > 0.01)
       )
+    },
+    {
+      min: afterPan.viewport.yRange.min,
+      max: afterPan.viewport.yRange.max
     }
   )
 
@@ -321,6 +327,10 @@ test('KlineSlim zoom and pan keep scene version stable while x/y viewport move t
   expect(afterExplicitZoom.mainVersion).toBe(initialState.mainVersion)
   expect(afterExplicitZoom.viewport.xRange.start).toBeCloseTo(82, 0)
   expect(afterExplicitZoom.viewport.xRange.end).toBeCloseTo(92, 0)
+  expect(
+    Math.abs(afterExplicitZoom.viewport.yRange.min - afterPan.viewport.yRange.min) +
+      Math.abs(afterExplicitZoom.viewport.yRange.max - afterPan.viewport.yRange.max)
+  ).toBeGreaterThan(0.01)
   expect(afterExplicitZoom.viewport.yRange.min).toBeCloseTo(afterExplicitZoom.yAxis.min, 6)
   expect(afterExplicitZoom.viewport.yRange.max).toBeCloseTo(afterExplicitZoom.yAxis.max, 6)
 

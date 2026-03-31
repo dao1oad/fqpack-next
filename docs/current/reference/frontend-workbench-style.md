@@ -37,10 +37,9 @@
 - `/system-settings` 当前把顶部摘要与 dense ledger 行内状态统一收口到共享 `StatusChip`
 - `/system-settings` 当前把每列拆成固定列头和独立滚动 body；每个 section 的标题摘要与 ledger 表头都改成静态头部，滚动时不再出现 sticky 叠层遮挡首行
 - `/daily-screening`、`/position-management`、`/runtime-observability` 与 `/stock-control` 当前也已经把 dense ledger 改成“静态表头 + 独立 viewport”结构；表头不再使用 sticky 叠层，纵向滚动只发生在 viewport 内
-- `/daily-screening` 的交集列表和历史热门理由在桌面端会压平横向滚动条；当视口收窄到单列布局时，ledger 根容器会恢复横向滚动，避免列内容被裁切
 - `/gantt`、`/gantt/stocks/:plateKey`、`/gantt/shouban30` 当前已经补齐研究页 contract：统一页头 title/meta、summary row、页面级 `workbench-alert`、主 panel header 语法，同时继续保留 provider switch / drill-down / workspace 工作流
 - `/kline-big`、`/kline-slim`、`/multi-period` 当前至少统一接入共享 `page-shell contract`：根容器显式带 `workbench-page`，并复用同一套视口高度、背景与滚动兜底语义
-- `/kline-slim` 当前保留旧版单行工具栏与暗色图表节奏，不再额外挂载全局 `MyHeader` 或白底 workbench 标题/告警带；图表、chanlun 与 controller 仍保持专用实现
+- `/kline-slim` 当前进一步补齐 `MyHeader / WorkbenchToolbar / page title / page meta / page-level alert / workbench-empty / panel title` 这组焦点图表页语法；图表、chanlun 与 controller 仍保持专用实现
 - `/futures-control`、`/stock-pools`、`/stock-cjsd` 当前已经下线，不再作为活跃 workbench 页面维护
 
 ## 页面壳

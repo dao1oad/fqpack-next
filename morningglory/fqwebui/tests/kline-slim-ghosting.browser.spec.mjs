@@ -348,8 +348,8 @@ async function expectHoldingSidebarItem(page, { name, code6 }) {
   const row = holdingSection.locator('.sidebar-item-row').filter({
     has: page.locator('.sidebar-item-title', { hasText: name })
   })
-  await expect(row.locator('.sidebar-item-title')).toContainText(name)
-  await expect(row.locator('.sidebar-item-title')).toContainText(code6)
+  await expect(row.locator('.sidebar-item-title')).toHaveText(name)
+  await expect(row.locator('.sidebar-item-subtitle')).toHaveText(code6)
 }
 async function switchSymbol(page, symbol) {
   await page.evaluate((nextSymbol) => {
@@ -382,8 +382,7 @@ function expectGhostingFinalState(state) {
     '1m': false,
     '5m': true,
     '15m': true,
-    '30m': true,
-    '1d': false
+    '30m': true
   })
   expect(state.visibleChanlunPeriods).toEqual(['15m', '30m'])
   expect(state.viewport.xRange.start).toBeGreaterThanOrEqual(0)
@@ -398,8 +397,7 @@ async function run1mGhostingPath(page) {
     '1m': true,
     '5m': true,
     '15m': true,
-    '30m': true,
-    '1d': false
+    '30m': true
   })
   await setLegendSelected(page, '1m', false)
   return dragSliderPan(page)
@@ -523,15 +521,14 @@ test('symbol switching keeps only period legends and resets viewport without rei
 
   const finalState = await readChartState(page)
 
-  expect(finalState.legendData).toEqual(['1m', '5m', '15m', '30m', '1d'])
+  expect(finalState.legendData).toEqual(['1m', '5m', '15m', '30m'])
   expect(finalState.legendData).not.toContain('中枢')
   expect(finalState.legendData).not.toContain('段中枢')
   expect(finalState.periodLegendSelected).toEqual({
     '1m': false,
     '5m': true,
     '15m': true,
-    '30m': true,
-    '1d': false
+    '30m': true
   })
   expect(finalState.visibleChanlunPeriods).toEqual(['15m', '30m'])
   expect(finalState.viewport.xRange.start).toBeCloseTo(70, 0)
@@ -657,7 +654,7 @@ test('crosshair price label clamps to the current y-axis range after viewport re
   await page.waitForTimeout(120)
 
   const initialArtifacts = await readAxisPointerArtifacts(page)
-  expect(initialArtifacts.priceLabel?.text).toMatch(/^\d+\.\d{3}$/)
+  expect(initialArtifacts.priceLabel?.text).toMatch(/^\d+\.\d{2}$/)
 
   await page.evaluate(async () => {
     const chart = window.__klineSlimChart
@@ -678,7 +675,7 @@ test('crosshair price label clamps to the current y-axis range after viewport re
   const afterState = await readChartState(page)
   const afterArtifacts = await readAxisPointerArtifacts(page)
 
-  expect(Number(afterState.yAxis.max).toFixed(3)).toBe(afterArtifacts.priceLabel?.text)
+  expect(Number(afterState.yAxis.max).toFixed(2)).toBe(afterArtifacts.priceLabel?.text)
   expect(Number(afterState.yAxis.max)).toBeLessThan(Number(initialArtifacts.priceLabel?.text))
   expect(afterArtifacts.verticalLineCount).toBe(1)
   expect(afterArtifacts.horizontalLineCount).toBe(1)

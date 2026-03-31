@@ -140,7 +140,6 @@
 - 条件分组勾选
 - 页头 `每日选股` 的工作说明下方直接放 `Scope` 下拉；左侧筛选面板不再重复展示独立 `Scope` 卡片，也不再显示“筛选工作台”标题和说明
 - `DailyScreening.vue` 当前只保留页面壳编排；默认筛选值、查询防抖、共享工作区 tab 归一和右侧详情 chip 归一分别下沉到 `dailyScreeningFilters.mjs`、`dailyScreeningWorkspace.mjs`、`dailyScreeningDetail.mjs`
-- 交集列表与历史热门理由当前统一使用“静态表头 + 独立 viewport”结构；桌面端不再出现额外横向滚动条，窄屏下若列宽不足则恢复根容器横向滚动以避免内容裁切
 - `基础池（并集）`
   - `CLS 模型分组`
   - `热门窗口`

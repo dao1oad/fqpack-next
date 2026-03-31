@@ -31,7 +31,6 @@
 
 ## 当前页面结构
 
-- 页面壳继续复用共享 `WorkbenchPage` 视口 contract，但保留旧版图表页的单行工具栏与暗色图表节奏；不引入 `MyHeader` 或白底 workbench 标题区
 - 主图与多周期结构
 - 画线编辑浮层
   - Guardian 阶梯价
