@@ -8,6 +8,10 @@ from datetime import datetime, timezone
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_slices,
 )
+from freshquant.order_management.guardian.sell_semantics import (
+    normalize_preferred_entry_quantities as normalize_guardian_preferred_entry_quantities,
+    resolve_guardian_sell_source_entries_from_open_slices,
+)
 from freshquant.order_management.ids import (
     new_allocation_id,
     new_entry_slice_id,
@@ -909,9 +913,18 @@ def _resolve_recent_guardian_sell_source_entries(
         if str(request.get("action") or "").lower() != "sell":
             continue
         raw_entries = _extract_guardian_sell_source_entries(request)
-        if not raw_entries:
-            continue
         planned_quantity = _resolve_guardian_sell_source_quantity(request, raw_entries)
+        runtime_entries = []
+        if planned_quantity >= target_quantity and hasattr(
+            repository, "list_open_entry_slices"
+        ):
+            runtime_entries = resolve_guardian_sell_source_entries_from_open_slices(
+                repository.list_open_entry_slices(symbol=symbol),
+                exit_price=request.get("price"),
+                quantity=target_quantity,
+            )
+        if not raw_entries and not runtime_entries:
+            continue
         if planned_quantity < target_quantity:
             continue
         created_at_epoch = _coerce_epoch_seconds(request.get("created_at"))
@@ -929,7 +942,7 @@ def _resolve_recent_guardian_sell_source_entries(
         )
         if best_score is None or score < best_score:
             best_score = score
-            best_candidate = _normalize_preferred_entry_quantities(
+            best_candidate = list(runtime_entries or []) or normalize_guardian_preferred_entry_quantities(
                 raw_entries,
                 remaining_quantity=target_quantity,
             )
@@ -1784,26 +1797,10 @@ def _allocate_gap_to_entry_slices(
 def _normalize_preferred_entry_quantities(
     preferred_entry_quantities, *, remaining_quantity
 ):
-    remaining = int(remaining_quantity or 0)
-    if remaining <= 0:
-        return []
-    normalized = []
-    for item in list(preferred_entry_quantities or []):
-        if remaining <= 0:
-            break
-        entry_id = str((item or {}).get("entry_id") or "").strip()
-        quantity = int((item or {}).get("quantity") or 0)
-        if not entry_id or quantity <= 0:
-            continue
-        allocated_quantity = min(quantity, remaining)
-        normalized.append(
-            {
-                "entry_id": entry_id,
-                "quantity": allocated_quantity,
-            }
-        )
-        remaining -= allocated_quantity
-    return normalized
+    return normalize_guardian_preferred_entry_quantities(
+        preferred_entry_quantities,
+        remaining_quantity=remaining_quantity,
+    )
 
 
 def _allocate_gap_to_preferred_entry_slices(

@@ -4,6 +4,8 @@
 
 Guardian 是当前 A 股实时策略层。它负责把 XTData consumer 产生的结构信号转换成“是否提交买卖单”的策略意图，但它本身不是订单事实层，也不负责直接和 broker 交互。
 
+Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起写入卖单请求，供 Order Management 在正常成交链和差额自动平账链里保持同一套卖出入口语义。
+
 ## 入口
 
 - 策略实现
@@ -41,6 +43,7 @@ Guardian 是当前 A 股实时策略层。它负责把 XTData consumer 产生的
 - 持仓内 `SELL_SHORT` 触发 `_handle_sell`
 - `_handle_sell` 依赖 order management arranged fill 的最近 `date/time` 判断切片先后；对 `external_inferred` 历史 lot / slice，当前投影会在读路径按 `trade_time` 回填缺失时间，避免 Trace 在 `timing_check` 后因为 `last_fill date/time=None` 直接中断
 - `_handle_sell` 先按当前价累计可盈利切片数量，再统一按 `xt_positions.can_use_volume` 截断并按一手向下取整；只有 `sellable_volume_check` 通过后才继续冷却判断和下单提交
+- `_handle_sell` 提交卖单时会把 `guardian_sell_sources.entries[] = { entry_id, quantity }` 写入请求上下文；Order Management 在 XT `trade` 回报链和 `auto_close_allocation` 差额链里都会优先按这组来源入口扣减
 
 ## 存储
 

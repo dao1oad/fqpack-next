@@ -34,6 +34,12 @@ class InMemoryRepository:
         self.orders.append(document)
         return document
 
+    def find_order_request(self, request_id):
+        for request in self.order_requests:
+            if request["request_id"] == request_id:
+                return request
+        return None
+
     def upsert_broker_order(self, document, unique_keys):
         for existing in self.broker_orders:
             if all(existing.get(key) == document.get(key) for key in unique_keys):
@@ -174,6 +180,24 @@ class InMemoryRepository:
     def insert_exit_allocations(self, allocations):
         self.exit_allocations.extend(dict(item) for item in allocations)
         return allocations
+
+    def list_trade_facts(self, symbol=None, internal_order_ids=None):
+        rows = list(self.trade_facts)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if internal_order_ids is not None:
+            allowed = set(internal_order_ids)
+            rows = [
+                item for item in rows if item.get("internal_order_id") in allowed
+            ]
+        return [dict(item) for item in rows]
+
+    def list_exit_allocations(self, *, entry_ids=None):
+        rows = list(self.exit_allocations)
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        return [dict(item) for item in rows]
 
     def insert_ingest_rejection(self, document):
         self.ingest_rejections.append(dict(document))
@@ -716,6 +740,222 @@ def test_repeated_sell_callback_does_not_duplicate_sell_allocations(monkeypatch)
         (10.93, 200),
         (10.61, 200),
     ]
+
+
+def test_sell_trade_ingest_prefers_guardian_sell_request_entry_plan(monkeypatch):
+    _stub_ingest_side_effects(monkeypatch)
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "000001",
+            "price": 0.0,
+            "quantity": 1100,
+            "source": "strategy",
+            "internal_order_id": "ord_guardian_sell_1",
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "submit_quantity": 1100,
+                    "entries": [
+                        {"entry_id": "entry_new", "quantity": 1000},
+                        {"entry_id": "entry_old", "quantity": 100},
+                    ],
+                }
+            },
+        }
+    )
+    request = repository.order_requests[-1]
+    order = repository.orders[-1]
+    request["strategy_context"] = {
+        "guardian_sell_sources": {
+            "submit_quantity": 1100,
+            "entries": [
+                {"entry_id": "entry_new", "quantity": 1000},
+                {"entry_id": "entry_old", "quantity": 100},
+            ],
+        }
+    }
+    order["request_id"] = request["request_id"]
+
+    repository.position_entries.extend(
+        [
+            {
+                "entry_id": "entry_old",
+                "symbol": "000001",
+                "original_quantity": 1100,
+                "remaining_quantity": 1100,
+                "status": "OPEN",
+                "sell_history": [],
+            },
+            {
+                "entry_id": "entry_new",
+                "symbol": "000001",
+                "original_quantity": 1000,
+                "remaining_quantity": 1000,
+                "status": "OPEN",
+                "sell_history": [],
+            },
+        ]
+    )
+    repository.entry_slices.extend(
+        [
+            {
+                "entry_slice_id": "slice_new_1",
+                "entry_id": "entry_new",
+                "symbol": "000001",
+                "guardian_price": 11.0,
+                "original_quantity": 1000,
+                "remaining_quantity": 1000,
+                "remaining_amount": 11000.0,
+                "sort_key": 11.0,
+                "slice_seq": 0,
+                "status": "OPEN",
+            },
+            {
+                "entry_slice_id": "slice_old_1",
+                "entry_id": "entry_old",
+                "symbol": "000001",
+                "guardian_price": 10.3,
+                "original_quantity": 100,
+                "remaining_quantity": 100,
+                "remaining_amount": 1030.0,
+                "sort_key": 10.3,
+                "slice_seq": 0,
+                "status": "OPEN",
+            },
+            {
+                "entry_slice_id": "slice_old_0",
+                "entry_id": "entry_old",
+                "symbol": "000001",
+                "guardian_price": 10.0,
+                "original_quantity": 1000,
+                "remaining_quantity": 1000,
+                "remaining_amount": 10000.0,
+                "sort_key": 10.0,
+                "slice_seq": 1,
+                "status": "OPEN",
+            },
+        ]
+    )
+    repository.buy_lots.extend(
+        [
+            {
+                "buy_lot_id": "lot_old",
+                "origin_trade_fact_id": "trade_old",
+                "symbol": "000001",
+                "buy_price_real": 10.0,
+                "original_quantity": 1100,
+                "remaining_quantity": 1100,
+                "amount_adjust": 1.0,
+                "source": "strategy",
+                "status": "open",
+                "arrange_mode": "runtime_grid",
+                "sell_history": [],
+            },
+            {
+                "buy_lot_id": "lot_new",
+                "origin_trade_fact_id": "trade_new",
+                "symbol": "000001",
+                "buy_price_real": 11.0,
+                "original_quantity": 1000,
+                "remaining_quantity": 1000,
+                "amount_adjust": 1.0,
+                "source": "strategy",
+                "status": "open",
+                "arrange_mode": "runtime_grid",
+                "sell_history": [],
+            },
+        ]
+    )
+    repository.lot_slices.extend(
+        [
+            {
+                "lot_slice_id": "lot_slice_new_1",
+                "buy_lot_id": "lot_new",
+                "symbol": "000001",
+                "guardian_price": 11.0,
+                "original_quantity": 1000,
+                "remaining_quantity": 1000,
+                "remaining_amount": 11000.0,
+                "sort_key": 11.0,
+                "slice_seq": 0,
+                "status": "open",
+            },
+            {
+                "lot_slice_id": "lot_slice_old_1",
+                "buy_lot_id": "lot_old",
+                "symbol": "000001",
+                "guardian_price": 10.3,
+                "original_quantity": 100,
+                "remaining_quantity": 100,
+                "remaining_amount": 1030.0,
+                "sort_key": 10.3,
+                "slice_seq": 0,
+                "status": "open",
+            },
+            {
+                "lot_slice_id": "lot_slice_old_0",
+                "buy_lot_id": "lot_old",
+                "symbol": "000001",
+                "guardian_price": 10.0,
+                "original_quantity": 1000,
+                "remaining_quantity": 1000,
+                "remaining_amount": 10000.0,
+                "sort_key": 10.0,
+                "slice_seq": 1,
+                "status": "open",
+            },
+        ]
+    )
+
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+    )
+
+    first = ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_guardian_sell_1",
+            "broker_trade_id": "T-SELL-G1",
+            "symbol": "000001",
+            "side": "sell",
+            "quantity": 600,
+            "price": 10.8,
+            "trade_time": 1710003600,
+            "date": 20240103,
+            "time": "10:00:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    second = ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_guardian_sell_1",
+            "broker_trade_id": "T-SELL-G2",
+            "symbol": "000001",
+            "side": "sell",
+            "quantity": 500,
+            "price": 10.8,
+            "trade_time": 1710003660,
+            "date": 20240103,
+            "time": "10:01:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert [
+        (item["entry_id"], item["allocated_quantity"])
+        for item in first["exit_allocations"]
+    ] == [("entry_new", 600)]
+    assert [
+        (item["entry_id"], item["allocated_quantity"])
+        for item in second["exit_allocations"]
+    ] == [("entry_new", 400), ("entry_old", 100)]
+    assert repository.find_order("ord_guardian_sell_1")["request_id"] == request["request_id"]
 
 
 def test_order_report_updates_existing_order_state():
