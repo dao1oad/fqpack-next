@@ -639,19 +639,6 @@ def buy(
                     payload={"reason": "existing_unfilled_order"},
                 )
                 return
-            asset = xt_trader.query_stock_asset(acc)
-            if asset.cash - asset.frozen_cash < float(price) * int(
-                quantity
-            ) + calculateTradeFee(price, quantity):
-                logger.info("资金不足")
-                _emit_puppet_event(
-                    "submit_result",
-                    context=context,
-                    status="skipped",
-                    payload={"reason": "insufficient_cash"},
-                )
-                return
-            stock_code = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
             order_type_to_use = (
                 xtconstant.STOCK_BUY
                 if order_type in (None, "", "None")
@@ -662,6 +649,23 @@ def buy(
                 if price_type in (None, "", "None", 0, "0")
                 else int(price_type)
             )
+            asset = xt_trader.query_stock_asset(acc)
+            required_cash = float(price) * int(quantity) + calculateTradeFee(
+                price, quantity
+            )
+            if (
+                order_type_to_use != xtconstant.CREDIT_FIN_BUY
+                and asset.cash - asset.frozen_cash < required_cash
+            ):
+                logger.info("资金不足")
+                _emit_puppet_event(
+                    "submit_result",
+                    context=context,
+                    status="skipped",
+                    payload={"reason": "insufficient_cash"},
+                )
+                return
+            stock_code = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
             current_node = "submit_decision"
             _emit_puppet_event(
                 "submit_decision",
