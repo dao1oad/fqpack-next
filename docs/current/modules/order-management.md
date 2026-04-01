@@ -146,6 +146,26 @@
 - `grid_interval` 解析失败时回退 `1.03`
 - `lot_amount` 解析失败时回退 `3000`
 
+自动平账对 buy-side `gap` 当前采用“冻结首次价格、持续记录最新观测”的双快照语义：
+
+- `initial_price_*` 记录首次发现时的价格快照
+- `latest_price_*` 记录最近一次观测到的价格快照
+- `chosen_price_*` 当前默认冻结为首次快照，并继续兼容映射到 `price_estimate / price_source / price_asof`
+- `chosen_price_policy` 当前固定为 `freeze_initial`
+
+`AUTO_OPENED` 当前已经拆成“真值确认优先、切片排布随后”的两阶段行为：
+
+- entry truth 会先落 `om_position_entries`
+- Guardian 切片排布随后尝试生成
+- 若 `grid_interval / lot_amount / arrange_entry_slices` 任一环节异常，entry 仍保持 `OPEN`
+- 降级状态通过 `arrange_status / arrange_degraded / arrange_error_* / arrange_runtime_errors` 落在 entry 上
+- 降级时仍会写 compat mirror 与 holdings cache，避免真值已确认但视图长期滞后
+
+当前 external reconcile 对 XT 外部回报也支持部分匹配：
+
+- 若内部在途单的请求数量大于 XT 回报数量，但 symbol / side / 价格匹配，当前允许挂回同一 internal order
+- 这样 `intent=600`、`external_reported=300` 这类场景不会再一律 externalize
+
 自动平账与 XT 回报补录路径里，凡是由 `trade_time / confirmed_at` 回填 `date/time` 的订单域记录，当前统一按北京时间（`Asia/Shanghai`）落地，避免同一笔成交在不同读模型里出现跨日漂移。
 
 排障查看口径也保持同一套时间语义：`xt-order list`、`xt-trade list` 以及依赖成交 epoch 时间的 fill 查看命令，当前统一按北京时间展示；其中 `--date` 过滤使用北京时间自然日边界，而不是宿主机本地时区。

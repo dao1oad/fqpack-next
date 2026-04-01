@@ -676,6 +676,144 @@ def test_guardian_sell_board_lot_check_emits_structured_skip_finish(monkeypatch)
     assert finish_event["decision_outcome"]["outcome"] == "skip"
 
 
+def test_guardian_sell_degraded_arrangement_emits_structured_skip_finish(
+    monkeypatch,
+):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+    signal["position"] = "SELL_SHORT"
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
+        lambda _code: [],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.list_open_entry_views",
+        lambda symbol=None: [
+            {
+                "entry_id": "entry_1",
+                "symbol": symbol,
+                "remaining_quantity": 300,
+                "arrange_status": "DEGRADED",
+                "arrange_degraded": True,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("submit should not be called")
+        ),
+    )
+
+    guardian.on_signal(signal)
+
+    holding_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "holding_scope_resolve"
+        and event["status"] == "skipped"
+        and event["reason_code"] == "arrangement_degraded"
+    )
+    finish_event = next(
+        event for event in runtime_logger.events if event["node"] == "finish"
+    )
+
+    assert holding_event["decision_context"]["scope"]["in_holding"] is True
+    assert holding_event["decision_context"]["scope"]["entry_count"] == 1
+    assert holding_event["decision_context"]["scope"]["degraded_entry_count"] == 1
+    assert (
+        holding_event["decision_context"]["scope"]["arrangement_state"]
+        == "entry_present_arrangement_degraded"
+    )
+    assert finish_event["reason_code"] == "arrangement_degraded"
+    assert finish_event["decision_outcome"]["outcome"] == "skip"
+
+
+def test_guardian_sell_entry_without_slices_emits_structured_skip_finish(monkeypatch):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+    signal["position"] = "SELL_SHORT"
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
+        lambda _code: [],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.list_open_entry_views",
+        lambda symbol=None: [
+            {
+                "entry_id": "entry_1",
+                "symbol": symbol,
+                "remaining_quantity": 300,
+                "arrange_status": "READY",
+                "arrange_degraded": False,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("submit should not be called")
+        ),
+    )
+
+    guardian.on_signal(signal)
+
+    holding_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "holding_scope_resolve"
+        and event["status"] == "skipped"
+        and event["reason_code"] == "entry_without_slices"
+    )
+    finish_event = next(
+        event for event in runtime_logger.events if event["node"] == "finish"
+    )
+
+    assert holding_event["decision_context"]["scope"]["in_holding"] is True
+    assert holding_event["decision_context"]["scope"]["entry_count"] == 1
+    assert holding_event["decision_context"]["scope"]["degraded_entry_count"] == 0
+    assert (
+        holding_event["decision_context"]["scope"]["arrangement_state"]
+        == "entry_present_without_slices"
+    )
+    assert finish_event["reason_code"] == "entry_without_slices"
+    assert finish_event["decision_outcome"]["outcome"] == "skip"
+
+
 def _make_signal():
     now = pendulum.now()
     return {

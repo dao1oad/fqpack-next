@@ -14,6 +14,7 @@ from freshquant.data.astock.holding import (
 )
 from freshquant.database.redis import redis_db
 from freshquant.db import DBfreshquant
+from freshquant.order_management.entry_adapter import list_open_entry_views
 from freshquant.order_management.sell_constraints import (
     PositionVolumeReader,
     resolve_sell_submission_quantity,
@@ -742,11 +743,23 @@ class StrategyGuardian(metaclass=SingletonType):
             fill_list = get_arranged_stock_fill_list(code) or []
             last_fill = fill_list[-1] if fill_list else None
             if last_fill is None:
+                arrangement_scope = _resolve_guardian_arrangement_scope(code)
+                arrangement_state = arrangement_scope["arrangement_state"]
+                reason_code = {
+                    "entry_present_arrangement_degraded": "arrangement_degraded",
+                    "entry_present_without_slices": "entry_without_slices",
+                }.get(arrangement_state, "no_holding_fill")
                 holding_context = {
                     "scope": {
                         "position": "SELL_SHORT",
                         "fill_count": 0,
-                        "in_holding": False,
+                        "in_holding": arrangement_scope["entry_count"] > 0,
+                        "entry_count": arrangement_scope["entry_count"],
+                        "degraded_entry_count": arrangement_scope[
+                            "degraded_entry_count"
+                        ],
+                        "remaining_quantity": arrangement_scope["remaining_quantity"],
+                        "arrangement_state": arrangement_state,
                     }
                 }
                 self._emit_runtime(
@@ -754,7 +767,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     "holding_scope_resolve",
                     action="sell",
                     status="skipped",
-                    reason_code="no_holding_fill",
+                    reason_code=reason_code,
                     decision_branch="sell_fill_scope",
                     decision_expr="fill_count > 0",
                     decision_context=holding_context,
@@ -764,13 +777,17 @@ class StrategyGuardian(metaclass=SingletonType):
                     signal,
                     action="sell",
                     status="skipped",
-                    reason_code="no_holding_fill",
+                    reason_code=reason_code,
                     outcome="skip",
                     decision_branch="sell_fill_scope",
                     decision_expr="fill_count > 0",
                     decision_context=holding_context,
                 )
-                logger.info("无持仓，跳过下单指令")
+                message = {
+                    "arrangement_degraded": "持仓已确认但 arranged fills 降级缺失，跳过下单指令",
+                    "entry_without_slices": "持仓 entry 已存在但无 arranged fills，跳过下单指令",
+                }.get(reason_code, "无 arranged fills，跳过下单指令")
+                logger.info(message)
                 return
 
             last_fill_dt = datetime.strptime(
@@ -1362,3 +1379,30 @@ def _get_position_reader():
     if _position_reader is None:
         _position_reader = PositionVolumeReader(DBfreshquant)
     return _position_reader
+
+
+def _resolve_guardian_arrangement_scope(code):
+    entries = list_open_entry_views(symbol=code)
+    open_entries = [
+        item for item in entries if int(item.get("remaining_quantity") or 0) > 0
+    ]
+    degraded_entries = [
+        item
+        for item in open_entries
+        if bool(item.get("arrange_degraded"))
+        or str(item.get("arrange_status") or "").upper() == "DEGRADED"
+    ]
+    if degraded_entries:
+        arrangement_state = "entry_present_arrangement_degraded"
+    elif open_entries:
+        arrangement_state = "entry_present_without_slices"
+    else:
+        arrangement_state = "entry_absent"
+    return {
+        "arrangement_state": arrangement_state,
+        "entry_count": len(open_entries),
+        "degraded_entry_count": len(degraded_entries),
+        "remaining_quantity": sum(
+            int(item.get("remaining_quantity") or 0) for item in open_entries
+        ),
+    }

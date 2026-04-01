@@ -423,6 +423,35 @@ def test_detect_external_candidates_prefers_snapshot_last_price_over_avg_price()
     assert candidates[0]["price_asof"] == 1_000
 
 
+def test_detect_external_candidates_records_initial_latest_and_chosen_price_snapshots():
+    repository, service = _build_service()
+
+    candidates = service.detect_external_candidates(
+        positions=[
+            {
+                "stock_code": "000001.SZ",
+                "volume": 200,
+                "avg_price": 10.5,
+                "last_price": 10.82,
+            },
+        ],
+        detected_at=1_000,
+    )
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate["initial_price_estimate"] == pytest.approx(10.82)
+    assert candidate["initial_price_source"] == "position_last_price"
+    assert candidate["initial_price_asof"] == 1_000
+    assert candidate["latest_price_estimate"] == pytest.approx(10.82)
+    assert candidate["latest_price_source"] == "position_last_price"
+    assert candidate["latest_price_asof"] == 1_000
+    assert candidate["chosen_price_estimate"] == pytest.approx(10.82)
+    assert candidate["chosen_price_source"] == "position_last_price"
+    assert candidate["chosen_price_asof"] == 1_000
+    assert candidate["chosen_price_policy"] == "freeze_initial"
+
+
 def test_detect_external_candidates_fuses_batch_sell_gap_without_recent_sell_evidence(
     monkeypatch,
 ):
@@ -533,6 +562,100 @@ def test_candidate_observation_keeps_higher_quality_price_source():
     assert updates["price_estimate"] == pytest.approx(10.82)
     assert updates["price_source"] == "position_last_price"
     assert updates["price_asof"] == 1_000
+
+
+def test_candidate_observation_freezes_initial_price_when_newer_snapshot_has_same_priority():
+    updates = reconcile_service_module._build_gap_observation_updates(
+        {
+            "candidate_id": "cand-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity_delta": 200,
+            "price_estimate": 10.82,
+            "price_source": "position_market_value",
+            "price_asof": 1_000,
+            "initial_price_estimate": 10.82,
+            "initial_price_source": "position_market_value",
+            "initial_price_asof": 1_000,
+            "latest_price_estimate": 10.82,
+            "latest_price_source": "position_market_value",
+            "latest_price_asof": 1_000,
+            "chosen_price_estimate": 10.82,
+            "chosen_price_source": "position_market_value",
+            "chosen_price_asof": 1_000,
+            "chosen_price_policy": "freeze_initial",
+            "detected_at": 1_000,
+            "first_detected_at": 1_000,
+            "last_detected_at": 1_000,
+            "observed_count": 1,
+        },
+        observed={
+            "symbol": "000001",
+            "side": "buy",
+            "quantity_delta": 200,
+            "price_estimate": 10.11,
+            "price_source": "position_market_value",
+            "price_asof": 1_015,
+        },
+        detected_at=1_015,
+        confirm_interval_seconds=15,
+        confirm_observations=3,
+    )
+
+    assert updates["initial_price_estimate"] == pytest.approx(10.82)
+    assert updates["latest_price_estimate"] == pytest.approx(10.11)
+    assert updates["latest_price_asof"] == 1_015
+    assert updates["chosen_price_estimate"] == pytest.approx(10.82)
+    assert updates["chosen_price_policy"] == "freeze_initial"
+    assert updates["price_estimate"] == pytest.approx(10.82)
+    assert updates["price_source"] == "position_market_value"
+    assert updates["price_asof"] == 1_000
+
+
+def test_candidate_observation_resets_frozen_price_when_quantity_changes():
+    updates = reconcile_service_module._build_gap_observation_updates(
+        {
+            "candidate_id": "cand-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity_delta": 200,
+            "price_estimate": 10.82,
+            "price_source": "position_market_value",
+            "price_asof": 1_000,
+            "initial_price_estimate": 10.82,
+            "initial_price_source": "position_market_value",
+            "initial_price_asof": 1_000,
+            "latest_price_estimate": 10.82,
+            "latest_price_source": "position_market_value",
+            "latest_price_asof": 1_000,
+            "chosen_price_estimate": 10.82,
+            "chosen_price_source": "position_market_value",
+            "chosen_price_asof": 1_000,
+            "chosen_price_policy": "freeze_initial",
+            "detected_at": 1_000,
+            "first_detected_at": 1_000,
+            "last_detected_at": 1_000,
+            "observed_count": 2,
+        },
+        observed={
+            "symbol": "000001",
+            "side": "buy",
+            "quantity_delta": 100,
+            "price_estimate": 10.11,
+            "price_source": "position_market_value",
+            "price_asof": 1_015,
+        },
+        detected_at=1_015,
+        confirm_interval_seconds=15,
+        confirm_observations=3,
+    )
+
+    assert updates["observed_count"] == 1
+    assert updates["initial_price_estimate"] == pytest.approx(10.11)
+    assert updates["latest_price_estimate"] == pytest.approx(10.11)
+    assert updates["chosen_price_estimate"] == pytest.approx(10.11)
+    assert updates["price_estimate"] == pytest.approx(10.11)
+    assert updates["price_asof"] == 1_015
 
 
 def test_resolve_inferred_price_falls_back_to_previous_close(monkeypatch):
@@ -650,6 +773,56 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
     assert repository.orders[0]["source_type"] == "strategy"
     assert results[0]["trade_fact"]["internal_order_id"] == "ord_internal_1"
     assert repository.trade_facts[0]["internal_order_id"] == "ord_internal_1"
+
+
+def test_reconcile_matches_partial_inflight_internal_order_without_externalizing(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 600,
+            "source": "strategy",
+            "internal_order_id": "ord_internal_partial_1",
+        }
+    )
+    tracking_service.mark_order_queued("ord_internal_partial_1")
+    tracking_service.ingest_order_report(
+        {
+            "internal_order_id": "ord_internal_partial_1",
+            "state": "SUBMITTING",
+            "event_type": "submit_started",
+            "broker_order_id": None,
+        }
+    )
+
+    results = service.reconcile_trade_reports(
+        [
+            {
+                "order_id": 90003,
+                "traded_id": "T90003",
+                "stock_code": "000001.SZ",
+                "order_type": 23,
+                "traded_volume": 300,
+                "traded_price": 10.5,
+                "traded_time": 1_030,
+            }
+        ]
+    )
+
+    assert len(results) == 1
+    assert len(repository.orders) == 1
+    assert repository.orders[0]["internal_order_id"] == "ord_internal_partial_1"
+    assert repository.orders[0]["source_type"] == "strategy"
+    assert repository.orders[0]["broker_order_id"] == "90003"
+    assert results[0]["trade_fact"]["internal_order_id"] == "ord_internal_partial_1"
+    assert repository.trade_facts[0]["internal_order_id"] == "ord_internal_partial_1"
+    assert repository.trade_facts[0]["quantity"] == 300
+    assert repository.order_requests[0]["quantity"] == 600
 
 
 def test_reconcile_trade_report_marks_existing_internal_order_as_handled(monkeypatch):
@@ -1100,6 +1273,10 @@ def test_confirm_expired_candidates_falls_back_to_default_grid_interval_when_res
     assert repository.reconciliation_gaps[0]["resolution_type"] == "auto_open_entry"
     assert len(repository.position_entries) == 1
     assert repository.position_entries[0]["entry_type"] == "auto_reconciled_open"
+    assert repository.position_entries[0]["arrange_status"] == "DEGRADED"
+    assert repository.position_entries[0]["arrange_degraded"] is True
+    assert repository.position_entries[0]["grid_interval"] == pytest.approx(1.03)
+    assert repository.position_entries[0]["lot_amount"] == 3000
     assert repository.position_entries[0]["remaining_quantity"] == 200
     assert repository.entry_slices
 
@@ -1138,5 +1315,45 @@ def test_confirm_expired_candidates_falls_back_to_default_lot_amount_when_resolu
 
     assert len(confirmed) == 1
     assert repository.reconciliation_gaps[0]["state"] == "AUTO_OPENED"
+    assert repository.position_entries[0]["arrange_status"] == "DEGRADED"
+    assert repository.position_entries[0]["arrange_degraded"] is True
+    assert repository.position_entries[0]["grid_interval"] == pytest.approx(1.03)
+    assert repository.position_entries[0]["lot_amount"] == 3000
     assert repository.position_entries[0]["remaining_quantity"] == 200
     assert repository.entry_slices
+
+
+def test_confirm_expired_candidates_keeps_entry_truth_when_arrangement_materialization_fails(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_030,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_arrange_entry_slices",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("arrange boom")),
+        raising=False,
+    )
+
+    confirmed = service.confirm_expired_candidates(now=1_030)
+
+    assert len(confirmed) == 1
+    assert repository.reconciliation_gaps[0]["state"] == "AUTO_OPENED"
+    assert len(repository.position_entries) == 1
+    assert repository.position_entries[0]["remaining_quantity"] == 200
+    assert repository.position_entries[0]["arrange_status"] == "DEGRADED"
+    assert repository.position_entries[0]["arrange_degraded"] is True
+    assert repository.position_entries[0]["arrange_error_type"] == "RuntimeError"
+    assert repository.position_entries[0]["arrange_error_message"] == "arrange boom"
+    assert repository.entry_slices == []
