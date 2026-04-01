@@ -170,9 +170,9 @@ class OrderLedgerV2RebuildService:
             "replay_warnings": replay_warnings,
             "clustered_entries": count_clustered_entries(position_entry_documents),
             "mergeable_entry_gap": summarize_mergeable_gap(position_entry_documents),
-            "non_default_lot_slices": count_non_default_lot_slices(
+            "non_default_lot_slices": _count_non_default_lot_slices_with_lookup(
                 entry_slice_documents,
-                lot_amount=self.lot_amount_lookup("audit"),
+                lot_amount_lookup=self.lot_amount_lookup,
             ),
         }
 
@@ -1013,3 +1013,21 @@ def _default_lot_amount_lookup(_symbol):
 
 def _default_grid_interval_lookup(_symbol, _trade_fact):
     return _DEFAULT_GRID_INTERVAL
+
+
+def _count_non_default_lot_slices_with_lookup(
+    entry_slice_documents, *, lot_amount_lookup
+):
+    lot_amount_by_symbol = {}
+    count = 0
+    for item in list(entry_slice_documents or []):
+        symbol = _normalize_identifier(item.get("symbol"))
+        if symbol not in lot_amount_by_symbol:
+            lot_amount_by_symbol[symbol] = (
+                lot_amount_lookup(symbol) if symbol else _DEFAULT_LOT_AMOUNT
+            )
+        count += count_non_default_lot_slices(
+            [item],
+            lot_amount=lot_amount_by_symbol[symbol],
+        )
+    return count

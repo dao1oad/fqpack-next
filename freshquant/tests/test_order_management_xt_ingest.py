@@ -68,6 +68,12 @@ class InMemoryRepository:
                 return order
         return None
 
+    def find_order_request(self, request_id):
+        for request in self.order_requests:
+            if request["request_id"] == request_id:
+                return request
+        return None
+
     def find_broker_order(self, broker_order_key):
         for order in self.broker_orders:
             if order["broker_order_key"] == broker_order_key:
@@ -543,6 +549,91 @@ def test_sell_trade_report_creates_sell_allocations_and_updates_projection():
         (10.93, 200),
         (10.61, 200),
     ]
+
+
+def test_sell_trade_report_prefers_guardian_source_entries_when_allocating_entry_slices():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    for internal_order_id, side, quantity, price, strategy_context in (
+        ("ord_pref_buy_1", "buy", 100, 10.0, None),
+        ("ord_pref_buy_2", "buy", 100, 10.2, None),
+        (
+            "ord_pref_sell_1",
+            "sell",
+            100,
+            10.8,
+            {
+                "guardian_sell_sources": {
+                    "entries": [{"entry_id": "placeholder", "quantity": 100}],
+                    "submit_quantity": 100,
+                }
+            },
+        ),
+    ):
+        payload = {
+            "action": side,
+            "symbol": "000001",
+            "price": price,
+            "quantity": quantity,
+            "source": "xt_trade_callback",
+            "internal_order_id": internal_order_id,
+        }
+        if strategy_context is not None:
+            payload["strategy_context"] = strategy_context
+        tracking_service.submit_order(payload)
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+    )
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
+
+    ingest_service.ingest_trade_report(
+        _buy_report(
+            "T-PREF-BUY-1",
+            internal_order_id="ord_pref_buy_1",
+            quantity=100,
+            price=10.0,
+            trade_time=1710000000,
+            date=20240310,
+            time="09:30:00",
+        ),
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    ingest_service.ingest_trade_report(
+        _buy_report(
+            "T-PREF-BUY-2",
+            internal_order_id="ord_pref_buy_2",
+            quantity=100,
+            price=10.2,
+            trade_time=1710000600,
+            date=20240310,
+            time="09:40:00",
+        ),
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    preferred_entry_id = repository.position_entries[0]["entry_id"]
+    repository.order_requests[-1]["strategy_context"]["guardian_sell_sources"][
+        "entries"
+    ][0]["entry_id"] = preferred_entry_id
+
+    result = ingest_service.ingest_trade_report(
+        _sell_report(
+            "T-PREF-SELL-1",
+            internal_order_id="ord_pref_sell_1",
+            quantity=100,
+            price=10.8,
+            trade_time=1710001200,
+            date=20240310,
+            time="09:50:00",
+        ),
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert len(result["exit_allocations"]) == 1
+    assert result["exit_allocations"][0]["entry_id"] == preferred_entry_id
 
 
 def test_sell_trade_report_syncs_stock_fills_compat_when_holdings_change(monkeypatch):

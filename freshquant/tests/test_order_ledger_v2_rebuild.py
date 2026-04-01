@@ -566,6 +566,41 @@ def test_rebuild_service_caps_rounded_guardian_slice_amount_at_50000():
     )
 
 
+def test_rebuild_summary_uses_real_slice_symbols_for_lot_amount_lookup():
+    service = _get_rebuild_service_class()(
+        lot_amount_lookup=lambda symbol: {"000001": 50000}[symbol]
+    )
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_order(
+                order_id=81402,
+                stock_code="000001.SZ",
+                order_volume=100,
+                order_time=1710000000,
+                order_status="filled",
+            )
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-BUY-81402",
+                order_id=81402,
+                stock_code="000001.SZ",
+                traded_volume=100,
+                traded_price=10.0,
+                traded_time=1710000000,
+                date=None,
+                time=None,
+            )
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["position_entries"] == 1
+    assert result["non_default_lot_slices"] == 0
+
+
 def test_rebuild_service_replays_buy_and_sell_into_open_entries():
     service = _get_rebuild_service_class()(
         lot_amount_lookup=lambda _symbol: 3000,
