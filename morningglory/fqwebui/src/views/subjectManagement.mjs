@@ -12,6 +12,9 @@ import {
 
 export { buildTakeprofitDrafts }
 
+const DEFAULT_INITIAL_LOT_AMOUNT = 100000
+const DEFAULT_LOT_AMOUNT = 50000
+
 const toText = (value) => String(value ?? '').trim()
 
 const toNumber = (value, fallback = 0) => {
@@ -66,6 +69,116 @@ const normalizeMustPool = (row = {}) => ({
   initial_lot_amount: toNullableNumber(row?.initial_lot_amount),
   lot_amount: toNullableNumber(row?.lot_amount),
 })
+
+const baseConfigSourceLabel = (source) => {
+  const mapping = {
+    unconfigured: '未配置',
+    'must_pool.category': 'must_pool 分类',
+    'must_pool.stop_loss_price': 'must_pool 止损价',
+    'must_pool.initial_lot_amount': 'must_pool 首笔金额',
+    'must_pool.lot_amount': 'must_pool 常规金额',
+    'instrument_strategy.lot_amount': 'instrument_strategy.lot_amount',
+    'guardian.stock.lot_amount': 'guardian.stock.lot_amount',
+    default_initial_lot_amount: 'Guardian 默认首笔金额',
+  }
+  return mapping[source] || toText(source) || '-'
+}
+
+const isConfiguredValue = (value) => {
+  if (value === null || value === undefined) return false
+  if (typeof value === 'string') return Boolean(value.trim())
+  return true
+}
+
+const normalizeBaseConfigItem = ({
+  configured_value,
+  configured_source,
+  effective_value,
+  effective_source,
+  configured,
+  configured_source_label,
+  effective_source_label,
+} = {}) => {
+  const normalizedConfigured = (
+    configured !== undefined
+      ? Boolean(configured)
+      : isConfiguredValue(configured_value)
+  )
+  const configuredValue = normalizedConfigured ? configured_value : null
+  const effectiveSource = toText(effective_source) || 'unconfigured'
+  return {
+    configured: normalizedConfigured,
+    configured_value: configuredValue,
+    configured_source: normalizedConfigured ? toText(configured_source) : '',
+    configured_source_label: (
+      normalizedConfigured
+        ? toText(configured_source_label) || baseConfigSourceLabel(configured_source)
+        : ''
+    ),
+    effective_value: (
+      effective_value === undefined
+        ? null
+        : effective_value
+    ),
+    effective_source: effectiveSource,
+    effective_source_label: toText(effective_source_label) || baseConfigSourceLabel(effectiveSource),
+  }
+}
+
+const buildFallbackBaseConfigSummary = (mustPool = {}) => {
+  const category = toText(mustPool?.category)
+  const stopLossPrice = toNullableNumber(mustPool?.stop_loss_price)
+  const initialLotAmount = toNullableNumber(mustPool?.initial_lot_amount)
+  const lotAmount = toNullableNumber(mustPool?.lot_amount)
+  const effectiveInitialLotAmount = (
+    initialLotAmount ?? lotAmount ?? DEFAULT_INITIAL_LOT_AMOUNT
+  )
+  const initialSource = (
+    initialLotAmount !== null
+      ? 'must_pool.initial_lot_amount'
+      : lotAmount !== null
+        ? 'must_pool.lot_amount'
+        : 'default_initial_lot_amount'
+  )
+  const effectiveLotAmount = lotAmount ?? DEFAULT_LOT_AMOUNT
+  const lotSource = lotAmount !== null ? 'must_pool.lot_amount' : 'guardian.stock.lot_amount'
+  return {
+    category: normalizeBaseConfigItem({
+      configured_value: category || null,
+      configured_source: 'must_pool.category',
+      effective_value: category || null,
+      effective_source: category ? 'must_pool.category' : 'unconfigured',
+    }),
+    stop_loss_price: normalizeBaseConfigItem({
+      configured_value: stopLossPrice,
+      configured_source: 'must_pool.stop_loss_price',
+      effective_value: stopLossPrice,
+      effective_source: stopLossPrice !== null ? 'must_pool.stop_loss_price' : 'unconfigured',
+    }),
+    initial_lot_amount: normalizeBaseConfigItem({
+      configured_value: initialLotAmount,
+      configured_source: 'must_pool.initial_lot_amount',
+      effective_value: effectiveInitialLotAmount,
+      effective_source: initialSource,
+    }),
+    lot_amount: normalizeBaseConfigItem({
+      configured_value: lotAmount,
+      configured_source: 'must_pool.lot_amount',
+      effective_value: effectiveLotAmount,
+      effective_source: lotSource,
+    }),
+  }
+}
+
+const normalizeBaseConfigSummary = (summary = {}, mustPool = {}) => {
+  const fallback = buildFallbackBaseConfigSummary(mustPool)
+  return {
+    category: normalizeBaseConfigItem(summary?.category || fallback.category),
+    stop_loss_price: normalizeBaseConfigItem(summary?.stop_loss_price || fallback.stop_loss_price),
+    initial_lot_amount: normalizeBaseConfigItem(summary?.initial_lot_amount || fallback.initial_lot_amount),
+    lot_amount: normalizeBaseConfigItem(summary?.lot_amount || fallback.lot_amount),
+  }
+}
 
 const normalizeRuntimeSummary = (row = {}) => ({
   position_quantity: toNumber(row?.position_quantity),
@@ -338,6 +451,7 @@ export const buildDetailViewModel = (detail = {}) => {
     detail?.position_management_summary || {},
   )
   const positionLimitSummary = normalizePositionLimitSummary(detail?.position_limit_summary || {})
+  const baseConfigSummary = normalizeBaseConfigSummary(detail?.base_config_summary || {}, mustPool)
 
   return {
     ...detail,
@@ -356,6 +470,7 @@ export const buildDetailViewModel = (detail = {}) => {
     entries: buildEntries(detail?.entries || [], runtimeSummary),
     positionManagementSummary,
     positionLimitSummary,
+    baseConfigSummary,
   }
 }
 
@@ -372,45 +487,94 @@ const buildGuardianRuntimeNote = (guardianState = {}) => {
 }
 
 export const buildDenseConfigRows = (detail = {}) => {
-  const mustPool = detail?.mustPool || {}
+  const baseConfigSummary = detail?.baseConfigSummary || buildFallbackBaseConfigSummary(detail?.mustPool || {})
   const positionLimitSummary = detail?.positionLimitSummary || {}
+  const formatConfiguredValue = (item, formatter) => {
+    if (!item?.configured) return '未配置'
+    return formatter(item?.configured_value)
+  }
+  const formatEffectiveValue = (item, formatter) => {
+    const formatted = formatter(item?.effective_value)
+    return formatted === '-' ? '未配置' : formatted
+  }
+  const buildBaseConfigNote = (item, formatter) => {
+    const effectiveLabel = formatEffectiveValue(item, formatter)
+    const configuredLabel = formatConfiguredValue(item, formatter)
+    const sourceLabel = item?.effective_source_label || baseConfigSourceLabel(item?.effective_source)
+    if (!item?.configured && effectiveLabel === '未配置') {
+      return '当前未配置，保存后会写入 must_pool'
+    }
+    if (!item?.configured) {
+      return `未单独配置，当前按 ${sourceLabel} 生效：${effectiveLabel}`
+    }
+    if (configuredLabel !== effectiveLabel || item?.configured_source !== item?.effective_source) {
+      return `已配置值 ${configuredLabel} / 当前按 ${sourceLabel} 生效：${effectiveLabel}`
+    }
+    return `已配置值 ${configuredLabel}`
+  }
+  const resolveBaseStatus = (key, item) => {
+    if (item?.configured) return '已配置'
+    if (key === 'initial_lot_amount' && item?.effective_source === 'must_pool.lot_amount') return '继承常规金额'
+    if (item?.effective_source === 'instrument_strategy.lot_amount') return '策略覆盖'
+    if (item?.effective_source === 'guardian.stock.lot_amount' || item?.effective_source === 'default_initial_lot_amount') {
+      return '默认值'
+    }
+    return '未配置'
+  }
+  const resolveBaseTone = (statusLabel) => {
+    if (statusLabel === '已配置') return 'success'
+    if (statusLabel === '默认值' || statusLabel === '继承常规金额' || statusLabel === '策略覆盖') return 'warning'
+    return 'info'
+  }
+  const categoryItem = baseConfigSummary.category
+  const stopLossItem = baseConfigSummary.stop_loss_price
+  const initialLotItem = baseConfigSummary.initial_lot_amount
+  const lotAmountItem = baseConfigSummary.lot_amount
+  const categoryStatus = resolveBaseStatus('category', categoryItem)
+  const stopLossStatus = resolveBaseStatus('stop_loss_price', stopLossItem)
+  const initialStatus = resolveBaseStatus('initial_lot_amount', initialLotItem)
+  const lotStatus = resolveBaseStatus('lot_amount', lotAmountItem)
 
   return [
     {
       group: '基础',
       key: 'category',
       label: '分类',
-      currentLabel: toText(mustPool.category) || '-',
+      currentLabel: formatEffectiveValue(categoryItem, (value) => toText(value) || '-'),
       editor: 'text',
-      statusLabel: 'must_pool',
-      note: '标的归类摘要',
+      statusLabel: categoryStatus,
+      statusTone: resolveBaseTone(categoryStatus),
+      note: buildBaseConfigNote(categoryItem, (value) => toText(value) || '-'),
     },
     {
       group: '基础',
       key: 'stop_loss_price',
       label: '止损价',
-      currentLabel: formatPrice(mustPool.stop_loss_price),
+      currentLabel: formatEffectiveValue(stopLossItem, formatPrice),
       editor: 'number',
-      statusLabel: '风控',
-      note: '新开仓参考止损',
+      statusLabel: stopLossStatus,
+      statusTone: resolveBaseTone(stopLossStatus),
+      note: buildBaseConfigNote(stopLossItem, formatPrice),
     },
     {
       group: '基础',
       key: 'initial_lot_amount',
       label: '首笔金额',
-      currentLabel: formatInteger(mustPool.initial_lot_amount),
+      currentLabel: formatEffectiveValue(initialLotItem, formatInteger),
       editor: 'integer',
-      statusLabel: '开仓',
-      note: '首次买入基准',
+      statusLabel: initialStatus,
+      statusTone: resolveBaseTone(initialStatus),
+      note: buildBaseConfigNote(initialLotItem, formatInteger),
     },
     {
       group: '基础',
       key: 'lot_amount',
       label: '常规金额',
-      currentLabel: formatInteger(mustPool.lot_amount),
+      currentLabel: formatEffectiveValue(lotAmountItem, formatInteger),
       editor: 'integer',
-      statusLabel: '加仓',
-      note: 'Guardian base_amount',
+      statusLabel: lotStatus,
+      statusTone: resolveBaseTone(lotStatus),
+      note: buildBaseConfigNote(lotAmountItem, formatInteger),
     },
     {
       group: '仓位上限',
@@ -419,6 +583,7 @@ export const buildDenseConfigRows = (detail = {}) => {
       currentLabel: formatAmountWan(positionLimitSummary.effective_limit),
       editor: 'position-limit-value',
       statusLabel: formatPositionLimitSource(positionLimitSummary),
+      statusTone: positionLimitSummary.using_override ? 'warning' : 'info',
       note: [
         `当前市值 ${formatAmountWan(positionLimitSummary.market_value)}`,
         `默认 ${formatAmountWan(positionLimitSummary.default_limit)}`,

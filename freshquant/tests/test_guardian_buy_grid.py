@@ -106,10 +106,10 @@ def test_new_open_prefers_initial_lot_amount_then_lot_amount_then_default():
     assert decision_one["quantity"] == 18000
     assert decision_two["initial_amount"] == 80000
     assert decision_two["quantity"] == 8000
-    assert decision_three["initial_amount"] == 150000
-    assert decision_three["quantity"] == 15000
-    assert decision_four["initial_amount"] == 150000
-    assert decision_four["quantity"] == 15000
+    assert decision_three["initial_amount"] == 100000
+    assert decision_three["quantity"] == 10000
+    assert decision_four["initial_amount"] == 100000
+    assert decision_four["quantity"] == 10000
 
 
 def test_holding_add_uses_deepest_active_hit_level():

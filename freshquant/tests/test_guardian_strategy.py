@@ -272,8 +272,8 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
     decision_service = FakeGuardianBuyGridService(
         new_open_decision={
             "path": "new_open",
-            "quantity": 15000,
-            "initial_amount": 150000,
+            "quantity": 10000,
+            "initial_amount": 100000,
             "grid_level": None,
             "hit_levels": [],
             "multiplier": 1,
@@ -350,7 +350,7 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
 
     assert decision_service.calls == [("new_open", "000001", 10.0)]
     assert captured["action"] == "buy"
-    assert captured["quantity"] == 15000
+    assert captured["quantity"] == 10000
     assert captured["strategy_context"]["guardian_buy_grid"]["path"] == "new_open"
     assert fake_redis.events[0][1] == "buy:000001"
 

@@ -38,6 +38,8 @@
 - 当前规则矩阵
 - 最近决策摘要
 
+其中单标的仓位上限批量真值固定落在 `symbol_position_limits.rows`；`subject-management/overview` 也直接消费这批 rows，不再从 dashboard 顶层字段兜底读取。
+
 最近决策与上下文已合并为一张高密度 ledger。最近决策中的实时市值、仓位上限、市值来源、数量来源都会做系统真值回填；如果历史记录缺字段，后端会用当前 broker snapshot、symbol limit 和 tracked scope 做系统真值回填。
 
 最近决策 ledger 默认分页 `100` 条，表体默认显示约 `15` 行。

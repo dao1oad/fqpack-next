@@ -10,8 +10,11 @@ from freshquant.order_management.entry_adapter import (
     list_open_entry_views,
 )
 from freshquant.order_management.repository import OrderManagementRepository
+from freshquant.strategy.guardian_buy_grid import DEFAULT_INITIAL_LOT_AMOUNT
 from freshquant.tpsl.repository import TpslRepository
 from freshquant.util.code import normalize_to_base_code
+
+DEFAULT_GUARDIAN_LOT_AMOUNT = 50000
 
 
 class SubjectManagementDashboardService:
@@ -221,6 +224,10 @@ class SubjectManagementDashboardService:
         )
         pm_summary = dict(self.pm_summary_loader() or {})
         position_limit_summary = self._load_position_limit_summary(normalized_symbol)
+        base_config_summary = self._build_base_config_summary(
+            normalized_symbol,
+            must_pool,
+        )
 
         return _json_safe_payload(
             {
@@ -234,6 +241,7 @@ class SubjectManagementDashboardService:
                     "category": (must_pool or {}).get("category"),
                 },
                 "must_pool": must_pool,
+                "base_config_summary": base_config_summary,
                 "guardian_buy_grid_config": guardian_config,
                 "guardian_buy_grid_state": guardian_state,
                 "takeprofit": takeprofit,
@@ -295,6 +303,91 @@ class SubjectManagementDashboardService:
             payload["available"] = bool(payload)
             normalized[normalized_symbol] = payload
         return normalized
+
+    def _build_base_config_summary(self, symbol, must_pool):
+        normalized_symbol = _normalize_symbol(symbol)
+        must_pool = dict(must_pool or {})
+
+        category = _normalize_optional_text(must_pool.get("category"))
+        stop_loss_price = _safe_float_or_none(must_pool.get("stop_loss_price"))
+        configured_initial_lot_amount = _safe_int_or_none(
+            must_pool.get("initial_lot_amount")
+        )
+        configured_lot_amount = _safe_int_or_none(must_pool.get("lot_amount"))
+
+        if configured_initial_lot_amount is not None:
+            effective_initial_lot_amount = configured_initial_lot_amount
+            initial_source = "must_pool.initial_lot_amount"
+        elif configured_lot_amount is not None:
+            effective_initial_lot_amount = configured_lot_amount
+            initial_source = "must_pool.lot_amount"
+        else:
+            effective_initial_lot_amount = int(DEFAULT_INITIAL_LOT_AMOUNT)
+            initial_source = "default_initial_lot_amount"
+
+        instrument_strategy_lot_amount = self._load_instrument_strategy_lot_amount(
+            normalized_symbol
+        )
+        guardian_default_lot_amount = self._load_guardian_default_lot_amount()
+        if instrument_strategy_lot_amount is not None:
+            effective_lot_amount = instrument_strategy_lot_amount
+            lot_source = "instrument_strategy.lot_amount"
+        elif configured_lot_amount is not None:
+            effective_lot_amount = configured_lot_amount
+            lot_source = "must_pool.lot_amount"
+        else:
+            effective_lot_amount = guardian_default_lot_amount
+            lot_source = "guardian.stock.lot_amount"
+
+        return {
+            "category": _build_base_config_item(
+                configured_value=category,
+                configured_source="must_pool.category",
+                effective_value=category or None,
+                effective_source="must_pool.category" if category else "unconfigured",
+            ),
+            "stop_loss_price": _build_base_config_item(
+                configured_value=stop_loss_price,
+                configured_source="must_pool.stop_loss_price",
+                effective_value=stop_loss_price,
+                effective_source=(
+                    "must_pool.stop_loss_price"
+                    if stop_loss_price is not None
+                    else "unconfigured"
+                ),
+            ),
+            "initial_lot_amount": _build_base_config_item(
+                configured_value=configured_initial_lot_amount,
+                configured_source="must_pool.initial_lot_amount",
+                effective_value=effective_initial_lot_amount,
+                effective_source=initial_source,
+            ),
+            "lot_amount": _build_base_config_item(
+                configured_value=configured_lot_amount,
+                configured_source="must_pool.lot_amount",
+                effective_value=effective_lot_amount,
+                effective_source=lot_source,
+            ),
+        }
+
+    def _load_instrument_strategy_lot_amount(self, symbol):
+        normalized_symbol = _normalize_symbol(symbol)
+        collection = self.database["instrument_strategy"]
+        for candidate in (
+            normalized_symbol,
+            f"{normalized_symbol}.SH",
+            f"{normalized_symbol}.SZ",
+        ):
+            record = collection.find_one({"instrument_code": candidate}) or {}
+            lot_amount = _safe_int_or_none(record.get("lot_amount"))
+            if lot_amount is not None:
+                return lot_amount
+        return None
+
+    def _load_guardian_default_lot_amount(self):
+        params = self.database["params"].find_one({"code": "guardian"}) or {}
+        stock_value = (params.get("value") or {}).get("stock") or {}
+        return _safe_int_or_none(stock_value.get("lot_amount")) or DEFAULT_GUARDIAN_LOT_AMOUNT
 
     def _must_pool_map(self):
         rows = {}
@@ -547,6 +640,54 @@ def _safe_bool_list(value, *, default=None):
     return fallback
 
 
+def _normalize_optional_text(value):
+    text = str(value or "").strip()
+    return text or None
+
+
+def _build_base_config_item(
+    *,
+    configured_value,
+    configured_source,
+    effective_value,
+    effective_source,
+):
+    configured = _is_configured_value(configured_value)
+    return {
+        "configured": configured,
+        "configured_value": configured_value if configured else None,
+        "configured_source": configured_source if configured else None,
+        "configured_source_label": (
+            _base_config_source_label(configured_source) if configured else None
+        ),
+        "effective_value": effective_value,
+        "effective_source": effective_source,
+        "effective_source_label": _base_config_source_label(effective_source),
+    }
+
+
+def _is_configured_value(value):
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _base_config_source_label(source):
+    mapping = {
+        "unconfigured": "未配置",
+        "must_pool.category": "must_pool 分类",
+        "must_pool.stop_loss_price": "must_pool 止损价",
+        "must_pool.initial_lot_amount": "must_pool 首笔金额",
+        "must_pool.lot_amount": "must_pool 常规金额",
+        "instrument_strategy.lot_amount": "instrument_strategy.lot_amount",
+        "guardian.stock.lot_amount": "guardian.stock.lot_amount",
+        "default_initial_lot_amount": "Guardian 默认首笔金额",
+    }
+    return mapping.get(source, str(source or "").strip() or "-")
+
+
 def _default_pm_summary_loader():
     from freshquant.position_management.dashboard_service import (
         PositionManagementDashboardService,
@@ -577,7 +718,9 @@ def _default_symbol_limit_map_loader():
     )
 
     payload = PositionManagementDashboardService().get_dashboard()
-    rows = (payload or {}).get("rows") or []
+    rows = (
+        ((payload or {}).get("symbol_position_limits") or {}).get("rows") or []
+    )
     summary_map = {}
     for item in rows:
         symbol = _normalize_symbol((item or {}).get("symbol"))
