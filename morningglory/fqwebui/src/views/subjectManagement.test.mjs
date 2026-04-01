@@ -392,3 +392,15 @@ test('SubjectManagement view uses symbol-limit editor layout and leaves guardian
   assert.doesNotMatch(source, /保存基础与 Guardian/)
   assert.doesNotMatch(source, /保存止盈/)
 })
+
+test('SubjectManagement stoploss rows show the same entry summary fields as KlineSlim', () => {
+  const source = fs.readFileSync(new URL('./SubjectManagement.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
+  assert.match(source, /row\.entryDisplayLabel/)
+  assert.match(source, /row\.entryIdLabel/)
+  assert.match(source, /row\.entrySummaryDisplay\.entryPriceLabel/)
+  assert.match(source, /row\.entrySummaryDisplay\.originalQuantityLabel/)
+  assert.match(source, /row\.entrySummaryDisplay\.remainingQuantityLabel/)
+  assert.match(source, /row\.entrySummaryDisplay\.entryDateTimeLabel/)
+  assert.match(source, /row\.entrySummaryDisplay\.remainingMarketValueLabel/)
+})

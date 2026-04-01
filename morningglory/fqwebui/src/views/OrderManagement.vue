@@ -405,11 +405,16 @@ const activeFilterChips = computed(() => {
 })
 
 const handleRowClick = async (row) => {
-  await selectOrder(row?.internal_order_id)
+  await selectOrder(
+    row?.orderLookupId || row?.internal_order_id || row?.broker_order_id || row?.broker_order_key,
+  )
 }
 
 const tableRowClassName = ({ row }) => {
-  return row?.internal_order_id === selectedOrderId.value ? 'order-row-active' : ''
+  const rowLookupId = String(
+    row?.orderLookupId || row?.internal_order_id || row?.broker_order_id || row?.broker_order_key || '',
+  ).trim()
+  return rowLookupId && rowLookupId === selectedOrderId.value ? 'order-row-active' : ''
 }
 
 onMounted(async () => {

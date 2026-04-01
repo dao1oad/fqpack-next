@@ -158,8 +158,11 @@ def _arrange_entry_remaining(
     if remaining_quantity <= 0:
         return
 
-    if remaining_amount > lot_amount:
-        quantity = int(lot_amount / current_price / 100) * 100
+    guardian_price = float(f"{current_price:.2f}")
+    current_amount = guardian_price * remaining_quantity
+
+    if current_amount > lot_amount:
+        quantity = int(lot_amount / guardian_price / 100) * 100
         if quantity == 0:
             quantity = 100
         quantity = min(quantity, remaining_quantity)
@@ -170,11 +173,11 @@ def _arrange_entry_remaining(
         "entry_slice_id": new_entry_slice_id(),
         "entry_id": entry["entry_id"],
         "slice_seq": slice_seq,
-        "guardian_price": float(f"{current_price:.2f}"),
+        "guardian_price": guardian_price,
         "original_quantity": quantity,
         "remaining_quantity": quantity,
-        "remaining_amount": round(float(f"{current_price:.2f}") * quantity, 2),
-        "sort_key": float(f"{current_price:.2f}"),
+        "remaining_amount": round(guardian_price * quantity, 2),
+        "sort_key": guardian_price,
         "date": entry.get("date"),
         "time": entry.get("time"),
         "trade_time": entry.get("trade_time"),
@@ -187,8 +190,8 @@ def _arrange_entry_remaining(
     if next_quantity <= 0:
         return
 
-    next_amount = remaining_amount - quantity * float(f"{current_price:.2f}")
-    next_price = float(f"{(current_price * grid_interval):.2f}")
+    next_price = float(f"{(guardian_price * grid_interval):.2f}")
+    next_amount = next_quantity * next_price
     _arrange_entry_remaining(
         slices=slices,
         entry=entry,
@@ -259,8 +262,11 @@ def _arrange_remaining(
     if remaining_quantity <= 0:
         return
 
-    if remaining_amount > lot_amount:
-        quantity = int(lot_amount / current_price / 100) * 100
+    guardian_price = float(f"{current_price:.2f}")
+    current_amount = guardian_price * remaining_quantity
+
+    if current_amount > lot_amount:
+        quantity = int(lot_amount / guardian_price / 100) * 100
         if quantity == 0:
             quantity = 100
         quantity = min(quantity, remaining_quantity)
@@ -271,11 +277,11 @@ def _arrange_remaining(
         "lot_slice_id": new_lot_slice_id(),
         "buy_lot_id": buy_lot["buy_lot_id"],
         "slice_seq": slice_seq,
-        "guardian_price": float(f"{current_price:.2f}"),
+        "guardian_price": guardian_price,
         "original_quantity": quantity,
         "remaining_quantity": quantity,
-        "remaining_amount": round(float(f"{current_price:.2f}") * quantity, 2),
-        "sort_key": float(f"{current_price:.2f}"),
+        "remaining_amount": round(guardian_price * quantity, 2),
+        "sort_key": guardian_price,
         "date": buy_lot.get("date"),
         "time": buy_lot.get("time"),
         "trade_time": buy_lot.get("trade_time"),
@@ -288,8 +294,8 @@ def _arrange_remaining(
     if next_quantity <= 0:
         return
 
-    next_amount = remaining_amount - quantity * float(f"{current_price:.2f}")
-    next_price = float(f"{(current_price * grid_interval):.2f}")
+    next_price = float(f"{(guardian_price * grid_interval):.2f}")
+    next_amount = next_quantity * next_price
     _arrange_remaining(
         slices=slices,
         buy_lot=buy_lot,

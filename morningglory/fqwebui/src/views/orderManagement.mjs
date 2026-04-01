@@ -32,6 +32,12 @@ const sortByCountAndLabel = (entries = []) => {
   })
 }
 
+const resolveOrderLookupId = (row = {}) => (
+  toText(row?.internal_order_id)
+  || toText(row?.broker_order_id)
+  || toText(row?.broker_order_key)
+)
+
 export const buildOrderRows = (rows = []) => {
   return [...(Array.isArray(rows) ? rows : [])]
     .map((row) => ({
@@ -54,6 +60,7 @@ export const buildOrderRows = (rows = []) => {
       avg_filled_price: row?.avg_filled_price,
       quantity: row?.quantity,
       price: row?.price,
+      orderLookupId: resolveOrderLookupId(row),
       summaryLabel: [
         toText(row?.symbol) || '-',
         toText(row?.side) || '-',
@@ -97,6 +104,7 @@ export const buildOrderDetailViewModel = (detail = {}) => {
   const order = {
     ...(detail?.order || {}),
     internal_order_id: toText(detail?.order?.internal_order_id),
+    broker_order_key: toText(detail?.order?.broker_order_key),
     request_id: toText(detail?.order?.request_id),
     broker_order_id: toText(detail?.order?.broker_order_id),
     symbol: toText(detail?.order?.symbol),
@@ -147,7 +155,8 @@ export const buildOrderDetailViewModel = (detail = {}) => {
     tradeRows,
     identifiers,
     identifierRows,
-    headerTitle: `${order.symbol || '-'} · ${order.internal_order_id || '-'}`,
+    orderLookupId: resolveOrderLookupId(order),
+    headerTitle: `${order.symbol || '-'} · ${resolveOrderLookupId(order) || '-'}`,
     requestSummary: [request.source, request.strategy_name].filter(Boolean).join(' · ') || '-',
     tradeSummary: `${tradeRows.length} 笔成交`,
   }

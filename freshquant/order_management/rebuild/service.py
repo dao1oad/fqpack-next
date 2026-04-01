@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from freshquant.order_management.entry_aggregation import (
+    build_clustered_position_entry,
+    count_clustered_entries,
+    count_non_default_lot_slices,
+    entry_requires_slice_rebuild,
+    select_cluster_entry,
+    summarize_mergeable_gap,
+)
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_entry_slices,
 )
@@ -20,7 +28,7 @@ from freshquant.order_management.ids import (
 _BEIJING_TIMEZONE = timezone(timedelta(hours=8))
 _BUY_ORDER_TYPES = {23, 27, "23", "27", "buy", "BUY"}
 _SELL_ORDER_TYPES = {24, 31, "24", "31", "sell", "SELL"}
-_DEFAULT_LOT_AMOUNT = 3000
+_DEFAULT_LOT_AMOUNT = 50000
 _DEFAULT_GRID_INTERVAL = 1.03
 
 
@@ -160,6 +168,12 @@ class OrderLedgerV2RebuildService:
             "ingest_rejection_documents": ingest_rejection_documents,
             "unmatched_sell_trade_facts": unmatched_sell_trade_facts,
             "replay_warnings": replay_warnings,
+            "clustered_entries": count_clustered_entries(position_entry_documents),
+            "mergeable_entry_gap": summarize_mergeable_gap(position_entry_documents),
+            "non_default_lot_slices": _count_non_default_lot_slices_with_lookup(
+                entry_slice_documents,
+                lot_amount_lookup=self.lot_amount_lookup,
+            ),
         }
 
 
@@ -253,31 +267,29 @@ def _rebuild_position_entries(
     for replay_event in replay_events:
         if replay_event.get("kind") == "buy_group":
             trade_fact = dict(replay_event["trade_fact"])
-            position_entry = build_position_entry_from_trade_fact(
+            existing_entry = select_cluster_entry(
+                position_entry_documents,
                 trade_fact,
-                source_ref_type="broker_order",
-                source_ref_id=replay_event.get("broker_order_key"),
-                entry_type="broker_execution_group",
-                original_quantity=trade_fact["quantity"],
-                remaining_quantity=trade_fact["quantity"],
-                entry_price=trade_fact["price"],
-                amount=round(
-                    float(trade_fact["price"]) * float(trade_fact["quantity"]), 2
-                ),
-                source=trade_fact["source"],
-                arrange_mode="runtime_grid",
-                sell_history=[],
+                replay_event.get("broker_order_key"),
             )
-            position_entry_documents.append(position_entry)
-            entry_slice_documents.extend(
-                arrange_entry(
-                    position_entry,
-                    lot_amount=int(lot_amount_lookup(position_entry["symbol"])),
-                    grid_interval=float(
-                        grid_interval_lookup(position_entry["symbol"], trade_fact)
+            position_entry = build_clustered_position_entry(
+                group_trade_fact=trade_fact,
+                broker_order_key=replay_event.get("broker_order_key"),
+                existing_entry=existing_entry,
+            )
+            _replace_entry_document(position_entry_documents, position_entry)
+            if entry_requires_slice_rebuild(existing_entry):
+                _replace_entry_slices(
+                    entry_slice_documents,
+                    entry_id=position_entry["entry_id"],
+                    slices=arrange_entry(
+                        position_entry,
+                        lot_amount=int(lot_amount_lookup(position_entry["symbol"])),
+                        grid_interval=float(
+                            grid_interval_lookup(position_entry["symbol"], trade_fact)
+                        ),
                     ),
                 )
-            )
             continue
 
         execution_fill = replay_event["execution_fill"]
@@ -593,6 +605,24 @@ def _sort_execution_fills(execution_fills):
             str(item.get("execution_fill_id") or ""),
         ),
     )
+
+
+def _replace_entry_document(position_entry_documents, position_entry):
+    entry_id = position_entry.get("entry_id")
+    for index, current in enumerate(position_entry_documents):
+        if current.get("entry_id") == entry_id:
+            position_entry_documents[index] = position_entry
+            return position_entry
+    position_entry_documents.append(position_entry)
+    return position_entry
+
+
+def _replace_entry_slices(entry_slice_documents, *, entry_id, slices):
+    entry_slice_documents[:] = [
+        item for item in entry_slice_documents if item.get("entry_id") != entry_id
+    ]
+    entry_slice_documents.extend(list(slices or []))
+    return entry_slice_documents
 
 
 def _resolve_beijing_date_time(date_value, time_value, trade_time):
@@ -983,3 +1013,21 @@ def _default_lot_amount_lookup(_symbol):
 
 def _default_grid_interval_lookup(_symbol, _trade_fact):
     return _DEFAULT_GRID_INTERVAL
+
+
+def _count_non_default_lot_slices_with_lookup(
+    entry_slice_documents, *, lot_amount_lookup
+):
+    lot_amount_by_symbol = {}
+    count = 0
+    for item in list(entry_slice_documents or []):
+        symbol = _normalize_identifier(item.get("symbol"))
+        if symbol not in lot_amount_by_symbol:
+            lot_amount_by_symbol[symbol] = (
+                lot_amount_lookup(symbol) if symbol else _DEFAULT_LOT_AMOUNT
+            )
+        count += count_non_default_lot_slices(
+            [item],
+            lot_amount=lot_amount_by_symbol[symbol],
+        )
+    return count

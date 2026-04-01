@@ -109,7 +109,7 @@ def init_param_dict(quiet=False):
     # 获取当前guardian配置
     guardian_config = DBfreshquant.params.find_one({"code": "guardian"}) or {}
     stock_config = guardian_config.get("value", {}).get("stock", {})
-    current_lot_amount = stock_config.get("lot_amount", 3000.0)
+    current_lot_amount = stock_config.get("lot_amount", 50000.0)
 
     if quiet:
         print("\n当前交易守护者配置：")

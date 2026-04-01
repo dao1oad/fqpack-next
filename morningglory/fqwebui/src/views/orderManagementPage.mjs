@@ -22,6 +22,16 @@ const errorMessage = (error) => {
   return error?.response?.data?.error || error?.message || String(error || 'unknown error')
 }
 
+const resolveOrderLookupId = (row = {}) => (
+  String(
+    row?.orderLookupId
+    || row?.internal_order_id
+    || row?.broker_order_id
+    || row?.broker_order_key
+    || '',
+  ).trim()
+)
+
 export const createOrderManagementPageController = ({ actions } = {}) => {
   const state = reactive({
     loadingOrders: false,
@@ -39,7 +49,7 @@ export const createOrderManagementPageController = ({ actions } = {}) => {
   })
 
   const selectedOrder = computed(() => {
-    return state.rows.find((row) => row.internal_order_id === state.selectedOrderId) || null
+    return state.rows.find((row) => resolveOrderLookupId(row) === state.selectedOrderId) || null
   })
 
   const buildQuery = () => ({
@@ -96,9 +106,9 @@ export const createOrderManagementPageController = ({ actions } = {}) => {
   }
 
   const syncSelectionAfterRows = async () => {
-    const nextOrderId = state.rows.some((row) => row.internal_order_id === state.selectedOrderId)
+    const nextOrderId = state.rows.some((row) => resolveOrderLookupId(row) === state.selectedOrderId)
       ? state.selectedOrderId
-      : state.rows[0]?.internal_order_id || ''
+      : resolveOrderLookupId(state.rows[0])
     if (!nextOrderId) {
       state.selectedOrderId = ''
       state.detail = null

@@ -14,11 +14,6 @@ export { buildTakeprofitDrafts }
 
 const toText = (value) => String(value ?? '').trim()
 
-const amountFormatter = new Intl.NumberFormat('en-US', {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-})
-
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -52,12 +47,6 @@ const formatAmountWan = (value) => {
   const parsed = toNullableNumber(value)
   if (parsed === null) return '-'
   return `${(parsed / 10000).toFixed(2)} 万`
-}
-
-const formatAmount = (value) => {
-  const parsed = toNullableNumber(value)
-  if (parsed === null) return '-'
-  return amountFormatter.format(parsed)
 }
 
 const formatPercent = (value) => {

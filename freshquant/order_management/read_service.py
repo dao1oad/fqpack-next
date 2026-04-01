@@ -335,6 +335,19 @@ def _assemble_order_row(order, request):
     order_row = _sanitize_document(order or {})
     request_row = _sanitize_document(request or {})
     symbol = _normalize_symbol(order_row.get("symbol"))
+    submitted_at = _normalize_order_timestamp(
+        order_row,
+        "submitted_at",
+        "first_fill_time",
+        "last_fill_time",
+    )
+    updated_at = _normalize_order_timestamp(
+        order_row,
+        "updated_at",
+        "last_fill_time",
+        "first_fill_time",
+        "submitted_at",
+    )
     return {
         **order_row,
         "request_id": order_row.get("request_id"),
@@ -360,6 +373,8 @@ def _assemble_order_row(order, request):
         "scope_type": _normalize_optional_text(request_row.get("scope_type")),
         "scope_ref_id": _normalize_optional_text(request_row.get("scope_ref_id")),
         "created_at": _normalize_optional_text(request_row.get("created_at")),
+        "submitted_at": submitted_at,
+        "updated_at": updated_at,
         "trace_id": _normalize_optional_text(
             order_row.get("trace_id") or request_row.get("trace_id")
         ),
@@ -417,6 +432,21 @@ def _normalize_optional_text(value, transform=None):
     if not text:
         return None
     return transform(text) if callable(transform) else text
+
+
+def _normalize_order_timestamp(order_row, *field_names):
+    for field_name in field_names:
+        value = (order_row or {}).get(field_name)
+        if value in {None, ""}:
+            continue
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                return normalized
+            continue
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
+    return None
 
 
 def _normalize_filter_values(value, *, transform=None):

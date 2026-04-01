@@ -388,7 +388,7 @@ def _build_service(
         monkeypatch.setattr(
             reconcile_service_module,
             "_safe_resolve_lot_amount",
-            lambda _symbol: 3000,
+            lambda _symbol: 50000,
             raising=False,
         )
         monkeypatch.setattr(
@@ -1539,7 +1539,7 @@ def test_guardian_sell_source_lookup_queries_recent_window_and_limit(monkeypatch
         monkeypatch.setattr(
             reconcile_service_module,
             "_safe_resolve_lot_amount",
-            lambda _symbol: 3000,
+            lambda _symbol: 50000,
             raising=False,
         )
         monkeypatch.setattr(
@@ -1662,7 +1662,7 @@ def test_confirm_expired_candidates_falls_back_to_default_grid_interval_when_res
     assert repository.position_entries[0]["arrange_status"] == "DEGRADED"
     assert repository.position_entries[0]["arrange_degraded"] is True
     assert repository.position_entries[0]["grid_interval"] == pytest.approx(1.03)
-    assert repository.position_entries[0]["lot_amount"] == 3000
+    assert repository.position_entries[0]["lot_amount"] == 50000
     assert repository.position_entries[0]["remaining_quantity"] == 200
     assert repository.entry_slices
 
@@ -1704,7 +1704,7 @@ def test_confirm_expired_candidates_falls_back_to_default_lot_amount_when_resolu
     assert repository.position_entries[0]["arrange_status"] == "DEGRADED"
     assert repository.position_entries[0]["arrange_degraded"] is True
     assert repository.position_entries[0]["grid_interval"] == pytest.approx(1.03)
-    assert repository.position_entries[0]["lot_amount"] == 3000
+    assert repository.position_entries[0]["lot_amount"] == 50000
     assert repository.position_entries[0]["remaining_quantity"] == 200
     assert repository.entry_slices
 

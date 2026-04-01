@@ -223,7 +223,7 @@ def test_init_param_dict_unsets_removed_guardian_and_monitor_fields_from_existin
                     "stock": {
                         "position_pct": 30.0,
                         "auto_open": True,
-                        "lot_amount": 3000.0,
+                        "lot_amount": 50000.0,
                         "min_amount": 1000.0,
                     }
                 },
@@ -239,7 +239,7 @@ def test_init_param_dict_unsets_removed_guardian_and_monitor_fields_from_existin
     guardian_doc = fake_db.params.docs["guardian"]
 
     assert "periods" not in monitor_doc["value"].get("stock", {})
-    assert guardian_doc["value"]["stock"]["lot_amount"] == 3000.0
+    assert guardian_doc["value"]["stock"]["lot_amount"] == 50000.0
     assert "position_pct" not in guardian_doc["value"]["stock"]
     assert "auto_open" not in guardian_doc["value"]["stock"]
     assert "min_amount" not in guardian_doc["value"]["stock"]

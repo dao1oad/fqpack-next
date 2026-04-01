@@ -219,7 +219,7 @@
 - 含义：默认单次买入金额。
 - 类型：`float`
 - 是否必填：否
-- 缺省值：`1500`
+- 缺省值：`50000`
 - 实际优先级：
   - `instrument_strategy.lot_amount`
   - `must_pool.lot_amount`

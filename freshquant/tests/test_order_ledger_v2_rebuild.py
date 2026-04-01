@@ -134,6 +134,12 @@ def test_rebuild_service_exists():
     assert callable(service_class)
 
 
+def test_rebuild_default_lot_amount_lookup_falls_back_to_50000():
+    import freshquant.order_management.rebuild.service as rebuild_service_module
+
+    assert rebuild_service_module._default_lot_amount_lookup("000001") == 50000
+
+
 def test_rebuild_service_builds_broker_orders_and_execution_fills():
     service = _get_rebuild_service_class()()
 
@@ -294,14 +300,305 @@ def test_rebuild_service_aggregates_buy_fills_into_single_broker_order_entry():
 
     position_entry = result["position_entry_documents"][0]
 
-    assert position_entry["source_ref_type"] == "broker_order"
-    assert position_entry["source_ref_id"] == "81001"
-    assert position_entry["entry_type"] == "broker_execution_group"
+    assert position_entry["source_ref_type"] == "buy_cluster"
+    assert position_entry["entry_type"] == "broker_execution_cluster"
     assert position_entry["original_quantity"] == 900
     assert position_entry["remaining_quantity"] == 900
     assert position_entry["status"] == "OPEN"
     assert position_entry["trade_time"] == 1710000000
     assert position_entry["entry_price"] == pytest.approx(10.333333, abs=1e-6)
+    assert [
+        item["broker_order_key"] for item in position_entry["aggregation_members"]
+    ] == ["81001"]
+    assert position_entry["aggregation_window"]["member_count"] == 1
+
+
+def test_rebuild_service_conservatively_clusters_close_buy_orders():
+    service = _get_rebuild_service_class()()
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_order(
+                order_id=81101,
+                stock_code="000001.SZ",
+                order_volume=400,
+                order_time=1710000000,
+                order_status="filled",
+            ),
+            _sample_xt_order(
+                order_id=81102,
+                stock_code="000001.SZ",
+                order_volume=500,
+                order_time=1710000240,
+                order_status="filled",
+            ),
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-BUY-81101",
+                order_id=81101,
+                stock_code="000001.SZ",
+                traded_volume=400,
+                traded_price=10.00,
+                traded_time=1710000000,
+                date=None,
+                time=None,
+            ),
+            _sample_xt_trade(
+                traded_id="T-BUY-81102",
+                order_id=81102,
+                stock_code="000001.SZ",
+                traded_volume=500,
+                traded_price=10.02,
+                traded_time=1710000240,
+                date=None,
+                time=None,
+            ),
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["position_entries"] == 1
+    assert result["entry_slices"] == 1
+    position_entry = result["position_entry_documents"][0]
+    assert position_entry["source_ref_type"] == "buy_cluster"
+    assert position_entry["entry_type"] == "broker_execution_cluster"
+    assert position_entry["original_quantity"] == 900
+    assert position_entry["remaining_quantity"] == 900
+    assert [
+        item["broker_order_key"] for item in position_entry["aggregation_members"]
+    ] == [
+        "81101",
+        "81102",
+    ]
+    assert position_entry["aggregation_window"]["member_count"] == 2
+
+
+def test_rebuild_service_does_not_chain_merge_beyond_anchor_five_minute_window():
+    service = _get_rebuild_service_class()()
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_order(
+                order_id=81201,
+                stock_code="000001.SZ",
+                order_volume=300,
+                order_time=1710000000,
+                order_status="filled",
+            ),
+            _sample_xt_order(
+                order_id=81202,
+                stock_code="000001.SZ",
+                order_volume=300,
+                order_time=1710000240,
+                order_status="filled",
+            ),
+            _sample_xt_order(
+                order_id=81203,
+                stock_code="000001.SZ",
+                order_volume=300,
+                order_time=1710000480,
+                order_status="filled",
+            ),
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-BUY-81201",
+                order_id=81201,
+                stock_code="000001.SZ",
+                traded_volume=300,
+                traded_price=10.00,
+                traded_time=1710000000,
+                date=None,
+                time=None,
+            ),
+            _sample_xt_trade(
+                traded_id="T-BUY-81202",
+                order_id=81202,
+                stock_code="000001.SZ",
+                traded_volume=300,
+                traded_price=10.01,
+                traded_time=1710000240,
+                date=None,
+                time=None,
+            ),
+            _sample_xt_trade(
+                traded_id="T-BUY-81203",
+                order_id=81203,
+                stock_code="000001.SZ",
+                traded_volume=300,
+                traded_price=10.02,
+                traded_time=1710000480,
+                date=None,
+                time=None,
+            ),
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["position_entries"] == 2
+    assert sorted(
+        int(item["original_quantity"]) for item in result["position_entry_documents"]
+    ) == [300, 600]
+
+
+def test_rebuild_service_does_not_merge_new_buy_after_sell_boundary():
+    service = _get_rebuild_service_class()()
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_order(
+                order_id=81301,
+                stock_code="000001.SZ",
+                order_volume=400,
+                order_time=1710000000,
+                order_status="filled",
+            ),
+            _sample_xt_order(
+                order_id=81302,
+                stock_code="000001.SZ",
+                order_volume=500,
+                order_time=1710000240,
+                order_status="filled",
+            ),
+            _sample_xt_sell_order(
+                order_id=81303,
+                stock_code="000001.SZ",
+                order_volume=200,
+                order_time=1710003600,
+                order_status="filled",
+            ),
+            _sample_xt_order(
+                order_id=81304,
+                stock_code="000001.SZ",
+                order_volume=200,
+                order_time=1710003720,
+                order_status="filled",
+            ),
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-BUY-81301",
+                order_id=81301,
+                stock_code="000001.SZ",
+                traded_volume=400,
+                traded_price=10.00,
+                traded_time=1710000000,
+                date=None,
+                time=None,
+            ),
+            _sample_xt_trade(
+                traded_id="T-BUY-81302",
+                order_id=81302,
+                stock_code="000001.SZ",
+                traded_volume=500,
+                traded_price=10.01,
+                traded_time=1710000240,
+                date=None,
+                time=None,
+            ),
+            _sample_xt_sell_trade(
+                traded_id="T-SELL-81303",
+                order_id=81303,
+                stock_code="000001.SZ",
+                traded_volume=200,
+                traded_price=10.60,
+                traded_time=1710003600,
+                date=None,
+                time=None,
+            ),
+            _sample_xt_trade(
+                traded_id="T-BUY-81304",
+                order_id=81304,
+                stock_code="000001.SZ",
+                traded_volume=200,
+                traded_price=10.00,
+                traded_time=1710003720,
+                date=None,
+                time=None,
+            ),
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["position_entries"] == 2
+    assert sorted(
+        int(item["remaining_quantity"]) for item in result["position_entry_documents"]
+    ) == [200, 700]
+
+
+def test_rebuild_service_caps_rounded_guardian_slice_amount_at_50000():
+    service = _get_rebuild_service_class()()
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_order(
+                order_id=81401,
+                stock_code="512070.SH",
+                order_volume=59000,
+                order_time=1773107711,
+                order_status="filled",
+            )
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-BUY-81401",
+                order_id=81401,
+                stock_code="512070.SH",
+                traded_volume=59000,
+                traded_price=0.847,
+                traded_time=1773107711,
+                date=None,
+                time=None,
+            )
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["non_default_lot_slices"] == 0
+    assert all(
+        float(item["guardian_price"]) * int(item["original_quantity"]) <= 50000
+        for item in result["entry_slice_documents"]
+    )
+
+
+def test_rebuild_summary_uses_real_slice_symbols_for_lot_amount_lookup():
+    service = _get_rebuild_service_class()(
+        lot_amount_lookup=lambda symbol: {"000001": 50000}[symbol]
+    )
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_order(
+                order_id=81402,
+                stock_code="000001.SZ",
+                order_volume=100,
+                order_time=1710000000,
+                order_status="filled",
+            )
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-BUY-81402",
+                order_id=81402,
+                stock_code="000001.SZ",
+                traded_volume=100,
+                traded_price=10.0,
+                traded_time=1710000000,
+                date=None,
+                time=None,
+            )
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["position_entries"] == 1
+    assert result["non_default_lot_slices"] == 0
 
 
 def test_rebuild_service_replays_buy_and_sell_into_open_entries():
@@ -1037,6 +1334,9 @@ def _sample_rebuild_summary(**overrides):
         "execution_fills": 1,
         "position_entries": 1,
         "entry_slices": 1,
+        "clustered_entries": 1,
+        "mergeable_entry_gap": 0,
+        "non_default_lot_slices": 0,
         "exit_allocations": 0,
         "reconciliation_gaps": 1,
         "reconciliation_resolutions": 1,
@@ -1101,6 +1401,9 @@ def test_rebuild_cli_dry_run_reports_counts_without_mutation(monkeypatch):
     assert summary["execute"] is False
     assert summary["broker_orders"] == 2
     assert summary["execution_fills"] == 3
+    assert summary["clustered_entries"] == 1
+    assert summary["mergeable_entry_gap"] == 0
+    assert summary["non_default_lot_slices"] == 0
     assert summary["source_counts"] == {
         "xt_orders": 1,
         "xt_trades": 1,

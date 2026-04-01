@@ -241,6 +241,7 @@ def test_system_settings_falls_back_to_defaults_when_database_unavailable():
     assert settings.notification.dingtalk_private_webhook == ""
     assert settings.monitor.xtdata_mode == "guardian_1m"
     assert settings.xtquant.account == ""
+    assert settings.guardian.stock_lot_amount == 50000
     assert settings.guardian.stock_threshold == {
         "mode": "percent",
         "percent": 1,
