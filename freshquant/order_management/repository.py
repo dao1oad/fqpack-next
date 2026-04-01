@@ -98,14 +98,23 @@ class OrderManagementRepository:
         self,
         *,
         symbol=None,
+        action=None,
+        states=None,
         scope_type=None,
         scope_ref_id=None,
         scope_ref_ids=None,
         request_ids=None,
+        created_at_gte=None,
+        sort_created_at_desc=False,
+        limit=None,
     ):
         query = {}
         if symbol is not None:
             query["symbol"] = symbol
+        if action is not None:
+            query["action"] = action
+        if states is not None:
+            query["state"] = {"$in": list(states)}
         if scope_type is not None:
             query["scope_type"] = scope_type
         if scope_ref_id is not None:
@@ -114,7 +123,14 @@ class OrderManagementRepository:
             query["scope_ref_id"] = {"$in": list(scope_ref_ids)}
         if request_ids is not None:
             query["request_id"] = {"$in": list(request_ids)}
-        return list(self.order_requests.find(query))
+        if created_at_gte is not None:
+            query["created_at"] = {"$gte": created_at_gte}
+        cursor = self.order_requests.find(query)
+        if sort_created_at_desc:
+            cursor = cursor.sort("created_at", -1)
+        if limit is not None:
+            cursor = cursor.limit(max(int(limit), 0))
+        return list(cursor)
 
     def insert_order(self, document):
         self.orders.insert_one(document)

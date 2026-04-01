@@ -198,7 +198,7 @@ def test_worker_module_runs_main_when_executed_as_module(
     ]
 
 
-def test_worker_run_forever_schedules_credit_subjects_and_only_seeds_once():
+def test_worker_run_forever_schedules_credit_subjects_and_refreshes_symbol_snapshots_each_loop():
     from freshquant.xt_account_sync.worker import run_forever
 
     service = FakeSyncService()
@@ -237,7 +237,7 @@ def test_worker_run_forever_schedules_credit_subjects_and_only_seeds_once():
         },
         {
             "include_credit_subjects": True,
-            "seed_symbol_snapshots": False,
+            "seed_symbol_snapshots": True,
         },
     ]
     assert sleep_calls == [3]

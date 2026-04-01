@@ -99,6 +99,14 @@
 
 `submit_order -> credit mode resolve -> position gate -> om_order_requests / om_orders / om_broker_orders / om_order_events -> STOCK_ORDER_QUEUE -> broker`
 
+Guardian 卖出请求当前会把本次卖量对应的来源入口计划一起写入 `om_order_requests.strategy_context.guardian_sell_sources`：
+
+- `requested_quantity / submit_quantity`
+- `profitable_fill_count`
+- `entries[] = { entry_id, quantity }`
+
+这组来源入口语义用于在 XT `trade` 回报缺失、系统只能退回 `xt_positions delta` 自动平账时，仍优先把卖出数量扣回本次 Guardian 计算卖量时实际选中的入口。
+
 ### 撤单
 
 `cancel_order -> om_order_requests(cancel) -> om_orders / om_broker_orders state update -> STOCK_ORDER_QUEUE -> broker`
@@ -133,6 +141,8 @@
 
 - 刷新 stock holdings projection cache
 - 刷新 `stock_fills_compat` 镜像，避免 legacy 兼容视图滞后于 OM 主账本
+
+sell-side 自动平账当前在 gap 上保留最近一笔 Guardian 卖出请求携带的 `sell_source_entries`。当正常成交回报缺失、只能走 `auto_close_allocation` 时，当前会优先按这组来源入口扣减，再回退到默认 slice 顺序，避免把卖出剩余数量错扣到未参与本次卖量计算的历史入口上。
 
 当前内部仓位累计规则：
 

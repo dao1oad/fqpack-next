@@ -40,6 +40,8 @@ _DEFAULT_RECONCILE_LOT_AMOUNT = 3000
 _SELL_GAP_FUSE_MIN_SYMBOLS = 3
 _SELL_GAP_FUSE_MIN_QUANTITY_RATIO = 0.5
 _SELL_GAP_EVIDENCE_WINDOW_SECONDS = 300
+_SELL_SOURCE_REQUEST_WINDOW_SECONDS = 900
+_SELL_SOURCE_REQUEST_LOOKBACK_LIMIT = 32
 
 
 @dataclass
@@ -107,6 +109,16 @@ class ExternalOrderReconcileService:
                     "symbol": symbol,
                     "side": side,
                     "quantity_delta": quantity_delta,
+                    "sell_source_entries": (
+                        _resolve_recent_guardian_sell_source_entries(
+                            repository=self.repository,
+                            symbol=symbol,
+                            quantity=quantity_delta,
+                            detected_at=int(detected_at),
+                        )
+                        if side == "sell"
+                        else []
+                    ),
                     **price_snapshot,
                 }
             )
@@ -180,6 +192,12 @@ class ExternalOrderReconcileService:
                 confirm_interval_seconds=self.external_confirm_interval_seconds,
                 confirm_observations=self.external_confirm_observations,
             )
+            if observed.get("sell_source_entries") and not gap.get(
+                "sell_source_entries"
+            ):
+                updates["sell_source_entries"] = list(
+                    observed.get("sell_source_entries") or []
+                )
             self.repository.update_reconciliation_gap(
                 gap["gap_id"],
                 updates,
@@ -211,6 +229,7 @@ class ExternalOrderReconcileService:
                 "source": "position_diff",
                 "matched_order_id": None,
                 "matched_trade_fact_id": None,
+                "sell_source_entries": list(item.get("sell_source_entries") or []),
                 **gap_price_fields,
             }
             self.repository.insert_reconciliation_gap(gap)
@@ -615,6 +634,7 @@ class ExternalOrderReconcileService:
                 symbol=gap["symbol"],
                 quantity=remaining,
                 resolution_id=resolution_id,
+                preferred_entry_quantities=gap.get("sell_source_entries"),
             )
 
         legacy_allocations = []
@@ -641,6 +661,7 @@ class ExternalOrderReconcileService:
             "entry_allocation_ids": [
                 item["allocation_id"] for item in entry_allocations
             ],
+            "sell_source_entries": list(gap.get("sell_source_entries") or []),
             "legacy_allocation_ids": [
                 item["allocation_id"] for item in legacy_allocations
             ],
@@ -851,6 +872,108 @@ def _collect_recent_sell_evidence(*, repository, detected_at, symbols):
         "symbol_count": len(evidence_symbols),
         "quantity_total": quantity_total,
     }
+
+
+def _resolve_recent_guardian_sell_source_entries(
+    *,
+    repository,
+    symbol,
+    quantity,
+    detected_at,
+):
+    if not hasattr(repository, "list_order_requests"):
+        return []
+    target_quantity = int(quantity or 0)
+    if target_quantity <= 0:
+        return []
+    window_start_epoch = int(detected_at) - _SELL_SOURCE_REQUEST_WINDOW_SECONDS
+    window_start_iso = datetime.fromtimestamp(
+        window_start_epoch,
+        tz=timezone.utc,
+    ).isoformat()
+
+    try:
+        request_rows = repository.list_order_requests(
+            symbol=symbol,
+            action="sell",
+            created_at_gte=window_start_iso,
+            sort_created_at_desc=True,
+            limit=_SELL_SOURCE_REQUEST_LOOKBACK_LIMIT,
+        )
+    except TypeError:
+        request_rows = repository.list_order_requests(symbol=symbol) or []
+
+    best_candidate = None
+    best_score = None
+    for request in request_rows:
+        if str(request.get("action") or "").lower() != "sell":
+            continue
+        raw_entries = _extract_guardian_sell_source_entries(request)
+        if not raw_entries:
+            continue
+        planned_quantity = _resolve_guardian_sell_source_quantity(request, raw_entries)
+        if planned_quantity < target_quantity:
+            continue
+        created_at_epoch = _coerce_epoch_seconds(request.get("created_at"))
+        if created_at_epoch is None:
+            continue
+        if created_at_epoch > int(detected_at) + 5:
+            continue
+        if created_at_epoch < window_start_epoch:
+            continue
+        score = (
+            0 if planned_quantity == target_quantity else 1,
+            max(planned_quantity - target_quantity, 0),
+            abs(created_at_epoch - int(detected_at)),
+            -created_at_epoch,
+        )
+        if best_score is None or score < best_score:
+            best_score = score
+            best_candidate = _normalize_preferred_entry_quantities(
+                raw_entries,
+                remaining_quantity=target_quantity,
+            )
+    return list(best_candidate or [])
+
+
+def _extract_guardian_sell_source_entries(request):
+    context = dict((request or {}).get("strategy_context") or {})
+    sell_sources = dict(context.get("guardian_sell_sources") or {})
+    return list(sell_sources.get("entries") or [])
+
+
+def _resolve_guardian_sell_source_quantity(request, raw_entries):
+    context = dict((request or {}).get("strategy_context") or {})
+    sell_sources = dict(context.get("guardian_sell_sources") or {})
+    submit_quantity = int(sell_sources.get("submit_quantity") or 0)
+    if submit_quantity > 0:
+        return submit_quantity
+    request_quantity = int((request or {}).get("quantity") or 0)
+    if request_quantity > 0:
+        return request_quantity
+    return sum(int((item or {}).get("quantity") or 0) for item in raw_entries)
+
+
+def _coerce_epoch_seconds(value):
+    if value in {None, ""}:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        pass
+    try:
+        normalized_text = text.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized_text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp())
 
 
 def _find_pending_candidate(candidates, symbol, side, quantity_delta):
@@ -1581,7 +1704,14 @@ def _arrange_entry_remaining(
     )
 
 
-def _allocate_gap_to_entry_slices(*, repository, symbol, quantity, resolution_id):
+def _allocate_gap_to_entry_slices(
+    *,
+    repository,
+    symbol,
+    quantity,
+    resolution_id,
+    preferred_entry_quantities=None,
+):
     remaining = int(quantity or 0)
     if remaining <= 0:
         return 0, []
@@ -1608,40 +1738,38 @@ def _allocate_gap_to_entry_slices(*, repository, symbol, quantity, resolution_id
         slices_by_entry.setdefault(slice_document["entry_id"], []).append(
             slice_document
         )
+
+    preferred_plan = _normalize_preferred_entry_quantities(
+        preferred_entry_quantities,
+        remaining_quantity=remaining,
+    )
+    if preferred_plan:
+        remaining, preferred_allocations = _allocate_gap_to_preferred_entry_slices(
+            entries=entries,
+            open_slices=open_slices,
+            symbol=symbol,
+            remaining_quantity=remaining,
+            resolution_id=resolution_id,
+            preferred_plan=preferred_plan,
+        )
+        allocations.extend(preferred_allocations)
+        touched_entry_ids.update(item["entry_id"] for item in preferred_allocations)
+
+    for slice_document in open_slices:
         if remaining <= 0:
             continue
-        if int(slice_document.get("remaining_quantity") or 0) <= 0:
+        allocation = _consume_entry_slice_allocation(
+            entries=entries,
+            slice_document=slice_document,
+            resolution_id=resolution_id,
+            symbol=symbol,
+            max_quantity=remaining,
+        )
+        if allocation is None:
             continue
-        allocated_quantity = min(int(slice_document["remaining_quantity"]), remaining)
-        slice_document["remaining_quantity"] -= allocated_quantity
-        slice_document["remaining_amount"] = round(
-            float(slice_document.get("guardian_price") or 0.0)
-            * int(slice_document["remaining_quantity"]),
-            2,
-        )
-        slice_document["status"] = (
-            "CLOSED" if int(slice_document["remaining_quantity"]) == 0 else "OPEN"
-        )
-        entry = entries[slice_document["entry_id"]]
-        entry["remaining_quantity"] = (
-            int(entry.get("remaining_quantity") or 0) - allocated_quantity
-        )
-        entry["status"] = _resolve_entry_status(
-            entry["remaining_quantity"], entry["original_quantity"]
-        )
-        allocations.append(
-            {
-                "allocation_id": new_allocation_id(),
-                "resolution_id": resolution_id,
-                "entry_id": slice_document["entry_id"],
-                "entry_slice_id": slice_document["entry_slice_id"],
-                "guardian_price": slice_document.get("guardian_price"),
-                "allocated_quantity": allocated_quantity,
-                "symbol": symbol,
-            }
-        )
+        allocations.append(allocation)
         touched_entry_ids.add(slice_document["entry_id"])
-        remaining -= allocated_quantity
+        remaining -= int(allocation["allocated_quantity"] or 0)
 
     for entry_id in touched_entry_ids:
         repository.replace_position_entry(entries[entry_id])
@@ -1651,6 +1779,108 @@ def _allocate_gap_to_entry_slices(*, repository, symbol, quantity, resolution_id
     if allocations:
         repository.insert_exit_allocations(allocations)
     return remaining, allocations
+
+
+def _normalize_preferred_entry_quantities(
+    preferred_entry_quantities, *, remaining_quantity
+):
+    remaining = int(remaining_quantity or 0)
+    if remaining <= 0:
+        return []
+    normalized = []
+    for item in list(preferred_entry_quantities or []):
+        if remaining <= 0:
+            break
+        entry_id = str((item or {}).get("entry_id") or "").strip()
+        quantity = int((item or {}).get("quantity") or 0)
+        if not entry_id or quantity <= 0:
+            continue
+        allocated_quantity = min(quantity, remaining)
+        normalized.append(
+            {
+                "entry_id": entry_id,
+                "quantity": allocated_quantity,
+            }
+        )
+        remaining -= allocated_quantity
+    return normalized
+
+
+def _allocate_gap_to_preferred_entry_slices(
+    *,
+    entries,
+    open_slices,
+    symbol,
+    remaining_quantity,
+    resolution_id,
+    preferred_plan,
+):
+    remaining = int(remaining_quantity or 0)
+    allocations = []
+    for source_entry in list(preferred_plan or []):
+        entry_id = str(source_entry.get("entry_id") or "").strip()
+        entry_remaining = int(source_entry.get("quantity") or 0)
+        if remaining <= 0 or not entry_id or entry_remaining <= 0:
+            continue
+        for slice_document in open_slices:
+            if remaining <= 0 or entry_remaining <= 0:
+                break
+            if str(slice_document.get("entry_id") or "").strip() != entry_id:
+                continue
+            allocation = _consume_entry_slice_allocation(
+                entries=entries,
+                slice_document=slice_document,
+                resolution_id=resolution_id,
+                symbol=symbol,
+                max_quantity=min(remaining, entry_remaining),
+            )
+            if allocation is None:
+                continue
+            allocations.append(allocation)
+            allocated_quantity = int(allocation.get("allocated_quantity") or 0)
+            remaining -= allocated_quantity
+            entry_remaining -= allocated_quantity
+    return remaining, allocations
+
+
+def _consume_entry_slice_allocation(
+    *,
+    entries,
+    slice_document,
+    resolution_id,
+    symbol,
+    max_quantity,
+):
+    allowed_quantity = int(max_quantity or 0)
+    remaining_quantity = int(slice_document.get("remaining_quantity") or 0)
+    if allowed_quantity <= 0 or remaining_quantity <= 0:
+        return None
+    allocated_quantity = min(remaining_quantity, allowed_quantity)
+    slice_document["remaining_quantity"] -= allocated_quantity
+    slice_document["remaining_amount"] = round(
+        float(slice_document.get("guardian_price") or 0.0)
+        * int(slice_document["remaining_quantity"]),
+        2,
+    )
+    slice_document["status"] = (
+        "CLOSED" if int(slice_document["remaining_quantity"]) == 0 else "OPEN"
+    )
+    entry = entries[slice_document["entry_id"]]
+    entry["remaining_quantity"] = (
+        int(entry.get("remaining_quantity") or 0) - allocated_quantity
+    )
+    entry["status"] = _resolve_entry_status(
+        entry["remaining_quantity"], entry["original_quantity"]
+    )
+    return {
+        "allocation_id": new_allocation_id(),
+        "resolution_id": resolution_id,
+        "entry_id": slice_document["entry_id"],
+        "entry_slice_id": slice_document["entry_slice_id"],
+        "guardian_price": slice_document.get("guardian_price"),
+        "allocated_quantity": allocated_quantity,
+        "symbol": symbol,
+    }
 
 
 def _allocate_gap_to_legacy_buy_lots(
