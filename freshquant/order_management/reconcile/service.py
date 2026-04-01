@@ -1380,7 +1380,9 @@ def _resolve_external_arrangement_runtime(symbol, trade_fact):
         lot_amount = _safe_resolve_lot_amount(symbol)
     else:
         try:
-            from freshquant.order_management.ingest.xt_reports import _resolve_lot_amount
+            from freshquant.order_management.ingest.xt_reports import (
+                _resolve_lot_amount,
+            )
 
             lot_amount = _resolve_lot_amount(symbol)
         except Exception as exc:

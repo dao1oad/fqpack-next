@@ -357,5 +357,7 @@ def test_confirm_expired_candidates_emits_reconciliation_event(monkeypatch):
     assert runtime_logger.events[0]["payload"]["resolution_type"] == "auto_open_entry"
     assert runtime_logger.events[0]["payload"]["gap_state"] == "AUTO_OPENED"
     assert runtime_logger.events[0]["payload"]["chosen_price_estimate"] == 10.5
-    assert runtime_logger.events[0]["payload"]["chosen_price_policy"] == "freeze_initial"
+    assert (
+        runtime_logger.events[0]["payload"]["chosen_price_policy"] == "freeze_initial"
+    )
     assert runtime_logger.events[0]["payload"]["arrange_status"] == "READY"
