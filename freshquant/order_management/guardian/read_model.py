@@ -3,8 +3,9 @@
 
 def build_arranged_fill_read_model(open_slices):
     active_slices = list_active_open_slices(open_slices)
-    return [
-        {
+    rows = []
+    for item in active_slices:
+        row = {
             "symbol": item["symbol"],
             "date": item.get("date"),
             "time": item.get("time"),
@@ -12,8 +13,14 @@ def build_arranged_fill_read_model(open_slices):
             "quantity": item["remaining_quantity"],
             "amount": round(item["guardian_price"] * item["remaining_quantity"], 2),
         }
-        for item in active_slices
-    ]
+        entry_id = str(item.get("entry_id") or "").strip()
+        if entry_id:
+            row["entry_id"] = entry_id
+        entry_slice_id = str(item.get("entry_slice_id") or "").strip()
+        if entry_slice_id:
+            row["entry_slice_id"] = entry_slice_id
+        rows.append(row)
+    return rows
 
 
 def list_active_open_slices(open_slices):

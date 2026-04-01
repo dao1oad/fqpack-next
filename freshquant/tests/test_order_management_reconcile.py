@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -39,6 +40,34 @@ class InMemoryRepository:
             if request["request_id"] == request_id:
                 return request
         return None
+
+    def list_order_requests(
+        self,
+        *,
+        symbol=None,
+        scope_type=None,
+        scope_ref_id=None,
+        scope_ref_ids=None,
+        request_ids=None,
+    ):
+        rows = list(self.order_requests)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if scope_type is not None:
+            rows = [item for item in rows if item.get("scope_type") == scope_type]
+        if scope_ref_id is not None:
+            rows = [item for item in rows if item.get("scope_ref_id") == scope_ref_id]
+        elif scope_ref_ids is not None:
+            allowed_scope_refs = set(scope_ref_ids)
+            rows = [
+                item for item in rows if item.get("scope_ref_id") in allowed_scope_refs
+            ]
+        if request_ids is not None:
+            allowed_request_ids = set(request_ids)
+            rows = [
+                item for item in rows if item.get("request_id") in allowed_request_ids
+            ]
+        return [dict(item) for item in rows]
 
     def insert_order(self, document):
         self.orders.append(dict(document))
@@ -1214,6 +1243,133 @@ def test_confirm_expired_candidates_marks_and_syncs_compat_after_auto_close(
 
     assert marks == ["close"]
     assert sync_calls == [("000001", repository)]
+
+
+def test_confirm_expired_candidates_prefers_guardian_sell_source_entries_for_auto_close(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
+    repository.insert_order_request(
+        {
+            "request_id": "req_guardian_sell_1",
+            "action": "sell",
+            "symbol": "000001",
+            "quantity": 3100,
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "submit_quantity": 3100,
+                    "entries": [
+                        {"entry_id": "entry_new", "quantity": 1000},
+                        {"entry_id": "entry_mid_2", "quantity": 1000},
+                        {"entry_id": "entry_mid_1", "quantity": 1000},
+                        {"entry_id": "entry_old", "quantity": 100},
+                    ],
+                }
+            },
+            "created_at": datetime.fromtimestamp(995, tz=timezone.utc).isoformat(),
+            "state": "ACCEPTED",
+        }
+    )
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_old",
+            "symbol": "000001",
+            "entry_price": 49.37,
+            "original_quantity": 4000,
+            "remaining_quantity": 4000,
+            "date": 20260320,
+            "time": "10:47:36",
+            "trade_time": 900,
+            "status": "OPEN",
+        }
+    )
+    repository.replace_entry_slices_for_entry(
+        "entry_old",
+        [
+            {
+                "entry_slice_id": "slice_old_1",
+                "entry_id": "entry_old",
+                "symbol": "000001",
+                "guardian_price": 49.37,
+                "remaining_quantity": 4000,
+                "remaining_amount": 197480.0,
+                "sort_key": 1,
+                "slice_seq": 1,
+                "status": "OPEN",
+            }
+        ],
+    )
+    for index, entry_id in enumerate(
+        ("entry_mid_1", "entry_mid_2", "entry_new"), start=1
+    ):
+        repository.replace_position_entry(
+            {
+                "entry_id": entry_id,
+                "symbol": "000001",
+                "entry_price": 48.76,
+                "original_quantity": 1000,
+                "remaining_quantity": 1000,
+                "date": 20260330,
+                "time": f"13:20:3{index}",
+                "trade_time": 950 + index,
+                "status": "OPEN",
+            }
+        )
+        repository.replace_entry_slices_for_entry(
+            entry_id,
+            [
+                {
+                    "entry_slice_id": f"slice_{entry_id}",
+                    "entry_id": entry_id,
+                    "symbol": "000001",
+                    "guardian_price": 48.76,
+                    "remaining_quantity": 1000,
+                    "remaining_amount": 48760.0,
+                    "sort_key": 10 + index,
+                    "slice_seq": 1,
+                    "status": "OPEN",
+                }
+            ],
+        )
+
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 3900, "avg_price": 50.34}],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 3900, "avg_price": 50.34}],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 3900, "avg_price": 50.34}],
+        detected_at=1_030,
+    )
+
+    confirmed = service.confirm_expired_candidates(now=1_030)
+
+    assert len(confirmed) == 1
+    assert confirmed[0]["state"] == "AUTO_CLOSED"
+    allocations_by_entry = {}
+    for item in repository.exit_allocations:
+        allocations_by_entry[item["entry_id"]] = (
+            allocations_by_entry.get(item["entry_id"], 0) + item["allocated_quantity"]
+        )
+    assert allocations_by_entry == {
+        "entry_new": 1000,
+        "entry_mid_2": 1000,
+        "entry_mid_1": 1000,
+        "entry_old": 100,
+    }
+    remaining_by_entry = {
+        item["entry_id"]: item["remaining_quantity"]
+        for item in repository.position_entries
+    }
+    assert remaining_by_entry["entry_old"] == 3900
+    assert remaining_by_entry["entry_mid_1"] == 0
+    assert remaining_by_entry["entry_mid_2"] == 0
+    assert remaining_by_entry["entry_new"] == 0
 
 
 def test_pending_gap_is_dismissed_when_position_delta_resolves(monkeypatch):

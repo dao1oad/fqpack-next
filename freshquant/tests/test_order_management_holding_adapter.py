@@ -339,6 +339,8 @@ def test_arranged_fill_projection_does_not_require_legacy_buy_lots_when_v2_entri
 
     assert rows == [
         {
+            "entry_id": "entry_v2_1",
+            "entry_slice_id": "slice_v2_1",
             "symbol": "000001",
             "date": 20260329,
             "time": "09:31:00",
@@ -384,6 +386,8 @@ def test_arranged_fill_projection_resolves_trade_time_in_china_timezone(monkeypa
 
     assert rows == [
         {
+            "entry_id": "entry_v2_1",
+            "entry_slice_id": "slice_v2_1",
             "symbol": "000001",
             "date": 20260315,
             "time": "23:39:42",
@@ -620,6 +624,8 @@ def test_arranged_fill_projection_does_not_fallback_to_legacy_when_v2_api_is_emp
 
     assert rows == [
         {
+            "entry_id": "entry_missing",
+            "entry_slice_id": "slice_v2_missing",
             "symbol": "000001",
             "date": 20260329,
             "time": "09:31:00",

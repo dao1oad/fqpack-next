@@ -938,6 +938,7 @@ class StrategyGuardian(metaclass=SingletonType):
             )
 
             current_node = "sellable_volume_check"
+            requested_quantity = int(quantity or 0)
             sell_quantity = resolve_sell_submission_quantity(
                 requested_quantity=quantity,
                 can_use_volume=_get_position_reader().get_can_use_volume(code),
@@ -1051,6 +1052,12 @@ class StrategyGuardian(metaclass=SingletonType):
             current_node = "submit_intent"
             signal["quantity"] = quantity
             signal.setdefault("intent_id", new_intent_id())
+            strategy_context = _build_guardian_sell_strategy_context(
+                fill_list,
+                requested_quantity=requested_quantity,
+                submit_quantity=quantity,
+                profitable_fill_count=profitable_fill_count,
+            )
             self._emit_runtime(
                 signal,
                 "submit_intent",
@@ -1071,6 +1078,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     remark=remark,
                     is_profitable=True,
                     signal=signal,
+                    strategy_context=strategy_context,
                 )
             except PositionManagementRejectedError as exc:
                 rejection_context = {
@@ -1406,3 +1414,52 @@ def _resolve_guardian_arrangement_scope(code):
             int(item.get("remaining_quantity") or 0) for item in open_entries
         ),
     }
+
+
+def _build_guardian_sell_strategy_context(
+    fill_list,
+    *,
+    requested_quantity,
+    submit_quantity,
+    profitable_fill_count,
+):
+    source_entries = _resolve_guardian_sell_source_entries(
+        fill_list,
+        quantity=submit_quantity,
+    )
+    if not source_entries:
+        return None
+    return {
+        "guardian_sell_sources": {
+            "profitable_fill_count": int(profitable_fill_count or 0),
+            "requested_quantity": int(requested_quantity or 0),
+            "submit_quantity": int(submit_quantity or 0),
+            "entries": source_entries,
+        }
+    }
+
+
+def _resolve_guardian_sell_source_entries(fill_list, *, quantity):
+    remaining = int(quantity or 0)
+    if remaining <= 0:
+        return []
+
+    source_entries = []
+    for item in reversed(list(fill_list or [])):
+        if remaining <= 0:
+            break
+        entry_id = str(item.get("entry_id") or "").strip()
+        if not entry_id:
+            continue
+        available_quantity = int(item.get("quantity") or 0)
+        if available_quantity <= 0:
+            continue
+        allocated_quantity = min(available_quantity, remaining)
+        source_entries.append(
+            {
+                "entry_id": entry_id,
+                "quantity": allocated_quantity,
+            }
+        )
+        remaining -= allocated_quantity
+    return source_entries

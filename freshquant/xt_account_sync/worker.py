@@ -64,7 +64,7 @@ def run_forever(
         )
         loop_result = sync_service.sync_once(
             include_credit_subjects=include_credit_subjects,
-            seed_symbol_snapshots=False,
+            seed_symbol_snapshots=True,
         )
         _log_positions_quarantine(loop_result)
         if include_credit_subjects:

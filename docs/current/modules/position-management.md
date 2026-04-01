@@ -57,6 +57,8 @@
 - `market_value`
   - `xt_positions.market_value`
 
+`xt_account_sync.worker` 当前在每一轮 `15s` 同步中都会重新刷新 `pm_symbol_position_snapshots`，不再只在 worker 启动时 seed 一次；页面上的单标的仓位摘要因此会随最新 broker truth 持续收敛。
+
 ### 账本仓位
 
 账本仓位来自 `om_position_entries` 聚合，不再使用 `om_buy_lots` 或 `stock_fills` 兼容镜像定义当前仓位真值。
