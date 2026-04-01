@@ -361,6 +361,14 @@
                             {{ row.entryIdLabel }}
                           </span>
                         </div>
+                        <el-button
+                          type="primary"
+                          text
+                          class="subject-editor-stoploss-entry__toggle"
+                          @click.stop="toggleEntrySlices(row.entry_id)"
+                        >
+                          {{ isEntrySlicesExpanded(row.entry_id) ? '收起切片' : '查看切片' }}
+                        </el-button>
                       </div>
 
                       <div class="subject-editor-stoploss-entry__meta" :title="row.entryMetaLabel">
@@ -390,6 +398,82 @@
                             <span class="subject-editor-stoploss-entry__meta-value">{{ row.entrySummaryDisplay.remainingMarketValueLabel }}</span>
                           </span>
                         </span>
+                      </div>
+
+                      <div
+                        v-if="isEntrySlicesExpanded(row.entry_id)"
+                        class="subject-editor-stoploss-entry__details"
+                      >
+                        <section class="subject-editor-stoploss-entry__detail-section">
+                          <div class="subject-editor-stoploss-entry__detail-header">
+                            <div class="subject-editor-stoploss-entry__detail-title">聚合买入</div>
+                            <div class="subject-editor-stoploss-entry__detail-meta">
+                              {{ (row.aggregation_members || []).length }} 笔
+                            </div>
+                          </div>
+                          <div
+                            v-if="!(row.aggregation_members || []).length"
+                            class="subject-editor-stoploss-entry__detail-empty"
+                          >
+                            当前入口没有聚合买入成员。
+                          </div>
+                          <div v-else class="subject-editor-stoploss-entry__detail-list">
+                            <div
+                              v-for="(member, memberIndex) in row.aggregation_members"
+                              :key="`${row.entry_id}-member-${member.broker_order_key || memberIndex}`"
+                              class="subject-editor-stoploss-entry__detail-row"
+                            >
+                              <span class="subject-editor-stoploss-entry__detail-index">#{{ memberIndex + 1 }}</span>
+                              <span class="subject-editor-stoploss-entry__detail-item">
+                                委托键 <span class="workbench-code">{{ member.broker_order_key || '-' }}</span>
+                              </span>
+                              <span class="subject-editor-stoploss-entry__detail-item">
+                                数量 <span class="workbench-code">{{ formatInteger(member.quantity) }}</span>
+                              </span>
+                              <span class="subject-editor-stoploss-entry__detail-item">
+                                成交价 <span class="workbench-code">{{ formatPrice(member.entry_price) }}</span>
+                              </span>
+                              <span class="subject-editor-stoploss-entry__detail-item">
+                                时间 <span class="workbench-code">{{ member.time || '-' }}</span>
+                              </span>
+                            </div>
+                          </div>
+                        </section>
+
+                        <section class="subject-editor-stoploss-entry__detail-section">
+                          <div class="subject-editor-stoploss-entry__detail-header">
+                            <div class="subject-editor-stoploss-entry__detail-title">切片明细</div>
+                            <div class="subject-editor-stoploss-entry__detail-meta">
+                              {{ (row.entry_slices || []).length }} 条
+                            </div>
+                          </div>
+                          <div
+                            v-if="!(row.entry_slices || []).length"
+                            class="subject-editor-stoploss-entry__detail-empty"
+                          >
+                            当前入口没有 open 切片。
+                          </div>
+                          <div v-else class="subject-editor-stoploss-entry__slice-table">
+                            <div class="subject-editor-stoploss-entry__slice-head">
+                              <span>序号</span>
+                              <span>守护价</span>
+                              <span>原始数量</span>
+                              <span>剩余数量</span>
+                              <span>剩余市值</span>
+                            </div>
+                            <div
+                              v-for="slice in row.entry_slices"
+                              :key="slice.entry_slice_id"
+                              class="subject-editor-stoploss-entry__slice-row"
+                            >
+                              <span class="workbench-code">{{ formatInteger(slice.slice_seq) }}</span>
+                              <span class="workbench-code">{{ formatPrice(slice.guardian_price) }}</span>
+                              <span class="workbench-code">{{ formatInteger(slice.original_quantity) }}</span>
+                              <span class="workbench-code">{{ formatInteger(slice.remaining_quantity) }}</span>
+                              <span class="workbench-code">{{ formatWanAmount(slice.remaining_amount) }}</span>
+                            </div>
+                          </div>
+                        </section>
                       </div>
                     </div>
                   </template>
@@ -600,6 +684,7 @@ const pmStateChipVariant = computed(() => resolveStateChipVariant(pmSummary.valu
 
 const detailSummaryChips = computed(() => buildDetailSummaryChips(detail.value || {}))
 const configEditorRows = computed(() => buildDenseConfigRows(detail.value || {}))
+const expandedEntrySlices = reactive({})
 
 watch(
   () => [
@@ -623,6 +708,19 @@ watch(
     }
     if (overviewPagination.pageSize !== pageSize) {
       overviewPagination.pageSize = pageSize
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => (detail.value?.entries || []).map((row) => row.entry_id).filter(Boolean),
+  (entryIds) => {
+    const allowed = new Set(entryIds)
+    for (const key of Object.keys(expandedEntrySlices)) {
+      if (!allowed.has(key)) {
+        delete expandedEntrySlices[key]
+      }
     }
   },
   { immediate: true },
@@ -674,6 +772,13 @@ const handleSaveStoplossClick = async (entryId) => {
     }
   }
   await handleSaveStoploss(entryId)
+}
+
+const isEntrySlicesExpanded = (entryId) => Boolean(expandedEntrySlices[entryId])
+
+const toggleEntrySlices = (entryId) => {
+  if (!entryId) return
+  expandedEntrySlices[entryId] = !expandedEntrySlices[entryId]
 }
 
 onMounted(async () => {
@@ -942,6 +1047,11 @@ onMounted(async () => {
   color: #1f2937;
 }
 
+.subject-editor-stoploss-entry__toggle {
+  padding: 0;
+  min-height: auto;
+}
+
 .subject-editor-stoploss-entry__id {
   color: #64748b;
   font-size: 11px;
@@ -987,6 +1097,93 @@ onMounted(async () => {
 
 .subject-editor-stoploss-entry__meta-separator {
   color: #94a3b8;
+}
+
+.subject-editor-stoploss-entry__details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.subject-editor-stoploss-entry__detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.subject-editor-stoploss-entry__detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.subject-editor-stoploss-entry__detail-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.subject-editor-stoploss-entry__detail-meta,
+.subject-editor-stoploss-entry__detail-empty {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.subject-editor-stoploss-entry__detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.subject-editor-stoploss-entry__detail-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.subject-editor-stoploss-entry__detail-index {
+  color: #64748b;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.subject-editor-stoploss-entry__detail-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #475569;
+}
+
+.subject-editor-stoploss-entry__slice-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.subject-editor-stoploss-entry__slice-head,
+.subject-editor-stoploss-entry__slice-row {
+  display: grid;
+  grid-template-columns: 56px 78px 88px 88px minmax(84px, 1fr);
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.subject-editor-stoploss-entry__slice-head {
+  color: #64748b;
+}
+
+.subject-editor-stoploss-entry__slice-row {
+  color: #1f2937;
 }
 
 .subject-editor-config-table :deep(.el-input-number),

@@ -6,6 +6,7 @@ from bson import ObjectId
 
 from freshquant.order_management.entry_adapter import (
     list_entry_stoploss_bindings_compat,
+    list_open_entry_slices_compat,
     list_open_entry_views,
 )
 from freshquant.order_management.repository import OrderManagementRepository
@@ -192,6 +193,30 @@ class SubjectManagementDashboardService:
         positions = self._position_map()
         position = positions.get(normalized_symbol) or {}
         symbol_position = dict(self.symbol_position_loader(normalized_symbol) or {})
+        latest_price = _safe_float_or_none(symbol_position.get("close_price"))
+        latest_price_source = _safe_nonempty_text(symbol_position.get("price_source"))
+        avg_price = _safe_float_or_none(position.get("avg_price"))
+        entry_slices_by_entry = _group_entry_slices_by_entry(
+            list_open_entry_slices_compat(
+                symbol=normalized_symbol,
+                entry_ids=[item.get("entry_id") for item in entries],
+                repository=self.order_repository,
+            )
+        )
+        for row in entries:
+            row["aggregation_members"] = list(row.get("aggregation_members") or [])
+            row["aggregation_window"] = dict(row.get("aggregation_window") or {})
+            row["entry_slices"] = entry_slices_by_entry.get(row.get("entry_id"), [])
+            row["latest_price"] = latest_price
+            row["latest_price_source"] = latest_price_source
+            (
+                row["remaining_market_value"],
+                row["remaining_market_value_source"],
+            ) = _resolve_entry_remaining_market_value(
+                row,
+                latest_price=latest_price,
+                avg_price=avg_price,
+            )
         latest_event = (
             self._latest_trigger_map({normalized_symbol}).get(normalized_symbol) or {}
         )
@@ -220,7 +245,7 @@ class SubjectManagementDashboardService:
                         symbol_position,
                         position,
                     ),
-                    "avg_price": _safe_float_or_none(position.get("avg_price")),
+                    "avg_price": avg_price,
                     "last_trigger_time": latest_event.get("created_at"),
                     "last_trigger_kind": latest_event.get("kind"),
                     "market_value_source": symbol_position.get("market_value_source"),
@@ -495,6 +520,11 @@ def _safe_float_or_none(value):
         return None
 
 
+def _safe_nonempty_text(value):
+    text = str(value or "").strip()
+    return text or None
+
+
 def _safe_int_or_none(value):
     if value is None:
         return None
@@ -578,6 +608,31 @@ def _resolve_position_amount(symbol_position, position):
     if market_value is not None:
         return _safe_float(market_value)
     return _safe_float(position.get("amount"))
+
+
+def _group_entry_slices_by_entry(rows):
+    grouped = {}
+    for item in list(rows or []):
+        entry_id = _safe_nonempty_text((item or {}).get("entry_id"))
+        if not entry_id:
+            continue
+        grouped.setdefault(entry_id, []).append(dict(item))
+    return grouped
+
+
+def _resolve_entry_remaining_market_value(entry, *, latest_price=None, avg_price=None):
+    remaining_quantity = _safe_float_or_none((entry or {}).get("remaining_quantity"))
+    if remaining_quantity is None:
+        return None, "unavailable"
+    if latest_price is not None:
+        return round(latest_price * remaining_quantity, 6), (
+            "latest_price_x_remaining_quantity"
+        )
+    if avg_price is not None:
+        return round(avg_price * remaining_quantity, 6), (
+            "avg_price_x_remaining_quantity"
+        )
+    return None, "unavailable"
 
 
 def _json_safe_payload(value):

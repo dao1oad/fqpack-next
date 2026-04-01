@@ -26,6 +26,18 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
         entry_price: 10.0,
         original_quantity: 300,
         remaining_quantity: 200,
+        latest_price: 10.88,
+        latest_price_source: 'xt_positions_last_price',
+        remaining_market_value: 2176,
+        remaining_market_value_source: 'latest_price_x_remaining_quantity',
+        aggregation_members: [
+          { broker_order_key: 'buy_ord_a', quantity: 100, entry_price: 10.0, time: '10:31:00' },
+          { broker_order_key: 'buy_ord_b', quantity: 200, entry_price: 10.03, time: '10:33:00' },
+        ],
+        entry_slices: [
+          { entry_slice_id: 'slice_1', slice_seq: 1, guardian_price: 9.8, remaining_quantity: 80 },
+          { entry_slice_id: 'slice_2', slice_seq: 2, guardian_price: 9.6, remaining_quantity: 120 },
+        ],
         stoploss: { stop_price: 9.2, enabled: true },
       },
     ],
@@ -48,16 +60,19 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
     originalQuantityLabel: '300 股',
     remainingQuantityLabel: '200 股 / 66.67%',
     entryDateTimeLabel: '2026-03-16 10:31:00',
-    remainingMarketValueLabel: '0.20 万',
+    remainingMarketValueLabel: '0.22 万',
   })
   assert.deepEqual(detail.entries[0].entrySummaryLines, [
     '买入价：10.000；买入300 股 剩 200 股 / 66.67%',
-    '买入时间：2026-03-16 10:31:00；剩余市值：0.20 万',
+    '买入时间：2026-03-16 10:31:00；剩余市值：0.22 万',
   ])
   assert.equal(
     detail.entries[0].entryMetaLabel,
-    '买入价：10.000；买入300 股 剩 200 股 / 66.67% · 买入时间：2026-03-16 10:31:00；剩余市值：0.20 万'
+    '买入价：10.000；买入300 股 剩 200 股 / 66.67% · 买入时间：2026-03-16 10:31:00；剩余市值：0.22 万'
   )
+  assert.equal(detail.entries[0].latest_price, 10.88)
+  assert.equal(detail.entries[0].aggregation_members.length, 2)
+  assert.equal(detail.entries[0].entry_slices.length, 2)
   assert.equal(Object.hasOwn(detail.mustPool, 'forever'), false)
   assert.equal(Object.hasOwn(detail.positionLimit, 'use_default'), false)
 })

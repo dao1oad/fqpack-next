@@ -73,7 +73,14 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
 
 当前 detail 已不再返回 `buy_lots` 字段。
 
-每条 `entry` 当前会内嵌自己的 `stoploss` 绑定摘要。
+每条 `entry` 当前会内嵌：
+
+- `stoploss` 绑定摘要
+- `aggregation_members`
+- `aggregation_window`
+- `entry_slices`
+- `latest_price / latest_price_source`
+- `remaining_market_value / remaining_market_value_source`
 
 ## 止损语义
 
@@ -87,6 +94,13 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
   - 剩余数量与比例
   - 买入时间
   - 剩余市值
+
+`/subject-management` 当前是 entry 级切片检查主入口：
+
+- 每条 open entry 可展开查看 `aggregation_members`
+- 展开区继续查看该 entry 的 `entry_slices`
+- “剩余市值”优先按 `latest_price * remaining_quantity`
+- 若当前 symbol snapshot 缺少最新价，再回退 `avg_price * remaining_quantity`
 
 ## 排序
 

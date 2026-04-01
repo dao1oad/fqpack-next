@@ -164,11 +164,17 @@ const buildEntrySummaryDisplay = (row = {}, runtimeSummary = {}) => {
         ? formatQuantityLabel(remainingQuantity)
         : `${formatQuantityLabel(remainingQuantity)} / ${remainingPercent}`
   )
+  const backendRemainingMarketValue = toNullableNumber(row?.remaining_market_value)
+  const latestPrice = toNullableNumber(row?.latest_price)
   const avgPrice = toNullableNumber(runtimeSummary?.avg_price)
   const remainingMarketValue = (
-    avgPrice === null || remainingQuantity === null
-      ? null
-      : avgPrice * remainingQuantity
+    backendRemainingMarketValue !== null
+      ? backendRemainingMarketValue
+      : latestPrice !== null && remainingQuantity !== null
+        ? latestPrice * remainingQuantity
+        : avgPrice !== null && remainingQuantity !== null
+          ? avgPrice * remainingQuantity
+          : null
   )
   const entryDateTime = formatEntryDateTime(row) || '-'
   const entryPrice = row?.entry_price ?? row?.buy_price_real
@@ -204,11 +210,26 @@ const buildEntries = (rows = [], runtimeSummary = {}) => {
     const entryPrice = row?.entry_price ?? row?.buy_price_real
     const entrySummaryDisplay = buildEntrySummaryDisplay(row, runtimeSummary)
     const entrySummaryLines = buildEntrySummaryLinesFromDisplay(entrySummaryDisplay)
+    const aggregationMembers = Array.isArray(row?.aggregation_members)
+      ? row.aggregation_members.map((item) => ({ ...item }))
+      : []
+    const entrySlices = Array.isArray(row?.entry_slices)
+      ? row.entry_slices.map((item) => ({ ...item }))
+      : []
     return {
       ...row,
       entry_id: toText(row?.entry_id),
       entry_price: entryPrice,
       entry_price_label: formatPrice(entryPrice),
+      aggregation_members: aggregationMembers,
+      aggregation_window: row?.aggregation_window && typeof row.aggregation_window === 'object'
+        ? { ...row.aggregation_window }
+        : {},
+      entry_slices: entrySlices,
+      latest_price: toNullableNumber(row?.latest_price),
+      latest_price_source: toText(row?.latest_price_source),
+      remaining_market_value: toNullableNumber(row?.remaining_market_value),
+      remaining_market_value_source: toText(row?.remaining_market_value_source),
       stoploss: {
         stop_price: toNullableNumber(stoploss?.stop_price),
         ratio: toNullableNumber(stoploss?.ratio),
