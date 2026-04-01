@@ -264,6 +264,51 @@ def test_evaluate_takeprofit_blocks_when_sellable_volume_is_zero():
     assert batch["blocked_reason"] == "can_use_volume"
 
 
+def test_evaluate_takeprofit_zero_quantity_marks_level_triggered_without_order():
+    repo = InMemoryTpslRepository()
+    tp_service = TakeprofitService(repository=repo)
+    tp_service.save_profile(
+        "000001",
+        tiers=[
+            {"level": 1, "price": 10.0, "manual_enabled": True},
+        ],
+        updated_by="api",
+    )
+    order_repo = FakeOrderManagementRepository(
+        open_entry_slices=[
+            {
+                "entry_id": "entry1",
+                "entry_slice_id": "slice1",
+                "guardian_price": 10.0,
+                "remaining_quantity": 300,
+                "slice_seq": 1,
+                "sort_key": 10.0,
+                "symbol": "000001",
+            }
+        ]
+    )
+    service = TpslService(
+        takeprofit_service=tp_service,
+        order_repository=order_repo,
+        position_reader=FixedPositionReader(300),
+    )
+
+    batch = service.evaluate_takeprofit(symbol="000001", ask1=10.0)
+
+    assert batch["status"] == "triggered_no_order"
+    assert batch["skip_reason"] == "no_profitable_quantity"
+    assert batch["quantity"] == 0
+    assert batch["level"] == 1
+    assert batch["trace_id"].startswith("trc_")
+    assert batch["batch_id"].startswith("takeprofit_trigger_")
+    assert tp_service.get_state("000001")["armed_levels"] == {1: False}
+    assert repo.events[-1]["event_type"] == "takeprofit_hit"
+    assert repo.events[-1]["batch_id"] == batch["batch_id"]
+    assert repo.events[-1]["trigger_price"] == 10.0
+    assert repo.events[-1]["entry_details"] == []
+    assert repo.events[-1]["buy_lot_details"] == []
+
+
 class FakeCollection:
     def __init__(self, rows):
         self.rows = list(rows)

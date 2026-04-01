@@ -350,6 +350,60 @@ def test_evaluate_takeprofit_blocked_result_does_not_emit_trace_ids():
     assert all(not event.get("trace_id") for event in runtime_logger.events)
 
 
+def test_evaluate_takeprofit_zero_quantity_trigger_emits_success_trace_and_marks_level():
+    runtime_logger = FakeRuntimeLogger()
+    takeprofit_service = FakeTakeprofitService()
+
+    class ZeroQuantityOrderRepository(FakeOrderRepository):
+        def list_open_slices(self, symbol=None, buy_lot_ids=None):
+            return [
+                {
+                    "buy_lot_id": "lot1",
+                    "lot_slice_id": "slice1",
+                    "guardian_price": 10.8,
+                    "remaining_quantity": 300,
+                    "sort_key": 1,
+                    "symbol": symbol or "000001",
+                }
+            ]
+
+    service = TpslService(
+        takeprofit_service=takeprofit_service,
+        order_submit_service=FakeOrderSubmitService(),
+        order_repository=ZeroQuantityOrderRepository(),
+        position_reader=FixedPositionReader(),
+        lock_client=AlwaysAvailableLockClient(),
+        runtime_logger=runtime_logger,
+    )
+
+    batch = service.evaluate_takeprofit(
+        symbol="000001",
+        code="sz000001",
+        ask1=10.8,
+        bid1=10.7,
+        last_price=10.8,
+        tick_time=1710000000,
+    )
+
+    assert batch["status"] == "triggered_no_order"
+    assert batch["trace_id"].startswith("trc_")
+    assert [event["node"] for event in runtime_logger.events] == ["trigger_eval"]
+    assert runtime_logger.events[0]["status"] == "success"
+    assert runtime_logger.events[0]["reason_code"] == "no_profitable_quantity"
+    assert runtime_logger.events[0]["trace_id"] == batch["trace_id"]
+    assert takeprofit_service.mark_calls == [
+        {
+            "symbol": "000001",
+            "level": 2,
+            "batch_id": batch["batch_id"],
+            "updated_by": "tpsl_trigger",
+            "trigger_price": 10.8,
+            "entry_details": [],
+            "buy_lot_details": [],
+        }
+    ]
+
+
 def test_evaluate_stoploss_blocked_result_does_not_emit_trace_ids(monkeypatch):
     runtime_logger = FakeRuntimeLogger()
 

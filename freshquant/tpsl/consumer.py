@@ -68,7 +68,7 @@ class TpslTickConsumer:
                 tick_time=event.tick_time,
             )
             if takeprofit_batch:
-                if takeprofit_batch.get("status") == "blocked":
+                if takeprofit_batch.get("status") != "ready":
                     return takeprofit_batch
                 return self.service.submit_takeprofit_batch(takeprofit_batch)
 
@@ -81,7 +81,7 @@ class TpslTickConsumer:
                 tick_time=event.tick_time,
             )
             if stoploss_batch:
-                if stoploss_batch.get("status") == "blocked":
+                if stoploss_batch.get("status") != "ready":
                     return stoploss_batch
                 return self.service.submit_stoploss_batch(stoploss_batch)
             return None

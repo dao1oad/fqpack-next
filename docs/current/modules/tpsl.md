@@ -5,6 +5,7 @@
 TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。当前模块已经切到 `position entry` 语义：
 
 - 止盈仍按 symbol profile 管理
+- 止盈命中档位但当前可盈利切片数量为 `0` 时，仍会消耗命中档位并写 `takeprofit_hit`，但不会生成退出单
 - 止损对象改为 open `position_entries`
 - 历史与详情优先读取 `entry ledger`
 - 止盈卖出提交前会统一按 `xt_positions.can_use_volume` 截断，并按一手向下取整；Guardian 卖出现在复用同一套约束 helper

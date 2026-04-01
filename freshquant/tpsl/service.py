@@ -221,12 +221,46 @@ class TpslService:
                 tier_price=hit["price"],
             )
             if int(quantity_result["quantity"] or 0) <= 0:
+                trace_id_value = str(trace_id or "").strip() or new_trace_id()
+                batch_id = f"takeprofit_trigger_{uuid4().hex}"
+                self.mark_takeprofit_triggered(
+                    symbol=base_symbol,
+                    level=int(hit["level"]),
+                    batch_id=batch_id,
+                    updated_by="tpsl_trigger",
+                    trigger_price=hit["price"],
+                    entry_details=[],
+                    buy_lot_details=[],
+                )
                 self._emit_runtime(
                     "trigger_eval",
                     symbol=base_symbol,
-                    payload=trigger_payload,
+                    trace_id=trace_id_value,
+                    status="success",
+                    reason_code="no_profitable_quantity",
+                    payload={
+                        **trigger_payload,
+                        "quantity": 0,
+                        "batch_id": batch_id,
+                        "trigger_consumed": True,
+                    },
                 )
-                return None
+                return {
+                    "batch_id": batch_id,
+                    "status": "triggered_no_order",
+                    "symbol": base_symbol,
+                    "trace_id": trace_id_value,
+                    "price": float(hit["price"]),
+                    "quantity": 0,
+                    "level": int(hit["level"]),
+                    "tier_price": float(hit["price"]),
+                    "ask1": float(ask1 or 0.0),
+                    "bid1": float(bid1 or 0.0),
+                    "last_price": float(last_price or 0.0),
+                    "tick_time": int(tick_time or 0),
+                    "skip_reason": "no_profitable_quantity",
+                    "trigger_consumed": True,
+                }
 
             sell_cap = self.position_reader.get_can_use_volume(base_symbol)
             sell_quantity = _resolve_sell_submission_quantity(
