@@ -107,6 +107,18 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
         entry_price: 10.0,
         original_quantity: 300,
         remaining_quantity: 200,
+        latest_price: 10.88,
+        latest_price_source: 'xt_positions_last_price',
+        remaining_market_value: 2176,
+        remaining_market_value_source: 'latest_price_x_remaining_quantity',
+        aggregation_members: [
+          { broker_order_key: 'buy_ord_a', quantity: 100, entry_price: 10.0, time: '10:31:00' },
+          { broker_order_key: 'buy_ord_b', quantity: 200, entry_price: 10.03, time: '10:33:00' },
+        ],
+        entry_slices: [
+          { entry_slice_id: 'slice_1', slice_seq: 1, guardian_price: 9.8, remaining_quantity: 80 },
+          { entry_slice_id: 'slice_2', slice_seq: 2, guardian_price: 9.6, remaining_quantity: 120 },
+        ],
         stoploss: {
           stop_price: 9.2,
           enabled: true,
@@ -148,16 +160,19 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
     originalQuantityLabel: '300 股',
     remainingQuantityLabel: '200 股 / 66.67%',
     entryDateTimeLabel: '2026-03-16 10:31:00',
-    remainingMarketValueLabel: '0.20 万',
+    remainingMarketValueLabel: '0.22 万',
   })
   assert.deepEqual(detail.entries[0].entrySummaryLines, [
     '买入价：10.000；买入300 股 剩 200 股 / 66.67%',
-    '买入时间：2026-03-16 10:31:00；剩余市值：0.20 万',
+    '买入时间：2026-03-16 10:31:00；剩余市值：0.22 万',
   ])
   assert.equal(
     detail.entries[0].entryMetaLabel,
-    '买入价：10.000；买入300 股 剩 200 股 / 66.67% · 买入时间：2026-03-16 10:31:00；剩余市值：0.20 万'
+    '买入价：10.000；买入300 股 剩 200 股 / 66.67% · 买入时间：2026-03-16 10:31:00；剩余市值：0.22 万'
   )
+  assert.equal(detail.entries[0].latest_price, 10.88)
+  assert.equal(detail.entries[0].aggregation_members.length, 2)
+  assert.equal(detail.entries[0].entry_slices.length, 2)
   assert.equal(detail.runtimeSummary.avg_price, 10.023)
   assert.equal(detail.runtimeSummary.last_trigger_time, '2026-03-16 10:40:00')
   assert.equal(Object.hasOwn(detail.mustPool, 'forever'), false)
@@ -403,4 +418,15 @@ test('SubjectManagement stoploss rows show the same entry summary fields as Klin
   assert.match(source, /row\.entrySummaryDisplay\.remainingQuantityLabel/)
   assert.match(source, /row\.entrySummaryDisplay\.entryDateTimeLabel/)
   assert.match(source, /row\.entrySummaryDisplay\.remainingMarketValueLabel/)
+})
+
+test('SubjectManagement view exposes expandable aggregation member and slice details per entry', () => {
+  const source = fs.readFileSync(new URL('./SubjectManagement.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
+  assert.match(source, /查看切片/)
+  assert.match(source, /收起切片/)
+  assert.match(source, /row\.aggregation_members/)
+  assert.match(source, /row\.entry_slices/)
+  assert.match(source, /聚合买入/)
+  assert.match(source, /切片明细/)
 })

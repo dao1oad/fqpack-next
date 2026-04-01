@@ -168,6 +168,7 @@ class InMemoryOrderManagementRepository:
     def __init__(self):
         self.position_entries = []
         self.entry_stoploss_bindings = []
+        self.open_entry_slices = []
         self.buy_lots = []
         self.stoploss_bindings = []
 
@@ -197,6 +198,15 @@ class InMemoryOrderManagementRepository:
             rows = [item for item in rows if item.get("symbol") == symbol]
         if enabled is not None:
             rows = [item for item in rows if bool(item.get("enabled")) == bool(enabled)]
+        return rows
+
+    def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+        rows = list(self.open_entry_slices)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
         return rows
 
     def list_stoploss_bindings(self, symbol=None, enabled=None):
@@ -803,6 +813,183 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_entries
     assert detail["position_management_summary"]["effective_state"] == "HOLDING_ONLY"
     assert detail["position_limit_summary"]["effective_limit"] == 500000.0
     assert detail["position_limit_summary"]["blocked"] is True
+
+
+def test_subject_management_detail_exposes_entry_slices_and_latest_price_remaining_market_value():
+    order_repository = InMemoryOrderManagementRepository()
+    order_repository.position_entries.append(
+        {
+            "entry_id": "entry_cluster_1",
+            "symbol": "600104",
+            "date": 20260331,
+            "time": "10:31:00",
+            "trade_time": 1774924260,
+            "entry_price": 10.02,
+            "original_quantity": 300,
+            "remaining_quantity": 200,
+            "status": "OPEN",
+            "aggregation_members": [
+                {
+                    "broker_order_key": "buy_ord_a",
+                    "trade_fact_id": "tf_a",
+                    "quantity": 100,
+                    "entry_price": 10.0,
+                    "trade_time": 1774924260,
+                    "date": 20260331,
+                    "time": "10:31:00",
+                    "trading_day": 20260331,
+                },
+                {
+                    "broker_order_key": "buy_ord_b",
+                    "trade_fact_id": "tf_b",
+                    "quantity": 200,
+                    "entry_price": 10.03,
+                    "trade_time": 1774924380,
+                    "date": 20260331,
+                    "time": "10:33:00",
+                    "trading_day": 20260331,
+                },
+            ],
+            "aggregation_window": {
+                "start_trade_time": 1774924260,
+                "end_trade_time": 1774924380,
+                "trading_day": 20260331,
+                "member_count": 2,
+            },
+        }
+    )
+    order_repository.entry_stoploss_bindings.append(
+        {
+            "entry_id": "entry_cluster_1",
+            "symbol": "600104",
+            "stop_price": 9.5,
+            "enabled": True,
+        }
+    )
+    order_repository.open_entry_slices.extend(
+        [
+            {
+                "entry_slice_id": "slice_1",
+                "entry_id": "entry_cluster_1",
+                "symbol": "600104",
+                "slice_seq": 1,
+                "guardian_price": 9.8,
+                "original_quantity": 100,
+                "remaining_quantity": 80,
+                "remaining_amount": 784.0,
+                "status": "OPEN",
+            },
+            {
+                "entry_slice_id": "slice_2",
+                "entry_id": "entry_cluster_1",
+                "symbol": "600104",
+                "slice_seq": 2,
+                "guardian_price": 9.6,
+                "original_quantity": 200,
+                "remaining_quantity": 120,
+                "remaining_amount": 1152.0,
+                "status": "OPEN",
+            },
+        ]
+    )
+
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=order_repository,
+        position_loader=lambda: [
+            {
+                "symbol": "600104.SH",
+                "name": "上汽集团",
+                "quantity": 200,
+                "avg_price": 10.023,
+            }
+        ],
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "close_price": 10.88,
+            "price_source": "xt_positions_last_price",
+            "market_value": 2176.0,
+            "market_value_source": "xt_positions_market_value",
+        },
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600104")
+
+    assert len(detail["entries"]) == 1
+    entry = detail["entries"][0]
+    assert entry["aggregation_members"][0]["broker_order_key"] == "buy_ord_a"
+    assert entry["aggregation_members"][1]["broker_order_key"] == "buy_ord_b"
+    assert entry["aggregation_window"]["member_count"] == 2
+    assert [item["entry_slice_id"] for item in entry["entry_slices"]] == [
+        "slice_1",
+        "slice_2",
+    ]
+    assert entry["latest_price"] == 10.88
+    assert entry["latest_price_source"] == "xt_positions_last_price"
+    assert entry["remaining_market_value"] == 2176.0
+    assert entry["remaining_market_value_source"] == "latest_price_x_remaining_quantity"
+
+
+def test_subject_management_detail_remaining_market_value_falls_back_to_avg_price_without_latest_price():
+    order_repository = InMemoryOrderManagementRepository()
+    order_repository.position_entries.append(
+        {
+            "entry_id": "entry_cluster_fallback",
+            "symbol": "600104",
+            "date": 20260331,
+            "time": "10:31:00",
+            "trade_time": 1774924260,
+            "entry_price": 10.02,
+            "original_quantity": 300,
+            "remaining_quantity": 200,
+            "status": "OPEN",
+        }
+    )
+
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=order_repository,
+        position_loader=lambda: [
+            {
+                "symbol": "600104.SH",
+                "name": "上汽集团",
+                "quantity": 200,
+                "avg_price": 10.023,
+            }
+        ],
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 2004.6,
+            "market_value_source": "xt_positions_market_value",
+        },
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600104")
+
+    entry = detail["entries"][0]
+    assert entry["latest_price"] is None
+    assert entry["remaining_market_value"] == 2004.6
+    assert entry["remaining_market_value_source"] == "avg_price_x_remaining_quantity"
 
 
 def test_subject_management_detail_prefers_symbol_snapshot_market_value():
