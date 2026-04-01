@@ -460,102 +460,11 @@
                   <div class="subject-editor-stoploss-pane-header">
                     <div class="subject-editor-stoploss-pane-title">切片明细</div>
                     <div v-if="selectedStoplossEntry" class="subject-editor-stoploss-pane-meta">
-                      {{ selectedStoplossEntry.entryDisplayLabel }} / {{ (selectedStoplossEntry.entry_slices || []).length }} 条 open 切片
+                      {{ (selectedStoplossEntry.entry_slices || []).length }} 条 open 切片
                     </div>
                   </div>
 
                   <template v-if="selectedStoplossEntry">
-                    <div class="subject-editor-stoploss-detail__summary">
-                      <div class="subject-editor-stoploss-entry__head">
-                        <div class="subject-editor-stoploss-entry__title-wrap">
-                          <span class="subject-editor-stoploss-entry__title">{{ selectedStoplossEntry.entryDisplayLabel }}</span>
-                          <span
-                            class="subject-editor-stoploss-entry__id"
-                            :title="selectedStoplossEntry.entry_id"
-                          >
-                            {{ selectedStoplossEntry.entryIdLabel }}
-                          </span>
-                        </div>
-                        <el-tag size="small" type="primary">当前聚合买入</el-tag>
-                      </div>
-                      <div class="subject-editor-stoploss-entry__meta" :title="selectedStoplossEntry.entryMetaLabel">
-                        <span class="subject-editor-stoploss-entry__meta-line">
-                          <span class="subject-editor-stoploss-entry__meta-item subject-editor-stoploss-entry__meta-item--accent">
-                            <span class="subject-editor-stoploss-entry__meta-label">买入价：</span>
-                            <span class="subject-editor-stoploss-entry__meta-value">{{ selectedStoplossEntry.entrySummaryDisplay.entryPriceLabel }}</span>
-                          </span>
-                          <span class="subject-editor-stoploss-entry__meta-separator">；</span>
-                          <span class="subject-editor-stoploss-entry__meta-item">
-                            <span class="subject-editor-stoploss-entry__meta-label">买入</span>
-                            <span class="subject-editor-stoploss-entry__meta-value">{{ selectedStoplossEntry.entrySummaryDisplay.originalQuantityLabel }}</span>
-                          </span>
-                          <span class="subject-editor-stoploss-entry__meta-item subject-editor-stoploss-entry__meta-item--accent">
-                            <span class="subject-editor-stoploss-entry__meta-label">剩</span>
-                            <span class="subject-editor-stoploss-entry__meta-value">{{ selectedStoplossEntry.entrySummaryDisplay.remainingQuantityLabel }}</span>
-                          </span>
-                        </span>
-                        <span class="subject-editor-stoploss-entry__meta-line">
-                          <span class="subject-editor-stoploss-entry__meta-item">
-                            <span class="subject-editor-stoploss-entry__meta-label">买入时间：</span>
-                            <span class="subject-editor-stoploss-entry__meta-value">{{ selectedStoplossEntry.entrySummaryDisplay.entryDateTimeLabel }}</span>
-                          </span>
-                          <span class="subject-editor-stoploss-entry__meta-separator">；</span>
-                          <span class="subject-editor-stoploss-entry__meta-item subject-editor-stoploss-entry__meta-item--accent">
-                            <span class="subject-editor-stoploss-entry__meta-label">剩余市值：</span>
-                            <span class="subject-editor-stoploss-entry__meta-value">{{ selectedStoplossEntry.entrySummaryDisplay.remainingMarketValueLabel }}</span>
-                          </span>
-                        </span>
-                      </div>
-                      <div class="subject-editor-stoploss-card__chips">
-                        <StatusChip variant="muted">
-                          聚合买入 <strong>{{ (selectedStoplossEntry.aggregation_members || []).length }}</strong>
-                        </StatusChip>
-                        <StatusChip variant="muted">
-                          切片 <strong>{{ (selectedStoplossEntry.entry_slices || []).length }}</strong>
-                        </StatusChip>
-                        <StatusChip variant="muted">
-                          聚合窗口
-                          <strong>{{ selectedStoplossEntry.aggregation_window?.member_count || (selectedStoplossEntry.aggregation_members || []).length }}</strong>
-                        </StatusChip>
-                      </div>
-                    </div>
-
-                    <section class="subject-editor-stoploss-entry__detail-section">
-                      <div class="subject-editor-stoploss-entry__detail-header">
-                        <div class="subject-editor-stoploss-entry__detail-title">聚合买入</div>
-                        <div class="subject-editor-stoploss-entry__detail-meta">
-                          {{ (selectedStoplossEntry.aggregation_members || []).length }} 笔
-                        </div>
-                      </div>
-                      <div
-                        v-if="!(selectedStoplossEntry.aggregation_members || []).length"
-                        class="subject-editor-stoploss-entry__detail-empty"
-                      >
-                        当前入口没有聚合买入成员。
-                      </div>
-                      <div v-else class="subject-editor-stoploss-entry__detail-list">
-                        <div
-                          v-for="(member, memberIndex) in selectedStoplossEntry.aggregation_members"
-                          :key="`${selectedStoplossEntry.entry_id}-member-${member.broker_order_key || memberIndex}`"
-                          class="subject-editor-stoploss-entry__detail-row"
-                        >
-                          <span class="subject-editor-stoploss-entry__detail-index">#{{ memberIndex + 1 }}</span>
-                          <span class="subject-editor-stoploss-entry__detail-item">
-                            委托键 <span class="workbench-code">{{ member.broker_order_key || '-' }}</span>
-                          </span>
-                          <span class="subject-editor-stoploss-entry__detail-item">
-                            数量 <span class="workbench-code">{{ formatInteger(member.quantity) }}</span>
-                          </span>
-                          <span class="subject-editor-stoploss-entry__detail-item">
-                            成交价 <span class="workbench-code">{{ formatPrice(member.entry_price) }}</span>
-                          </span>
-                          <span class="subject-editor-stoploss-entry__detail-item">
-                            时间 <span class="workbench-code">{{ member.time || '-' }}</span>
-                          </span>
-                        </div>
-                      </div>
-                    </section>
-
                     <section class="subject-editor-stoploss-entry__detail-section">
                       <div class="subject-editor-stoploss-entry__detail-header">
                         <div class="subject-editor-stoploss-entry__detail-title">切片明细</div>
@@ -1207,22 +1116,6 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 
-.subject-editor-stoploss-detail__summary {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid #dbe5f0;
-  border-radius: 10px;
-  background: #fff;
-}
-
-.subject-editor-stoploss-entry {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .subject-editor-stoploss-entry__head {
   display: flex;
   align-items: center;
@@ -1323,34 +1216,6 @@ onMounted(async () => {
 .subject-editor-stoploss-entry__detail-empty {
   font-size: 12px;
   color: #64748b;
-}
-
-.subject-editor-stoploss-entry__detail-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.subject-editor-stoploss-entry__detail-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  align-items: center;
-  min-width: 0;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.subject-editor-stoploss-entry__detail-index {
-  color: #64748b;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-}
-
-.subject-editor-stoploss-entry__detail-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: #475569;
 }
 
 .subject-editor-stoploss-entry__slice-table {
