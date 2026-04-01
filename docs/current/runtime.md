@@ -12,6 +12,11 @@
 - TPSL tick listener。
 - 需要直接访问券商、终端、`TDX_HOME` 或 Windows 本地目录的组件。
 
+当前运行面还有两条与订单对账相关的固定语义：
+
+- `ExternalOrderReconcileService` 对 buy gap 会同时记录 `initial/latest/chosen` 三组价格快照；运行面和排障口径里若看到 `chosen_price_policy=freeze_initial`，表示最终确认价按首次发现快照冻结，而不是跟随长时间观测漂移。
+- Guardian 遇到“持仓 entry 已确认但 arranged fills 不可用”的场景时，当前会显式区分 `arrangement_degraded` 与 `entry_without_slices`；这两种情况默认保守跳过，不再误记成“无持仓”。
+
 ### Docker 并行环境承担
 
 - MongoDB：宿主机 `27027 ->` 容器内 `27017`

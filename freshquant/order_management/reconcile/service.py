@@ -146,11 +146,12 @@ class ExternalOrderReconcileService:
                 continue
             observed_keys.add(key)
             if gap.get("state") == "REJECTED":
+                gap_price_fields = _build_gap_price_fields(observed)
                 observed_updates = {
                     "quantity_delta": int(observed.get("quantity_delta") or 0),
-                    "price_estimate": observed.get("price_estimate") or 0.0,
                     "last_detected_at": int(detected_at),
                     "observed_count": int(gap.get("observed_count") or 1) + 1,
+                    **gap_price_fields,
                 }
                 if _is_board_lot_delta(observed_updates["quantity_delta"]):
                     observed_updates.update(
@@ -190,14 +191,12 @@ class ExternalOrderReconcileService:
                 continue
             if sell_gap_fuse is not None and item["side"] == "sell":
                 continue
+            gap_price_fields = _build_gap_price_fields(item)
             gap = {
                 "gap_id": new_reconciliation_gap_id(),
                 "symbol": item["symbol"],
                 "side": item["side"],
                 "quantity_delta": item["quantity_delta"],
-                "price_estimate": item["price_estimate"],
-                "price_source": item.get("price_source"),
-                "price_asof": item.get("price_asof"),
                 "detected_at": int(detected_at),
                 "first_detected_at": int(detected_at),
                 "last_detected_at": int(detected_at),
@@ -212,6 +211,7 @@ class ExternalOrderReconcileService:
                 "source": "position_diff",
                 "matched_order_id": None,
                 "matched_trade_fact_id": None,
+                **gap_price_fields,
             }
             self.repository.insert_reconciliation_gap(gap)
             created.append(gap)
@@ -387,7 +387,8 @@ class ExternalOrderReconcileService:
             raise
 
     def _match_inflight_internal_order(self, normalized_trade):
-        candidates = []
+        exact_candidates = []
+        partial_candidates = []
         for order in self.repository.list_orders(
             symbol=normalized_trade["symbol"],
             states={"ACCEPTED", "QUEUED", "SUBMITTING"},
@@ -400,7 +401,9 @@ class ExternalOrderReconcileService:
             request = self.repository.find_order_request(order["request_id"])
             if request is None:
                 continue
-            if int(request.get("quantity") or 0) != int(normalized_trade["quantity"]):
+            request_quantity = int(request.get("quantity") or 0)
+            trade_quantity = int(normalized_trade["quantity"] or 0)
+            if request_quantity < trade_quantity:
                 continue
             request_price = request.get("price")
             if (
@@ -408,11 +411,18 @@ class ExternalOrderReconcileService:
                 and abs(float(request_price) - float(normalized_trade["price"])) > 1e-6
             ):
                 continue
-            candidates.append(order)
+            if request_quantity == trade_quantity:
+                exact_candidates.append(order)
+            else:
+                partial_candidates.append(order)
 
-        if len(candidates) == 1:
-            return "matched", candidates[0]
-        if len(candidates) > 1:
+        if len(exact_candidates) == 1:
+            return "matched", exact_candidates[0]
+        if len(exact_candidates) > 1:
+            return "defer", None
+        if len(partial_candidates) == 1:
+            return "matched", partial_candidates[0]
+        if len(partial_candidates) > 1:
             return "defer", None
         return "missing", None
 
@@ -433,13 +443,24 @@ class ExternalOrderReconcileService:
                 ids = {"symbol": gap["symbol"]}
                 try:
                     updated_candidate = self._confirm_gap(gap, now=int(now))
+                    payload = {
+                        "resolution_type": updated_candidate.get("resolution_type"),
+                        "gap_state": updated_candidate.get("state"),
+                    }
+                    for field in (
+                        "chosen_price_estimate",
+                        "chosen_price_source",
+                        "chosen_price_asof",
+                        "chosen_price_policy",
+                        "arrange_status",
+                        "arrange_degraded",
+                    ):
+                        if updated_candidate.get(field) is not None:
+                            payload[field] = updated_candidate.get(field)
                     self._emit_runtime(
                         "reconciliation",
                         ids,
-                        payload={
-                            "resolution_type": updated_candidate.get("resolution_type"),
-                            "gap_state": updated_candidate.get("state"),
-                        },
+                        payload=payload,
                     )
                     confirmed.append(updated_candidate)
                 except Exception as exc:
@@ -480,12 +501,14 @@ class ExternalOrderReconcileService:
 
     def _confirm_open_gap(self, gap, *, now):
         quantity = int(gap.get("quantity_delta") or 0)
+        chosen_price_snapshot = _extract_gap_chosen_price_snapshot(gap)
+        chosen_price = float(chosen_price_snapshot.get("price_estimate") or 0.0)
         resolution_id = new_reconciliation_resolution_id()
         resolution = {
             "resolution_id": resolution_id,
             "gap_id": gap["gap_id"],
             "resolved_quantity": quantity,
-            "resolved_price": float(gap.get("price_estimate") or 0.0),
+            "resolved_price": chosen_price,
             "resolved_at": int(now),
             "source_ref_type": "reconciliation_gap",
             "source_ref_id": gap["gap_id"],
@@ -503,23 +526,37 @@ class ExternalOrderReconcileService:
                 },
             )
 
+        trade_fact = {
+            "symbol": gap["symbol"],
+            "trade_time": int(now),
+            "price": chosen_price,
+            "quantity": quantity,
+            "side": "buy",
+        }
+        arrange_runtime = _resolve_external_arrangement_runtime(
+            gap["symbol"],
+            trade_fact,
+        )
         entry = _build_auto_open_entry(
-            gap, resolution_id=resolution_id, confirmed_at=now
+            gap,
+            resolution_id=resolution_id,
+            confirmed_at=now,
+            price_snapshot=chosen_price_snapshot,
+            arrange_runtime=arrange_runtime,
         )
-        entry_slices = _arrange_entry_slices(
-            entry,
-            lot_amount=_safe_resolve_lot_amount(gap["symbol"]),
-            grid_interval=_safe_grid_interval_lookup(
-                gap["symbol"],
-                {
-                    "symbol": gap["symbol"],
-                    "trade_time": int(now),
-                    "price": entry["entry_price"],
-                    "quantity": quantity,
-                    "side": "buy",
-                },
-            ),
-        )
+        entry_slices = []
+        try:
+            entry_slices = _arrange_entry_slices(
+                entry,
+                lot_amount=arrange_runtime["lot_amount"],
+                grid_interval=arrange_runtime["grid_interval"],
+            )
+        except Exception as exc:
+            entry = _mark_entry_arrangement_failure(
+                entry,
+                exc,
+                existing_errors=arrange_runtime.get("errors"),
+            )
         resolution["resolution_type"] = "auto_open_entry"
         resolution["source_ref_type"] = "position_entry"
         resolution["source_ref_id"] = entry["entry_id"]
@@ -537,7 +574,15 @@ class ExternalOrderReconcileService:
             },
         )
         _after_holdings_reconciled(gap["symbol"], repository=self.repository)
-        return updated_gap
+        return {
+            **updated_gap,
+            "chosen_price_estimate": float(entry.get("entry_price") or 0.0),
+            "chosen_price_source": chosen_price_snapshot.get("price_source"),
+            "chosen_price_asof": chosen_price_snapshot.get("price_asof"),
+            "chosen_price_policy": gap.get("chosen_price_policy") or "freeze_initial",
+            "arrange_status": entry.get("arrange_status"),
+            "arrange_degraded": entry.get("arrange_degraded"),
+        }
 
     def _confirm_close_gap(self, gap, *, now):
         remaining = int(gap.get("quantity_delta") or 0)
@@ -892,9 +937,12 @@ def _build_gap_observation_updates(
         or detected_at
     )
     if observed_quantity != current_quantity:
-        resolved_price = _select_preferred_price_snapshot(None, observed)
+        resolved_price = _build_gap_price_fields(observed)
     else:
-        resolved_price = _select_preferred_price_snapshot(candidate, observed)
+        resolved_price = _build_gap_price_fields(
+            candidate,
+            observed_snapshot=observed,
+        )
     return {
         "quantity_delta": observed_quantity,
         **resolved_price,
@@ -907,6 +955,100 @@ def _build_gap_observation_updates(
             confirm_interval_seconds=confirm_interval_seconds,
             confirm_observations=confirm_observations,
         ),
+    }
+
+
+def _build_gap_price_fields(current, *, observed_snapshot=None):
+    if observed_snapshot is None:
+        snapshot = _normalize_price_snapshot(current) or _missing_price_snapshot()
+        return _expand_gap_price_snapshots(
+            initial=snapshot,
+            latest=snapshot,
+            chosen=snapshot,
+        )
+
+    current_snapshot = _normalize_price_snapshot(current)
+    observed_snapshot = _normalize_price_snapshot(observed_snapshot)
+    if observed_snapshot is None:
+        observed_snapshot = current_snapshot or _missing_price_snapshot()
+    if current_snapshot is None:
+        current_snapshot = observed_snapshot or _missing_price_snapshot()
+
+    initial_snapshot = (
+        _extract_prefixed_price_snapshot(current, prefix="initial") or current_snapshot
+    )
+    chosen_snapshot = (
+        _extract_prefixed_price_snapshot(current, prefix="chosen")
+        or initial_snapshot
+        or current_snapshot
+    )
+    latest_snapshot = (
+        _extract_prefixed_price_snapshot(current, prefix="latest") or current_snapshot
+    )
+    if observed_snapshot is not None:
+        latest_snapshot = observed_snapshot
+
+    return _expand_gap_price_snapshots(
+        initial=initial_snapshot,
+        latest=latest_snapshot,
+        chosen=chosen_snapshot,
+        policy=str(current.get("chosen_price_policy") or "freeze_initial"),
+    )
+
+
+def _expand_gap_price_snapshots(
+    *,
+    initial,
+    latest,
+    chosen,
+    policy="freeze_initial",
+):
+    initial = initial or _missing_price_snapshot()
+    latest = latest or initial
+    chosen = chosen or initial
+    return {
+        **_prefix_price_snapshot(initial, prefix="initial"),
+        **_prefix_price_snapshot(latest, prefix="latest"),
+        **_prefix_price_snapshot(chosen, prefix="chosen"),
+        "chosen_price_policy": str(policy or "freeze_initial"),
+        "price_estimate": float(chosen.get("price_estimate") or 0.0),
+        "price_source": chosen.get("price_source") or "missing",
+        "price_asof": chosen.get("price_asof"),
+    }
+
+
+def _prefix_price_snapshot(snapshot, *, prefix):
+    normalized = _normalize_price_snapshot(snapshot) or _missing_price_snapshot()
+    return {
+        f"{prefix}_price_estimate": float(normalized.get("price_estimate") or 0.0),
+        f"{prefix}_price_source": normalized.get("price_source") or "missing",
+        f"{prefix}_price_asof": normalized.get("price_asof"),
+    }
+
+
+def _extract_prefixed_price_snapshot(payload, *, prefix):
+    if payload is None:
+        return None
+    return _make_price_snapshot(
+        payload.get(f"{prefix}_price_estimate"),
+        source=payload.get(f"{prefix}_price_source"),
+        asof=payload.get(f"{prefix}_price_asof"),
+    )
+
+
+def _extract_gap_chosen_price_snapshot(gap):
+    return (
+        _extract_prefixed_price_snapshot(gap, prefix="chosen")
+        or _normalize_price_snapshot(gap)
+        or _missing_price_snapshot()
+    )
+
+
+def _missing_price_snapshot():
+    return {
+        "price_estimate": 0.0,
+        "price_source": "missing",
+        "price_asof": None,
     }
 
 
@@ -1229,10 +1371,85 @@ def _safe_grid_interval_lookup(symbol, trade_fact):
         return 1.03
 
 
-def _build_auto_open_entry(gap, *, resolution_id, confirmed_at):
+def _resolve_external_arrangement_runtime(symbol, trade_fact):
+    lot_amount = None
+    grid_interval = None
+    errors = []
+
+    if _safe_resolve_lot_amount is not _ORIGINAL_SAFE_RESOLVE_LOT_AMOUNT:
+        lot_amount = _safe_resolve_lot_amount(symbol)
+    else:
+        try:
+            from freshquant.order_management.ingest.xt_reports import (
+                _resolve_lot_amount,
+            )
+
+            lot_amount = _resolve_lot_amount(symbol)
+        except Exception as exc:
+            errors.append(
+                _build_arrangement_error(
+                    stage="resolve_lot_amount",
+                    exc=exc,
+                    fallback_value=_DEFAULT_RECONCILE_LOT_AMOUNT,
+                )
+            )
+
+    if _safe_grid_interval_lookup is not _ORIGINAL_SAFE_GRID_INTERVAL_LOOKUP:
+        grid_interval = _safe_grid_interval_lookup(symbol, trade_fact)
+    else:
+        try:
+            grid_interval = _default_grid_interval_lookup(symbol, trade_fact)
+        except Exception as exc:
+            errors.append(
+                _build_arrangement_error(
+                    stage="resolve_grid_interval",
+                    exc=exc,
+                    fallback_value=1.03,
+                )
+            )
+
+    if errors:
+        lot_amount = _DEFAULT_RECONCILE_LOT_AMOUNT
+        grid_interval = 1.03
+
+    return {
+        "lot_amount": int(lot_amount or _DEFAULT_RECONCILE_LOT_AMOUNT),
+        "grid_interval": float(grid_interval or 1.03),
+        "degraded": bool(errors),
+        "errors": errors,
+    }
+
+
+def _build_arrangement_error(stage, *, exc, fallback_value):
+    return {
+        "stage": str(stage or "unknown"),
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+        "fallback_value": fallback_value,
+        "exception": build_exception_payload(exc),
+    }
+
+
+def _build_auto_open_entry(
+    gap,
+    *,
+    resolution_id,
+    confirmed_at,
+    price_snapshot=None,
+    arrange_runtime=None,
+):
     date_value, time_value = beijing_date_time_from_epoch(confirmed_at)
     quantity = int(gap.get("quantity_delta") or 0)
-    price = float(gap.get("price_estimate") or 0.0)
+    chosen_snapshot = price_snapshot or _extract_gap_chosen_price_snapshot(gap)
+    price = float(chosen_snapshot.get("price_estimate") or 0.0)
+    arrange_runtime = arrange_runtime or {
+        "lot_amount": _DEFAULT_RECONCILE_LOT_AMOUNT,
+        "grid_interval": 1.03,
+        "degraded": False,
+        "errors": [],
+    }
+    runtime_errors = list(arrange_runtime.get("errors") or [])
+    primary_error = runtime_errors[0] if runtime_errors else None
     return {
         "entry_id": new_position_entry_id(),
         "symbol": gap["symbol"],
@@ -1250,9 +1467,43 @@ def _build_auto_open_entry(gap, *, resolution_id, confirmed_at):
         "trade_time": int(confirmed_at),
         "source": "external_inferred",
         "arrange_mode": "runtime_grid",
+        "arrange_status": "DEGRADED" if arrange_runtime.get("degraded") else "READY",
+        "arrange_degraded": bool(arrange_runtime.get("degraded")),
+        "grid_interval": float(arrange_runtime.get("grid_interval") or 1.03),
+        "lot_amount": int(
+            arrange_runtime.get("lot_amount") or _DEFAULT_RECONCILE_LOT_AMOUNT
+        ),
+        "arrange_error_type": (primary_error or {}).get("error_type"),
+        "arrange_error_message": (primary_error or {}).get("error_message"),
+        "arrange_runtime_errors": runtime_errors,
         "status": "OPEN",
         "sell_history": [],
     }
+
+
+def _mark_entry_arrangement_failure(entry, exc, *, existing_errors=None):
+    runtime_errors = list(existing_errors or [])
+    runtime_errors.append(
+        _build_arrangement_error(
+            stage="arrange_entry_slices",
+            exc=exc,
+            fallback_value=None,
+        )
+    )
+    entry.update(
+        {
+            "arrange_status": "DEGRADED",
+            "arrange_degraded": True,
+            "arrange_error_type": type(exc).__name__,
+            "arrange_error_message": str(exc),
+            "arrange_runtime_errors": runtime_errors,
+        }
+    )
+    return entry
+
+
+_ORIGINAL_SAFE_RESOLVE_LOT_AMOUNT = _safe_resolve_lot_amount
+_ORIGINAL_SAFE_GRID_INTERVAL_LOOKUP = _safe_grid_interval_lookup
 
 
 def _arrange_entry_slices(entry, *, lot_amount, grid_interval):
