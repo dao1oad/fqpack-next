@@ -97,10 +97,12 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
 
 `/subject-management` 当前是 entry 级切片检查主入口：
 
-- 每条 open entry 可展开查看 `aggregation_members`
-- 展开区继续查看该 entry 的 `entry_slices`
-- “剩余市值”优先按 `latest_price * remaining_quantity`
-- 若当前 symbol snapshot 缺少最新价，再回退 `avg_price * remaining_quantity`
+- 止损区当前是左右两栏主从结构
+- 左栏展示聚合后的 open entry 列表，并按行编辑 / 保存止损
+- 右栏展示当前选中 entry 的 `aggregation_members` 和 `entry_slices`
+- “剩余市值”优先按有效 `latest_price * remaining_quantity`
+- 若 `latest_price <= 0` 或缺失，则优先用 `xt_positions.market_value / quantity` 推导有效最新价
+- 若仍无有效最新价，再回退 `avg_price * remaining_quantity`
 
 ## 排序
 

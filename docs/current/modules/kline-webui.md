@@ -26,7 +26,7 @@
 - 保存止损时只提交 `entry_id`
 - 浮层详情返回 `entries`，不再依赖 `buy_lots`
 - 标的设置浮层里的 entry 止损摘要当前显示买入价、原始数量、剩余数量与比例、该笔剩余市值以及买入时间；该口径与 `/subject-management` 保持一致，空间不足时自动换行
-- “剩余市值”当前优先显示后端按 `latest_price * remaining_quantity` 计算的结果；若后端未给最新价，再回退到均价口径
+- “剩余市值”当前优先显示后端按有效 `latest_price * remaining_quantity` 计算的结果；若 `latest_price <= 0` 或缺失，则先用 `xt_positions.market_value / quantity` 推导有效最新价；若仍不可用，再回退到均价口径
 - `KlineSlim` 只保留 entry 摘要，不在浮层内展开完整 `aggregation_members / entry_slices`；完整切片检查入口放在 `/subject-management`
 - 图表价格引导里的持仓参考线已经改成 `entry` 语义，对外文案是“持仓入口线”
 - 持仓股侧边栏排序与 SubjectManagement、PositionManagement 保持一致，按持仓金额从大到小排序
