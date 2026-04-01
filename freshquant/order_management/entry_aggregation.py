@@ -56,7 +56,10 @@ def select_cluster_entry(entries, group_trade_fact, broker_order_key):
         if anchor_trade_time is None or group_trade_time is None:
             continue
         # Anchor the cluster to its first member so the window cannot chain-grow.
-        if abs(group_trade_time - anchor_trade_time) > BUY_CLUSTER_MAX_TIME_WINDOW_SECONDS:
+        if (
+            abs(group_trade_time - anchor_trade_time)
+            > BUY_CLUSTER_MAX_TIME_WINDOW_SECONDS
+        ):
             continue
         base_price = _coerce_float(entry.get("entry_price")) or _coerce_float(
             first_member.get("entry_price")
@@ -67,7 +70,10 @@ def select_cluster_entry(entries, group_trade_fact, broker_order_key):
 
     if not candidates:
         return None
-    candidates.sort(key=lambda item: (item[0], _normalize_text(item[1].get("entry_id"))), reverse=True)
+    candidates.sort(
+        key=lambda item: (item[0], _normalize_text(item[1].get("entry_id"))),
+        reverse=True,
+    )
     return candidates[0][1]
 
 
@@ -106,17 +112,26 @@ def build_clustered_position_entry(
         * (_coerce_float(item.get("entry_price")) or 0.0)
         for item in members
     )
-    entry_price = round(total_notional / total_quantity, 6) if total_quantity > 0 else 0.0
+    entry_price = (
+        round(total_notional / total_quantity, 6) if total_quantity > 0 else 0.0
+    )
 
-    original_quantity = _coerce_int((existing_entry or {}).get("original_quantity")) or 0
-    remaining_quantity = _coerce_int((existing_entry or {}).get("remaining_quantity")) or 0
+    original_quantity = (
+        _coerce_int((existing_entry or {}).get("original_quantity")) or 0
+    )
+    remaining_quantity = (
+        _coerce_int((existing_entry or {}).get("remaining_quantity")) or 0
+    )
     exited_quantity = max(original_quantity - remaining_quantity, 0)
     merged_remaining_quantity = max(total_quantity - exited_quantity, 0)
 
     first_member = members[0]
     last_member = members[-1]
     source_ref_id = _normalize_text((existing_entry or {}).get("source_ref_id"))
-    if _normalize_text((existing_entry or {}).get("source_ref_type")) != BUY_CLUSTER_SOURCE_REF_TYPE:
+    if (
+        _normalize_text((existing_entry or {}).get("source_ref_type"))
+        != BUY_CLUSTER_SOURCE_REF_TYPE
+    ):
         source_ref_id = None
     if not source_ref_id:
         source_ref_id = _build_cluster_source_ref_id(
@@ -227,9 +242,8 @@ def count_non_default_lot_slices(entry_slice_documents, *, lot_amount):
         return 0
     count = 0
     for item in list(entry_slice_documents or []):
-        slice_amount = (
-            (_coerce_int(item.get("original_quantity")) or 0)
-            * (_coerce_float(item.get("guardian_price")) or 0.0)
+        slice_amount = (_coerce_int(item.get("original_quantity")) or 0) * (
+            _coerce_float(item.get("guardian_price")) or 0.0
         )
         if slice_amount > threshold + 1e-6:
             count += 1
@@ -319,7 +333,10 @@ def _price_deviation_within(left_price, right_price):
     right_price = _coerce_float(right_price)
     if left_price in {None, 0.0} or right_price in {None, 0.0}:
         return False
-    return abs(left_price - right_price) / right_price <= BUY_CLUSTER_MAX_PRICE_DEVIATION_RATIO
+    return (
+        abs(left_price - right_price) / right_price
+        <= BUY_CLUSTER_MAX_PRICE_DEVIATION_RATIO
+    )
 
 
 def _normalize_member(member):
@@ -332,7 +349,9 @@ def _normalize_member(member):
     trade_time = _coerce_int(normalized.get("trade_time"))
     date_value = normalized.get("date")
     time_value = normalized.get("time")
-    if trade_time is not None and (date_value in {None, ""} or time_value in {None, ""}):
+    if trade_time is not None and (
+        date_value in {None, ""} or time_value in {None, ""}
+    ):
         date_value, time_value = _resolve_beijing_date_time(
             date_value,
             time_value,
@@ -345,7 +364,8 @@ def _normalize_member(member):
     )
     return {
         "broker_order_key": broker_order_key,
-        "trade_fact_id": _normalize_text(normalized.get("trade_fact_id")) or broker_order_key,
+        "trade_fact_id": _normalize_text(normalized.get("trade_fact_id"))
+        or broker_order_key,
         "quantity": _coerce_int(normalized.get("quantity")) or 0,
         "entry_price": _coerce_float(normalized.get("entry_price")) or 0.0,
         "trade_time": trade_time,
@@ -355,7 +375,9 @@ def _normalize_member(member):
     }
 
 
-def _build_cluster_source_ref_id(*, symbol, trading_day, anchor_trade_time, broker_order_key):
+def _build_cluster_source_ref_id(
+    *, symbol, trading_day, anchor_trade_time, broker_order_key
+):
     return ":".join(
         [
             "buy_cluster",

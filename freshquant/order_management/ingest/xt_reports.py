@@ -593,9 +593,8 @@ def _upsert_broker_position_entry(
         else None
     ) or {}
     trade_payload = dict(trade_fact)
-    trade_payload["trade_time"] = (
-        broker_order.get("first_fill_time")
-        or trade_fact.get("trade_time")
+    trade_payload["trade_time"] = broker_order.get("first_fill_time") or trade_fact.get(
+        "trade_time"
     )
     if trade_payload.get("trade_time") and not (
         trade_payload.get("date") and trade_payload.get("time")
@@ -606,14 +605,10 @@ def _upsert_broker_position_entry(
     buy_group_trade_fact = {
         **trade_payload,
         "quantity": int(
-            broker_order.get("filled_quantity")
-            or trade_fact.get("quantity")
-            or 0
+            broker_order.get("filled_quantity") or trade_fact.get("quantity") or 0
         ),
         "price": float(
-            broker_order.get("avg_filled_price")
-            or trade_fact.get("price")
-            or 0.0
+            broker_order.get("avg_filled_price") or trade_fact.get("price") or 0.0
         ),
         "source": trade_fact.get("source", "xt_trade_callback"),
     }

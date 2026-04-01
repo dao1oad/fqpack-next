@@ -228,6 +228,11 @@ def _stub_ingest_side_effects(monkeypatch):
     )
 
 
+def _noop_sync_stock_fills_compat(symbol, repository=None):
+    del symbol, repository
+    return None
+
+
 def _buy_report(broker_trade_id="T-100", **overrides):
     payload = {
         "internal_order_id": "ord_test_1",
@@ -713,7 +718,7 @@ def test_trade_report_conservatively_merges_close_buy_orders_into_one_clustered_
         repository=repository,
         tracking_service=tracking_service,
     )
-    xt_reports_module._sync_stock_fills_compat = lambda _symbol, repository=None: None
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
 
     ingest_service.ingest_trade_report(
         _buy_report(
@@ -748,7 +753,10 @@ def test_trade_report_conservatively_merges_close_buy_orders_into_one_clustered_
     assert result["position_entry"]["entry_type"] == "broker_execution_cluster"
     assert result["position_entry"]["original_quantity"] == 900
     assert result["position_entry"]["remaining_quantity"] == 900
-    assert [item["broker_order_key"] for item in result["position_entry"]["aggregation_members"]] == [
+    assert [
+        item["broker_order_key"]
+        for item in result["position_entry"]["aggregation_members"]
+    ] == [
         "ord_cluster_1",
         "ord_cluster_2",
     ]
@@ -773,7 +781,7 @@ def test_trade_report_does_not_chain_merge_beyond_anchor_five_minute_window():
         repository=repository,
         tracking_service=tracking_service,
     )
-    xt_reports_module._sync_stock_fills_compat = lambda _symbol, repository=None: None
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
 
     for broker_trade_id, internal_order_id, price, trade_time, time_text in (
         ("T-CHAIN-1", "ord_chain_1", 10.00, 1710000000, "09:30:00"),
@@ -823,7 +831,7 @@ def test_trade_report_does_not_merge_after_sell_touches_clustered_entry():
         repository=repository,
         tracking_service=tracking_service,
     )
-    xt_reports_module._sync_stock_fills_compat = lambda _symbol, repository=None: None
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
 
     ingest_service.ingest_trade_report(
         _buy_report(

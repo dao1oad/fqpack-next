@@ -165,9 +165,7 @@ class SystemSettings:
             broker_submit_mode=broker_submit_mode,
         )
         self.guardian = GuardianSettings(
-            stock_lot_amount=int(
-                get(guardian_doc, "stock.lot_amount", 50000) or 50000
-            ),
+            stock_lot_amount=int(get(guardian_doc, "stock.lot_amount", 50000) or 50000),
             stock_threshold=dict(
                 get(guardian_doc, "stock.threshold", {"mode": "percent", "percent": 1})
             ),

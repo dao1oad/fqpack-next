@@ -307,9 +307,9 @@ def test_rebuild_service_aggregates_buy_fills_into_single_broker_order_entry():
     assert position_entry["status"] == "OPEN"
     assert position_entry["trade_time"] == 1710000000
     assert position_entry["entry_price"] == pytest.approx(10.333333, abs=1e-6)
-    assert [item["broker_order_key"] for item in position_entry["aggregation_members"]] == [
-        "81001"
-    ]
+    assert [
+        item["broker_order_key"] for item in position_entry["aggregation_members"]
+    ] == ["81001"]
     assert position_entry["aggregation_window"]["member_count"] == 1
 
 
@@ -366,7 +366,9 @@ def test_rebuild_service_conservatively_clusters_close_buy_orders():
     assert position_entry["entry_type"] == "broker_execution_cluster"
     assert position_entry["original_quantity"] == 900
     assert position_entry["remaining_quantity"] == 900
-    assert [item["broker_order_key"] for item in position_entry["aggregation_members"]] == [
+    assert [
+        item["broker_order_key"] for item in position_entry["aggregation_members"]
+    ] == [
         "81101",
         "81102",
     ]
