@@ -28,10 +28,10 @@ def get_trade_amount(instrument_code: Optional[str] = None) -> int:
     if lot_amount is None:
         if param := DBfreshquant["params"].find_one({"code": "guardian"}):
             # 合并重复的获取逻辑
-            lot_amount = int(pydash.get(param["value"], "stock.lot_amount", 1500))
+            lot_amount = int(pydash.get(param["value"], "stock.lot_amount", 50000))
 
     # 返回最终值或默认值
-    return lot_amount or 1000
+    return lot_amount or 50000
 
 
 @in_memory_cache.memoize(expiration=900)

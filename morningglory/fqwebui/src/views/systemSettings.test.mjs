@@ -117,7 +117,7 @@ const createPayload = () => ({
       },
       guardian: {
         stock: {
-          lot_amount: 1500,
+          lot_amount: 50000,
           threshold: {
             mode: 'percent',
             percent: 1,

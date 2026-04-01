@@ -46,6 +46,20 @@ test('buildOrderRows sorts latest rows first and keeps request-derived fields', 
   assert.equal(rows[1].source, 'strategy')
 })
 
+test('buildOrderRows exposes a fallback lookup id when broker-only rows have no internal_order_id', () => {
+  const rows = buildOrderRows([
+    {
+      broker_order_id: '403701761',
+      broker_order_key: '403701761',
+      symbol: '600104',
+      side: 'sell',
+      state: 'FILLED',
+    },
+  ])
+
+  assert.equal(rows[0].orderLookupId, '403701761')
+})
+
 test('order helpers keep instrument name, 3-decimal prices and second-level timestamps', () => {
   assert.equal(formatOrderPrice(null), '-')
   assert.equal(formatOrderPrice(''), '-')
@@ -371,4 +385,61 @@ test('page controller clears stale detail when detail loading fails', async () =
   assert.equal(controller.state.pageError, 'detail failed')
   assert.equal(controller.state.detail, null)
   assert.equal(controller.state.selectedOrderId, 'ord_1')
+})
+
+test('page controller auto-selects broker-only rows by broker_order fallback id', async () => {
+  const calls = []
+  const controller = createOrderManagementPageController({
+    actions: {
+      async loadOrders() {
+        return {
+          rows: [
+            {
+              internal_order_id: '',
+              broker_order_id: '403701761',
+              broker_order_key: '403701761',
+              symbol: '600104',
+              side: 'sell',
+              state: 'FILLED',
+            },
+          ],
+          total: 1,
+          page: 1,
+          size: 20,
+        }
+      },
+      async loadStats() {
+        return {
+          total: 1,
+          side_distribution: { buy: 0, sell: 1 },
+          state_distribution: { FILLED: 1 },
+          missing_broker_order_count: 0,
+        }
+      },
+      async loadOrderDetail(orderId) {
+        calls.push(orderId)
+        return buildOrderDetailViewModel({
+          order: {
+            internal_order_id: '',
+            broker_order_id: orderId,
+            symbol: '600104',
+            side: 'sell',
+            state: 'FILLED',
+          },
+          request: {},
+          events: [],
+          trades: [],
+          identifiers: {
+            broker_order_id: orderId,
+          },
+        })
+      },
+    },
+  })
+
+  await controller.refreshAll()
+
+  assert.deepEqual(calls, ['403701761'])
+  assert.equal(controller.state.selectedOrderId, '403701761')
+  assert.equal(controller.state.detail.order.broker_order_id, '403701761')
 })

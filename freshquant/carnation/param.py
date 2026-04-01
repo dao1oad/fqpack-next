@@ -26,5 +26,5 @@ def findParam(code: Optional[str] = None, default=None):
 
 
 if __name__ == "__main__":
-    lot_amount = float(queryParam("guardian.stock.lot_amount", 1500.0))
+    lot_amount = float(queryParam("guardian.stock.lot_amount", 50000.0))
     print(lot_amount)

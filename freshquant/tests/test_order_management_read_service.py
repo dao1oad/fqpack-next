@@ -2,6 +2,7 @@
 
 import sys
 import types
+from datetime import datetime, timezone
 
 import pytest
 
@@ -472,6 +473,43 @@ def test_get_stats_aggregates_side_state_and_missing_broker_counts():
     assert stats["partial_filled_count"] == 0
     assert stats["canceled_count"] == 0
     assert stats["failed_count"] == 0
+
+
+def test_list_orders_derives_timestamp_fields_for_broker_only_rebuild_rows():
+    repository = InMemoryOrderManagementRepository()
+    repository.broker_orders.append(
+        {
+            "broker_order_key": "403701761",
+            "broker_order_id": "403701761",
+            "symbol": "600104",
+            "side": "sell",
+            "state": "FILLED",
+            "source_type": "broker_rebuild",
+            "first_fill_time": 1775007300,
+            "last_fill_time": 1775007366,
+            "requested_quantity": 200,
+            "filled_quantity": 200,
+            "avg_filled_price": 19.88,
+        }
+    )
+    service = OrderManagementReadService(repository=repository)
+
+    payload = service.list_orders(symbol="600104")
+    stats = service.get_stats(symbol="600104")
+
+    expected_updated_at = datetime.fromtimestamp(
+        1775007366,
+        tz=timezone.utc,
+    ).isoformat()
+    expected_submitted_at = datetime.fromtimestamp(
+        1775007300,
+        tz=timezone.utc,
+    ).isoformat()
+
+    assert payload["rows"][0]["broker_order_id"] == "403701761"
+    assert payload["rows"][0]["updated_at"] == expected_updated_at
+    assert payload["rows"][0]["submitted_at"] == expected_submitted_at
+    assert stats["latest_updated_at"] == expected_updated_at
 
 
 def test_list_orders_rejects_unknown_time_field():

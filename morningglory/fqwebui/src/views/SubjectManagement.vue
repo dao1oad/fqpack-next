@@ -348,20 +348,50 @@
                 border
                 class="subject-table subject-editor-stoploss-table"
               >
-                <el-table-column prop="entry_id" label="Entry" min-width="164" />
-                <el-table-column label="买入时间" min-width="138">
+                <el-table-column label="持仓入口" min-width="308">
                   <template #default="{ row }">
-                    <span class="workbench-code">{{ row.date || '-' }} {{ row.time || '' }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="买入价" width="88">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ row.entry_price_label }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="原始/剩余" width="112">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ row.original_quantity }} / {{ row.remaining_quantity }}</span>
+                    <div class="subject-editor-stoploss-entry">
+                      <div class="subject-editor-stoploss-entry__head">
+                        <div class="subject-editor-stoploss-entry__title-wrap">
+                          <span class="subject-editor-stoploss-entry__title">{{ row.entryDisplayLabel }}</span>
+                          <span
+                            class="subject-editor-stoploss-entry__id"
+                            :title="row.entry_id"
+                          >
+                            {{ row.entryIdLabel }}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div class="subject-editor-stoploss-entry__meta" :title="row.entryMetaLabel">
+                        <span class="subject-editor-stoploss-entry__meta-line">
+                          <span class="subject-editor-stoploss-entry__meta-item subject-editor-stoploss-entry__meta-item--accent">
+                            <span class="subject-editor-stoploss-entry__meta-label">买入价：</span>
+                            <span class="subject-editor-stoploss-entry__meta-value">{{ row.entrySummaryDisplay.entryPriceLabel }}</span>
+                          </span>
+                          <span class="subject-editor-stoploss-entry__meta-separator">；</span>
+                          <span class="subject-editor-stoploss-entry__meta-item">
+                            <span class="subject-editor-stoploss-entry__meta-label">买入</span>
+                            <span class="subject-editor-stoploss-entry__meta-value">{{ row.entrySummaryDisplay.originalQuantityLabel }}</span>
+                          </span>
+                          <span class="subject-editor-stoploss-entry__meta-item subject-editor-stoploss-entry__meta-item--accent">
+                            <span class="subject-editor-stoploss-entry__meta-label">剩</span>
+                            <span class="subject-editor-stoploss-entry__meta-value">{{ row.entrySummaryDisplay.remainingQuantityLabel }}</span>
+                          </span>
+                        </span>
+                        <span class="subject-editor-stoploss-entry__meta-line">
+                          <span class="subject-editor-stoploss-entry__meta-item">
+                            <span class="subject-editor-stoploss-entry__meta-label">买入时间：</span>
+                            <span class="subject-editor-stoploss-entry__meta-value">{{ row.entrySummaryDisplay.entryDateTimeLabel }}</span>
+                          </span>
+                          <span class="subject-editor-stoploss-entry__meta-separator">；</span>
+                          <span class="subject-editor-stoploss-entry__meta-item subject-editor-stoploss-entry__meta-item--accent">
+                            <span class="subject-editor-stoploss-entry__meta-label">剩余市值：</span>
+                            <span class="subject-editor-stoploss-entry__meta-value">{{ row.entrySummaryDisplay.remainingMarketValueLabel }}</span>
+                          </span>
+                        </span>
+                      </div>
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="当前绑定" width="92">
@@ -884,6 +914,79 @@ onMounted(async () => {
 
 .subject-editor-current {
   color: #1f2937;
+}
+
+.subject-editor-stoploss-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.subject-editor-stoploss-entry__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.subject-editor-stoploss-entry__title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.subject-editor-stoploss-entry__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.subject-editor-stoploss-entry__id {
+  color: #64748b;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.subject-editor-stoploss-entry__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.subject-editor-stoploss-entry__meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.subject-editor-stoploss-entry__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: #475569;
+}
+
+.subject-editor-stoploss-entry__meta-item--accent .subject-editor-stoploss-entry__meta-value {
+  color: #0f766e;
+}
+
+.subject-editor-stoploss-entry__meta-label {
+  color: #64748b;
+}
+
+.subject-editor-stoploss-entry__meta-value {
+  color: #1f2937;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.subject-editor-stoploss-entry__meta-separator {
+  color: #94a3b8;
 }
 
 .subject-editor-config-table :deep(.el-input-number),

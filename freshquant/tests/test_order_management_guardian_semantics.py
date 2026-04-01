@@ -281,3 +281,29 @@ def test_entry_arrangement_and_sell_allocation_update_entry_semantics():
     assert entry["sell_history"][0]["allocated_quantity"] == 250
     assert slices[-1]["remaining_quantity"] == 50
     assert slices[-1]["status"] == "OPEN"
+
+
+def test_arrange_entry_never_leaves_a_guardian_slice_above_50000():
+    entry = build_position_entry_from_trade_fact(
+        {
+            "trade_fact_id": "trade_entry_buy_cap_1",
+            "symbol": "002262",
+            "side": "buy",
+            "quantity": 24600,
+            "price": 24.149123,
+            "trade_time": 1775000000,
+            "date": None,
+            "time": None,
+        },
+        source_ref_type="buy_cluster",
+        source_ref_id="buy_cluster:002262:20260401:1775000000:81402",
+        entry_type="broker_execution_cluster",
+    )
+
+    slices = arrange_entry(entry, lot_amount=50000, grid_interval=1.03)
+
+    assert slices
+    assert all(
+        float(item["guardian_price"]) * int(item["original_quantity"]) <= 50000
+        for item in slices
+    )

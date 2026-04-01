@@ -344,7 +344,7 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         },
         "guardian": {
             "stock": {
-                "lot_amount": 3000,
+                "lot_amount": 50000,
                 "threshold": {"mode": "percent", "percent": 1.2},
                 "grid_interval": {
                     "mode": "atr",

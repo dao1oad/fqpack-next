@@ -42,7 +42,7 @@ from freshquant.runtime_observability.failures import (
 )
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 
-_DEFAULT_RECONCILE_LOT_AMOUNT = 3000
+_DEFAULT_RECONCILE_LOT_AMOUNT = 50000
 _SELL_GAP_FUSE_MIN_SYMBOLS = 3
 _SELL_GAP_FUSE_MIN_QUANTITY_RATIO = 0.5
 _SELL_GAP_EVIDENCE_WINDOW_SECONDS = 300

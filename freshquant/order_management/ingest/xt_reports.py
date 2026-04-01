@@ -10,6 +10,12 @@ from freshquant.order_management.entry_adapter import (
     list_open_entry_slices_compat,
     list_open_entry_views,
 )
+from freshquant.order_management.entry_aggregation import (
+    build_clustered_position_entry,
+    entry_requires_slice_rebuild,
+    find_entry_for_broker_order,
+    select_cluster_entry,
+)
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_entry_slices,
     allocate_sell_to_slices,
@@ -19,10 +25,6 @@ from freshquant.order_management.guardian.arranger import (
     arrange_entry,
     build_buy_lot_from_trade_fact,
     build_position_entry_from_trade_fact,
-)
-from freshquant.order_management.guardian.sell_semantics import (
-    normalize_preferred_entry_quantities,
-    resolve_guardian_sell_source_entries_from_open_slices,
 )
 from freshquant.order_management.projection.cache_invalidator import (
     mark_stock_holdings_projection_updated,
@@ -211,18 +213,10 @@ class OrderManagementXtIngestService:
                             symbol=symbol
                         )
                         if entries and open_entry_slices:
-                            preferred_entry_quantities = (
-                                _resolve_trade_preferred_entry_quantities(
-                                    repository=self.repository,
-                                    trade_fact=trade_fact,
-                                    open_entry_slices=open_entry_slices,
-                                )
-                            )
                             exit_allocations = allocate_sell_to_entry_slices(
                                 entries=entries,
                                 open_slices=open_entry_slices,
                                 sell_trade_fact=trade_fact,
-                                preferred_entry_quantities=preferred_entry_quantities,
                             )
                             for item in entries:
                                 self.repository.replace_position_entry(item)
@@ -574,67 +568,14 @@ def _build_entry_projections(symbol, *, repository):
     }
 
 
-def _resolve_trade_preferred_entry_quantities(
-    *,
-    repository,
-    trade_fact,
-    open_entry_slices,
-):
-    if not hasattr(repository, "find_order"):
-        return []
-    internal_order_id = str(trade_fact.get("internal_order_id") or "").strip()
-    if not internal_order_id:
-        return []
-    order = repository.find_order(internal_order_id)
-    if order is None:
-        return []
-    request = None
-    request_id = str((order or {}).get("request_id") or "").strip()
-    if request_id and hasattr(repository, "find_order_request"):
-        request = repository.find_order_request(request_id)
-    if request is None:
-        return []
-    if str(request.get("action") or "").lower() != "sell":
-        return []
-    preferred_from_request = _resolve_guardian_sell_source_entries_from_request(
-        request=request,
-        quantity=trade_fact.get("quantity"),
-    )
-    if preferred_from_request:
-        return preferred_from_request
-    preferred_from_runtime = resolve_guardian_sell_source_entries_from_open_slices(
-        open_entry_slices,
-        exit_price=request.get("price"),
-        quantity=trade_fact.get("quantity"),
-    )
-    if preferred_from_runtime:
-        return preferred_from_runtime
-    return []
-
-
-def _resolve_guardian_sell_source_entries_from_request(*, request, quantity):
-    context = dict((request or {}).get("strategy_context") or {})
-    sell_sources = dict(context.get("guardian_sell_sources") or {})
-    raw_entries = list(sell_sources.get("entries") or [])
-    if not raw_entries:
-        return []
-    return normalize_preferred_entry_quantities(
-        raw_entries,
-        remaining_quantity=quantity,
-    )
-
-
 def _find_position_entry_for_broker_order(repository, *, symbol, broker_order_key):
     normalized_key = str(broker_order_key or "").strip()
     if not normalized_key or not hasattr(repository, "list_position_entries"):
         return None
-    for item in repository.list_position_entries(symbol=symbol):
-        if (
-            str(item.get("source_ref_type") or "").strip() == "broker_order"
-            and str(item.get("source_ref_id") or "").strip() == normalized_key
-        ):
-            return dict(item)
-    return None
+    return find_entry_for_broker_order(
+        repository.list_position_entries(symbol=symbol),
+        normalized_key,
+    )
 
 
 def _upsert_broker_position_entry(
@@ -646,34 +587,14 @@ def _upsert_broker_position_entry(
 ):
     symbol = trade_fact["symbol"]
     broker_order_key = str(trade_fact.get("internal_order_id") or "").strip()
-    existing_entry = _find_position_entry_for_broker_order(
-        repository,
-        symbol=symbol,
-        broker_order_key=broker_order_key,
-    )
     broker_order = (
         repository.find_broker_order(broker_order_key)
         if hasattr(repository, "find_broker_order")
         else None
     ) or {}
-    total_quantity = int(
-        broker_order.get("filled_quantity")
-        or (existing_entry or {}).get("original_quantity")
-        or trade_fact.get("quantity")
-        or 0
-    )
-    exited_quantity = 0
-    if existing_entry is not None:
-        exited_quantity = max(
-            int(existing_entry.get("original_quantity") or 0)
-            - int(existing_entry.get("remaining_quantity") or 0),
-            0,
-        )
-    remaining_quantity = max(total_quantity - exited_quantity, 0)
     trade_payload = dict(trade_fact)
     trade_payload["trade_time"] = (
         broker_order.get("first_fill_time")
-        or (existing_entry or {}).get("trade_time")
         or trade_fact.get("trade_time")
     )
     if trade_payload.get("trade_time") and not (
@@ -682,39 +603,34 @@ def _upsert_broker_position_entry(
         trade_payload["date"], trade_payload["time"] = beijing_date_time_from_epoch(
             trade_payload["trade_time"]
         )
-    if existing_entry is not None:
-        trade_payload["date"] = existing_entry.get("date") or trade_payload.get("date")
-        trade_payload["time"] = existing_entry.get("time") or trade_payload.get("time")
-    entry = build_position_entry_from_trade_fact(
-        trade_payload,
-        entry_id=(existing_entry or {}).get("entry_id"),
-        source_ref_type="broker_order",
-        source_ref_id=broker_order_key,
-        entry_type="broker_execution_group",
-        original_quantity=total_quantity,
-        remaining_quantity=remaining_quantity,
-        entry_price=float(
+    buy_group_trade_fact = {
+        **trade_payload,
+        "quantity": int(
+            broker_order.get("filled_quantity")
+            or trade_fact.get("quantity")
+            or 0
+        ),
+        "price": float(
             broker_order.get("avg_filled_price")
-            or (existing_entry or {}).get("entry_price")
             or trade_fact.get("price")
             or 0.0
         ),
-        amount=round(
-            float(
-                broker_order.get("avg_filled_price")
-                or (existing_entry or {}).get("entry_price")
-                or trade_fact.get("price")
-                or 0.0
-            )
-            * total_quantity,
-            2,
-        ),
-        source=trade_fact.get("source", "xt_trade_callback"),
-        arrange_mode=(existing_entry or {}).get("arrange_mode") or "runtime_grid",
-        sell_history=(existing_entry or {}).get("sell_history") or [],
+        "source": trade_fact.get("source", "xt_trade_callback"),
+    }
+    existing_entry = select_cluster_entry(
+        repository.list_position_entries(symbol=symbol),
+        buy_group_trade_fact,
+        broker_order_key,
+    )
+    entry = build_clustered_position_entry(
+        group_trade_fact=buy_group_trade_fact,
+        broker_order_key=broker_order_key,
+        existing_entry=existing_entry,
     )
     repository.replace_position_entry(entry)
-    if exited_quantity > 0 and hasattr(repository, "list_open_entry_slices"):
+    if not entry_requires_slice_rebuild(existing_entry) and hasattr(
+        repository, "list_open_entry_slices"
+    ):
         entry_slices = repository.list_open_entry_slices(
             symbol=symbol,
             entry_ids=[entry["entry_id"]],
