@@ -25,6 +25,11 @@ const toNullableNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+const toPositiveNumberOrNull = (value) => {
+  const parsed = toNullableNumber(value)
+  return parsed !== null && parsed > 0 ? parsed : null
+}
+
 const formatPrice = (value) => {
   const parsed = toNullableNumber(value)
   if (parsed === null) return '-'
@@ -164,9 +169,9 @@ const buildEntrySummaryDisplay = (row = {}, runtimeSummary = {}) => {
         ? formatQuantityLabel(remainingQuantity)
         : `${formatQuantityLabel(remainingQuantity)} / ${remainingPercent}`
   )
-  const backendRemainingMarketValue = toNullableNumber(row?.remaining_market_value)
-  const latestPrice = toNullableNumber(row?.latest_price)
-  const avgPrice = toNullableNumber(runtimeSummary?.avg_price)
+  const backendRemainingMarketValue = toPositiveNumberOrNull(row?.remaining_market_value)
+  const latestPrice = toPositiveNumberOrNull(row?.latest_price)
+  const avgPrice = toPositiveNumberOrNull(runtimeSummary?.avg_price)
   const remainingMarketValue = (
     backendRemainingMarketValue !== null
       ? backendRemainingMarketValue

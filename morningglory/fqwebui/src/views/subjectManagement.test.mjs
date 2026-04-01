@@ -420,13 +420,43 @@ test('SubjectManagement stoploss rows show the same entry summary fields as Klin
   assert.match(source, /row\.entrySummaryDisplay\.remainingMarketValueLabel/)
 })
 
-test('SubjectManagement view exposes expandable aggregation member and slice details per entry', () => {
+test('buildDetailViewModel ignores zero latest-price market values and keeps non-zero fallback labels', () => {
+  const detail = buildDetailViewModel({
+    subject: {
+      symbol: '600104',
+      name: '上汽集团',
+      category: '整车',
+    },
+    entries: [
+      {
+        entry_id: 'entry_zero_price',
+        date: 20260401,
+        time: '14:44:27',
+        entry_price: 14.44,
+        original_quantity: 3400,
+        remaining_quantity: 3200,
+        latest_price: 0,
+        remaining_market_value: 0,
+      },
+    ],
+    runtime_summary: {
+      avg_price: 14.884353,
+    },
+  })
+
+  assert.equal(detail.entries[0].entrySummaryDisplay.remainingMarketValueLabel, '4.76 万')
+})
+
+test('SubjectManagement view uses a master-detail stoploss layout instead of expandable slice toggles', () => {
   const source = fs.readFileSync(new URL('./SubjectManagement.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
-  assert.match(source, /查看切片/)
-  assert.match(source, /收起切片/)
-  assert.match(source, /row\.aggregation_members/)
-  assert.match(source, /row\.entry_slices/)
-  assert.match(source, /聚合买入/)
+  assert.match(source, /subject-editor-stoploss-layout/)
+  assert.match(source, /subject-editor-stoploss-master/)
+  assert.match(source, /subject-editor-stoploss-detail/)
+  assert.match(source, /selectedStoplossEntry/)
+  assert.match(source, /selectStoplossEntry\(row\.entry_id\)/)
+  assert.match(source, /聚合买入列表/)
   assert.match(source, /切片明细/)
+  assert.doesNotMatch(source, /查看切片/)
+  assert.doesNotMatch(source, /收起切片/)
 })

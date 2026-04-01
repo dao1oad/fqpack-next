@@ -193,9 +193,8 @@ class SubjectManagementDashboardService:
         positions = self._position_map()
         position = positions.get(normalized_symbol) or {}
         symbol_position = dict(self.symbol_position_loader(normalized_symbol) or {})
-        latest_price = _safe_float_or_none(symbol_position.get("close_price"))
-        latest_price_source = _safe_nonempty_text(symbol_position.get("price_source"))
         avg_price = _safe_float_or_none(position.get("avg_price"))
+        latest_price, latest_price_source = _resolve_valid_latest_price(symbol_position)
         entry_slices_by_entry = _group_entry_slices_by_entry(
             list_open_entry_slices_compat(
                 symbol=normalized_symbol,
@@ -520,6 +519,13 @@ def _safe_float_or_none(value):
         return None
 
 
+def _safe_positive_float_or_none(value):
+    parsed = _safe_float_or_none(value)
+    if parsed is None or parsed <= 0:
+        return None
+    return parsed
+
+
 def _safe_nonempty_text(value):
     text = str(value or "").strip()
     return text or None
@@ -620,15 +626,36 @@ def _group_entry_slices_by_entry(rows):
     return grouped
 
 
+def _resolve_valid_latest_price(symbol_position):
+    latest_price = _safe_positive_float_or_none(
+        (symbol_position or {}).get("close_price")
+    )
+    if latest_price is not None:
+        return latest_price, _safe_nonempty_text(
+            (symbol_position or {}).get("price_source")
+        )
+
+    market_value = _safe_positive_float_or_none(
+        (symbol_position or {}).get("market_value")
+    )
+    quantity = _safe_positive_float_or_none((symbol_position or {}).get("quantity"))
+    if market_value is not None and quantity is not None:
+        return (
+            round(market_value / quantity, 6),
+            "xt_positions_market_value_div_quantity",
+        )
+    return None, None
+
+
 def _resolve_entry_remaining_market_value(entry, *, latest_price=None, avg_price=None):
     remaining_quantity = _safe_float_or_none((entry or {}).get("remaining_quantity"))
     if remaining_quantity is None:
         return None, "unavailable"
-    if latest_price is not None:
+    if latest_price is not None and latest_price > 0:
         return round(latest_price * remaining_quantity, 6), (
             "latest_price_x_remaining_quantity"
         )
-    if avg_price is not None:
+    if avg_price is not None and avg_price > 0:
         return round(avg_price * remaining_quantity, 6), (
             "avg_price_x_remaining_quantity"
         )

@@ -337,20 +337,26 @@
               <div class="subject-editor-table-header">
                 <div class="subject-editor-table-heading">
                   <div class="subject-editor-table-title">按持仓入口止损</div>
-                  <div class="subject-editor-table-subtitle">只展示 open entry，按行保存</div>
+                  <div class="subject-editor-table-subtitle">左侧聚合买入列表，右侧展示当前聚合买入的详细切片；只展示 open entry，按行保存</div>
                 </div>
                 <div class="subject-editor-table-meta">{{ detail.entries.length }} 条 open entry</div>
               </div>
 
-              <el-table
-                :data="detail.entries"
-                size="small"
-                border
-                class="subject-table subject-editor-stoploss-table"
-              >
-                <el-table-column label="持仓入口" min-width="308">
-                  <template #default="{ row }">
-                    <div class="subject-editor-stoploss-entry">
+              <div v-if="detail.entries.length" class="subject-editor-stoploss-layout">
+                <section class="subject-editor-stoploss-master">
+                  <div class="subject-editor-stoploss-pane-header">
+                    <div class="subject-editor-stoploss-pane-title">聚合买入列表</div>
+                    <div class="subject-editor-stoploss-pane-meta">点击左侧条目，右侧查看详细切片</div>
+                  </div>
+
+                  <div class="subject-editor-stoploss-master__list">
+                    <article
+                      v-for="row in detail.entries"
+                      :key="row.entry_id"
+                      class="subject-editor-stoploss-card"
+                      :class="{ 'subject-editor-stoploss-card--active': row.entry_id === selectedStoplossEntry?.entry_id }"
+                      @click="selectStoplossEntry(row.entry_id)"
+                    >
                       <div class="subject-editor-stoploss-entry__head">
                         <div class="subject-editor-stoploss-entry__title-wrap">
                           <span class="subject-editor-stoploss-entry__title">{{ row.entryDisplayLabel }}</span>
@@ -361,14 +367,9 @@
                             {{ row.entryIdLabel }}
                           </span>
                         </div>
-                        <el-button
-                          type="primary"
-                          text
-                          class="subject-editor-stoploss-entry__toggle"
-                          @click.stop="toggleEntrySlices(row.entry_id)"
-                        >
-                          {{ isEntrySlicesExpanded(row.entry_id) ? '收起切片' : '查看切片' }}
-                        </el-button>
+                        <el-tag size="small" :type="row.entry_id === selectedStoplossEntry?.entry_id ? 'primary' : 'info'">
+                          {{ row.entry_id === selectedStoplossEntry?.entry_id ? '当前查看' : '点击查看' }}
+                        </el-tag>
                       </div>
 
                       <div class="subject-editor-stoploss-entry__meta" :title="row.entryMetaLabel">
@@ -400,132 +401,206 @@
                         </span>
                       </div>
 
-                      <div
-                        v-if="isEntrySlicesExpanded(row.entry_id)"
-                        class="subject-editor-stoploss-entry__details"
-                      >
-                        <section class="subject-editor-stoploss-entry__detail-section">
-                          <div class="subject-editor-stoploss-entry__detail-header">
-                            <div class="subject-editor-stoploss-entry__detail-title">聚合买入</div>
-                            <div class="subject-editor-stoploss-entry__detail-meta">
-                              {{ (row.aggregation_members || []).length }} 笔
-                            </div>
-                          </div>
-                          <div
-                            v-if="!(row.aggregation_members || []).length"
-                            class="subject-editor-stoploss-entry__detail-empty"
-                          >
-                            当前入口没有聚合买入成员。
-                          </div>
-                          <div v-else class="subject-editor-stoploss-entry__detail-list">
-                            <div
-                              v-for="(member, memberIndex) in row.aggregation_members"
-                              :key="`${row.entry_id}-member-${member.broker_order_key || memberIndex}`"
-                              class="subject-editor-stoploss-entry__detail-row"
-                            >
-                              <span class="subject-editor-stoploss-entry__detail-index">#{{ memberIndex + 1 }}</span>
-                              <span class="subject-editor-stoploss-entry__detail-item">
-                                委托键 <span class="workbench-code">{{ member.broker_order_key || '-' }}</span>
-                              </span>
-                              <span class="subject-editor-stoploss-entry__detail-item">
-                                数量 <span class="workbench-code">{{ formatInteger(member.quantity) }}</span>
-                              </span>
-                              <span class="subject-editor-stoploss-entry__detail-item">
-                                成交价 <span class="workbench-code">{{ formatPrice(member.entry_price) }}</span>
-                              </span>
-                              <span class="subject-editor-stoploss-entry__detail-item">
-                                时间 <span class="workbench-code">{{ member.time || '-' }}</span>
-                              </span>
-                            </div>
-                          </div>
-                        </section>
+                      <div class="subject-editor-stoploss-card__chips">
+                        <StatusChip variant="muted">
+                          聚合买入 <strong>{{ (row.aggregation_members || []).length }}</strong>
+                        </StatusChip>
+                        <StatusChip variant="muted">
+                          切片 <strong>{{ (row.entry_slices || []).length }}</strong>
+                        </StatusChip>
+                        <StatusChip :variant="stoplossDrafts[row.entry_id].enabled ? 'danger' : 'muted'">
+                          止损 <strong>{{ stoplossDrafts[row.entry_id].enabled ? '开启' : '关闭' }}</strong>
+                        </StatusChip>
+                      </div>
 
-                        <section class="subject-editor-stoploss-entry__detail-section">
-                          <div class="subject-editor-stoploss-entry__detail-header">
-                            <div class="subject-editor-stoploss-entry__detail-title">切片明细</div>
-                            <div class="subject-editor-stoploss-entry__detail-meta">
-                              {{ (row.entry_slices || []).length }} 条
-                            </div>
+                      <div class="subject-editor-stoploss-card__editor" @click.stop>
+                        <div class="subject-editor-stoploss-card__editor-grid">
+                          <div class="subject-editor-stoploss-card__editor-field">
+                            <span class="subject-editor-stoploss-card__editor-label">当前绑定</span>
+                            <span class="workbench-code">{{ row.stoplossLabel }}</span>
                           </div>
-                          <div
-                            v-if="!(row.entry_slices || []).length"
-                            class="subject-editor-stoploss-entry__detail-empty"
-                          >
-                            当前入口没有 open 切片。
+                          <div class="subject-editor-stoploss-card__editor-field">
+                            <span class="subject-editor-stoploss-card__editor-label">编辑价</span>
+                            <el-input-number
+                              v-model="stoplossDrafts[row.entry_id].stop_price"
+                              size="small"
+                              :min="0"
+                              :step="0.01"
+                              :precision="2"
+                              controls-position="right"
+                            />
                           </div>
-                          <div v-else class="subject-editor-stoploss-entry__slice-table">
-                            <div class="subject-editor-stoploss-entry__slice-head">
-                              <span>序号</span>
-                              <span>守护价</span>
-                              <span>原始数量</span>
-                              <span>剩余数量</span>
-                              <span>剩余市值</span>
-                            </div>
-                            <div
-                              v-for="slice in row.entry_slices"
-                              :key="slice.entry_slice_id"
-                              class="subject-editor-stoploss-entry__slice-row"
+                          <div class="subject-editor-stoploss-card__editor-field">
+                            <span class="subject-editor-stoploss-card__editor-label">启用</span>
+                            <el-switch
+                              v-model="stoplossDrafts[row.entry_id].enabled"
+                              size="small"
+                              inline-prompt
+                              active-text="开"
+                              inactive-text="关"
+                            />
+                          </div>
+                          <div class="subject-editor-stoploss-card__editor-actions">
+                            <el-button
+                              type="primary"
+                              text
+                              :loading="savingStoploss[row.entry_id]"
+                              @click="handleSaveStoplossClick(row.entry_id)"
                             >
-                              <span class="workbench-code">{{ formatInteger(slice.slice_seq) }}</span>
-                              <span class="workbench-code">{{ formatPrice(slice.guardian_price) }}</span>
-                              <span class="workbench-code">{{ formatInteger(slice.original_quantity) }}</span>
-                              <span class="workbench-code">{{ formatInteger(slice.remaining_quantity) }}</span>
-                              <span class="workbench-code">{{ formatWanAmount(slice.remaining_amount) }}</span>
-                            </div>
+                              保存
+                            </el-button>
                           </div>
-                        </section>
+                        </div>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <section class="subject-editor-stoploss-detail">
+                  <div class="subject-editor-stoploss-pane-header">
+                    <div class="subject-editor-stoploss-pane-title">切片明细</div>
+                    <div v-if="selectedStoplossEntry" class="subject-editor-stoploss-pane-meta">
+                      {{ selectedStoplossEntry.entryDisplayLabel }} / {{ (selectedStoplossEntry.entry_slices || []).length }} 条 open 切片
+                    </div>
+                  </div>
+
+                  <template v-if="selectedStoplossEntry">
+                    <div class="subject-editor-stoploss-detail__summary">
+                      <div class="subject-editor-stoploss-entry__head">
+                        <div class="subject-editor-stoploss-entry__title-wrap">
+                          <span class="subject-editor-stoploss-entry__title">{{ selectedStoplossEntry.entryDisplayLabel }}</span>
+                          <span
+                            class="subject-editor-stoploss-entry__id"
+                            :title="selectedStoplossEntry.entry_id"
+                          >
+                            {{ selectedStoplossEntry.entryIdLabel }}
+                          </span>
+                        </div>
+                        <el-tag size="small" type="primary">当前聚合买入</el-tag>
+                      </div>
+                      <div class="subject-editor-stoploss-entry__meta" :title="selectedStoplossEntry.entryMetaLabel">
+                        <span class="subject-editor-stoploss-entry__meta-line">
+                          <span class="subject-editor-stoploss-entry__meta-item subject-editor-stoploss-entry__meta-item--accent">
+                            <span class="subject-editor-stoploss-entry__meta-label">买入价：</span>
+                            <span class="subject-editor-stoploss-entry__meta-value">{{ selectedStoplossEntry.entrySummaryDisplay.entryPriceLabel }}</span>
+                          </span>
+                          <span class="subject-editor-stoploss-entry__meta-separator">；</span>
+                          <span class="subject-editor-stoploss-entry__meta-item">
+                            <span class="subject-editor-stoploss-entry__meta-label">买入</span>
+                            <span class="subject-editor-stoploss-entry__meta-value">{{ selectedStoplossEntry.entrySummaryDisplay.originalQuantityLabel }}</span>
+                          </span>
+                          <span class="subject-editor-stoploss-entry__meta-item subject-editor-stoploss-entry__meta-item--accent">
+                            <span class="subject-editor-stoploss-entry__meta-label">剩</span>
+                            <span class="subject-editor-stoploss-entry__meta-value">{{ selectedStoplossEntry.entrySummaryDisplay.remainingQuantityLabel }}</span>
+                          </span>
+                        </span>
+                        <span class="subject-editor-stoploss-entry__meta-line">
+                          <span class="subject-editor-stoploss-entry__meta-item">
+                            <span class="subject-editor-stoploss-entry__meta-label">买入时间：</span>
+                            <span class="subject-editor-stoploss-entry__meta-value">{{ selectedStoplossEntry.entrySummaryDisplay.entryDateTimeLabel }}</span>
+                          </span>
+                          <span class="subject-editor-stoploss-entry__meta-separator">；</span>
+                          <span class="subject-editor-stoploss-entry__meta-item subject-editor-stoploss-entry__meta-item--accent">
+                            <span class="subject-editor-stoploss-entry__meta-label">剩余市值：</span>
+                            <span class="subject-editor-stoploss-entry__meta-value">{{ selectedStoplossEntry.entrySummaryDisplay.remainingMarketValueLabel }}</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div class="subject-editor-stoploss-card__chips">
+                        <StatusChip variant="muted">
+                          聚合买入 <strong>{{ (selectedStoplossEntry.aggregation_members || []).length }}</strong>
+                        </StatusChip>
+                        <StatusChip variant="muted">
+                          切片 <strong>{{ (selectedStoplossEntry.entry_slices || []).length }}</strong>
+                        </StatusChip>
+                        <StatusChip variant="muted">
+                          聚合窗口
+                          <strong>{{ selectedStoplossEntry.aggregation_window?.member_count || (selectedStoplossEntry.aggregation_members || []).length }}</strong>
+                        </StatusChip>
                       </div>
                     </div>
+
+                    <section class="subject-editor-stoploss-entry__detail-section">
+                      <div class="subject-editor-stoploss-entry__detail-header">
+                        <div class="subject-editor-stoploss-entry__detail-title">聚合买入</div>
+                        <div class="subject-editor-stoploss-entry__detail-meta">
+                          {{ (selectedStoplossEntry.aggregation_members || []).length }} 笔
+                        </div>
+                      </div>
+                      <div
+                        v-if="!(selectedStoplossEntry.aggregation_members || []).length"
+                        class="subject-editor-stoploss-entry__detail-empty"
+                      >
+                        当前入口没有聚合买入成员。
+                      </div>
+                      <div v-else class="subject-editor-stoploss-entry__detail-list">
+                        <div
+                          v-for="(member, memberIndex) in selectedStoplossEntry.aggregation_members"
+                          :key="`${selectedStoplossEntry.entry_id}-member-${member.broker_order_key || memberIndex}`"
+                          class="subject-editor-stoploss-entry__detail-row"
+                        >
+                          <span class="subject-editor-stoploss-entry__detail-index">#{{ memberIndex + 1 }}</span>
+                          <span class="subject-editor-stoploss-entry__detail-item">
+                            委托键 <span class="workbench-code">{{ member.broker_order_key || '-' }}</span>
+                          </span>
+                          <span class="subject-editor-stoploss-entry__detail-item">
+                            数量 <span class="workbench-code">{{ formatInteger(member.quantity) }}</span>
+                          </span>
+                          <span class="subject-editor-stoploss-entry__detail-item">
+                            成交价 <span class="workbench-code">{{ formatPrice(member.entry_price) }}</span>
+                          </span>
+                          <span class="subject-editor-stoploss-entry__detail-item">
+                            时间 <span class="workbench-code">{{ member.time || '-' }}</span>
+                          </span>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section class="subject-editor-stoploss-entry__detail-section">
+                      <div class="subject-editor-stoploss-entry__detail-header">
+                        <div class="subject-editor-stoploss-entry__detail-title">切片明细</div>
+                        <div class="subject-editor-stoploss-entry__detail-meta">
+                          {{ (selectedStoplossEntry.entry_slices || []).length }} 条
+                        </div>
+                      </div>
+                      <div
+                        v-if="!(selectedStoplossEntry.entry_slices || []).length"
+                        class="subject-editor-stoploss-entry__detail-empty"
+                      >
+                        当前入口没有 open 切片。
+                      </div>
+                      <div v-else class="subject-editor-stoploss-entry__slice-table">
+                        <div class="subject-editor-stoploss-entry__slice-head">
+                          <span>序号</span>
+                          <span>守护价</span>
+                          <span>原始数量</span>
+                          <span>剩余数量</span>
+                          <span>剩余市值</span>
+                        </div>
+                        <div
+                          v-for="slice in selectedStoplossEntry.entry_slices"
+                          :key="slice.entry_slice_id"
+                          class="subject-editor-stoploss-entry__slice-row"
+                        >
+                          <span class="workbench-code">{{ formatInteger(slice.slice_seq) }}</span>
+                          <span class="workbench-code">{{ formatPrice(slice.guardian_price) }}</span>
+                          <span class="workbench-code">{{ formatInteger(slice.original_quantity) }}</span>
+                          <span class="workbench-code">{{ formatInteger(slice.remaining_quantity) }}</span>
+                          <span class="workbench-code">{{ formatWanAmount(slice.remaining_amount) }}</span>
+                        </div>
+                      </div>
+                    </section>
                   </template>
-                </el-table-column>
-                <el-table-column label="当前绑定" width="92">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ row.stoplossLabel }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="编辑价" min-width="146">
-                  <template #default="{ row }">
-                    <el-input-number
-                      v-model="stoplossDrafts[row.entry_id].stop_price"
-                      size="small"
-                      :min="0"
-                      :step="0.01"
-                      :precision="2"
-                      controls-position="right"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column label="启用" width="94">
-                  <template #default="{ row }">
-                    <el-switch
-                      v-model="stoplossDrafts[row.entry_id].enabled"
-                      size="small"
-                      inline-prompt
-                      active-text="开"
-                      inactive-text="关"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column label="状态" width="88">
-                  <template #default="{ row }">
-                    <el-tag size="small" :type="stoplossDrafts[row.entry_id].enabled ? 'danger' : 'info'">
-                      {{ stoplossDrafts[row.entry_id].enabled ? '生效中' : '未启用' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="88" fixed="right">
-                  <template #default="{ row }">
-                    <el-button
-                      type="primary"
-                      text
-                      :loading="savingStoploss[row.entry_id]"
-                      @click="handleSaveStoplossClick(row.entry_id)"
-                    >
-                      保存
-                    </el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
+
+                  <div v-else class="subject-editor-stoploss-entry__detail-empty">
+                    左侧先选择一个聚合买入。
+                  </div>
+                </section>
+              </div>
+
+              <section v-else class="workbench-empty">
+                当前标的没有 open entry。
+              </section>
             </WorkbenchDetailPanel>
           </template>
 
@@ -684,7 +759,13 @@ const pmStateChipVariant = computed(() => resolveStateChipVariant(pmSummary.valu
 
 const detailSummaryChips = computed(() => buildDetailSummaryChips(detail.value || {}))
 const configEditorRows = computed(() => buildDenseConfigRows(detail.value || {}))
-const expandedEntrySlices = reactive({})
+const stoplossPaneState = reactive({
+  selectedEntryId: '',
+})
+const selectedStoplossEntry = computed(() => {
+  const entries = detail.value?.entries || []
+  return entries.find((row) => row.entry_id === stoplossPaneState.selectedEntryId) || entries[0] || null
+})
 
 watch(
   () => [
@@ -716,11 +797,12 @@ watch(
 watch(
   () => (detail.value?.entries || []).map((row) => row.entry_id).filter(Boolean),
   (entryIds) => {
-    const allowed = new Set(entryIds)
-    for (const key of Object.keys(expandedEntrySlices)) {
-      if (!allowed.has(key)) {
-        delete expandedEntrySlices[key]
-      }
+    if (!entryIds.length) {
+      stoplossPaneState.selectedEntryId = ''
+      return
+    }
+    if (!entryIds.includes(stoplossPaneState.selectedEntryId)) {
+      stoplossPaneState.selectedEntryId = entryIds[0]
     }
   },
   { immediate: true },
@@ -774,11 +856,9 @@ const handleSaveStoplossClick = async (entryId) => {
   await handleSaveStoploss(entryId)
 }
 
-const isEntrySlicesExpanded = (entryId) => Boolean(expandedEntrySlices[entryId])
-
-const toggleEntrySlices = (entryId) => {
+const selectStoplossEntry = (entryId) => {
   if (!entryId) return
-  expandedEntrySlices[entryId] = !expandedEntrySlices[entryId]
+  stoplossPaneState.selectedEntryId = entryId
 }
 
 onMounted(async () => {
@@ -1021,6 +1101,122 @@ onMounted(async () => {
   color: #1f2937;
 }
 
+.subject-editor-stoploss-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.95fr) minmax(360px, 1.05fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.subject-editor-stoploss-master,
+.subject-editor-stoploss-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 10px;
+  border: 1px solid #dbe5f0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fbfdff 0%, #f7fbff 100%);
+}
+
+.subject-editor-stoploss-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.subject-editor-stoploss-pane-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.subject-editor-stoploss-pane-meta {
+  font-size: 12px;
+  color: #64748b;
+  text-align: right;
+}
+
+.subject-editor-stoploss-master__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.subject-editor-stoploss-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dbe5f0;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.subject-editor-stoploss-card:hover {
+  border-color: #bfd6ee;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
+}
+
+.subject-editor-stoploss-card--active {
+  border-color: #60a5fa;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.12);
+  background: linear-gradient(180deg, #ffffff 0%, #f5faff 100%);
+}
+
+.subject-editor-stoploss-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.subject-editor-stoploss-card__editor {
+  padding-top: 4px;
+  border-top: 1px dashed #dbe5f0;
+}
+
+.subject-editor-stoploss-card__editor-grid {
+  display: grid;
+  grid-template-columns: minmax(86px, 0.9fr) minmax(136px, 1.25fr) minmax(84px, 0.8fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.subject-editor-stoploss-card__editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.subject-editor-stoploss-card__editor-label {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.subject-editor-stoploss-card__editor-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.subject-editor-stoploss-detail__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dbe5f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
 .subject-editor-stoploss-entry {
   display: flex;
   flex-direction: column;
@@ -1045,11 +1241,6 @@ onMounted(async () => {
   font-size: 12px;
   font-weight: 600;
   color: #1f2937;
-}
-
-.subject-editor-stoploss-entry__toggle {
-  padding: 0;
-  min-height: auto;
 }
 
 .subject-editor-stoploss-entry__id {
@@ -1188,7 +1379,8 @@ onMounted(async () => {
 
 .subject-editor-config-table :deep(.el-input-number),
 .subject-editor-takeprofit-table :deep(.el-input-number),
-.subject-editor-stoploss-table :deep(.el-input-number) {
+.subject-editor-stoploss-table :deep(.el-input-number),
+.subject-editor-stoploss-card__editor-grid :deep(.el-input-number) {
   width: 100%;
 }
 
@@ -1213,6 +1405,10 @@ onMounted(async () => {
   .subject-editor-stack {
     overflow: visible;
   }
+
+  .subject-editor-stoploss-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 1120px) {
@@ -1222,6 +1418,23 @@ onMounted(async () => {
   }
 
   .subject-editor-summarybar__actions {
+    justify-content: flex-start;
+  }
+
+  .subject-editor-stoploss-pane-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .subject-editor-stoploss-pane-meta {
+    text-align: left;
+  }
+
+  .subject-editor-stoploss-card__editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .subject-editor-stoploss-card__editor-actions {
     justify-content: flex-start;
   }
 }

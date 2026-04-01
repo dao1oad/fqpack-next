@@ -77,6 +77,29 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
   assert.equal(Object.hasOwn(detail.positionLimit, 'use_default'), false)
 })
 
+test('normalizeKlineSlimSubjectPanelDetail ignores zero latest-price market values and falls back to avg-price labels', () => {
+  const detail = normalizeKlineSlimSubjectPanelDetail({
+    subject: { symbol: '600104', name: '上汽集团' },
+    entries: [
+      {
+        entry_id: 'entry_zero_price',
+        date: 20260401,
+        time: '14:44:27',
+        entry_price: 14.44,
+        original_quantity: 3400,
+        remaining_quantity: 3200,
+        latest_price: 0,
+        remaining_market_value: 0,
+      },
+    ],
+    runtime_summary: {
+      avg_price: 14.884353,
+    },
+  })
+
+  assert.equal(detail.entries[0].entrySummaryDisplay.remainingMarketValueLabel, '4.76 万')
+})
+
 test('createKlineSlimSubjectPanelActions routes subject and position-limit writes to separate apis', async () => {
   const calls = []
   const actions = createKlineSlimSubjectPanelActions({

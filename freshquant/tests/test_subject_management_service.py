@@ -992,6 +992,62 @@ def test_subject_management_detail_remaining_market_value_falls_back_to_avg_pric
     assert entry["remaining_market_value_source"] == "avg_price_x_remaining_quantity"
 
 
+def test_subject_management_detail_derives_latest_price_from_market_value_when_close_price_is_zero():
+    order_repository = InMemoryOrderManagementRepository()
+    order_repository.position_entries.append(
+        {
+            "entry_id": "entry_cluster_zero_price",
+            "symbol": "600104",
+            "date": 20260331,
+            "time": "10:31:00",
+            "trade_time": 1774924260,
+            "entry_price": 10.02,
+            "original_quantity": 300,
+            "remaining_quantity": 50,
+            "status": "OPEN",
+        }
+    )
+
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=order_repository,
+        position_loader=lambda: [
+            {
+                "symbol": "600104.SH",
+                "name": "上汽集团",
+                "quantity": 200,
+                "avg_price": 10.023,
+            }
+        ],
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "close_price": 0.0,
+            "price_source": "xt_positions_last_price",
+            "quantity": 200,
+            "market_value": 2176.0,
+            "market_value_source": "xt_positions_market_value",
+        },
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600104")
+
+    entry = detail["entries"][0]
+    assert entry["latest_price"] == 10.88
+    assert entry["latest_price_source"] == "xt_positions_market_value_div_quantity"
+    assert entry["remaining_market_value"] == 544.0
+    assert entry["remaining_market_value_source"] == "latest_price_x_remaining_quantity"
+
+
 def test_subject_management_detail_prefers_symbol_snapshot_market_value():
     service = SubjectManagementDashboardService(
         database=FakeDatabase(),
