@@ -635,10 +635,15 @@ def _resolve_valid_latest_price(symbol_position):
             (symbol_position or {}).get("price_source")
         )
 
-    market_value = _safe_positive_float_or_none((symbol_position or {}).get("market_value"))
+    market_value = _safe_positive_float_or_none(
+        (symbol_position or {}).get("market_value")
+    )
     quantity = _safe_positive_float_or_none((symbol_position or {}).get("quantity"))
     if market_value is not None and quantity is not None:
-        return round(market_value / quantity, 6), "xt_positions_market_value_div_quantity"
+        return (
+            round(market_value / quantity, 6),
+            "xt_positions_market_value_div_quantity",
+        )
     return None, None
 
 
