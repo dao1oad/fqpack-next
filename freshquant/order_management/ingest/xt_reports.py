@@ -20,6 +20,10 @@ from freshquant.order_management.guardian.arranger import (
     build_buy_lot_from_trade_fact,
     build_position_entry_from_trade_fact,
 )
+from freshquant.order_management.guardian.sell_semantics import (
+    normalize_preferred_entry_quantities,
+    resolve_guardian_sell_source_entries_from_open_slices,
+)
 from freshquant.order_management.projection.cache_invalidator import (
     mark_stock_holdings_projection_updated,
 )
@@ -207,10 +211,18 @@ class OrderManagementXtIngestService:
                             symbol=symbol
                         )
                         if entries and open_entry_slices:
+                            preferred_entry_quantities = (
+                                _resolve_trade_preferred_entry_quantities(
+                                    repository=self.repository,
+                                    trade_fact=trade_fact,
+                                    open_entry_slices=open_entry_slices,
+                                )
+                            )
                             exit_allocations = allocate_sell_to_entry_slices(
                                 entries=entries,
                                 open_slices=open_entry_slices,
                                 sell_trade_fact=trade_fact,
+                                preferred_entry_quantities=preferred_entry_quantities,
                             )
                             for item in entries:
                                 self.repository.replace_position_entry(item)
@@ -560,6 +572,56 @@ def _build_entry_projections(symbol, *, repository):
             list_open_entry_slices_compat(symbol=symbol, repository=repository)
         ),
     }
+
+
+def _resolve_trade_preferred_entry_quantities(
+    *,
+    repository,
+    trade_fact,
+    open_entry_slices,
+):
+    if not hasattr(repository, "find_order"):
+        return []
+    internal_order_id = str(trade_fact.get("internal_order_id") or "").strip()
+    if not internal_order_id:
+        return []
+    order = repository.find_order(internal_order_id)
+    if order is None:
+        return []
+    request = None
+    request_id = str((order or {}).get("request_id") or "").strip()
+    if request_id and hasattr(repository, "find_order_request"):
+        request = repository.find_order_request(request_id)
+    if request is None:
+        return []
+    if str(request.get("action") or "").lower() != "sell":
+        return []
+    preferred_from_request = _resolve_guardian_sell_source_entries_from_request(
+        request=request,
+        quantity=trade_fact.get("quantity"),
+    )
+    if preferred_from_request:
+        return preferred_from_request
+    preferred_from_runtime = resolve_guardian_sell_source_entries_from_open_slices(
+        open_entry_slices,
+        exit_price=request.get("price"),
+        quantity=trade_fact.get("quantity"),
+    )
+    if preferred_from_runtime:
+        return preferred_from_runtime
+    return []
+
+
+def _resolve_guardian_sell_source_entries_from_request(*, request, quantity):
+    context = dict((request or {}).get("strategy_context") or {})
+    sell_sources = dict(context.get("guardian_sell_sources") or {})
+    raw_entries = list(sell_sources.get("entries") or [])
+    if not raw_entries:
+        return []
+    return normalize_preferred_entry_quantities(
+        raw_entries,
+        remaining_quantity=quantity,
+    )
 
 
 def _find_position_entry_for_broker_order(repository, *, symbol, broker_order_key):

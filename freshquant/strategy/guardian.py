@@ -15,6 +15,9 @@ from freshquant.data.astock.holding import (
 from freshquant.database.redis import redis_db
 from freshquant.db import DBfreshquant
 from freshquant.order_management.entry_adapter import list_open_entry_views
+from freshquant.order_management.guardian.sell_semantics import (
+    build_guardian_sell_source_entries,
+)
 from freshquant.order_management.sell_constraints import (
     PositionVolumeReader,
     resolve_sell_submission_quantity,
@@ -1440,26 +1443,4 @@ def _build_guardian_sell_strategy_context(
 
 
 def _resolve_guardian_sell_source_entries(fill_list, *, quantity):
-    remaining = int(quantity or 0)
-    if remaining <= 0:
-        return []
-
-    source_entries = []
-    for item in reversed(list(fill_list or [])):
-        if remaining <= 0:
-            break
-        entry_id = str(item.get("entry_id") or "").strip()
-        if not entry_id:
-            continue
-        available_quantity = int(item.get("quantity") or 0)
-        if available_quantity <= 0:
-            continue
-        allocated_quantity = min(available_quantity, remaining)
-        source_entries.append(
-            {
-                "entry_id": entry_id,
-                "quantity": allocated_quantity,
-            }
-        )
-        remaining -= allocated_quantity
-    return source_entries
+    return build_guardian_sell_source_entries(fill_list, quantity=quantity)
