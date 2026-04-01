@@ -917,8 +917,10 @@ def _resolve_recent_guardian_sell_source_entries(
         raw_entries = _extract_guardian_sell_source_entries(request)
         planned_quantity = _resolve_guardian_sell_source_quantity(request, raw_entries)
         runtime_entries = []
-        if planned_quantity >= target_quantity and hasattr(
-            repository, "list_open_entry_slices"
+        if (
+            not raw_entries
+            and planned_quantity >= target_quantity
+            and hasattr(repository, "list_open_entry_slices")
         ):
             runtime_entries = resolve_guardian_sell_source_entries_from_open_slices(
                 repository.list_open_entry_slices(symbol=symbol),
@@ -944,12 +946,10 @@ def _resolve_recent_guardian_sell_source_entries(
         )
         if best_score is None or score < best_score:
             best_score = score
-            best_candidate = list(
-                runtime_entries or []
-            ) or normalize_guardian_preferred_entry_quantities(
+            best_candidate = normalize_guardian_preferred_entry_quantities(
                 raw_entries,
                 remaining_quantity=target_quantity,
-            )
+            ) or list(runtime_entries or [])
     return list(best_candidate or [])
 
 

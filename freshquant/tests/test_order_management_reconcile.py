@@ -1858,3 +1858,94 @@ def test_detect_external_candidates_reconstructs_sell_source_entries_when_reques
         {"entry_id": "entry_low", "quantity": 100},
         {"entry_id": "entry_mid", "quantity": 400},
     ]
+
+
+def test_detect_external_candidates_prefers_request_guardian_plan_over_runtime_inference(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
+    repository.insert_order_request(
+        {
+            "request_id": "req_sell_authoritative_1",
+            "action": "sell",
+            "symbol": "000001",
+            "quantity": 500,
+            "price": 10.8,
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "created_at": datetime.fromtimestamp(995, tz=timezone.utc).isoformat(),
+            "state": "ACCEPTED",
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "submit_quantity": 500,
+                    "entries": [{"entry_id": "entry_old", "quantity": 500}],
+                }
+            },
+        }
+    )
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_old",
+            "symbol": "000001",
+            "entry_price": 10.0,
+            "original_quantity": 1000,
+            "remaining_quantity": 1000,
+            "trade_time": 900,
+            "status": "OPEN",
+        }
+    )
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_new",
+            "symbol": "000001",
+            "entry_price": 9.5,
+            "original_quantity": 1000,
+            "remaining_quantity": 1000,
+            "trade_time": 920,
+            "status": "OPEN",
+        }
+    )
+    repository.replace_entry_slices_for_entry(
+        "entry_old",
+        [
+            {
+                "entry_slice_id": "slice_old",
+                "entry_id": "entry_old",
+                "symbol": "000001",
+                "guardian_price": 10.0,
+                "original_quantity": 1000,
+                "remaining_quantity": 1000,
+                "remaining_amount": 10000.0,
+                "slice_seq": 0,
+                "sort_key": 10.0,
+                "status": "OPEN",
+            }
+        ],
+    )
+    repository.replace_entry_slices_for_entry(
+        "entry_new",
+        [
+            {
+                "entry_slice_id": "slice_new",
+                "entry_id": "entry_new",
+                "symbol": "000001",
+                "guardian_price": 9.5,
+                "original_quantity": 1000,
+                "remaining_quantity": 1000,
+                "remaining_amount": 9500.0,
+                "slice_seq": 0,
+                "sort_key": 11.0,
+                "status": "OPEN",
+            }
+        ],
+    )
+
+    gaps = service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 1500, "avg_price": 10.5}],
+        detected_at=1_000,
+    )
+
+    assert len(gaps) == 1
+    assert gaps[0]["sell_source_entries"] == [
+        {"entry_id": "entry_old", "quantity": 500}
+    ]

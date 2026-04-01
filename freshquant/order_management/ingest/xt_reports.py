@@ -596,6 +596,12 @@ def _resolve_trade_preferred_entry_quantities(
         return []
     if str(request.get("action") or "").lower() != "sell":
         return []
+    preferred_from_request = _resolve_guardian_sell_source_entries_from_request(
+        request=request,
+        quantity=trade_fact.get("quantity"),
+    )
+    if preferred_from_request:
+        return preferred_from_request
     preferred_from_runtime = resolve_guardian_sell_source_entries_from_open_slices(
         open_entry_slices,
         exit_price=request.get("price"),
@@ -603,10 +609,7 @@ def _resolve_trade_preferred_entry_quantities(
     )
     if preferred_from_runtime:
         return preferred_from_runtime
-    return _resolve_guardian_sell_source_entries_from_request(
-        request=request,
-        quantity=trade_fact.get("quantity"),
-    )
+    return []
 
 
 def _resolve_guardian_sell_source_entries_from_request(*, request, quantity):
