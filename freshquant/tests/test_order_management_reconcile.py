@@ -45,14 +45,24 @@ class InMemoryRepository:
         self,
         *,
         symbol=None,
+        action=None,
+        states=None,
         scope_type=None,
         scope_ref_id=None,
         scope_ref_ids=None,
         request_ids=None,
+        created_at_gte=None,
+        sort_created_at_desc=False,
+        limit=None,
     ):
         rows = list(self.order_requests)
         if symbol is not None:
             rows = [item for item in rows if item.get("symbol") == symbol]
+        if action is not None:
+            rows = [item for item in rows if item.get("action") == action]
+        if states is not None:
+            allowed_states = set(states)
+            rows = [item for item in rows if item.get("state") in allowed_states]
         if scope_type is not None:
             rows = [item for item in rows if item.get("scope_type") == scope_type]
         if scope_ref_id is not None:
@@ -67,6 +77,20 @@ class InMemoryRepository:
             rows = [
                 item for item in rows if item.get("request_id") in allowed_request_ids
             ]
+        if created_at_gte is not None:
+            rows = [
+                item
+                for item in rows
+                if str(item.get("created_at") or "").strip() >= str(created_at_gte)
+            ]
+        if sort_created_at_desc:
+            rows = sorted(
+                rows,
+                key=lambda item: str(item.get("created_at") or ""),
+                reverse=True,
+            )
+        if limit is not None:
+            rows = rows[: max(int(limit), 0)]
         return [dict(item) for item in rows]
 
     def insert_order(self, document):
@@ -1370,6 +1394,212 @@ def test_confirm_expired_candidates_prefers_guardian_sell_source_entries_for_aut
     assert remaining_by_entry["entry_mid_1"] == 0
     assert remaining_by_entry["entry_mid_2"] == 0
     assert remaining_by_entry["entry_new"] == 0
+
+
+def test_confirm_expired_candidates_ignores_guardian_sell_sources_without_created_at(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
+    repository.insert_order_request(
+        {
+            "request_id": "req_guardian_sell_missing_time",
+            "action": "sell",
+            "symbol": "000001",
+            "quantity": 3100,
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "submit_quantity": 3100,
+                    "entries": [
+                        {"entry_id": "entry_old", "quantity": 3100},
+                    ],
+                }
+            },
+            "state": "ACCEPTED",
+        }
+    )
+    repository.insert_order_request(
+        {
+            "request_id": "req_guardian_sell_recent",
+            "action": "sell",
+            "symbol": "000001",
+            "quantity": 3100,
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "submit_quantity": 3100,
+                    "entries": [
+                        {"entry_id": "entry_new", "quantity": 1000},
+                        {"entry_id": "entry_mid_2", "quantity": 1000},
+                        {"entry_id": "entry_mid_1", "quantity": 1000},
+                        {"entry_id": "entry_old", "quantity": 100},
+                    ],
+                }
+            },
+            "created_at": datetime.fromtimestamp(995, tz=timezone.utc).isoformat(),
+            "state": "ACCEPTED",
+        }
+    )
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_old",
+            "symbol": "000001",
+            "entry_price": 49.37,
+            "original_quantity": 4000,
+            "remaining_quantity": 4000,
+            "trade_time": 900,
+            "status": "OPEN",
+        }
+    )
+    repository.replace_entry_slices_for_entry(
+        "entry_old",
+        [
+            {
+                "entry_slice_id": "slice_old_1",
+                "entry_id": "entry_old",
+                "symbol": "000001",
+                "guardian_price": 49.37,
+                "remaining_quantity": 4000,
+                "remaining_amount": 197480.0,
+                "sort_key": 1,
+                "slice_seq": 1,
+                "status": "OPEN",
+            }
+        ],
+    )
+    for index, entry_id in enumerate(
+        ("entry_mid_1", "entry_mid_2", "entry_new"), start=1
+    ):
+        repository.replace_position_entry(
+            {
+                "entry_id": entry_id,
+                "symbol": "000001",
+                "entry_price": 48.76,
+                "original_quantity": 1000,
+                "remaining_quantity": 1000,
+                "trade_time": 950 + index,
+                "status": "OPEN",
+            }
+        )
+        repository.replace_entry_slices_for_entry(
+            entry_id,
+            [
+                {
+                    "entry_slice_id": f"slice_{entry_id}",
+                    "entry_id": entry_id,
+                    "symbol": "000001",
+                    "guardian_price": 48.76,
+                    "remaining_quantity": 1000,
+                    "remaining_amount": 48760.0,
+                    "sort_key": 10 + index,
+                    "slice_seq": 1,
+                    "status": "OPEN",
+                }
+            ],
+        )
+
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 3900, "avg_price": 50.34}],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 3900, "avg_price": 50.34}],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 3900, "avg_price": 50.34}],
+        detected_at=1_030,
+    )
+
+    service.confirm_expired_candidates(now=1_030)
+
+    allocations_by_entry = {}
+    for item in repository.exit_allocations:
+        allocations_by_entry[item["entry_id"]] = (
+            allocations_by_entry.get(item["entry_id"], 0) + item["allocated_quantity"]
+        )
+    assert allocations_by_entry == {
+        "entry_new": 1000,
+        "entry_mid_2": 1000,
+        "entry_mid_1": 1000,
+        "entry_old": 100,
+    }
+
+
+def test_guardian_sell_source_lookup_queries_recent_window_and_limit(monkeypatch):
+    class RecordingRepository(InMemoryRepository):
+        def __init__(self):
+            super().__init__()
+            self.request_queries = []
+
+        def list_order_requests(self, **kwargs):
+            self.request_queries.append(dict(kwargs))
+            return super().list_order_requests(**kwargs)
+
+    if monkeypatch is not None:
+        _stub_ingest_side_effects(monkeypatch)
+        monkeypatch.setattr(
+            reconcile_service_module,
+            "_safe_resolve_lot_amount",
+            lambda _symbol: 3000,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            reconcile_service_module,
+            "_safe_grid_interval_lookup",
+            lambda _symbol, _trade_fact: 1.03,
+            raising=False,
+        )
+    repository = RecordingRepository()
+    service = ExternalOrderReconcileService(
+        repository=repository,
+        tracking_service=OrderTrackingService(repository=repository),
+        external_confirm_interval_seconds=15,
+        external_confirm_observations=3,
+    )
+    repository.insert_order_request(
+        {
+            "request_id": "req_guardian_sell_recent",
+            "action": "sell",
+            "symbol": "000001",
+            "quantity": 100,
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "submit_quantity": 100,
+                    "entries": [{"entry_id": "entry_1", "quantity": 100}],
+                }
+            },
+            "created_at": datetime.fromtimestamp(995, tz=timezone.utc).isoformat(),
+            "state": "ACCEPTED",
+        }
+    )
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_1",
+            "symbol": "000001",
+            "entry_price": 10.0,
+            "original_quantity": 100,
+            "remaining_quantity": 100,
+            "trade_time": 900,
+            "status": "OPEN",
+        }
+    )
+
+    service.detect_external_candidates(
+        positions=[],
+        detected_at=1_000,
+    )
+
+    assert repository.request_queries == [
+        {
+            "symbol": "000001",
+            "action": "sell",
+            "created_at_gte": datetime.fromtimestamp(
+                1000 - reconcile_service_module._SELL_SOURCE_REQUEST_WINDOW_SECONDS,
+                tz=timezone.utc,
+            ).isoformat(),
+            "sort_created_at_desc": True,
+            "limit": reconcile_service_module._SELL_SOURCE_REQUEST_LOOKBACK_LIMIT,
+        }
+    ]
 
 
 def test_pending_gap_is_dismissed_when_position_delta_resolves(monkeypatch):

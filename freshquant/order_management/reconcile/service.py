@@ -41,6 +41,7 @@ _SELL_GAP_FUSE_MIN_SYMBOLS = 3
 _SELL_GAP_FUSE_MIN_QUANTITY_RATIO = 0.5
 _SELL_GAP_EVIDENCE_WINDOW_SECONDS = 300
 _SELL_SOURCE_REQUEST_WINDOW_SECONDS = 900
+_SELL_SOURCE_REQUEST_LOOKBACK_LIMIT = 32
 
 
 @dataclass
@@ -885,10 +886,26 @@ def _resolve_recent_guardian_sell_source_entries(
     target_quantity = int(quantity or 0)
     if target_quantity <= 0:
         return []
+    window_start_epoch = int(detected_at) - _SELL_SOURCE_REQUEST_WINDOW_SECONDS
+    window_start_iso = datetime.fromtimestamp(
+        window_start_epoch,
+        tz=timezone.utc,
+    ).isoformat()
+
+    try:
+        request_rows = repository.list_order_requests(
+            symbol=symbol,
+            action="sell",
+            created_at_gte=window_start_iso,
+            sort_created_at_desc=True,
+            limit=_SELL_SOURCE_REQUEST_LOOKBACK_LIMIT,
+        )
+    except TypeError:
+        request_rows = repository.list_order_requests(symbol=symbol) or []
 
     best_candidate = None
     best_score = None
-    for request in repository.list_order_requests(symbol=symbol) or []:
+    for request in request_rows:
         if str(request.get("action") or "").lower() != "sell":
             continue
         raw_entries = _extract_guardian_sell_source_entries(request)
@@ -898,19 +915,17 @@ def _resolve_recent_guardian_sell_source_entries(
         if planned_quantity < target_quantity:
             continue
         created_at_epoch = _coerce_epoch_seconds(request.get("created_at"))
-        if created_at_epoch is not None:
-            if created_at_epoch > int(detected_at) + 5:
-                continue
-            if (
-                created_at_epoch
-                < int(detected_at) - _SELL_SOURCE_REQUEST_WINDOW_SECONDS
-            ):
-                continue
+        if created_at_epoch is None:
+            continue
+        if created_at_epoch > int(detected_at) + 5:
+            continue
+        if created_at_epoch < window_start_epoch:
+            continue
         score = (
             0 if planned_quantity == target_quantity else 1,
             max(planned_quantity - target_quantity, 0),
-            abs((created_at_epoch or int(detected_at)) - int(detected_at)),
-            -(created_at_epoch or 0),
+            abs(created_at_epoch - int(detected_at)),
+            -created_at_epoch,
         )
         if best_score is None or score < best_score:
             best_score = score
