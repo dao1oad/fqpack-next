@@ -3,7 +3,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "morningglory" / "fqxtrade"
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
