@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
-from freshquant.order_management.ids import new_allocation_id
 from freshquant.order_management.guardian.sell_semantics import (
     normalize_preferred_entry_quantities,
 )
+from freshquant.order_management.ids import new_allocation_id
 
 
 def allocate_sell_to_slices(buy_lots, open_slices, sell_trade_fact):
@@ -173,9 +173,9 @@ def _consume_entry_slice(
     sell_trade_fact,
     allocated_quantity,
 ):
-    slice_document["remaining_quantity"] = (
-        int(slice_document.get("remaining_quantity") or 0) - int(allocated_quantity or 0)
-    )
+    slice_document["remaining_quantity"] = int(
+        slice_document.get("remaining_quantity") or 0
+    ) - int(allocated_quantity or 0)
     slice_document["remaining_amount"] = round(
         float(slice_document.get("guardian_price") or 0.0)
         * int(slice_document["remaining_quantity"] or 0),
@@ -185,8 +185,8 @@ def _consume_entry_slice(
         slice_document["status"] = "CLOSED"
 
     entry = entry_by_id[slice_document["entry_id"]]
-    entry["remaining_quantity"] = (
-        int(entry.get("remaining_quantity") or 0) - int(allocated_quantity or 0)
+    entry["remaining_quantity"] = int(entry.get("remaining_quantity") or 0) - int(
+        allocated_quantity or 0
     )
     if int(entry["remaining_quantity"]) == 0:
         entry["status"] = "CLOSED"

@@ -187,9 +187,7 @@ class InMemoryRepository:
             rows = [item for item in rows if item.get("symbol") == symbol]
         if internal_order_ids is not None:
             allowed = set(internal_order_ids)
-            rows = [
-                item for item in rows if item.get("internal_order_id") in allowed
-            ]
+            rows = [item for item in rows if item.get("internal_order_id") in allowed]
         return [dict(item) for item in rows]
 
     def list_exit_allocations(self, *, entry_ids=None):
@@ -955,7 +953,10 @@ def test_sell_trade_ingest_prefers_guardian_sell_request_entry_plan(monkeypatch)
         (item["entry_id"], item["allocated_quantity"])
         for item in second["exit_allocations"]
     ] == [("entry_new", 400), ("entry_old", 100)]
-    assert repository.find_order("ord_guardian_sell_1")["request_id"] == request["request_id"]
+    assert (
+        repository.find_order("ord_guardian_sell_1")["request_id"]
+        == request["request_id"]
+    )
 
 
 def test_order_report_updates_existing_order_state():

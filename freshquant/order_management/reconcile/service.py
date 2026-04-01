@@ -10,6 +10,8 @@ from freshquant.order_management.guardian.allocation_policy import (
 )
 from freshquant.order_management.guardian.sell_semantics import (
     normalize_preferred_entry_quantities as normalize_guardian_preferred_entry_quantities,
+)
+from freshquant.order_management.guardian.sell_semantics import (
     resolve_guardian_sell_source_entries_from_open_slices,
 )
 from freshquant.order_management.ids import (
@@ -942,7 +944,9 @@ def _resolve_recent_guardian_sell_source_entries(
         )
         if best_score is None or score < best_score:
             best_score = score
-            best_candidate = list(runtime_entries or []) or normalize_guardian_preferred_entry_quantities(
+            best_candidate = list(
+                runtime_entries or []
+            ) or normalize_guardian_preferred_entry_quantities(
                 raw_entries,
                 remaining_quantity=target_quantity,
             )

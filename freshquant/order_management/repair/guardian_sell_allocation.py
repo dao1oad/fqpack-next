@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-import json
 
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_entry_slices,
@@ -22,15 +22,23 @@ from freshquant.order_management.repository import OrderManagementRepository
 
 
 def replay_symbol_entry_ledger(*, seed_entries, seed_slices, sell_events):
-    entries = [_reset_entry(item) for item in sorted(_clone_rows(seed_entries), key=_entry_sort_key)]
+    entries = [
+        _reset_entry(item)
+        for item in sorted(_clone_rows(seed_entries), key=_entry_sort_key)
+    ]
     entry_by_id = {item["entry_id"]: item for item in entries}
-    slices = [_reset_entry_slice(item) for item in sorted(_clone_rows(seed_slices), key=_slice_sort_key, reverse=True)]
+    slices = [
+        _reset_entry_slice(item)
+        for item in sorted(_clone_rows(seed_slices), key=_slice_sort_key, reverse=True)
+    ]
 
     event_results = []
     exit_allocations = []
 
     for event in sorted(_clone_rows(sell_events), key=_event_sort_key):
-        open_slices = [item for item in slices if int(item.get("remaining_quantity") or 0) > 0]
+        open_slices = [
+            item for item in slices if int(item.get("remaining_quantity") or 0) > 0
+        ]
         open_slices.sort(key=_slice_sort_key, reverse=True)
         preferred = _resolve_sell_event_preferred_entries(
             request=event.get("request"),
@@ -113,7 +121,9 @@ def repair_guardian_sell_allocations(
             continue
         if execute:
             _backup_symbol_state(symbol, plan, backup_dir=backup_dir)
-            _apply_symbol_repair(database, repository=repository, symbol=symbol, plan=plan)
+            _apply_symbol_repair(
+                database, repository=repository, symbol=symbol, plan=plan
+            )
         planned_repairs.append(plan["summary"])
 
     return {
@@ -185,8 +195,7 @@ def _plan_symbol_repair(database, *, repository, symbol):
 
     candidate_signature = _build_candidate_signature(prepared_events)
     signature_by_event_id = {
-        item["event_id"]: item
-        for item in candidate_signature["events"]
+        item["event_id"]: item for item in candidate_signature["events"]
     }
     for event in prepared_events:
         event["should_repair"] = bool(
@@ -206,8 +215,7 @@ def _plan_symbol_repair(database, *, repository, symbol):
         )
 
     changed = any(
-        bool(event.get("should_repair"))
-        for event in candidate_signature["events"]
+        bool(event.get("should_repair")) for event in candidate_signature["events"]
     )
     changed = changed or _build_entry_signature(seed_entries) != _build_entry_signature(
         final_entries.values()
@@ -268,7 +276,9 @@ def _build_symbol_sell_events(database, *, symbol):
     for resolution in database["om_reconciliation_resolutions"].find(
         {"resolution_type": "auto_close_allocation"}
     ):
-        gap = database["om_reconciliation_gaps"].find_one({"gap_id": resolution.get("gap_id")})
+        gap = database["om_reconciliation_gaps"].find_one(
+            {"gap_id": resolution.get("gap_id")}
+        )
         if gap is None or gap.get("symbol") != symbol or gap.get("side") != "sell":
             continue
         request = _resolve_request_for_auto_close_event(
@@ -410,7 +420,9 @@ def _resolve_sell_event_preferred_entries(*, request, open_slices, quantity):
 
 def _list_current_resolution_allocations(database, *, resolution_id):
     return list(
-        database["om_exit_allocations"].find({"resolution_id": str(resolution_id or "").strip()})
+        database["om_exit_allocations"].find(
+            {"resolution_id": str(resolution_id or "").strip()}
+        )
     )
 
 
@@ -443,7 +455,9 @@ def _apply_allocation_delta(*, entries, slices, allocation, direction):
     signed_quantity = quantity if int(direction or 1) > 0 else -quantity
     entry = entries[entry_id]
     slice_document = slices[slice_id]
-    entry["remaining_quantity"] = int(entry.get("remaining_quantity") or 0) - signed_quantity
+    entry["remaining_quantity"] = (
+        int(entry.get("remaining_quantity") or 0) - signed_quantity
+    )
     entry["status"] = _resolve_entry_status(
         entry.get("remaining_quantity"),
         entry.get("original_quantity"),
@@ -465,7 +479,9 @@ def _build_repaired_resolution_allocations(*, event, entries, slices):
     working_entries = {key: deepcopy(value) for key, value in entries.items()}
     working_slices = {key: deepcopy(value) for key, value in slices.items()}
     open_slices = [
-        item for item in working_slices.values() if int(item.get("remaining_quantity") or 0) > 0
+        item
+        for item in working_slices.values()
+        if int(item.get("remaining_quantity") or 0) > 0
     ]
     open_slices.sort(key=_slice_sort_key, reverse=True)
     preferred_entries = _resolve_sell_event_preferred_entries(
@@ -558,9 +574,7 @@ def _build_current_symbol_signature(database, *, symbol):
             )
         )
     normalized_groups = {
-        key: sorted(value)
-        for key, value in grouped_allocations.items()
-        if key[1]
+        key: sorted(value) for key, value in grouped_allocations.items() if key[1]
     }
     return {
         "entries": entries,
@@ -621,7 +635,9 @@ def _apply_symbol_repair(database, *, repository, symbol, plan):
     for event in plan.get("candidate_events") or []:
         if not event.get("should_repair"):
             continue
-        database["om_exit_allocations"].delete_many({"resolution_id": event["event_id"]})
+        database["om_exit_allocations"].delete_many(
+            {"resolution_id": event["event_id"]}
+        )
         if event["repaired_allocations"]:
             database["om_exit_allocations"].insert_many(
                 event["repaired_allocations"],
