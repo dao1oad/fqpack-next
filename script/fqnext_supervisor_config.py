@@ -317,7 +317,8 @@ def write_supervisor_config(repo_root: Path, output_path: Path) -> dict[str, Any
     previous = output_path.read_text(encoding="utf-8") if output_path.exists() else None
     changed = previous != content
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(content, encoding="utf-8")
+    if changed:
+        output_path.write_text(content, encoding="utf-8")
     return {
         "ok": True,
         "changed": changed,

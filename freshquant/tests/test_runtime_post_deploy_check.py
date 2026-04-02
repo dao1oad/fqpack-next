@@ -50,6 +50,23 @@ def _write_json(path: Path, payload: object) -> Path:
     return path
 
 
+def _write_valid_supervisor_config_snapshot(path: Path) -> Path:
+    return _write_json(
+        path,
+        {
+            "ok": True,
+            "configured_repo_root": (
+                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+            ),
+            "expected_repo_root": (
+                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+            ),
+            "failures": [],
+            "warnings": [],
+        },
+    )
+
+
 def test_capture_baseline_records_runtime_state_from_snapshots(tmp_path: Path) -> None:
     docker_path = _write_json(
         tmp_path / "docker.json",
@@ -223,6 +240,9 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
         [],
     )
     output_path = tmp_path / "verify.json"
+    supervisor_config_path = _write_valid_supervisor_config_snapshot(
+        tmp_path / "supervisor-config.json"
+    )
 
     result = _run_powershell(
         SCRIPT,
@@ -240,6 +260,8 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
         str(service_path),
         "-ProcessSnapshotPath",
         str(process_path),
+        "-SupervisorConfigSnapshotPath",
+        str(supervisor_config_path),
     )
 
     assert result.returncode != 0
@@ -345,6 +367,9 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
         ],
     )
     output_path = tmp_path / "verify.json"
+    supervisor_config_path = _write_valid_supervisor_config_snapshot(
+        tmp_path / "supervisor-config.json"
+    )
 
     result = _run_powershell(
         SCRIPT,
@@ -362,6 +387,8 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
         str(service_path),
         "-ProcessSnapshotPath",
         str(process_path),
+        "-SupervisorConfigSnapshotPath",
+        str(supervisor_config_path),
     )
 
     assert result.returncode == 0, result.stderr
@@ -478,6 +505,9 @@ def test_verify_matches_xt_account_sync_worker_without_explicit_interval_flag(
         ],
     )
     output_path = tmp_path / "verify.json"
+    supervisor_config_path = _write_valid_supervisor_config_snapshot(
+        tmp_path / "supervisor-config.json"
+    )
 
     result = _run_powershell(
         SCRIPT,
@@ -495,6 +525,8 @@ def test_verify_matches_xt_account_sync_worker_without_explicit_interval_flag(
         str(service_path),
         "-ProcessSnapshotPath",
         str(process_path),
+        "-SupervisorConfigSnapshotPath",
+        str(supervisor_config_path),
     )
 
     assert result.returncode == 0, result.stderr
@@ -555,6 +587,9 @@ def test_verify_requires_fqnext_supervisord_for_host_managed_surfaces(
         ],
     )
     output_path = tmp_path / "verify.json"
+    supervisor_config_path = _write_valid_supervisor_config_snapshot(
+        tmp_path / "supervisor-config.json"
+    )
 
     result = _run_powershell(
         SCRIPT,
@@ -572,6 +607,8 @@ def test_verify_requires_fqnext_supervisord_for_host_managed_surfaces(
         str(service_path),
         "-ProcessSnapshotPath",
         str(process_path),
+        "-SupervisorConfigSnapshotPath",
+        str(supervisor_config_path),
     )
 
     assert result.returncode != 0
@@ -638,6 +675,9 @@ def test_verify_prefers_supervisor_snapshot_for_host_managed_programs(
         ],
     )
     output_path = tmp_path / "verify.json"
+    supervisor_config_path = _write_valid_supervisor_config_snapshot(
+        tmp_path / "supervisor-config.json"
+    )
 
     result = _run_powershell(
         SCRIPT,
@@ -657,6 +697,8 @@ def test_verify_prefers_supervisor_snapshot_for_host_managed_programs(
         str(process_path),
         "-SupervisorSnapshotPath",
         str(supervisor_path),
+        "-SupervisorConfigSnapshotPath",
+        str(supervisor_config_path),
     )
 
     assert result.returncode == 0, result.stderr
@@ -892,3 +934,96 @@ def test_verify_passes_when_supervisor_config_matches_deploy_mirror(
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["passed"] is True
     assert payload["failures"] == []
+
+
+def test_verify_fails_when_supervisor_config_inspection_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    baseline_path = _write_json(
+        tmp_path / "baseline.json",
+        {
+            "baseline": {
+                "docker": [],
+                "services": [{"name": "fqnext-supervisord", "status": "Running"}],
+                "processes": [
+                    {"id": "xtquant_broker", "running": False},
+                    {"id": "xt_account_sync_worker", "running": False},
+                ],
+            }
+        },
+    )
+    docker_path = _write_json(
+        tmp_path / "docker.json",
+        [
+            {
+                "Name": "fq_mongodb",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+            {
+                "Name": "fq_redis",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+        ],
+    )
+    service_path = _write_json(
+        tmp_path / "services.json",
+        [{"Name": "fqnext-supervisord", "Status": "Running"}],
+    )
+    process_path = _write_json(
+        tmp_path / "processes.json",
+        [
+            {
+                "ProcessId": 1001,
+                "Name": "python.exe",
+                "CommandLine": "python -m fqxtrade.xtquant.broker",
+            },
+            {
+                "ProcessId": 1002,
+                "Name": "python.exe",
+                "CommandLine": "python -m freshquant.xt_account_sync.worker",
+            },
+        ],
+    )
+    supervisor_path = _write_json(
+        tmp_path / "supervisor.json",
+        [
+            {
+                "name": "fqnext_xtquant_broker",
+                "statename": "RUNNING",
+                "pid": 2001,
+                "description": "pid 2001, uptime 0:01:00",
+            },
+            {
+                "name": "fqnext_xt_account_sync_worker",
+                "statename": "RUNNING",
+                "pid": 2002,
+                "description": "pid 2002, uptime 0:01:00",
+            },
+        ],
+    )
+    output_path = tmp_path / "verify.json"
+
+    result = _run_powershell(
+        SCRIPT,
+        "-Mode",
+        "Verify",
+        "-BaselinePath",
+        str(baseline_path),
+        "-OutputPath",
+        str(output_path),
+        "-DeploymentSurface",
+        "order_management",
+        "-DockerSnapshotPath",
+        str(docker_path),
+        "-ServiceSnapshotPath",
+        str(service_path),
+        "-ProcessSnapshotPath",
+        str(process_path),
+        "-SupervisorSnapshotPath",
+        str(supervisor_path),
+    )
+
+    assert result.returncode != 0
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["passed"] is False
+    assert any("supervisor config" in failure for failure in payload["failures"])

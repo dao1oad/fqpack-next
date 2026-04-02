@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -146,3 +147,22 @@ def test_inspect_supervisor_config_accepts_deploy_mirror_sources(
 
     assert result["ok"] is True
     assert result["failures"] == []
+
+
+def test_write_supervisor_config_preserves_mtime_when_content_unchanged(
+    tmp_path: Path,
+) -> None:
+    module = load_module()
+    config_path = tmp_path / "supervisord.fqnext.conf"
+    config_path.write_text(
+        module.build_supervisor_config(EXPECTED_REPO_ROOT),
+        encoding="utf-8",
+    )
+    original_timestamp = 1_700_000_000
+    os.utime(config_path, (original_timestamp, original_timestamp))
+    original_mtime_ns = config_path.stat().st_mtime_ns
+
+    result = module.write_supervisor_config(EXPECTED_REPO_ROOT, config_path)
+
+    assert result["changed"] is False
+    assert config_path.stat().st_mtime_ns == original_mtime_ns

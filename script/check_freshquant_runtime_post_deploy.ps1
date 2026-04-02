@@ -925,11 +925,14 @@ function Get-SupervisorConfigChecks {
             required = $required
             available = $available
             source = if ($null -ne $SupervisorConfigState) { [string]$SupervisorConfigState.source } else { 'unknown' }
-            passed = (-not $required) -or (-not $available) -or [bool]$payload.ok
+            passed = (-not $required) -or ($available -and [bool]$payload.ok)
             configured_repo_root = Get-StringProperty -Object $payload -PropertyNames @('configured_repo_root', 'configuredRepoRoot')
             expected_repo_root = Get-StringProperty -Object $payload -PropertyNames @('expected_repo_root', 'expectedRepoRoot')
             reasons = @(
-                if ($required -and $available -and -not [bool]$payload.ok) {
+                if ($required -and -not $available) {
+                    @("supervisor config inspection unavailable: source=$([string]$SupervisorConfigState.source)")
+                }
+                elseif ($required -and -not [bool]$payload.ok) {
                     @(Convert-ToObjectArray $payload.failures)
                 }
                 else {
@@ -945,7 +948,10 @@ function Get-SupervisorConfigChecks {
     }
 
     $failures = [System.Collections.Generic.List[string]]::new()
-    if ($required -and $available -and -not [bool]$payload.ok) {
+    if ($required -and -not $available) {
+        $failures.Add("supervisor config check failed: inspection unavailable (source=$([string]$SupervisorConfigState.source))")
+    }
+    elseif ($required -and -not [bool]$payload.ok) {
         foreach ($failure in @(Convert-ToObjectArray $payload.failures)) {
             $failures.Add("supervisor config check failed: $failure")
         }
