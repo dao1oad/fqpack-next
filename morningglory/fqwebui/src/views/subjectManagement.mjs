@@ -5,6 +5,7 @@ import {
   normalizeGuardianState,
   normalizeTakeprofitTier,
 } from './js/subject-price-guides.mjs'
+import { getPositionGateStateMeta } from './positionGateStateMeta.mjs'
 import {
   formatBeijingDateTimeParts,
   formatBeijingTimestamp,
@@ -189,11 +190,17 @@ const normalizeRuntimeSummary = (row = {}) => ({
   last_trigger_kind: toText(row?.last_trigger_kind),
 })
 
-const normalizePositionManagementSummary = (row = {}) => ({
-  effective_state: toText(row?.effective_state),
-  allow_open_min_bail: toNullableNumber(row?.allow_open_min_bail),
-  holding_only_min_bail: toNullableNumber(row?.holding_only_min_bail),
-})
+const normalizePositionManagementSummary = (row = {}) => {
+  const effectiveState = toText(row?.effective_state)
+  const stateMeta = effectiveState ? getPositionGateStateMeta(effectiveState) : null
+  return {
+    effective_state: effectiveState,
+    effective_state_label: stateMeta?.label || '',
+    effective_state_chip_variant: stateMeta?.chipVariant || 'muted',
+    allow_open_min_bail: toNullableNumber(row?.allow_open_min_bail),
+    holding_only_min_bail: toNullableNumber(row?.holding_only_min_bail),
+  }
+}
 
 const normalizePositionLimitSummary = (row = {}) => {
   const defaultLimit = toNullableNumber(row?.default_limit)

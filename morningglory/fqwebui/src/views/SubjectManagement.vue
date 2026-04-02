@@ -66,8 +66,8 @@
           <StatusChip variant="warning">
             活跃止损 <strong>{{ activeStoplossCount }}</strong>
           </StatusChip>
-          <StatusChip v-if="pmSummary.effective_state" :variant="pmStateChipVariant">
-            门禁 <strong>{{ pmSummary.effective_state }}</strong>
+          <StatusChip v-if="pmSummary.effective_state" :variant="pmSummary.effective_state_chip_variant">
+            门禁 <strong>{{ pmSummary.effective_state_label }}</strong>
           </StatusChip>
           <StatusChip v-if="pmSummary.allow_open_min_bail !== null" variant="muted">
             开仓阈值 <strong>{{ formatInteger(pmSummary.allow_open_min_bail) }}</strong>
