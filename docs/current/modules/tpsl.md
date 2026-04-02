@@ -64,6 +64,13 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 
 当前 detail 已不再返回 `buy_lots`，也不再把 `stock_fills` 兼容视图当成主详情对象。
 每条 `entry` 当前会内嵌自己的 `stoploss` 绑定摘要。
+`reconciliation.state` 当前统一复用 shared canonical 语义，前后端展示统一为：
+
+- `ALIGNED`：券商与账本对齐
+- `OBSERVING`：存在待观察差额
+- `AUTO_RECONCILED`：系统已自动补齐账本
+- `BROKEN`：对账链路异常
+- `DRIFT`：券商与账本仍然漂移
 
 ### history
 

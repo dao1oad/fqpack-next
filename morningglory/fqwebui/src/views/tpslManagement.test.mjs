@@ -135,13 +135,31 @@ test('buildDetailViewModel and buildHistoryRows keep tiers, entries and downstre
   assert.equal(detail.entries[0].entry_price_label, '10.0')
   assert.equal(detail.entries[0].sellHistoryLabel, '1 次卖出分配')
   assert.equal(detail.entrySlices[0].entry_slice_id, 'slice_1')
-  assert.equal(detail.reconciliation.state, 'aligned')
+  assert.equal(detail.reconciliation.state, 'ALIGNED')
+  assert.equal(detail.reconciliation.state_label, '已对齐')
+  assert.equal(detail.reconciliation.state_chip_variant, 'success')
   assert.equal(detail.historyRows[0].batch_id, 'sl_batch_1')
   assert.equal(detail.historyRows[0].created_at, '2026-03-13 10:00:00')
   assert.equal(detail.historyRows[0].triggerLabel, '9.2')
   assert.equal(detail.historyRows[0].triggerPriceLabel, '9.1')
   assert.equal(detail.historyRows[0].downstreamLabel, '1 request / 1 order / 1 trade')
   assert.equal(buildHistoryRows(detail.historyRows)[0].entry_label, 'entry_1')
+})
+
+test('buildDetailViewModel normalizes drift reconciliation state with shared semantics', () => {
+  const detail = buildDetailViewModel({
+    symbol: '300001',
+    reconciliation: {
+      state: 'drift',
+      signed_gap_quantity: 50,
+      open_gap_count: 0,
+      latest_resolution_type: '',
+    },
+  })
+
+  assert.equal(detail.reconciliation.state, 'DRIFT')
+  assert.equal(detail.reconciliation.state_label, '漂移')
+  assert.equal(detail.reconciliation.state_chip_variant, 'danger')
 })
 
 test('buildHistoryRows derives level and stop price labels for unified timeline cards', () => {
@@ -247,6 +265,9 @@ test('TpslManagement.vue renders entry ledger and reconciliation sections', () =
   assert.match(source, /<el-table-column label="原始\/剩余" width="156">/)
   assert.match(source, /Entry Slice Ledger/)
   assert.match(source, /对账状态/)
+  assert.match(source, /detail\.reconciliation\.state_label/)
+  assert.match(source, /detail\.reconciliation\.state_chip_variant/)
+  assert.match(source, /<StatusChip v-if="detail" :variant="detail\.reconciliation\.state_chip_variant">/)
 })
 
 test('page controller runs takeprofit save, stoploss save and history refresh from selected symbol', async () => {

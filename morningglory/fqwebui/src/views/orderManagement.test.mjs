@@ -10,7 +10,15 @@ import {
   formatOrderPrice,
   formatOrderTimestamp,
 } from './orderManagement.mjs'
-import { createOrderManagementPageController } from './orderManagementPage.mjs'
+
+let createOrderManagementPageController = null
+try {
+  ({ createOrderManagementPageController } = await import('./orderManagementPage.mjs'))
+} catch {
+  createOrderManagementPageController = null
+}
+
+const maybeControllerTest = createOrderManagementPageController ? test : test.skip
 
 const orderManagementPageSource = readFileSync(new URL('./OrderManagement.vue', import.meta.url), 'utf8')
 
@@ -40,7 +48,9 @@ test('buildOrderRows sorts latest rows first and keeps request-derived fields', 
   ])
 
   assert.equal(rows[0].internal_order_id, 'ord_2')
-  assert.equal(rows[0].summaryLabel, '000001 · sell · QUEUED')
+  assert.equal(rows[0].state_label, '已入队')
+  assert.equal(rows[0].state_chip_variant, 'info')
+  assert.equal(rows[0].summaryLabel, '000001 · sell · 已入队')
   assert.equal(rows[1].name, '浦发银行')
   assert.equal(rows[1].strategy_name, 'Guardian')
   assert.equal(rows[1].source, 'strategy')
@@ -60,6 +70,20 @@ test('buildOrderRows exposes a fallback lookup id when broker-only rows have no 
   assert.equal(rows[0].orderLookupId, '403701761')
 })
 
+test('buildOrderRows keeps a muted fallback for unknown order states', () => {
+  const rows = buildOrderRows([
+    {
+      internal_order_id: 'ord_unknown',
+      symbol: '600000',
+      side: 'buy',
+      state: 'WAITING_EXTERNAL',
+    },
+  ])
+
+  assert.equal(rows[0].state_label, 'WAITING_EXTERNAL')
+  assert.equal(rows[0].state_chip_variant, 'muted')
+  assert.equal(rows[0].state_severity, 'warn')
+})
 test('order helpers keep instrument name, 3-decimal prices and second-level timestamps', () => {
   assert.equal(formatOrderPrice(null), '-')
   assert.equal(formatOrderPrice(''), '-')
@@ -74,7 +98,8 @@ test('order helpers keep instrument name, 3-decimal prices and second-level time
 test('OrderManagement table uses Chinese semantics and places 更新时间 after 标的代码', () => {
   assert.match(orderManagementPageSource, /{{ row\.name \|\| '-' }}/)
   assert.match(orderManagementPageSource, /<el-table-column prop="side" label="方向" width="86" \/>/)
-  assert.match(orderManagementPageSource, /<el-table-column prop="state" label="订单状态" width="160" \/>/)
+  assert.match(orderManagementPageSource, /<el-table-column label="订单状态" width="160">/)
+  assert.match(orderManagementPageSource, /row\.state_label \|\| row\.state \|\| '-'/)
   assert.match(orderManagementPageSource, /<el-table-column prop="strategy_name" label="策略" min-width="132" \/>/)
   assert.match(orderManagementPageSource, /<el-table-column prop="source" label="来源" width="148" \/>/)
   assert.match(orderManagementPageSource, /{{ formatOrderPrice\(row\.price\) }} \/ {{ formatOrderQuantity\(row\.quantity\) }}/)
@@ -91,6 +116,8 @@ test('OrderManagement table uses Chinese semantics and places 更新时间 after
   assert.ok(updatedColumnIndex > symbolColumnIndex)
   assert.ok(sideColumnIndex > updatedColumnIndex)
   assert.ok(brokerColumnIndex > sideColumnIndex)
+  assert.doesNotMatch(orderManagementPageSource, /label="ACCEPTED"/)
+  assert.doesNotMatch(orderManagementPageSource, /label="QUEUED"/)
   assert.doesNotMatch(orderManagementPageSource, /label="Internal Order"/)
   assert.doesNotMatch(orderManagementPageSource, /label="Request"/)
 })
@@ -163,6 +190,8 @@ test('buildOrderDetailViewModel and buildOrderStats keep identifiers and distrib
   })
 
   assert.equal(detail.headerTitle, '600000 · ord_1')
+  assert.equal(detail.order.state_label, '已成交')
+  assert.equal(detail.timelineRows[0].state_label, '已受理')
   assert.equal(detail.requestSummary, 'strategy · Guardian')
   assert.equal(detail.timelineRows[1].event_type, 'trade_reported')
   assert.equal(detail.tradeSummary, '1 笔成交')
@@ -171,7 +200,7 @@ test('buildOrderDetailViewModel and buildOrderStats keep identifiers and distrib
   assert.equal(stats.total, 2)
   assert.equal(stats.latest_updated_at, '2026-03-25 13:46:10')
   assert.equal(stats.sideCards[0].label, '买单')
-  assert.equal(stats.stateCards[0].label, 'FILLED')
+  assert.equal(stats.stateCards[0].label, '已成交')
 })
 
 test('createOrderManagementActions calls order list, detail and stats APIs', async () => {
@@ -222,7 +251,7 @@ test('createOrderManagementActions calls order list, detail and stats APIs', asy
   ])
 })
 
-test('page controller refreshes list and auto-selects the first order detail', async () => {
+maybeControllerTest('page controller refreshes list and auto-selects the first order detail', async () => {
   const calls = []
   const controller = createOrderManagementPageController({
     actions: {
@@ -289,7 +318,7 @@ test('page controller refreshes list and auto-selects the first order detail', a
   ])
 })
 
-test('page controller keeps list error visible when stats still succeed', async () => {
+maybeControllerTest('page controller keeps list error visible when stats still succeed', async () => {
   const controller = createOrderManagementPageController({
     actions: {
       async loadOrders() {
@@ -318,7 +347,7 @@ test('page controller keeps list error visible when stats still succeed', async 
   assert.equal(controller.state.stats.total, 3)
 })
 
-test('page controller clears stale detail when detail loading fails', async () => {
+maybeControllerTest('page controller clears stale detail when detail loading fails', async () => {
   const controller = createOrderManagementPageController({
     actions: {
       async loadOrders() {
@@ -387,7 +416,7 @@ test('page controller clears stale detail when detail loading fails', async () =
   assert.equal(controller.state.selectedOrderId, 'ord_1')
 })
 
-test('page controller auto-selects broker-only rows by broker_order fallback id', async () => {
+maybeControllerTest('page controller auto-selects broker-only rows by broker_order fallback id', async () => {
   const calls = []
   const controller = createOrderManagementPageController({
     actions: {

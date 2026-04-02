@@ -2,10 +2,6 @@
 
 from flask import Blueprint, jsonify, request
 
-from freshquant.position_management.dashboard_service import (
-    PositionManagementDashboardService,
-)
-
 position_management_bp = Blueprint(
     "position_management",
     __name__,
@@ -14,7 +10,19 @@ position_management_bp = Blueprint(
 
 
 def _get_position_management_dashboard_service():
+    from freshquant.position_management.dashboard_service import (
+        PositionManagementDashboardService,
+    )
+
     return PositionManagementDashboardService()
+
+
+def _get_position_reconciliation_read_service():
+    from freshquant.position_management.reconciliation_read_service import (
+        PositionReconciliationReadService,
+    )
+
+    return PositionReconciliationReadService()
 
 
 @position_management_bp.get("/dashboard")
@@ -47,6 +55,21 @@ def get_symbol_limit(symbol):
     try:
         return jsonify(
             _get_position_management_dashboard_service().get_symbol_limit(symbol)
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 404
+
+
+@position_management_bp.get("/reconciliation")
+def get_reconciliation_overview():
+    return jsonify(_get_position_reconciliation_read_service().get_overview())
+
+
+@position_management_bp.get("/reconciliation/<symbol>")
+def get_reconciliation_detail(symbol):
+    try:
+        return jsonify(
+            _get_position_reconciliation_read_service().get_symbol_detail(symbol)
         )
     except ValueError as error:
         return jsonify({"error": str(error)}), 404

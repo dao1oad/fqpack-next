@@ -5,7 +5,10 @@ from freshquant.position_management.models import (
     FORCE_PROFIT_REDUCE,
     HOLDING_ONLY,
 )
-from freshquant.position_management.repository import PositionManagementRepository
+try:
+    from freshquant.position_management.repository import PositionManagementRepository
+except ModuleNotFoundError:  # pragma: no cover - allows lightweight imports in test contexts
+    PositionManagementRepository = None
 
 __all__ = [
     "ALLOW_OPEN",

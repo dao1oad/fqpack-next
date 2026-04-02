@@ -139,3 +139,104 @@ def test_position_management_symbol_limit_routes_forward_limit_only_payload(
         "600000",
         {"limit": 500000, "updated_by": "pytest"},
     )
+
+
+def test_position_management_reconciliation_routes_forward_read_only_payload(
+    monkeypatch,
+):
+    class FakeReadService:
+        def get_overview(self):
+            return {
+                "summary": {
+                    "row_count": 1,
+                    "audit_status_counts": {"OK": 0, "WARN": 1, "ERROR": 0},
+                    "rule_counts": {
+                        "R1": {"OK": 1, "WARN": 0, "ERROR": 0},
+                        "R2": {"OK": 1, "WARN": 0, "ERROR": 0},
+                        "R3": {"OK": 0, "WARN": 1, "ERROR": 0},
+                        "R4": {"OK": 0, "WARN": 1, "ERROR": 0},
+                    },
+                    "reconciliation_state_counts": {
+                        "ALIGNED": 0,
+                        "OBSERVING": 1,
+                        "AUTO_RECONCILED": 0,
+                        "BROKEN": 0,
+                        "DRIFT": 0,
+                    },
+                },
+                "rows": [
+                    {
+                        "symbol": "600000",
+                        "audit_status": "WARN",
+                        "surface_values": {
+                            "broker": {"quantity": 1200},
+                        },
+                        "rule_results": {
+                            "R4": {"status": "WARN"},
+                        },
+                        "evidence_sections": {
+                            "surfaces": [{"key": "broker"}],
+                            "rules": [{"id": "R4"}],
+                            "reconciliation": {"state": "OBSERVING"},
+                        },
+                    }
+                ],
+            }
+
+        def get_symbol_detail(self, symbol):
+            return {
+                "symbol": symbol,
+                "audit_status": "WARN",
+                "reconciliation": {"state": "OBSERVING"},
+                "surface_values": {
+                    "broker": {"quantity": 1200},
+                },
+                "rule_results": {
+                    "R4": {"status": "WARN"},
+                },
+                "evidence_sections": {
+                    "surfaces": [{"key": "broker"}],
+                    "rules": [{"id": "R4"}],
+                    "reconciliation": {"state": "OBSERVING"},
+                },
+            }
+
+    monkeypatch.setattr(
+        "freshquant.rear.position_management.routes._get_position_reconciliation_read_service",
+        lambda: FakeReadService(),
+    )
+
+    client = _make_client()
+    list_response = client.get("/api/position-management/reconciliation")
+    detail_response = client.get("/api/position-management/reconciliation/600000")
+
+    assert list_response.status_code == 200
+    assert list_response.get_json()["summary"]["row_count"] == 1
+    assert list_response.get_json()["summary"]["rule_counts"]["R4"]["WARN"] == 1
+    assert list_response.get_json()["rows"][0]["audit_status"] == "WARN"
+    assert list_response.get_json()["rows"][0]["surface_values"]["broker"]["quantity"] == 1200
+    assert list_response.get_json()["rows"][0]["evidence_sections"]["surfaces"][0]["key"] == "broker"
+    assert detail_response.status_code == 200
+    assert detail_response.get_json()["symbol"] == "600000"
+    assert detail_response.get_json()["reconciliation"]["state"] == "OBSERVING"
+    assert detail_response.get_json()["rule_results"]["R4"]["status"] == "WARN"
+    assert detail_response.get_json()["evidence_sections"]["reconciliation"]["state"] == "OBSERVING"
+
+
+def test_position_management_reconciliation_detail_route_returns_404_on_missing_symbol(
+    monkeypatch,
+):
+    class FakeReadService:
+        def get_symbol_detail(self, symbol):
+            raise ValueError(f"{symbol} not found")
+
+    monkeypatch.setattr(
+        "freshquant.rear.position_management.routes._get_position_reconciliation_read_service",
+        lambda: FakeReadService(),
+    )
+
+    client = _make_client()
+    response = client.get("/api/position-management/reconciliation/600000")
+
+    assert response.status_code == 404
+    assert response.get_json()["error"] == "600000 not found"

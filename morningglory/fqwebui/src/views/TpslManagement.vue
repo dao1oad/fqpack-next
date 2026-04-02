@@ -49,8 +49,8 @@
           <StatusChip v-if="detail" variant="muted">
             entry slice <strong>{{ detail.entrySlices.length }}</strong>
           </StatusChip>
-          <StatusChip v-if="detail" variant="muted">
-            对账 <strong>{{ detail.reconciliation.state || '-' }}</strong>
+          <StatusChip v-if="detail" :variant="detail.reconciliation.state_chip_variant">
+            对账 <strong>{{ detail.reconciliation.state_label || '-' }}</strong>
           </StatusChip>
           <StatusChip v-if="detail" variant="muted">
             历史 <strong>{{ detail.historyRows.length }}</strong>
@@ -243,8 +243,8 @@
             </div>
 
             <div class="workbench-summary-row">
-              <StatusChip variant="muted">
-                状态 <strong>{{ detail.reconciliation.state || '-' }}</strong>
+              <StatusChip :variant="detail.reconciliation.state_chip_variant">
+                状态 <strong>{{ detail.reconciliation.state_label || '-' }}</strong>
               </StatusChip>
               <StatusChip variant="muted">
                 signed gap <strong>{{ detail.reconciliation.signed_gap_quantity || 0 }}</strong>

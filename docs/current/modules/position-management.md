@@ -2,7 +2,7 @@
 
 ## 职责
 
-仓位管理负责把券商账户真值、策略阈值和订单账本解释结果转换成可消费的门禁结论。它不负责下单，也不定义订单账本本身。
+仓位管理负责把券商账户真值、策略阈值和订单账本解释结果转换成可消费的门禁结论。它不负责下单，也不负责账本修复。
 
 当前正式真值边界：
 
@@ -11,7 +11,13 @@
   - `pm_symbol_position_snapshots`
 - 账本解释
   - `om_position_entries`
-  - `om_reconciliation_gaps / om_reconciliation_resolutions`
+  - `om_entry_slices`
+  - `stock_fills_compat`
+  - `/api/stock_fills` 当前 open position 投影
+- 对账解释
+  - `om_reconciliation_gaps`
+  - `om_reconciliation_resolutions`
+  - `om_ingest_rejections`
 
 ## 入口
 
@@ -24,19 +30,21 @@
   - `GET /api/position-management/symbol-limits`
   - `GET /api/position-management/symbol-limits/<symbol>`
   - `POST /api/position-management/symbol-limits/<symbol>`
+  - `GET /api/position-management/reconciliation`
+  - `GET /api/position-management/reconciliation/<symbol>`
 - Web UI
   - `/position-management`
 
-## 当前页面读模型
+## 页面组织
 
-`/api/position-management/dashboard` 当前聚合返回：
+`/position-management` 当前拆成四块：
 
-- 配置 inventory
-- 当前 `raw_state / effective_state / stale`
-- 最新资产摘要
-- 单标的仓位上限摘要行
-- 当前规则矩阵
-- 最近决策摘要
+- 左上：当前仓位状态
+- 右上：单标的仓位上限覆盖
+- 中部全宽：对账检查面板
+- 底部全宽：最近决策与上下文
+
+当前仓位状态与参数 inventory 已合并为左栏，规则矩阵已并入“当前仓位状态”。
 
 其中单标的仓位上限批量真值固定落在 `symbol_position_limits.rows`；`subject-management/overview` 也直接消费这批 rows，不再从 dashboard 顶层字段兜底读取。
 
@@ -44,56 +52,98 @@
 
 最近决策 ledger 默认分页 `100` 条，表体默认显示约 `15` 行。
 
-## 当前真值语义
+## 单标的仓位上限
 
-### 券商仓位
+右上“单标的仓位上限覆盖”现在只保留可写字段和门禁结果，不再混入对账列。
 
-当前仓位真值只认 `xt_positions`：
+单标的仓位上限覆盖当前只保留：
 
-- `quantity`
-  - `xt_positions.volume`
-- `available_quantity`
-  - `xt_positions.can_use_volume`
-- `avg_price`
-  - `xt_positions.avg_price`
-- `market_value`
-  - `xt_positions.market_value`
+- `标的`
+- `单标的上限设置`
+- `操作`
+- `当前来源`
+- `门禁`
+
+单标的仓位上限覆盖输入框默认展示当前生效值。保存值等于系统默认值时，后端会自动删除 override。单标的仓位上限覆盖当前只展示持仓股，并按券商真值仓位市值从大到小排序。
 
 `xt_account_sync.worker` 当前在每一轮 `15s` 同步中都会重新刷新 `pm_symbol_position_snapshots`，不再只在 worker 启动时 seed 一次；页面上的单标的仓位摘要因此会随最新 broker truth 持续收敛。
 
-### 账本仓位
+单标的实时仓位上限当前统一使用“系统默认值兜底 + 显式 override”语义：
 
-账本仓位来自 `om_position_entries` 聚合，不再使用 `om_buy_lots` 或 `stock_fills` 兼容镜像定义当前仓位真值。
+- 默认值写在 `pm_configs.thresholds.single_symbol_position_limit`
+- 单标的覆盖值写在 `pm_configs.symbol_position_limits.overrides.<symbol>`
+- 没有 override 时，实际生效值天然等于系统默认值
+- buy gate 只看 `effective_limit`
 
-当前 dashboard 会聚合：
+## 对账检查面板
 
-- `explained_quantity`
-- `entry_count`
-- `execution_backed_quantity`
-- `auto_reconciled_quantity`
-- `entry_cost_basis`
+`对账检查面板` 对应 `GET /api/position-management/reconciliation` 和 `GET /api/position-management/reconciliation/<symbol>`。
+
+一致性检查只读，不负责修复，不会触发 compat sync、reconcile、repair、rebuild 或任何写操作。它只负责告诉前端哪些视图本应相等却不相等，以及 broker truth 和 ledger explanation 的差异是否被 reconciliation 正确解释。
+
+主表顶部当前展示：
+
+- `总标的`
+- `ERROR / WARN / OK`
+- `R1 ~ R4` 每条规则的 `OK / WARN / ERROR` 汇总
+
+主表当前展示：
+
+- `标的`
+- `券商`
+- `PM快照`
+- `Entry账本`
+- `对账状态`
+- `检查结果`
+- `最新 resolution`
+
+展开详情当前展示：
+
+- `R1 ~ R4` 逐规则检查 badge
+- `mismatch_codes` 的中文解释
+- `broker / snapshot / entry_ledger / slice_ledger / compat_projection / stock_fills_projection` 六个 evidence surface
+- `reconciliation.state`
+- `signed gap`
+- `open gap`
+- 当前可用的 `rule evidence` 数量
+
+### 审计规则
+
+- `R1 broker_snapshot_consistency`
+  - 比较 `xt_positions` 与 `pm_symbol_position_snapshots`
+  - 预期必须一致
+- `R2 ledger_internal_consistency`
+  - 比较 `om_position_entries` 与 `om_entry_slices`
+  - 预期必须一致
+- `R3 compat_projection_consistency`
+  - 比较 `om_position_entries`、`stock_fills_compat` 与 `/api/stock_fills` 当前 open position 投影
+  - 预期三者应一致
+- `R4 broker_vs_ledger_consistency`
+  - 比较 `xt_positions` 与 `om_position_entries`
+  - 这里不是简单要求数量相等，而是要求差异必须能被 reconciliation 状态正确解释
 
 ### 对账状态
 
-对账状态来自：
+当前正式 reconciliation 汇总态有 5 种：
 
-- `om_reconciliation_gaps`
-- `om_reconciliation_resolutions`
-- `om_ingest_rejections`
+- `ALIGNED`
+- `OBSERVING`
+- `AUTO_RECONCILED`
+- `BROKEN`
+- `DRIFT`
 
-页面右侧当前正式只展示：
+当前页面会把 `BROKEN` 和 `DRIFT` 直接标为错误，把 `OBSERVING` 标为警告。
 
-- `券商仓位`
-- `账本仓位`
-- `对账状态`
+### 当前前后端 contract
 
-这里的正式对照语义是：`券商真值 / 账本仓位 / reconciliation`。页面展示文案对应为 `券商仓位 / 账本仓位 / 对账状态`，不再返回三套并列仓位真值。
+后端 `PositionReconciliationReadService` 当前返回的只读 contract 已固定包含：
 
-`reconciliation.signed_gap_quantity` 当前表示同一 symbol 所有未闭合 gap 的净差额：
+- `summary.rule_counts`
+- `rows[].surface_values`
+- `rows[].rule_results`
+- `rows[].evidence_sections`
 
-- `buy` gap 记正
-- `sell` gap 记负
-- 多条 OPEN / REJECTED gap 需要做净额累计，不能只取最后一条
+前端 `PositionReconciliationPanel` 只消费这些只读字段，不再把对账逻辑散落在单标的上限表内。
 
 ## tracked scope
 
@@ -106,66 +156,16 @@
 
 脏数据只要不在持仓股、must_pool、stock_pools、pre_pools 中，就不会进入“单标的仓位上限覆盖”。
 
-## 页面组织
-
-`/position-management` 当前已切到统一的 workbench density 语法：
-
-- 页面顶部不再保留“仓位管理”标题卡片
-- 三栏摘要区上移到“最近决策与上下文”上方
-- 顶部双栏当前恢复等高面板
-- 顶部双栏都改为面板内竖向滚动
-- 当前仓位状态与参数 inventory 已合并为左栏
-- 参数 inventory 保持“可编辑阈值 + 只读参数”边界，参数 inventory 的说明列已经压缩成紧凑文案，不再单独占一整列解释块
-- 规则矩阵已并入“当前仓位状态”
-- 持仓范围卡片已移除
-- 当前命中规则说明改成与资产摘要同层级的紧凑指标卡
-- 当前命中规则说明与“可用保证金”等小指标卡保持同尺寸
-- 最近决策与上下文已合并为一张高密度 ledger
-
-右栏“单标的仓位上限覆盖”当前集中展示：
-
-- 单标的上限设置
-- 操作
-- 当前来源
-- 一致性
-- 门禁
-- 券商仓位
-- 账本仓位
-- 对账状态
-
-其中：
-
-- 系统默认值列已移除，`操作` 列挪到 `当前来源` 前
-- 单标的仓位上限覆盖输入框默认展示当前生效值
-- 保存值等于系统默认值时，后端会自动删除 override
-- 金额统一按“万”展示
-- 单标的仓位上限覆盖当前只展示持仓股
-- 整体按券商真值仓位市值从大到小排序
-
-右栏三列布局当前规则：
-
-- 券商仓位、账本仓位、对账状态三列会扩展占满右栏剩余宽度
-- 账本仓位 / 对账状态内容统一左对齐
-- 表头与数据行共用固定列宽，避免右侧三列在长来源文本下发生错位
-- 来源 / 对账详情文本会被约束在各自单元格宽度内，并最多展示两行，避免长路径在相邻列之间互相覆盖
-
-## 单标的上限
-
-单标的实时仓位上限当前统一使用“系统默认值兜底 + 显式 override”语义：
-
-- 默认值写在 `pm_configs.thresholds.single_symbol_position_limit`
-- 单标的覆盖值写在 `pm_configs.symbol_position_limits.overrides.<symbol>`
-- 没有 override 时，实际生效值天然等于系统默认值
-- buy gate 只看 `effective_limit`
-
 ## 排障
 
-### 页面上券商仓位和账本仓位不一致
+### 对账检查出现 ERROR
 
 - 先看 `xt_positions`
 - 再看 `pm_symbol_position_snapshots`
 - 再看 `om_position_entries`
-- 最后看 `om_reconciliation_gaps / om_reconciliation_resolutions`
+- 再看 `om_entry_slices`
+- 再看 `stock_fills_compat`
+- 最后看 `om_reconciliation_gaps / om_reconciliation_resolutions / om_ingest_rejections`
 
 ### 某个 symbol 一直异常
 

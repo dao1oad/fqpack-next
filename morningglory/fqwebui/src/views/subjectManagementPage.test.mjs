@@ -424,6 +424,7 @@ test('SubjectManagement.vue routes summary and detail chips through shared Statu
   assert.match(subjectManagementViewSource, /<StatusChip>\s*总标的 <strong>\{\{\s*overviewRows\.length\s*\}\}<\/strong>/)
   assert.match(subjectManagementViewSource, /<StatusChip variant="muted">\s*当前筛选 <strong>\{\{\s*filteredOverviewRows\.length\s*\}\}<\/strong>/)
   assert.match(subjectManagementViewSource, /<StatusChip variant="success">\s*持仓中 <strong>\{\{\s*holdingCount\s*\}\}<\/strong>/)
-  assert.match(subjectManagementViewSource, /<StatusChip v-if="pmSummary\.effective_state" :variant="pmStateChipVariant">/)
+  assert.match(subjectManagementViewSource, /<StatusChip v-if="pmSummary\.effective_state" :variant="pmSummary\.effective_state_chip_variant">/)
+  assert.match(subjectManagementViewSource, /门禁 <strong>\{\{\s*pmSummary\.effective_state_label\s*\}\}<\/strong>/)
   assert.match(subjectManagementViewSource, /<StatusChip[\s\S]*v-for="chip in detailSummaryChips"/)
 })

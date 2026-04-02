@@ -7,6 +7,12 @@ export const positionManagementApi = {
       method: 'get'
     })
   },
+  getReconciliation () {
+    return http({
+      url: '/api/position-management/reconciliation',
+      method: 'get'
+    })
+  },
   getConfig () {
     return http({
       url: '/api/position-management/config',
