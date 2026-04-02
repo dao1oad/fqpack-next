@@ -68,7 +68,12 @@ def saveTrades(trades):
         trade_dict = FqXtTrade(trade).to_dict()
         if hasattr(external_reconcile_service, "reconcile_trade_report"):
             outcome = external_reconcile_service.reconcile_trade_report(trade_dict)
-            if not outcome.handled:
+            handled = bool(getattr(outcome, "handled", False))
+            ingested = bool(
+                getattr(outcome, "ingested", False)
+                or getattr(outcome, "result", None) is not None
+            )
+            if not handled and not ingested:
                 try_ingest_xt_trade_dict(trade_dict)
         else:
             reconciled = external_reconcile_service.reconcile_trade_reports(

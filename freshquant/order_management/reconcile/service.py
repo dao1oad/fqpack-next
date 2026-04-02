@@ -56,6 +56,7 @@ class TradeReportReconcileOutcome:
     action: str
     result: dict | None = None
     normalized: dict | None = None
+    ingested: bool = False
 
 
 class ExternalOrderReconcileService:
@@ -269,13 +270,45 @@ class ExternalOrderReconcileService:
                 repository=self.repository,
             )
             ids["symbol"] = normalized.get("symbol")
-            if self.repository.find_order_by_broker_order_id(
+            known_order = self.repository.find_order_by_broker_order_id(
                 normalized.get("broker_order_id")
-            ):
+            )
+            if known_order:
+                ids.update(
+                    {
+                        "trace_id": known_order.get("trace_id"),
+                        "intent_id": known_order.get("intent_id"),
+                        "request_id": known_order.get("request_id"),
+                        "internal_order_id": known_order["internal_order_id"],
+                        "symbol": normalized["symbol"],
+                    }
+                )
+                self._emit_runtime(
+                    "internal_match",
+                    ids,
+                    payload={
+                        "broker_order_id": normalized.get("broker_order_id"),
+                        "source": "known_internal_order",
+                    },
+                )
+                normalized["internal_order_id"] = known_order["internal_order_id"]
+                current_node = "projection_update"
+                result = self.ingest_service.ingest_trade_report(
+                    normalized,
+                    lot_amount=_safe_resolve_lot_amount(normalized["symbol"]),
+                    grid_interval_lookup=_safe_grid_interval_lookup,
+                )
+                self._emit_runtime(
+                    "projection_update",
+                    ids,
+                    payload={"source": "known_internal_order"},
+                )
                 return TradeReportReconcileOutcome(
                     handled=True,
-                    action="already_known_internal_order",
+                    action="known_internal_order_ingested",
+                    result=result,
                     normalized=normalized,
+                    ingested=True,
                 )
 
             match_status, matched_order = self._match_inflight_internal_order(
@@ -323,6 +356,7 @@ class ExternalOrderReconcileService:
                     action="matched_internal_order",
                     result=result,
                     normalized=normalized,
+                    ingested=True,
                 )
             if match_status == "defer":
                 return TradeReportReconcileOutcome(
@@ -399,6 +433,7 @@ class ExternalOrderReconcileService:
                 action="externalized_report",
                 result=result,
                 normalized=normalized,
+                ingested=True,
             )
         except Exception as exc:
             self._emit_runtime(
