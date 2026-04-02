@@ -260,6 +260,40 @@ function Invoke-HostRuntimeControl {
     }
 }
 
+function Test-DeployMirrorVirtualenvHealthy {
+    param([string]$MirrorRoot)
+
+    $venvRoot = Join-Path $MirrorRoot ".venv"
+    $venvPython = Join-Path $venvRoot "Scripts\python.exe"
+    $pyvenvConfig = Join-Path $venvRoot "pyvenv.cfg"
+
+    if (-not (Test-Path $venvPython)) {
+        return $false
+    }
+    if (-not (Test-Path $pyvenvConfig)) {
+        return $false
+    }
+
+    try {
+        & $venvPython -c "import sys; raise SystemExit(0 if sys.executable else 1)" *> $null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    }
+}
+
+function Repair-DeployMirrorVirtualenv {
+    param(
+        [string]$PythonExe,
+        [string]$MirrorRoot
+    )
+
+    Write-Warning "deploy mirror virtualenv metadata is missing or unhealthy; recreating .venv with runner Python 3.12."
+    Invoke-Python -PythonExe $PythonExe -WorkingDirectory $MirrorRoot -Arguments @(
+        "-m", "uv", "venv", ".venv", "--python", $PythonExe, "--clear"
+    )
+}
+
 function Invoke-UvSyncWithHostRuntimeQuiesce {
     param(
         [string]$PythonExe,
@@ -268,22 +302,43 @@ function Invoke-UvSyncWithHostRuntimeQuiesce {
         [string[]]$HostRuntimeSurfaces
     )
 
+    $needsQuiesce = $false
     try {
         Invoke-Python -PythonExe $PythonExe -WorkingDirectory $MirrorRoot -Arguments @(
             "-m", "uv", "sync", "--frozen"
         )
-        return
     } catch {
+        $needsQuiesce = $true
         Write-Warning "uv sync failed on live deploy mirror; retrying uv sync after quiescing host runtime surfaces."
+    }
+    $venvHealthy = Test-DeployMirrorVirtualenvHealthy -MirrorRoot $MirrorRoot
+    if (-not $needsQuiesce -and $venvHealthy) {
+        return
+    }
+    if (-not $venvHealthy) {
+        Write-Warning "deploy mirror .venv is missing pyvenv.cfg or has an unusable python.exe; repairing after quiescing host runtime surfaces."
     }
 
     Invoke-HostRuntimeControl -HostRuntimeScript $HostRuntimeScript -Mode "StopSurfaces" -DeploymentSurface $HostRuntimeSurfaces
     try {
+        if (-not $venvHealthy) {
+            Repair-DeployMirrorVirtualenv -PythonExe $PythonExe -MirrorRoot $MirrorRoot
+        }
         Invoke-Python -PythonExe $PythonExe -WorkingDirectory $MirrorRoot -Arguments @(
             "-m", "uv", "sync", "--frozen"
         )
+        if (-not (Test-DeployMirrorVirtualenvHealthy -MirrorRoot $MirrorRoot)) {
+            Repair-DeployMirrorVirtualenv -PythonExe $PythonExe -MirrorRoot $MirrorRoot
+            Invoke-Python -PythonExe $PythonExe -WorkingDirectory $MirrorRoot -Arguments @(
+                "-m", "uv", "sync", "--frozen"
+            )
+        }
     } finally {
         Invoke-HostRuntimeControl -HostRuntimeScript $HostRuntimeScript -Mode "RestartSurfaces" -DeploymentSurface $HostRuntimeSurfaces
+    }
+
+    if (-not (Test-DeployMirrorVirtualenvHealthy -MirrorRoot $MirrorRoot)) {
+        throw "deploy mirror virtualenv is still unhealthy after repair: $(Join-Path $MirrorRoot '.venv')"
     }
 }
 
@@ -454,6 +509,9 @@ Invoke-UvSyncWithHostRuntimeQuiesce -PythonExe $pythonExe -MirrorRoot $MirrorRoo
 $venvPython = Join-Path $MirrorRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
     throw "deploy mirror virtualenv python not found: $venvPython"
+}
+if (-not (Test-DeployMirrorVirtualenvHealthy -MirrorRoot $MirrorRoot)) {
+    throw "deploy mirror virtualenv is missing pyvenv.cfg or python bootstrap metadata: $(Join-Path $MirrorRoot '.venv')"
 }
 
 $formalDeployArgs = @(

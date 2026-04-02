@@ -249,6 +249,7 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert "bootstrap worktree" in deployment_text
     assert "当前 entrypoint repo" in deployment_text
     assert "quiesce 宿主机 surfaces" in deployment_text
+    assert "pyvenv.cfg" in deployment_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in deployment_text
     assert r".venv\Scripts\python.exe" in deployment_text
     assert "保留 live deploy mirror 的 `.venv\\`" in deployment_text
@@ -268,5 +269,6 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert r"D:\fqpack\freshquant-2026.2.23" in runtime_text
     assert "当前 entrypoint repo" in runtime_text
     assert "quiesce 宿主机 surfaces" in runtime_text
+    assert "pyvenv.cfg" in runtime_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in runtime_text
     assert r".venv\Scripts\python.exe" in runtime_text

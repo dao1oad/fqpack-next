@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import json
+import re
 import time
 import xmlrpc.client
 from pathlib import Path
@@ -256,6 +257,13 @@ def wait_for_programs_settled(
     )
 
 
+def extract_last_state_from_wait_error(error_message: str) -> str | None:
+    match = re.search(r"last state=([A-Za-z_]+)", error_message)
+    if match is None:
+        return None
+    return match.group(1).upper()
+
+
 def restart_programs(
     server: xmlrpc.client.ServerProxy,
     programs: list[str],
@@ -295,23 +303,10 @@ def restart_programs(
                     last_error = exc
                     settled = get_process_info(server, program)
                     latest_state = str(settled.get("statename", "")).upper()
-                    try:
-                        retry_settled_infos = wait_for_programs_settled(
-                            server,
-                            [program],
-                            timeout_seconds=min(timeout_seconds, 15.0),
-                            settle_seconds=2.0,
-                            poll_interval_seconds=1.0,
-                        )
-                        settled = retry_settled_infos[program]
-                        latest_state = str(settled.get("statename", "")).upper()
-                    except RuntimeError:
-                        pass
-
-                    if latest_state == "RUNNING":
-                        after = settled
-                        break
-                    if attempt >= 1 or latest_state not in RETRYABLE_START_STATES:
+                    retry_state = (
+                        extract_last_state_from_wait_error(str(exc)) or latest_state
+                    )
+                    if attempt >= 1 or retry_state not in RETRYABLE_START_STATES:
                         break
 
             if after is None:
@@ -358,7 +353,7 @@ def restart_programs(
         }
 
     details: list[dict[str, object]] = []
-    unresolved = bool(errors)
+    unresolved = False
     for program in programs:
         latest = settled_infos.get(program) or get_process_info(server, program)
         result_entry = result_lookup[program]
@@ -367,6 +362,8 @@ def restart_programs(
         final_state = str(latest.get("statename", "")).upper()
         if final_state != "RUNNING":
             unresolved = True
+        else:
+            errors.pop(program, None)
 
         detail: dict[str, object] = {
             "name": program,

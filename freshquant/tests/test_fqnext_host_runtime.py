@@ -413,6 +413,66 @@ def test_restart_programs_reconciles_remaining_programs_before_raising(
     assert "fqnext_xt_account_sync_worker" in str(excinfo.value)
 
 
+def test_restart_programs_accepts_transient_start_errors_when_final_state_is_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_module()
+    start_calls: list[tuple[str, bool]] = []
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(stopProcess=None, startProcess=None)
+    )
+
+    def fake_start_process(name: str, wait: bool) -> bool:
+        start_calls.append((name, wait))
+        return True
+
+    server.supervisor.startProcess = fake_start_process
+    server.supervisor.stopProcess = lambda _name, _wait: True
+
+    monkeypatch.setattr(
+        module,
+        "get_process_info",
+        lambda _server, _name: {"statename": "EXITED", "pid": 0},
+    )
+    monkeypatch.setattr(
+        module,
+        "wait_for_state",
+        lambda _server, _name, _expected_state, timeout_seconds=0: (
+            _ for _ in ()
+        ).throw(
+            RuntimeError(
+                "Program fqnext_realtime_xtdata_consumer did not reach RUNNING; last state=Fatal"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "wait_for_programs_settled",
+        lambda _server, _programs, timeout_seconds=0, settle_seconds=0, poll_interval_seconds=0: {
+            "fqnext_realtime_xtdata_consumer": {"statename": "RUNNING", "pid": 33}
+        },
+    )
+
+    results = module.restart_programs(
+        server,
+        ["fqnext_realtime_xtdata_consumer"],
+        timeout_seconds=5,
+    )
+
+    assert start_calls == [
+        ("fqnext_realtime_xtdata_consumer", False),
+        ("fqnext_realtime_xtdata_consumer", False),
+    ]
+    assert results == [
+        {
+            "name": "fqnext_realtime_xtdata_consumer",
+            "before_state": "EXITED",
+            "after_state": "RUNNING",
+            "pid": 33,
+        }
+    ]
+
+
 def test_stop_programs_stops_running_programs_and_keeps_stopped_programs_unchanged(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
