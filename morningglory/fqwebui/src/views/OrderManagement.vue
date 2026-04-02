@@ -43,12 +43,12 @@
             <el-option label="卖出" value="sell" />
           </el-select>
           <el-select v-model="filters.state" placeholder="状态" clearable>
-            <el-option label="ACCEPTED" value="ACCEPTED" />
-            <el-option label="QUEUED" value="QUEUED" />
-            <el-option label="SUBMITTED" value="SUBMITTED" />
-            <el-option label="PARTIAL_FILLED" value="PARTIAL_FILLED" />
-            <el-option label="FILLED" value="FILLED" />
-            <el-option label="CANCELLED" value="CANCELLED" />
+            <el-option
+              v-for="item in orderStateOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
           </el-select>
           <el-input v-model="filters.source" placeholder="source / source_type" clearable />
           <el-input v-model="filters.strategy_name" placeholder="strategy_name" clearable />
@@ -134,7 +134,7 @@
           <StatusChip
             v-for="item in stats.stateCards"
             :key="item.key"
-            variant="muted"
+            :variant="item.chipVariant || 'muted'"
           >
             {{ item.label }} <strong>{{ item.value }}</strong>
           </StatusChip>
@@ -183,7 +183,13 @@
                   </template>
                 </el-table-column>
                 <el-table-column prop="side" label="方向" width="86" />
-                <el-table-column prop="state" label="订单状态" width="160" />
+                <el-table-column label="订单状态" width="160">
+                  <template #default="{ row }">
+                    <StatusChip class="runtime-inline-status" :variant="row.state_chip_variant || 'muted'">
+                      {{ row.state_label || row.state || '-' }}
+                    </StatusChip>
+                  </template>
+                </el-table-column>
                 <el-table-column prop="strategy_name" label="策略" min-width="132" />
                 <el-table-column prop="source" label="来源" width="148" />
                 <el-table-column label="委托价 / 委托量" min-width="132">
@@ -231,8 +237,8 @@
                 <StatusChip variant="muted">
                   {{ detail.order.side || '-' }}
                 </StatusChip>
-                <StatusChip variant="muted">
-                  {{ detail.order.state || '-' }}
+                <StatusChip :variant="detail.order.state_chip_variant || 'muted'">
+                  {{ detail.order.state_label || detail.order.state || '-' }}
                 </StatusChip>
                 <StatusChip variant="muted">
                   {{ detail.tradeSummary }}
@@ -257,7 +263,7 @@
                 <el-descriptions :column="1" border size="small">
                   <el-descriptions-item label="symbol">{{ detail.order.symbol || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="side">{{ detail.order.side || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="state">{{ detail.order.state || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="state">{{ detail.order.state_label || detail.order.state || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="account_type">{{ detail.order.account_type || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="filled">{{ detail.order.filled_quantity ?? '-' }}</el-descriptions-item>
                   <el-descriptions-item label="avg_filled_price">{{ detail.order.avg_filled_price ?? '-' }}</el-descriptions-item>
@@ -290,7 +296,7 @@
                     placement="top"
                   >
                     <strong>{{ item.event_type || '-' }}</strong>
-                    <p>{{ item.state || '-' }}</p>
+                    <p>{{ item.state_label || item.state || '-' }}</p>
                   </el-timeline-item>
                 </el-timeline>
               </article>
@@ -336,6 +342,7 @@ import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from '@/views/MyHeader.vue'
 import { orderManagementApi } from '@/api/orderManagementApi'
 import {
+  ORDER_STATE_FILTER_OPTIONS,
   createOrderManagementActions,
   formatOrderPrice,
   formatOrderQuantity,
@@ -372,6 +379,7 @@ const {
   total,
 } = toRefs(state)
 const showAdvancedFilters = ref(false)
+const orderStateOptions = ORDER_STATE_FILTER_OPTIONS
 
 const toggleAdvancedFilters = () => {
   showAdvancedFilters.value = !showAdvancedFilters.value

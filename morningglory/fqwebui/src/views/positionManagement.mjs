@@ -1,4 +1,6 @@
 import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
+import { getPositionGateStateMeta } from './positionGateStateMeta.mjs'
+import { getReconciliationStateMeta } from './reconciliationStateMeta.mjs'
 
 const SECTION_ORDER = [
   'editable_thresholds',
@@ -39,18 +41,6 @@ const INVENTORY_ORDER = {
 }
 
 const RULE_ORDER = ['buy_new', 'buy_holding', 'sell']
-
-const STATE_LABELS = {
-  ALLOW_OPEN: '允许开新仓',
-  HOLDING_ONLY: '仅允许持仓内买入',
-  FORCE_PROFIT_REDUCE: '强制盈利减仓',
-}
-
-const STATE_TONES = {
-  ALLOW_OPEN: 'allow',
-  HOLDING_ONLY: 'hold',
-  FORCE_PROFIT_REDUCE: 'reduce',
-}
 
 const ACTION_LABELS = {
   buy: '买入',
@@ -143,9 +133,13 @@ const formatJsonValue = (value) => {
   return toText(value) || '-'
 }
 
-const formatStateLabel = (value) => STATE_LABELS[toText(value)] || toText(value) || '-'
+const formatStateLabel = (value) => {
+  const text = toText(value)
+  if (!text) return '-'
+  return getPositionGateStateMeta(text).label
+}
 
-const formatStateTone = (value) => STATE_TONES[toText(value)] || 'neutral'
+const formatStateTone = (value) => getPositionGateStateMeta(value).tone || 'neutral'
 
 const formatSourceLabel = (value) => SOURCE_LABELS[toText(value)] || toText(value) || '-'
 
@@ -154,13 +148,6 @@ const joinLabels = (...values) => values.filter((item) => toText(item)).join(' /
 const POSITION_SOURCE_NAME_LABELS = {
   broker: '券商',
   ledger: '账本',
-}
-
-const RECONCILIATION_STATE_LABELS = {
-  ALIGNED: '已对齐',
-  OBSERVING: '观察中',
-  AUTO_RECONCILED: '自动补齐',
-  BROKEN: '异常',
 }
 
 const buildHoldingCodeSet = (dashboard = {}) => {
@@ -222,12 +209,8 @@ const buildConsistencyDetailLabel = (quantityValues = {}) => {
     .join(' / ')
 }
 
-const formatReconciliationStateLabel = (value) => (
-  RECONCILIATION_STATE_LABELS[toText(value)] || toText(value) || '-'
-)
-
 const buildReconciliationView = (view = {}) => {
-  const state = toText(view?.state)
+  const meta = getReconciliationStateMeta(view?.state)
   const signedGapQuantity = toNumber(view?.signed_gap_quantity) ?? 0
   const openGapCount = toNumber(view?.open_gap_count) ?? 0
   const ingestRejectionCount = toNumber(view?.ingest_rejection_count) ?? 0
@@ -239,10 +222,11 @@ const buildReconciliationView = (view = {}) => {
   if (latestResolutionType) detailParts.push(latestResolutionType)
   if (ingestRejectionCount > 0) detailParts.push(`reject ${formatQuantity(ingestRejectionCount)}`)
   return {
-    state,
-    state_label: formatReconciliationStateLabel(state),
+    state: meta.key,
+    state_label: meta.label,
+    state_chip_variant: meta.chipVariant,
     summary_label: joinLabels(
-      formatReconciliationStateLabel(state),
+      meta.label,
       detailParts.join(' / '),
     ) || '-',
     detail_label: detailParts.join(' / ') || '-',

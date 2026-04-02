@@ -176,10 +176,10 @@
             <div class="position-panel-body position-symbol-limit-scroll">
               <div class="workbench-summary-row">
                 <StatusChip variant="muted">
-                  单独设置 <strong>{{ overrideSymbolCount }}</strong>
+                  跟踪标的 <strong>{{ trackedSymbolCount }}</strong>
                 </StatusChip>
-                <StatusChip variant="warning">
-                  仓位不一致 <strong>{{ mismatchSymbolCount }}</strong>
+                <StatusChip variant="muted">
+                  单独设置 <strong>{{ overrideSymbolCount }}</strong>
                 </StatusChip>
                 <StatusChip variant="warning">
                   已超限 <strong>{{ blockedSymbolCount }}</strong>
@@ -192,21 +192,14 @@
                   <span>单标的上限设置</span>
                   <span>操作</span>
                   <span>当前来源</span>
-                  <span>一致性</span>
                   <span>门禁</span>
-                  <span>券商仓位</span>
-                  <span>账本仓位</span>
-                  <span>对账状态</span>
                 </div>
 
                 <div
                   v-for="row in symbolLimitRows"
                   :key="row.symbol"
                   class="runtime-ledger__row runtime-position-symbol-limit-ledger__grid"
-                  :class="{
-                    'runtime-ledger__row--blocked': row.blocked,
-                    'runtime-ledger__row--inconsistent': row.quantity_mismatch,
-                  }"
+                  :class="{ 'runtime-ledger__row--blocked': row.blocked }"
                 >
                   <div class="runtime-ledger__cell position-limit-symbol">
                     <strong>{{ row.symbol }}</strong>
@@ -232,38 +225,11 @@
                     </el-button>
                   </div>
                   <span class="runtime-ledger__cell runtime-ledger__cell--status">{{ row.source_label }}</span>
-                  <span class="runtime-ledger__cell runtime-ledger__cell--status" :title="row.consistency_detail_label">
-                    <StatusChip class="runtime-inline-status" :variant="positionConsistencyChipVariant(row.quantity_mismatch)">
-                      {{ row.consistency_label }}
-                    </StatusChip>
-                  </span>
                   <span class="runtime-ledger__cell runtime-ledger__cell--status">
                     <StatusChip class="runtime-inline-status" :variant="symbolLimitStatusChipVariant(row.blocked)">
                       {{ row.blocked_label }}
                     </StatusChip>
                   </span>
-                  <div class="runtime-ledger__cell position-source-cell" :title="row.broker_position_source_label">
-                    <strong>{{ row.broker_position_label }}</strong>
-                    <span>{{ row.broker_position_source_label }}</span>
-                  </div>
-                  <div
-                    class="runtime-ledger__cell position-source-cell position-source-cell--left"
-                    :title="row.ledger_position_source_label"
-                  >
-                    <strong>{{ row.ledger_position_label }}</strong>
-                    <span>{{ row.ledger_position_source_label }}</span>
-                  </div>
-                  <div
-                    class="runtime-ledger__cell position-source-cell position-source-cell--left"
-                    :title="row.reconciliation_detail_label"
-                  >
-                    <strong>
-                      <StatusChip class="runtime-inline-status" :variant="reconciliationStatusChipVariant(row.reconciliation_state)">
-                        {{ row.reconciliation_state_label }}
-                      </StatusChip>
-                    </strong>
-                    <span>{{ row.reconciliation_detail_label }}</span>
-                  </div>
                 </div>
               </div>
 
@@ -274,6 +240,13 @@
           </WorkbenchLedgerPanel>
         </div>
       </section>
+
+      <PositionReconciliationPanel
+        class="position-reconciliation-panel"
+        :overview="reconciliationOverview"
+        :loading="reconciliationLoading"
+        :error="reconciliationError"
+      />
 
         <WorkbenchLedgerPanel class="position-decision-panel">
         <div class="workbench-panel__header">
@@ -376,6 +349,7 @@ import StatusChip from '../components/workbench/StatusChip.vue'
 import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
 import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
+import PositionReconciliationPanel from '../components/position-management/PositionReconciliationPanel.vue'
 import MyHeader from '@/views/MyHeader.vue'
 import { positionManagementApi } from '@/api/positionManagementApi'
 import {
@@ -387,11 +361,15 @@ import {
   readDashboardPayload,
 } from './positionManagement.mjs'
 import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
+import { readPositionReconciliationPayload } from './positionReconciliation.mjs'
 
 const loading = ref(false)
 const saving = ref(false)
 const pageError = ref('')
 const dashboard = ref({})
+const reconciliationOverview = ref({})
+const reconciliationLoading = ref(false)
+const reconciliationError = ref('')
 
 const editableForm = reactive({
   allow_open_min_bail: 0,
@@ -419,8 +397,8 @@ const pagedDecisionRows = computed(() => {
 const configUpdatedAt = computed(() => formatBeijingTimestamp(dashboard.value?.config?.updated_at, '未配置'))
 const configUpdatedBy = computed(() => dashboard.value?.config?.updated_by || 'unknown')
 const blockedSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.blocked).length)
-const mismatchSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.quantity_mismatch).length)
 const overrideSymbolCount = computed(() => symbolLimitRows.value.filter((row) => row.using_override).length)
+const trackedSymbolCount = computed(() => symbolLimitRows.value.length)
 const stateToneChipVariant = computed(() => {
   const tone = statePanel.value?.hero?.effective_state_tone
   if (tone === 'allow') return 'success'
@@ -461,17 +439,6 @@ const symbolLimitStatusChipVariant = (blocked) => (
   blocked ? 'danger' : 'success'
 )
 
-const positionConsistencyChipVariant = (quantityMismatch) => (
-  quantityMismatch ? 'warning' : 'success'
-)
-
-const reconciliationStatusChipVariant = (state) => {
-  if (state === 'BROKEN') return 'danger'
-  if (state === 'OBSERVING') return 'warning'
-  if (state === 'AUTO_RECONCILED') return 'muted'
-  return 'success'
-}
-
 const handleDecisionPageChange = (page) => {
   decisionPagination.page = page
 }
@@ -504,20 +471,44 @@ const syncSymbolLimitDrafts = (rows = []) => {
 
 const loadDashboard = async () => {
   loading.value = true
+  reconciliationLoading.value = true
   pageError.value = ''
-  try {
+  reconciliationError.value = ''
+  const [dashboardResult, reconciliationResult] = await Promise.allSettled([
+    positionManagementApi.getDashboard(),
+    positionManagementApi.getReconciliation(),
+  ])
+
+  if (dashboardResult.status === 'fulfilled') {
     const payload = readDashboardPayload(
-      await positionManagementApi.getDashboard(),
+      dashboardResult.value,
       {},
     )
     dashboard.value = payload
     syncEditableForm()
     syncSymbolLimitDrafts(buildSymbolLimitRows(payload))
-  } catch (error) {
-    pageError.value = resolveErrorMessage(error, '加载仓位管理面板失败')
-  } finally {
-    loading.value = false
+  } else {
+    pageError.value = resolveErrorMessage(
+      dashboardResult.reason,
+      '加载仓位管理面板失败',
+    )
   }
+
+  if (reconciliationResult.status === 'fulfilled') {
+    reconciliationOverview.value = readPositionReconciliationPayload(
+      reconciliationResult.value,
+      {},
+    )
+  } else {
+    reconciliationOverview.value = {}
+    reconciliationError.value = resolveErrorMessage(
+      reconciliationResult.reason,
+      '加载仓位对账检查失败',
+    )
+  }
+
+  loading.value = false
+  reconciliationLoading.value = false
 }
 
 const saveThresholds = async () => {
@@ -585,9 +576,6 @@ onMounted(() => {
 .position-lower-grid {
   --position-upper-panel-height: clamp(420px, 44dvh, 500px);
   --position-symbol-limit-ledger-row-height: 48px;
-  --position-symbol-limit-ledger-body-height: calc(var(--position-symbol-limit-ledger-row-height) * 11 + 2px);
-  --position-symbol-limit-position-column-min-width: 220px;
-  --position-symbol-limit-position-column-width: clamp(280px, 24vw, 360px);
   display: grid;
   grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.32fr);
   gap: 12px;
@@ -611,6 +599,11 @@ onMounted(() => {
 
 .position-top-panel {
   min-height: 0;
+}
+
+.position-reconciliation-panel {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .position-decision-panel {
@@ -916,11 +909,7 @@ onMounted(() => {
     144px
     84px
     88px
-    92px
-    72px
-    var(--position-symbol-limit-position-column-width)
-    var(--position-symbol-limit-position-column-width)
-    var(--position-symbol-limit-position-column-width);
+    72px;
 }
 
 .runtime-ledger__cell {
@@ -985,44 +974,6 @@ onMounted(() => {
 .position-limit-symbol span {
   color: #68839d;
   font-size: 11px;
-}
-
-.position-source-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.position-source-cell--left {
-  align-items: flex-start;
-  text-align: left;
-}
-
-.position-source-cell > * {
-  max-width: 100%;
-  min-width: 0;
-}
-
-.position-source-cell strong {
-  color: #21405e;
-  line-height: 1.25;
-}
-
-.position-source-cell span {
-  display: -webkit-box;
-  width: 100%;
-  color: #68839d;
-  font-size: 11px;
-  line-height: 1.35;
-  overflow: hidden;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  text-overflow: ellipsis;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
 }
 
 .position-symbol-limit-input :deep(.el-input-number) {

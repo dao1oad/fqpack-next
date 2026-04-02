@@ -211,7 +211,7 @@
                       <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
                       <span class="runtime-ledger__cell">{{ row.trace_kind_label }}</span>
                       <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                        <StatusChip class="runtime-inline-status" :variant="statusChipVariant(row.trace_status)">{{ row.trace_status_label }}</StatusChip>
+                        <StatusChip class="runtime-inline-status" :variant="row.trace_status_chip_variant || statusChipVariant(row.trace_status)">{{ row.trace_status_label }}</StatusChip>
                       </span>
                       <span class="runtime-ledger__cell runtime-ledger__cell--truncate runtime-ledger__cell--signal-remark" :title="row.signal_remark || '-'">
                         {{ row.signal_remark || '-' }}

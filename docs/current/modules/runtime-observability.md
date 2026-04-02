@@ -205,8 +205,14 @@ Runtime Observability 当前采用“双存储”：
   - `tpsl_worker`: `触发类型`
   - `order_submit`: `提交语义`
   - `xt_report_ingest`: `回报语义`
-  - `order_reconcile`: `对账语义`
+- `order_reconcile`: `对账语义`
   对应取值都直接来自 runtime event payload 的稳定字段，不依赖前端对 `reason_code` 做猜测翻译
+- Trace `trace_status` 与订单 `state` 的中文 label / StatusChip variant 当前统一走 shared meta：
+  - Trace：`open / completed / failed / stalled / broken`
+  - 订单：覆盖 `ACCEPTED / QUEUED / SUBMITTING / SUBMITTED / BROKER_BYPASSED / CANCEL_REQUESTED / PARTIAL_FILLED / FILLED / CANCELED / FAILED / REJECTED / INFERRED_PENDING / INFERRED_CONFIRMED / MATCHED / OPEN`
+  - 当前领域级 shared meta 位于 `traceStatusMeta.mjs` 与 `orderStateMeta.mjs`
+  - `runtimeStateMeta.mjs` 只保留兼容 re-export
+  - 这样全局 Trace、组件 Event 与其他只读运行面不会再各自维护一份状态翻译
 - `puppet_gateway.submit_result` 当前会显式区分资金校验口径：
   - 普通现金买入失败会带 `reason=insufficient_cash`、`funding_check_mode=available_cash`
   - 信用账户 `finance_buy` 失败会带 `reason=insufficient_bail_balance`、`funding_check_mode=available_bail_balance`

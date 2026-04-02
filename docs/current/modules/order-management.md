@@ -183,7 +183,6 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 
 - 若某个 symbol 已存在 open `om_position_entries`，对账只以 V2 entry remaining quantity 作为内部仓位真值
 - 同 symbol 的 legacy `om_buy_lots` 仅保留给兼容读链与排障，不再额外叠加进对账 internal remaining，避免 mixed-state 双计数后误生成 `sell gap`
-
 自动平账在检测到“同一轮快照对账户内多只持仓同时形成大比例 sell-gap、且近期缺少足够卖出成交证据”时，当前会熔断该轮 sell reconcile，不新建 sell gap，也不推进 sell-side gap 自动确认。
 
 自动平账在解析运行期辅助元数据失败时，当前会优先收敛 broker truth：
@@ -210,7 +209,6 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 
 - 若内部在途单的请求数量大于 XT 回报数量，但 symbol / side / 价格匹配，当前允许挂回同一 internal order
 - 这样 `intent=600`、`external_reported=300` 这类场景不会再一律 externalize
-
 自动平账与 XT 回报补录路径里，凡是由 `trade_time / confirmed_at` 回填 `date/time` 的订单域记录，当前统一按北京时间（`Asia/Shanghai`）落地，避免同一笔成交在不同读模型里出现跨日漂移。
 
 排障查看口径也保持同一套时间语义：`xt-order list`、`xt-trade list` 以及依赖成交 epoch 时间的 fill 查看命令，当前统一按北京时间展示；其中 `--date` 过滤使用北京时间自然日边界，而不是宿主机本地时区。
@@ -279,6 +277,7 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 - `/api/order-management/orders`
   - 订单列表与详情优先围绕 `internal_order_id` 展示
   - 对于 broker rebuild / broker-only 订单，列表和详情当前允许回退使用 `broker_order_id / broker_order_key` 作为详情查找键
+  - 缺失 `internal_order_id` 时，右侧详情仍可继续打开
   - 详情中成交、券商订单聚合和运行态说明都来自 V2 账本
 - `/api/order-management/stoploss/bind`
   - 当前只绑定 `entry_id`
@@ -292,7 +291,27 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 - `/order-management`
   - 继续展示 request / order / event / trade 主线
   - 左侧订单列表当前会优先显示 `updated_at`，若 broker-only 行缺失该字段，则回退 `last_fill_time / first_fill_time`
+  - 订单列表、统计卡、详情 badge、timeline 当前统一通过 shared `orderStateMeta` 输出状态 label / chip variant / severity
+  - 状态筛选仍使用 raw enum value，但前端展示 label 已统一为中文语义
   - 订单详情中的成交解释已经基于 `broker_order + execution_fill`
+
+当前共享订单状态集合：
+
+- `ACCEPTED`
+- `QUEUED`
+- `SUBMITTING`
+- `SUBMITTED`
+- `BROKER_BYPASSED`
+- `CANCEL_REQUESTED`
+- `PARTIAL_FILLED`
+- `FILLED`
+- `CANCELED`
+- `FAILED`
+- `REJECTED`
+- `INFERRED_PENDING`
+- `INFERRED_CONFIRMED`
+- `MATCHED`
+- `OPEN`
 - `/subject-management`
   - 止损对象已经是 `entry`
 - `/tpsl`
@@ -300,7 +319,9 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 - `/kline-slim`
   - 标的设置中的止损对象也是 `entry`，并与 `/subject-management` 共享同一套 entry 摘要字段
 - `/position-management`
-  - 不再对比 `stock_fills` 仓位真值，只展示 `券商仓位 / 账本仓位 / 对账状态`
+  - 不再对比 `stock_fills` 仓位真值
+  - `单标的仓位上限覆盖` 列表不再承担对账展示
+  - broker truth / ledger / reconciliation 已拆到独立只读 `对账检查` 面板
 
 ## 部署
 

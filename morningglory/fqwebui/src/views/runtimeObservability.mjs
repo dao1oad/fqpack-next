@@ -1,3 +1,7 @@
+import { getPositionGateStateMeta } from './positionGateStateMeta.mjs'
+import { getOrderStateMeta } from './orderStateMeta.mjs'
+import { getTraceStatusMeta } from './traceStatusMeta.mjs'
+
 const toText = (value) => String(value || '').trim()
 const ISSUE_STATUSES = new Set(['warning', 'failed', 'error', 'skipped'])
 const DETAIL_FIELDS = ['trace_id', 'intent_id', 'request_id', 'internal_order_id', 'symbol', 'action']
@@ -59,13 +63,6 @@ const TRACE_KIND_LABELS = {
   external_inferred: '外部推断',
   manual_api_order: '手动下单',
   unknown: '未知链路',
-}
-const TRACE_STATUS_LABELS = {
-  open: '进行中',
-  completed: '已完成',
-  failed: '失败',
-  stalled: '停滞',
-  broken: '断裂',
 }
 const COMPONENT_LABELS = {
   xt_producer: 'XT 行情接收',
@@ -131,11 +128,6 @@ const EVENT_SEMANTIC_COLUMN_LABELS = {
   xt_report_ingest: '回报语义',
   order_reconcile: '对账语义',
 }
-const POSITION_STATE_LABELS = {
-  ALLOW_OPEN: '允许开新仓',
-  HOLDING_ONLY: '仅允许持仓内买入',
-  FORCE_PROFIT_REDUCE: '强制盈利减仓',
-}
 const SIDE_LABELS = {
   buy: '买入',
   sell: '卖出',
@@ -161,18 +153,6 @@ const BROKER_ORDER_TYPE_LABELS = {
   '43': '专项直接还券',
   '44': '专项卖券还款',
   '45': '专项直接还款',
-}
-const ORDER_STATE_LABELS = {
-  ACCEPTED: '已受理',
-  QUEUED: '已入队',
-  SUBMITTING: '提交中',
-  FILLED: '已成交',
-  PARTIAL_FILLED: '部分成交',
-  CANCELED: '已撤单',
-  REJECTED: '已拒绝',
-  INFERRED_PENDING: '推断待确认',
-  INFERRED_CONFIRMED: '推断已确认',
-  MATCHED: '已匹配',
 }
 const REPORT_TYPE_LABELS = {
   trade: '成交回报',
@@ -729,7 +709,9 @@ const resolveEventPayloadField = (event = {}, key) => {
 }
 
 const formatPositionStateLabel = (value) => {
-  return POSITION_STATE_LABELS[toText(value)] || ''
+  const text = toText(value)
+  if (!text) return ''
+  return getPositionGateStateMeta(text).label || ''
 }
 
 const formatSideLabel = (value) => {
@@ -745,7 +727,9 @@ const formatBrokerOrderTypeLabel = (value) => {
 }
 
 const formatOrderStateLabel = (value) => {
-  return ORDER_STATE_LABELS[toText(value).toUpperCase()] || ''
+  const text = toText(value)
+  if (!text) return ''
+  return getOrderStateMeta(text).label || ''
 }
 
 const formatTpslKindLabel = (value) => {
@@ -1261,14 +1245,16 @@ export const summarizeTrace = (trace = {}) => {
     ? buildTraceFlowNodes(detail.steps)
     : buildTraceFallbackFlowNodes(detail)
   const traceKind = toText(trace?.trace_kind) || 'unknown'
-  const traceStatus = toText(trace?.trace_status) || (detail.issue_count > 0 ? 'broken' : 'open')
+  const traceStatusMeta = getTraceStatusMeta(trace?.trace_status || detail?.trace_status || (detail.issue_count > 0 ? 'broken' : 'open'))
   return {
     trace_key: toText(trace?.trace_key) || null,
     trace_id: detail.trace_id,
     trace_kind: traceKind,
     trace_kind_label: TRACE_KIND_LABELS[traceKind] || traceKind || 'Unknown',
-    trace_status: traceStatus,
-    trace_status_label: TRACE_STATUS_LABELS[traceStatus] || traceStatus || 'Open',
+    trace_status: traceStatusMeta.key,
+    trace_status_label: traceStatusMeta.label,
+    trace_status_chip_variant: traceStatusMeta.chipVariant,
+    trace_status_severity: traceStatusMeta.severity,
     break_reason: toText(trace?.break_reason),
     first_ts: detail.first_ts,
     first_ts_label: detail.first_ts_label,
@@ -1402,7 +1388,9 @@ export const buildTraceLedgerRows = (traces = [], options = {}) => {
         trace_kind: toText(detail?.trace_kind) || 'unknown',
         trace_kind_label: TRACE_KIND_LABELS[toText(detail?.trace_kind)] || toText(detail?.trace_kind) || '未知链路',
         trace_status: toText(detail?.trace_status) || 'open',
-        trace_status_label: TRACE_STATUS_LABELS[toText(detail?.trace_status)] || toText(detail?.trace_status) || '进行中',
+        trace_status_label: toText(detail?.trace_status_label) || getTraceStatusMeta(detail?.trace_status || 'open').label,
+        trace_status_chip_variant: toText(detail?.trace_status_chip_variant) || getTraceStatusMeta(detail?.trace_status || 'open').chipVariant,
+        trace_status_severity: toText(detail?.trace_status_severity) || getTraceStatusMeta(detail?.trace_status || 'open').severity,
         last_ts: toText(detail?.last_ts) || '',
         last_ts_label: toText(detail?.last_ts_label) || toText(detail?.last_ts) || '',
         duration_ms: Number.isFinite(detail?.duration_ms) ? Number(detail.duration_ms) : null,
@@ -1765,12 +1753,18 @@ export const buildTraceDetail = (trace = {}) => {
           .map((step) => toText(step?.component))
           .filter(Boolean),
       )]
+  const traceStatusMeta = getTraceStatusMeta(
+    trace?.trace_status || (issueSteps.length > 0 ? 'broken' : 'open'),
+  )
   return {
     [TRACE_DETAIL_MARKER]: true,
     trace_key: toText(trace?.trace_key) || null,
     trace_id: toText(trace?.trace_id) || null,
     trace_kind: toText(trace?.trace_kind) || 'unknown',
-    trace_status: toText(trace?.trace_status) || (issueSteps.length > 0 ? 'broken' : 'open'),
+    trace_status: traceStatusMeta.key,
+    trace_status_label: traceStatusMeta.label,
+    trace_status_chip_variant: traceStatusMeta.chipVariant,
+    trace_status_severity: traceStatusMeta.severity,
     break_reason: toText(trace?.break_reason),
     first_ts: toText(trace?.first_ts) || toText(steps.find((item) => item.ts)?.ts),
     first_ts_label: formatTimestampLabel(toText(trace?.first_ts) || toText(steps.find((item) => item.ts)?.ts)),

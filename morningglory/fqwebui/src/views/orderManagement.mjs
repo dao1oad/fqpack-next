@@ -1,4 +1,8 @@
 import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
+import {
+  ORDER_STATE_META,
+  getOrderStateMeta,
+} from './orderStateMeta.mjs'
 
 const toText = (value) => String(value || '').trim()
 
@@ -38,35 +42,56 @@ const resolveOrderLookupId = (row = {}) => (
   || toText(row?.broker_order_key)
 )
 
+export const ORDER_STATE_FILTER_OPTIONS = Object.values(ORDER_STATE_META).map((item) => ({
+  label: item.label,
+  value: item.key,
+}))
+
+const decorateOrderState = (row = {}) => {
+  const stateMeta = getOrderStateMeta(row?.state)
+  return {
+    state_label: stateMeta.label,
+    state_chip_variant: stateMeta.chipVariant,
+    state_severity: stateMeta.severity,
+  }
+}
+
 export const buildOrderRows = (rows = []) => {
   return [...(Array.isArray(rows) ? rows : [])]
-    .map((row) => ({
-      ...row,
-      internal_order_id: toText(row?.internal_order_id),
-      request_id: toText(row?.request_id),
-      broker_order_id: toText(row?.broker_order_id),
-      symbol: toText(row?.symbol),
-      name: toText(row?.name),
-      side: toText(row?.side),
-      state: toText(row?.state),
-      source: toText(row?.source),
-      source_type: toText(row?.source_type),
-      strategy_name: toText(row?.strategy_name),
-      account_type: toText(row?.account_type),
-      created_at: toText(row?.created_at),
-      submitted_at: toText(row?.submitted_at),
-      updated_at: toText(row?.updated_at),
-      filled_quantity: toNumber(row?.filled_quantity),
-      avg_filled_price: row?.avg_filled_price,
-      quantity: row?.quantity,
-      price: row?.price,
-      orderLookupId: resolveOrderLookupId(row),
-      summaryLabel: [
-        toText(row?.symbol) || '-',
-        toText(row?.side) || '-',
-        toText(row?.state) || '-',
-      ].join(' · '),
-    }))
+    .map((row) => {
+      const normalizedState = toText(row?.state)
+      const stateMeta = getOrderStateMeta(normalizedState)
+      return {
+        ...row,
+        internal_order_id: toText(row?.internal_order_id),
+        request_id: toText(row?.request_id),
+        broker_order_id: toText(row?.broker_order_id),
+        symbol: toText(row?.symbol),
+        name: toText(row?.name),
+        side: toText(row?.side),
+        state: normalizedState,
+        source: toText(row?.source),
+        source_type: toText(row?.source_type),
+        strategy_name: toText(row?.strategy_name),
+        account_type: toText(row?.account_type),
+        created_at: toText(row?.created_at),
+        submitted_at: toText(row?.submitted_at),
+        updated_at: toText(row?.updated_at),
+        filled_quantity: toNumber(row?.filled_quantity),
+        avg_filled_price: row?.avg_filled_price,
+        quantity: row?.quantity,
+        price: row?.price,
+        state_label: stateMeta.label,
+        state_chip_variant: stateMeta.chipVariant,
+        state_severity: stateMeta.severity,
+        orderLookupId: resolveOrderLookupId(row),
+        summaryLabel: [
+          toText(row?.symbol) || '-',
+          toText(row?.side) || '-',
+          stateMeta.label || '-',
+        ].join(' · '),
+      }
+    })
     .sort((left, right) => {
       const updatedDiff = right.updated_at.localeCompare(left.updated_at)
       if (updatedDiff !== 0) return updatedDiff
@@ -94,13 +119,16 @@ export const buildOrderStats = (stats = {}) => {
     ],
     stateCards: sortByCountAndLabel(Object.entries(stateDistribution)).map(([label, value]) => ({
       key: label,
-      label,
+      label: getOrderStateMeta(label).label,
       value: toNumber(value),
+      chipVariant: getOrderStateMeta(label).chipVariant,
+      severity: getOrderStateMeta(label).severity,
     })),
   }
 }
 
 export const buildOrderDetailViewModel = (detail = {}) => {
+  const orderState = decorateOrderState(detail?.order || {})
   const order = {
     ...(detail?.order || {}),
     internal_order_id: toText(detail?.order?.internal_order_id),
@@ -111,6 +139,7 @@ export const buildOrderDetailViewModel = (detail = {}) => {
     name: toText(detail?.order?.name),
     side: toText(detail?.order?.side),
     state: toText(detail?.order?.state),
+    ...orderState,
     trace_id: toText(detail?.order?.trace_id),
     intent_id: toText(detail?.order?.intent_id),
   }
@@ -130,6 +159,7 @@ export const buildOrderDetailViewModel = (detail = {}) => {
     event_type: toText(row?.event_type),
     state: toText(row?.state),
     created_at: toText(row?.created_at),
+    ...decorateOrderState(row),
   }))
   const tradeRows = (Array.isArray(detail?.trades) ? detail.trades : []).map((row) => ({
     ...row,

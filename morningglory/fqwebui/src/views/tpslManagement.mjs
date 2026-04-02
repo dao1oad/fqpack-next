@@ -2,6 +2,7 @@ import {
   formatBeijingDateTimeParts,
   formatBeijingTimestamp,
 } from '../tool/beijingTime.mjs'
+import { getReconciliationStateMeta } from './reconciliationStateMeta.mjs'
 
 const toText = (value) => String(value ?? '').trim()
 
@@ -76,6 +77,19 @@ const buildTriggerPriceLabel = (row = {}) => {
   }
   const firstTradePrice = Array.isArray(row?.trades) ? row.trades[0]?.price : null
   return formatNumericLabel(firstTradePrice) || '-'
+}
+
+const buildReconciliationView = (view = {}) => {
+  const meta = getReconciliationStateMeta(view?.state)
+  return {
+    state: meta.key,
+    state_label: meta.label,
+    state_chip_variant: meta.chipVariant,
+    signed_gap_quantity: toNumber(view?.signed_gap_quantity),
+    open_gap_count: toNumber(view?.open_gap_count),
+    rejected_gap_count: toNumber(view?.rejected_gap_count),
+    latest_resolution_type: toText(view?.latest_resolution_type),
+  }
 }
 
 export const buildOverviewRows = (rows = []) => {
@@ -154,13 +168,7 @@ export const buildDetailViewModel = (detail = {}) => {
     remaining_quantity: toNumber(row?.remaining_quantity),
     status: toText(row?.status),
   }))
-  const reconciliation = {
-    state: toText(detail?.reconciliation?.state) || 'aligned',
-    signed_gap_quantity: toNumber(detail?.reconciliation?.signed_gap_quantity),
-    open_gap_count: toNumber(detail?.reconciliation?.open_gap_count),
-    rejected_gap_count: toNumber(detail?.reconciliation?.rejected_gap_count),
-    latest_resolution_type: toText(detail?.reconciliation?.latest_resolution_type),
-  }
+  const reconciliation = buildReconciliationView(detail?.reconciliation)
   return {
     ...detail,
     symbol: toText(detail?.symbol),

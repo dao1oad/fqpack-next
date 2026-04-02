@@ -246,7 +246,7 @@ export default {
       // 股票守护设置 (合并了gardian和guardian)
       guardianForm: {
         stock: {
-          lot_amount: 3000,
+          lot_amount: 50000,
           threshold: {
             mode: 'percent', // percent或者atr
             percent: 1, // 1表示1%
