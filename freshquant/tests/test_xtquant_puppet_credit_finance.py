@@ -139,6 +139,8 @@ def test_credit_fin_buy_skips_cash_balance_precheck(monkeypatch):
         "guardian",
         "V反上涨",
         order_type=xtconstant.CREDIT_FIN_BUY,
+        available_bail_balance=60000.0,
+        available_amount=1000.0,
     )
 
     assert result == 123456
@@ -146,6 +148,30 @@ def test_credit_fin_buy_skips_cash_balance_precheck(monkeypatch):
     assert trader.order_calls[0]["order_type"] == xtconstant.CREDIT_FIN_BUY
     assert not any(
         event.get("payload", {}).get("reason") == "insufficient_cash"
+        for event in events
+    )
+
+
+def test_credit_fin_buy_blocks_when_bail_balance_is_insufficient(monkeypatch):
+    puppet, xtconstant = _load_puppet_module(monkeypatch)
+    trader = _FakeTrader(cash=100000.0)
+    events = _install_buy_test_doubles(monkeypatch, puppet, trader)
+
+    result = puppet.buy(
+        "513180",
+        0.613872,
+        82100,
+        "guardian",
+        "V反上涨",
+        order_type=xtconstant.CREDIT_FIN_BUY,
+        available_bail_balance=1000.0,
+        available_amount=999999.0,
+    )
+
+    assert result is None
+    assert trader.order_calls == []
+    assert any(
+        event.get("payload", {}).get("reason") == "insufficient_bail_balance"
         for event in events
     )
 

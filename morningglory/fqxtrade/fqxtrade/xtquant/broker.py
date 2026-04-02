@@ -350,6 +350,14 @@ def trading_main_loop():
                                     internal_order_id=pydash.get(
                                         resolved_order, "internal_order_id"
                                     ),
+                                    available_bail_balance=pydash.get(
+                                        resolved_order,
+                                        "credit_available_bail_balance",
+                                    ),
+                                    available_amount=pydash.get(
+                                        resolved_order,
+                                        "credit_available_amount",
+                                    ),
                                 ),
                                 broker_submit_mode=broker_submit_mode,
                             )
@@ -444,6 +452,20 @@ def _emit_broker_bypass(order, *, action=None):
     )
 
 
+def _clear_strategy_buy_cooldown(order, *, action):
+    if str(action or "").strip().lower() != "buy":
+        return
+    if str((order or {}).get("source") or "").strip().lower() != "strategy":
+        return
+    symbol = str((order or {}).get("symbol") or "").strip()
+    if not symbol:
+        return
+    try:
+        redis_db.delete(f"buy:{symbol}")
+    except Exception:
+        logger.exception("failed to clear buy cooldown for {symbol}", symbol=symbol)
+
+
 def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode):
     if _is_observe_only_mode(broker_submit_mode):
         result = finalize_submit_execution(
@@ -468,7 +490,7 @@ def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode)
 
         broker_order_id = submit_executor(resolved_order)
         logger.info(broker_order_id)
-        finalize_submit_execution(
+        finalize_result = finalize_submit_execution(
             order,
             broker_order_id=broker_order_id,
             repository=order_management_repository,
@@ -482,14 +504,19 @@ def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode)
             symbol=resolved_order.get("symbol"),
             status=(
                 "success"
-                if broker_order_id not in (None, "", "None")
-                and int(broker_order_id) > 0
+                if (finalize_result or {}).get("status") == "submitted"
                 else "failed"
             ),
             payload={"broker_order_id": broker_order_id},
         )
-        return {"status": "submitted", "broker_order_id": broker_order_id}
+        if (finalize_result or {}).get("status") != "submitted":
+            _clear_strategy_buy_cooldown(resolved_order, action=action)
+        return finalize_result or {
+            "status": "submitted",
+            "broker_order_id": broker_order_id,
+        }
     except Exception as exc:
+        _clear_strategy_buy_cooldown(order, action=action)
         if not is_exception_emitted(exc):
             _emit_broker_event(
                 "submit_result",

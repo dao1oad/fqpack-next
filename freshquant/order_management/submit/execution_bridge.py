@@ -79,6 +79,12 @@ def prepare_submit_execution(
             "price_mode_resolved": runtime_resolution.get("price_mode_resolved"),
             "broker_price_type": runtime_resolution.get("broker_price_type"),
             "price": runtime_resolution.get("price_to_use"),
+            "credit_available_bail_balance": runtime_resolution.get(
+                "credit_available_bail_balance"
+            ),
+            "credit_available_amount": runtime_resolution.get(
+                "credit_available_amount"
+            ),
         }
     )
     return {"status": "execute", "order_message": resolved_message}
@@ -219,9 +225,12 @@ def resolve_runtime_credit_execution(
         "credit_trade_mode_requested": requested_mode,
         "credit_trade_mode_resolved": resolved_mode,
         "broker_order_type": None,
+        "credit_available_bail_balance": None,
+        "credit_available_amount": None,
     }
     if account_type_value != "CREDIT":
         return result
+    result.update(_credit_runtime_snapshot(credit_detail))
 
     if action_value == "buy":
         effective_mode = resolved_mode or requested_mode
@@ -322,31 +331,31 @@ def _resolve_runtime_execution(
         or order_message.get("price_type")
     )
 
+    credit_detail = None
+    if _requires_runtime_credit_detail(
+        account_type=account_type,
+        action=action,
+        requested_credit_trade_mode=requested_credit_trade_mode,
+        resolved_credit_trade_mode=resolved_credit_trade_mode,
+    ):
+        credit_loader = credit_detail_loader or _default_credit_detail_loader
+        try:
+            credit_detail = credit_loader()
+        except Exception as exc:
+            raise RuntimeError(
+                "credit detail unavailable for runtime credit execution"
+            ) from exc
+        if credit_detail is None:
+            raise RuntimeError("credit detail unavailable for runtime credit execution")
+
     if existing_order_type is not None:
         credit_resolution = {
             "account_type": account_type,
             "credit_trade_mode_resolved": resolved_credit_trade_mode,
             "broker_order_type": existing_order_type,
         }
+        credit_resolution.update(_credit_runtime_snapshot(credit_detail))
     else:
-        credit_detail = None
-        if _requires_runtime_credit_detail(
-            account_type=account_type,
-            action=action,
-            requested_credit_trade_mode=requested_credit_trade_mode,
-            resolved_credit_trade_mode=resolved_credit_trade_mode,
-        ):
-            credit_loader = credit_detail_loader or _default_credit_detail_loader
-            try:
-                credit_detail = credit_loader()
-            except Exception as exc:
-                raise RuntimeError(
-                    "credit detail unavailable for auto credit sell resolution"
-                ) from exc
-            if credit_detail is None:
-                raise RuntimeError(
-                    "credit detail unavailable for auto credit sell resolution"
-                )
         credit_resolution = resolve_runtime_credit_execution(
             account_type=account_type,
             action=action,
@@ -406,6 +415,10 @@ def _resolve_runtime_execution(
         "price_mode_resolved": price_resolution.get("price_mode_resolved"),
         "broker_price_type": price_resolution.get("broker_price_type"),
         "price_to_use": price_resolution.get("price_to_use"),
+        "credit_available_bail_balance": credit_resolution.get(
+            "credit_available_bail_balance"
+        ),
+        "credit_available_amount": credit_resolution.get("credit_available_amount"),
     }
 
 
@@ -506,11 +519,14 @@ def _requires_runtime_credit_detail(
 ):
     if _normalize_account_type(account_type) != "CREDIT":
         return False
-    if str(action or "").strip().lower() != "sell":
-        return False
     effective_mode = _normalize_optional_mode(
         resolved_credit_trade_mode
     ) or _normalize_mode(requested_credit_trade_mode)
+    action_value = str(action or "").strip().lower()
+    if action_value == "buy":
+        return effective_mode == "finance_buy"
+    if action_value != "sell":
+        return False
     return effective_mode not in {"sell_repay", "collateral_sell"}
 
 
@@ -539,6 +555,20 @@ def _credit_detail_value(detail, field_name):
     if isinstance(detail, dict):
         return _safe_float(detail.get(field_name))
     return _safe_float(getattr(detail, field_name, 0.0))
+
+
+def _credit_runtime_snapshot(detail):
+    if detail is None:
+        return {
+            "credit_available_bail_balance": None,
+            "credit_available_amount": None,
+        }
+    return {
+        "credit_available_bail_balance": _credit_detail_value(
+            detail, "m_dEnableBailBalance"
+        ),
+        "credit_available_amount": _credit_detail_value(detail, "m_dAvailable"),
+    }
 
 
 def _extract_credit_detail(details):
