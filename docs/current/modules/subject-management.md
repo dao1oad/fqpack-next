@@ -51,6 +51,8 @@
 
 overview 里的“单标的仓位上限摘要”当前按批量 PM dashboard 结果一次性装载，不再按 symbol 重复调用单标的 limit 读路径。
 
+当前批量装载口径直接读取 `GET /api/position-management/dashboard` 返回里的 `symbol_position_limits.rows`。
+
 左表 symbol 集合当前只来自：
 
 - `must_pool`
@@ -69,6 +71,7 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
 - `takeprofit`
 - `position_management_summary`
 - `position_limit_summary`
+- `base_config_summary`
 - `entries`
 
 当前 detail 已不再返回 `buy_lots` 字段。
@@ -81,6 +84,34 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
 - `entry_slices`
 - `latest_price / latest_price_source`
 - `remaining_market_value / remaining_market_value_source`
+
+`base_config_summary` 当前为右栏“基础配置 + 单标的仓位上限”提供正式读模型，字段统一区分：
+
+- `configured_value`
+- `effective_value`
+- `effective_source`
+
+当前生效口径固定为：
+
+- `category`
+  - 显式配置只认原始 `must_pool.manual_category / must_pool.category`
+  - 若只有 provenance / memberships 推导出的分类，页面仍显示当前值，但状态保持 `未配置`，来源标成 provenance
+  - 原始字段缺失时不再误标成 `must_pool.category`
+- `stop_loss_price`
+  - 只认 `must_pool.stop_loss_price`
+  - 缺失时显示 `未配置`
+- `initial_lot_amount`
+  - `must_pool.initial_lot_amount`
+  - 否则回退 `must_pool.lot_amount`
+  - 再否则回退 Guardian 默认首次开仓金额 `100000`
+- `lot_amount`
+  - `instrument_strategy.lot_amount`
+  - 否则回退 `must_pool.lot_amount`
+  - 再否则回退 `guardian.stock.lot_amount`
+
+其中 `instrument_strategy.lot_amount` 当前要与 Guardian 运行时 `get_trade_amount(symbol)` 口径保持一致；不会因为存在仅带 `.SH/.SZ` 后缀的单独记录，就在页面里误判成当前生效值。
+
+右栏“当前生效”列当前必须明确展示来源；缺失配置不再渲染为空白。
 
 ## 止损语义
 

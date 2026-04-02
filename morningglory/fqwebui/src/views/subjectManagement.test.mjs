@@ -250,6 +250,65 @@ test('buildDenseConfigRows keeps category row bound to must-pool category instea
   assert.equal(rows[0].currentLabel, '守护池')
 })
 
+test('buildDenseConfigRows shows unconfigured labels and default effective amounts when must-pool is missing', () => {
+  const detail = buildDetailViewModel({
+    subject: {
+      symbol: '600271',
+      name: '航天信息',
+      category: '',
+    },
+    must_pool: null,
+    base_config_summary: {
+      category: {
+        configured: false,
+        configured_value: null,
+        effective_value: null,
+        effective_source: 'unconfigured',
+      },
+      stop_loss_price: {
+        configured: false,
+        configured_value: null,
+        effective_value: null,
+        effective_source: 'unconfigured',
+      },
+      initial_lot_amount: {
+        configured: false,
+        configured_value: null,
+        effective_value: 100000,
+        effective_source: 'default_initial_lot_amount',
+      },
+      lot_amount: {
+        configured: false,
+        configured_value: null,
+        effective_value: 50000,
+        effective_source: 'guardian.stock.lot_amount',
+      },
+    },
+    position_limit_summary: {
+      market_value: 384006,
+      default_limit: 800000,
+      override_limit: null,
+      effective_limit: 800000,
+      using_override: false,
+      blocked: false,
+    },
+  })
+
+  const rows = buildDenseConfigRows(detail)
+
+  assert.equal(rows[0].currentLabel, '未配置')
+  assert.equal(rows[0].statusLabel, '未配置')
+  assert.equal(rows[1].currentLabel, '未配置')
+  assert.equal(rows[1].statusLabel, '未配置')
+  assert.equal(rows[2].currentLabel, '100000')
+  assert.equal(rows[2].statusLabel, '默认值')
+  assert.match(rows[2].note, /100000/)
+  assert.equal(rows[3].currentLabel, '50000')
+  assert.equal(rows[3].statusLabel, '默认值')
+  assert.match(rows[3].note, /guardian/i)
+  assert.equal(rows[4].currentLabel, '80.00 万')
+})
+
 test('buildDetailSummaryChips compresses subject, runtime and pm state into header chips', () => {
   const detail = buildDetailViewModel({
     subject: {
@@ -398,7 +457,8 @@ test('SubjectManagement view uses symbol-limit editor layout and leaves guardian
   assert.match(source, /subject-editor-stoploss-table/)
   assert.match(source, /基础配置 \+ 单标的仓位上限/)
   assert.match(source, /仓位上限/)
-  assert.match(source, /单标的上限设置/)
+  assert.match(source, /当前生效值会显示来源；未配置项会明确标记/)
+  assert.match(source, /当前生效/)
   assert.match(source, /positionLimitDraft/)
   assert.doesNotMatch(source, /position_limit_mode/)
   assert.doesNotMatch(source, /use_default/)

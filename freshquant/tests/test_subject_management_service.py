@@ -1083,6 +1083,174 @@ def test_subject_management_detail_prefers_symbol_snapshot_market_value():
     assert detail["runtime_summary"]["position_amount"] == 234567.0
 
 
+def test_subject_management_detail_returns_base_config_summary_defaults_when_must_pool_missing():
+    database = FakeDatabase(
+        {
+            "params": FakeCollection(
+                [
+                    {
+                        "code": "guardian",
+                        "value": {
+                            "stock": {
+                                "lot_amount": 50000,
+                            }
+                        },
+                    }
+                ]
+            )
+        }
+    )
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "600271.SH",
+                "name": "航天信息",
+                "quantity": 44600,
+                "amount": 384006.0,
+            }
+        ],
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 384006.0,
+            "market_value_source": "xt_positions_market_value",
+        },
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600271")
+    summary = detail["base_config_summary"]
+
+    assert summary["category"]["configured"] is False
+    assert summary["category"]["effective_value"] is None
+    assert summary["category"]["effective_source"] == "unconfigured"
+    assert summary["stop_loss_price"]["configured"] is False
+    assert summary["stop_loss_price"]["effective_value"] is None
+    assert summary["stop_loss_price"]["effective_source"] == "unconfigured"
+    assert summary["initial_lot_amount"]["configured"] is False
+    assert summary["initial_lot_amount"]["effective_value"] == 100000
+    assert (
+        summary["initial_lot_amount"]["effective_source"]
+        == "default_initial_lot_amount"
+    )
+    assert summary["lot_amount"]["configured"] is False
+    assert summary["lot_amount"]["effective_value"] == 50000
+    assert summary["lot_amount"]["effective_source"] == "guardian.stock.lot_amount"
+
+
+def test_subject_management_detail_ignores_exchange_suffix_in_instrument_strategy_lot_amount():
+    database = FakeDatabase(
+        {
+            "params": FakeCollection(
+                [
+                    {
+                        "code": "guardian",
+                        "value": {
+                            "stock": {
+                                "lot_amount": 50000,
+                            }
+                        },
+                    }
+                ]
+            ),
+            "instrument_strategy": FakeCollection(
+                [
+                    {
+                        "instrument_code": "600271.SH",
+                        "lot_amount": 90000,
+                    }
+                ]
+            ),
+        }
+    )
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600271")
+    summary = detail["base_config_summary"]
+
+    assert summary["lot_amount"]["configured"] is False
+    assert summary["lot_amount"]["effective_value"] == 50000
+    assert summary["lot_amount"]["effective_source"] == "guardian.stock.lot_amount"
+
+
+def test_subject_management_detail_marks_provenance_category_as_unconfigured():
+    database = FakeDatabase(
+        {
+            "must_pool": FakeCollection(
+                [
+                    {
+                        "code": "600271",
+                        "name": "航天信息",
+                        "category": "",
+                        "manual_category": "",
+                        "sources": ["shouban30"],
+                        "categories": ["plate:11"],
+                        "memberships": [
+                            {
+                                "source": "shouban30",
+                                "category": "plate:11",
+                                "added_at": "2026-03-20T09:35:00+08:00",
+                                "expire_at": None,
+                                "extra": {"shouban30_plate_key": "11"},
+                            }
+                        ],
+                    }
+                ]
+            )
+        }
+    )
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600271")
+    summary = detail["base_config_summary"]
+
+    assert detail["must_pool"]["category"] == "plate:11"
+    assert summary["category"]["configured"] is False
+    assert summary["category"]["configured_value"] is None
+    assert summary["category"]["effective_value"] == "plate:11"
+    assert summary["category"]["effective_source"] == "must_pool.provenance"
+
+
 def test_subject_management_detail_reads_v2_entries_without_legacy_buy_lots():
     order_repository = InMemoryOrderManagementRepository()
     order_repository.position_entries.append(
@@ -1329,3 +1497,41 @@ def test_subject_management_detail_exposes_must_pool_provenance():
     assert detail["must_pool"]["categories"] == ["CLXS_10008", "plate:11"]
     assert detail["must_pool"]["memberships"][1]["category"] == "plate:11"
     assert detail["must_pool"]["workspace_order_hint"] == 7
+
+
+def test_default_symbol_limit_map_loader_reads_symbol_position_limit_rows(monkeypatch):
+    import freshquant.subject_management.dashboard_service as sm_dashboard_module
+
+    pm_module = types.ModuleType("freshquant.position_management.dashboard_service")
+
+    class PositionManagementDashboardService:
+        def get_dashboard(self):
+            return {
+                "symbol_position_limits": {
+                    "rows": [
+                        {
+                            "symbol": "600271",
+                            "default_limit": 800000.0,
+                            "override_limit": None,
+                            "effective_limit": 800000.0,
+                            "using_override": False,
+                            "blocked": False,
+                            "blocked_reason": "buy_allowed",
+                            "market_value": 384006.0,
+                            "market_value_source": "xt_positions_market_value",
+                        }
+                    ]
+                }
+            }
+
+    pm_module.PositionManagementDashboardService = PositionManagementDashboardService
+    monkeypatch.setitem(
+        sys.modules,
+        "freshquant.position_management.dashboard_service",
+        pm_module,
+    )
+
+    rows = sm_dashboard_module._default_symbol_limit_map_loader()
+
+    assert rows["600271"]["effective_limit"] == 800000.0
+    assert rows["600271"]["market_value"] == 384006.0

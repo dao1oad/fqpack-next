@@ -246,7 +246,7 @@
               <div class="subject-editor-table-header">
                 <div class="subject-editor-table-heading">
                   <div class="subject-editor-table-title">基础配置 + 单标的仓位上限</div>
-                  <div class="subject-editor-table-subtitle">单标的上限设置默认显示当前生效值；保存成系统默认值时后端会自动删除单独设置</div>
+                  <div class="subject-editor-table-subtitle">当前生效值会显示来源；未配置项会明确标记，保存成系统默认值时后端会自动删除单独设置</div>
                 </div>
                 <el-button
                   size="small"
@@ -266,7 +266,7 @@
               >
                 <el-table-column prop="group" label="分组" width="82" />
                 <el-table-column prop="label" label="项" width="108" />
-                <el-table-column label="当前值" min-width="110">
+                <el-table-column label="当前生效" min-width="110">
                   <template #default="{ row }">
                     <span class="subject-editor-current">
                       {{ row.currentLabel }}
@@ -722,6 +722,9 @@ const overviewRowClassName = ({ row }) => {
 }
 
 const resolveConfigRowTagType = (row) => {
+  if (row?.statusTone) {
+    return row.statusTone
+  }
   if (row?.key === 'stop_loss_price') {
     return 'danger'
   }

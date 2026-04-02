@@ -159,6 +159,11 @@
 - `guardian.stock.threshold.*`
 - `guardian.stock.grid_interval.*`
 
+其中：
+
+- `guardian.stock.lot_amount` 是 Guardian 持仓内加仓路径的基础金额，也是 `/subject-management` 右栏“常规金额”在 `instrument_strategy.lot_amount` 和 `must_pool.lot_amount` 都缺失时的最终回退值
+- Guardian 首次开仓默认金额不走 `guardian.stock.lot_amount`，当前固定回退到代码默认值 `100000`
+
 ### `strategies`
 
 - `Guardian`
@@ -190,6 +195,25 @@
 - 可选阈值/网格覆盖
 
 初始化程序只补缺失记录，不覆盖已有单标的配置。
+
+`instrument_strategy.lot_amount` 当前只影响 Guardian 持仓内加仓基准金额和 `/subject-management` 右栏“常规金额”的当前生效值，不覆盖首次开仓默认金额。
+
+## Guardian 买入金额口径
+
+Guardian 当前有两条买入路径：
+
+- 首次开仓 `new_open`
+  - 金额来源：`must_pool.initial_lot_amount -> must_pool.lot_amount -> DEFAULT_INITIAL_LOT_AMOUNT`
+  - 当前 `DEFAULT_INITIAL_LOT_AMOUNT = 100000`
+  - 数量计算：`int(amount / price / 100) * 100`
+  - 不应用 `BUY-1/BUY-2/BUY-3` 倍数
+- 持仓内加仓 `holding_add`
+  - 基础金额来自 `get_trade_amount(symbol)`，当前口径可落到单标的 `instrument_strategy.lot_amount`，否则回退系统 `guardian.stock.lot_amount`
+  - 触发买入层级后，金额计算为 `base_amount * multiplier`
+  - 当前倍数：`BUY-1=2`、`BUY-2=3`、`BUY-3=4`
+  - 数量计算同样是 `int(amount / price / 100) * 100`
+
+因此“首次开仓且触发买入层级倍数”在当前实现里不是同一路径：首次开仓不会叠加层级倍数，层级倍数只用于已有持仓时的 `holding_add`。
 
 ## 前端设置页
 
