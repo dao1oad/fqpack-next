@@ -40,6 +40,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `script/ci/run_production_deploy.ps1` 保留 bootstrap/re-exec 逻辑，作为人工正式 deploy 或 bootstrap worktree 直接入口时的兜底；workflow 正式路径已经不再依赖 canonical repo root 上的脚本版本。
 - `script/ci/run_production_deploy.ps1` 在 mirror sync 这一步会从当前 entrypoint repo 解析 `script/ci/sync_local_deploy_mirror.py` 的绝对路径，而不是回退到 `main-deploy-production` 里可能落后的旧 helper；这样 bootstrap worktree 的最新清理策略才能真正生效。
 - 若 `uv sync --frozen` 在 live deploy mirror 的 `.venv\` 中遇到宿主机运行面占用的二进制扩展锁，`script/ci/run_production_deploy.ps1` 会先受控 quiesce 宿主机 surfaces（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`），再重试一次 `uv sync`，最后统一拉起这些 surfaces，避免原地覆盖 `.pyd` / `.dll` 时直接失败。
+- 若 live deploy mirror 的 `.venv\pyvenv.cfg` 缺失，或 `.venv\Scripts\python.exe` 已存在但不能正常启动，`script/ci/run_production_deploy.ps1` 会在 quiesce 宿主机 surfaces 后执行 `python -m uv venv .venv --python <runner-python> --clear` 重建 deploy mirror virtualenv metadata，再补一次 `uv sync --frozen`；正式 deploy 不再假设保留下来的 `.venv\` 一定完整可用。
 - `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先显式枚举并清掉 mirror 内的 ignored 产物，但保留 live deploy mirror 的 `.venv\`；这样既能继续清理历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件，也不会误删当前宿主机 runtime 正在使用的解释器环境。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 deploy mirror repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
@@ -97,6 +98,7 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 - 自动 workflow 当前会直接执行 bootstrap worktree 里的最新 entrypoint；如果人工会话为了复现 workflow 行为，需要优先调用 bootstrap worktree 下的 `script/ci/run_production_deploy.ps1` 或让 canonical 入口先自行 bootstrap。
 - `docker/compose.parallel.yaml` 变更现在按完整 Docker 并行环境运行时变更处理；`freshquant_deploy_plan.py` 必须把它解析成实际 deploy，而不是 `deployment_required=false` 的 no-op。
 - `script/ci/run_production_deploy.ps1` 会先用 runner Python 3.12 做 `uv sync`，再切换到 deploy mirror `.venv\Scripts\python.exe` 运行 `run_formal_deploy.py`；formal deploy 内部 health check 也跟随 mirror `.venv` 解释器。
+- deploy mirror `.venv\Scripts\python.exe` 只有在对应 `.venv\pyvenv.cfg` 仍完整、且解释器可实际启动时才算正式真值；若 metadata 漂移，入口脚本会先自愈再进入 `run_formal_deploy.py`。
 - formal deploy 命中宿主机面时，当前 supervisor 正式解释器、`directory` 与 `PYTHONPATH` 都必须落到 `main-deploy-production`；不再允许 `main-runtime` 或主仓 `.venv\Lib\site-packages\fqxtrade` 作为兜底真值。
 - 若 `D:\fqpack\config\supervisord.fqnext.conf` 已更新但 `fqnext-supervisord` 进程仍吃着旧内存配置，`fqnext_host_runtime_ctl.ps1` 会在 surface restart 前先做一次受控 service reload/restart。
 - 如果 formal deploy 命中 `fq_apiserver` / `fq_webui` 后仍出现“像是旧代码”的症状，先检查 deploy mirror 是否残留过往 ignored 构建产物；当前正式入口会在 mirror sync 阶段主动清掉这类文件。

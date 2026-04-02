@@ -102,6 +102,15 @@ def test_run_production_deploy_quiesces_host_runtime_before_retrying_uv_sync() -
     assert "$hostRuntimeSurfaces = @(" in text
 
 
+def test_run_production_deploy_repairs_missing_deploy_mirror_venv_metadata() -> None:
+    text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
+
+    assert "Repair-DeployMirrorVirtualenv" in text
+    assert "pyvenv.cfg" in text
+    assert '"-m", "uv", "venv"' in text
+    assert '"--clear"' in text
+
+
 def test_run_production_deploy_catches_py_launcher_failures_before_fallback() -> None:
     text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
     start = text.index("function Get-PyLauncherPython312")
