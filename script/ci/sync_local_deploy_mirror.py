@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+PRESERVED_IGNORED_PATHS = frozenset({".venv"})
 
 
 def run_git(repo_root: Path, *args: str) -> str:
@@ -40,14 +45,59 @@ def ensure_clean_worktree(repo_root: Path) -> None:
         raise RuntimeError(f"deploy mirror has a dirty working tree: {repo_root}")
 
 
-def clean_ignored_artifacts(repo_root: Path) -> None:
-    subprocess.run(
-        ["git", "clean", "-ffdX"],
+def list_ignored_artifacts(repo_root: Path) -> list[Path]:
+    result = subprocess.run(
+        [
+            "git",
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "-z",
+        ],
         cwd=repo_root,
         check=True,
         capture_output=True,
-        text=True,
     )
+    stdout = result.stdout
+    raw_entries = (
+        stdout.split(b"\0") if isinstance(stdout, bytes) else stdout.split("\0")
+    )
+    ignored_paths: list[Path] = []
+    for raw_entry in raw_entries:
+        if not raw_entry:
+            continue
+        entry_text = (
+            os.fsdecode(raw_entry) if isinstance(raw_entry, bytes) else raw_entry
+        )
+        relative_path = Path(entry_text.rstrip("/\\"))
+        if relative_path.as_posix() in PRESERVED_IGNORED_PATHS:
+            continue
+        ignored_paths.append(repo_root / relative_path)
+    return ignored_paths
+
+
+def handle_remove_readonly(
+    func: Callable[..., Any], path: str, excinfo: BaseException
+) -> None:
+    if not isinstance(excinfo, PermissionError):
+        raise excinfo
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+def remove_ignored_artifact(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink(missing_ok=True)
+        return
+    if path.exists():
+        shutil.rmtree(path, onexc=handle_remove_readonly)
+
+
+def clean_ignored_artifacts(repo_root: Path) -> None:
+    for ignored_path in list_ignored_artifacts(repo_root):
+        remove_ignored_artifact(ignored_path)
 
 
 def current_head_sha(repo_root: Path) -> str:

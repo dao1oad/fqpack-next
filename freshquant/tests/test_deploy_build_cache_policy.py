@@ -236,6 +236,7 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert "本机 deploy mirror" in deployment_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in deployment_text
     assert r".venv\Scripts\python.exe" in deployment_text
+    assert "保留 live deploy mirror 的 `.venv\\`" in deployment_text
     assert "deploy-production.yml" in runtime_text
     assert "formal-deploy" in runtime_text
     assert "script/ci/run_production_deploy.ps1" in runtime_text

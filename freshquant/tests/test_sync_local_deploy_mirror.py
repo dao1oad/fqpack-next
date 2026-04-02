@@ -246,3 +246,32 @@ def test_sync_local_deploy_mirror_removes_ignored_artifacts(tmp_path: Path) -> N
     assert result["ok"] is True
     assert result["head_sha"] == target_sha
     assert not ignored_dir.exists()
+
+
+def test_sync_local_deploy_mirror_preserves_live_venv_but_cleans_other_ignored_artifacts(
+    tmp_path: Path,
+) -> None:
+    module = load_module()
+    remote = init_bare_remote(tmp_path)
+    seed, _ = init_seed_repo(tmp_path, remote)
+    (seed / ".gitignore").write_text(".venv/\nbuild/\n", encoding="utf-8")
+    git(["add", ".gitignore"], seed)
+    git(["commit", "-m", "ignore deploy venv and build artifacts"], seed)
+    target_sha = push_main(seed)
+    mirror = clone_mirror(tmp_path, remote)
+
+    live_venv = mirror / ".venv"
+    live_venv.mkdir()
+    (live_venv / "pyvenv.cfg").write_text("home = C:/Python312\n", encoding="utf-8")
+
+    ignored_dir = mirror / "build"
+    ignored_dir.mkdir()
+    (ignored_dir / "stale.txt").write_text("stale\n", encoding="utf-8")
+
+    result = module.sync_local_deploy_mirror(repo_root=mirror, target_sha=target_sha)
+
+    assert result["ok"] is True
+    assert result["head_sha"] == target_sha
+    assert live_venv.exists()
+    assert (live_venv / "pyvenv.cfg").exists()
+    assert not ignored_dir.exists()
