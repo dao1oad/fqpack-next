@@ -670,3 +670,225 @@ def test_verify_prefers_supervisor_snapshot_for_host_managed_programs(
         check["id"] == "xt_account_sync_worker" and check["passed"] is True
         for check in payload["process_checks"]
     )
+
+
+def test_verify_fails_when_supervisor_config_still_points_to_main_runtime(
+    tmp_path: Path,
+) -> None:
+    baseline_path = _write_json(
+        tmp_path / "baseline.json",
+        {
+            "baseline": {
+                "docker": [],
+                "services": [{"name": "fqnext-supervisord", "status": "Running"}],
+                "processes": [
+                    {"id": "xtquant_broker", "running": False},
+                    {"id": "xt_account_sync_worker", "running": False},
+                ],
+            }
+        },
+    )
+    docker_path = _write_json(
+        tmp_path / "docker.json",
+        [
+            {
+                "Name": "fq_mongodb",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+            {
+                "Name": "fq_redis",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+        ],
+    )
+    service_path = _write_json(
+        tmp_path / "services.json",
+        [{"Name": "fqnext-supervisord", "Status": "Running"}],
+    )
+    process_path = _write_json(
+        tmp_path / "processes.json",
+        [
+            {
+                "ProcessId": 801,
+                "Name": "python.exe",
+                "CommandLine": "python -m fqxtrade.xtquant.broker",
+            },
+            {
+                "ProcessId": 802,
+                "Name": "python.exe",
+                "CommandLine": "python -m freshquant.xt_account_sync.worker",
+            },
+        ],
+    )
+    supervisor_path = _write_json(
+        tmp_path / "supervisor.json",
+        [
+            {
+                "name": "fqnext_xtquant_broker",
+                "statename": "RUNNING",
+                "pid": 1801,
+                "description": "pid 1801, uptime 0:01:00",
+            },
+            {
+                "name": "fqnext_xt_account_sync_worker",
+                "statename": "RUNNING",
+                "pid": 1802,
+                "description": "pid 1802, uptime 0:01:00",
+            },
+        ],
+    )
+    supervisor_config_path = _write_json(
+        tmp_path / "supervisor-config.json",
+        {
+            "ok": False,
+            "configured_repo_root": (
+                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-runtime"
+            ),
+            "expected_repo_root": (
+                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+            ),
+            "failures": [
+                "supervisor config repo_root drifted to main-runtime",
+                "import source drifted to .venv/Lib/site-packages/fqxtrade/xtquant/broker.py",
+            ],
+            "warnings": [],
+        },
+    )
+    output_path = tmp_path / "verify.json"
+
+    result = _run_powershell(
+        SCRIPT,
+        "-Mode",
+        "Verify",
+        "-BaselinePath",
+        str(baseline_path),
+        "-OutputPath",
+        str(output_path),
+        "-DeploymentSurface",
+        "order_management",
+        "-DockerSnapshotPath",
+        str(docker_path),
+        "-ServiceSnapshotPath",
+        str(service_path),
+        "-ProcessSnapshotPath",
+        str(process_path),
+        "-SupervisorSnapshotPath",
+        str(supervisor_path),
+        "-SupervisorConfigSnapshotPath",
+        str(supervisor_config_path),
+    )
+
+    assert result.returncode != 0
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["passed"] is False
+    assert any("main-runtime" in failure for failure in payload["failures"])
+    assert any("site-packages" in failure for failure in payload["failures"])
+
+
+def test_verify_passes_when_supervisor_config_matches_deploy_mirror(
+    tmp_path: Path,
+) -> None:
+    baseline_path = _write_json(
+        tmp_path / "baseline.json",
+        {
+            "baseline": {
+                "docker": [],
+                "services": [{"name": "fqnext-supervisord", "status": "Running"}],
+                "processes": [
+                    {"id": "xtquant_broker", "running": False},
+                    {"id": "xt_account_sync_worker", "running": False},
+                ],
+            }
+        },
+    )
+    docker_path = _write_json(
+        tmp_path / "docker.json",
+        [
+            {
+                "Name": "fq_mongodb",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+            {
+                "Name": "fq_redis",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+        ],
+    )
+    service_path = _write_json(
+        tmp_path / "services.json",
+        [{"Name": "fqnext-supervisord", "Status": "Running"}],
+    )
+    process_path = _write_json(
+        tmp_path / "processes.json",
+        [
+            {
+                "ProcessId": 901,
+                "Name": "python.exe",
+                "CommandLine": "python -m fqxtrade.xtquant.broker",
+            },
+            {
+                "ProcessId": 902,
+                "Name": "python.exe",
+                "CommandLine": "python -m freshquant.xt_account_sync.worker",
+            },
+        ],
+    )
+    supervisor_path = _write_json(
+        tmp_path / "supervisor.json",
+        [
+            {
+                "name": "fqnext_xtquant_broker",
+                "statename": "RUNNING",
+                "pid": 1901,
+                "description": "pid 1901, uptime 0:01:00",
+            },
+            {
+                "name": "fqnext_xt_account_sync_worker",
+                "statename": "RUNNING",
+                "pid": 1902,
+                "description": "pid 1902, uptime 0:01:00",
+            },
+        ],
+    )
+    supervisor_config_path = _write_json(
+        tmp_path / "supervisor-config.json",
+        {
+            "ok": True,
+            "configured_repo_root": (
+                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+            ),
+            "expected_repo_root": (
+                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+            ),
+            "failures": [],
+            "warnings": [],
+        },
+    )
+    output_path = tmp_path / "verify.json"
+
+    result = _run_powershell(
+        SCRIPT,
+        "-Mode",
+        "Verify",
+        "-BaselinePath",
+        str(baseline_path),
+        "-OutputPath",
+        str(output_path),
+        "-DeploymentSurface",
+        "order_management",
+        "-DockerSnapshotPath",
+        str(docker_path),
+        "-ServiceSnapshotPath",
+        str(service_path),
+        "-ProcessSnapshotPath",
+        str(process_path),
+        "-SupervisorSnapshotPath",
+        str(supervisor_path),
+        "-SupervisorConfigSnapshotPath",
+        str(supervisor_config_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["passed"] is True
+    assert payload["failures"] == []

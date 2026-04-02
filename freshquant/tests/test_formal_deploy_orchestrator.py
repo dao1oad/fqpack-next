@@ -407,7 +407,7 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         "--build",
         "fq_apiserver",
     ]
-    assert commands[2] == [
+    assert commands[2][:10] == [
         "powershell",
         "-ExecutionPolicy",
         "Bypass",
@@ -418,6 +418,10 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         "-DeploymentSurface",
         "market_data",
         "-BridgeIfServiceUnavailable",
+    ]
+    assert commands[2][-2:] == [
+        "-SupervisorConfigRepoRoot",
+        str(Path(".").resolve()),
     ]
     assert commands[3] == [
         sys.executable,

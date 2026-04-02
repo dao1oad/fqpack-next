@@ -116,6 +116,8 @@
 - 正式 deploy 固定导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，确保 mirror 上的 Docker 镜像来自本机构建而不是 GHCR pull。
 - 对已经有 `last_success_sha` 的增量正式 deploy，`run_formal_deploy.py` 现在直接在 mirror 的 `.git` 工作树里计算 `last_success_sha..HEAD` changed paths，不再依赖 compare API 作为正式路径。
 - mirror 同步完成后，正式入口会先用 runner Python 3.12 在 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 执行 `python -m uv sync --frozen`，再切到 mirror `.venv\Scripts\python.exe` 调用 `run_formal_deploy.py`。
+- formal deploy 命中宿主机 deployment surface 时，会通过 `script/fqnext_supervisor_config.py` 把 `D:\fqpack\config\supervisord.fqnext.conf` 收敛到 `main-deploy-production`，并在配置发生变化或 service 仍吃旧配置时先重载一次 `fqnext-supervisord`。
+- 当前宿主机正式 Supervisor program 解释器与 `PYTHONPATH` 真值都固定落在 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`；若运行面 traceback 指到 `.venv\Lib\site-packages\fqxtrade\...`，应视为 deploy/runtime truth 失配。
 - 该 workflow 中的 PowerShell steps 固定带 `-ExecutionPolicy Bypass`，避免 self-hosted Windows runner 的本机执行策略在 step 启动前拦截临时脚本
 - 该 workflow 也会显式设置 `$ErrorActionPreference = 'Stop'`，确保 PowerShell cmdlet 的 non-terminating error 仍然按 fail-fast 方式中断正式 deploy
 - `script/docker_parallel_compose.ps1` 会优先读取 `FQ_DOCKER_BUILD_CACHE_ROOT`；未显式设置时，Docker BuildKit 本地缓存默认落到仓库 `.artifacts/docker-build-cache`
@@ -143,4 +145,5 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 
 - Docker 里的 Mongo/Redis 与宿主机 broker/xtdata 之间必须通过宿主机端口对齐，否则交易链会出现“页面正常、worker 无数据”。
 - 如果宿主机仍靠 `frequant-next.bat` 手工拉起，而不是 `fqnext-supervisord` service 开机自启，就会失去稳定的正式入口与权限边界。
+- 如果 `D:\fqpack\config\supervisord.fqnext.conf` 仍指向 `main-runtime`、空目录或 `.venv\Lib\site-packages\fqxtrade`，formal deploy/runtime verify 现在应直接判为异常，而不是继续假设线上跑的是最新代码。
 - 如果宿主机进程仍报 `127.0.0.1:27017`，优先检查进程环境是否缺少 `FRESHQUANT_MONGODB__HOST/PORT`。

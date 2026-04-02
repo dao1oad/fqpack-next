@@ -238,6 +238,14 @@ def build_health_commands(
     return commands
 
 
+def build_host_command(command: list[str], repo_root: Path) -> list[str]:
+    if "script/fqnext_host_runtime_ctl.ps1" not in command:
+        return list(command)
+    if "-SupervisorConfigRepoRoot" in command:
+        return list(command)
+    return [*command, "-SupervisorConfigRepoRoot", str(repo_root)]
+
+
 def build_plan(
     plan_module, bootstrap: bool, changed_paths: list[str]
 ) -> dict[str, Any]:
@@ -325,9 +333,13 @@ def run_formal_deploy(
                 )
 
             if plan["host_command"]:
-                commands.append(list(plan["host_command"]))
-                execute_command(
+                host_command = build_host_command(
                     list(plan["host_command"]),
+                    repo_root,
+                )
+                commands.append(host_command)
+                execute_command(
+                    host_command,
                     repo_root=repo_root,
                     output_path=run_dir / "11-host-deploy.log",
                 )
