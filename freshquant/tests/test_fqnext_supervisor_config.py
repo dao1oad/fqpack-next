@@ -181,7 +181,9 @@ def test_collect_import_sources_builds_valid_python_snippet(
     )
 
     def fake_run(command, **kwargs):
-        assert kwargs["cwd"] == EXPECTED_REPO_ROOT
+        assert str(kwargs["cwd"]).replace("\\", "/") == str(EXPECTED_REPO_ROOT).replace(
+            "\\", "/"
+        )
         compile(command[2], "<fqnext_supervisor_config>", "exec")
         return SimpleNamespace(
             returncode=0,
