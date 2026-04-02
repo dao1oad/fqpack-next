@@ -86,6 +86,24 @@ def test_resolve_target_programs_supports_restart_surfaces_without_program_arg()
     ]
 
 
+def test_resolve_target_programs_supports_stop_surfaces_without_program_arg() -> None:
+    module = load_module()
+
+    args = module.build_parser().parse_args(
+        ["stop-surfaces", "--surface", "market_data", "--surface", "guardian"]
+    )
+
+    surfaces, programs = module.resolve_target_programs(args)
+
+    assert surfaces == ["market_data", "guardian"]
+    assert programs == [
+        "fqnext_realtime_xtdata_producer",
+        "fqnext_realtime_xtdata_consumer",
+        "fqnext_xtdata_adj_refresh_worker",
+        "fqnext_guardian_event",
+    ]
+
+
 def test_resolve_target_programs_supports_wait_settled_without_program_arg() -> None:
     module = load_module()
 
@@ -109,6 +127,18 @@ def test_resolve_effective_timeout_applies_market_data_floor() -> None:
 
     effective_timeout = module.resolve_effective_timeout_seconds(
         "restart-surfaces",
+        ["market_data"],
+        45,
+    )
+
+    assert effective_timeout == 180.0
+
+
+def test_resolve_effective_timeout_applies_market_data_floor_to_stop_surfaces() -> None:
+    module = load_module()
+
+    effective_timeout = module.resolve_effective_timeout_seconds(
+        "stop-surfaces",
         ["market_data"],
         45,
     )
@@ -381,3 +411,63 @@ def test_restart_programs_reconciles_remaining_programs_before_raising(
         ("fqnext_xt_account_sync_worker", False),
     ]
     assert "fqnext_xt_account_sync_worker" in str(excinfo.value)
+
+
+def test_stop_programs_stops_running_programs_and_keeps_stopped_programs_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_module()
+    stop_calls: list[tuple[str, bool]] = []
+    process_infos = {
+        "fqnext_realtime_xtdata_producer": {"statename": "RUNNING", "pid": 11},
+        "fqnext_guardian_event": {"statename": "STOPPED", "pid": 0},
+    }
+
+    def fake_stop_process(name: str, wait: bool) -> bool:
+        stop_calls.append((name, wait))
+        return True
+
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(stopProcess=fake_stop_process)
+    )
+
+    monkeypatch.setattr(
+        module, "get_process_info", lambda _server, name: process_infos[name]
+    )
+    monkeypatch.setattr(
+        module,
+        "wait_for_state",
+        lambda _server, name, expected_state, timeout_seconds=0: {
+            "statename": "STOPPED",
+            "pid": 0,
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "wait_for_programs_settled",
+        lambda _server, programs, timeout_seconds=0, settle_seconds=0, poll_interval_seconds=0: {
+            program: {"statename": "STOPPED", "pid": 0} for program in programs
+        },
+    )
+
+    results = module.stop_programs(
+        server,
+        ["fqnext_realtime_xtdata_producer", "fqnext_guardian_event"],
+        timeout_seconds=5,
+    )
+
+    assert stop_calls == [("fqnext_realtime_xtdata_producer", True)]
+    assert results == [
+        {
+            "name": "fqnext_realtime_xtdata_producer",
+            "before_state": "RUNNING",
+            "after_state": "STOPPED",
+            "pid": 0,
+        },
+        {
+            "name": "fqnext_guardian_event",
+            "before_state": "STOPPED",
+            "after_state": "STOPPED",
+            "pid": 0,
+        },
+    ]

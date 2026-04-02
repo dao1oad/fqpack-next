@@ -7,6 +7,7 @@ def test_host_runtime_ctl_references_supervisor_service_and_bridge() -> None:
     assert "fqnext-supervisord" in text
     assert "fqnext-supervisord-restart" in text
     assert "EnsureServiceAndRestartSurfaces" in text
+    assert "StopSurfaces" in text
 
 
 def test_host_runtime_ctl_normalizes_comma_separated_surfaces() -> None:
@@ -20,6 +21,7 @@ def test_host_runtime_ctl_waits_for_settled_surfaces_after_service_recovery() ->
     text = Path("script/fqnext_host_runtime_ctl.ps1").read_text(encoding="utf-8")
 
     assert "wait-settled" in text
+    assert "stop-surfaces" in text
     assert "WasRecovered" in text
 
 

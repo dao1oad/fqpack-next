@@ -112,6 +112,7 @@
 - `deploy-production.yml` 在正式 Windows self-hosted runner 上把 deploy state / logs 固化到 `formal-deploy` artifacts 目录，但正式 deploy 真值已经改为本机 mirror，不再依赖下载部署归档或把 Docker Images 作为前置。
 - `deploy-production.yml` 不走 `actions/checkout`，而是先把 `D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap` 这个 bootstrap worktree reset 到目标 SHA，再直接调用那里的 `script/ci/run_production_deploy.ps1`；随后该脚本继续确保 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 这个本机 deploy mirror worktree 存在并 fast-forward 到目标 SHA。
 - bootstrap entrypoint 在 mirror sync 阶段会从当前 entrypoint repo 解析 `sync_local_deploy_mirror.py`，避免 stale `main-deploy-production` 工作树里的旧 helper 把 `.venv\` 清理逻辑回退到 `git clean -ffdX`。
+- 如果 live host runtime 仍在占用 `.venv\Lib\site-packages` 里的二进制扩展，正式入口会先 quiesce 宿主机 surfaces、重试 `uv sync`，再统一拉起这些 surfaces；这样 deploy 不会在 `.pyd` / `.dll` rename 阶段直接中断。
 - 正式 production runner 宿主机必须至少存在一个可用的 Python 3.12；如果 `py -3.12` 因旧注册漂移失效，正式入口会回退到已注册的 per-user / system Python 3.12，并回补当前用户 `PythonCore\3.12` 注册。
 - 若 runner Python 3.12 里缺少 `uv` 模块，正式入口会先自愈 `python -m uv`，再继续 deploy。
 - 正式 deploy 固定导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，确保 mirror 上的 Docker 镜像来自本机构建而不是 GHCR pull。

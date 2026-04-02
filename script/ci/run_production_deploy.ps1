@@ -223,6 +223,70 @@ function Invoke-Python {
     }
 }
 
+function Invoke-HostRuntimeControl {
+    param(
+        [string]$HostRuntimeScript,
+        [string]$Mode,
+        [string[]]$DeploymentSurface,
+        [double]$TimeoutSeconds = 45
+    )
+
+    $resolvedSurfaces = @($DeploymentSurface | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if (-not (Test-Path $HostRuntimeScript)) {
+        throw "host runtime control script not found: $HostRuntimeScript"
+    }
+    if ($resolvedSurfaces.Count -eq 0) {
+        throw "host runtime control requires at least one deployment surface"
+    }
+
+    $arguments = @(
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $HostRuntimeScript,
+        "-Mode",
+        $Mode,
+        "-DeploymentSurface",
+        ($resolvedSurfaces -join ","),
+        "-TimeoutSeconds",
+        ([string]$TimeoutSeconds)
+    )
+
+    & powershell @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "host runtime control failed: $Mode"
+    }
+}
+
+function Invoke-UvSyncWithHostRuntimeQuiesce {
+    param(
+        [string]$PythonExe,
+        [string]$MirrorRoot,
+        [string]$HostRuntimeScript,
+        [string[]]$HostRuntimeSurfaces
+    )
+
+    try {
+        Invoke-Python -PythonExe $PythonExe -WorkingDirectory $MirrorRoot -Arguments @(
+            "-m", "uv", "sync", "--frozen"
+        )
+        return
+    } catch {
+        Write-Warning "uv sync failed on live deploy mirror; retrying uv sync after quiescing host runtime surfaces."
+    }
+
+    Invoke-HostRuntimeControl -HostRuntimeScript $HostRuntimeScript -Mode "StopSurfaces" -DeploymentSurface $HostRuntimeSurfaces
+    try {
+        Invoke-Python -PythonExe $PythonExe -WorkingDirectory $MirrorRoot -Arguments @(
+            "-m", "uv", "sync", "--frozen"
+        )
+    } finally {
+        Invoke-HostRuntimeControl -HostRuntimeScript $HostRuntimeScript -Mode "RestartSurfaces" -DeploymentSurface $HostRuntimeSurfaces
+    }
+}
+
 function Ensure-BootstrapWorktree {
     param(
         [string]$CanonicalRoot,
@@ -366,6 +430,14 @@ $syncLocalDeployMirrorScript = Join-Path $CurrentScriptRepoRoot 'script/ci/sync_
 if (-not (Test-Path $syncLocalDeployMirrorScript)) {
     throw "deploy mirror sync helper not found: $syncLocalDeployMirrorScript"
 }
+$hostRuntimeScript = Join-Path $CurrentScriptRepoRoot 'script/fqnext_host_runtime_ctl.ps1'
+$hostRuntimeSurfaces = @(
+    "market_data",
+    "guardian",
+    "position_management",
+    "tpsl",
+    "order_management"
+)
 
 Invoke-Python -PythonExe $pythonExe -WorkingDirectory $MirrorRoot -Arguments @(
     $syncLocalDeployMirrorScript,
@@ -377,9 +449,7 @@ Invoke-Python -PythonExe $pythonExe -WorkingDirectory $MirrorRoot -Arguments @(
     "--format", "summary"
 )
 
-Invoke-Python -PythonExe $pythonExe -WorkingDirectory $MirrorRoot -Arguments @(
-    "-m", "uv", "sync", "--frozen"
-)
+Invoke-UvSyncWithHostRuntimeQuiesce -PythonExe $pythonExe -MirrorRoot $MirrorRoot -HostRuntimeScript $hostRuntimeScript -HostRuntimeSurfaces $hostRuntimeSurfaces
 
 $venvPython = Join-Path $MirrorRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
