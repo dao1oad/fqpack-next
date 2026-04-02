@@ -26,6 +26,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `main` 合并后的镜像发布 workflow：`.github/workflows/docker-images.yml`
 - `main` 合并后的正式自动部署 workflow：`.github/workflows/deploy-production.yml`
 - 正式 deploy canonical repo root：`D:\fqpack\freshquant-2026.2.23`
+- 正式 deploy bootstrap worktree：`D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap`
 - 本机 deploy mirror：`D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
 - 正式 deploy 单入口脚本：`script/ci/run_production_deploy.ps1`
 - 正式收口时由 `FQ_DOCKER_FORCE_LOCAL_BUILD=1` 强制本机构建；GHCR 不再是正式 deploy 前置
@@ -34,12 +35,13 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 - `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
 - `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 mirror sync、`uv sync` 和 `run_formal_deploy.py`。
-- `script/ci/run_production_deploy.ps1` 会先校验 `github.sha == latest origin/main`，再负责 mirror bootstrap / fast-forward、runner Python 3.12 / `uv` 自愈、mirror `.venv` 同步和 formal deploy 调用。
+- `deploy-production.yml` 当前只要求 canonical repo root 能 fetch 到最新 `origin/main`；它不再要求 canonical repo root 本身先 `pull --ff-only` 到远程 main。
+- `script/ci/run_production_deploy.ps1` 会先校验 `github.sha == latest origin/main`，再把 `D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap` 这个 dedicated bootstrap worktree reset 到目标 SHA，并从那里的最新 `run_production_deploy.ps1` re-exec；后续才继续 mirror bootstrap / fast-forward、runner Python 3.12 / `uv` 自愈、mirror `.venv` 同步和 formal deploy 调用。
 - `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先显式枚举并清掉 mirror 内的 ignored 产物，但保留 live deploy mirror 的 `.venv\`；这样既能继续清理历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件，也不会误删当前宿主机 runtime 正在使用的解释器环境。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 deploy mirror repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
 - `script/fqnext_host_runtime_ctl.ps1` 或 `script/fqnext_supervisor_config.py` 自身发生变更时，`script/freshquant_deploy_plan.py` 现在会强制命中全部宿主机 deployment surface（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`）；这类 host-runtime infra 变更不允许再被判成 no-op deploy。
-- `script/ci/run_production_deploy.ps1` 会显式把 canonical repo root 与本机 deploy mirror 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
+- `script/ci/run_production_deploy.ps1` 会显式把 canonical repo root、bootstrap worktree 与本机 deploy mirror 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
 - 正式 deploy 要求 production runner 至少存在一个可用的 Python 3.12；若 `py -3.12` 因旧注册失效，入口脚本会回退到已注册的 per-user / system Python 3.12，并回补 `HKCU\Software\Python\PythonCore\3.12\InstallPath`。
 - 若 runner Python 3.12 缺少 `uv` 模块，入口脚本会先执行 `python -m pip install uv --break-system-packages` 再继续部署。
 - 本轮正式 deploy 会显式导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，避免 `docker_parallel_compose.py` 把 `--build` 改写成 GHCR pull 路径。
@@ -88,6 +90,7 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 - 先确认当前代码真值是最新远程 `origin/main`；如果为了修 deploy 问题需要改代码，必须先走 `feature branch -> PR -> merge remote main`，再回到本地 `main` 与 `origin/main` 对齐。
 - 正式 deploy 统一从 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 执行，不要直接把开发 worktree 当成正式来源。
 - workflow 与人工正式 deploy 都应优先调用 `script/ci/run_production_deploy.ps1`；不要再把 mirror sync、`uv sync`、`run_formal_deploy.py` 手工拆开执行。
+- canonical repo root 即使存在无关脏改动或暂时落后于 `origin/main`，正式 deploy 也必须通过 bootstrap worktree 切到最新远程 main 代码；不要再把“先把 canonical root 拉干净”当成正式 deploy 前置。
 - `docker/compose.parallel.yaml` 变更现在按完整 Docker 并行环境运行时变更处理；`freshquant_deploy_plan.py` 必须把它解析成实际 deploy，而不是 `deployment_required=false` 的 no-op。
 - `script/ci/run_production_deploy.ps1` 会先用 runner Python 3.12 做 `uv sync`，再切换到 deploy mirror `.venv\Scripts\python.exe` 运行 `run_formal_deploy.py`；formal deploy 内部 health check 也跟随 mirror `.venv` 解释器。
 - formal deploy 命中宿主机面时，当前 supervisor 正式解释器、`directory` 与 `PYTHONPATH` 都必须落到 `main-deploy-production`；不再允许 `main-runtime` 或主仓 `.venv\Lib\site-packages\fqxtrade` 作为兜底真值。

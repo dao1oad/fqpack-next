@@ -179,6 +179,10 @@ def test_deploy_production_workflow_runs_on_push_to_main_via_single_entrypoint()
     )
     assert r"FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23" in text
     assert (
+        r"FQ_DEPLOY_BOOTSTRAP_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap"
+        in text
+    )
+    assert (
         r"FQ_DEPLOY_MIRROR_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
         in text
     )
@@ -193,6 +197,7 @@ def test_deploy_production_workflow_runs_on_push_to_main_via_single_entrypoint()
     assert "run_formal_deploy.py" not in text
     assert "py -3.12 -m uv sync --frozen" not in text
     assert "pip install --upgrade pip uv" not in text
+    assert "pull --ff-only origin main" not in text
 
 
 def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
@@ -213,6 +218,9 @@ def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
         in entrypoint_text
     )
     assert "stale push deploy trigger" in entrypoint_text
+    assert "production-deploy-bootstrap" in entrypoint_text
+    assert '$entrypoint = Join-Path $BootstrapRoot ' in entrypoint_text
+    assert '"-SkipBootstrapReexec"' in entrypoint_text
     assert "api.github.com/repos/" not in workflow_text
     assert "api.github.com/repos/" not in entrypoint_text
 
@@ -234,6 +242,7 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert r"D:\fqpack\freshquant-2026.2.23" in deployment_text
     assert "safe.directory" in deployment_text
     assert "本机 deploy mirror" in deployment_text
+    assert "bootstrap worktree" in deployment_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in deployment_text
     assert r".venv\Scripts\python.exe" in deployment_text
     assert "保留 live deploy mirror 的 `.venv\\`" in deployment_text
@@ -244,6 +253,10 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
     assert "python -m uv" in runtime_text
     assert (
         r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+        in runtime_text
+    )
+    assert (
+        r"D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap"
         in runtime_text
     )
     assert r"D:\fqpack\freshquant-2026.2.23" in runtime_text

@@ -25,11 +25,18 @@ def test_deploy_workflow_resolves_entrypoint_from_canonical_root() -> None:
     ) in text
     assert "-File $entrypoint" in text
     assert "-File script/ci/run_production_deploy.ps1" not in text
+    assert '-BootstrapRoot $env:FQ_DEPLOY_BOOTSTRAP_ROOT' in text
 
 
-def test_deploy_workflow_fast_forwards_canonical_root_before_entrypoint() -> None:
+def test_deploy_workflow_uses_dedicated_bootstrap_root_instead_of_pulling_canonical_root() -> (
+    None
+):
     text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
 
+    assert (
+        r'FQ_DEPLOY_BOOTSTRAP_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap'
+        in text
+    )
     assert "git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT fetch origin main" in text
     assert (
         '$remoteMainSha = (git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT rev-parse '
@@ -37,8 +44,28 @@ def test_deploy_workflow_fast_forwards_canonical_root_before_entrypoint() -> Non
     ) in text
     assert 'if ($remoteMainSha -ne "${{ github.sha }}") {' in text
     assert (
-        "git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT pull --ff-only origin main" in text
+        "git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT pull --ff-only origin main"
+        not in text
     )
+    assert "canonical repo root must be on main before deploy" not in text
+
+
+def test_run_production_deploy_bootstraps_latest_entrypoint_worktree_before_reexec() -> (
+    None
+):
+    text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
+
+    assert '[string]$BootstrapRoot' in text
+    assert '[switch]$SkipBootstrapReexec' in text
+    assert "production-deploy-bootstrap" in text
+    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("worktree", "add"' in text
+    assert (
+        'Invoke-Git -RepoRoot $BootstrapRoot -Arguments @("reset", "--hard", $TargetSha)'
+        in text
+    )
+    assert 'Invoke-Git -RepoRoot $BootstrapRoot -Arguments @("clean", "-ffd")' in text
+    assert "'script/ci/run_production_deploy.ps1'" in text
+    assert '"-SkipBootstrapReexec"' in text
 
 
 def test_run_production_deploy_catches_py_launcher_failures_before_fallback() -> None:

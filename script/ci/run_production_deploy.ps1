@@ -1,11 +1,13 @@
 [CmdletBinding()]
 param(
     [string]$CanonicalRoot,
+    [string]$BootstrapRoot,
     [string]$MirrorRoot = "D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production",
     [string]$MirrorBranch = "deploy-production-main",
     [string]$TargetSha,
     [string]$RunUrl,
     [string]$GitHubRepository,
+    [switch]$SkipBootstrapReexec,
     [switch]$Help
 )
 
@@ -21,6 +23,7 @@ Run production deploy
 
 Parameters:
   -CanonicalRoot    Canonical repository root that tracks origin/main.
+  -BootstrapRoot    Dedicated worktree path used to bootstrap the latest production deploy entrypoint.
   -MirrorRoot       Production deploy mirror worktree path.
   -MirrorBranch     Local branch name used inside the deploy mirror.
   -TargetSha        Expected latest origin/main SHA; omitted means deploy current origin/main.
@@ -220,7 +223,84 @@ function Invoke-Python {
     }
 }
 
+function Ensure-BootstrapWorktree {
+    param(
+        [string]$CanonicalRoot,
+        [string]$BootstrapRoot,
+        [string]$TargetSha
+    )
+
+    if (-not (Test-Path $BootstrapRoot)) {
+        Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("worktree", "prune")
+        Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("worktree", "add", "--detach", $BootstrapRoot, $TargetSha)
+    }
+
+    if (-not (Test-Path (Join-Path $BootstrapRoot ".git"))) {
+        throw "bootstrap worktree is not a git repository: $BootstrapRoot"
+    }
+
+    Ensure-SafeDirectory -RepoRoot $BootstrapRoot
+    Invoke-Git -RepoRoot $BootstrapRoot -Arguments @("reset", "--hard", $TargetSha)
+    Invoke-Git -RepoRoot $BootstrapRoot -Arguments @("clean", "-ffd")
+
+    $bootstrapHeadSha = Get-GitOutput -RepoRoot $BootstrapRoot -Arguments @("rev-parse", "HEAD")
+    if ($bootstrapHeadSha -ne $TargetSha) {
+        throw "bootstrap worktree head does not match target sha: head=$bootstrapHeadSha target=$TargetSha"
+    }
+}
+
+function Invoke-BootstrapEntrypoint {
+    param(
+        [string]$EntrypointPath,
+        [string]$CanonicalRoot,
+        [string]$BootstrapRoot,
+        [string]$MirrorRoot,
+        [string]$MirrorBranch,
+        [string]$TargetSha,
+        [string]$RunUrl,
+        [string]$GitHubRepository
+    )
+
+    $arguments = @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $EntrypointPath,
+        "-CanonicalRoot",
+        $CanonicalRoot,
+        "-BootstrapRoot",
+        $BootstrapRoot,
+        "-MirrorRoot",
+        $MirrorRoot,
+        "-MirrorBranch",
+        $MirrorBranch,
+        "-TargetSha",
+        $TargetSha,
+        "-SkipBootstrapReexec"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($RunUrl)) {
+        $arguments += @("-RunUrl", $RunUrl)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($GitHubRepository)) {
+        $arguments += @("-GitHubRepository", $GitHubRepository)
+    }
+    if ($VerbosePreference -ne "SilentlyContinue") {
+        $arguments += "-Verbose"
+    }
+
+    & powershell @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "bootstrap entrypoint failed: powershell $($arguments -join ' ')"
+    }
+}
+
 $CanonicalRoot = (Resolve-Path $CanonicalRoot).Path
+$CurrentScriptRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+if ([string]::IsNullOrWhiteSpace($BootstrapRoot)) {
+    $BootstrapRoot = Join-Path (Join-Path $CanonicalRoot ".worktrees") "production-deploy-bootstrap"
+}
+$BootstrapRoot = [System.IO.Path]::GetFullPath($BootstrapRoot)
 $MirrorRoot = [System.IO.Path]::GetFullPath($MirrorRoot)
 
 if (-not (Test-Path $CanonicalRoot)) {
@@ -240,6 +320,35 @@ if ([string]::IsNullOrWhiteSpace($TargetSha)) {
     $TargetSha = $remoteMainSha
 } elseif ($TargetSha -ne $remoteMainSha) {
     throw "stale push deploy trigger: target_sha=$TargetSha current_main=$remoteMainSha"
+}
+
+if (-not $SkipBootstrapReexec) {
+    Ensure-BootstrapWorktree -CanonicalRoot $CanonicalRoot -BootstrapRoot $BootstrapRoot -TargetSha $TargetSha
+    $currentScriptHeadSha = $null
+    if (Test-Path (Join-Path $CurrentScriptRepoRoot ".git")) {
+        try {
+            $currentScriptHeadSha = Get-GitOutput -RepoRoot $CurrentScriptRepoRoot -Arguments @("rev-parse", "HEAD")
+        } catch {
+            $currentScriptHeadSha = $null
+        }
+    }
+
+    if ($CurrentScriptRepoRoot -ne $BootstrapRoot -or $currentScriptHeadSha -ne $TargetSha) {
+        $entrypoint = Join-Path $BootstrapRoot 'script/ci/run_production_deploy.ps1'
+        if (-not (Test-Path $entrypoint)) {
+            throw "bootstrap production deploy entrypoint not found: $entrypoint"
+        }
+        Invoke-BootstrapEntrypoint `
+            -EntrypointPath $entrypoint `
+            -CanonicalRoot $CanonicalRoot `
+            -BootstrapRoot $BootstrapRoot `
+            -MirrorRoot $MirrorRoot `
+            -MirrorBranch $MirrorBranch `
+            -TargetSha $TargetSha `
+            -RunUrl $RunUrl `
+            -GitHubRepository $GitHubRepository
+        return
+    }
 }
 
 if (-not (Test-Path $MirrorRoot)) {

@@ -16,6 +16,7 @@ jobs:
     runs-on: [self-hosted, windows, production]
     env:
       FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23
+      FQ_DEPLOY_BOOTSTRAP_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap
       FQ_DEPLOY_MIRROR_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production
       FQ_DEPLOY_MIRROR_BRANCH: "deploy-production-main"
       FQ_DOCKER_FORCE_LOCAL_BUILD: "1"
@@ -29,13 +30,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "failed to fetch origin/main for production deploy"
           }
-          $currentBranch = (git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT rev-parse --abbrev-ref HEAD).Trim()
-          if ($LASTEXITCODE -ne 0) {
-            throw "failed to resolve canonical repo root branch"
-          }
-          if ($currentBranch -ne 'main') {
-            throw "canonical repo root must be on main before deploy: $currentBranch"
-          }
           $remoteMainSha = (git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT rev-parse origin/main).Trim()
           if ($LASTEXITCODE -ne 0) {
             throw "failed to resolve latest origin/main sha"
@@ -43,16 +37,13 @@ jobs:
           if ($remoteMainSha -ne "${{ github.sha }}") {
             throw "stale push deploy trigger: target_sha=${{ github.sha }} current_main=$remoteMainSha"
           }
-          git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT pull --ff-only origin main
-          if ($LASTEXITCODE -ne 0) {
-            throw "failed to fast-forward canonical repo root to origin/main"
-          }
           $entrypoint = Join-Path $env:FQ_DEPLOY_CANONICAL_REPO_ROOT 'script/ci/run_production_deploy.ps1'
           if (-not (Test-Path $entrypoint)) {
             throw "production deploy entrypoint not found: $entrypoint"
           }
           powershell -NoProfile -ExecutionPolicy Bypass -File $entrypoint `
             -CanonicalRoot $env:FQ_DEPLOY_CANONICAL_REPO_ROOT `
+            -BootstrapRoot $env:FQ_DEPLOY_BOOTSTRAP_ROOT `
             -MirrorRoot $env:FQ_DEPLOY_MIRROR_ROOT `
             -MirrorBranch $env:FQ_DEPLOY_MIRROR_BRANCH `
             -TargetSha "${{ github.sha }}" `
