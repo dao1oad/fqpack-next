@@ -577,6 +577,8 @@ def buy(
     intent_id=None,
     request_id=None,
     internal_order_id=None,
+    available_bail_balance=None,
+    available_amount=None,
 ):
     context = {
         "trace_id": trace_id,
@@ -653,16 +655,60 @@ def buy(
             required_cash = float(price) * int(quantity) + calculateTradeFee(
                 price, quantity
             )
-            if (
-                order_type_to_use != xtconstant.CREDIT_FIN_BUY
-                and asset.cash - asset.frozen_cash < required_cash
-            ):
+            if order_type_to_use == xtconstant.CREDIT_FIN_BUY:
+                credit_detail = None
+                bail_balance_to_use = _optional_float(available_bail_balance)
+                available_amount_to_use = _optional_float(available_amount)
+                if bail_balance_to_use is None or available_amount_to_use is None:
+                    credit_detail = _query_credit_detail_safe(xt_trader, acc)
+                    if bail_balance_to_use is None:
+                        bail_balance_to_use = _credit_detail_optional_float(
+                            credit_detail, "m_dEnableBailBalance"
+                        )
+                    if available_amount_to_use is None:
+                        available_amount_to_use = _credit_detail_optional_float(
+                            credit_detail, "m_dAvailable"
+                        )
+                if bail_balance_to_use is None:
+                    logger.info("融资买入保证金明细不可用")
+                    _emit_puppet_event(
+                        "submit_result",
+                        context=context,
+                        status="skipped",
+                        payload={
+                            "reason": "credit_detail_unavailable",
+                            "funding_check_mode": "available_bail_balance",
+                            "required_amount": required_cash,
+                        },
+                    )
+                    return
+                if bail_balance_to_use < required_cash:
+                    logger.info("融资买入保证金不足")
+                    _emit_puppet_event(
+                        "submit_result",
+                        context=context,
+                        status="skipped",
+                        payload={
+                            "reason": "insufficient_bail_balance",
+                            "funding_check_mode": "available_bail_balance",
+                            "required_amount": required_cash,
+                            "available_bail_balance": bail_balance_to_use,
+                            "available_amount": available_amount_to_use,
+                        },
+                    )
+                    return
+            elif asset.cash - asset.frozen_cash < required_cash:
                 logger.info("资金不足")
                 _emit_puppet_event(
                     "submit_result",
                     context=context,
                     status="skipped",
-                    payload={"reason": "insufficient_cash"},
+                    payload={
+                        "reason": "insufficient_cash",
+                        "funding_check_mode": "available_cash",
+                        "required_amount": required_cash,
+                        "available_cash": asset.cash - asset.frozen_cash,
+                    },
                 )
                 return
             stock_code = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
@@ -727,6 +773,34 @@ def buy(
         )
         mark_exception_emitted(exc)
         raise
+
+
+def _optional_float(value):
+    if value in (None, "", "None"):
+        return None
+    return float(value)
+
+
+def _credit_detail_optional_float(detail, field_name):
+    if detail is None:
+        return None
+    if isinstance(detail, (list, tuple)):
+        detail = detail[0] if detail else None
+        if detail is None:
+            return None
+    if isinstance(detail, dict):
+        return _optional_float(detail.get(field_name))
+    return _optional_float(getattr(detail, field_name, None))
+
+
+def _query_credit_detail_safe(xt_trader, acc):
+    if xt_trader is None or not hasattr(xt_trader, "query_credit_detail"):
+        return None
+    try:
+        return xt_trader.query_credit_detail(acc)
+    except Exception:
+        logger.exception("query_credit_detail failed before finance buy submit")
+        return None
 
 
 def sell(

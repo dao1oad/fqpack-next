@@ -452,3 +452,56 @@ def test_prepare_submit_execution_skips_auction_probe_for_explicit_limit_price()
 
     assert result["status"] == "execute"
     assert result["order_message"]["broker_price_type"] == xtconstant.FIX_PRICE
+
+
+def test_prepare_submit_execution_loads_credit_detail_for_finance_buy():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "002123",
+            "price": 10.0,
+            "quantity": 5000,
+            "source": "strategy",
+            "internal_order_id": "ord_runtime_finance_buy_1",
+            "account_type": "CREDIT",
+            "credit_trade_mode": "finance_buy",
+            "price_mode": "limit",
+        }
+    )
+    repository.update_order(
+        "ord_runtime_finance_buy_1",
+        {
+            "state": "QUEUED",
+            "account_type": "CREDIT",
+            "credit_trade_mode_requested": "finance_buy",
+            "credit_trade_mode_resolved": "finance_buy",
+            "broker_order_type": None,
+            "price_mode_requested": "limit",
+            "broker_price_type": None,
+        },
+    )
+    observed = {"loader_calls": 0}
+
+    result = prepare_submit_execution(
+        {
+            "internal_order_id": "ord_runtime_finance_buy_1",
+            "action": "buy",
+            "symbol": "002123",
+            "price": 10.0,
+            "quantity": 5000,
+        },
+        repository=repository,
+        tracking_service=tracking_service,
+        credit_detail_loader=lambda: observed.__setitem__(
+            "loader_calls", observed["loader_calls"] + 1
+        )
+        or {"m_dEnableBailBalance": 60000, "m_dAvailable": 12000},
+    )
+
+    assert result["status"] == "execute"
+    assert observed["loader_calls"] == 1
+    assert result["order_message"]["broker_order_type"] == xtconstant.CREDIT_FIN_BUY
+    assert result["order_message"]["credit_available_bail_balance"] == 60000.0
+    assert result["order_message"]["credit_available_amount"] == 12000.0

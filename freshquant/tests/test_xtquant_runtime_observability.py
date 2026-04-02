@@ -722,6 +722,98 @@ def test_broker_submit_emits_runtime_error_when_executor_raises(monkeypatch):
     assert collector.events[-1]["payload"]["error_message"] == "broker submit failed"
 
 
+def test_broker_failed_strategy_buy_clears_guardian_buy_cooldown(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_buy_cooldown_clear", BROKER_PATH)
+    collector = EventCollector()
+    broker._runtime_logger = collector
+
+    class FakeRedis:
+        def __init__(self):
+            self.deleted = []
+
+        def delete(self, key):
+            self.deleted.append(key)
+            return 1
+
+    fake_redis = FakeRedis()
+    broker.redis_db = fake_redis
+    broker.prepare_submit_execution = lambda order, **kwargs: {
+        "status": "ready",
+        "order_message": order,
+    }
+    broker.finalize_submit_execution = lambda *args, **kwargs: {"status": "failed"}
+
+    result = broker._handle_submit_action(
+        {
+            "action": "buy",
+            "symbol": "002123",
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "price": 10.0,
+            "quantity": 5000,
+            "internal_order_id": "ord-broker-buy-fail-1",
+            "request_id": "req-broker-buy-fail-1",
+            "trace_id": "trace-broker-buy-fail-1",
+            "intent_id": "intent-broker-buy-fail-1",
+        },
+        action="buy",
+        submit_executor=lambda _resolved_order: None,
+        broker_submit_mode="normal",
+    )
+
+    assert result["status"] == "failed"
+    assert fake_redis.deleted == ["buy:002123"]
+
+
+def test_broker_does_not_clear_buy_cooldown_when_finalize_raises_after_submit(
+    monkeypatch,
+):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module(
+        "test_runtime_broker_buy_cooldown_finalize_error", BROKER_PATH
+    )
+
+    class FakeRedis:
+        def __init__(self):
+            self.deleted = []
+
+        def delete(self, key):
+            self.deleted.append(key)
+            return 1
+
+    fake_redis = FakeRedis()
+    broker.redis_db = fake_redis
+    broker.prepare_submit_execution = lambda order, **kwargs: {
+        "status": "ready",
+        "order_message": order,
+    }
+    broker.finalize_submit_execution = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("tracking persist failed")
+    )
+
+    with pytest.raises(RuntimeError, match="tracking persist failed"):
+        broker._handle_submit_action(
+            {
+                "action": "buy",
+                "symbol": "002123",
+                "source": "strategy",
+                "strategy_name": "Guardian",
+                "price": 10.0,
+                "quantity": 5000,
+                "internal_order_id": "ord-broker-buy-error-1",
+                "request_id": "req-broker-buy-error-1",
+                "trace_id": "trace-broker-buy-error-1",
+                "intent_id": "intent-broker-buy-error-1",
+            },
+            action="buy",
+            submit_executor=lambda _resolved_order: 123456,
+            broker_submit_mode="normal",
+        )
+
+    assert fake_redis.deleted == []
+
+
 def test_broker_main_runs_trading_loop_without_http_server(monkeypatch):
     _install_broker_stubs(monkeypatch)
     broker = _load_module("test_runtime_broker_worker_only", BROKER_PATH)

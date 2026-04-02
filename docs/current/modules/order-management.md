@@ -99,6 +99,14 @@
 
 `submit_order -> credit mode resolve -> position gate -> om_order_requests / om_orders / om_broker_orders / om_order_events -> STOCK_ORDER_QUEUE -> broker`
 
+当前信用账户买单的运行期语义已经固定为：
+
+- submit 阶段若解析出 `credit_trade_mode_resolved=finance_buy`，broker 执行桥会在真正发往 XT 前补查 `credit_detail`
+- 运行期会把 `credit_available_bail_balance / credit_available_amount` 一并透传到 broker host，供执行前资金校验与排障使用
+- `finance_buy` 的执行前资金校验当前只看 `available_bail_balance >= price * quantity + fee`
+- 普通现金买入与信用担保品买入仍按 `asset.cash - asset.frozen_cash` 校验
+- 若策略买单在 broker host 本地预提交阶段就被跳过或失败、没有形成真实 broker order，Guardian 之前写入的 `buy:{symbol}` 冷却会立即回收，不再保留误导性的 15 分钟冷却
+
 Guardian 卖出请求当前会把本次卖量对应的来源入口计划一起写入 `om_order_requests.strategy_context.guardian_sell_sources`：
 
 - `requested_quantity / submit_quantity`

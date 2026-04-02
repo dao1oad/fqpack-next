@@ -207,6 +207,12 @@ Runtime Observability 当前采用“双存储”：
   - `xt_report_ingest`: `回报语义`
   - `order_reconcile`: `对账语义`
   对应取值都直接来自 runtime event payload 的稳定字段，不依赖前端对 `reason_code` 做猜测翻译
+- `puppet_gateway.submit_result` 当前会显式区分资金校验口径：
+  - 普通现金买入失败会带 `reason=insufficient_cash`、`funding_check_mode=available_cash`
+  - 信用账户 `finance_buy` 失败会带 `reason=insufficient_bail_balance`、`funding_check_mode=available_bail_balance`
+  - 若融资买入执行前拿不到 credit detail，会带 `reason=credit_detail_unavailable`
+- `order_submit` / `broker_gateway` 当前会把 `finance_buy` 运行期补查出的 `credit_available_bail_balance / credit_available_amount` 继续沿链路透传，便于从 Runtime Observability 直接判断融资买入是按保证金口径还是按现金口径被拦截
+- 对策略买单而言，若 broker host 本地预提交失败，没有形成真实 broker order，`broker_gateway` 当前会先记录失败，再同步清理对应的 `buy:{symbol}` 冷却；后续同标的重新触发时不会再被这次本地失败残留的冷却误拦
 - 顶部 `异常链路` 与 `异常节点` 摘要当前可直接跳转到异常 Trace/异常步骤浏览态
 - 左侧组件卡片里的异常摘要当前拆成：
   - `异常链路`
