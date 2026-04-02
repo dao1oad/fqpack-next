@@ -141,9 +141,8 @@ class SubjectManagementDashboardService:
 
     def get_detail(self, symbol):
         normalized_symbol = _normalize_symbol(symbol)
-        must_pool = self._normalize_must_pool(
-            self.database["must_pool"].find_one({"code": normalized_symbol})
-        )
+        raw_must_pool = self.database["must_pool"].find_one({"code": normalized_symbol})
+        must_pool = self._normalize_must_pool(raw_must_pool)
         guardian_config = self._normalize_guardian_config(
             self.database["guardian_buy_grid_configs"].find_one(
                 {"code": normalized_symbol}
@@ -226,6 +225,7 @@ class SubjectManagementDashboardService:
         position_limit_summary = self._load_position_limit_summary(normalized_symbol)
         base_config_summary = self._build_base_config_summary(
             normalized_symbol,
+            raw_must_pool,
             must_pool,
         )
 
@@ -304,11 +304,21 @@ class SubjectManagementDashboardService:
             normalized[normalized_symbol] = payload
         return normalized
 
-    def _build_base_config_summary(self, symbol, must_pool):
+    def _build_base_config_summary(self, symbol, raw_must_pool, must_pool):
         normalized_symbol = _normalize_symbol(symbol)
+        raw_must_pool = dict(raw_must_pool or {})
         must_pool = dict(must_pool or {})
 
-        category = _normalize_optional_text(must_pool.get("category"))
+        configured_category = _normalize_optional_text(
+            raw_must_pool.get("manual_category") or raw_must_pool.get("category")
+        )
+        effective_category = _normalize_optional_text(must_pool.get("category"))
+        if configured_category:
+            category_source = "must_pool.category"
+        elif effective_category:
+            category_source = "must_pool.provenance"
+        else:
+            category_source = "unconfigured"
         stop_loss_price = _safe_float_or_none(must_pool.get("stop_loss_price"))
         configured_initial_lot_amount = _safe_int_or_none(
             must_pool.get("initial_lot_amount")
@@ -341,10 +351,10 @@ class SubjectManagementDashboardService:
 
         return {
             "category": _build_base_config_item(
-                configured_value=category,
+                configured_value=configured_category,
                 configured_source="must_pool.category",
-                effective_value=category or None,
-                effective_source="must_pool.category" if category else "unconfigured",
+                effective_value=effective_category,
+                effective_source=category_source,
             ),
             "stop_loss_price": _build_base_config_item(
                 configured_value=stop_loss_price,
@@ -373,15 +383,10 @@ class SubjectManagementDashboardService:
     def _load_instrument_strategy_lot_amount(self, symbol):
         normalized_symbol = _normalize_symbol(symbol)
         collection = self.database["instrument_strategy"]
-        for candidate in (
-            normalized_symbol,
-            f"{normalized_symbol}.SH",
-            f"{normalized_symbol}.SZ",
-        ):
-            record = collection.find_one({"instrument_code": candidate}) or {}
-            lot_amount = _safe_int_or_none(record.get("lot_amount"))
-            if lot_amount is not None:
-                return lot_amount
+        record = collection.find_one({"instrument_code": normalized_symbol}) or {}
+        lot_amount = _safe_int_or_none(record.get("lot_amount"))
+        if lot_amount is not None:
+            return lot_amount
         return None
 
     def _load_guardian_default_lot_amount(self):
@@ -681,6 +686,7 @@ def _base_config_source_label(source):
     mapping = {
         "unconfigured": "未配置",
         "must_pool.category": "must_pool 分类",
+        "must_pool.provenance": "must_pool 归因分类",
         "must_pool.stop_loss_price": "must_pool 止损价",
         "must_pool.initial_lot_amount": "must_pool 首笔金额",
         "must_pool.lot_amount": "must_pool 常规金额",

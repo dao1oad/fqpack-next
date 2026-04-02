@@ -74,6 +74,7 @@ const baseConfigSourceLabel = (source) => {
   const mapping = {
     unconfigured: '未配置',
     'must_pool.category': 'must_pool 分类',
+    'must_pool.provenance': 'must_pool 归因分类',
     'must_pool.stop_loss_price': 'must_pool 止损价',
     'must_pool.initial_lot_amount': 'must_pool 首笔金额',
     'must_pool.lot_amount': 'must_pool 常规金额',

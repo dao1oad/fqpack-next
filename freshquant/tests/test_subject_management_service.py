@@ -1148,6 +1148,109 @@ def test_subject_management_detail_returns_base_config_summary_defaults_when_mus
     assert summary["lot_amount"]["effective_source"] == "guardian.stock.lot_amount"
 
 
+def test_subject_management_detail_ignores_exchange_suffix_in_instrument_strategy_lot_amount():
+    database = FakeDatabase(
+        {
+            "params": FakeCollection(
+                [
+                    {
+                        "code": "guardian",
+                        "value": {
+                            "stock": {
+                                "lot_amount": 50000,
+                            }
+                        },
+                    }
+                ]
+            ),
+            "instrument_strategy": FakeCollection(
+                [
+                    {
+                        "instrument_code": "600271.SH",
+                        "lot_amount": 90000,
+                    }
+                ]
+            ),
+        }
+    )
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600271")
+    summary = detail["base_config_summary"]
+
+    assert summary["lot_amount"]["configured"] is False
+    assert summary["lot_amount"]["effective_value"] == 50000
+    assert summary["lot_amount"]["effective_source"] == "guardian.stock.lot_amount"
+
+
+def test_subject_management_detail_marks_provenance_category_as_unconfigured():
+    database = FakeDatabase(
+        {
+            "must_pool": FakeCollection(
+                [
+                    {
+                        "code": "600271",
+                        "name": "航天信息",
+                        "category": "",
+                        "manual_category": "",
+                        "sources": ["shouban30"],
+                        "categories": ["plate:11"],
+                        "memberships": [
+                            {
+                                "source": "shouban30",
+                                "category": "plate:11",
+                                "added_at": "2026-03-20T09:35:00+08:00",
+                                "expire_at": None,
+                                "extra": {"shouban30_plate_key": "11"},
+                            }
+                        ],
+                    }
+                ]
+            )
+        }
+    )
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600271")
+    summary = detail["base_config_summary"]
+
+    assert detail["must_pool"]["category"] == "plate:11"
+    assert summary["category"]["configured"] is False
+    assert summary["category"]["configured_value"] is None
+    assert summary["category"]["effective_value"] == "plate:11"
+    assert summary["category"]["effective_source"] == "must_pool.provenance"
+
+
 def test_subject_management_detail_reads_v2_entries_without_legacy_buy_lots():
     order_repository = InMemoryOrderManagementRepository()
     order_repository.position_entries.append(

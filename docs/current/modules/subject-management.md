@@ -94,8 +94,9 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
 当前生效口径固定为：
 
 - `category`
-  - 只认 `must_pool.category`
-  - 缺失时显示 `未配置`
+  - 显式配置只认原始 `must_pool.manual_category / must_pool.category`
+  - 若只有 provenance / memberships 推导出的分类，页面仍显示当前值，但状态保持 `未配置`，来源标成 provenance
+  - 原始字段缺失时不再误标成 `must_pool.category`
 - `stop_loss_price`
   - 只认 `must_pool.stop_loss_price`
   - 缺失时显示 `未配置`
@@ -107,6 +108,8 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
   - `instrument_strategy.lot_amount`
   - 否则回退 `must_pool.lot_amount`
   - 再否则回退 `guardian.stock.lot_amount`
+
+其中 `instrument_strategy.lot_amount` 当前要与 Guardian 运行时 `get_trade_amount(symbol)` 口径保持一致；不会因为存在仅带 `.SH/.SZ` 后缀的单独记录，就在页面里误判成当前生效值。
 
 右栏“当前生效”列当前必须明确展示来源；缺失配置不再渲染为空白。
 
