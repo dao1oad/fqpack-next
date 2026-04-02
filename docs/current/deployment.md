@@ -38,6 +38,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `deploy-production.yml` 当前只要求 canonical repo root 能 fetch 到最新 `origin/main`；它不再要求 canonical repo root 本身先 `pull --ff-only` 到远程 main。
 - `deploy-production.yml` 会先创建或 reset `D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap` 这个 bootstrap worktree 到目标 SHA，再直接执行那里的最新 `script/ci/run_production_deploy.ps1`。
 - `script/ci/run_production_deploy.ps1` 保留 bootstrap/re-exec 逻辑，作为人工正式 deploy 或 bootstrap worktree 直接入口时的兜底；workflow 正式路径已经不再依赖 canonical repo root 上的脚本版本。
+- `script/ci/run_production_deploy.ps1` 在 mirror sync 这一步会从当前 entrypoint repo 解析 `script/ci/sync_local_deploy_mirror.py` 的绝对路径，而不是回退到 `main-deploy-production` 里可能落后的旧 helper；这样 bootstrap worktree 的最新清理策略才能真正生效。
 - `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先显式枚举并清掉 mirror 内的 ignored 产物，但保留 live deploy mirror 的 `.venv\`；这样既能继续清理历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件，也不会误删当前宿主机 runtime 正在使用的解释器环境。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 deploy mirror repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
