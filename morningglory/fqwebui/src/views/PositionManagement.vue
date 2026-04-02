@@ -173,10 +173,185 @@
         </div>
 
         <div class="position-workbench-column position-workbench-column--middle" aria-label="标的总览">
-          <PositionSubjectOverviewPanel class="position-subject-overview-host" />
+          <PositionSubjectOverviewPanel class="position-subject-overview-host" :workbench="subjectWorkbenchRuntime" :selected-symbol="selectedSubjectSymbol" @symbol-select="handleSelectedSubjectChange" />
         </div>
 
         <div class="position-workbench-column position-workbench-column--right">
+          <WorkbenchLedgerPanel class="position-selection-panel">
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">选中标的工作区</div>
+                <div class="workbench-panel__desc">
+                  当前显示中栏选中标的的聚合买入列表 / 按持仓入口止损，以及切片明细。
+                </div>
+              </div>
+            </div>
+
+            <div class="workbench-summary-row">
+              <StatusChip variant="muted">
+                当前标的 <strong>{{ selectedSubjectSymbol || '-' }}</strong>
+              </StatusChip>
+              <StatusChip variant="muted">
+                名称 <strong>{{ selectedSubjectName }}</strong>
+              </StatusChip>
+              <StatusChip
+                v-for="item in selectedSubjectSummaryChips"
+                :key="item.key"
+                :variant="item.tone"
+              >
+                {{ item.label }} <strong>{{ item.value }}</strong>
+              </StatusChip>
+            </div>
+
+            <el-alert
+              v-if="selectedSubjectError"
+              class="workbench-alert"
+              type="error"
+              :title="selectedSubjectError"
+              :closable="false"
+              show-icon
+            />
+
+            <div
+              v-else-if="selectedSubjectSymbol && selectedSubjectDetail"
+              class="position-selection-panel__body"
+            >
+              <section class="position-selection-section">
+                <div class="position-selection-section__title">聚合买入列表 / 按持仓入口止损</div>
+                <div v-if="selectedSubjectEntryRows.length" class="position-selection-table-wrap">
+                  <el-table
+                    :data="selectedSubjectEntryRows"
+                    size="small"
+                    border
+                    height="100%"
+                    class="position-selection-entry-table"
+                  >
+                    <el-table-column label="入口" width="132">
+                      <template #default="{ row }">
+                        <div class="position-selection-entry-cell">
+                          <strong>{{ row.entryDisplayLabel }}</strong>
+                          <span>{{ row.entryIdLabel }}</span>
+                        </div>
+                      </template>
+                    </el-table-column>
+
+                    <el-table-column label="买入摘要" min-width="220">
+                      <template #default="{ row }">
+                        <div class="position-selection-entry-cell">
+                          <span>{{ row.entrySummaryLines?.[0] || '-' }}</span>
+                          <span>{{ row.entrySummaryLines?.[1] || '-' }}</span>
+                        </div>
+                      </template>
+                    </el-table-column>
+
+                    <el-table-column label="聚合买入" min-width="220">
+                      <template #default="{ row }">
+                        <div class="position-selection-entry-cell">
+                          <span>{{ formatAggregationMembers(row.aggregation_members) }}</span>
+                        </div>
+                      </template>
+                    </el-table-column>
+
+                    <el-table-column label="止损价" width="110">
+                      <template #default="{ row }">
+                        <el-input-number
+                          v-if="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol]?.[row.entry_id]"
+                          v-model="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol][row.entry_id].stop_price"
+                          size="small"
+                          :min="0"
+                          :step="0.01"
+                          :precision="2"
+                          controls-position="right"
+                        />
+                        <span v-else class="position-selection-inline-empty">-</span>
+                      </template>
+                    </el-table-column>
+
+                    <el-table-column label="启用" width="86" align="center">
+                      <template #default="{ row }">
+                        <el-switch
+                          v-if="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol]?.[row.entry_id]"
+                          v-model="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol][row.entry_id].enabled"
+                        />
+                        <span v-else class="position-selection-inline-empty">-</span>
+                      </template>
+                    </el-table-column>
+
+                    <el-table-column label="保存" width="92" fixed="right">
+                      <template #default="{ row }">
+                        <el-button
+                          size="small"
+                          type="primary"
+                          :loading="Boolean(subjectWorkbenchRuntime.state.savingStoploss[selectedSubjectSymbol])"
+                          @click="saveSubjectStoploss(selectedSubjectSymbol, row.entry_id)"
+                        >
+                          保存
+                        </el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+                <div v-else class="runtime-empty-panel">
+                  <strong>当前标的没有 open entry</strong>
+                </div>
+              </section>
+
+              <section class="position-selection-section">
+                <div class="position-selection-section__title">切片明细</div>
+                <div v-if="selectedSubjectSliceRows.length" class="position-selection-table-wrap">
+                  <el-table
+                    :data="selectedSubjectSliceRows"
+                    size="small"
+                    border
+                    height="100%"
+                    class="position-selection-slice-table"
+                  >
+                    <el-table-column label="入口" width="132">
+                      <template #default="{ row }">
+                        <div class="position-selection-entry-cell">
+                          <strong>{{ row.entryDisplayLabel }}</strong>
+                          <span>{{ row.entry_id }}</span>
+                        </div>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="序号" width="72" align="center">
+                      <template #default="{ row }">
+                        <span class="workbench-code">{{ formatInteger(row.slice_seq) }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="守护价" width="92" align="right">
+                      <template #default="{ row }">
+                        <span class="workbench-code">{{ formatPrice(row.guardian_price) }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="原始数量" width="96" align="right">
+                      <template #default="{ row }">
+                        <span class="workbench-code">{{ formatInteger(row.original_quantity) }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="剩余数量" width="96" align="right">
+                      <template #default="{ row }">
+                        <span class="workbench-code">{{ formatInteger(row.remaining_quantity) }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="剩余市值" min-width="108" align="right">
+                      <template #default="{ row }">
+                        <span class="workbench-code">{{ formatWanAmount(row.remaining_amount) }}</span>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+                <div v-else class="runtime-empty-panel">
+                  <strong>当前没有 open 切片</strong>
+                </div>
+              </section>
+            </div>
+
+            <div v-else class="runtime-empty-panel">
+              <strong>{{ selectedSubjectSymbol ? '当前标的详情加载中' : '请先在标的总览中选择一个标的' }}</strong>
+            </div>
+          </WorkbenchLedgerPanel>
+
           <WorkbenchLedgerPanel class="position-decision-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
@@ -185,6 +360,9 @@
             </div>
 
             <div class="workbench-summary-row">
+              <StatusChip variant="muted">
+                当前标的 <strong>{{ selectedSubjectSymbol || '全部' }}</strong>
+              </StatusChip>
               <StatusChip variant="muted">
                 当前页 <strong>{{ pagedDecisionRows.length }}</strong>
               </StatusChip>
@@ -250,7 +428,7 @@
             </div>
 
             <div v-else class="runtime-empty-panel">
-              <strong>暂无最近决策记录</strong>
+              <strong>{{ selectedSubjectSymbol ? '当前标的暂无最近决策记录' : '暂无最近决策记录' }}</strong>
             </div>
 
             <div class="position-ledger-pagination">
@@ -259,7 +437,7 @@
                 layout="total,sizes,prev,pager,next"
                 :current-page="decisionPagination.page"
                 :page-size="decisionPagination.pageSize"
-                :total="decisionLedgerRows.length"
+                :total="filteredDecisionLedgerRows.length"
                 :page-sizes="[100, 200, 500]"
                 @current-change="handleDecisionPageChange"
                 @size-change="handleDecisionPageSizeChange"
@@ -284,6 +462,12 @@ import PositionReconciliationPanel from '../components/position-management/Posit
 import PositionSubjectOverviewPanel from '../components/position-management/PositionSubjectOverviewPanel.vue'
 import MyHeader from '@/views/MyHeader.vue'
 import { positionManagementApi } from '@/api/positionManagementApi'
+import { subjectManagementApi } from '@/api/subjectManagementApi'
+import {
+  buildDetailSummaryChips,
+  createSubjectManagementActions,
+} from '@/views/subjectManagement.mjs'
+import { createPositionManagementSubjectWorkbenchController } from '@/views/positionManagementSubjectWorkbench.mjs'
 import {
   buildInventoryRows,
   buildRecentDecisionLedgerRows,
@@ -301,6 +485,7 @@ const dashboard = ref({})
 const reconciliationOverview = ref({})
 const reconciliationLoading = ref(false)
 const reconciliationError = ref('')
+const selectedSubjectSymbol = ref('')
 
 const editableForm = reactive({
   allow_open_min_bail: 0,
@@ -313,13 +498,84 @@ const decisionPagination = reactive({
   pageSize: 100,
 })
 
+const subjectActions = createSubjectManagementActions(subjectManagementApi)
+const subjectWorkbenchController = createPositionManagementSubjectWorkbenchController({
+  actions: subjectActions,
+  notify: ElMessage,
+  reactiveImpl: reactive,
+})
+
+const formatPrice = (value) => {
+  if (value === null || value === undefined || value === '') return '-'
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '-'
+  return Number.isInteger(parsed) ? parsed.toFixed(1) : String(parsed)
+}
+
+const formatInteger = (value) => {
+  if (value === null || value === undefined || value === '') return '-'
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '-'
+  return String(Math.trunc(parsed))
+}
+
+const formatWanAmount = (value) => {
+  if (value === null || value === undefined || value === '') return '-'
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '-'
+  return `${(parsed / 10000).toFixed(2)} 万`
+}
+
+const formatAggregationMembers = (members = []) => {
+  if (!Array.isArray(members) || members.length === 0) return '-'
+  return members
+    .map((member, index) => {
+      const identifier = member.order_id || member.broker_order_key || member.slice_id || member.entry_id || `member-${index + 1}`
+      return `${identifier} ${formatInteger(member.quantity)} 股`
+    })
+    .join(' / ')
+}
+
+const saveSubjectConfigBundle = async (symbol) => {
+  const parsed = Number(subjectWorkbenchController.state.positionLimitDrafts?.[symbol]?.limit)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    ElMessage.warning(`请先填写 ${symbol} 的有效单标的上限`)
+    return
+  }
+  await subjectWorkbenchController.saveConfigBundle(symbol)
+}
+
+const saveSubjectStoploss = async (symbol, entryId) => {
+  const draft = subjectWorkbenchController.state.stoplossDrafts?.[symbol]?.[entryId] || {}
+  if (draft.enabled) {
+    const parsed = Number(draft.stop_price)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      ElMessage.warning(`开启止损前请先填写 ${entryId} 的 stop_price`)
+      return
+    }
+  }
+  await subjectWorkbenchController.saveStoploss(symbol, entryId)
+}
+
+const subjectWorkbenchRuntime = {
+  state: subjectWorkbenchController.state,
+  refreshOverview: async (options) => subjectWorkbenchController.refreshOverview(options),
+  ensureSymbolsHydrated: async (symbols) => subjectWorkbenchController.ensureSymbolsHydrated(symbols),
+  saveConfigBundle: async (symbol) => saveSubjectConfigBundle(symbol),
+  saveStoploss: async (symbol, entryId) => saveSubjectStoploss(symbol, entryId),
+}
+
 const inventoryRows = computed(() => buildInventoryRows(dashboard.value))
 const statePanel = computed(() => buildStatePanel(dashboard.value))
 const ruleMatrix = computed(() => buildRuleMatrix(dashboard.value))
 const decisionLedgerRows = computed(() => buildRecentDecisionLedgerRows(dashboard.value))
+const filteredDecisionLedgerRows = computed(() => {
+  if (!selectedSubjectSymbol.value) return decisionLedgerRows.value
+  return decisionLedgerRows.value.filter((row) => row.symbol === selectedSubjectSymbol.value)
+})
 const pagedDecisionRows = computed(() => {
   const start = (decisionPagination.page - 1) * decisionPagination.pageSize
-  return decisionLedgerRows.value.slice(start, start + decisionPagination.pageSize)
+  return filteredDecisionLedgerRows.value.slice(start, start + decisionPagination.pageSize)
 })
 const configUpdatedAt = computed(() => formatBeijingTimestamp(dashboard.value?.config?.updated_at, '未配置'))
 const configUpdatedBy = computed(() => dashboard.value?.config?.updated_by || 'unknown')
@@ -333,11 +589,37 @@ const stateToneChipVariant = computed(() => {
 const staleChipVariant = computed(() => (
   statePanel.value?.hero?.stale ? 'warning' : 'muted'
 ))
+const selectedSubjectOverviewRow = computed(() => (
+  subjectWorkbenchController.state.overviewRows.find((row) => row.symbol === selectedSubjectSymbol.value) || null
+))
+const selectedSubjectDetail = computed(() => (
+  subjectWorkbenchController.state.detailMap[selectedSubjectSymbol.value] || null
+))
+const selectedSubjectError = computed(() => (
+  subjectWorkbenchController.state.detailErrors[selectedSubjectSymbol.value] || ''
+))
+const selectedSubjectEntryRows = computed(() => (
+  selectedSubjectDetail.value?.entries || []
+))
+const selectedSubjectSliceRows = computed(() => selectedSubjectEntryRows.value.flatMap((entry) => (
+  (entry.entry_slices || []).map((slice) => ({
+    ...slice,
+    entry_id: entry.entry_id,
+    entryDisplayLabel: entry.entryDisplayLabel,
+  }))
+)))
+const selectedSubjectSummaryChips = computed(() => {
+  if (!selectedSubjectDetail.value) return []
+  return buildDetailSummaryChips(selectedSubjectDetail.value).slice(0, 5)
+})
+const selectedSubjectName = computed(() => (
+  selectedSubjectDetail.value?.name || selectedSubjectOverviewRow.value?.name || '-'
+))
 
 watch(
-  () => [decisionLedgerRows.value.length, decisionPagination.pageSize],
+  () => [filteredDecisionLedgerRows.value.length, decisionPagination.pageSize],
   () => {
-    const totalPages = Math.max(1, Math.ceil(decisionLedgerRows.value.length / decisionPagination.pageSize))
+    const totalPages = Math.max(1, Math.ceil(filteredDecisionLedgerRows.value.length / decisionPagination.pageSize))
     if (decisionPagination.page > totalPages) {
       decisionPagination.page = totalPages
     }
@@ -368,6 +650,11 @@ const handleDecisionPageSizeChange = (pageSize) => {
   decisionPagination.page = 1
 }
 
+const handleSelectedSubjectChange = (symbol) => {
+  selectedSubjectSymbol.value = String(symbol || '').trim()
+  decisionPagination.page = 1
+}
+
 const syncEditableForm = () => {
   const thresholds = dashboard.value?.config?.thresholds || {}
   editableForm.allow_open_min_bail = Number(thresholds.allow_open_min_bail || 0)
@@ -380,6 +667,8 @@ const loadDashboard = async () => {
   reconciliationLoading.value = true
   pageError.value = ''
   reconciliationError.value = ''
+
+  const subjectOverviewPromise = subjectWorkbenchRuntime.refreshOverview()
   const [dashboardResult, reconciliationResult] = await Promise.allSettled([
     positionManagementApi.getDashboard(),
     positionManagementApi.getReconciliation(),
@@ -412,6 +701,7 @@ const loadDashboard = async () => {
     )
   }
 
+  await subjectOverviewPromise
   loading.value = false
   reconciliationLoading.value = false
 }
@@ -455,10 +745,9 @@ onMounted(() => {
 }
 
 .position-workbench-grid {
-  --position-upper-panel-height: clamp(420px, 44dvh, 500px);
-  --position-workbench-left-width: 0.86fr;
-  --position-workbench-middle-width: 1.46fr;
-  --position-workbench-right-width: 1.08fr;
+  --position-workbench-left-width: 0.9fr;
+  --position-workbench-middle-width: 1.5fr;
+  --position-workbench-right-width: 1.12fr;
   display: grid;
   grid-template-columns:
     minmax(0, var(--position-workbench-left-width))
@@ -478,26 +767,31 @@ onMounted(() => {
   min-height: 0;
 }
 
+.position-workbench-column--left,
+.position-workbench-column--right {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  min-height: 0;
+  overflow: hidden;
+}
+
 .position-workbench-column > .workbench-panel,
 .position-subject-overview-host {
   min-height: 0;
 }
 
-.position-state-panel {
-  display: flex;
-  flex-direction: column;
-  min-height: var(--position-upper-panel-height);
-  height: var(--position-upper-panel-height);
-  overflow: hidden;
-}
-
+.position-state-panel,
 .position-reconciliation-panel,
 .position-subject-overview-host,
+.position-selection-panel,
 .position-decision-panel {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+}
+
+.position-selection-panel {
   overflow: hidden;
 }
 
@@ -636,10 +930,59 @@ onMounted(() => {
   margin-top: 2px;
 }
 
-.position-panel-section__title {
+.position-panel-section__title,
+.position-selection-section__title {
   color: #21405e;
   font-size: 13px;
   font-weight: 600;
+}
+
+.position-selection-panel__body {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.position-selection-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.position-selection-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-selection-entry-table,
+.position-selection-slice-table {
+  height: 100%;
+}
+
+.position-selection-entry-table :deep(.el-input-number),
+.position-selection-slice-table :deep(.el-input-number) {
+  width: 100%;
+}
+
+.position-selection-entry-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.position-selection-entry-cell strong {
+  color: #21405e;
+}
+
+.position-selection-entry-cell span,
+.position-selection-inline-empty {
+  color: #68839d;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .runtime-empty-panel {
@@ -816,6 +1159,13 @@ onMounted(() => {
   .position-workbench-grid,
   .position-state-grid--compact {
     grid-template-columns: 1fr;
+  }
+
+  .position-workbench-column--left,
+  .position-workbench-column--right,
+  .position-selection-panel__body {
+    display: flex;
+    flex-direction: column;
   }
 }
 </style>

@@ -4,7 +4,7 @@
       <div class="workbench-title-group">
         <div class="workbench-panel__title">对账检查</div>
         <div class="workbench-panel__desc">
-          升级后的多视图一致性审计只负责读，聚焦 broker / snapshot / ledger / compat 的差异解释。
+          一致性审计保持只读，按 dense ledger 展示 broker / snapshot / ledger / compat 差异解释。
         </div>
       </div>
     </div>
@@ -79,129 +79,161 @@
         <strong>对账检查加载中</strong>
       </div>
 
-      <div v-else-if="filteredRows.length" class="position-audit-list">
-        <article
+      <div v-else-if="filteredRows.length" class="position-reconciliation-ledger">
+        <div class="position-reconciliation-ledger__header position-reconciliation-ledger__grid">
+          <span>标的</span>
+          <span>结果</span>
+          <span>对账状态</span>
+          <span>latest resolution</span>
+          <span>signed gap</span>
+          <span>open gap</span>
+          <span>mismatch</span>
+          <span>关键视图</span>
+          <span>证据</span>
+        </div>
+
+        <div
           v-for="row in filteredRows"
           :key="row.symbol"
-          class="position-audit-row"
+          class="position-reconciliation-ledger__item"
           :class="{
-            'position-audit-row--error': row.audit_status === 'ERROR',
-            'position-audit-row--warn': row.audit_status === 'WARN',
+            'position-reconciliation-ledger__item--error': row.audit_status === 'ERROR',
+            'position-reconciliation-ledger__item--warn': row.audit_status === 'WARN',
           }"
         >
-          <div class="position-audit-row__headline">
-            <div class="position-audit-row__symbol">
+          <div class="position-reconciliation-ledger__row position-reconciliation-ledger__grid">
+            <div class="position-reconciliation-symbol-cell">
               <strong>{{ row.symbol }}</strong>
               <span>{{ row.name || '-' }}</span>
             </div>
 
-            <div class="position-audit-row__chips">
+            <div class="position-reconciliation-chip-cell">
               <StatusChip class="runtime-inline-status" :variant="row.audit_status_chip_variant">
                 {{ row.audit_status }}
               </StatusChip>
+            </div>
+
+            <div class="position-reconciliation-chip-cell">
               <StatusChip class="runtime-inline-status" :variant="row.reconciliation_state_chip_variant">
                 {{ row.reconciliation_state_label }}
               </StatusChip>
             </div>
 
-            <el-button text type="primary" @click="toggleExpanded(row.symbol)">
-              {{ expandedMap[row.symbol] ? '收起证据' : '展开证据' }}
-            </el-button>
-          </div>
+            <span class="position-reconciliation-text-cell">{{ row.latest_resolution_label }}</span>
+            <span class="position-reconciliation-number-cell">{{ row.detail_items[4]?.value || '0' }}</span>
+            <span class="position-reconciliation-number-cell">{{ row.detail_items[5]?.value || '0' }}</span>
 
-          <div class="position-audit-row__meta">
-            <span>latest resolution {{ row.latest_resolution_label }}</span>
-            <span>signed gap {{ row.detail_items[4]?.value || '0' }}</span>
-            <span>open gap {{ row.detail_items[5]?.value || '0' }}</span>
-          </div>
-
-          <div class="position-audit-preview-grid">
-            <div
-              v-for="item in row.surface_sections.slice(0, 4)"
-              :key="`${row.symbol}-${item.key}`"
-              class="position-audit-preview-card"
-            >
-              <span>{{ item.label }}</span>
-              <strong>{{ item.quantity_label }} 股</strong>
-              <small>市值 {{ item.market_value_label }}</small>
+            <div class="position-reconciliation-mismatch-cell">
+              <StatusChip
+                v-for="item in row.mismatch_explanations.slice(0, 3)"
+                :key="`${row.symbol}-${item.code}`"
+                :variant="item.chipVariant"
+              >
+                {{ item.label }}
+              </StatusChip>
+              <span
+                v-if="row.mismatch_explanations.length === 0"
+                class="position-reconciliation-inline-empty"
+              >
+                当前无 mismatch
+              </span>
             </div>
-          </div>
 
-          <div class="workbench-summary-row">
-            <StatusChip
-              v-for="item in row.mismatch_explanations"
-              :key="`${row.symbol}-${item.code}`"
-              :variant="item.chipVariant"
-            >
-              {{ item.label }}
-            </StatusChip>
-            <StatusChip
-              v-if="row.mismatch_explanations.length === 0"
-              variant="success"
-            >
-              当前无 mismatch
-            </StatusChip>
+            <div class="position-reconciliation-surface-cell">
+              <div
+                v-for="item in row.surface_sections.slice(0, 3)"
+                :key="`${row.symbol}-${item.key}`"
+                class="position-reconciliation-surface-line"
+              >
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.quantity_label }} 股 / {{ item.market_value_label }}</span>
+              </div>
+            </div>
+
+            <div class="position-reconciliation-action-cell">
+              <el-button text type="primary" @click="toggleExpanded(row.symbol)">
+                {{ expandedMap[row.symbol] ? '收起' : '展开' }}
+              </el-button>
+            </div>
           </div>
 
           <div
             v-if="expandedMap[row.symbol]"
-            class="position-audit-evidence"
+            class="position-reconciliation-expanded"
           >
-            <section class="position-audit-evidence__section">
-              <div class="position-audit-evidence__title">视图层证据</div>
-              <div class="position-audit-surface-grid">
+            <section class="position-reconciliation-expanded__section">
+              <div class="position-reconciliation-expanded__title">视图层证据表</div>
+              <div class="position-reconciliation-expanded__table position-reconciliation-expanded__surface-table">
+                <div class="position-reconciliation-expanded__table-head">
+                  <span>视图</span>
+                  <span>数量</span>
+                  <span>市值</span>
+                  <span>数量来源</span>
+                  <span>金额来源</span>
+                </div>
                 <div
                   v-for="item in row.surface_sections"
                   :key="`${row.symbol}-surface-${item.key}`"
-                  class="position-audit-evidence-card"
+                  class="position-reconciliation-expanded__table-row"
                 >
                   <span>{{ item.label }}</span>
-                  <strong>{{ item.quantity_label }} 股</strong>
-                  <small>市值 {{ item.market_value_label }}</small>
-                  <small>数量来源 {{ item.quantity_source_label }}</small>
-                  <small>金额来源 {{ item.market_value_source_label }}</small>
+                  <span>{{ item.quantity_label }} 股</span>
+                  <span>{{ item.market_value_label }}</span>
+                  <span>{{ item.quantity_source_label }}</span>
+                  <span>{{ item.market_value_source_label }}</span>
                 </div>
               </div>
             </section>
 
-            <section class="position-audit-evidence__section">
-              <div class="position-audit-evidence__title">规则检查</div>
-              <div class="position-audit-rule-grid">
+            <section class="position-reconciliation-expanded__section">
+              <div class="position-reconciliation-expanded__title">规则检查表</div>
+              <div class="position-reconciliation-expanded__table position-reconciliation-expanded__rule-table">
+                <div class="position-reconciliation-expanded__table-head">
+                  <span>规则</span>
+                  <span>结果</span>
+                  <span>关系</span>
+                  <span>差异码</span>
+                </div>
                 <div
                   v-for="item in row.rule_badges"
                   :key="`${row.symbol}-rule-${item.id}`"
-                  class="position-audit-evidence-card"
+                  class="position-reconciliation-expanded__table-row"
                 >
                   <span>{{ item.id }} {{ item.label }}</span>
-                  <strong>{{ item.status_label }}</strong>
-                  <small>{{ item.expected_relation }}</small>
+                  <span>{{ item.status_label }}</span>
+                  <span>{{ item.expected_relation }}</span>
+                  <span>{{ (item.mismatch_codes || []).join(' / ') || '-' }}</span>
                 </div>
               </div>
             </section>
 
-            <section class="position-audit-evidence__section">
-              <div class="position-audit-evidence__title">差异说明</div>
-              <div class="position-audit-reconciliation-grid">
-                <div class="position-audit-evidence-card">
+            <section class="position-reconciliation-expanded__section">
+              <div class="position-reconciliation-expanded__title">差异说明表</div>
+              <div class="position-reconciliation-expanded__table position-reconciliation-expanded__reconciliation-table">
+                <div class="position-reconciliation-expanded__table-head">
+                  <span>字段</span>
+                  <span>值</span>
+                </div>
+                <div class="position-reconciliation-expanded__table-row">
                   <span>state</span>
-                  <strong>{{ row.evidence_sections.reconciliation?.state || row.reconciliation_state }}</strong>
+                  <span>{{ row.evidence_sections.reconciliation?.state || row.reconciliation_state }}</span>
                 </div>
-                <div class="position-audit-evidence-card">
+                <div class="position-reconciliation-expanded__table-row">
                   <span>signed gap</span>
-                  <strong>{{ row.detail_items[4]?.value || '0' }}</strong>
+                  <span>{{ row.detail_items[4]?.value || '0' }}</span>
                 </div>
-                <div class="position-audit-evidence-card">
+                <div class="position-reconciliation-expanded__table-row">
                   <span>open gap</span>
-                  <strong>{{ row.detail_items[5]?.value || '0' }}</strong>
+                  <span>{{ row.detail_items[5]?.value || '0' }}</span>
                 </div>
-                <div class="position-audit-evidence-card">
+                <div class="position-reconciliation-expanded__table-row">
                   <span>rule evidence</span>
-                  <strong>{{ row.evidence_sections.rules?.length || 0 }}</strong>
+                  <span>{{ row.evidence_sections.rules?.length || 0 }}</span>
                 </div>
               </div>
             </section>
           </div>
-        </article>
+        </div>
       </div>
 
       <div v-else class="runtime-empty-panel">
@@ -303,127 +335,163 @@ const toggleExpanded = (symbol) => {
   width: 168px;
 }
 
-.position-audit-list {
+.position-reconciliation-ledger {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   flex-direction: column;
-  gap: 10px;
   overflow: auto;
-  padding-right: 2px;
-  scrollbar-gutter: stable both-edges;
-}
-
-.position-audit-row {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid #e5edf5;
-  border-radius: 14px;
-  background: #fbfdff;
-}
-
-.position-audit-row--error {
-  border-color: #fecaca;
-  background: #fff7f5;
-}
-
-.position-audit-row--warn {
-  border-color: #fde68a;
-  background: #fffaf0;
-}
-
-.position-audit-row__headline,
-.position-audit-row__meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.position-audit-row__symbol,
-.position-audit-row__chips {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.position-audit-row__symbol {
-  min-width: 0;
-}
-
-.position-audit-row__symbol strong {
-  color: #21405e;
-}
-
-.position-audit-row__symbol span,
-.position-audit-row__meta span,
-.position-audit-preview-card span,
-.position-audit-preview-card small,
-.position-audit-evidence-card span,
-.position-audit-evidence-card small {
-  color: #68839d;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.position-audit-preview-grid,
-.position-audit-surface-grid,
-.position-audit-rule-grid,
-.position-audit-reconciliation-grid {
-  display: grid;
-  gap: 8px;
-}
-
-.position-audit-preview-grid,
-.position-audit-reconciliation-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.position-audit-surface-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.position-audit-rule-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.position-audit-preview-card,
-.position-audit-evidence-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px;
   border: 1px solid #e5edf5;
   border-radius: 12px;
   background: #fff;
 }
 
-.position-audit-preview-card strong,
-.position-audit-evidence-card strong {
-  color: #21405e;
-  line-height: 1.4;
+.position-reconciliation-ledger__header,
+.position-reconciliation-ledger__row {
+  display: grid;
+  align-items: stretch;
+  gap: 8px;
+  min-width: max-content;
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
-.position-audit-evidence {
+.position-reconciliation-ledger__grid {
+  grid-template-columns:
+    148px
+    88px
+    112px
+    128px
+    84px
+    84px
+    minmax(220px, 1.15fr)
+    minmax(220px, 1.15fr)
+    78px;
+}
+
+.position-reconciliation-ledger__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f6f9fc;
+  color: #68839d;
+  border-bottom: 1px solid #e5edf5;
+}
+
+.position-reconciliation-ledger__item {
+  border-top: 1px solid #eef3f8;
+}
+
+.position-reconciliation-ledger__item--error > .position-reconciliation-ledger__row {
+  background: #fff7f5;
+}
+
+.position-reconciliation-ledger__item--warn > .position-reconciliation-ledger__row {
+  background: #fffaf0;
+}
+
+.position-reconciliation-ledger__row:hover {
+  background: #f8fbff;
+}
+
+.position-reconciliation-symbol-cell,
+.position-reconciliation-surface-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.position-reconciliation-symbol-cell strong,
+.position-reconciliation-surface-line strong,
+.position-reconciliation-number-cell {
+  color: #21405e;
+}
+
+.position-reconciliation-symbol-cell span,
+.position-reconciliation-surface-line span,
+.position-reconciliation-text-cell,
+.position-reconciliation-inline-empty {
+  color: #68839d;
+  line-height: 1.45;
+}
+
+.position-reconciliation-number-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.position-reconciliation-mismatch-cell,
+.position-reconciliation-chip-cell,
+.position-reconciliation-action-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.position-reconciliation-action-cell {
+  justify-content: flex-end;
+}
+
+.position-reconciliation-expanded {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 10px;
+  background: #fbfdff;
+  border-top: 1px solid #e5edf5;
 }
 
-.position-audit-evidence__section {
+.position-reconciliation-expanded__section {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.position-audit-evidence__title {
+.position-reconciliation-expanded__title {
   color: #21405e;
   font-size: 12px;
   font-weight: 600;
+}
+
+.position-reconciliation-expanded__table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e5edf5;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.position-reconciliation-expanded__table-head,
+.position-reconciliation-expanded__table-row {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.position-reconciliation-expanded__surface-table :is(.position-reconciliation-expanded__table-head, .position-reconciliation-expanded__table-row) {
+  grid-template-columns: 108px 96px 96px minmax(160px, 1fr) minmax(160px, 1fr);
+}
+
+.position-reconciliation-expanded__rule-table :is(.position-reconciliation-expanded__table-head, .position-reconciliation-expanded__table-row) {
+  grid-template-columns: 168px 88px minmax(140px, 1fr) minmax(160px, 1fr);
+}
+
+.position-reconciliation-expanded__reconciliation-table :is(.position-reconciliation-expanded__table-head, .position-reconciliation-expanded__table-row) {
+  grid-template-columns: 148px minmax(180px, 1fr);
+}
+
+.position-reconciliation-expanded__table-head {
+  color: #68839d;
+  background: #f6f9fc;
+}
+
+.position-reconciliation-expanded__table-row {
+  color: #21405e;
+  border-top: 1px solid #eef3f8;
 }
 
 .runtime-empty-panel {
@@ -457,10 +525,10 @@ const toggleExpanded = (symbol) => {
     min-width: 0;
   }
 
-  .position-audit-preview-grid,
-  .position-audit-surface-grid,
-  .position-audit-rule-grid,
-  .position-audit-reconciliation-grid {
+  .position-reconciliation-ledger__grid,
+  .position-reconciliation-expanded__surface-table :is(.position-reconciliation-expanded__table-head, .position-reconciliation-expanded__table-row),
+  .position-reconciliation-expanded__rule-table :is(.position-reconciliation-expanded__table-head, .position-reconciliation-expanded__table-row),
+  .position-reconciliation-expanded__reconciliation-table :is(.position-reconciliation-expanded__table-head, .position-reconciliation-expanded__table-row) {
     grid-template-columns: 1fr;
   }
 }

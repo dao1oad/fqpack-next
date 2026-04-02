@@ -41,7 +41,7 @@
 
 - 左栏：当前仓位状态 + 对账检查
 - 中栏：标的总览
-- 右栏：最近决策与上下文
+- 右栏：选中标的工作区 + 最近决策与上下文
 
 当前仓位状态与参数 inventory 已合并为左栏，规则矩阵已并入“当前仓位状态”。左栏仍可编辑全局阈值：
 
@@ -49,11 +49,11 @@
 - `holding_only_min_bail`
 - `single_symbol_position_limit`
 
-中栏“标的总览”当前不再展示独立的“单标的仓位上限覆盖”列表，而是把下面三类能力收口到同一张表：
+中栏“标的总览”当前不再展示独立的“单标的仓位上限覆盖”列表，而是把下面三类能力收口到同一张高密度主表：
 
 - `must_pool` 基础配置
 - 单标的仓位上限 override
-- `position entry` 级止损与聚合买入列表
+- 标的摘要与运行态
 
 中栏前端组件是 `PositionSubjectOverviewPanel`；它直接复用：
 
@@ -62,6 +62,14 @@
 - `/api/subject-management/<symbol>/must-pool`
 - `/api/position-management/symbol-limits/<symbol>`
 - `/api/order-management/stoploss/bind`
+
+标的总览默认按持仓优先、仓位市值从大到小排序。
+
+默认选中首个标的并驱动右栏联动。
+
+选中标的工作区当前展示：聚合买入列表 / 按持仓入口止损 与 切片明细。
+
+右栏下半区继续展示最近决策与上下文。
 
 单标的实时仓位上限当前统一使用“系统默认值兜底 + 显式 override”语义：
 
@@ -89,7 +97,7 @@
 - reconciliation 五态计数
 - `R1 ~ R4` 每条规则的 `OK / WARN / ERROR` 汇总
 
-卡片列表当前展示：
+dense ledger 当前展示：
 
 - `标的`
 - `检查结果`
@@ -97,9 +105,10 @@
 - `latest resolution`
 - `signed gap`
 - `open gap`
-- `broker / snapshot / entry / compat` 四个 preview surface
+- `mismatch` 摘要
+- `broker / snapshot / entry` 关键视图摘要
 
-展开证据当前展示：
+行展开证据当前展示：
 
 - `R1 ~ R4` 逐规则检查 badge
 - `mismatch_codes` 的中文解释
