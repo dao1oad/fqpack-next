@@ -484,8 +484,128 @@ function buildPositionManagementDashboard() {
   }
 }
 
+function buildPositionManagementReconciliation(symbols) {
+  const rows = symbols.map((symbol, index) => {
+    const auditStatus = index % 6 === 0 ? 'ERROR' : index % 4 === 0 ? 'WARN' : 'OK'
+    const reconciliationState = auditStatus === 'ERROR'
+      ? (index % 2 === 0 ? 'BROKEN' : 'DRIFT')
+      : auditStatus === 'WARN'
+        ? 'OBSERVING'
+        : 'AUTO_RECONCILED'
+    const quantityBase = 1200 - index * 18
+    const brokerQuantity = quantityBase
+    const entryQuantity = auditStatus === 'ERROR'
+      ? quantityBase - 120
+      : auditStatus === 'WARN'
+        ? quantityBase - 40
+        : quantityBase
+    const sliceQuantity = auditStatus === 'ERROR' ? entryQuantity - 40 : entryQuantity
+    const mismatchCodes = []
+    if (auditStatus === 'ERROR') mismatchCodes.push('broker_vs_entry_quantity_mismatch')
+    if (auditStatus === 'ERROR' && index % 2 === 0) mismatchCodes.push('entry_vs_slice_quantity_mismatch')
+    if (auditStatus === 'WARN') mismatchCodes.push('entry_vs_compat_quantity_mismatch')
+
+    const makeSurface = (key, label, quantity, marketValue, source) => ({
+      key,
+      label,
+      quantity,
+      market_value: marketValue,
+      quantity_source: `${source}.quantity_projection.with_extremely_long_label_for_browser_wrapping_checks.${symbol}`,
+      market_value_source: `${source}.market_value_projection.with_extremely_long_label_for_browser_wrapping_checks.${symbol}`,
+    })
+
+    const surfaces = [
+      makeSurface('broker', '券商', brokerQuantity, brokerQuantity * 95, 'xt_positions'),
+      makeSurface('snapshot', 'PM快照', brokerQuantity, brokerQuantity * 95, 'pm_symbol_position_snapshots'),
+      makeSurface('entry_ledger', 'Entry账本', entryQuantity, entryQuantity * 94, 'order_management.position_entries'),
+      makeSurface('slice_ledger', 'Slice账本', sliceQuantity, sliceQuantity * 93, 'order_management.entry_slices'),
+      makeSurface('compat_projection', 'Compat镜像', entryQuantity, entryQuantity * 94, 'stock_fills_compat'),
+      makeSurface('stock_fills_projection', 'StockFills投影', entryQuantity, entryQuantity * 94, 'api.stock_fills'),
+    ]
+
+    return {
+      symbol,
+      name: `标的${index + 1}`,
+      audit_status: auditStatus,
+      latest_resolution_label: auditStatus === 'ERROR' ? 'MANUAL_REVIEW' : auditStatus === 'WARN' ? 'OBSERVE_GAP' : 'AUTO_OPENED',
+      mismatch_codes: mismatchCodes,
+      broker: { quantity: brokerQuantity, market_value: brokerQuantity * 95 },
+      snapshot: { quantity: brokerQuantity, market_value: brokerQuantity * 95 },
+      entry_ledger: { quantity: entryQuantity, market_value: entryQuantity * 94 },
+      slice_ledger: { quantity: sliceQuantity, market_value: sliceQuantity * 93 },
+      compat_projection: { quantity: entryQuantity, market_value: entryQuantity * 94 },
+      stock_fills_projection: { quantity: entryQuantity, market_value: entryQuantity * 94 },
+      reconciliation: {
+        state: reconciliationState,
+        signed_gap_quantity: brokerQuantity - entryQuantity,
+        open_gap_count: auditStatus === 'ERROR' ? 2 : auditStatus === 'WARN' ? 1 : 0,
+      },
+      rule_results: {
+        R1: { id: 'R1', key: 'broker_snapshot_consistency', label: '券商与PM快照', expected_relation: 'exact_match', status: 'OK', mismatch_codes: [] },
+        R2: { id: 'R2', key: 'ledger_internal_consistency', label: 'Entry与Slice账本', expected_relation: 'exact_match', status: auditStatus === 'ERROR' ? 'ERROR' : 'OK', mismatch_codes: mismatchCodes.filter((code) => code === 'entry_vs_slice_quantity_mismatch') },
+        R3: { id: 'R3', key: 'compat_projection_consistency', label: '账本与兼容投影', expected_relation: 'projection_match', status: auditStatus === 'WARN' ? 'WARN' : 'OK', mismatch_codes: mismatchCodes.filter((code) => code === 'entry_vs_compat_quantity_mismatch') },
+        R4: { id: 'R4', key: 'broker_vs_ledger_consistency', label: '券商与账本解释', expected_relation: 'reconciliation_explained', status: auditStatus, mismatch_codes: mismatchCodes },
+      },
+      surface_values: Object.fromEntries(surfaces.map((surface) => [surface.key, surface])),
+      evidence_sections: {
+        surfaces,
+        rules: [
+          { id: 'R4', label: '券商与账本解释', status: auditStatus, mismatch_codes: mismatchCodes },
+        ],
+        reconciliation: {
+          state: reconciliationState,
+          signed_gap_quantity: brokerQuantity - entryQuantity,
+          open_gap_count: auditStatus === 'ERROR' ? 2 : auditStatus === 'WARN' ? 1 : 0,
+        },
+      },
+    }
+  })
+
+  const auditStatusCounts = rows.reduce((counts, row) => {
+    counts[row.audit_status] = (counts[row.audit_status] || 0) + 1
+    return counts
+  }, { OK: 0, WARN: 0, ERROR: 0 })
+
+  const reconciliationStateCounts = rows.reduce((counts, row) => {
+    counts[row.reconciliation.state] = (counts[row.reconciliation.state] || 0) + 1
+    return counts
+  }, {
+    ALIGNED: 0,
+    OBSERVING: 0,
+    AUTO_RECONCILED: 0,
+    BROKEN: 0,
+    DRIFT: 0,
+  })
+
+  const ruleCounts = rows.reduce((counts, row) => {
+    for (const [ruleId, rule] of Object.entries(row.rule_results || {})) {
+      counts[ruleId] = counts[ruleId] || { OK: 0, WARN: 0, ERROR: 0 }
+      counts[ruleId][rule.status] = (counts[ruleId][rule.status] || 0) + 1
+    }
+    return counts
+  }, {
+    R1: { OK: 0, WARN: 0, ERROR: 0 },
+    R2: { OK: 0, WARN: 0, ERROR: 0 },
+    R3: { OK: 0, WARN: 0, ERROR: 0 },
+    R4: { OK: 0, WARN: 0, ERROR: 0 },
+  })
+
+  return {
+    data: {
+      summary: {
+        row_count: rows.length,
+        audit_status_counts: auditStatusCounts,
+        reconciliation_state_counts: reconciliationStateCounts,
+        rule_counts: ruleCounts,
+      },
+      rows,
+    },
+  }
+}
+
 async function setupPositionManagementRoutes(page) {
   const dashboard = buildPositionManagementDashboard()
+  const reconciliation = buildPositionManagementReconciliation(dashboard.data.holding_scope.codes)
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === '/api/position-management/dashboard') {
@@ -493,6 +613,14 @@ async function setupPositionManagementRoutes(page) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(dashboard),
+      })
+      return
+    }
+    if (url.pathname === '/api/position-management/reconciliation') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(reconciliation),
       })
       return
     }
@@ -703,30 +831,34 @@ test('daily-screening ledgers keep the first row clear of the header after scrol
   assertNoOverlap([resultsMetric, workspaceMetric, historyMetric])
 })
 
-test('position-management ledgers keep the first row clear of the header after scrolling', async ({ page }) => {
+test('position-management scroll regions keep the first row or card clear of the chrome after scrolling', async ({ page }) => {
   await page.setViewportSize(DESKTOP_VIEWPORT)
   await setupPositionManagementRoutes(page)
   await page.goto(`${DEV_SERVER_URL}/position-management`)
-  await expect(page.locator('.runtime-position-symbol-limit-ledger .runtime-ledger__row').first()).toBeVisible()
+  await expect(page.locator('.position-audit-row').first()).toBeVisible()
   await expect(page.locator('.runtime-position-decision-ledger .runtime-ledger__row').first()).toBeVisible()
   const metrics = await Promise.all([
-    measureLedger(page.locator('.position-state-scroll'), { name: 'position rule ledger', headerSelector: '.runtime-position-rule-ledger .runtime-ledger__header', rowSelector: '.runtime-position-rule-ledger .runtime-ledger__row', viewportSelector: '.runtime-ledger__viewport', scrollTop: 220 }),
-    measureLedger(page.locator('.runtime-position-symbol-limit-ledger'), { name: 'position symbol-limit ledger', headerSelector: '.runtime-ledger__header', rowSelector: '.runtime-ledger__row', viewportSelector: '.runtime-ledger__viewport' }),
+    measureLedger(page.locator('.position-state-panel'), { name: 'position rule ledger', headerSelector: '.runtime-position-rule-ledger .runtime-ledger__header', rowSelector: '.runtime-position-rule-ledger .runtime-ledger__row', viewportSelector: '.position-state-scroll', scrollTop: 220 }),
+    measureLedger(page.locator('.position-reconciliation-panel__body'), { name: 'position reconciliation audit list', headerSelector: '.position-reconciliation-toolbar', rowSelector: '.position-audit-row', viewportSelector: '.position-audit-list', scrollTop: 320 }),
     measureLedger(page.locator('.runtime-position-decision-ledger'), { name: 'position decision ledger', headerSelector: '.runtime-ledger__header', rowSelector: '.runtime-ledger__row', viewportSelector: '.runtime-ledger__viewport' }),
   ])
   assertNoOverlap(metrics)
 })
 
-test('position-management symbol-limit detail text stays inside each cell with long source labels', async ({ page }) => {
+test('position-management reconciliation evidence text stays inside each card with long source labels', async ({ page }) => {
   await page.setViewportSize(DESKTOP_VIEWPORT)
   await setupPositionManagementRoutes(page)
   await page.goto(`${DEV_SERVER_URL}/position-management`)
+  const firstAuditRow = page.locator('.position-audit-row').first()
+  await expect(firstAuditRow).toBeVisible()
+  await firstAuditRow.getByRole('button', { name: '展开证据' }).click()
   const metric = await measureTextHorizontalOverflow(
-    page.locator('.runtime-position-symbol-limit-ledger'),
+    firstAuditRow.locator('.position-audit-evidence'),
     {
-      name: 'position symbol-limit detail text',
-      rowSelector: '.runtime-ledger__row',
-      detailSelector: '.position-source-cell > span',
+      name: 'position reconciliation evidence text',
+      rowSelector: '.position-audit-evidence-card',
+      detailSelector: 'small',
+      rowLimit: 12,
     },
   )
   assertNoTextHorizontalOverflow(metric)
