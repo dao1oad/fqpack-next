@@ -770,7 +770,9 @@ def test_broker_does_not_clear_buy_cooldown_when_finalize_raises_after_submit(
     monkeypatch,
 ):
     _install_broker_stubs(monkeypatch)
-    broker = _load_module("test_runtime_broker_buy_cooldown_finalize_error", BROKER_PATH)
+    broker = _load_module(
+        "test_runtime_broker_buy_cooldown_finalize_error", BROKER_PATH
+    )
 
     class FakeRedis:
         def __init__(self):
