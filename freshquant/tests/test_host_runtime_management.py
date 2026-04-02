@@ -31,6 +31,18 @@ def test_host_runtime_ctl_can_reconcile_supervisor_config_to_repo_root() -> None
     assert "Invoke-AdminBridgeRecovery" in text
 
 
+def test_host_runtime_ctl_handles_missing_service_start_time_when_syncing_config() -> (
+    None
+):
+    text = Path("script/fqnext_host_runtime_ctl.ps1").read_text(encoding="utf-8")
+
+    assert "$startTime = $process.StartTime" in text
+    assert "if ($null -eq $startTime) {" in text
+    assert "$serviceReloadRequired = [bool]$payload.changed" in text
+    assert "if ($null -eq $serviceStartTimeUtc) {" in text
+    assert "$serviceReloadRequired = $true" in text
+
+
 def test_install_fqnext_supervisord_service_uses_delayed_auto_start() -> None:
     text = Path("script/install_fqnext_supervisord_service.ps1").read_text(
         encoding="utf-8"
