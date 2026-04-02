@@ -571,7 +571,7 @@ def test_puppet_sell_keeps_duplicate_check_and_submit_inside_trading_lock(
     assert puppet.sell("600000", 11, 10.0, 300) == 654321
 
 
-def test_puppet_save_trades_skips_direct_ingest_when_reconcile_handles_trade(
+def test_puppet_save_trades_skips_direct_ingest_when_reconcile_ingests_known_trade(
     monkeypatch,
 ):
     _install_puppet_stubs(monkeypatch, xt_trader=types.SimpleNamespace())
@@ -583,8 +583,9 @@ def test_puppet_save_trades_skips_direct_ingest_when_reconcile_handles_trade(
             observed.__setitem__("reconcile", observed["reconcile"] + 1)
             or types.SimpleNamespace(
                 handled=True,
-                action="already_known_internal_order",
-                result=None,
+                ingested=True,
+                action="known_internal_order_ingested",
+                result={"trade_fact": {"broker_trade_id": "T-1"}},
             )
         )
     )

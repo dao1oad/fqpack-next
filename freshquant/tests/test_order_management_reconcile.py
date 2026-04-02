@@ -878,12 +878,29 @@ def test_reconcile_matches_partial_inflight_internal_order_without_externalizing
     assert repository.order_requests[0]["quantity"] == 600
 
 
-def test_reconcile_trade_report_marks_existing_internal_order_as_handled(monkeypatch):
+def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
     repository, service = _build_service(monkeypatch)
     tracking_service = OrderTrackingService(repository=repository)
+    buy_lot = build_buy_lot_from_trade_fact(
+        {
+            "trade_fact_id": "trade_known_seed_buy_1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 900,
+            "price": 10.0,
+            "trade_time": 1_000,
+            "date": 20240102,
+            "time": "09:31:00",
+        }
+    )
+    repository.insert_buy_lot(buy_lot)
+    repository.replace_lot_slices_for_lot(
+        buy_lot["buy_lot_id"],
+        arrange_buy_lot(buy_lot, lot_amount=50_000, grid_interval=1.03),
+    )
     tracking_service.submit_order(
         {
-            "action": "buy",
+            "action": "sell",
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -901,7 +918,7 @@ def test_reconcile_trade_report_marks_existing_internal_order_as_handled(monkeyp
             "order_id": 90011,
             "traded_id": "T90011",
             "stock_code": "000001.SZ",
-            "order_type": 23,
+            "order_type": 24,
             "traded_volume": 200,
             "traded_price": 10.5,
             "traded_time": 1_030,
@@ -909,9 +926,21 @@ def test_reconcile_trade_report_marks_existing_internal_order_as_handled(monkeyp
     )
 
     assert outcome.handled is True
-    assert outcome.action == "already_known_internal_order"
-    assert outcome.result is None
-    assert repository.trade_facts == []
+    assert outcome.ingested is True
+    assert outcome.action == "known_internal_order_ingested"
+    assert outcome.result is not None
+    assert outcome.result["trade_fact"]["internal_order_id"] == "ord_internal_known_1"
+    assert outcome.result["trade_fact"]["broker_trade_id"] == "T90011"
+    assert len(repository.trade_facts) == 1
+    assert len(repository.execution_fills) == 1
+    assert repository.buy_lots[0]["remaining_quantity"] == 700
+    assert (
+        sum(
+            item["remaining_quantity"] for item in repository.list_open_slices("000001")
+        )
+        == 700
+    )
+    assert len(repository.sell_allocations) == 1
 
 
 def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatch):

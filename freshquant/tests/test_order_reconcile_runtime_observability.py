@@ -1,5 +1,6 @@
 import freshquant.order_management.ingest.xt_reports as xt_reports_module
 import freshquant.order_management.reconcile.service as reconcile_service_module
+from freshquant.order_management.ingest.xt_reports import OrderManagementXtIngestService
 from freshquant.order_management.reconcile.service import ExternalOrderReconcileService
 from freshquant.order_management.tracking.service import OrderTrackingService
 
@@ -299,6 +300,91 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
     ]
     assert runtime_logger.events[0]["trace_id"] == "trc_recon_1"
     assert runtime_logger.events[1]["internal_order_id"] == "ord_recon_1"
+
+
+def test_known_internal_trade_report_still_emits_xt_ingest_events(monkeypatch):
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_resolve_lot_amount",
+        lambda _symbol: 3000,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_grid_interval_lookup",
+        lambda _symbol, _trade_fact: 1.03,
+        raising=False,
+    )
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_recon_known_1",
+            "request_id": "req_recon_known_1",
+            "trace_id": "trc_recon_known_1",
+            "intent_id": "int_recon_known_1",
+        }
+    )
+    repository.update_order(
+        "ord_recon_known_1",
+        {"broker_order_id": "90012", "state": "SUBMITTED"},
+    )
+    reconcile_runtime_logger = FakeRuntimeLogger()
+    ingest_runtime_logger = FakeRuntimeLogger()
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+        runtime_logger=ingest_runtime_logger,
+    )
+    service = ExternalOrderReconcileService(
+        repository=repository,
+        tracking_service=tracking_service,
+        ingest_service=ingest_service,
+        runtime_logger=reconcile_runtime_logger,
+    )
+
+    outcome = service.reconcile_trade_report(
+        {
+            "order_id": 90012,
+            "traded_id": "T90012",
+            "stock_code": "000001.SZ",
+            "order_type": 23,
+            "traded_volume": 200,
+            "traded_price": 10.5,
+            "traded_time": 1030,
+        }
+    )
+
+    assert outcome.handled is True
+    assert outcome.ingested is True
+    assert outcome.action == "known_internal_order_ingested"
+    assert [event["node"] for event in reconcile_runtime_logger.events] == [
+        "internal_match",
+        "projection_update",
+    ]
+    assert [event["node"] for event in ingest_runtime_logger.events] == [
+        "report_receive",
+        "trade_match",
+    ]
+    assert ingest_runtime_logger.events[0]["trace_id"] == "trc_recon_known_1"
+    assert ingest_runtime_logger.events[1]["internal_order_id"] == "ord_recon_known_1"
 
 
 def test_confirm_expired_candidates_emits_reconciliation_event(monkeypatch):
