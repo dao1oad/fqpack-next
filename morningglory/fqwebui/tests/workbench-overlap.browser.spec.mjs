@@ -102,61 +102,6 @@ function assertNoOverlap(metrics) {
   }
 }
 
-async function measureTextHorizontalOverflow(rootLocator, {
-  name,
-  rowSelector,
-  detailSelector,
-  rowLimit = 6,
-}) {
-  await expect(rootLocator, `${name} root should be visible`).toBeVisible()
-  return await rootLocator.evaluate((root, options) => {
-    const rows = Array.from(root.querySelectorAll(options.rowSelector)).slice(0, options.rowLimit)
-    const violations = []
-    rows.forEach((row, rowIndex) => {
-      const details = Array.from(row.querySelectorAll(options.detailSelector))
-      details.forEach((detail, detailIndex) => {
-        const text = (detail.textContent || '').trim()
-        if (!text || text === '-') return
-        const parent = detail.parentElement
-        const detailRect = detail.getBoundingClientRect()
-        const parentRect = parent?.getBoundingClientRect()
-        const widthOverflow = detailRect.width - (parentRect?.width || 0)
-        const rightOverflow = detailRect.right - (parentRect?.right || 0)
-        if (
-          widthOverflow > 1 ||
-          rightOverflow > 1
-        ) {
-          violations.push({
-            rowIndex,
-            detailIndex,
-            detailWidth: Number(detailRect.width || 0),
-            parentWidth: Number(parentRect?.width || 0),
-            rightOverflow: Number(rightOverflow || 0),
-            clientWidth: Number(detail.clientWidth || 0),
-            scrollWidth: Number(detail.scrollWidth || 0),
-            text,
-          })
-        }
-      })
-    })
-    return {
-      name: options.name,
-      rowCount: rows.length,
-      violations,
-    }
-  }, {
-    name,
-    rowSelector,
-    detailSelector,
-    rowLimit,
-  })
-}
-
-function assertNoTextHorizontalOverflow(metric) {
-  expect(metric.rowCount, `${metric.name}: expected at least one visible row`).toBeGreaterThan(0)
-  expect(metric.violations, `${metric.name}: detail text overflowed horizontally`).toEqual([])
-}
-
 function buildDailyRows(count = 24) {
   return buildRows(count, (index) => {
     const code = String(index + 1).padStart(6, '0')
@@ -457,7 +402,7 @@ function buildPositionManagementDashboard() {
           blocked: index % 4 === 0,
         })),
       },
-      recent_decisions: buildRows(20, (index) => ({
+      recent_decisions: buildRows(48, (index) => ({
         decision_id: `pmd_${index + 1}`,
         strategy_name: index % 2 === 0 ? 'Guardian' : 'Manual',
         action: index % 2 === 0 ? 'buy' : 'sell',
@@ -480,6 +425,139 @@ function buildPositionManagementDashboard() {
           symbol_quantity_source: 'xt_positions.volume',
         },
       })),
+    },
+  }
+}
+
+function buildPositionManagementSubjectOverview(symbols) {
+  return symbols.map((symbol, index) => {
+    const positionAmount = 920000 - index * 24000
+    return {
+      symbol,
+      name: `标的${index + 1}`,
+      category: index % 2 === 0 ? '银行' : '科技',
+      must_pool: {
+        category: index % 2 === 0 ? '银行' : '科技',
+        stop_loss_price: 9.1 - index * 0.02,
+        initial_lot_amount: 90000 - index * 1000,
+        lot_amount: 60000 - index * 500,
+      },
+      guardian: {
+        enabled: index % 3 !== 0,
+        buy_1: 10.2 - index * 0.03,
+        buy_2: 9.9 - index * 0.03,
+        buy_3: 9.5 - index * 0.03,
+      },
+      takeprofit: {
+        tiers: [],
+      },
+      stoploss: {
+        active_count: index % 4 === 0 ? 2 : 1,
+        open_entry_count: index % 3 === 0 ? 3 : 2,
+      },
+      runtime: {
+        position_quantity: 1200 - index * 30,
+        position_amount: positionAmount,
+        last_hit_level: index % 2 === 0 ? 'BUY-2' : 'BUY-1',
+        last_trigger_time: `2026-03-18T10:${String(index).padStart(2, '0')}:00+08:00`,
+      },
+      position_limit_summary: {
+        market_value: positionAmount,
+        default_limit: 800000,
+        override_limit: index % 3 === 0 ? 650000 : null,
+        effective_limit: index % 3 === 0 ? 650000 : 800000,
+        using_override: index % 3 === 0,
+        blocked: index % 4 === 0,
+      },
+    }
+  })
+}
+
+function buildPositionManagementSubjectDetail(row, index) {
+  const entryCount = index === 0 ? 12 : index === 1 ? 8 : 3
+  const entries = buildRows(entryCount, (entryIndex) => {
+    const baseQuantity = 180 - entryIndex * 8
+    const sliceCount = index === 0 ? 2 : 1
+    return {
+      entry_id: `${row.symbol}-entry-${entryIndex + 1}`,
+      date: `202603${String((entryIndex % 9) + 10).padStart(2, '0')}`,
+      time: `09${String((entryIndex % 5) + 30).padStart(2, '0')}00`,
+      entry_price: 10.2 - index * 0.04 - entryIndex * 0.02,
+      original_quantity: baseQuantity,
+      remaining_quantity: Math.max(baseQuantity - 20, 20),
+      latest_price: 10.3 - index * 0.04 - entryIndex * 0.02,
+      remaining_market_value: (Math.max(baseQuantity - 20, 20)) * (10.3 - index * 0.04 - entryIndex * 0.02),
+      stoploss: {
+        stop_price: 9.2 - index * 0.03 - entryIndex * 0.01,
+        enabled: entryIndex % 2 === 0,
+      },
+      aggregation_members: [
+        {
+          order_id: `${row.symbol}-buy-a-${entryIndex + 1}`,
+          quantity: Math.max(Math.trunc(baseQuantity / 2), 10),
+        },
+        {
+          order_id: `${row.symbol}-buy-b-${entryIndex + 1}`,
+          quantity: Math.max(baseQuantity - Math.trunc(baseQuantity / 2), 10),
+        },
+      ],
+      aggregation_window: {
+        started_at: `2026-03-18T09:${String((entryIndex % 5) + 30).padStart(2, '0')}:00+08:00`,
+        ended_at: `2026-03-18T10:${String((entryIndex % 5) + 5).padStart(2, '0')}:00+08:00`,
+      },
+      entry_slices: buildRows(sliceCount, (sliceIndex) => ({
+        entry_slice_id: `${row.symbol}-slice-${entryIndex + 1}-${sliceIndex + 1}`,
+        slice_seq: sliceIndex + 1,
+        guardian_price: 9.85 - sliceIndex * 0.06 - index * 0.02,
+        original_quantity: Math.max(Math.trunc(baseQuantity / sliceCount), 10),
+        remaining_quantity: Math.max(Math.trunc((baseQuantity - 20) / sliceCount), 10),
+        remaining_amount: Math.max(Math.trunc((baseQuantity - 20) / sliceCount), 10) * (10.1 - index * 0.04),
+      })),
+    }
+  })
+
+  return {
+    subject: {
+      symbol: row.symbol,
+      name: row.name,
+      category: row.category,
+    },
+    must_pool: { ...row.must_pool },
+    guardian_buy_grid_config: {
+      enabled: row.guardian.enabled,
+      buy_1: row.guardian.buy_1,
+      buy_2: row.guardian.buy_2,
+      buy_3: row.guardian.buy_3,
+    },
+    guardian_buy_grid_state: {
+      last_hit_level: row.runtime.last_hit_level,
+      last_hit_price: row.guardian.buy_2,
+      last_hit_signal_time: row.runtime.last_trigger_time,
+    },
+    takeprofit: {
+      tiers: [],
+      state: {},
+    },
+    entries,
+    runtime_summary: {
+      position_quantity: row.runtime.position_quantity,
+      position_amount: row.runtime.position_amount,
+      avg_price: 10.05 - index * 0.03,
+      last_trigger_time: row.runtime.last_trigger_time,
+      last_trigger_kind: index % 2 === 0 ? 'guardian_buy' : 'takeprofit',
+    },
+    position_management_summary: {
+      effective_state: index % 5 === 0 ? 'HOLDING_ONLY' : 'ALLOW_OPEN',
+      allow_open_min_bail: 800000,
+      holding_only_min_bail: 100000,
+    },
+    position_limit_summary: {
+      market_value: row.position_limit_summary.market_value,
+      default_limit: row.position_limit_summary.default_limit,
+      override_limit: row.position_limit_summary.override_limit,
+      effective_limit: row.position_limit_summary.effective_limit,
+      using_override: row.position_limit_summary.using_override,
+      blocked: row.position_limit_summary.blocked,
     },
   }
 }
@@ -605,6 +683,10 @@ function buildPositionManagementReconciliation(symbols) {
 
 async function setupPositionManagementRoutes(page) {
   const dashboard = buildPositionManagementDashboard()
+  const subjectOverview = buildPositionManagementSubjectOverview(dashboard.data.holding_scope.codes)
+  const subjectDetailMap = Object.fromEntries(
+    subjectOverview.map((row, index) => [row.symbol, buildPositionManagementSubjectDetail(row, index)]),
+  )
   const reconciliation = buildPositionManagementReconciliation(dashboard.data.holding_scope.codes)
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
@@ -621,6 +703,24 @@ async function setupPositionManagementRoutes(page) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(reconciliation),
+      })
+      return
+    }
+    if (url.pathname === '/api/subject-management/overview') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(subjectOverview),
+      })
+      return
+    }
+    if (url.pathname.startsWith('/api/subject-management/')) {
+      const symbol = decodeURIComponent(url.pathname.replace('/api/subject-management/', '')).trim()
+      const detail = subjectDetailMap[symbol]
+      await route.fulfill({
+        status: detail ? 200 : 404,
+        contentType: 'application/json',
+        body: JSON.stringify(detail || { error: `${symbol} not mocked` }),
       })
       return
     }
@@ -831,37 +931,91 @@ test('daily-screening ledgers keep the first row clear of the header after scrol
   assertNoOverlap([resultsMetric, workspaceMetric, historyMetric])
 })
 
-test('position-management scroll regions keep the first row or card clear of the chrome after scrolling', async ({ page }) => {
+test('position-management dense workbench keeps split panels, descending sort, and selected-symbol linkage', async ({ page }) => {
   await page.setViewportSize(DESKTOP_VIEWPORT)
   await setupPositionManagementRoutes(page)
   await page.goto(`${DEV_SERVER_URL}/position-management`)
-  await expect(page.locator('.position-audit-row').first()).toBeVisible()
+  await expect(page.locator('.position-reconciliation-ledger__row').first()).toBeVisible()
+  await expect(page.locator('.position-subject-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
+  await expect(page.locator('.runtime-position-decision-ledger .runtime-ledger__row').first()).toBeVisible()
+  await expect(page.getByText('选中标的工作区', { exact: true })).toBeVisible()
+  await expect(page.locator('.position-selection-entry-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
+  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
+
+  const panelHeights = await page.evaluate(() => {
+    const getHeight = (selector) => {
+      const element = document.querySelector(selector)
+      return element ? element.getBoundingClientRect().height : 0
+    }
+    return {
+      leftTop: getHeight('.position-state-panel'),
+      leftBottom: getHeight('.position-reconciliation-panel'),
+      rightTop: getHeight('.position-selection-panel'),
+      rightBottom: getHeight('.position-decision-panel'),
+    }
+  })
+  expect(Math.abs(panelHeights.leftTop - panelHeights.leftBottom)).toBeLessThanOrEqual(8)
+  expect(Math.abs(panelHeights.rightTop - panelHeights.rightBottom)).toBeLessThanOrEqual(8)
+
+  const headerTexts = await page.locator('.position-subject-table .el-table__header-wrapper thead th .cell').evaluateAll((nodes) => (
+    nodes
+      .map((node) => (node.textContent || '').trim())
+      .filter(Boolean)
+  ))
+  expect(headerTexts).toEqual(expect.arrayContaining([
+    '标的',
+    '分类',
+    '持仓股数',
+    '持仓市值',
+    '门禁',
+    '止损价',
+    '首笔金额',
+    '常规金额',
+    '单标的上限',
+    '活跃止损',
+    'Open Entry',
+    '最近触发',
+    '保存',
+  ]))
+
+  const overviewSymbols = await page.locator('.position-subject-table .el-table__body-wrapper tbody tr').evaluateAll((rows) => (
+    rows.slice(0, 3).map((row) => ((row.textContent || '').match(/\d{6}/) || [''])[0])
+  ))
+  expect(overviewSymbols).toEqual(['000001', '000002', '000003'])
+
+  await expect(page.locator('.position-selection-panel .workbench-summary-row')).toContainText('000001')
+  await page.locator('.position-subject-table .el-table__body-wrapper tbody tr').nth(1).click()
+  await expect(page.locator('.position-selection-panel .workbench-summary-row')).toContainText('000002')
+  await expect(page.locator('.position-decision-panel .workbench-summary-row')).toContainText('000002')
+
+  const decisionSymbols = await page.locator('.runtime-position-decision-ledger .runtime-ledger__row').evaluateAll((rows) => (
+    rows.map((row) => (row.children?.[1]?.textContent || '').trim())
+  ))
+  expect(decisionSymbols.length).toBeGreaterThan(0)
+  expect(decisionSymbols.every((text) => text.includes('000002'))).toBe(true)
+})
+
+test('position-management dense ledgers keep the first row clear and reconciliation evidence expands as tables', async ({ page }) => {
+  await page.setViewportSize(DESKTOP_VIEWPORT)
+  await setupPositionManagementRoutes(page)
+  await page.goto(`${DEV_SERVER_URL}/position-management`)
+  await expect(page.locator('.position-reconciliation-ledger__row').first()).toBeVisible()
   await expect(page.locator('.runtime-position-decision-ledger .runtime-ledger__row').first()).toBeVisible()
   const metrics = await Promise.all([
     measureLedger(page.locator('.position-state-panel'), { name: 'position rule ledger', headerSelector: '.runtime-position-rule-ledger .runtime-ledger__header', rowSelector: '.runtime-position-rule-ledger .runtime-ledger__row', viewportSelector: '.position-state-scroll', scrollTop: 220 }),
-    measureLedger(page.locator('.position-reconciliation-panel__body'), { name: 'position reconciliation audit list', headerSelector: '.position-reconciliation-toolbar', rowSelector: '.position-audit-row', viewportSelector: '.position-audit-list', scrollTop: 320 }),
-    measureLedger(page.locator('.runtime-position-decision-ledger'), { name: 'position decision ledger', headerSelector: '.runtime-ledger__header', rowSelector: '.runtime-ledger__row', viewportSelector: '.runtime-ledger__viewport' }),
   ])
   assertNoOverlap(metrics)
-})
 
-test('position-management reconciliation evidence text stays inside each card with long source labels', async ({ page }) => {
-  await page.setViewportSize(DESKTOP_VIEWPORT)
-  await setupPositionManagementRoutes(page)
-  await page.goto(`${DEV_SERVER_URL}/position-management`)
-  const firstAuditRow = page.locator('.position-audit-row').first()
-  await expect(firstAuditRow).toBeVisible()
-  await firstAuditRow.getByRole('button', { name: '展开证据' }).click()
-  const metric = await measureTextHorizontalOverflow(
-    firstAuditRow.locator('.position-audit-evidence'),
-    {
-      name: 'position reconciliation evidence text',
-      rowSelector: '.position-audit-evidence-card',
-      detailSelector: 'small',
-      rowLimit: 12,
-    },
-  )
-  assertNoTextHorizontalOverflow(metric)
+  const firstLedgerItem = page.locator('.position-reconciliation-ledger__item').first()
+  await firstLedgerItem.getByRole('button', { name: '展开' }).evaluate((element) => {
+    element.click()
+  })
+  await expect(firstLedgerItem.locator('.position-reconciliation-expanded__surface-table .position-reconciliation-expanded__table-row').first()).toBeVisible()
+  await expect(firstLedgerItem.locator('.position-reconciliation-expanded__rule-table .position-reconciliation-expanded__table-row').first()).toBeVisible()
+  await expect(firstLedgerItem.locator('.position-reconciliation-expanded__reconciliation-table .position-reconciliation-expanded__table-row').first()).toBeVisible()
+  await expect(firstLedgerItem.locator('.position-reconciliation-expanded')).toContainText('视图层证据表')
+  await expect(firstLedgerItem.locator('.position-reconciliation-expanded')).toContainText('规则检查表')
+  await expect(firstLedgerItem.locator('.position-reconciliation-expanded')).toContainText('差异说明表')
 })
 
 test('runtime-observability ledgers keep the first row clear of the header after scrolling', async ({ page }) => {

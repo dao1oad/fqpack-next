@@ -118,6 +118,7 @@ test('PositionManagement.vue reuses StatusChip for summary chips and inline ledg
   assert.match(positionSource, /<StatusChip :variant="staleChipVariant">/)
   assert.match(positionSource, /<StatusChip variant="muted">\s*raw state <strong>\{\{\s*statePanel\.hero\.raw_state_label\s*\}\}<\/strong>/)
   assert.match(positionSource, /<StatusChip variant="muted">\s*配置时间 <strong>\{\{\s*configUpdatedAt\s*\}\}<\/strong>/)
+  assert.match(positionSource, /<StatusChip variant="muted">\s*当前标的 <strong>\{\{\s*selectedSubjectSymbol/)
   assert.match(positionSource, /<StatusChip variant="muted">\s*当前页 <strong>\{\{\s*pagedDecisionRows\.length\s*\}\}<\/strong>/)
   assert.match(positionSource, /<StatusChip variant="muted">\s*默认分页 <strong>\{\{\s*decisionPagination\.pageSize\s*\}\} \/ 页<\/strong>/)
   assert.match(positionSource, /<StatusChip variant="muted">\s*当前页码 <strong>\{\{\s*decisionPagination\.page\s*\}\}<\/strong>/)
@@ -137,25 +138,36 @@ test('PositionManagement.vue consumes shared workbench page and panel primitives
   assert.match(positionSource, /<WorkbenchDetailPanel class="position-state-panel">/)
   assert.match(positionSource, /<PositionReconciliationPanel[\s\S]*class="position-reconciliation-panel"/)
   assert.match(positionSource, /<PositionSubjectOverviewPanel class="position-subject-overview-host"/)
+  assert.match(positionSource, /<WorkbenchLedgerPanel class="position-selection-panel">/)
   assert.match(positionSource, /<WorkbenchLedgerPanel class="position-decision-panel">/)
 })
 
-test('PositionReconciliationPanel.vue consumes shared workbench panel and status chip primitives for audit cards', () => {
+test('PositionReconciliationPanel.vue consumes shared workbench panel and status chip primitives for dense audit ledgers', () => {
   assert.match(positionReconciliationSource, /import StatusChip from '\.\.\/workbench\/StatusChip\.vue'/)
   assert.match(positionReconciliationSource, /import WorkbenchLedgerPanel from '\.\.\/workbench\/WorkbenchLedgerPanel\.vue'/)
   assert.match(positionReconciliationSource, /<WorkbenchLedgerPanel class="position-reconciliation-panel">/)
   assert.match(positionReconciliationSource, /<StatusChip variant="danger">\s*ERROR <strong>\{\{\s*summary\.audit_status_counts\?\.ERROR \|\| 0\s*\}\}<\/strong>/)
   assert.match(positionReconciliationSource, /<StatusChip class="runtime-inline-status" :variant="row\.audit_status_chip_variant">/)
   assert.match(positionReconciliationSource, /<StatusChip class="runtime-inline-status" :variant="row\.reconciliation_state_chip_variant">/)
+  assert.match(positionReconciliationSource, /position-reconciliation-ledger/)
+  assert.doesNotMatch(positionReconciliationSource, /position-audit-row/)
 })
 
-test('PositionSubjectOverviewPanel.vue consumes shared workbench panel and status chip primitives for the merged subject workbench', () => {
+test('PositionSubjectOverviewPanel.vue consumes shared workbench panel and status chip primitives for the dense selected-symbol overview table', () => {
   assert.match(positionSubjectOverviewSource, /import StatusChip from '\.\.\/workbench\/StatusChip\.vue'/)
   assert.match(positionSubjectOverviewSource, /import WorkbenchLedgerPanel from '\.\.\/workbench\/WorkbenchLedgerPanel\.vue'/)
   assert.match(positionSubjectOverviewSource, /<WorkbenchLedgerPanel class="position-subject-overview-panel">/)
+  assert.match(positionSubjectOverviewSource, /defineEmits\(\['symbol-select'\]\)/)
+  assert.match(positionSubjectOverviewSource, /highlight-current-row/)
+  assert.match(positionSubjectOverviewSource, /label="止损价"/)
+  assert.match(positionSubjectOverviewSource, /label="首笔金额"/)
+  assert.match(positionSubjectOverviewSource, /label="常规金额"/)
+  assert.match(positionSubjectOverviewSource, /label="单标的上限"/)
+  assert.match(positionSubjectOverviewSource, /label="保存"/)
   assert.match(positionSubjectOverviewSource, /<StatusChip variant="muted">\s*总标的 <strong>\{\{\s*overviewRows\.length\s*\}\}<\/strong>/)
   assert.match(positionSubjectOverviewSource, /<StatusChip variant="success">\s*已加载详情 <strong>\{\{\s*loadedDetailCount\s*\}\}<\/strong>/)
   assert.match(positionSubjectOverviewSource, /<StatusChip variant="warning">\s*活跃止损 <strong>\{\{\s*activeStoplossCount\s*\}\}<\/strong>/)
+  assert.doesNotMatch(positionSubjectOverviewSource, /position-subject-entry-card/)
 })
 
 test('OrderManagement.vue reuses StatusChip for summary and identifier chips', () => {
