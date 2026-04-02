@@ -214,13 +214,22 @@ def test_position_management_reconciliation_routes_forward_read_only_payload(
     assert list_response.get_json()["summary"]["row_count"] == 1
     assert list_response.get_json()["summary"]["rule_counts"]["R4"]["WARN"] == 1
     assert list_response.get_json()["rows"][0]["audit_status"] == "WARN"
-    assert list_response.get_json()["rows"][0]["surface_values"]["broker"]["quantity"] == 1200
-    assert list_response.get_json()["rows"][0]["evidence_sections"]["surfaces"][0]["key"] == "broker"
+    assert (
+        list_response.get_json()["rows"][0]["surface_values"]["broker"]["quantity"]
+        == 1200
+    )
+    assert (
+        list_response.get_json()["rows"][0]["evidence_sections"]["surfaces"][0]["key"]
+        == "broker"
+    )
     assert detail_response.status_code == 200
     assert detail_response.get_json()["symbol"] == "600000"
     assert detail_response.get_json()["reconciliation"]["state"] == "OBSERVING"
     assert detail_response.get_json()["rule_results"]["R4"]["status"] == "WARN"
-    assert detail_response.get_json()["evidence_sections"]["reconciliation"]["state"] == "OBSERVING"
+    assert (
+        detail_response.get_json()["evidence_sections"]["reconciliation"]["state"]
+        == "OBSERVING"
+    )
 
 
 def test_position_management_reconciliation_detail_route_returns_404_on_missing_symbol(

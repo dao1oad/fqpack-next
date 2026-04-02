@@ -460,7 +460,7 @@ cd morningglory/fqwebui
 npm run build
 ```
 
-Expected: PASS  
+Expected: PASS
 如果本地缺 `vite` 或 `vue` 依赖，先修复依赖环境，再执行；不能跳过 build 就宣称前端完成。
 
 **Step 4: 提交 PR**

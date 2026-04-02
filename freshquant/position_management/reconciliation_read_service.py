@@ -19,7 +19,9 @@ RECONCILIATION_STATES = CONSISTENCY_RECONCILIATION_STATES
 
 def normalize_to_base_code(code):
     try:
-        from freshquant.util.code import normalize_to_base_code as _normalize_to_base_code
+        from freshquant.util.code import (
+            normalize_to_base_code as _normalize_to_base_code,
+        )
     except ModuleNotFoundError:
         return _fallback_normalize_to_base_code(code)
     return _normalize_to_base_code(code)
@@ -142,9 +144,7 @@ class PositionReconciliationReadService:
         )
 
         symbols = sorted(
-            set(seed_symbols)
-            | set(reconciliation_map)
-            | set(stock_fills_map)
+            set(seed_symbols) | set(reconciliation_map) | set(stock_fills_map)
         )
         rows = [
             self._build_row(
@@ -322,9 +322,7 @@ class PositionReconciliationReadService:
             return payload
         allowed = set(symbols)
         return {
-            symbol: summary
-            for symbol, summary in payload.items()
-            if symbol in allowed
+            symbol: summary for symbol, summary in payload.items() if symbol in allowed
         }
 
     def _get_position_repository(self):
@@ -373,7 +371,9 @@ def _build_summary(rows):
     }
     for row in rows:
         audit_counts[row.get("audit_status") or "OK"] += 1
-        state = str((row.get("reconciliation") or {}).get("state") or "").strip().upper()
+        state = (
+            str((row.get("reconciliation") or {}).get("state") or "").strip().upper()
+        )
         if state in state_counts:
             state_counts[state] += 1
         rule_results = row.get("rule_results") or {}
@@ -422,9 +422,10 @@ def _build_position_map(
         current["quantity_source"] = _normalize_text(item.get("quantity_source")) or (
             current["quantity_source"]
         )
-        current["market_value_source"] = _normalize_text(
-            item.get("market_value_source")
-        ) or current["market_value_source"]
+        current["market_value_source"] = (
+            _normalize_text(item.get("market_value_source"))
+            or current["market_value_source"]
+        )
     for item in grouped.values():
         item["market_value"] = round(float(item["market_value"]), 2)
     return grouped
@@ -487,8 +488,7 @@ def _build_evidence_sections(*, surface_values, rule_results, reconciliation):
             for surface in CONSISTENCY_SURFACES
         ],
         "rules": [
-            dict(rule_results.get(rule["id"]) or {})
-            for rule in CONSISTENCY_RULES
+            dict(rule_results.get(rule["id"]) or {}) for rule in CONSISTENCY_RULES
         ],
         "reconciliation": {
             "state": str(reconciliation.get("state") or "ALIGNED").strip().upper(),
