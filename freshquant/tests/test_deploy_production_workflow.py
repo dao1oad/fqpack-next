@@ -16,11 +16,11 @@ def test_deploy_workflow_uses_single_production_entrypoint() -> None:
     assert "py -3.12 script/ci/run_formal_deploy.py" not in text
 
 
-def test_deploy_workflow_resolves_entrypoint_from_canonical_root() -> None:
+def test_deploy_workflow_resolves_entrypoint_from_bootstrap_root() -> None:
     text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
 
     assert (
-        "$entrypoint = Join-Path $env:FQ_DEPLOY_CANONICAL_REPO_ROOT "
+        "$entrypoint = Join-Path $env:FQ_DEPLOY_BOOTSTRAP_ROOT "
         "'script/ci/run_production_deploy.ps1'"
     ) in text
     assert "-File $entrypoint" in text
@@ -47,6 +47,14 @@ def test_deploy_workflow_uses_dedicated_bootstrap_root_instead_of_pulling_canoni
         "git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT pull --ff-only origin main"
         not in text
     )
+    assert (
+        'git -C $env:FQ_DEPLOY_BOOTSTRAP_ROOT reset --hard "${{ github.sha }}"' in text
+    )
+    assert 'git -C $env:FQ_DEPLOY_BOOTSTRAP_ROOT clean -ffd' in text
+    assert (
+        'git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT worktree add --detach '
+        '$env:FQ_DEPLOY_BOOTSTRAP_ROOT "${{ github.sha }}"'
+    ) in text
     assert "canonical repo root must be on main before deploy" not in text
 
 

@@ -198,6 +198,10 @@ def test_deploy_production_workflow_runs_on_push_to_main_via_single_entrypoint()
     assert "py -3.12 -m uv sync --frozen" not in text
     assert "pip install --upgrade pip uv" not in text
     assert "pull --ff-only origin main" not in text
+    assert (
+        'git -C $env:FQ_DEPLOY_BOOTSTRAP_ROOT reset --hard "${{ github.sha }}"' in text
+    )
+    assert 'git -C $env:FQ_DEPLOY_BOOTSTRAP_ROOT clean -ffd' in text
 
 
 def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
