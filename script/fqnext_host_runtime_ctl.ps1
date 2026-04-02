@@ -59,7 +59,12 @@ function Get-SupervisorServiceProcessStartTimeUtc {
         return $null
     }
 
-    return $process.StartTime.ToUniversalTime()
+    $startTime = $process.StartTime
+    if ($null -eq $startTime) {
+        return $null
+    }
+
+    return $startTime.ToUniversalTime()
 }
 
 function Wait-ServiceRunning {
@@ -222,10 +227,15 @@ function Sync-SupervisorConfig {
     }
 
     $payload = $raw | ConvertFrom-Json
-    $serviceReloadRequired = $false
-    if (Test-Path $ResolvedConfigPath) {
+    $serviceReloadRequired = [bool]$payload.changed
+    if (-not $serviceReloadRequired -and (Test-Path $ResolvedConfigPath)) {
         $serviceStartTimeUtc = Get-SupervisorServiceProcessStartTimeUtc -ServiceName $ServiceName
-        if ($null -ne $serviceStartTimeUtc) {
+        if ($null -eq $serviceStartTimeUtc) {
+            # Some Windows service processes report a null StartTime; reload
+            # conservatively so the in-memory supervisor config still converges.
+            $serviceReloadRequired = $true
+        }
+        else {
             $configWriteTimeUtc = (Get-Item -LiteralPath $ResolvedConfigPath).LastWriteTimeUtc
             $serviceReloadRequired = $configWriteTimeUtc -gt $serviceStartTimeUtc
         }
