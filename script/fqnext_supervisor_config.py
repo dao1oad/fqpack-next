@@ -174,6 +174,32 @@ def parse_environment(environment_value: str) -> dict[str, str]:
     return parsed
 
 
+def parse_env_file(env_file_path: Path) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    if not env_file_path.exists():
+        return parsed
+    for raw_line in env_file_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        parsed[key.strip()] = value.strip()
+    return parsed
+
+
+def parse_env_files(config_path: Path, env_files_value: str) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for item in env_files_value.replace(",", ";").split(";"):
+        raw_path = item.strip().strip('"').strip("'")
+        if not raw_path:
+            continue
+        env_file_path = Path(raw_path)
+        if not env_file_path.is_absolute():
+            env_file_path = config_path.parent / env_file_path
+        parsed.update(parse_env_file(env_file_path))
+    return parsed
+
+
 def collect_import_sources(config_path: Path) -> dict[str, dict[str, str | None]]:
     parser = parse_config(config_path)
     repo_root = Path(parser["program-default"]["directory"])
@@ -183,25 +209,35 @@ def collect_import_sources(config_path: Path) -> dict[str, dict[str, str | None]
     environment = parse_environment(
         parser["program-default"].get("environment", fallback="")
     )
+    environment.update(
+        parse_env_files(
+            config_path,
+            parser["program-default"].get("envFiles", fallback=""),
+        )
+    )
     child_env = os.environ.copy()
     child_env.update(environment)
     child_env["PYTHONNOUSERSITE"] = "1"
     payload = json.dumps(list(MODULE_NAMES), ensure_ascii=False)
+    python_snippet = "\n".join(
+        [
+            "import importlib",
+            "import json",
+            f"modules = json.loads({payload!r})",
+            "result = {}",
+            "for name in modules:",
+            "    try:",
+            "        module = importlib.import_module(name)",
+            "        result[name] = {'path': getattr(module, '__file__', None), 'error': None}",
+            "    except Exception as exc:",
+            "        result[name] = {'path': None, 'error': str(exc)}",
+            "print(json.dumps(result, ensure_ascii=False))",
+        ]
+    )
     command = [
         python_executable,
         "-c",
-        (
-            "import importlib, json; "
-            f"modules = json.loads({payload!r}); "
-            "result = {}; "
-            "for name in modules:\n"
-            "    try:\n"
-            "        module = importlib.import_module(name)\n"
-            "        result[name] = {'path': getattr(module, '__file__', None), 'error': None}\n"
-            "    except Exception as exc:\n"
-            "        result[name] = {'path': None, 'error': str(exc)}\n"
-            "print(json.dumps(result, ensure_ascii=False))"
-        ),
+        python_snippet,
     ]
     completed = subprocess.run(
         command,

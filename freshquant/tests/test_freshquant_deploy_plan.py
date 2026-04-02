@@ -183,3 +183,37 @@ def test_qa_surface_requires_shared_rear_build_target() -> None:
     assert plan["docker_build_targets"] == ["fq_apiserver"]
     assert plan["docker_up_services"] == ["fq_qawebserver"]
     assert plan["docker_services"] == ["fq_apiserver", "fq_qawebserver"]
+
+
+def test_host_runtime_infra_paths_force_host_surface_reconcile() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=[
+            "script/fqnext_host_runtime_ctl.ps1",
+            "script/fqnext_supervisor_config.py",
+        ]
+    )
+
+    assert plan["deployment_required"] is True
+    assert plan["deployment_surfaces"] == [
+        "market_data",
+        "guardian",
+        "position_management",
+        "tpsl",
+        "order_management",
+    ]
+    assert plan["docker_services"] == []
+    assert plan["host_surfaces"] == [
+        "market_data",
+        "guardian",
+        "position_management",
+        "tpsl",
+        "order_management",
+    ]
+    assert plan["host_command"][-3:] == [
+        "-DeploymentSurface",
+        "market_data,guardian,position_management,tpsl,order_management",
+        "-BridgeIfServiceUnavailable",
+    ]
+    assert any("host runtime" in note.lower() for note in plan["notes"])

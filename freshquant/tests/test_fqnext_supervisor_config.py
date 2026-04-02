@@ -4,6 +4,7 @@ import importlib.util
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "script" / "fqnext_supervisor_config.py"
@@ -166,3 +167,66 @@ def test_write_supervisor_config_preserves_mtime_when_content_unchanged(
 
     assert result["changed"] is False
     assert config_path.stat().st_mtime_ns == original_mtime_ns
+
+
+def test_collect_import_sources_builds_valid_python_snippet(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = load_module()
+    config_path = tmp_path / "supervisord.fqnext.conf"
+    config_path.write_text(
+        module.build_supervisor_config(EXPECTED_REPO_ROOT),
+        encoding="utf-8",
+    )
+
+    def fake_run(command, **kwargs):
+        assert kwargs["cwd"] == EXPECTED_REPO_ROOT
+        compile(command[2], "<fqnext_supervisor_config>", "exec")
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                '{"freshquant":{"path":"D:/fqpack/freshquant-2026.2.23/.worktrees/'
+                'main-deploy-production/freshquant/__init__.py","error":null}}'
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = module.collect_import_sources(config_path)
+
+    assert result["freshquant"]["error"] is None
+
+
+def test_collect_import_sources_loads_supervisor_env_file(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = load_module()
+    env_file = tmp_path / "envs.conf"
+    env_file.write_text(
+        "FRESHQUANT_MONGODB__HOST=127.0.0.1\nFRESHQUANT_MONGODB__PORT=27027\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "supervisord.fqnext.conf"
+    config_text = module.build_supervisor_config(EXPECTED_REPO_ROOT).replace(
+        "envFiles=D:/fqpack/config/envs.conf",
+        f"envFiles={env_file.as_posix()}",
+    )
+    config_path.write_text(config_text, encoding="utf-8")
+
+    def fake_run(command, **kwargs):
+        assert kwargs["env"]["FRESHQUANT_MONGODB__HOST"] == "127.0.0.1"
+        assert kwargs["env"]["FRESHQUANT_MONGODB__PORT"] == "27027"
+        return SimpleNamespace(
+            returncode=0,
+            stdout='{"freshquant":{"path":"x","error":null}}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = module.collect_import_sources(config_path)
+
+    assert result["freshquant"]["error"] is None

@@ -286,6 +286,22 @@ PATH_RULES: tuple[PathRule, ...] = (
         prefix="third_party/tradingagents-cn/",
         surfaces=("tradingagents",),
     ),
+    ExactRule(
+        label="host-runtime-ctl",
+        exact_path="script/fqnext_host_runtime_ctl.ps1",
+        surfaces=ALL_HOST_RUNTIME_SURFACES,
+        notes=(
+            "host runtime control script 变更后必须重跑全部宿主机 surfaces，确保 supervisor 配置与运行进程被重新收敛。",
+        ),
+    ),
+    ExactRule(
+        label="host-supervisor-config",
+        exact_path="script/fqnext_supervisor_config.py",
+        surfaces=ALL_HOST_RUNTIME_SURFACES,
+        notes=(
+            "supervisor config renderer / inspector 变更后必须重跑全部宿主机 surfaces，确保正式运行面切到最新 deploy mirror 口径。",
+        ),
+    ),
 )
 
 
