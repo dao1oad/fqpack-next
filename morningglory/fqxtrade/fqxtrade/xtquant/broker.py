@@ -516,7 +516,6 @@ def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode)
             "broker_order_id": broker_order_id,
         }
     except Exception as exc:
-        _clear_strategy_buy_cooldown(order, action=action)
         if not is_exception_emitted(exc):
             _emit_broker_event(
                 "submit_result",

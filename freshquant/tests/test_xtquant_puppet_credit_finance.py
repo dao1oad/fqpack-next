@@ -15,13 +15,24 @@ class _FakeStockOrdersCollection:
 
 
 class _FakeTrader:
-    def __init__(self, *, cash, frozen_cash=0.0, order_result=123456):
+    def __init__(
+        self,
+        *,
+        cash,
+        frozen_cash=0.0,
+        order_result=123456,
+        credit_detail=None,
+    ):
         self.asset = SimpleNamespace(cash=cash, frozen_cash=frozen_cash)
         self.order_result = order_result
+        self.credit_detail = credit_detail
         self.order_calls = []
 
     def query_stock_asset(self, _account):
         return self.asset
+
+    def query_credit_detail(self, _account):
+        return self.credit_detail
 
     def order_stock(
         self,
@@ -172,6 +183,31 @@ def test_credit_fin_buy_blocks_when_bail_balance_is_insufficient(monkeypatch):
     assert trader.order_calls == []
     assert any(
         event.get("payload", {}).get("reason") == "insufficient_bail_balance"
+        for event in events
+    )
+
+
+def test_credit_fin_buy_accepts_list_shaped_credit_detail(monkeypatch):
+    puppet, xtconstant = _load_puppet_module(monkeypatch)
+    trader = _FakeTrader(
+        cash=0.0,
+        credit_detail=[{"m_dEnableBailBalance": 60000.0, "m_dAvailable": 1000.0}],
+    )
+    events = _install_buy_test_doubles(monkeypatch, puppet, trader)
+
+    result = puppet.buy(
+        "513180",
+        0.613872,
+        82100,
+        "guardian",
+        "V反上涨",
+        order_type=xtconstant.CREDIT_FIN_BUY,
+    )
+
+    assert result == 123456
+    assert trader.order_calls
+    assert not any(
+        event.get("payload", {}).get("reason") == "credit_detail_unavailable"
         for event in events
     )
 

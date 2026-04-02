@@ -784,6 +784,10 @@ def _optional_float(value):
 def _credit_detail_optional_float(detail, field_name):
     if detail is None:
         return None
+    if isinstance(detail, (list, tuple)):
+        detail = detail[0] if detail else None
+        if detail is None:
+            return None
     if isinstance(detail, dict):
         return _optional_float(detail.get(field_name))
     return _optional_float(getattr(detail, field_name, None))
