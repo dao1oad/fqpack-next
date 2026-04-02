@@ -4,7 +4,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "script" / "fqnext_supervisor_config.py"
 EXPECTED_REPO_ROOT = Path(
@@ -13,7 +12,9 @@ EXPECTED_REPO_ROOT = Path(
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("fqnext_supervisor_config", SCRIPT_PATH)
+    spec = importlib.util.spec_from_file_location(
+        "fqnext_supervisor_config", SCRIPT_PATH
+    )
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -27,7 +28,7 @@ def test_build_supervisor_config_targets_main_deploy_production() -> None:
 
     config_text = module.build_supervisor_config(EXPECTED_REPO_ROOT)
 
-    expected_root = EXPECTED_REPO_ROOT.as_posix()
+    expected_root = str(EXPECTED_REPO_ROOT).replace("\\", "/")
     assert f"directory={expected_root}" in config_text
     assert (
         "environment=PATH="
@@ -114,7 +115,7 @@ def test_inspect_supervisor_config_accepts_deploy_mirror_sources(
         encoding="utf-8",
     )
 
-    expected_root = EXPECTED_REPO_ROOT.as_posix()
+    expected_root = str(EXPECTED_REPO_ROOT).replace("\\", "/")
     monkeypatch.setattr(
         module,
         "collect_import_sources",

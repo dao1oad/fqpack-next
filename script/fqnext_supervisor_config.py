@@ -30,6 +30,11 @@ PROGRAM_NAMES = (
 )
 
 
+class CaseConfigParser(configparser.ConfigParser):
+    def optionxform(self, optionstr: str) -> str:
+        return optionstr
+
+
 def _to_posix(path: Path | str) -> str:
     return str(path).replace("\\", "/")
 
@@ -154,8 +159,7 @@ serverurl=http://127.0.0.1:10011
 
 
 def parse_config(config_path: Path) -> configparser.ConfigParser:
-    parser = configparser.ConfigParser()
-    parser.optionxform = str
+    parser = CaseConfigParser()
     parser.read_string(config_path.read_text(encoding="utf-8-sig"))
     return parser
 
@@ -211,10 +215,7 @@ def collect_import_sources(config_path: Path) -> dict[str, dict[str, str | None]
         error = (completed.stderr or completed.stdout).strip() or (
             f"subprocess exited with {completed.returncode}"
         )
-        return {
-            name: {"path": None, "error": error}
-            for name in MODULE_NAMES
-        }
+        return {name: {"path": None, "error": error} for name in MODULE_NAMES}
     return json.loads(completed.stdout)
 
 
@@ -269,9 +270,7 @@ def inspect_supervisor_config(
         program_directories[program_name] = directory
         program_python_executables[program_name] = python_executable
         if _normalize_path(directory) != _normalize_path(expected_root):
-            failures.append(
-                f"program directory drifted: {program_name} -> {directory}"
-            )
+            failures.append(f"program directory drifted: {program_name} -> {directory}")
         if _normalize_path(python_executable) != _normalize_path(expected_python):
             failures.append(
                 f"program python drifted: {program_name} -> {python_executable}"
@@ -283,7 +282,9 @@ def inspect_supervisor_config(
         module_path = payload.get("path")
         module_error = payload.get("error")
         if module_error:
-            failures.append(f"import source check failed: {module_name}; {module_error}")
+            failures.append(
+                f"import source check failed: {module_name}; {module_error}"
+            )
             continue
         if not module_path:
             failures.append(f"import source missing: {module_name}")
@@ -332,7 +333,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     render_parser = subparsers.add_parser("render")
-    render_parser.add_argument("--repo-root", type=Path, default=DEFAULT_EXPECTED_REPO_ROOT)
+    render_parser.add_argument(
+        "--repo-root", type=Path, default=DEFAULT_EXPECTED_REPO_ROOT
+    )
 
     write_parser = subparsers.add_parser("write")
     write_parser.add_argument("--repo-root", type=Path, required=True)
