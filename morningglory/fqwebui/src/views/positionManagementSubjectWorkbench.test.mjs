@@ -210,6 +210,51 @@ test('subject workbench controller refreshes overview and hydrates visible symbo
   ])
 })
 
+test('subject workbench controller deduplicates concurrent detail hydration for the same symbol', async () => {
+  const calls = []
+  let releaseDetailLoad
+  const detailLoadGate = new Promise((resolve) => {
+    releaseDetailLoad = resolve
+  })
+  const actions = {
+    async loadOverview() {
+      return makeOverviewRows()
+    },
+    async loadSubjectDetail(symbol) {
+      calls.push(['loadSubjectDetail', symbol])
+      await detailLoadGate
+      return makeDetail(symbol)
+    },
+    async saveMustPool() {
+      throw new Error('should not save')
+    },
+    async savePositionLimit() {
+      throw new Error('should not save')
+    },
+    async saveStoploss() {
+      throw new Error('should not save')
+    },
+  }
+
+  const controller = createPositionManagementSubjectWorkbenchController({
+    actions,
+    notify: {},
+  })
+
+  const firstHydration = controller.ensureSymbolsHydrated(['600000'])
+  const secondHydration = controller.ensureSymbolsHydrated(['600000'])
+  assert.equal(controller.state.loadingDetail['600000'], true)
+
+  releaseDetailLoad()
+  await Promise.all([firstHydration, secondHydration])
+
+  assert.deepEqual(calls, [
+    ['loadSubjectDetail', '600000'],
+  ])
+  assert.equal(controller.state.detailMap['600000'].symbol, '600000')
+  assert.equal(controller.state.loadingDetail['600000'], false)
+})
+
 test('subject workbench controller saves inline base config and symbol limit per symbol then refreshes overview and detail', async () => {
   const calls = []
   const messages = []

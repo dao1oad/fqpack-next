@@ -55,6 +55,7 @@ export const createPositionManagementSubjectWorkbenchController = ({
   notify,
   reactiveImpl = (value) => value,
 }) => {
+  const inflightDetailLoads = {}
   const state = reactiveImpl({
     loadingOverview: false,
     pageError: '',
@@ -142,23 +143,34 @@ export const createPositionManagementSubjectWorkbenchController = ({
   ) => {
     const normalizedSymbol = String(symbol || '').trim()
     if (!normalizedSymbol) return null
-    state.loadingDetail[normalizedSymbol] = true
-    try {
-      const detail = await actions.loadSubjectDetail(normalizedSymbol)
-      applyDetail(detail, {
-        preserveMustPoolDraft,
-        preservePositionLimitDraft,
-        preserveStoplossDrafts,
-      })
-      state.pageError = ''
-      return detail
-    } catch (error) {
-      state.detailErrors[normalizedSymbol] = errorMessage(error)
-      state.pageError = state.detailErrors[normalizedSymbol]
-      return null
-    } finally {
-      state.loadingDetail[normalizedSymbol] = false
+    if (inflightDetailLoads[normalizedSymbol]) {
+      return inflightDetailLoads[normalizedSymbol]
     }
+
+    state.loadingDetail[normalizedSymbol] = true
+    const request = (async () => {
+      try {
+        const detail = await actions.loadSubjectDetail(normalizedSymbol)
+        applyDetail(detail, {
+          preserveMustPoolDraft,
+          preservePositionLimitDraft,
+          preserveStoplossDrafts,
+        })
+        state.pageError = ''
+        return detail
+      } catch (error) {
+        state.detailErrors[normalizedSymbol] = errorMessage(error)
+        state.pageError = state.detailErrors[normalizedSymbol]
+        return null
+      } finally {
+        state.loadingDetail[normalizedSymbol] = false
+        if (inflightDetailLoads[normalizedSymbol] === request) {
+          delete inflightDetailLoads[normalizedSymbol]
+        }
+      }
+    })()
+    inflightDetailLoads[normalizedSymbol] = request
+    return request
   }
 
   const ensureSymbolsHydrated = async (symbols = []) => {
