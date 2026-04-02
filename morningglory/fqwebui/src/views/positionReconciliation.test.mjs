@@ -247,6 +247,8 @@ test('buildPositionReconciliationSummaryViewModel exposes rule counts for panel 
   assert.equal(summary.ruleCards[0].label, '券商与PM快照')
   assert.equal(summary.ruleCards[0].statusSummary, 'OK 3 / WARN 0 / ERROR 1')
   assert.equal(summary.ruleCards[3].statusSummary, 'OK 1 / WARN 1 / ERROR 2')
+  assert.equal(summary.stateCards.find((item) => item.key === 'OBSERVING')?.count, 1)
+  assert.equal(summary.stateCards.find((item) => item.key === 'BROKEN')?.chipVariant, 'danger')
 })
 
 test('filterPositionReconciliationRows supports audit, state and query filters', () => {
@@ -270,12 +272,25 @@ test('filterPositionReconciliationRows supports audit, state and query filters',
   )
 })
 
-test('PositionReconciliationPanel stays read-only and renders summary rules evidence and mismatch explanations', () => {
+test('PositionReconciliationPanel stays read-only and switches from the old wide ledger to the compact audit card layout', () => {
   assert.match(panelSource, /summaryRuleCards/)
+  assert.match(panelSource, /summaryStateCards/)
+  assert.match(panelSource, /position-audit-list/)
+  assert.match(panelSource, /position-audit-row__headline/)
+  assert.match(panelSource, /position-audit-preview-grid/)
+  assert.match(panelSource, /position-audit-evidence__section/)
+  assert.match(panelSource, /视图层证据/)
+  assert.match(panelSource, /规则检查/)
+  assert.match(panelSource, /差异说明/)
   assert.match(panelSource, /row\.rule_badges/)
   assert.match(panelSource, /row\.mismatch_explanations/)
   assert.match(panelSource, /row\.surface_sections/)
   assert.match(panelSource, /row\.evidence_sections/)
+  assert.doesNotMatch(panelSource, /position-reconciliation-ledger__grid/)
+  assert.doesNotMatch(panelSource, /<span>券商<\/span>/)
+  assert.doesNotMatch(panelSource, /<span>PM快照<\/span>/)
+  assert.doesNotMatch(panelSource, /<span>Entry账本<\/span>/)
+  assert.doesNotMatch(panelSource, /<span>最新 resolution<\/span>/)
   assert.doesNotMatch(panelSource, /同步/)
   assert.doesNotMatch(panelSource, /修复/)
   assert.doesNotMatch(panelSource, /自动平账/)

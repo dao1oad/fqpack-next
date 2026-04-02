@@ -33,13 +33,6 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'success',
     size: 'small',
   },
-  subjectManagement: {
-    label: '标的管理',
-    path: '/subject-management',
-    buttonType: 'success',
-    plain: true,
-    size: 'small',
-  },
   tpsl: {
     label: 'TPSL',
     path: '/tpsl',
@@ -102,7 +95,7 @@ export const HEADER_NAV_TARGETS = {
 export const HEADER_NAV_GROUPS = [
   ['systemSettings'],
   ['futures'],
-  ['klineSlim', 'orders', 'positionManagement', 'subjectManagement', 'tpsl', 'runtime'],
+  ['klineSlim', 'orders', 'positionManagement', 'tpsl', 'runtime'],
   ['gantt', 'shouban30', 'dailyScreening'],
   ['stock', 'pool', 'cjsd'],
 ]
@@ -121,7 +114,6 @@ export const ROUTE_TITLES_BY_NAME = {
   'gantt-stocks': '板块趋势',
   'order-management': '订单管理',
   'position-management': '仓位管理',
-  'subject-management': '标的管理',
   'runtime-observability': '运行观测',
   'system-settings': '系统设置',
   'tpsl-management': 'TPSL',

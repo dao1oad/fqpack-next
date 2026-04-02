@@ -37,36 +37,31 @@
 
 ## 页面组织
 
-`/position-management` 当前拆成四块：
+`/position-management` 当前是统一三栏工作台：
 
-- 左上：当前仓位状态
-- 右上：单标的仓位上限覆盖
-- 中部全宽：对账检查面板
-- 底部全宽：最近决策与上下文
+- 左栏：当前仓位状态 + 对账检查
+- 中栏：标的总览
+- 右栏：最近决策与上下文
 
-当前仓位状态与参数 inventory 已合并为左栏，规则矩阵已并入“当前仓位状态”。
+当前仓位状态与参数 inventory 已合并为左栏，规则矩阵已并入“当前仓位状态”。左栏仍可编辑全局阈值：
 
-其中单标的仓位上限批量真值固定落在 `symbol_position_limits.rows`；`subject-management/overview` 也直接消费这批 rows，不再从 dashboard 顶层字段兜底读取。
+- `allow_open_min_bail`
+- `holding_only_min_bail`
+- `single_symbol_position_limit`
 
-最近决策与上下文已合并为一张高密度 ledger。最近决策中的实时市值、仓位上限、市值来源、数量来源都会做系统真值回填；如果历史记录缺字段，后端会用当前 broker snapshot、symbol limit 和 tracked scope 做系统真值回填。
+中栏“标的总览”当前不再展示独立的“单标的仓位上限覆盖”列表，而是把下面三类能力收口到同一张表：
 
-最近决策 ledger 默认分页 `100` 条，表体默认显示约 `15` 行。
+- `must_pool` 基础配置
+- 单标的仓位上限 override
+- `position entry` 级止损与聚合买入列表
 
-## 单标的仓位上限
+中栏前端组件是 `PositionSubjectOverviewPanel`；它直接复用：
 
-右上“单标的仓位上限覆盖”现在只保留可写字段和门禁结果，不再混入对账列。
-
-单标的仓位上限覆盖当前只保留：
-
-- `标的`
-- `单标的上限设置`
-- `操作`
-- `当前来源`
-- `门禁`
-
-单标的仓位上限覆盖输入框默认展示当前生效值。保存值等于系统默认值时，后端会自动删除 override。单标的仓位上限覆盖当前只展示持仓股，并按券商真值仓位市值从大到小排序。
-
-`xt_account_sync.worker` 当前在每一轮 `15s` 同步中都会重新刷新 `pm_symbol_position_snapshots`，不再只在 worker 启动时 seed 一次；页面上的单标的仓位摘要因此会随最新 broker truth 持续收敛。
+- `/api/subject-management/overview`
+- `/api/subject-management/<symbol>`
+- `/api/subject-management/<symbol>/must-pool`
+- `/api/position-management/symbol-limits/<symbol>`
+- `/api/order-management/stoploss/bind`
 
 单标的实时仓位上限当前统一使用“系统默认值兜底 + 显式 override”语义：
 
@@ -75,29 +70,36 @@
 - 没有 override 时，实际生效值天然等于系统默认值
 - buy gate 只看 `effective_limit`
 
+标的总览行内保存时，如果覆盖值等于系统默认值，后端仍会自动删除 override。
+
+最近决策与上下文已合并为一张高密度 ledger。最近决策中的实时市值、仓位上限、市值来源、数量来源都会做系统真值回填；如果历史记录缺字段，后端会用当前 broker snapshot、symbol limit 和 tracked scope 做系统真值回填。
+
+最近决策 ledger 默认分页 `100` 条，表体默认显示约 `15` 行。
+
 ## 对账检查面板
 
 `对账检查面板` 对应 `GET /api/position-management/reconciliation` 和 `GET /api/position-management/reconciliation/<symbol>`。
 
 一致性检查只读，不负责修复，不会触发 compat sync、reconcile、repair、rebuild 或任何写操作。它只负责告诉前端哪些视图本应相等却不相等，以及 broker truth 和 ledger explanation 的差异是否被 reconciliation 正确解释。
 
-主表顶部当前展示：
+顶部摘要当前展示：
 
 - `总标的`
 - `ERROR / WARN / OK`
+- reconciliation 五态计数
 - `R1 ~ R4` 每条规则的 `OK / WARN / ERROR` 汇总
 
-主表当前展示：
+卡片列表当前展示：
 
 - `标的`
-- `券商`
-- `PM快照`
-- `Entry账本`
-- `对账状态`
 - `检查结果`
-- `最新 resolution`
+- `对账状态`
+- `latest resolution`
+- `signed gap`
+- `open gap`
+- `broker / snapshot / entry / compat` 四个 preview surface
 
-展开详情当前展示：
+展开证据当前展示：
 
 - `R1 ~ R4` 逐规则检查 badge
 - `mismatch_codes` 的中文解释
@@ -143,18 +145,7 @@
 - `rows[].rule_results`
 - `rows[].evidence_sections`
 
-前端 `PositionReconciliationPanel` 只消费这些只读字段，不再把对账逻辑散落在单标的上限表内。
-
-## tracked scope
-
-单标的仓位上限摘要行只保留 tracked scope 内的 symbol：
-
-- 当前持仓股
-- `must_pool`
-- `stock_pools`
-- `pre_pools`
-
-脏数据只要不在持仓股、must_pool、stock_pools、pre_pools 中，就不会进入“单标的仓位上限覆盖”。
+前端 `PositionReconciliationPanel` 只消费这些只读字段，不再把对账逻辑散落在行内可写表单里。
 
 ## 排障
 

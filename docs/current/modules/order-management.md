@@ -313,12 +313,12 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 - `INFERRED_CONFIRMED`
 - `MATCHED`
 - `OPEN`
-- `/subject-management`
+- `subject-management` 读模型 / 组件语义
   - 止损对象已经是 `entry`
 - `/tpsl`
   - “单笔止损”实际是 `entry stoploss`
 - `/kline-slim`
-  - 标的设置中的止损对象也是 `entry`，并与 `/subject-management` 共享同一套 entry 摘要字段
+  - 标的设置中的止损对象也是 `entry`，并与 `subject-management` 读模型共享同一套 entry 摘要字段
 - `/position-management`
   - 不再对比 `stock_fills` 仓位真值
   - `单标的仓位上限覆盖` 列表不再承担对账展示

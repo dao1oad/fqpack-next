@@ -13,8 +13,10 @@
 
 ## 入口
 
-- 前端路由
-  - `/subject-management`
+- 前端
+  - 独立 Web UI 路由已移除
+  - `PositionManagement` 中栏 `PositionSubjectOverviewPanel` 当前直接复用 `SubjectManagement` 的读模型与交互控制器
+  - 仓内仍保留 `SubjectManagement.vue` 与对应读模型，供迁移期复用
 - 后端接口
   - `/api/subject-management/overview`
   - `/api/subject-management/<symbol>`
@@ -85,7 +87,7 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
 - `latest_price / latest_price_source`
 - `remaining_market_value / remaining_market_value_source`
 
-`base_config_summary` 当前为右栏“基础配置 + 单标的仓位上限”提供正式读模型，字段统一区分：
+`base_config_summary` 当前为中栏“标的总览”里的“基础配置 + 单标的仓位上限”提供正式读模型，字段统一区分：
 
 - `configured_value`
 - `effective_value`
@@ -111,7 +113,7 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
 
 其中 `instrument_strategy.lot_amount` 当前要与 Guardian 运行时 `get_trade_amount(symbol)` 口径保持一致；不会因为存在仅带 `.SH/.SZ` 后缀的单独记录，就在页面里误判成当前生效值。
 
-右栏“当前生效”列当前必须明确展示来源；缺失配置不再渲染为空白。
+标的总览里的“当前生效”摘要当前必须明确展示来源；缺失配置不再渲染为空白。
 
 ## 止损语义
 
@@ -126,18 +128,17 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
   - 买入时间
   - 剩余市值
 
-`/subject-management` 当前是 entry 级切片检查主入口：
+`SubjectManagement` 读模型当前承载 entry 级切片检查语义；独立路由已下线，但组件和读模型仍保留：
 
-- 止损区当前是左右两栏主从结构
-- 左栏展示聚合后的 open entry 列表，并按行编辑 / 保存止损
-- 左栏承载聚合买入摘要；右栏只展示当前选中 entry 的 `entry_slices`
+- `PositionSubjectOverviewPanel` 当前在每个 symbol 行内直接展示聚合后的 open entry 列表，并按行编辑 / 保存止损
+- `entry_slices` 当前通过鼠标悬浮框展示，不再要求右栏主从切换
 - “剩余市值”优先按有效 `latest_price * remaining_quantity`
 - 若 `latest_price <= 0` 或缺失，则优先用 `xt_positions.market_value / quantity` 推导有效最新价
 - 若仍无有效最新价，再回退 `avg_price * remaining_quantity`
 
 ## 排序
 
-左表当前按运行态仓位金额从大到小排序，排序口径与 `KlineSlim` 持仓股和 `PositionManagement` 单标的上限表保持一致。
+标的总览当前按运行态仓位金额从大到小排序，排序口径与 `KlineSlim` 持仓股和 `PositionManagement` 中栏表保持一致。
 
 ## 当前边界
 
@@ -157,7 +158,7 @@ Guardian / 止盈的真实编辑入口仍在 `/kline-slim`。
 
 - 改动 `/api/subject-management/*`
   - 重建 API Server
-- 改动 `/subject-management`
+- 改动 `SubjectManagement.vue`
   - 重建 Web UI
 
 ## 排障

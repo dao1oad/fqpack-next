@@ -7,6 +7,7 @@ import {
 import {
   getAuditStatusMeta,
   getReconciliationStateMeta,
+  RECONCILIATION_STATE_META,
 } from './reconciliationStateMeta.mjs'
 
 const integerFormatter = new Intl.NumberFormat('en-US', {
@@ -126,6 +127,13 @@ export const buildPositionReconciliationSummaryViewModel = (payload = {}) => {
   const summary = normalizedPayload?.summary && typeof normalizedPayload.summary === 'object'
     ? normalizedPayload.summary
     : {}
+  const stateCards = Object.values(RECONCILIATION_STATE_META).map((meta) => ({
+    key: meta.key,
+    label: meta.label,
+    chipVariant: meta.chipVariant,
+    severity: meta.severity,
+    count: toNumber(summary?.reconciliation_state_counts?.[meta.key]),
+  }))
   const ruleCards = CONSISTENCY_RULES.map((rule) => {
     const counts = summary?.rule_counts?.[rule.id] || {}
     const okCount = toNumber(counts?.OK)
@@ -153,6 +161,7 @@ export const buildPositionReconciliationSummaryViewModel = (payload = {}) => {
       reconciliation_state_counts: summary?.reconciliation_state_counts || {},
       rule_counts: summary?.rule_counts || {},
     },
+    stateCards,
     ruleCards,
   }
 }
