@@ -38,6 +38,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先执行 `git clean -ffdX` 清掉 mirror 内的 ignored 产物，避免历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件混入后续 Docker 构建。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 deploy mirror repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
+- `script/fqnext_host_runtime_ctl.ps1` 或 `script/fqnext_supervisor_config.py` 自身发生变更时，`script/freshquant_deploy_plan.py` 现在会强制命中全部宿主机 deployment surface（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`）；这类 host-runtime infra 变更不允许再被判成 no-op deploy。
 - `script/ci/run_production_deploy.ps1` 会显式把 canonical repo root 与本机 deploy mirror 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
 - 正式 deploy 要求 production runner 至少存在一个可用的 Python 3.12；若 `py -3.12` 因旧注册失效，入口脚本会回退到已注册的 per-user / system Python 3.12，并回补 `HKCU\Software\Python\PythonCore\3.12\InstallPath`。
 - 若 runner Python 3.12 缺少 `uv` 模块，入口脚本会先执行 `python -m pip install uv --break-system-packages` 再继续部署。
