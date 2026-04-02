@@ -10,6 +10,8 @@ param(
     [string]$ServiceSnapshotPath,
     [string]$ProcessSnapshotPath,
     [string]$SupervisorSnapshotPath,
+    [string]$SupervisorConfigSnapshotPath,
+    [string]$ExpectedSupervisorRepoRoot = 'D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production',
     [string]$SupervisorConfigPath = 'D:\fqpack\config\supervisord.fqnext.conf'
 )
 
@@ -407,6 +409,76 @@ function Get-SupervisorProgramSnapshot {
         available = $true
         source = 'live_query'
         programs = @(Convert-ToObjectArray $payload.programs)
+    }
+}
+
+function Get-SupervisorConfigSnapshot {
+    if (-not [string]::IsNullOrWhiteSpace($SupervisorConfigSnapshotPath)) {
+        $payload = Read-JsonFile -Path $SupervisorConfigSnapshotPath
+        return [pscustomobject]@{
+            available = $true
+            source = 'snapshot'
+            payload = $payload
+        }
+    }
+
+    if (
+        -not [string]::IsNullOrWhiteSpace($ServiceSnapshotPath) -or
+        -not [string]::IsNullOrWhiteSpace($ProcessSnapshotPath) -or
+        -not [string]::IsNullOrWhiteSpace($SupervisorSnapshotPath)
+    ) {
+        return [pscustomobject]@{
+            available = $false
+            source = 'disabled_for_test_snapshots'
+            payload = [pscustomobject]@{
+                ok = $true
+                failures = @()
+                warnings = @()
+            }
+        }
+    }
+
+    $configScript = Join-Path $repoRoot 'script\fqnext_supervisor_config.py'
+    if (-not (Test-Path $configScript)) {
+        return [pscustomobject]@{
+            available = $false
+            source = 'missing_supervisor_config_script'
+            payload = [pscustomobject]@{
+                ok = $true
+                failures = @()
+                warnings = @()
+            }
+        }
+    }
+
+    $command = @(
+        'py',
+        '-3.12',
+        $configScript,
+        'inspect',
+        '--config-path',
+        $SupervisorConfigPath,
+        '--expected-repo-root',
+        $ExpectedSupervisorRepoRoot
+    )
+    $result = & $command[0] $command[1..($command.Count - 1)] 2>$null
+    if ([string]::IsNullOrWhiteSpace(($result | Out-String))) {
+        return [pscustomobject]@{
+            available = $false
+            source = 'live_query_failed'
+            payload = [pscustomobject]@{
+                ok = $false
+                failures = @('supervisor config inspect returned no payload')
+                warnings = @()
+            }
+        }
+    }
+
+    $payload = $result | ConvertFrom-Json
+    return [pscustomobject]@{
+        available = $true
+        source = 'live_query'
+        payload = $payload
     }
 }
 
@@ -814,11 +886,90 @@ function Get-ProcessChecks {
     }
 }
 
+function Get-SupervisorConfigChecks {
+    param(
+        [Parameter(Mandatory = $true)]$SupervisorConfigState,
+        [string[]]$DeploymentSurfaces
+    )
+
+    $hostManagedSurfaces = @(
+        'market_data',
+        'guardian',
+        'position_management',
+        'tpsl',
+        'order_management'
+    )
+    $required = @(
+        $DeploymentSurfaces | Where-Object { $hostManagedSurfaces -contains $_ }
+    ).Count -gt 0
+
+    $payload = if ($null -ne $SupervisorConfigState) {
+        $SupervisorConfigState.payload
+    }
+    else {
+        [pscustomobject]@{
+            ok = $true
+            failures = @()
+            warnings = @()
+        }
+    }
+
+    $available = $false
+    if ($null -ne $SupervisorConfigState -and $null -ne $SupervisorConfigState.PSObject.Properties['available']) {
+        $available = [bool]$SupervisorConfigState.available
+    }
+
+    $checks = @(
+        [pscustomobject]@{
+            name = 'supervisor_config'
+            required = $required
+            available = $available
+            source = if ($null -ne $SupervisorConfigState) { [string]$SupervisorConfigState.source } else { 'unknown' }
+            passed = (-not $required) -or ($available -and [bool]$payload.ok)
+            configured_repo_root = Get-StringProperty -Object $payload -PropertyNames @('configured_repo_root', 'configuredRepoRoot')
+            expected_repo_root = Get-StringProperty -Object $payload -PropertyNames @('expected_repo_root', 'expectedRepoRoot')
+            reasons = @(
+                if ($required -and -not $available) {
+                    @("supervisor config inspection unavailable: source=$([string]$SupervisorConfigState.source)")
+                }
+                elseif ($required -and -not [bool]$payload.ok) {
+                    @(Convert-ToObjectArray $payload.failures)
+                }
+                else {
+                    @()
+                }
+            )
+        }
+    )
+
+    $warnings = [System.Collections.Generic.List[string]]::new()
+    foreach ($warning in @(Convert-ToObjectArray $payload.warnings)) {
+        $warnings.Add([string]$warning)
+    }
+
+    $failures = [System.Collections.Generic.List[string]]::new()
+    if ($required -and -not $available) {
+        $failures.Add("supervisor config check failed: inspection unavailable (source=$([string]$SupervisorConfigState.source))")
+    }
+    elseif ($required -and -not [bool]$payload.ok) {
+        foreach ($failure in @(Convert-ToObjectArray $payload.failures)) {
+            $failures.Add("supervisor config check failed: $failure")
+        }
+    }
+
+    return @{
+        Checks = $checks
+        Warnings = @($warnings)
+        Failures = @($failures)
+    }
+}
+
 $deploymentSurfaces = @(Resolve-DeploymentSurfaces -Values $DeploymentSurface)
 $allContainerNames = @(Get-AllKnownContainerNames)
 $dockerSnapshot = @(Get-DockerSnapshot -ContainerNames $allContainerNames)
 $serviceSnapshot = @(Get-ServiceSnapshot)
 $supervisorState = Get-SupervisorProgramSnapshot
+$supervisorConfigState = Get-SupervisorConfigSnapshot
 $processSnapshot = @(Get-ProcessSnapshot)
 $dockerBaseline = @(Normalize-DockerBaseline -Snapshot $dockerSnapshot -ContainerNames $allContainerNames)
 $serviceBaseline = @(Normalize-ServiceBaseline -Snapshot $serviceSnapshot)
@@ -832,10 +983,12 @@ $result = [ordered]@{
         docker = @($dockerBaseline)
         services = @($serviceBaseline)
         processes = @($processBaseline)
+        supervisor_config = $supervisorConfigState.payload
     }
     docker_checks = @()
     service_checks = @()
     process_checks = @()
+    supervisor_config_checks = @()
     warnings = @()
     failures = @()
     passed = $true
@@ -878,12 +1031,14 @@ foreach ($surface in $deploymentSurfaces) {
 $dockerChecks = Get-DockerChecks -CurrentEntries $dockerBaseline -RequiredContainerNames @($requiredContainerNames)
 $serviceChecks = Get-ServiceChecks -CurrentEntries $serviceBaseline -Baseline $baseline -DeploymentSurfaces $deploymentSurfaces
 $processChecks = Get-ProcessChecks -CurrentEntries $processBaseline -Baseline $baseline -DeploymentSurfaces $deploymentSurfaces
+$supervisorConfigChecks = Get-SupervisorConfigChecks -SupervisorConfigState $supervisorConfigState -DeploymentSurfaces $deploymentSurfaces
 
 $result.docker_checks = $dockerChecks.Checks
 $result.service_checks = $serviceChecks.Checks
 $result.process_checks = $processChecks.Checks
-$result.warnings = @($serviceChecks.Warnings + $processChecks.Warnings)
-$result.failures = @($dockerChecks.Failures + $serviceChecks.Failures + $processChecks.Failures)
+$result.supervisor_config_checks = $supervisorConfigChecks.Checks
+$result.warnings = @($serviceChecks.Warnings + $processChecks.Warnings + $supervisorConfigChecks.Warnings)
+$result.failures = @($dockerChecks.Failures + $serviceChecks.Failures + $processChecks.Failures + $supervisorConfigChecks.Failures)
 $result.passed = ($result.failures.Count -eq 0)
 
 $verifyJson = $result | ConvertTo-Json -Depth 12

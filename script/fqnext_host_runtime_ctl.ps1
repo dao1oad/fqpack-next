@@ -6,6 +6,7 @@ param(
     [string]$SupervisorServiceName = 'fqnext-supervisord',
     [string]$RestartTaskName = 'fqnext-supervisord-restart',
     [string]$ConfigPath = 'D:\fqpack\config\supervisord.fqnext.conf',
+    [string]$SupervisorConfigRepoRoot,
     [double]$TimeoutSeconds = 45,
     [switch]$BridgeIfServiceUnavailable
 )
@@ -14,6 +15,7 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $pythonScript = Join-Path $repoRoot 'script\fqnext_host_runtime.py'
+$supervisorConfigScript = Join-Path $repoRoot 'script\fqnext_supervisor_config.py'
 $invokeBridgeScript = Join-Path $repoRoot 'script\invoke_fqnext_supervisord_restart_task.ps1'
 
 function Normalize-DeploymentSurfaces {
@@ -42,6 +44,22 @@ function Get-SupervisorService {
     param([string]$ServiceName)
 
     return Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+}
+
+function Get-SupervisorServiceProcessStartTimeUtc {
+    param([string]$ServiceName)
+
+    $serviceInstance = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
+    if ($null -eq $serviceInstance -or [int]$serviceInstance.ProcessId -le 0) {
+        return $null
+    }
+
+    $process = Get-Process -Id ([int]$serviceInstance.ProcessId) -ErrorAction SilentlyContinue
+    if ($null -eq $process) {
+        return $null
+    }
+
+    return $process.StartTime.ToUniversalTime()
 }
 
 function Wait-ServiceRunning {
@@ -148,6 +166,84 @@ function Invoke-AdminBridgeRecovery {
     return Wait-ServiceRunning -ServiceName $ServiceName -TimeoutSeconds $TimeoutSeconds
 }
 
+function Reload-SupervisorServiceForConfig {
+    param(
+        [string]$ServiceName,
+        [string]$TaskName,
+        [double]$TimeoutSeconds,
+        [switch]$AllowBridge
+    )
+
+    $service = Get-SupervisorService -ServiceName $ServiceName
+    if ($null -eq $service -or $service.Status -ne 'Running') {
+        return $false
+    }
+
+    if (Test-IsElevatedSession) {
+        Restart-Service -Name $ServiceName -Force
+        Wait-ServiceRunning -ServiceName $ServiceName -TimeoutSeconds $TimeoutSeconds | Out-Null
+        return $true
+    }
+
+    if ($AllowBridge) {
+        Invoke-AdminBridgeRecovery -ServiceName $ServiceName -TaskName $TaskName -TimeoutSeconds $TimeoutSeconds | Out-Null
+        return $true
+    }
+
+    throw "Supervisor config changed but service '$ServiceName' could not be reloaded without elevation or admin bridge."
+}
+
+function Sync-SupervisorConfig {
+    param(
+        [string]$TargetRepoRoot,
+        [string]$ResolvedConfigPath,
+        [string]$ServiceName,
+        [string]$TaskName,
+        [double]$TimeoutSeconds,
+        [switch]$AllowBridge
+    )
+
+    if ([string]::IsNullOrWhiteSpace($TargetRepoRoot)) {
+        return [pscustomobject]@{
+            Changed = $false
+            WasRecovered = $false
+            ServiceReloadRequired = $false
+            ConfigPath = $ResolvedConfigPath
+        }
+    }
+
+    if (-not (Test-Path $supervisorConfigScript)) {
+        throw "Supervisor config sync script not found: $supervisorConfigScript"
+    }
+
+    $raw = & py -3.12 $supervisorConfigScript write --repo-root $TargetRepoRoot --output-path $ResolvedConfigPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "fqnext supervisor config write failed for repo root '$TargetRepoRoot'."
+    }
+
+    $payload = $raw | ConvertFrom-Json
+    $serviceReloadRequired = $false
+    if (Test-Path $ResolvedConfigPath) {
+        $serviceStartTimeUtc = Get-SupervisorServiceProcessStartTimeUtc -ServiceName $ServiceName
+        if ($null -ne $serviceStartTimeUtc) {
+            $configWriteTimeUtc = (Get-Item -LiteralPath $ResolvedConfigPath).LastWriteTimeUtc
+            $serviceReloadRequired = $configWriteTimeUtc -gt $serviceStartTimeUtc
+        }
+    }
+
+    $wasRecovered = $false
+    if ($serviceReloadRequired) {
+        $wasRecovered = Reload-SupervisorServiceForConfig -ServiceName $ServiceName -TaskName $TaskName -TimeoutSeconds $TimeoutSeconds -AllowBridge:$AllowBridge
+    }
+
+    return [pscustomobject]@{
+        Changed = [bool]$payload.changed
+        WasRecovered = [bool]$wasRecovered
+        ServiceReloadRequired = [bool]$serviceReloadRequired
+        ConfigPath = $ResolvedConfigPath
+    }
+}
+
 switch ($Mode) {
     'Status' {
         $service = Get-SupervisorService -ServiceName $SupervisorServiceName
@@ -166,12 +262,14 @@ switch ($Mode) {
         exit 0
     }
     'EnsureSupervisorService' {
+        $configSync = Sync-SupervisorConfig -TargetRepoRoot $SupervisorConfigRepoRoot -ResolvedConfigPath $ConfigPath -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds -AllowBridge:$BridgeIfServiceUnavailable
         $result = Ensure-SupervisorServiceRunning -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds -AllowBridge:$BridgeIfServiceUnavailable
         $service = $result.Service
         [ordered]@{
             service_name = $service.Name
             service_status = [string]$service.Status
-            was_recovered = [bool]$result.WasRecovered
+            was_recovered = ([bool]$result.WasRecovered -or [bool]$configSync.WasRecovered)
+            config_changed = [bool]$configSync.Changed
         } | ConvertTo-Json -Depth 4
         exit 0
     }
@@ -180,8 +278,10 @@ switch ($Mode) {
         exit 0
     }
     'EnsureServiceAndRestartSurfaces' {
+        $configSync = Sync-SupervisorConfig -TargetRepoRoot $SupervisorConfigRepoRoot -ResolvedConfigPath $ConfigPath -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds -AllowBridge:$BridgeIfServiceUnavailable
         $result = Ensure-SupervisorServiceRunning -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds -AllowBridge:$BridgeIfServiceUnavailable
-        if ($result.WasRecovered) {
+        $serviceRecovered = ([bool]$result.WasRecovered -or [bool]$configSync.WasRecovered)
+        if ($serviceRecovered) {
             Invoke-HostRuntimePython -Command 'wait-settled' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
         }
         $bridgeRetried = $false

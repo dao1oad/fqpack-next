@@ -37,6 +37,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `script/ci/run_production_deploy.ps1` 会先校验 `github.sha == latest origin/main`，再负责 mirror bootstrap / fast-forward、runner Python 3.12 / `uv` 自愈、mirror `.venv` 同步和 formal deploy 调用。
 - `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先执行 `git clean -ffdX` 清掉 mirror 内的 ignored 产物，避免历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件混入后续 Docker 构建。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
+- `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 deploy mirror repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
 - `script/ci/run_production_deploy.ps1` 会显式把 canonical repo root 与本机 deploy mirror 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
 - 正式 deploy 要求 production runner 至少存在一个可用的 Python 3.12；若 `py -3.12` 因旧注册失效，入口脚本会回退到已注册的 per-user / system Python 3.12，并回补 `HKCU\Software\Python\PythonCore\3.12\InstallPath`。
 - 若 runner Python 3.12 缺少 `uv` 模块，入口脚本会先执行 `python -m pip install uv --break-system-packages` 再继续部署。
@@ -88,6 +89,8 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 - workflow 与人工正式 deploy 都应优先调用 `script/ci/run_production_deploy.ps1`；不要再把 mirror sync、`uv sync`、`run_formal_deploy.py` 手工拆开执行。
 - `docker/compose.parallel.yaml` 变更现在按完整 Docker 并行环境运行时变更处理；`freshquant_deploy_plan.py` 必须把它解析成实际 deploy，而不是 `deployment_required=false` 的 no-op。
 - `script/ci/run_production_deploy.ps1` 会先用 runner Python 3.12 做 `uv sync`，再切换到 deploy mirror `.venv\Scripts\python.exe` 运行 `run_formal_deploy.py`；formal deploy 内部 health check 也跟随 mirror `.venv` 解释器。
+- formal deploy 命中宿主机面时，当前 supervisor 正式解释器、`directory` 与 `PYTHONPATH` 都必须落到 `main-deploy-production`；不再允许 `main-runtime` 或主仓 `.venv\Lib\site-packages\fqxtrade` 作为兜底真值。
+- 若 `D:\fqpack\config\supervisord.fqnext.conf` 已更新但 `fqnext-supervisord` 进程仍吃着旧内存配置，`fqnext_host_runtime_ctl.ps1` 会在 surface restart 前先做一次受控 service reload/restart。
 - 如果 formal deploy 命中 `fq_apiserver` / `fq_webui` 后仍出现“像是旧代码”的症状，先检查 deploy mirror 是否残留过往 ignored 构建产物；当前正式入口会在 mirror sync 阶段主动清掉这类文件。
 - 读取 `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`、`result.json` 与 `D:/fqpack/runtime/formal-deploy/production-state.json` 作为正式 deploy 基础证据；不要只凭终端退出码判断成功。
 - 如果 `plan.json` / `result.json` 显示 `deployment_required=false`，把这轮判定为 `no-op deploy`：`runtime-verify.json 可以不存在`，但仍要确认 `result.json` 为 `ok=true`，并且 `production-state.json` 里的 `last_success_sha` 已更新到目标 SHA。
@@ -194,9 +197,10 @@ powershell -ExecutionPolicy Bypass -File script/check_freshquant_runtime_post_de
 ```
 
 - `DeploymentSurface` 取值固定为：`api`、`web`、`dagster`、`qa`、`tradingagents`、`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`
-- 输出 JSON 至少包含：`baseline`、`docker_checks`、`service_checks`、`process_checks`、`warnings`、`failures`、`passed`
+- 输出 JSON 至少包含：`baseline`、`docker_checks`、`service_checks`、`process_checks`、`supervisor_config_checks`、`warnings`、`failures`、`passed`
 - 固定检查基础容器：`fq_mongodb`、`fq_redis`
 - 固定记录宿主机服务：`fqnext-supervisord`
+- 命中宿主机 deployment surface 时，`supervisor_config_checks` 还会校验 config repo root 与关键模块 import source 是否仍在 `main-deploy-production`
 
 ### 运维面辅助命令
 
