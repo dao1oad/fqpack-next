@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Status', 'EnsureSupervisorService', 'RestartSurfaces', 'EnsureServiceAndRestartSurfaces', 'InvokeAdminBridge')]
+    [ValidateSet('Status', 'EnsureSupervisorService', 'StopSurfaces', 'RestartSurfaces', 'EnsureServiceAndRestartSurfaces', 'InvokeAdminBridge')]
     [string]$Mode = 'Status',
     [string[]]$DeploymentSurface = @(),
     [string]$SupervisorServiceName = 'fqnext-supervisord',
@@ -142,7 +142,7 @@ function Invoke-HostRuntimePython {
     foreach ($surface in $resolvedSurfaces) {
         $arguments += @('--surface', $surface)
     }
-    if ($Command -in @('restart-surfaces', 'wait-settled')) {
+    if ($Command -in @('stop-surfaces', 'restart-surfaces', 'wait-settled')) {
         $arguments += @('--timeout-seconds', [string]$TimeoutSeconds)
     }
 
@@ -285,6 +285,10 @@ switch ($Mode) {
     }
     'RestartSurfaces' {
         Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
+        exit 0
+    }
+    'StopSurfaces' {
+        Invoke-HostRuntimePython -Command 'stop-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
         exit 0
     }
     'EnsureServiceAndRestartSurfaces' {

@@ -14,7 +14,7 @@ DEFAULT_SETTLE_SECONDS = 3.0
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0
 TRANSITIONAL_STATES = {"STARTING", "STOPPING"}
 RETRYABLE_START_STATES = {"EXITED", "FATAL", "BACKOFF", "STARTING"}
-TIMEOUT_FLOOR_COMMANDS = {"restart-surfaces", "wait-settled"}
+TIMEOUT_FLOOR_COMMANDS = {"stop-surfaces", "restart-surfaces", "wait-settled"}
 
 SURFACE_ORDER = (
     "market_data",
@@ -390,6 +390,96 @@ def restart_programs(
     return results
 
 
+def stop_programs(
+    server: xmlrpc.client.ServerProxy,
+    programs: list[str],
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+) -> list[dict[str, object]]:
+    results: list[dict[str, object]] = []
+    result_lookup: dict[str, dict[str, object]] = {}
+    errors: dict[str, str] = {}
+
+    for program in programs:
+        before = get_process_info(server, program)
+        before_state = str(before.get("statename", "")).upper()
+        result_entry = {
+            "name": program,
+            "before_state": before.get("statename"),
+            "after_state": before.get("statename"),
+            "pid": before.get("pid"),
+        }
+
+        try:
+            if before_state == "RUNNING":
+                server.supervisor.stopProcess(program, True)
+                after = wait_for_state(
+                    server, program, "STOPPED", timeout_seconds=timeout_seconds
+                )
+                result_entry["after_state"] = after.get("statename")
+                result_entry["pid"] = after.get("pid")
+            else:
+                result_entry["after_state"] = before.get("statename")
+                result_entry["pid"] = before.get("pid")
+        except Exception as exc:
+            latest = get_process_info(server, program)
+            errors[program] = str(exc)
+            result_entry["after_state"] = latest.get("statename")
+            result_entry["pid"] = latest.get("pid")
+
+        results.append(result_entry)
+        result_lookup[program] = result_entry
+
+    settled_infos: dict[str, dict[str, object]] | None = None
+    settle_error: str | None = None
+    if len(programs) > 1 or errors:
+        try:
+            settled_infos = wait_for_programs_settled(
+                server,
+                programs,
+                timeout_seconds=timeout_seconds,
+            )
+        except RuntimeError as exc:
+            settle_error = str(exc)
+
+    if settled_infos is None:
+        settled_infos = {
+            program: get_process_info(server, program) for program in programs
+        }
+
+    details: list[dict[str, object]] = []
+    unresolved = bool(errors)
+    for program in programs:
+        latest = settled_infos.get(program) or get_process_info(server, program)
+        result_entry = result_lookup[program]
+        result_entry["after_state"] = latest.get("statename")
+        result_entry["pid"] = latest.get("pid")
+        final_state = str(latest.get("statename", "")).upper()
+        if final_state not in {"STOPPED", "EXITED", "FATAL"}:
+            unresolved = True
+
+        detail: dict[str, object] = {
+            "name": program,
+            "before_state": result_entry["before_state"],
+            "final_state": latest.get("statename"),
+            "pid": latest.get("pid"),
+        }
+        if program in errors:
+            detail["error"] = errors[program]
+        details.append(detail)
+
+    if settle_error is not None:
+        unresolved = True
+        details.append({"name": "__settle__", "error": settle_error})
+
+    if unresolved:
+        raise RuntimeError(
+            "Programs failed to stop cleanly: "
+            + json.dumps(details, ensure_ascii=False)
+        )
+
+    return results
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Control fqnext supervisor runtime")
     parser.add_argument(
@@ -403,6 +493,14 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument("--surface", action="append", default=[])
     status_parser.add_argument("--program", action="append", default=[])
+
+    stop_parser = subparsers.add_parser("stop-surfaces")
+    stop_parser.add_argument("--surface", action="append", required=True)
+    stop_parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=DEFAULT_TIMEOUT_SECONDS,
+    )
 
     restart_parser = subparsers.add_parser("restart-surfaces")
     restart_parser.add_argument("--surface", action="append", required=True)
@@ -474,6 +572,19 @@ def main() -> int:
             "rpc_url": rpc_url,
             "surfaces": surfaces,
             "programs": build_status_entries(infos),
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "stop-surfaces":
+        payload = {
+            "rpc_url": rpc_url,
+            "surfaces": surfaces,
+            "programs": stop_programs(
+                server,
+                programs,
+                timeout_seconds=effective_timeout_seconds,
+            ),
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
