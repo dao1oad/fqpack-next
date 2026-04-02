@@ -362,8 +362,13 @@ if (-not (Test-Path (Join-Path $MirrorRoot ".git"))) {
 
 Ensure-SafeDirectory -RepoRoot $MirrorRoot
 
+$syncLocalDeployMirrorScript = Join-Path $CurrentScriptRepoRoot 'script/ci/sync_local_deploy_mirror.py'
+if (-not (Test-Path $syncLocalDeployMirrorScript)) {
+    throw "deploy mirror sync helper not found: $syncLocalDeployMirrorScript"
+}
+
 Invoke-Python -PythonExe $pythonExe -WorkingDirectory $MirrorRoot -Arguments @(
-    "script/ci/sync_local_deploy_mirror.py",
+    $syncLocalDeployMirrorScript,
     "--repo-root", $MirrorRoot,
     "--target-sha", $TargetSha,
     "--remote-url", $remoteUrl,

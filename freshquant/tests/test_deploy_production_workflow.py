@@ -76,6 +76,23 @@ def test_run_production_deploy_bootstraps_latest_entrypoint_worktree_before_reex
     assert '"-SkipBootstrapReexec"' in text
 
 
+def test_run_production_deploy_resolves_sync_helper_from_current_entrypoint_repo() -> (
+    None
+):
+    text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
+
+    assert (
+        "$syncLocalDeployMirrorScript = Join-Path $CurrentScriptRepoRoot "
+        "'script/ci/sync_local_deploy_mirror.py'"
+    ) in text
+    assert (
+        'Invoke-Python -PythonExe $pythonExe -WorkingDirectory $MirrorRoot -Arguments @('
+        in text
+    )
+    assert '$syncLocalDeployMirrorScript,' in text
+    assert '"script/ci/sync_local_deploy_mirror.py",' not in text
+
+
 def test_run_production_deploy_catches_py_launcher_failures_before_fallback() -> None:
     text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
     start = text.index("function Get-PyLauncherPython312")
