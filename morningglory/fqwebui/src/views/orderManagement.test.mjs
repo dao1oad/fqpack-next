@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import {
+  ORDER_STATE_FILTER_OPTIONS,
   buildOrderDetailViewModel,
   buildOrderRows,
   buildOrderStats,
@@ -84,6 +85,27 @@ test('buildOrderRows keeps a muted fallback for unknown order states', () => {
   assert.equal(rows[0].state_chip_variant, 'muted')
   assert.equal(rows[0].state_severity, 'warn')
 })
+
+test('order state filter options keep the legacy CANCELLED alias selectable', () => {
+  assert.ok(
+    ORDER_STATE_FILTER_OPTIONS.some(
+      (option) => option.value === 'CANCELLED' && option.label === '已撤单',
+    ),
+  )
+
+  const rows = buildOrderRows([
+    {
+      internal_order_id: 'ord_cancelled',
+      symbol: '600000',
+      side: 'sell',
+      state: 'CANCELLED',
+    },
+  ])
+
+  assert.equal(rows[0].state_label, '已撤单')
+  assert.equal(rows[0].state_chip_variant, 'muted')
+})
+
 test('order helpers keep instrument name, 3-decimal prices and second-level timestamps', () => {
   assert.equal(formatOrderPrice(null), '-')
   assert.equal(formatOrderPrice(''), '-')

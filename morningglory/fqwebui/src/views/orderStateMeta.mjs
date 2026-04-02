@@ -60,6 +60,12 @@ export const ORDER_STATE_META = {
     chipVariant: 'muted',
     severity: 'warn',
   },
+  CANCELLED: {
+    key: 'CANCELLED',
+    label: '已撤单',
+    chipVariant: 'muted',
+    severity: 'warn',
+  },
   FAILED: {
     key: 'FAILED',
     label: '失败',
