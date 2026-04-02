@@ -64,6 +64,7 @@ test('header nav target returns label, route and tab title query', () => {
       tabTitle: '运行观测',
     },
   })
+  assert.equal(getHeaderNavTarget('subjectManagement'), null)
 })
 
 test('resolveDocumentTitle prefers query title then route meta title', () => {
@@ -88,7 +89,7 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   assert.deepEqual(HEADER_NAV_GROUPS, [
     ['systemSettings'],
     ['futures'],
-    ['klineSlim', 'orders', 'positionManagement', 'subjectManagement', 'tpsl', 'runtime'],
+    ['klineSlim', 'orders', 'positionManagement', 'tpsl', 'runtime'],
     ['gantt', 'shouban30', 'dailyScreening'],
     ['stock', 'pool', 'cjsd'],
   ])
@@ -96,15 +97,21 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   const groups = resolveHeaderNavGroups()
   assert.equal(groups.length, HEADER_NAV_GROUPS.length)
   assert.equal(groups[2][0].label, '行情图表')
-  assert.equal(groups[2][5].query.tabTitle, '运行观测')
+  assert.equal(groups[2][4].query.tabTitle, '运行观测')
   assert.equal(groups[3][1].query.days, '30')
   assert.equal(groups[4][2].path, '/stock-cjsd')
+  assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/subject-management'), false)
 })
 
 test('legacy core routes stay lazy-loaded without changing redirect or route bindings', async () => {
   const routerSource = (await readFile(new URL('./index.js', import.meta.url), 'utf8')).replace(/\r/g, '')
 
   assert.match(routerSource, /path:\s*'\/',\s*redirect:\s*'\/stock-control'/)
+  assert.doesNotMatch(routerSource, /const\s+SubjectManagement\s*=\s*\(\)\s*=>\s*import\('\.\.\/views\/SubjectManagement\.vue'\)/)
+  assert.doesNotMatch(
+    routerSource,
+    /path:\s*'\/subject-management',[\s\S]*?name:\s*'subject-management'/,
+  )
 
   for (const {
     componentName,

@@ -27,6 +27,8 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/position-management/config`
 - `/api/position-management/symbol-limits`
 - `/api/position-management/symbol-limits/<symbol>`
+- `/api/position-management/reconciliation`
+- `/api/position-management/reconciliation/<symbol>`
 
 ### `subject-management`
 
@@ -112,8 +114,11 @@ python -m freshquant.rear.api_server --port 5000
   - 当前返回 `entries / entry_slices / reconciliation / history`
   - `entries` 内嵌 `stoploss`
 - `/api/position-management/dashboard`
-  - 当前返回 `券商仓位 / 账本仓位 / 对账状态`
-  - 不再返回三套并列仓位真值
+  - 当前返回 `state / rule_matrix / config / recent_decisions / symbol_position_limits`
+  - 全局阈值编辑和最近决策都依赖该接口
+- `/api/position-management/reconciliation`
+  - 当前返回只读多视图一致性审计摘要
+  - 包含 `summary.rule_counts / summary.reconciliation_state_counts / rows[].surface_values / rows[].rule_results / rows[].evidence_sections`
 - `/api/stock_fills`
   - 仍保留旧名称
   - 底层优先读 `entry ledger`
@@ -175,7 +180,6 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - `/kline-slim`
 - `/order-management`
 - `/position-management`
-- `/subject-management`
 - `/tpsl`
 - `/runtime-observability`
 - `/gantt`

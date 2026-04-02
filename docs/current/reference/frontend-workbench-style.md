@@ -24,7 +24,6 @@
 - `/order-management`
 - `/position-management`
 - `/runtime-observability`
-- `/subject-management`
 - `/system-settings`
 - `/tpsl`
 - `/futures-control`
@@ -123,7 +122,7 @@
 - `/position-management` 已经用共享 `StatusChip` 承担顶部摘要、规则矩阵结果、右栏一致性/门禁和最近决策结果
 - `/order-management` 已经用共享 `StatusChip` 承担筛选摘要、订单摘要条和详情 identifier chip
 - `/tpsl` 已经用共享 `StatusChip` 承担顶部摘要、symbol 导航卡片 badge 与统一历史明细标签
-- `/subject-management` 已经用共享 `StatusChip` 承担顶部摘要条与右侧编辑区摘要 chip
+- 仓内保留的 `SubjectManagement.vue` 组件文件已经用共享 `StatusChip` 承担顶部摘要条与右侧编辑区摘要 chip
 - `/daily-screening` 已经用共享 `StatusChip` 承担工作台说明标签、顶部摘要条、详情数值摘要与命中条件 chip
 - `/kline-slim` 已经用共享 `StatusChip` 承担工具栏状态条、标的设置/画线编辑摘要与缠论结构摘要
 - `/system-settings` 已经用共享 `StatusChip` 承担顶部 Bootstrap/Mongo 摘要与 dense ledger 的生效/来源/状态标签
