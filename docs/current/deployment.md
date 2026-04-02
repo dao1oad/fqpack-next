@@ -35,7 +35,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
 - `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 mirror sync、`uv sync` 和 `run_formal_deploy.py`。
 - `script/ci/run_production_deploy.ps1` 会先校验 `github.sha == latest origin/main`，再负责 mirror bootstrap / fast-forward、runner Python 3.12 / `uv` 自愈、mirror `.venv` 同步和 formal deploy 调用。
-- `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先执行 `git clean -ffdX` 清掉 mirror 内的 ignored 产物，避免历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件混入后续 Docker 构建。
+- `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先显式枚举并清掉 mirror 内的 ignored 产物，但保留 live deploy mirror 的 `.venv\`；这样既能继续清理历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件，也不会误删当前宿主机 runtime 正在使用的解释器环境。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 deploy mirror repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
 - `script/fqnext_host_runtime_ctl.ps1` 或 `script/fqnext_supervisor_config.py` 自身发生变更时，`script/freshquant_deploy_plan.py` 现在会强制命中全部宿主机 deployment surface（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`）；这类 host-runtime infra 变更不允许再被判成 no-op deploy。
