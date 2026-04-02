@@ -387,7 +387,10 @@ class SubjectManagementDashboardService:
     def _load_guardian_default_lot_amount(self):
         params = self.database["params"].find_one({"code": "guardian"}) or {}
         stock_value = (params.get("value") or {}).get("stock") or {}
-        return _safe_int_or_none(stock_value.get("lot_amount")) or DEFAULT_GUARDIAN_LOT_AMOUNT
+        return (
+            _safe_int_or_none(stock_value.get("lot_amount"))
+            or DEFAULT_GUARDIAN_LOT_AMOUNT
+        )
 
     def _must_pool_map(self):
         rows = {}
@@ -718,9 +721,7 @@ def _default_symbol_limit_map_loader():
     )
 
     payload = PositionManagementDashboardService().get_dashboard()
-    rows = (
-        ((payload or {}).get("symbol_position_limits") or {}).get("rows") or []
-    )
+    rows = ((payload or {}).get("symbol_position_limits") or {}).get("rows") or []
     summary_map = {}
     for item in rows:
         symbol = _normalize_symbol((item or {}).get("symbol"))
