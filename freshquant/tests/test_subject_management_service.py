@@ -403,6 +403,68 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["position_limit_summary"]["using_override"] is True
 
 
+def test_subject_management_overview_clears_recent_trigger_after_auto_rearm():
+    tpsl_repository = InMemoryTpslRepository()
+    tpsl_repository.profiles["600000"] = {
+        "symbol": "600000",
+        "tiers": [
+            {"level": 1, "price": 10.8, "manual_enabled": True},
+            {"level": 2, "price": 11.3, "manual_enabled": True},
+            {"level": 3, "price": 11.8, "manual_enabled": False},
+        ],
+    }
+    tpsl_repository.states["600000"] = {
+        "symbol": "600000",
+        "armed_levels": {1: True, 2: True, 3: False},
+        "last_rearm_reason": "new_buy_below_lowest_tier",
+        "last_rearmed_at": "2026-03-16T10:45:00+00:00",
+    }
+    tpsl_repository.events.extend(
+        [
+            {
+                "event_id": "evt_1",
+                "kind": "takeprofit",
+                "symbol": "600000",
+                "batch_id": "tp_batch_1",
+                "created_at": "2026-03-16T10:40:00+00:00",
+            }
+        ]
+    )
+
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=tpsl_repository,
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 500,
+            }
+        ],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    rows = service.get_overview()
+
+    assert rows[0]["takeprofit"]["state"]["armed_levels"] == {
+        1: True,
+        2: True,
+        3: False,
+    }
+    assert rows[0]["runtime"]["last_trigger_kind"] is None
+    assert rows[0]["runtime"]["last_trigger_time"] is None
+
+
 def test_subject_management_overview_prefers_symbol_snapshot_market_value():
     service = SubjectManagementDashboardService(
         database=FakeDatabase(),

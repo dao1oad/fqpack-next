@@ -235,16 +235,24 @@ const cloneTakeprofitDraft = (row = {}) => ({
   manual_enabled: Boolean(row?.manual_enabled ?? row?.enabled ?? true),
 })
 
-const buildTakeprofitSummary = (tiers = []) => {
+const buildTakeprofitSummary = (tiers = [], state = {}) => {
+  const armedLevels = (state && typeof state === 'object' && state.armed_levels) || {}
   return buildTakeprofitDrafts(tiers)
     .slice(0, 3)
-    .map((row) => ({
-      level: row.level,
-      price: row.price,
-      priceLabel: formatPrice(row.price),
-      enabled: Boolean(row.manual_enabled),
-      enabledLabel: row.manual_enabled ? '开' : '关',
-    }))
+    .map((row) => {
+      const enabled = (
+        Boolean(row.manual_enabled)
+        && armedLevels[String(row.level)] !== false
+        && armedLevels[row.level] !== false
+      )
+      return {
+        level: row.level,
+        price: row.price,
+        priceLabel: formatPrice(row.price),
+        enabled,
+        enabledLabel: enabled ? '开' : '关',
+      }
+    })
 }
 
 const formatCompactDate = (value) => {
@@ -384,7 +392,10 @@ export const buildOverviewRows = (rows = []) => {
       }
       const stoploss = row?.stoploss || {}
       const runtime = row?.runtime || {}
-      const takeprofitSummary = buildTakeprofitSummary(row?.takeprofit?.tiers || [])
+      const takeprofitSummary = buildTakeprofitSummary(
+        row?.takeprofit?.tiers || [],
+        row?.takeprofit?.state || {},
+      )
       const positionLimitSummary = normalizePositionLimitSummary(row?.position_limit_summary || {})
       const activeStoplossCount = toNumber(stoploss?.active_count)
       const openEntryCount = toNumber(stoploss?.open_entry_count)

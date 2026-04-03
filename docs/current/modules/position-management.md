@@ -75,12 +75,14 @@
 - `最近TPLS触发`
   - 直接展示最近 TPSL 退出触发类型与触发时间
   - 数据来自 TPSL 最近退出事件，当前语义是 `takeprofit / stoploss`，不是 Guardian 命中
+  - 若止盈 state 的 `last_rearm_reason = new_buy_below_lowest_tier`，且 `last_rearmed_at` 晚于最近一次 TPSL 退出事件，则该列清空，表示当前买入周期已重置
   - 不再把触发时间混在“运行态”列里
 - `Guardian 层级买入`
   - 展示 `B1 / B2 / B3` 三层 Guardian 价格与每层启用状态
   - 行尾补充最近命中层级，样式与止盈层级状态保持一致
 - `止盈价格`
-  - 展示 `L1 / L2 / L3` 三层止盈价与每层启用状态
+  - 展示 `L1 / L2 / L3` 三层止盈价与每层真实运行态
+  - 状态真值当前按 `manual_enabled && armed_levels[level]` 计算；只有系统当前真的还会触发该层止盈时才显示 `开`
 
 上述三列当前固定放在 `持仓股数` 后、`持仓市值` 前，便于先看仓内 entry/TPSL 退出态，再看市值与价格导引。
 
