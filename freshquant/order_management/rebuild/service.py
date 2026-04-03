@@ -70,6 +70,9 @@ class OrderLedgerV2RebuildService:
         cross_day_reused_trade_only_ids = _collect_cross_day_reused_order_ids(
             xt_orders=xt_trades,
         )
+        cross_day_reused_trade_match_ids = (
+            cross_day_reused_order_ids | cross_day_reused_trade_only_ids
+        )
 
         for raw_order in xt_orders:
             order_identity = _build_broker_order_identity(raw_order)
@@ -111,7 +114,7 @@ class OrderLedgerV2RebuildService:
                 order_id=order_id,
                 trading_day=(
                     trading_day
-                    if trade_identity in cross_day_reused_order_ids
+                    if trade_identity in cross_day_reused_trade_match_ids
                     else None
                 ),
             )

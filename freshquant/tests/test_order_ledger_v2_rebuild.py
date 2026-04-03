@@ -326,6 +326,54 @@ def test_rebuild_service_splits_reused_broker_order_ids_across_trade_days():
     assert position_entries[1]["trade_time"] == 1775106355
 
 
+def test_rebuild_service_splits_trade_only_reused_order_ids_across_trade_days():
+    service = _get_rebuild_service_class()(
+        lot_amount_lookup=lambda _symbol: 3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    result = service.build_from_truth(
+        xt_orders=[],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-300760-OLD-1",
+                order_id=672137219,
+                stock_code="300760.SZ",
+                traded_volume=300,
+                traded_price=195.20,
+                traded_time=1774587845,
+            ),
+            _sample_xt_trade(
+                traded_id="T-300760-NEW-1",
+                order_id=672137219,
+                stock_code="300760.SZ",
+                traded_volume=3600,
+                traded_price=195.32,
+                traded_time=1775106290,
+            ),
+        ],
+        xt_positions=None,
+        now_ts=1775107000,
+    )
+
+    assert result["broker_orders"] == 2
+    assert result["execution_fills"] == 2
+    assert result["position_entries"] == 2
+
+    broker_orders = sorted(
+        result["broker_order_documents"],
+        key=lambda item: item["first_fill_time"] or 0,
+    )
+
+    assert broker_orders[0]["broker_order_id"] == "672137219"
+    assert broker_orders[0]["filled_quantity"] == 300
+    assert broker_orders[0]["first_fill_time"] == 1774587845
+    assert broker_orders[1]["broker_order_id"] == "672137219"
+    assert broker_orders[1]["filled_quantity"] == 3600
+    assert broker_orders[1]["first_fill_time"] == 1775106290
+    assert broker_orders[0]["broker_order_key"] != broker_orders[1]["broker_order_key"]
+
+
 def test_rebuild_service_aggregates_buy_fills_into_single_broker_order_entry():
     service = _get_rebuild_service_class()(
         lot_amount_lookup=lambda _symbol: 3000,
