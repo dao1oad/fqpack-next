@@ -111,6 +111,7 @@
 ## 当前规则
 
 - buy fill 默认按 broker order 聚合成一个 entry
+- 对账补开的 `auto_reconciled_open` 若与相邻 open entry 满足同标的、同交易日、5 分钟内且价差不超过 0.3%，也会并入同一个 buy cluster
 - stoploss 绑定对象是 `entry_id`
 - odd-lot 不进入 `position_entries`
 - odd-lot 进入 `om_ingest_rejections`

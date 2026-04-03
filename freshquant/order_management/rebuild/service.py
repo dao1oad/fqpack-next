@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from freshquant.order_management.entry_aggregation import (
     build_clustered_position_entry,
+    build_reconciliation_resolution_member_key,
     count_clustered_entries,
     count_non_default_lot_slices,
     entry_requires_slice_rebuild,
@@ -63,9 +64,24 @@ class OrderLedgerV2RebuildService:
         broker_orders_by_key = {}
         broker_order_keys = []
         order_match_to_broker_order_key = {}
+        cross_day_reused_order_ids = _collect_cross_day_reused_order_ids(
+            xt_orders=xt_orders,
+        )
+        cross_day_reused_trade_only_ids = _collect_cross_day_reused_order_ids(
+            xt_orders=xt_trades,
+        )
+        cross_day_reused_trade_match_ids = (
+            cross_day_reused_order_ids | cross_day_reused_trade_only_ids
+        )
 
         for raw_order in xt_orders:
-            broker_order = _normalize_broker_order(raw_order)
+            order_identity = _build_broker_order_identity(raw_order)
+            trading_day = _resolve_rebuild_trading_day(raw_order)
+            broker_order = _normalize_broker_order(
+                raw_order,
+                disambiguate_order_id=order_identity in cross_day_reused_order_ids,
+                trading_day=trading_day,
+            )
             broker_order_key = broker_order["broker_order_key"]
             if broker_order_key not in broker_orders_by_key:
                 broker_order_keys.append(broker_order_key)
@@ -74,6 +90,11 @@ class OrderLedgerV2RebuildService:
                 symbol=broker_order.get("symbol"),
                 side=broker_order.get("side"),
                 order_id=raw_order.get("order_id"),
+                trading_day=(
+                    trading_day
+                    if order_identity in cross_day_reused_order_ids
+                    else None
+                ),
             )
             if match_key:
                 order_match_to_broker_order_key[match_key] = broker_order_key
@@ -85,10 +106,17 @@ class OrderLedgerV2RebuildService:
             trade_side = _normalize_side(
                 raw_trade.get("order_type") or raw_trade.get("side")
             )
+            trade_identity = _build_broker_order_identity(raw_trade)
+            trading_day = _resolve_rebuild_trading_day(raw_trade)
             match_key = _build_broker_order_match_key(
                 symbol=trade_symbol,
                 side=trade_side,
                 order_id=order_id,
+                trading_day=(
+                    trading_day
+                    if trade_identity in cross_day_reused_trade_match_ids
+                    else None
+                ),
             )
             broker_order_key = order_match_to_broker_order_key.get(match_key)
             if not broker_order_key:
@@ -97,6 +125,11 @@ class OrderLedgerV2RebuildService:
                     side=trade_side,
                     order_id=order_id,
                     traded_id=raw_trade.get("traded_id"),
+                    trading_day=(
+                        trading_day
+                        if trade_identity in cross_day_reused_trade_only_ids
+                        else None
+                    ),
                 )
 
             broker_order = broker_orders_by_key.get(broker_order_key)
@@ -377,13 +410,24 @@ def _rebuild_position_entries(
     )
 
 
-def _normalize_broker_order(raw_order):
+def _normalize_broker_order(
+    raw_order,
+    *,
+    disambiguate_order_id=False,
+    trading_day=None,
+):
     broker_order_id = _normalize_identifier(raw_order.get("order_id"))
     requested_quantity = _coerce_int(
         raw_order.get("order_volume") or raw_order.get("quantity")
     )
     return {
-        "broker_order_key": broker_order_id,
+        "broker_order_key": _build_rebuild_broker_order_key(
+            symbol=_normalize_symbol(raw_order),
+            side=_normalize_side(raw_order.get("order_type") or raw_order.get("side")),
+            order_id=broker_order_id,
+            trading_day=trading_day,
+            disambiguate=disambiguate_order_id,
+        ),
         "broker_order_id": broker_order_id,
         "broker_order_type": raw_order.get("order_type"),
         "symbol": _normalize_symbol(raw_order),
@@ -553,20 +597,58 @@ def _normalize_side(order_type):
     return str(order_type or "").strip().lower() or None
 
 
-def _build_broker_order_match_key(*, symbol, side, order_id):
+def _build_rebuild_broker_order_key(
+    *,
+    symbol,
+    side,
+    order_id,
+    trading_day=None,
+    disambiguate=False,
+):
+    normalized_order_id = _normalize_identifier(order_id)
+    if not normalized_order_id:
+        return None
+    if not disambiguate:
+        return normalized_order_id
+    normalized_symbol = str(symbol or "").strip()
+    normalized_side = str(side or "").strip().lower()
+    normalized_trading_day = _coerce_int(trading_day)
+    if normalized_symbol and normalized_side and normalized_trading_day:
+        return (
+            f"{normalized_symbol}:{normalized_side}:"
+            f"{normalized_order_id}:{normalized_trading_day}"
+        )
+    return normalized_order_id
+
+
+def _build_broker_order_match_key(*, symbol, side, order_id, trading_day=None):
     normalized_symbol = str(symbol or "").strip()
     normalized_side = str(side or "").strip().lower()
     normalized_order_id = _normalize_identifier(order_id)
     if not normalized_symbol or not normalized_side or not normalized_order_id:
         return None
+    normalized_trading_day = _coerce_int(trading_day)
+    if normalized_trading_day:
+        return (
+            f"{normalized_symbol}:{normalized_side}:"
+            f"{normalized_order_id}:{normalized_trading_day}"
+        )
     return f"{normalized_symbol}:{normalized_side}:{normalized_order_id}"
 
 
-def _build_trade_only_broker_order_key(*, symbol, side, order_id, traded_id):
+def _build_trade_only_broker_order_key(
+    *,
+    symbol,
+    side,
+    order_id,
+    traded_id,
+    trading_day=None,
+):
     match_key = _build_broker_order_match_key(
         symbol=symbol,
         side=side,
         order_id=order_id,
+        trading_day=trading_day,
     )
     if match_key:
         return f"trade_only:{match_key}"
@@ -574,6 +656,46 @@ def _build_trade_only_broker_order_key(*, symbol, side, order_id, traded_id):
     if normalized_traded_id:
         return f"trade_only:{normalized_traded_id}"
     return "trade_only:unknown"
+
+
+def _build_broker_order_identity(payload):
+    normalized_symbol = _normalize_symbol(payload)
+    normalized_side = _normalize_side(payload.get("order_type") or payload.get("side"))
+    normalized_order_id = _normalize_identifier(payload.get("order_id"))
+    if not normalized_symbol or not normalized_side or not normalized_order_id:
+        return None
+    return normalized_symbol, normalized_side, normalized_order_id
+
+
+def _resolve_rebuild_trading_day(payload):
+    date_value = _coerce_int(payload.get("date"))
+    if date_value:
+        return date_value
+    timestamp = _coerce_int(
+        payload.get("order_time")
+        or payload.get("traded_time")
+        or payload.get("trade_time")
+    )
+    if not timestamp:
+        return None
+    return int(
+        datetime.fromtimestamp(timestamp, tz=_BEIJING_TIMEZONE).strftime("%Y%m%d")
+    )
+
+
+def _collect_cross_day_reused_order_ids(*, xt_orders):
+    trading_days_by_identity = {}
+    for payload in list(xt_orders or []):
+        identity = _build_broker_order_identity(payload)
+        trading_day = _resolve_rebuild_trading_day(payload)
+        if identity is None or trading_day is None:
+            continue
+        trading_days_by_identity.setdefault(identity, set()).add(trading_day)
+    return {
+        identity
+        for identity, trading_days in trading_days_by_identity.items()
+        if len(trading_days) > 1
+    }
 
 
 def _normalize_broker_order_state(order_status):
@@ -919,26 +1041,46 @@ def _reconcile_positions_against_xt_positions(
                 "time": time_value,
                 "source": "external_inferred",
             }
-            position_entry = build_position_entry_from_trade_fact(
+            inferred_member_key = build_reconciliation_resolution_member_key(
+                resolution_id=resolution_id
+            )
+            existing_entry = select_cluster_entry(
+                position_entry_documents,
                 trade_fact,
-                source_ref_type="reconciliation_resolution",
-                source_ref_id=resolution_id,
-                entry_type="auto_reconciled_open",
-                original_quantity=quantity_delta,
-                remaining_quantity=quantity_delta,
-                entry_price=float(price_estimate or 0.0),
-                amount=round(float(price_estimate or 0.0) * quantity_delta, 2),
-                source="external_inferred",
-                arrange_mode="runtime_grid",
-                sell_history=[],
+                inferred_member_key,
             )
-            entry_slices = arrange_entry(
-                position_entry,
-                lot_amount=int(lot_amount_lookup(symbol)),
-                grid_interval=float(grid_interval_lookup(symbol, trade_fact)),
-            )
-            position_entry_documents.append(position_entry)
-            entry_slice_documents.extend(entry_slices)
+            if existing_entry is not None:
+                position_entry = build_clustered_position_entry(
+                    group_trade_fact=trade_fact,
+                    broker_order_key=inferred_member_key,
+                    existing_entry=existing_entry,
+                )
+                _replace_entry_document(position_entry_documents, position_entry)
+            else:
+                position_entry = build_position_entry_from_trade_fact(
+                    trade_fact,
+                    source_ref_type="reconciliation_resolution",
+                    source_ref_id=resolution_id,
+                    entry_type="auto_reconciled_open",
+                    original_quantity=quantity_delta,
+                    remaining_quantity=quantity_delta,
+                    entry_price=float(price_estimate or 0.0),
+                    amount=round(float(price_estimate or 0.0) * quantity_delta, 2),
+                    source="external_inferred",
+                    arrange_mode="runtime_grid",
+                    sell_history=[],
+                )
+                position_entry_documents.append(position_entry)
+            if entry_requires_slice_rebuild(existing_entry):
+                _replace_entry_slices(
+                    entry_slice_documents,
+                    entry_id=position_entry["entry_id"],
+                    slices=arrange_entry(
+                        position_entry,
+                        lot_amount=int(lot_amount_lookup(symbol)),
+                        grid_interval=float(grid_interval_lookup(symbol, trade_fact)),
+                    ),
+                )
 
             gap["state"] = "AUTO_OPENED"
             gap["resolution_id"] = resolution_id

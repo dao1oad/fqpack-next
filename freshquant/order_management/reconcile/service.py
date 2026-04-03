@@ -5,6 +5,11 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from freshquant.order_management.entry_aggregation import (
+    build_clustered_position_entry,
+    build_reconciliation_resolution_member_key,
+    select_cluster_entry,
+)
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_slices,
 )
@@ -593,17 +598,34 @@ class ExternalOrderReconcileService:
             "quantity": quantity,
             "side": "buy",
         }
+        inferred_member_key = build_reconciliation_resolution_member_key(
+            resolution_id=resolution_id
+        )
+        existing_entry = None
+        if hasattr(self.repository, "list_position_entries"):
+            existing_entry = select_cluster_entry(
+                self.repository.list_position_entries(symbol=gap["symbol"]),
+                trade_fact,
+                inferred_member_key,
+            )
         arrange_runtime = _resolve_external_arrangement_runtime(
             gap["symbol"],
             trade_fact,
         )
-        entry = _build_auto_open_entry(
-            gap,
-            resolution_id=resolution_id,
-            confirmed_at=now,
-            price_snapshot=chosen_price_snapshot,
-            arrange_runtime=arrange_runtime,
-        )
+        if existing_entry is not None:
+            entry = build_clustered_position_entry(
+                group_trade_fact=trade_fact,
+                broker_order_key=inferred_member_key,
+                existing_entry=existing_entry,
+            )
+        else:
+            entry = _build_auto_open_entry(
+                gap,
+                resolution_id=resolution_id,
+                confirmed_at=now,
+                price_snapshot=chosen_price_snapshot,
+                arrange_runtime=arrange_runtime,
+            )
         entry_slices = []
         try:
             entry_slices = _arrange_entry_slices(
