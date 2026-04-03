@@ -1047,10 +1047,14 @@ def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypat
     assert position_entry["trade_time"] == 1710000000
     assert position_entry["entry_price"] == pytest.approx(10.01, abs=1e-6)
     assert position_entry["aggregation_window"]["member_count"] == 2
-    assert position_entry["aggregation_members"][0]["broker_order_key"] == "ord_cluster_1"
+    assert (
+        position_entry["aggregation_members"][0]["broker_order_key"] == "ord_cluster_1"
+    )
     assert position_entry["aggregation_members"][1]["trade_time"] == 1710000240
     assert repository.reconciliation_gaps[0]["entry_id"] == "entry_cluster_1"
-    assert repository.reconciliation_resolutions[0]["source_ref_id"] == "entry_cluster_1"
+    assert (
+        repository.reconciliation_resolutions[0]["source_ref_id"] == "entry_cluster_1"
+    )
 
 
 def test_confirm_expired_candidates_marks_and_syncs_compat_after_auto_open(

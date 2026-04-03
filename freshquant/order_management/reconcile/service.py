@@ -5,6 +5,11 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from freshquant.order_management.entry_aggregation import (
+    build_clustered_position_entry,
+    build_reconciliation_resolution_member_key,
+    select_cluster_entry,
+)
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_slices,
 )
@@ -28,11 +33,6 @@ from freshquant.order_management.ingest.xt_reports import (
     OrderManagementXtIngestService,
     _default_grid_interval_lookup,
     normalize_xt_trade_report,
-)
-from freshquant.order_management.entry_aggregation import (
-    build_clustered_position_entry,
-    build_reconciliation_resolution_member_key,
-    select_cluster_entry,
 )
 from freshquant.order_management.reconcile.matcher import match_candidate_to_trade
 from freshquant.order_management.repository import OrderManagementRepository

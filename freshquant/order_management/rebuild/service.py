@@ -88,7 +88,9 @@ class OrderLedgerV2RebuildService:
                 side=broker_order.get("side"),
                 order_id=raw_order.get("order_id"),
                 trading_day=(
-                    trading_day if order_identity in cross_day_reused_order_ids else None
+                    trading_day
+                    if order_identity in cross_day_reused_order_ids
+                    else None
                 ),
             )
             if match_key:
@@ -108,7 +110,9 @@ class OrderLedgerV2RebuildService:
                 side=trade_side,
                 order_id=order_id,
                 trading_day=(
-                    trading_day if trade_identity in cross_day_reused_order_ids else None
+                    trading_day
+                    if trade_identity in cross_day_reused_order_ids
+                    else None
                 ),
             )
             broker_order_key = order_match_to_broker_order_key.get(match_key)
@@ -671,7 +675,9 @@ def _resolve_rebuild_trading_day(payload):
     )
     if not timestamp:
         return None
-    return int(datetime.fromtimestamp(timestamp, tz=_BEIJING_TIMEZONE).strftime("%Y%m%d"))
+    return int(
+        datetime.fromtimestamp(timestamp, tz=_BEIJING_TIMEZONE).strftime("%Y%m%d")
+    )
 
 
 def _collect_cross_day_reused_order_ids(*, xt_orders):
