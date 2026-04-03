@@ -975,7 +975,7 @@ test('position-management dense workbench keeps split panels, descending sort, f
     '单标的仓位上限',
     '活跃单笔止损',
     'Open Entry',
-    '最近触发',
+    '最近TPLS触发',
     '保存',
   ]))
   expect(headerTexts).not.toEqual(expect.arrayContaining([
@@ -1015,7 +1015,8 @@ test('position-management dense workbench keeps split panels, descending sort, f
     node.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
   })
   await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr')).toHaveCount(1)
-  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toContainText('000001-entry-2')
+  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toContainText('第 2 笔持仓入口')
+  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toContainText('ID 尾号 ntry-2')
 })
 
 test('position-management dense ledgers keep the first row clear and reconciliation evidence expands as tables', async ({ page }) => {

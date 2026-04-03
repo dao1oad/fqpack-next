@@ -68,13 +68,21 @@
 - `门禁`
   - 直接展示 detail 已返回的 `position_management_summary`
   - 显示当前门禁状态以及 `allow_open_min_bail / holding_only_min_bail`
+- `活跃单笔止损`
+  - 展示当前 symbol 下启用中的 entry 级止损数量
+- `Open Entry`
+  - 展示当前 symbol 下 open entry 数量
+- `最近TPLS触发`
+  - 直接展示最近 TPSL 退出触发类型与触发时间
+  - 数据来自 TPSL 最近退出事件，当前语义是 `takeprofit / stoploss`，不是 Guardian 命中
+  - 不再把触发时间混在“运行态”列里
 - `Guardian 层级买入`
-  - 展示 Guardian 开关状态、最近命中层级和 `B1 / B2 / B3` 三层价格
+  - 展示 `B1 / B2 / B3` 三层 Guardian 价格与每层启用状态
+  - 行尾补充最近命中层级，样式与止盈层级状态保持一致
 - `止盈价格`
   - 展示 `L1 / L2 / L3` 三层止盈价与每层启用状态
-- `最近触发`
-  - 直接展示最近退出触发类型与触发时间
-  - 不再把触发时间混在“运行态”列里
+
+上述三列当前固定放在 `持仓股数` 后、`持仓市值` 前，便于先看仓内 entry/TPSL 退出态，再看市值与价格导引。
 
 中栏前端组件是 `PositionSubjectOverviewPanel`；它直接复用：
 
@@ -91,7 +99,10 @@
 选中标的工作区当前固定拆成上下两张高密度表：
 
 - 上半区：`聚合买入列表 / 按持仓入口止损`
+  - 固定列为：`买入时间 / 买入价 / 买入数量 / 剩余数量 / 百分比 / 剩余市值 / 单笔止损`
+  - 不再单独展示 `聚合买入` 列
 - 下半区：`切片明细`
+  - `入口` 列当前拉宽为单行展示 `entry label + entry id`
 
 右上工作区会为每个 symbol 维护当前选中的 open entry；首次进入 symbol 时默认选中第一条 entry，`切片明细` 只展示当前选中 entry 的 `entry_slices`，不再一次性铺开全部切片。
 

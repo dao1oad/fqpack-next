@@ -317,6 +317,7 @@ test('KlineSlim subject panel keeps readable entry stoploss rows after header cl
   assert.match(viewSource, /row\.entrySummaryDisplay\.entryPriceLabel/)
   assert.match(viewSource, /row\.entrySummaryDisplay\.originalQuantityLabel/)
   assert.match(viewSource, /row\.entrySummaryDisplay\.remainingQuantityLabel/)
+  assert.match(viewSource, /row\.entrySummaryDisplay\.remainingPercentLabel/)
   assert.match(viewSource, /row\.entrySummaryDisplay\.entryDateTimeLabel/)
   assert.match(viewSource, /row\.entrySummaryDisplay\.remainingMarketValueLabel/)
   assert.match(viewSource, /class="subject-panel-stoploss-head"/)

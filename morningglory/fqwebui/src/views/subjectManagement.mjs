@@ -64,6 +64,12 @@ const formatPercent = (value) => {
   return `${parsed.toFixed(2)}%`
 }
 
+const formatGuardianLastHitLabel = (value) => {
+  const text = toText(value)
+  if (!text) return '最近命中 -'
+  return `最近命中 ${text.replace(/^BUY-/, 'B')}`
+}
+
 const normalizeMustPool = (row = {}) => ({
   category: toText(row?.category),
   stop_loss_price: toNullableNumber(row?.stop_loss_price),
@@ -278,18 +284,12 @@ const formatEntryPriceLabel = (value) => {
 const buildEntrySummaryDisplay = (row = {}, runtimeSummary = {}) => {
   const originalQuantity = toNullableNumber(row?.original_quantity)
   const remainingQuantity = toNullableNumber(row?.remaining_quantity)
-  const remainingPercent = (
+  const remainingPercentLabel = (
     originalQuantity && originalQuantity > 0 && remainingQuantity !== null
       ? formatPercent((remainingQuantity / originalQuantity) * 100)
       : '-'
   )
-  const remainingQuantityLabel = (
-    remainingQuantity === null
-      ? '-'
-      : remainingPercent === '-'
-        ? formatQuantityLabel(remainingQuantity)
-        : `${formatQuantityLabel(remainingQuantity)} / ${remainingPercent}`
-  )
+  const remainingQuantityLabel = formatQuantityLabel(remainingQuantity)
   const backendRemainingMarketValue = toPositiveNumberOrNull(row?.remaining_market_value)
   const latestPrice = toPositiveNumberOrNull(row?.latest_price)
   const avgPrice = toPositiveNumberOrNull(runtimeSummary?.avg_price)
@@ -309,6 +309,7 @@ const buildEntrySummaryDisplay = (row = {}, runtimeSummary = {}) => {
     entryPriceLabel: formatEntryPriceLabel(entryPrice),
     originalQuantityLabel: formatQuantityLabel(originalQuantity),
     remainingQuantityLabel,
+    remainingPercentLabel,
     entryDateTimeLabel: entryDateTime,
     remainingMarketValueLabel: formatAmountWan(remainingMarketValue),
   }
@@ -316,7 +317,7 @@ const buildEntrySummaryDisplay = (row = {}, runtimeSummary = {}) => {
 
 const buildEntrySummaryLinesFromDisplay = (display = {}) => {
   return [
-    `买入价：${display.entryPriceLabel || '-'}；买入${display.originalQuantityLabel || '-'} 剩 ${display.remainingQuantityLabel || '-'}`,
+    `买入价：${display.entryPriceLabel || '-'}；买入${display.originalQuantityLabel || '-'} 剩 ${display.remainingQuantityLabel || '-'} / ${display.remainingPercentLabel || '-'}`,
     `买入时间：${display.entryDateTimeLabel || '-'}；剩余市值：${display.remainingMarketValueLabel || '-'}`,
   ]
 }
@@ -393,6 +394,26 @@ export const buildOverviewRows = (rows = []) => {
         || mustPool.initial_lot_amount !== null
         || mustPool.lot_amount !== null,
       )
+      const guardianLevelSummary = [
+        {
+          level: 1,
+          priceLabel: formatPrice(guardian.buy_1),
+          enabled: guardian.buy_enabled[0] !== false,
+          enabledLabel: guardian.buy_enabled[0] !== false ? '开' : '关',
+        },
+        {
+          level: 2,
+          priceLabel: formatPrice(guardian.buy_2),
+          enabled: guardian.buy_enabled[1] !== false,
+          enabledLabel: guardian.buy_enabled[1] !== false ? '开' : '关',
+        },
+        {
+          level: 3,
+          priceLabel: formatPrice(guardian.buy_3),
+          enabled: guardian.buy_enabled[2] !== false,
+          enabledLabel: guardian.buy_enabled[2] !== false ? '开' : '关',
+        },
+      ]
       return {
         ...row,
         symbol: toText(row?.symbol),
@@ -400,6 +421,8 @@ export const buildOverviewRows = (rows = []) => {
         category: toText(row?.category || mustPool.category),
         must_pool: mustPool,
         guardian,
+        guardianLevelSummary,
+        guardianLastHitLabel: formatGuardianLastHitLabel(guardian.last_hit_level),
         takeprofitSummary,
         takeprofitSummaryLabel: takeprofitSummary
           .map((item) => `L${item.level} ${item.priceLabel} ${item.enabledLabel}`)

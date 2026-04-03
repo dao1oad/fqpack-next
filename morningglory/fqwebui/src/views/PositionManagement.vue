@@ -243,24 +243,43 @@
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="买入摘要" min-width="220">
+                    <el-table-column label="买入时间" min-width="136">
                       <template #default="{ row }">
-                        <div class="position-selection-entry-cell">
-                          <span>{{ row.entrySummaryLines?.[0] || '-' }}</span>
-                          <span>{{ row.entrySummaryLines?.[1] || '-' }}</span>
-                        </div>
+                        <span class="workbench-code">{{ row.entrySummaryDisplay?.entryDateTimeLabel || '-' }}</span>
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="聚合买入" min-width="220">
+                    <el-table-column label="买入价" width="88" align="right">
                       <template #default="{ row }">
-                        <div class="position-selection-entry-cell">
-                          <span>{{ formatAggregationMembers(row.aggregation_members) }}</span>
-                        </div>
+                        <span class="workbench-code">{{ row.entrySummaryDisplay?.entryPriceLabel || '-' }}</span>
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="止损价" width="110">
+                    <el-table-column label="买入数量" width="92" align="right">
+                      <template #default="{ row }">
+                        <span class="workbench-code">{{ row.entrySummaryDisplay?.originalQuantityLabel || '-' }}</span>
+                      </template>
+                    </el-table-column>
+
+                    <el-table-column label="剩余数量" width="92" align="right">
+                      <template #default="{ row }">
+                        <span class="workbench-code">{{ row.entrySummaryDisplay?.remainingQuantityLabel || '-' }}</span>
+                      </template>
+                    </el-table-column>
+
+                    <el-table-column label="百分比" width="82" align="right">
+                      <template #default="{ row }">
+                        <span class="workbench-code">{{ row.entrySummaryDisplay?.remainingPercentLabel || '-' }}</span>
+                      </template>
+                    </el-table-column>
+
+                    <el-table-column label="剩余市值" min-width="108" align="right">
+                      <template #default="{ row }">
+                        <span class="workbench-code">{{ row.entrySummaryDisplay?.remainingMarketValueLabel || '-' }}</span>
+                      </template>
+                    </el-table-column>
+
+                    <el-table-column label="单笔止损" width="110">
                       <template #default="{ row }">
                         <el-input-number
                           v-if="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol]?.[row.entry_id]"
@@ -314,11 +333,11 @@
                     height="100%"
                     class="position-selection-slice-table"
                   >
-                    <el-table-column label="入口" width="132">
+                    <el-table-column label="入口" width="248">
                       <template #default="{ row }">
-                        <div class="position-selection-entry-cell">
+                        <div class="position-selection-entry-cell position-selection-entry-cell--inline" :title="`${row.entryDisplayLabel || '-'} / ${row.entryIdLabel || row.entry_id || '-'}`">
                           <strong>{{ row.entryDisplayLabel }}</strong>
-                          <span>{{ row.entry_id }}</span>
+                          <span>{{ row.entryIdLabel || row.entry_id }}</span>
                         </div>
                       </template>
                     </el-table-column>
@@ -535,16 +554,6 @@ const formatWanAmount = (value) => {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return '-'
   return `${(parsed / 10000).toFixed(2)} 万`
-}
-
-const formatAggregationMembers = (members = []) => {
-  if (!Array.isArray(members) || members.length === 0) return '-'
-  return members
-    .map((member, index) => {
-      const identifier = member.order_id || member.broker_order_key || member.slice_id || member.entry_id || `member-${index + 1}`
-      return `${identifier} ${formatInteger(member.quantity)} 股`
-    })
-    .join(' / ')
 }
 
 const saveSubjectConfigBundle = async (symbol) => {
@@ -996,8 +1005,15 @@ onMounted(() => {
   gap: 4px;
 }
 
+.position-selection-entry-cell--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
 .position-selection-entry-cell strong {
   color: #21405e;
+  white-space: nowrap;
 }
 
 .position-selection-entry-cell span,
@@ -1005,6 +1021,12 @@ onMounted(() => {
   color: #68839d;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.position-selection-entry-cell--inline span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .runtime-empty-panel {
