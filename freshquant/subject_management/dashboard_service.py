@@ -664,9 +664,7 @@ def _normalize_takeprofit_tiers(rows):
 
 
 def _normalize_takeprofit_state(raw):
-    state = {
-        key: value for key, value in dict(raw or {}).items() if key != "_id"
-    }
+    state = {key: value for key, value in dict(raw or {}).items() if key != "_id"}
     state["armed_levels"] = _normalize_armed_levels(state.get("armed_levels") or {})
     return state
 
