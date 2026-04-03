@@ -465,6 +465,49 @@ def test_subject_management_overview_clears_recent_trigger_after_auto_rearm():
     assert rows[0]["runtime"]["last_trigger_time"] is None
 
 
+def test_subject_management_overview_strips_mongo_id_from_takeprofit_state():
+    tpsl_repository = InMemoryTpslRepository()
+    tpsl_repository.profiles["600000"] = {
+        "symbol": "600000",
+        "tiers": [
+            {"level": 1, "price": 10.8, "manual_enabled": True},
+        ],
+    }
+    tpsl_repository.states["600000"] = {
+        "_id": ObjectId(),
+        "symbol": "600000",
+        "armed_levels": {1: True},
+    }
+
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=tpsl_repository,
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 100,
+            }
+        ],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    rows = service.get_overview()
+
+    assert "_id" not in rows[0]["takeprofit"]["state"]
+    assert rows[0]["takeprofit"]["state"]["armed_levels"] == {1: True}
+
+
 def test_subject_management_overview_prefers_symbol_snapshot_market_value():
     service = SubjectManagementDashboardService(
         database=FakeDatabase(),
