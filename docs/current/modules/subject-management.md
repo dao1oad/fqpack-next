@@ -5,6 +5,7 @@
 标的管理把单标的的配置、运行态和退出语义收口到一个工作台。当前页面负责：
 
 - `must_pool` 基础配置
+- symbol 级 `全仓止损价`
 - 单标的仓位上限设置
 - `position entry` 级止损绑定
 - Guardian / 止盈 / 仓位门禁 / 对账摘要只读展示
@@ -117,6 +118,13 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
 
 ## 止损语义
 
+标的总览里的 `全仓止损价` 当前正式对应 `must_pool.stop_loss_price`：
+
+- 读模型来源是 `base_config_summary.stop_loss_price`
+- TPSL 命中时会生成 symbol 级 `FullPositionStoploss`
+- 卖出该 symbol 下全部可卖 open entry slices
+- 若同一 tick 同时命中全仓止损和单笔止损，当前固定是全仓止损优先
+
 页面上的“单笔止损”当前实际是 `position entry` 级止损：
 
 - 绑定接口只接受 `entry_id`
@@ -131,7 +139,8 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
 `SubjectManagement` 读模型当前承载 entry 级切片检查语义；独立路由已下线，但组件和读模型仍保留：
 
 - `PositionSubjectOverviewPanel` 当前在每个 symbol 行内直接展示聚合后的 open entry 列表，并按行编辑 / 保存止损
-- `entry_slices` 当前通过鼠标悬浮框展示，不再要求右栏主从切换
+- `PositionManagement` 右上工作区当前使用“聚合买入列表 / 按持仓入口止损 -> 切片明细”的主从联动
+- `entry_slices` 当前只展示当前选中 entry 的切片，不再通过悬浮框一次性展开全部切片
 - “剩余市值”优先按有效 `latest_price * remaining_quantity`
 - 若 `latest_price <= 0` 或缺失，则优先用 `xt_positions.market_value / quantity` 推导有效最新价
 - 若仍无有效最新价，再回退 `avg_price * remaining_quantity`

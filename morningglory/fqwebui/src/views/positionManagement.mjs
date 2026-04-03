@@ -256,6 +256,19 @@ const buildSourceModuleLabel = (row = {}) => {
   return sourceLabel
 }
 
+const resolveDecisionTimestamp = (row = {}) => {
+  const primaryValue = row?.evaluated_at || row?.meta?.evaluated_at
+  const parsed = Date.parse(primaryValue || '')
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY
+}
+
+const sortDecisionRowsByEvaluatedAtDesc = (rows = []) => {
+  return [...rows].sort((left, right) => (
+    resolveDecisionTimestamp(right) - resolveDecisionTimestamp(left) ||
+    toText(right?.decision_id).localeCompare(toText(left?.decision_id))
+  ))
+}
+
 const pushDecisionDetailRow = (rows, label, value) => {
   const text = formatJsonValue(value)
   if (text === '-') return
@@ -460,7 +473,7 @@ export const buildRuleMatrix = (dashboard = {}) => {
 export const buildRecentDecisionRows = (dashboard = {}) => {
   const payload = readDashboardPayload(dashboard)
   const rows = Array.isArray(payload?.recent_decisions) ? payload.recent_decisions : []
-  return rows.map((row) => ({
+  return sortDecisionRowsByEvaluatedAtDesc(rows).map((row) => ({
     ...row,
     selection_key: buildDecisionSelectionKey(row),
     action_label: ACTION_LABELS[toText(row?.action)] || toText(row?.action) || '-',
@@ -497,7 +510,7 @@ const buildExtraContextLabel = (meta = {}, consumedKeys = new Set()) => {
 export const buildRecentDecisionLedgerRows = (dashboard = {}) => {
   const payload = readDashboardPayload(dashboard)
   const rows = Array.isArray(payload?.recent_decisions) ? payload.recent_decisions : []
-  return rows.map((row) => {
+  return sortDecisionRowsByEvaluatedAtDesc(rows).map((row) => {
     const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {}
     const consumedMetaKeys = new Set([
       'symbol_name',

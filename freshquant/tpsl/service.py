@@ -49,6 +49,7 @@ class TpslService:
         order_submit_service=None,
         order_repository=None,
         position_reader=None,
+        symbol_stoploss_price_loader=None,
         lock_client=None,
         cooldown_seconds=3,
         runtime_logger=None,
@@ -57,6 +58,9 @@ class TpslService:
         self.order_submit_service = order_submit_service
         self.order_repository = order_repository or OrderManagementRepository()
         self.position_reader = position_reader or _PositionReader(DBfreshquant)
+        self.symbol_stoploss_price_loader = (
+            symbol_stoploss_price_loader or _default_symbol_stoploss_price_loader
+        )
         self.lock_client = lock_client or _CooldownLockClient(redis_db)
         self.cooldown_seconds = max(int(cooldown_seconds or 0), 0)
         self.runtime_logger = runtime_logger or _get_runtime_logger()
@@ -110,12 +114,20 @@ class TpslService:
         if repository is None or not hasattr(repository, "insert_exit_trigger_event"):
             return None
 
+        scope_type = str(batch.get("scope_type") or "").strip() or "stoploss_batch"
+        strategy_name = str(batch.get("strategy_name") or "").strip()
+        is_symbol_full_stoploss = scope_type == "symbol_stoploss_batch"
         entry_quantities = dict(batch.get("entry_quantities") or {})
         binding_map = {
             item.get("entry_id"): item
             for item in (batch.get("triggered_bindings") or [])
             if item.get("entry_id")
         }
+        fallback_stop_price = _safe_float_or_none(
+            batch.get("full_stop_price")
+            or batch.get("stop_price")
+            or batch.get("price")
+        )
         entry_details = []
         for entry_id, quantity in entry_quantities.items():
             detail = {
@@ -125,16 +137,25 @@ class TpslService:
             binding = binding_map.get(entry_id) or {}
             if binding.get("stop_price") is not None:
                 detail["stop_price"] = float(binding["stop_price"])
+            elif fallback_stop_price is not None:
+                detail["stop_price"] = float(fallback_stop_price)
             if binding.get("ratio") is not None:
                 detail["ratio"] = float(binding["ratio"])
             entry_details.append(detail)
 
         event = {
             "event_id": new_event_id(),
-            "event_type": "stoploss_hit",
+            "event_type": (
+                "symbol_full_stoploss_hit"
+                if is_symbol_full_stoploss
+                else "entry_stoploss_hit"
+            ),
             "kind": "stoploss",
             "symbol": _normalize_symbol(batch.get("symbol")),
             "batch_id": batch.get("batch_id"),
+            "scope_type": scope_type,
+            "strategy_name": strategy_name,
+            "remark": batch.get("remark"),
             "trigger_price": float(batch.get("bid1") or batch.get("price") or 0.0),
             "entry_ids": [item["entry_id"] for item in entry_details],
             "entry_details": entry_details,
@@ -171,11 +192,21 @@ class TpslService:
         )
 
     def submit_stoploss_batch(self, batch):
+        scope_type = str(batch.get("scope_type") or "").strip() or "stoploss_batch"
+        strategy_name = str(batch.get("strategy_name") or "").strip() or (
+            "FullPositionStoploss"
+            if scope_type == "symbol_stoploss_batch"
+            else "PerEntryStoplossBatch"
+        )
         return self._submit_batch(
             batch=batch,
-            scope_type="stoploss_batch",
-            source="tpsl_stoploss",
-            strategy_name="PerEntryStoplossBatch",
+            scope_type=scope_type,
+            source=(
+                "tpsl_symbol_stoploss"
+                if scope_type == "symbol_stoploss_batch"
+                else "tpsl_stoploss"
+            ),
+            strategy_name=strategy_name,
         )
 
     def evaluate_takeprofit(
@@ -358,6 +389,79 @@ class TpslService:
         current_node = "trigger_eval"
         trace_id_value = None
         try:
+            full_stop_price = _safe_float_or_none(
+                self.symbol_stoploss_price_loader(base_symbol)
+            )
+            if full_stop_price is not None and float(bid1 or 0.0) <= float(
+                full_stop_price
+            ):
+                can_use_volume = self.position_reader.get_can_use_volume(base_symbol)
+                open_slices = list_open_entry_slices_compat(
+                    symbol=base_symbol,
+                    repository=self.order_repository,
+                )
+                batch = build_stoploss_batch(
+                    repository=self.order_repository,
+                    symbol=base_symbol,
+                    bid1=bid1,
+                    entry_ids=_collect_entry_ids(open_slices),
+                    stop_price=full_stop_price,
+                    can_use_volume=can_use_volume,
+                    scope_type="symbol_stoploss_batch",
+                    strategy_name="FullPositionStoploss",
+                )
+                trigger_payload = {
+                    "kind": "stoploss",
+                    "stoploss_mode": "symbol_full",
+                    "scope_type": "symbol_stoploss_batch",
+                    "strategy_name": "FullPositionStoploss",
+                    "full_stop_price": float(full_stop_price),
+                    "triggered_bindings": 0,
+                }
+                if batch.get("status") == "blocked":
+                    batch["full_stop_price"] = float(full_stop_price)
+                    batch["triggered_bindings"] = []
+                    batch.pop("trace_id", None)
+                    batch.pop("intent_id", None)
+                    self._emit_runtime(
+                        "trigger_eval",
+                        symbol=base_symbol,
+                        payload=trigger_payload,
+                    )
+                    return batch
+
+                trace_id_value = str(trace_id or "").strip() or new_trace_id()
+                self._emit_runtime(
+                    "trigger_eval",
+                    symbol=base_symbol,
+                    trace_id=trace_id_value,
+                    payload=trigger_payload,
+                )
+                intent_id_value = new_intent_id()
+                batch["ask1"] = float(ask1 or 0.0)
+                batch["last_price"] = float(last_price or 0.0)
+                batch["tick_time"] = int(tick_time or 0)
+                batch["trace_id"] = trace_id_value
+                batch["intent_id"] = intent_id_value
+                batch["full_stop_price"] = float(full_stop_price)
+                batch["triggered_bindings"] = []
+                current_node = "batch_create"
+                self._emit_runtime(
+                    "batch_create",
+                    symbol=base_symbol,
+                    trace_id=trace_id_value,
+                    intent_id=intent_id_value,
+                    payload={
+                        "kind": "stoploss",
+                        "stoploss_mode": "symbol_full",
+                        "scope_type": "symbol_stoploss_batch",
+                        "strategy_name": "FullPositionStoploss",
+                        "batch_id": batch.get("batch_id"),
+                        "quantity": batch.get("quantity"),
+                    },
+                )
+                return batch
+
             triggered_bindings = []
             for binding in list_entry_stoploss_bindings_compat(
                 symbol=base_symbol,
@@ -371,6 +475,9 @@ class TpslService:
                     triggered_bindings.append(binding)
             trigger_payload = {
                 "kind": "stoploss",
+                "stoploss_mode": "entry",
+                "scope_type": "stoploss_batch",
+                "strategy_name": "PerEntryStoplossBatch",
                 "triggered_bindings": len(triggered_bindings),
             }
             if not triggered_bindings:
@@ -416,6 +523,9 @@ class TpslService:
                 intent_id=intent_id_value,
                 payload={
                     "kind": "stoploss",
+                    "stoploss_mode": "entry",
+                    "scope_type": "stoploss_batch",
+                    "strategy_name": "PerEntryStoplossBatch",
                     "batch_id": batch.get("batch_id"),
                     "quantity": batch.get("quantity"),
                 },
@@ -511,7 +621,7 @@ class TpslService:
                         batch.get("buy_lot_quantities") or {}
                     ),
                 )
-            if scope_type == "stoploss_batch":
+            if scope_type in {"stoploss_batch", "symbol_stoploss_batch"}:
                 self.mark_stoploss_triggered(batch=batch)
             return submit_result
         except Exception as exc:
@@ -590,6 +700,36 @@ class _CooldownLockClient:
 
 def _normalize_symbol(symbol):
     return normalize_to_base_code(str(symbol or ""))
+
+
+def _collect_entry_ids(rows):
+    entry_ids = []
+    seen = set()
+    for item in rows or []:
+        entry_id = str(item.get("entry_id") or "").strip()
+        if not entry_id or entry_id in seen:
+            continue
+        seen.add(entry_id)
+        entry_ids.append(entry_id)
+    return entry_ids
+
+
+def _safe_float_or_none(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _default_symbol_stoploss_price_loader(symbol):
+    normalized_symbol = _normalize_symbol(symbol)
+    try:
+        document = DBfreshquant["must_pool"].find_one({"code": normalized_symbol}) or {}
+    except Exception:
+        return None
+    return _safe_float_or_none(document.get("stop_loss_price"))
 
 
 def _cap_takeprofit_breakdown(profit_slices, *, quantity_cap):
