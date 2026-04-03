@@ -266,7 +266,8 @@ class TpslManagementService:
         order_requests = [
             item
             for item in order_requests
-            if item.get("scope_type") in {"takeprofit_batch", "stoploss_batch"}
+            if item.get("scope_type")
+            in {"takeprofit_batch", "stoploss_batch", "symbol_stoploss_batch"}
         ]
         requests_by_batch = {}
         for item in order_requests:
