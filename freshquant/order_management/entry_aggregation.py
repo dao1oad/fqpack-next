@@ -14,6 +14,7 @@ BUY_CLUSTER_SOURCE_REF_TYPE = "buy_cluster"
 BUY_CLUSTER_ENTRY_TYPE = "broker_execution_cluster"
 BUY_CLUSTER_MAX_TIME_WINDOW_SECONDS = 5 * 60
 BUY_CLUSTER_MAX_PRICE_DEVIATION_RATIO = 0.003
+RECONCILIATION_SOURCE_REF_TYPE = "reconciliation_resolution"
 
 
 def find_entry_for_broker_order(entries, broker_order_key):
@@ -195,6 +196,16 @@ def build_buy_group_member(group_trade_fact, *, broker_order_key):
     }
 
 
+def build_reconciliation_resolution_member_key(*, resolution_id=None, entry_id=None):
+    normalized_resolution_id = _normalize_text(resolution_id)
+    if normalized_resolution_id:
+        return f"{RECONCILIATION_SOURCE_REF_TYPE}:{normalized_resolution_id}"
+    normalized_entry_id = _normalize_text(entry_id)
+    if normalized_entry_id:
+        return f"{RECONCILIATION_SOURCE_REF_TYPE}:entry:{normalized_entry_id}"
+    return ""
+
+
 def list_aggregation_members(entry):
     normalized_entry = dict(entry or {})
     members = [
@@ -216,7 +227,25 @@ def list_aggregation_members(entry):
     source_ref_type = _normalize_text(normalized_entry.get("source_ref_type"))
     source_ref_id = _normalize_text(normalized_entry.get("source_ref_id"))
     if source_ref_type != "broker_order" or not source_ref_id:
-        return []
+        if source_ref_type != RECONCILIATION_SOURCE_REF_TYPE:
+            return []
+        inferred_member = _normalize_member(
+            {
+                "broker_order_key": build_reconciliation_resolution_member_key(
+                    resolution_id=source_ref_id,
+                    entry_id=normalized_entry.get("entry_id"),
+                ),
+                "trade_fact_id": source_ref_id
+                or _normalize_text(normalized_entry.get("entry_id")),
+                "quantity": normalized_entry.get("original_quantity"),
+                "entry_price": normalized_entry.get("entry_price")
+                or normalized_entry.get("buy_price_real"),
+                "trade_time": normalized_entry.get("trade_time"),
+                "date": normalized_entry.get("date"),
+                "time": normalized_entry.get("time"),
+            }
+        )
+        return [inferred_member] if inferred_member is not None else []
     legacy_member = _normalize_member(
         {
             "broker_order_key": source_ref_id,

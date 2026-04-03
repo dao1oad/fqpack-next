@@ -977,6 +977,82 @@ def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatc
     assert repository.buy_lots == []
 
 
+def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_cluster_1",
+            "symbol": "000001",
+            "entry_type": "broker_execution_cluster",
+            "source_ref_type": "buy_cluster",
+            "source_ref_id": "buy_cluster:000001:20240310:1710000000:ord_cluster_1",
+            "entry_price": 10.0,
+            "buy_price_real": 10.0,
+            "original_quantity": 100,
+            "remaining_quantity": 100,
+            "amount": 1000.0,
+            "amount_adjust": 1.0,
+            "date": 20240310,
+            "time": "09:30:00",
+            "trade_time": 1710000000,
+            "source": "xt_trade_callback",
+            "arrange_mode": "runtime_grid",
+            "status": "OPEN",
+            "sell_history": [],
+            "aggregation_members": [
+                {
+                    "broker_order_key": "ord_cluster_1",
+                    "trade_fact_id": "trade_cluster_1",
+                    "quantity": 100,
+                    "entry_price": 10.0,
+                    "trade_time": 1710000000,
+                    "date": 20240310,
+                    "time": "09:30:00",
+                    "trading_day": 20240310,
+                }
+            ],
+            "aggregation_member_keys": ["ord_cluster_1"],
+            "aggregation_window": {
+                "start_trade_time": 1710000000,
+                "end_trade_time": 1710000000,
+                "trading_day": 20240310,
+                "member_count": 1,
+            },
+        }
+    )
+
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.02}],
+        detected_at=1710000210,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.02}],
+        detected_at=1710000225,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.02}],
+        detected_at=1710000240,
+    )
+
+    confirmed = service.confirm_expired_candidates(now=1710000240)
+
+    assert len(confirmed) == 1
+    assert len(repository.position_entries) == 1
+    position_entry = repository.position_entries[0]
+    assert position_entry["entry_id"] == "entry_cluster_1"
+    assert position_entry["source_ref_type"] == "buy_cluster"
+    assert position_entry["entry_type"] == "broker_execution_cluster"
+    assert position_entry["original_quantity"] == 200
+    assert position_entry["remaining_quantity"] == 200
+    assert position_entry["trade_time"] == 1710000000
+    assert position_entry["entry_price"] == pytest.approx(10.01, abs=1e-6)
+    assert position_entry["aggregation_window"]["member_count"] == 2
+    assert position_entry["aggregation_members"][0]["broker_order_key"] == "ord_cluster_1"
+    assert position_entry["aggregation_members"][1]["trade_time"] == 1710000240
+    assert repository.reconciliation_gaps[0]["entry_id"] == "entry_cluster_1"
+    assert repository.reconciliation_resolutions[0]["source_ref_id"] == "entry_cluster_1"
+
+
 def test_confirm_expired_candidates_marks_and_syncs_compat_after_auto_open(
     monkeypatch,
 ):
