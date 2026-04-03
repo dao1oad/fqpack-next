@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from bson import ObjectId
 
 from freshquant.order_management.entry_adapter import (
@@ -59,19 +61,24 @@ class SubjectManagementDashboardService:
         guardian_state_rows = self._guardian_state_map()
         takeprofit_profiles = self._takeprofit_profile_map()
         positions = self._position_map()
-        stoploss_summary = self._stoploss_summary_map()
-
         symbols = set(must_pool_rows)
         symbols.update(positions)
+        takeprofit_states = self._takeprofit_state_map(symbols)
+        stoploss_summary = self._stoploss_summary_map()
+
         position_limit_summary_map = self._load_overview_position_limit_summary_map()
 
-        latest_events = self._latest_trigger_map(symbols)
+        latest_events = self._latest_trigger_map(
+            symbols,
+            takeprofit_states=takeprofit_states,
+        )
         rows = []
         for symbol in symbols:
             must_pool = must_pool_rows.get(symbol)
             guardian_config = guardian_config_rows.get(symbol) or {}
             guardian_state = guardian_state_rows.get(symbol) or {}
             takeprofit = takeprofit_profiles.get(symbol) or {"tiers": []}
+            takeprofit_state = takeprofit_states.get(symbol) or {"armed_levels": {}}
             position = positions.get(symbol) or {}
             symbol_position = dict(self.symbol_position_loader(symbol) or {})
             stoploss = stoploss_summary.get(
@@ -107,6 +114,7 @@ class SubjectManagementDashboardService:
                     },
                     "takeprofit": {
                         "tiers": list(takeprofit.get("tiers") or []),
+                        "state": dict(takeprofit_state or {"armed_levels": {}}),
                     },
                     "stoploss": stoploss,
                     "runtime": {
@@ -163,7 +171,7 @@ class SubjectManagementDashboardService:
             "tiers": _normalize_takeprofit_tiers(
                 (takeprofit_profile or {}).get("tiers") or []
             ),
-            "state": dict(takeprofit_state or {}),
+            "state": _normalize_takeprofit_state(takeprofit_state),
         }
 
         stoploss_bindings = {
@@ -220,7 +228,11 @@ class SubjectManagementDashboardService:
                 avg_price=avg_price,
             )
         latest_event = (
-            self._latest_trigger_map({normalized_symbol}).get(normalized_symbol) or {}
+            self._latest_trigger_map(
+                {normalized_symbol},
+                takeprofit_states={normalized_symbol: takeprofit["state"]},
+            ).get(normalized_symbol)
+            or {}
         )
         pm_summary = dict(self.pm_summary_loader() or {})
         position_limit_summary = self._load_position_limit_summary(normalized_symbol)
@@ -437,6 +449,33 @@ class SubjectManagementDashboardService:
             }
         return rows
 
+    def _takeprofit_state_map(self, symbols):
+        normalized_symbols = {
+            _normalize_symbol(item) for item in symbols if _normalize_symbol(item)
+        }
+        if not normalized_symbols:
+            return {}
+
+        rows = []
+        state_collection = getattr(self.tpsl_repository, "takeprofit_states", None)
+        if state_collection is not None and hasattr(state_collection, "find"):
+            rows = list(
+                state_collection.find({"symbol": {"$in": list(normalized_symbols)}})
+            )
+        else:
+            for symbol in normalized_symbols:
+                item = self.tpsl_repository.find_takeprofit_state(symbol)
+                if item is not None:
+                    rows.append(item)
+
+        result = {}
+        for item in rows:
+            symbol = _normalize_symbol((item or {}).get("symbol"))
+            if not symbol:
+                continue
+            result[symbol] = _normalize_takeprofit_state(item)
+        return result
+
     def _position_map(self):
         rows = {}
         for item in list(self.position_loader() or []):
@@ -515,7 +554,7 @@ class SubjectManagementDashboardService:
             result[symbol] = current
         return result
 
-    def _latest_trigger_map(self, symbols):
+    def _latest_trigger_map(self, symbols, *, takeprofit_states=None):
         normalized_symbols = {
             _normalize_symbol(item) for item in symbols if _normalize_symbol(item)
         }
@@ -524,11 +563,30 @@ class SubjectManagementDashboardService:
         rows = self.tpsl_repository.list_latest_exit_trigger_events_by_symbol(
             symbols=normalized_symbols
         )
-        return {
+        latest = {
             _normalize_symbol(item.get("symbol")): dict(item)
             for item in rows
             if _normalize_symbol(item.get("symbol"))
         }
+        for symbol, state in dict(takeprofit_states or {}).items():
+            normalized_symbol = _normalize_symbol(symbol)
+            if not normalized_symbol:
+                continue
+            if (
+                str((state or {}).get("last_rearm_reason") or "").strip()
+                != "new_buy_below_lowest_tier"
+            ):
+                continue
+            latest_event = latest.get(normalized_symbol)
+            if latest_event is None:
+                continue
+            last_rearmed_at = _parse_iso_datetime((state or {}).get("last_rearmed_at"))
+            latest_event_at = _parse_iso_datetime(latest_event.get("created_at"))
+            if last_rearmed_at is None:
+                continue
+            if latest_event_at is None or last_rearmed_at >= latest_event_at:
+                latest.pop(normalized_symbol, None)
+        return latest
 
     @staticmethod
     def _normalize_must_pool(raw):
@@ -605,6 +663,23 @@ def _normalize_takeprofit_tiers(rows):
     return sorted(normalized, key=lambda item: item["level"])
 
 
+def _normalize_takeprofit_state(raw):
+    state = {key: value for key, value in dict(raw or {}).items() if key != "_id"}
+    state["armed_levels"] = _normalize_armed_levels(state.get("armed_levels") or {})
+    return state
+
+
+def _normalize_armed_levels(rows):
+    normalized = {}
+    for raw_level, raw_enabled in dict(rows or {}).items():
+        try:
+            level = int(raw_level)
+        except (TypeError, ValueError):
+            continue
+        normalized[level] = bool(raw_enabled)
+    return normalized
+
+
 def _safe_float(value):
     try:
         return float(value or 0.0)
@@ -631,6 +706,16 @@ def _safe_positive_float_or_none(value):
 def _safe_nonempty_text(value):
     text = str(value or "").strip()
     return text or None
+
+
+def _parse_iso_datetime(value):
+    text = _safe_nonempty_text(value)
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def _safe_int_or_none(value):

@@ -47,7 +47,7 @@
 
 - `must_pool`
 - Guardian 配置
-- 止盈 profile
+- 止盈 profile / state
 - 当前持仓与运行态
 - entry 级止损摘要
 - 单标的仓位上限摘要
@@ -140,6 +140,7 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近 TPSL 触发事
 
 `PositionSubjectOverviewPanel` 主表当前会把这两项单独放在“最近TPLS触发”列中，不再与 Guardian 命中信息或运行态列混排。
 该列的数据来自 TPSL 最近退出事件，当前语义固定是 `takeprofit / stoploss`，不是 Guardian 命中层级。
+若止盈 state 的 `last_rearm_reason = new_buy_below_lowest_tier`，且 `last_rearmed_at` 晚于最近一次 TPSL 退出事件，则 overview / detail 都会清空这两项，表示当前买入周期已经重置，不再继续显示上一个周期的最近触发。
 
 ## 止损语义
 
@@ -183,8 +184,9 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近 TPSL 触发事
 - 只读
   - Guardian 阶梯价
     - 标的总览概览列当前展示 `B1 / B2 / B3`
-  - 止盈 profile / state
+- 止盈 profile / state
     - 标的总览概览列当前展示 `L1 / L2 / L3`
+    - “开/关”当前按 `manual_enabled && armed_levels[level]` 合成真实运行态，只有系统当前仍会触发该层止盈时才显示 `开`
   - 仓位门禁状态
   - 对账状态
 

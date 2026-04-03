@@ -71,6 +71,41 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
   assert.equal(rows[0].baseSummaryLabel.includes('普通'), false)
 })
 
+test('buildOverviewRows derives takeprofit runtime truth from manual_enabled and armed_levels together', () => {
+  const rows = buildOverviewRows([
+    {
+      symbol: '600000',
+      name: '浦发银行',
+      takeprofit: {
+        tiers: [
+          { level: 1, price: 10.8, enabled: true },
+          { level: 2, price: 11.3, enabled: true },
+          { level: 3, price: 11.8, enabled: false },
+        ],
+        state: {
+          armed_levels: { 1: false, 2: true, 3: true },
+        },
+      },
+      runtime: {},
+      stoploss: {},
+      position_limit_summary: {},
+    },
+  ])
+
+  assert.deepEqual(
+    rows[0].takeprofitSummary.map((item) => ({
+      level: item.level,
+      enabled: item.enabled,
+      enabledLabel: item.enabledLabel,
+    })),
+    [
+      { level: 1, enabled: false, enabledLabel: '关' },
+      { level: 2, enabled: true, enabledLabel: '开' },
+      { level: 3, enabled: false, enabledLabel: '关' },
+    ],
+  )
+})
+
 test('buildDetailViewModel keeps right-panel fields and at least three takeprofit drafts', () => {
   const detail = buildDetailViewModel({
     subject: {
