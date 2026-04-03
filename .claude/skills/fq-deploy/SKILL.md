@@ -68,7 +68,9 @@ python -m uv venv .venv --python <runner-python> --clear
   - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/runtime-baseline.json`
   - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/runtime-verify.json`
 - 当 `plan.json` / `result.json` 显示 `deployment_required=false` 时，把这轮当成 `no-op deploy`；`runtime-verify.json 可以不存在`，但必须确认 `result.json` 为 `ok=true`，并且 `production-state.json` 的 `last_success_sha` 已更新到目标 SHA
-- 当 `plan.host_surfaces` 非空时，再额外要求：
+- 当 `plan.host_surfaces` 非空，或 entrypoint 日志出现以下任一自愈信号时，再额外要求：
+  - `retrying uv sync after quiescing host runtime surfaces`
+  - `recreating .venv with runner Python 3.12`
   - `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status`
   - `py -3.12 script/fqnext_supervisor_config.py inspect --config-path D:\fqpack\config\supervisord.fqnext.conf --expected-repo-root D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
 
@@ -83,11 +85,16 @@ python -m uv venv .venv --python <runner-python> --clear
 
 ## Interpreting Host Truth
 
-- 如果本轮 `plan.host_surfaces` 为空，例如纯 `web` redeploy，不要声称 supervisor 托管进程“已被这轮 deploy 重启”
-- 这种情况下只能说：
+- 先区分两类 host 影响：
+  - `plan.host_surfaces` 非空：这是 formal deploy 计划命中的 host surfaces
+  - entrypoint 日志出现 `retrying uv sync after quiescing host runtime surfaces` 或 `recreating .venv with runner Python 3.12`：这是入口为修复 live mirror `.venv` / `uv sync` 触发的临时 quiesce + restart
+- 如果只命中了第二类，而 `plan.host_surfaces` 仍为空，不要把它表述成“formal deploy 计划命中了 host surfaces”
+- 这种情况下应该明确说：
+  - 本轮 deploy entrypoint 曾为自愈暂时停止并恢复 host runtime surfaces
   - supervisor 配置真值已指向最新 `main-deploy-production`
-  - 当前 Running 的 host 进程仍在使用该正式运行根
+  - 当前 Running 的 host 进程使用的是该正式运行根
 - 只有当本轮 `plan.host_surfaces` 非空，并且 `runtime-verify.json` 通过时，才能说 host surfaces 已被本轮 deploy 重新收敛
+- 只有当 `plan.host_surfaces` 为空，且 entrypoint 自愈信号也未出现时，才能说这轮 deploy 没有主动重启 host surfaces
 
 ## Failure Triage
 
