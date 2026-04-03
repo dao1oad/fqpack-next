@@ -165,6 +165,8 @@ test('PositionSubjectOverviewPanel.vue consumes shared workbench panel and statu
   assert.match(positionSubjectOverviewSource, /label="首笔买入金额"/)
   assert.match(positionSubjectOverviewSource, /label="默认买入金额"/)
   assert.match(positionSubjectOverviewSource, /label="单标的仓位上限"/)
+  assert.match(positionSubjectOverviewSource, /label="最近TPLS触发"/)
+  assert.match(positionSubjectOverviewSource, /guardianLevelSummary/)
   assert.match(positionSubjectOverviewSource, /label="保存"/)
   assert.match(positionSubjectOverviewSource, /<StatusChip variant="muted">\s*总标的 <strong>\{\{\s*overviewRows\.length\s*\}\}<\/strong>/)
   assert.match(positionSubjectOverviewSource, /<StatusChip variant="success">\s*已加载详情 <strong>\{\{\s*loadedDetailCount\s*\}\}<\/strong>/)

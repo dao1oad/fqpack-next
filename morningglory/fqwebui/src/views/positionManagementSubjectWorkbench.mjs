@@ -252,6 +252,7 @@ export const createPositionManagementSubjectWorkbenchController = ({
     return (Array.isArray(entry.entry_slices) ? entry.entry_slices : []).map((slice) => ({
       ...slice,
       entry_id: entry.entry_id,
+      entryIdLabel: entry.entryIdLabel,
       entryDisplayLabel: entry.entryDisplayLabel,
     }))
   }

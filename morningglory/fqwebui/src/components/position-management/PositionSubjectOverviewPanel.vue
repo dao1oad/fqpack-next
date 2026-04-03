@@ -60,7 +60,7 @@
         @row-click="handleSubjectRowClick"
         @current-change="handleSubjectCurrentChange"
       >
-        <el-table-column label="标的" width="148" fixed="left">
+        <el-table-column label="标的" width="100" fixed="left">
           <template #default="{ row }">
             <div class="position-subject-symbol">
               <strong class="workbench-code">{{ row.symbol }}</strong>
@@ -74,6 +74,27 @@
             <span class="workbench-code position-subject-number">
               {{ formatInteger(row.position_quantity) }}
             </span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="活跃单笔止损" width="92" align="center">
+          <template #default="{ row }">
+            <span class="position-subject-cell-strong">{{ row.stoplossActiveCount }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="Open Entry" width="92" align="center">
+          <template #default="{ row }">
+            <span class="position-subject-cell-strong">{{ row.openEntryCount }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="最近TPLS触发" width="164">
+          <template #default="{ row }">
+            <div class="position-subject-runtime">
+              <span>{{ formatTriggerKind(row.runtime?.last_trigger_kind) }}</span>
+              <span class="workbench-code">{{ formatDateTime(row.runtime?.last_trigger_time) }}</span>
+            </div>
           </template>
         </el-table-column>
 
@@ -96,27 +117,24 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="Guardian 层级买入" width="158">
+        <el-table-column label="Guardian 层级买入" width="170">
           <template #default="{ row }">
             <div class="position-subject-summary-stack">
-              <div class="position-subject-summary-line">
+              <div
+                v-for="item in row.guardianLevelSummary"
+                :key="`${row.symbol}-guardian-${item.level}`"
+                class="position-subject-summary-line"
+              >
+                <span class="workbench-code">B{{ item.level }}</span>
+                <span class="workbench-code">{{ item.priceLabel }}</span>
                 <span
                   class="position-subject-inline-state"
-                  :class="{ active: row.guardian.enabled }"
+                  :class="{ active: item.enabled }"
                 >
-                  {{ row.guardian.enabled ? '开启' : '关闭' }}
+                  {{ item.enabledLabel }}
                 </span>
-                <span>{{ row.guardian.last_hit_level || '-' }}</span>
               </div>
-              <div class="position-subject-summary-line workbench-code">
-                B1 {{ formatPrice(row.guardian.buy_1) }}
-              </div>
-              <div class="position-subject-summary-line workbench-code">
-                B2 {{ formatPrice(row.guardian.buy_2) }}
-              </div>
-              <div class="position-subject-summary-line workbench-code">
-                B3 {{ formatPrice(row.guardian.buy_3) }}
-              </div>
+              <div class="position-subject-summary-note">{{ row.guardianLastHitLabel }}</div>
             </div>
           </template>
         </el-table-column>
@@ -206,27 +224,6 @@
                 controls-position="right"
               />
               <span v-else class="position-subject-cell-muted">-</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="活跃单笔止损" width="92" align="center">
-          <template #default="{ row }">
-            <span class="position-subject-cell-strong">{{ row.stoplossActiveCount }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Open Entry" width="92" align="center">
-          <template #default="{ row }">
-            <span class="position-subject-cell-strong">{{ row.openEntryCount }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="最近触发" width="164">
-          <template #default="{ row }">
-            <div class="position-subject-runtime">
-              <span>{{ formatTriggerKind(row.runtime?.last_trigger_kind) }}</span>
-              <span class="workbench-code">{{ formatDateTime(row.runtime?.last_trigger_time) }}</span>
             </div>
           </template>
         </el-table-column>
@@ -540,6 +537,12 @@ const saveConfigBundleForSymbol = async (symbol) => {
   color: #21405e;
 }
 
+.position-subject-symbol span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .position-subject-symbol span,
 .position-subject-runtime span,
 .position-subject-summary-line,
@@ -554,6 +557,12 @@ const saveConfigBundleForSymbol = async (symbol) => {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.position-subject-summary-note {
+  color: #8a99ab;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .position-subject-inline-state {

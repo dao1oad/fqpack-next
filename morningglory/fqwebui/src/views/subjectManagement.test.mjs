@@ -163,7 +163,8 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.deepEqual(detail.entries[0].entrySummaryDisplay, {
     entryPriceLabel: '10.000',
     originalQuantityLabel: '300 股',
-    remainingQuantityLabel: '200 股 / 66.67%',
+    remainingQuantityLabel: '200 股',
+    remainingPercentLabel: '66.67%',
     entryDateTimeLabel: '2026-03-16 10:31:00',
     remainingMarketValueLabel: '0.22 万',
   })
@@ -339,9 +340,11 @@ test('PositionSubjectOverviewPanel removes category filter and uses renamed dens
   assert.match(source, /label="首笔买入金额"/)
   assert.match(source, /label="默认买入金额"/)
   assert.match(source, /label="单标的仓位上限"/)
-  assert.match(source, /label="最近触发"/)
+  assert.match(source, /最近TPLS触发/)
   assert.match(source, /row\.runtime\?\.last_trigger_kind/)
   assert.match(source, /label="活跃单笔止损"/)
+  assert.match(source, /row\.guardianLevelSummary/)
+  assert.match(source, /row\.guardianLastHitLabel/)
   assert.doesNotMatch(source, /placeholder="搜索代码 \/ 名称 \/ 分类"/)
   assert.doesNotMatch(source, /selectedSubjectCategory/)
   assert.doesNotMatch(source, /categoryOptions/)
