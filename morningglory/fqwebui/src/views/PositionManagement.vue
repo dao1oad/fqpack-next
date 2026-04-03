@@ -194,6 +194,9 @@
               <StatusChip variant="muted">
                 名称 <strong>{{ selectedSubjectName }}</strong>
               </StatusChip>
+              <StatusChip variant="muted">
+                当前入口 <strong>{{ selectedSubjectSelectedEntry?.entryDisplayLabel || '-' }}</strong>
+              </StatusChip>
               <StatusChip
                 v-for="item in selectedSubjectSummaryChips"
                 :key="item.key"
@@ -221,10 +224,15 @@
                 <div v-if="selectedSubjectEntryRows.length" class="position-selection-table-wrap">
                   <el-table
                     :data="selectedSubjectEntryRows"
+                    row-key="entry_id"
                     size="small"
                     border
                     height="100%"
+                    highlight-current-row
+                    :current-row-key="selectedSubjectEntryId"
                     class="position-selection-entry-table"
+                    @row-click="handleSelectedEntryChange"
+                    @current-change="handleSelectedEntryChange"
                   >
                     <el-table-column label="入口" width="132">
                       <template #default="{ row }">
@@ -342,7 +350,7 @@
                   </el-table>
                 </div>
                 <div v-else class="runtime-empty-panel">
-                  <strong>当前没有 open 切片</strong>
+                  <strong>{{ selectedSubjectSelectedEntry ? '当前选中入口没有 open 切片' : '请先选择一个持仓入口' }}</strong>
                 </div>
               </section>
             </div>
@@ -361,10 +369,13 @@
 
             <div class="workbench-summary-row">
               <StatusChip variant="muted">
-                当前标的 <strong>{{ selectedSubjectSymbol || '全部' }}</strong>
+                覆盖范围 <strong>全部标的</strong>
               </StatusChip>
               <StatusChip variant="muted">
                 当前页 <strong>{{ pagedDecisionRows.length }}</strong>
+              </StatusChip>
+              <StatusChip variant="muted">
+                排序 <strong>时间从近到远</strong>
               </StatusChip>
               <StatusChip variant="muted">
                 默认分页 <strong>{{ decisionPagination.pageSize }} / 页</strong>
@@ -428,7 +439,7 @@
             </div>
 
             <div v-else class="runtime-empty-panel">
-              <strong>{{ selectedSubjectSymbol ? '当前标的暂无最近决策记录' : '暂无最近决策记录' }}</strong>
+              <strong>暂无最近决策记录</strong>
             </div>
 
             <div class="position-ledger-pagination">
@@ -437,7 +448,7 @@
                 layout="total,sizes,prev,pager,next"
                 :current-page="decisionPagination.page"
                 :page-size="decisionPagination.pageSize"
-                :total="filteredDecisionLedgerRows.length"
+                :total="decisionLedgerRows.length"
                 :page-sizes="[100, 200, 500]"
                 @current-change="handleDecisionPageChange"
                 @size-change="handleDecisionPageSizeChange"
@@ -561,6 +572,10 @@ const subjectWorkbenchRuntime = {
   state: subjectWorkbenchController.state,
   refreshOverview: async (options) => subjectWorkbenchController.refreshOverview(options),
   ensureSymbolsHydrated: async (symbols) => subjectWorkbenchController.ensureSymbolsHydrated(symbols),
+  selectEntry: (symbol, entryId) => subjectWorkbenchController.selectEntry(symbol, entryId),
+  getSelectedEntryId: (symbol) => subjectWorkbenchController.getSelectedEntryId(symbol),
+  getSelectedEntry: (symbol) => subjectWorkbenchController.getSelectedEntry(symbol),
+  getSelectedEntrySlices: (symbol) => subjectWorkbenchController.getSelectedEntrySlices(symbol),
   saveConfigBundle: async (symbol) => saveSubjectConfigBundle(symbol),
   saveStoploss: async (symbol, entryId) => saveSubjectStoploss(symbol, entryId),
 }
@@ -569,13 +584,9 @@ const inventoryRows = computed(() => buildInventoryRows(dashboard.value))
 const statePanel = computed(() => buildStatePanel(dashboard.value))
 const ruleMatrix = computed(() => buildRuleMatrix(dashboard.value))
 const decisionLedgerRows = computed(() => buildRecentDecisionLedgerRows(dashboard.value))
-const filteredDecisionLedgerRows = computed(() => {
-  if (!selectedSubjectSymbol.value) return decisionLedgerRows.value
-  return decisionLedgerRows.value.filter((row) => row.symbol === selectedSubjectSymbol.value)
-})
 const pagedDecisionRows = computed(() => {
   const start = (decisionPagination.page - 1) * decisionPagination.pageSize
-  return filteredDecisionLedgerRows.value.slice(start, start + decisionPagination.pageSize)
+  return decisionLedgerRows.value.slice(start, start + decisionPagination.pageSize)
 })
 const configUpdatedAt = computed(() => formatBeijingTimestamp(dashboard.value?.config?.updated_at, '未配置'))
 const configUpdatedBy = computed(() => dashboard.value?.config?.updated_by || 'unknown')
@@ -601,13 +612,15 @@ const selectedSubjectError = computed(() => (
 const selectedSubjectEntryRows = computed(() => (
   selectedSubjectDetail.value?.entries || []
 ))
-const selectedSubjectSliceRows = computed(() => selectedSubjectEntryRows.value.flatMap((entry) => (
-  (entry.entry_slices || []).map((slice) => ({
-    ...slice,
-    entry_id: entry.entry_id,
-    entryDisplayLabel: entry.entryDisplayLabel,
-  }))
-)))
+const selectedSubjectEntryId = computed(() => (
+  subjectWorkbenchRuntime.getSelectedEntryId(selectedSubjectSymbol.value)
+))
+const selectedSubjectSelectedEntry = computed(() => (
+  subjectWorkbenchRuntime.getSelectedEntry(selectedSubjectSymbol.value)
+))
+const selectedSubjectSliceRows = computed(() => (
+  subjectWorkbenchRuntime.getSelectedEntrySlices(selectedSubjectSymbol.value)
+))
 const selectedSubjectSummaryChips = computed(() => {
   if (!selectedSubjectDetail.value) return []
   return buildDetailSummaryChips(selectedSubjectDetail.value).slice(0, 5)
@@ -617,9 +630,9 @@ const selectedSubjectName = computed(() => (
 ))
 
 watch(
-  () => [filteredDecisionLedgerRows.value.length, decisionPagination.pageSize],
+  () => [decisionLedgerRows.value.length, decisionPagination.pageSize],
   () => {
-    const totalPages = Math.max(1, Math.ceil(filteredDecisionLedgerRows.value.length / decisionPagination.pageSize))
+    const totalPages = Math.max(1, Math.ceil(decisionLedgerRows.value.length / decisionPagination.pageSize))
     if (decisionPagination.page > totalPages) {
       decisionPagination.page = totalPages
     }
@@ -650,9 +663,14 @@ const handleDecisionPageSizeChange = (pageSize) => {
   decisionPagination.page = 1
 }
 
+const handleSelectedEntryChange = (row) => {
+  const entryId = row?.entry_id
+  if (!selectedSubjectSymbol.value || !entryId) return
+  subjectWorkbenchRuntime.selectEntry(selectedSubjectSymbol.value, entryId)
+}
+
 const handleSelectedSubjectChange = (symbol) => {
   selectedSubjectSymbol.value = String(symbol || '').trim()
-  decisionPagination.page = 1
 }
 
 const syncEditableForm = () => {
@@ -966,6 +984,10 @@ onMounted(() => {
 .position-selection-entry-table :deep(.el-input-number),
 .position-selection-slice-table :deep(.el-input-number) {
   width: 100%;
+}
+
+.position-selection-entry-table :deep(.el-table__body tr.current-row > td.el-table__cell) {
+  background: #eef5ff;
 }
 
 .position-selection-entry-cell {

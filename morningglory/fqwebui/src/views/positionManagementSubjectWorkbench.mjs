@@ -50,6 +50,22 @@ const uniqueSymbols = (symbols = []) => Array.from(new Set(
     .filter(Boolean),
 ))
 
+const normalizeEntryId = (value) => String(value || '').trim()
+
+const listDetailEntries = (detail = null) => (
+  Array.isArray(detail?.entries) ? detail.entries : []
+)
+
+const resolveSelectedEntryId = (detail, previousEntryId = '') => {
+  const entries = listDetailEntries(detail)
+  const candidateIds = entries.map((entry) => normalizeEntryId(entry?.entry_id)).filter(Boolean)
+  if (!candidateIds.length) return ''
+  const normalizedPreviousEntryId = normalizeEntryId(previousEntryId)
+  return candidateIds.includes(normalizedPreviousEntryId)
+    ? normalizedPreviousEntryId
+    : candidateIds[0]
+}
+
 export const createPositionManagementSubjectWorkbenchController = ({
   actions,
   notify,
@@ -66,6 +82,7 @@ export const createPositionManagementSubjectWorkbenchController = ({
     mustPoolDrafts: {},
     positionLimitDrafts: {},
     stoplossDrafts: {},
+    selectedEntryIds: {},
     savingConfigBundle: {},
     savingStoploss: {},
   })
@@ -79,6 +96,7 @@ export const createPositionManagementSubjectWorkbenchController = ({
       state.mustPoolDrafts,
       state.positionLimitDrafts,
       state.stoplossDrafts,
+      state.selectedEntryIds,
       state.savingConfigBundle,
       state.savingStoploss,
     ]) {
@@ -104,6 +122,7 @@ export const createPositionManagementSubjectWorkbenchController = ({
     const previousMustPoolDraft = cloneMustPoolDraft(state.mustPoolDrafts[symbol] || {})
     const previousPositionLimitDraft = clonePositionLimitDraft(state.positionLimitDrafts[symbol] || {})
     const previousStoplossDrafts = cloneStoplossDraftMap(state.stoplossDrafts[symbol] || {})
+    const previousSelectedEntryId = normalizeEntryId(state.selectedEntryIds[symbol])
 
     state.detailMap[symbol] = detail
     state.detailErrors[symbol] = ''
@@ -118,6 +137,7 @@ export const createPositionManagementSubjectWorkbenchController = ({
         },
       ])),
     )
+    state.selectedEntryIds[symbol] = resolveSelectedEntryId(detail, previousSelectedEntryId)
 
     if (preserveMustPoolDraft) {
       state.mustPoolDrafts[symbol] = previousMustPoolDraft
@@ -207,6 +227,46 @@ export const createPositionManagementSubjectWorkbenchController = ({
     preserveStoplossDrafts,
   })
 
+  const getSelectedEntryId = (symbol) => {
+    const normalizedSymbol = String(symbol || '').trim()
+    if (!normalizedSymbol) return ''
+    const detail = state.detailMap[normalizedSymbol]
+    const resolvedEntryId = resolveSelectedEntryId(detail, state.selectedEntryIds[normalizedSymbol])
+    if (resolvedEntryId !== state.selectedEntryIds[normalizedSymbol]) {
+      state.selectedEntryIds[normalizedSymbol] = resolvedEntryId
+    }
+    return resolvedEntryId
+  }
+
+  const getSelectedEntry = (symbol) => {
+    const normalizedSymbol = String(symbol || '').trim()
+    const selectedEntryId = getSelectedEntryId(normalizedSymbol)
+    if (!normalizedSymbol || !selectedEntryId) return null
+    const entries = listDetailEntries(state.detailMap[normalizedSymbol])
+    return entries.find((entry) => normalizeEntryId(entry?.entry_id) === selectedEntryId) || null
+  }
+
+  const getSelectedEntrySlices = (symbol) => {
+    const entry = getSelectedEntry(symbol)
+    if (!entry) return []
+    return (Array.isArray(entry.entry_slices) ? entry.entry_slices : []).map((slice) => ({
+      ...slice,
+      entry_id: entry.entry_id,
+      entryDisplayLabel: entry.entryDisplayLabel,
+    }))
+  }
+
+  const selectEntry = (symbol, entryId) => {
+    const normalizedSymbol = String(symbol || '').trim()
+    const normalizedEntryId = normalizeEntryId(entryId)
+    if (!normalizedSymbol || !normalizedEntryId) return null
+    const entries = listDetailEntries(state.detailMap[normalizedSymbol])
+    const selectedEntry = entries.find((entry) => normalizeEntryId(entry?.entry_id) === normalizedEntryId) || null
+    if (!selectedEntry) return null
+    state.selectedEntryIds[normalizedSymbol] = normalizedEntryId
+    return selectedEntry
+  }
+
   const saveConfigBundle = async (symbol) => {
     const normalizedSymbol = String(symbol || '').trim()
     const detail = state.detailMap[normalizedSymbol]
@@ -288,6 +348,10 @@ export const createPositionManagementSubjectWorkbenchController = ({
     ensureSymbolsHydrated,
     refreshOverview,
     reloadSymbol,
+    getSelectedEntryId,
+    getSelectedEntry,
+    getSelectedEntrySlices,
+    selectEntry,
     saveConfigBundle,
     saveStoploss,
   }

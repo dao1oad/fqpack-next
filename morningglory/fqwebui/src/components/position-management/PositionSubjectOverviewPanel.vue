@@ -26,22 +26,9 @@
       <el-input
         v-model="searchSubjectKeyword"
         clearable
-        placeholder="搜索代码 / 名称 / 分类"
+        placeholder="搜索代码 / 名称"
         class="position-subject-toolbar__query"
       />
-      <el-select
-        v-model="selectedSubjectCategory"
-        clearable
-        placeholder="全部分类"
-        class="position-subject-toolbar__select"
-      >
-        <el-option
-          v-for="option in categoryOptions"
-          :key="option"
-          :label="option"
-          :value="option"
-        />
-      </el-select>
     </div>
 
     <div class="workbench-summary-row">
@@ -55,7 +42,7 @@
         已加载详情 <strong>{{ loadedDetailCount }}</strong>
       </StatusChip>
       <StatusChip variant="warning">
-        活跃止损 <strong>{{ activeStoplossCount }}</strong>
+        活跃单笔止损 <strong>{{ activeStoplossCount }}</strong>
       </StatusChip>
     </div>
 
@@ -78,20 +65,6 @@
             <div class="position-subject-symbol">
               <strong class="workbench-code">{{ row.symbol }}</strong>
               <span>{{ row.name || '-' }}</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="分类" width="132">
-          <template #default="{ row }">
-            <div class="position-subject-input-cell" :title="configNote(row.symbol, 'category')">
-              <el-input
-                v-if="workbench.state.mustPoolDrafts[row.symbol]"
-                v-model.trim="workbench.state.mustPoolDrafts[row.symbol].category"
-                size="small"
-                placeholder="分类"
-              />
-              <span v-else class="position-subject-cell-muted">加载中</span>
             </div>
           </template>
         </el-table-column>
@@ -123,12 +96,13 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="止损价" width="110">
+        <el-table-column label="全仓止损价" width="110">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'stop_loss_price')">
               <el-input-number
                 v-if="workbench.state.mustPoolDrafts[row.symbol]"
                 v-model="workbench.state.mustPoolDrafts[row.symbol].stop_loss_price"
+                :placeholder="mustPoolNumberPlaceholder(row.symbol, 'stop_loss_price', formatPrice)"
                 size="small"
                 :min="0"
                 :step="0.01"
@@ -140,12 +114,13 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="首笔金额" width="122">
+        <el-table-column label="开仓数量" width="122">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'initial_lot_amount')">
               <el-input-number
                 v-if="workbench.state.mustPoolDrafts[row.symbol]"
                 v-model="workbench.state.mustPoolDrafts[row.symbol].initial_lot_amount"
+                :placeholder="mustPoolNumberPlaceholder(row.symbol, 'initial_lot_amount', formatInteger)"
                 size="small"
                 :min="0"
                 :step="1000"
@@ -156,12 +131,13 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="常规金额" width="122">
+        <el-table-column label="默认买入金额" width="122">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'lot_amount')">
               <el-input-number
                 v-if="workbench.state.mustPoolDrafts[row.symbol]"
                 v-model="workbench.state.mustPoolDrafts[row.symbol].lot_amount"
+                :placeholder="mustPoolNumberPlaceholder(row.symbol, 'lot_amount', formatInteger)"
                 size="small"
                 :min="0"
                 :step="1000"
@@ -188,7 +164,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="活跃止损" width="92" align="center">
+        <el-table-column label="活跃单笔止损" width="92" align="center">
           <template #default="{ row }">
             <span class="position-subject-cell-strong">{{ row.stoplossActiveCount }}</span>
           </template>
@@ -270,7 +246,6 @@ const emit = defineEmits(['symbol-select'])
 
 const subjectOverviewTableRef = ref(null)
 const searchSubjectKeyword = ref('')
-const selectedSubjectCategory = ref('')
 const subjectOverviewPagination = reactive({
   page: 1,
   pageSize: DEFAULT_OVERVIEW_PAGE_SIZE,
@@ -299,16 +274,11 @@ const formatWanAmount = (value) => {
 
 const formatDateTime = (value) => formatBeijingTimestamp(value)
 
-const categoryOptions = computed(() => Array.from(
-  new Set((overviewRows.value || []).map((row) => String(row.category || '').trim()).filter(Boolean)),
-).sort((left, right) => left.localeCompare(right)))
-
 const filteredOverviewRows = computed(() => {
   const keyword = String(searchSubjectKeyword.value || '').trim().toLowerCase()
   return (overviewRows.value || []).filter((row) => {
-    if (selectedSubjectCategory.value && row.category !== selectedSubjectCategory.value) return false
     if (!keyword) return true
-    return [row.symbol, row.name, row.category]
+    return [row.symbol, row.name]
       .join(' ')
       .toLowerCase()
       .includes(keyword)
@@ -343,6 +313,14 @@ const resolvePmStateChipVariant = (detail) => (
 )
 
 const configNote = (symbol, key) => detailConfigMap.value?.[symbol]?.[key]?.note || ''
+
+const mustPoolNumberPlaceholder = (symbol, key, formatter) => {
+  const draftValue = workbench.value?.state?.mustPoolDrafts?.[symbol]?.[key]
+  if (draftValue !== null && draftValue !== undefined && draftValue !== '') return ''
+  const effectiveValue = detailForSymbol(symbol)?.baseConfigSummary?.[key]?.effective_value
+  const effectiveLabel = formatter(effectiveValue)
+  return effectiveLabel === '-' ? '未配置' : effectiveLabel
+}
 
 const applyCurrentRow = async (symbol) => {
   await nextTick()
@@ -383,7 +361,7 @@ const syncSelectedSubject = async () => {
 }
 
 watch(
-  () => [searchSubjectKeyword.value, selectedSubjectCategory.value],
+  () => searchSubjectKeyword.value,
   () => {
     subjectOverviewPagination.page = 1
   },
@@ -449,13 +427,12 @@ const saveConfigBundleForSymbol = async (symbol) => {
 
 .position-subject-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1.3fr) minmax(160px, 0.7fr);
+  grid-template-columns: minmax(220px, 1fr);
   gap: 8px;
   margin-bottom: 8px;
 }
 
-.position-subject-toolbar__query,
-.position-subject-toolbar__select {
+.position-subject-toolbar__query {
   width: 100%;
 }
 

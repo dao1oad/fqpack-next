@@ -181,7 +181,7 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.equal(detail.positionLimitSummary.using_override, true)
 })
 
-test('buildDenseConfigRows flattens must-pool and symbol limit fields into one dense editor table', () => {
+test('buildDenseConfigRows keeps only dense editable rows and renames labels to current stoploss semantics', () => {
   const detail = buildDetailViewModel({
     subject: {
       symbol: '600000',
@@ -221,17 +221,23 @@ test('buildDenseConfigRows flattens must-pool and symbol limit fields into one d
 
   assert.deepEqual(
     rows.map((row) => row.key),
-    ['category', 'stop_loss_price', 'initial_lot_amount', 'lot_amount', 'position_limit_value'],
+    ['stop_loss_price', 'initial_lot_amount', 'lot_amount', 'position_limit_value'],
   )
-  assert.equal(rows[0].currentLabel, '银行')
-  assert.equal(rows[1].group, '基础')
-  assert.equal(rows[4].group, '仓位上限')
-  assert.equal(rows[4].statusLabel, '单独设置')
-  assert.equal(rows[4].currentLabel, '50.00 万')
-  assert.equal(rows[4].note.includes('当前市值'), true)
+  assert.deepEqual(
+    rows.map((row) => row.label),
+    ['全仓止损价', '开仓数量', '默认买入金额', '单标的上限设置'],
+  )
+  assert.equal(rows[0].group, '基础')
+  assert.equal(rows[0].currentLabel, '9.2')
+  assert.equal(rows[1].currentLabel, '80000')
+  assert.equal(rows[2].currentLabel, '50000')
+  assert.equal(rows[3].group, '仓位上限')
+  assert.equal(rows[3].statusLabel, '单独设置')
+  assert.equal(rows[3].currentLabel, '50.00 万')
+  assert.equal(rows[3].note.includes('当前市值'), true)
 })
 
-test('buildDenseConfigRows keeps category row bound to must-pool category instead of subject category', () => {
+test('buildDenseConfigRows removes category row and keeps stoploss editor keys stable', () => {
   const detail = buildDetailViewModel({
     subject: {
       symbol: '600000',
@@ -247,10 +253,14 @@ test('buildDenseConfigRows keeps category row bound to must-pool category instea
 
   assert.equal(detail.category, '银行')
   assert.equal(detail.mustPool.category, '守护池')
-  assert.equal(rows[0].currentLabel, '守护池')
+  assert.equal(rows.some((row) => row.key === 'category'), false)
+  assert.deepEqual(
+    rows.map((row) => row.key),
+    ['stop_loss_price', 'initial_lot_amount', 'lot_amount', 'position_limit_value'],
+  )
 })
 
-test('buildDenseConfigRows shows unconfigured labels and default effective amounts when must-pool is missing', () => {
+test('buildDenseConfigRows shows effective fallback values when must-pool is missing', () => {
   const detail = buildDetailViewModel({
     subject: {
       symbol: '600271',
@@ -296,17 +306,41 @@ test('buildDenseConfigRows shows unconfigured labels and default effective amoun
 
   const rows = buildDenseConfigRows(detail)
 
+  assert.deepEqual(
+    rows.map((row) => row.label),
+    ['全仓止损价', '开仓数量', '默认买入金额', '单标的上限设置'],
+  )
   assert.equal(rows[0].currentLabel, '未配置')
   assert.equal(rows[0].statusLabel, '未配置')
-  assert.equal(rows[1].currentLabel, '未配置')
-  assert.equal(rows[1].statusLabel, '未配置')
-  assert.equal(rows[2].currentLabel, '100000')
+  assert.equal(rows[1].currentLabel, '100000')
+  assert.equal(rows[1].statusLabel, '默认值')
+  assert.match(rows[1].note, /100000/)
+  assert.equal(rows[2].currentLabel, '50000')
   assert.equal(rows[2].statusLabel, '默认值')
-  assert.match(rows[2].note, /100000/)
-  assert.equal(rows[3].currentLabel, '50000')
-  assert.equal(rows[3].statusLabel, '默认值')
-  assert.match(rows[3].note, /guardian/i)
-  assert.equal(rows[4].currentLabel, '80.00 万')
+  assert.match(rows[2].note, /guardian/i)
+  assert.equal(rows[3].currentLabel, '80.00 万')
+})
+
+test('PositionSubjectOverviewPanel removes category filter and uses renamed dense columns', () => {
+  const source = fs.readFileSync(
+    new URL('../components/position-management/PositionSubjectOverviewPanel.vue', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(source, /placeholder="搜索代码 \/ 名称"/)
+  assert.match(source, /label="全仓止损价"/)
+  assert.match(source, /label="开仓数量"/)
+  assert.match(source, /label="默认买入金额"/)
+  assert.match(source, /label="活跃单笔止损"/)
+  assert.doesNotMatch(source, /placeholder="搜索代码 \/ 名称 \/ 分类"/)
+  assert.doesNotMatch(source, /selectedSubjectCategory/)
+  assert.doesNotMatch(source, /categoryOptions/)
+  assert.doesNotMatch(source, /label="分类"/)
+  assert.doesNotMatch(source, /全部分类/)
+  assert.doesNotMatch(source, /label="止损价"/)
+  assert.doesNotMatch(source, /label="首笔金额"/)
+  assert.doesNotMatch(source, /label="常规金额"/)
+  assert.doesNotMatch(source, /label="活跃止损"/)
 })
 
 test('buildDetailSummaryChips compresses subject, runtime and pm state into header chips', () => {

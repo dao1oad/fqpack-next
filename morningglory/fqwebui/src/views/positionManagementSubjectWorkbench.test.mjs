@@ -26,7 +26,7 @@ const makeOverviewRows = () => buildOverviewRows([
     },
     stoploss: {
       active_count: 1,
-      open_entry_count: 1,
+      open_entry_count: 2,
     },
     runtime: {
       position_quantity: 500,
@@ -139,6 +139,44 @@ const makeDetail = (symbol = '600000', overrides = {}) => buildDetailViewModel({
             remaining_quantity: 80,
             remaining_amount: 816,
           },
+          {
+            entry_slice_id: 'slice-2',
+            slice_seq: 2,
+            guardian_price: 9.8,
+            original_quantity: 200,
+            remaining_quantity: 120,
+            remaining_amount: 1224,
+          },
+        ],
+      },
+      {
+        entry_id: '600000-entry-2',
+        entry_price: 10.15,
+        original_quantity: 200,
+        remaining_quantity: 160,
+        latest_price: 10.35,
+        remaining_market_value: 1656,
+        stoploss: {
+          stop_price: 9.05,
+          enabled: false,
+        },
+        aggregation_members: [
+          { order_id: 'buy-3', quantity: 120 },
+          { order_id: 'buy-4', quantity: 80 },
+        ],
+        aggregation_window: {
+          started_at: '2026-04-02T10:10:00+08:00',
+          ended_at: '2026-04-02T10:16:00+08:00',
+        },
+        entry_slices: [
+          {
+            entry_slice_id: 'slice-3',
+            slice_seq: 1,
+            guardian_price: 9.7,
+            original_quantity: 200,
+            remaining_quantity: 160,
+            remaining_amount: 1656,
+          },
         ],
       },
     ]
@@ -203,11 +241,56 @@ test('subject workbench controller refreshes overview and hydrates visible symbo
   assert.equal(controller.state.mustPoolDrafts['600000'].category, '银行')
   assert.equal(controller.state.positionLimitDrafts['600000'].limit, 500000)
   assert.equal(controller.state.stoplossDrafts['600000']['600000-entry-1'].stop_price, 9.2)
+  assert.equal(controller.state.selectedEntryIds['600000'], '600000-entry-1')
   assert.deepEqual(calls, [
     ['loadOverview'],
     ['loadSubjectDetail', '600000'],
     ['loadSubjectDetail', '000001'],
   ])
+})
+
+test('subject workbench controller defaults to the first entry and exposes slices for the selected entry only', async () => {
+  const actions = {
+    async loadOverview() {
+      return makeOverviewRows()
+    },
+    async loadSubjectDetail(symbol) {
+      return makeDetail(symbol)
+    },
+    async saveMustPool() {
+      throw new Error('should not save')
+    },
+    async savePositionLimit() {
+      throw new Error('should not save')
+    },
+    async saveStoploss() {
+      throw new Error('should not save')
+    },
+  }
+
+  const controller = createPositionManagementSubjectWorkbenchController({
+    actions,
+    notify: {},
+  })
+
+  await controller.refreshOverview({
+    preloadSymbols: ['600000'],
+  })
+
+  assert.equal(controller.getSelectedEntryId('600000'), '600000-entry-1')
+  assert.deepEqual(
+    controller.getSelectedEntrySlices('600000').map((row) => row.entry_slice_id),
+    ['slice-1', 'slice-2'],
+  )
+
+  controller.selectEntry('600000', '600000-entry-2')
+
+  assert.equal(controller.getSelectedEntryId('600000'), '600000-entry-2')
+  assert.equal(controller.getSelectedEntry('600000')?.entry_id, '600000-entry-2')
+  assert.deepEqual(
+    controller.getSelectedEntrySlices('600000').map((row) => row.entry_slice_id),
+    ['slice-3'],
+  )
 })
 
 test('subject workbench controller deduplicates concurrent detail hydration for the same symbol', async () => {

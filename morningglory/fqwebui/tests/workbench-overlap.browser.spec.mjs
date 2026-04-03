@@ -477,7 +477,7 @@ function buildPositionManagementSubjectDetail(row, index) {
   const entryCount = index === 0 ? 12 : index === 1 ? 8 : 3
   const entries = buildRows(entryCount, (entryIndex) => {
     const baseQuantity = 180 - entryIndex * 8
-    const sliceCount = index === 0 ? 2 : 1
+    const sliceCount = index === 0 ? (entryIndex === 0 ? 2 : 1) : 1
     return {
       entry_id: `${row.symbol}-entry-${entryIndex + 1}`,
       date: `202603${String((entryIndex % 9) + 10).padStart(2, '0')}`,
@@ -931,7 +931,7 @@ test('daily-screening ledgers keep the first row clear of the header after scrol
   assertNoOverlap([resultsMetric, workspaceMetric, historyMetric])
 })
 
-test('position-management dense workbench keeps split panels, descending sort, and selected-symbol linkage', async ({ page }) => {
+test('position-management dense workbench keeps split panels, descending sort, full decision timeline, and entry-slice linkage', async ({ page }) => {
   await page.setViewportSize(DESKTOP_VIEWPORT)
   await setupPositionManagementRoutes(page)
   await page.goto(`${DEV_SERVER_URL}/position-management`)
@@ -964,18 +964,24 @@ test('position-management dense workbench keeps split panels, descending sort, a
   ))
   expect(headerTexts).toEqual(expect.arrayContaining([
     '标的',
-    '分类',
     '持仓股数',
     '持仓市值',
     '门禁',
-    '止损价',
-    '首笔金额',
-    '常规金额',
+    '全仓止损价',
+    '开仓数量',
+    '默认买入金额',
     '单标的上限',
-    '活跃止损',
+    '活跃单笔止损',
     'Open Entry',
     '最近触发',
     '保存',
+  ]))
+  expect(headerTexts).not.toEqual(expect.arrayContaining([
+    '分类',
+    '止损价',
+    '首笔金额',
+    '常规金额',
+    '活跃止损',
   ]))
 
   const overviewSymbols = await page.locator('.position-subject-table .el-table__body-wrapper tbody tr').evaluateAll((rows) => (
@@ -984,15 +990,30 @@ test('position-management dense workbench keeps split panels, descending sort, a
   expect(overviewSymbols).toEqual(['000001', '000002', '000003'])
 
   await expect(page.locator('.position-selection-panel .workbench-summary-row')).toContainText('000001')
+  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr')).toHaveCount(2)
   await page.locator('.position-subject-table .el-table__body-wrapper tbody tr').nth(1).click()
   await expect(page.locator('.position-selection-panel .workbench-summary-row')).toContainText('000002')
-  await expect(page.locator('.position-decision-panel .workbench-summary-row')).toContainText('000002')
+  await expect(page.locator('.position-decision-panel .workbench-summary-row')).toContainText('全部标的')
 
   const decisionSymbols = await page.locator('.runtime-position-decision-ledger .runtime-ledger__row').evaluateAll((rows) => (
     rows.map((row) => (row.children?.[1]?.textContent || '').trim())
   ))
   expect(decisionSymbols.length).toBeGreaterThan(0)
-  expect(decisionSymbols.every((text) => text.includes('000002'))).toBe(true)
+  expect(new Set(decisionSymbols).size).toBeGreaterThan(1)
+
+  const decisionTimes = await page.locator('.runtime-position-decision-ledger .runtime-ledger__row').evaluateAll((rows) => (
+    rows.slice(0, 3).map((row) => (row.children?.[0]?.textContent || '').trim())
+  ))
+  expect(decisionTimes).toEqual(['2026-03-18 10:47:00', '2026-03-18 10:46:00', '2026-03-18 10:45:00'])
+
+  await page.locator('.position-subject-table .el-table__body-wrapper tbody tr').first().click()
+  await expect(page.locator('.position-selection-panel .workbench-summary-row')).toContainText('000001')
+  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr')).toHaveCount(2)
+  await page.locator('.position-selection-entry-table .el-table__body-wrapper tbody tr').nth(1).evaluate((node) => {
+    node.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  })
+  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr')).toHaveCount(1)
+  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toContainText('000001-entry-2')
 })
 
 test('position-management dense ledgers keep the first row clear and reconciliation evidence expands as tables', async ({ page }) => {

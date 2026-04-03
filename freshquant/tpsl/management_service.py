@@ -528,9 +528,9 @@ def _derive_kind(row):
     if kind:
         return kind
     event_type = str(row.get("event_type") or "").strip().lower()
-    if event_type.startswith("takeprofit"):
+    if "takeprofit" in event_type:
         return "takeprofit"
-    if event_type.startswith("stoploss"):
+    if "stoploss" in event_type:
         return "stoploss"
     return ""
 

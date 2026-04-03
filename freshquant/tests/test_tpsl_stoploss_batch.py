@@ -135,3 +135,53 @@ def test_stoploss_batch_returns_blocked_result_when_under_board_lot():
 
     assert batch["status"] == "blocked"
     assert batch["blocked_reason"] == "board_lot"
+
+
+def test_symbol_stoploss_batch_aggregates_all_open_entries_into_one_order():
+    repo = FakeOrderManagementRepository(
+        [
+            {
+                "entry_id": "entry1",
+                "entry_slice_id": "slice1",
+                "symbol": "000001",
+                "guardian_price": 9.1,
+                "remaining_quantity": 200,
+            },
+            {
+                "entry_id": "entry2",
+                "entry_slice_id": "slice2",
+                "symbol": "000001",
+                "guardian_price": 9.4,
+                "remaining_quantity": 300,
+            },
+            {
+                "entry_id": "entry3",
+                "entry_slice_id": "slice3",
+                "symbol": "000001",
+                "guardian_price": 9.6,
+                "remaining_quantity": 200,
+            },
+        ]
+    )
+
+    batch = build_stoploss_batch(
+        repository=repo,
+        symbol="000001",
+        bid1=9.0,
+        entry_ids=["entry1", "entry2", "entry3"],
+        stop_price=9.4,
+        can_use_volume=700,
+        scope_type="symbol_stoploss_batch",
+        strategy_name="FullPositionStoploss",
+    )
+
+    assert batch["quantity"] == 700
+    assert batch["price"] == 9.4
+    assert batch["scope_type"] == "symbol_stoploss_batch"
+    assert batch["strategy_name"] == "FullPositionStoploss"
+    assert batch["remark"] == "symbol_stoploss_batch:000001"
+    assert batch["entry_quantities"] == {
+        "entry1": 200,
+        "entry2": 300,
+        "entry3": 200,
+    }
