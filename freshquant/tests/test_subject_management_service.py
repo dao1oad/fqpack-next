@@ -397,6 +397,7 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["stoploss"]["open_entry_count"] == 1
     assert rows[0]["runtime"]["position_quantity"] == 500
     assert rows[0]["runtime"]["position_amount"] == 0.0
+    assert rows[0]["runtime"]["last_trigger_kind"] == "takeprofit"
     assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:40:00+08:00"
     assert rows[0]["position_limit_summary"]["effective_limit"] == 500000.0
     assert rows[0]["position_limit_summary"]["using_override"] is True

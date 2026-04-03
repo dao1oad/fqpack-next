@@ -28,6 +28,7 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
         buy_1: 10.2,
         buy_2: 9.9,
         buy_3: 9.5,
+        last_hit_level: 'BUY-2',
       },
       takeprofit: {
         tiers: [],
@@ -40,6 +41,7 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
         position_quantity: 500,
         position_amount: 123456,
         last_hit_level: 'BUY-2',
+        last_trigger_kind: 'takeprofit',
         last_trigger_time: '2026-03-16T10:40:00+08:00',
       },
       position_limit_summary: {
@@ -56,10 +58,13 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
   assert.equal(rows[0].takeprofitSummary.length, 3)
   assert.equal(rows[0].takeprofitSummary[0].level, 1)
   assert.equal(rows[0].takeprofitSummary[0].priceLabel, '-')
+  assert.equal(rows[0].guardian.last_hit_level, 'BUY-2')
   assert.equal(rows[0].guardianSummaryLabel.includes('B1'), true)
   assert.equal(rows[0].stoplossSummaryLabel, '2 / 5')
   assert.equal(rows[0].runtimeSummaryLabel.includes('12.35 万'), true)
   assert.equal(rows[0].runtimeSummaryLabel.includes('500'), true)
+  assert.equal(rows[0].runtime.last_trigger_kind, 'takeprofit')
+  assert.equal(rows[0].runtimeSummaryLabel.includes('takeprofit'), true)
   assert.equal(rows[0].positionLimitSummaryLabel.includes('50.00 万'), true)
   assert.equal(rows[0].positionLimitSummaryLabel.includes('单独设置'), true)
   assert.equal(rows[0].baseSummaryLabel.includes('永久'), false)
@@ -225,7 +230,7 @@ test('buildDenseConfigRows keeps only dense editable rows and renames labels to 
   )
   assert.deepEqual(
     rows.map((row) => row.label),
-    ['全仓止损价', '开仓数量', '默认买入金额', '单标的上限设置'],
+    ['全仓止损价', '首笔买入金额', '默认买入金额', '单标的仓位上限'],
   )
   assert.equal(rows[0].group, '基础')
   assert.equal(rows[0].currentLabel, '9.2')
@@ -308,7 +313,7 @@ test('buildDenseConfigRows shows effective fallback values when must-pool is mis
 
   assert.deepEqual(
     rows.map((row) => row.label),
-    ['全仓止损价', '开仓数量', '默认买入金额', '单标的上限设置'],
+    ['全仓止损价', '首笔买入金额', '默认买入金额', '单标的仓位上限'],
   )
   assert.equal(rows[0].currentLabel, '未配置')
   assert.equal(rows[0].statusLabel, '未配置')
@@ -328,9 +333,14 @@ test('PositionSubjectOverviewPanel removes category filter and uses renamed dens
   )
 
   assert.match(source, /placeholder="搜索代码 \/ 名称"/)
+  assert.match(source, /label="Guardian 层级买入"/)
+  assert.match(source, /label="止盈价格"/)
   assert.match(source, /label="全仓止损价"/)
-  assert.match(source, /label="开仓数量"/)
+  assert.match(source, /label="首笔买入金额"/)
   assert.match(source, /label="默认买入金额"/)
+  assert.match(source, /label="单标的仓位上限"/)
+  assert.match(source, /label="最近触发"/)
+  assert.match(source, /row\.runtime\?\.last_trigger_kind/)
   assert.match(source, /label="活跃单笔止损"/)
   assert.doesNotMatch(source, /placeholder="搜索代码 \/ 名称 \/ 分类"/)
   assert.doesNotMatch(source, /selectedSubjectCategory/)
@@ -338,6 +348,8 @@ test('PositionSubjectOverviewPanel removes category filter and uses renamed dens
   assert.doesNotMatch(source, /label="分类"/)
   assert.doesNotMatch(source, /全部分类/)
   assert.doesNotMatch(source, /label="止损价"/)
+  assert.doesNotMatch(source, /label="开仓数量"/)
+  assert.doesNotMatch(source, /label="单标的上限"/)
   assert.doesNotMatch(source, /label="首笔金额"/)
   assert.doesNotMatch(source, /label="常规金额"/)
   assert.doesNotMatch(source, /label="活跃止损"/)

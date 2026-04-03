@@ -117,6 +117,7 @@ class SubjectManagementDashboardService:
                         ),
                         "avg_price": _safe_float_or_none(position.get("avg_price")),
                         "last_hit_level": guardian_state.get("last_hit_level"),
+                        "last_trigger_kind": latest_event.get("kind"),
                         "last_trigger_time": latest_event.get("created_at"),
                     },
                     "position_limit_summary": {

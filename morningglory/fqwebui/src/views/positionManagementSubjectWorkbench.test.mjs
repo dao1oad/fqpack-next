@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 
 import { buildDetailViewModel, buildOverviewRows } from './subjectManagement.mjs'
 import { createPositionManagementSubjectWorkbenchController } from './positionManagementSubjectWorkbench.mjs'
@@ -467,4 +468,28 @@ test('subject workbench controller saves inline entry stoploss and refreshes sym
     ['loadSubjectDetail', '600000'],
     ['loadOverview'],
   ])
+})
+
+test('PositionSubjectOverviewPanel shows Guardian and takeprofit overview columns alongside inline config editing', () => {
+  const source = fs.readFileSync(
+    new URL('../components/position-management/PositionSubjectOverviewPanel.vue', import.meta.url),
+    'utf8',
+  ).replace(/\r/g, '')
+
+  assert.match(source, /<el-table-column label="门禁"/)
+  assert.match(source, /<el-table-column label="最近触发"/)
+  assert.match(source, /<el-table-column label="Guardian 层级买入"/)
+  assert.match(source, /<el-table-column label="止盈价格"/)
+  assert.match(source, /<el-table-column label="首笔买入金额"/)
+  assert.match(source, /<el-table-column label="单标的仓位上限"/)
+  assert.match(source, /row\.runtime\?\.last_trigger_kind/)
+  assert.match(source, /row\.guardian\.enabled \? '开启' : '关闭'/)
+  assert.match(source, /row\.guardian\.buy_1/)
+  assert.match(source, /row\.guardian\.buy_2/)
+  assert.match(source, /row\.guardian\.buy_3/)
+  assert.match(source, /row\.takeprofitSummary/)
+  assert.match(source, /item\.priceLabel/)
+  assert.match(source, /item\.enabledLabel/)
+  assert.match(source, /mustPoolNumberPlaceholder\(row\.symbol, 'initial_lot_amount', formatInteger\)/)
+  assert.match(source, /workbench\.state\.positionLimitDrafts\[row\.symbol\]\.limit/)
 })
