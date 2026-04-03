@@ -525,6 +525,7 @@ test('SubjectManagement stoploss rows show the same entry summary fields as Klin
   assert.match(source, /row\.entrySummaryDisplay\.entryPriceLabel/)
   assert.match(source, /row\.entrySummaryDisplay\.originalQuantityLabel/)
   assert.match(source, /row\.entrySummaryDisplay\.remainingQuantityLabel/)
+  assert.match(source, /row\.entrySummaryDisplay\.remainingPercentLabel/)
   assert.match(source, /row\.entrySummaryDisplay\.entryDateTimeLabel/)
   assert.match(source, /row\.entrySummaryDisplay\.remainingMarketValueLabel/)
 })

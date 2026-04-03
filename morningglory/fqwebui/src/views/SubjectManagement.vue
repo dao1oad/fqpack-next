@@ -386,6 +386,12 @@
                           <span class="subject-editor-stoploss-entry__meta-item subject-editor-stoploss-entry__meta-item--accent">
                             <span class="subject-editor-stoploss-entry__meta-label">剩</span>
                             <span class="subject-editor-stoploss-entry__meta-value">{{ row.entrySummaryDisplay.remainingQuantityLabel }}</span>
+                            <span
+                              v-if="row.entrySummaryDisplay.remainingPercentLabel && row.entrySummaryDisplay.remainingPercentLabel !== '-'"
+                              class="subject-editor-stoploss-entry__meta-value"
+                            >
+                              / {{ row.entrySummaryDisplay.remainingPercentLabel }}
+                            </span>
                           </span>
                         </span>
                         <span class="subject-editor-stoploss-entry__meta-line">
