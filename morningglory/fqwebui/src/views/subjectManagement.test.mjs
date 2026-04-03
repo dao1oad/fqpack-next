@@ -28,6 +28,7 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
         buy_1: 10.2,
         buy_2: 9.9,
         buy_3: 9.5,
+        last_hit_level: 'BUY-2',
       },
       takeprofit: {
         tiers: [],
@@ -57,6 +58,7 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
   assert.equal(rows[0].takeprofitSummary.length, 3)
   assert.equal(rows[0].takeprofitSummary[0].level, 1)
   assert.equal(rows[0].takeprofitSummary[0].priceLabel, '-')
+  assert.equal(rows[0].guardian.last_hit_level, 'BUY-2')
   assert.equal(rows[0].guardianSummaryLabel.includes('B1'), true)
   assert.equal(rows[0].stoplossSummaryLabel, '2 / 5')
   assert.equal(rows[0].runtimeSummaryLabel.includes('12.35 万'), true)

@@ -375,7 +375,12 @@ export const buildOverviewRows = (rows = []) => {
   return [...(Array.isArray(rows) ? rows : [])]
     .map((row) => {
       const mustPool = normalizeMustPool(row?.must_pool || {})
-      const guardian = normalizeGuardianConfig(row?.guardian || {})
+      const guardian = {
+        ...normalizeGuardianConfig(row?.guardian || {}),
+        last_hit_level: toText(row?.guardian?.last_hit_level),
+        last_hit_price: toNullableNumber(row?.guardian?.last_hit_price),
+        last_hit_signal_time: toText(row?.guardian?.last_hit_signal_time),
+      }
       const stoploss = row?.stoploss || {}
       const runtime = row?.runtime || {}
       const takeprofitSummary = buildTakeprofitSummary(row?.takeprofit?.tiers || [])
