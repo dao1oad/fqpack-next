@@ -1,44 +1,63 @@
 ---
 name: fq-deploy
-description: Use when FreshQuant needs formal deployment, redeployment, deploy failure triage, or production verification against the main deploy mirror
+description: Use when FreshQuant needs formal deployment, redeployment, deploy failure triage, or production verification against latest remote main and the production deploy mirror
 ---
 
 # fq-deploy
 
 ## Overview
 
-FreshQuant 的正式部署只认最新远程 `origin/main`，并且只从 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 执行。完成判定只看 formal deploy artifacts、health check 和 runtime verify，不看口头状态。
+FreshQuant 的正式部署只认最新远程 `origin/main`。workflow 与人工 redeploy 统一只走 `script/ci/run_production_deploy.ps1`，不再手工拆 `mirror sync`、`uv sync` 或 `run_formal_deploy.py`。完成判定只看 formal deploy artifacts、health check、runtime verify 与 host runtime evidence，不看口头状态。
 
 ## When to Use
 
 - 用户要求部署、重部署、同步 `main` 后上线
 - formal deploy 失败，需要继续排障直到恢复
 - runtime verify 或宿主机 surface restart 失败
+- 用户想确认 `main-deploy-production` / supervisor 当前是否已经对齐最新远程 `main`
 
 ## Formal Flow
 
-先在 canonical repo root 同步真值：
+1. 如果本轮为了修 deploy 阻塞项需要改代码，先走 `feature branch -> PR -> merge remote main`，不要在开发 worktree 上直接 formal deploy。
+2. 先确认最新远程 `origin/main` SHA。
+3. 人工正式 redeploy 优先直接调用 bootstrap worktree 中的最新入口：
 
 ```powershell
-git fetch origin --prune
-git checkout main
-git pull --ff-only origin main
+powershell -ExecutionPolicy Bypass -File D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap\script\ci\run_production_deploy.ps1 -CanonicalRoot D:\fqpack\freshquant-2026.2.23 -BootstrapRoot D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap -MirrorRoot D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production -MirrorBranch deploy-production-main -TargetSha <latest-origin-main-sha>
 ```
 
-再同步 deploy mirror：
+如果 bootstrap entrypoint 不可直接使用，才退回 canonical repo root 的 `script/ci/run_production_deploy.ps1`，并让它自己先 bootstrap 再继续。
+
+4. 不要再手工执行下面这些旧步骤：
+
+- 手工 fast-forward `main-deploy-production`
+- 手工 `py -3.12 -m uv sync --frozen`
+- 手工 `py -3.12 script/ci/run_formal_deploy.py`
+
+5. 统一让入口脚本负责：
+
+- 校验 `TargetSha == latest origin/main`
+- 刷新 `production-deploy-bootstrap`
+- 用“当前 entrypoint repo”解析并执行 mirror sync helper
+- 自愈 runner Python 3.12 与 `uv`
+- 在需要时 quiesce 宿主机 surfaces 后重试 `uv sync`
+- 在 deploy mirror `.venv` 缺 metadata 时重建 virtualenv
+- 切换到 mirror `.venv\Scripts\python.exe` 执行 formal deploy
+
+## Entrypoint Guarantees
+
+- bootstrap worktree：`D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap`
+- 正式 deploy mirror：`D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
+- mirror sync helper 固定从“当前 entrypoint repo”解析，不允许回退到 stale mirror 中的旧 helper
+- 如果 live `.venv\Lib\site-packages` 被宿主机进程占用，入口会先 `StopSurfaces`，再重试 `uv sync --frozen`，最后统一 `RestartSurfaces`
+- 如果 `main-deploy-production\.venv\pyvenv.cfg` 缺失，或 `.venv\Scripts\python.exe` 已不可启动，入口会在 quiesce 宿主机 surfaces 后执行：
 
 ```powershell
-git -C D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production fetch origin main
-git -C D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production checkout deploy-production-main
-git -C D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production merge --ff-only origin/main
+python -m uv venv .venv --python <runner-python> --clear
 ```
 
-在 deploy mirror 中执行：
-
-```powershell
-py -3.12 -m uv sync --frozen
-py -3.12 script/ci/run_formal_deploy.py --repo-root . --format summary
-```
+然后再补跑 `uv sync --frozen`
+- formal deploy 永远通过 mirror `.venv\Scripts\python.exe` 执行
 
 ## Required Evidence
 
@@ -49,6 +68,11 @@ py -3.12 script/ci/run_formal_deploy.py --repo-root . --format summary
   - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/runtime-baseline.json`
   - `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/runtime-verify.json`
 - 当 `plan.json` / `result.json` 显示 `deployment_required=false` 时，把这轮当成 `no-op deploy`；`runtime-verify.json 可以不存在`，但必须确认 `result.json` 为 `ok=true`，并且 `production-state.json` 的 `last_success_sha` 已更新到目标 SHA
+- 当 `plan.host_surfaces` 非空，或 entrypoint 日志出现以下任一自愈信号时，再额外要求：
+  - `retrying uv sync after quiescing host runtime surfaces`
+  - `recreating .venv with runner Python 3.12`
+  - `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status`
+  - `py -3.12 script/fqnext_supervisor_config.py inspect --config-path D:\fqpack\config\supervisord.fqnext.conf --expected-repo-root D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
 
 ## Runtime Verification
 
@@ -56,9 +80,29 @@ py -3.12 script/ci/run_formal_deploy.py --repo-root . --format summary
 - Web：`py -3.12 script/freshquant_health_check.py --surface web --format summary`
 - TradingAgents：`py -3.12 script/freshquant_health_check.py --surface tradingagents --format summary`
 - 宿主机状态：`powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status`
+- Supervisor 配置真值：`py -3.12 script/fqnext_supervisor_config.py inspect --config-path D:\fqpack\config\supervisord.fqnext.conf --expected-repo-root D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
 - Runtime verify：`powershell -ExecutionPolicy Bypass -File script/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface <surfaces>`
 
+## Interpreting Host Truth
+
+- 先区分两类 host 影响：
+  - `plan.host_surfaces` 非空：这是 formal deploy 计划命中的 host surfaces
+  - entrypoint 日志出现 `retrying uv sync after quiescing host runtime surfaces` 或 `recreating .venv with runner Python 3.12`：这是入口为修复 live mirror `.venv` / `uv sync` 触发的临时 quiesce + restart
+- 如果只命中了第二类，而 `plan.host_surfaces` 仍为空，不要把它表述成“formal deploy 计划命中了 host surfaces”
+- 这种情况下应该明确说：
+  - 本轮 deploy entrypoint 曾为自愈暂时停止并恢复 host runtime surfaces
+  - supervisor 配置真值已指向最新 `main-deploy-production`
+  - 当前 Running 的 host 进程使用的是该正式运行根
+- 只有当本轮 `plan.host_surfaces` 非空，并且 `runtime-verify.json` 通过时，才能说 host surfaces 已被本轮 deploy 重新收敛
+- 只有当 `plan.host_surfaces` 为空，且 entrypoint 自愈信号也未出现时，才能说这轮 deploy 没有主动重启 host surfaces
+
 ## Failure Triage
+
+### runner 的 `git fetch origin main` 失败但 SSH 443 可用
+
+- 如果 formal deploy 一开始就卡在 `git fetch origin main`
+- 先检查 `git remote -v`、`remote.origin.url` 与 `remote.origin.pushurl`
+- 如果 fetch 仍走 HTTPS，但同机 `ssh://git@ssh.github.com:443/...` 可用，就先把 `origin` 的 fetch URL 对齐到可用的 SSH 443，再重试 formal deploy
 
 ### Dagster 容器重启循环
 
@@ -98,6 +142,19 @@ print(inspect.signature(resolve_stock_account))
 - `fq_webui` 的 compose 依赖当前会带出 `fq_apiserver` / `fq_qawebserver` 启动路径，所以 Web deploy 仍可能触发 rear image 构建链路
 - 第一次遇到这种 `fqchan04` 编译器崩溃时，保留失败 run_dir artifacts 后，对同一 SHA 原样重跑 1 次 formal deploy
 - 只有当第二次仍在同一位置失败，才继续进入代码修复、Dockerfile 调整或编译环境调查
+
+## Prompt Template
+
+下次要求模型重新部署时，优先直接用这段提示词：
+
+```text
+请按当前正式部署真值执行一次 redeploy：
+1. 只基于最新远端 origin/main
+2. 统一走 script/ci/run_production_deploy.ps1，不要手工拆 mirror sync、uv sync、run_formal_deploy
+3. 如果失败，不要停在报错，继续沿着 formal deploy artifacts 排障直到恢复
+4. 完成后返回：latest origin/main SHA、run_dir、plan.json/result.json 摘要、production-state.json、health check、runtime-verify、fqnext_host_runtime_ctl.ps1 -Mode Status
+5. 明确说明本轮是否命中 host surfaces；如果没有命中，不要声称 supervisor 进程已重启，只需确认 supervisor 配置真值已对齐 main-deploy-production
+```
 
 ## Discipline
 
