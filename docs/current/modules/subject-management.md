@@ -52,6 +52,15 @@
 - entry 级止损摘要
 - 单标的仓位上限摘要
 
+overview 的 `runtime` 当前返回：
+
+- `position_quantity`
+- `position_amount`
+- `avg_price`
+- `last_hit_level`
+- `last_trigger_kind`
+- `last_trigger_time`
+
 overview 里的“单标的仓位上限摘要”当前按批量 PM dashboard 结果一次性装载，不再按 symbol 重复调用单标的 limit 读路径。
 
 当前批量装载口径直接读取 `GET /api/position-management/dashboard` 返回里的 `symbol_position_limits.rows`。
@@ -116,6 +125,21 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
 
 标的总览里的“当前生效”摘要当前必须明确展示来源；缺失配置不再渲染为空白。
 
+当前中栏 / 旧页面共享的基础配置标签口径为：
+
+- `首笔买入金额`
+- `默认买入金额`
+- `单标的仓位上限`
+
+其中“默认买入金额”必须和 `lot_amount` / `instrument_strategy.lot_amount` / `guardian.stock.lot_amount` 这一条运行口径保持一致，不能和单标的仓位上限混淆。
+
+当前 `overview` 与 `detail` 在最近触发字段上已经统一：
+
+- overview 展示 `runtime.last_trigger_kind + runtime.last_trigger_time`
+- detail 展示 `runtime_summary.last_trigger_kind + runtime_summary.last_trigger_time`
+
+`PositionSubjectOverviewPanel` 主表当前会把这两项单独放在“最近触发”列中，不再与 Guardian 命中信息或运行态列混排。
+
 ## 止损语义
 
 标的总览里的 `全仓止损价` 当前正式对应 `must_pool.stop_loss_price`：
@@ -157,7 +181,9 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近触发事件只
   - entry stoploss
 - 只读
   - Guardian 阶梯价
+    - 标的总览概览列当前展示 `B1 / B2 / B3`
   - 止盈 profile / state
+    - 标的总览概览列当前展示 `L1 / L2 / L3`
   - 仓位门禁状态
   - 对账状态
 

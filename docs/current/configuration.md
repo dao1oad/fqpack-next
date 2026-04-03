@@ -161,7 +161,8 @@
 
 其中：
 
-- `guardian.stock.lot_amount` 是 Guardian 持仓内加仓路径的基础金额，也是 `SubjectManagement` 组件右栏“常规金额”在 `instrument_strategy.lot_amount` 和 `must_pool.lot_amount` 都缺失时的最终回退值
+- `guardian.stock.lot_amount` 是 Guardian 持仓内加仓路径的基础金额，也是 `SubjectManagement` / `PositionManagement` 标的编辑区“默认买入金额”在 `instrument_strategy.lot_amount` 和 `must_pool.lot_amount` 都缺失时的最终回退值
+- `SubjectManagement` / `PositionManagement` 标的总览里的“默认买入金额”当前固定对应这条生效链路，不再与“单标的仓位上限”混用
 - Guardian 首次开仓默认金额不走 `guardian.stock.lot_amount`，当前固定回退到代码默认值 `100000`
 
 ### `strategies`
@@ -196,7 +197,7 @@
 
 初始化程序只补缺失记录，不覆盖已有单标的配置。
 
-`instrument_strategy.lot_amount` 当前只影响 Guardian 持仓内加仓基准金额和 `SubjectManagement` 组件右栏“常规金额”的当前生效值，不覆盖首次开仓默认金额。
+`instrument_strategy.lot_amount` 当前只影响 Guardian 持仓内加仓基准金额和 `SubjectManagement` / `PositionManagement` 标的编辑区“默认买入金额”的当前生效值，不覆盖首次开仓默认金额。
 
 ## Guardian 买入金额口径
 

@@ -77,11 +77,11 @@ const baseConfigSourceLabel = (source) => {
     'must_pool.category': 'must_pool 分类',
     'must_pool.provenance': 'must_pool 归因分类',
     'must_pool.stop_loss_price': 'must_pool 全仓止损价',
-    'must_pool.initial_lot_amount': 'must_pool 开仓数量',
+    'must_pool.initial_lot_amount': 'must_pool 首笔买入金额',
     'must_pool.lot_amount': 'must_pool 默认买入金额',
     'instrument_strategy.lot_amount': 'instrument_strategy.lot_amount',
     'guardian.stock.lot_amount': 'guardian.stock.lot_amount',
-    default_initial_lot_amount: 'Guardian 默认开仓数量',
+    default_initial_lot_amount: 'Guardian 默认首笔买入金额',
   }
   return mapping[source] || toText(source) || '-'
 }
@@ -421,7 +421,7 @@ export const buildOverviewRows = (rows = []) => {
         runtimeSummaryLabel: [
           formatAmountWan(runtime?.position_amount),
           `${toNumber(runtime?.position_quantity)} 股`,
-          toText(runtime?.last_hit_level) || '-',
+          toText(runtime?.last_trigger_kind) || '-',
           formatBeijingTimestamp(runtime?.last_trigger_time),
         ].join(' / '),
         position_quantity: toNumber(runtime?.position_quantity),
@@ -555,7 +555,7 @@ export const buildDenseConfigRows = (detail = {}) => {
     {
       group: '基础',
       key: 'initial_lot_amount',
-      label: '开仓数量',
+      label: '首笔买入金额',
       currentLabel: formatEffectiveValue(initialLotItem, formatInteger),
       editor: 'integer',
       statusLabel: initialStatus,
@@ -575,7 +575,7 @@ export const buildDenseConfigRows = (detail = {}) => {
     {
       group: '仓位上限',
       key: 'position_limit_value',
-      label: '单标的上限设置',
+      label: '单标的仓位上限',
       currentLabel: formatAmountWan(positionLimitSummary.effective_limit),
       editor: 'position-limit-value',
       statusLabel: formatPositionLimitSource(positionLimitSummary),

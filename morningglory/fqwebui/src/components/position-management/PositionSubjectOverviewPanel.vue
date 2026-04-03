@@ -96,6 +96,52 @@
           </template>
         </el-table-column>
 
+        <el-table-column label="Guardian 层级买入" width="158">
+          <template #default="{ row }">
+            <div class="position-subject-summary-stack">
+              <div class="position-subject-summary-line">
+                <span
+                  class="position-subject-inline-state"
+                  :class="{ active: row.guardian.enabled }"
+                >
+                  {{ row.guardian.enabled ? '开启' : '关闭' }}
+                </span>
+                <span>{{ row.guardian.last_hit_level || '-' }}</span>
+              </div>
+              <div class="position-subject-summary-line workbench-code">
+                B1 {{ formatPrice(row.guardian.buy_1) }}
+              </div>
+              <div class="position-subject-summary-line workbench-code">
+                B2 {{ formatPrice(row.guardian.buy_2) }}
+              </div>
+              <div class="position-subject-summary-line workbench-code">
+                B3 {{ formatPrice(row.guardian.buy_3) }}
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="止盈价格" width="164">
+          <template #default="{ row }">
+            <div class="position-subject-summary-stack">
+              <div
+                v-for="item in row.takeprofitSummary"
+                :key="`${row.symbol}-takeprofit-${item.level}`"
+                class="position-subject-summary-line"
+              >
+                <span class="workbench-code">L{{ item.level }}</span>
+                <span class="workbench-code">{{ item.priceLabel }}</span>
+                <span
+                  class="position-subject-inline-state"
+                  :class="{ active: item.enabled }"
+                >
+                  {{ item.enabledLabel }}
+                </span>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+
         <el-table-column label="全仓止损价" width="110">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'stop_loss_price')">
@@ -114,7 +160,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="开仓数量" width="122">
+        <el-table-column label="首笔买入金额" width="122">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'initial_lot_amount')">
               <el-input-number
@@ -148,7 +194,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="单标的上限" width="126">
+        <el-table-column label="单标的仓位上限" width="126">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'position_limit_value')">
               <el-input-number
@@ -179,7 +225,7 @@
         <el-table-column label="最近触发" width="164">
           <template #default="{ row }">
             <div class="position-subject-runtime">
-              <span>{{ row.runtime?.last_hit_level || '-' }}</span>
+              <span>{{ formatTriggerKind(row.runtime?.last_trigger_kind) }}</span>
               <span class="workbench-code">{{ formatDateTime(row.runtime?.last_trigger_time) }}</span>
             </div>
           </template>
@@ -258,6 +304,13 @@ const loadingOverview = computed(() => Boolean(workbench.value?.state?.loadingOv
 const pageError = computed(() => workbench.value?.state?.pageError || '')
 const detailMap = computed(() => workbench.value?.state?.detailMap || {})
 
+const formatPrice = (value) => {
+  if (value === null || value === undefined || value === '') return '-'
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '-'
+  return Number.isInteger(parsed) ? parsed.toFixed(1) : String(parsed)
+}
+
 const formatInteger = (value) => {
   if (value === null || value === undefined || value === '') return '-'
   const parsed = Number(value)
@@ -273,6 +326,15 @@ const formatWanAmount = (value) => {
 }
 
 const formatDateTime = (value) => formatBeijingTimestamp(value)
+const formatTriggerKind = (value) => {
+  const label = String(value ?? '').trim()
+  if (!label) return '-'
+  const mapping = {
+    takeprofit: '止盈',
+    stoploss: '止损',
+  }
+  return mapping[label] || label
+}
 
 const filteredOverviewRows = computed(() => {
   const keyword = String(searchSubjectKeyword.value || '').trim().toLowerCase()
@@ -467,6 +529,12 @@ const saveConfigBundleForSymbol = async (symbol) => {
   gap: 4px;
 }
 
+.position-subject-summary-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .position-subject-symbol strong,
 .position-subject-cell-strong {
   color: #21405e;
@@ -474,10 +542,36 @@ const saveConfigBundleForSymbol = async (symbol) => {
 
 .position-subject-symbol span,
 .position-subject-runtime span,
+.position-subject-summary-line,
 .position-subject-cell-muted {
   color: #68839d;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.position-subject-summary-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.position-subject-inline-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #eef4fb;
+  color: #5f7890;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.position-subject-inline-state.active {
+  background: rgba(64, 158, 255, 0.12);
+  color: #1d5fa8;
 }
 
 .position-subject-input-cell,
