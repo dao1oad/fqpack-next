@@ -212,4 +212,3 @@ Expected: `200`
 
 Run: `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/health/summary`
 Expected: `200`
-

@@ -366,7 +366,12 @@ def test_evaluate_stoploss_returns_symbol_full_stoploss_batch_when_symbol_price_
             },
         ],
         entry_stoploss_bindings=[
-            {"entry_id": "entry_1", "symbol": "000001", "stop_price": 8.8, "enabled": True}
+            {
+                "entry_id": "entry_1",
+                "symbol": "000001",
+                "stop_price": 8.8,
+                "enabled": True,
+            }
         ],
     )
     service = TpslService(
@@ -417,7 +422,12 @@ def test_evaluate_stoploss_prefers_symbol_full_stoploss_over_entry_stoploss():
             },
         ],
         entry_stoploss_bindings=[
-            {"entry_id": "entry_1", "symbol": "000001", "stop_price": 9.5, "enabled": True}
+            {
+                "entry_id": "entry_1",
+                "symbol": "000001",
+                "stop_price": 9.5,
+                "enabled": True,
+            }
         ],
     )
     service = TpslService(

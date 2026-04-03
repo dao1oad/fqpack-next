@@ -392,9 +392,8 @@ class TpslService:
             full_stop_price = _safe_float_or_none(
                 self.symbol_stoploss_price_loader(base_symbol)
             )
-            if (
-                full_stop_price is not None
-                and float(bid1 or 0.0) <= float(full_stop_price)
+            if full_stop_price is not None and float(bid1 or 0.0) <= float(
+                full_stop_price
             ):
                 can_use_volume = self.position_reader.get_can_use_volume(base_symbol)
                 open_slices = list_open_entry_slices_compat(
