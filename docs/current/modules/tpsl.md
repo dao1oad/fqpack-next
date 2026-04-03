@@ -2,11 +2,12 @@
 
 ## 职责
 
-TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。当前模块已经切到 `position entry` 语义：
+TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。当前模块已经切到 `position entry` 主语义，并同时支持 symbol 级全仓止损：
 
 - 止盈仍按 symbol profile 管理
 - 止盈命中档位但当前可盈利切片数量为 `0` 时，仍会消耗命中档位并写 `takeprofit_hit`，但不会生成退出单
 - 止损对象改为 open `position_entries`
+- `must_pool.stop_loss_price` 当前承担 symbol 级 `全仓止损价`
 - 历史与详情优先读取 `entry ledger`
 - 止盈卖出提交前会统一按 `xt_positions.can_use_volume` 截断，并按一手向下取整；Guardian 卖出现在复用同一套约束 helper
 
@@ -32,6 +33,7 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 - Redis tick 队列
 - `xt_positions`
 - `pm_symbol_position_snapshots`
+- `must_pool`
 - `om_takeprofit_profiles`
 - `om_takeprofit_states`
 - `om_position_entries`
@@ -84,11 +86,30 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 
 ## 止损语义
 
+当前运行时止损分成两层：
+
+- `全仓止损`
+  - 来源：`must_pool.stop_loss_price`
+  - 条件：`bid1 <= full_stop_price`
+  - 结果：生成 `scope_type=symbol_stoploss_batch`、`strategy_name=FullPositionStoploss`
+  - 卖出该 symbol 下全部可卖 open entry slices，并继续受 `can_use_volume` 与一手约束限制
+- `单笔止损`
+  - 来源：`om_entry_stoploss_bindings`
+  - 条件：entry 级 `stop_price` 命中
+  - 结果：生成 `scope_type=stoploss_batch`、`strategy_name=PerEntryStoplossBatch`
+
 页面上“单笔止损”当前实际是“单 entry 止损”：
 
 - 一条 open entry 对应一条可配置止损对象
 - 同一 broker order 下多笔 fill 聚合成一个 entry 时，TPSL 默认只看到一条止损对象
 - 只有真正形成多个 open entries 时，TPSL 才会出现多行止损
+
+若同一 tick 同时命中 symbol 级全仓止损和 entry 级止损，当前固定是全仓止损优先，只生成一次全仓止损 batch。
+
+止损命中事件当前会显式区分：
+
+- `symbol_full_stoploss_hit`
+- `entry_stoploss_hit`
 
 ## entry ledger / compat
 

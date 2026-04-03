@@ -522,6 +522,77 @@ def test_management_history_ignores_blank_optional_filters():
     assert [item["event_id"] for item in rows] == ["evt_tp_1"]
 
 
+def test_management_history_attaches_order_chain_for_symbol_stoploss_batch():
+    tpsl_repository = InMemoryTpslRepository()
+    tpsl_repository.events.append(
+        {
+            "event_id": "evt_symbol_stop_1",
+            "event_type": "symbol_full_stoploss_hit",
+            "kind": "stoploss",
+            "symbol": "600000",
+            "batch_id": "symbol_sl_batch_1",
+            "buy_lot_ids": ["lot_open_1", "lot_open_2"],
+            "created_at": "2026-03-13T10:01:00+00:00",
+        }
+    )
+
+    order_repository = InMemoryOrderManagementRepository()
+    order_repository.order_requests.append(
+        {
+            "request_id": "req_symbol_stop_1",
+            "symbol": "600000",
+            "scope_type": "symbol_stoploss_batch",
+            "scope_ref_id": "symbol_sl_batch_1",
+            "state": "ACCEPTED",
+            "created_at": "2026-03-13T10:01:01+00:00",
+        }
+    )
+    order_repository.orders.append(
+        {
+            "internal_order_id": "ord_symbol_stop_1",
+            "request_id": "req_symbol_stop_1",
+            "symbol": "600000",
+            "state": "FILLED",
+            "broker_order_id": "BRK-SL-1",
+            "submitted_at": "2026-03-13T10:01:02+00:00",
+        }
+    )
+    order_repository.order_events.append(
+        {
+            "event_id": "oe_symbol_stop_1",
+            "internal_order_id": "ord_symbol_stop_1",
+            "event_type": "trade_reported",
+            "state": "FILLED",
+            "created_at": "2026-03-13T10:01:05+00:00",
+        }
+    )
+    order_repository.trade_facts.append(
+        {
+            "trade_fact_id": "trade_symbol_stop_1",
+            "internal_order_id": "ord_symbol_stop_1",
+            "symbol": "600000",
+            "quantity": 500,
+            "price": 9.1,
+            "trade_time": 1710000000,
+        }
+    )
+
+    service = TpslManagementService(
+        tpsl_repository=tpsl_repository,
+        order_repository=order_repository,
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+    )
+
+    rows = service.list_history(symbol="600000", limit=10)
+
+    assert rows[0]["event_id"] == "evt_symbol_stop_1"
+    assert rows[0]["order_requests"][0]["request_id"] == "req_symbol_stop_1"
+    assert rows[0]["orders"][0]["internal_order_id"] == "ord_symbol_stop_1"
+    assert rows[0]["order_events"][0]["event_id"] == "oe_symbol_stop_1"
+    assert rows[0]["trades"][0]["trade_fact_id"] == "trade_symbol_stop_1"
+
+
 def test_management_detail_assembles_entries_and_order_timeline():
     tpsl_repository = InMemoryTpslRepository()
     tpsl_repository.profiles["600000"] = {

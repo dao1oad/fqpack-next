@@ -76,12 +76,12 @@ const baseConfigSourceLabel = (source) => {
     unconfigured: '未配置',
     'must_pool.category': 'must_pool 分类',
     'must_pool.provenance': 'must_pool 归因分类',
-    'must_pool.stop_loss_price': 'must_pool 止损价',
-    'must_pool.initial_lot_amount': 'must_pool 首笔金额',
-    'must_pool.lot_amount': 'must_pool 常规金额',
+    'must_pool.stop_loss_price': 'must_pool 全仓止损价',
+    'must_pool.initial_lot_amount': 'must_pool 开仓数量',
+    'must_pool.lot_amount': 'must_pool 默认买入金额',
     'instrument_strategy.lot_amount': 'instrument_strategy.lot_amount',
     'guardian.stock.lot_amount': 'guardian.stock.lot_amount',
-    default_initial_lot_amount: 'Guardian 默认首笔金额',
+    default_initial_lot_amount: 'Guardian 默认开仓数量',
   }
   return mapping[source] || toText(source) || '-'
 }
@@ -534,11 +534,9 @@ export const buildDenseConfigRows = (detail = {}) => {
     if (statusLabel === '默认值' || statusLabel === '继承常规金额' || statusLabel === '策略覆盖') return 'warning'
     return 'info'
   }
-  const categoryItem = baseConfigSummary.category
   const stopLossItem = baseConfigSummary.stop_loss_price
   const initialLotItem = baseConfigSummary.initial_lot_amount
   const lotAmountItem = baseConfigSummary.lot_amount
-  const categoryStatus = resolveBaseStatus('category', categoryItem)
   const stopLossStatus = resolveBaseStatus('stop_loss_price', stopLossItem)
   const initialStatus = resolveBaseStatus('initial_lot_amount', initialLotItem)
   const lotStatus = resolveBaseStatus('lot_amount', lotAmountItem)
@@ -546,18 +544,8 @@ export const buildDenseConfigRows = (detail = {}) => {
   return [
     {
       group: '基础',
-      key: 'category',
-      label: '分类',
-      currentLabel: formatEffectiveValue(categoryItem, (value) => toText(value) || '-'),
-      editor: 'text',
-      statusLabel: categoryStatus,
-      statusTone: resolveBaseTone(categoryStatus),
-      note: buildBaseConfigNote(categoryItem, (value) => toText(value) || '-'),
-    },
-    {
-      group: '基础',
       key: 'stop_loss_price',
-      label: '止损价',
+      label: '全仓止损价',
       currentLabel: formatEffectiveValue(stopLossItem, formatPrice),
       editor: 'number',
       statusLabel: stopLossStatus,
@@ -567,7 +555,7 @@ export const buildDenseConfigRows = (detail = {}) => {
     {
       group: '基础',
       key: 'initial_lot_amount',
-      label: '首笔金额',
+      label: '开仓数量',
       currentLabel: formatEffectiveValue(initialLotItem, formatInteger),
       editor: 'integer',
       statusLabel: initialStatus,
@@ -577,7 +565,7 @@ export const buildDenseConfigRows = (detail = {}) => {
     {
       group: '基础',
       key: 'lot_amount',
-      label: '常规金额',
+      label: '默认买入金额',
       currentLabel: formatEffectiveValue(lotAmountItem, formatInteger),
       editor: 'integer',
       statusLabel: lotStatus,

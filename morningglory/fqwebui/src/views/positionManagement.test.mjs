@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import {
   buildInventoryRows,
   buildRecentDecisionDetailRows,
+  buildRecentDecisionLedgerRows,
   buildRecentDecisionRows,
   buildSymbolLimitRows,
 } from './positionManagement.mjs'
@@ -193,7 +194,10 @@ test('PositionManagement view turns into the final dense workbench with selected
   assert.match(source, /position-state-scroll/)
   assert.match(source, /runtime-position-rule-ledger/)
   assert.match(source, /selectedSubjectSymbol/)
-  assert.match(source, /filteredDecisionLedgerRows/)
+  assert.match(source, /selectedSubjectEntryId/)
+  assert.match(source, /handleSelectedEntryChange/)
+  assert.match(source, /getSelectedEntrySlices/)
+  assert.match(source, /覆盖范围 <strong>全部标的<\/strong>/)
   assert.match(source, /position-decision-panel/)
   assert.match(source, /position-selection-panel/)
   assert.ok(workbenchGridIndex >= 0)
@@ -220,6 +224,7 @@ test('PositionManagement view turns into the final dense workbench with selected
   assert.doesNotMatch(source, /position-config-scroll/)
   assert.doesNotMatch(source, /position-decision-card/)
   assert.doesNotMatch(source, /selectedDecision/)
+  assert.doesNotMatch(source, /filteredDecisionLedgerRows/)
   assert.doesNotMatch(source, /--position-upper-panel-height:/)
   assert.doesNotMatch(source, /单标的仓位上限覆盖/)
   assert.doesNotMatch(source, /runtime-position-symbol-limit-ledger/)
@@ -227,6 +232,61 @@ test('PositionManagement view turns into the final dense workbench with selected
   assert.doesNotMatch(source, /saveSymbolLimit\(row\)/)
   assert.doesNotMatch(source, /覆盖值/)
   assert.doesNotMatch(source, /恢复默认/)
+})
+
+test('buildRecentDecisionLedgerRows keeps all symbols and sorts newest decisions first', () => {
+  const rows = buildRecentDecisionLedgerRows({
+    recent_decisions: [
+      {
+        decision_id: 'pmd_old',
+        strategy_name: 'Guardian',
+        action: 'buy',
+        symbol: '600000',
+        symbol_name: '浦发银行',
+        state: 'ALLOW_OPEN',
+        allowed: true,
+        source: 'strategy',
+        source_module: 'Guardian',
+        evaluated_at: '2026-03-07T04:00:00Z',
+        meta: {},
+      },
+      {
+        decision_id: 'pmd_new',
+        strategy_name: 'Manual',
+        action: 'sell',
+        symbol: '000001',
+        symbol_name: '平安银行',
+        state: 'HOLDING_ONLY',
+        allowed: false,
+        source: 'manual',
+        source_module: 'Trader',
+        evaluated_at: '2026-03-07T05:30:00Z',
+        meta: {},
+      },
+      {
+        decision_id: 'pmd_mid',
+        strategy_name: 'Guardian',
+        action: 'buy',
+        symbol: '300001',
+        symbol_name: '特锐德',
+        state: 'ALLOW_OPEN',
+        allowed: true,
+        source: 'strategy',
+        source_module: 'Guardian',
+        evaluated_at: '2026-03-07T05:00:00Z',
+        meta: {},
+      },
+    ],
+  })
+
+  assert.deepEqual(
+    rows.map((row) => row.decision_id),
+    ['pmd_new', 'pmd_mid', 'pmd_old'],
+  )
+  assert.deepEqual(
+    rows.map((row) => row.symbol),
+    ['000001', '300001', '600000'],
+  )
 })
 
 test('buildRecentDecisionRows formats Beijing trigger time and Chinese detail rows', () => {
