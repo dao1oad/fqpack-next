@@ -162,8 +162,9 @@
 其中：
 
 - `guardian.stock.lot_amount` 是 Guardian 持仓内加仓路径的基础金额，也是 `SubjectManagement` / `PositionManagement` 标的编辑区“默认买入金额”在 `instrument_strategy.lot_amount` 和 `must_pool.lot_amount` 都缺失时的最终回退值
-- `SubjectManagement` / `PositionManagement` 标的总览里的“默认买入金额”当前固定对应这条生效链路，不再与“单标的仓位上限”混用
+- `SubjectManagement` / `PositionManagement` 标的总览已不再行内展示“默认买入金额”；当前统一在 `/system-settings -> 交易控制 / 策略 -> Guardian` 中维护这条系统级真值
 - Guardian 首次开仓默认金额不走 `guardian.stock.lot_amount`，当前固定回退到代码默认值 `100000`
+- `/system-settings -> 交易控制 / 策略 -> Guardian` 当前也会展示这条“首笔买入金额”默认值，但口径是只读运行默认值，不是 Mongo 可编辑参数
 
 ### `strategies`
 
@@ -234,6 +235,9 @@ Guardian 当前有两条买入路径：
 - Bootstrap 与 Mongo 两类正式设置项都直接以内嵌 dense ledger 行展示，不再使用卡片式编辑区
 - 每列当前拆成固定列头和独立滚动 body；section 标题摘要与 ledger 表头使用静态头部，rows 落在单独 ledger box 内，避免列内滚动时覆盖首行
 - 所有正式设置项都会出现在主视图中；`guardian.stock.threshold.*` 与 `guardian.stock.grid_interval.*` 不再因 mode 切换而隐藏，只对未生效行做弱化
+- `Guardian` section 当前固定包含两类买入金额口径：
+  - `首笔买入金额`：只读展示运行默认值 `100000`
+  - `默认买入金额`：正式对应 `guardian.stock.lot_amount`
 - 页面内使用列内局部滚动，不再依赖浏览器页面滚动
 - 页面顶部保留 `刷新 / 保存启动配置 / 保存系统设置` 三个主操作，并分别统计 Bootstrap 与 Mongo 的未保存项
 - `/system-settings -> 仓位门禁` 当前直接编辑 `pm_configs.thresholds.single_symbol_position_limit`，该字段在页面口径中统一称为“单标的默认持仓上限”

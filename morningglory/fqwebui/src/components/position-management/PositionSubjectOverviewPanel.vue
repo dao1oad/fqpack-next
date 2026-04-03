@@ -125,16 +125,24 @@
                 :key="`${row.symbol}-guardian-${item.level}`"
                 class="position-subject-summary-line"
               >
-                <span class="workbench-code">B{{ item.level }}</span>
-                <span class="workbench-code">{{ item.priceLabel }}</span>
+                <span class="workbench-code position-subject-summary-line__level">B{{ item.level }}</span>
+                <span class="workbench-code position-subject-summary-line__price">{{ item.priceLabel }}</span>
                 <span
-                  class="position-subject-inline-state"
+                  class="position-subject-inline-state position-subject-summary-line__state"
                   :class="{ active: item.enabled }"
                 >
                   {{ item.enabledLabel }}
                 </span>
               </div>
-              <div class="position-subject-summary-note">{{ row.guardianLastHitLabel }}</div>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="Guardian层级触发" width="164">
+          <template #default="{ row }">
+            <div class="position-subject-runtime">
+              <span>{{ row.guardianTrigger?.kindLabel || '-' }}</span>
+              <span class="workbench-code">{{ row.guardianTrigger?.timeLabel || '-' }}</span>
             </div>
           </template>
         </el-table-column>
@@ -147,10 +155,10 @@
                 :key="`${row.symbol}-takeprofit-${item.level}`"
                 class="position-subject-summary-line"
               >
-                <span class="workbench-code">L{{ item.level }}</span>
-                <span class="workbench-code">{{ item.priceLabel }}</span>
+                <span class="workbench-code position-subject-summary-line__level">L{{ item.level }}</span>
+                <span class="workbench-code position-subject-summary-line__price">{{ item.priceLabel }}</span>
                 <span
-                  class="position-subject-inline-state"
+                  class="position-subject-inline-state position-subject-summary-line__state"
                   :class="{ active: item.enabled }"
                 >
                   {{ item.enabledLabel }}
@@ -171,40 +179,6 @@
                 :min="0"
                 :step="0.01"
                 :precision="2"
-                controls-position="right"
-              />
-              <span v-else class="position-subject-cell-muted">-</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="首笔买入金额" width="122">
-          <template #default="{ row }">
-            <div class="position-subject-input-cell" :title="configNote(row.symbol, 'initial_lot_amount')">
-              <el-input-number
-                v-if="workbench.state.mustPoolDrafts[row.symbol]"
-                v-model="workbench.state.mustPoolDrafts[row.symbol].initial_lot_amount"
-                :placeholder="mustPoolNumberPlaceholder(row.symbol, 'initial_lot_amount', formatInteger)"
-                size="small"
-                :min="0"
-                :step="1000"
-                controls-position="right"
-              />
-              <span v-else class="position-subject-cell-muted">-</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="默认买入金额" width="122">
-          <template #default="{ row }">
-            <div class="position-subject-input-cell" :title="configNote(row.symbol, 'lot_amount')">
-              <el-input-number
-                v-if="workbench.state.mustPoolDrafts[row.symbol]"
-                v-model="workbench.state.mustPoolDrafts[row.symbol].lot_amount"
-                :placeholder="mustPoolNumberPlaceholder(row.symbol, 'lot_amount', formatInteger)"
-                size="small"
-                :min="0"
-                :step="1000"
                 controls-position="right"
               />
               <span v-else class="position-subject-cell-muted">-</span>
@@ -553,16 +527,25 @@ const saveConfigBundleForSymbol = async (symbol) => {
 }
 
 .position-subject-summary-line {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
 }
 
-.position-subject-summary-note {
-  color: #8a99ab;
-  font-size: 11px;
-  line-height: 1.4;
+.position-subject-summary-line__level,
+.position-subject-summary-line__price {
+  min-width: 0;
+}
+
+.position-subject-summary-line__price {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.position-subject-summary-line__state {
+  justify-self: end;
 }
 
 .position-subject-inline-state {

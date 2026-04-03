@@ -117,6 +117,7 @@ const createPayload = () => ({
       },
       guardian: {
         stock: {
+          initial_lot_amount_default: 100000,
           lot_amount: 50000,
           threshold: {
             mode: 'percent',
@@ -170,10 +171,12 @@ const createPayload = () => ({
       {
         key: 'guardian',
         title: 'Guardian',
-        description: 'Guardian 股票阈值、网格间距和下单金额配置。',
+        description: 'Guardian 股票阈值、网格间距和默认买入金额配置。',
         source: 'params.guardian',
         restart_required: false,
         items: [
+          { key: 'guardian.stock.initial_lot_amount_default', label: '首笔买入金额', value: 100000, editable: false },
+          { key: 'guardian.stock.lot_amount', label: '默认买入金额', value: 50000 },
           { key: 'guardian.stock.threshold.mode', label: '阈值模式', value: 'percent' },
           { key: 'guardian.stock.threshold.percent', label: '阈值百分比', value: 1 },
           { key: 'guardian.stock.threshold.atr.period', label: '阈值 ATR 周期', value: 14 },
@@ -268,6 +271,28 @@ test('settings rows keep guardian percent and atr rows visible while marking ina
   assert.equal(thresholdAtrPeriod.inactive, true)
   assert.equal(gridPercent.inactive, true)
   assert.equal(gridAtrPeriod.inactive, false)
+})
+
+test('guardian settings rows expose readonly initial buy amount and editable default buy amount', () => {
+  const payload = createPayload()
+  const sections = buildSettingsLedgerSections(payload, {
+    currentValues: payload.settings.values,
+    baselineValues: payload.settings.values,
+  })
+  const rows = flattenLedgerRows(sections)
+  const initialBuyAmount = rows.find((row) => row.key === 'guardian.stock.initial_lot_amount_default')
+  const defaultBuyAmount = rows.find((row) => row.key === 'guardian.stock.lot_amount')
+  const content = readFileSync(new URL('./SystemSettings.vue', import.meta.url), 'utf8')
+
+  assert.ok(initialBuyAmount)
+  assert.equal(initialBuyAmount.label, '首笔买入金额')
+  assert.equal(initialBuyAmount.value_label, '100,000')
+  assert.equal(initialBuyAmount.readonly, true)
+  assert.ok(defaultBuyAmount)
+  assert.equal(defaultBuyAmount.label, '默认买入金额')
+  assert.equal(defaultBuyAmount.value_label, '50,000')
+  assert.equal(defaultBuyAmount.readonly, false)
+  assert.match(content, /v-if="row\.readonly"/)
 })
 
 test('single symbol position limit row uses default position limit wording and helper copy', () => {

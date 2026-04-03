@@ -132,13 +132,26 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近 TPSL 触发事
 - `单标的仓位上限`
 
 其中“默认买入金额”必须和 `lot_amount` / `instrument_strategy.lot_amount` / `guardian.stock.lot_amount` 这一条运行口径保持一致，不能和单标的仓位上限混淆。
+这两类买入金额当前不再放在 `PositionSubjectOverviewPanel` 主表里行内编辑，而是统一收口到 `/system-settings -> 交易控制 / 策略 -> Guardian`：
+
+- `首笔买入金额`
+  - 当前展示的是运行默认值 `DEFAULT_INITIAL_LOT_AMOUNT = 100000`
+  - 在系统设置页里按只读项展示，不伪装成可配置 Mongo 参数
+- `默认买入金额`
+  - 当前对应 `guardian.stock.lot_amount`
+  - 在系统设置页里继续作为正式可编辑系统项展示
 
 当前 `overview` 与 `detail` 在最近 TPSL 触发字段上已经统一：
 
 - overview 展示 `runtime.last_trigger_kind + runtime.last_trigger_time`
 - detail 展示 `runtime_summary.last_trigger_kind + runtime_summary.last_trigger_time`
 
-`PositionSubjectOverviewPanel` 主表当前会把这两项单独放在“最近TPLS触发”列中，不再与 Guardian 命中信息或运行态列混排。
+`PositionSubjectOverviewPanel` 主表当前会把 TPSL 与 Guardian 两类触发分开显示：
+
+- `最近TPLS触发`
+- `Guardian层级触发`
+
+不再把 Guardian 命中信息混排进 `Guardian 层级买入` 列。
 该列的数据来自 TPSL 最近退出事件，当前语义固定是 `takeprofit / stoploss`，不是 Guardian 命中层级。
 若止盈 state 的 `last_rearm_reason = new_buy_below_lowest_tier`，且 `last_rearmed_at` 晚于最近一次 TPSL 退出事件，则 overview / detail 都会清空这两项，表示当前买入周期已经重置，不再继续显示上一个周期的最近触发。
 

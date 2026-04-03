@@ -12,6 +12,7 @@ from freshquant.bootstrap_config import (
     resolve_bootstrap_file_path,
 )
 from freshquant.market_data.xtdata.pools import normalize_xtdata_mode
+from freshquant.strategy.guardian_buy_grid import DEFAULT_INITIAL_LOT_AMOUNT
 from freshquant.system_settings import system_settings
 
 BOOTSTRAP_SECTION_META = {
@@ -136,11 +137,17 @@ SETTINGS_SECTION_META = {
     },
     "guardian": {
         "title": "Guardian",
-        "description": "Guardian 股票阈值、网格间距和下单金额配置。",
+        "description": "Guardian 股票阈值、网格间距和默认买入金额配置。",
         "source": "params.guardian",
         "restart_required": False,
         "items": [
-            ("stock.lot_amount", "单次买入金额"),
+            {
+                "field": "stock.initial_lot_amount_default",
+                "label": "首笔买入金额",
+                "editable": False,
+                "source": "runtime_default.guardian",
+            },
+            {"field": "stock.lot_amount", "label": "默认买入金额"},
             ("stock.threshold.mode", "阈值模式"),
             ("stock.threshold.percent", "阈值百分比"),
             ("stock.threshold.atr.period", "阈值 ATR 周期"),
@@ -355,6 +362,7 @@ class SystemConfigService:
             },
             "guardian": {
                 "stock": {
+                    "initial_lot_amount_default": int(DEFAULT_INITIAL_LOT_AMOUNT),
                     "lot_amount": provider.guardian.stock_lot_amount,
                     "threshold": deepcopy(provider.guardian.stock_threshold),
                     "grid_interval": deepcopy(provider.guardian.stock_grid_interval),
@@ -371,7 +379,18 @@ class SystemConfigService:
         sections = []
         for key, section_meta in meta.items():
             items = []
-            for field_key, label in section_meta["items"]:
+            for item_meta in section_meta["items"]:
+                if isinstance(item_meta, dict):
+                    field_key = str(
+                        item_meta.get("field") or item_meta.get("key") or ""
+                    ).strip()
+                    label = str(item_meta.get("label") or field_key).strip()
+                    editable = item_meta.get("editable", True)
+                    item_source = str(item_meta.get("source") or section_meta["source"])
+                else:
+                    field_key, label = item_meta
+                    editable = True
+                    item_source = section_meta["source"]
                 value = _deep_get(values.get(key, {}), field_key)
                 items.append(
                     {
@@ -379,8 +398,8 @@ class SystemConfigService:
                         "field": field_key,
                         "label": label,
                         "value": value,
-                        "editable": True,
-                        "source": section_meta["source"],
+                        "editable": editable,
+                        "source": item_source,
                         "restart_required": section_meta["restart_required"],
                     }
                 )

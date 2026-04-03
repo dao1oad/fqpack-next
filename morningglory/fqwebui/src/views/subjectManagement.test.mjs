@@ -29,6 +29,7 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
         buy_2: 9.9,
         buy_3: 9.5,
         last_hit_level: 'BUY-2',
+        last_hit_signal_time: '2026-03-16T10:41:00+08:00',
       },
       takeprofit: {
         tiers: [],
@@ -59,6 +60,8 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
   assert.equal(rows[0].takeprofitSummary[0].level, 1)
   assert.equal(rows[0].takeprofitSummary[0].priceLabel, '-')
   assert.equal(rows[0].guardian.last_hit_level, 'BUY-2')
+  assert.equal(rows[0].guardianTrigger.kindLabel, 'B2')
+  assert.equal(rows[0].guardianTrigger.timeLabel, '2026-03-16 10:41:00')
   assert.equal(rows[0].guardianSummaryLabel.includes('B1'), true)
   assert.equal(rows[0].stoplossSummaryLabel, '2 / 5')
   assert.equal(rows[0].runtimeSummaryLabel.includes('12.35 万'), true)
@@ -69,6 +72,29 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
   assert.equal(rows[0].positionLimitSummaryLabel.includes('单独设置'), true)
   assert.equal(rows[0].baseSummaryLabel.includes('永久'), false)
   assert.equal(rows[0].baseSummaryLabel.includes('普通'), false)
+})
+
+test('buildOverviewRows separates guardian trigger from level summary', () => {
+  const rows = buildOverviewRows([
+    {
+      symbol: '600271',
+      guardian: {
+        enabled: true,
+        buy_1: 12.1,
+        buy_2: 11.8,
+        buy_3: 11.4,
+        last_hit_level: 'BUY-3',
+        last_hit_signal_time: '2026-03-18T09:45:00+08:00',
+      },
+      runtime: {},
+      stoploss: {},
+      position_limit_summary: {},
+    },
+  ])
+
+  assert.equal(rows[0].guardianTrigger.kindLabel, 'B3')
+  assert.equal(rows[0].guardianTrigger.timeLabel, '2026-03-18 09:45:00')
+  assert.equal(rows[0].guardianLevelSummary.every((item) => item.enabledLabel === '开'), true)
 })
 
 test('buildOverviewRows derives takeprofit runtime truth from manual_enabled and armed_levels together', () => {
@@ -370,22 +396,25 @@ test('PositionSubjectOverviewPanel removes category filter and uses renamed dens
 
   assert.match(source, /placeholder="搜索代码 \/ 名称"/)
   assert.match(source, /label="Guardian 层级买入"/)
+  assert.match(source, /label="Guardian层级触发"/)
   assert.match(source, /label="止盈价格"/)
   assert.match(source, /label="全仓止损价"/)
-  assert.match(source, /label="首笔买入金额"/)
-  assert.match(source, /label="默认买入金额"/)
   assert.match(source, /label="单标的仓位上限"/)
   assert.match(source, /最近TPLS触发/)
   assert.match(source, /row\.runtime\?\.last_trigger_kind/)
   assert.match(source, /label="活跃单笔止损"/)
   assert.match(source, /row\.guardianLevelSummary/)
-  assert.match(source, /row\.guardianLastHitLabel/)
+  assert.match(source, /row\.guardianTrigger\?\.kindLabel/)
+  assert.match(source, /position-subject-summary-line__state/)
   assert.doesNotMatch(source, /placeholder="搜索代码 \/ 名称 \/ 分类"/)
   assert.doesNotMatch(source, /selectedSubjectCategory/)
   assert.doesNotMatch(source, /categoryOptions/)
   assert.doesNotMatch(source, /label="分类"/)
   assert.doesNotMatch(source, /全部分类/)
   assert.doesNotMatch(source, /label="止损价"/)
+  assert.doesNotMatch(source, /label="首笔买入金额"/)
+  assert.doesNotMatch(source, /label="默认买入金额"/)
+  assert.doesNotMatch(source, /row\.guardianLastHitLabel/)
   assert.doesNotMatch(source, /label="开仓数量"/)
   assert.doesNotMatch(source, /label="单标的上限"/)
   assert.doesNotMatch(source, /label="首笔金额"/)

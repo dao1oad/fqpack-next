@@ -251,6 +251,18 @@ def test_system_config_service_dashboard_reads_bootstrap_and_mongo_settings(
         for item in section["items"]
         if item["key"] == "position_management.single_symbol_position_limit"
     )
+    guardian_initial_item = next(
+        item
+        for section in dashboard["settings"]["sections"]
+        for item in section["items"]
+        if item["key"] == "guardian.stock.initial_lot_amount_default"
+    )
+    guardian_lot_item = next(
+        item
+        for section in dashboard["settings"]["sections"]
+        for item in section["items"]
+        if item["key"] == "guardian.stock.lot_amount"
+    )
     assert dashboard["settings"]["sections"][0]["key"] == "notification"
     assert dashboard["settings"]["sections"][-1]["key"] == "position_management"
     assert limit_item["key"] == "position_management.single_symbol_position_limit"
@@ -258,6 +270,16 @@ def test_system_config_service_dashboard_reads_bootstrap_and_mongo_settings(
         "单标的默认持仓上限",
         880000.0,
     )
+    assert (guardian_initial_item["label"], guardian_initial_item["value"]) == (
+        "首笔买入金额",
+        100000,
+    )
+    assert guardian_initial_item["editable"] is False
+    assert (guardian_lot_item["label"], guardian_lot_item["value"]) == (
+        "默认买入金额",
+        1800,
+    )
+    assert guardian_lot_item["editable"] is True
     assert dashboard["settings"]["strategies"][0]["code"] == "Guardian"
 
 

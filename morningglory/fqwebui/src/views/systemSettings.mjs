@@ -146,6 +146,7 @@ const buildSections = (payload, sectionKey) => {
     items: Array.isArray(section?.items)
       ? section.items.map((item) => ({
         ...item,
+        editable: item?.editable !== false,
         value_label: formatValue(item?.value),
       }))
       : [],
@@ -226,8 +227,8 @@ const buildLedgerSection = (section, scope, options = {}) => {
         baseline_value: baselineValue,
         dirty: !deepEqual(currentValue, baselineValue),
         inactive,
-        readonly: false,
-        source: toText(section?.source),
+        readonly: item?.editable === false || Boolean(section?.readonly),
+        source: toText(item?.source || section?.source),
         restart_required: Boolean(section?.restart_required),
         restart_label: section?.restart_label,
         column: resolveSectionColumn(scope, sectionKey),

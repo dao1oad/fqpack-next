@@ -144,8 +144,16 @@
                     </div>
 
                     <div class="settings-ledger__cell settings-ledger__cell--editor">
+                      <span
+                        v-if="row.readonly"
+                        class="settings-ledger__readonly-value"
+                        :title="row.value_label"
+                      >
+                        {{ row.value_label }}
+                      </span>
+
                       <el-select
-                        v-if="row.editor.type === 'select'"
+                        v-else-if="row.editor.type === 'select'"
                         :model-value="readRowValue(row)"
                         size="small"
                         @update:model-value="(value) => updateRowValue(row, value)"
@@ -304,6 +312,7 @@ function defaultSettingsForm () {
     },
     guardian: {
       stock: {
+        initial_lot_amount_default: 100000,
         lot_amount: 50000,
         threshold: {
           mode: 'percent',
@@ -389,6 +398,7 @@ const updateRowValue = (row, value) => {
 const resolveSourceLabel = (row) => {
   if (row.source === 'bootstrap_file') return 'Bootstrap'
   if (row.source === 'pm_configs.thresholds') return 'PM'
+  if (String(row.source || '').startsWith('runtime_default')) return '默认'
   if (String(row.source || '').startsWith('params.')) return 'Mongo'
   return '只读'
 }
@@ -514,6 +524,13 @@ onMounted(() => {
 
 .settings-dense-toolbar__title
   min-width 0
+
+.settings-ledger__readonly-value
+  display inline-flex
+  align-items center
+  min-height 24px
+  color #35516d
+  font-variant-numeric tabular-nums
 
 .settings-toolbar-kicker
   margin 0
