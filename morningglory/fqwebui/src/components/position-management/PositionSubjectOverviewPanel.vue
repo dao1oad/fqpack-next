@@ -60,7 +60,7 @@
         @row-click="handleSubjectRowClick"
         @current-change="handleSubjectCurrentChange"
       >
-        <el-table-column label="标的" width="100" fixed="left">
+        <el-table-column label="标的" width="88" fixed="left">
           <template #default="{ row }">
             <div class="position-subject-symbol">
               <strong class="workbench-code">{{ row.symbol }}</strong>
@@ -69,47 +69,38 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="持仓股数" width="98" align="right">
+        <el-table-column label="持仓" width="104">
           <template #default="{ row }">
-            <span class="workbench-code position-subject-number">
-              {{ formatInteger(row.position_quantity) }}
-            </span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="活跃单笔止损" width="92" align="center">
-          <template #default="{ row }">
-            <span class="position-subject-cell-strong">{{ row.stoplossActiveCount }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Open Entry" width="92" align="center">
-          <template #default="{ row }">
-            <span class="position-subject-cell-strong">{{ row.openEntryCount }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="最近TPLS触发" width="164">
-          <template #default="{ row }">
-            <div class="position-subject-runtime">
-              <span>{{ formatTriggerKind(row.runtime?.last_trigger_kind) }}</span>
-              <span class="workbench-code">{{ formatDateTime(row.runtime?.last_trigger_time) }}</span>
+            <div class="position-subject-metric-stack">
+              <span class="position-subject-metric-stack__primary workbench-code">
+                {{ formatQuantityWithUnit(row.position_quantity) }}
+              </span>
+              <span class="position-subject-metric-stack__secondary workbench-code">
+                {{ formatWanAmount(row.position_amount) }}
+              </span>
             </div>
           </template>
         </el-table-column>
 
-        <el-table-column label="持仓市值" width="110" align="right">
+        <el-table-column label="订单状态" width="92">
           <template #default="{ row }">
-            <span class="workbench-code position-subject-number">
-              {{ formatWanAmount(row.position_amount) }}
-            </span>
+            <div class="position-subject-status-stack">
+              <span class="position-subject-status-line">
+                <strong class="workbench-code position-subject-status-line__label">SL</strong>
+                <span>{{ formatInteger(row.stoplossActiveCount) }}</span>
+              </span>
+              <span class="position-subject-status-line">
+                <strong class="workbench-code position-subject-status-line__label">Open</strong>
+                <span>{{ formatInteger(row.openEntryCount) }}</span>
+              </span>
+            </div>
           </template>
         </el-table-column>
 
-        <el-table-column label="门禁" width="120">
+        <el-table-column label="门禁" width="128">
           <template #default="{ row }">
             <StatusChip
-              class="runtime-inline-status"
+              class="runtime-inline-status position-subject-gate-chip"
               :variant="resolvePmStateChipVariant(detailForSymbol(row.symbol))"
             >
               {{ resolvePmStateLabel(detailForSymbol(row.symbol)) }}
@@ -117,7 +108,25 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="Guardian 层级买入" width="170">
+        <el-table-column label="Guardian 层级触发" width="170">
+          <template #default="{ row }">
+            <div class="position-subject-runtime position-subject-runtime--trigger">
+              <span class="workbench-code position-subject-runtime__label">{{ row.guardianTrigger?.kindLabel || '-' }}</span>
+              <span class="workbench-code">{{ row.guardianTrigger?.timeLabel || '-' }}</span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="TPLS触发" width="170">
+          <template #default="{ row }">
+            <div class="position-subject-runtime position-subject-runtime--trigger">
+              <span class="workbench-code position-subject-runtime__label">{{ row.tpslTrigger?.kindLabel || '-' }}</span>
+              <span class="workbench-code">{{ row.tpslTrigger?.timeLabel || '-' }}</span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="Guardian 买入层级" width="164">
           <template #default="{ row }">
             <div class="position-subject-summary-stack">
               <div
@@ -138,16 +147,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="Guardian层级触发" width="164">
-          <template #default="{ row }">
-            <div class="position-subject-runtime">
-              <span>{{ row.guardianTrigger?.kindLabel || '-' }}</span>
-              <span class="workbench-code">{{ row.guardianTrigger?.timeLabel || '-' }}</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="止盈价格" width="164">
+        <el-table-column label="止盈价格层级" width="164">
           <template #default="{ row }">
             <div class="position-subject-summary-stack">
               <div
@@ -168,7 +168,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="全仓止损价" width="110">
+        <el-table-column label="全仓止损价" width="104">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'stop_loss_price')">
               <el-input-number
@@ -186,7 +186,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="单标的仓位上限" width="126">
+        <el-table-column label="单标的仓位上限" width="118">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'position_limit_value')">
               <el-input-number
@@ -202,7 +202,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="保存" width="94" fixed="right">
+        <el-table-column label="保存" width="82" fixed="right">
           <template #default="{ row }">
             <div class="position-subject-save-cell">
               <el-button
@@ -246,7 +246,6 @@ import {
   paginateOverviewRows,
 } from '@/views/subjectManagementOverviewPagination.mjs'
 import { buildDenseConfigRows } from '@/views/subjectManagement.mjs'
-import { formatBeijingTimestamp } from '../../tool/beijingTime.mjs'
 
 const props = defineProps({
   workbench: {
@@ -296,15 +295,9 @@ const formatWanAmount = (value) => {
   return `${(parsed / 10000).toFixed(2)} 万`
 }
 
-const formatDateTime = (value) => formatBeijingTimestamp(value)
-const formatTriggerKind = (value) => {
-  const label = String(value ?? '').trim()
-  if (!label) return '-'
-  const mapping = {
-    takeprofit: '止盈',
-    stoploss: '止损',
-  }
-  return mapping[label] || label
+const formatQuantityWithUnit = (value) => {
+  const label = formatInteger(value)
+  return label === '-' ? label : `${label} 股`
 }
 
 const filteredOverviewRows = computed(() => {
@@ -506,6 +499,13 @@ const saveConfigBundleForSymbol = async (symbol) => {
   gap: 4px;
 }
 
+.position-subject-metric-stack,
+.position-subject-status-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .position-subject-symbol strong,
 .position-subject-cell-strong {
   color: #21405e;
@@ -520,10 +520,35 @@ const saveConfigBundleForSymbol = async (symbol) => {
 .position-subject-symbol span,
 .position-subject-runtime span,
 .position-subject-summary-line,
-.position-subject-cell-muted {
+.position-subject-cell-muted,
+.position-subject-status-line,
+.position-subject-metric-stack__secondary {
   color: #68839d;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.position-subject-runtime--trigger,
+.position-subject-status-stack {
+  gap: 2px;
+}
+
+.position-subject-runtime__label,
+.position-subject-gate-chip {
+  white-space: nowrap;
+}
+
+.position-subject-metric-stack__primary,
+.position-subject-status-line__label {
+  color: #21405e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.position-subject-status-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .position-subject-summary-line {
@@ -555,8 +580,8 @@ const saveConfigBundleForSymbol = async (symbol) => {
   min-width: 36px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: #eef4fb;
-  color: #5f7890;
+  background: rgba(245, 108, 108, 0.12);
+  color: #c45656;
   font-size: 11px;
   line-height: 1.5;
 }

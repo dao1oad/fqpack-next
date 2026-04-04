@@ -41,6 +41,7 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
       runtime: {
         position_quantity: 500,
         position_amount: 123456,
+        last_trigger_level: 2,
         last_hit_level: 'BUY-2',
         last_trigger_kind: 'takeprofit',
         last_trigger_time: '2026-03-16T10:40:00+08:00',
@@ -66,6 +67,9 @@ test('buildOverviewRows keeps dense summary columns and default three takeprofit
   assert.equal(rows[0].stoplossSummaryLabel, '2 / 5')
   assert.equal(rows[0].runtimeSummaryLabel.includes('12.35 万'), true)
   assert.equal(rows[0].runtimeSummaryLabel.includes('500'), true)
+  assert.equal(rows[0].tpslTrigger.kindLabel, 'L2')
+  assert.equal(rows[0].tpslTrigger.timeLabel, '2026-03-16 10:40:00')
+  assert.equal(rows[0].runtime.last_trigger_level, 2)
   assert.equal(rows[0].runtime.last_trigger_kind, 'takeprofit')
   assert.equal(rows[0].runtimeSummaryLabel.includes('takeprofit'), true)
   assert.equal(rows[0].positionLimitSummaryLabel.includes('50.00 万'), true)
@@ -95,6 +99,36 @@ test('buildOverviewRows separates guardian trigger from level summary', () => {
   assert.equal(rows[0].guardianTrigger.kindLabel, 'B3')
   assert.equal(rows[0].guardianTrigger.timeLabel, '2026-03-18 09:45:00')
   assert.equal(rows[0].guardianLevelSummary.every((item) => item.enabledLabel === '开'), true)
+})
+
+test('buildOverviewRows formats TPLS trigger as level first and falls back to stoploss kind', () => {
+  const rows = buildOverviewRows([
+    {
+      symbol: '600271',
+      runtime: {
+        last_trigger_kind: 'takeprofit',
+        last_trigger_level: 3,
+        last_trigger_time: '2026-03-18T09:50:00+08:00',
+      },
+      stoploss: {},
+      position_limit_summary: {},
+    },
+    {
+      symbol: '600272',
+      runtime: {
+        last_trigger_kind: 'stoploss',
+        last_trigger_level: null,
+        last_trigger_time: '2026-03-18T09:55:00+08:00',
+      },
+      stoploss: {},
+      position_limit_summary: {},
+    },
+  ])
+
+  assert.equal(rows[0].tpslTrigger.kindLabel, 'L3')
+  assert.equal(rows[0].tpslTrigger.timeLabel, '2026-03-18 09:50:00')
+  assert.equal(rows[1].tpslTrigger.kindLabel, '止损')
+  assert.equal(rows[1].tpslTrigger.timeLabel, '2026-03-18 09:55:00')
 })
 
 test('buildOverviewRows derives takeprofit runtime truth from manual_enabled and armed_levels together', () => {
@@ -395,23 +429,37 @@ test('PositionSubjectOverviewPanel removes category filter and uses renamed dens
   )
 
   assert.match(source, /placeholder="搜索代码 \/ 名称"/)
-  assert.match(source, /label="Guardian 层级买入"/)
-  assert.match(source, /label="Guardian层级触发"/)
-  assert.match(source, /label="止盈价格"/)
+  assert.match(source, /label="持仓"/)
+  assert.match(source, /label="订单状态"/)
+  assert.match(source, /label="Guardian 层级触发"/)
+  assert.match(source, /label="TPLS触发"/)
+  assert.match(source, /label="Guardian 买入层级"/)
+  assert.match(source, /label="止盈价格层级"/)
   assert.match(source, /label="全仓止损价"/)
   assert.match(source, /label="单标的仓位上限"/)
-  assert.match(source, /最近TPLS触发/)
-  assert.match(source, /row\.runtime\?\.last_trigger_kind/)
-  assert.match(source, /label="活跃单笔止损"/)
+  assert.match(source, /row\.position_quantity/)
+  assert.match(source, /row\.position_amount/)
+  assert.match(source, /row\.stoplossActiveCount/)
+  assert.match(source, /row\.openEntryCount/)
+  assert.match(source, /row\.tpslTrigger\?\.kindLabel/)
   assert.match(source, /row\.guardianLevelSummary/)
   assert.match(source, /row\.guardianTrigger\?\.kindLabel/)
   assert.match(source, /position-subject-summary-line__state/)
+  assert.match(source, /rgba\(245,\s*108,\s*108,\s*0\.12\)/)
   assert.doesNotMatch(source, /placeholder="搜索代码 \/ 名称 \/ 分类"/)
   assert.doesNotMatch(source, /selectedSubjectCategory/)
   assert.doesNotMatch(source, /categoryOptions/)
   assert.doesNotMatch(source, /label="分类"/)
   assert.doesNotMatch(source, /全部分类/)
   assert.doesNotMatch(source, /label="止损价"/)
+  assert.doesNotMatch(source, /label="持仓股数"/)
+  assert.doesNotMatch(source, /label="持仓市值"/)
+  assert.doesNotMatch(source, /label="活跃单笔止损"/)
+  assert.doesNotMatch(source, /label="Open Entry"/)
+  assert.doesNotMatch(source, /label="最近TPLS触发"/)
+  assert.doesNotMatch(source, /label="Guardian 层级买入"/)
+  assert.doesNotMatch(source, /label="Guardian层级触发"/)
+  assert.doesNotMatch(source, /label="止盈价格"/)
   assert.doesNotMatch(source, /label="首笔买入金额"/)
   assert.doesNotMatch(source, /label="默认买入金额"/)
   assert.doesNotMatch(source, /row\.guardianLastHitLabel/)

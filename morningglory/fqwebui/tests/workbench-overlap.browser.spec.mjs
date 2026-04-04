@@ -964,15 +964,13 @@ test('position-management dense workbench keeps split panels, descending sort, f
   ))
   expect(headerTexts).toEqual(expect.arrayContaining([
     '标的',
-    '持仓股数',
-    '活跃单笔止损',
-    'Open Entry',
-    '最近TPLS触发',
-    '持仓市值',
+    '持仓',
+    '订单状态',
     '门禁',
-    'Guardian 层级买入',
-    'Guardian层级触发',
-    '止盈价格',
+    'Guardian 层级触发',
+    'TPLS触发',
+    'Guardian 买入层级',
+    '止盈价格层级',
     '全仓止损价',
     '单标的仓位上限',
     '保存',
@@ -985,7 +983,24 @@ test('position-management dense workbench keeps split panels, descending sort, f
     '活跃止损',
     '首笔买入金额',
     '默认买入金额',
+    '持仓股数',
+    '持仓市值',
+    '活跃单笔止损',
+    'Open Entry',
+    '最近TPLS触发',
+    'Guardian 层级买入',
+    'Guardian层级触发',
+    '止盈价格',
   ]))
+
+  const overviewTableOverflow = await page.locator('.position-subject-table .el-table__body-wrapper').evaluate((node) => ({
+    clientWidth: node.clientWidth,
+    scrollWidth: node.scrollWidth,
+  }))
+  expect(
+    overviewTableOverflow.scrollWidth,
+    'position-management 标的总览在桌面宽度下不应再出现横向滚动',
+  ).toBeLessThanOrEqual(overviewTableOverflow.clientWidth + 1)
 
   const overviewSymbols = await page.locator('.position-subject-table .el-table__body-wrapper tbody tr').evaluateAll((rows) => (
     rows.slice(0, 3).map((row) => ((row.textContent || '').match(/\d{6}/) || [''])[0])

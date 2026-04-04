@@ -652,6 +652,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     "path": decision.get("path"),
                     "grid_level": decision.get("grid_level"),
                     "hit_levels": list(decision.get("hit_levels") or []),
+                    "signal_time": self._json_safe(signal.get("fire_time")),
                     "multiplier": decision.get("multiplier", 1),
                     "source_price": decision.get("source_price"),
                     "buy_prices_snapshot": decision.get("buy_prices_snapshot"),

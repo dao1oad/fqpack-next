@@ -86,6 +86,7 @@ def test_submit_guardian_order_carries_strategy_context_and_marks_buy_grid_accep
             "grid_level": "BUY-2",
             "hit_levels": ["BUY-1", "BUY-2"],
             "source_price": 9.81,
+            "signal_time": "2026-04-04T10:15:30+08:00",
         }
     }
 
@@ -119,6 +120,7 @@ def test_submit_guardian_order_carries_strategy_context_and_marks_buy_grid_accep
                 "hit_levels": ["BUY-1", "BUY-2"],
                 "grid_level": "BUY-2",
                 "source_price": 9.81,
+                "signal_time": "2026-04-04T10:15:30+08:00",
             },
         )
     ]
