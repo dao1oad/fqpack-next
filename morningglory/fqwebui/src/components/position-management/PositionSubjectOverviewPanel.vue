@@ -60,7 +60,7 @@
         @row-click="handleSubjectRowClick"
         @current-change="handleSubjectCurrentChange"
       >
-        <el-table-column label="标的" width="88" fixed="left">
+        <el-table-column label="标的" width="84" fixed="left">
           <template #default="{ row }">
             <div class="position-subject-symbol">
               <strong class="workbench-code">{{ row.symbol }}</strong>
@@ -69,7 +69,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="持仓" width="104">
+        <el-table-column label="持仓" width="96">
           <template #default="{ row }">
             <div class="position-subject-metric-stack">
               <span class="position-subject-metric-stack__primary workbench-code">
@@ -82,7 +82,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="订单状态" width="92">
+        <el-table-column label="订单状态" width="84">
           <template #default="{ row }">
             <div class="position-subject-status-stack">
               <span class="position-subject-status-line">
@@ -97,36 +97,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="门禁" width="128">
-          <template #default="{ row }">
-            <StatusChip
-              class="runtime-inline-status position-subject-gate-chip"
-              :variant="resolvePmStateChipVariant(detailForSymbol(row.symbol))"
-            >
-              {{ resolvePmStateLabel(detailForSymbol(row.symbol)) }}
-            </StatusChip>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Guardian 层级触发" width="170">
-          <template #default="{ row }">
-            <div class="position-subject-runtime position-subject-runtime--trigger">
-              <span class="workbench-code position-subject-runtime__label">{{ row.guardianTrigger?.kindLabel || '-' }}</span>
-              <span class="workbench-code">{{ row.guardianTrigger?.timeLabel || '-' }}</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="TPLS触发" width="170">
-          <template #default="{ row }">
-            <div class="position-subject-runtime position-subject-runtime--trigger">
-              <span class="workbench-code position-subject-runtime__label">{{ row.tpslTrigger?.kindLabel || '-' }}</span>
-              <span class="workbench-code">{{ row.tpslTrigger?.timeLabel || '-' }}</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Guardian 买入层级" width="164">
+        <el-table-column label="Guardian 买入层级" width="172">
           <template #default="{ row }">
             <div class="position-subject-summary-stack">
               <div
@@ -147,7 +118,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="止盈价格层级" width="164">
+        <el-table-column label="止盈价格层级" width="172">
           <template #default="{ row }">
             <div class="position-subject-summary-stack">
               <div
@@ -168,7 +139,34 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="全仓止损价" width="104">
+        <el-table-column label="Guardian 层级触发" width="220">
+          <template #default="{ row }">
+            <div class="position-subject-trigger-line">
+              <span class="workbench-code position-subject-trigger-line__kind">{{ row.guardianTrigger?.kindLabel || '-' }}</span>
+              <span class="workbench-code position-subject-trigger-line__time">{{ row.guardianTrigger?.timeLabel || '-' }}</span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="止盈层级触发" width="220">
+          <template #default="{ row }">
+            <div class="position-subject-trigger-line">
+              <span class="workbench-code position-subject-trigger-line__kind">{{ row.takeprofitTrigger?.kindLabel || '-' }}</span>
+              <span class="workbench-code position-subject-trigger-line__time">{{ row.takeprofitTrigger?.timeLabel || '-' }}</span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="单笔止损触发" width="220">
+          <template #default="{ row }">
+            <div class="position-subject-trigger-line">
+              <span class="workbench-code position-subject-trigger-line__kind">{{ row.entryStoplossTrigger?.kindLabel || '-' }}</span>
+              <span class="workbench-code position-subject-trigger-line__time">{{ row.entryStoplossTrigger?.timeLabel || '-' }}</span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="全仓止损价" width="96">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'stop_loss_price')">
               <el-input-number
@@ -186,7 +184,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="单标的仓位上限" width="118">
+        <el-table-column label="单标的仓位上限" width="110">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'position_limit_value')">
               <el-input-number
@@ -202,7 +200,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="保存" width="82" fixed="right">
+        <el-table-column label="保存" width="74" fixed="right">
           <template #default="{ row }">
             <div class="position-subject-save-cell">
               <el-button
@@ -329,14 +327,6 @@ const detailConfigMap = computed(() => Object.fromEntries(
 ))
 
 const detailForSymbol = (symbol) => detailMap.value?.[symbol] || null
-
-const resolvePmStateLabel = (detail) => (
-  detail?.positionManagementSummary?.effective_state_label || '待加载'
-)
-
-const resolvePmStateChipVariant = (detail) => (
-  detail?.positionManagementSummary?.effective_state_chip_variant || 'muted'
-)
 
 const configNote = (symbol, key) => detailConfigMap.value?.[symbol]?.[key]?.note || ''
 
@@ -528,14 +518,8 @@ const saveConfigBundleForSymbol = async (symbol) => {
   line-height: 1.45;
 }
 
-.position-subject-runtime--trigger,
 .position-subject-status-stack {
   gap: 2px;
-}
-
-.position-subject-runtime__label,
-.position-subject-gate-chip {
-  white-space: nowrap;
 }
 
 .position-subject-metric-stack__primary,
@@ -543,6 +527,28 @@ const saveConfigBundleForSymbol = async (symbol) => {
   color: #21405e;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.position-subject-trigger-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: #68839d;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.position-subject-trigger-line__kind {
+  color: #21405e;
+  flex: 0 0 auto;
+}
+
+.position-subject-trigger-line__time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .position-subject-status-line {
@@ -555,7 +561,7 @@ const saveConfigBundleForSymbol = async (symbol) => {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .position-subject-summary-line__level,
@@ -577,8 +583,8 @@ const saveConfigBundleForSymbol = async (symbol) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 36px;
-  padding: 1px 6px;
+  min-width: 32px;
+  padding: 1px 5px;
   border-radius: 999px;
   background: rgba(245, 108, 108, 0.12);
   color: #c45656;

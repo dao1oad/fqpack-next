@@ -68,9 +68,27 @@ class SubjectManagementDashboardService:
 
         position_limit_summary_map = self._load_overview_position_limit_summary_map()
 
-        latest_events = self._latest_trigger_map(
+        takeprofit_events = self._latest_trigger_map(
             symbols,
             takeprofit_states=takeprofit_states,
+            event_types={"takeprofit_hit"},
+            clear_after_takeprofit_rearm=True,
+        )
+        entry_stoploss_events = self._latest_trigger_map(
+            symbols,
+            event_types={"entry_stoploss_hit", "stoploss_hit"},
+        )
+        stoploss_events = self._latest_trigger_map(
+            symbols,
+            event_types={
+                "entry_stoploss_hit",
+                "stoploss_hit",
+                "symbol_full_stoploss_hit",
+            },
+        )
+        latest_events = _merge_latest_event_maps(
+            takeprofit_events,
+            fallback_map=stoploss_events,
         )
         rows = []
         for symbol in symbols:
@@ -89,6 +107,8 @@ class SubjectManagementDashboardService:
                     "open_entry_count": 0,
                 },
             )
+            takeprofit_event = takeprofit_events.get(symbol) or {}
+            entry_stoploss_event = entry_stoploss_events.get(symbol) or {}
             latest_event = latest_events.get(symbol) or {}
             position_limit_summary = position_limit_summary_map.get(symbol)
             if position_limit_summary is None:
@@ -130,6 +150,15 @@ class SubjectManagementDashboardService:
                             latest_event.get("level")
                         ),
                         "last_trigger_time": latest_event.get("created_at"),
+                        "last_takeprofit_trigger_level": _safe_int_or_none(
+                            takeprofit_event.get("level")
+                        ),
+                        "last_takeprofit_trigger_time": takeprofit_event.get(
+                            "created_at"
+                        ),
+                        "last_entry_stoploss_trigger_time": entry_stoploss_event.get(
+                            "created_at"
+                        ),
                     },
                     "position_limit_summary": {
                         **position_limit_summary,
@@ -230,10 +259,33 @@ class SubjectManagementDashboardService:
                 latest_price=latest_price,
                 avg_price=avg_price,
             )
-        latest_event = (
+        takeprofit_event = (
             self._latest_trigger_map(
                 {normalized_symbol},
                 takeprofit_states={normalized_symbol: takeprofit["state"]},
+                event_types={"takeprofit_hit"},
+                clear_after_takeprofit_rearm=True,
+            ).get(normalized_symbol)
+            or {}
+        )
+        entry_stoploss_event = (
+            self._latest_trigger_map(
+                {normalized_symbol},
+                event_types={"entry_stoploss_hit", "stoploss_hit"},
+            ).get(normalized_symbol)
+            or {}
+        )
+        latest_event = (
+            _merge_latest_event_maps(
+                {normalized_symbol: takeprofit_event},
+                fallback_map=self._latest_trigger_map(
+                    {normalized_symbol},
+                    event_types={
+                        "entry_stoploss_hit",
+                        "stoploss_hit",
+                        "symbol_full_stoploss_hit",
+                    },
+                ),
             ).get(normalized_symbol)
             or {}
         )
@@ -272,6 +324,13 @@ class SubjectManagementDashboardService:
                     "last_trigger_time": latest_event.get("created_at"),
                     "last_trigger_kind": latest_event.get("kind"),
                     "last_trigger_level": _safe_int_or_none(latest_event.get("level")),
+                    "last_takeprofit_trigger_level": _safe_int_or_none(
+                        takeprofit_event.get("level")
+                    ),
+                    "last_takeprofit_trigger_time": takeprofit_event.get("created_at"),
+                    "last_entry_stoploss_trigger_time": entry_stoploss_event.get(
+                        "created_at"
+                    ),
                     "market_value_source": symbol_position.get("market_value_source"),
                 },
                 "position_management_summary": pm_summary,
@@ -558,20 +617,33 @@ class SubjectManagementDashboardService:
             result[symbol] = current
         return result
 
-    def _latest_trigger_map(self, symbols, *, takeprofit_states=None):
+    def _latest_trigger_map(
+        self,
+        symbols,
+        *,
+        takeprofit_states=None,
+        event_types=None,
+        clear_after_takeprofit_rearm=False,
+    ):
         normalized_symbols = {
             _normalize_symbol(item) for item in symbols if _normalize_symbol(item)
         }
         if not normalized_symbols:
             return {}
-        rows = self.tpsl_repository.list_latest_exit_trigger_events_by_symbol(
-            symbols=normalized_symbols
+        rows = self._list_latest_exit_events_by_symbol(
+            normalized_symbols,
+            event_types=event_types,
         )
-        latest = {
-            _normalize_symbol(item.get("symbol")): dict(item)
-            for item in rows
-            if _normalize_symbol(item.get("symbol"))
-        }
+        latest = {}
+        for item in rows:
+            symbol = _normalize_symbol(item.get("symbol"))
+            if not symbol:
+                continue
+            if symbol in latest:
+                continue
+            latest[symbol] = dict(item)
+        if not clear_after_takeprofit_rearm:
+            return latest
         for symbol, state in dict(takeprofit_states or {}).items():
             normalized_symbol = _normalize_symbol(symbol)
             if not normalized_symbol:
@@ -591,6 +663,63 @@ class SubjectManagementDashboardService:
             if latest_event_at is None or last_rearmed_at >= latest_event_at:
                 latest.pop(normalized_symbol, None)
         return latest
+
+    def _list_latest_exit_events_by_symbol(self, symbols, *, event_types=None):
+        normalized_symbols = {
+            _normalize_symbol(item) for item in symbols if _normalize_symbol(item)
+        }
+        if not normalized_symbols:
+            return []
+        normalized_event_types = {
+            str(item).strip() for item in list(event_types or []) if str(item).strip()
+        }
+        collection = getattr(self.tpsl_repository, "exit_trigger_events", None)
+        if collection is not None and hasattr(collection, "aggregate"):
+            match_stage = {"symbol": {"$in": list(normalized_symbols)}}
+            if normalized_event_types:
+                match_stage["event_type"] = {"$in": list(normalized_event_types)}
+            pipeline = [
+                {"$match": match_stage},
+                {"$sort": {"symbol": 1, "created_at": -1}},
+                {"$group": {"_id": "$symbol", "document": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$document"}},
+                {"$sort": {"created_at": -1}},
+            ]
+            return list(collection.aggregate(pipeline))
+
+        if hasattr(self.tpsl_repository, "list_exit_trigger_events"):
+            rows = list(self.tpsl_repository.list_exit_trigger_events(limit=None) or [])
+        else:
+            try:
+                rows = list(
+                    self.tpsl_repository.list_latest_exit_trigger_events_by_symbol(
+                        symbols=normalized_symbols,
+                        event_types=list(normalized_event_types) or None,
+                    )
+                    or []
+                )
+            except TypeError:
+                rows = list(
+                    self.tpsl_repository.list_latest_exit_trigger_events_by_symbol(
+                        symbols=normalized_symbols
+                    )
+                    or []
+                )
+
+        filtered = []
+        for item in rows:
+            symbol = _normalize_symbol((item or {}).get("symbol"))
+            if not symbol or symbol not in normalized_symbols:
+                continue
+            if (
+                normalized_event_types
+                and str(item.get("event_type") or "").strip()
+                not in normalized_event_types
+            ):
+                continue
+            filtered.append(dict(item))
+        filtered.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        return filtered
 
     @staticmethod
     def _normalize_must_pool(raw):
@@ -732,6 +861,34 @@ def _parse_iso_datetime(value):
         return datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _merge_latest_event_maps(primary_map, fallback_map=None):
+    merged = {}
+    all_symbols = set(primary_map or {}) | set(fallback_map or {})
+    for symbol in all_symbols:
+        primary = dict((primary_map or {}).get(symbol) or {})
+        fallback = dict((fallback_map or {}).get(symbol) or {})
+        merged[symbol] = _pick_latest_event(primary, fallback)
+    return merged
+
+
+def _pick_latest_event(*events):
+    candidates = [dict(item) for item in events if item]
+    if not candidates:
+        return {}
+    candidates.sort(
+        key=lambda item: _event_sort_timestamp(item.get("created_at")),
+        reverse=True,
+    )
+    return candidates[0]
+
+
+def _event_sort_timestamp(value):
+    parsed = _parse_iso_datetime(value)
+    if parsed is None:
+        return float("-inf")
+    return parsed.timestamp()
 
 
 def _safe_int_or_none(value):

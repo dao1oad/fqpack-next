@@ -33,7 +33,11 @@ const makeOverviewRows = () => buildOverviewRows([
       position_quantity: 500,
       position_amount: 501000,
       last_hit_level: 'BUY-2',
-      last_trigger_time: '2026-04-02T10:40:00+08:00',
+      last_trigger_time: '2026-04-02T10:42:00+08:00',
+      last_trigger_kind: 'stoploss',
+      last_takeprofit_trigger_level: 2,
+      last_takeprofit_trigger_time: '2026-04-02T10:40:00+08:00',
+      last_entry_stoploss_trigger_time: '2026-04-02T10:42:00+08:00',
     },
     position_limit_summary: {
       market_value: 501000,
@@ -476,32 +480,37 @@ test('PositionSubjectOverviewPanel shows Guardian and takeprofit overview column
     'utf8',
   ).replace(/\r/g, '')
 
-  assert.match(source, /<el-table-column label="门禁"/)
   assert.match(source, /<el-table-column label="持仓"/)
   assert.match(source, /<el-table-column label="订单状态"/)
   assert.match(source, /<el-table-column label="Guardian 层级触发"/)
-  assert.match(source, /<el-table-column label="TPLS触发"/)
+  assert.match(source, /<el-table-column label="止盈层级触发"/)
+  assert.match(source, /<el-table-column label="单笔止损触发"/)
   assert.match(source, /<el-table-column label="Guardian 买入层级"/)
   assert.match(source, /<el-table-column label="止盈价格层级"/)
   assert.match(source, /<el-table-column label="单标的仓位上限"/)
-  assert.match(source, /<el-table-column label="门禁" width="128">/)
-  assert.match(source, /<el-table-column label="Guardian 层级触发" width="170">/)
-  assert.match(source, /<el-table-column label="TPLS触发" width="170">/)
-  assert.match(source, /<el-table-column label="Guardian 买入层级" width="164">/)
-  assert.match(source, /<el-table-column label="止盈价格层级" width="164">/)
-  assert.match(source, /row\.tpslTrigger\?\.kindLabel/)
+  assert.match(source, /<el-table-column label="Guardian 买入层级" width="172">/)
+  assert.match(source, /<el-table-column label="止盈价格层级" width="172">/)
+  assert.match(source, /<el-table-column label="Guardian 层级触发" width="220">/)
+  assert.match(source, /<el-table-column label="止盈层级触发" width="220">/)
+  assert.match(source, /<el-table-column label="单笔止损触发" width="220">/)
+  assert.match(source, /row\.takeprofitTrigger\?\.kindLabel/)
+  assert.match(source, /row\.entryStoplossTrigger\?\.kindLabel/)
   assert.match(source, /row\.guardianLevelSummary/)
   assert.match(source, /row\.guardianTrigger\?\.kindLabel/)
   assert.match(source, /row\.takeprofitSummary/)
+  assert.match(source, /position-subject-trigger-line/)
   assert.match(source, /item\.priceLabel/)
   assert.match(source, /item\.enabledLabel/)
   assert.match(source, /position-subject-summary-line__state/)
-  assert.match(source, /position-subject-gate-chip/)
   assert.match(source, /white-space:\s*nowrap/)
+  assert.doesNotMatch(source, /<el-table-column label="门禁"/)
   assert.doesNotMatch(source, /<el-table-column label="持仓股数"/)
   assert.doesNotMatch(source, /<el-table-column label="持仓市值"/)
   assert.doesNotMatch(source, /<el-table-column label="活跃单笔止损"/)
   assert.doesNotMatch(source, /<el-table-column label="Open Entry"/)
+  assert.doesNotMatch(source, /<el-table-column label="剩余数量"/)
+  assert.doesNotMatch(source, /<el-table-column label="百分比"/)
+  assert.doesNotMatch(source, /<el-table-column label="TPLS触发"/)
   assert.doesNotMatch(source, /<el-table-column label="最近TPLS触发"/)
   assert.doesNotMatch(source, /<el-table-column label="Guardian 层级买入"/)
   assert.doesNotMatch(source, /<el-table-column label="Guardian层级触发"/)

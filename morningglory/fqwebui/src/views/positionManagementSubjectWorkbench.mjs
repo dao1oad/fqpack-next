@@ -253,6 +253,7 @@ export const createPositionManagementSubjectWorkbenchController = ({
       ...slice,
       entry_id: entry.entry_id,
       entryIdLabel: entry.entryIdLabel,
+      entryCompactLabel: entry.entryCompactLabel,
       entryDisplayLabel: entry.entryDisplayLabel,
     }))
   }
