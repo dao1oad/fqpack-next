@@ -158,7 +158,9 @@ class InMemoryTpslRepository:
             rows = rows[: max(int(limit), 0)]
         return [dict(item) for item in rows]
 
-    def list_latest_exit_trigger_events_by_symbol(self, *, symbols=None, event_types=None):
+    def list_latest_exit_trigger_events_by_symbol(
+        self, *, symbols=None, event_types=None
+    ):
         allowed = None if symbols is None else set(symbols)
         allowed_event_types = (
             None
@@ -307,7 +309,7 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
                 "symbol": "600000",
                 "batch_id": "sl_batch_1",
                 "created_at": "2026-03-16T10:42:00+08:00",
-            }
+            },
         ]
     )
     order_repository = InMemoryOrderManagementRepository()
@@ -477,7 +479,7 @@ def test_subject_management_overview_clears_recent_trigger_after_auto_rearm():
                 "symbol": "600000",
                 "batch_id": "sl_batch_1",
                 "created_at": "2026-03-16T10:41:00+00:00",
-            }
+            },
         ]
     )
 
@@ -621,10 +623,7 @@ def test_subject_management_detail_exposes_split_takeprofit_and_entry_stoploss_t
 
     assert detail["runtime_summary"]["last_trigger_kind"] == "stoploss"
     assert detail["runtime_summary"]["last_trigger_level"] is None
-    assert (
-        detail["runtime_summary"]["last_trigger_time"]
-        == "2026-03-18T09:55:00+08:00"
-    )
+    assert detail["runtime_summary"]["last_trigger_time"] == "2026-03-18T09:55:00+08:00"
     assert detail["runtime_summary"]["last_takeprofit_trigger_level"] == 3
     assert (
         detail["runtime_summary"]["last_takeprofit_trigger_time"]

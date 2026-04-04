@@ -80,7 +80,11 @@ class SubjectManagementDashboardService:
         )
         stoploss_events = self._latest_trigger_map(
             symbols,
-            event_types={"entry_stoploss_hit", "stoploss_hit", "symbol_full_stoploss_hit"},
+            event_types={
+                "entry_stoploss_hit",
+                "stoploss_hit",
+                "symbol_full_stoploss_hit",
+            },
         )
         latest_events = _merge_latest_event_maps(
             takeprofit_events,
@@ -323,9 +327,7 @@ class SubjectManagementDashboardService:
                     "last_takeprofit_trigger_level": _safe_int_or_none(
                         takeprofit_event.get("level")
                     ),
-                    "last_takeprofit_trigger_time": takeprofit_event.get(
-                        "created_at"
-                    ),
+                    "last_takeprofit_trigger_time": takeprofit_event.get("created_at"),
                     "last_entry_stoploss_trigger_time": entry_stoploss_event.get(
                         "created_at"
                     ),
@@ -709,7 +711,11 @@ class SubjectManagementDashboardService:
             symbol = _normalize_symbol((item or {}).get("symbol"))
             if not symbol or symbol not in normalized_symbols:
                 continue
-            if normalized_event_types and str(item.get("event_type") or "").strip() not in normalized_event_types:
+            if (
+                normalized_event_types
+                and str(item.get("event_type") or "").strip()
+                not in normalized_event_types
+            ):
                 continue
             filtered.append(dict(item))
         filtered.sort(key=lambda item: item.get("created_at") or "", reverse=True)

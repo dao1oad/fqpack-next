@@ -937,7 +937,7 @@ test('position-management dense workbench keeps split panels, descending sort, f
   await page.goto(`${DEV_SERVER_URL}/position-management`)
   await expect(page.locator('.position-reconciliation-ledger__row').first()).toBeVisible()
   await expect(page.locator('.position-subject-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
-  await expect(page.locator('.runtime-position-decision-ledger .runtime-ledger__row').first()).toBeVisible()
+  await expect(page.locator('.position-decision-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
   await expect(page.getByText('选中标的工作区', { exact: true })).toBeVisible()
   await expect(page.locator('.position-selection-entry-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
   await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
@@ -966,11 +966,11 @@ test('position-management dense workbench keeps split panels, descending sort, f
     '标的',
     '持仓',
     '订单状态',
-    '门禁',
-    'Guardian 层级触发',
-    'TPLS触发',
     'Guardian 买入层级',
     '止盈价格层级',
+    'Guardian 层级触发',
+    '止盈层级触发',
+    '单笔止损触发',
     '全仓止损价',
     '单标的仓位上限',
     '保存',
@@ -987,7 +987,9 @@ test('position-management dense workbench keeps split panels, descending sort, f
     '持仓市值',
     '活跃单笔止损',
     'Open Entry',
+    '门禁',
     '最近TPLS触发',
+    'TPLS触发',
     'Guardian 层级买入',
     'Guardian层级触发',
     '止盈价格',
@@ -1013,14 +1015,14 @@ test('position-management dense workbench keeps split panels, descending sort, f
   await expect(page.locator('.position-selection-panel .workbench-summary-row')).toContainText('000002')
   await expect(page.locator('.position-decision-panel .workbench-summary-row')).toContainText('全部标的')
 
-  const decisionSymbols = await page.locator('.runtime-position-decision-ledger .runtime-ledger__row').evaluateAll((rows) => (
-    rows.map((row) => (row.children?.[1]?.textContent || '').trim())
+  const decisionSymbols = await page.locator('.position-decision-table .el-table__body-wrapper tbody tr').evaluateAll((rows) => (
+    rows.map((row) => (row.querySelectorAll('td')?.[1]?.textContent || '').trim())
   ))
   expect(decisionSymbols.length).toBeGreaterThan(0)
   expect(new Set(decisionSymbols).size).toBeGreaterThan(1)
 
-  const decisionTimes = await page.locator('.runtime-position-decision-ledger .runtime-ledger__row').evaluateAll((rows) => (
-    rows.slice(0, 3).map((row) => (row.children?.[0]?.textContent || '').trim())
+  const decisionTimes = await page.locator('.position-decision-table .el-table__body-wrapper tbody tr').evaluateAll((rows) => (
+    rows.slice(0, 3).map((row) => (row.querySelectorAll('td')?.[0]?.textContent || '').trim())
   ))
   expect(decisionTimes).toEqual(['2026-03-18 10:47:00', '2026-03-18 10:46:00', '2026-03-18 10:45:00'])
 
@@ -1031,8 +1033,7 @@ test('position-management dense workbench keeps split panels, descending sort, f
     node.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
   })
   await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr')).toHaveCount(1)
-  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toContainText('第 2 笔持仓入口')
-  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toContainText('ID 尾号 ntry-2')
+  await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toContainText('#2 / ntry-2')
 })
 
 test('position-management dense ledgers keep the first row clear and reconciliation evidence expands as tables', async ({ page }) => {
@@ -1040,7 +1041,7 @@ test('position-management dense ledgers keep the first row clear and reconciliat
   await setupPositionManagementRoutes(page)
   await page.goto(`${DEV_SERVER_URL}/position-management`)
   await expect(page.locator('.position-reconciliation-ledger__row').first()).toBeVisible()
-  await expect(page.locator('.runtime-position-decision-ledger .runtime-ledger__row').first()).toBeVisible()
+  await expect(page.locator('.position-decision-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
   const metrics = await Promise.all([
     measureLedger(page.locator('.position-state-panel'), { name: 'position rule ledger', headerSelector: '.runtime-position-rule-ledger .runtime-ledger__header', rowSelector: '.runtime-position-rule-ledger .runtime-ledger__row', viewportSelector: '.position-state-scroll', scrollTop: 220 }),
   ])
