@@ -405,7 +405,7 @@
                 row-key="selection_key"
                 size="small"
                 border
-                fit="false"
+                :fit="false"
                 height="100%"
                 class="position-decision-table"
                 :row-class-name="decisionRowClassName"

@@ -397,7 +397,7 @@ test('PositionManagement.vue renders the final dense three-column workbench with
   assert.match(content, /\.position-workbench-column--left,\s*[\s\S]*\.position-workbench-column--right\s*\{[\s\S]*grid-template-rows:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
   assert.match(content, /position-decision-table-wrap/)
   assert.match(content, /class="position-decision-table"/)
-  assert.match(content, /fit="false"/)
+  assert.match(content, /:fit="false"/)
   assert.match(content, /--position-workbench-left-width:/)
   assert.match(content, /--position-workbench-middle-width:/)
   assert.match(content, /--position-workbench-right-width:/)
