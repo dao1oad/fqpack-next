@@ -965,17 +965,16 @@ test('position-management dense workbench keeps split panels, descending sort, f
   expect(headerTexts).toEqual(expect.arrayContaining([
     '标的',
     '持仓股数',
-    '持仓市值',
-    '门禁',
-    'Guardian 层级买入',
-    '止盈价格',
-    '全仓止损价',
-    '首笔买入金额',
-    '默认买入金额',
-    '单标的仓位上限',
     '活跃单笔止损',
     'Open Entry',
     '最近TPLS触发',
+    '持仓市值',
+    '门禁',
+    'Guardian 层级买入',
+    'Guardian层级触发',
+    '止盈价格',
+    '全仓止损价',
+    '单标的仓位上限',
     '保存',
   ]))
   expect(headerTexts).not.toEqual(expect.arrayContaining([
@@ -984,6 +983,8 @@ test('position-management dense workbench keeps split panels, descending sort, f
     '首笔金额',
     '常规金额',
     '活跃止损',
+    '首笔买入金额',
+    '默认买入金额',
   ]))
 
   const overviewSymbols = await page.locator('.position-subject-table .el-table__body-wrapper tbody tr').evaluateAll((rows) => (
