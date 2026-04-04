@@ -76,6 +76,24 @@ const buildGuardianTrigger = (guardian = {}) => ({
   timeLabel: formatBeijingTimestamp(guardian?.last_hit_signal_time),
 })
 
+const formatTpslTriggerKind = (kind, level) => {
+  const normalizedKind = toText(kind)
+  const normalizedLevel = toNullableNumber(level)
+  if (normalizedKind === 'takeprofit' && normalizedLevel !== null) {
+    return `L${Math.trunc(normalizedLevel)}`
+  }
+  if (normalizedKind === 'takeprofit') return '止盈'
+  if (normalizedKind === 'stoploss') return '止损'
+  return normalizedKind || '-'
+}
+
+const buildTpslTrigger = (runtime = {}) => ({
+  kind: toText(runtime?.last_trigger_kind),
+  level: toNullableNumber(runtime?.last_trigger_level),
+  kindLabel: formatTpslTriggerKind(runtime?.last_trigger_kind, runtime?.last_trigger_level),
+  timeLabel: formatBeijingTimestamp(runtime?.last_trigger_time),
+})
+
 const normalizeMustPool = (row = {}) => ({
   category: toText(row?.category),
   stop_loss_price: toNullableNumber(row?.stop_loss_price),
@@ -198,6 +216,7 @@ const normalizeRuntimeSummary = (row = {}) => ({
   position_quantity: toNumber(row?.position_quantity),
   position_amount: toNullableNumber(row?.position_amount),
   avg_price: toNullableNumber(row?.avg_price),
+  last_trigger_level: toNullableNumber(row?.last_trigger_level),
   last_trigger_time: formatBeijingTimestamp(row?.last_trigger_time),
   last_trigger_kind: toText(row?.last_trigger_kind),
 })
@@ -440,6 +459,7 @@ export const buildOverviewRows = (rows = []) => {
         guardian,
         guardianLevelSummary,
         guardianTrigger: buildGuardianTrigger(guardian),
+        tpslTrigger: buildTpslTrigger(runtime),
         takeprofitSummary,
         takeprofitSummaryLabel: takeprofitSummary
           .map((item) => `L${item.level} ${item.priceLabel} ${item.enabledLabel}`)

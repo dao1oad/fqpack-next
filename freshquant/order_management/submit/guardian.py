@@ -72,4 +72,5 @@ def _mark_guardian_buy_grid_after_accept(*, action, symbol, strategy_context):
         hit_levels=hit_levels,
         grid_level=guardian_buy_grid.get("grid_level"),
         source_price=guardian_buy_grid.get("source_price"),
+        signal_time=guardian_buy_grid.get("signal_time"),
     )

@@ -257,6 +257,10 @@ def test_holding_buy_uses_guardian_buy_grid_and_sets_cooldown_after_submit(
     assert captured["remark"] == "test-remark"
     assert captured["strategy_context"]["guardian_buy_grid"]["grid_level"] == "BUY-3"
     assert captured["strategy_context"]["guardian_buy_grid"]["path"] == "holding_add"
+    assert (
+        captured["strategy_context"]["guardian_buy_grid"]["signal_time"]
+        == fire_time.isoformat()
+    )
     assert signal["quantity"] == 25600
     assert events == ["submit"]
     assert len(fake_redis.events) == 1
@@ -352,6 +356,10 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
     assert captured["action"] == "buy"
     assert captured["quantity"] == 10000
     assert captured["strategy_context"]["guardian_buy_grid"]["path"] == "new_open"
+    assert (
+        captured["strategy_context"]["guardian_buy_grid"]["signal_time"]
+        == signal["fire_time"].isoformat()
+    )
     assert fake_redis.events[0][1] == "buy:000001"
 
 

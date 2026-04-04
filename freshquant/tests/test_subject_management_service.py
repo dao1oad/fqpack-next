@@ -275,6 +275,7 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
                 "kind": "takeprofit",
                 "symbol": "600000",
                 "batch_id": "tp_batch_1",
+                "level": 2,
                 "created_at": "2026-03-16T10:40:00+08:00",
             }
         ]
@@ -398,6 +399,7 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["runtime"]["position_quantity"] == 500
     assert rows[0]["runtime"]["position_amount"] == 0.0
     assert rows[0]["runtime"]["last_trigger_kind"] == "takeprofit"
+    assert rows[0]["runtime"]["last_trigger_level"] == 2
     assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:40:00+08:00"
     assert rows[0]["position_limit_summary"]["effective_limit"] == 500000.0
     assert rows[0]["position_limit_summary"]["using_override"] is True
@@ -462,7 +464,55 @@ def test_subject_management_overview_clears_recent_trigger_after_auto_rearm():
         3: False,
     }
     assert rows[0]["runtime"]["last_trigger_kind"] is None
+    assert rows[0]["runtime"]["last_trigger_level"] is None
     assert rows[0]["runtime"]["last_trigger_time"] is None
+
+
+def test_subject_management_overview_falls_back_to_guardian_state_updated_at_when_hit_time_missing():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_states": FakeCollection(
+                [
+                    {
+                        "code": "600271",
+                        "buy_active": [False, True, True],
+                        "last_hit_level": "BUY-2",
+                        "last_hit_price": 8.38,
+                        "last_hit_signal_time": None,
+                        "updated_at": "2026-04-04T09:30:00+08:00",
+                    }
+                ]
+            )
+        }
+    )
+
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "600271.SH",
+                "name": "航天信息",
+                "quantity": 100,
+            }
+        ],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    rows = service.get_overview()
+
+    assert rows[0]["guardian"]["last_hit_level"] == "BUY-2"
+    assert rows[0]["guardian"]["last_hit_signal_time"] == "2026-04-04T09:30:00+08:00"
 
 
 def test_subject_management_overview_strips_mongo_id_from_takeprofit_state():

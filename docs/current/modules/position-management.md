@@ -57,43 +57,60 @@
 
 当前高密度主表固定横向展示关键字段，不再把基础配置按纵向卡片拆开：
 
+- `持仓`
+  - 合并展示 `持仓股数 + 持仓市值`
+- `订单状态`
+  - 合并展示 `活跃单笔止损 + Open Entry`
+- `门禁`
+  - 直接展示 detail 已返回的 `position_management_summary`
 - `全仓止损价`
 - `单标的仓位上限`
-- `活跃单笔止损`
 
 中栏列表当前额外保留两组只读概览列，便于不用切进 `KlineSlim` 也能快速核对当前价格导引：
 
-- `门禁`
-  - 直接展示 detail 已返回的 `position_management_summary`
-  - 显示当前门禁状态以及 `allow_open_min_bail / holding_only_min_bail`
-- `活跃单笔止损`
-  - 展示当前 symbol 下启用中的 entry 级止损数量
-- `Open Entry`
-  - 展示当前 symbol 下 open entry 数量
-- `最近TPLS触发`
-  - 直接展示最近 TPSL 退出触发类型与触发时间
-  - 数据来自 TPSL 最近退出事件，当前语义是 `takeprofit / stoploss`，不是 Guardian 命中
-  - 若止盈 state 的 `last_rearm_reason = new_buy_below_lowest_tier`，且 `last_rearmed_at` 晚于最近一次 TPSL 退出事件，则该列清空，表示当前买入周期已重置
-  - 不再把触发时间混在“运行态”列里
-- `Guardian 层级买入`
-  - 展示 `B1 / B2 / B3` 三层 Guardian 价格与每层启用状态
-- `Guardian层级触发`
+- `Guardian 层级触发`
   - 单独展示最近 Guardian 命中层级与命中时间
   - 数据来自 `guardian.last_hit_level + guardian.last_hit_signal_time`
-  - 不再把最近命中信息塞回 `Guardian 层级买入` 列
-- `止盈价格`
+  - 对旧状态数据，如果 `last_hit_level` 已存在但 `last_hit_signal_time` 缺失，当前展示层会先回退到该 Guardian state 的 `updated_at`
+- `TPLS触发`
+  - 与 `Guardian 层级触发` 使用同样的两行样式：首行触发标签，次行触发时间
+  - 最近退出事件的大类语义仍然是 `takeprofit / stoploss`
+  - `takeprofit` 优先显示最近命中的 `L1 / L2 / L3` 层级；没有层级时回退显示 `止盈`
+  - `stoploss` 当前显示 `止损`
+  - 数据来自 TPSL 最近退出事件，当前语义不是 Guardian 命中
+  - 若止盈 state 的 `last_rearm_reason = new_buy_below_lowest_tier`，且 `last_rearmed_at` 晚于最近一次 TPSL 退出事件，则该列清空，表示当前买入周期已重置
+  - 不再把触发时间混在“运行态”列里
+- `Guardian 买入层级`
+  - 展示 `B1 / B2 / B3` 三层 Guardian 价格与每层启用状态
+- `止盈价格层级`
   - 展示 `L1 / L2 / L3` 三层止盈价与每层真实运行态
   - 状态真值当前按 `manual_enabled && armed_levels[level]` 计算；只有系统当前真的还会触发该层止盈时才显示 `开`
 
-`Guardian 层级买入` 与 `止盈价格` 这两列当前都使用相同的三段式布局：
+`Guardian 买入层级` 与 `止盈价格层级` 这两列当前都使用相同的三段式布局：
 
 - 左侧层级编号
 - 中间价格
 - 右侧开关状态
 
-开关统一右对齐，便于按行横向比对。
+开关统一右对齐，关闭态当前固定用红色显示，便于按行横向比对。
 
-上述三列当前固定放在 `持仓股数` 后、`持仓市值` 前，便于先看仓内 entry/TPSL 退出态，再看市值与价格导引。
+`门禁 / Guardian 层级触发 / TPLS触发 / Guardian 买入层级 / 止盈价格层级` 这几列当前会优先吃掉主表剩余横向空间；`门禁` badge 固定单行显示，不再在窄列里拆成两行。
+
+中栏主表当前列顺序固定为：
+
+- `标的`
+- `持仓`
+- `订单状态`
+- `门禁`
+- `Guardian 层级触发`
+- `TPLS触发`
+- `Guardian 买入层级`
+- `止盈价格层级`
+- `全仓止损价`
+- `单标的仓位上限`
+- `保存`
+
+桌面宽度下当前目标是不再出现横向滚动条。
 
 `首笔买入金额 / 默认买入金额` 当前已从标的总览主表移除，统一收口到 `/system-settings -> 交易控制 / 策略 -> Guardian`。
 

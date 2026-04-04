@@ -126,6 +126,9 @@ class SubjectManagementDashboardService:
                         "avg_price": _safe_float_or_none(position.get("avg_price")),
                         "last_hit_level": guardian_state.get("last_hit_level"),
                         "last_trigger_kind": latest_event.get("kind"),
+                        "last_trigger_level": _safe_int_or_none(
+                            latest_event.get("level")
+                        ),
                         "last_trigger_time": latest_event.get("created_at"),
                     },
                     "position_limit_summary": {
@@ -268,6 +271,7 @@ class SubjectManagementDashboardService:
                     "avg_price": avg_price,
                     "last_trigger_time": latest_event.get("created_at"),
                     "last_trigger_kind": latest_event.get("kind"),
+                    "last_trigger_level": _safe_int_or_none(latest_event.get("level")),
                     "market_value_source": symbol_position.get("market_value_source"),
                 },
                 "position_management_summary": pm_summary,
@@ -636,12 +640,14 @@ class SubjectManagementDashboardService:
     def _normalize_guardian_state(raw):
         if raw is None:
             return None
+        last_hit_level = raw.get("last_hit_level")
+        last_hit_signal_time = _resolve_guardian_last_hit_signal_time(raw)
         return {
             "symbol": _normalize_symbol(raw.get("code")),
             "buy_active": list(raw.get("buy_active") or []),
-            "last_hit_level": raw.get("last_hit_level"),
+            "last_hit_level": last_hit_level,
             "last_hit_price": _safe_float_or_none(raw.get("last_hit_price")),
-            "last_hit_signal_time": raw.get("last_hit_signal_time"),
+            "last_hit_signal_time": last_hit_signal_time,
             "last_reset_reason": raw.get("last_reset_reason"),
         }
 
@@ -706,6 +712,16 @@ def _safe_positive_float_or_none(value):
 def _safe_nonempty_text(value):
     text = str(value or "").strip()
     return text or None
+
+
+def _resolve_guardian_last_hit_signal_time(raw):
+    last_hit_signal_time = _safe_nonempty_text((raw or {}).get("last_hit_signal_time"))
+    if last_hit_signal_time:
+        return last_hit_signal_time
+    last_hit_level = _safe_nonempty_text((raw or {}).get("last_hit_level"))
+    if not last_hit_level:
+        return None
+    return _safe_nonempty_text((raw or {}).get("updated_at"))
 
 
 def _parse_iso_datetime(value):
