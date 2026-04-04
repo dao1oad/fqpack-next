@@ -261,10 +261,14 @@ test('buildTodayTimeRange returns current Beijing day bounds', () => {
   )
 })
 
-test('buildRuntimeDefaultTimeRange keeps runtime observability on the latest two Beijing days', () => {
+test('buildRuntimeDefaultTimeRange follows the 09:00 Beijing cutoff for runtime observability defaults', () => {
   assert.deepEqual(
-    buildRuntimeDefaultTimeRange('2026-03-26T12:34:56+08:00'),
+    buildRuntimeDefaultTimeRange('2026-03-26T08:59:59+08:00'),
     ['2026-03-25T00:00:00+08:00', '2026-03-26T23:59:59+08:00'],
+  )
+  assert.deepEqual(
+    buildRuntimeDefaultTimeRange('2026-03-26T09:00:00+08:00'),
+    ['2026-03-26T00:00:00+08:00', '2026-03-26T23:59:59+08:00'],
   )
 })
 

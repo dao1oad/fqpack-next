@@ -184,6 +184,11 @@ const SHANGHAI_DAY_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
   month: '2-digit',
   day: '2-digit',
 })
+const SHANGHAI_HOUR_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: BEIJING_TIMEZONE,
+  hour: '2-digit',
+  hourCycle: 'h23',
+})
 const TRACE_SYMBOL_NAME_FIELDS = [
   'symbol_name',
   'stock_name',
@@ -273,6 +278,16 @@ const formatShanghaiDay = (value = new Date()) => {
   return `${formatted.year}-${formatted.month}-${formatted.day}`
 }
 
+const resolveShanghaiHour = (value = new Date()) => {
+  const parsedMs = parseTimestampMs(value instanceof Date ? value.toISOString() : value)
+  if (parsedMs === null) return null
+  const hourPart = SHANGHAI_HOUR_FORMATTER
+    .formatToParts(new Date(parsedMs))
+    .find((item) => item.type === 'hour')?.value
+  const hour = Number.parseInt(hourPart || '', 10)
+  return Number.isInteger(hour) ? hour : null
+}
+
 const normalizeTimeRangeValue = (value) => {
   if (value instanceof Date) return value.toISOString()
   return toText(value)
@@ -284,10 +299,14 @@ export const buildTodayTimeRange = (now = new Date()) => {
   return [`${day}T00:00:00${BEIJING_OFFSET_SUFFIX}`, `${day}T23:59:59${BEIJING_OFFSET_SUFFIX}`]
 }
 
-export const buildRuntimeDefaultTimeRange = (now = new Date(), daySpan = 2) => {
+export const buildRuntimeDefaultTimeRange = (now = new Date(), daySpan) => {
   const parsedMs = parseTimestampMs(now instanceof Date ? now.toISOString() : now)
   if (parsedMs === null) return ['', '']
-  const normalizedDaySpan = Math.max(1, Math.trunc(Number(daySpan) || 2))
+  const resolvedDaySpan =
+    Number.isFinite(Number(daySpan)) && String(daySpan).trim() !== ''
+      ? Number(daySpan)
+      : (resolveShanghaiHour(new Date(parsedMs)) ?? 0) < 9 ? 2 : 1
+  const normalizedDaySpan = Math.max(1, Math.trunc(resolvedDaySpan))
   const startMs = parsedMs - ((normalizedDaySpan - 1) * 24 * 60 * 60 * 1000)
   const startDay = formatShanghaiDay(new Date(startMs))
   const endDay = formatShanghaiDay(new Date(parsedMs))
