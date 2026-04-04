@@ -64,11 +64,17 @@ const formatPercent = (value) => {
   return `${parsed.toFixed(2)}%`
 }
 
-const formatGuardianLastHitLabel = (value) => {
+const formatGuardianTriggerKind = (value) => {
   const text = toText(value)
-  if (!text) return '最近命中 -'
-  return `最近命中 ${text.replace(/^BUY-/, 'B')}`
+  if (!text) return '-'
+  return text.replace(/^BUY-/, 'B')
 }
+
+const buildGuardianTrigger = (guardian = {}) => ({
+  kind: toText(guardian?.last_hit_level),
+  kindLabel: formatGuardianTriggerKind(guardian?.last_hit_level),
+  timeLabel: formatBeijingTimestamp(guardian?.last_hit_signal_time),
+})
 
 const normalizeMustPool = (row = {}) => ({
   category: toText(row?.category),
@@ -433,7 +439,7 @@ export const buildOverviewRows = (rows = []) => {
         must_pool: mustPool,
         guardian,
         guardianLevelSummary,
-        guardianLastHitLabel: formatGuardianLastHitLabel(guardian.last_hit_level),
+        guardianTrigger: buildGuardianTrigger(guardian),
         takeprofitSummary,
         takeprofitSummaryLabel: takeprofitSummary
           .map((item) => `L${item.level} ${item.priceLabel} ${item.enabledLabel}`)
