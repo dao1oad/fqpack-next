@@ -61,6 +61,9 @@ overview 的 `runtime` 当前返回：
 - `last_trigger_kind`
 - `last_trigger_level`
 - `last_trigger_time`
+- `last_takeprofit_trigger_level`
+- `last_takeprofit_trigger_time`
+- `last_entry_stoploss_trigger_time`
 
 overview 里的“单标的仓位上限摘要”当前按批量 PM dashboard 结果一次性装载，不再按 symbol 重复调用单标的 limit 读路径。
 
@@ -146,24 +149,32 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近 TPSL 触发事
 
 - overview 展示 `runtime.last_trigger_kind + runtime.last_trigger_level + runtime.last_trigger_time`
 - detail 展示 `runtime_summary.last_trigger_kind + runtime_summary.last_trigger_level + runtime_summary.last_trigger_time`
+- overview / detail 额外分别返回：
+  - `last_takeprofit_trigger_level + last_takeprofit_trigger_time`
+  - `last_entry_stoploss_trigger_time`
 
 `PositionSubjectOverviewPanel` 主表当前会把 TPSL 与 Guardian 两类触发分开显示：
 
 - `Guardian 层级触发`
-- `TPLS触发`
+- `止盈层级触发`
+- `单笔止损触发`
 
 不再把 Guardian 命中信息混排进 `Guardian 买入层级` 列。
 Guardian 最近命中时间当前正式来源是 `guardian_buy_grid_states.last_hit_signal_time`；对历史 legacy 状态，如果该字段缺失但 `last_hit_level` 仍存在，overview / detail 会先回退使用同一条 state 的 `updated_at` 作为展示时间。
-该列的数据来自 TPSL 最近退出事件，当前语义固定是：
+止盈层级触发的数据来自 TPSL 最近止盈退出事件，当前语义固定是：
 
 - `takeprofit`
   - 优先显示最近命中的 `L1 / L2 / L3`
   - 如果事件里没有 level，再回退显示 `止盈`
-- `stoploss`
-  - 显示 `止损`
 
-不是 Guardian 命中层级。
-若止盈 state 的 `last_rearm_reason = new_buy_below_lowest_tier`，且 `last_rearmed_at` 晚于最近一次 TPSL 退出事件，则 overview / detail 都会清空这两项，表示当前买入周期已经重置，不再继续显示上一个周期的最近触发。
+单笔止损触发的数据来自 TPSL 最近 entry 级止损退出事件，当前只认：
+
+- `entry_stoploss_hit`
+- `stoploss_hit`
+
+不混入 `symbol_full_stoploss_hit`，避免和全仓止损语义混淆。
+三列触发当前统一按单行显示：`事件标签 + 触发时间`。
+若止盈 state 的 `last_rearm_reason = new_buy_below_lowest_tier`，且 `last_rearmed_at` 晚于最近一次止盈事件，则 overview / detail 都会清空止盈触发字段，表示当前买入周期已经重置，不再继续显示上一个周期的最近止盈触发。
 
 ## 止损语义
 
@@ -211,6 +222,8 @@ Guardian 最近命中时间当前正式来源是 `guardian_buy_grid_states.last_
     - 标的总览概览列当前展示 `L1 / L2 / L3`
     - “开/关”当前按 `manual_enabled && armed_levels[level]` 合成真实运行态，只有系统当前仍会触发该层止盈时才显示 `开`
   - 仓位门禁状态
+    - 当前仍在 detail / 摘要只读展示
+    - 不再占用 `PositionSubjectOverviewPanel` 主表列
   - 对账状态
 
 Guardian / 止盈的真实编辑入口仍在 `/kline-slim`。

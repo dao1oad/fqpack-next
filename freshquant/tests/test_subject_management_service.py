@@ -147,8 +147,24 @@ class InMemoryTpslRepository:
     def list_takeprofit_profiles(self):
         return list(self.profiles.values())
 
-    def list_latest_exit_trigger_events_by_symbol(self, *, symbols=None):
+    def list_exit_trigger_events(self, *, symbol=None, batch_id=None, limit=50):
+        rows = list(self.events)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if batch_id is not None:
+            rows = [item for item in rows if item.get("batch_id") == batch_id]
+        rows.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        if limit is not None:
+            rows = rows[: max(int(limit), 0)]
+        return [dict(item) for item in rows]
+
+    def list_latest_exit_trigger_events_by_symbol(self, *, symbols=None, event_types=None):
         allowed = None if symbols is None else set(symbols)
+        allowed_event_types = (
+            None
+            if event_types is None
+            else {str(item).strip() for item in event_types if str(item).strip()}
+        )
         latest = {}
         rows = list(self.events)
         rows.sort(key=lambda item: item.get("created_at") or "", reverse=True)
@@ -157,6 +173,11 @@ class InMemoryTpslRepository:
             if not symbol:
                 continue
             if allowed is not None and symbol not in allowed:
+                continue
+            if (
+                allowed_event_types is not None
+                and str(item.get("event_type") or "").strip() not in allowed_event_types
+            ):
                 continue
             if symbol in latest:
                 continue
@@ -272,11 +293,20 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
         [
             {
                 "event_id": "evt_1",
+                "event_type": "takeprofit_hit",
                 "kind": "takeprofit",
                 "symbol": "600000",
                 "batch_id": "tp_batch_1",
                 "level": 2,
                 "created_at": "2026-03-16T10:40:00+08:00",
+            },
+            {
+                "event_id": "evt_2",
+                "event_type": "entry_stoploss_hit",
+                "kind": "stoploss",
+                "symbol": "600000",
+                "batch_id": "sl_batch_1",
+                "created_at": "2026-03-16T10:42:00+08:00",
             }
         ]
     )
@@ -398,9 +428,18 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["stoploss"]["open_entry_count"] == 1
     assert rows[0]["runtime"]["position_quantity"] == 500
     assert rows[0]["runtime"]["position_amount"] == 0.0
-    assert rows[0]["runtime"]["last_trigger_kind"] == "takeprofit"
-    assert rows[0]["runtime"]["last_trigger_level"] == 2
-    assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:40:00+08:00"
+    assert rows[0]["runtime"]["last_trigger_kind"] == "stoploss"
+    assert rows[0]["runtime"]["last_trigger_level"] is None
+    assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:42:00+08:00"
+    assert rows[0]["runtime"]["last_takeprofit_trigger_level"] == 2
+    assert (
+        rows[0]["runtime"]["last_takeprofit_trigger_time"]
+        == "2026-03-16T10:40:00+08:00"
+    )
+    assert (
+        rows[0]["runtime"]["last_entry_stoploss_trigger_time"]
+        == "2026-03-16T10:42:00+08:00"
+    )
     assert rows[0]["position_limit_summary"]["effective_limit"] == 500000.0
     assert rows[0]["position_limit_summary"]["using_override"] is True
 
@@ -425,10 +464,19 @@ def test_subject_management_overview_clears_recent_trigger_after_auto_rearm():
         [
             {
                 "event_id": "evt_1",
+                "event_type": "takeprofit_hit",
                 "kind": "takeprofit",
                 "symbol": "600000",
                 "batch_id": "tp_batch_1",
                 "created_at": "2026-03-16T10:40:00+00:00",
+            },
+            {
+                "event_id": "evt_2",
+                "event_type": "entry_stoploss_hit",
+                "kind": "stoploss",
+                "symbol": "600000",
+                "batch_id": "sl_batch_1",
+                "created_at": "2026-03-16T10:41:00+00:00",
             }
         ]
     )
@@ -463,9 +511,15 @@ def test_subject_management_overview_clears_recent_trigger_after_auto_rearm():
         2: True,
         3: False,
     }
-    assert rows[0]["runtime"]["last_trigger_kind"] is None
+    assert rows[0]["runtime"]["last_trigger_kind"] == "stoploss"
     assert rows[0]["runtime"]["last_trigger_level"] is None
-    assert rows[0]["runtime"]["last_trigger_time"] is None
+    assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:41:00+00:00"
+    assert rows[0]["runtime"]["last_takeprofit_trigger_level"] is None
+    assert rows[0]["runtime"]["last_takeprofit_trigger_time"] is None
+    assert (
+        rows[0]["runtime"]["last_entry_stoploss_trigger_time"]
+        == "2026-03-16T10:41:00+00:00"
+    )
 
 
 def test_subject_management_overview_falls_back_to_guardian_state_updated_at_when_hit_time_missing():
@@ -513,6 +567,73 @@ def test_subject_management_overview_falls_back_to_guardian_state_updated_at_whe
 
     assert rows[0]["guardian"]["last_hit_level"] == "BUY-2"
     assert rows[0]["guardian"]["last_hit_signal_time"] == "2026-04-04T09:30:00+08:00"
+
+
+def test_subject_management_detail_exposes_split_takeprofit_and_entry_stoploss_triggers():
+    tpsl_repository = InMemoryTpslRepository()
+    tpsl_repository.events.extend(
+        [
+            {
+                "event_id": "evt_takeprofit",
+                "event_type": "takeprofit_hit",
+                "kind": "takeprofit",
+                "symbol": "600000",
+                "batch_id": "tp_batch_1",
+                "level": 3,
+                "created_at": "2026-03-18T09:50:00+08:00",
+            },
+            {
+                "event_id": "evt_stoploss",
+                "event_type": "entry_stoploss_hit",
+                "kind": "stoploss",
+                "symbol": "600000",
+                "batch_id": "sl_batch_1",
+                "created_at": "2026-03-18T09:55:00+08:00",
+            },
+        ]
+    )
+
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=tpsl_repository,
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [
+            {
+                "symbol": "600000.SH",
+                "name": "浦发银行",
+                "quantity": 500,
+                "avg_price": 10.023,
+            }
+        ],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600000")
+
+    assert detail["runtime_summary"]["last_trigger_kind"] == "stoploss"
+    assert detail["runtime_summary"]["last_trigger_level"] is None
+    assert (
+        detail["runtime_summary"]["last_trigger_time"]
+        == "2026-03-18T09:55:00+08:00"
+    )
+    assert detail["runtime_summary"]["last_takeprofit_trigger_level"] == 3
+    assert (
+        detail["runtime_summary"]["last_takeprofit_trigger_time"]
+        == "2026-03-18T09:50:00+08:00"
+    )
+    assert (
+        detail["runtime_summary"]["last_entry_stoploss_trigger_time"]
+        == "2026-03-18T09:55:00+08:00"
+    )
 
 
 def test_subject_management_overview_strips_mongo_id_from_takeprofit_state():

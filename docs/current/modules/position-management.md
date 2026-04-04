@@ -61,8 +61,6 @@
   - 合并展示 `持仓股数 + 持仓市值`
 - `订单状态`
   - 合并展示 `活跃单笔止损 + Open Entry`
-- `门禁`
-  - 直接展示 detail 已返回的 `position_management_summary`
 - `全仓止损价`
 - `单标的仓位上限`
 
@@ -72,14 +70,17 @@
   - 单独展示最近 Guardian 命中层级与命中时间
   - 数据来自 `guardian.last_hit_level + guardian.last_hit_signal_time`
   - 对旧状态数据，如果 `last_hit_level` 已存在但 `last_hit_signal_time` 缺失，当前展示层会先回退到该 Guardian state 的 `updated_at`
-- `TPLS触发`
-  - 与 `Guardian 层级触发` 使用同样的两行样式：首行触发标签，次行触发时间
-  - 最近退出事件的大类语义仍然是 `takeprofit / stoploss`
-  - `takeprofit` 优先显示最近命中的 `L1 / L2 / L3` 层级；没有层级时回退显示 `止盈`
-  - `stoploss` 当前显示 `止损`
-  - 数据来自 TPSL 最近退出事件，当前语义不是 Guardian 命中
-  - 若止盈 state 的 `last_rearm_reason = new_buy_below_lowest_tier`，且 `last_rearmed_at` 晚于最近一次 TPSL 退出事件，则该列清空，表示当前买入周期已重置
-  - 不再把触发时间混在“运行态”列里
+- `止盈层级触发`
+  - 只展示最近一次止盈事件的 `L1 / L2 / L3 + 时间`
+  - 如果止盈事件没有层级，则回退显示 `止盈 + 时间`
+  - 数据来自 TPSL 最近 `takeprofit` 退出事件
+  - 若止盈 state 的 `last_rearm_reason = new_buy_below_lowest_tier`，且 `last_rearmed_at` 晚于最近一次止盈事件，则该列清空，表示当前买入周期已重置
+- `单笔止损触发`
+  - 只展示最近一次 entry 级止损事件的 `止损 + 时间`
+  - 当前只认 `entry_stoploss_hit / stoploss_hit`，不混入 symbol 级全仓止损
+- `Guardian 层级触发 / 止盈层级触发 / 单笔止损触发`
+  - 三列统一使用单行样式：`事件标签 + 触发时间`
+  - 事件与时间不再拆成两行
 - `Guardian 买入层级`
   - 展示 `B1 / B2 / B3` 三层 Guardian 价格与每层启用状态
 - `止盈价格层级`
@@ -94,18 +95,18 @@
 
 开关统一右对齐，关闭态当前固定用红色显示，便于按行横向比对。
 
-`门禁 / Guardian 层级触发 / TPLS触发 / Guardian 买入层级 / 止盈价格层级` 这几列当前会优先吃掉主表剩余横向空间；`门禁` badge 固定单行显示，不再在窄列里拆成两行。
+`Guardian 买入层级 / 止盈价格层级 / Guardian 层级触发 / 止盈层级触发 / 单笔止损触发` 这几列当前会优先吃掉主表剩余横向空间。
 
 中栏主表当前列顺序固定为：
 
 - `标的`
 - `持仓`
 - `订单状态`
-- `门禁`
-- `Guardian 层级触发`
-- `TPLS触发`
 - `Guardian 买入层级`
 - `止盈价格层级`
+- `Guardian 层级触发`
+- `止盈层级触发`
+- `单笔止损触发`
 - `全仓止损价`
 - `单标的仓位上限`
 - `保存`
@@ -129,10 +130,13 @@
 选中标的工作区当前固定拆成上下两张高密度表：
 
 - 上半区：`聚合买入列表 / 按持仓入口止损`
-  - 固定列为：`买入时间 / 买入价 / 买入数量 / 剩余数量 / 百分比 / 剩余市值 / 单笔止损`
+  - 固定列为：`入口 / 买入时间 / 买入价 / 买入数量 / 剩余 / 占比 / 市值 / 单笔止损`
+  - `入口` 当前只展示 `序号 + entry id` 的紧凑单行标签
+  - `买入时间 / 剩余 / 占比` 当前固定单行展示，不再换行
   - 不再单独展示 `聚合买入` 列
 - 下半区：`切片明细`
-  - `入口` 列当前拉宽为单行展示 `entry label + entry id`
+  - `入口` 列当前也只展示 `序号 + entry id`
+  - `入口` 同样固定单行展示，便于压缩右栏宽度
 
 右上工作区会为每个 symbol 维护当前选中的 open entry；首次进入 symbol 时默认选中第一条 entry，`切片明细` 只展示当前选中 entry 的 `entry_slices`，不再一次性铺开全部切片。
 
@@ -147,9 +151,11 @@
 
 标的总览行内保存时，如果覆盖值等于系统默认值，后端仍会自动删除 override。
 
-最近决策与上下文已合并为一张高密度 ledger。最近决策中的实时市值、仓位上限、市值来源、数量来源都会做系统真值回填；如果历史记录缺字段，后端会用当前 broker snapshot、symbol limit 和 tracked scope 做系统真值回填。
+最近决策与上下文已切换成和标的总览一致的 `el-table`。最近决策中的实时市值、仓位上限、市值来源、数量来源都会做系统真值回填；如果历史记录缺字段，后端会用当前 broker snapshot、symbol limit 和 tracked scope 做系统真值回填。
 
-最近决策 ledger 默认分页 `100` 条，表体默认显示约 `15` 行。
+该表支持手动拖列；显示不下时使用横向滚动条。
+
+最近决策表格默认分页 `100` 条，表体默认显示约 `15` 行。
 
 中栏 `全仓止损价` 当前直接展示 `base_config_summary.stop_loss_price.effective_value`，运行时语义由 TPSL 的 symbol 级全仓止损承担；`活跃单笔止损` 只统计 entry 级 stoploss 绑定数量。
 

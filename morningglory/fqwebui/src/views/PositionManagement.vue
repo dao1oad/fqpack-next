@@ -195,7 +195,7 @@
                 名称 <strong>{{ selectedSubjectName }}</strong>
               </StatusChip>
               <StatusChip variant="muted">
-                当前入口 <strong>{{ selectedSubjectSelectedEntry?.entryDisplayLabel || '-' }}</strong>
+                当前入口 <strong>{{ selectedSubjectSelectedEntry?.entryCompactLabel || '-' }}</strong>
               </StatusChip>
               <StatusChip
                 v-for="item in selectedSubjectSummaryChips"
@@ -234,52 +234,48 @@
                     @row-click="handleSelectedEntryChange"
                     @current-change="handleSelectedEntryChange"
                   >
-                    <el-table-column label="入口" width="132">
+                    <el-table-column label="入口" width="96">
                       <template #default="{ row }">
-                        <div class="position-selection-entry-cell">
-                          <strong>{{ row.entryDisplayLabel }}</strong>
-                          <span>{{ row.entryIdLabel }}</span>
+                        <div
+                          class="position-selection-entry-cell position-selection-entry-cell--inline"
+                          :title="`${row.entryDisplayLabel || '-'} / ${row.entryIdLabel || row.entry_id || '-'}`"
+                        >
+                          <strong>{{ row.entryCompactLabel || '-' }}</strong>
                         </div>
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="买入时间" min-width="136">
+                    <el-table-column label="买入时间" width="148">
                       <template #default="{ row }">
-                        <span class="workbench-code">{{ row.entrySummaryDisplay?.entryDateTimeLabel || '-' }}</span>
+                        <span class="workbench-code position-selection-cell__nowrap">{{ row.entrySummaryDisplay?.entryDateTimeLabel || '-' }}</span>
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="买入价" width="88" align="right">
+                    <el-table-column label="买入价" width="84" align="right">
                       <template #default="{ row }">
                         <span class="workbench-code">{{ row.entrySummaryDisplay?.entryPriceLabel || '-' }}</span>
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="买入数量" width="92" align="right">
+                    <el-table-column label="买入数量" width="88" align="right">
                       <template #default="{ row }">
                         <span class="workbench-code">{{ row.entrySummaryDisplay?.originalQuantityLabel || '-' }}</span>
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="剩余数量" width="92" align="right">
+                    <el-table-column label="剩余 / 占比" width="148" align="right">
                       <template #default="{ row }">
-                        <span class="workbench-code">{{ row.entrySummaryDisplay?.remainingQuantityLabel || '-' }}</span>
+                        <span class="workbench-code position-selection-cell__nowrap">{{ row.entrySummaryDisplay?.remainingPositionLabel || '-' }}</span>
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="百分比" width="82" align="right">
-                      <template #default="{ row }">
-                        <span class="workbench-code">{{ row.entrySummaryDisplay?.remainingPercentLabel || '-' }}</span>
-                      </template>
-                    </el-table-column>
-
-                    <el-table-column label="剩余市值" min-width="108" align="right">
+                    <el-table-column label="市值" width="86" align="right">
                       <template #default="{ row }">
                         <span class="workbench-code">{{ row.entrySummaryDisplay?.remainingMarketValueLabel || '-' }}</span>
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="单笔止损" width="110">
+                    <el-table-column label="单笔止损" width="104">
                       <template #default="{ row }">
                         <el-input-number
                           v-if="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol]?.[row.entry_id]"
@@ -294,7 +290,7 @@
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="启用" width="86" align="center">
+                    <el-table-column label="启用" width="78" align="center">
                       <template #default="{ row }">
                         <el-switch
                           v-if="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol]?.[row.entry_id]"
@@ -304,7 +300,7 @@
                       </template>
                     </el-table-column>
 
-                    <el-table-column label="保存" width="92" fixed="right">
+                    <el-table-column label="保存" width="84" fixed="right">
                       <template #default="{ row }">
                         <el-button
                           size="small"
@@ -333,11 +329,10 @@
                     height="100%"
                     class="position-selection-slice-table"
                   >
-                    <el-table-column label="入口" width="248">
+                    <el-table-column label="入口" width="108">
                       <template #default="{ row }">
                         <div class="position-selection-entry-cell position-selection-entry-cell--inline" :title="`${row.entryDisplayLabel || '-'} / ${row.entryIdLabel || row.entry_id || '-'}`">
-                          <strong>{{ row.entryDisplayLabel }}</strong>
-                          <span>{{ row.entryIdLabel || row.entry_id }}</span>
+                          <strong>{{ row.entryCompactLabel || '-' }}</strong>
                         </div>
                       </template>
                     </el-table-column>
@@ -346,22 +341,22 @@
                         <span class="workbench-code">{{ formatInteger(row.slice_seq) }}</span>
                       </template>
                     </el-table-column>
-                    <el-table-column label="守护价" width="92" align="right">
+                    <el-table-column label="守护价" width="84" align="right">
                       <template #default="{ row }">
                         <span class="workbench-code">{{ formatPrice(row.guardian_price) }}</span>
                       </template>
                     </el-table-column>
-                    <el-table-column label="原始数量" width="96" align="right">
+                    <el-table-column label="原始数量" width="88" align="right">
                       <template #default="{ row }">
                         <span class="workbench-code">{{ formatInteger(row.original_quantity) }}</span>
                       </template>
                     </el-table-column>
-                    <el-table-column label="剩余数量" width="96" align="right">
+                    <el-table-column label="剩余数量" width="88" align="right">
                       <template #default="{ row }">
                         <span class="workbench-code">{{ formatInteger(row.remaining_quantity) }}</span>
                       </template>
                     </el-table-column>
-                    <el-table-column label="剩余市值" min-width="108" align="right">
+                    <el-table-column label="市值" width="88" align="right">
                       <template #default="{ row }">
                         <span class="workbench-code">{{ formatWanAmount(row.remaining_amount) }}</span>
                       </template>
@@ -404,57 +399,58 @@
               </StatusChip>
             </div>
 
-            <div v-if="pagedDecisionRows.length" class="runtime-ledger runtime-position-decision-ledger">
-              <div class="runtime-ledger__header runtime-position-decision-ledger__grid">
-                <span>触发时间</span>
-                <span>标的</span>
-                <span>动作</span>
-                <span>结果</span>
-                <span>门禁状态</span>
-                <span>触发来源</span>
-                <span>策略</span>
-                <span>说明</span>
-                <span>持仓标的</span>
-                <span>实时市值</span>
-                <span>仓位上限</span>
-                <span>市值来源</span>
-                <span>数量来源</span>
-                <span>盈利减仓</span>
-                <span>减仓模式</span>
-                <span>Trace</span>
-                <span>Intent</span>
-                <span>附加上下文</span>
-              </div>
-
-              <div
-                v-for="row in pagedDecisionRows"
-                :key="row.selection_key"
-                class="runtime-ledger__row runtime-position-decision-ledger__grid"
-                :class="{ 'runtime-ledger__row--blocked': row.tone === 'reject' }"
+            <div v-if="pagedDecisionRows.length" class="position-decision-table-wrap">
+              <el-table
+                :data="pagedDecisionRows"
+                row-key="selection_key"
+                size="small"
+                border
+                fit="false"
+                height="100%"
+                class="position-decision-table"
+                :row-class-name="decisionRowClassName"
               >
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono">{{ row.evaluated_at_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--strong runtime-ledger__cell--truncate" :title="row.symbol_display">{{ row.symbol_display }}</span>
-                <span class="runtime-ledger__cell">{{ row.action_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--status">
-                  <StatusChip class="runtime-inline-status" :variant="decisionStatusChipVariant(row.tone)">
-                    {{ row.allowed_label }}
-                  </StatusChip>
-                </span>
-                <span class="runtime-ledger__cell">{{ row.state_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.source_display">{{ row.source_display }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.strategy_label">{{ row.strategy_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.reason_display">{{ row.reason_display }}</span>
-                <span class="runtime-ledger__cell">{{ row.holding_symbol_display }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.symbol_market_value_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--number">{{ row.symbol_position_limit_label }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.market_value_source_display">{{ row.market_value_source_display }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.quantity_source_display">{{ row.quantity_source_display }}</span>
-                <span class="runtime-ledger__cell">{{ row.force_profit_reduce_display }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.profit_reduce_mode_display">{{ row.profit_reduce_mode_display }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.trace_display">{{ row.trace_display }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--mono runtime-ledger__cell--truncate" :title="row.intent_display">{{ row.intent_display }}</span>
-                <span class="runtime-ledger__cell runtime-ledger__cell--truncate" :title="row.extra_context_label">{{ row.extra_context_label }}</span>
-              </div>
+                <el-table-column label="触发时间" min-width="152" resizable show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span class="workbench-code">{{ row.evaluated_at_label }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="标的" min-width="144" resizable show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <strong class="position-decision-cell-strong">{{ row.symbol_display }}</strong>
+                  </template>
+                </el-table-column>
+                <el-table-column label="动作" min-width="68" resizable show-overflow-tooltip prop="action_label" />
+                <el-table-column label="结果" min-width="108" resizable>
+                  <template #default="{ row }">
+                    <StatusChip class="runtime-inline-status" :variant="decisionStatusChipVariant(row.tone)">
+                      {{ row.allowed_label }}
+                    </StatusChip>
+                  </template>
+                </el-table-column>
+                <el-table-column label="门禁状态" min-width="128" resizable show-overflow-tooltip prop="state_label" />
+                <el-table-column label="触发来源" min-width="180" resizable show-overflow-tooltip prop="source_display" />
+                <el-table-column label="策略" min-width="112" resizable show-overflow-tooltip prop="strategy_label" />
+                <el-table-column label="说明" min-width="180" resizable show-overflow-tooltip prop="reason_display" />
+                <el-table-column label="持仓标的" min-width="92" resizable show-overflow-tooltip prop="holding_symbol_display" />
+                <el-table-column label="实时市值" min-width="118" resizable align="right" show-overflow-tooltip prop="symbol_market_value_label" />
+                <el-table-column label="仓位上限" min-width="118" resizable align="right" show-overflow-tooltip prop="symbol_position_limit_label" />
+                <el-table-column label="市值来源" min-width="156" resizable show-overflow-tooltip prop="market_value_source_display" />
+                <el-table-column label="数量来源" min-width="156" resizable show-overflow-tooltip prop="quantity_source_display" />
+                <el-table-column label="盈利减仓" min-width="92" resizable show-overflow-tooltip prop="force_profit_reduce_display" />
+                <el-table-column label="减仓模式" min-width="108" resizable show-overflow-tooltip prop="profit_reduce_mode_display" />
+                <el-table-column label="Trace" min-width="144" resizable show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span class="workbench-code">{{ row.trace_display }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="Intent" min-width="144" resizable show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span class="workbench-code">{{ row.intent_display }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="附加上下文" min-width="260" resizable show-overflow-tooltip prop="extra_context_label" />
+              </el-table>
             </div>
 
             <div v-else class="runtime-empty-panel">
@@ -659,6 +655,10 @@ const decisionStatusChipVariant = (tone) => (
   tone === 'allow' ? 'success' : 'danger'
 )
 
+const decisionRowClassName = ({ row }) => (
+  row?.tone === 'reject' ? 'position-decision-row--blocked' : ''
+)
+
 const ruleStatusChipVariant = (allowed) => (
   allowed ? 'success' : 'danger'
 )
@@ -773,8 +773,8 @@ onMounted(() => {
 
 .position-workbench-grid {
   --position-workbench-left-width: 0.9fr;
-  --position-workbench-middle-width: 1.5fr;
-  --position-workbench-right-width: 1.12fr;
+  --position-workbench-middle-width: 1.64fr;
+  --position-workbench-right-width: 0.94fr;
   display: grid;
   grid-template-columns:
     minmax(0, var(--position-workbench-left-width))
@@ -1008,11 +1008,16 @@ onMounted(() => {
 .position-selection-entry-cell--inline {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .position-selection-entry-cell strong {
   color: #21405e;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1027,6 +1032,56 @@ onMounted(() => {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.position-selection-cell__nowrap {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.position-selection-entry-table :deep(.el-table__header .cell),
+.position-selection-slice-table :deep(.el-table__header .cell) {
+  white-space: nowrap;
+}
+
+.position-decision-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-decision-table {
+  height: 100%;
+}
+
+.position-decision-table :deep(.el-table__cell) {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  vertical-align: middle;
+}
+
+.position-decision-table :deep(.el-table__header .cell) {
+  white-space: nowrap;
+}
+
+.position-decision-table :deep(.cell) {
+  white-space: nowrap;
+}
+
+.position-decision-table :deep(.el-table__body tr.position-decision-row--blocked > td.el-table__cell) {
+  background: #fff7f5;
+}
+
+.position-decision-table :deep(.el-table__body tr.position-decision-row--blocked:hover > td.el-table__cell) {
+  background: #fff1ed;
+}
+
+.position-decision-cell-strong {
+  color: #21405e;
 }
 
 .runtime-empty-panel {

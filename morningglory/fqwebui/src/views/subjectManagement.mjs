@@ -76,22 +76,27 @@ const buildGuardianTrigger = (guardian = {}) => ({
   timeLabel: formatBeijingTimestamp(guardian?.last_hit_signal_time),
 })
 
-const formatTpslTriggerKind = (kind, level) => {
-  const normalizedKind = toText(kind)
+const formatTakeprofitTriggerKind = (level, triggerTime) => {
   const normalizedLevel = toNullableNumber(level)
-  if (normalizedKind === 'takeprofit' && normalizedLevel !== null) {
+  if (normalizedLevel !== null) {
     return `L${Math.trunc(normalizedLevel)}`
   }
-  if (normalizedKind === 'takeprofit') return '止盈'
-  if (normalizedKind === 'stoploss') return '止损'
-  return normalizedKind || '-'
+  if (toText(triggerTime)) return '止盈'
+  return '-'
 }
 
-const buildTpslTrigger = (runtime = {}) => ({
-  kind: toText(runtime?.last_trigger_kind),
-  level: toNullableNumber(runtime?.last_trigger_level),
-  kindLabel: formatTpslTriggerKind(runtime?.last_trigger_kind, runtime?.last_trigger_level),
-  timeLabel: formatBeijingTimestamp(runtime?.last_trigger_time),
+const buildTakeprofitTrigger = (runtime = {}) => ({
+  level: toNullableNumber(runtime?.last_takeprofit_trigger_level),
+  kindLabel: formatTakeprofitTriggerKind(
+    runtime?.last_takeprofit_trigger_level,
+    runtime?.last_takeprofit_trigger_time,
+  ),
+  timeLabel: formatBeijingTimestamp(runtime?.last_takeprofit_trigger_time),
+})
+
+const buildEntryStoplossTrigger = (runtime = {}) => ({
+  kindLabel: toText(runtime?.last_entry_stoploss_trigger_time) ? '止损' : '-',
+  timeLabel: formatBeijingTimestamp(runtime?.last_entry_stoploss_trigger_time),
 })
 
 const normalizeMustPool = (row = {}) => ({
@@ -303,6 +308,14 @@ const buildEntryIdLabel = (value) => {
   return `ID 尾号 ${text.slice(-6)}`
 }
 
+const buildEntryCompactLabel = (index, value) => {
+  const text = toText(value)
+  const orderLabel = `#${Number(index) + 1}`
+  if (!text) return `${orderLabel} / -`
+  const compactId = text.length <= 12 ? text : text.slice(-6)
+  return `${orderLabel} / ${compactId}`
+}
+
 const formatQuantityLabel = (value) => {
   const label = formatInteger(value)
   return label === '-' ? label : `${label} 股`
@@ -343,6 +356,7 @@ const buildEntrySummaryDisplay = (row = {}, runtimeSummary = {}) => {
     originalQuantityLabel: formatQuantityLabel(originalQuantity),
     remainingQuantityLabel,
     remainingPercentLabel,
+    remainingPositionLabel: `${remainingQuantityLabel} / ${remainingPercentLabel}`,
     entryDateTimeLabel: entryDateTime,
     remainingMarketValueLabel: formatAmountWan(remainingMarketValue),
   }
@@ -397,6 +411,7 @@ const buildEntries = (rows = [], runtimeSummary = {}) => {
       },
       stoplossLabel: formatPrice(stoploss?.stop_price),
       entryDisplayLabel: `第 ${index + 1} 笔持仓入口`,
+      entryCompactLabel: buildEntryCompactLabel(index, row?.entry_id),
       entryIdLabel: buildEntryIdLabel(row?.entry_id),
       entrySummaryDisplay,
       entrySummaryLines,
@@ -459,7 +474,8 @@ export const buildOverviewRows = (rows = []) => {
         guardian,
         guardianLevelSummary,
         guardianTrigger: buildGuardianTrigger(guardian),
-        tpslTrigger: buildTpslTrigger(runtime),
+        takeprofitTrigger: buildTakeprofitTrigger(runtime),
+        entryStoplossTrigger: buildEntryStoplossTrigger(runtime),
         takeprofitSummary,
         takeprofitSummaryLabel: takeprofitSummary
           .map((item) => `L${item.level} ${item.priceLabel} ${item.enabledLabel}`)
