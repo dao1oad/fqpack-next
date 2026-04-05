@@ -9,6 +9,7 @@ const mergeWorkspacePayload = (
   detail = {},
   workspace = {},
   resolutionDataStatus = 'loaded',
+  resolutionErrorMessage = '',
 ) => ({
   ...detail,
   gaps: Array.isArray(workspace?.gaps) ? workspace.gaps : [],
@@ -16,10 +17,22 @@ const mergeWorkspacePayload = (
   rejections: Array.isArray(workspace?.rejections) ? workspace.rejections : [],
   reconciliationDetail: workspace?.detail || null,
   resolutionDataStatus,
+  resolutionErrorMessage: String(resolutionErrorMessage || '').trim(),
 })
 
 const isNotFoundError = (error) => (
   Number(error?.response?.status || error?.status || 0) === 404
+)
+
+const getWorkspaceNotFoundStatus = (error) => {
+  if (!isNotFoundError(error)) return ''
+  const responseMessage = String(error?.response?.data?.error || '').trim().toLowerCase()
+  if (responseMessage.includes('not tracked')) return 'workspace_symbol_not_tracked'
+  return 'workspace_endpoint_missing'
+}
+
+const getErrorMessage = (error) => (
+  String(error?.response?.data?.error || error?.message || '').trim()
 )
 
 export const createReconciliationWorkbenchActions = ({
@@ -58,13 +71,20 @@ export const createReconciliationWorkbenchActions = ({
       }
       let workspace = null
       let resolutionDataStatus = 'loaded'
+      let resolutionErrorMessage = ''
       try {
         workspace = await reconciliationApi.getSymbolWorkspace(symbol)
       } catch (error) {
         if (!isNotFoundError(error)) throw error
-        resolutionDataStatus = 'workspace_endpoint_missing'
+        resolutionDataStatus = getWorkspaceNotFoundStatus(error) || 'workspace_endpoint_missing'
+        resolutionErrorMessage = getErrorMessage(error)
       }
-      return mergeWorkspacePayload(detail, workspace, resolutionDataStatus)
+      return mergeWorkspacePayload(
+        detail,
+        workspace,
+        resolutionDataStatus,
+        resolutionErrorMessage,
+      )
     },
   }
 }

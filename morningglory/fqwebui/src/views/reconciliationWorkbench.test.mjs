@@ -191,6 +191,57 @@ test('reconciliation workbench actions fall back to TPSL detail when reconciliat
   ])
 })
 
+test('reconciliation workbench actions surface tracked-symbol 404s separately from endpoint-missing 404s', async () => {
+  const actions = createReconciliationWorkbenchActions({
+    positionApi: {
+      async getReconciliation() {
+        return { summary: {}, rows: [] }
+      },
+    },
+    orderApi: {
+      async listOrders() {
+        return { rows: [], total: 0, page: 1, size: 20 }
+      },
+      async getOrderDetail() {
+        return null
+      },
+      async getStats() {
+        return { total: 0, missing_broker_order_count: 0 }
+      },
+    },
+    tpslApi: {
+      async getManagementDetail(symbol) {
+        return {
+          symbol,
+          entries: [{ entry_id: 'entry_300760_1' }],
+          entry_slices: [],
+          reconciliation: { state: 'aligned' },
+          history: [],
+        }
+      },
+    },
+    reconciliationApi: {
+      async getSymbolWorkspace() {
+        const error = new Error('symbol is not tracked')
+        error.response = {
+          status: 404,
+          data: {
+            error: 'symbol is not tracked',
+          },
+        }
+        throw error
+      },
+    },
+  })
+
+  const workspace = await actions.loadSymbolWorkspace('300760')
+
+  assert.equal(workspace.symbol, '300760')
+  assert.equal(workspace.entries[0].entry_id, 'entry_300760_1')
+  assert.equal(workspace.resolutionDataStatus, 'workspace_symbol_not_tracked')
+  assert.equal(workspace.resolutionErrorMessage, 'symbol is not tracked')
+})
+
 test('reconciliation workbench controller loads overview and hydrates the first symbol workspace', async () => {
   const calls = []
   const controller = createReconciliationWorkbenchPageController({
@@ -438,6 +489,50 @@ test('reconciliation workbench filters overview rows by query and audit status',
 
   assert.equal(controller.filteredOverviewRows.value.length, 1)
   assert.equal(controller.filteredOverviewRows.value[0].symbol, '600000')
+})
+
+test('reconciliation workbench controller keeps child-load errors after overview refresh', async () => {
+  const controller = createReconciliationWorkbenchPageController({
+    actions: {
+      async loadOverview() {
+        return {
+          summary: {
+            row_count: 1,
+            audit_status_counts: { ERROR: 1, WARN: 0, OK: 0 },
+          },
+          stateCards: [],
+          ruleCards: [],
+          rows: [{ symbol: '300760', name: '迈瑞医疗', audit_status: 'ERROR' }],
+        }
+      },
+      async loadOrders() {
+        throw new Error('orders api unavailable')
+      },
+      async loadOrderStats() {
+        return { total: 0, missing_broker_order_count: 0 }
+      },
+      async loadOrderDetail() {
+        return null
+      },
+      async loadSymbolWorkspace(symbol) {
+        return {
+          symbol,
+          entries: [],
+          entrySlices: [],
+          reconciliation: { state: 'DRIFT' },
+          historyRows: [],
+          gaps: [],
+          resolutions: [],
+          rejections: [],
+        }
+      },
+    },
+  })
+
+  await controller.refreshOverview()
+
+  assert.equal(controller.state.selectedSymbol, '300760')
+  assert.equal(controller.state.pageError, 'orders api unavailable')
 })
 
 test('reconciliation workbench actions derive compact ledger ids and value labels for entry and slice rows', async () => {

@@ -33,6 +33,7 @@
 - `GET /api/position-management/reconciliation-workspace/<symbol>`
   - 返回 `detail / gaps / resolutions / rejections`
   - 若当前运行中的后端尚未部署该接口，前端会回退到 `GET /api/tpsl/management/<symbol>` 的基础 detail，并在 `Resolution` tab 明确提示“workspace 接口未部署”；此时 `gap / resolution / rejection` 为空
+  - 若接口返回 `404 {"error":"symbol is not tracked"}`，前端会继续展示 TPSL 基础 detail，并在 `Resolution` tab 明确提示“当前 symbol 未纳入对账跟踪”
 - `GET /api/order-management/orders`
   - `相关订单` tab 的主列表
 - `GET /api/order-management/orders/<internal_order_id>`
@@ -64,4 +65,5 @@
 - 通过 lookup 可直接按 `symbol / internal_order_id / request_id / broker_order_id` 定位
 - 从 `/position-management` 进入时，当前选中 symbol 会通过 `?symbol=` 透传
 - 旧 `/order-management` 正式入口已删除；订单排障必须从本页进入
-- `Resolution` tab 需要 `reconciliation-workspace` 接口；若接口 `404`，页面仍可打开，但只显示 TPSL 历史，不显示 `gap / resolution / rejection` 明细
+- `Resolution` tab 需要 `reconciliation-workspace` 接口；若接口未部署，页面仍可打开，但只显示 TPSL 历史，不显示 `gap / resolution / rejection` 明细
+- 若 `reconciliation-workspace` 返回“symbol is not tracked”，页面不会显示“接口未部署”，而是明确提示当前 symbol 未纳入对账跟踪

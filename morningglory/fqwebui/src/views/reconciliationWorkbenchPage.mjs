@@ -233,6 +233,7 @@ export const createReconciliationWorkbenchPageController = ({ actions } = {}) =>
 
   const refreshOverview = async () => {
     state.loadingOverview = true
+    state.pageError = ''
     try {
       const payload = await actions.loadOverview()
       state.overviewSummary = payload?.summary || {
@@ -247,7 +248,6 @@ export const createReconciliationWorkbenchPageController = ({ actions } = {}) =>
         ? state.selectedSymbol
         : toText(state.overviewRows[0]?.symbol)
       await hydrateSelectedSymbol(nextSymbol)
-      state.pageError = ''
     } catch (error) {
       state.pageError = errorMessage(error)
       state.overviewRows = []
