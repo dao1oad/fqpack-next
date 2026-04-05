@@ -60,6 +60,14 @@ class XtAutoRepayWorker:
         state = dict(self.service.get_state() or {})
         snapshot_decision = None
 
+        precheck_reason = _precheck_skip_reason(self.service)
+        if precheck_reason:
+            return self._skip(
+                mode=resolved_mode,
+                now=resolved_now,
+                reason=precheck_reason,
+            )
+
         if resolved_mode == INTRADAY_MODE:
             if self._in_cooldown(state, resolved_now):
                 return self._skip(
@@ -91,6 +99,7 @@ class XtAutoRepayWorker:
                 now=resolved_now,
                 reason="lock_unavailable",
                 snapshot_decision=snapshot_decision,
+                mark_mode_completed=False,
             )
 
         detail = self.executor.query_credit_detail()
@@ -240,6 +249,7 @@ class XtAutoRepayWorker:
         reason,
         snapshot_decision=None,
         confirmed_decision=None,
+        mark_mode_completed=True,
     ):
         checked_at = now.isoformat()
         self.service.record_event(
@@ -266,7 +276,8 @@ class XtAutoRepayWorker:
             "last_status": "skip",
             "last_reason": reason,
         }
-        state_updates.update(_mode_timestamp_fields(mode, checked_at))
+        if mark_mode_completed:
+            state_updates.update(_mode_timestamp_fields(mode, checked_at))
         self.service.update_state(**state_updates)
         return {"mode": mode, "status": "skip", "reason": reason}
 
@@ -375,6 +386,14 @@ def _normalize_mode(mode):
 
 def _shanghai_now():
     return datetime.now(SHANGHAI_TZ)
+
+
+def _precheck_skip_reason(service):
+    if str(getattr(service, "account_type", "STOCK") or "STOCK").upper() != "CREDIT":
+        return "non_credit_account"
+    if not bool(getattr(service, "enabled", True)):
+        return "disabled"
+    return None
 
 
 if __name__ == "__main__":

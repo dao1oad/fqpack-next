@@ -8,6 +8,7 @@ class FakeService:
         self,
         *,
         account_id="068000076370",
+        account_type="CREDIT",
         observe_only=False,
         snapshot=None,
         snapshot_decision=None,
@@ -15,7 +16,7 @@ class FakeService:
         state=None,
     ):
         self.account_id = account_id
-        self.account_type = "CREDIT"
+        self.account_type = account_type
         self.observe_only = observe_only
         self.snapshot = snapshot or {
             "available_amount": 12000,
@@ -107,11 +108,20 @@ class FakeExecutor:
 
 class FakeLockClient:
     def __init__(self, result=True):
-        self.result = result
+        if isinstance(result, list):
+            self.results = list(result)
+            self.result = True
+        else:
+            self.results = None
+            self.result = result
         self.calls = []
 
     def acquire(self, key, *, ttl_seconds):
         self.calls.append({"key": key, "ttl_seconds": ttl_seconds})
+        if self.results is not None:
+            if not self.results:
+                return False
+            return self.results.pop(0)
         return self.result
 
 
@@ -182,3 +192,62 @@ def test_worker_runs_hard_settle_at_1455_and_retry_at_1505():
     assert [item["mode"] for item in retry_results] == ["retry"]
     assert executor.submit_calls[0]["repay_amount"] == 600.0
     assert executor.submit_calls[1]["repay_amount"] == 500.0
+
+
+def test_worker_skips_final_modes_for_non_credit_accounts_without_querying_xt():
+    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker
+
+    service = FakeService(account_type="STOCK")
+    executor = FakeExecutor()
+    worker = XtAutoRepayWorker(
+        service=service,
+        executor=executor,
+        lock_client=FakeLockClient(),
+    )
+
+    result = worker.run_mode(
+        "hard_settle",
+        now=datetime.fromisoformat("2026-04-05T14:55:00+08:00"),
+    )
+
+    assert result == {
+        "mode": "hard_settle",
+        "status": "skip",
+        "reason": "non_credit_account",
+    }
+    assert executor.query_calls == 0
+    assert executor.submit_calls == []
+    assert service.events[-1]["reason"] == "non_credit_account"
+
+
+def test_retry_lock_skip_does_not_mark_retry_complete_for_the_day():
+    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker
+
+    service = FakeService(state={})
+    executor = FakeExecutor()
+    worker = XtAutoRepayWorker(
+        service=service,
+        executor=executor,
+        lock_client=FakeLockClient(result=[True, False]),
+    )
+
+    first_results = worker.run_pending(
+        now=datetime.fromisoformat("2026-04-05T15:05:00+08:00"),
+    )
+
+    assert [item["mode"] for item in first_results] == ["hard_settle", "retry"]
+    assert first_results[1]["status"] == "skip"
+    assert first_results[1]["reason"] == "lock_unavailable"
+    assert "last_retry_at" not in service.state
+
+    retry_worker = XtAutoRepayWorker(
+        service=service,
+        executor=executor,
+        lock_client=FakeLockClient(result=True),
+    )
+    second_results = retry_worker.run_pending(
+        now=datetime.fromisoformat("2026-04-05T15:06:00+08:00"),
+    )
+
+    assert [item["mode"] for item in second_results] == ["retry"]
+    assert second_results[0]["status"] == "submitted"
