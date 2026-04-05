@@ -332,11 +332,7 @@ export default {
       chanlunStructureError: '',
       chanlunStructureRefreshError: '',
       chanlunStructureData: null,
-      showSubjectPanel: pageState.showSubjectPanel,
-      subjectPanelState: {
-        ...subjectPanelState,
-        showSubjectPanel: false
-      },
+      subjectPanelState,
       ...pricePanelState
     }
   },
@@ -539,9 +535,6 @@ export default {
       }
       return this.isRealtimeMode ? 'success' : 'muted'
     },
-    subjectPositionLimitChipVariant() {
-      return this.subjectPanelState?.subjectPanelDetail?.positionLimit?.blocked ? 'warning' : 'success'
-    },
     takeprofitRuntimeChipVariant() {
       return this.takeprofitRuntimeActiveCount > 0 ? 'success' : 'muted'
     },
@@ -709,13 +702,19 @@ export default {
       }
       closeOtherPanels(this, 'showPriceGuidePanel')
       this.showPriceGuidePanel = true
+      const tasks = []
       if (!this.subjectPriceDetail && !this.subjectDetailLoading) {
-        await this.loadSubjectPriceDetail({ force: true })
+        tasks.push(this.loadSubjectPriceDetail({ force: true }))
       }
-    },
-    closeSubjectPanel() {
-      this.showSubjectPanel = false
-      this.subjectPanelState.showSubjectPanel = false
+      if (
+        !this.subjectPanelState.subjectPanelDetail ||
+        this.subjectPanelState.lastSubjectSymbol !== this.routeSymbol
+      ) {
+        tasks.push(this.loadSubjectPanelDetail({ force: true }))
+      }
+      if (tasks.length) {
+        await Promise.all(tasks)
+      }
     },
     async loadSubjectPanelDetail({ force = false, symbol } = {}) {
       const nextSymbol = (symbol || this.routeSymbol || '').trim()
@@ -739,7 +738,6 @@ export default {
         }
         applySubjectPanelDetailState(this.subjectPanelState, detail)
         this.subjectPanelState.pageError = ''
-        this.subjectPanelState.showSubjectPanel = this.showSubjectPanel
         return true
       } catch (error) {
         if (requestToken !== this.routeToken) {

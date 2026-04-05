@@ -39,21 +39,25 @@ test('KlineSlim controller owns route, polling, sidebar and panel orchestration 
   assert.match(controllerSource, /reloadNow\(/)
   assert.match(controllerSource, /resetChartViewport\(/)
   assert.match(controllerSource, /async togglePriceGuideEditMode\(/)
-  assert.match(controllerSource, /async toggleSubjectPanel\(/)
   assert.match(controllerSource, /async toggleChanlunStructurePanel\(/)
   assert.match(controllerSource, /stopPolling\(/)
   assert.match(controllerSource, /async handleReasonPopoverShow\(/)
   assert.match(controllerSource, /async deleteSidebarItem\(/)
+  assert.doesNotMatch(controllerSource, /async toggleSubjectPanel\(/)
 })
 
-test('KlineSlim keeps the price editor side panel but removes the duplicate 价格层级 trigger copy', () => {
+test('KlineSlim merges price guides and entry stoploss into a single 标的设置 overlay', () => {
   const source = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
 
   assert.doesNotMatch(source, />\s*价格层级\s*<\/el-button>/)
-  assert.doesNotMatch(source, /price-panel-title">价格层级</)
-  assert.doesNotMatch(source, /暂无价格层级配置/)
-  assert.match(source, /画线编辑/)
+  assert.doesNotMatch(source, />\s*单笔止损\s*<\/el-button>/)
+  assert.doesNotMatch(source, />\s*画线编辑\s*<\/el-button>/)
+  assert.doesNotMatch(source, /class="kline-slim-subject-panel kline-slim-overlay-panel"/)
+  assert.match(source, />\s*标的设置\s*<\/el-button>/)
+  assert.match(source, /price-panel-title">标的设置</)
+  assert.match(source, /暂无标的设置/)
   assert.match(source, /kline-slim-price-panel/)
+  assert.match(source, /<span class="price-panel-section-title">单笔止损<\/span>/)
   assert.match(source, /Guardian 倍量价格/)
   assert.match(source, /止盈价格/)
   assert.match(source, /price-guide-badge--guardian/)
@@ -84,7 +88,7 @@ test('KlineSlim price guide panel uses subject-panel style max-height instead of
   assert.equal(viewSource.includes('.kline-slim-price-panel\n  bottom 12px'), false)
   assert.match(
     viewSource,
-    /\.kline-slim-price-panel\n  width 436px\n  max-width calc\(100% - 24px\)\n  max-height calc\(100% - 24px\)/
+    /\.kline-slim-price-panel\n  width 520px\n  max-width calc\(100% - 24px\)\n  max-height calc\(100% - 24px\)/
   )
   assert.equal(viewSource.includes('.kline-slim-price-panel\n    right 8px\n    bottom 8px'), false)
   assert.match(
@@ -92,26 +96,29 @@ test('KlineSlim price guide panel uses subject-panel style max-height instead of
     /\.kline-slim-price-panel\n    right 8px\n    width auto\n    max-height calc\(100% - 16px\)/
   )
   assert.equal(
-    viewSource.includes('.kline-slim-price-panel\n    width 392px\n\n  .kline-slim-subject-panel\n    width 392px'),
+    viewSource.includes('.kline-slim-price-panel\n    width 468px'),
     true
   )
 })
 
-test('KlineSlim toolbar keeps only draw-edit, subject and chanlun toggles for overlay panels', () => {
+test('KlineSlim toolbar keeps only 标的设置 and 缠论结构 toggles for overlay panels', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
   const controllerSource = fs.readFileSync(new URL('./klineSlimController.mjs', import.meta.url), 'utf8')
   const orchestrationSource = `${scriptSource}\n${controllerSource}`
 
-  assert.match(viewSource, /@click="toggleSubjectPanel"/)
-  assert.match(viewSource, /@click="toggleChanlunStructurePanel"/)
   assert.match(viewSource, /@click="togglePriceGuideEditMode"/)
+  assert.match(viewSource, /@click="toggleChanlunStructurePanel"/)
+  assert.doesNotMatch(viewSource, /@click="toggleSubjectPanel"/)
+  assert.doesNotMatch(viewSource, />\s*单笔止损\s*<\/el-button>/)
+  assert.doesNotMatch(viewSource, />\s*画线编辑\s*<\/el-button>/)
+  assert.match(viewSource, />\s*标的设置\s*<\/el-button>/)
   assert.match(viewSource, /:type="showChanlunStructurePanel \? 'primary' : 'default'"/)
 
-  assert.match(orchestrationSource, /toggleSubjectPanel\(\)/)
   assert.match(orchestrationSource, /toggleChanlunStructurePanel\(\)/)
+  assert.match(orchestrationSource, /togglePriceGuideEditMode\(\)/)
+  assert.doesNotMatch(orchestrationSource, /toggleSubjectPanel\(\)/)
   assert.match(orchestrationSource, /this\.showPriceGuidePanel = false/)
-  assert.match(orchestrationSource, /this\.showSubjectPanel = false/)
   assert.match(orchestrationSource, /this\.showChanlunStructurePanel = false/)
 })
 
@@ -132,18 +139,19 @@ test('KlineSlim page state module centralizes symbol, period and overlay mutual 
   assert.match(source, /routeSymbol/)
   assert.match(source, /currentPeriod/)
   assert.match(source, /showPriceGuidePanel/)
-  assert.match(source, /showSubjectPanel/)
   assert.match(source, /showChanlunStructurePanel/)
   assert.match(source, /closeOtherPanels/)
+  assert.doesNotMatch(source, /showSubjectPanel/)
 })
 
-test('KlineSlim exposes a dedicated price-guide edit mode with drag-save handlers', () => {
+test('KlineSlim routes 标的设置 through the price-guide edit mode and drag-save handlers', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
   const controllerSource = fs.readFileSync(new URL('./klineSlimController.mjs', import.meta.url), 'utf8')
   const orchestrationSource = `${scriptSource}\n${controllerSource}`
 
-  assert.match(viewSource, /画线编辑/)
+  assert.match(viewSource, /标的设置/)
+  assert.doesNotMatch(viewSource, /画线编辑/)
   assert.match(viewSource, /@click="togglePriceGuideEditMode"/)
   assert.match(scriptSource, /priceGuideEditMode:/)
   assert.match(orchestrationSource, /togglePriceGuideEditMode\(\)/)
@@ -251,27 +259,29 @@ test('KlineSlim lets the body flow below a wrapping toolbar instead of relying o
   )
 })
 
-test('KlineSlim exposes a single-entry stoploss overlay next to price guides', () => {
+test('KlineSlim appends single-entry stoploss as the third settings section under price guides', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
-  assert.match(viewSource, /单笔止损/)
-  assert.doesNotMatch(viewSource, /标的设置/)
-  assert.match(viewSource, /kline-slim-subject-panel/)
+  assert.match(viewSource, /标的设置/)
+  assert.match(viewSource, /<span class="price-panel-section-title">单笔止损<\/span>/)
   assert.match(viewSource, /按持仓入口止损/)
   assert.match(viewSource, /切片明细/)
   assert.doesNotMatch(viewSource, /<span class="price-panel-section-title">基础配置<\/span>/)
   assert.doesNotMatch(viewSource, /单标的上限设置/)
   assert.equal(
-    viewSource.indexOf('class="kline-slim-subject-panel kline-slim-overlay-panel"') <
-      viewSource.indexOf('Guardian 倍量价格'),
+    viewSource.indexOf('<span class="price-panel-section-title">止盈价格</span>') <
+      viewSource.indexOf('<span class="price-panel-section-title">Guardian 倍量价格</span>') &&
+      viewSource.indexOf('<span class="price-panel-section-title">Guardian 倍量价格</span>') <
+      viewSource.indexOf('<span class="price-panel-section-title">单笔止损</span>'),
     true
   )
-  assert.match(scriptSource, /showSubjectPanel:/)
+  assert.doesNotMatch(viewSource, /class="kline-slim-subject-panel kline-slim-overlay-panel"/)
+  assert.doesNotMatch(scriptSource, /showSubjectPanel:/)
   assert.match(scriptSource, /subjectPanelState/)
 })
 
-test('KlineSlim subject panel keeps only entry stoploss editing and removes top config bundle ui', () => {
+test('KlineSlim settings panel keeps only entry stoploss editing and removes top config bundle ui', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
@@ -302,7 +312,7 @@ test('KlineSlim subject panel keeps only entry stoploss editing and removes top 
   assert.equal(viewSource.includes('class="subject-panel-base-row"'), false)
 })
 
-test('KlineSlim subject panel removes top config card copy and keeps only entry list header', () => {
+test('KlineSlim settings panel keeps the stoploss section header compact after removing top config copy', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
   assert.equal(viewSource.includes('price-panel-section-note">must_pool'), false)
@@ -315,7 +325,7 @@ test('KlineSlim subject panel removes top config card copy and keeps only entry 
   assert.equal(viewSource.includes('输入当前希望生效的单标的上限'), false)
 })
 
-test('KlineSlim subject panel removes the base config section entirely', () => {
+test('KlineSlim settings panel removes the base config section entirely', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
   assert.equal(viewSource.includes('<span class="price-panel-section-title">基础配置</span>'), false)
@@ -325,14 +335,14 @@ test('KlineSlim subject panel removes the base config section entirely', () => {
   assert.equal(viewSource.includes('subject-panel-header-summary'), false)
 })
 
-test('KlineSlim subject panel removes the old base grid styles', () => {
+test('KlineSlim settings panel removes the old base grid styles', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
   assert.equal(viewSource.includes('.subject-panel-base-row\n  display grid\n  grid-template-columns repeat(2, minmax(0, 1fr))'), false)
   assert.equal(viewSource.includes('.subject-panel-field\n'), false)
 })
 
-test('KlineSlim subject panel keeps readable entry stoploss rows after header cleanup', () => {
+test('KlineSlim settings panel keeps readable entry stoploss rows after header cleanup', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
@@ -363,13 +373,14 @@ test('KlineSlim subject panel keeps readable entry stoploss rows after header cl
   assert.match(viewSource, /class="subject-panel-stoploss-meta-value"/)
   assert.match(viewSource, /class="subject-panel-stoploss-meta-separator"/)
   assert.match(scriptSource, /formatWanQuantityValue\(value\)/)
-  assert.equal(viewSource.includes('.kline-slim-subject-panel\n  left 12px\n  width 436px'), true)
+  assert.equal(viewSource.includes('.kline-slim-subject-panel\n  left 12px\n  width 436px'), false)
+  assert.equal(viewSource.includes('.kline-slim-price-panel\n  width 520px'), true)
   assert.equal(viewSource.includes('.subject-panel-stoploss-row\n  display flex\n  flex-direction column'), true)
   assert.equal(viewSource.includes('.subject-panel-stoploss-meta\n  display flex\n  flex-direction column'), true)
   assert.equal(viewSource.includes('.subject-panel-stoploss-meta-line\n  display flex\n  flex-wrap wrap'), true)
 })
 
-test('KlineSlim price guide panel removes refresh noise and keeps full color badges', () => {
+test('KlineSlim settings panel removes refresh noise and keeps full color badges', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
   assert.equal(viewSource.includes('@click="loadSubjectPriceDetail({ force: true })"'), false)
@@ -429,6 +440,7 @@ test('KlineSlim price guide rows give the color badge its own layout column', ()
   assert.match(viewSource, /class="price-guide-badge"/)
   assert.equal(viewSource.includes('class="price-panel-row-meta"'), false)
   assert.match(viewSource, /\.price-panel-row\n  display grid\n  grid-template-columns max-content auto/)
+  assert.match(viewSource, /\.price-panel-row-editor--multi\n  flex-wrap nowrap/)
 })
 
 test('KlineSlim sidebar shows runtime position summary for holding rows', () => {

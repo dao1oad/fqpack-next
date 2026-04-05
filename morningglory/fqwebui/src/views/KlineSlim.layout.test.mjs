@@ -20,14 +20,11 @@ test('KlineSlim keeps overlay panels anchored to the chart content without side-
     source.includes('.kline-slim-chanlun-panel\n  right 12px'),
     true
   )
-  assert.equal(
-    source.includes('.kline-slim-subject-panel\n  left 12px'),
-    true
-  )
+  assert.equal(source.includes('.kline-slim-subject-panel\n  left 12px'), false)
   assert.equal(source.includes('has-side-panel'), false)
 })
 
-test('KlineSlim medium breakpoint keeps the flow layout and narrows both overlay panels to the same width', () => {
+test('KlineSlim medium breakpoint keeps the flow layout and narrows the merged 标的设置 overlay', () => {
   assert.equal(
     mediumLayoutBlock.includes('.kline-slim-toolbar\n    align-items flex-start\n    flex-direction column'),
     true
@@ -37,13 +34,10 @@ test('KlineSlim medium breakpoint keeps the flow layout and narrows both overlay
     true
   )
   assert.equal(
-    mediumLayoutBlock.includes('.kline-slim-price-panel\n    width 392px'),
+    mediumLayoutBlock.includes('.kline-slim-price-panel\n    width 468px'),
     true
   )
-  assert.equal(
-    mediumLayoutBlock.includes('.kline-slim-subject-panel\n    width 392px'),
-    true
-  )
+  assert.equal(mediumLayoutBlock.includes('.kline-slim-subject-panel\n    width 392px'), false)
   assert.equal(mediumLayoutBlock.includes('has-side-panel'), false)
   assert.equal(mediumLayoutBlock.includes('.kline-slim-body\n    top 120px'), false)
   assert.equal(mediumLayoutBlock.includes('.subject-panel-base-row\n    grid-template-columns 1fr'), false)
@@ -62,6 +56,10 @@ test('KlineSlim price guide rows no longer reserve standalone title or subtitle 
 test('KlineSlim price rows reserve a dedicated grid column for the color badge', () => {
   assert.equal(
     source.includes('.price-panel-row\n  display grid\n  grid-template-columns max-content auto'),
+    true
+  )
+  assert.equal(
+    source.includes('.price-panel-row-editor--multi\n  flex-wrap nowrap'),
     true
   )
 })

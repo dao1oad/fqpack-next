@@ -36,19 +36,11 @@
         <el-button size="small" :disabled="!routeSymbol" @click="resetChartViewport">重置视图</el-button>
         <el-button
           size="small"
-          :type="showSubjectPanel ? 'primary' : 'default'"
-          :disabled="!routeSymbol"
-          @click="toggleSubjectPanel"
-        >
-          单笔止损
-        </el-button>
-        <el-button
-          size="small"
-          :type="priceGuideEditMode ? 'warning' : 'default'"
+          :type="showPriceGuidePanel ? 'primary' : 'default'"
           :disabled="!routeSymbol"
           @click="togglePriceGuideEditMode"
         >
-          画线编辑
+          标的设置
         </el-button>
         <el-button
           size="small"
@@ -177,40 +169,212 @@
       </aside>
 
       <section class="kline-slim-content">
-        <div v-if="showSubjectPanel" class="kline-slim-subject-panel kline-slim-overlay-panel">
-            <div class="price-panel-header subject-panel-header">
-              <div class="price-panel-header-main subject-panel-header-main">
-                <div class="price-panel-title-row">
-                  <span class="price-panel-title">单笔止损</span>
-                  <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
+        <div v-if="showPriceGuidePanel" class="kline-slim-price-panel kline-slim-overlay-panel">
+          <div class="price-panel-header">
+            <div class="price-panel-header-main">
+              <div class="price-panel-title-row">
+                <span class="price-panel-title">标的设置</span>
+                <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
                 <span v-if="subjectPanelState.subjectPanelDetail" class="price-panel-chip">
                   {{ subjectPanelState.subjectPanelDetail.name || subjectPanelState.subjectPanelDetail.symbol }}
-                  </span>
-                  <span v-if="subjectPanelState.subjectDetailLoading" class="price-panel-chip">同步中</span>
-                </div>
-              </div>
-              <div class="price-panel-actions subject-panel-header-actions">
-                <el-button size="small" @click="closeSubjectPanel">关闭</el-button>
+                </span>
+                <span v-if="subjectDetailLoading" class="price-panel-chip">同步中</span>
+                <span v-if="subjectPanelState.subjectDetailLoading" class="price-panel-chip">止损同步中</span>
               </div>
             </div>
+            <div class="price-panel-actions">
+              <el-button
+                size="small"
+                type="primary"
+                :loading="savingPriceGuides"
+                :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                @click="handleSavePriceGuides"
+              >
+                保存
+              </el-button>
+              <el-button size="small" @click="closePriceGuidePanel">关闭</el-button>
+            </div>
+          </div>
 
           <div class="price-panel-body">
+            <div v-if="subjectDetailError" class="price-panel-inline-error">
+              {{ subjectDetailError }}
+            </div>
             <div v-if="subjectPanelState.pageError" class="price-panel-inline-error">
               {{ subjectPanelState.pageError }}
             </div>
             <div v-if="!routeSymbol" class="price-panel-state">请先从左侧选择标的</div>
-            <div v-else-if="subjectPanelState.subjectDetailLoading && !subjectPanelState.subjectPanelDetail" class="price-panel-state">
+            <div
+              v-else-if="subjectDetailLoading && subjectPanelState.subjectDetailLoading && !subjectPriceDetail && !subjectPanelState.subjectPanelDetail"
+              class="price-panel-state"
+            >
               加载中...
             </div>
-            <div v-else-if="!subjectPanelState.subjectPanelDetail" class="price-panel-state">
-              暂无单笔止损设置
+            <div v-else-if="!subjectPriceDetail && !subjectPanelState.subjectPanelDetail" class="price-panel-state">
+              暂无标的设置
             </div>
             <div v-else class="price-panel-sections">
-              <section class="price-panel-section">
+              <section v-if="subjectPriceDetail" class="price-panel-section">
                 <div class="price-panel-section-header">
                   <div class="price-panel-section-title-wrap">
-                    <span class="price-panel-section-title">按持仓入口止损</span>
-                    <span class="price-panel-section-note">只对 open entry 生效，按行保存</span>
+                    <span class="price-panel-section-title">止盈价格</span>
+                  </div>
+                  <div class="price-panel-section-actions">
+                    <div class="price-panel-action-buttons">
+                      <el-button
+                        size="small"
+                        :loading="savingTakeprofitGuides"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        @click="handleTakeprofitGuideEnabledAll(true)"
+                      >
+                        全部开启
+                      </el-button>
+                      <el-button
+                        size="small"
+                        :loading="savingTakeprofitGuides"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        @click="handleTakeprofitGuideEnabledAll(false)"
+                      >
+                        全部关闭
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="price-panel-summary">
+                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
+                    已开启 {{ takeprofitGuideRows.filter((row) => row.manual_enabled).length }}/3
+                  </StatusChip>
+                  <StatusChip class="price-panel-summary-status-chip" :variant="takeprofitRuntimeChipVariant">
+                    运行态 {{ takeprofitRuntimeActiveCount }}/3
+                  </StatusChip>
+                </div>
+
+                <div class="price-panel-grid">
+                  <div
+                    v-for="row in takeprofitGuideRows"
+                    :key="row.level"
+                    class="price-panel-row"
+                  >
+                    <span
+                      class="price-guide-badge"
+                      :class="['price-guide-badge--takeprofit', `price-guide-badge--${row.tone}`]"
+                    >
+                      {{ row.lineLabel }}
+                    </span>
+                    <div class="price-panel-row-editor price-panel-row-editor--multi">
+                      <el-input-number
+                        v-model="takeprofitDrafts[row.draftIndex].price"
+                        size="small"
+                        :min="0"
+                        :step="0.001"
+                        :precision="3"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        controls-position="right"
+                      />
+                      <span class="price-panel-state-chip" :class="{ active: row.runtime_active }">
+                        运行态 {{ row.runtimeStateLabel }}
+                      </span>
+                      <el-switch
+                        :model-value="takeprofitDrafts[row.draftIndex].manual_enabled"
+                        size="small"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        inline-prompt
+                        active-text="开"
+                        inactive-text="关"
+                        @change="handleTakeprofitGuideEnabledChange(row.level, $event)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section v-if="subjectPriceDetail" class="price-panel-section">
+                <div class="price-panel-section-header">
+                  <div class="price-panel-section-title-wrap">
+                    <span class="price-panel-section-title">Guardian 倍量价格</span>
+                  </div>
+                  <div class="price-panel-section-actions">
+                    <div class="price-panel-action-buttons">
+                      <el-button
+                        size="small"
+                        :loading="savingGuardianPriceGuides"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        @click="handleGuardianGuideEnabledAll(true)"
+                      >
+                        全部开启
+                      </el-button>
+                      <el-button
+                        size="small"
+                        :loading="savingGuardianPriceGuides"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        @click="handleGuardianGuideEnabledAll(false)"
+                      >
+                        全部关闭
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="price-panel-summary">
+                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
+                    已开启 {{ guardianGuideRows.filter((row) => row.manual_enabled).length }}/3
+                  </StatusChip>
+                  <StatusChip class="price-panel-summary-status-chip" :variant="guardianRuntimeChipVariant">
+                    运行态 {{ guardianRuntimeActiveCount }}/3
+                  </StatusChip>
+                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
+                    最近命中 {{ guardianLastHitLabel }}
+                  </StatusChip>
+                  <StatusChip v-if="guardianState.last_hit_price !== null" class="price-panel-summary-status-chip" variant="muted">
+                    最近命中价 {{ formatPriceGuideValue(guardianState.last_hit_price) }}
+                  </StatusChip>
+                </div>
+
+                <div class="price-panel-grid">
+                  <div
+                    v-for="row in guardianGuideRows"
+                    :key="row.key"
+                    class="price-panel-row"
+                  >
+                    <span
+                      class="price-guide-badge"
+                      :class="['price-guide-badge--guardian', `price-guide-badge--${row.tone}`]"
+                    >
+                      {{ row.lineLabel }}
+                    </span>
+                    <div class="price-panel-row-editor price-panel-row-editor--multi">
+                      <el-input-number
+                        v-model="guardianDraft[row.key]"
+                        size="small"
+                        :min="0"
+                        :step="0.001"
+                        :precision="3"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        controls-position="right"
+                      />
+                      <span class="price-panel-state-chip" :class="{ active: row.runtime_active }">
+                        运行态 {{ row.runtimeStateLabel }}
+                      </span>
+                      <el-switch
+                        :model-value="guardianDraft.buy_enabled[row.index]"
+                        size="small"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        inline-prompt
+                        active-text="开"
+                        inactive-text="关"
+                        @change="handleGuardianGuideEnabledChange(row.index, $event)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section v-if="subjectPanelState.subjectPanelDetail" class="price-panel-section">
+                <div class="price-panel-section-header">
+                  <div class="price-panel-section-title-wrap">
+                    <span class="price-panel-section-title">单笔止损</span>
+                    <span class="price-panel-section-note">按持仓入口止损，只对 open entry 生效，按行保存</span>
                   </div>
                   <StatusChip class="price-panel-summary-status-chip" variant="muted">
                     {{ (subjectPanelState.subjectPanelDetail.entries || []).length }} 条
@@ -333,200 +497,6 @@
                       </div>
                     </div>
                   </el-popover>
-                </div>
-              </section>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="showPriceGuidePanel" class="kline-slim-price-panel kline-slim-overlay-panel">
-          <div class="price-panel-header">
-            <div class="price-panel-header-main">
-              <div class="price-panel-title-row">
-                <span class="price-panel-title">画线编辑</span>
-                <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
-                <span v-if="subjectDetailLoading" class="price-panel-chip">同步中</span>
-              </div>
-            </div>
-            <div class="price-panel-actions">
-              <el-button
-                size="small"
-                type="primary"
-                :loading="savingPriceGuides"
-                :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                @click="handleSavePriceGuides"
-              >
-                保存
-              </el-button>
-              <el-button size="small" @click="closePriceGuidePanel">关闭</el-button>
-            </div>
-          </div>
-
-          <div class="price-panel-body">
-            <div v-if="subjectDetailError" class="price-panel-inline-error">
-              {{ subjectDetailError }}
-            </div>
-            <div v-if="!routeSymbol" class="price-panel-state">请先从左侧选择标的</div>
-            <div v-else-if="subjectDetailLoading && !subjectPriceDetail" class="price-panel-state">
-              加载中...
-            </div>
-            <div v-else-if="!subjectPriceDetail" class="price-panel-state">
-              暂无价格设置
-            </div>
-            <div v-else class="price-panel-sections">
-              <section class="price-panel-section">
-                <div class="price-panel-section-header">
-                  <div class="price-panel-section-title-wrap">
-                    <span class="price-panel-section-title">止盈价格</span>
-                  </div>
-                  <div class="price-panel-section-actions">
-                    <div class="price-panel-action-buttons">
-                      <el-button
-                        size="small"
-                        :loading="savingTakeprofitGuides"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        @click="handleTakeprofitGuideEnabledAll(true)"
-                      >
-                        全部开启
-                      </el-button>
-                      <el-button
-                        size="small"
-                        :loading="savingTakeprofitGuides"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        @click="handleTakeprofitGuideEnabledAll(false)"
-                      >
-                        全部关闭
-                      </el-button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="price-panel-summary">
-                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
-                    已开启 {{ takeprofitGuideRows.filter((row) => row.manual_enabled).length }}/3
-                  </StatusChip>
-                  <StatusChip class="price-panel-summary-status-chip" :variant="takeprofitRuntimeChipVariant">
-                    运行态 {{ takeprofitRuntimeActiveCount }}/3
-                  </StatusChip>
-                </div>
-
-                <div class="price-panel-grid">
-                  <div
-                    v-for="row in takeprofitGuideRows"
-                    :key="row.level"
-                    class="price-panel-row"
-                  >
-                    <span
-                      class="price-guide-badge"
-                      :class="['price-guide-badge--takeprofit', `price-guide-badge--${row.tone}`]"
-                    >
-                      {{ row.lineLabel }}
-                    </span>
-                    <div class="price-panel-row-editor price-panel-row-editor--multi">
-                      <el-input-number
-                        v-model="takeprofitDrafts[row.draftIndex].price"
-                        size="small"
-                        :min="0"
-                        :step="0.001"
-                        :precision="3"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        controls-position="right"
-                      />
-                      <span class="price-panel-state-chip" :class="{ active: row.runtime_active }">
-                        运行态 {{ row.runtimeStateLabel }}
-                      </span>
-                      <el-switch
-                        :model-value="takeprofitDrafts[row.draftIndex].manual_enabled"
-                        size="small"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        inline-prompt
-                        active-text="开"
-                        inactive-text="关"
-                        @change="handleTakeprofitGuideEnabledChange(row.level, $event)"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section class="price-panel-section">
-                <div class="price-panel-section-header">
-                  <div class="price-panel-section-title-wrap">
-                    <span class="price-panel-section-title">Guardian 倍量价格</span>
-                  </div>
-                  <div class="price-panel-section-actions">
-                    <div class="price-panel-action-buttons">
-                      <el-button
-                        size="small"
-                        :loading="savingGuardianPriceGuides"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        @click="handleGuardianGuideEnabledAll(true)"
-                      >
-                        全部开启
-                      </el-button>
-                      <el-button
-                        size="small"
-                        :loading="savingGuardianPriceGuides"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        @click="handleGuardianGuideEnabledAll(false)"
-                      >
-                        全部关闭
-                      </el-button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="price-panel-summary">
-                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
-                    已开启 {{ guardianGuideRows.filter((row) => row.manual_enabled).length }}/3
-                  </StatusChip>
-                  <StatusChip class="price-panel-summary-status-chip" :variant="guardianRuntimeChipVariant">
-                    运行态 {{ guardianRuntimeActiveCount }}/3
-                  </StatusChip>
-                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
-                    最近命中 {{ guardianLastHitLabel }}
-                  </StatusChip>
-                  <StatusChip v-if="guardianState.last_hit_price !== null" class="price-panel-summary-status-chip" variant="muted">
-                    最近命中价 {{ formatPriceGuideValue(guardianState.last_hit_price) }}
-                  </StatusChip>
-                </div>
-
-                <div class="price-panel-grid">
-                  <div
-                    v-for="row in guardianGuideRows"
-                    :key="row.key"
-                    class="price-panel-row"
-                  >
-                    <span
-                      class="price-guide-badge"
-                      :class="['price-guide-badge--guardian', `price-guide-badge--${row.tone}`]"
-                    >
-                      {{ row.lineLabel }}
-                    </span>
-                    <div class="price-panel-row-editor price-panel-row-editor--multi">
-                      <el-input-number
-                        v-model="guardianDraft[row.key]"
-                        size="small"
-                        :min="0"
-                        :step="0.001"
-                        :precision="3"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        controls-position="right"
-                      />
-                      <span class="price-panel-state-chip" :class="{ active: row.runtime_active }">
-                        运行态 {{ row.runtimeStateLabel }}
-                      </span>
-                      <el-switch
-                        :model-value="guardianDraft.buy_enabled[row.index]"
-                        size="small"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        inline-prompt
-                        active-text="开"
-                        inactive-text="关"
-                        @change="handleGuardianGuideEnabledChange(row.index, $event)"
-                      />
-                    </div>
-                  </div>
                 </div>
               </section>
 
@@ -853,18 +823,7 @@ export default {
   box-shadow 0 24px 48px rgba(2, 6, 23, 0.4)
 
 .kline-slim-price-panel
-  width 436px
-  max-width calc(100% - 24px)
-  max-height calc(100% - 24px)
-  display flex
-  flex-direction column
-  border 1px solid rgba(148, 163, 184, 0.24)
-  border-radius 18px
-  background linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(10, 14, 20, 0.96))
-
-.kline-slim-subject-panel
-  left 12px
-  width 436px
+  width 520px
   max-width calc(100% - 24px)
   max-height calc(100% - 24px)
   display flex
@@ -923,16 +882,6 @@ export default {
   display flex
   align-items center
   gap 8px
-
-.subject-panel-header
-  align-items flex-start
-
-.subject-panel-header-main
-  gap 10px
-
-.subject-panel-header-actions
-  justify-content flex-end
-  flex-wrap wrap
 
 .price-panel-body
   flex 1
@@ -1038,9 +987,10 @@ export default {
   align-items center
   justify-content flex-end
   gap 8px
+  min-width 0
 
 .price-panel-row-editor--multi
-  flex-wrap wrap
+  flex-wrap nowrap
 
 .price-panel-row-editor :deep(.el-input-number)
   width 132px
@@ -1445,16 +1395,16 @@ export default {
     justify-content flex-start
 
   .kline-slim-price-panel
-    width 392px
-
-  .kline-slim-subject-panel
-    width 392px
+    width 468px
 
   .price-panel-row
     grid-template-columns max-content minmax(0, 1fr)
 
   .price-panel-row-editor
     grid-column 1 / -1
+
+  .price-panel-row-editor--multi
+    flex-wrap wrap
 
 @media (max-width: 900px)
   .kline-slim-body
@@ -1482,11 +1432,6 @@ export default {
     width auto
     max-height calc(100% - 16px)
 
-  .kline-slim-subject-panel
-    right 8px
-    width auto
-    max-height calc(100% - 16px)
-
   .chanlun-panel-header
     flex-direction column
     align-items stretch
@@ -1496,9 +1441,6 @@ export default {
     align-items stretch
 
   .price-panel-actions
-    justify-content flex-end
-
-  .subject-panel-header-actions
     justify-content flex-end
 
   .price-panel-section-header

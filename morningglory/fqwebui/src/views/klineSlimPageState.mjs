@@ -1,6 +1,5 @@
 const OVERLAY_PANEL_KEYS = Object.freeze([
   'showPriceGuidePanel',
-  'showSubjectPanel',
   'showChanlunStructurePanel',
 ])
 
@@ -10,7 +9,6 @@ export const buildInitialKlineSlimPageState = ({
   routeSymbol: '',
   currentPeriod,
   showPriceGuidePanel: false,
-  showSubjectPanel: false,
   showChanlunStructurePanel: false,
 })
 
@@ -22,10 +20,6 @@ export const closeOtherPanels = (state = {}, keepKey = '') => {
   for (const panelKey of OVERLAY_PANEL_KEYS) {
     if (panelKey === keepKey) continue
     state[panelKey] = false
-  }
-
-  if (keepKey !== 'showSubjectPanel' && state?.subjectPanelState) {
-    state.subjectPanelState.showSubjectPanel = false
   }
 
   if (keepKey !== 'showPriceGuidePanel') {
