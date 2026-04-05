@@ -257,6 +257,14 @@ function formatIntegerLabel(value) {
   return String(Math.trunc(number))
 }
 
+function formatWanQuantityLabel(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return '--'
+  }
+  return `${(number / 10000).toFixed(2)} 万股`
+}
+
 export default {
   name: 'kline-slim',
   data() {
@@ -1322,6 +1330,9 @@ export default {
     },
     formatIntegerValue(value) {
       return formatIntegerLabel(value)
+    },
+    formatWanQuantityValue(value) {
+      return formatWanQuantityLabel(value)
     },
     formatPriceGuideValue(value) {
       return formatPriceGuideValueDisplay(value)
