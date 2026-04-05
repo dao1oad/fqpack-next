@@ -172,6 +172,8 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
   - `python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event`
 - XT account sync worker
   - `python -m freshquant.xt_account_sync.worker --interval 15`
+- XT auto repay worker
+  - `python -m freshquant.xt_auto_repay.worker`
 - TPSL worker
   - `python -m freshquant.tpsl.tick_listener`
 

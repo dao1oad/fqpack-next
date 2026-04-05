@@ -48,6 +48,7 @@ SURFACE_PROGRAMS = {
     "order_management": [
         "fqnext_xtquant_broker",
         "fqnext_xt_account_sync_worker",
+        "fqnext_xt_auto_repay_worker",
     ],
 }
 

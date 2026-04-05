@@ -30,6 +30,10 @@ DEFAULT_XTQUANT = {
     "account": "",
     "account_type": "STOCK",
     "broker_submit_mode": "normal",
+    "auto_repay": {
+        "enabled": True,
+        "reserve_cash": 5000,
+    },
 }
 DEFAULT_GUARDIAN = {
     "stock": {
@@ -81,6 +85,8 @@ class XtquantSettings:
     account: str = ""
     account_type: str = "STOCK"
     broker_submit_mode: str = "normal"
+    auto_repay_enabled: bool = True
+    auto_repay_reserve_cash: float = 5000.0
 
 
 @dataclass(frozen=True)
@@ -163,6 +169,12 @@ class SystemSettings:
             .strip()
             .upper(),
             broker_submit_mode=broker_submit_mode,
+            auto_repay_enabled=bool(
+                get(xtquant_doc, "auto_repay.enabled", True)
+            ),
+            auto_repay_reserve_cash=float(
+                get(xtquant_doc, "auto_repay.reserve_cash", 5000.0) or 5000.0
+            ),
         )
         self.guardian = GuardianSettings(
             stock_lot_amount=int(get(guardian_doc, "stock.lot_amount", 50000) or 50000),

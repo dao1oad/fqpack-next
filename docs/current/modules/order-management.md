@@ -8,6 +8,7 @@
 - 维护 `request -> internal order -> broker order -> execution fill` 主链
 - 基于成交聚合生成 `position entry / entry slice / exit allocation`
 - 基于券商仓位差额维护 `reconciliation gap / resolution`
+- 通过独立的 `xt_auto_repay.worker` 承接普通融资负债自动还款，并复用现有 broker 提交链
 - 为 TPSL、SubjectManagement、KlineSlim、PositionManagement 提供 entry 级读模型
 - 为旧接口保留 `stock_fills` 兼容投影，但兼容投影不再参与运行期真值判断
 
@@ -216,6 +217,19 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 
 手工 fill 导入命令传入的 `dt` 文本，当前也统一按北京时间解析成 epoch，避免“查看是北京时间、导入却按宿主机本地时区”导致同一笔记录前后漂移。
 
+### XT 自动还款
+
+`xt_account_sync.worker -> pm_credit_asset_snapshots -> xt_auto_repay.worker -> query_credit_detail confirm -> broker direct cash repay`
+
+当前运行语义：
+
+- 只处理普通融资负债，不处理专项负债
+- `/system-settings -> XTQuant` 当前直接控制 `xtquant.auto_repay.enabled` 与 `xtquant.auto_repay.reserve_cash`
+- 盘中默认每 30 分钟只读一次已同步的 `credit_detail` 快照做候选判断
+- 只有候选命中后，才会即时调用 `query_credit_detail()` 二次确认
+- 固定 `14:55` 做日终硬结算，固定 `15:05` 做一次补偿重试
+- `broker_submit_mode=observe_only` 时只记录事件，不真实提交还款
+
 ### 手工导入
 
 `manual import/reset -> om_trade_facts -> om_position_entries / om_entry_slices -> stock_fills_compat mirror sync`
@@ -329,7 +343,10 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 - 改动 `freshquant/order_management/**` 后：
   - 重建 API Server
   - 重启 `xt_account_sync.worker`
+  - 重启 `xt_auto_repay.worker`
   - 重启 `tpsl.tick_listener`
+- 改动 `freshquant/xt_auto_repay/**` 后：
+  - 重启 `xt_auto_repay.worker`
 - 改动 `morningglory/fqwebui/**` 中订单相关页面后：
   - 重建 Web UI
 

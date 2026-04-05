@@ -155,6 +155,8 @@
 - `xtquant.account`
 - `xtquant.account_type`
 - `xtquant.broker_submit_mode`
+- `xtquant.auto_repay.enabled`
+- `xtquant.auto_repay.reserve_cash`
 - `guardian.stock.lot_amount`
 - `guardian.stock.threshold.*`
 - `guardian.stock.grid_interval.*`
@@ -162,6 +164,7 @@
 其中：
 
 - `guardian.stock.lot_amount` 是 Guardian 持仓内加仓路径的基础金额，也是 `SubjectManagement` / `PositionManagement` 标的编辑区“默认买入金额”在 `instrument_strategy.lot_amount` 和 `must_pool.lot_amount` 都缺失时的最终回退值
+- `xtquant.auto_repay.enabled` 与 `xtquant.auto_repay.reserve_cash` 只对 `CREDIT` 账户有意义；当前由 `xt_auto_repay.worker` 消费，用于控制普通融资负债自动还款
 - `SubjectManagement` / `PositionManagement` 标的总览已不再行内展示“默认买入金额”；当前统一在 `/system-settings -> 交易控制 / 策略 -> Guardian` 中维护这条系统级真值
 - Guardian 首次开仓默认金额不走 `guardian.stock.lot_amount`，当前固定回退到代码默认值 `100000`
 - `/system-settings -> 交易控制 / 策略 -> Guardian` 当前也会展示这条“首笔买入金额”默认值，但口径是只读运行默认值，不是 Mongo 可编辑参数
@@ -238,6 +241,9 @@ Guardian 当前有两条买入路径：
 - `Guardian` section 当前固定包含两类买入金额口径：
   - `首笔买入金额`：只读展示运行默认值 `100000`
   - `默认买入金额`：正式对应 `guardian.stock.lot_amount`
+- `XTQuant` section 当前除了 `path / account / account_type / broker_submit_mode`，还会直接编辑：
+  - `xtquant.auto_repay.enabled`
+  - `xtquant.auto_repay.reserve_cash`
 - 页面内使用列内局部滚动，不再依赖浏览器页面滚动
 - 页面顶部保留 `刷新 / 保存启动配置 / 保存系统设置` 三个主操作，并分别统计 Bootstrap 与 Mongo 的未保存项
 - `/system-settings -> 仓位门禁` 当前直接编辑 `pm_configs.thresholds.single_symbol_position_limit`，该字段在页面口径中统一称为“单标的默认持仓上限”

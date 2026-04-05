@@ -114,6 +114,10 @@ const createPayload = () => ({
         account: '068000076370',
         account_type: 'CREDIT',
         broker_submit_mode: 'observe_only',
+        auto_repay: {
+          enabled: true,
+          reserve_cash: 5000,
+        },
       },
       guardian: {
         stock: {
@@ -166,6 +170,8 @@ const createPayload = () => ({
         items: [
           { key: 'xtquant.account_type', label: '账户类型', value: 'CREDIT' },
           { key: 'xtquant.broker_submit_mode', label: 'Broker Submit Mode', value: 'observe_only' },
+          { key: 'xtquant.auto_repay.enabled', label: '自动还款', value: true },
+          { key: 'xtquant.auto_repay.reserve_cash', label: '留底现金', value: 5000 },
         ],
       },
       {
@@ -325,10 +331,19 @@ test('resolveEditorMeta returns official select options for enum settings', () =
     'percent',
     'atr',
   ])
+  assert.deepEqual(resolveEditorMeta('xtquant.auto_repay.enabled').options.map((item) => item.value), [
+    true,
+    false,
+  ])
   assert.deepEqual(resolveEditorMeta('position_management.single_symbol_position_limit'), {
     type: 'number',
     min: 0,
     step: 10000,
+  })
+  assert.deepEqual(resolveEditorMeta('xtquant.auto_repay.reserve_cash'), {
+    type: 'number',
+    min: 0,
+    step: 1000,
   })
 })
 
@@ -339,4 +354,27 @@ test('monitor mode editor only exposes official guardian and combined modes', ()
   assert.deepEqual(options, ['guardian_1m', 'guardian_and_clx_15_30'])
   assert.equal(options.includes('clx_15_30'), false)
   assert.match(content, /buildSettingsLedgerSections/)
+})
+
+test('xtquant auto repay rows keep boolean and numeric editors with nested values', () => {
+  const payload = createPayload()
+  const sections = buildSettingsLedgerSections(payload, {
+    currentValues: payload.settings.values,
+    baselineValues: payload.settings.values,
+  })
+  const rows = flattenLedgerRows(sections)
+
+  const autoRepayEnabled = rows.find((row) => row.key === 'xtquant.auto_repay.enabled')
+  const autoRepayReserveCash = rows.find((row) => row.key === 'xtquant.auto_repay.reserve_cash')
+
+  assert.ok(autoRepayEnabled)
+  assert.equal(autoRepayEnabled.label, '自动还款')
+  assert.equal(autoRepayEnabled.value, true)
+  assert.equal(autoRepayEnabled.editor.type, 'select')
+
+  assert.ok(autoRepayReserveCash)
+  assert.equal(autoRepayReserveCash.label, '留底现金')
+  assert.equal(autoRepayReserveCash.value, 5000)
+  assert.equal(autoRepayReserveCash.value_label, '5,000')
+  assert.equal(autoRepayReserveCash.editor.type, 'number')
 })

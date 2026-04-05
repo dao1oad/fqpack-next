@@ -133,6 +133,8 @@ SETTINGS_SECTION_META = {
             ("account", "账户"),
             ("account_type", "账户类型"),
             ("broker_submit_mode", "Broker Submit Mode"),
+            ("auto_repay.enabled", "自动还款"),
+            ("auto_repay.reserve_cash", "留底现金"),
         ],
     },
     "guardian": {
@@ -359,6 +361,10 @@ class SystemConfigService:
                 "account": provider.xtquant.account,
                 "account_type": provider.xtquant.account_type,
                 "broker_submit_mode": provider.xtquant.broker_submit_mode,
+                "auto_repay": {
+                    "enabled": provider.xtquant.auto_repay_enabled,
+                    "reserve_cash": provider.xtquant.auto_repay_reserve_cash,
+                },
             },
             "guardian": {
                 "stock": {
@@ -560,6 +566,16 @@ class SystemConfigService:
                     xtquant.get("broker_submit_mode"),
                     field_name="xtquant.broker_submit_mode",
                 ).lower(),
+                "auto_repay": {
+                    "enabled": _require_bool(
+                        _deep_get(xtquant, "auto_repay.enabled", True),
+                        field_name="xtquant.auto_repay.enabled",
+                    ),
+                    "reserve_cash": _require_float(
+                        _deep_get(xtquant, "auto_repay.reserve_cash", 5000.0),
+                        field_name="xtquant.auto_repay.reserve_cash",
+                    ),
+                },
             },
             "guardian": {
                 "stock": {
@@ -616,6 +632,18 @@ def _require_text(value, *, field_name):
     if not text:
         raise ValueError(f"{field_name} is required")
     return text
+
+
+def _require_bool(value, *, field_name):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    raise ValueError(f"{field_name} must be a boolean")
 
 
 def _require_int(value, *, field_name):

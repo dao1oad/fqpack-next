@@ -134,9 +134,10 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | --- | --- | --- |
 | `freshquant/rear/**` | API Server | 重建 `fq_apiserver` 容器或重启 API 进程 |
 | `freshquant/runtime_observability/**` | Runtime Observability API / ClickHouse / indexer | 重建 `fq_apiserver`，并确认 `fq_runtime_clickhouse`、`fq_runtime_indexer` 已恢复 |
-| `freshquant/order_management/**` | 订单管理、API、broker/ingest 相关宿主机进程 | 重建 API；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
+| `freshquant/order_management/**` | 订单管理、API、broker/ingest、XT 自动还款相关宿主机进程 | 重建 API；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/position_management/**` | 仓位管理（宿主机实际由统一 `xt_account_sync.worker` 承担） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -BridgeIfServiceUnavailable` |
 | `freshquant/xt_account_sync/**` | XT 主动查询统一 worker（仓位管理 + 订单管理） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
+| `freshquant/xt_auto_repay/**` | XT 自动还款 worker | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/tpsl/**` | TPSL | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface tpsl -BridgeIfServiceUnavailable` |
 | `freshquant/market_data/**` | XTData producer / consumer | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data -BridgeIfServiceUnavailable`；必要时重新 prewarm |
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface guardian -BridgeIfServiceUnavailable` |
@@ -164,6 +165,7 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 
 - `fqnext_xtquant_broker`
 - `fqnext_xt_account_sync_worker`
+- `fqnext_xt_auto_repay_worker`
 - `fqnext_tpsl_worker`
 - API order-write surface
 

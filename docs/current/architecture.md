@@ -45,6 +45,10 @@
 
 `xt_account_sync.worker -> xt_positions -> pm_symbol_position_snapshots -> PositionManagement / SubjectManagement / TpslManagement / KlineSlim`
 
+### 当前自动还款链
+
+`xt_account_sync.worker -> pm_credit_asset_snapshots -> xt_auto_repay.worker -> query_credit_detail confirm -> CREDIT_DIRECT_CASH_REPAY`
+
 ## 当前订单账本边界
 
 ### 券商真值层
@@ -115,16 +119,20 @@
 - stoploss 绑定对象是 `entry_id`
 - odd-lot 不进入 `position_entries`
 - odd-lot 进入 `om_ingest_rejections`
+- XT 自动还款当前只处理普通融资负债；盘中低频巡检只把快照当候选信号，真正提交前始终再查一次实时 `credit_detail`
 
 ## 当前部署边界
 
 - `freshquant/order_management/**`
   - 重建 API Server
   - 重启 `xt_account_sync.worker`
+  - 重启 `xt_auto_repay.worker`
   - 重启 `tpsl.tick_listener`
 - `freshquant/position_management/**`
   - 重建 API Server
   - 重启 `xt_account_sync.worker`
+- `freshquant/xt_auto_repay/**`
+  - 重启 `xt_auto_repay.worker`
 - `freshquant/tpsl/**`
   - 重建 API Server
   - 重启 `tpsl.tick_listener`

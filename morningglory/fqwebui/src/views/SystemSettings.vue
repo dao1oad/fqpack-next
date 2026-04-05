@@ -309,6 +309,10 @@ function defaultSettingsForm () {
       account: '',
       account_type: 'STOCK',
       broker_submit_mode: 'normal',
+      auto_repay: {
+        enabled: true,
+        reserve_cash: 5000,
+      },
     },
     guardian: {
       stock: {

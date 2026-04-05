@@ -302,6 +302,7 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
                     {"id": "xt_account_sync_worker", "running": False},
                     {"id": "tpsl_tick_listener", "running": False},
                     {"id": "xtquant_broker", "running": False},
+                    {"id": "xt_auto_repay_worker", "running": False},
                 ],
             }
         },
@@ -364,6 +365,11 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
                 "Name": "python.exe",
                 "CommandLine": "python -m freshquant.xt_account_sync.worker",
             },
+            {
+                "ProcessId": 406,
+                "Name": "python.exe",
+                "CommandLine": "python -m freshquant.xt_auto_repay.worker",
+            },
         ],
     )
     output_path = tmp_path / "verify.json"
@@ -406,6 +412,10 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
     )
     assert any(
         check["id"] == "xt_account_sync_worker" and check["passed"] is True
+        for check in payload["process_checks"]
+    )
+    assert any(
+        check["id"] == "xt_auto_repay_worker" and check["passed"] is True
         for check in payload["process_checks"]
     )
 
@@ -550,6 +560,7 @@ def test_verify_requires_fqnext_supervisord_for_host_managed_surfaces(
                 "processes": [
                     {"id": "xtquant_broker", "running": False},
                     {"id": "xt_account_sync_worker", "running": False},
+                    {"id": "xt_auto_repay_worker", "running": False},
                 ],
             }
         },
@@ -583,6 +594,11 @@ def test_verify_requires_fqnext_supervisord_for_host_managed_surfaces(
                 "ProcessId": 602,
                 "Name": "python.exe",
                 "CommandLine": "python -m freshquant.xt_account_sync.worker",
+            },
+            {
+                "ProcessId": 603,
+                "Name": "python.exe",
+                "CommandLine": "python -m freshquant.xt_auto_repay.worker",
             },
         ],
     )
@@ -629,6 +645,7 @@ def test_verify_prefers_supervisor_snapshot_for_host_managed_programs(
                 "processes": [
                     {"id": "xtquant_broker", "running": False},
                     {"id": "xt_account_sync_worker", "running": False},
+                    {"id": "xt_auto_repay_worker", "running": False},
                 ],
             }
         },
@@ -672,6 +689,12 @@ def test_verify_prefers_supervisor_snapshot_for_host_managed_programs(
                 "pid": 1702,
                 "description": "pid 1702, uptime 0:01:00",
             },
+            {
+                "name": "fqnext_xt_auto_repay_worker",
+                "statename": "RUNNING",
+                "pid": 1703,
+                "description": "pid 1703, uptime 0:01:00",
+            },
         ],
     )
     output_path = tmp_path / "verify.json"
@@ -712,6 +735,10 @@ def test_verify_prefers_supervisor_snapshot_for_host_managed_programs(
         check["id"] == "xt_account_sync_worker" and check["passed"] is True
         for check in payload["process_checks"]
     )
+    assert any(
+        check["id"] == "xt_auto_repay_worker" and check["passed"] is True
+        for check in payload["process_checks"]
+    )
 
 
 def test_verify_fails_when_supervisor_config_still_points_to_main_runtime(
@@ -726,6 +753,7 @@ def test_verify_fails_when_supervisor_config_still_points_to_main_runtime(
                 "processes": [
                     {"id": "xtquant_broker", "running": False},
                     {"id": "xt_account_sync_worker", "running": False},
+                    {"id": "xt_auto_repay_worker", "running": False},
                 ],
             }
         },
@@ -776,6 +804,12 @@ def test_verify_fails_when_supervisor_config_still_points_to_main_runtime(
                 "statename": "RUNNING",
                 "pid": 1802,
                 "description": "pid 1802, uptime 0:01:00",
+            },
+            {
+                "name": "fqnext_xt_auto_repay_worker",
+                "statename": "RUNNING",
+                "pid": 1803,
+                "description": "pid 1803, uptime 0:01:00",
             },
         ],
     )
@@ -839,6 +873,7 @@ def test_verify_passes_when_supervisor_config_matches_deploy_mirror(
                 "processes": [
                     {"id": "xtquant_broker", "running": False},
                     {"id": "xt_account_sync_worker", "running": False},
+                    {"id": "xt_auto_repay_worker", "running": False},
                 ],
             }
         },
@@ -889,6 +924,12 @@ def test_verify_passes_when_supervisor_config_matches_deploy_mirror(
                 "statename": "RUNNING",
                 "pid": 1902,
                 "description": "pid 1902, uptime 0:01:00",
+            },
+            {
+                "name": "fqnext_xt_auto_repay_worker",
+                "statename": "RUNNING",
+                "pid": 1903,
+                "description": "pid 1903, uptime 0:01:00",
             },
         ],
     )
@@ -948,6 +989,7 @@ def test_verify_fails_when_supervisor_config_inspection_is_unavailable(
                 "processes": [
                     {"id": "xtquant_broker", "running": False},
                     {"id": "xt_account_sync_worker", "running": False},
+                    {"id": "xt_auto_repay_worker", "running": False},
                 ],
             }
         },
@@ -998,6 +1040,12 @@ def test_verify_fails_when_supervisor_config_inspection_is_unavailable(
                 "statename": "RUNNING",
                 "pid": 2002,
                 "description": "pid 2002, uptime 0:01:00",
+            },
+            {
+                "name": "fqnext_xt_auto_repay_worker",
+                "statename": "RUNNING",
+                "pid": 2003,
+                "description": "pid 2003, uptime 0:01:00",
             },
         ],
     )
