@@ -73,6 +73,12 @@ test('vite config keeps chunkSizeWarningLimit wired to bundleBudget.warningLimit
   assert.match(viteConfigSource.replace(/\r/g, ''), /chunkSizeWarningLimit:\s*bundleBudget\.warningLimitKb/)
 })
 
+test('vite dev proxy defaults to the parallel API surface on 15000', async () => {
+  const viteConfigSource = await readFile(new URL('../vite.config.js', import.meta.url), 'utf8')
+
+  assert.match(viteConfigSource.replace(/\r/g, ''), /target:\s*env\.VITE_API_BASE_URL\s*\|\|\s*'http:\/\/127\.0\.0\.1:15000'/)
+})
+
 test('isolated Vite build emits async route chunks for the legacy core pages', async () => {
   const assetSizes = await loadBuiltAssetSizes()
   const assetNames = [...assetSizes.keys()]

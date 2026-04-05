@@ -119,7 +119,6 @@ export const klineSlimController = {
       this.endDateModel = this.$route.query.endDate || ''
       this.resetChanlunStructureState()
       if (!this.routeSymbol) {
-        this.closeSubjectPanel()
         resetSubjectPanelState(this.subjectPanelState)
       }
 
@@ -164,7 +163,7 @@ export const klineSlimController = {
         clearSubjectPriceDetailState(this)
       }
       if (shouldClearSubjectPanel) {
-        resetSubjectPanelState(this.subjectPanelState, { preserveOpen: this.showSubjectPanel })
+        resetSubjectPanelState(this.subjectPanelState, { preserveOpen: this.showPriceGuidePanel })
       }
 
       if (this.chart && this.routeSymbol) {
@@ -185,7 +184,7 @@ export const klineSlimController = {
       this.loadSubjectPriceDetail({
         force: shouldClearPricePanel || this.lastSubjectDetailSymbol !== this.routeSymbol || !this.subjectPriceDetail
       })
-      if (this.showSubjectPanel) {
+      if (this.showPriceGuidePanel) {
         this.loadSubjectPanelDetail({
           force: shouldClearSubjectPanel || this.subjectPanelState.lastSubjectSymbol !== this.routeSymbol || !this.subjectPanelState.subjectPanelDetail
         })
@@ -335,23 +334,18 @@ export const klineSlimController = {
       this.showPriceGuidePanel = true
       this.priceGuideEditMode = true
       this.priceGuideDragDirty = false
+      const tasks = []
       if (!this.subjectPriceDetail && !this.subjectDetailLoading) {
-        await this.loadSubjectPriceDetail({ force: true })
+        tasks.push(this.loadSubjectPriceDetail({ force: true }))
       }
-    },
-    async toggleSubjectPanel() {
-      if (!this.routeSymbol) {
-        return
+      if (
+        !this.subjectPanelState.subjectPanelDetail ||
+        this.subjectPanelState.lastSubjectSymbol !== this.routeSymbol
+      ) {
+        tasks.push(this.loadSubjectPanelDetail({ force: true }))
       }
-      if (this.showSubjectPanel) {
-        this.closeSubjectPanel()
-        return
-      }
-      closeOtherPanels(this, 'showSubjectPanel')
-      this.showSubjectPanel = true
-      this.subjectPanelState.showSubjectPanel = true
-      if (!this.subjectPanelState.subjectPanelDetail || this.subjectPanelState.lastSubjectSymbol !== this.routeSymbol) {
-        await this.loadSubjectPanelDetail({ force: true })
+      if (tasks.length) {
+        await Promise.all(tasks)
       }
     },
     async toggleChanlunStructurePanel() {
