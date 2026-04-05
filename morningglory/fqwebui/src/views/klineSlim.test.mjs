@@ -78,6 +78,25 @@ test('KlineSlim keeps price guide and chanlun panels on the chart overlay instea
   assert.match(source, /class="kline-slim-chanlun-panel kline-slim-overlay-panel"/)
 })
 
+test('KlineSlim price guide panel uses subject-panel style max-height instead of viewport-stretch bottom anchoring', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+
+  assert.equal(viewSource.includes('.kline-slim-price-panel\n  bottom 12px'), false)
+  assert.match(
+    viewSource,
+    /\.kline-slim-price-panel\n  width 436px\n  max-width calc\(100% - 24px\)\n  max-height calc\(100% - 24px\)/
+  )
+  assert.equal(viewSource.includes('.kline-slim-price-panel\n    right 8px\n    bottom 8px'), false)
+  assert.match(
+    viewSource,
+    /\.kline-slim-price-panel\n    right 8px\n    width auto\n    max-height calc\(100% - 16px\)/
+  )
+  assert.equal(
+    viewSource.includes('.kline-slim-price-panel\n    width 392px\n\n  .kline-slim-subject-panel\n    width 392px'),
+    true
+  )
+})
+
 test('KlineSlim toolbar keeps only draw-edit, subject and chanlun toggles for overlay panels', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
@@ -232,15 +251,17 @@ test('KlineSlim lets the body flow below a wrapping toolbar instead of relying o
   )
 })
 
-test('KlineSlim exposes a subject settings overlay next to price guides', () => {
+test('KlineSlim exposes a single-entry stoploss overlay next to price guides', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
-  assert.match(viewSource, /标的设置/)
+  assert.match(viewSource, /单笔止损/)
+  assert.doesNotMatch(viewSource, /标的设置/)
   assert.match(viewSource, /kline-slim-subject-panel/)
-  assert.match(viewSource, /基础配置/)
-  assert.match(viewSource, /单标的上限设置/)
   assert.match(viewSource, /按持仓入口止损/)
+  assert.match(viewSource, /切片明细/)
+  assert.doesNotMatch(viewSource, /<span class="price-panel-section-title">基础配置<\/span>/)
+  assert.doesNotMatch(viewSource, /单标的上限设置/)
   assert.equal(
     viewSource.indexOf('class="kline-slim-subject-panel kline-slim-overlay-panel"') <
       viewSource.indexOf('Guardian 倍量价格'),
@@ -250,76 +271,89 @@ test('KlineSlim exposes a subject settings overlay next to price guides', () => 
   assert.match(scriptSource, /subjectPanelState/)
 })
 
-test('KlineSlim subject panel removes category editing, refresh noise and source toggle', () => {
+test('KlineSlim subject panel keeps only entry stoploss editing and removes top config bundle ui', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
   assert.match(viewSource, />\s*保存\s*</)
   assert.equal(viewSource.includes('保存基础配置与上限'), false)
+  assert.equal(viewSource.includes('@click="handleSaveSubjectConfigBundle"'), false)
   assert.equal(viewSource.includes('subject-panel-header-summary'), false)
   assert.equal(viewSource.includes('@click="loadSubjectPanelDetail({ force: true })"'), false)
   assert.equal(viewSource.includes('v-model.trim="subjectPanelState.mustPoolDraft.category"'), false)
   assert.equal(viewSource.includes('右侧直接改 must_pool.category'), false)
   assert.equal(viewSource.includes('当前分类'), false)
+  assert.equal(viewSource.includes('v-model="subjectPanelState.mustPoolDraft.stop_loss_price"'), false)
+  assert.equal(viewSource.includes('v-model="subjectPanelState.mustPoolDraft.initial_lot_amount"'), false)
+  assert.equal(viewSource.includes('v-model="subjectPanelState.mustPoolDraft.lot_amount"'), false)
+  assert.equal(viewSource.includes('v-model="subjectPanelState.positionLimitDraft.limit"'), false)
   assert.equal(viewSource.includes('subjectPanelState.positionLimitDraft.use_default'), false)
   assert.equal(viewSource.includes('关闭“默认”后生效'), false)
   assert.equal(viewSource.includes('覆盖值'), false)
   assert.equal(viewSource.includes('留空时沿用仓位管理默认值'), false)
-  assert.match(viewSource, /单标的上限设置/)
-  assert.match(viewSource, /当前生效/)
-  assert.equal(viewSource.includes('单标的仓位上限'), false)
+  assert.equal(viewSource.includes('止损价'), false)
+  assert.equal(viewSource.includes('首笔金额'), false)
+  assert.equal(viewSource.includes('常规金额'), false)
+  assert.equal(viewSource.includes('单标的上限设置'), false)
+  assert.equal(viewSource.includes('当前止损'), false)
+  assert.equal(viewSource.includes('当前上限'), false)
   assert.equal(viewSource.includes('subject-panel-limit-row'), false)
   assert.equal(scriptSource.includes('use_default'), false)
-  assert.match(viewSource, /class="subject-panel-base-row"/)
-  assert.match(viewSource, /v-model="subjectPanelState\.positionLimitDraft\.limit"/)
+  assert.equal(viewSource.includes('class="subject-panel-base-row"'), false)
 })
 
-test('KlineSlim subject panel removes misleading must-pool note and redundant limit prose', () => {
+test('KlineSlim subject panel removes top config card copy and keeps only entry list header', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
   assert.equal(viewSource.includes('price-panel-section-note">must_pool'), false)
-  assert.match(viewSource, /当前生效/)
-  assert.match(viewSource, /市值/)
-  assert.match(viewSource, /已阻断买入|允许买入/)
+  assert.equal(viewSource.includes('当前止损'), false)
+  assert.equal(viewSource.includes('当前上限'), false)
+  assert.equal(viewSource.includes('已阻断买入'), false)
+  assert.equal(viewSource.includes('允许买入'), false)
   assert.equal(viewSource.includes('系统默认值'), false)
   assert.equal(viewSource.includes('当前来源'), false)
   assert.equal(viewSource.includes('输入当前希望生效的单标的上限'), false)
 })
 
-test('KlineSlim subject panel lifts base config summaries out of the position-limit card', () => {
+test('KlineSlim subject panel removes the base config section entirely', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
-  assert.match(
-    viewSource,
-    /<span class="price-panel-section-title">基础配置<\/span>[\s\S]*<div class="price-panel-summary">[\s\S]*当前止损[\s\S]*当前上限[\s\S]*市值[\s\S]*(?:已阻断买入|允许买入)/
-  )
-  assert.equal(
-    /<span class="subject-panel-field__label">单标的上限设置<\/span>[\s\S]*<div class="subject-panel-inline-chips">/.test(viewSource),
-    false
-  )
+  assert.equal(viewSource.includes('<span class="price-panel-section-title">基础配置</span>'), false)
+  assert.equal(viewSource.includes('v-model="subjectPanelState.mustPoolDraft.stop_loss_price"'), false)
+  assert.equal(viewSource.includes('v-model="subjectPanelState.positionLimitDraft.limit"'), false)
+  assert.equal(viewSource.includes('class="subject-panel-base-row"'), false)
+  assert.equal(viewSource.includes('subject-panel-header-summary'), false)
 })
 
-test('KlineSlim subject panel uses a two-column base grid inside the narrow overlay', () => {
+test('KlineSlim subject panel removes the old base grid styles', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
-  assert.equal(
-    viewSource.includes('.subject-panel-base-row\n  display grid\n  grid-template-columns repeat(2, minmax(0, 1fr))'),
-    true
-  )
-  assert.equal(viewSource.includes('grid-template-columns repeat(4, minmax(0, 1fr))'), false)
+  assert.equal(viewSource.includes('.subject-panel-base-row\n  display grid\n  grid-template-columns repeat(2, minmax(0, 1fr))'), false)
+  assert.equal(viewSource.includes('.subject-panel-field\n'), false)
 })
 
 test('KlineSlim subject panel keeps readable entry stoploss rows after header cleanup', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
   assert.match(viewSource, /row\.entryDisplayLabel/)
   assert.match(viewSource, /row\.entryIdLabel/)
   assert.match(viewSource, /row\.entrySummaryDisplay\.entryPriceLabel/)
-  assert.match(viewSource, /row\.entrySummaryDisplay\.originalQuantityLabel/)
-  assert.match(viewSource, /row\.entrySummaryDisplay\.remainingQuantityLabel/)
+  assert.match(viewSource, /formatWanQuantityValue\(row\.original_quantity\)/)
+  assert.match(viewSource, /formatWanQuantityValue\(row\.remaining_quantity\)/)
   assert.match(viewSource, /row\.entrySummaryDisplay\.remainingPercentLabel/)
   assert.match(viewSource, /row\.entrySummaryDisplay\.entryDateTimeLabel/)
   assert.match(viewSource, /row\.entrySummaryDisplay\.remainingMarketValueLabel/)
+  assert.match(viewSource, /<el-popover[\s\S]*trigger="hover"[\s\S]*切片明细/)
+  assert.match(viewSource, /row\.entry_slices/)
+  assert.match(viewSource, /当前入口没有 open 切片/)
+  assert.match(viewSource, /formatIntegerValue\(slice\.slice_seq\)/)
+  assert.match(viewSource, /formatPriceGuideValue\(slice\.guardian_price\)/)
+  assert.match(viewSource, /formatIntegerValue\(slice\.original_quantity\)/)
+  assert.match(viewSource, /formatIntegerValue\(slice\.remaining_quantity\)/)
+  assert.match(viewSource, /formatWanAmountValue\(slice\.remaining_amount\)/)
+  assert.equal(viewSource.includes('subject-panel-stoploss-hover-trigger'), false)
+  assert.equal(viewSource.includes('买入价：'), false)
   assert.match(viewSource, /class="subject-panel-stoploss-head"/)
   assert.match(viewSource, /class="subject-panel-stoploss-title-wrap"/)
   assert.match(viewSource, /class="subject-panel-stoploss-id"/)
@@ -328,6 +362,7 @@ test('KlineSlim subject panel keeps readable entry stoploss rows after header cl
   assert.match(viewSource, /class="subject-panel-stoploss-meta-label"/)
   assert.match(viewSource, /class="subject-panel-stoploss-meta-value"/)
   assert.match(viewSource, /class="subject-panel-stoploss-meta-separator"/)
+  assert.match(scriptSource, /formatWanQuantityValue\(value\)/)
   assert.equal(viewSource.includes('.kline-slim-subject-panel\n  left 12px\n  width 436px'), true)
   assert.equal(viewSource.includes('.subject-panel-stoploss-row\n  display flex\n  flex-direction column'), true)
   assert.equal(viewSource.includes('.subject-panel-stoploss-meta\n  display flex\n  flex-direction column'), true)
@@ -412,12 +447,11 @@ test('KlineSlim routes toolbar and overlay summary pills through shared StatusCh
 
   assert.match(viewSource, /<StatusChip[\s\S]*variant="muted"[\s\S]*>\s*主图 \{\{\s*currentPeriod\s*\}\}/)
   assert.match(viewSource, /<StatusChip[\s\S]*:variant="toolbarStatusChipVariant"/)
-  assert.match(viewSource, /<StatusChip[\s\S]*variant="muted"[\s\S]*>\s*当前止损/)
-  assert.match(viewSource, /<StatusChip[\s\S]*:variant="subjectPositionLimitChipVariant"/)
+  assert.doesNotMatch(viewSource, /<StatusChip[\s\S]*variant="muted"[\s\S]*>\s*当前止损/)
+  assert.doesNotMatch(viewSource, /<StatusChip[\s\S]*:variant="subjectPositionLimitChipVariant"/)
   assert.match(viewSource, /<StatusChip[\s\S]*:variant="takeprofitRuntimeChipVariant"/)
   assert.match(viewSource, /<StatusChip[\s\S]*:variant="guardianRuntimeChipVariant"/)
   assert.match(scriptSource, /toolbarStatusChipVariant\(\)/)
-  assert.match(scriptSource, /subjectPositionLimitChipVariant\(\)/)
   assert.match(scriptSource, /takeprofitRuntimeChipVariant\(\)/)
   assert.match(scriptSource, /guardianRuntimeChipVariant\(\)/)
 })

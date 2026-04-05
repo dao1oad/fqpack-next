@@ -40,7 +40,7 @@
           :disabled="!routeSymbol"
           @click="toggleSubjectPanel"
         >
-          标的设置
+          单笔止损
         </el-button>
         <el-button
           size="small"
@@ -181,7 +181,7 @@
             <div class="price-panel-header subject-panel-header">
               <div class="price-panel-header-main subject-panel-header-main">
                 <div class="price-panel-title-row">
-                  <span class="price-panel-title">标的设置</span>
+                  <span class="price-panel-title">单笔止损</span>
                   <span class="price-panel-chip">{{ routeSymbol || '--' }}</span>
                 <span v-if="subjectPanelState.subjectPanelDetail" class="price-panel-chip">
                   {{ subjectPanelState.subjectPanelDetail.name || subjectPanelState.subjectPanelDetail.symbol }}
@@ -190,15 +190,6 @@
                 </div>
               </div>
               <div class="price-panel-actions subject-panel-header-actions">
-                <el-button
-                  size="small"
-                  type="primary"
-                :loading="subjectPanelState.savingSubjectConfigBundle"
-                :disabled="!subjectPanelState.subjectPanelDetail"
-                @click="handleSaveSubjectConfigBundle"
-                >
-                  保存
-                </el-button>
                 <el-button size="small" @click="closeSubjectPanel">关闭</el-button>
               </div>
             </div>
@@ -212,84 +203,9 @@
               加载中...
             </div>
             <div v-else-if="!subjectPanelState.subjectPanelDetail" class="price-panel-state">
-              暂无标的设置
+              暂无单笔止损设置
             </div>
             <div v-else class="price-panel-sections">
-              <section class="price-panel-section">
-                <div class="price-panel-section-header">
-                  <div class="price-panel-section-title-wrap">
-                    <span class="price-panel-section-title">基础配置</span>
-                  </div>
-                </div>
-
-                <div class="price-panel-summary">
-                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
-                    当前止损 {{ formatPriceGuideValue(subjectPanelState.subjectPanelDetail.mustPool.stop_loss_price) }}
-                  </StatusChip>
-                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
-                    当前上限 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.effective_limit) }}
-                  </StatusChip>
-                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
-                    市值 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.market_value) }}
-                  </StatusChip>
-                  <StatusChip class="price-panel-summary-status-chip" :variant="subjectPositionLimitChipVariant">
-                    {{ subjectPanelState.subjectPanelDetail.positionLimit.blocked ? '已阻断买入' : '允许买入' }}
-                  </StatusChip>
-                </div>
-
-                <div class="subject-panel-grid">
-                  <div class="subject-panel-base-row">
-                    <label class="subject-panel-field">
-                      <span class="subject-panel-field__label">止损价</span>
-                      <span class="subject-panel-field__note">当前 {{ formatPriceGuideValue(subjectPanelState.subjectPanelDetail.mustPool.stop_loss_price) }}</span>
-                      <el-input-number
-                        v-model="subjectPanelState.mustPoolDraft.stop_loss_price"
-                        size="small"
-                        :min="0"
-                        :step="0.01"
-                        controls-position="right"
-                      />
-                    </label>
-
-                    <label class="subject-panel-field">
-                      <span class="subject-panel-field__label">首笔金额</span>
-                      <span class="subject-panel-field__note">当前 {{ formatIntegerValue(subjectPanelState.subjectPanelDetail.mustPool.initial_lot_amount) }}</span>
-                      <el-input-number
-                        v-model="subjectPanelState.mustPoolDraft.initial_lot_amount"
-                        size="small"
-                        :min="0"
-                        :step="1000"
-                        controls-position="right"
-                      />
-                    </label>
-                    <label class="subject-panel-field">
-                      <span class="subject-panel-field__label">常规金额</span>
-                      <span class="subject-panel-field__note">当前 {{ formatIntegerValue(subjectPanelState.subjectPanelDetail.mustPool.lot_amount) }}</span>
-                      <el-input-number
-                        v-model="subjectPanelState.mustPoolDraft.lot_amount"
-                        size="small"
-                        :min="0"
-                        :step="1000"
-                        controls-position="right"
-                      />
-                    </label>
-                    <label class="subject-panel-field">
-                      <span class="subject-panel-field__label">单标的上限设置</span>
-                      <span class="subject-panel-field__note">
-                        当前生效 {{ formatWanAmountValue(subjectPanelState.subjectPanelDetail.positionLimit.effective_limit) }}
-                      </span>
-                      <el-input-number
-                        v-model="subjectPanelState.positionLimitDraft.limit"
-                        size="small"
-                        :min="0"
-                        :step="10000"
-                        controls-position="right"
-                      />
-                    </label>
-                  </div>
-                </div>
-              </section>
-
               <section class="price-panel-section">
                 <div class="price-panel-section-header">
                   <div class="price-panel-section-title-wrap">
@@ -305,82 +221,118 @@
                   暂无 open entry
                 </div>
                 <div v-else class="subject-panel-stoploss-list">
-                  <div
+                  <el-popover
                     v-for="row in subjectPanelState.subjectPanelDetail.entries"
                     :key="row.entry_id"
-                    class="subject-panel-stoploss-row"
+                    placement="right-start"
+                    :width="388"
+                    popper-class="subject-panel-slice-popper"
+                    trigger="hover"
                   >
-                    <div class="subject-panel-stoploss-head">
-                      <div class="subject-panel-stoploss-title-wrap">
-                        <span class="subject-panel-stoploss-title">{{ row.entryDisplayLabel }}</span>
-                        <span class="subject-panel-stoploss-id" :title="row.entry_id">{{ row.entryIdLabel }}</span>
-                      </div>
-                      <span class="price-panel-state-chip" :class="{ active: subjectPanelState.stoplossDrafts[row.entry_id].enabled }">
-                        {{ subjectPanelState.stoplossDrafts[row.entry_id].enabled ? '生效中' : '未启用' }}
-                      </span>
-                    </div>
-
-                    <div class="subject-panel-stoploss-meta" :title="row.entryMetaLabel">
-                      <span class="subject-panel-stoploss-meta-line">
-                        <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
-                          <span class="subject-panel-stoploss-meta-label">买入价：</span>
-                          <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.entryPriceLabel }}</span>
-                        </span>
-                        <span class="subject-panel-stoploss-meta-separator">；</span>
-                        <span class="subject-panel-stoploss-meta-item">
-                          <span class="subject-panel-stoploss-meta-label">买入</span>
-                          <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.originalQuantityLabel }}</span>
-                        </span>
-                        <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
-                          <span class="subject-panel-stoploss-meta-label">剩</span>
-                          <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.remainingQuantityLabel }}</span>
-                          <span
-                            v-if="row.entrySummaryDisplay.remainingPercentLabel && row.entrySummaryDisplay.remainingPercentLabel !== '-'"
-                            class="subject-panel-stoploss-meta-value"
-                          >
-                            / {{ row.entrySummaryDisplay.remainingPercentLabel }}
+                    <template #reference>
+                      <div class="subject-panel-stoploss-row">
+                        <div class="subject-panel-stoploss-head">
+                          <div class="subject-panel-stoploss-title-wrap">
+                            <span class="subject-panel-stoploss-title">{{ row.entryDisplayLabel }}</span>
+                            <span class="subject-panel-stoploss-id" :title="row.entry_id">{{ row.entryIdLabel }}</span>
+                          </div>
+                          <span class="price-panel-state-chip" :class="{ active: subjectPanelState.stoplossDrafts[row.entry_id].enabled }">
+                            {{ subjectPanelState.stoplossDrafts[row.entry_id].enabled ? '生效中' : '未启用' }}
                           </span>
-                        </span>
-                      </span>
-                      <span class="subject-panel-stoploss-meta-line">
-                        <span class="subject-panel-stoploss-meta-item">
-                          <span class="subject-panel-stoploss-meta-label">买入时间：</span>
-                          <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.entryDateTimeLabel }}</span>
-                        </span>
-                        <span class="subject-panel-stoploss-meta-separator">；</span>
-                        <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
-                          <span class="subject-panel-stoploss-meta-label">剩余市值：</span>
-                          <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.remainingMarketValueLabel }}</span>
-                        </span>
-                      </span>
-                    </div>
+                        </div>
 
-                    <div class="subject-panel-stoploss-editor">
-                      <el-input-number
-                        v-model="subjectPanelState.stoplossDrafts[row.entry_id].stop_price"
-                        size="small"
-                        :min="0"
-                        :step="0.01"
-                        controls-position="right"
-                      />
-                      <el-switch
-                        v-model="subjectPanelState.stoplossDrafts[row.entry_id].enabled"
-                        size="small"
-                        inline-prompt
-                        active-text="开"
-                        inactive-text="关"
-                      />
-                      <el-button
-                        size="small"
-                        type="primary"
-                        text
-                        :loading="subjectPanelState.savingStoploss[row.entry_id]"
-                        @click="handleSaveSubjectStoploss(row.entry_id)"
-                      >
-                        保存
-                      </el-button>
+                        <div class="subject-panel-stoploss-meta">
+                          <span class="subject-panel-stoploss-meta-line">
+                            <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
+                              <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.entryPriceLabel }}</span>
+                            </span>
+                            <span class="subject-panel-stoploss-meta-separator">；</span>
+                            <span class="subject-panel-stoploss-meta-item">
+                              <span class="subject-panel-stoploss-meta-label">买入</span>
+                              <span class="subject-panel-stoploss-meta-value">{{ formatWanQuantityValue(row.original_quantity) }}</span>
+                            </span>
+                            <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
+                              <span class="subject-panel-stoploss-meta-label">剩</span>
+                              <span class="subject-panel-stoploss-meta-value">{{ formatWanQuantityValue(row.remaining_quantity) }}</span>
+                              <span
+                                v-if="row.entrySummaryDisplay.remainingPercentLabel && row.entrySummaryDisplay.remainingPercentLabel !== '-'"
+                                class="subject-panel-stoploss-meta-value"
+                              >
+                                / {{ row.entrySummaryDisplay.remainingPercentLabel }}
+                              </span>
+                            </span>
+                          </span>
+                          <span class="subject-panel-stoploss-meta-line">
+                            <span class="subject-panel-stoploss-meta-item">
+                              <span class="subject-panel-stoploss-meta-label">买入时间：</span>
+                              <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.entryDateTimeLabel }}</span>
+                            </span>
+                            <span class="subject-panel-stoploss-meta-separator">；</span>
+                            <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
+                              <span class="subject-panel-stoploss-meta-label">剩余市值：</span>
+                              <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.remainingMarketValueLabel }}</span>
+                            </span>
+                          </span>
+                        </div>
+
+                        <div class="subject-panel-stoploss-editor">
+                          <el-input-number
+                            v-model="subjectPanelState.stoplossDrafts[row.entry_id].stop_price"
+                            size="small"
+                            :min="0"
+                            :step="0.01"
+                            controls-position="right"
+                          />
+                          <el-switch
+                            v-model="subjectPanelState.stoplossDrafts[row.entry_id].enabled"
+                            size="small"
+                            inline-prompt
+                            active-text="开"
+                            inactive-text="关"
+                          />
+                          <el-button
+                            size="small"
+                            type="primary"
+                            text
+                            :loading="subjectPanelState.savingStoploss[row.entry_id]"
+                            @click="handleSaveSubjectStoploss(row.entry_id)"
+                          >
+                            保存
+                          </el-button>
+                        </div>
+                      </div>
+                    </template>
+
+                    <div class="subject-panel-slice-popover">
+                      <div class="subject-panel-slice-popover__header">
+                        <span>切片明细</span>
+                        <span>{{ (row.entry_slices || []).length }} 条</span>
+                      </div>
+                      <div v-if="!(row.entry_slices || []).length" class="subject-panel-slice-popover__empty">
+                        当前入口没有 open 切片
+                      </div>
+                      <div v-else class="subject-panel-slice-popover__table">
+                        <div class="subject-panel-slice-popover__head">
+                          <span>序号</span>
+                          <span>守护价</span>
+                          <span>原始数量</span>
+                          <span>剩余数量</span>
+                          <span>剩余市值</span>
+                        </div>
+                        <div
+                          v-for="slice in row.entry_slices"
+                          :key="slice.entry_slice_id"
+                          class="subject-panel-slice-popover__row"
+                        >
+                          <span>{{ formatIntegerValue(slice.slice_seq) }}</span>
+                          <span>{{ formatPriceGuideValue(slice.guardian_price) }}</span>
+                          <span>{{ formatIntegerValue(slice.original_quantity) }}</span>
+                          <span>{{ formatIntegerValue(slice.remaining_quantity) }}</span>
+                          <span>{{ formatWanAmountValue(slice.remaining_amount) }}</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  </el-popover>
                 </div>
               </section>
             </div>
@@ -901,9 +853,9 @@ export default {
   box-shadow 0 24px 48px rgba(2, 6, 23, 0.4)
 
 .kline-slim-price-panel
-  bottom 12px
-  width 372px
+  width 436px
   max-width calc(100% - 24px)
+  max-height calc(100% - 24px)
   display flex
   flex-direction column
   border 1px solid rgba(148, 163, 184, 0.24)
@@ -1147,35 +1099,6 @@ export default {
   border-color rgba(96, 165, 250, 0.35)
   background rgba(30, 64, 175, 0.24)
 
-.subject-panel-grid
-  display flex
-  flex-direction column
-  gap 10px
-
-.subject-panel-base-row
-  display grid
-  grid-template-columns repeat(2, minmax(0, 1fr))
-  gap 10px
-
-.subject-panel-field
-  display flex
-  flex-direction column
-  gap 6px
-  padding 12px
-  border 1px solid rgba(127, 127, 122, 0.16)
-  border-radius 14px
-  background rgba(15, 23, 42, 0.44)
-
-.subject-panel-field__label
-  font-size 12px
-  font-weight 600
-  color #f8fafc
-
-.subject-panel-field__note
-  font-size 12px
-  line-height 1.5
-  color #94a3b8
-
 .subject-panel-empty
   padding 10px 12px
   border 1px dashed rgba(148, 163, 184, 0.2)
@@ -1288,7 +1211,47 @@ export default {
   gap 8px
   align-items center
 
-.subject-panel-field :deep(.el-input-number),
+.subject-panel-slice-popover
+  display flex
+  flex-direction column
+  gap 8px
+  min-width 320px
+  color #0f172a
+
+.subject-panel-slice-popover__header
+  display flex
+  align-items center
+  justify-content space-between
+  gap 8px
+  font-size 12px
+  font-weight 600
+  color #1e293b
+
+.subject-panel-slice-popover__empty
+  color #64748b
+  font-size 12px
+
+.subject-panel-slice-popover__table
+  display flex
+  flex-direction column
+  gap 4px
+
+.subject-panel-slice-popover__head,
+.subject-panel-slice-popover__row
+  display grid
+  grid-template-columns 48px 72px 88px 88px minmax(84px, 1fr)
+  gap 8px
+  align-items center
+  font-size 12px
+  line-height 1.45
+
+.subject-panel-slice-popover__head
+  color #64748b
+  font-weight 600
+
+.subject-panel-slice-popover__row
+  color #1f2937
+
 .subject-panel-stoploss-editor :deep(.el-input-number)
   width 100%
 
@@ -1482,7 +1445,7 @@ export default {
     justify-content flex-start
 
   .kline-slim-price-panel
-    width 348px
+    width 392px
 
   .kline-slim-subject-panel
     width 392px
@@ -1492,9 +1455,6 @@ export default {
 
   .price-panel-row-editor
     grid-column 1 / -1
-
-  .subject-panel-base-row
-    grid-template-columns 1fr
 
 @media (max-width: 900px)
   .kline-slim-body
@@ -1519,7 +1479,6 @@ export default {
 
   .kline-slim-price-panel
     right 8px
-    bottom 8px
     width auto
     max-height calc(100% - 16px)
 

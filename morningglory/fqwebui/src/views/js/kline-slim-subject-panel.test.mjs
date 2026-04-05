@@ -58,7 +58,9 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
   assert.deepEqual(detail.entries[0].entrySummaryDisplay, {
     entryPriceLabel: '10.000',
     originalQuantityLabel: '300 股',
-    remainingQuantityLabel: '200 股 / 66.67%',
+    remainingQuantityLabel: '200 股',
+    remainingPercentLabel: '66.67%',
+    remainingPositionLabel: '200 股 / 66.67%',
     entryDateTimeLabel: '2026-03-16 10:31:00',
     remainingMarketValueLabel: '0.22 万',
   })

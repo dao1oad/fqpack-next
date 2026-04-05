@@ -27,7 +27,7 @@ test('KlineSlim keeps overlay panels anchored to the chart content without side-
   assert.equal(source.includes('has-side-panel'), false)
 })
 
-test('KlineSlim medium breakpoint keeps the flow layout and only narrows the price panel', () => {
+test('KlineSlim medium breakpoint keeps the flow layout and narrows both overlay panels to the same width', () => {
   assert.equal(
     mediumLayoutBlock.includes('.kline-slim-toolbar\n    align-items flex-start\n    flex-direction column'),
     true
@@ -37,7 +37,7 @@ test('KlineSlim medium breakpoint keeps the flow layout and only narrows the pri
     true
   )
   assert.equal(
-    mediumLayoutBlock.includes('.kline-slim-price-panel\n    width 348px'),
+    mediumLayoutBlock.includes('.kline-slim-price-panel\n    width 392px'),
     true
   )
   assert.equal(
@@ -46,10 +46,7 @@ test('KlineSlim medium breakpoint keeps the flow layout and only narrows the pri
   )
   assert.equal(mediumLayoutBlock.includes('has-side-panel'), false)
   assert.equal(mediumLayoutBlock.includes('.kline-slim-body\n    top 120px'), false)
-  assert.equal(
-    mediumLayoutBlock.includes('.subject-panel-base-row\n    grid-template-columns 1fr'),
-    true
-  )
+  assert.equal(mediumLayoutBlock.includes('.subject-panel-base-row\n    grid-template-columns 1fr'), false)
   assert.equal(
     mediumLayoutBlock.includes('.price-panel-row-editor\n    grid-column 1 / -1'),
     true
