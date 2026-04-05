@@ -155,6 +155,10 @@ def _build_database():
                         "account": "068000076370",
                         "account_type": "CREDIT",
                         "broker_submit_mode": "observe_only",
+                        "auto_repay": {
+                            "enabled": True,
+                            "reserve_cash": 6500,
+                        },
                     },
                 },
                 {
@@ -245,6 +249,10 @@ def test_system_config_service_dashboard_reads_bootstrap_and_mongo_settings(
         ]
         == 880000.0
     )
+    assert dashboard["settings"]["values"]["xtquant"]["auto_repay"] == {
+        "enabled": True,
+        "reserve_cash": 6500.0,
+    }
     limit_item = next(
         item
         for section in dashboard["settings"]["sections"]
@@ -263,6 +271,18 @@ def test_system_config_service_dashboard_reads_bootstrap_and_mongo_settings(
         for item in section["items"]
         if item["key"] == "guardian.stock.lot_amount"
     )
+    auto_repay_enabled_item = next(
+        item
+        for section in dashboard["settings"]["sections"]
+        for item in section["items"]
+        if item["key"] == "xtquant.auto_repay.enabled"
+    )
+    auto_repay_reserve_item = next(
+        item
+        for section in dashboard["settings"]["sections"]
+        for item in section["items"]
+        if item["key"] == "xtquant.auto_repay.reserve_cash"
+    )
     assert dashboard["settings"]["sections"][0]["key"] == "notification"
     assert dashboard["settings"]["sections"][-1]["key"] == "position_management"
     assert limit_item["key"] == "position_management.single_symbol_position_limit"
@@ -280,6 +300,14 @@ def test_system_config_service_dashboard_reads_bootstrap_and_mongo_settings(
         1800,
     )
     assert guardian_lot_item["editable"] is True
+    assert (auto_repay_enabled_item["label"], auto_repay_enabled_item["value"]) == (
+        "自动还款",
+        True,
+    )
+    assert (auto_repay_reserve_item["label"], auto_repay_reserve_item["value"]) == (
+        "留底现金",
+        6500.0,
+    )
     assert dashboard["settings"]["strategies"][0]["code"] == "Guardian"
 
 
@@ -363,6 +391,10 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
             "account": "123456",
             "account_type": "CREDIT",
             "broker_submit_mode": "observe_only",
+            "auto_repay": {
+                "enabled": False,
+                "reserve_cash": 12000,
+            },
         },
         "guardian": {
             "stock": {
@@ -389,6 +421,10 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         database["params"].find_one({"code": "xtquant"})["value"]["path"]
         == "D:/mini_qmt/userdata_mini"
     )
+    assert database["params"].find_one({"code": "xtquant"})["value"]["auto_repay"] == {
+        "enabled": False,
+        "reserve_cash": 12000.0,
+    }
     assert (
         database["params"].find_one({"code": "monitor"})["value"]["xtdata"]["mode"]
         == "guardian_and_clx_15_30"
@@ -412,5 +448,7 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         == 780000
     )
     assert settings.xtquant.account == "123456"
+    assert settings.xtquant.auto_repay_enabled is False
+    assert settings.xtquant.auto_repay_reserve_cash == 12000.0
     assert settings.position_management.holding_only_min_bail == 150000
     assert settings.position_management.single_symbol_position_limit == 780000

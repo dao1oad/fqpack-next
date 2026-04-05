@@ -107,6 +107,10 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
                         "account": "068000076370",
                         "account_type": "CREDIT",
                         "broker_submit_mode": "observe_only",
+                        "auto_repay": {
+                            "enabled": True,
+                            "reserve_cash": 7500,
+                        },
                     },
                 },
                 {
@@ -154,6 +158,8 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
     assert settings.xtquant.account == "068000076370"
     assert settings.xtquant.account_type == "CREDIT"
     assert settings.xtquant.broker_submit_mode == "observe_only"
+    assert settings.xtquant.auto_repay_enabled is True
+    assert settings.xtquant.auto_repay_reserve_cash == 7500.0
     assert settings.guardian.stock_lot_amount == 1800
     assert settings.guardian.stock_threshold == {
         "mode": "atr",
@@ -241,6 +247,8 @@ def test_system_settings_falls_back_to_defaults_when_database_unavailable():
     assert settings.notification.dingtalk_private_webhook == ""
     assert settings.monitor.xtdata_mode == "guardian_1m"
     assert settings.xtquant.account == ""
+    assert settings.xtquant.auto_repay_enabled is True
+    assert settings.xtquant.auto_repay_reserve_cash == 5000.0
     assert settings.guardian.stock_lot_amount == 50000
     assert settings.guardian.stock_threshold == {
         "mode": "percent",

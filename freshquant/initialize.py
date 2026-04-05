@@ -47,6 +47,8 @@ SETTINGS_PROMPTS = [
     ("xtquant.account", "XT 账户", "text"),
     ("xtquant.account_type", "XT 账户类型", "text"),
     ("xtquant.broker_submit_mode", "Broker Submit Mode", "text"),
+    ("xtquant.auto_repay.enabled", "XT 自动还款开关", "text"),
+    ("xtquant.auto_repay.reserve_cash", "XT 自动还款留底现金", "float"),
     ("guardian.stock.lot_amount", "Guardian 单次买入金额", "int"),
     ("guardian.stock.threshold.mode", "Guardian 阈值模式", "text"),
     ("guardian.stock.threshold.percent", "Guardian 阈值百分比", "float"),

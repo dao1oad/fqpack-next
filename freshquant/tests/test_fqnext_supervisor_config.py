@@ -46,6 +46,10 @@ def test_build_supervisor_config_targets_main_deploy_production() -> None:
         f"command={expected_root}/.venv/Scripts/python.exe -m fqxtrade.xtquant.broker"
         in config_text
     )
+    assert (
+        f"command={expected_root}/.venv/Scripts/python.exe -m freshquant.xt_auto_repay.worker"
+        in config_text
+    )
 
 
 def test_inspect_supervisor_config_rejects_main_runtime_and_site_packages(

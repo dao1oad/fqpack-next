@@ -71,6 +71,7 @@ HOST_SURFACE_PROGRAMS = {
     "order_management": [
         "fqnext_xtquant_broker",
         "fqnext_xt_account_sync_worker",
+        "fqnext_xt_auto_repay_worker",
     ],
 }
 
@@ -209,6 +210,11 @@ PATH_RULES: tuple[PathRule, ...] = (
         label="xt-account-sync",
         prefix="freshquant/xt_account_sync/",
         surfaces=("position_management", "order_management"),
+    ),
+    PrefixRule(
+        label="xt-auto-repay",
+        prefix="freshquant/xt_auto_repay/",
+        surfaces=("order_management",),
     ),
     PrefixRule(
         label="position-management",

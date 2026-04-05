@@ -181,6 +181,12 @@ $processSpecs = @(
         SupervisorProgram = 'fqnext_xt_account_sync_worker'
     },
     [pscustomobject]@{
+        Id = 'xt_auto_repay_worker'
+        Surface = 'order_management'
+        Pattern = 'python -m freshquant.xt_auto_repay.worker'
+        SupervisorProgram = 'fqnext_xt_auto_repay_worker'
+    },
+    [pscustomobject]@{
         Id = 'tpsl_tick_listener'
         Surface = 'tpsl'
         Pattern = 'python -m freshquant.tpsl.tick_listener'

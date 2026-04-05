@@ -9,6 +9,7 @@
 - `fqnext-supervisord` 宿主机底座与其托管的交易/运行链 Python 进程。
 - Guardian monitor。
 - XT account sync worker（作为 XT 账户数据的增量补偿同步入口，默认每 15 秒轮询 `assets / credit_detail / positions / orders / trades`；其中 `credit_detail` 保持高频刷新以驱动仓位管理状态，只把新增 `orders / trades` 送入 ingest；`credit_subjects` 只在启动和每日计划时间做低频同步，并在启动时做一次单标的实时仓位 fallback 种子刷新；若 `positions` 快照为空或严重缩水、但同轮 `credit_detail.market_value` 仍显著为正，则该轮快照会进入 quarantine，不覆盖 `xt_positions`，也不触发自动平账；这个 quarantine 现在也覆盖小账户单票/双票严重缩水的场景，同时 worker 会记录 warning 说明 quarantine 原因）。
+- XT auto repay worker（默认每 30 分钟低频巡检一次已同步的 `credit_detail` 快照，只处理普通融资负债；盘中命中候选后才即时执行一次 `query_credit_detail()` 二次确认，再走 `CREDIT_DIRECT_CASH_REPAY`；固定在 `14:55` 做日终硬结算、`15:05` 做一次补偿重试；`broker_submit_mode=observe_only` 时只记录事件，不真实提交还款）。
 - TPSL tick listener。
 - 需要直接访问券商、终端、`TDX_HOME` 或 Windows 本地目录的组件。
 
@@ -84,6 +85,10 @@
 - XT account sync worker
 - Order submit / broker / XT 回报 ingest
 - TPSL worker（如果验证退出逻辑）
+
+如目标包含信用自动还款验证，还需要：
+
+- XT auto repay worker
 
 当目标是调试前端展示时，至少还需要：
 

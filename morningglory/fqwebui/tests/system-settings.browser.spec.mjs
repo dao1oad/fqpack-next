@@ -125,6 +125,8 @@ function buildDashboardPayload() {
             { key: 'xtquant.account', field: 'account', label: '账户', editable: true, restart_required: false, source: 'params.xtquant', value: '068000076370' },
             { key: 'xtquant.account_type', field: 'account_type', label: '账户类型', editable: true, restart_required: false, source: 'params.xtquant', value: 'CREDIT' },
             { key: 'xtquant.broker_submit_mode', field: 'broker_submit_mode', label: 'Broker Submit Mode', editable: true, restart_required: false, source: 'params.xtquant', value: 'observe_only' },
+            { key: 'xtquant.auto_repay.enabled', field: 'auto_repay.enabled', label: '自动还款', editable: true, restart_required: false, source: 'params.xtquant', value: true },
+            { key: 'xtquant.auto_repay.reserve_cash', field: 'auto_repay.reserve_cash', label: '留底现金', editable: true, restart_required: false, source: 'params.xtquant', value: 5000 },
           ],
         },
         {
@@ -158,7 +160,13 @@ function buildDashboardPayload() {
         { code: 'Manual', name: '手动策略', desc: '这是手动挡交易策略', b62_uid: 'gWyxlpDMPglnysjj' },
       ],
       values: {
-        xtquant: { account: '068000076370', account_type: 'CREDIT', broker_submit_mode: 'observe_only', path: 'D:/mock/path' },
+        xtquant: {
+          account: '068000076370',
+          account_type: 'CREDIT',
+          broker_submit_mode: 'observe_only',
+          path: 'D:/mock/path',
+          auto_repay: { enabled: true, reserve_cash: 5000 },
+        },
         guardian: { stock: { lot_amount: 50000, threshold: { mode: 'percent', percent: 1, atr: { period: null, multiplier: null } }, grid_interval: { mode: 'percent', percent: 3, atr: { period: null, multiplier: null } } } },
         position_management: { allow_open_min_bail: 800000, holding_only_min_bail: 100000 },
       },
@@ -220,6 +228,8 @@ test('system settings scroll keeps every section header clear of the first row',
 
       await expect(page.getByRole('heading', { name: '系统设置' })).toBeVisible()
       await expect(page.locator('.settings-dense-column')).toHaveCount(3)
+      await expect(page.getByText('自动还款', { exact: true })).toBeVisible()
+      await expect(page.getByText('留底现金', { exact: true })).toBeVisible()
 
       const overlapMetrics = await page.evaluate(async () => {
         const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

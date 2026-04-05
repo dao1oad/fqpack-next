@@ -53,6 +53,36 @@ class PositionCreditClient:
         trader, account = self._ensure_credit_connection()
         return trader.query_credit_detail(account)
 
+    def submit_direct_cash_repay(
+        self,
+        *,
+        repay_amount,
+        strategy_name="XtAutoRepay",
+        order_remark="xt_auto_repay",
+        stock_code="",
+        price_type=None,
+        price=0.0,
+    ):
+        trader, account = self._ensure_credit_connection()
+        from freshquant.carnation import xtconstant
+
+        resolved_amount = int(float(repay_amount or 0))
+        if resolved_amount <= 0:
+            raise ValueError("repay_amount must be positive")
+        resolved_price_type = (
+            xtconstant.FIX_PRICE if price_type is None else int(price_type)
+        )
+        return trader.order_stock(
+            account,
+            str(stock_code or "").strip(),
+            xtconstant.CREDIT_DIRECT_CASH_REPAY,
+            resolved_amount,
+            resolved_price_type,
+            float(price or 0.0),
+            strategy_name,
+            order_remark,
+        )
+
     def _ensure_credit_connection(self):
         if self.account_type != "CREDIT":
             raise ValueError("xtquant.account_type must be CREDIT")

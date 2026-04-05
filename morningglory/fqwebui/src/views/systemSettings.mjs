@@ -60,6 +60,10 @@ const SELECT_FIELD_META = {
     { label: 'normal', value: 'normal' },
     { label: 'observe_only', value: 'observe_only' },
   ],
+  'xtquant.auto_repay.enabled': [
+    { label: '开启', value: true },
+    { label: '关闭', value: false },
+  ],
   'guardian.stock.threshold.mode': [
     { label: 'percent', value: 'percent' },
     { label: 'atr', value: 'atr' },
@@ -90,6 +94,7 @@ const NUMBER_FIELD_META = {
   'guardian.stock.grid_interval.percent': { min: 0.1, step: 0.1, precision: 2 },
   'guardian.stock.grid_interval.atr.period': { min: 1, step: 1 },
   'guardian.stock.grid_interval.atr.multiplier': { min: 0.1, step: 0.1, precision: 2 },
+  'xtquant.auto_repay.reserve_cash': { min: 0, step: 1000 },
   'position_management.allow_open_min_bail': { min: 0, step: 10000 },
   'position_management.holding_only_min_bail': { min: 0, step: 10000 },
   'position_management.single_symbol_position_limit': { min: 0, step: 10000 },

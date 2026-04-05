@@ -24,6 +24,7 @@ PROGRAM_NAMES = (
     "fqnext_realtime_xtdata_consumer",
     "fqnext_guardian_event",
     "fqnext_xt_account_sync_worker",
+    "fqnext_xt_auto_repay_worker",
     "fqnext_tpsl_worker",
     "fqnext_xtquant_broker",
     "fqnext_xtdata_adj_refresh_worker",
@@ -120,6 +121,15 @@ autostart=true
 autorestart=true
 startsecs=5
 
+[program:fqnext_xt_auto_repay_worker]
+command={python_executable} -m freshquant.xt_auto_repay.worker
+directory={root}
+stdout_logfile=D:/fqdata/log/fqnext_xt_auto_repay_worker.log
+stderr_logfile=D:/fqdata/log/fqnext_xt_auto_repay_worker_err.log
+autostart=true
+autorestart=true
+startsecs=5
+
 [program:fqnext_tpsl_worker]
 command={python_executable} -m freshquant.tpsl.tick_listener
 directory={root}
@@ -151,7 +161,7 @@ startsecs=5
 programs=fqnext_xtdata_adj_refresh_worker
 
 [group:fqnext_trading_chain]
-programs=fqnext_realtime_xtdata_producer,fqnext_realtime_xtdata_consumer,fqnext_guardian_event,fqnext_xt_account_sync_worker,fqnext_tpsl_worker,fqnext_xtquant_broker
+programs=fqnext_realtime_xtdata_producer,fqnext_realtime_xtdata_consumer,fqnext_guardian_event,fqnext_xt_account_sync_worker,fqnext_xt_auto_repay_worker,fqnext_tpsl_worker,fqnext_xtquant_broker
 
 [supervisorctl]
 serverurl=http://127.0.0.1:10011

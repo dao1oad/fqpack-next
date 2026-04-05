@@ -148,7 +148,7 @@
 
 ## xtquant
 
-用途：XT 客户端连接和 broker 提交模式。
+用途：XT 客户端连接、broker 提交模式和普通融资负债自动还款。
 
 ### xtquant.path
 
@@ -196,6 +196,33 @@
   - `observe_only`
     - 全链路落库和展示，但不真正提交到 broker
 
+### xtquant.auto_repay.enabled
+
+- 含义：是否开启 XT 自动还款。
+- 类型：`bool`
+- 是否必填：否
+- 缺省值：`true`
+- 生效前提：
+  - `xtquant.account_type=CREDIT`
+- 运行语义：
+  - `true`
+    - `xt_auto_repay.worker` 会参与盘中低频巡检与 `14:55 / 15:05` 固定时点还款判断
+  - `false`
+    - worker 只记录 skip 事件，不会进入还款候选
+
+### xtquant.auto_repay.reserve_cash
+
+- 含义：自动还款留底现金。
+- 类型：`float`
+- 是否必填：否
+- 缺省值：`5000`
+- 生效前提：
+  - `xtquant.account_type=CREDIT`
+- 运行语义：
+  - 只有 `m_dAvailable > reserve_cash` 才会进入自动还款候选
+  - 候选还款额固定按 `min(m_dAvailable - reserve_cash, m_dFinDebt)` 计算
+  - 当前只作用于普通融资负债，不作用于专项负债
+
 示例：
 
 ```json
@@ -205,7 +232,11 @@
     "path": "D:\\迅投极速策略交易系统交易终端 东海证券QMT实盘\\userdata_mini",
     "account": "068000076370",
     "account_type": "CREDIT",
-    "broker_submit_mode": "observe_only"
+    "broker_submit_mode": "observe_only",
+    "auto_repay": {
+      "enabled": true,
+      "reserve_cash": 5000
+    }
   }
 }
 ```

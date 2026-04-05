@@ -26,6 +26,19 @@ def test_order_management_paths_expand_to_api_and_host_runtime() -> None:
     assert plan["host_surfaces"] == ["order_management"]
     assert "fqnext_xtquant_broker" in plan["host_programs"]
     assert "fqnext_xt_account_sync_worker" in plan["host_programs"]
+    assert "fqnext_xt_auto_repay_worker" in plan["host_programs"]
+
+
+def test_xt_auto_repay_paths_expand_to_order_management_host_runtime() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/xt_auto_repay/service.py"]
+    )
+
+    assert plan["deployment_surfaces"] == ["order_management"]
+    assert plan["host_surfaces"] == ["order_management"]
+    assert "fqnext_xt_auto_repay_worker" in plan["host_programs"]
 
 
 def test_retired_runtime_paths_no_longer_emit_deploy_surface() -> None:
@@ -106,6 +119,7 @@ def test_shared_runtime_paths_expand_to_all_affected_surfaces() -> None:
     assert "fqnext_realtime_xtdata_consumer" in plan["host_programs"]
     assert "fqnext_xtquant_broker" in plan["host_programs"]
     assert "fqnext_xt_account_sync_worker" in plan["host_programs"]
+    assert "fqnext_xt_auto_repay_worker" in plan["host_programs"]
 
 
 def test_dagster_surface_requires_shared_rear_build_target() -> None:
