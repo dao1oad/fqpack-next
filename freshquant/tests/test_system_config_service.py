@@ -421,10 +421,10 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         database["params"].find_one({"code": "xtquant"})["value"]["path"]
         == "D:/mini_qmt/userdata_mini"
     )
-    assert (
-        database["params"].find_one({"code": "xtquant"})["value"]["auto_repay"]
-        == {"enabled": False, "reserve_cash": 12000.0}
-    )
+    assert database["params"].find_one({"code": "xtquant"})["value"]["auto_repay"] == {
+        "enabled": False,
+        "reserve_cash": 12000.0,
+    }
     assert (
         database["params"].find_one({"code": "monitor"})["value"]["xtdata"]["mode"]
         == "guardian_and_clx_15_30"

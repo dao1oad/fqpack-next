@@ -24,7 +24,11 @@ class FakeRepository:
     def get_state(self, account_id=None):
         if self.state_doc is None:
             return None
-        if account_id and self.state_doc.get("account_id") not in {None, "", account_id}:
+        if account_id and self.state_doc.get("account_id") not in {
+            None,
+            "",
+            account_id,
+        }:
             return None
         return dict(self.state_doc)
 

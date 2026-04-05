@@ -169,9 +169,7 @@ class SystemSettings:
             .strip()
             .upper(),
             broker_submit_mode=broker_submit_mode,
-            auto_repay_enabled=bool(
-                get(xtquant_doc, "auto_repay.enabled", True)
-            ),
+            auto_repay_enabled=bool(get(xtquant_doc, "auto_repay.enabled", True)),
             auto_repay_reserve_cash=float(
                 get(xtquant_doc, "auto_repay.reserve_cash", 5000.0) or 5000.0
             ),

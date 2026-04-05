@@ -127,7 +127,9 @@ class XtAutoRepayWorker:
                     snapshot_decision,
                     "snapshot_available_amount",
                 ),
-                snapshot_fin_debt=_decision_value(snapshot_decision, "snapshot_fin_debt"),
+                snapshot_fin_debt=_decision_value(
+                    snapshot_decision, "snapshot_fin_debt"
+                ),
                 confirmed_available_amount=_decision_value(
                     confirmed_decision,
                     "confirmed_available_amount",
@@ -170,7 +172,9 @@ class XtAutoRepayWorker:
                 confirmed_decision,
                 "confirmed_available_amount",
             ),
-            confirmed_fin_debt=_decision_value(confirmed_decision, "confirmed_fin_debt"),
+            confirmed_fin_debt=_decision_value(
+                confirmed_decision, "confirmed_fin_debt"
+            ),
             candidate_amount=_decision_value(snapshot_decision, "candidate_amount"),
             submitted_amount=repay_amount,
             broker_order_id=broker_order_id,
@@ -218,7 +222,9 @@ class XtAutoRepayWorker:
         last_checked_at = _parse_datetime(state.get("last_checked_at"))
         if last_checked_at is None:
             return True
-        return (now_value - last_checked_at).total_seconds() >= self.intraday_interval_seconds
+        return (
+            now_value - last_checked_at
+        ).total_seconds() >= self.intraday_interval_seconds
 
     def _in_cooldown(self, state, now_value):
         last_submit_at = _parse_datetime(state.get("last_submit_at"))
@@ -249,7 +255,9 @@ class XtAutoRepayWorker:
                 confirmed_decision,
                 "confirmed_available_amount",
             ),
-            confirmed_fin_debt=_decision_value(confirmed_decision, "confirmed_fin_debt"),
+            confirmed_fin_debt=_decision_value(
+                confirmed_decision, "confirmed_fin_debt"
+            ),
             candidate_amount=_decision_value(snapshot_decision, "candidate_amount"),
             submitted_amount=_decision_value(confirmed_decision, "repay_amount"),
         )

@@ -148,15 +148,13 @@ class XtAutoRepayService:
             "reason": str(reason or "").strip(),
             "snapshot_available_amount": _safe_float(snapshot_available_amount, None),
             "snapshot_fin_debt": _safe_float(snapshot_fin_debt, None),
-            "confirmed_available_amount": _safe_float(
-                confirmed_available_amount, None
-            ),
+            "confirmed_available_amount": _safe_float(confirmed_available_amount, None),
             "confirmed_fin_debt": _safe_float(confirmed_fin_debt, None),
             "candidate_amount": _safe_float(candidate_amount, None),
             "submitted_amount": _safe_float(submitted_amount, None),
-            "broker_order_id": None
-            if broker_order_id in {None, "", "None"}
-            else str(broker_order_id),
+            "broker_order_id": (
+                None if broker_order_id in {None, "", "None"} else str(broker_order_id)
+            ),
             "observe_only": self.observe_only,
             "created_at": _coerce_iso_datetime(created_at or self.now_provider()),
         }
