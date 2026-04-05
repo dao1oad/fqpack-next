@@ -37,19 +37,16 @@
 
 ## 页面组织
 
-`/position-management` 当前是统一三栏工作台：
+`/position-management` 当前是统一两栏工作台：
 
-- 左栏：当前仓位状态 + 对账检查
-- 中栏：标的总览
+- 左栏：当前仓位状态 + 标的总览
 - 右栏：选中标的工作区 + 最近决策与上下文
 
-当前仓位状态与参数 inventory 已合并为左栏，规则矩阵已并入“当前仓位状态”。左栏仍可编辑全局阈值：
+规则矩阵已并入“当前仓位状态”。当前仓位状态已放到“标的总览”上方，因此桌面端不再保留旧的三栏壳和单独的对账入口卡片。
 
-- `allow_open_min_bail`
-- `holding_only_min_bail`
-- `single_symbol_position_limit`
+inventory 参数表已从本页移除，去重后的只读补充项已并入 `/system-settings`；本页只保留当前仓位状态、标的总览、选中标的工作区和最近决策。
 
-中栏“标的总览”当前不再展示独立的“单标的仓位上限覆盖”列表，而是把下面三类能力收口到同一张高密度主表：
+左栏“标的总览”当前不再展示独立的“单标的仓位上限覆盖”列表，而是把下面三类能力收口到同一张高密度主表：
 
 - `must_pool` 基础配置
 - 单标的仓位上限 override
@@ -64,7 +61,7 @@
 - `全仓止损价`
 - `单标的仓位上限`
 
-中栏列表当前额外保留两组只读概览列，便于不用切进 `KlineSlim` 也能快速核对当前价格导引：
+左栏列表当前额外保留两组只读概览列，便于不用切进 `KlineSlim` 也能快速核对当前价格导引：
 
 - `Guardian 层级触发`
   - 单独展示最近 Guardian 命中层级与命中时间
@@ -97,7 +94,7 @@
 
 `Guardian 买入层级 / 止盈价格层级 / Guardian 层级触发 / 止盈层级触发 / 单笔止损触发` 这几列当前会优先吃掉主表剩余横向空间。
 
-中栏主表当前列顺序固定为：
+左栏主表当前列顺序固定为：
 
 - `标的`
 - `持仓`
@@ -157,90 +154,27 @@
 
 最近决策表格默认分页 `100` 条，表体默认显示约 `15` 行。
 
-中栏 `全仓止损价` 当前直接展示 `base_config_summary.stop_loss_price.effective_value`，运行时语义由 TPSL 的 symbol 级全仓止损承担；`活跃单笔止损` 只统计 entry 级 stoploss 绑定数量。
+左栏 `全仓止损价` 当前直接展示 `base_config_summary.stop_loss_price.effective_value`，运行时语义由 TPSL 的 symbol 级全仓止损承担；`活跃单笔止损` 只统计 entry 级 stoploss 绑定数量。
 
-## 对账检查面板
+## 对账工作台
 
-`对账检查面板` 对应 `GET /api/position-management/reconciliation` 和 `GET /api/position-management/reconciliation/<symbol>`。
+`/position-management` 当前不再直接展示旧对账视图；对账、相关订单、Entry / Slice、gap / resolution / rejection 已统一迁到独立路由 `/reconciliation`。
 
-一致性检查只读，不负责修复，不会触发 compat sync、reconcile、repair、rebuild 或任何写操作。它只负责告诉前端哪些视图本应相等却不相等，以及 broker truth 和 ledger explanation 的差异是否被 reconciliation 正确解释。
+`/reconciliation` 当前使用以下只读接口：
 
-顶部摘要当前展示：
+- `GET /api/position-management/reconciliation`
+- `GET /api/position-management/reconciliation/<symbol>`
+- `GET /api/position-management/reconciliation-workspace/<symbol>`
 
-- `总标的`
-- `ERROR / WARN / OK`
-- reconciliation 五态计数
-- `R1 ~ R4` 每条规则的 `OK / WARN / ERROR` 汇总
-
-dense ledger 当前展示：
-
-- `标的`
-- `检查结果`
-- `对账状态`
-- `latest resolution`
-- `signed gap`
-- `open gap`
-- `mismatch` 摘要
-- `broker / snapshot / entry` 关键视图摘要
-
-行展开证据当前展示：
-
-- `R1 ~ R4` 逐规则检查 badge
-- `mismatch_codes` 的中文解释
-- `broker / snapshot / entry_ledger / slice_ledger / compat_projection / stock_fills_projection` 六个 evidence surface
-- `reconciliation.state`
-- `signed gap`
-- `open gap`
-- 当前可用的 `rule evidence` 数量
-
-### 审计规则
-
-- `R1 broker_snapshot_consistency`
-  - 比较 `xt_positions` 与 `pm_symbol_position_snapshots`
-  - 预期必须一致
-- `R2 ledger_internal_consistency`
-  - 比较 `om_position_entries` 与 `om_entry_slices`
-  - 预期必须一致
-- `R3 compat_projection_consistency`
-  - 比较 `om_position_entries`、`stock_fills_compat` 与 `/api/stock_fills` 当前 open position 投影
-  - 预期三者应一致
-- `R4 broker_vs_ledger_consistency`
-  - 比较 `xt_positions` 与 `om_position_entries`
-  - 这里不是简单要求数量相等，而是要求差异必须能被 reconciliation 状态正确解释
-
-### 对账状态
-
-当前正式 reconciliation 汇总态有 5 种：
-
-- `ALIGNED`
-- `OBSERVING`
-- `AUTO_RECONCILED`
-- `BROKEN`
-- `DRIFT`
-
-当前页面会把 `BROKEN` 和 `DRIFT` 直接标为错误，把 `OBSERVING` 标为警告。
-
-### 当前前后端 contract
-
-后端 `PositionReconciliationReadService` 当前返回的只读 contract 已固定包含：
-
-- `summary.rule_counts`
-- `rows[].surface_values`
-- `rows[].rule_results`
-- `rows[].evidence_sections`
-
-前端 `PositionReconciliationPanel` 只消费这些只读字段，不再把对账逻辑散落在行内可写表单里。
+一致性检查只读，不负责修复，不会触发 compat sync、reconcile、repair、rebuild 或任何写操作。`/position-management` 当前只保留对账中心的概念链接，不再内嵌任何对账入口模块。
 
 ## 排障
 
-### 对账检查出现 ERROR
+### 需要查看对账或订单链
 
-- 先看 `xt_positions`
-- 再看 `pm_symbol_position_snapshots`
-- 再看 `om_position_entries`
-- 再看 `om_entry_slices`
-- 再看 `stock_fills_compat`
-- 最后看 `om_reconciliation_gaps / om_reconciliation_resolutions / om_ingest_rejections`
+- 直接进入 `/reconciliation`
+- 需要带上下文时，使用 `?symbol=<symbol>`
+- 在 `/reconciliation` 里继续看 `概览 / 相关订单 / 持仓账本 / Resolution`
 
 ### 某个 symbol 一直异常
 

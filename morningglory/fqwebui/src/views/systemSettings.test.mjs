@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import {
   buildBootstrapLedgerSections,
   buildLedgerColumns,
+  buildPositionInventorySupplementSection,
   buildSettingsLedgerSections,
   flattenLedgerRows,
   readSystemConfigPayload,
@@ -345,6 +346,62 @@ test('resolveEditorMeta returns official select options for enum settings', () =
     min: 0,
     step: 1000,
   })
+})
+
+test('position inventory supplement keeps only non-duplicated readonly rows for system settings', () => {
+  const payload = createPayload()
+  const existingRows = flattenLedgerRows(buildSettingsLedgerSections(payload, {
+    currentValues: payload.settings.values,
+    baselineValues: payload.settings.values,
+  }))
+  const section = buildPositionInventorySupplementSection({
+    config: {
+      inventory: [
+        {
+          key: 'allow_open_min_bail',
+          label: '允许开新仓最低保证金',
+          value: 800000,
+          editable: true,
+          group: 'editable_thresholds',
+          source: 'pm_configs.thresholds',
+        },
+        {
+          key: 'state_stale_after_seconds',
+          label: '状态过期秒数',
+          value: 15,
+          editable: false,
+          group: 'policy_defaults',
+          source: 'code_default',
+        },
+        {
+          key: 'default_state',
+          label: 'stale 默认状态',
+          value: 'HOLDING_ONLY',
+          editable: false,
+          group: 'policy_defaults',
+          source: 'code_default',
+        },
+        {
+          key: 'xtquant.account_type',
+          label: 'XT 账户类型',
+          value: 'CREDIT',
+          editable: false,
+          group: 'system_connection',
+          source: 'params.xtquant',
+        },
+      ],
+    },
+  }, existingRows)
+
+  assert.ok(section)
+  assert.equal(section.key, 'position_management_inventory')
+  assert.deepEqual(section.rows.map((row) => row.key), [
+    'position_management_inventory.state_stale_after_seconds',
+    'position_management_inventory.default_state',
+  ])
+  assert.equal(section.rows[0].label, '状态过期秒数')
+  assert.equal(section.rows[0].value_label, '15 秒')
+  assert.equal(section.rows[0].readonly, true)
 })
 
 test('monitor mode editor only exposes official guardian and combined modes', () => {

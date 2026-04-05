@@ -222,14 +222,17 @@ import { ElMessage } from 'element-plus'
 import StatusChip from '@/components/workbench/StatusChip.vue'
 import WorkbenchPage from '@/components/workbench/WorkbenchPage.vue'
 import WorkbenchToolbar from '@/components/workbench/WorkbenchToolbar.vue'
+import { positionManagementApi } from '@/api/positionManagementApi'
 import MyHeader from '@/views/MyHeader.vue'
 import { systemConfigApi } from '@/api/systemConfigApi'
 import {
   buildBootstrapLedgerSections,
   buildLedgerColumns,
+  buildPositionInventorySupplementSection,
   buildSettingsLedgerSections,
   buildStrategyLedgerSection,
   countDirtyRows,
+  flattenLedgerRows,
   readSystemConfigPayload,
 } from './systemSettings.mjs'
 
@@ -238,6 +241,7 @@ const savingBootstrap = ref(false)
 const savingSettings = ref(false)
 const pageError = ref('')
 const dashboard = ref({})
+const positionInventoryDashboard = ref({})
 const bootstrapBaseline = ref(defaultBootstrapForm())
 const settingsBaseline = ref(defaultSettingsForm())
 
@@ -254,9 +258,14 @@ const settingsLedgerSections = computed(() => buildSettingsLedgerSections(dashbo
   baselineValues: settingsBaseline.value,
 }))
 const strategyLedgerSection = computed(() => buildStrategyLedgerSection(dashboard.value))
+const positionInventorySupplementSection = computed(() => buildPositionInventorySupplementSection(
+  positionInventoryDashboard.value,
+  flattenLedgerRows(settingsLedgerSections.value),
+))
 const ledgerColumns = computed(() => buildLedgerColumns([
   ...bootstrapLedgerSections.value,
   ...settingsLedgerSections.value,
+  ...(positionInventorySupplementSection.value?.rows?.length ? [positionInventorySupplementSection.value] : []),
   strategyLedgerSection.value,
 ]))
 const bootstrapDirtyCount = computed(() => countDirtyRows(bootstrapLedgerSections.value))
@@ -440,9 +449,21 @@ const loadDashboard = async () => {
   loading.value = true
   pageError.value = ''
   try {
-    const payload = readSystemConfigPayload(await systemConfigApi.getDashboard(), {})
+    const [settingsResult, positionInventoryResult] = await Promise.allSettled([
+      systemConfigApi.getDashboard(),
+      positionManagementApi.getDashboard(),
+    ])
+    if (settingsResult.status !== 'fulfilled') {
+      throw settingsResult.reason
+    }
+    const payload = readSystemConfigPayload(settingsResult.value, {})
     dashboard.value = payload
     syncFormsFromDashboard(payload)
+    if (positionInventoryResult.status === 'fulfilled') {
+      positionInventoryDashboard.value = positionInventoryResult.value?.data || positionInventoryResult.value || {}
+    } else {
+      positionInventoryDashboard.value = {}
+    }
   } catch (error) {
     pageError.value = resolveErrorMessage(error, '加载系统设置失败')
   } finally {

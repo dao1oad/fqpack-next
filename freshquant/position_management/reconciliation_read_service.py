@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
+try:
+    from bson import ObjectId
+except ModuleNotFoundError:  # pragma: no cover - optional dependency in tests
+    ObjectId = None
+
 from freshquant.position_management.reconciliation_contract import (
     CONSISTENCY_RECONCILIATION_STATES,
     CONSISTENCY_RULES,
@@ -175,6 +182,33 @@ class PositionReconciliationReadService:
             if row.get("symbol") == normalized_symbol:
                 return row
         raise ValueError("symbol is not tracked")
+
+    def get_symbol_workspace(self, symbol):
+        detail = self.get_symbol_detail(symbol)
+        normalized_symbol = detail.get("symbol")
+        repository = self._get_order_repository()
+        gap_rows = list(
+            repository.list_reconciliation_gaps(symbol=normalized_symbol) or []
+        )
+        gap_ids = [
+            str(row.get("gap_id") or row.get("_id") or "").strip()
+            for row in gap_rows
+            if str(row.get("gap_id") or row.get("_id") or "").strip()
+        ]
+        resolution_rows = (
+            list(repository.list_reconciliation_resolutions(gap_ids=gap_ids) or [])
+            if gap_ids
+            else []
+        )
+        rejection_rows = list(
+            repository.list_ingest_rejections(symbol=normalized_symbol) or []
+        )
+        return {
+            "detail": detail,
+            "gaps": [_normalize_workspace_row(row) for row in gap_rows],
+            "resolutions": [_normalize_workspace_row(row) for row in resolution_rows],
+            "rejections": [_normalize_workspace_row(row) for row in rejection_rows],
+        }
 
     def _build_row(
         self,
@@ -356,6 +390,33 @@ def _default_stock_fills_projection_loader(symbols):
             continue
         rows.append(aggregated)
     return rows
+
+
+def _normalize_workspace_row(row):
+    normalized = _make_json_safe(dict(row or {}))
+    symbol = normalize_to_base_code(normalized.get("symbol"))
+    if symbol:
+        normalized["symbol"] = symbol
+    return normalized
+
+
+def _make_json_safe(value):
+    if isinstance(value, dict):
+        return {key: _make_json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_make_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_make_json_safe(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if ObjectId is not None and isinstance(value, ObjectId):
+        return str(value)
+    if hasattr(value, "item") and callable(value.item):
+        try:
+            return value.item()
+        except Exception:  # pragma: no cover - defensive fallback
+            return value
+    return value
 
 
 def _build_summary(rows):

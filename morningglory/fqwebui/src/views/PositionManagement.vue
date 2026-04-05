@@ -96,83 +96,9 @@
                   </article>
                 </div>
               </div>
-
-              <div class="position-panel-section">
-                <div class="position-panel-section__header">
-                  <div class="workbench-title-group">
-                    <div class="position-panel-section__title">参数 inventory</div>
-                  </div>
-                </div>
-
-                <div class="workbench-summary-row">
-                  <StatusChip variant="muted">
-                    配置时间 <strong>{{ configUpdatedAt }}</strong>
-                  </StatusChip>
-                  <StatusChip variant="muted">
-                    更新人 <strong>{{ configUpdatedBy }}</strong>
-                  </StatusChip>
-                </div>
-
-                <el-table :data="inventoryRows" size="small" border class="position-config-table">
-                  <el-table-column prop="group_label" label="分组" min-width="108" show-overflow-tooltip />
-                  <el-table-column label="参数" min-width="188">
-                    <template #default="{ row }">
-                      <div class="inventory-parameter-cell">
-                        <strong>{{ row.label }}</strong>
-                        <span>{{ row.source_label }}</span>
-                      </div>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="当前值" min-width="184">
-                    <template #default="{ row }">
-                      <div class="inventory-value-cell">
-                        <el-input-number
-                          v-if="row.key === 'allow_open_min_bail'"
-                          v-model="editableForm.allow_open_min_bail"
-                          :min="0"
-                          :step="10000"
-                          controls-position="right"
-                        />
-                        <el-input-number
-                          v-else-if="row.key === 'holding_only_min_bail'"
-                          v-model="editableForm.holding_only_min_bail"
-                          :min="0"
-                          :step="10000"
-                          controls-position="right"
-                        />
-                        <el-input-number
-                          v-else-if="row.key === 'single_symbol_position_limit'"
-                          v-model="editableForm.single_symbol_position_limit"
-                          :min="0"
-                          :step="10000"
-                          controls-position="right"
-                        />
-                        <span v-else class="inventory-value">{{ row.value_label }}</span>
-                        <span v-if="row.editable" class="inventory-inline-hint">
-                          当前生效：{{ row.value_label }}
-                        </span>
-                      </div>
-                    </template>
-                  </el-table-column>
-                </el-table>
-
-                <div class="position-edit-footer">
-                  <span class="workbench-muted">当前开放账户阈值和全局单标的默认持仓上限保持可编辑，其余参数继续只读展示。</span>
-                  <el-button type="primary" :loading="saving" @click="saveThresholds">保存阈值</el-button>
-                </div>
-              </div>
             </div>
           </WorkbenchDetailPanel>
 
-          <PositionReconciliationPanel
-            class="position-reconciliation-panel"
-            :overview="reconciliationOverview"
-            :loading="reconciliationLoading"
-            :error="reconciliationError"
-          />
-        </div>
-
-        <div class="position-workbench-column position-workbench-column--middle" aria-label="标的总览">
           <PositionSubjectOverviewPanel class="position-subject-overview-host" :workbench="subjectWorkbenchRuntime" :selected-symbol="selectedSubjectSymbol" @symbol-select="handleSelectedSubjectChange" />
         </div>
 
@@ -182,7 +108,7 @@
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">选中标的工作区</div>
                 <div class="workbench-panel__desc">
-                  当前显示中栏选中标的的聚合买入列表 / 按持仓入口止损，以及切片明细。
+                  当前显示左栏选中标的的聚合买入列表 / 按持仓入口止损，以及切片明细。
                 </div>
               </div>
             </div>
@@ -484,7 +410,6 @@ import StatusChip from '../components/workbench/StatusChip.vue'
 import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.vue'
 import WorkbenchLedgerPanel from '../components/workbench/WorkbenchLedgerPanel.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
-import PositionReconciliationPanel from '../components/position-management/PositionReconciliationPanel.vue'
 import PositionSubjectOverviewPanel from '../components/position-management/PositionSubjectOverviewPanel.vue'
 import MyHeader from '@/views/MyHeader.vue'
 import { positionManagementApi } from '@/api/positionManagementApi'
@@ -495,29 +420,15 @@ import {
 } from '@/views/subjectManagement.mjs'
 import { createPositionManagementSubjectWorkbenchController } from '@/views/positionManagementSubjectWorkbench.mjs'
 import {
-  buildInventoryRows,
   buildRecentDecisionLedgerRows,
   buildRuleMatrix,
   buildStatePanel,
   readDashboardPayload,
 } from './positionManagement.mjs'
-import { formatBeijingTimestamp } from '../tool/beijingTime.mjs'
-import { readPositionReconciliationPayload } from './positionReconciliation.mjs'
-
 const loading = ref(false)
-const saving = ref(false)
 const pageError = ref('')
 const dashboard = ref({})
-const reconciliationOverview = ref({})
-const reconciliationLoading = ref(false)
-const reconciliationError = ref('')
 const selectedSubjectSymbol = ref('')
-
-const editableForm = reactive({
-  allow_open_min_bail: 0,
-  holding_only_min_bail: 0,
-  single_symbol_position_limit: 0,
-})
 
 const decisionPagination = reactive({
   page: 1,
@@ -585,7 +496,6 @@ const subjectWorkbenchRuntime = {
   saveStoploss: async (symbol, entryId) => saveSubjectStoploss(symbol, entryId),
 }
 
-const inventoryRows = computed(() => buildInventoryRows(dashboard.value))
 const statePanel = computed(() => buildStatePanel(dashboard.value))
 const ruleMatrix = computed(() => buildRuleMatrix(dashboard.value))
 const decisionLedgerRows = computed(() => buildRecentDecisionLedgerRows(dashboard.value))
@@ -593,8 +503,6 @@ const pagedDecisionRows = computed(() => {
   const start = (decisionPagination.page - 1) * decisionPagination.pageSize
   return decisionLedgerRows.value.slice(start, start + decisionPagination.pageSize)
 })
-const configUpdatedAt = computed(() => formatBeijingTimestamp(dashboard.value?.config?.updated_at, '未配置'))
-const configUpdatedBy = computed(() => dashboard.value?.config?.updated_by || 'unknown')
 const stateToneChipVariant = computed(() => {
   const tone = statePanel.value?.hero?.effective_state_tone
   if (tone === 'allow') return 'success'
@@ -682,23 +590,13 @@ const handleSelectedSubjectChange = (symbol) => {
   selectedSubjectSymbol.value = String(symbol || '').trim()
 }
 
-const syncEditableForm = () => {
-  const thresholds = dashboard.value?.config?.thresholds || {}
-  editableForm.allow_open_min_bail = Number(thresholds.allow_open_min_bail || 0)
-  editableForm.holding_only_min_bail = Number(thresholds.holding_only_min_bail || 0)
-  editableForm.single_symbol_position_limit = Number(thresholds.single_symbol_position_limit || 0)
-}
-
 const loadDashboard = async () => {
   loading.value = true
-  reconciliationLoading.value = true
   pageError.value = ''
-  reconciliationError.value = ''
 
   const subjectOverviewPromise = subjectWorkbenchRuntime.refreshOverview()
-  const [dashboardResult, reconciliationResult] = await Promise.allSettled([
+  const [dashboardResult] = await Promise.allSettled([
     positionManagementApi.getDashboard(),
-    positionManagementApi.getReconciliation(),
   ])
 
   if (dashboardResult.status === 'fulfilled') {
@@ -707,7 +605,6 @@ const loadDashboard = async () => {
       {},
     )
     dashboard.value = payload
-    syncEditableForm()
   } else {
     pageError.value = resolveErrorMessage(
       dashboardResult.reason,
@@ -715,45 +612,8 @@ const loadDashboard = async () => {
     )
   }
 
-  if (reconciliationResult.status === 'fulfilled') {
-    reconciliationOverview.value = readPositionReconciliationPayload(
-      reconciliationResult.value,
-      {},
-    )
-  } else {
-    reconciliationOverview.value = {}
-    reconciliationError.value = resolveErrorMessage(
-      reconciliationResult.reason,
-      '加载仓位对账检查失败',
-    )
-  }
-
   await subjectOverviewPromise
   loading.value = false
-  reconciliationLoading.value = false
-}
-
-const saveThresholds = async () => {
-  if (editableForm.allow_open_min_bail <= editableForm.holding_only_min_bail) {
-    ElMessage.error('允许开新仓最低保证金必须大于仅允许持仓内买入最低保证金')
-    return
-  }
-
-  saving.value = true
-  try {
-    await positionManagementApi.updateConfig({
-      allow_open_min_bail: editableForm.allow_open_min_bail,
-      holding_only_min_bail: editableForm.holding_only_min_bail,
-      single_symbol_position_limit: editableForm.single_symbol_position_limit,
-      updated_by: 'web-ui',
-    })
-    ElMessage.success('仓位管理阈值已保存')
-    await loadDashboard()
-  } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '保存仓位管理阈值失败'))
-  } finally {
-    saving.value = false
-  }
 }
 
 onMounted(() => {
@@ -772,13 +632,11 @@ onMounted(() => {
 }
 
 .position-workbench-grid {
-  --position-workbench-left-width: 0.9fr;
-  --position-workbench-middle-width: 1.64fr;
+  --position-workbench-left-width: 1.18fr;
   --position-workbench-right-width: 0.94fr;
   display: grid;
   grid-template-columns:
     minmax(0, var(--position-workbench-left-width))
-    minmax(0, var(--position-workbench-middle-width))
     minmax(0, var(--position-workbench-right-width));
   gap: 12px;
   align-items: stretch;
@@ -808,7 +666,6 @@ onMounted(() => {
 }
 
 .position-state-panel,
-.position-reconciliation-panel,
 .position-subject-overview-host,
 .position-selection-panel,
 .position-decision-panel {
@@ -837,56 +694,6 @@ onMounted(() => {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable both-edges;
-}
-
-.position-config-table :deep(.cell) {
-  padding-top: 4px;
-  padding-bottom: 4px;
-}
-
-.position-config-table :deep(.el-input-number) {
-  width: 100%;
-}
-
-.position-edit-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 6px;
-  padding-top: 4px;
-}
-
-.position-panel-section__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.inventory-parameter-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.inventory-parameter-cell strong {
-  color: #303133;
-}
-
-.inventory-value-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.inventory-parameter-cell span,
-.inventory-inline-hint,
-.inventory-value {
-  color: #606266;
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .position-state-grid {
@@ -1246,11 +1053,7 @@ onMounted(() => {
   .position-workbench-grid {
     grid-template-columns:
       minmax(0, 1fr)
-      minmax(0, 1.2fr);
-  }
-
-  .position-workbench-column--right {
-    grid-column: 1 / -1;
+      minmax(0, 1fr);
   }
 }
 

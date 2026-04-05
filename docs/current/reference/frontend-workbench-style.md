@@ -20,26 +20,26 @@
 - `/gantt/shouban30`
 - `/stock-control`
 - `/stock-pools`
-- `/stock-cjsd`
-- `/order-management`
 - `/position-management`
+- `/reconciliation`
 - `/runtime-observability`
 - `/system-settings`
-- `/tpsl`
-- `/futures-control`
 - `/kline-big`
 - `/kline-slim`
 - `/multi-period`
 
 补充事实：
 
-- `/stock-control`、`/stock-pools`、`/stock-cjsd`、`/gantt`、`/gantt/stocks/:plateKey`、`/gantt/shouban30`、`/system-settings` 当前已经直接消费共享 `WorkbenchPage / WorkbenchToolbar / WorkbenchPanel` primitives
+- `/stock-control`、`/stock-pools`、`/gantt`、`/gantt/stocks/:plateKey`、`/gantt/shouban30`、`/system-settings` 当前已经直接消费共享 `WorkbenchPage / WorkbenchToolbar / WorkbenchPanel` primitives
 - `/system-settings` 当前把顶部摘要与 dense ledger 行内状态统一收口到共享 `StatusChip`
+- `/system-settings` 当前额外并入了仓位管理 inventory 去重后的只读补充项
 - `/system-settings` 当前把每列拆成固定列头和独立滚动 body；每个 section 的标题摘要与 ledger 表头都改成静态头部，滚动时不再出现 sticky 叠层遮挡首行
 - `/daily-screening`、`/position-management`、`/runtime-observability` 与 `/stock-control` 当前也已经把 dense ledger 改成“静态表头 + 独立 viewport”结构；表头不再使用 sticky 叠层，纵向滚动只发生在 viewport 内
 - `/gantt/shouban30` 当前把 `首板板块 / 热点标的 / 标的详情 / 工作区` 四个主区域统一落到共享 `WorkbenchSidebarPanel / WorkbenchLedgerPanel / WorkbenchDetailPanel`，provider 切换也改成共享 workbench 常用的 `radio-button switch`
-- `/futures-control`、`/kline-big`、`/kline-slim`、`/multi-period` 当前至少统一接入共享 `page-shell contract`：根容器显式带 `workbench-page`，并复用同一套视口高度、背景与滚动兜底语义
-- `/futures-control` 当前把 `每日复盘 / 统计数据` 设为按 tab 延迟挂载；`统计数据` 图表宿主节点会先保留固定尺寸，再初始化 ECharts，切换 tab 时不应再因为 0 宽/0 高发出控制台 warning
+- `/position-management` 当前改为两栏工作台：左栏 `当前仓位状态 + 标的总览`，右栏 `选中标的工作区 + 最近决策`
+- `/reconciliation` 当前是唯一正式的对账与订单排障入口；`Entry / Slice` 已收口到同一个 `持仓账本` tab
+- `/kline-big`、`/kline-slim`、`/multi-period` 当前至少统一接入共享 `page-shell contract`：根容器显式带 `workbench-page`，并复用同一套视口高度、背景与滚动兜底语义
+- 旧 `/tpsl`、`/futures-control`、`/stock-cjsd` 页面入口已经从正式导航和路由移除
 - `/kline-slim` 仍保留暗色图表页语法，不纳入白底 workbench 页面壳；但它的工具栏状态条、浮层摘要和缠论摘要当前也统一复用共享 `StatusChip`
 
 ## 页面壳
@@ -120,8 +120,7 @@
 
 - `/runtime-observability` 已经用共享 `StatusChip` 承担只读摘要 badge 与行内状态 badge
 - `/position-management` 已经用共享 `StatusChip` 承担顶部摘要、规则矩阵结果、右栏一致性/门禁和最近决策结果
-- `/order-management` 已经用共享 `StatusChip` 承担筛选摘要、订单摘要条和详情 identifier chip
-- `/tpsl` 已经用共享 `StatusChip` 承担顶部摘要、symbol 导航卡片 badge 与统一历史明细标签
+- `/reconciliation` 已经用共享 `StatusChip` 承担顶部摘要、symbol 审计状态、订单筛选摘要和 resolution 列表状态
 - 仓内保留的 `SubjectManagement.vue` 组件文件已经用共享 `StatusChip` 承担顶部摘要条与右侧编辑区摘要 chip
 - `/daily-screening` 已经用共享 `StatusChip` 承担工作台说明标签、顶部摘要条、详情数值摘要与命中条件 chip
 - `/kline-slim` 已经用共享 `StatusChip` 承担工具栏状态条、标的设置/画线编辑摘要与缠论结构摘要

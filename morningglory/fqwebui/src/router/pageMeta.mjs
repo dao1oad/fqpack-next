@@ -9,21 +9,15 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'primary',
     size: 'default',
   },
-  futures: {
-    label: '期货',
-    path: '/futures-control',
-    buttonType: 'primary',
-    size: 'small',
-  },
   klineSlim: {
     label: '行情图表',
     path: '/kline-slim',
     buttonType: 'warning',
     size: 'small',
   },
-  orders: {
-    label: '订单管理',
-    path: '/order-management',
+  reconciliation: {
+    label: '对账中心',
+    path: '/reconciliation',
     buttonType: 'success',
     size: 'small',
   },
@@ -31,13 +25,6 @@ export const HEADER_NAV_TARGETS = {
     label: '仓位管理',
     path: '/position-management',
     buttonType: 'success',
-    size: 'small',
-  },
-  tpsl: {
-    label: 'TPSL',
-    path: '/tpsl',
-    buttonType: 'warning',
-    plain: true,
     size: 'small',
   },
   runtime: {
@@ -84,27 +71,18 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'primary',
     size: 'small',
   },
-  cjsd: {
-    label: '超级赛道',
-    path: '/stock-cjsd',
-    buttonType: 'primary',
-    size: 'small',
-  },
 }
 
 export const HEADER_NAV_GROUPS = [
   ['systemSettings'],
-  ['futures'],
-  ['klineSlim', 'orders', 'positionManagement', 'tpsl', 'runtime'],
+  ['klineSlim', 'reconciliation', 'positionManagement', 'runtime'],
   ['gantt', 'shouban30', 'dailyScreening'],
-  ['stock', 'pool', 'cjsd'],
+  ['stock', 'pool'],
 ]
 
 export const ROUTE_TITLES_BY_NAME = {
-  'futures-control': '期货',
   'stock-control': '股票',
   'stock-pools': '股票池',
-  'stock-cjsd': '超级赛道',
   'multi-period': '多周期',
   'kline-big': '行情图表',
   'kline-slim': '行情图表',
@@ -112,11 +90,10 @@ export const ROUTE_TITLES_BY_NAME = {
   'gantt-shouban30': '首板选股',
   'daily-screening': '每日选股',
   'gantt-stocks': '板块趋势',
-  'order-management': '订单管理',
   'position-management': '仓位管理',
+  'reconciliation': '对账中心',
   'runtime-observability': '运行观测',
   'system-settings': '系统设置',
-  'tpsl-management': 'TPSL',
 }
 
 export const getHeaderNavTarget = (key) => {

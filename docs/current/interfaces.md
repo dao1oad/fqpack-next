@@ -29,6 +29,7 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/position-management/symbol-limits/<symbol>`
 - `/api/position-management/reconciliation`
 - `/api/position-management/reconciliation/<symbol>`
+- `/api/position-management/reconciliation-workspace/<symbol>`
 
 ### `subject-management`
 
@@ -119,6 +120,9 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/position-management/reconciliation`
   - 当前返回只读多视图一致性审计摘要
   - 包含 `summary.rule_counts / summary.reconciliation_state_counts / rows[].surface_values / rows[].rule_results / rows[].evidence_sections`
+- `/api/position-management/reconciliation-workspace/<symbol>`
+  - 当前返回 `/reconciliation` 下半屏工作区需要的 symbol 级对账 workspace
+  - 包含 `detail / gaps / resolutions / rejections`
 - `/api/stock_fills`
   - 仍保留旧名称
   - 底层优先读 `entry ledger`
@@ -180,9 +184,8 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 ## Web UI 路由
 
 - `/kline-slim`
-- `/order-management`
 - `/position-management`
-- `/tpsl`
+- `/reconciliation`
 - `/runtime-observability`
 - `/gantt`
 - `/gantt/shouban30`

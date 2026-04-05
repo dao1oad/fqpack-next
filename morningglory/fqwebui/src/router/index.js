@@ -4,21 +4,18 @@ import {
   resolveRouteMetaTitle,
 } from './pageMeta.mjs'
 
-const FuturesControl = () => import('../views/FuturesControl.vue')
 const StockControl = () => import('../views/StockControl.vue')
 const MultiPeriod = () => import('../views/MultiPeriod.vue')
 const KlineBig = () => import('../views/KlineBig.vue')
 const KlineSlim = () => import('../views/KlineSlim.vue')
 const StockPools = () => import('../components/StockPools.vue')
-const StockCjsd = () => import('../components/StockCjsd.vue')
 const GanttUnified = () => import('../views/GanttUnified.vue')
 const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
 const GanttShouban30Phase1 = () => import('../views/GanttShouban30Phase1.vue')
 const DailyScreening = () => import('../views/DailyScreening.vue')
-const OrderManagement = () => import('../views/OrderManagement.vue')
 const PositionManagement = () => import('../views/PositionManagement.vue')
+const ReconciliationWorkbench = () => import('../views/ReconciliationWorkbench.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
-const TpslManagement = () => import('../views/TpslManagement.vue')
 const SystemSettings = () => import('../views/SystemSettings.vue')
 
 const withRouteTitle = (route) => ({
@@ -35,11 +32,6 @@ const routes = [
     redirect: '/stock-control'
   },
   withRouteTitle({
-    path: '/futures-control',
-    name: 'futures-control',
-    component: FuturesControl
-  }),
-  withRouteTitle({
     path: '/stock-control',
     name: 'stock-control',
     component: StockControl
@@ -48,11 +40,6 @@ const routes = [
     path: '/stock-pools',
     name: 'stock-pools',
     component: StockPools
-  }),
-  withRouteTitle({
-    path: '/stock-cjsd',
-    name: 'stock-cjsd',
-    component: StockCjsd
   }),
   withRouteTitle({
     path: '/multi-period',
@@ -90,14 +77,14 @@ const routes = [
     component: GanttUnifiedStocks
   }),
   withRouteTitle({
-    path: '/order-management',
-    name: 'order-management',
-    component: OrderManagement
-  }),
-  withRouteTitle({
     path: '/position-management',
     name: 'position-management',
     component: PositionManagement
+  }),
+  withRouteTitle({
+    path: '/reconciliation',
+    name: 'reconciliation',
+    component: ReconciliationWorkbench
   }),
   withRouteTitle({
     path: '/runtime-observability',
@@ -108,11 +95,6 @@ const routes = [
     path: '/system-settings',
     name: 'system-settings',
     component: SystemSettings
-  }),
-  withRouteTitle({
-    path: '/tpsl',
-    name: 'tpsl-management',
-    component: TpslManagement
   }),
 ]
 

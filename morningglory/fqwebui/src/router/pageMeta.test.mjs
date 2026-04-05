@@ -11,12 +11,6 @@ import {
 
 const LEGACY_CORE_ROUTE_SPECS = [
   {
-    componentName: 'FuturesControl',
-    importPath: '../views/FuturesControl.vue',
-    routePath: '/futures-control',
-    routeName: 'futures-control',
-  },
-  {
     componentName: 'StockControl',
     importPath: '../views/StockControl.vue',
     routePath: '/stock-control',
@@ -45,12 +39,6 @@ const LEGACY_CORE_ROUTE_SPECS = [
     importPath: '../components/StockPools.vue',
     routePath: '/stock-pools',
     routeName: 'stock-pools',
-  },
-  {
-    componentName: 'StockCjsd',
-    importPath: '../components/StockCjsd.vue',
-    routePath: '/stock-cjsd',
-    routeName: 'stock-cjsd',
   },
 ]
 
@@ -88,18 +76,20 @@ test('resolveDocumentTitle prefers query title then route meta title', () => {
 test('header nav groups stay metadata-driven and preserve the expected workbench grouping order', () => {
   assert.deepEqual(HEADER_NAV_GROUPS, [
     ['systemSettings'],
-    ['futures'],
-    ['klineSlim', 'orders', 'positionManagement', 'tpsl', 'runtime'],
+    ['klineSlim', 'reconciliation', 'positionManagement', 'runtime'],
     ['gantt', 'shouban30', 'dailyScreening'],
-    ['stock', 'pool', 'cjsd'],
+    ['stock', 'pool'],
   ])
 
   const groups = resolveHeaderNavGroups()
   assert.equal(groups.length, HEADER_NAV_GROUPS.length)
-  assert.equal(groups[2][0].label, '行情图表')
-  assert.equal(groups[2][4].query.tabTitle, '运行观测')
-  assert.equal(groups[3][1].query.days, '30')
-  assert.equal(groups[4][2].path, '/stock-cjsd')
+  assert.equal(groups[1][0].label, '行情图表')
+  assert.equal(groups[1][1].path, '/reconciliation')
+  assert.equal(groups[1][3].query.tabTitle, '运行观测')
+  assert.equal(groups[2][1].query.days, '30')
+  assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/futures-control'), false)
+  assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/tpsl'), false)
+  assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/stock-cjsd'), false)
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/subject-management'), false)
 })
 

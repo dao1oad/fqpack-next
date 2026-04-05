@@ -9,12 +9,11 @@ const readSource = (relativePath) => (
 const dailySource = readSource('./DailyScreening.vue')
 const orderSource = readSource('./OrderManagement.vue')
 const positionSource = readSource('./PositionManagement.vue')
-const positionReconciliationSource = readSource('../components/position-management/PositionReconciliationPanel.vue')
+const reconciliationSource = readSource('./ReconciliationWorkbench.vue')
 const positionSubjectOverviewSource = readSource('../components/position-management/PositionSubjectOverviewPanel.vue')
 const subjectSource = readSource('./SubjectManagement.vue')
 const runtimeSource = readSource('./RuntimeObservability.vue')
 const systemSettingsSource = readSource('./SystemSettings.vue')
-const tpslSource = readSource('./TpslManagement.vue')
 const shoubanSource = readSource('./GanttShouban30Phase1.vue')
 const ganttSource = readSource('./GanttUnified.vue')
 const ganttStocksSource = readSource('./GanttUnifiedStocks.vue')
@@ -27,7 +26,7 @@ test('daily screening keeps the page shell fixed and scrolls inside filter and r
   assert.match(dailySource, /\.daily-results-content \{[\s\S]*overflow:\s*hidden;/)
 })
 
-test('order, position, subject, tpsl and runtime pages no longer use page-level scrolling at desktop widths', () => {
+test('order, position, subject, reconciliation and runtime pages no longer use page-level scrolling at desktop widths', () => {
   assert.match(orderSource, /\.order-body \{[\s\S]*overflow:\s*hidden;/)
   assert.match(orderSource, /\.order-main-grid \{[\s\S]*overflow:\s*hidden;/)
   assert.match(orderSource, /\.order-detail-grid \{[\s\S]*overflow:\s*auto;/)
@@ -38,8 +37,7 @@ test('order, position, subject, tpsl and runtime pages no longer use page-level 
   assert.match(positionSource, /\.position-selection-panel \{[\s\S]*overflow:\s*hidden;/)
   assert.match(positionSource, /\.position-panel-body \{[\s\S]*overflow:\s*hidden;/)
   assert.match(positionSource, /\.position-state-scroll \{[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
-  assert.match(positionSource, /\.position-reconciliation-panel,[\s\S]*\.position-subject-overview-host,[\s\S]*\.position-selection-panel,[\s\S]*\.position-decision-panel \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(positionReconciliationSource, /\.position-reconciliation-ledger \{[\s\S]*overflow:\s*auto;/)
+  assert.match(positionSource, /\.position-subject-overview-host,[\s\S]*\.position-selection-panel,[\s\S]*\.position-decision-panel \{[\s\S]*overflow:\s*hidden;/)
   assert.match(positionSubjectOverviewSource, /\.position-subject-overview-panel \{[\s\S]*overflow:\s*hidden;/)
   assert.match(positionSubjectOverviewSource, /\.position-subject-table-wrap \{[\s\S]*overflow:\s*hidden;/)
   assert.match(positionSubjectOverviewSource, /<el-table[\s\S]*height="100%"/)
@@ -49,13 +47,18 @@ test('order, position, subject, tpsl and runtime pages no longer use page-level 
   assert.match(subjectSource, /\.subject-management-body \{[\s\S]*overflow:\s*hidden;/)
   assert.match(subjectSource, /\.subject-editor-stack \{[\s\S]*overflow:\s*auto;/)
 
-  assert.match(tpslSource, /\.tpsl-body \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(tpslSource, /\.tpsl-layout \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(tpslSource, /\.tpsl-main-stack \{[\s\S]*overflow:\s*auto;/)
-
   assert.match(runtimeSource, /\.runtime-shell \{[\s\S]*overflow:\s*hidden;/)
   assert.match(runtimeSource, /\.runtime-browse-layout \{[\s\S]*overflow:\s*hidden;/)
   assert.match(runtimeSource, /\.runtime-browser-panel--detail \{[\s\S]*overflow:\s*hidden;/)
+
+  assert.match(reconciliationSource, /\.reconciliation-body \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(reconciliationSource, /\.reconciliation-layout \{[\s\S]*grid-template-columns:\s*minmax\(360px,\s*0\.9fr\)\s+minmax\(0,\s*1\.35fr\);[\s\S]*overflow:\s*hidden;/)
+  assert.match(reconciliationSource, /\.reconciliation-ledger-panel,[\s\S]*\.reconciliation-detail-panel \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(reconciliationSource, /\.reconciliation-panel__filters \{[\s\S]*flex-wrap:\s*nowrap;/)
+  assert.match(reconciliationSource, /\.reconciliation-table-wrap \{[\s\S]*overflow-y:\s*auto;/)
+  assert.match(reconciliationSource, /\.reconciliation-tabs :deep\(\.el-tabs__content\) \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(reconciliationSource, /\.reconciliation-ledger-workspace \{[\s\S]*grid-template-columns:\s*minmax\(280px,\s*0\.95fr\)\s+minmax\(0,\s*1\.05fr\);/)
+  assert.match(reconciliationSource, /\.reconciliation-ledger-side \{[\s\S]*grid-template-rows:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/)
 })
 
 test('system settings keeps the hero visible and scrolls inside editor and side panes', () => {
