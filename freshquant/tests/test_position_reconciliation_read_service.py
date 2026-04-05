@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from datetime import datetime, timezone
+
 import pytest
 
 
@@ -312,3 +314,101 @@ def test_reconciliation_read_service_rejects_unknown_symbol():
 
     with pytest.raises(ValueError, match="symbol is not tracked"):
         service.get_symbol_detail("600000")
+
+
+def test_reconciliation_read_service_builds_symbol_workspace_with_gap_resolution_and_rejection_rows():
+    class FakeOrderRepository:
+        def list_reconciliation_gaps(self, *, symbol=None, state=None):
+            assert symbol == "600000"
+            return [
+                {
+                    "gap_id": "gap_1",
+                    "symbol": "600000",
+                    "state": "OPEN",
+                    "side": "buy",
+                    "quantity_delta": 200,
+                    "detected_at": datetime(2026, 4, 5, 2, 32, tzinfo=timezone.utc),
+                }
+            ]
+
+        def list_reconciliation_resolutions(self, *, gap_ids=None):
+            assert gap_ids == ["gap_1"]
+            return [
+                {
+                    "resolution_id": "resolution_1",
+                    "gap_id": "gap_1",
+                    "resolution_type": "auto_open_entry",
+                    "source_ref_type": "reconciliation_resolution",
+                    "created_at": datetime(2026, 4, 5, 2, 35, tzinfo=timezone.utc),
+                }
+            ]
+
+        def list_ingest_rejections(self, *, symbol=None, reason_code=None):
+            assert symbol == "600000"
+            return [
+                {
+                    "rejection_id": "rejection_1",
+                    "symbol": "600000",
+                    "reason_code": "non_board_lot_quantity",
+                    "trade_time": datetime(2026, 4, 5, 2, 40, tzinfo=timezone.utc),
+                }
+            ]
+
+    service = _build_service(
+        order_repository=FakeOrderRepository(),
+        broker_positions_loader=lambda: [
+            {
+                "symbol": "600000",
+                "quantity": 1200,
+                "market_value": 520000.0,
+                "name": "浦发银行",
+            }
+        ],
+        snapshot_positions_loader=lambda: [
+            {
+                "symbol": "600000",
+                "quantity": 1200,
+                "market_value": 520000.0,
+                "name": "浦发银行",
+            }
+        ],
+        entry_positions_loader=lambda: [
+            {
+                "symbol": "600000",
+                "quantity": 1000,
+                "amount_adjusted": -510000.0,
+                "name": "浦发银行",
+            }
+        ],
+        slice_positions_loader=lambda: [
+            {
+                "symbol": "600000",
+                "remaining_quantity": 1000,
+                "remaining_amount": 510000.0,
+                "name": "浦发银行",
+            }
+        ],
+        compat_positions_loader=lambda: [],
+        stock_fills_projection_loader=lambda symbols: [],
+        reconciliation_summary_loader=lambda symbols: {
+            "600000": {
+                "symbol": "600000",
+                "state": "OBSERVING",
+                "signed_gap_quantity": 200,
+                "open_gap_count": 1,
+                "latest_resolution_type": "auto_open_entry",
+                "ingest_rejection_count": 1,
+            }
+        },
+    )
+
+    workspace = service.get_symbol_workspace("sh600000")
+
+    assert workspace["detail"]["symbol"] == "600000"
+    assert workspace["detail"]["reconciliation"]["state"] == "OBSERVING"
+    assert workspace["gaps"][0]["gap_id"] == "gap_1"
+    assert workspace["gaps"][0]["detected_at"] == "2026-04-05T02:32:00+00:00"
+    assert workspace["resolutions"][0]["resolution_id"] == "resolution_1"
+    assert workspace["resolutions"][0]["created_at"] == "2026-04-05T02:35:00+00:00"
+    assert workspace["rejections"][0]["rejection_id"] == "rejection_1"
+    assert workspace["rejections"][0]["trade_time"] == "2026-04-05T02:40:00+00:00"

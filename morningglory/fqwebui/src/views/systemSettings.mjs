@@ -1,3 +1,5 @@
+import { buildInventoryRows } from './positionManagement.mjs'
+
 const numberFormatter = new Intl.NumberFormat('en-US')
 
 const LEDGER_COLUMN_ORDER = ['left', 'middle', 'right']
@@ -22,6 +24,7 @@ const COLUMN_SECTION_ORDER = {
   right: [
     'settings:guardian',
     'settings:position_management',
+    'readonly:position_management_inventory',
     'readonly:strategies',
   ],
 }
@@ -109,6 +112,16 @@ const STRATEGY_SECTION = {
   readonly: true,
   column: 'right',
   kind: 'strategy-ledger',
+}
+
+const POSITION_INVENTORY_SUPPLEMENT_SECTION = {
+  key: 'position_management_inventory',
+  title: '仓位管理只读补充',
+  description: '展示 position-management inventory 中未在系统设置重复出现的只读项。',
+  source: 'position_inventory',
+  restart_required: false,
+  readonly: true,
+  column: 'right',
 }
 
 const toText = (value) => String(value ?? '').trim()
@@ -276,6 +289,61 @@ export const buildStrategyLedgerSection = (response) => {
       b62_uid: toText(strategy?.b62_uid) || '-',
       status_label: '只读',
     })),
+  }
+}
+
+const mapInventoryRowToCanonicalPath = (row = {}) => {
+  const key = toText(row?.key)
+  if (!key) return ''
+  if (key.startsWith('xtquant.')) return key
+  if ([
+    'allow_open_min_bail',
+    'holding_only_min_bail',
+    'single_symbol_position_limit',
+  ].includes(key)) {
+    return `position_management.${key}`
+  }
+  return ''
+}
+
+export const buildPositionInventorySupplementSection = (dashboard = {}, existingRows = []) => {
+  const existingKeys = new Set(
+    (Array.isArray(existingRows) ? existingRows : flattenLedgerRows(existingRows))
+      .map((row) => toText(row?.key))
+      .filter(Boolean),
+  )
+  const rows = buildInventoryRows(dashboard)
+    .filter((row) => {
+      const canonicalPath = mapInventoryRowToCanonicalPath(row)
+      return canonicalPath ? !existingKeys.has(canonicalPath) : true
+    })
+    .map((row) => {
+      const fullPath = `position_management_inventory.${toText(row?.key)}`
+      return {
+        key: fullPath,
+        scope: 'readonly',
+        section_key: POSITION_INVENTORY_SUPPLEMENT_SECTION.key,
+        section_title: POSITION_INVENTORY_SUPPLEMENT_SECTION.title,
+        label: toText(row?.label) || fullPath,
+        field: toText(row?.key),
+        full_path: fullPath,
+        value: cloneValue(row?.value),
+        value_label: toText(row?.value_label) || '-',
+        baseline_value: cloneValue(row?.value),
+        dirty: false,
+        inactive: false,
+        readonly: true,
+        source: POSITION_INVENTORY_SUPPLEMENT_SECTION.source,
+        restart_required: false,
+        restart_label: '只读补充',
+        column: POSITION_INVENTORY_SUPPLEMENT_SECTION.column,
+        editor: { type: 'text' },
+      }
+    })
+
+  return {
+    ...POSITION_INVENTORY_SUPPLEMENT_SECTION,
+    rows,
   }
 }
 

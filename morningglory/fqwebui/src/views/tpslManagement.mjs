@@ -24,6 +24,23 @@ const formatAmountWanLabel = (value) => {
   return `${(amount / 10000).toFixed(2)} 万`
 }
 
+const formatCompactWanLabel = (value) => {
+  const amount = toNumber(value)
+  return `${(amount / 10000).toFixed(2)}万`
+}
+
+const toShortId = (value) => {
+  const text = toText(value)
+  return text.length > 6 ? text.slice(-6) : text
+}
+
+const resolveRemainingRatio = (originalQuantity, remainingQuantity) => {
+  const original = toNumber(originalQuantity)
+  const remaining = toNumber(remainingQuantity)
+  if (!original) return null
+  return remaining / original
+}
+
 const buildTakeprofitSummary = (row = {}) => {
   const tiers = Array.isArray(row?.takeprofit_tiers) ? row.takeprofit_tiers : []
   const tierByLevel = new Map(
@@ -145,11 +162,24 @@ export const buildDetailViewModel = (detail = {}) => {
     const stoploss = row?.stoploss || {}
     const sellHistory = Array.isArray(row?.sell_history) ? row.sell_history : []
     const entryPrice = row?.entry_price ?? row?.buy_price_real
+    const originalQuantity = toNumber(row?.original_quantity)
+    const remainingQuantity = toNumber(row?.remaining_quantity)
+    const remainingRatio = resolveRemainingRatio(originalQuantity, remainingQuantity)
+    const entryMarketValue = entryPrice === null || entryPrice === undefined
+      ? 0
+      : toNumber(entryPrice) * remainingQuantity
     return {
       ...row,
       entry_id: toText(row?.entry_id),
+      entry_short_id: toShortId(row?.entry_id),
+      original_quantity: originalQuantity,
+      remaining_quantity: remainingQuantity,
       entry_price: entryPrice,
       entry_price_label: formatNumericLabel(entryPrice) || '-',
+      entry_market_value: entryMarketValue,
+      entry_market_value_label: formatCompactWanLabel(entryMarketValue),
+      remaining_ratio: remainingRatio,
+      remaining_ratio_label: remainingRatio === null ? '-' : `${(remainingRatio * 100).toFixed(1)}%`,
       buy_time_label: formatBeijingDateTimeParts(row?.date, row?.time),
       stoploss,
       sell_history: sellHistory,
@@ -162,10 +192,14 @@ export const buildDetailViewModel = (detail = {}) => {
   const entrySlices = (Array.isArray(detail?.entry_slices) ? detail.entry_slices : []).map((row) => ({
     ...row,
     entry_slice_id: toText(row?.entry_slice_id || row?.lot_slice_id),
+    entry_slice_short_id: toShortId(row?.entry_slice_id || row?.lot_slice_id),
     entry_id: toText(row?.entry_id),
+    entry_short_id: toShortId(row?.entry_id),
     guardian_price: row?.guardian_price,
     original_quantity: toNumber(row?.original_quantity),
     remaining_quantity: toNumber(row?.remaining_quantity),
+    remaining_amount: toNumber(row?.remaining_amount),
+    remaining_amount_label: formatCompactWanLabel(row?.remaining_amount),
     status: toText(row?.status),
   }))
   const reconciliation = buildReconciliationView(detail?.reconciliation)

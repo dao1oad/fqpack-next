@@ -13,6 +13,12 @@ export const positionManagementApi = {
       method: 'get'
     })
   },
+  getSymbolWorkspace (symbol) {
+    return http({
+      url: `/api/position-management/reconciliation-workspace/${String(symbol || '').trim()}`,
+      method: 'get'
+    })
+  },
   getConfig () {
     return http({
       url: '/api/position-management/config',

@@ -25,8 +25,6 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
   - `/api/tpsl/history`
   - `/api/tpsl/events`
   - `/api/tpsl/batches/<batch_id>`
-- Web UI
-  - `/tpsl`
 
 ## 当前依赖
 
@@ -121,21 +119,20 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 
 ## 页面布局
 
-`/tpsl` 当前是：
+TPSL 当前不再保留独立 `/tpsl` 页面入口；相关信息已经分散并入以下正式页面：
 
-- 左侧 symbol 导航
-- 右侧详情工作台
-- 统一历史表
-
-左侧 symbol 导航和详情表都按持仓金额从大到小排序。
+- `/reconciliation`
+  - 作为统一排障入口，继续承载 `entries / entry_slices / reconciliation / history`
+- `/position-management`
+  - 承载当前标的的 `聚合买入列表 / 按持仓入口止损` 与切片明细
+- `/kline-slim`
+  - 承载 symbol 级设置、止盈 profile 与运行态摘要
 
 ## 部署
 
 - 改动 `freshquant/tpsl/**`
   - 重建 API Server
   - 重启 `tpsl.tick_listener`
-- 改动 `/tpsl`
-  - 重建 Web UI
 
 ## 排障
 

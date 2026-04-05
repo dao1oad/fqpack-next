@@ -75,6 +75,16 @@ def get_reconciliation_detail(symbol):
         return jsonify({"error": str(error)}), 404
 
 
+@position_management_bp.get("/reconciliation-workspace/<symbol>")
+def get_reconciliation_workspace(symbol):
+    try:
+        return jsonify(
+            _get_position_reconciliation_read_service().get_symbol_workspace(symbol)
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 404
+
+
 @position_management_bp.post("/symbol-limits/<symbol>")
 def update_symbol_limit(symbol):
     payload = request.get_json(silent=True) or {}

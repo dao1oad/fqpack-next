@@ -303,10 +303,11 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 
 ## 页面语义
 
-- `/order-management`
+- `/reconciliation -> 相关订单`
+  - 当前是唯一正式订单排障入口
   - 继续展示 request / order / event / trade 主线
-  - 左侧订单列表当前会优先显示 `updated_at`，若 broker-only 行缺失该字段，则回退 `last_fill_time / first_fill_time`
-  - 订单列表、统计卡、详情 badge、timeline 当前统一通过 shared `orderStateMeta` 输出状态 label / chip variant / severity
+  - 订单列表当前会优先显示 `updated_at`，若 broker-only 行缺失该字段，则回退 `last_fill_time / first_fill_time`
+  - 订单列表、顶部摘要、详情 badge、timeline 当前统一通过 shared `orderStateMeta` 输出状态 label / chip variant / severity
   - 状态筛选仍使用 raw enum value，但前端展示 label 已统一为中文语义
   - 订单详情中的成交解释已经基于 `broker_order + execution_fill`
 
@@ -329,14 +330,12 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 - `OPEN`
 - `subject-management` 读模型 / 组件语义
   - 止损对象已经是 `entry`
-- `/tpsl`
-  - “单笔止损”实际是 `entry stoploss`
 - `/kline-slim`
   - 标的设置中的止损对象也是 `entry`，并与 `subject-management` 读模型共享同一套 entry 摘要字段
 - `/position-management`
-  - 不再对比 `stock_fills` 仓位真值
+  - 不再承载独立订单排障入口
   - `单标的仓位上限覆盖` 列表不再承担对账展示
-  - broker truth / ledger / reconciliation 已拆到独立只读 `对账检查` 面板
+  - broker truth / ledger / reconciliation 与订单链已统一收口到 `/reconciliation`
 
 ## 部署
 

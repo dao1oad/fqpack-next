@@ -201,6 +201,28 @@ def test_position_management_reconciliation_routes_forward_read_only_payload(
                 },
             }
 
+        def get_symbol_workspace(self, symbol):
+            return {
+                "detail": {
+                    "symbol": symbol,
+                    "audit_status": "WARN",
+                },
+                "gaps": [{"gap_id": "gap_1", "state": "OPEN"}],
+                "resolutions": [
+                    {
+                        "resolution_id": "resolution_1",
+                        "gap_id": "gap_1",
+                        "resolution_type": "auto_open_entry",
+                    }
+                ],
+                "rejections": [
+                    {
+                        "rejection_id": "rejection_1",
+                        "reason_code": "non_board_lot_quantity",
+                    }
+                ],
+            }
+
     monkeypatch.setattr(
         "freshquant.rear.position_management.routes._get_position_reconciliation_read_service",
         lambda: FakeReadService(),
@@ -209,6 +231,9 @@ def test_position_management_reconciliation_routes_forward_read_only_payload(
     client = _make_client()
     list_response = client.get("/api/position-management/reconciliation")
     detail_response = client.get("/api/position-management/reconciliation/600000")
+    workspace_response = client.get(
+        "/api/position-management/reconciliation-workspace/600000"
+    )
 
     assert list_response.status_code == 200
     assert list_response.get_json()["summary"]["row_count"] == 1
@@ -229,6 +254,17 @@ def test_position_management_reconciliation_routes_forward_read_only_payload(
     assert (
         detail_response.get_json()["evidence_sections"]["reconciliation"]["state"]
         == "OBSERVING"
+    )
+    assert workspace_response.status_code == 200
+    assert workspace_response.get_json()["detail"]["symbol"] == "600000"
+    assert workspace_response.get_json()["gaps"][0]["gap_id"] == "gap_1"
+    assert (
+        workspace_response.get_json()["resolutions"][0]["resolution_type"]
+        == "auto_open_entry"
+    )
+    assert (
+        workspace_response.get_json()["rejections"][0]["reason_code"]
+        == "non_board_lot_quantity"
     )
 
 

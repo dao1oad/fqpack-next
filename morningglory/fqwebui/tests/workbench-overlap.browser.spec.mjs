@@ -931,11 +931,12 @@ test('daily-screening ledgers keep the first row clear of the header after scrol
   assertNoOverlap([resultsMetric, workspaceMetric, historyMetric])
 })
 
-test('position-management dense workbench keeps split panels, descending sort, full decision timeline, and entry-slice linkage', async ({ page }) => {
+test('position-management dense workbench keeps two-column panels, descending sort, full decision timeline, and entry-slice linkage', async ({ page }) => {
   await page.setViewportSize(DESKTOP_VIEWPORT)
   await setupPositionManagementRoutes(page)
   await page.goto(`${DEV_SERVER_URL}/position-management`)
-  await expect(page.locator('.position-reconciliation-ledger__row').first()).toBeVisible()
+  await expect(page.locator('.runtime-position-rule-ledger .runtime-ledger__row').first()).toBeVisible()
+  await expect(page.locator('.position-subject-overview-panel .el-table__body-wrapper tbody tr').first()).toBeVisible()
   await expect(page.locator('.position-subject-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
   await expect(page.locator('.position-decision-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
   await expect(page.getByText('选中标的工作区', { exact: true })).toBeVisible()
@@ -949,7 +950,7 @@ test('position-management dense workbench keeps split panels, descending sort, f
     }
     return {
       leftTop: getHeight('.position-state-panel'),
-      leftBottom: getHeight('.position-reconciliation-panel'),
+      leftBottom: getHeight('.position-subject-overview-host'),
       rightTop: getHeight('.position-selection-panel'),
       rightBottom: getHeight('.position-decision-panel'),
     }
@@ -1036,27 +1037,17 @@ test('position-management dense workbench keeps split panels, descending sort, f
   await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toContainText('#2 / ntry-2')
 })
 
-test('position-management dense ledgers keep the first row clear and reconciliation evidence expands as tables', async ({ page }) => {
+test('position-management state ledger keeps the first row clear after the reconciliation split-out', async ({ page }) => {
   await page.setViewportSize(DESKTOP_VIEWPORT)
   await setupPositionManagementRoutes(page)
   await page.goto(`${DEV_SERVER_URL}/position-management`)
-  await expect(page.locator('.position-reconciliation-ledger__row').first()).toBeVisible()
+  await expect(page.locator('.runtime-position-rule-ledger .runtime-ledger__row').first()).toBeVisible()
+  await expect(page.locator('.position-subject-overview-panel .el-table__body-wrapper tbody tr').first()).toBeVisible()
   await expect(page.locator('.position-decision-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
   const metrics = await Promise.all([
     measureLedger(page.locator('.position-state-panel'), { name: 'position rule ledger', headerSelector: '.runtime-position-rule-ledger .runtime-ledger__header', rowSelector: '.runtime-position-rule-ledger .runtime-ledger__row', viewportSelector: '.position-state-scroll', scrollTop: 220 }),
   ])
   assertNoOverlap(metrics)
-
-  const firstLedgerItem = page.locator('.position-reconciliation-ledger__item').first()
-  await firstLedgerItem.getByRole('button', { name: '展开' }).evaluate((element) => {
-    element.click()
-  })
-  await expect(firstLedgerItem.locator('.position-reconciliation-expanded__surface-table .position-reconciliation-expanded__table-row').first()).toBeVisible()
-  await expect(firstLedgerItem.locator('.position-reconciliation-expanded__rule-table .position-reconciliation-expanded__table-row').first()).toBeVisible()
-  await expect(firstLedgerItem.locator('.position-reconciliation-expanded__reconciliation-table .position-reconciliation-expanded__table-row').first()).toBeVisible()
-  await expect(firstLedgerItem.locator('.position-reconciliation-expanded')).toContainText('视图层证据表')
-  await expect(firstLedgerItem.locator('.position-reconciliation-expanded')).toContainText('规则检查表')
-  await expect(firstLedgerItem.locator('.position-reconciliation-expanded')).toContainText('差异说明表')
 })
 
 test('runtime-observability ledgers keep the first row clear of the header after scrolling', async ({ page }) => {
