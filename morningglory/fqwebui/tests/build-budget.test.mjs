@@ -9,14 +9,15 @@ import { runLockedBuild } from './vite-build-lock.mjs'
 const projectDir = new URL('..', import.meta.url)
 const projectRootPath = fileURLToPath(new URL('../', import.meta.url))
 const isolatedOutDir = '.playwright-vite/build-budget-test'
-const legacyCoreRouteChunks = [
-  ['FuturesControl'],
+const retainedAsyncRouteChunks = [
   ['StockControl'],
   ['MultiPeriod'],
   ['KlineBig'],
   ['KlineSlim', 'page-kline-slim'],
   ['StockPools'],
-  ['StockCjsd'],
+  ['PositionManagement'],
+  ['SystemSettings'],
+  ['ReconciliationWorkbench'],
 ]
 
 let builtAssetSizesPromise
@@ -79,11 +80,11 @@ test('vite dev proxy defaults to the parallel API surface on 15000', async () =>
   assert.match(viteConfigSource.replace(/\r/g, ''), /target:\s*env\.VITE_API_BASE_URL\s*\|\|\s*'http:\/\/127\.0\.0\.1:15000'/)
 })
 
-test('isolated Vite build emits async route chunks for the legacy core pages', async () => {
+test('isolated Vite build emits async route chunks for the retained workbench pages', async () => {
   const assetSizes = await loadBuiltAssetSizes()
   const assetNames = [...assetSizes.keys()]
 
-  for (const chunkNameAliases of legacyCoreRouteChunks) {
+  for (const chunkNameAliases of retainedAsyncRouteChunks) {
     assert.ok(
       chunkNameAliases.some((chunkName) => (
         assetNames.some((assetName) => assetName === `${chunkName}.js` || assetName.startsWith(`${chunkName}-`))
