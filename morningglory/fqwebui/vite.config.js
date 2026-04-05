@@ -74,7 +74,7 @@ export default defineConfig(({ mode }) => {
       open: false,
       proxy: {
         '/api': {
-          target: env.VITE_API_BASE_URL || 'http://127.0.0.1:5000',
+          target: env.VITE_API_BASE_URL || 'http://127.0.0.1:15000',
           ws: true,
           changeOrigin: true,
           // 重写路径（如果后端不需要 /api 前缀）
