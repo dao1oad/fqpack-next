@@ -303,7 +303,7 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 
 ## 页面语义
 
-- `/reconciliation -> 相关订单`
+- `/position-management -> 相关订单`
   - 当前是唯一正式订单排障入口
   - 继续展示 request / order / event / trade 主线
   - 订单列表当前会优先显示 `updated_at`，若 broker-only 行缺失该字段，则回退 `last_fill_time / first_fill_time`
@@ -333,9 +333,9 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 - `/kline-slim`
   - 标的设置中的止损对象也是 `entry`，并与 `subject-management` 读模型共享同一套 entry 摘要字段
 - `/position-management`
-  - 不再承载独立订单排障入口
-  - `单标的仓位上限覆盖` 列表不再承担对账展示
-  - broker truth / ledger / reconciliation 与订单链已统一收口到 `/reconciliation`
+  - 当前承载 symbol 级统一排障工作区
+  - `单标的仓位上限覆盖` 列表不再承担独立对账展示
+  - broker truth / ledger / reconciliation 与订单链已统一收口到 `/position-management`
 
 ## 部署
 

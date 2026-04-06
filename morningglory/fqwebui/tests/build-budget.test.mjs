@@ -17,7 +17,6 @@ const retainedAsyncRouteChunks = [
   ['StockPools'],
   ['PositionManagement'],
   ['SystemSettings'],
-  ['ReconciliationWorkbench'],
 ]
 
 let builtAssetSizesPromise

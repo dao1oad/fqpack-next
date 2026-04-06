@@ -15,12 +15,6 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'warning',
     size: 'small',
   },
-  reconciliation: {
-    label: '对账中心',
-    path: '/reconciliation',
-    buttonType: 'success',
-    size: 'small',
-  },
   positionManagement: {
     label: '仓位管理',
     path: '/position-management',
@@ -75,7 +69,7 @@ export const HEADER_NAV_TARGETS = {
 
 export const HEADER_NAV_GROUPS = [
   ['systemSettings'],
-  ['klineSlim', 'reconciliation', 'positionManagement', 'runtime'],
+  ['klineSlim', 'positionManagement', 'runtime'],
   ['gantt', 'shouban30', 'dailyScreening'],
   ['stock', 'pool'],
 ]
@@ -91,7 +85,6 @@ export const ROUTE_TITLES_BY_NAME = {
   'daily-screening': '每日选股',
   'gantt-stocks': '板块趋势',
   'position-management': '仓位管理',
-  'reconciliation': '对账中心',
   'runtime-observability': '运行观测',
   'system-settings': '系统设置',
 }

@@ -76,7 +76,7 @@ test('resolveDocumentTitle prefers query title then route meta title', () => {
 test('header nav groups stay metadata-driven and preserve the expected workbench grouping order', () => {
   assert.deepEqual(HEADER_NAV_GROUPS, [
     ['systemSettings'],
-    ['klineSlim', 'reconciliation', 'positionManagement', 'runtime'],
+    ['klineSlim', 'positionManagement', 'runtime'],
     ['gantt', 'shouban30', 'dailyScreening'],
     ['stock', 'pool'],
   ])
@@ -84,8 +84,8 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   const groups = resolveHeaderNavGroups()
   assert.equal(groups.length, HEADER_NAV_GROUPS.length)
   assert.equal(groups[1][0].label, '行情图表')
-  assert.equal(groups[1][1].path, '/reconciliation')
-  assert.equal(groups[1][3].query.tabTitle, '运行观测')
+  assert.equal(groups[1][1].path, '/position-management')
+  assert.equal(groups[1][2].query.tabTitle, '运行观测')
   assert.equal(groups[2][1].query.days, '30')
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/futures-control'), false)
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/tpsl'), false)
