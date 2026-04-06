@@ -75,6 +75,14 @@ const routes = [
     name: 'gantt-stocks',
     component: GanttUnifiedStocks
   }),
+  {
+    path: '/reconciliation',
+    redirect: (to) => ({
+      path: '/position-management',
+      query: to.query,
+      hash: to.hash,
+    }),
+  },
   withRouteTitle({
     path: '/position-management',
     name: 'position-management',

@@ -9,7 +9,11 @@ const readSource = (relativePath) => (
 const routerSource = readSource('../router/index.js')
 const pageMetaSource = readSource('../router/pageMeta.mjs')
 test('router removes standalone /reconciliation and keeps retired pages removed', () => {
-  assert.doesNotMatch(routerSource, /path:\s*'\/reconciliation'/)
+  assert.match(routerSource, /path:\s*'\/reconciliation'/)
+  assert.match(
+    routerSource,
+    /redirect:\s*\(to\)\s*=>\s*\(\{\s*path:\s*'\/position-management',\s*query:\s*to\.query,\s*hash:\s*to\.hash,\s*\}\)/
+  )
   assert.doesNotMatch(routerSource, /name:\s*'reconciliation'/)
   assert.doesNotMatch(routerSource, /path:\s*'\/order-management'/)
   assert.doesNotMatch(routerSource, /name:\s*'order-management'/)
