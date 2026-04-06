@@ -90,7 +90,7 @@
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">选中标的工作区</div>
                 <div class="workbench-panel__desc">
-                  当前统一承载持仓账本、相关订单、对账结果与 Resolution 排障。
+                  当前统一承载持仓账本、相关订单、对账结果与差异处理排障。
                 </div>
               </div>
             </div>
@@ -241,7 +241,7 @@
                   </section>
 
                   <section class="position-selection-section">
-                    <div class="position-selection-section__title">切片明细</div>
+                    <div class="position-selection-section__title">切片明细（{{ selectedSubjectSliceRows.length }}）</div>
                     <div v-if="selectedSubjectSliceRows.length" class="position-selection-table-wrap">
                       <el-table
                         :data="selectedSubjectSliceRows"
@@ -361,10 +361,10 @@
                     <el-input v-model="orderFilters.broker_order_id" placeholder="broker_order_id" clearable />
                   </div>
 
-                  <div class="position-troubleshoot-grid position-troubleshoot-grid--orders">
-                    <article class="workbench-block position-troubleshoot-block position-troubleshoot-block--table" v-loading="loadingOrders">
-                      <div class="position-troubleshoot-block__head">订单列表</div>
-                      <div class="position-troubleshoot-table-wrap">
+                  <div class="position-selection-grid position-selection-grid--orders">
+                    <section class="position-selection-section" v-loading="loadingOrders">
+                      <div class="position-selection-section__title">订单列表</div>
+                      <div class="position-selection-table-wrap position-selection-table-wrap--dense">
                         <el-empty v-if="orderRows.length === 0" description="当前筛选下没有订单。" />
                         <el-table
                           v-else
@@ -372,12 +372,13 @@
                           row-key="orderLookupId"
                           size="small"
                           border
+                          :fit="true"
                           height="100%"
                           highlight-current-row
                           :current-row-key="selectedOrderId"
                           @row-click="handleOrderRowClick"
                         >
-                          <el-table-column label="标的" min-width="132">
+                          <el-table-column label="标的" min-width="104" show-overflow-tooltip>
                             <template #default="{ row }">
                               <div class="position-troubleshoot-symbol-cell">
                                 <strong>{{ row.symbol || '-' }}</strong>
@@ -385,92 +386,112 @@
                               </div>
                             </template>
                           </el-table-column>
-                          <el-table-column label="更新时间" min-width="160">
+                          <el-table-column label="更新时间" min-width="136" show-overflow-tooltip>
                             <template #default="{ row }">
                               {{ formatOrderTimestamp(row.updated_at || row.created_at) }}
                             </template>
                           </el-table-column>
-                          <el-table-column prop="side" label="方向" width="76" />
-                          <el-table-column label="状态" width="96">
+                          <el-table-column prop="side" label="方向" width="64" show-overflow-tooltip />
+                          <el-table-column label="状态" width="112" show-overflow-tooltip>
                             <template #default="{ row }">
                               <StatusChip class="runtime-inline-status" :variant="row.state_chip_variant || 'muted'">
                                 {{ row.state_label || row.state || '-' }}
                               </StatusChip>
                             </template>
                           </el-table-column>
-                          <el-table-column label="委托价 / 量" min-width="126">
+                          <el-table-column label="委托价 / 量" min-width="112" show-overflow-tooltip>
                             <template #default="{ row }">
                               {{ formatOrderPrice(row.price) }} / {{ formatOrderQuantity(row.quantity) }}
                             </template>
                           </el-table-column>
-                          <el-table-column label="成交量 / 均价" min-width="136">
+                          <el-table-column label="成交量 / 均价" min-width="118" show-overflow-tooltip>
                             <template #default="{ row }">
                               {{ formatOrderQuantity(row.filled_quantity) }} / {{ formatOrderPrice(row.avg_filled_price) }}
                             </template>
                           </el-table-column>
                         </el-table>
                       </div>
-                    </article>
+                    </section>
 
-                    <article class="workbench-block position-troubleshoot-block position-troubleshoot-block--detail" v-loading="loadingOrderDetail">
-                      <div class="position-troubleshoot-block__head">订单详情</div>
+                    <section class="position-selection-section" v-loading="loadingOrderDetail">
+                      <div class="position-selection-section__title">订单详情</div>
                       <template v-if="orderDetail">
-                        <div class="position-troubleshoot-scroll">
-                          <el-descriptions :column="1" border size="small">
-                            <el-descriptions-item label="internal_order_id">
-                              {{ orderDetail.order.internal_order_id || '-' }}
-                            </el-descriptions-item>
-                            <el-descriptions-item label="broker_order_id">
-                              {{ orderDetail.order.broker_order_id || '-' }}
-                            </el-descriptions-item>
-                            <el-descriptions-item label="symbol">
-                              {{ orderDetail.order.symbol || '-' }}
-                            </el-descriptions-item>
-                            <el-descriptions-item label="state">
-                              {{ orderDetail.order.state_label || orderDetail.order.state || '-' }}
-                            </el-descriptions-item>
-                            <el-descriptions-item label="request">
-                              {{ orderDetail.request.request_id || '-' }}
-                            </el-descriptions-item>
-                            <el-descriptions-item label="scope">
-                              {{ orderDetail.request.scope_type || '-' }} / {{ orderDetail.request.scope_ref_id || '-' }}
-                            </el-descriptions-item>
-                          </el-descriptions>
+                        <div class="position-selection-detail-body">
+                          <el-tabs v-model="orderDetailTab" class="position-order-detail-tabs">
+                            <el-tab-pane name="trades" label="成交回报">
+                              <div class="position-order-detail-pane">
+                                <div v-if="orderDetail.tradeRows.length === 0" class="runtime-empty-panel runtime-empty-panel--compact">
+                                  <strong>当前订单暂无成交回报</strong>
+                                </div>
+                                <div v-else class="position-selection-table-wrap position-selection-table-wrap--dense">
+                                  <el-table :data="orderDetail.tradeRows" size="small" border :fit="true" height="100%">
+                                    <el-table-column prop="trade_fact_id" label="Trade Fact" min-width="112" show-overflow-tooltip />
+                                    <el-table-column prop="quantity" label="Qty" width="72" show-overflow-tooltip />
+                                    <el-table-column label="Price" width="72" show-overflow-tooltip>
+                                      <template #default="{ row }">
+                                        {{ formatOrderPrice(row.price) }}
+                                      </template>
+                                    </el-table-column>
+                                    <el-table-column prop="trade_time_label" label="时间" min-width="144" show-overflow-tooltip />
+                                  </el-table>
+                                </div>
+                              </div>
+                            </el-tab-pane>
 
-                          <div class="position-troubleshoot-mini-table">
-                            <div class="position-troubleshoot-mini-table__title">状态流转</div>
-                            <el-table :data="orderDetail.timelineRows" size="small" border>
-                              <el-table-column prop="created_at" label="时间" min-width="152" />
-                              <el-table-column prop="event_type" label="event" min-width="116" />
-                              <el-table-column label="state" min-width="96">
-                                <template #default="{ row }">
-                                  <StatusChip class="runtime-inline-status" :variant="row.state_chip_variant || 'muted'">
-                                    {{ row.state_label || row.state || '-' }}
-                                  </StatusChip>
-                                </template>
-                              </el-table-column>
-                            </el-table>
-                          </div>
+                            <el-tab-pane name="timeline" label="状态流转">
+                              <div class="position-order-detail-pane">
+                                <div v-if="orderDetail.timelineRows.length === 0" class="runtime-empty-panel runtime-empty-panel--compact">
+                                  <strong>当前订单暂无状态流转记录</strong>
+                                </div>
+                                <div v-else class="position-selection-table-wrap position-selection-table-wrap--dense">
+                                  <el-table :data="orderDetail.timelineRows" size="small" border :fit="true" height="100%">
+                                    <el-table-column prop="created_at" label="时间" min-width="144" show-overflow-tooltip />
+                                    <el-table-column prop="event_type" label="event" min-width="96" show-overflow-tooltip />
+                                    <el-table-column label="state" min-width="96" show-overflow-tooltip>
+                                      <template #default="{ row }">
+                                        <StatusChip class="runtime-inline-status" :variant="row.state_chip_variant || 'muted'">
+                                          {{ row.state_label || row.state || '-' }}
+                                        </StatusChip>
+                                      </template>
+                                    </el-table-column>
+                                  </el-table>
+                                </div>
+                              </div>
+                            </el-tab-pane>
 
-                          <div class="position-troubleshoot-mini-table">
-                            <div class="position-troubleshoot-mini-table__title">成交回报</div>
-                            <el-table :data="orderDetail.tradeRows" size="small" border>
-                              <el-table-column prop="trade_fact_id" label="Trade Fact" min-width="128" />
-                              <el-table-column prop="quantity" label="Qty" width="84" />
-                              <el-table-column label="Price" width="84">
-                                <template #default="{ row }">
-                                  {{ formatOrderPrice(row.price) }}
-                                </template>
-                              </el-table-column>
-                              <el-table-column prop="trade_time_label" label="时间" min-width="156" />
-                            </el-table>
-                          </div>
+                            <el-tab-pane name="base" label="基础信息">
+                              <div class="position-order-detail-pane">
+                                <div class="position-troubleshoot-scroll">
+                                  <el-descriptions :column="1" border size="small">
+                                    <el-descriptions-item label="internal_order_id">
+                                      {{ orderDetail.order.internal_order_id || '-' }}
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="broker_order_id">
+                                      {{ orderDetail.order.broker_order_id || '-' }}
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="symbol">
+                                      {{ orderDetail.order.symbol || '-' }}
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="state">
+                                      {{ orderDetail.order.state_label || orderDetail.order.state || '-' }}
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="request">
+                                      {{ orderDetail.request.request_id || '-' }}
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="scope">
+                                      {{ orderDetail.request.scope_type || '-' }} / {{ orderDetail.request.scope_ref_id || '-' }}
+                                    </el-descriptions-item>
+                                  </el-descriptions>
+                                </div>
+                              </div>
+                            </el-tab-pane>
+                          </el-tabs>
                         </div>
                       </template>
                       <div v-else class="runtime-empty-panel">
                         <strong>先从左侧订单列表选择一笔订单。</strong>
                       </div>
-                    </article>
+                    </section>
                   </div>
 
                   <div class="position-ledger-pagination">
@@ -505,36 +526,36 @@
                     </StatusChip>
                   </div>
 
-                  <div class="position-troubleshoot-grid">
-                    <article class="workbench-block position-troubleshoot-block position-troubleshoot-block--table">
-                      <div class="position-troubleshoot-block__head">规则检查</div>
-                      <div class="position-troubleshoot-table-wrap">
-                        <el-table :data="selectedOverviewRuleRows" size="small" border height="100%">
+                  <div class="position-selection-grid position-selection-grid--columns">
+                    <section class="position-selection-section">
+                      <div class="position-selection-section__title">规则检查</div>
+                      <div class="position-selection-table-wrap position-selection-table-wrap--dense">
+                        <el-table :data="selectedOverviewRuleRows" size="small" border :fit="true" height="100%">
                           <el-table-column prop="id" label="规则" width="72" />
-                          <el-table-column prop="label" label="说明" min-width="136" />
-                          <el-table-column label="结果" width="92">
+                          <el-table-column prop="label" label="说明" min-width="112" show-overflow-tooltip />
+                          <el-table-column label="结果" width="112">
                             <template #default="{ row }">
                               <StatusChip class="runtime-inline-status" :variant="row.status_chip_variant || 'muted'">
                                 {{ row.status_label || '-' }}
                               </StatusChip>
                             </template>
                           </el-table-column>
-                          <el-table-column prop="expected_relation" label="关系" min-width="128" />
+                          <el-table-column prop="expected_relation" label="关系" min-width="108" show-overflow-tooltip />
                         </el-table>
                       </div>
-                    </article>
+                    </section>
 
-                    <article class="workbench-block position-troubleshoot-block position-troubleshoot-block--table">
-                      <div class="position-troubleshoot-block__head">视图对照</div>
-                      <div class="position-troubleshoot-table-wrap">
-                        <el-table :data="selectedOverviewSurfaceRows" size="small" border height="100%">
-                          <el-table-column prop="label" label="surface" min-width="112" />
-                          <el-table-column prop="quantity_label" label="数量" width="92" />
-                          <el-table-column prop="market_value_label" label="市值" width="108" />
-                          <el-table-column prop="quantity_source_label" label="数量来源" min-width="120" />
+                    <section class="position-selection-section">
+                      <div class="position-selection-section__title">视图对照</div>
+                      <div class="position-selection-table-wrap position-selection-table-wrap--dense">
+                        <el-table :data="selectedOverviewSurfaceRows" size="small" border :fit="true" height="100%">
+                          <el-table-column prop="label" label="surface" min-width="92" show-overflow-tooltip />
+                          <el-table-column prop="quantity_label" label="数量" width="78" show-overflow-tooltip />
+                          <el-table-column prop="market_value_label" label="市值" width="92" show-overflow-tooltip />
+                          <el-table-column prop="quantity_source_label" label="数量来源" min-width="96" show-overflow-tooltip />
                         </el-table>
                       </div>
-                    </article>
+                    </section>
                   </div>
                 </div>
 
@@ -543,20 +564,17 @@
                 </div>
               </el-tab-pane>
 
-              <el-tab-pane name="resolution" label="Resolution">
-                <div class="position-troubleshoot-tab-stack position-troubleshoot-tab-stack--fill">
+              <el-tab-pane name="resolution" label="差异处理">
+                <div class="position-troubleshoot-tab-stack">
                   <div class="workbench-summary-row">
                     <StatusChip variant="muted">
                       gap / resolution / rejection <strong>{{ resolutionRows.length }}</strong>
                     </StatusChip>
-                    <StatusChip variant="muted">
-                      TPSL 触发历史 <strong>{{ workspaceHistoryRows.length }}</strong>
-                    </StatusChip>
                     <StatusChip v-if="resolutionEndpointMissing" variant="warning">
-                      Resolution 数据源 <strong>后端接口未部署</strong>
+                      差异处理数据源 <strong>后端接口未部署</strong>
                     </StatusChip>
                     <StatusChip v-else-if="resolutionSymbolNotTracked" variant="warning">
-                      Resolution 数据源 <strong>symbol 未纳入对账</strong>
+                      差异处理数据源 <strong>symbol 未纳入对账</strong>
                     </StatusChip>
                   </div>
 
@@ -566,7 +584,7 @@
                     type="warning"
                     :closable="false"
                     show-icon
-                    title="当前运行中的后端未暴露 reconciliation-workspace 接口，因此 Resolution 只能显示为空。"
+                    title="当前运行中的后端未暴露 reconciliation-workspace 接口，因此差异处理只能显示为空。"
                   />
                   <el-alert
                     v-else-if="resolutionSymbolNotTracked"
@@ -577,41 +595,31 @@
                     :title="resolutionSymbolNotTrackedTitle"
                   />
 
-                  <article class="workbench-block position-troubleshoot-block position-troubleshoot-block--table">
-                    <div class="position-troubleshoot-block__head">Resolution 列表</div>
-                    <div class="position-troubleshoot-table-wrap">
+                  <section class="position-selection-section">
+                    <div class="position-selection-section__title">差异处理列表</div>
+                    <div class="position-selection-table-wrap position-selection-table-wrap--dense">
                       <el-empty v-if="resolutionRows.length === 0" :description="resolutionEmptyDescription" />
-                      <el-table v-else :data="resolutionRows" row-key="row_id" size="small" border height="100%">
-                        <el-table-column label="类型" width="104">
+                      <el-table v-else :data="resolutionRows" row-key="row_id" size="small" border :fit="true" height="100%">
+                        <el-table-column label="类型" width="112">
                           <template #default="{ row }">
                             <StatusChip :variant="resolutionRowVariant(row.row_type)">
                               {{ row.row_type }}
                             </StatusChip>
                           </template>
                         </el-table-column>
-                        <el-table-column prop="row_id" label="id" min-width="164" />
-                        <el-table-column prop="state" label="state" width="96" />
-                        <el-table-column prop="side" label="side" width="72" />
-                        <el-table-column prop="quantity_delta" label="quantity" width="92" />
-                        <el-table-column prop="resolution_type" label="resolution_type" min-width="144" />
-                        <el-table-column prop="time_label" label="时间" min-width="148" />
+                        <el-table-column label="id" width="84" show-overflow-tooltip>
+                          <template #default="{ row }">
+                            <span class="workbench-code">{{ compactTailId(row.row_id) }}</span>
+                          </template>
+                        </el-table-column>
+                        <el-table-column prop="state" label="state" width="112" show-overflow-tooltip />
+                        <el-table-column prop="side" label="side" width="64" show-overflow-tooltip />
+                        <el-table-column prop="quantity_delta" label="quantity" width="76" show-overflow-tooltip />
+                        <el-table-column prop="resolution_type" label="resolution_type" min-width="118" show-overflow-tooltip />
+                        <el-table-column prop="time_label" label="时间" min-width="136" show-overflow-tooltip />
                       </el-table>
                     </div>
-                  </article>
-
-                  <article class="workbench-block position-troubleshoot-block position-troubleshoot-block--table">
-                    <div class="position-troubleshoot-block__head">TPSL / 触发历史</div>
-                    <div class="position-troubleshoot-table-wrap">
-                      <el-empty v-if="workspaceHistoryRows.length === 0" description="当前没有历史事件。" />
-                      <el-table v-else :data="workspaceHistoryRows" size="small" border height="100%">
-                        <el-table-column prop="kind" label="kind" width="92" />
-                        <el-table-column prop="created_at" label="created_at" min-width="156" />
-                        <el-table-column prop="batch_id" label="batch_id" min-width="132" />
-                        <el-table-column prop="entry_label" label="entry" min-width="132" />
-                        <el-table-column prop="downstreamLabel" label="downstream" min-width="168" />
-                      </el-table>
-                    </div>
-                  </article>
+                  </section>
                 </div>
               </el-tab-pane>
             </el-tabs>
@@ -754,6 +762,7 @@ const pageError = ref('')
 const dashboard = ref({})
 const selectedSubjectSymbol = ref('')
 const showAdvancedOrderFilters = ref(false)
+const orderDetailTab = ref('trades')
 
 const decisionPagination = reactive({
   page: 1,
@@ -879,6 +888,12 @@ const formatWanAmount = (value) => {
   return `${(parsed / 10000).toFixed(2)} 万`
 }
 
+const compactTailId = (value, length = 6) => {
+  const normalized = String(value || '').trim()
+  if (!normalized) return '-'
+  return normalized.slice(-length)
+}
+
 const resolveOrderLookupId = (row = {}) => String(
   row?.orderLookupId || row?.internal_order_id || row?.broker_order_id || row?.broker_order_key || '',
 ).trim()
@@ -982,7 +997,6 @@ const selectedReconciliationStateLabel = computed(() => (
   || selectedSubjectOverviewRow.value?.reconciliation_state_label
   || '-'
 ))
-const workspaceHistoryRows = computed(() => workspaceDetail.value?.historyRows || [])
 const workspaceResolutionStatus = computed(() => String(workspaceDetail.value?.resolutionDataStatus || 'loaded').trim() || 'loaded')
 const workspaceResolutionErrorMessage = computed(() => String(workspaceDetail.value?.resolutionErrorMessage || '').trim())
 const activeOrderFilterChips = computed(() => [
@@ -1021,10 +1035,10 @@ const resolutionRows = computed(() => [
 const resolutionEndpointMissing = computed(() => workspaceResolutionStatus.value === 'workspace_endpoint_missing')
 const resolutionSymbolNotTracked = computed(() => workspaceResolutionStatus.value === 'workspace_symbol_not_tracked')
 const resolutionSymbolNotTrackedTitle = computed(() => (
-  workspaceResolutionErrorMessage.value || '当前 symbol 未纳入对账跟踪，因此 Resolution 暂无可展示明细。'
+  workspaceResolutionErrorMessage.value || '当前 symbol 未纳入对账跟踪，因此差异处理暂无可展示明细。'
 ))
 const resolutionEmptyDescription = computed(() => {
-  if (resolutionEndpointMissing.value) return '当前运行中的后端未暴露 reconciliation-workspace 接口，因此 Resolution 只能显示为空。'
+  if (resolutionEndpointMissing.value) return '当前运行中的后端未暴露 reconciliation-workspace 接口，因此差异处理只能显示为空。'
   if (resolutionSymbolNotTracked.value) return resolutionSymbolNotTrackedTitle.value
   return '当前 symbol 暂无 gap / resolution / rejection 明细。'
 })
@@ -1039,6 +1053,13 @@ watch(
     }
   },
   { immediate: true },
+)
+
+watch(
+  () => selectedOrderId.value,
+  () => {
+    orderDetailTab.value = 'trades'
+  },
 )
 
 watch(
@@ -1088,6 +1109,7 @@ const handleTroubleshootTabChange = (tab) => {
 }
 
 const handleOrderRowClick = async (row) => {
+  orderDetailTab.value = 'trades'
   await selectReconciliationOrder(resolveOrderLookupId(row))
 }
 
@@ -1391,6 +1413,22 @@ onMounted(() => {
   min-height: 0;
 }
 
+.position-selection-grid {
+  display: grid;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-selection-grid--columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.position-selection-grid--orders {
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+}
+
 .position-selection-section {
   display: flex;
   flex-direction: column;
@@ -1399,6 +1437,63 @@ onMounted(() => {
 }
 
 .position-selection-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-selection-table-wrap--dense {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable both-edges;
+}
+
+.position-selection-table-wrap--dense :deep(.el-table) {
+  height: 100%;
+}
+
+.position-selection-table-wrap--dense :deep(.el-table__header .cell) {
+  white-space: nowrap;
+}
+
+.position-selection-table-wrap--dense :deep(.cell) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.position-selection-detail-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-order-detail-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-order-detail-tabs :deep(.el-tabs__header) {
+  margin-bottom: 10px;
+}
+
+.position-order-detail-tabs :deep(.el-tabs__content) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-order-detail-tabs :deep(.el-tab-pane) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-order-detail-pane {
+  display: flex;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -1476,54 +1571,6 @@ onMounted(() => {
   overflow: hidden;
 }
 
-.position-troubleshoot-tab-stack--fill > .position-troubleshoot-block,
-.position-troubleshoot-tab-stack--fill > .workbench-block {
-  flex: 1 1 0;
-}
-
-.position-troubleshoot-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.position-troubleshoot-grid--orders {
-  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
-}
-
-.position-troubleshoot-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.position-troubleshoot-block--table,
-.position-troubleshoot-block--detail {
-  flex: 1 1 0;
-}
-
-.position-troubleshoot-block__head {
-  font-size: 13px;
-  font-weight: 600;
-  color: #303133;
-}
-
-.position-troubleshoot-table-wrap {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  scrollbar-gutter: stable both-edges;
-}
-
-.position-troubleshoot-table-wrap :deep(.el-table) {
-  height: 100%;
-}
-
 .position-troubleshoot-order-toolbar {
   display: flex;
   align-items: center;
@@ -1577,7 +1624,8 @@ onMounted(() => {
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-gutter: stable both-edges;
 }
 
@@ -1592,6 +1640,15 @@ onMounted(() => {
   color: #21405e;
   font-size: 12px;
   font-weight: 600;
+}
+
+.position-troubleshoot-mini-table :deep(.el-table__header .cell) {
+  white-space: nowrap;
+}
+
+.position-troubleshoot-mini-table :deep(.cell) {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .position-resolution-alert {
@@ -1645,6 +1702,12 @@ onMounted(() => {
   color: #68839d;
 }
 
+.runtime-empty-panel--compact {
+  min-height: 68px;
+  justify-content: flex-start;
+  padding: 0 16px;
+}
+
 .runtime-inline-status {
   display: inline-flex;
   align-items: center;
@@ -1671,8 +1734,8 @@ onMounted(() => {
 }
 
 @media (max-width: 1440px) {
-  .position-troubleshoot-grid,
-  .position-troubleshoot-grid--orders,
+  .position-selection-grid--columns,
+  .position-selection-grid--orders,
   .position-troubleshoot-filter-grid {
     grid-template-columns: 1fr;
   }
