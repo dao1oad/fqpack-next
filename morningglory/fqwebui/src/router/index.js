@@ -14,7 +14,6 @@ const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
 const GanttShouban30Phase1 = () => import('../views/GanttShouban30Phase1.vue')
 const DailyScreening = () => import('../views/DailyScreening.vue')
 const PositionManagement = () => import('../views/PositionManagement.vue')
-const ReconciliationWorkbench = () => import('../views/ReconciliationWorkbench.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
 const SystemSettings = () => import('../views/SystemSettings.vue')
 
@@ -80,11 +79,6 @@ const routes = [
     path: '/position-management',
     name: 'position-management',
     component: PositionManagement
-  }),
-  withRouteTitle({
-    path: '/reconciliation',
-    name: 'reconciliation',
-    component: ReconciliationWorkbench
   }),
   withRouteTitle({
     path: '/runtime-observability',

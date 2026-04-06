@@ -8,7 +8,13 @@
         </div>
       </div>
 
-      <div class="workbench-toolbar__actions">
+      <div class="workbench-toolbar__actions position-subject-header__actions">
+        <el-input
+          v-model="searchSubjectKeyword"
+          clearable
+          placeholder="搜索代码 / 名称"
+          class="position-subject-toolbar__query"
+        />
         <el-button :loading="loadingOverview" @click="handleRefreshSubjectOverview">刷新</el-button>
       </div>
     </div>
@@ -21,15 +27,6 @@
       :closable="false"
       show-icon
     />
-
-    <div class="position-subject-toolbar">
-      <el-input
-        v-model="searchSubjectKeyword"
-        clearable
-        placeholder="搜索代码 / 名称"
-        class="position-subject-toolbar__query"
-      />
-    </div>
 
     <div class="workbench-summary-row">
       <StatusChip variant="muted">
@@ -54,13 +51,14 @@
         row-key="symbol"
         size="small"
         border
+        :fit="true"
         height="100%"
         highlight-current-row
         class="position-subject-table position-subject-table--dense"
         @row-click="handleSubjectRowClick"
         @current-change="handleSubjectCurrentChange"
       >
-        <el-table-column label="标的" width="84" fixed="left">
+        <el-table-column label="标的" width="104" fixed="left">
           <template #default="{ row }">
             <div class="position-subject-symbol">
               <strong class="workbench-code">{{ row.symbol }}</strong>
@@ -69,7 +67,15 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="持仓" width="96">
+        <el-table-column label="检查结果" min-width="84">
+          <template #default="{ row }">
+            <StatusChip class="runtime-inline-status" :variant="row.audit_status_chip_variant || 'muted'">
+              {{ row.audit_status_label || row.audit_status || '未跟踪' }}
+            </StatusChip>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="持仓" min-width="96">
           <template #default="{ row }">
             <div class="position-subject-metric-stack">
               <span class="position-subject-metric-stack__primary workbench-code">
@@ -82,7 +88,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="订单状态" width="84">
+        <el-table-column label="订单状态" min-width="84">
           <template #default="{ row }">
             <div class="position-subject-status-stack">
               <span class="position-subject-status-line">
@@ -97,7 +103,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="Guardian 买入层级" width="172">
+        <el-table-column label="Guardian 买入层级" min-width="128">
           <template #default="{ row }">
             <div class="position-subject-summary-stack">
               <div
@@ -118,7 +124,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="止盈价格层级" width="172">
+        <el-table-column label="止盈价格层级" min-width="128">
           <template #default="{ row }">
             <div class="position-subject-summary-stack">
               <div
@@ -139,7 +145,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="Guardian 层级触发" width="220">
+        <el-table-column label="Guardian 层级触发" min-width="104" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="position-subject-trigger-line">
               <span class="workbench-code position-subject-trigger-line__kind">{{ row.guardianTrigger?.kindLabel || '-' }}</span>
@@ -148,7 +154,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="止盈层级触发" width="220">
+        <el-table-column label="止盈层级触发" min-width="104" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="position-subject-trigger-line">
               <span class="workbench-code position-subject-trigger-line__kind">{{ row.takeprofitTrigger?.kindLabel || '-' }}</span>
@@ -157,7 +163,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="单笔止损触发" width="220">
+        <el-table-column label="单笔止损触发" min-width="104" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="position-subject-trigger-line">
               <span class="workbench-code position-subject-trigger-line__kind">{{ row.entryStoplossTrigger?.kindLabel || '-' }}</span>
@@ -166,7 +172,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="全仓止损价" width="96">
+        <el-table-column label="全仓止损价" min-width="88">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'stop_loss_price')">
               <el-input-number
@@ -184,7 +190,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="单标的仓位上限" width="110">
+        <el-table-column label="单标的仓位上限" min-width="96">
           <template #default="{ row }">
             <div class="position-subject-input-cell" :title="configNote(row.symbol, 'position_limit_value')">
               <el-input-number
@@ -200,7 +206,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="保存" width="74" fixed="right">
+        <el-table-column label="保存" width="70" fixed="right">
           <template #default="{ row }">
             <div class="position-subject-save-cell">
               <el-button
@@ -441,15 +447,16 @@ const saveConfigBundleForSymbol = async (symbol) => {
   overflow: hidden;
 }
 
-.position-subject-toolbar {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr);
+.position-subject-header__actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  min-width: 0;
 }
 
 .position-subject-toolbar__query {
-  width: 100%;
+  width: 280px;
+  min-width: 220px;
 }
 
 .position-subject-table-wrap {
@@ -619,8 +626,13 @@ const saveConfigBundleForSymbol = async (symbol) => {
 }
 
 @media (max-width: 1320px) {
-  .position-subject-toolbar {
-    grid-template-columns: 1fr;
+  .position-subject-header__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .position-subject-toolbar__query {
+    width: min(100%, 280px);
   }
 }
 </style>

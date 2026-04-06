@@ -362,13 +362,29 @@ function buildPositionManagementDashboard() {
         source: 'xt_positions',
         description: '当前券商实时持仓',
       },
-      rule_matrix: buildRows(28, (index) => ({
-        key: `rule_${index + 1}`,
-        label: `门禁规则 ${index + 1}`,
-        allowed: index % 4 !== 0,
-        reason_code: index % 4 === 0 ? 'limit_blocked' : 'pass',
-        reason_text: index % 4 === 0 ? `门禁规则 ${index + 1} 阻断` : `门禁规则 ${index + 1} 通过`,
-      })),
+      rule_matrix: [
+        {
+          key: 'buy_new',
+          label: '新标的买入',
+          allowed: true,
+          reason_code: 'allow_open',
+          reason_text: '保证金和当前门禁均允许开新仓。',
+        },
+        {
+          key: 'buy_holding',
+          label: '已持仓标的买入',
+          allowed: true,
+          reason_code: 'holding_buy_allowed',
+          reason_text: '当前状态允许继续买入已持仓标的。',
+        },
+        {
+          key: 'sell',
+          label: '卖出',
+          allowed: true,
+          reason_code: 'sell_allowed',
+          reason_text: '卖出始终允许。',
+        },
+      ],
       symbol_position_limits: {
         rows: symbols.map((symbol, index) => ({
           symbol,
@@ -935,7 +951,8 @@ test('position-management dense workbench keeps two-column panels, descending so
   await page.setViewportSize(DESKTOP_VIEWPORT)
   await setupPositionManagementRoutes(page)
   await page.goto(`${DEV_SERVER_URL}/position-management`)
-  await expect(page.locator('.runtime-position-rule-ledger .runtime-ledger__row').first()).toBeVisible()
+  await expect(page.locator('.position-state-action-chip').first()).toBeVisible()
+  await expect(page.locator('.position-state-note').first()).toBeVisible()
   await expect(page.locator('.position-subject-overview-panel .el-table__body-wrapper tbody tr').first()).toBeVisible()
   await expect(page.locator('.position-subject-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
   await expect(page.locator('.position-decision-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
@@ -955,7 +972,7 @@ test('position-management dense workbench keeps two-column panels, descending so
       rightBottom: getHeight('.position-decision-panel'),
     }
   })
-  expect(Math.abs(panelHeights.leftTop - panelHeights.leftBottom)).toBeLessThanOrEqual(8)
+  expect(panelHeights.leftTop).toBeLessThan(panelHeights.leftBottom * 0.36)
   expect(Math.abs(panelHeights.rightTop - panelHeights.rightBottom)).toBeLessThanOrEqual(8)
 
   const headerTexts = await page.locator('.position-subject-table .el-table__header-wrapper thead th .cell').evaluateAll((nodes) => (
@@ -1010,10 +1027,10 @@ test('position-management dense workbench keeps two-column panels, descending so
   ))
   expect(overviewSymbols).toEqual(['000001', '000002', '000003'])
 
-  await expect(page.locator('.position-selection-panel .workbench-summary-row')).toContainText('000001')
+  await expect(page.locator('.position-selection-panel > .workbench-summary-row').first()).toContainText('000001')
   await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr')).toHaveCount(2)
   await page.locator('.position-subject-table .el-table__body-wrapper tbody tr').nth(1).click()
-  await expect(page.locator('.position-selection-panel .workbench-summary-row')).toContainText('000002')
+  await expect(page.locator('.position-selection-panel > .workbench-summary-row').first()).toContainText('000002')
   await expect(page.locator('.position-decision-panel .workbench-summary-row')).toContainText('全部标的')
 
   const decisionSymbols = await page.locator('.position-decision-table .el-table__body-wrapper tbody tr').evaluateAll((rows) => (
@@ -1028,7 +1045,7 @@ test('position-management dense workbench keeps two-column panels, descending so
   expect(decisionTimes).toEqual(['2026-03-18 10:47:00', '2026-03-18 10:46:00', '2026-03-18 10:45:00'])
 
   await page.locator('.position-subject-table .el-table__body-wrapper tbody tr').first().click()
-  await expect(page.locator('.position-selection-panel .workbench-summary-row')).toContainText('000001')
+  await expect(page.locator('.position-selection-panel > .workbench-summary-row').first()).toContainText('000001')
   await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr')).toHaveCount(2)
   await page.locator('.position-selection-entry-table .el-table__body-wrapper tbody tr').nth(1).evaluate((node) => {
     node.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
@@ -1037,17 +1054,50 @@ test('position-management dense workbench keeps two-column panels, descending so
   await expect(page.locator('.position-selection-slice-table .el-table__body-wrapper tbody tr').first()).toContainText('#2 / ntry-2')
 })
 
-test('position-management state ledger keeps the first row clear after the reconciliation split-out', async ({ page }) => {
+test('position-management dense state summary stays fully visible without internal scrolling', async ({ page }) => {
   await page.setViewportSize(DESKTOP_VIEWPORT)
   await setupPositionManagementRoutes(page)
   await page.goto(`${DEV_SERVER_URL}/position-management`)
-  await expect(page.locator('.runtime-position-rule-ledger .runtime-ledger__row').first()).toBeVisible()
+  await expect(page.locator('.position-state-hero').first()).toBeVisible()
+  await expect(page.locator('.position-state-note').first()).toBeVisible()
+  await expect(page.locator('.position-state-metric-grid').first()).toBeVisible()
+  await expect(page.locator('.position-state-action-chip').first()).toBeVisible()
   await expect(page.locator('.position-subject-overview-panel .el-table__body-wrapper tbody tr').first()).toBeVisible()
   await expect(page.locator('.position-decision-table .el-table__body-wrapper tbody tr').first()).toBeVisible()
-  const metrics = await Promise.all([
-    measureLedger(page.locator('.position-state-panel'), { name: 'position rule ledger', headerSelector: '.runtime-position-rule-ledger .runtime-ledger__header', rowSelector: '.runtime-position-rule-ledger .runtime-ledger__row', viewportSelector: '.position-state-scroll', scrollTop: 220 }),
-  ])
-  assertNoOverlap(metrics)
+  const statePanelMetrics = await page.locator('.position-panel-body').evaluate((node) => {
+    const styles = window.getComputedStyle(node)
+    const summaryCards = Array.from(node.querySelectorAll('.position-state-summary-card')).map((item) => {
+      const rect = item.getBoundingClientRect()
+      return {
+        text: (item.textContent || '').trim(),
+        left: rect.left,
+        height: rect.height,
+      }
+    })
+    return {
+      clientHeight: node.clientHeight,
+      scrollHeight: node.scrollHeight,
+      overflowY: styles.overflowY,
+      heroCount: node.querySelectorAll('.position-state-hero').length,
+      heroChipCount: node.querySelectorAll('.position-state-hero__chips .workbench-summary-chip').length,
+      noteCount: node.querySelectorAll('.position-state-note').length,
+      metricCount: node.querySelectorAll('.position-state-metric-item').length,
+      actionCount: node.querySelectorAll('.position-state-action-chip').length,
+      summaryCards,
+    }
+  })
+
+  expect(statePanelMetrics.overflowY).not.toBe('auto')
+  expect(statePanelMetrics.scrollHeight).toBeLessThanOrEqual(statePanelMetrics.clientHeight + 1)
+  expect(statePanelMetrics.heroCount).toBe(1)
+  expect(statePanelMetrics.heroChipCount).toBe(3)
+  expect(statePanelMetrics.noteCount).toBe(1)
+  expect(statePanelMetrics.metricCount).toBe(4)
+  expect(statePanelMetrics.actionCount).toBe(3)
+  expect(statePanelMetrics.summaryCards).toHaveLength(5)
+  expect(statePanelMetrics.summaryCards[0]?.text).toContain('当前命中规则')
+  const heights = statePanelMetrics.summaryCards.map((item) => item.height)
+  expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(1)
 })
 
 test('runtime-observability ledgers keep the first row clear of the header after scrolling', async ({ page }) => {

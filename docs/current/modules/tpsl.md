@@ -121,10 +121,8 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 
 TPSL 当前不再保留独立 `/tpsl` 页面入口；相关信息已经分散并入以下正式页面：
 
-- `/reconciliation`
-  - 作为统一排障入口，继续承载 `entries / entry_slices / reconciliation / history`
 - `/position-management`
-  - 承载当前标的的 `聚合买入列表 / 按持仓入口止损` 与切片明细
+  - 作为统一仓位与排障入口，承载 `聚合买入列表 / 按持仓入口止损`、切片明细、相关订单、对账结果与 Resolution
 - `/kline-slim`
   - 承载 symbol 级设置、止盈 profile 与运行态摘要
 

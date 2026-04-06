@@ -480,6 +480,7 @@ test('PositionSubjectOverviewPanel shows Guardian and takeprofit overview column
     'utf8',
   ).replace(/\r/g, '')
 
+  assert.match(source, /<el-table-column label="检查结果"/)
   assert.match(source, /<el-table-column label="持仓"/)
   assert.match(source, /<el-table-column label="订单状态"/)
   assert.match(source, /<el-table-column label="Guardian 层级触发"/)
@@ -488,11 +489,8 @@ test('PositionSubjectOverviewPanel shows Guardian and takeprofit overview column
   assert.match(source, /<el-table-column label="Guardian 买入层级"/)
   assert.match(source, /<el-table-column label="止盈价格层级"/)
   assert.match(source, /<el-table-column label="单标的仓位上限"/)
-  assert.match(source, /<el-table-column label="Guardian 买入层级" width="172">/)
-  assert.match(source, /<el-table-column label="止盈价格层级" width="172">/)
-  assert.match(source, /<el-table-column label="Guardian 层级触发" width="220">/)
-  assert.match(source, /<el-table-column label="止盈层级触发" width="220">/)
-  assert.match(source, /<el-table-column label="单笔止损触发" width="220">/)
+  assert.match(source, /<el-table-column label="检查结果"[^>]*>/)
+  assert.match(source, /audit_status/)
   assert.match(source, /row\.takeprofitTrigger\?\.kindLabel/)
   assert.match(source, /row\.entryStoplossTrigger\?\.kindLabel/)
   assert.match(source, /row\.guardianLevelSummary/)

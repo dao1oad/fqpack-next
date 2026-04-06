@@ -42,7 +42,21 @@
 - 左栏：当前仓位状态 + 标的总览
 - 右栏：选中标的工作区 + 最近决策与上下文
 
-规则矩阵已并入“当前仓位状态”。当前仓位状态已放到“标的总览”上方，因此桌面端不再保留旧的三栏壳和单独的对账入口卡片。
+门禁动作结果已并入“当前仓位状态”。当前仓位状态已放到“标的总览”上方，并进一步压缩成高密度摘要，因此桌面端不再保留旧的三栏壳和单独的对账入口卡片。
+
+左栏当前采用 `auto + 1fr` 布局：
+
+- 上方是“当前仓位状态”高密度摘要
+- 下方是“标的总览”主表
+
+“当前仓位状态”当前固定为不折叠、不滚动的高密度展示，当前只保留最有判断价值的两层信息：
+
+- 第一层：`effective state / stale / raw state` + `新标的买入 / 已持仓标的买入 / 卖出`
+- 第二层：`可用保证金 / 总资产 / 持仓市值 / 总负债` + `当前命中规则`
+
+动作结果当前压缩为三枚门禁 chip，并上移到第一层；左栏不再重复铺开 `原因码 / 说明` 或表格化矩阵。
+
+因此左栏视觉主体当前明确是“标的总览”，而不是状态卡片。
 
 inventory 参数表已从本页移除，去重后的只读补充项已并入 `/system-settings`；本页只保留当前仓位状态、标的总览、选中标的工作区和最近决策。
 
@@ -94,9 +108,12 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 
 `Guardian 买入层级 / 止盈价格层级 / Guardian 层级触发 / 止盈层级触发 / 单笔止损触发` 这几列当前会优先吃掉主表剩余横向空间。
 
+搜索框与刷新动作当前直接并入“标的总览”标题栏，避免再额外占一行高度。
+
 左栏主表当前列顺序固定为：
 
 - `标的`
+- `检查结果`
 - `持仓`
 - `订单状态`
 - `Guardian 买入层级`
@@ -108,7 +125,7 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 - `单标的仓位上限`
 - `保存`
 
-桌面宽度下当前目标是不再出现横向滚动条。
+桌面宽度下当前目标是不再出现横向滚动条；因此 `Guardian 层级触发 / 止盈层级触发 / 单笔止损触发` 已从更宽的展开列收回到单行触发列，整体主表优先吃掉左栏空白但不再依赖横向滚动。
 
 `首笔买入金额 / 默认买入金额` 当前已从标的总览主表移除，统一收口到 `/system-settings -> 交易控制 / 策略 -> Guardian`。
 
@@ -119,21 +136,29 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 - `/api/subject-management/<symbol>/must-pool`
 - `/api/position-management/symbol-limits/<symbol>`
 - `/api/order-management/stoploss/bind`
+- `/api/position-management/reconciliation`
+- `/api/position-management/reconciliation/<symbol>`
 
 标的总览默认按持仓优先、仓位市值从大到小排序。
 
 默认选中首个标的并驱动右栏联动。
 
-选中标的工作区当前固定拆成上下两张高密度表：
+选中标的工作区当前升级为统一排障工作区。右上工作区固定按 `持仓账本 -> 相关订单 -> 对账结果 -> Resolution` 顺序展示：
 
-- 上半区：`聚合买入列表 / 按持仓入口止损`
-  - 固定列为：`入口 / 买入时间 / 买入价 / 买入数量 / 剩余 / 占比 / 市值 / 单笔止损`
+- `持仓账本`
+  - 直接复用当前 `/position-management` 的 entry / slice 工作区；不会改用历史独立对账页的账本实现
+  - 持仓账本直接复用当前 `聚合买入列表 / 按持仓入口止损`
+  - 持仓账本直接复用当前 `切片明细`
+  - 固定列仍为：`入口 / 买入时间 / 买入价 / 买入数量 / 剩余 / 占比 / 市值 / 单笔止损`
   - `入口` 当前只展示 `序号 + entry id` 的紧凑单行标签
   - `买入时间 / 剩余 / 占比` 当前固定单行展示，不再换行
-  - 不再单独展示 `聚合买入` 列
-- 下半区：`切片明细`
-  - `入口` 列当前也只展示 `序号 + entry id`
-  - `入口` 同样固定单行展示，便于压缩右栏宽度
+- `相关订单`
+  - 直接承载 symbol 级 request / order / event / trade 排障
+  - 继续支持订单筛选、订单列表、订单详情与成交回报
+- `对账结果`
+  - 展示 symbol 级一致性规则结果、surface 对照与系统解释
+- `Resolution`
+  - 展示 `gaps / resolutions / rejections` 以及对应 TPSL 历史
 
 右上工作区会为每个 symbol 维护当前选中的 open entry；首次进入 symbol 时默认选中第一条 entry，`切片明细` 只展示当前选中 entry 的 `entry_slices`，不再一次性铺开全部切片。
 
@@ -158,23 +183,21 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 
 ## 对账工作台
 
-`/position-management` 当前不再直接展示旧对账视图；对账、相关订单、Entry / Slice、gap / resolution / rejection 已统一迁到独立路由 `/reconciliation`。
-
-`/reconciliation` 当前使用以下只读接口：
+`/position-management` 当前直接承载 symbol 级一致性审计、相关订单、持仓账本与 gap / resolution / rejection。相关接口仍保持只读：
 
 - `GET /api/position-management/reconciliation`
 - `GET /api/position-management/reconciliation/<symbol>`
 - `GET /api/position-management/reconciliation-workspace/<symbol>`
 
-一致性检查只读，不负责修复，不会触发 compat sync、reconcile、repair、rebuild 或任何写操作。`/position-management` 当前只保留对账中心的概念链接，不再内嵌任何对账入口模块。
+一致性检查只读，不负责修复，不会触发 compat sync、reconcile、repair、rebuild 或任何写操作。
 
 ## 排障
 
 ### 需要查看对账或订单链
 
-- 直接进入 `/reconciliation`
-- 需要带上下文时，使用 `?symbol=<symbol>`
-- 在 `/reconciliation` 里继续看 `概览 / 相关订单 / 持仓账本 / Resolution`
+- 直接进入 `/position-management`
+- 在左栏 `标的总览` 先看 `检查结果`
+- 选中 symbol 后，在右上继续看 `持仓账本 / 相关订单 / 对账结果 / Resolution`
 
 ### 某个 symbol 一直异常
 
