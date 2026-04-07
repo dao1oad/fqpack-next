@@ -360,6 +360,7 @@ print(audit_recent_etf_xdxr_coverage(recent_days=365))
 
 - `script/fqnext_host_runtime_ctl.ps1 -Mode Status` 显示 `fqnext_xt_account_sync_worker` 为 `Fatal`
 - `D:/fqdata/log/fqnext_xt_account_sync_worker_err.log` 出现 `resolve_stock_account() got an unexpected keyword argument 'settings_provider'`
+- `D:/fqdata/log/fqnext_xt_account_sync_worker_err.log` 持续出现 `xtquant connect failed: -1`
 - formal deploy 卡在 `EnsureServiceAndRestartSurfaces` 或 deploy 后 verify 阶段
 
 先检查：
@@ -378,11 +379,13 @@ print(inspect.signature(resolve_stock_account))
 - 宿主机进程实际导入的是 `.venv\\Lib\\site-packages\\fqxtrade\\xtquant\\account.py`
 - 该已安装 `fqxtrade` 仍是旧签名，只接受 `query_param=None, stock_account_cls=None`
 - 会话误以为仓库里的 `morningglory/fqxtrade/fqxtrade/xtquant/account.py` 已自动成为宿主机运行时真值
+- MiniQMT 未启动、未登录，或 XT 连接尚未恢复
 
 处理：
 
 - 先确认正式 deploy 来源已经是最新远程 `main` 已合并 SHA
 - 当前仓库中的 `freshquant/xt_account_sync/client.py` 已兼容新旧 `resolve_stock_account` 签名；如果仍报这个错误，说明宿主机还没跑到最新已合并代码，先重新同步 deploy mirror 并重跑 formal deploy
+- 当前 worker 会对 `xtquant connect failed:*` 与 `xtquant subscribe failed:*` 保持 `Running` 并退避重试；如果 stderr 持续刷这两类日志，优先确认 MiniQMT 已启动且已登录正确账户
 - 若仍需继续定位，优先以 `inspect.getsourcefile()` 与 `inspect.signature()` 的结果确认宿主机实际 import 源，而不是继续凭仓库文件内容猜测
 - worker 恢复后，再重新执行命中的 host runtime surface restart 或整轮 formal deploy，并确认 runtime verify 通过
 

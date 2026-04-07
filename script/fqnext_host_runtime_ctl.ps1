@@ -18,6 +18,54 @@ $pythonScript = Join-Path $repoRoot 'script\fqnext_host_runtime.py'
 $supervisorConfigScript = Join-Path $repoRoot 'script\fqnext_supervisor_config.py'
 $invokeBridgeScript = Join-Path $repoRoot 'script\invoke_fqnext_supervisord_restart_task.ps1'
 
+function Resolve-Python312Command {
+    $candidates = @()
+
+    $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        $candidates += [pscustomobject]@{
+            Executable = $pyLauncher.Source
+            PrefixArgs = @('-3.12')
+        }
+    }
+
+    $fallbackExecutables = @(
+        (Join-Path $repoRoot '.artifacts\bin\py.exe'),
+        (Join-Path $repoRoot '.worktrees\main-deploy-production\.venv\Scripts\python.exe'),
+        (Join-Path $repoRoot '.venv\Scripts\python.exe'),
+        (Join-Path $repoRoot '.artifacts\python\cpython-3.12.13-windows-x86_64-none\python.exe')
+    )
+
+    foreach ($candidate in $fallbackExecutables) {
+        if (Test-Path $candidate) {
+            $candidates += [pscustomobject]@{
+                Executable = $candidate
+                PrefixArgs = @()
+            }
+        }
+    }
+
+    foreach ($candidate in $candidates) {
+        try {
+            & $candidate.Executable @($candidate.PrefixArgs + @('--version')) | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                return $candidate
+            }
+        } catch {
+            continue
+        }
+    }
+
+    throw "Unable to resolve a usable Python 3.12 launcher. Checked py, repo-local py.exe, deploy mirror .venv, repo .venv, and workspace Python."
+}
+
+function Invoke-Python312 {
+    param([string[]]$Arguments)
+
+    $resolved = Resolve-Python312Command
+    & $resolved.Executable @($resolved.PrefixArgs + $Arguments)
+}
+
 function Normalize-DeploymentSurfaces {
     param([string[]]$Surfaces)
 
@@ -146,7 +194,7 @@ function Invoke-HostRuntimePython {
         $arguments += @('--timeout-seconds', [string]$TimeoutSeconds)
     }
 
-    & py @arguments
+    Invoke-Python312 -Arguments $arguments
     if ($LASTEXITCODE -ne 0) {
         throw "fqnext host runtime command failed: $Command"
     }
@@ -221,7 +269,7 @@ function Sync-SupervisorConfig {
         throw "Supervisor config sync script not found: $supervisorConfigScript"
     }
 
-    $raw = & py -3.12 $supervisorConfigScript write --repo-root $TargetRepoRoot --output-path $ResolvedConfigPath
+    $raw = Invoke-Python312 -Arguments @($supervisorConfigScript, 'write', '--repo-root', $TargetRepoRoot, '--output-path', $ResolvedConfigPath)
     if ($LASTEXITCODE -ne 0) {
         throw "fqnext supervisor config write failed for repo root '$TargetRepoRoot'."
     }

@@ -31,6 +31,8 @@ def run_forever(
     scheduled_hour=9,
     scheduled_minute=20,
     include_credit_subjects_on_startup=True,
+    retry_delay_seconds=5.0,
+    retry_delay_max_seconds=60.0,
 ):
     sync_service = service or XtAccountSyncService.build_default()
     now_provider = now_provider or _shanghai_now
@@ -40,11 +42,14 @@ def run_forever(
     # position management. Only credit_subjects is reduced to startup/daily sync.
     if symbol_position_service is not None:
         symbol_position_service.refresh_all_from_positions()
-    startup_result = sync_service.sync_once(
+    _sync_once_with_xt_retry(
+        sync_service,
         include_credit_subjects=include_credit_subjects_on_startup,
         seed_symbol_snapshots=True,
+        sleep_fn=sleep_fn,
+        retry_delay_seconds=retry_delay_seconds,
+        retry_delay_max_seconds=retry_delay_max_seconds,
     )
-    _log_positions_quarantine(startup_result)
 
     last_scheduled_date = None
     if include_credit_subjects_on_startup and _is_schedule_due(
@@ -62,11 +67,14 @@ def run_forever(
             scheduled_hour,
             scheduled_minute,
         )
-        loop_result = sync_service.sync_once(
+        _sync_once_with_xt_retry(
+            sync_service,
             include_credit_subjects=include_credit_subjects,
             seed_symbol_snapshots=True,
+            sleep_fn=sleep_fn,
+            retry_delay_seconds=retry_delay_seconds,
+            retry_delay_max_seconds=retry_delay_max_seconds,
         )
-        _log_positions_quarantine(loop_result)
         if include_credit_subjects:
             last_scheduled_date = current_time.date()
         sleep_fn(interval_seconds)
@@ -134,6 +142,46 @@ def _is_schedule_due(current_time, scheduled_hour, scheduled_minute):
 
 def _shanghai_now():
     return datetime.now(SHANGHAI_TZ)
+
+
+def _sync_once_with_xt_retry(
+    sync_service,
+    *,
+    include_credit_subjects,
+    seed_symbol_snapshots,
+    sleep_fn,
+    retry_delay_seconds,
+    retry_delay_max_seconds,
+):
+    delay_seconds = retry_delay_seconds
+    while True:
+        try:
+            result = sync_service.sync_once(
+                include_credit_subjects=include_credit_subjects,
+                seed_symbol_snapshots=seed_symbol_snapshots,
+            )
+        except Exception as error:
+            if not _is_retryable_xt_sync_error(error):
+                raise
+            logger.warning(
+                "xt_account_sync XT unavailable; retrying in %.1f seconds: %s",
+                delay_seconds,
+                error,
+            )
+            sleep_fn(delay_seconds)
+            delay_seconds = min(delay_seconds * 2, retry_delay_max_seconds)
+            continue
+        _log_positions_quarantine(result)
+        return result
+
+
+def _is_retryable_xt_sync_error(error):
+    if not isinstance(error, RuntimeError):
+        return False
+    message = str(error)
+    return message.startswith("xtquant connect failed:") or message.startswith(
+        "xtquant subscribe failed:"
+    )
 
 
 def _log_positions_quarantine(result):
