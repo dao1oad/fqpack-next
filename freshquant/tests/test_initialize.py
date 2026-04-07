@@ -474,3 +474,105 @@ def test_bootstrap_order_ledger_from_synced_truth_skips_when_order_ledger_not_em
         "skipped": True,
         "reason": "order_ledger_not_empty",
     }
+
+
+def test_bootstrap_order_ledger_from_synced_truth_ignores_legacy_only_state():
+    from freshquant.initialize import _bootstrap_order_ledger_from_synced_truth
+
+    database = FakeDatabase({"om_buy_lots": [{"lot_id": "legacy-lot"}]})
+
+    class FakeRebuildService:
+        def build_from_truth(self, *, xt_orders, xt_trades, xt_positions):
+            assert xt_orders == []
+            assert xt_trades == []
+            assert xt_positions == [{"stock_code": "000001.SZ", "avg_price": 12.5}]
+            return {
+                "broker_orders": 0,
+                "execution_fills": 0,
+                "position_entries": 1,
+                "entry_slices": 0,
+                "exit_allocations": 0,
+                "reconciliation_gaps": 0,
+                "reconciliation_resolutions": 0,
+                "auto_open_entries": 1,
+                "auto_close_allocations": 0,
+                "ingest_rejections": 0,
+                "broker_order_documents": [],
+                "execution_fill_documents": [],
+                "position_entry_documents": [{"entry_id": "entry-1"}],
+                "entry_slice_documents": [],
+                "exit_allocation_documents": [],
+                "reconciliation_gap_documents": [],
+                "reconciliation_resolution_documents": [],
+                "ingest_rejection_documents": [],
+            }
+
+    summary = _bootstrap_order_ledger_from_synced_truth(
+        xt_orders=[],
+        xt_trades=[],
+        xt_positions=[{"stock_code": "000001.SZ", "avg_price": 12.5}],
+        database=database,
+        rebuild_service=FakeRebuildService(),
+    )
+
+    assert summary == {
+        "skipped": False,
+        "broker_orders": 0,
+        "execution_fills": 0,
+        "position_entries": 1,
+        "entry_slices": 0,
+        "exit_allocations": 0,
+        "reconciliation_gaps": 0,
+        "reconciliation_resolutions": 0,
+        "auto_open_entries": 1,
+        "auto_close_allocations": 0,
+        "ingest_rejections": 0,
+    }
+    assert database["om_buy_lots"].documents == [{"lot_id": "legacy-lot"}]
+    assert database["om_position_entries"].documents == [{"entry_id": "entry-1"}]
+
+
+def test_default_xt_runtime_sync_runner_returns_empty_summary_when_xt_unavailable(
+    monkeypatch,
+):
+    from freshquant.initialize import _default_xt_runtime_sync_runner
+
+    class FakeTradingManager:
+        def get_connection(self):
+            return None, None, False
+
+        def update_connection(self, xt_trader, acc, connected):
+            raise AssertionError("connection should not be updated when connect fails")
+
+    broker_module = types.ModuleType("morningglory.fqxtrade.fqxtrade.xtquant.broker")
+    broker_module.connect = lambda session_id=100: (None, None, False)
+    broker_module.trading_manager = FakeTradingManager()
+    monkeypatch.setitem(
+        sys.modules,
+        "morningglory.fqxtrade.fqxtrade.xtquant.broker",
+        broker_module,
+    )
+
+    monkeypatch.setattr(
+        "freshquant.initialize._persist_xt_runtime_truth",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("persist should not run when xt connection is unavailable")
+        ),
+    )
+    monkeypatch.setattr(
+        "freshquant.initialize._bootstrap_order_ledger_from_synced_truth",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("rebuild should not run when xt connection is unavailable")
+        ),
+    )
+
+    assert _default_xt_runtime_sync_runner() == {
+        "assets": 0,
+        "positions": 0,
+        "orders": 0,
+        "trades": 0,
+        "rebuild": {
+            "skipped": True,
+            "reason": "xt_connection_unavailable",
+        },
+    }

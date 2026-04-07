@@ -95,6 +95,22 @@ _INITIALIZE_REBUILD_SUMMARY_KEYS = (
     "auto_close_allocations",
     "ingest_rejections",
 )
+_INITIALIZE_ACTIVE_LEDGER_COLLECTIONS = (
+    "om_order_requests",
+    "om_broker_orders",
+    "om_order_events",
+    "om_execution_fills",
+    "om_reconciliation_gaps",
+    "om_reconciliation_resolutions",
+    "om_position_entries",
+    "om_entry_slices",
+    "om_exit_allocations",
+    "om_entry_stoploss_bindings",
+    "om_takeprofit_profiles",
+    "om_takeprofit_states",
+    "om_exit_trigger_events",
+    "om_ingest_rejections",
+)
 
 
 def main(
@@ -271,6 +287,17 @@ def _default_xt_runtime_sync_runner():
     from fqxtrade.xtquant.fqtype import FqXtOrder, FqXtPosition, FqXtTrade
 
     xt_trader, acc, _ = _ensure_xt_runtime_connection()
+    if xt_trader is None or acc is None:
+        return {
+            "assets": 0,
+            "positions": 0,
+            "orders": 0,
+            "trades": 0,
+            "rebuild": {
+                "skipped": True,
+                "reason": "xt_connection_unavailable",
+            },
+        }
     asset = xt_trader.query_stock_asset(acc)
     positions = list(xt_trader.query_stock_positions(acc) or [])
     orders = list(xt_trader.query_stock_orders(acc) or [])
@@ -360,16 +387,13 @@ def _bootstrap_order_ledger_from_synced_truth(
     database=None,
     rebuild_service=None,
 ):
-    from freshquant.order_management.db import (
-        ORDER_LEDGER_REBUILD_PURGE_COLLECTIONS,
-        get_order_management_db,
-    )
+    from freshquant.order_management.db import get_order_management_db
     from freshquant.order_management.rebuild import OrderLedgerV2RebuildService
 
     database = database or get_order_management_db()
     if _order_ledger_has_existing_state(
         database=database,
-        collection_names=ORDER_LEDGER_REBUILD_PURGE_COLLECTIONS,
+        collection_names=_INITIALIZE_ACTIVE_LEDGER_COLLECTIONS,
     ):
         return {
             "skipped": True,
