@@ -17,6 +17,7 @@ BOOTSTRAP_PROMPTS = [
     ("mongodb.port", "MongoDB 端口", "int"),
     ("mongodb.db", "MongoDB 主库", "text"),
     ("mongodb.gantt_db", "MongoDB Gantt 库", "text"),
+    ("mongodb.screening_db", "MongoDB Screening 库", "text"),
     ("redis.host", "Redis 主机", "text"),
     ("redis.port", "Redis 端口", "int"),
     ("redis.db", "Redis DB", "int"),
@@ -29,6 +30,7 @@ BOOTSTRAP_PROMPTS = [
     ("memory.mongodb.db", "Memory Mongo 库", "text"),
     ("memory.cold_root", "Memory 冷目录", "text"),
     ("memory.artifact_root", "Memory Artifact 根目录", "text"),
+    ("memory.reference_ref", "Memory Reference Ref", "text"),
     ("tdx.home", "TDX 主目录", "text"),
     ("tdx.hq.endpoint", "TDX 行情接口", "text"),
     ("api.base_url", "API Base URL", "text"),
@@ -47,7 +49,7 @@ SETTINGS_PROMPTS = [
     ("xtquant.account", "XT 账户", "text"),
     ("xtquant.account_type", "XT 账户类型", "text"),
     ("xtquant.broker_submit_mode", "Broker Submit Mode", "text"),
-    ("xtquant.auto_repay.enabled", "XT 自动还款开关", "text"),
+    ("xtquant.auto_repay.enabled", "XT 自动还款开关", "bool"),
     ("xtquant.auto_repay.reserve_cash", "XT 自动还款留底现金", "float"),
     ("guardian.stock.lot_amount", "Guardian 单次买入金额", "int"),
     ("guardian.stock.threshold.mode", "Guardian 阈值模式", "text"),
@@ -66,6 +68,11 @@ SETTINGS_PROMPTS = [
     (
         "position_management.holding_only_min_bail",
         "仅允许持仓内买入最低保证金",
+        "float",
+    ),
+    (
+        "position_management.single_symbol_position_limit",
+        "单标的默认持仓上限",
         "float",
     ),
 ]

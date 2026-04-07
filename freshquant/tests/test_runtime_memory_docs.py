@@ -190,3 +190,22 @@ def test_current_deployment_docs_reference_selective_deploy_and_build_cache() ->
     assert "FQ_DOCKER_BUILD_CACHE_ROOT" in deployment_text
     assert "fq_local_preflight.ps1" in deployment_text
     assert "check_freshquant_runtime_post_deploy.ps1" in deployment_text
+
+
+def test_configuration_docs_cover_current_bootstrap_and_monitor_defaults() -> None:
+    configuration_text = Path("docs/current/configuration.md").read_text(
+        encoding="utf-8"
+    )
+    params_text = Path("docs/current/reference/system-settings-params.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "mongodb.screening_db" in configuration_text
+    assert "memory.reference_ref" in configuration_text
+
+    assert "缺省值：`60`" in params_text
+    assert "缺省值：`500`" in params_text
+    assert "缺省值：`240`" in params_text
+    assert '"max_symbols": 60' in params_text
+    assert '"queue_backlog_threshold": 500' in params_text
+    assert '"max_bars": 240' in params_text

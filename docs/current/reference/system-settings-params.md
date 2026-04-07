@@ -110,15 +110,15 @@
 - 含义：XTData 最大监控标的数。
 - 类型：`int`
 - 是否必填：否
-- 缺省值：`50`
-- 非法值行为：小于等于 `0` 或无法解析时回退到 `50`
+- 缺省值：`60`
+- 非法值行为：小于等于 `0` 或无法解析时回退到 `60`
 
 ### monitor.xtdata.queue_backlog_threshold
 
 - 含义：consumer 进入 backlog / catchup 的阈值。
 - 类型：`int`
 - 是否必填：否
-- 缺省值：`200`
+- 缺省值：`500`
 - 用途：控制 `strategy_consumer` 在队列积压时的处理策略
 
 ### monitor.xtdata.prewarm.max_bars
@@ -126,7 +126,7 @@
 - 含义：consumer 预热和窗口回填时保留的最大 bar 数。
 - 类型：`int`
 - 是否必填：否
-- 缺省值：`20000`
+- 缺省值：`240`
 
 示例：
 
@@ -136,10 +136,10 @@
   "value": {
     "xtdata": {
       "mode": "guardian_1m",
-      "max_symbols": 50,
-      "queue_backlog_threshold": 200,
+      "max_symbols": 60,
+      "queue_backlog_threshold": 500,
       "prewarm": {
-        "max_bars": 20000
+        "max_bars": 240
       }
     }
   }
