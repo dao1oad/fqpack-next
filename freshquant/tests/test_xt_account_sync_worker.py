@@ -33,6 +33,26 @@ class FakeSymbolPositionService:
         return [{"symbol": "600570"}]
 
 
+class SequencedSyncService:
+    def __init__(self, outcomes):
+        self.calls = []
+        self.outcomes = list(outcomes)
+
+    def sync_once(self, *, include_credit_subjects=False, seed_symbol_snapshots=False):
+        self.calls.append(
+            {
+                "include_credit_subjects": include_credit_subjects,
+                "seed_symbol_snapshots": seed_symbol_snapshots,
+            }
+        )
+        if not self.outcomes:
+            raise AssertionError("no more outcomes configured")
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return dict(outcome)
+
+
 def test_sync_service_runs_expected_tasks_in_order_and_optionally_credit_subjects():
     from freshquant.xt_account_sync.service import XtAccountSyncService
 
@@ -241,6 +261,89 @@ def test_worker_run_forever_schedules_credit_subjects_and_refreshes_symbol_snaps
         },
     ]
     assert sleep_calls == [3]
+
+
+def test_worker_run_forever_retries_retryable_xt_errors_until_startup_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync import worker as worker_module
+
+    service = SequencedSyncService(
+        [
+            RuntimeError("xtquant connect failed: -1"),
+            {"positions": {"count": 1}},
+            {"positions": {"count": 2}},
+        ]
+    )
+    warnings = []
+    monkeypatch.setattr(
+        worker_module,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: warnings.append(message % args),
+        ),
+    )
+    moments = iter(
+        [
+            datetime(2026, 3, 19, 9, 19, tzinfo=timezone.utc),
+            datetime(2026, 3, 19, 9, 20, tzinfo=timezone.utc),
+        ]
+    )
+    sleep_calls = []
+
+    def fake_now():
+        return next(moments)
+
+    def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        if len(sleep_calls) >= 2:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        worker_module.run_forever(
+            service=service,
+            interval_seconds=3,
+            sleep_fn=fake_sleep,
+            now_provider=fake_now,
+            scheduled_hour=9,
+            scheduled_minute=20,
+            retry_delay_seconds=5,
+            retry_delay_max_seconds=60,
+        )
+
+    assert service.calls == [
+        {
+            "include_credit_subjects": True,
+            "seed_symbol_snapshots": True,
+        },
+        {
+            "include_credit_subjects": True,
+            "seed_symbol_snapshots": True,
+        },
+        {
+            "include_credit_subjects": True,
+            "seed_symbol_snapshots": True,
+        },
+    ]
+    assert sleep_calls == [5, 3]
+    assert warnings == [
+        "xt_account_sync XT unavailable; retrying in 5.0 seconds: xtquant connect failed: -1"
+    ]
+
+
+def test_worker_run_forever_keeps_non_retryable_errors_fatal():
+    from freshquant.xt_account_sync.worker import run_forever
+
+    service = SequencedSyncService([ValueError("xtquant.path is required")])
+    sleep_calls = []
+
+    with pytest.raises(ValueError, match="xtquant.path is required"):
+        run_forever(
+            service=service,
+            sleep_fn=lambda seconds: sleep_calls.append(seconds),
+        )
+
+    assert sleep_calls == []
 
 
 def test_build_default_sync_service_filters_replayed_orders_and_trades_by_cursor(
