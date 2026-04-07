@@ -456,9 +456,7 @@ def test_bootstrap_order_ledger_from_synced_truth_writes_rebuild_result_when_emp
 def test_bootstrap_order_ledger_from_synced_truth_skips_when_order_ledger_not_empty():
     from freshquant.initialize import _bootstrap_order_ledger_from_synced_truth
 
-    database = FakeDatabase(
-        {"om_position_entries": [{"entry_id": "existing-entry"}]}
-    )
+    database = FakeDatabase({"om_position_entries": [{"entry_id": "existing-entry"}]})
 
     class FailingRebuildService:
         def build_from_truth(self, **kwargs):

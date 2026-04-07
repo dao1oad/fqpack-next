@@ -200,9 +200,7 @@ def run_initialize_wizard(
         else:
             output_fn(
                 "Order ledger bootstrap rebuild: entries {position_entries} / auto_open {auto_open_entries}".format(
-                    position_entries=int(
-                        rebuild_summary.get("position_entries") or 0
-                    ),
+                    position_entries=int(rebuild_summary.get("position_entries") or 0),
                     auto_open_entries=int(
                         rebuild_summary.get("auto_open_entries") or 0
                     ),
