@@ -186,7 +186,7 @@ function Invoke-HostRuntimePython {
 
     $resolvedSurfaces = @(Normalize-DeploymentSurfaces -Surfaces $Surfaces)
 
-    $arguments = @('-3.12', $pythonScript, '--config-path', $ResolvedConfigPath, $Command)
+    $arguments = @($pythonScript, '--config-path', $ResolvedConfigPath, $Command)
     foreach ($surface in $resolvedSurfaces) {
         $arguments += @('--surface', $surface)
     }
