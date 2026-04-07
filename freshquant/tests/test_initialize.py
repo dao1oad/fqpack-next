@@ -89,6 +89,28 @@ def _make_dashboard():
     }
 
 
+class FakeCollection:
+    def __init__(self, initial=None):
+        self.documents = list(initial or [])
+
+    def find_one(self, _query=None):
+        return self.documents[0] if self.documents else None
+
+    def insert_many(self, documents, ordered=False):
+        self.documents.extend(list(documents or []))
+        return {"inserted_count": len(list(documents or [])), "ordered": ordered}
+
+
+class FakeDatabase:
+    def __init__(self, initial=None):
+        self.collections = {
+            key: FakeCollection(value) for key, value in dict(initial or {}).items()
+        }
+
+    def __getitem__(self, name):
+        return self.collections.setdefault(name, FakeCollection())
+
+
 def test_run_initialize_wizard_updates_bootstrap_and_settings_then_bootstraps_runtime():
     from freshquant.initialize import run_initialize_wizard
 
@@ -215,7 +237,9 @@ def test_default_xt_runtime_sync_runner_connects_before_sync_when_connection_mis
     from freshquant.initialize import _default_xt_runtime_sync_runner
 
     connect_calls = []
-    sync_calls = []
+    query_calls = []
+    persisted_truth = {}
+    rebuild_calls = []
     connection_state = {
         "xt_trader": None,
         "acc": None,
@@ -239,9 +263,81 @@ def test_default_xt_runtime_sync_runner_connects_before_sync_when_connection_mis
 
     broker_module = types.ModuleType("morningglory.fqxtrade.fqxtrade.xtquant.broker")
 
+    class FakeXtTrader:
+        def query_stock_asset(self, account):
+            query_calls.append(("asset", account.account_id))
+            return SimpleNamespace(
+                account_type=2,
+                account_id=account.account_id,
+                cash=1.0,
+                frozen_cash=0.0,
+                market_value=2.0,
+                total_asset=3.0,
+            )
+
+        def query_stock_positions(self, account):
+            query_calls.append(("positions", account.account_id))
+            return [
+                SimpleNamespace(
+                    account_id=account.account_id,
+                    stock_code="000001.SZ",
+                    volume=100,
+                    can_use_volume=100,
+                    open_price=12.5,
+                    market_value=1300.0,
+                    frozen_volume=0,
+                    on_road_volume=0,
+                    yesterday_volume=100,
+                    avg_price=12.5,
+                    last_price=13.0,
+                    instrument_name="Ping An Bank",
+                )
+            ]
+
+        def query_stock_orders(self, account):
+            query_calls.append(("orders", account.account_id))
+            return [
+                SimpleNamespace(
+                    account_id=account.account_id,
+                    stock_code="000001.SZ",
+                    order_id="order-1",
+                    order_sysid="sys-1",
+                    order_time=1710000000,
+                    order_type=23,
+                    order_volume=100,
+                    price_type=11,
+                    price=12.5,
+                    traded_volume=100,
+                    traded_price=12.5,
+                    order_status=56,
+                    status_msg="filled",
+                    strategy_name="Guardian",
+                    order_remark="bootstrap",
+                )
+            ]
+
+        def query_stock_trades(self, account):
+            query_calls.append(("trades", account.account_id))
+            return [
+                SimpleNamespace(
+                    account_id=account.account_id,
+                    order_type=23,
+                    stock_code="000001.SZ",
+                    traded_id="trade-1",
+                    traded_time=1710000001,
+                    traded_price=12.5,
+                    traded_volume=100,
+                    traded_amount=1250.0,
+                    order_id="order-1",
+                    order_sysid="sys-1",
+                    strategy_name="Guardian",
+                    order_remark="bootstrap",
+                )
+            ]
+
     def fake_connect(session_id=100):
         connect_calls.append(session_id)
-        return "xt-trader", SimpleNamespace(account_id="068000076370"), True
+        return FakeXtTrader(), SimpleNamespace(account_id="068000076370"), True
 
     broker_module.connect = fake_connect
     broker_module.trading_manager = fake_manager
@@ -251,45 +347,132 @@ def test_default_xt_runtime_sync_runner_connects_before_sync_when_connection_mis
         broker_module,
     )
 
-    puppet_module = types.ModuleType("morningglory.fqxtrade.fqxtrade.xtquant.puppet")
-
-    def sync_summary():
-        sync_calls.append("summary")
-        assert connection_state["connected"] is True
-        return {"account_id": "068000076370"}
-
-    def sync_positions():
-        sync_calls.append("positions")
-        assert connection_state["connected"] is True
-        return [{"stock_code": "000001.SZ"}]
-
-    def sync_orders():
-        sync_calls.append("orders")
-        assert connection_state["connected"] is True
-        return [{"order_id": "order-1"}]
-
-    def sync_trades():
-        sync_calls.append("trades")
-        assert connection_state["connected"] is True
-        return [{"traded_id": "trade-1"}]
-
-    puppet_module.sync_summary = sync_summary
-    puppet_module.sync_positions = sync_positions
-    puppet_module.sync_orders = sync_orders
-    puppet_module.sync_trades = sync_trades
-    monkeypatch.setitem(
-        sys.modules,
-        "morningglory.fqxtrade.fqxtrade.xtquant.puppet",
-        puppet_module,
+    monkeypatch.setattr(
+        "freshquant.initialize._persist_xt_runtime_truth",
+        lambda **kwargs: persisted_truth.update(kwargs) or kwargs,
+    )
+    monkeypatch.setattr(
+        "freshquant.initialize._bootstrap_order_ledger_from_synced_truth",
+        lambda **kwargs: rebuild_calls.append(kwargs)
+        or {"skipped": False, "position_entries": 1, "auto_open_entries": 1},
     )
 
     summary = _default_xt_runtime_sync_runner()
 
     assert connect_calls == [100]
-    assert sync_calls == ["summary", "positions", "orders", "trades"]
+    assert query_calls == [
+        ("asset", "068000076370"),
+        ("positions", "068000076370"),
+        ("orders", "068000076370"),
+        ("trades", "068000076370"),
+    ]
+    assert persisted_truth["account_id"] == "068000076370"
+    assert persisted_truth["positions"][0]["avg_price"] == 12.5
+    assert persisted_truth["orders"][0]["order_id"] == "order-1"
+    assert persisted_truth["trades"][0]["traded_id"] == "trade-1"
+    assert rebuild_calls == [
+        {
+            "xt_orders": persisted_truth["orders"],
+            "xt_trades": persisted_truth["trades"],
+            "xt_positions": persisted_truth["positions"],
+        }
+    ]
     assert summary == {
         "assets": 1,
         "positions": 1,
         "orders": 1,
         "trades": 1,
+        "rebuild": {
+            "skipped": False,
+            "position_entries": 1,
+            "auto_open_entries": 1,
+        },
+    }
+
+
+def test_bootstrap_order_ledger_from_synced_truth_writes_rebuild_result_when_empty():
+    from freshquant.initialize import _bootstrap_order_ledger_from_synced_truth
+
+    database = FakeDatabase()
+
+    class FakeRebuildService:
+        def build_from_truth(self, *, xt_orders, xt_trades, xt_positions):
+            assert xt_orders == [{"order_id": "order-1"}]
+            assert xt_trades == [{"traded_id": "trade-1"}]
+            assert xt_positions == [{"stock_code": "000001.SZ", "avg_price": 12.5}]
+            return {
+                "broker_orders": 1,
+                "execution_fills": 1,
+                "position_entries": 1,
+                "entry_slices": 1,
+                "exit_allocations": 0,
+                "reconciliation_gaps": 0,
+                "reconciliation_resolutions": 1,
+                "auto_open_entries": 1,
+                "auto_close_allocations": 0,
+                "ingest_rejections": 0,
+                "broker_order_documents": [{"broker_order_key": "broker-order-1"}],
+                "execution_fill_documents": [{"execution_fill_id": "fill-1"}],
+                "position_entry_documents": [{"entry_id": "entry-1"}],
+                "entry_slice_documents": [{"slice_id": "slice-1"}],
+                "exit_allocation_documents": [],
+                "reconciliation_gap_documents": [],
+                "reconciliation_resolution_documents": [
+                    {"resolution_id": "resolution-1"}
+                ],
+                "ingest_rejection_documents": [],
+            }
+
+    summary = _bootstrap_order_ledger_from_synced_truth(
+        xt_orders=[{"order_id": "order-1"}],
+        xt_trades=[{"traded_id": "trade-1"}],
+        xt_positions=[{"stock_code": "000001.SZ", "avg_price": 12.5}],
+        database=database,
+        rebuild_service=FakeRebuildService(),
+    )
+
+    assert summary == {
+        "skipped": False,
+        "broker_orders": 1,
+        "execution_fills": 1,
+        "position_entries": 1,
+        "entry_slices": 1,
+        "exit_allocations": 0,
+        "reconciliation_gaps": 0,
+        "reconciliation_resolutions": 1,
+        "auto_open_entries": 1,
+        "auto_close_allocations": 0,
+        "ingest_rejections": 0,
+    }
+    assert database["om_broker_orders"].documents == [
+        {"broker_order_key": "broker-order-1"}
+    ]
+    assert database["om_position_entries"].documents == [{"entry_id": "entry-1"}]
+    assert database["om_reconciliation_resolutions"].documents == [
+        {"resolution_id": "resolution-1"}
+    ]
+
+
+def test_bootstrap_order_ledger_from_synced_truth_skips_when_order_ledger_not_empty():
+    from freshquant.initialize import _bootstrap_order_ledger_from_synced_truth
+
+    database = FakeDatabase(
+        {"om_position_entries": [{"entry_id": "existing-entry"}]}
+    )
+
+    class FailingRebuildService:
+        def build_from_truth(self, **kwargs):
+            raise AssertionError("rebuild should be skipped when ledger is not empty")
+
+    summary = _bootstrap_order_ledger_from_synced_truth(
+        xt_orders=[],
+        xt_trades=[],
+        xt_positions=[],
+        database=database,
+        rebuild_service=FailingRebuildService(),
+    )
+
+    assert summary == {
+        "skipped": True,
+        "reason": "order_ledger_not_empty",
     }
