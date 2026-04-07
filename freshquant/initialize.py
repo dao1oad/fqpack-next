@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 
+from pymongo import UpdateOne
+
 from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.market_data.xtdata.pools import load_guardian_monitor_codes
 from freshquant.system_config_service import SystemConfigService
@@ -71,6 +73,44 @@ SETTINGS_PROMPTS = [
 ]
 
 _SKIP_RUNTIME_BOOTSTRAP = object()
+_INITIALIZE_REBUILD_RESULT_COLLECTIONS = (
+    ("om_broker_orders", "broker_order_documents"),
+    ("om_execution_fills", "execution_fill_documents"),
+    ("om_position_entries", "position_entry_documents"),
+    ("om_entry_slices", "entry_slice_documents"),
+    ("om_exit_allocations", "exit_allocation_documents"),
+    ("om_reconciliation_gaps", "reconciliation_gap_documents"),
+    ("om_reconciliation_resolutions", "reconciliation_resolution_documents"),
+    ("om_ingest_rejections", "ingest_rejection_documents"),
+)
+_INITIALIZE_REBUILD_SUMMARY_KEYS = (
+    "broker_orders",
+    "execution_fills",
+    "position_entries",
+    "entry_slices",
+    "exit_allocations",
+    "reconciliation_gaps",
+    "reconciliation_resolutions",
+    "auto_open_entries",
+    "auto_close_allocations",
+    "ingest_rejections",
+)
+_INITIALIZE_ACTIVE_LEDGER_COLLECTIONS = (
+    "om_order_requests",
+    "om_broker_orders",
+    "om_order_events",
+    "om_execution_fills",
+    "om_reconciliation_gaps",
+    "om_reconciliation_resolutions",
+    "om_position_entries",
+    "om_entry_slices",
+    "om_exit_allocations",
+    "om_entry_stoploss_bindings",
+    "om_takeprofit_profiles",
+    "om_takeprofit_states",
+    "om_exit_trigger_events",
+    "om_ingest_rejections",
+)
 
 
 def main(
@@ -165,6 +205,23 @@ def run_initialize_wizard(
             **(runtime_summary.get("xt") or {})
         )
     )
+    rebuild_summary = (runtime_summary.get("xt") or {}).get("rebuild") or {}
+    if rebuild_summary:
+        if rebuild_summary.get("skipped"):
+            output_fn(
+                "Order ledger bootstrap rebuild: skipped ({reason})".format(
+                    reason=rebuild_summary.get("reason") or "unknown"
+                )
+            )
+        else:
+            output_fn(
+                "Order ledger bootstrap rebuild: entries {position_entries} / auto_open {auto_open_entries}".format(
+                    position_entries=int(rebuild_summary.get("position_entries") or 0),
+                    auto_open_entries=int(
+                        rebuild_summary.get("auto_open_entries") or 0
+                    ),
+                )
+            )
     output_fn(
         "instrument_strategy 补齐: {count}".format(
             count=(runtime_summary.get("instrument_strategy") or {}).get("count", 0)
@@ -227,25 +284,144 @@ def run_runtime_bootstrap(
 
 
 def _default_xt_runtime_sync_runner():
-    _ensure_xt_runtime_connection()
+    from fqxtrade.xtquant.fqtype import FqXtOrder, FqXtPosition, FqXtTrade
 
-    from morningglory.fqxtrade.fqxtrade.xtquant.puppet import (
-        sync_orders,
-        sync_positions,
-        sync_summary,
-        sync_trades,
+    xt_trader, acc, _ = _ensure_xt_runtime_connection()
+    if xt_trader is None or acc is None:
+        return {
+            "assets": 0,
+            "positions": 0,
+            "orders": 0,
+            "trades": 0,
+            "rebuild": {
+                "skipped": True,
+                "reason": "xt_connection_unavailable",
+            },
+        }
+    asset = xt_trader.query_stock_asset(acc)
+    positions = list(xt_trader.query_stock_positions(acc) or [])
+    orders = list(xt_trader.query_stock_orders(acc) or [])
+    trades = list(xt_trader.query_stock_trades(acc) or [])
+    account_id = str(getattr(acc, "account_id", "") or "").strip()
+    position_documents = [FqXtPosition(position).to_dict() for position in positions]
+    order_documents = [FqXtOrder(order).to_dict() for order in orders]
+    trade_documents = [FqXtTrade(trade).to_dict() for trade in trades]
+    _persist_xt_runtime_truth(
+        account_id=account_id,
+        asset=asset,
+        positions=position_documents,
+        orders=order_documents,
+        trades=trade_documents,
     )
-
-    asset = sync_summary()
-    positions = sync_positions() or []
-    orders = sync_orders() or []
-    trades = sync_trades() or []
+    rebuild_summary = _bootstrap_order_ledger_from_synced_truth(
+        xt_orders=order_documents,
+        xt_trades=trade_documents,
+        xt_positions=position_documents,
+    )
     return {
-        "assets": 1 if asset else 0,
-        "positions": len(positions),
-        "orders": len(orders),
-        "trades": len(trades),
+        "assets": 1 if asset is not None else 0,
+        "positions": len(position_documents),
+        "orders": len(order_documents),
+        "trades": len(trade_documents),
+        "rebuild": rebuild_summary,
     }
+
+
+def _persist_xt_runtime_truth(*, account_id, asset, positions, orders, trades):
+    from fqxtrade.database.mongodb import DBfreshquant
+
+    from freshquant.xt_account_sync.persistence import persist_assets, persist_positions
+
+    normalized_account_id = str(account_id or "").strip()
+    if asset is not None:
+        persist_assets([asset], collection=DBfreshquant["xt_assets"])
+    if normalized_account_id:
+        persist_positions(
+            positions,
+            account_id=normalized_account_id,
+            collection=DBfreshquant["xt_positions"],
+        )
+    _upsert_xt_runtime_documents(
+        collection=DBfreshquant["xt_orders"],
+        documents=orders,
+        identity_fields=("account_id", "order_id"),
+    )
+    _upsert_xt_runtime_documents(
+        collection=DBfreshquant["xt_trades"],
+        documents=trades,
+        identity_fields=("account_id", "traded_id"),
+    )
+    return {
+        "account_id": normalized_account_id,
+        "assets": 1 if asset is not None else 0,
+        "positions": len(list(positions or [])),
+        "orders": len(list(orders or [])),
+        "trades": len(list(trades or [])),
+    }
+
+
+def _upsert_xt_runtime_documents(*, collection, documents, identity_fields):
+    batch = []
+    for document in list(documents or []):
+        identity = {}
+        skip_document = False
+        for field in identity_fields:
+            value = document.get(field)
+            if value in {None, ""}:
+                skip_document = True
+                break
+            identity[field] = value
+        if skip_document:
+            continue
+        batch.append(UpdateOne(identity, {"$set": dict(document)}, upsert=True))
+    if batch:
+        collection.bulk_write(batch)
+    return len(batch)
+
+
+def _bootstrap_order_ledger_from_synced_truth(
+    *,
+    xt_orders,
+    xt_trades,
+    xt_positions,
+    database=None,
+    rebuild_service=None,
+):
+    from freshquant.order_management.db import get_order_management_db
+    from freshquant.order_management.rebuild import OrderLedgerV2RebuildService
+
+    database = database or get_order_management_db()
+    if _order_ledger_has_existing_state(
+        database=database,
+        collection_names=_INITIALIZE_ACTIVE_LEDGER_COLLECTIONS,
+    ):
+        return {
+            "skipped": True,
+            "reason": "order_ledger_not_empty",
+        }
+
+    rebuild_service = rebuild_service or OrderLedgerV2RebuildService()
+    rebuild_result = rebuild_service.build_from_truth(
+        xt_orders=xt_orders,
+        xt_trades=xt_trades,
+        xt_positions=xt_positions,
+    )
+    for collection_name, document_key in _INITIALIZE_REBUILD_RESULT_COLLECTIONS:
+        documents = list(rebuild_result.get(document_key) or [])
+        if documents:
+            database[collection_name].insert_many(documents, ordered=False)
+
+    summary = {"skipped": False}
+    for key in _INITIALIZE_REBUILD_SUMMARY_KEYS:
+        summary[key] = int(rebuild_result.get(key) or 0)
+    return summary
+
+
+def _order_ledger_has_existing_state(*, database, collection_names):
+    for collection_name in list(collection_names or []):
+        if database[collection_name].find_one({}) is not None:
+            return True
+    return False
 
 
 def _ensure_xt_runtime_connection():

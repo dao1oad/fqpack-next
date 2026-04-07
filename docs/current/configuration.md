@@ -271,6 +271,8 @@ python -m freshquant.initialize
 3. 自动做运行态 bootstrap
    - 先按当前 `xtquant` 配置尝试建立一次 XT 交易连接
    - XT 资产/持仓/委托/成交同步
+   - 若订单账本当前为空，初始化阶段不会走 runtime `ExternalOrderReconcileService` 补账，而是直接用刚同步的 `xt_orders` / `xt_trades` / `xt_positions` 做一次 broker-truth rebuild
+   - 这条初始化 rebuild 会沿用 `OrderLedgerV2RebuildService` 的口径；当只剩 `xt_positions` 可用时，买入价优先使用券商持仓均价 `avg_price`
    - `om_credit_subjects` 同步
    - 为当前监控标的补缺失 `instrument_strategy`
 

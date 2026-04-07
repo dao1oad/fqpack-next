@@ -245,6 +245,8 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --dry-run
 py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --backup-db <backup_db_name>
 ```
 
+初始化向导 `python -m freshquant.initialize` 的运行态 bootstrap 当前也会复用这条 rebuild 语义；当订单账本为空时，会在同步 `xt_orders` / `xt_trades` / `xt_positions` 后直接写入 rebuild 结果，而不是走 runtime `auto_open_entry` 平账链路。
+
 当前约束：
 
 - dry-run 允许配合 `--account-id` 做单账户演练
