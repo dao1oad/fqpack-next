@@ -140,6 +140,17 @@ def test_powershell_compose_entry_preserves_detached_flag_on_fallback() -> None:
     assert "$resolvedComposeArgs = @($fallbackComposeArgs)" in text
 
 
+def test_powershell_compose_entry_resolves_python_without_raw_py_launcher_calls() -> (
+    None
+):
+    text = Path("script/docker_parallel_compose.ps1").read_text(encoding="utf-8")
+
+    assert "function Resolve-Python312Command" in text
+    assert ".venv\\Scripts\\python.exe" in text
+    assert ".venv/bin/python" in text
+    assert "& py -3.12" not in text
+
+
 def test_docker_images_workflow_uses_dynamic_publish_matrix() -> None:
     text = Path(".github/workflows/docker-images.yml").read_text(encoding="utf-8")
 
