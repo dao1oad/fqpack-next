@@ -26,6 +26,7 @@ BOOTSTRAP_SECTION_META = {
             ("port", "端口"),
             ("db", "主库"),
             ("gantt_db", "Gantt 库"),
+            ("screening_db", "Screening 库"),
         ],
     },
     "redis": {
@@ -68,6 +69,7 @@ BOOTSTRAP_SECTION_META = {
             ("mongodb.db", "Mongo 库"),
             ("cold_root", "冷目录"),
             ("artifact_root", "Artifact 根目录"),
+            ("reference_ref", "Reference Ref"),
         ],
     },
     "tdx": {
@@ -297,6 +299,7 @@ class SystemConfigService:
                 "port": config.mongodb.port,
                 "db": config.mongodb.db,
                 "gantt_db": config.mongodb.gantt_db,
+                "screening_db": config.mongodb.screening_db,
             },
             "redis": {
                 "host": config.redis.host,
@@ -319,6 +322,7 @@ class SystemConfigService:
                 },
                 "cold_root": config.memory.cold_root,
                 "artifact_root": config.memory.artifact_root,
+                "reference_ref": config.memory.reference_ref,
             },
             "tdx": {
                 "home": config.tdx.home,
@@ -442,6 +446,10 @@ class SystemConfigService:
                 "gantt_db": _require_text(
                     mongodb.get("gantt_db"), field_name="mongodb.gantt_db"
                 ),
+                "screening_db": _require_text(
+                    mongodb.get("screening_db"),
+                    field_name="mongodb.screening_db",
+                ),
             },
             "redis": {
                 "host": _require_text(redis.get("host"), field_name="redis.host"),
@@ -486,6 +494,10 @@ class SystemConfigService:
                 "artifact_root": _require_text(
                     memory.get("artifact_root"),
                     field_name="memory.artifact_root",
+                ),
+                "reference_ref": _require_text(
+                    memory.get("reference_ref"),
+                    field_name="memory.reference_ref",
                 ),
             },
             "tdx": {
