@@ -57,6 +57,16 @@ Guardian 自身不维护订单账本，但依赖以下状态：
   - `guardian_buy_grid_states`
   - `audit_log`
 
+Guardian buy grid 当前区分两类语义：
+- `guardian_buy_grid_configs.buy_enabled`
+  - 手工配置态，表示某层级是否允许参与 Guardian 买入层级判断
+- `guardian_buy_grid_states.buy_active`
+  - 运行态，表示某层级在当前买入周期内是否仍处于可触发状态
+
+当前正式真义是 fail-closed：
+- 缺失 `guardian_buy_grid_state` 时，按 `buy_active=[false,false,false]` 处理
+- 只有显式 `reset_after_sell_trade` 或价格配置更新触发的 rearm 才会把三层重新置为激活
+
 ## 配置
 
 - `monitor.xtdata.mode`
@@ -129,6 +139,8 @@ python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
 - 检查目标 code 是否在 `must_pool` 或 `xt_positions`
 - 检查 `buy:<code>` 冷却键
 - 检查 Position Management 是否拒绝
+- 检查 `guardian_buy_grid_states`
+  - 若缺失 state，Guardian buy grid 当前会按运行态未激活处理，不会命中 `BUY-1/2/3`
 - 在 `/runtime-observability` 选中 `guardian_strategy` 看板，直接看 recent trace 的信号摘要与最终结论
 - 打开对应节点详情，优先看 `decision_expr`、`decision_context`、`decision_outcome`
 

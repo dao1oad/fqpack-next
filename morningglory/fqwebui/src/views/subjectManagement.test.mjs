@@ -441,7 +441,7 @@ test('PositionSubjectOverviewPanel removes category filter and uses renamed dens
   assert.match(source, /label="Guardian 层级触发"/)
   assert.match(source, /label="止盈层级触发"/)
   assert.match(source, /label="单笔止损触发"/)
-  assert.match(source, /label="Guardian 买入层级"/)
+  assert.match(source, /label="Guardian 买入层级（配置）"/)
   assert.match(source, /label="止盈价格层级"/)
   assert.match(source, /label="全仓止损价"/)
   assert.match(source, /label="单标的仓位上限"/)

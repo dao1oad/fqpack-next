@@ -11,7 +11,8 @@ BUY_LEVEL_MULTIPLIERS = {
     "BUY-2": 3,
     "BUY-3": 4,
 }
-DEFAULT_BUY_ACTIVE = [True, True, True]
+MISSING_STATE_BUY_ACTIVE = [False, False, False]
+RESET_BUY_ACTIVE = [True, True, True]
 DEFAULT_BUY_ENABLED = [True, True, True]
 DEFAULT_INITIAL_LOT_AMOUNT = 100000
 AUTOMATED_UPDATERS = {"order_management", "system"}
@@ -36,10 +37,15 @@ def _coerce_bool(value: Any, default: bool = True) -> bool:
     return bool(value)
 
 
-def _coerce_buy_active(value: Any) -> list[bool]:
+def _coerce_buy_active(
+    value: Any,
+    *,
+    default: list[bool] | None = None,
+) -> list[bool]:
+    fallback = list(default or MISSING_STATE_BUY_ACTIVE)
     if isinstance(value, list) and len(value) == 3:
         return [bool(value[0]), bool(value[1]), bool(value[2])]
-    return list(DEFAULT_BUY_ACTIVE)
+    return fallback
 
 
 def _coerce_buy_enabled(
@@ -155,7 +161,7 @@ class GuardianBuyGridService:
         if self._buy_prices_changed(current, document):
             self.upsert_state(
                 normalized,
-                buy_active=list(DEFAULT_BUY_ACTIVE),
+                buy_active=list(RESET_BUY_ACTIVE),
                 last_hit_level=None,
                 last_hit_price=None,
                 last_hit_signal_time=None,
@@ -199,7 +205,8 @@ class GuardianBuyGridService:
         document = {
             "code": normalized,
             "buy_active": _coerce_buy_active(
-                buy_active if buy_active is not None else current.get("buy_active")
+                buy_active if buy_active is not None else current.get("buy_active"),
+                default=current.get("buy_active"),
             ),
             "last_hit_level": last_hit_level,
             "last_hit_price": last_hit_price,
@@ -308,7 +315,7 @@ class GuardianBuyGridService:
         normalized = normalize_to_base_code(code)
         result = self.upsert_state(
             normalized,
-            buy_active=list(DEFAULT_BUY_ACTIVE),
+            buy_active=list(RESET_BUY_ACTIVE),
             last_hit_level=None,
             last_hit_price=None,
             last_hit_signal_time=None,
@@ -374,7 +381,7 @@ class GuardianBuyGridService:
     def _default_state(self, code: str) -> dict[str, Any]:
         return {
             "code": normalize_to_base_code(code),
-            "buy_active": list(DEFAULT_BUY_ACTIVE),
+            "buy_active": list(MISSING_STATE_BUY_ACTIVE),
             "last_hit_level": None,
             "last_hit_price": None,
             "last_hit_signal_time": None,

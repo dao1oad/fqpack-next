@@ -211,6 +211,35 @@ def test_holding_add_without_config_falls_back_to_base_amount():
     assert decision["quantity"] == 5000
 
 
+def test_missing_state_defaults_to_inactive_and_skips_guardian_levels():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "enabled": True,
+                    }
+                ]
+            )
+        }
+    )
+    service = _build_service(database)
+
+    state = service.get_state("000001")
+    decision = service.build_holding_add_decision("000001", 7.8)
+
+    assert state["buy_active"] == [False, False, False]
+    assert decision["buy_active_before"] == [False, False, False]
+    assert decision["grid_level"] is None
+    assert decision["hit_levels"] == []
+    assert decision["multiplier"] == 1
+    assert decision["quantity"] == 6400
+
+
 def test_accepting_buy_deactivates_all_hit_levels():
     database = FakeDatabase(
         {

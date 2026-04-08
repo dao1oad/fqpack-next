@@ -187,7 +187,7 @@ test('PositionSubjectOverviewPanel.vue consumes shared workbench panel and statu
   assert.match(positionSubjectOverviewSource, /label="Guardian 层级触发"/)
   assert.match(positionSubjectOverviewSource, /label="止盈层级触发"/)
   assert.match(positionSubjectOverviewSource, /label="单笔止损触发"/)
-  assert.match(positionSubjectOverviewSource, /label="Guardian 买入层级"/)
+  assert.match(positionSubjectOverviewSource, /label="Guardian 买入层级（配置）"/)
   assert.match(positionSubjectOverviewSource, /label="止盈价格层级"/)
   assert.match(positionSubjectOverviewSource, /label="全仓止损价"/)
   assert.match(positionSubjectOverviewSource, /label="单标的仓位上限"/)

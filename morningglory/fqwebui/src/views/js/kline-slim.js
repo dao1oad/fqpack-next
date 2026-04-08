@@ -362,7 +362,7 @@ export default {
     guardianGuideRows() {
       const buyActive = Array.isArray(this.guardianState?.buy_active)
         ? this.guardianState.buy_active
-        : [true, true, true]
+        : [false, false, false]
       const buyEnabled = Array.isArray(this.guardianDraft?.buy_enabled)
         ? this.guardianDraft.buy_enabled
         : [true, true, true]
@@ -1091,7 +1091,7 @@ export default {
         ...this.guardianState,
         buy_active: Array.isArray(this.guardianState?.buy_active)
           ? this.guardianState.buy_active.slice(0, 3).map((item) => item !== false)
-          : [true, true, true]
+          : [false, false, false]
       }
 
       this.guardianDraft = {
