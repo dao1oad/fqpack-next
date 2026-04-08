@@ -191,8 +191,8 @@ def test_capture_baseline_normalizes_compose_prefixed_container_names(
 def test_capture_baseline_treats_absent_live_container_as_missing_without_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    docker_stub = tmp_path / "docker.cmd"
-    docker_stub.write_text(
+    docker_stub_windows = tmp_path / "docker.cmd"
+    docker_stub_windows.write_text(
         "\n".join(
             [
                 "@echo off",
@@ -212,6 +212,28 @@ def test_capture_baseline_treats_absent_live_container_as_missing_without_error(
         ),
         encoding="utf-8",
     )
+    docker_stub_unix = tmp_path / "docker"
+    docker_stub_unix.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env sh",
+                'if [ \"$1\" = \"ps\" ]; then',
+                "  printf '%s\\n' fq_mongodb",
+                "  exit 0",
+                "fi",
+                'if [ \"$1\" = \"inspect\" ]; then',
+                '  if [ \"$2\" = \"fq_mongodb\" ]; then',
+                "    printf '%s\\n' '[{\"Name\":\"fq_mongodb\",\"State\":{\"Status\":\"running\",\"Health\":{\"Status\":\"healthy\"}}}]'",
+                "    exit 0",
+                "  fi",
+                "  exit 1",
+                "fi",
+                "exit 1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    docker_stub_unix.chmod(0o755)
     service_path = _write_json(
         tmp_path / "services.json",
         [
