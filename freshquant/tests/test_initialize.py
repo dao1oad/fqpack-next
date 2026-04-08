@@ -107,7 +107,9 @@ class FakeCollection:
         remaining_documents = []
         deleted_count = 0
         for document in self.documents:
-            if all(document.get(key) == value for key, value in normalized_query.items()):
+            if all(
+                document.get(key) == value for key, value in normalized_query.items()
+            ):
                 deleted_count += 1
                 continue
             remaining_documents.append(document)
