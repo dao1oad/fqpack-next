@@ -17,6 +17,7 @@ def _make_dashboard():
                     "port": 27027,
                     "db": "freshquant",
                     "gantt_db": "freshquant_gantt",
+                    "screening_db": "fqscreening",
                 },
                 "redis": {
                     "host": "127.0.0.1",
@@ -39,6 +40,7 @@ def _make_dashboard():
                     },
                     "cold_root": "D:/fqpack/runtime/memory",
                     "artifact_root": "D:/fqpack/runtime/memory/artifacts",
+                    "reference_ref": "origin/main",
                 },
                 "tdx": {
                     "home": "D:/tdx_biduan",
@@ -72,6 +74,10 @@ def _make_dashboard():
                     "account": "068000076370",
                     "account_type": "CREDIT",
                     "broker_submit_mode": "observe_only",
+                    "auto_repay": {
+                        "enabled": True,
+                        "reserve_cash": 5000.0,
+                    },
                 },
                 "guardian": {
                     "stock": {
@@ -83,6 +89,7 @@ def _make_dashboard():
                 "position_management": {
                     "allow_open_min_bail": 910000.0,
                     "holding_only_min_bail": 210000.0,
+                    "single_symbol_position_limit": 880000.0,
                 },
             }
         },
@@ -164,8 +171,11 @@ def test_run_initialize_wizard_updates_bootstrap_and_settings_then_bootstraps_ru
 
     prompts = {
         "bootstrap.mongodb.host": "10.0.0.8",
+        "bootstrap.mongodb.screening_db": "fqscreening_runtime",
+        "bootstrap.memory.reference_ref": "upstream/release-main",
         "settings.xtquant.account": "123456",
         "settings.position_management.allow_open_min_bail": 950000.0,
+        "settings.position_management.single_symbol_position_limit": 990000.0,
     }
     lines = []
 
@@ -183,8 +193,14 @@ def test_run_initialize_wizard_updates_bootstrap_and_settings_then_bootstraps_ru
     )
 
     assert result["bootstrap"]["mongodb"]["host"] == "10.0.0.8"
+    assert result["bootstrap"]["mongodb"]["screening_db"] == "fqscreening_runtime"
+    assert result["bootstrap"]["memory"]["reference_ref"] == "upstream/release-main"
     assert result["settings"]["xtquant"]["account"] == "123456"
     assert result["settings"]["position_management"]["allow_open_min_bail"] == 950000.0
+    assert (
+        result["settings"]["position_management"]["single_symbol_position_limit"]
+        == 990000.0
+    )
     assert calls[0][0] == "bootstrap"
     assert calls[1][0] == "settings"
     assert any("运行态 bootstrap 完成" in line for line in lines)
