@@ -134,6 +134,7 @@ class SubjectManagementDashboardService:
                     "must_pool": must_pool,
                     "guardian": {
                         **guardian_config,
+                        "buy_active": guardian_state.get("buy_active"),
                         "last_hit_level": guardian_state.get("last_hit_level"),
                         "last_hit_price": guardian_state.get("last_hit_price"),
                         "last_hit_signal_time": guardian_state.get(

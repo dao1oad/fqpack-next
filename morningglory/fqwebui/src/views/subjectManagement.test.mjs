@@ -89,7 +89,8 @@ test('buildOverviewRows separates guardian trigger from level summary', () => {
     {
       symbol: '600271',
       guardian: {
-        enabled: true,
+        buy_enabled: [true, true, true],
+        buy_active: [true, false, true],
         buy_1: 12.1,
         buy_2: 11.8,
         buy_3: 11.4,
@@ -104,7 +105,10 @@ test('buildOverviewRows separates guardian trigger from level summary', () => {
 
   assert.equal(rows[0].guardianTrigger.kindLabel, 'B3')
   assert.equal(rows[0].guardianTrigger.timeLabel, '2026-03-18 09:45:00')
-  assert.equal(rows[0].guardianLevelSummary.every((item) => item.enabledLabel === '开'), true)
+  assert.deepEqual(
+    rows[0].guardianLevelSummary.map((item) => item.enabledLabel),
+    ['开', '关', '开'],
+  )
 })
 
 test('buildOverviewRows formats takeprofit and entry stoploss triggers independently', () => {
@@ -465,7 +469,7 @@ test('PositionSubjectOverviewPanel removes category filter and uses renamed dens
   assert.match(source, /label="Guardian 层级触发"/)
   assert.match(source, /label="止盈层级触发"/)
   assert.match(source, /label="单笔止损触发"/)
-  assert.match(source, /label="Guardian 买入层级（配置）"/)
+  assert.match(source, /label="Guardian 买入层级"/)
   assert.match(source, /label="止盈价格层级"/)
   assert.match(source, /label="全仓止损价"/)
   assert.match(source, /label="单标的仓位上限"/)

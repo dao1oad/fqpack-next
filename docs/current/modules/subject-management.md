@@ -159,7 +159,7 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近 TPSL 触发事
 - `止盈层级触发`
 - `单笔止损触发`
 
-不再把 Guardian 命中信息混排进 `Guardian 买入层级（配置）` 列。
+不再把 Guardian 命中信息混排进 `Guardian 买入层级` 列。
 Guardian 最近命中时间当前正式来源是 `guardian_buy_grid_states.last_hit_signal_time`；对历史 legacy 状态，如果该字段缺失但 `last_hit_level` 仍存在，overview / detail 会先回退使用同一条 state 的 `updated_at` 作为展示时间。
 
 当前 `guardian_buy_grid_state` 的正式真义是：
@@ -170,7 +170,7 @@ Guardian 最近命中时间当前正式来源是 `guardian_buy_grid_states.last_
 - 若 detail 读取不到 `guardian_buy_grid_state`
   - 后端会按 `buy_active=[false,false,false]` 归一化返回
   - `kline-slim` 的 Guardian 运行态因此显示为未激活
-  - `PositionSubjectOverviewPanel` 中的 `Guardian 买入层级（配置）` 仍然只展示配置态，不与运行态混淆
+- `PositionSubjectOverviewPanel` 中的 `Guardian 买入层级` 当前展示最终执行态：`buy_enabled[level] && buy_active[level]`
 
 当前 `takeprofit.state` 的正式真义是：
 - `manual_enabled`

@@ -198,5 +198,6 @@ def test_overview_keeps_guardian_state_for_symbol_present_in_must_pool(
 
     assert len(rows) == 1
     assert rows[0]["symbol"] == "000001"
+    assert rows[0]["guardian"]["buy_active"] == [False, True, True]
     assert rows[0]["guardian"]["last_hit_level"] == "BUY-1"
     assert rows[0]["guardian"]["last_hit_price"] == 10.18
