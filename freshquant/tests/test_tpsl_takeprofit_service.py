@@ -58,7 +58,7 @@ def test_save_takeprofit_profile_updates_price_and_manual_enabled():
     assert profile["tiers"][2]["price"] == 11.5
 
     state = service.get_state("000001")
-    assert state["armed_levels"] == {1: True, 2: False, 3: True}
+    assert state["armed_levels"] == {1: False, 2: False, 3: False}
     assert state["version"] == 1
 
 
@@ -74,6 +74,7 @@ def test_disable_triggered_and_lower_levels_after_hit():
         ],
         updated_by="api",
     )
+    service.rearm_all_levels("000001", updated_by="test")
 
     state = service.mark_level_triggered("000001", level=2, batch_id="tp_batch_1")
 
@@ -103,7 +104,25 @@ def test_get_profile_with_state_returns_profile_and_runtime_state():
 
     assert detail["symbol"] == "000001"
     assert len(detail["tiers"]) == 3
-    assert detail["state"]["armed_levels"] == {1: True, 2: False, 3: True}
+    assert detail["state"]["armed_levels"] == {1: False, 2: False, 3: False}
+
+
+def test_get_state_creates_missing_state_as_inactive_even_when_manual_enabled():
+    repo = InMemoryTpslRepository()
+    repo.profiles["000001"] = {
+        "symbol": "000001",
+        "tiers": _build_tiers(),
+    }
+    service = TakeprofitService(repository=repo)
+
+    state = service.get_state("000001")
+
+    assert state["armed_levels"] == {1: False, 2: False, 3: False}
+    assert repo.states["000001"]["armed_levels"] == {
+        "1": False,
+        "2": False,
+        "3": False,
+    }
 
 
 def test_save_profile_stores_mongo_safe_state_keys_but_returns_level_map():
@@ -113,8 +132,8 @@ def test_save_profile_stores_mongo_safe_state_keys_but_returns_level_map():
     profile = service.save_profile("000001", tiers=_build_tiers(), updated_by="api")
 
     assert repo.states["000001"]["armed_levels"] == {
-        "1": True,
+        "1": False,
         "2": False,
-        "3": True,
+        "3": False,
     }
-    assert profile["state"]["armed_levels"] == {1: True, 2: False, 3: True}
+    assert profile["state"]["armed_levels"] == {1: False, 2: False, 3: False}

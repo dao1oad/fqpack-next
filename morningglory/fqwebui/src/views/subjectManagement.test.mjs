@@ -171,6 +171,30 @@ test('buildOverviewRows derives takeprofit runtime truth from manual_enabled and
   )
 })
 
+test('buildOverviewRows treats missing takeprofit state as inactive', () => {
+  const rows = buildOverviewRows([
+    {
+      symbol: '600000',
+      takeprofit: {
+        tiers: [
+          { level: 1, price: 10.8, enabled: true },
+          { level: 2, price: 11.3, enabled: true },
+          { level: 3, price: 11.8, enabled: true },
+        ],
+        state: {},
+      },
+      runtime: {},
+      stoploss: {},
+      position_limit_summary: {},
+    },
+  ])
+
+  assert.deepEqual(
+    rows[0].takeprofitSummary.map((item) => item.enabled),
+    [false, false, false],
+  )
+})
+
 test('buildDetailViewModel keeps right-panel fields and at least three takeprofit drafts', () => {
   const detail = buildDetailViewModel({
     subject: {
@@ -534,6 +558,40 @@ test('buildDetailSummaryChips compresses subject, runtime and pm state into head
   assert.equal(chips[2].value, '50.00 万 / 单独设置')
   assert.equal(chips[4].value, '1 / 3')
   assert.equal(chips[5].value, '1 / 2')
+})
+
+test('buildDetailSummaryChips treats missing takeprofit state as inactive', () => {
+  const detail = buildDetailViewModel({
+    subject: {
+      symbol: '600000',
+      name: '娴﹀彂閾惰',
+      category: '閾惰',
+    },
+    takeprofit: {
+      tiers: [
+        { level: 1, price: 10.8, enabled: true },
+        { level: 2, price: 11.2, enabled: true },
+      ],
+      state: {},
+    },
+    entries: [],
+    runtime_summary: {},
+    position_management_summary: {
+      effective_state: 'HOLDING_ONLY',
+    },
+    position_limit_summary: {
+      market_value: 0,
+      default_limit: 800000,
+      override_limit: null,
+      effective_limit: 800000,
+      using_override: false,
+      blocked: false,
+    },
+  })
+
+  const chips = buildDetailSummaryChips(detail)
+
+  assert.equal(chips.find((chip) => chip.key === 'takeprofit_enabled_count')?.value, '0 / 3')
 })
 
 test('buildTakeprofitDrafts preserves existing tiers beyond level 3 while keeping first three visible', () => {

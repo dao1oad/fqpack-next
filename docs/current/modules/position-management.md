@@ -98,6 +98,7 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 - `止盈价格层级`
   - 展示 `L1 / L2 / L3` 三层止盈价与每层真实运行态
   - 状态真值当前按 `manual_enabled && armed_levels[level]` 计算；只有系统当前真的还会触发该层止盈时才显示 `开`
+  - 若缺失 `takeprofit state`，当前统一按未激活处理；`armed_levels[level]` 缺失不会再被解释成 `开`
 
 `Guardian 买入层级（配置）` 与 `止盈价格层级` 这两列当前都使用相同的三段式布局：
 

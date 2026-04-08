@@ -62,6 +62,12 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 - `reconciliation`
 - 统一历史摘要
 
+当前 `takeprofit state` 缺失时，系统统一按未激活处理：
+
+- `TakeprofitService.get_state()` 会创建 `armed_levels[level]=false` 的默认 state
+- `/api/tpsl/management/*` 与 `/api/subject-management/*` 都按未激活口径返回
+- 只有执行 `/api/tpsl/takeprofit/<symbol>/rearm` 或显式开启层级后，运行态才会恢复为可触发
+
 当前 detail 已不再返回 `buy_lots`，也不再把 `stock_fills` 兼容视图当成主详情对象。
 每条 `entry` 当前会内嵌自己的 `stoploss` 绑定摘要。
 `reconciliation.state` 当前统一复用 shared canonical 语义，前后端展示统一为：

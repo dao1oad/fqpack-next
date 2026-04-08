@@ -205,9 +205,7 @@ class TakeprofitService:
         now = _now()
         state = {
             "symbol": symbol,
-            "armed_levels": {
-                int(tier["level"]): bool(tier.get("manual_enabled")) for tier in tiers
-            },
+            "armed_levels": _build_missing_state_armed_levels(tiers),
             "version": 1,
             "updated_at": now,
             "updated_by": updated_by,
@@ -241,6 +239,14 @@ def _normalize_armed_levels(armed_levels):
             continue
         normalized[level] = bool(raw_enabled)
     return normalized
+
+
+def _build_missing_state_armed_levels(tiers):
+    return {
+        int(tier["level"]): False
+        for tier in list(tiers or [])
+        if int(tier.get("level") or 0) > 0
+    }
 
 
 def _serialize_state_document(document):

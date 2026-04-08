@@ -104,6 +104,39 @@ export const normalizeTakeprofitTier = (row = {}) => ({
   manual_enabled: Boolean(row?.manual_enabled ?? row?.enabled ?? true),
 })
 
+const normalizeTakeprofitArmedLevels = (armedLevels = {}) => {
+  const normalized = {}
+  for (const [rawLevel, rawEnabled] of Object.entries(armedLevels || {})) {
+    const level = Number(rawLevel)
+    if (!Number.isFinite(level) || level <= 0) continue
+    normalized[Math.trunc(level)] = rawEnabled === true
+  }
+  return normalized
+}
+
+export const normalizeTakeprofitState = (state = {}, tiers = []) => {
+  const normalizedState = state && typeof state === 'object' ? { ...state } : {}
+  const armedLevels = normalizeTakeprofitArmedLevels(normalizedState?.armed_levels || {})
+  for (const row of buildTakeprofitDrafts(tiers)) {
+    const level = Number(row?.level)
+    if (!Number.isFinite(level) || level <= 0) continue
+    if (!Object.prototype.hasOwnProperty.call(armedLevels, level)) {
+      armedLevels[level] = false
+    }
+  }
+  normalizedState.armed_levels = armedLevels
+  return normalizedState
+}
+
+export const isTakeprofitLevelArmed = (state = {}, level) => {
+  const normalizedLevel = Number(level)
+  if (!Number.isFinite(normalizedLevel) || normalizedLevel <= 0) {
+    return false
+  }
+  const armedLevels = normalizeTakeprofitState(state).armed_levels || {}
+  return armedLevels[Math.trunc(normalizedLevel)] === true
+}
+
 export const buildTakeprofitDrafts = (tiers = []) => {
   const normalized = (Array.isArray(tiers) ? tiers : [])
     .map((row) => normalizeTakeprofitTier(row))
@@ -195,8 +228,7 @@ export const buildGuardianPriceGuides = (config = {}, state = {}) => {
 }
 
 export const buildTakeprofitPriceGuides = (tiers = [], state = {}) => {
-  const normalizedState = state && typeof state === 'object' ? state : {}
-  const armedLevels = normalizedState.armed_levels || {}
+  const normalizedState = normalizeTakeprofitState(state, tiers)
   return buildTakeprofitDrafts(tiers)
     .filter((row) => row.level <= TAKEPROFIT_LEVELS.length)
     .map((row) => {
@@ -212,7 +244,7 @@ export const buildTakeprofitPriceGuides = (tiers = [], state = {}) => {
         price: row.price,
         color: style.color,
         label: `TP-L${row.level} ${formatGuidePrice(row.price)}`,
-        active: Boolean(row.manual_enabled) && armedLevels[String(row.level)] !== false && armedLevels[row.level] !== false,
+        active: Boolean(row.manual_enabled) && isTakeprofitLevelArmed(normalizedState, row.level),
         lineStyle: 'dashed',
       }
     })
@@ -339,7 +371,7 @@ export const buildEditablePriceGuides = ({
       placeholder: originalPrice === null,
     }
   })
-  const armedLevels = (takeprofitState && takeprofitState.armed_levels) || {}
+  const normalizedTakeprofitState = normalizeTakeprofitState(takeprofitState, resolvedTakeprofitDrafts)
   const takeprofitLines = resolvedTakeprofitDrafts.map((row) => {
     const style = TAKEPROFIT_LEVELS[row.level - 1]
     const originalDraft = buildTakeprofitDrafts(takeprofitDrafts).find((item) => item.level === row.level)
@@ -352,7 +384,7 @@ export const buildEditablePriceGuides = ({
       color: style.color,
       label: `TP-L${row.level} ${formatGuidePrice(row.price)}`,
       manual_enabled: Boolean(row.manual_enabled),
-      active: Boolean(row.manual_enabled) && armedLevels[String(row.level)] !== false && armedLevels[row.level] !== false,
+      active: Boolean(row.manual_enabled) && isTakeprofitLevelArmed(normalizedTakeprofitState, row.level),
       lineStyle: 'dashed',
       placeholder: toPositiveGuidePrice(originalDraft?.price) === null,
     }
@@ -416,7 +448,7 @@ export const buildKlineSubjectPriceDetail = (detail = {}) => {
     .map((row) => normalizeTakeprofitTier(row))
     .sort((left, right) => left.level - right.level)
   const takeprofitDrafts = buildTakeprofitDrafts(takeprofitTiers)
-  const takeprofitState = detail?.takeprofit?.state || { armed_levels: {} }
+  const takeprofitState = normalizeTakeprofitState(detail?.takeprofit?.state || {}, takeprofitDrafts)
   const costBasisPrice = toPositiveGuidePrice(detail?.runtime_summary?.avg_price)
   const openEntries = Array.isArray(detail?.entries)
     ? detail.entries.filter((row) => toPositiveGuidePrice(row?.entry_price ?? row?.buy_price_real) !== null)
