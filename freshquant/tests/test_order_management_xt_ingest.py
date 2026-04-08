@@ -1015,6 +1015,59 @@ def test_repeated_sell_callback_does_not_duplicate_sell_allocations(monkeypatch)
     ]
 
 
+def test_sell_trade_skips_legacy_allocation_when_v2_entries_are_authoritative(
+    monkeypatch,
+):
+    _stub_ingest_side_effects(monkeypatch)
+    repository, ingest_service = _bootstrap_service()
+    ingest_service.ingest_trade_report(
+        _buy_report(),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    repository.buy_lots = []
+    repository.lot_slices = []
+    sync_calls = []
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda symbol, repository=None: sync_calls.append((symbol, repository)),
+        raising=False,
+    )
+
+    result = ingest_service.ingest_trade_report(
+        _sell_report(),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert result["sell_allocations"] == []
+    assert (
+        sum(int(item["allocated_quantity"]) for item in result["exit_allocations"])
+        == 500
+    )
+    assert repository.sell_allocations == []
+    assert (
+        sum(int(item["allocated_quantity"]) for item in repository.exit_allocations)
+        == 500
+    )
+    assert (
+        sum(
+            int(item["remaining_quantity"])
+            for item in repository.list_position_entries(symbol="000001")
+        )
+        == 400
+    )
+    assert (
+        sum(
+            int(item["remaining_quantity"])
+            for item in repository.list_open_entry_slices(symbol="000001")
+        )
+        == 400
+    )
+    assert sync_calls == [("000001", repository)]
+
+
 def test_order_report_updates_existing_order_state():
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)

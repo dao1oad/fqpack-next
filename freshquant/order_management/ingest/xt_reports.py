@@ -253,16 +253,40 @@ class OrderManagementXtIngestService:
                     ):
                         buy_lots = self.repository.list_buy_lots(symbol)
                         open_slices = self.repository.list_open_slices(symbol)
-                        sell_allocations = allocate_sell_to_slices(
-                            buy_lots=buy_lots,
-                            open_slices=open_slices,
-                            sell_trade_fact=trade_fact,
+                        should_attempt_legacy_allocation = (
+                            bool(buy_lots and open_slices) or not exit_allocations
                         )
-                        for item in buy_lots:
-                            self.repository.replace_buy_lot(item)
-                        self.repository.replace_open_slices(open_slices)
-                        self.repository.insert_sell_allocations(sell_allocations)
-                        holdings_changed = holdings_changed or bool(sell_allocations)
+                        if should_attempt_legacy_allocation:
+                            try:
+                                sell_allocations = allocate_sell_to_slices(
+                                    buy_lots=buy_lots,
+                                    open_slices=open_slices,
+                                    sell_trade_fact=trade_fact,
+                                )
+                            except ValueError as exc:
+                                if (
+                                    exit_allocations
+                                    and str(exc)
+                                    == "sell quantity exceeds open guardian slices"
+                                ):
+                                    logger.info(
+                                        "skip legacy sell allocation after authoritative V2 exit allocation: symbol={} internal_order_id={} broker_trade_id={}",
+                                        symbol,
+                                        trade_fact.get("internal_order_id"),
+                                        trade_fact.get("broker_trade_id"),
+                                    )
+                                else:
+                                    raise
+                            else:
+                                for item in buy_lots:
+                                    self.repository.replace_buy_lot(item)
+                                self.repository.replace_open_slices(open_slices)
+                                self.repository.insert_sell_allocations(
+                                    sell_allocations
+                                )
+                                holdings_changed = holdings_changed or bool(
+                                    sell_allocations
+                                )
                     if holdings_changed:
                         self._reset_guardian_buy_grid_after_sell(symbol)
 

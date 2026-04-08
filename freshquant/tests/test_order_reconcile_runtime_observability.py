@@ -387,6 +387,141 @@ def test_known_internal_trade_report_still_emits_xt_ingest_events(monkeypatch):
     assert ingest_runtime_logger.events[1]["internal_order_id"] == "ord_recon_known_1"
 
 
+def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_sync_stock_fills_compat",
+        lambda _symbol, repository=None: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_resolve_lot_amount",
+        lambda _symbol: 3000,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_safe_grid_interval_lookup",
+        lambda _symbol, _trade_fact: 1.03,
+        raising=False,
+    )
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 900,
+            "source": "strategy",
+            "internal_order_id": "ord_recon_seed_buy_1",
+        }
+    )
+    repository.update_order(
+        "ord_recon_seed_buy_1",
+        {"broker_order_id": "90020", "state": "SUBMITTED"},
+    )
+    ingest_runtime_logger = FakeRuntimeLogger()
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+        runtime_logger=ingest_runtime_logger,
+    )
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_recon_seed_buy_1",
+            "broker_trade_id": "T90020",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 900,
+            "price": 10.5,
+            "trade_time": 1710000000,
+            "date": 20240310,
+            "time": "09:31:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    repository.buy_lots = []
+    repository.lot_slices = []
+    ingest_runtime_logger.events = []
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "000001",
+            "price": 10.8,
+            "quantity": 500,
+            "source": "strategy",
+            "internal_order_id": "ord_recon_known_sell_1",
+            "request_id": "req_recon_known_sell_1",
+            "trace_id": "trc_recon_known_sell_1",
+            "intent_id": "int_recon_known_sell_1",
+        }
+    )
+    repository.update_order(
+        "ord_recon_known_sell_1",
+        {"broker_order_id": "90021", "state": "SUBMITTED"},
+    )
+    reconcile_runtime_logger = FakeRuntimeLogger()
+    service = ExternalOrderReconcileService(
+        repository=repository,
+        tracking_service=tracking_service,
+        ingest_service=ingest_service,
+        runtime_logger=reconcile_runtime_logger,
+    )
+
+    outcome = service.reconcile_trade_report(
+        {
+            "order_id": 90021,
+            "traded_id": "T90021",
+            "stock_code": "000001.SZ",
+            "order_type": 24,
+            "traded_volume": 500,
+            "traded_price": 10.8,
+            "traded_time": 1710003600,
+        }
+    )
+
+    assert outcome.handled is True
+    assert outcome.ingested is True
+    assert outcome.action == "known_internal_order_ingested"
+    assert outcome.result["sell_allocations"] == []
+    assert (
+        sum(
+            int(item["allocated_quantity"])
+            for item in outcome.result["exit_allocations"]
+        )
+        == 500
+    )
+    assert repository.sell_allocations == []
+    assert (
+        sum(int(item["allocated_quantity"]) for item in repository.exit_allocations)
+        == 500
+    )
+    assert [event["node"] for event in reconcile_runtime_logger.events] == [
+        "internal_match",
+        "projection_update",
+    ]
+    assert [event["node"] for event in ingest_runtime_logger.events] == [
+        "report_receive",
+        "trade_match",
+    ]
+    assert ingest_runtime_logger.events[0]["trace_id"] == "trc_recon_known_sell_1"
+    assert (
+        ingest_runtime_logger.events[1]["internal_order_id"] == "ord_recon_known_sell_1"
+    )
+
+
 def test_confirm_expired_candidates_emits_reconciliation_event(monkeypatch):
     monkeypatch.setattr(
         xt_reports_module,
