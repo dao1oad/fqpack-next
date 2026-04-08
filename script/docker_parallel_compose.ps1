@@ -16,8 +16,78 @@ Set-Item -Path "Env:DOCKER_BUILDKIT" -Value "1"
 Set-Item -Path "Env:COMPOSE_DOCKER_CLI_BUILD" -Value "1"
 Set-Item -Path "Env:COMPOSE_BAKE" -Value "true"
 
+function Resolve-Python312Command {
+    $candidates = @()
+
+    $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        $candidates += [pscustomobject]@{
+            Executable = $pyLauncher.Source
+            PrefixArgs = @('-3.12')
+        }
+    }
+
+    $fallbackExecutables = @(
+        (Join-Path $repoRoot '.artifacts\bin\py.exe'),
+        (Join-Path $repoRoot '.worktrees\main-deploy-production\.venv\Scripts\python.exe'),
+        (Join-Path $repoRoot '.venv\Scripts\python.exe'),
+        (Join-Path $repoRoot '.venv/bin/python'),
+        (Join-Path $repoRoot '.artifacts\python\cpython-3.12.13-windows-x86_64-none\python.exe')
+    )
+
+    foreach ($candidate in $fallbackExecutables) {
+        if (Test-Path $candidate) {
+            $candidates += [pscustomobject]@{
+                Executable = $candidate
+                PrefixArgs = @()
+            }
+        }
+    }
+
+    foreach ($commandName in @('python', 'python3')) {
+        $commandInfo = Get-Command $commandName -ErrorAction SilentlyContinue
+        if ($commandInfo) {
+            $candidates += [pscustomobject]@{
+                Executable = $commandInfo.Source
+                PrefixArgs = @()
+            }
+        }
+    }
+
+    foreach ($candidate in $candidates) {
+        try {
+            & $candidate.Executable @(
+                $candidate.PrefixArgs + @(
+                    '-c',
+                    'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'
+                )
+            ) | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                return $candidate
+            }
+        } catch {
+            continue
+        }
+    }
+
+    throw "Unable to resolve a usable Python 3.12 launcher for docker compose helpers."
+}
+
+function Invoke-Python312 {
+    param([string[]]$Arguments)
+
+    $resolved = Resolve-Python312Command
+    & $resolved.Executable @($resolved.PrefixArgs + $Arguments)
+}
+
 if (-not $env:FQ_RUNTIME_LOG_HOST_DIR) {
-    $resolvedRuntimeLogHostDir = & py -3.12 "$repoRoot\script\docker_parallel_runtime.py" --repo-root $repoRoot --kind runtime-log-dir
+    $resolvedRuntimeLogHostDir = Invoke-Python312 @(
+        "$repoRoot\script\docker_parallel_runtime.py",
+        '--repo-root',
+        $repoRoot,
+        '--kind',
+        'runtime-log-dir'
+    )
     if ($LASTEXITCODE -ne 0) {
         throw "failed to resolve FQ_RUNTIME_LOG_HOST_DIR"
     }
@@ -25,7 +95,13 @@ if (-not $env:FQ_RUNTIME_LOG_HOST_DIR) {
 }
 
 if (-not $env:FQ_COMPOSE_ENV_FILE) {
-    $resolvedComposeEnvFile = & py -3.12 "$repoRoot\script\docker_parallel_runtime.py" --repo-root $repoRoot --kind compose-env-file
+    $resolvedComposeEnvFile = Invoke-Python312 @(
+        "$repoRoot\script\docker_parallel_runtime.py",
+        '--repo-root',
+        $repoRoot,
+        '--kind',
+        'compose-env-file'
+    )
     if ($LASTEXITCODE -ne 0) {
         throw "failed to resolve FQ_COMPOSE_ENV_FILE"
     }
@@ -77,7 +153,7 @@ if ($resolvedComposeArgs.Count -gt 0) {
             $helperArgs += "--compose-arg=$([string]$composeArg)"
         }
 
-        $smartBuildJson = & py -3.12 @helperArgs
+        $smartBuildJson = Invoke-Python312 -Arguments $helperArgs
         if ($LASTEXITCODE -eq 0 -and $smartBuildJson) {
             $smartBuild = $smartBuildJson | ConvertFrom-Json
             $resolvedComposeArgs = @($smartBuild.compose_args | ForEach-Object { [string]$_ })
