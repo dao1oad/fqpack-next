@@ -20,8 +20,8 @@ from freshquant.market_data.xtdata.pools import (
     normalize_xtdata_mode,
 )
 from freshquant.market_data.xtdata.schema import TickQuoteEvent, normalize_prefixed_code
-from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.runtime_constants import TZ
+from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.system_settings import system_settings
 
 try:
@@ -347,10 +347,11 @@ class ProducerHeartbeatState:
 def _is_cn_trading_session(now_dt: datetime | None = None) -> bool:
     dt = now_dt or datetime.now(tz=TZ)
     t = dt.time()
-    return (t >= datetime(dt.year, dt.month, dt.day, 9, 30).time()) and (
-        t <= datetime(dt.year, dt.month, dt.day, 11, 30).time()
-    ) or (t >= datetime(dt.year, dt.month, dt.day, 13, 0).time()) and (
-        t <= datetime(dt.year, dt.month, dt.day, 15, 0).time()
+    return (
+        (t >= datetime(dt.year, dt.month, dt.day, 9, 30).time())
+        and (t <= datetime(dt.year, dt.month, dt.day, 11, 30).time())
+        or (t >= datetime(dt.year, dt.month, dt.day, 13, 0).time())
+        and (t <= datetime(dt.year, dt.month, dt.day, 15, 0).time())
     )
 
 
