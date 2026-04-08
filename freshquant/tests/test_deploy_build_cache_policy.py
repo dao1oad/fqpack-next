@@ -148,6 +148,7 @@ def test_powershell_compose_entry_resolves_python_without_raw_py_launcher_calls(
     assert "function Resolve-Python312Command" in text
     assert ".venv\\Scripts\\python.exe" in text
     assert ".venv/bin/python" in text
+    assert "sys.version_info[:2] == (3, 12)" in text
     assert "& py -3.12" not in text
 
 

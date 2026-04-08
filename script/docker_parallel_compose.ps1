@@ -56,7 +56,12 @@ function Resolve-Python312Command {
 
     foreach ($candidate in $candidates) {
         try {
-            & $candidate.Executable @($candidate.PrefixArgs + @('--version')) | Out-Null
+            & $candidate.Executable @(
+                $candidate.PrefixArgs + @(
+                    '-c',
+                    'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'
+                )
+            ) | Out-Null
             if ($LASTEXITCODE -eq 0) {
                 return $candidate
             }
