@@ -984,7 +984,7 @@ test('position-management dense workbench keeps two-column panels, descending so
     '标的',
     '持仓',
     '订单状态',
-    'Guardian 买入层级（配置）',
+    'Guardian 买入层级',
     '止盈价格层级',
     'Guardian 层级触发',
     '止盈层级触发',

@@ -422,6 +422,7 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["guardian"]["enabled"] is True
     assert rows[0]["guardian"]["buy_1"] == 10.2
     assert rows[0]["guardian"]["buy_enabled"] == [True, False, True]
+    assert rows[0]["guardian"]["buy_active"] == [True, False, True]
     assert rows[0]["guardian"]["last_hit_level"] == "BUY-2"
     assert rows[0]["takeprofit"]["tiers"][0]["level"] == 1
     assert rows[0]["takeprofit"]["tiers"][1]["enabled"] is False

@@ -93,14 +93,14 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 - `Guardian 层级触发 / 止盈层级触发 / 单笔止损触发`
   - 三列统一使用单行样式：`事件标签 + 触发时间`
   - 事件与时间不再拆成两行
-- `Guardian 买入层级（配置）`
-  - 展示 `B1 / B2 / B3` 三层 Guardian 价格与每层启用状态
+- `Guardian 买入层级`
+  - 展示 `B1 / B2 / B3` 三层 Guardian 价格与每层最终执行态
 - `止盈价格层级`
   - 展示 `L1 / L2 / L3` 三层止盈价与每层真实运行态
   - 状态真值当前按 `manual_enabled && armed_levels[level]` 计算；只有系统当前真的还会触发该层止盈时才显示 `开`
   - 若缺失 `takeprofit state`，当前统一按未激活处理；`armed_levels[level]` 缺失不会再被解释成 `开`
 
-`Guardian 买入层级（配置）` 与 `止盈价格层级` 这两列当前都使用相同的三段式布局：
+`Guardian 买入层级` 与 `止盈价格层级` 这两列当前都使用相同的三段式布局：
 
 - 左侧层级编号
 - 中间价格
@@ -108,7 +108,7 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 
 开关统一右对齐，关闭态当前固定用红色显示，便于按行横向比对。
 
-`Guardian 买入层级（配置） / 止盈价格层级 / Guardian 层级触发 / 止盈层级触发 / 单笔止损触发` 这几列当前会优先吃掉主表剩余横向空间。
+`Guardian 买入层级 / 止盈价格层级 / Guardian 层级触发 / 止盈层级触发 / 单笔止损触发` 这几列当前会优先吃掉主表剩余横向空间。
 
 搜索框与刷新动作当前直接并入“标的总览”标题栏，避免再额外占一行高度。
 
@@ -118,13 +118,17 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 - `检查结果`
 - `持仓`
 - `订单状态`
-- `Guardian 买入层级（配置）`
+- `Guardian 买入层级`
 
-其中 `Guardian 买入层级（配置）` 当前明确只展示 `guardian_buy_grid_configs.buy_enabled`：
+其中 `Guardian 买入层级` 当前按 Guardian 最终执行态展示：
 - `开/关`
-  - 代表配置态是否开启
-- 不代表 `guardian_buy_grid_states.buy_active`
-  - 运行态是否已命中、是否还可继续触发，应看 `kline-slim` 的 Guardian 运行态或 `Guardian 层级触发`
+  - 真值是 `guardian_buy_grid_configs.buy_enabled[level] && guardian_buy_grid_states.buy_active[level]`
+- 若缺失 `guardian_buy_grid_state`
+  - 当前统一按 `buy_active=[false,false,false]` 处理
+- `kline-slim`
+  - 继续单独展示 Guardian 纯运行态 `buy_active`
+- `Guardian 层级触发`
+  - 继续单独展示最近一次 Guardian 命中信息
 - `止盈价格层级`
 - `Guardian 层级触发`
 - `止盈层级触发`
