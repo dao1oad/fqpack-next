@@ -319,8 +319,11 @@ function Get-DockerSnapshot {
     $availableContainerNames = @(& docker ps -a --format '{{.Names}}' 2>$null)
     $snapshot = @()
     foreach ($name in $ContainerNames) {
-        $inspectTarget = $name
-        if ($availableContainerNames -notcontains $name) {
+        $inspectTarget = $null
+        if ($availableContainerNames -contains $name) {
+            $inspectTarget = $name
+        }
+        else {
             $escapedName = [regex]::Escape($name)
             foreach ($candidate in $availableContainerNames) {
                 if ($candidate -match "(?:^|[-_])$escapedName(?:[-_]\d+)?$") {
@@ -328,6 +331,14 @@ function Get-DockerSnapshot {
                     break
                 }
             }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($inspectTarget)) {
+            $snapshot += [pscustomobject]@{
+                Name = $name
+                Missing = $true
+            }
+            continue
         }
 
         $inspectJson = & docker inspect $inspectTarget 2>$null

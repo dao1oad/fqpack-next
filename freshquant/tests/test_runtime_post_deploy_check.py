@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -185,6 +186,65 @@ def test_capture_baseline_normalizes_compose_prefixed_container_names(
     assert docker_entries["fq_mongodb"]["health_status"] == "healthy"
     assert docker_entries["fq_apiserver"]["exists"] is True
     assert docker_entries["fq_apiserver"]["health_status"] == "healthy"
+
+
+def test_capture_baseline_treats_absent_live_container_as_missing_without_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    docker_stub = tmp_path / "docker.cmd"
+    docker_stub.write_text(
+        "\n".join(
+            [
+                "@echo off",
+                'if "%1"=="ps" (',
+                "  echo fq_mongodb",
+                "  exit /b 0",
+                ")",
+                'if "%1"=="inspect" (',
+                '  if "%2"=="fq_mongodb" (',
+                '    echo [{"Name":"fq_mongodb","State":{"Status":"running","Health":{"Status":"healthy"}}}]',
+                "    exit /b 0",
+                "  )",
+                "  exit /b 1",
+                ")",
+                "exit /b 1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    service_path = _write_json(
+        tmp_path / "services.json",
+        [
+            {"Name": "fqnext-supervisord", "Status": "Running"},
+        ],
+    )
+    process_path = _write_json(tmp_path / "processes.json", [])
+    output_path = tmp_path / "baseline.json"
+
+    monkeypatch.setenv(
+        "PATH",
+        str(tmp_path) + os.pathsep + os.environ.get("PATH", ""),
+    )
+
+    result = _run_powershell(
+        SCRIPT,
+        "-Mode",
+        "CaptureBaseline",
+        "-OutputPath",
+        str(output_path),
+        "-ServiceSnapshotPath",
+        str(service_path),
+        "-ProcessSnapshotPath",
+        str(process_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    docker_entries = {entry["name"]: entry for entry in payload["baseline"]["docker"]}
+
+    assert docker_entries["fq_mongodb"]["exists"] is True
+    assert docker_entries["ta_backend"]["exists"] is False
+    assert docker_entries["ta_backend"]["state_status"] == "missing"
 
 
 def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
