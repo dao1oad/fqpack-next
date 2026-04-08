@@ -99,6 +99,85 @@ function ConvertTo-IsoTimestamp {
     return $Value.ToString('o')
 }
 
+function Resolve-PythonCommands {
+    $candidateCommands = [System.Collections.Generic.List[object[]]]::new()
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+    foreach ($candidatePath in @(
+            (Join-Path $repoRoot '.venv\Scripts\python.exe'),
+            (Join-Path $repoRoot '.venv/bin/python')
+        )) {
+        if (-not (Test-Path -LiteralPath $candidatePath -PathType Leaf)) {
+            continue
+        }
+        if ($seen.Add($candidatePath)) {
+            $candidateCommands.Add(@($candidatePath))
+        }
+    }
+
+    $pythonLauncher = Get-Command py -ErrorAction SilentlyContinue
+    if ($null -ne $pythonLauncher -and $seen.Add('py -3.12')) {
+        $candidateCommands.Add(@('py', '-3.12'))
+    }
+
+    foreach ($commandName in @('python', 'python3')) {
+        $commandInfo = Get-Command $commandName -ErrorAction SilentlyContinue
+        if ($null -eq $commandInfo) {
+            continue
+        }
+        $commandPath = [string]$commandInfo.Source
+        if ($seen.Add($commandPath)) {
+            $candidateCommands.Add(@($commandPath))
+        }
+    }
+
+    return @($candidateCommands)
+}
+
+function Invoke-PythonCommand {
+    param([string[]]$Arguments)
+
+    $pythonCommands = @(Resolve-PythonCommands)
+    if ($pythonCommands.Count -eq 0) {
+        return [pscustomobject]@{
+            available = $false
+            success = $false
+            output = $null
+        }
+    }
+
+    foreach ($pythonCommand in $pythonCommands) {
+        $command = @($pythonCommand + $Arguments)
+        $executable = $command[0]
+        $rest = @()
+        if ($command.Count -gt 1) {
+            $rest = @($command[1..($command.Count - 1)])
+        }
+
+        try {
+            $result = & $executable $rest 2>$null
+            $exitCode = $LASTEXITCODE
+        }
+        catch {
+            continue
+        }
+
+        if ($exitCode -eq 0) {
+            return [pscustomobject]@{
+                available = $true
+                success = $true
+                output = $result
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        available = $true
+        success = $false
+        output = $null
+    }
+}
+
 $surfaceAliasMap = @{
     api = 'api'
     apiserver = 'api'
@@ -404,24 +483,21 @@ function Get-SupervisorProgramSnapshot {
         }
     }
 
-    $command = @(
-        'py',
-        '-3.12',
+    $result = Invoke-PythonCommand -Arguments @(
         $statusScript,
         '--config-path',
         $SupervisorConfigPath,
         'status'
     )
-    $result = & $command[0] $command[1..($command.Count - 1)] 2>$null
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($result | Out-String))) {
+    if (-not $result.available -or -not $result.success -or [string]::IsNullOrWhiteSpace(($result.output | Out-String))) {
         return [pscustomobject]@{
             available = $false
-            source = 'live_query_failed'
+            source = if (-not $result.available) { 'missing_python_runtime' } else { 'live_query_failed' }
             programs = @()
         }
     }
 
-    $payload = $result | ConvertFrom-Json
+    $payload = $result.output | ConvertFrom-Json
     return [pscustomobject]@{
         available = $true
         source = 'live_query'
@@ -468,9 +544,7 @@ function Get-SupervisorConfigSnapshot {
         }
     }
 
-    $command = @(
-        'py',
-        '-3.12',
+    $result = Invoke-PythonCommand -Arguments @(
         $configScript,
         'inspect',
         '--config-path',
@@ -478,20 +552,26 @@ function Get-SupervisorConfigSnapshot {
         '--expected-repo-root',
         $ExpectedSupervisorRepoRoot
     )
-    $result = & $command[0] $command[1..($command.Count - 1)] 2>$null
-    if ([string]::IsNullOrWhiteSpace(($result | Out-String))) {
+    if (-not $result.available -or -not $result.success -or [string]::IsNullOrWhiteSpace(($result.output | Out-String))) {
         return [pscustomobject]@{
             available = $false
-            source = 'live_query_failed'
+            source = if (-not $result.available) { 'missing_python_runtime' } else { 'live_query_failed' }
             payload = [pscustomobject]@{
                 ok = $false
-                failures = @('supervisor config inspect returned no payload')
+                failures = @(
+                    if (-not $result.available) {
+                        'supervisor config inspect requires a Python runtime'
+                    }
+                    else {
+                        'supervisor config inspect returned no payload'
+                    }
+                )
                 warnings = @()
             }
         }
     }
 
-    $payload = $result | ConvertFrom-Json
+    $payload = $result.output | ConvertFrom-Json
     return [pscustomobject]@{
         available = $true
         source = 'live_query'

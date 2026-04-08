@@ -19,6 +19,14 @@ def test_runtime_post_deploy_check_resolves_repo_root_from_script_parent() -> No
     assert "Join-Path $PSScriptRoot '..\\..\\..')).Path" not in script_text
 
 
+def test_runtime_post_deploy_check_resolves_python_without_py_launcher() -> None:
+    script_text = SCRIPT.read_text(encoding="utf-8")
+
+    assert "Join-Path $repoRoot '.venv\\Scripts\\python.exe'" in script_text
+    assert "Join-Path $repoRoot '.venv/bin/python'" in script_text
+    assert "Get-Command py -ErrorAction SilentlyContinue" in script_text
+
+
 def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:
