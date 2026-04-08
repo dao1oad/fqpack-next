@@ -19,6 +19,7 @@ BOOTSTRAP_PROMPTS = [
     ("mongodb.port", "MongoDB 端口", "int"),
     ("mongodb.db", "MongoDB 主库", "text"),
     ("mongodb.gantt_db", "MongoDB Gantt 库", "text"),
+    ("mongodb.screening_db", "MongoDB Screening 库", "text"),
     ("redis.host", "Redis 主机", "text"),
     ("redis.port", "Redis 端口", "int"),
     ("redis.db", "Redis DB", "int"),
@@ -31,6 +32,7 @@ BOOTSTRAP_PROMPTS = [
     ("memory.mongodb.db", "Memory Mongo 库", "text"),
     ("memory.cold_root", "Memory 冷目录", "text"),
     ("memory.artifact_root", "Memory Artifact 根目录", "text"),
+    ("memory.reference_ref", "Memory Reference Ref", "text"),
     ("tdx.home", "TDX 主目录", "text"),
     ("tdx.hq.endpoint", "TDX 行情接口", "text"),
     ("api.base_url", "API Base URL", "text"),
@@ -68,6 +70,11 @@ SETTINGS_PROMPTS = [
     (
         "position_management.holding_only_min_bail",
         "仅允许持仓内买入最低保证金",
+        "float",
+    ),
+    (
+        "position_management.single_symbol_position_limit",
+        "单标的默认持仓上限",
         "float",
     ),
 ]

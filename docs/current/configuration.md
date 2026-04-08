@@ -89,6 +89,7 @@
 - `mongodb.port`
 - `mongodb.db`
 - `mongodb.gantt_db`
+- `mongodb.screening_db`
 - `redis.host`
 - `redis.port`
 - `redis.db`
@@ -98,16 +99,19 @@
 - `memory.mongodb.db`
 - `memory.cold_root`
 - `memory.artifact_root`
+- `memory.reference_ref`
 
 默认值：
 
 - Mongo `127.0.0.1:27027`
 - 主库 `freshquant`
 - Gantt 库 `freshquant_gantt`
+- Screening 库 `fqscreening`
 - Redis `127.0.0.1:6379 db=1`
 - Memory 热库 `fq_memory`
 - 冷目录 `.codex/memory`
 - Artifact 根目录 `D:/fqpack/runtime/artifacts/memory`
+- Memory Reference Ref `origin/main`
 
 当前正式运行面补充口径：
 

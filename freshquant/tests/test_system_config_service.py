@@ -90,6 +90,7 @@ def _write_bootstrap_file(path):
                 "  port: 27027",
                 "  db: freshquant",
                 "  gantt_db: freshquant_gantt",
+                "  screening_db: fqscreening",
                 "redis:",
                 "  host: 127.0.0.1",
                 "  port: 6380",
@@ -106,6 +107,7 @@ def _write_bootstrap_file(path):
                 "    db: fq_memory",
                 "  cold_root: D:/fqpack/runtime/memory",
                 "  artifact_root: D:/fqpack/runtime/memory/artifacts",
+                "  reference_ref: origin/main",
                 "tdx:",
                 "  home: D:/tdx_biduan",
                 "  hq:",
@@ -238,6 +240,8 @@ def test_system_config_service_dashboard_reads_bootstrap_and_mongo_settings(
 
     assert dashboard["bootstrap"]["file_path"] == str(bootstrap_file)
     assert dashboard["bootstrap"]["values"]["mongodb"]["host"] == "127.0.0.1"
+    assert dashboard["bootstrap"]["values"]["mongodb"]["screening_db"] == "fqscreening"
+    assert dashboard["bootstrap"]["values"]["memory"]["reference_ref"] == "origin/main"
     assert dashboard["bootstrap"]["sections"][0]["key"] == "mongodb"
     assert (
         dashboard["settings"]["values"]["guardian"]["stock"]["threshold"]["mode"]
@@ -332,7 +336,13 @@ def test_system_config_service_update_bootstrap_persists_yaml_and_reloads(
     )
 
     payload = {
-        "mongodb": {"host": "10.0.0.8", "port": 27028, "db": "freshquant_test"},
+        "mongodb": {
+            "host": "10.0.0.8",
+            "port": 27028,
+            "db": "freshquant_test",
+            "screening_db": "fqscreening_runtime",
+        },
+        "memory": {"reference_ref": "upstream/release-main"},
         "xtdata": {"port": 58611},
         "runtime": {"log_dir": "D:/fqpack/runtime/new-logs"},
     }
@@ -341,9 +351,18 @@ def test_system_config_service_update_bootstrap_persists_yaml_and_reloads(
 
     assert result["values"]["mongodb"]["host"] == "10.0.0.8"
     assert bootstrap_module.bootstrap_config.mongodb.host == "10.0.0.8"
+    assert (
+        bootstrap_module.bootstrap_config.mongodb.screening_db == "fqscreening_runtime"
+    )
+    assert (
+        bootstrap_module.bootstrap_config.memory.reference_ref
+        == "upstream/release-main"
+    )
     assert bootstrap_module.bootstrap_config.xtdata.port == 58611
     content = bootstrap_file.read_text(encoding="utf-8")
     assert "10.0.0.8" in content
+    assert "fqscreening_runtime" in content
+    assert "upstream/release-main" in content
     assert "58611" in content
     assert "D:/fqpack/runtime/new-logs" in content
 
