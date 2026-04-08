@@ -60,6 +60,38 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 重新启动受影响宿主机进程或执行 `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces`
 - 若仍有失败，优先看 stderr 是否是业务级 HTTP 拒绝，而不是代理错误
 
+## XTData producer 假活着但不收行情
+
+现象：
+
+- `fqnext_realtime_xtdata_producer` 在 supervisor 中仍显示 `Running`
+- `xt_producer` 心跳里 `connected=1`、`subscribed_codes>0`
+- 但 `tick_count_5m=0`、`tick_batches_5m=0`，且 `rx_age_s` 在交易时段持续增长
+- `xt_consumer` 同时没有新的 `processed_bars_5m`
+- `minqmt` / `xtquant` 客户端手工取数正常
+
+先检查：
+
+- `Get-ChildItem logs/runtime/host_xt_producer/xt_producer -Recurse -Filter *.jsonl | Sort-Object LastWriteTime -Descending | Select-Object -First 5 FullName,LastWriteTime`
+- `Get-ChildItem logs/runtime/host_xt_consumer/xt_consumer -Recurse -Filter *.jsonl | Sort-Object LastWriteTime -Descending | Select-Object -First 5 FullName,LastWriteTime`
+- `Get-Content D:/fqdata/log/fqnext_realtime_xtdata_producer_err.log -Tail 200`
+- `Get-Content D:/fqdata/log/fqnext_realtime_xtdata_consumer_err.log -Tail 200`
+
+处理：
+
+- 优先查看 `xt_producer` 心跳里的：
+  - `rx_age_s`
+  - `tick_count_5m`
+  - `tick_quote_pending_batches`
+  - `tick_quote_dropped_batches`
+- 若在交易时段出现 `connected=1`、`subscribed_codes>0`、`rx_age_s >= 120` 秒：
+  - 先看是否已有 `subscription_guard` 事件，`reason_code=stale_rx`
+  - 当前 producer 会先自动 `resubscribe`，持续 stale 时再做 `xtdata.connect() + resubscribe`
+- 若自动恢复事件已经出现，但 `rx_age_s` 仍持续增长：
+  - 按正式入口执行 `script/fqnext_host_runtime_ctl.ps1`
+  - 重启 `market_data` 宿主机运行面，不要临时手拉 ad-hoc 进程
+- 如果 `minqmt` 客户端手工订阅正常，而 producer 仍 stale，优先排查 producer 进程内的订阅/回调链，不要先改 `XTQUANT_PORT` 或监控池配置
+
 ## Runtime Observability / ClickHouse 查询异常
 
 现象：
