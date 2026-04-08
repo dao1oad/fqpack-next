@@ -42,6 +42,24 @@ test('buildKlineSubjectPriceDetail keeps guardian, takeprofit and runtime state'
   assert.equal(detail.chartPriceGuides.bands.length, 0)
 })
 
+test('buildKlineSubjectPriceDetail defaults missing takeprofit state to inactive levels', () => {
+  const detail = buildKlineSubjectPriceDetail({
+    takeprofit: {
+      tiers: [
+        { level: 1, price: 10.8, enabled: true },
+        { level: 2, price: 11.2, enabled: true },
+      ],
+      state: {},
+    },
+  })
+
+  assert.deepEqual(detail.takeprofitState.armed_levels, { 1: false, 2: false, 3: false })
+  assert.deepEqual(
+    detail.takeprofitPriceGuides.map((row) => row.active),
+    [false, false],
+  )
+})
+
 test('buildKlineSubjectPriceDetail adds cost basis and open entry guides', () => {
   const detail = buildKlineSubjectPriceDetail({
     runtime_summary: {
@@ -167,6 +185,16 @@ test('buildTakeprofitPriceGuides keeps blue red green order from low to high', (
     ],
   )
   assert.equal(lines[2].label, 'TP-L3 11.800')
+})
+
+test('buildTakeprofitPriceGuides treats missing armed levels as inactive', () => {
+  const lines = buildTakeprofitPriceGuides([
+    { level: 1, price: 10.8, manual_enabled: true },
+    { level: 2, price: 11.2, manual_enabled: true },
+    { level: 3, price: 11.8, manual_enabled: true },
+  ], {})
+
+  assert.deepEqual(lines.map((row) => row.active), [false, false, false])
 })
 
 test('validateGuardianGuideDraft rejects invalid prices and wrong order', () => {

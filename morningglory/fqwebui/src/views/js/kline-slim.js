@@ -43,6 +43,7 @@ import {
   buildPriceGuideLegendSelectionState,
   clampGuardianGuidePrice,
   clampTakeprofitGuidePrice,
+  isTakeprofitLevelArmed,
   resolveGuardianGuideDraft,
   resolveTakeprofitGuideDrafts
 } from './subject-price-guides.mjs'
@@ -139,11 +140,6 @@ function buildChanlunSummaryItems({ item, fields }) {
     label: field.label,
     value: field.value
   }))
-}
-
-function isTakeprofitArmedLevel(state, level) {
-  const armedLevels = state?.armed_levels || {}
-  return armedLevels[String(level)] !== false && armedLevels[level] !== false
 }
 
 function resolveLatestClosePrice(mainData) {
@@ -391,7 +387,7 @@ export default {
           price: null,
           manual_enabled: true
         }
-        const runtimeActive = isTakeprofitArmedLevel(this.takeprofitState, item.level)
+        const runtimeActive = isTakeprofitLevelArmed(this.takeprofitState, item.level)
         return {
           ...item,
           draftIndex,
@@ -399,7 +395,7 @@ export default {
           manual_enabled: Boolean(draft.manual_enabled),
           runtime_active: runtimeActive,
           runtimeStateLabel: runtimeActive ? '已布防' : '未布防',
-          armed: Boolean(draft.manual_enabled) && isTakeprofitArmedLevel(this.takeprofitState, item.level)
+          armed: Boolean(draft.manual_enabled) && isTakeprofitLevelArmed(this.takeprofitState, item.level)
         }
       })
     },

@@ -425,6 +425,11 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
     assert rows[0]["guardian"]["last_hit_level"] == "BUY-2"
     assert rows[0]["takeprofit"]["tiers"][0]["level"] == 1
     assert rows[0]["takeprofit"]["tiers"][1]["enabled"] is False
+    assert rows[0]["takeprofit"]["state"]["armed_levels"] == {
+        1: False,
+        2: False,
+        3: False,
+    }
     assert rows[0]["stoploss"]["active_count"] == 1
     assert rows[0]["stoploss"]["active_stoploss_entry_count"] == 1
     assert rows[0]["stoploss"]["open_entry_count"] == 1
@@ -1083,6 +1088,44 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_entries
     assert len(detail["entries"]) == 1
     assert detail["entries"][0]["entry_id"] == "lot_1"
     assert "buy_lots" not in detail
+
+
+def test_subject_management_detail_defaults_missing_takeprofit_state_to_inactive():
+    tpsl_repository = InMemoryTpslRepository()
+    tpsl_repository.profiles["600000"] = {
+        "symbol": "600000",
+        "tiers": [
+            {"level": 1, "price": 10.8, "manual_enabled": True},
+            {"level": 2, "price": 11.3, "manual_enabled": False},
+            {"level": 3, "price": 11.8, "manual_enabled": True},
+        ],
+    }
+
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=tpsl_repository,
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600000")
+
+    assert detail["takeprofit"]["state"]["symbol"] == "600000"
+    assert detail["takeprofit"]["state"]["armed_levels"] == {
+        1: False,
+        2: False,
+        3: False,
+    }
 
 
 def test_subject_management_detail_defaults_missing_guardian_state_to_inactive():

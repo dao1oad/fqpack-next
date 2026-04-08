@@ -171,6 +171,15 @@ Guardian 最近命中时间当前正式来源是 `guardian_buy_grid_states.last_
   - 后端会按 `buy_active=[false,false,false]` 归一化返回
   - `kline-slim` 的 Guardian 运行态因此显示为未激活
   - `PositionSubjectOverviewPanel` 中的 `Guardian 买入层级（配置）` 仍然只展示配置态，不与运行态混淆
+
+当前 `takeprofit.state` 的正式真义是：
+- `manual_enabled`
+  - 配置态，来自 `om_takeprofit_profiles.tiers[*].manual_enabled`
+- `armed_levels`
+  - 运行态，来自 `om_takeprofit_states`
+- 若 overview / detail 读取不到 `takeprofit state`
+  - 后端会按各层 `armed_levels[level]=false` 归一化返回
+  - `PositionSubjectOverviewPanel` 与 `kline-slim` 都把该层视为未激活，不再把缺 key 当成 `开`
 止盈层级触发的数据来自 TPSL 最近止盈退出事件，当前语义固定是：
 
 - `takeprofit`
@@ -231,6 +240,7 @@ Guardian 最近命中时间当前正式来源是 `guardian_buy_grid_states.last_
 - 止盈 profile / state
     - 标的总览概览列当前展示 `L1 / L2 / L3`
     - “开/关”当前按 `manual_enabled && armed_levels[level]` 合成真实运行态，只有系统当前仍会触发该层止盈时才显示 `开`
+    - 缺失 `takeprofit state` 时，当前统一按未激活处理
   - 仓位门禁状态
     - 当前仍在 detail / 摘要只读展示
     - 不再占用 `PositionSubjectOverviewPanel` 主表列

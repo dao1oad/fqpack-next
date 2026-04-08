@@ -64,7 +64,9 @@ class SubjectManagementDashboardService:
         positions = self._position_map()
         symbols = set(must_pool_rows)
         symbols.update(positions)
-        takeprofit_states = self._takeprofit_state_map(symbols)
+        takeprofit_states = self._takeprofit_state_map(
+            symbols, takeprofit_profiles=takeprofit_profiles
+        )
         stoploss_summary = self._stoploss_summary_map()
 
         position_limit_summary_map = self._load_overview_position_limit_summary_map()
@@ -97,7 +99,12 @@ class SubjectManagementDashboardService:
             guardian_config = guardian_config_rows.get(symbol) or {}
             guardian_state = guardian_state_rows.get(symbol) or {}
             takeprofit = takeprofit_profiles.get(symbol) or {"tiers": []}
-            takeprofit_state = takeprofit_states.get(symbol) or {"armed_levels": {}}
+            takeprofit_state = takeprofit_states.get(
+                symbol
+            ) or _build_missing_takeprofit_state(
+                symbol=symbol,
+                tiers=(takeprofit.get("tiers") or []),
+            )
             position = positions.get(symbol) or {}
             symbol_position = dict(self.symbol_position_loader(symbol) or {})
             stoploss = stoploss_summary.get(
@@ -201,11 +208,16 @@ class SubjectManagementDashboardService:
             normalized_symbol
         )
         takeprofit_state = self.tpsl_repository.find_takeprofit_state(normalized_symbol)
+        takeprofit_tiers = _normalize_takeprofit_tiers(
+            (takeprofit_profile or {}).get("tiers") or []
+        )
         takeprofit = {
-            "tiers": _normalize_takeprofit_tiers(
-                (takeprofit_profile or {}).get("tiers") or []
+            "tiers": takeprofit_tiers,
+            "state": _normalize_takeprofit_state(
+                takeprofit_state,
+                symbol=normalized_symbol,
+                tiers=takeprofit_tiers,
             ),
-            "state": _normalize_takeprofit_state(takeprofit_state),
         }
 
         stoploss_bindings = {
@@ -514,7 +526,7 @@ class SubjectManagementDashboardService:
             }
         return rows
 
-    def _takeprofit_state_map(self, symbols):
+    def _takeprofit_state_map(self, symbols, *, takeprofit_profiles=None):
         normalized_symbols = {
             _normalize_symbol(item) for item in symbols if _normalize_symbol(item)
         }
@@ -539,6 +551,17 @@ class SubjectManagementDashboardService:
             if not symbol:
                 continue
             result[symbol] = _normalize_takeprofit_state(item)
+        profile_map = dict(takeprofit_profiles or {})
+        for symbol in normalized_symbols:
+            if symbol in result:
+                continue
+            tiers = (profile_map.get(symbol) or {}).get("tiers") or []
+            if not tiers:
+                continue
+            result[symbol] = _build_missing_takeprofit_state(
+                symbol=symbol,
+                tiers=tiers,
+            )
         return result
 
     def _position_map(self):
@@ -816,9 +839,18 @@ def _normalize_takeprofit_tiers(rows):
     return sorted(normalized, key=lambda item: item["level"])
 
 
-def _normalize_takeprofit_state(raw):
+def _normalize_takeprofit_state(raw, *, symbol=None, tiers=None):
+    if raw is None:
+        return _build_missing_takeprofit_state(symbol=symbol, tiers=tiers)
     state = {key: value for key, value in dict(raw or {}).items() if key != "_id"}
     state["armed_levels"] = _normalize_armed_levels(state.get("armed_levels") or {})
+    if symbol and not state.get("symbol"):
+        state["symbol"] = symbol
+    for tier in list(tiers or []):
+        level = int(tier.get("level") or 0)
+        if level <= 0:
+            continue
+        state["armed_levels"].setdefault(level, False)
     return state
 
 
@@ -831,6 +863,19 @@ def _normalize_armed_levels(rows):
             continue
         normalized[level] = bool(raw_enabled)
     return normalized
+
+
+def _build_missing_takeprofit_state(*, symbol=None, tiers=None):
+    state = {
+        "armed_levels": {
+            int(tier.get("level") or 0): False
+            for tier in list(tiers or [])
+            if int(tier.get("level") or 0) > 0
+        }
+    }
+    if symbol:
+        state["symbol"] = symbol
+    return state
 
 
 def _safe_float(value):

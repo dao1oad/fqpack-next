@@ -1,8 +1,10 @@
 import {
   buildKlineSubjectPriceDetail,
   buildTakeprofitDrafts,
+  isTakeprofitLevelArmed,
   normalizeGuardianConfig,
   normalizeGuardianState,
+  normalizeTakeprofitState,
   normalizeTakeprofitTier,
 } from './js/subject-price-guides.mjs'
 import { getPositionGateStateMeta } from './positionGateStateMeta.mjs'
@@ -266,14 +268,13 @@ const cloneTakeprofitDraft = (row = {}) => ({
 })
 
 const buildTakeprofitSummary = (tiers = [], state = {}) => {
-  const armedLevels = (state && typeof state === 'object' && state.armed_levels) || {}
+  const normalizedState = normalizeTakeprofitState(state, tiers)
   return buildTakeprofitDrafts(tiers)
     .slice(0, 3)
     .map((row) => {
       const enabled = (
         Boolean(row.manual_enabled)
-        && armedLevels[String(row.level)] !== false
-        && armedLevels[row.level] !== false
+        && isTakeprofitLevelArmed(normalizedState, row.level)
       )
       return {
         level: row.level,
@@ -672,8 +673,16 @@ export const buildDenseConfigRows = (detail = {}) => {
 
 export const buildDetailSummaryChips = (detail = {}) => {
   const takeprofitDrafts = Array.isArray(detail?.takeprofitDrafts) ? detail.takeprofitDrafts : []
+  const takeprofitState = normalizeTakeprofitState(
+    detail?.takeprofit?.state || detail?.takeprofitState || {},
+    takeprofitDrafts,
+  )
   const takeprofitVisible = takeprofitDrafts.filter((row) => row.level <= 3)
-  const takeprofitEnabledCount = takeprofitVisible.filter((row) => row.manual_enabled && row.price !== null).length
+  const takeprofitEnabledCount = takeprofitVisible.filter((row) => (
+    row.price !== null
+    && Boolean(row.manual_enabled)
+    && isTakeprofitLevelArmed(takeprofitState, row.level)
+  )).length
   const entries = Array.isArray(detail?.entries) ? detail.entries : []
   const activeStoplossCount = entries.filter((row) => row?.stoploss?.enabled).length
   const positionQuantity = toNumber(detail?.runtimeSummary?.position_quantity)

@@ -272,6 +272,7 @@ def test_evaluate_takeprofit_blocks_when_sellable_volume_is_zero():
         ],
         updated_by="api",
     )
+    tp_service.rearm_all_levels("000001", updated_by="test")
     order_repo = FakeOrderManagementRepository(
         open_entry_slices=[
             {
@@ -307,6 +308,7 @@ def test_evaluate_takeprofit_zero_quantity_marks_level_triggered_without_order()
         ],
         updated_by="api",
     )
+    tp_service.rearm_all_levels("000001", updated_by="test")
     order_repo = FakeOrderManagementRepository(
         open_entry_slices=[
             {

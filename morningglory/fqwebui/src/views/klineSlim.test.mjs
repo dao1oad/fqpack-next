@@ -222,6 +222,7 @@ test('KlineSlim price guide panel shows read-only runtime states for Guardian an
   assert.match(scriptSource, /guardianLastHitLabel\(\)/)
   assert.match(scriptSource, /guardianRuntimeActiveCount\(\)/)
   assert.match(scriptSource, /takeprofitRuntimeActiveCount\(\)/)
+  assert.match(scriptSource, /isTakeprofitLevelArmed/)
   assert.match(scriptSource, /runtime_active:/)
   assert.doesNotMatch(viewSource, />\s*命中价\s*</)
 })
