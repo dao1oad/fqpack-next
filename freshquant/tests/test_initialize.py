@@ -131,6 +131,20 @@ class FakeDatabase:
         return self.collections.setdefault(name, FakeCollection())
 
 
+class FakeBulkCollection:
+    def __init__(self):
+        self.delete_queries = []
+        self.bulk_batches = []
+
+    def delete_many(self, query):
+        self.delete_queries.append(dict(query or {}))
+        return {"deleted_count": 0}
+
+    def bulk_write(self, batch):
+        self.bulk_batches.append(list(batch))
+        return {"matched_count": 0}
+
+
 def test_run_initialize_wizard_updates_bootstrap_and_settings_then_bootstraps_runtime():
     from freshquant.initialize import run_initialize_wizard
 
@@ -372,7 +386,6 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_state_and_rebuilds_comp
         {
             "om_position_entries": [{"entry_id": "stale-entry"}],
             "om_buy_lots": [{"buy_lot_id": "stale-buy-lot"}],
-            "om_takeprofit_states": [{"state_id": "stale-takeprofit-state"}],
         }
     )
     projection_database = FakeDatabase(
@@ -453,9 +466,6 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_state_and_rebuilds_comp
             "om_reconciliation_resolutions",
             "om_stoploss_bindings",
             "om_entry_stoploss_bindings",
-            "om_takeprofit_profiles",
-            "om_takeprofit_states",
-            "om_exit_trigger_events",
             "om_ingest_rejections",
         ],
         "compat": {
@@ -466,7 +476,6 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_state_and_rebuilds_comp
     }
     assert database["om_buy_lots"].documents == []
     assert database["om_position_entries"].documents == [{"entry_id": "entry-1"}]
-    assert database["om_takeprofit_states"].documents == []
     assert database["om_reconciliation_resolutions"].documents == [
         {"resolution_id": "resolution-1"}
     ]
@@ -481,12 +490,7 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_state_and_rebuilds_comp
 def test_bootstrap_order_ledger_from_synced_truth_purges_existing_ledger_instead_of_skipping():
     from freshquant.initialize import _bootstrap_order_ledger_from_synced_truth
 
-    database = FakeDatabase(
-        {
-            "om_position_entries": [{"entry_id": "existing-entry"}],
-            "om_exit_trigger_events": [{"event_id": "existing-trigger-event"}],
-        }
-    )
+    database = FakeDatabase({"om_position_entries": [{"entry_id": "existing-entry"}]})
 
     class FakeRebuildService:
         def build_from_truth(self, *, xt_orders, xt_trades, xt_positions):
@@ -528,7 +532,6 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_existing_ledger_instead
     assert summary["skipped"] is False
     assert summary["position_entries"] == 0
     assert database["om_position_entries"].documents == []
-    assert database["om_exit_trigger_events"].documents == []
 
 
 def test_rebuild_initialize_compat_views_clears_stock_fills_compat_and_rebuilds_from_order_database(
@@ -565,6 +568,23 @@ def test_rebuild_initialize_compat_views_clears_stock_fills_compat_and_rebuilds_
         "rows_by_symbol": {"000001": 1},
         "rebuilt_collections": ["stock_fills_compat"],
     }
+
+
+def test_upsert_xt_runtime_documents_clears_account_scope_even_when_documents_are_empty():
+    from freshquant.initialize import _upsert_xt_runtime_documents
+
+    collection = FakeBulkCollection()
+
+    written = _upsert_xt_runtime_documents(
+        collection=collection,
+        documents=[],
+        identity_fields=("account_id", "order_id"),
+        scope_query={"account_id": "068000076370"},
+    )
+
+    assert written == 0
+    assert collection.delete_queries == [{"account_id": "068000076370"}]
+    assert collection.bulk_batches == []
 
 
 def test_default_xt_runtime_sync_runner_returns_empty_summary_when_xt_unavailable(

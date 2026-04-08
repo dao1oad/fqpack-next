@@ -113,9 +113,6 @@ _INITIALIZE_PURGE_COLLECTIONS = (
     "om_reconciliation_resolutions",
     "om_stoploss_bindings",
     "om_entry_stoploss_bindings",
-    "om_takeprofit_profiles",
-    "om_takeprofit_states",
-    "om_exit_trigger_events",
     "om_ingest_rejections",
 )
 _INITIALIZE_COMPAT_COLLECTIONS = ("stock_fills_compat",)
@@ -347,11 +344,17 @@ def _persist_xt_runtime_truth(*, account_id, asset, positions, orders, trades):
         collection=DBfreshquant["xt_orders"],
         documents=orders,
         identity_fields=("account_id", "order_id"),
+        scope_query=(
+            {"account_id": normalized_account_id} if normalized_account_id else None
+        ),
     )
     _upsert_xt_runtime_documents(
         collection=DBfreshquant["xt_trades"],
         documents=trades,
         identity_fields=("account_id", "traded_id"),
+        scope_query=(
+            {"account_id": normalized_account_id} if normalized_account_id else None
+        ),
     )
     return {
         "account_id": normalized_account_id,
@@ -362,7 +365,15 @@ def _persist_xt_runtime_truth(*, account_id, asset, positions, orders, trades):
     }
 
 
-def _upsert_xt_runtime_documents(*, collection, documents, identity_fields):
+def _upsert_xt_runtime_documents(
+    *,
+    collection,
+    documents,
+    identity_fields,
+    scope_query=None,
+):
+    if scope_query:
+        collection.delete_many(dict(scope_query))
     batch = []
     for document in list(documents or []):
         identity = {}
