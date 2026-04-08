@@ -2,16 +2,21 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
+from datetime import datetime
 from pathlib import Path
 
 from freshquant.market_data.xtdata.market_producer import (
+    AsyncBatchQueue,
     ProducerHeartbeatState,
+    ProducerRecoveryGuard,
     emit_producer_heartbeat,
 )
 from freshquant.market_data.xtdata.strategy_consumer import (
     ConsumerHeartbeatState,
     StrategyConsumer,
 )
+from freshquant.runtime_constants import TZ
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -74,6 +79,154 @@ def test_producer_heartbeat_state_tracks_recent_tick_activity_over_five_minutes(
         "tick_count_5m": 10,
         "rx_age_s": 150.0,
     }
+
+
+def test_async_batch_queue_runs_handler_on_background_thread():
+    handled = []
+    done = threading.Event()
+
+    def handler(batch):
+        handled.append((threading.get_ident(), batch))
+        done.set()
+
+    queue = AsyncBatchQueue(
+        handler,
+        max_pending_batches=4,
+        name="TestAsyncBatchQueue",
+    ).start()
+    submit_thread_id = threading.get_ident()
+    queue.submit([("QUEUE:TICK_QUOTE:1", '{"event":"TICK_QUOTE"}')])
+
+    assert done.wait(timeout=1.0) is True
+    assert handled == [
+        (
+            handled[0][0],
+            [("QUEUE:TICK_QUOTE:1", '{"event":"TICK_QUOTE"}')],
+        )
+    ]
+    assert handled[0][0] != submit_thread_id
+
+    queue.stop()
+
+
+def test_async_batch_queue_drops_oldest_batch_when_pending_queue_is_full():
+    queue = AsyncBatchQueue(
+        lambda batch: None,
+        max_pending_batches=2,
+        name="TestAsyncBatchQueueDropOldest",
+    )
+
+    queue.submit(["batch-1"])
+    queue.submit(["batch-2"])
+    queue.submit(["batch-3"])
+
+    assert queue.snapshot() == {
+        "pending_batches": 2,
+        "dropped_batches": 1,
+    }
+
+
+def test_producer_recovery_guard_escalates_from_resubscribe_to_reconnect():
+    guard = ProducerRecoveryGuard(
+        stale_after_s=120.0,
+        retry_interval_s=30.0,
+        reconnect_every=2,
+    )
+    trading_dt = datetime(2026, 4, 8, 10, 0, tzinfo=TZ)
+    stale_snapshot = {
+        "connected": 1,
+        "subscribed_codes": 14,
+        "rx_age_s": 180.0,
+    }
+
+    assert (
+        guard.next_action(now_ts=180.0, now_dt=trading_dt, snapshot=stale_snapshot)
+        == "resubscribe"
+    )
+    assert (
+        guard.next_action(now_ts=200.0, now_dt=trading_dt, snapshot=stale_snapshot)
+        is None
+    )
+    assert (
+        guard.next_action(now_ts=211.0, now_dt=trading_dt, snapshot=stale_snapshot)
+        == "reconnect"
+    )
+
+
+def test_producer_recovery_guard_resets_after_tick_flow_returns():
+    guard = ProducerRecoveryGuard(
+        stale_after_s=120.0,
+        retry_interval_s=30.0,
+        reconnect_every=2,
+    )
+    trading_dt = datetime(2026, 4, 8, 10, 0, tzinfo=TZ)
+    stale_snapshot = {
+        "connected": 1,
+        "subscribed_codes": 14,
+        "rx_age_s": 180.0,
+    }
+    healthy_snapshot = {
+        "connected": 1,
+        "subscribed_codes": 14,
+        "rx_age_s": 5.0,
+    }
+
+    assert (
+        guard.next_action(now_ts=180.0, now_dt=trading_dt, snapshot=stale_snapshot)
+        == "resubscribe"
+    )
+    assert (
+        guard.next_action(now_ts=181.0, now_dt=trading_dt, snapshot=healthy_snapshot)
+        is None
+    )
+    assert (
+        guard.next_action(now_ts=220.0, now_dt=trading_dt, snapshot=stale_snapshot)
+        == "resubscribe"
+    )
+
+
+def test_producer_recovery_guard_skips_recovery_outside_trading_session():
+    guard = ProducerRecoveryGuard(
+        stale_after_s=120.0,
+        retry_interval_s=30.0,
+        reconnect_every=2,
+    )
+    stale_snapshot = {
+        "connected": 1,
+        "subscribed_codes": 14,
+        "rx_age_s": 600.0,
+    }
+
+    assert (
+        guard.next_action(
+            now_ts=600.0,
+            now_dt=datetime(2026, 4, 8, 12, 0, tzinfo=TZ),
+            snapshot=stale_snapshot,
+        )
+        is None
+    )
+
+
+def test_producer_recovery_guard_skips_recovery_on_weekends():
+    guard = ProducerRecoveryGuard(
+        stale_after_s=120.0,
+        retry_interval_s=30.0,
+        reconnect_every=2,
+    )
+    stale_snapshot = {
+        "connected": 1,
+        "subscribed_codes": 14,
+        "rx_age_s": 600.0,
+    }
+
+    assert (
+        guard.next_action(
+            now_ts=600.0,
+            now_dt=datetime(2026, 4, 11, 10, 0, tzinfo=TZ),
+            snapshot=stale_snapshot,
+        )
+        is None
+    )
 
 
 def test_consumer_heartbeat_state_tracks_recent_processing_activity_over_five_minutes():
