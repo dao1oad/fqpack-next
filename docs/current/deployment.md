@@ -149,7 +149,8 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |
 | `third_party/tradingagents-cn/**` | TradingAgents-CN | 重建 `ta_backend` 与 `ta_frontend` |
 
-- `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` 当前会先做 surface reconcile；若首次重启失败且启用了 `-BridgeIfServiceUnavailable`，即使 `fqnext-supervisord` service 仍是 `Running`，也允许触发一次管理员桥接并重试一次
+- `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` 当前会先做 surface reconcile；若首次重启失败且启用了 `-BridgeIfServiceUnavailable`，即使 `fqnext-supervisord` service 仍是 `Running`，也允许触发一次管理员桥接
+- 管理员桥接恢复后，脚本会先确认目标 programs 是否已经 settled 到 `RUNNING`；只有仍未恢复时，才继续补做第二次 `restart-surfaces`
 
 ## Order Ledger V2 重建执行口径
 

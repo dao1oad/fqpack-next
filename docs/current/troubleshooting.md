@@ -399,6 +399,7 @@ print(audit_recent_etf_xdxr_coverage(recent_days=365))
 
 - `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status`
 - `Get-Content D:/fqdata/log/fqnext_xt_account_sync_worker_err.log -Tail 200`
+- 如果当前症状是“第一次 `restart-surfaces` 失败后，管理员桥接已经把目标 programs 拉回 `RUNNING`，但第二次冗余重启又把运行面打挂”，确认宿主机已经跑到包含该桥接短路逻辑的最新 `script/fqnext_host_runtime_ctl.ps1`
 - `@'
 import inspect
 from fqxtrade.xtquant.account import resolve_stock_account
