@@ -780,12 +780,16 @@ class SubjectManagementDashboardService:
             }
         last_hit_level = raw.get("last_hit_level")
         last_hit_signal_time = _resolve_guardian_last_hit_signal_time(raw)
+        raw_buy_active = raw.get("buy_active")
         return {
             "symbol": _normalize_symbol(raw.get("code") or symbol),
             "buy_active": (
-                list(raw.get("buy_active") or [])
-                if isinstance(raw.get("buy_active"), list)
-                and len(raw.get("buy_active") or []) >= 3
+                [
+                    bool(raw_buy_active[0]),
+                    bool(raw_buy_active[1]),
+                    bool(raw_buy_active[2]),
+                ]
+                if isinstance(raw_buy_active, list) and len(raw_buy_active) == 3
                 else list(MISSING_STATE_BUY_ACTIVE)
             ),
             "last_hit_level": last_hit_level,

@@ -1138,6 +1138,122 @@ def test_subject_management_detail_defaults_missing_guardian_state_to_inactive()
     assert detail["guardian_buy_grid_state"]["last_hit_price"] is None
 
 
+def test_subject_management_detail_coerces_exact_guardian_runtime_flags_to_bools():
+    database = FakeDatabase(
+        {
+            "must_pool": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "name": "浦发银行",
+                        "category": "银行",
+                    }
+                ]
+            ),
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "BUY-1": 10.2,
+                        "BUY-2": 9.9,
+                        "BUY-3": 9.5,
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                    }
+                ]
+            ),
+            "guardian_buy_grid_states": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "buy_active": [1, 0, ""],
+                    }
+                ]
+            ),
+        }
+    )
+
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 0.0,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600000")
+
+    assert detail["guardian_buy_grid_state"]["buy_active"] == [True, False, False]
+
+
+def test_subject_management_detail_rejects_malformed_guardian_runtime_arrays():
+    database = FakeDatabase(
+        {
+            "must_pool": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "name": "浦发银行",
+                        "category": "银行",
+                    }
+                ]
+            ),
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "BUY-1": 10.2,
+                        "BUY-2": 9.9,
+                        "BUY-3": 9.5,
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                    }
+                ]
+            ),
+            "guardian_buy_grid_states": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "buy_active": [True, True, True, True],
+                    }
+                ]
+            ),
+        }
+    )
+
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 0.0,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600000")
+
+    assert detail["guardian_buy_grid_state"]["buy_active"] == [False, False, False]
+
+
 def test_subject_management_detail_exposes_entry_slices_and_latest_price_remaining_market_value():
     order_repository = InMemoryOrderManagementRepository()
     order_repository.position_entries.append(
