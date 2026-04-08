@@ -95,22 +95,27 @@ _INITIALIZE_REBUILD_SUMMARY_KEYS = (
     "auto_close_allocations",
     "ingest_rejections",
 )
-_INITIALIZE_ACTIVE_LEDGER_COLLECTIONS = (
+_INITIALIZE_PURGE_COLLECTIONS = (
     "om_order_requests",
-    "om_broker_orders",
     "om_order_events",
+    "om_orders",
+    "om_broker_orders",
+    "om_trade_facts",
     "om_execution_fills",
+    "om_buy_lots",
+    "om_position_entries",
+    "om_lot_slices",
+    "om_entry_slices",
+    "om_sell_allocations",
+    "om_exit_allocations",
+    "om_external_candidates",
     "om_reconciliation_gaps",
     "om_reconciliation_resolutions",
-    "om_position_entries",
-    "om_entry_slices",
-    "om_exit_allocations",
+    "om_stoploss_bindings",
     "om_entry_stoploss_bindings",
-    "om_takeprofit_profiles",
-    "om_takeprofit_states",
-    "om_exit_trigger_events",
     "om_ingest_rejections",
 )
+_INITIALIZE_COMPAT_COLLECTIONS = ("stock_fills_compat",)
 
 
 def main(
@@ -284,7 +289,7 @@ def run_runtime_bootstrap(
 
 
 def _default_xt_runtime_sync_runner():
-    from fqxtrade.xtquant.fqtype import FqXtOrder, FqXtPosition, FqXtTrade
+    from fqxtrade.xtquant.fqtype import FqXtPosition
 
     xt_trader, acc, _ = _ensure_xt_runtime_connection()
     if xt_trader is None or acc is None:
@@ -300,29 +305,23 @@ def _default_xt_runtime_sync_runner():
         }
     asset = xt_trader.query_stock_asset(acc)
     positions = list(xt_trader.query_stock_positions(acc) or [])
-    orders = list(xt_trader.query_stock_orders(acc) or [])
-    trades = list(xt_trader.query_stock_trades(acc) or [])
     account_id = str(getattr(acc, "account_id", "") or "").strip()
     position_documents = [FqXtPosition(position).to_dict() for position in positions]
-    order_documents = [FqXtOrder(order).to_dict() for order in orders]
-    trade_documents = [FqXtTrade(trade).to_dict() for trade in trades]
     _persist_xt_runtime_truth(
         account_id=account_id,
         asset=asset,
         positions=position_documents,
-        orders=order_documents,
-        trades=trade_documents,
+        orders=[],
+        trades=[],
     )
     rebuild_summary = _bootstrap_order_ledger_from_synced_truth(
-        xt_orders=order_documents,
-        xt_trades=trade_documents,
         xt_positions=position_documents,
     )
     return {
         "assets": 1 if asset is not None else 0,
         "positions": len(position_documents),
-        "orders": len(order_documents),
-        "trades": len(trade_documents),
+        "orders": 0,
+        "trades": 0,
         "rebuild": rebuild_summary,
     }
 
@@ -345,11 +344,17 @@ def _persist_xt_runtime_truth(*, account_id, asset, positions, orders, trades):
         collection=DBfreshquant["xt_orders"],
         documents=orders,
         identity_fields=("account_id", "order_id"),
+        scope_query=(
+            {"account_id": normalized_account_id} if normalized_account_id else None
+        ),
     )
     _upsert_xt_runtime_documents(
         collection=DBfreshquant["xt_trades"],
         documents=trades,
         identity_fields=("account_id", "traded_id"),
+        scope_query=(
+            {"account_id": normalized_account_id} if normalized_account_id else None
+        ),
     )
     return {
         "account_id": normalized_account_id,
@@ -360,7 +365,15 @@ def _persist_xt_runtime_truth(*, account_id, asset, positions, orders, trades):
     }
 
 
-def _upsert_xt_runtime_documents(*, collection, documents, identity_fields):
+def _upsert_xt_runtime_documents(
+    *,
+    collection,
+    documents,
+    identity_fields,
+    scope_query=None,
+):
+    if scope_query:
+        collection.delete_many(dict(scope_query))
     batch = []
     for document in list(documents or []):
         identity = {}
@@ -381,47 +394,63 @@ def _upsert_xt_runtime_documents(*, collection, documents, identity_fields):
 
 def _bootstrap_order_ledger_from_synced_truth(
     *,
-    xt_orders,
-    xt_trades,
     xt_positions,
     database=None,
+    projection_database=None,
     rebuild_service=None,
+    compat_view_rebuilder=None,
 ):
     from freshquant.order_management.db import get_order_management_db
     from freshquant.order_management.rebuild import OrderLedgerV2RebuildService
 
     database = database or get_order_management_db()
-    if _order_ledger_has_existing_state(
-        database=database,
-        collection_names=_INITIALIZE_ACTIVE_LEDGER_COLLECTIONS,
-    ):
-        return {
-            "skipped": True,
-            "reason": "order_ledger_not_empty",
-        }
-
     rebuild_service = rebuild_service or OrderLedgerV2RebuildService()
     rebuild_result = rebuild_service.build_from_truth(
-        xt_orders=xt_orders,
-        xt_trades=xt_trades,
+        xt_orders=[],
+        xt_trades=[],
         xt_positions=xt_positions,
     )
+    _purge_initialize_order_ledger(database=database)
     for collection_name, document_key in _INITIALIZE_REBUILD_RESULT_COLLECTIONS:
         documents = list(rebuild_result.get(document_key) or [])
         if documents:
             database[collection_name].insert_many(documents, ordered=False)
 
+    compat_view_rebuilder = compat_view_rebuilder or _rebuild_initialize_compat_views
+    compat_summary = compat_view_rebuilder(
+        order_database=database,
+        projection_database=projection_database,
+    )
+
     summary = {"skipped": False}
     for key in _INITIALIZE_REBUILD_SUMMARY_KEYS:
         summary[key] = int(rebuild_result.get(key) or 0)
+    summary["purged_collections"] = list(_INITIALIZE_PURGE_COLLECTIONS)
+    summary["compat"] = compat_summary
     return summary
 
 
-def _order_ledger_has_existing_state(*, database, collection_names):
-    for collection_name in list(collection_names or []):
-        if database[collection_name].find_one({}) is not None:
-            return True
-    return False
+def _purge_initialize_order_ledger(*, database, collection_names=None):
+    for collection_name in list(collection_names or _INITIALIZE_PURGE_COLLECTIONS):
+        database[collection_name].delete_many({})
+    return list(collection_names or _INITIALIZE_PURGE_COLLECTIONS)
+
+
+def _rebuild_initialize_compat_views(*, order_database, projection_database=None):
+    from freshquant.order_management.db import get_projection_db
+    from freshquant.order_management.projection.stock_fills_compat import sync_symbols
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    projection_database = projection_database or get_projection_db()
+    repository = OrderManagementRepository(database=order_database)
+    for collection_name in _INITIALIZE_COMPAT_COLLECTIONS:
+        projection_database[collection_name].delete_many({})
+    compat_summary = sync_symbols(
+        repository=repository,
+        database=projection_database,
+    )
+    compat_summary["rebuilt_collections"] = list(_INITIALIZE_COMPAT_COLLECTIONS)
+    return compat_summary
 
 
 def _ensure_xt_runtime_connection():
