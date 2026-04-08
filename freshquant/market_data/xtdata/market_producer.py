@@ -346,6 +346,8 @@ class ProducerHeartbeatState:
 
 def _is_cn_trading_session(now_dt: datetime | None = None) -> bool:
     dt = now_dt or datetime.now(tz=TZ)
+    if dt.weekday() >= 5:
+        return False
     t = dt.time()
     return (
         (t >= datetime(dt.year, dt.month, dt.day, 9, 30).time())

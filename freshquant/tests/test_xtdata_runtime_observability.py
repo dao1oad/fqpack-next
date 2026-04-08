@@ -207,6 +207,28 @@ def test_producer_recovery_guard_skips_recovery_outside_trading_session():
     )
 
 
+def test_producer_recovery_guard_skips_recovery_on_weekends():
+    guard = ProducerRecoveryGuard(
+        stale_after_s=120.0,
+        retry_interval_s=30.0,
+        reconnect_every=2,
+    )
+    stale_snapshot = {
+        "connected": 1,
+        "subscribed_codes": 14,
+        "rx_age_s": 600.0,
+    }
+
+    assert (
+        guard.next_action(
+            now_ts=600.0,
+            now_dt=datetime(2026, 4, 11, 10, 0, tzinfo=TZ),
+            snapshot=stale_snapshot,
+        )
+        is None
+    )
+
+
 def test_consumer_heartbeat_state_tracks_recent_processing_activity_over_five_minutes():
     state = ConsumerHeartbeatState(window_s=300)
 
