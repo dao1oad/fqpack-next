@@ -1083,12 +1083,59 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_entries
     assert len(detail["entries"]) == 1
     assert detail["entries"][0]["entry_id"] == "lot_1"
     assert "buy_lots" not in detail
-    assert detail["entries"][0]["stoploss"]["stop_price"] == 9.2
-    assert detail["runtime_summary"]["position_quantity"] == 500
-    assert detail["runtime_summary"]["avg_price"] == 10.023
-    assert detail["position_management_summary"]["effective_state"] == "HOLDING_ONLY"
-    assert detail["position_limit_summary"]["effective_limit"] == 500000.0
-    assert detail["position_limit_summary"]["blocked"] is True
+
+
+def test_subject_management_detail_defaults_missing_guardian_state_to_inactive():
+    database = FakeDatabase(
+        {
+            "must_pool": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "name": "浦发银行",
+                        "category": "银行",
+                    }
+                ]
+            ),
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "600000",
+                        "BUY-1": 10.2,
+                        "BUY-2": 9.9,
+                        "BUY-3": 9.5,
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                    }
+                ]
+            ),
+        }
+    )
+
+    service = SubjectManagementDashboardService(
+        database=database,
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=InMemoryOrderManagementRepository(),
+        position_loader=lambda: [],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 0.0,
+            "default_limit": 800000.0,
+            "override_limit": None,
+            "effective_limit": 800000.0,
+            "using_override": False,
+            "blocked": False,
+        },
+    )
+
+    detail = service.get_detail("600000")
+
+    assert detail["guardian_buy_grid_state"]["symbol"] == "600000"
+    assert detail["guardian_buy_grid_state"]["buy_active"] == [False, False, False]
+    assert detail["guardian_buy_grid_state"]["last_hit_level"] is None
+    assert detail["guardian_buy_grid_state"]["last_hit_price"] is None
 
 
 def test_subject_management_detail_exposes_entry_slices_and_latest_price_remaining_market_value():

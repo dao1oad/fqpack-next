@@ -17,6 +17,7 @@ from freshquant.tpsl.repository import TpslRepository
 from freshquant.util.code import normalize_to_base_code
 
 DEFAULT_GUARDIAN_LOT_AMOUNT = 50000
+MISSING_STATE_BUY_ACTIVE = [False, False, False]
 
 
 class SubjectManagementDashboardService:
@@ -192,7 +193,8 @@ class SubjectManagementDashboardService:
         guardian_state = self._normalize_guardian_state(
             self.database["guardian_buy_grid_states"].find_one(
                 {"code": normalized_symbol}
-            )
+            ),
+            symbol=normalized_symbol,
         )
 
         takeprofit_profile = self.tpsl_repository.find_takeprofit_profile(
@@ -766,14 +768,26 @@ class SubjectManagementDashboardService:
         }
 
     @staticmethod
-    def _normalize_guardian_state(raw):
+    def _normalize_guardian_state(raw, *, symbol=None):
         if raw is None:
-            return None
+            return {
+                "symbol": _normalize_symbol(symbol),
+                "buy_active": list(MISSING_STATE_BUY_ACTIVE),
+                "last_hit_level": None,
+                "last_hit_price": None,
+                "last_hit_signal_time": None,
+                "last_reset_reason": None,
+            }
         last_hit_level = raw.get("last_hit_level")
         last_hit_signal_time = _resolve_guardian_last_hit_signal_time(raw)
         return {
-            "symbol": _normalize_symbol(raw.get("code")),
-            "buy_active": list(raw.get("buy_active") or []),
+            "symbol": _normalize_symbol(raw.get("code") or symbol),
+            "buy_active": (
+                list(raw.get("buy_active") or [])
+                if isinstance(raw.get("buy_active"), list)
+                and len(raw.get("buy_active") or []) >= 3
+                else list(MISSING_STATE_BUY_ACTIVE)
+            ),
             "last_hit_level": last_hit_level,
             "last_hit_price": _safe_float_or_none(raw.get("last_hit_price")),
             "last_hit_signal_time": last_hit_signal_time,

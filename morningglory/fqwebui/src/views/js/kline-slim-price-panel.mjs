@@ -139,7 +139,7 @@ const buildTakeprofitEnabledSaveDrafts = (state = {}, nextManualEnabled = [true,
 const buildGuardianRuntimeSavePayload = (state = {}, nextBuyEnabled = [true, true, true]) => {
   const currentState = state?.guardianState || state?.subjectPriceDetail?.guardianState || {}
   return {
-    buy_active: normalizeBuyEnabled(nextBuyEnabled, currentState?.buy_active || [true, true, true]),
+    buy_active: normalizeBuyEnabled(nextBuyEnabled, currentState?.buy_active || [false, false, false]),
     last_hit_level: currentState?.last_hit_level ?? null,
     last_hit_price: currentState?.last_hit_price ?? null,
     last_hit_signal_time: currentState?.last_hit_signal_time ?? null,
@@ -152,7 +152,7 @@ const buildEmptySubjectPriceDetailState = () => ({
   subjectPriceDetail: null,
   guardianDraft: cloneGuardianDraft(),
   guardianState: {
-    buy_active: [true, true, true],
+    buy_active: [false, false, false],
   },
   takeprofitDrafts: cloneTakeprofitDrafts([]),
   takeprofitState: {
@@ -236,7 +236,7 @@ export const createKlineSlimPricePanelActions = (api) => ({
     return api.saveGuardianBuyGridState(symbol, {
       buy_active: Array.isArray(payload?.buy_active) && payload.buy_active.length >= 3
         ? payload.buy_active.slice(0, 3).map((item) => item !== false)
-        : [true, true, true],
+        : [false, false, false],
       last_hit_level: payload?.last_hit_level ?? null,
       last_hit_price: payload?.last_hit_price ?? null,
       last_hit_signal_time: payload?.last_hit_signal_time ?? null,
