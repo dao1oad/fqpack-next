@@ -53,6 +53,7 @@
 - 破坏性 `order-ledger rebuild` 只能由 broker truth 驱动，primary truth 只允许 `xt_orders`、`xt_trades`、`xt_positions`
 - `om_*`、`stock_fills`、`stock_fills_compat` 只能作为迁移期兼容投影或排障线索，不能作为 rebuild 主输入
 - rebuild 默认拒绝用空 `xt_positions` 快照去 flatten 非空账本；只有显式允许空快照 flatten 时，才会把空 `xt_positions` 视为券商已清仓
+- 初始化向导的 runtime bootstrap 当前走 `xt_positions`-only destructive rebuild 变体：先 purge 旧 `om_*` 状态，再按券商当前持仓快照重建 V2 账本，并刷新 `stock_fills_compat`
 - 这类破坏性 rebuild 在编码前必须先建立 GitHub Issue，写清影响面、验收标准与部署影响
 
 ### OM 主账本
@@ -246,7 +247,7 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --dry-run
 py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --backup-db <backup_db_name>
 ```
 
-初始化向导 `python -m freshquant.initialize` 的运行态 bootstrap 当前也会复用这条 rebuild 语义；当订单账本为空时，会在同步 `xt_orders` / `xt_trades` / `xt_positions` 后直接写入 rebuild 结果，而不是走 runtime `auto_open_entry` 平账链路。
+初始化向导 `python -m freshquant.initialize` 的运行态 bootstrap 当前会直接执行 destructive rebuild：先 purge 旧 `om_*` 状态，再仅用刚同步的 `xt_positions` 生成新的 `om_position_entries / om_entry_slices / om_exit_allocations` 等主账本结果，并在完成后重建 `stock_fills_compat` 镜像，而不是走 runtime `auto_open_entry` 平账链路。
 
 当前约束：
 
