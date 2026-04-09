@@ -55,7 +55,9 @@ def test_project_deploy_skill_exists_and_covers_formal_flow() -> None:
 
     assert "formal deploy" in skill_text
     assert "origin/main" in skill_text
-    assert "main-deploy-production" in skill_text
+    assert "canonical repo root" in skill_text
+    assert "git checkout -f main" in skill_text
+    assert "git reset --hard <target-sha>" in skill_text
     assert "run_formal_deploy.py" in skill_text
     assert "check_freshquant_runtime_post_deploy.ps1" in skill_text
     assert "fqnext_host_runtime_ctl.ps1 -Mode Status" in skill_text

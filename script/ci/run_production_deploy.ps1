@@ -2,8 +2,8 @@
 param(
     [string]$CanonicalRoot,
     [string]$BootstrapRoot,
-    [string]$MirrorRoot = "D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production",
-    [string]$MirrorBranch = "deploy-production-main",
+    [string]$MirrorRoot,
+    [string]$MirrorBranch,
     [string]$TargetSha,
     [string]$RunUrl,
     [string]$GitHubRepository,
@@ -22,15 +22,27 @@ if ($Help) {
 Run production deploy
 
 Parameters:
-  -CanonicalRoot    Canonical repository root that tracks origin/main.
-  -BootstrapRoot    Dedicated worktree path used to bootstrap the latest production deploy entrypoint.
-  -MirrorRoot       Production deploy mirror worktree path.
-  -MirrorBranch     Local branch name used inside the deploy mirror.
+  -CanonicalRoot    Canonical repository root that will be synced onto local main before deploy.
+  -BootstrapRoot    Legacy compatibility alias; ignored by canonical-root deploy.
+  -MirrorRoot       Legacy compatibility alias; ignored by canonical-root deploy.
+  -MirrorBranch     Legacy compatibility alias; ignored by canonical-root deploy.
   -TargetSha        Expected latest origin/main SHA; omitted means deploy current origin/main.
   -RunUrl           Optional workflow run URL recorded into formal deploy state.
   -GitHubRepository Optional GitHub repository slug for artifact metadata.
+  -SkipBootstrapReexec Legacy compatibility switch; ignored by canonical-root deploy.
 "@ | Write-Output
     return
+}
+
+$legacyCompatibilityParameters = @(
+    "BootstrapRoot",
+    "MirrorRoot",
+    "MirrorBranch",
+    "SkipBootstrapReexec"
+) | Where-Object { $PSBoundParameters.ContainsKey($_) }
+if ($legacyCompatibilityParameters.Count -gt 0) {
+    $legacyParameterSummary = $legacyCompatibilityParameters -join ", "
+    Write-Verbose "ignoring legacy deploy parameters for canonical main rollout: $legacyParameterSummary"
 }
 
 function Test-Python312Executable {
@@ -205,6 +217,20 @@ function Ensure-SafeDirectory {
     }
 }
 
+function Invoke-GitCleanPreservingRepoVenv {
+    param([string]$RepoRoot)
+
+    # Preserve the live repo virtualenv while clearing stale ignored artifacts.
+    Invoke-Git -RepoRoot $RepoRoot -Arguments @(
+        "clean",
+        "-ffdx",
+        "-e",
+        ".venv/",
+        "-e",
+        ".venv"
+    )
+}
+
 function Invoke-Python {
     param(
         [string]$PythonExe,
@@ -260,10 +286,10 @@ function Invoke-HostRuntimeControl {
     }
 }
 
-function Test-DeployMirrorVirtualenvHealthy {
-    param([string]$MirrorRoot)
+function Test-RepoVirtualenvHealthy {
+    param([string]$RepoRoot)
 
-    $venvRoot = Join-Path $MirrorRoot ".venv"
+    $venvRoot = Join-Path $RepoRoot ".venv"
     $venvPython = Join-Path $venvRoot "Scripts\python.exe"
     $pyvenvConfig = Join-Path $venvRoot "pyvenv.cfg"
 
@@ -282,14 +308,14 @@ function Test-DeployMirrorVirtualenvHealthy {
     }
 }
 
-function Repair-DeployMirrorVirtualenv {
+function Repair-RepoVirtualenv {
     param(
         [string]$PythonExe,
-        [string]$MirrorRoot
+        [string]$RepoRoot
     )
 
-    Write-Warning "deploy mirror virtualenv metadata is missing or unhealthy; recreating .venv with runner Python 3.12."
-    Invoke-Python -PythonExe $PythonExe -WorkingDirectory $MirrorRoot -Arguments @(
+    Write-Warning "canonical repo virtualenv metadata is missing or unhealthy; recreating .venv with runner Python 3.12."
+    Invoke-Python -PythonExe $PythonExe -WorkingDirectory $RepoRoot -Arguments @(
         "-m", "uv", "venv", ".venv", "--python", $PythonExe, "--clear"
     )
 }
@@ -297,39 +323,39 @@ function Repair-DeployMirrorVirtualenv {
 function Invoke-UvSyncWithHostRuntimeQuiesce {
     param(
         [string]$PythonExe,
-        [string]$MirrorRoot,
+        [string]$RepoRoot,
         [string]$HostRuntimeScript,
         [string[]]$HostRuntimeSurfaces
     )
 
     $needsQuiesce = $false
     try {
-        Invoke-Python -PythonExe $PythonExe -WorkingDirectory $MirrorRoot -Arguments @(
+        Invoke-Python -PythonExe $PythonExe -WorkingDirectory $RepoRoot -Arguments @(
             "-m", "uv", "sync", "--frozen"
         )
     } catch {
         $needsQuiesce = $true
-        Write-Warning "uv sync failed on live deploy mirror; retrying uv sync after quiescing host runtime surfaces."
+        Write-Warning "uv sync failed on the live canonical repo root; retrying uv sync after quiescing host runtime surfaces."
     }
-    $venvHealthy = Test-DeployMirrorVirtualenvHealthy -MirrorRoot $MirrorRoot
+    $venvHealthy = Test-RepoVirtualenvHealthy -RepoRoot $RepoRoot
     if (-not $needsQuiesce -and $venvHealthy) {
         return
     }
     if (-not $venvHealthy) {
-        Write-Warning "deploy mirror .venv is missing pyvenv.cfg or has an unusable python.exe; repairing after quiescing host runtime surfaces."
+        Write-Warning "canonical repo .venv is missing pyvenv.cfg or has an unusable python.exe; repairing after quiescing host runtime surfaces."
     }
 
     Invoke-HostRuntimeControl -HostRuntimeScript $HostRuntimeScript -Mode "StopSurfaces" -DeploymentSurface $HostRuntimeSurfaces
     try {
         if (-not $venvHealthy) {
-            Repair-DeployMirrorVirtualenv -PythonExe $PythonExe -MirrorRoot $MirrorRoot
+            Repair-RepoVirtualenv -PythonExe $PythonExe -RepoRoot $RepoRoot
         }
-        Invoke-Python -PythonExe $PythonExe -WorkingDirectory $MirrorRoot -Arguments @(
+        Invoke-Python -PythonExe $PythonExe -WorkingDirectory $RepoRoot -Arguments @(
             "-m", "uv", "sync", "--frozen"
         )
-        if (-not (Test-DeployMirrorVirtualenvHealthy -MirrorRoot $MirrorRoot)) {
-            Repair-DeployMirrorVirtualenv -PythonExe $PythonExe -MirrorRoot $MirrorRoot
-            Invoke-Python -PythonExe $PythonExe -WorkingDirectory $MirrorRoot -Arguments @(
+        if (-not (Test-RepoVirtualenvHealthy -RepoRoot $RepoRoot)) {
+            Repair-RepoVirtualenv -PythonExe $PythonExe -RepoRoot $RepoRoot
+            Invoke-Python -PythonExe $PythonExe -WorkingDirectory $RepoRoot -Arguments @(
                 "-m", "uv", "sync", "--frozen"
             )
         }
@@ -337,91 +363,45 @@ function Invoke-UvSyncWithHostRuntimeQuiesce {
         Invoke-HostRuntimeControl -HostRuntimeScript $HostRuntimeScript -Mode "RestartSurfaces" -DeploymentSurface $HostRuntimeSurfaces
     }
 
-    if (-not (Test-DeployMirrorVirtualenvHealthy -MirrorRoot $MirrorRoot)) {
-        throw "deploy mirror virtualenv is still unhealthy after repair: $(Join-Path $MirrorRoot '.venv')"
+    if (-not (Test-RepoVirtualenvHealthy -RepoRoot $RepoRoot)) {
+        throw "canonical repo virtualenv is still unhealthy after repair: $(Join-Path $RepoRoot '.venv')"
     }
 }
 
-function Ensure-BootstrapWorktree {
+function Ensure-CanonicalRepoSynced {
     param(
         [string]$CanonicalRoot,
-        [string]$BootstrapRoot,
         [string]$TargetSha
     )
 
-    if (-not (Test-Path $BootstrapRoot)) {
-        Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("worktree", "prune")
-        Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("worktree", "add", "--detach", $BootstrapRoot, $TargetSha)
+    if (-not (Test-Path (Join-Path $CanonicalRoot ".git"))) {
+        throw "canonical repo root is not a git repository: $CanonicalRoot"
     }
 
-    if (-not (Test-Path (Join-Path $BootstrapRoot ".git"))) {
-        throw "bootstrap worktree is not a git repository: $BootstrapRoot"
+    & git -C $CanonicalRoot show-ref --verify refs/heads/main *> $null
+    $localMainExists = $LASTEXITCODE -eq 0
+
+    if ($localMainExists) {
+        Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("checkout", "-f", "main")
+    } else {
+        Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("checkout", "-B", "main", "refs/remotes/origin/main")
     }
 
-    Ensure-SafeDirectory -RepoRoot $BootstrapRoot
-    Invoke-Git -RepoRoot $BootstrapRoot -Arguments @("reset", "--hard", $TargetSha)
-    Invoke-Git -RepoRoot $BootstrapRoot -Arguments @("clean", "-ffd")
+    Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("reset", "--hard", $TargetSha)
+    Invoke-GitCleanPreservingRepoVenv -RepoRoot $CanonicalRoot
 
-    $bootstrapHeadSha = Get-GitOutput -RepoRoot $BootstrapRoot -Arguments @("rev-parse", "HEAD")
-    if ($bootstrapHeadSha -ne $TargetSha) {
-        throw "bootstrap worktree head does not match target sha: head=$bootstrapHeadSha target=$TargetSha"
-    }
-}
-
-function Invoke-BootstrapEntrypoint {
-    param(
-        [string]$EntrypointPath,
-        [string]$CanonicalRoot,
-        [string]$BootstrapRoot,
-        [string]$MirrorRoot,
-        [string]$MirrorBranch,
-        [string]$TargetSha,
-        [string]$RunUrl,
-        [string]$GitHubRepository
-    )
-
-    $arguments = @(
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        $EntrypointPath,
-        "-CanonicalRoot",
-        $CanonicalRoot,
-        "-BootstrapRoot",
-        $BootstrapRoot,
-        "-MirrorRoot",
-        $MirrorRoot,
-        "-MirrorBranch",
-        $MirrorBranch,
-        "-TargetSha",
-        $TargetSha,
-        "-SkipBootstrapReexec"
-    )
-    if (-not [string]::IsNullOrWhiteSpace($RunUrl)) {
-        $arguments += @("-RunUrl", $RunUrl)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($GitHubRepository)) {
-        $arguments += @("-GitHubRepository", $GitHubRepository)
-    }
-    if ($VerbosePreference -ne "SilentlyContinue") {
-        $arguments += "-Verbose"
+    $currentBranch = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("branch", "--show-current")
+    if ($currentBranch -ne "main") {
+        throw "canonical repo root is not on local main after sync: branch=$currentBranch"
     }
 
-    & powershell @arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "bootstrap entrypoint failed: powershell $($arguments -join ' ')"
+    $headSha = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("rev-parse", "HEAD")
+    if ($headSha -ne $TargetSha) {
+        throw "canonical repo root head does not match target sha after sync: head=$headSha target=$TargetSha"
     }
 }
 
-$CanonicalRoot = (Resolve-Path $CanonicalRoot).Path
-$CurrentScriptRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-if ([string]::IsNullOrWhiteSpace($BootstrapRoot)) {
-    $BootstrapRoot = Join-Path (Join-Path $CanonicalRoot ".worktrees") "production-deploy-bootstrap"
-}
-$BootstrapRoot = [System.IO.Path]::GetFullPath($BootstrapRoot)
-$MirrorRoot = [System.IO.Path]::GetFullPath($MirrorRoot)
-
+$CanonicalRoot = [System.IO.Path]::GetFullPath((Resolve-Path $CanonicalRoot).Path)
 if (-not (Test-Path $CanonicalRoot)) {
     throw "canonical repo root does not exist: $CanonicalRoot"
 }
@@ -433,7 +413,6 @@ Ensure-UvModule -PythonExe $pythonExe
 Ensure-SafeDirectory -RepoRoot $CanonicalRoot
 Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("fetch", "origin", "main")
 $remoteMainSha = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("rev-parse", "origin/main")
-$remoteUrl = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("remote", "get-url", "origin")
 
 if ([string]::IsNullOrWhiteSpace($TargetSha)) {
     $TargetSha = $remoteMainSha
@@ -441,51 +420,9 @@ if ([string]::IsNullOrWhiteSpace($TargetSha)) {
     throw "stale push deploy trigger: target_sha=$TargetSha current_main=$remoteMainSha"
 }
 
-if (-not $SkipBootstrapReexec) {
-    Ensure-BootstrapWorktree -CanonicalRoot $CanonicalRoot -BootstrapRoot $BootstrapRoot -TargetSha $TargetSha
-    $currentScriptHeadSha = $null
-    if (Test-Path (Join-Path $CurrentScriptRepoRoot ".git")) {
-        try {
-            $currentScriptHeadSha = Get-GitOutput -RepoRoot $CurrentScriptRepoRoot -Arguments @("rev-parse", "HEAD")
-        } catch {
-            $currentScriptHeadSha = $null
-        }
-    }
+Ensure-CanonicalRepoSynced -CanonicalRoot $CanonicalRoot -TargetSha $TargetSha
 
-    if ($CurrentScriptRepoRoot -ne $BootstrapRoot -or $currentScriptHeadSha -ne $TargetSha) {
-        $entrypoint = Join-Path $BootstrapRoot 'script/ci/run_production_deploy.ps1'
-        if (-not (Test-Path $entrypoint)) {
-            throw "bootstrap production deploy entrypoint not found: $entrypoint"
-        }
-        Invoke-BootstrapEntrypoint `
-            -EntrypointPath $entrypoint `
-            -CanonicalRoot $CanonicalRoot `
-            -BootstrapRoot $BootstrapRoot `
-            -MirrorRoot $MirrorRoot `
-            -MirrorBranch $MirrorBranch `
-            -TargetSha $TargetSha `
-            -RunUrl $RunUrl `
-            -GitHubRepository $GitHubRepository
-        return
-    }
-}
-
-if (-not (Test-Path $MirrorRoot)) {
-    Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("worktree", "prune")
-    Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("worktree", "add", $MirrorRoot, "-B", $MirrorBranch, "refs/remotes/origin/main")
-}
-
-if (-not (Test-Path (Join-Path $MirrorRoot ".git"))) {
-    throw "deploy mirror is not a git repository: $MirrorRoot"
-}
-
-Ensure-SafeDirectory -RepoRoot $MirrorRoot
-
-$syncLocalDeployMirrorScript = Join-Path $CurrentScriptRepoRoot 'script/ci/sync_local_deploy_mirror.py'
-if (-not (Test-Path $syncLocalDeployMirrorScript)) {
-    throw "deploy mirror sync helper not found: $syncLocalDeployMirrorScript"
-}
-$hostRuntimeScript = Join-Path $CurrentScriptRepoRoot 'script/fqnext_host_runtime_ctl.ps1'
+$hostRuntimeScript = Join-Path $CanonicalRoot 'script/fqnext_host_runtime_ctl.ps1'
 $hostRuntimeSurfaces = @(
     "market_data",
     "guardian",
@@ -494,24 +431,14 @@ $hostRuntimeSurfaces = @(
     "order_management"
 )
 
-Invoke-Python -PythonExe $pythonExe -WorkingDirectory $MirrorRoot -Arguments @(
-    $syncLocalDeployMirrorScript,
-    "--repo-root", $MirrorRoot,
-    "--target-sha", $TargetSha,
-    "--remote-url", $remoteUrl,
-    "--branch", "main",
-    "--checkout-branch", $MirrorBranch,
-    "--format", "summary"
-)
+Invoke-UvSyncWithHostRuntimeQuiesce -PythonExe $pythonExe -RepoRoot $CanonicalRoot -HostRuntimeScript $hostRuntimeScript -HostRuntimeSurfaces $hostRuntimeSurfaces
 
-Invoke-UvSyncWithHostRuntimeQuiesce -PythonExe $pythonExe -MirrorRoot $MirrorRoot -HostRuntimeScript $hostRuntimeScript -HostRuntimeSurfaces $hostRuntimeSurfaces
-
-$venvPython = Join-Path $MirrorRoot ".venv\Scripts\python.exe"
+$venvPython = Join-Path $CanonicalRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
-    throw "deploy mirror virtualenv python not found: $venvPython"
+    throw "canonical repo virtualenv python not found: $venvPython"
 }
-if (-not (Test-DeployMirrorVirtualenvHealthy -MirrorRoot $MirrorRoot)) {
-    throw "deploy mirror virtualenv is missing pyvenv.cfg or python bootstrap metadata: $(Join-Path $MirrorRoot '.venv')"
+if (-not (Test-RepoVirtualenvHealthy -RepoRoot $CanonicalRoot)) {
+    throw "canonical repo virtualenv is missing pyvenv.cfg or python bootstrap metadata: $(Join-Path $CanonicalRoot '.venv')"
 }
 
 $formalDeployArgs = @(
@@ -527,4 +454,4 @@ if (-not [string]::IsNullOrWhiteSpace($GitHubRepository)) {
     $formalDeployArgs += @("--github-repository", $GitHubRepository)
 }
 
-Invoke-Python -PythonExe $venvPython -WorkingDirectory $MirrorRoot -Arguments $formalDeployArgs
+Invoke-Python -PythonExe $venvPython -WorkingDirectory $CanonicalRoot -Arguments $formalDeployArgs

@@ -64,12 +64,8 @@ def _write_valid_supervisor_config_snapshot(path: Path) -> Path:
         path,
         {
             "ok": True,
-            "configured_repo_root": (
-                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-            ),
-            "expected_repo_root": (
-                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-            ),
+            "configured_repo_root": (r"D:\fqpack\freshquant-2026.2.23"),
+            "expected_repo_root": (r"D:\fqpack\freshquant-2026.2.23"),
             "failures": [],
             "warnings": [],
         },
@@ -910,9 +906,7 @@ def test_verify_fails_when_supervisor_config_still_points_to_main_runtime(
             "configured_repo_root": (
                 r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-runtime"
             ),
-            "expected_repo_root": (
-                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-            ),
+            "expected_repo_root": (r"D:\fqpack\freshquant-2026.2.23"),
             "failures": [
                 "supervisor config repo_root drifted to main-runtime",
                 "import source drifted to .venv/Lib/site-packages/fqxtrade/xtquant/broker.py",
@@ -1027,12 +1021,8 @@ def test_verify_passes_when_supervisor_config_matches_deploy_mirror(
         tmp_path / "supervisor-config.json",
         {
             "ok": True,
-            "configured_repo_root": (
-                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-            ),
-            "expected_repo_root": (
-                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-            ),
+            "configured_repo_root": (r"D:\fqpack\freshquant-2026.2.23"),
+            "expected_repo_root": (r"D:\fqpack\freshquant-2026.2.23"),
             "failures": [],
             "warnings": [],
         },

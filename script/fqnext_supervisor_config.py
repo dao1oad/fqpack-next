@@ -10,9 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 DEFAULT_CONFIG_PATH = Path(r"D:\fqpack\config\supervisord.fqnext.conf")
-DEFAULT_EXPECTED_REPO_ROOT = Path(
-    r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-)
+DEFAULT_EXPECTED_REPO_ROOT = Path(r"D:\fqpack\freshquant-2026.2.23")
 MODULE_NAMES = (
     "freshquant",
     "fqxtrade.xtquant.broker",
@@ -293,7 +291,7 @@ def inspect_supervisor_config(
         f"{expected_root_posix}/.venv;{expected_root_posix}/.venv/Scripts;"
     ):
         failures.append(
-            f"supervisor config PATH drifted from deploy mirror: {path_value}"
+            f"supervisor config PATH drifted from canonical repo root: {path_value}"
         )
     expected_python_path_value = (
         f"{expected_root_posix};"
@@ -302,7 +300,7 @@ def inspect_supervisor_config(
     )
     if python_path_value != expected_python_path_value:
         failures.append(
-            "supervisor config PYTHONPATH drifted from deploy mirror: "
+            "supervisor config PYTHONPATH drifted from canonical repo root: "
             f"{python_path_value}"
         )
 
@@ -337,7 +335,7 @@ def inspect_supervisor_config(
             continue
         if not _is_within(module_path, expected_root):
             failures.append(
-                f"import source drifted outside deploy mirror: {module_name} -> {module_path}"
+                f"import source drifted outside canonical repo root: {module_name} -> {module_path}"
             )
         if "site-packages" in _normalize_path(module_path):
             failures.append(

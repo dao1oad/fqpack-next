@@ -116,17 +116,17 @@
 - Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
 - GHCR 预构建镜像仅用于加速 Docker 部署，不改变运行真值；实际运行真值仍来自当前 `main`、deploy 结果与 health/runtime ops evidence
 - `deploy-production.yml` 在正式 Windows self-hosted runner 上把 deploy state / logs 固化到 `formal-deploy` artifacts 目录，但正式 deploy 真值已经改为本机 mirror，不再依赖下载部署归档或把 Docker Images 作为前置。
-- `deploy-production.yml` 不走 `actions/checkout`，而是先把 `D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap` 这个 bootstrap worktree reset 到目标 SHA，再直接调用那里的 `script/ci/run_production_deploy.ps1`；随后该脚本继续确保 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 这个本机 deploy mirror worktree 存在并 fast-forward 到目标 SHA。
-- bootstrap entrypoint 在 mirror sync 阶段会从当前 entrypoint repo 解析 `sync_local_deploy_mirror.py`，避免 stale `main-deploy-production` 工作树里的旧 helper 把 `.venv\` 清理逻辑回退到 `git clean -ffdX`。
+- `deploy-production.yml` 不走 `actions/checkout`，而是先把 `D:\fqpack\freshquant-2026.2.23` 这个 local main sync root reset 到目标 SHA，再直接调用那里的 `script/ci/run_production_deploy.ps1`；随后该脚本继续确保 `D:\fqpack\freshquant-2026.2.23` 这个本机 canonical repo root worktree 存在并 fast-forward 到目标 SHA。
+- bootstrap entrypoint 在 canonical main sync 阶段会从当前 entrypoint repo 解析 `sync_local_deploy_mirror.py`，避免 stale `canonical repo root` 工作树里的旧 helper 把 `.venv\` 清理逻辑回退到 `git clean -ffdX`。
 - 如果 live host runtime 仍在占用 `.venv\Lib\site-packages` 里的二进制扩展，正式入口会先 quiesce 宿主机 surfaces、重试 `uv sync`，再统一拉起这些 surfaces；这样 deploy 不会在 `.pyd` / `.dll` rename 阶段直接中断。
-- 如果 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production\.venv\pyvenv.cfg` 缺失，或保留下来的 `.venv\Scripts\python.exe` 已经不能正常启动，正式入口会把该 mirror `.venv\` 视为损坏状态：先 quiesce 宿主机 surfaces，再用 runner Python 3.12 重建 `.venv` metadata 并重新执行 `uv sync --frozen`，然后才允许进入 formal deploy。
+- 如果 `D:\fqpack\freshquant-2026.2.23\.venv\pyvenv.cfg` 缺失，或保留下来的 `.venv\Scripts\python.exe` 已经不能正常启动，正式入口会把该 mirror `.venv\` 视为损坏状态：先 quiesce 宿主机 surfaces，再用 runner Python 3.12 重建 `.venv` metadata 并重新执行 `uv sync --frozen`，然后才允许进入 formal deploy。
 - 正式 production runner 宿主机必须至少存在一个可用的 Python 3.12；如果 `py -3.12` 因旧注册漂移失效，正式入口会回退到已注册的 per-user / system Python 3.12，并回补当前用户 `PythonCore\3.12` 注册。
 - 若 runner Python 3.12 里缺少 `uv` 模块，正式入口会先自愈 `python -m uv`，再继续 deploy。
 - 正式 deploy 固定导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，确保 mirror 上的 Docker 镜像来自本机构建而不是 GHCR pull。
 - 对已经有 `last_success_sha` 的增量正式 deploy，`run_formal_deploy.py` 现在直接在 mirror 的 `.git` 工作树里计算 `last_success_sha..HEAD` changed paths，不再依赖 compare API 作为正式路径。
-- mirror 同步完成后，正式入口会先用 runner Python 3.12 在 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 执行 `python -m uv sync --frozen`，再切到 mirror `.venv\Scripts\python.exe` 调用 `run_formal_deploy.py`。
-- formal deploy 命中宿主机 deployment surface 时，会通过 `script/fqnext_supervisor_config.py` 把 `D:\fqpack\config\supervisord.fqnext.conf` 收敛到 `main-deploy-production`，并在配置发生变化或 service 仍吃旧配置时先重载一次 `fqnext-supervisord`。
-- 当前宿主机正式 Supervisor program 解释器与 `PYTHONPATH` 真值都固定落在 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`；若运行面 traceback 指到 `.venv\Lib\site-packages\fqxtrade\...`，应视为 deploy/runtime truth 失配。
+- mirror 同步完成后，正式入口会先用 runner Python 3.12 在 `D:\fqpack\freshquant-2026.2.23` 执行 `python -m uv sync --frozen`，再切到 mirror `.venv\Scripts\python.exe` 调用 `run_formal_deploy.py`。
+- formal deploy 命中宿主机 deployment surface 时，会通过 `script/fqnext_supervisor_config.py` 把 `D:\fqpack\config\supervisord.fqnext.conf` 收敛到 `canonical repo root`，并在配置发生变化或 service 仍吃旧配置时先重载一次 `fqnext-supervisord`。
+- 当前宿主机正式 Supervisor program 解释器与 `PYTHONPATH` 真值都固定落在 `D:\fqpack\freshquant-2026.2.23`；若运行面 traceback 指到 `.venv\Lib\site-packages\fqxtrade\...`，应视为 deploy/runtime truth 失配。
 - `restart-surfaces` 当前以最终 settled state 为准；中途若出现一次 `Exited/Fatal/Backoff/Starting` 的瞬时启动错误，但最终 supervisor 已收敛回 `RUNNING`，运行面不再把这类 program 继续判成重启失败。
 - 该 workflow 中的 PowerShell steps 固定带 `-ExecutionPolicy Bypass`，避免 self-hosted Windows runner 的本机执行策略在 step 启动前拦截临时脚本
 - 该 workflow 也会显式设置 `$ErrorActionPreference = 'Stop'`，确保 PowerShell cmdlet 的 non-terminating error 仍然按 fail-fast 方式中断正式 deploy
@@ -157,3 +157,10 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 如果宿主机仍靠 `frequant-next.bat` 手工拉起，而不是 `fqnext-supervisord` service 开机自启，就会失去稳定的正式入口与权限边界。
 - 如果 `D:\fqpack\config\supervisord.fqnext.conf` 仍指向 `main-runtime`、空目录或 `.venv\Lib\site-packages\fqxtrade`，formal deploy/runtime verify 现在应直接判为异常，而不是继续假设线上跑的是最新代码。
 - 如果宿主机进程仍报 `127.0.0.1:27017`，优先检查进程环境是否缺少 `FRESHQUANT_MONGODB__HOST/PORT`。
+
+## Canonical Main Runtime Truth
+
+- The live host runtime now imports from `D:\fqpack\freshquant-2026.2.23`, not from any deploy mirror worktree.
+- Formal deploy syncs the canonical repo root onto local `main` before it runs `uv sync` or `run_formal_deploy.py`.
+- The expected host runtime Python is `D:\fqpack\freshquant-2026.2.23\.venv\Scripts\python.exe`.
+- When host surfaces are hit, supervisor reconciliation and runtime verify both treat `D:\fqpack\freshquant-2026.2.23` as the only accepted repo root truth.

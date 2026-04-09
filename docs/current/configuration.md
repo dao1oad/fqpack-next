@@ -300,7 +300,7 @@ vendored `QUANTAXIS` 当前 Mongo 解析规则：
 
 若本地要复现同一模式，优先保证 `PYTHONPATH` 指向仓库源码、`morningglory/fqxtrade` 与 `sunflower/QUANTAXIS`。
 
-正式 `fqnext-supervisord` 则不再直接指向主工作树；当前正式模板会把 `directory`、`.venv\Scripts\python.exe` 与 `PYTHONPATH` 全部收敛到 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`，并由 `script/fqnext_supervisor_config.py` 写入 `D:/fqpack/config/supervisord.fqnext.conf`。
+正式 `fqnext-supervisord` 则不再直接指向主工作树；当前正式模板会把 `directory`、`.venv\Scripts\python.exe` 与 `PYTHONPATH` 全部收敛到 `D:\fqpack\freshquant-2026.2.23`，并由 `script/fqnext_supervisor_config.py` 写入 `D:/fqpack/config/supervisord.fqnext.conf`。
 
 ## 当前宿主机模板
 
@@ -312,8 +312,8 @@ vendored `QUANTAXIS` 当前 Mongo 解析规则：
 
 - service：`fqnext-supervisord`
 - 配置：`D:/fqpack/config/supervisord.fqnext.conf`
-- 正式 repo root：`D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
-- 正式解释器：`D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production\.venv\Scripts\python.exe`
+- 正式 repo root：`D:\fqpack\freshquant-2026.2.23`
+- 正式解释器：`D:\fqpack\freshquant-2026.2.23\.venv\Scripts\python.exe`
 - RPC：`http://127.0.0.1:10011/RPC2`
 - 初始化入口：`D:/fqpack/initialize.bat`
 - 管理员桥接任务：`fqnext-supervisord-restart`
@@ -324,3 +324,9 @@ vendored `QUANTAXIS` 当前 Mongo 解析规则：
 - 改配置值：属于普通改动，但应同步文档
 - 改配置语义：属于高影响改动，Issue 中必须先写清新语义、验收标准与部署影响，再进入 `In Progress`
 - 运行面排障时，不要只看 bootstrap 文件；必须同时检查环境变量和 Mongo 系统设置
+
+## Canonical Main Supervisor Truth
+
+- Current formal supervisor repo root: `D:\fqpack\freshquant-2026.2.23`
+- Current formal supervisor Python: `D:\fqpack\freshquant-2026.2.23\.venv\Scripts\python.exe`
+- `script/fqnext_supervisor_config.py` and `script/check_freshquant_runtime_post_deploy.ps1` both default to that canonical repo root.

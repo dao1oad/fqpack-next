@@ -16,7 +16,7 @@
 ## 运行环境
 
 - 本地开发统一使用项目根目录 `.venv`
-- 正式 `fqnext-supervisord` 统一使用 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production\.venv`
+- 正式 `fqnext-supervisord` 统一使用 `D:\fqpack\freshquant-2026.2.23\.venv`
 - 解释器版本固定为 `Python 3.12.x`
 - 依赖统一由 `uv.lock` 驱动
 - Docker 容器内分别创建 `/freshquant/.venv` 与 `/app/.venv`
@@ -73,12 +73,12 @@ Docker 并行构建默认通过 `FQ_DOCKER_BUILD_CACHE_ROOT` 使用本地 BuildK
 
 宿主机 Supervisor 统一使用：
 
-- `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production\.venv\Scripts\python.exe`
+- `D:\fqpack\freshquant-2026.2.23\.venv\Scripts\python.exe`
 
 配置文件：
 
 - `D:\fqpack\config\supervisord.fqnext.conf`
-- formal deploy 会用 `script/fqnext_supervisor_config.py` 把这份配置收敛到 `main-deploy-production`
+- formal deploy 会先把 `D:\fqpack\freshquant-2026.2.23` 的本地 `main` 同步到最新 `origin/main`，再用 `script/fqnext_supervisor_config.py` 把这份配置收敛到 canonical repo root
 - 命中宿主机 deployment surface 时，若 config 发生变化或 service 仍吃旧配置，formal deploy 会先受控重载 `fqnext-supervisord`
 
 正式宿主机入口：
@@ -101,3 +101,9 @@ Docker 并行构建默认通过 `FQ_DOCKER_BUILD_CACHE_ROOT` 使用本地 BuildK
 - [当前运行面](./docs/current/runtime.md)
 - [当前部署](./docs/current/deployment.md)
 - [当前排障](./docs/current/troubleshooting.md)
+
+## Canonical Main Deploy Truth
+
+- Formal deploy now uses `D:\fqpack\freshquant-2026.2.23` as the only production repo root.
+- Before deploy, the entrypoint syncs local `main` to latest `origin/main` and then runs `uv sync` / `run_formal_deploy.py` from the canonical repo root.
+- The expected host runtime Python is `D:\fqpack\freshquant-2026.2.23\.venv\Scripts\python.exe`.

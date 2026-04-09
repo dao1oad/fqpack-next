@@ -31,7 +31,6 @@ function Resolve-Python312Command {
 
     $fallbackExecutables = @(
         (Join-Path $repoRoot '.artifacts\bin\py.exe'),
-        (Join-Path $repoRoot '.worktrees\main-deploy-production\.venv\Scripts\python.exe'),
         (Join-Path $repoRoot '.venv\Scripts\python.exe'),
         (Join-Path $repoRoot '.artifacts\python\cpython-3.12.13-windows-x86_64-none\python.exe')
     )
@@ -56,7 +55,7 @@ function Resolve-Python312Command {
         }
     }
 
-    throw "Unable to resolve a usable Python 3.12 launcher. Checked py, repo-local py.exe, deploy mirror .venv, repo .venv, and workspace Python."
+    throw "Unable to resolve a usable Python 3.12 launcher. Checked py, repo-local py.exe, repo .venv, and workspace Python."
 }
 
 function Invoke-Python312 {
