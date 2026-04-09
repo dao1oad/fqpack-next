@@ -142,7 +142,9 @@ class PositionCreditClient:
             resolved_account_id = self.account_id if account_id is None else account_id
             self.account_id = str(resolved_account_id or "").strip()
         else:
-            self.account_id = str(getattr(xtquant_settings, "account", "") or "").strip()
+            self.account_id = str(
+                getattr(xtquant_settings, "account", "") or ""
+            ).strip()
         if self._account_type_override:
             resolved_account_type = (
                 self.account_type if account_type is None else account_type

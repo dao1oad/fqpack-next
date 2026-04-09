@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import base62
@@ -152,9 +152,7 @@ class SystemSettings:
     ):
         resolved_retry_attempts = max(
             int(
-                self.reload_retry_attempts
-                if retry_attempts is None
-                else retry_attempts
+                self.reload_retry_attempts if retry_attempts is None else retry_attempts
             ),
             1,
         )
@@ -376,5 +374,14 @@ class SystemSettings:
 system_settings = SystemSettings()
 
 
-def reload_system_settings():
-    return system_settings.reload()
+def reload_system_settings(
+    *,
+    strict=False,
+    retry_attempts=None,
+    retry_delay_seconds=None,
+):
+    return system_settings.reload(
+        strict=strict,
+        retry_attempts=retry_attempts,
+        retry_delay_seconds=retry_delay_seconds,
+    )

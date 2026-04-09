@@ -57,7 +57,9 @@ class XtAutoRepayWorker:
         resolved_mode = _normalize_mode(mode)
         resolved_now = now or self.now_provider()
         if not self._refresh_settings():
-            return self._volatile_skip(mode=resolved_mode, reason="settings_unavailable")
+            return self._volatile_skip(
+                mode=resolved_mode, reason="settings_unavailable"
+            )
         checked_at = resolved_now.isoformat()
         state = dict(self.service.get_state() or {})
         snapshot_decision = None
@@ -215,7 +217,11 @@ class XtAutoRepayWorker:
         if not self._refresh_settings():
             return 1.0
         state = dict(self.service.get_state() or {})
-        candidates = [_next_intraday_delay_seconds(resolved_now, state, self.intraday_interval_seconds)]
+        candidates = [
+            _next_intraday_delay_seconds(
+                resolved_now, state, self.intraday_interval_seconds
+            )
+        ]
         for scheduled_time, field_name in (
             (HARD_SETTLE_TIME, "last_hard_settle_at"),
             (RETRY_TIME, "last_retry_at"),
@@ -418,7 +424,9 @@ def _next_intraday_delay_seconds(now_value, state, intraday_interval_seconds):
     last_checked_at = _parse_datetime(state.get("last_checked_at"))
     if last_checked_at is None:
         return max(1.0, float(intraday_interval_seconds or 1.0))
-    due_at = last_checked_at + timedelta(seconds=float(intraday_interval_seconds or 0.0))
+    due_at = last_checked_at + timedelta(
+        seconds=float(intraday_interval_seconds or 0.0)
+    )
     remaining_seconds = (due_at - now_value).total_seconds()
     if remaining_seconds <= 0:
         return 1.0
