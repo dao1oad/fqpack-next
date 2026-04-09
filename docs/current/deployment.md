@@ -1,127 +1,127 @@
-# ????
+# 当前部署
 
-## ????
+## 部署原则
 
-- ?????????????????????????????
-- ?????????????????
-- ?? deploy ????????? `main` ??? SHA?
-- Docker ????????????????????????????XTData ? Windows ??????
-- ????????????????????? deploy ???????????????? cleanup?
-- ?? Done ??????`merge + ci + docs sync + deploy + health check + cleanup`?
-- ??????? `py -3.12 script/freshquant_deploy_plan.py` ??????????????????? Docker / ??????
-- formal deploy ?????? `D:/fqpack/runtime/formal-deploy`?
+- 代码改动后，受影响模块必须重新部署；只合并不部署不算完成。
+- 本地会话只负责开发、测试和预检查。
+- 正式 deploy 只允许基于最新远程 `main` 已合并 SHA。
+- Docker 并行环境用于承载通用服务与前端；宿主机负责需要直连券商、XTData 或 Windows 资源的进程。
+- 部署动作结束后必须先做接口层健康检查，再做 deploy 后运维面检查；两者都通过后才进入 cleanup。
+- 当前 Done 判定固定为：`merge + ci + docs sync + deploy + health check + cleanup`。
+- 正式收口前先用 `py -3.12 script/freshquant_deploy_plan.py` 生成部署计划；不要在会话内临场重新推理 Docker / 宿主机边界。
+- formal deploy 产物固定写入 `D:/fqpack/runtime/formal-deploy`。
 
-## ??????
+## 常用部署命令
 
-### ??????
+### 全量并行环境
 
 ```powershell
 docker compose -f docker/compose.parallel.yaml up -d --build
 ```
 
-- ???????????????? selective deploy ????? `script/fq_apply_deploy_plan.ps1`
-- Docker ?????? BuildKit ????????????`script/docker_parallel_compose.ps1` ?? `FQ_DOCKER_BUILD_CACHE_ROOT` ?????? `.artifacts/docker-build-cache`
-- Runtime Observability ? ClickHouse ???? `FQ_RUNTIME_CLICKHOUSE_USER/FQ_RUNTIME_CLICKHOUSE_PASSWORD` ???????????????? API / indexer ???? `default`
-- ?????????? GHCR ??????????? `FQ_ENABLE_REMOTE_CACHE_PULL=1` ??`docker_parallel_compose.ps1` ???? `remote_cached` ????? `docker pull`
-- `main` ???????? workflow?`.github/workflows/docker-images.yml`
-- `main` ?????????? workflow?`.github/workflows/deploy-production.yml`
-- ?? deploy canonical repo root?`D:\fqpack\freshquant-2026.2.23`
-- ?? deploy local main sync root?`D:\fqpack\freshquant-2026.2.23`
-- ?? canonical repo root?`D:\fqpack\freshquant-2026.2.23`
-- ?? deploy ??????`script/ci/run_production_deploy.ps1`
-- ?????? `FQ_DOCKER_FORCE_LOCAL_BUILD=1` ???????GHCR ????? deploy ??
+- 这条命令只用于显式全量重建；日常 selective deploy 统一优先走 `script/fq_apply_deploy_plan.ps1`
+- Docker 构建默认启用 BuildKit 本地缓存；未显式设置时，`script/docker_parallel_compose.ps1` 会把 `FQ_DOCKER_BUILD_CACHE_ROOT` 设为仓库下的 `.artifacts/docker-build-cache`
+- Runtime Observability 的 ClickHouse 默认通过 `FQ_RUNTIME_CLICKHOUSE_USER/FQ_RUNTIME_CLICKHOUSE_PASSWORD` 创建并使用专用查询用户；不要再让 API / indexer 走无凭证 `default`
+- 当前默认不会主动拉取 GHCR 远端缓存；只有显式设置 `FQ_ENABLE_REMOTE_CACHE_PULL=1` 时，`docker_parallel_compose.ps1` 才会进入 `remote_cached` 分支并执行 `docker pull`
+- `main` 合并后的镜像发布 workflow：`.github/workflows/docker-images.yml`
+- `main` 合并后的正式自动部署 workflow：`.github/workflows/deploy-production.yml`
+- 正式 deploy canonical repo root：`D:\fqpack\freshquant-2026.2.23`
+- 正式 deploy local main sync root：`D:\fqpack\freshquant-2026.2.23`
+- 本机 canonical repo root：`D:\fqpack\freshquant-2026.2.23`
+- 正式 deploy 单入口脚本：`script/ci/run_production_deploy.ps1`
+- 正式收口时由 `FQ_DOCKER_FORCE_LOCAL_BUILD=1` 强制本机构建；GHCR 不再是正式 deploy 前置
 
-### ??????
+### 自动正式部署
 
-- `deploy-production.yml` ? `push main` ?????????????
-- `deploy-production.yml` ????? `script/ci/run_production_deploy.ps1`???? workflow YAML ????? canonical main sync?`uv sync` ? `run_formal_deploy.py`?
-- `deploy-production.yml` ????? canonical repo root ? fetch ??? `origin/main`?????? canonical repo root ??? `pull --ff-only` ??? main?
-- `deploy-production.yml` ????? reset `D:\fqpack\freshquant-2026.2.23` ?? local main sync root ??? SHA??????????? `script/ci/run_production_deploy.ps1`?
-- `script/ci/run_production_deploy.ps1` ?? bootstrap/re-exec ????????? deploy ? local main sync root ?????????workflow ?????????? canonical repo root ???????
-- `script/ci/run_production_deploy.ps1` ? canonical main sync ??????? entrypoint repo ?? `script/ci/sync_local_deploy_mirror.py` ???????????? `canonical repo root` ??????? helper??? local main sync root ??????????????
-- ? `uv sync --frozen` ? live canonical repo root ? `.venv\` ???????????????????`script/ci/run_production_deploy.ps1` ???? quiesce ??? surfaces?`market_data`?`guardian`?`position_management`?`tpsl`?`order_management`??????? `uv sync`????????? surfaces??????? `.pyd` / `.dll` ??????
-- ? live canonical repo root ? `.venv\pyvenv.cfg` ???? `.venv\Scripts\python.exe` ???????????`script/ci/run_production_deploy.ps1` ?? quiesce ??? surfaces ??? `python -m uv venv .venv --python <runner-python> --clear` ?? canonical repo root virtualenv metadata????? `uv sync --frozen`??? deploy ????????? `.venv\` ???????
-- `script/ci/sync_local_deploy_mirror.py` ? fast-forward ?????????? mirror ?? ignored ?????? live canonical repo root ? `.venv\`??????????? `build/`?`*.egg-info/`???? `fqchan*.cpp` ??????????????? runtime ???????????
-- `script/ci/run_formal_deploy.py` ??? `production-state.json` ????????? SHA??? `last_success_sha -> current main HEAD` ? changed paths???? `script/freshquant_deploy_plan.py` ???? deploy plan?
-- `script/ci/run_formal_deploy.py` ????? deployment surface ?????? canonical repo root repo root ??? `script/fqnext_host_runtime_ctl.ps1`????? `script/fqnext_supervisor_config.py` ?? `D:\fqpack\config\supervisord.fqnext.conf`?
-- `script/fqnext_host_runtime_ctl.ps1` ? `script/fqnext_supervisor_config.py` ????????`script/freshquant_deploy_plan.py` ???????????? deployment surface?`market_data`?`guardian`?`position_management`?`tpsl`?`order_management`???? host-runtime infra ????????? no-op deploy?
-- `script/ci/run_production_deploy.ps1` ???? canonical repo root?local main sync root ??? canonical repo root ?? git `safe.directory`??? runner ?? worktree ??????? git?
-- ?? deploy ?? production runner ????????? Python 3.12?? `py -3.12` ??????????????????? per-user / system Python 3.12???? `HKCU\Software\Python\PythonCore\3.12\InstallPath`?
-- ? runner Python 3.12 ?? `uv` ??????????? `python -m pip install uv --break-system-packages` ??????
-- ???? deploy ????? `FQ_DOCKER_FORCE_LOCAL_BUILD=1`??? `docker_parallel_compose.py` ? `--build` ??? GHCR pull ???
-- ?????? GHCR ????????????????? `FQ_ENABLE_REMOTE_CACHE_PULL=1`??? production deploy ?????????
+- `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
+- `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 canonical main sync、`uv sync` 和 `run_formal_deploy.py`。
+- `deploy-production.yml` 当前只要求 canonical repo root 能 fetch 到最新 `origin/main`；它不再要求 canonical repo root 本身先 `pull --ff-only` 到远程 main。
+- `deploy-production.yml` 会先创建或 reset `D:\fqpack\freshquant-2026.2.23` 这个 local main sync root 到目标 SHA，再直接执行那里的最新 `script/ci/run_production_deploy.ps1`。
+- `script/ci/run_production_deploy.ps1` 保留 bootstrap/re-exec 逻辑，作为人工正式 deploy 或 local main sync root 直接入口时的兜底；workflow 正式路径已经不再依赖 canonical repo root 上的脚本版本。
+- `script/ci/run_production_deploy.ps1` 在 canonical main sync 这一步会从当前 entrypoint repo 解析 `script/ci/sync_local_deploy_mirror.py` 的绝对路径，而不是回退到 `canonical repo root` 里可能落后的旧 helper；这样 local main sync root 的最新清理策略才能真正生效。
+- 若 `uv sync --frozen` 在 live canonical repo root 的 `.venv\` 中遇到宿主机运行面占用的二进制扩展锁，`script/ci/run_production_deploy.ps1` 会先受控 quiesce 宿主机 surfaces（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`），再重试一次 `uv sync`，最后统一拉起这些 surfaces，避免原地覆盖 `.pyd` / `.dll` 时直接失败。
+- 若 live canonical repo root 的 `.venv\pyvenv.cfg` 缺失，或 `.venv\Scripts\python.exe` 已存在但不能正常启动，`script/ci/run_production_deploy.ps1` 会在 quiesce 宿主机 surfaces 后执行 `python -m uv venv .venv --python <runner-python> --clear` 重建 canonical repo root virtualenv metadata，再补一次 `uv sync --frozen`；正式 deploy 不再假设保留下来的 `.venv\` 一定完整可用。
+- `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先显式枚举并清掉 mirror 内的 ignored 产物，但保留 live canonical repo root 的 `.venv\`；这样既能继续清理历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件，也不会误删当前宿主机 runtime 正在使用的解释器环境。
+- `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
+- `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 canonical repo root repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
+- `script/fqnext_host_runtime_ctl.ps1` 或 `script/fqnext_supervisor_config.py` 自身发生变更时，`script/freshquant_deploy_plan.py` 现在会强制命中全部宿主机 deployment surface（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`）；这类 host-runtime infra 变更不允许再被判成 no-op deploy。
+- `script/ci/run_production_deploy.ps1` 会显式把 canonical repo root、local main sync root 与本机 canonical repo root 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
+- 正式 deploy 要求 production runner 至少存在一个可用的 Python 3.12；若 `py -3.12` 因旧注册失效，入口脚本会回退到已注册的 per-user / system Python 3.12，并回补 `HKCU\Software\Python\PythonCore\3.12\InstallPath`。
+- 若 runner Python 3.12 缺少 `uv` 模块，入口脚本会先执行 `python -m pip install uv --break-system-packages` 再继续部署。
+- 本轮正式 deploy 会显式导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，避免 `docker_parallel_compose.py` 把 `--build` 改写成 GHCR pull 路径。
+- 如需临时恢复 GHCR 远端缓存试验，可在人工会话显式设置 `FQ_ENABLE_REMOTE_CACHE_PULL=1`；正式 production deploy 默认不使用该路径。
 
-### ????????
+### 共享部署计划解析
 
 ```powershell
 py -3.12 script/freshquant_deploy_plan.py --changed-path freshquant/rear/api_server.py --changed-path morningglory/fqwebui/src/views/GanttUnified.vue --format summary
 ```
 
-### ?????
+### 本地预检查
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ensure
 ```
 
-- `script/fq_local_preflight.ps1` ?????????? `main` ?????????????????? `main` ? fetch???? governance / pre-commit / pytest / review threads?
-- `script/fq_local_preflight.ps1` ?? `morningglory/fqwebui/**`?`.github/workflows/ci.yml` ? `script/fq_local_preflight.ps1` ???????? gate ?????????
+- `script/fq_local_preflight.ps1` 是本地会话同步到远程 `main` 前的标准预检查入口；默认会对最新远程 `main` 做 fetch，并验证 governance / pre-commit / pytest / review threads。
+- `script/fq_local_preflight.ps1` 命中 `morningglory/fqwebui/**`、`.github/workflows/ci.yml` 或 `script/fq_local_preflight.ps1` 变更时，会把前端 gate 一并纳入正式预检：
   - `npm run lint`
   - `npm run test:browser-smoke`
   - `npm run test:unit`
   - `npm run build`
-- `npm run test:browser-smoke` ?????? Playwright Chromium ???????? `tests/daily-screening.browser.spec.mjs` ? `tests/system-settings.browser.spec.mjs`?
-- `npm run test:unit` ?????? 7 ????? known-red Node ???????????? `npm run test:unit:all`?
-- `script/fq_local_preflight.ps1` ??? `base ref -> ?????` ???? surface ????? dirty worktree ????? preflight cache?????????????????
-- ???????? `uv.exe` ??? PATH?`script/fq_local_preflight.ps1` ?????? Python launcher ? `python -m uv`
-- `.github/workflows/ci.yml` ???????? surface ?????? `fqwebui` gate??????????? `npm run build` ???????
-- `script/fq_apply_deploy_plan.ps1` ????????? selective deploy ????? deploy phase?
+- `npm run test:browser-smoke` 当前会先确保 Playwright Chromium 可用，再实际执行 `tests/daily-screening.browser.spec.mjs` 与 `tests/system-settings.browser.spec.mjs`。
+- `npm run test:unit` 当前默认跳过 7 个已登记的 known-red Node 用例；需要全量回归时改跑 `npm run test:unit:all`。
+- `script/fq_local_preflight.ps1` 当前按 `base ref -> 当前工作树` 识别前端 surface 改动，并在 dirty worktree 下禁用本地 preflight cache，避免未提交前端变更被旧记录跳过。
+- 当前机器如果没有 `uv.exe` 直接进 PATH，`script/fq_local_preflight.ps1` 会回退到当前 Python launcher 的 `python -m uv`
+- `.github/workflows/ci.yml` 当前也对同一前端 surface 执行上述四个 `fqwebui` gate；前端改动不能只靠本地 `npm run build` 作为唯一证据。
+- `script/fq_apply_deploy_plan.ps1` 仍然保留，用于手工 selective deploy 或断点续跑 deploy phase。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGitDiff origin/main...HEAD
 ```
 
-### ?? deploy
+### 正式 deploy
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -CanonicalRoot D:\fqpack\freshquant-2026.2.23 -MirrorRoot D:\fqpack\freshquant-2026.2.23 -MirrorBranch deploy-production-main
 ```
 
-- ?? deploy ?????????? `origin/main` SHA??? `last_success_sha -> latest origin/main sha` ???????
-- ??? merge ? worktree ??????? deploy ???
+- 正式 deploy 入口会先解析最新远程 `origin/main` SHA，再按 `last_success_sha -> latest origin/main sha` 计算部署范围。
+- 本地未 merge 的 worktree 不能直接当正式 deploy 来源。
 
-### ????????
+### 正式部署最佳实践
 
-- ?????????????? `origin/main`?????? deploy ???????????? `feature branch -> PR -> merge remote main`?????? `main` ? `origin/main` ???
-- ?? deploy ??? `D:\fqpack\freshquant-2026.2.23` ?????????? worktree ???????
-- workflow ????? deploy ?????? `script/ci/run_production_deploy.ps1`????? canonical main sync?`uv sync`?`run_formal_deploy.py` ???????
-- canonical repo root ??????????????? `origin/main`??? deploy ????? local main sync root ?????? main ?????????? canonical root ???????? deploy ???
-- ?? workflow ??????? local main sync root ???? entrypoint??????????? workflow ????????? local main sync root ?? `script/ci/run_production_deploy.ps1` ?? canonical ????? bootstrap?
-- `docker/compose.parallel.yaml` ??????? Docker ????????????`freshquant_deploy_plan.py` ????????? deploy???? `deployment_required=false` ? no-op?
-- `script/ci/run_production_deploy.ps1` ??? runner Python 3.12 ? `uv sync`????? canonical repo root `.venv\Scripts\python.exe` ?? `run_formal_deploy.py`?formal deploy ?? health check ??? mirror `.venv` ????
-- canonical repo root `.venv\Scripts\python.exe` ????? `.venv\pyvenv.cfg` ?????????????????????? metadata ?????????????? `run_formal_deploy.py`?
-- formal deploy ?????????? supervisor ??????`directory` ? `PYTHONPATH` ????? `canonical repo root`????? `main-runtime` ??? `.venv\Lib\site-packages\fqxtrade` ???????
-- ? `D:\fqpack\config\supervisord.fqnext.conf` ???? `fqnext-supervisord` ???????????`fqnext_host_runtime_ctl.ps1` ?? surface restart ??????? service reload/restart?
-- ?? formal deploy ?? `fq_apiserver` / `fq_webui` ?????????????????? canonical repo root ?????? ignored ????????????? canonical main sync ???????????
-- ?? `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`?`result.json` ? `D:/fqpack/runtime/formal-deploy/production-state.json` ???? deploy ???????????????????
-- ?? `plan.json` / `result.json` ?? `deployment_required=false`??????? `no-op deploy`?`runtime-verify.json ?????`?????? `result.json` ? `ok=true`??? `production-state.json` ?? `last_success_sha` ?????? SHA?
-- ?? `plan.json` / `result.json` ?? `deployment_required=true`?????? `runtime-baseline.json`?`runtime-verify.json`???? `CaptureBaseline -> deploy -> health check -> Verify` ??????
-- Dagster ???????????? `DAGSTER_HOME=/opt/dagster/home` ? `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`???????? `.env` ?? Windows ?? `D:/fqpack/dagster` ????? Linux ???
-- ????? deployment surface ??? `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status` ??? stderr ??????????????? `fqnext-supervisord` service ???? `Running`?
-- ????? traceback ?? vendored ? API ?????? `resolve_stock_account() got an unexpected keyword argument 'settings_provider'`?????? import ??????? `.venv\\Lib\\site-packages\\fqxtrade\\xtquant\\account.py`????????? vendored ?????????? Python ???
-- `fq_webui` ? compose ???????? `fq_apiserver` / `fq_qawebserver`???? deploy ????? Web surface??????? `--no-deps`???????? API / QA ????????????? `api` / `qa` / compose ????????????????? deploy?
-- ?? Docker ????? `fq_apiserver` ??? `fqchan04` ??? `g++ internal compiler error`?`Segmentation fault` ????????????? run_dir artifacts????? SHA ???? 1 ? formal deploy???????????????? Dockerfile ???
-- ??????? deploy?????? `CaptureBaseline -> deploy -> health check -> Verify` ???????? baseline????? runtime verify ??????????
+- 先确认当前代码真值是最新远程 `origin/main`；如果为了修 deploy 问题需要改代码，必须先走 `feature branch -> PR -> merge remote main`，再回到本地 `main` 与 `origin/main` 对齐。
+- 正式 deploy 统一从 `D:\fqpack\freshquant-2026.2.23` 执行，不要直接把开发 worktree 当成正式来源。
+- workflow 与人工正式 deploy 都应优先调用 `script/ci/run_production_deploy.ps1`；不要再把 canonical main sync、`uv sync`、`run_formal_deploy.py` 手工拆开执行。
+- canonical repo root 即使存在无关脏改动或暂时落后于 `origin/main`，正式 deploy 也必须通过 local main sync root 切到最新远程 main 代码；不要再把“先把 canonical root 拉干净”当成正式 deploy 前置。
+- 自动 workflow 当前会直接执行 local main sync root 里的最新 entrypoint；如果人工会话为了复现 workflow 行为，需要优先调用 local main sync root 下的 `script/ci/run_production_deploy.ps1` 或让 canonical 入口先自行 bootstrap。
+- `docker/compose.parallel.yaml` 变更现在按完整 Docker 并行环境运行时变更处理；`freshquant_deploy_plan.py` 必须把它解析成实际 deploy，而不是 `deployment_required=false` 的 no-op。
+- `script/ci/run_production_deploy.ps1` 会先用 runner Python 3.12 做 `uv sync`，再切换到 canonical repo root `.venv\Scripts\python.exe` 运行 `run_formal_deploy.py`；formal deploy 内部 health check 也跟随 mirror `.venv` 解释器。
+- canonical repo root `.venv\Scripts\python.exe` 只有在对应 `.venv\pyvenv.cfg` 仍完整、且解释器可实际启动时才算正式真值；若 metadata 漂移，入口脚本会先自愈再进入 `run_formal_deploy.py`。
+- formal deploy 命中宿主机面时，当前 supervisor 正式解释器、`directory` 与 `PYTHONPATH` 都必须落到 `canonical repo root`；不再允许 `main-runtime` 或主仓 `.venv\Lib\site-packages\fqxtrade` 作为兜底真值。
+- 若 `D:\fqpack\config\supervisord.fqnext.conf` 已更新但 `fqnext-supervisord` 进程仍吃着旧内存配置，`fqnext_host_runtime_ctl.ps1` 会在 surface restart 前先做一次受控 service reload/restart。
+- 如果 formal deploy 命中 `fq_apiserver` / `fq_webui` 后仍出现“像是旧代码”的症状，先检查 canonical repo root 是否残留过往 ignored 构建产物；当前正式入口会在 canonical main sync 阶段主动清掉这类文件。
+- 读取 `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`、`result.json` 与 `D:/fqpack/runtime/formal-deploy/production-state.json` 作为正式 deploy 基础证据；不要只凭终端退出码判断成功。
+- 如果 `plan.json` / `result.json` 显示 `deployment_required=false`，把这轮判定为 `no-op deploy`：`runtime-verify.json 可以不存在`，但仍要确认 `result.json` 为 `ok=true`，并且 `production-state.json` 里的 `last_success_sha` 已更新到目标 SHA。
+- 如果 `plan.json` / `result.json` 显示 `deployment_required=true`，再额外读取 `runtime-baseline.json`、`runtime-verify.json`，并保留 `CaptureBaseline -> deploy -> health check -> Verify` 的完整顺序。
+- Dagster 容器必须在容器内固定使用 `DAGSTER_HOME=/opt/dagster/home` 与 `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`；不要让主工作树 `.env` 里的 Windows 路径 `D:/fqpack/dagster` 直接透传进 Linux 容器。
+- 命中宿主机 deployment surface 时，把 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status` 与对应 stderr 日志一起当作正式证据；不要只看 `fqnext-supervisord` service 是否仍是 `Running`。
+- 如果宿主机 traceback 指向 vendored 包 API 不匹配，例如 `resolve_stock_account() got an unexpected keyword argument 'settings_provider'`，先确认实际 import 源文件是否落在 `.venv\\Lib\\site-packages\\fqxtrade\\xtquant\\account.py`，不要假设仓库里的 vendored 源码一定覆盖了宿主机 Python 环境。
+- `fq_webui` 的 compose 依赖当前仍声明了 `fq_apiserver` / `fq_qawebserver`；但正式 deploy 在“仅命中 Web surface”时会固定追加 `--no-deps`，避免把未改动的 API / QA 容器一起重建。只有显式命中 `api` / `qa` / compose 全量变更时，才会把这些依赖一并纳入 deploy。
+- 如果 Docker 构建阶段在 `fq_apiserver` 里编译 `fqchan04` 时出现 `g++ internal compiler error`、`Segmentation fault` 一类编译器崩溃，先保留失败 run_dir artifacts，再对同一 SHA 原样重跑 1 次 formal deploy；只有稳定复现后才进入代码修复或 Dockerfile 调整。
+- 只要本轮有实际 deploy，就必须保留 `CaptureBaseline -> deploy -> health check -> Verify` 的顺序；不能跳过 baseline，也不能把 runtime verify 替换成手工肉眼检查。
 
-### ?? deploy ??????
+### 正式 deploy 外部运行文件
 
-?? deploy ????????????????????????????
+正式 deploy 当前除了仓库代码，还依赖以下宿主机外部文件作为运行真值：
 
-- `D:/fqpack/config/fqnext.compose.env`?Docker ??????? `env_file`????????? `.env` ?? production compose ???`git clean -ffdx` ??? ignored `.env`?
-- `D:/fqpack/config/envs.conf`???? Supervisor ?????????????? Mongo?Redis?TDX ???????????????? Redis ????? `127.0.0.1:6380`?
-- `D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`???????? `fqnext-supervisord-restart` ????????? `script/run_fqnext_supervisord_restart_task.ps1` ???????????
-- `D:/fqpack/freshquant-2026.2.23/.venv/pyvenv.cfg`?live canonical repo root virtualenv metadata?????????????????? `.venv\Scripts\python.exe` ??????????
+- `D:/fqpack/config/fqnext.compose.env`：Docker 并行环境的正式 `env_file`。不要再依赖仓库根 `.env` 作为 production compose 真值；`git clean -ffdx` 会清理 ignored `.env`。
+- `D:/fqpack/config/envs.conf`：宿主机 Supervisor 运行环境真值。至少要显式提供 Mongo、Redis、TDX 地址，并把代理变量保持为空；当前 Redis 正式端口是 `127.0.0.1:6380`。
+- `D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`：管理员桥接任务 `fqnext-supervisord-restart` 的外部脚本。仓库内 `script/run_fqnext_supervisord_restart_task.ps1` 变更后，要同步到这里。
+- `D:/fqpack/freshquant-2026.2.23/.venv/pyvenv.cfg`：live canonical repo root virtualenv metadata。正式入口允许自愈，但它缺失时不能把 `.venv\Scripts\python.exe` 当成可信解释器真值。
 
-?? deploy ??????????????
+人工 deploy 或排障前先确认这些文件存在：
 
 ```powershell
 Test-Path D:/fqpack/config/fqnext.compose.env
@@ -130,57 +130,57 @@ Test-Path D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1
 Test-Path D:/fqpack/freshquant-2026.2.23/.venv/pyvenv.cfg
 ```
 
-### ????? Python ??
+### 宿主机同步 Python 依赖
 
 ```powershell
 .\install.bat --skip-web
 ```
 
-### ??? Supervisor ????
+### 宿主机 Supervisor 底座安装
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_service.ps1
 powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_restart_task.ps1
 ```
 
-- ??????? service ???`fqnext-supervisord`
-- ?????????`fqnext-supervisord-restart`
+- 正式宿主机底座 service 名称：`fqnext-supervisord`
+- 管理员桥接任务名：`fqnext-supervisord-restart`
 
-## ??????
+## 模块部署矩阵
 
-| ???? | ??????? | ???? |
+| 变更路径 | 需要部署的模块 | 最低动作 |
 | --- | --- | --- |
-| `freshquant/rear/**` | API Server | ?? `fq_apiserver` ????? API ?? |
-| `freshquant/runtime_observability/**` | Runtime Observability API / ClickHouse / indexer | ?? `fq_apiserver`???? `fq_runtime_clickhouse`?`fq_runtime_indexer` ??? |
-| `freshquant/order_management/**` | ?????API?broker/ingest?XT ??????????? | ?? API??? `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
-| `freshquant/position_management/**` | ????????????? `xt_account_sync.worker` ??? | ?? `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -BridgeIfServiceUnavailable` |
-| `freshquant/xt_account_sync/**` | XT ?????? worker????? + ????? | ?? `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
-| `freshquant/xt_auto_repay/**` | XT ???? worker | ?? `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
-| `freshquant/tpsl/**` | TPSL | ?? `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface tpsl -BridgeIfServiceUnavailable` |
-| `freshquant/market_data/**` | XTData producer / consumer | ?? `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data -BridgeIfServiceUnavailable`?????? prewarm |
-| `freshquant/strategy/**` ? `freshquant/signal/**` | Guardian | ?? `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface guardian -BridgeIfServiceUnavailable` |
-| `sunflower/QUANTAXIS/**` | QAWebServer ??? QUANTAXIS ???????? | ?? `fq_qawebserver`??????????? Guardian / strategy ?? |
-| `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 ???? API | ?? API?????? Dagster ?? |
-| `freshquant/data/etf_adj_sync.py` | ETF ??? xdxr/adj Dagster ???? | ?? `fq_apiserver` ????? `fq_dagster_webserver` / `fq_dagster_daemon` |
-| `freshquant/daily_screening/**` | ???? API ? `fqscreening` ??? | ?? API??????????????? Dagster ?????? |
-| `morningglory/fqwebui/**` | Web UI | ?? `fq_webui` |
-| `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | ?? `fq_dagster_webserver` ? `fq_dagster_daemon` |
-| `third_party/tradingagents-cn/**` | TradingAgents-CN | ?? `ta_backend` ? `ta_frontend` |
+| `freshquant/rear/**` | API Server | 重建 `fq_apiserver` 容器或重启 API 进程 |
+| `freshquant/runtime_observability/**` | Runtime Observability API / ClickHouse / indexer | 重建 `fq_apiserver`，并确认 `fq_runtime_clickhouse`、`fq_runtime_indexer` 已恢复 |
+| `freshquant/order_management/**` | 订单管理、API、broker/ingest、XT 自动还款相关宿主机进程 | 重建 API；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
+| `freshquant/position_management/**` | 仓位管理（宿主机实际由统一 `xt_account_sync.worker` 承担） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -BridgeIfServiceUnavailable` |
+| `freshquant/xt_account_sync/**` | XT 主动查询统一 worker（仓位管理 + 订单管理） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
+| `freshquant/xt_auto_repay/**` | XT 自动还款 worker | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
+| `freshquant/tpsl/**` | TPSL | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface tpsl -BridgeIfServiceUnavailable` |
+| `freshquant/market_data/**` | XTData producer / consumer | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data -BridgeIfServiceUnavailable`；必要时重新 prewarm |
+| `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface guardian -BridgeIfServiceUnavailable` |
+| `sunflower/QUANTAXIS/**` | QAWebServer 与依赖 QUANTAXIS 的宿主机策略链路 | 重建 `fq_qawebserver`；同步重启受影响宿主机 Guardian / strategy 进程 |
+| `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 读模型与 API | 重建 API；必要时重跑 Dagster 任务 |
+| `freshquant/data/etf_adj_sync.py` | ETF 前复权 xdxr/adj Dagster 同步链路 | 重建 `fq_apiserver` 镜像并重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
+| `freshquant/daily_screening/**` | 每日选股 API 与 `fqscreening` 读模型 | 重建 API；如改动影响自动任务语义，补跑 Dagster 每日筛选任务 |
+| `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |
+| `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |
+| `third_party/tradingagents-cn/**` | TradingAgents-CN | 重建 `ta_backend` 与 `ta_frontend` |
 
-- `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` ????? surface reconcile???????????? `-BridgeIfServiceUnavailable`??? `fqnext-supervisord` service ?? `Running`?????????????
-- ????????????????? programs ???? settled ? `RUNNING`????????????????? `restart-surfaces`
+- `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` 当前会先做 surface reconcile；若首次重启失败且启用了 `-BridgeIfServiceUnavailable`，即使 `fqnext-supervisord` service 仍是 `Running`，也允许触发一次管理员桥接
+- 管理员桥接恢复后，脚本会先确认目标 programs 是否已经 settled 到 `RUNNING`；只有仍未恢复时，才继续补做第二次 `restart-surfaces`
 
-## Order Ledger V2 ??????
+## Order Ledger V2 重建执行口径
 
-????????? destructive rebuild ????????????
+当本轮命中订单账本 destructive rebuild 时，当前执行顺序固定为：
 
-1. ????????
-2. ?? `--dry-run`
-3. ?? `--execute --backup-db <backup>`
-4. ????????????
-5. ?? runtime verify
+1. 停止命中的写入面
+2. 先跑 `--dry-run`
+3. 再跑 `--execute --backup-db <backup>`
+4. 重建完成后做接口健康检查
+5. 再做 runtime verify
 
-?????????????
+当前命中的写入面至少包括：
 
 - `fqnext_xtquant_broker`
 - `fqnext_xt_account_sync_worker`
@@ -188,13 +188,13 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 - `fqnext_tpsl_worker`
 - API order-write surface
 
-?? rollback ???
+当前 rollback 口径：
 
-- destructive rebuild ???????????????
-- ??????????????????? `om_*` ????????????
-- ????????????????????
+- destructive rebuild 前必须先备份目标订单账本数据库
+- 若重建后验证失败，先停写入面，再清理新 `om_*` 集合，并用备份库整库恢复
+- 不做局部回滚；当前正式口径只接受整库恢复
 
-## ????
+## 健康检查
 
 ### API
 
@@ -218,22 +218,22 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:13000/api/health
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:13080/health
 ```
 
-### Deploy ??????
+### Deploy 后运维面检查
 
-????? deploy ?????? baseline?????????????? verify?
+本轮有实际 deploy 时，必须先采 baseline，再在接口健康检查通过后执行 verify：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File script/check_freshquant_runtime_post_deploy.ps1 -Mode CaptureBaseline -OutputPath <baseline.json>
 powershell -ExecutionPolicy Bypass -File script/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface api,market_data
 ```
 
-- `DeploymentSurface` ??????`api`?`web`?`dagster`?`qa`?`tradingagents`?`market_data`?`guardian`?`position_management`?`tpsl`?`order_management`
-- ?? JSON ?????`baseline`?`docker_checks`?`service_checks`?`process_checks`?`supervisor_config_checks`?`warnings`?`failures`?`passed`
-- ?????????`fq_mongodb`?`fq_redis`
-- ??????????`fqnext-supervisord`
-- ????? deployment surface ??`supervisor_config_checks` ???? config repo root ????? import source ???? `canonical repo root`
+- `DeploymentSurface` 取值固定为：`api`、`web`、`dagster`、`qa`、`tradingagents`、`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`
+- 输出 JSON 至少包含：`baseline`、`docker_checks`、`service_checks`、`process_checks`、`supervisor_config_checks`、`warnings`、`failures`、`passed`
+- 固定检查基础容器：`fq_mongodb`、`fq_redis`
+- 固定记录宿主机服务：`fqnext-supervisord`
+- 命中宿主机 deployment surface 时，`supervisor_config_checks` 还会校验 config repo root 与关键模块 import source 是否仍在 `canonical repo root`
 
-### ???????
+### 运维面辅助命令
 
 ```powershell
 docker compose -f docker/compose.parallel.yaml ps
@@ -241,22 +241,22 @@ Get-Service fqnext-supervisord
 powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status
 ```
 
-## ??????????
+## 部署后必须确认的事实
 
-- API ??????????????
-- Web UI ????????
-- XTData ??????producer/consumer ???????Redis ????????
-- ??? deployment surface ????`fqnext-supervisord` ?? `Running`?? `script/fqnext_host_runtime_ctl.ps1 -Mode Status` ????? program ? `RUNNING`?
-- ??????? deploy?`check_freshquant_runtime_post_deploy.ps1` ? verify ???? `passed=true`?? `failures` ???
+- API 蓝图能返回，不是只监听端口。
+- Web UI 页面不是空白页。
+- XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积。
+- 宿主机 deployment surface 修改后，`fqnext-supervisord` 保持 `Running`，且 `script/fqnext_host_runtime_ctl.ps1 -Mode Status` 能返回目标 program 为 `RUNNING`。
+- 如果本轮有实际 deploy，`check_freshquant_runtime_post_deploy.ps1` 的 verify 结果必须 `passed=true`，且 `failures` 为空。
 
-## ??????
+## 正式收口规则
 
-- ?????????????? `main`?
-- ?????? `main` ???? SHA ?????? deploy?
-- ?????? deploy ????? runtime ops check?
-- ????? deploy ????? `CaptureBaseline`??? health check ??? `Verify`?
-- ????? deployment surface ?????? `script/fqnext_host_runtime_ctl.ps1` ?? `fqnext-supervisord`?
-- ?? health check ? runtime ops check ??????? cleanup?
+- 本地会话完成之后要同步到远程 `main`。
+- 只有最新远程 `main` 的已合并 SHA 可以进入正式 deploy。
+- 本轮没有实际 deploy 时，不执行 runtime ops check。
+- 本轮有实际 deploy 时，必须先 `CaptureBaseline`，再在 health check 后执行 `Verify`。
+- 命中宿主机 deployment surface 时，统一通过 `script/fqnext_host_runtime_ctl.ps1` 控制 `fqnext-supervisord`。
+- 只有 health check 与 runtime ops check 都通过，才允许 cleanup。
 
 ## Canonical Main Truth
 
