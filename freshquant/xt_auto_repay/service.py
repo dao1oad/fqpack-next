@@ -73,10 +73,29 @@ class XtAutoRepayService:
         return submit_mode.strip().lower() == "observe_only"
 
     def load_latest_snapshot(self):
-        return self.repository.get_latest_credit_snapshot(account_id=self.account_id)
+        account_id = self.account_id
+        if not account_id:
+            return None
+        return self.repository.get_latest_credit_snapshot(account_id=account_id)
 
     def get_state(self):
-        return self.repository.get_state(account_id=self.account_id)
+        account_id = self.account_id
+        if not account_id:
+            return None
+        return self.repository.get_state(account_id=account_id)
+
+    def refresh_settings(self, *, strict=False):
+        reload_fn = getattr(self.settings_provider, "reload", None)
+        if not callable(reload_fn):
+            return True
+        try:
+            reload_fn(strict=strict)
+        except TypeError:
+            reload_fn()
+        except Exception:
+            return False
+        loaded_once = getattr(self.settings_provider, "loaded_once", True)
+        return bool(loaded_once)
 
     def evaluate_snapshot(self, snapshot, *, now=None, mode=INTRADAY_MODE):
         resolved_mode = _normalize_mode(mode)
@@ -158,13 +177,18 @@ class XtAutoRepayService:
             "observe_only": self.observe_only,
             "created_at": _coerce_iso_datetime(created_at or self.now_provider()),
         }
+        if not payload["account_id"]:
+            return payload
         return self.repository.insert_event(payload)
 
     def update_state(self, **fields):
-        payload = dict(self.repository.get_state(account_id=self.account_id) or {})
+        account_id = self.account_id
+        payload = {}
+        if account_id:
+            payload = dict(self.repository.get_state(account_id=account_id) or {})
         payload.update(
             {
-                "account_id": self.account_id,
+                "account_id": account_id,
                 "enabled": self.enabled,
                 "observe_only": self.observe_only,
                 "updated_at": _coerce_iso_datetime(self.now_provider()),
@@ -172,6 +196,8 @@ class XtAutoRepayService:
         )
         for key, value in dict(fields or {}).items():
             payload[key] = _normalize_state_field(key, value)
+        if not account_id:
+            return payload
         return self.repository.upsert_state(payload)
 
     def _base_decision(

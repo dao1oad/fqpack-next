@@ -231,6 +231,8 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 - 只有候选命中后，才会即时调用 `query_credit_detail()` 二次确认
 - 固定 `14:55` 做日终硬结算，固定 `15:05` 做一次补偿重试
 - `broker_submit_mode=observe_only` 时只记录事件，不真实提交还款
+- `system_settings` 读取失败时当前会先重试；若进程内已经存在上一版有效配置，则保留上一版，不再回退成空 `xtquant.path/account`
+- `xt_auto_repay.worker` 启动后下一次盘中巡检当前按 `last_checked_at + 30 分钟` 对齐；若已错过应跑时间，会在 1 秒级快速补跑，而不是从重启时刻重新整等 30 分钟
 
 ### 手工导入
 

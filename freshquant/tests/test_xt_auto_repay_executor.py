@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from types import SimpleNamespace
+
 from freshquant.carnation import xtconstant
 
 
@@ -46,6 +48,57 @@ class FakeTrader:
         )
         return 7788
 
+    def query_credit_detail(self, account):
+        return [
+            type(
+                "FakeCreditDetail",
+                (),
+                {
+                    "m_dAvailable": 12000.0,
+                    "m_dFinDebt": 9000.0,
+                },
+            )()
+        ]
+
+
+class ReloadableSettingsProvider:
+    def __init__(self):
+        self.loaded_once = False
+        self.reload_calls = []
+        self.xtquant = SimpleNamespace(
+            path="",
+            account="",
+            account_type="STOCK",
+            broker_submit_mode="normal",
+            auto_repay_enabled=True,
+            auto_repay_reserve_cash=5000,
+        )
+
+    def reload(self, *, strict=False):
+        self.reload_calls.append(strict)
+        self.loaded_once = True
+        self.xtquant = SimpleNamespace(
+            path="D:/mock/xtquant",
+            account="068000076370",
+            account_type="CREDIT",
+            broker_submit_mode="normal",
+            auto_repay_enabled=True,
+            auto_repay_reserve_cash=5000,
+        )
+        return self
+
+
+class FailingSettingsProvider:
+    def __init__(self):
+        self.xtquant = SimpleNamespace(
+            path="",
+            account="",
+            account_type="STOCK",
+        )
+
+    def reload(self, *, strict=False):
+        raise RuntimeError("settings unavailable")
+
 
 def test_executor_submits_credit_direct_cash_repay():
     from freshquant.position_management.credit_client import PositionCreditClient
@@ -76,3 +129,50 @@ def test_executor_submits_credit_direct_cash_repay():
     assert trader.order_calls[0]["order_volume"] == 6000
     assert trader.order_calls[0]["price_type"] == xtconstant.FIX_PRICE
     assert trader.order_calls[0]["price"] == 0.0
+
+
+def test_credit_client_refreshes_settings_before_connecting():
+    from freshquant.position_management.credit_client import PositionCreditClient
+
+    trader = FakeTrader()
+    settings_provider = ReloadableSettingsProvider()
+    client = PositionCreditClient(
+        trader_factory=lambda path, session_id: trader,
+        account_factory=lambda account_id, account_type: type(
+            "FakeAccount",
+            (),
+            {"account_id": account_id, "account_type": account_type},
+        )(),
+        system_settings_provider=settings_provider,
+    )
+
+    detail = client.query_credit_detail()
+
+    assert settings_provider.reload_calls == [False, True]
+    assert trader.connect_calls == 1
+    assert client.path == "D:/mock/xtquant"
+    assert client.account_id == "068000076370"
+    assert len(detail) == 1
+
+
+def test_credit_client_does_not_reload_global_settings_when_all_overrides_are_explicit():
+    from freshquant.position_management.credit_client import PositionCreditClient
+
+    trader = FakeTrader()
+    client = PositionCreditClient(
+        path="D:/mock/xtquant",
+        account_id="068000076370",
+        account_type="CREDIT",
+        trader_factory=lambda path, session_id: trader,
+        account_factory=lambda account_id, account_type: type(
+            "FakeAccount",
+            (),
+            {"account_id": account_id, "account_type": account_type},
+        )(),
+        system_settings_provider=FailingSettingsProvider(),
+    )
+
+    detail = client.query_credit_detail()
+
+    assert trader.connect_calls == 1
+    assert len(detail) == 1

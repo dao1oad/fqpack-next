@@ -41,6 +41,23 @@ class FakeRepository:
         return dict(document)
 
 
+class ReloadableSettingsProvider:
+    def __init__(self, *, account="068000076370", account_type="CREDIT"):
+        self.loaded_once = True
+        self.reload_calls = []
+        self.xtquant = SimpleNamespace(
+            account=account,
+            account_type=account_type,
+            broker_submit_mode="normal",
+            auto_repay_enabled=True,
+            auto_repay_reserve_cash=5000,
+        )
+
+    def reload(self, *, strict=False):
+        self.reload_calls.append(strict)
+        return self
+
+
 def _settings_provider(
     *,
     enabled=True,
@@ -181,3 +198,45 @@ def test_service_loads_latest_snapshot_for_configured_account():
 
     assert snapshot["account_id"] == "068000076370"
     assert snapshot["available_amount"] == 12000
+
+
+def test_service_skips_snapshot_state_and_persistence_when_account_missing():
+    from freshquant.xt_auto_repay.service import XtAutoRepayService
+
+    repository = FakeRepository()
+    repository.latest_snapshot = {
+        "account_id": "068000076370",
+        "available_amount": 12000,
+        "raw": {"m_dFinDebt": 9000},
+    }
+    service = XtAutoRepayService(
+        repository=repository,
+        settings_provider=_settings_provider(account=""),
+    )
+
+    assert service.load_latest_snapshot() is None
+    assert service.get_state() is None
+    event = service.record_event(
+        event_type="skip",
+        mode="intraday",
+        reason="missing_account_id",
+    )
+    state = service.update_state(last_status="skip", last_reason="missing_account_id")
+
+    assert event["account_id"] == ""
+    assert repository.events == []
+    assert state["account_id"] == ""
+    assert repository.state_doc is None
+
+
+def test_service_refresh_settings_uses_reloadable_provider():
+    from freshquant.xt_auto_repay.service import XtAutoRepayService
+
+    provider = ReloadableSettingsProvider()
+    service = XtAutoRepayService(
+        repository=FakeRepository(),
+        settings_provider=provider,
+    )
+
+    assert service.refresh_settings(strict=False) is True
+    assert provider.reload_calls == [False]

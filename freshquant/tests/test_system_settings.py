@@ -68,8 +68,26 @@ class FakeDatabase:
 
 
 class BrokenDatabase:
+    def __init__(self):
+        self.calls = 0
+
     def __getitem__(self, name):
+        self.calls += 1
         raise RuntimeError(f"database unavailable: {name}")
+
+
+class FlakyDatabase:
+    def __init__(self, backend, failures_before_success=1):
+        self.backend = backend
+        self.failures_before_success = failures_before_success
+        self.calls = 0
+
+    def __getitem__(self, name):
+        self.calls += 1
+        if self.failures_before_success > 0:
+            self.failures_before_success -= 1
+            raise RuntimeError(f"database unavailable: {name}")
+        return self.backend[name]
 
 
 def test_system_settings_reads_runtime_values_and_pm_thresholds():
@@ -239,10 +257,16 @@ def test_system_settings_ensure_defaults_and_strategy_lookup():
     assert database["pm_configs"].find_one({"code": "default"}) is not None
 
 
-def test_system_settings_falls_back_to_defaults_when_database_unavailable():
+def test_system_settings_marks_initial_load_unready_when_database_unavailable():
     from freshquant.system_settings import SystemSettings
 
-    settings = SystemSettings(database=BrokenDatabase())
+    database = BrokenDatabase()
+    settings = SystemSettings(
+        database=database,
+        reload_retry_attempts=2,
+        reload_retry_delay_seconds=0,
+        sleep_fn=lambda _: None,
+    )
 
     assert settings.notification.dingtalk_private_webhook == ""
     assert settings.monitor.xtdata_mode == "guardian_1m"
@@ -256,3 +280,78 @@ def test_system_settings_falls_back_to_defaults_when_database_unavailable():
     }
     assert settings.position_management.allow_open_min_bail == 800000.0
     assert settings.get_strategy_id("Guardian") == ""
+    assert settings.loaded_once is False
+    assert isinstance(settings.last_reload_error, RuntimeError)
+    assert database.calls >= 2
+
+
+def test_system_settings_reload_retries_until_database_recovers():
+    from freshquant.system_settings import SystemSettings
+
+    backend = FakeDatabase(
+        {
+            "params": [
+                {
+                    "code": "xtquant",
+                    "value": {
+                        "path": "D:/miniqmt/userdata_mini",
+                        "account": "068000076370",
+                        "account_type": "CREDIT",
+                    },
+                },
+            ],
+            "pm_configs": [],
+            "instrument_strategy": [],
+        }
+    )
+    database = FlakyDatabase(backend, failures_before_success=1)
+
+    settings = SystemSettings(
+        database=database,
+        reload_retry_attempts=2,
+        reload_retry_delay_seconds=0,
+        sleep_fn=lambda _: None,
+    )
+
+    assert settings.loaded_once is True
+    assert settings.last_reload_error is None
+    assert settings.xtquant.account == "068000076370"
+    assert database.calls >= 2
+
+
+def test_system_settings_reload_keeps_last_good_values_after_retry_exhausted():
+    from freshquant.system_settings import SystemSettings
+
+    settings = SystemSettings(
+        database=FakeDatabase(
+            {
+                "params": [
+                    {
+                        "code": "xtquant",
+                        "value": {
+                            "path": "D:/miniqmt/userdata_mini",
+                            "account": "068000076370",
+                            "account_type": "CREDIT",
+                        },
+                    },
+                ],
+                "pm_configs": [],
+                "instrument_strategy": [],
+            }
+        ),
+        reload_retry_attempts=1,
+        reload_retry_delay_seconds=0,
+        sleep_fn=lambda _: None,
+    )
+
+    settings.database = BrokenDatabase()
+    settings.reload(
+        strict=False,
+        retry_attempts=2,
+        retry_delay_seconds=0,
+    )
+
+    assert settings.loaded_once is True
+    assert isinstance(settings.last_reload_error, RuntimeError)
+    assert settings.xtquant.account == "068000076370"
+    assert settings.xtquant.account_type == "CREDIT"

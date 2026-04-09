@@ -142,6 +142,31 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - 当前 `main` 已在 broker 主循环的成功连接路径补发 `heartbeat connected=1`；如果运行面仍停在旧 warning，优先重新部署并重启 `order_management` host surface
 - 如果 stderr 只有 `connect()/subscribe()` 普通日志，没有新的 `broker_gateway` jsonl 心跳，说明宿主机还没跑到这版 broker 代码，不要只盯页面缓存
 
+## XT 自动还款 worker 长时间不触发
+
+现象：
+
+- `pm_credit_asset_snapshots` 里已经有足够的 `available_amount`
+- `xt_auto_repay_events` 没有新的 `submitted / observe_only`
+- `fqnext_xt_auto_repay_worker_err.log` 出现 `xt auto repay state requires account_id`、`non_credit_account` 或 `xtquant connect failed: -1`
+
+先检查：
+
+- `Get-Content D:/fqdata/log/fqnext_xt_auto_repay_worker_err.log -Tail 200`
+- `@'
+from pprint import pprint
+from freshquant.xt_auto_repay.service import XtAutoRepayService
+svc = XtAutoRepayService()
+pprint(svc.get_state())
+pprint(svc.load_latest_snapshot())
+'@ | py -3.12 -m uv run -`
+
+处理：
+
+- 若是宿主机启动早于 Mongo 恢复，当前 `system_settings` 会先重试；重试后仍失败时不会再把已有有效配置降级成空 `xtquant.path/account`
+- 若 worker 在盘中巡检窗口之间重启，当前下一次巡检时间按 `last_checked_at` 对齐；若已逾期，会 1 秒级补跑，不需要再等满新的 30 分钟
+- 若 stderr 仍持续出现 `xtquant connect failed: -1`，优先排查 QMT 连接稳定性，不要先怀疑自动还款金额判定
+
 ## Memory context 缺失或过期
 
 现象：
