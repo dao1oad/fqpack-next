@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -16,81 +15,35 @@ def test_deploy_workflow_uses_single_production_entrypoint() -> None:
     assert "py -3.12 script/ci/run_formal_deploy.py" not in text
 
 
-def test_deploy_workflow_resolves_entrypoint_from_bootstrap_root() -> None:
+def test_deploy_workflow_runs_from_canonical_repo_root_directly() -> None:
     text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
 
     assert (
-        "$entrypoint = Join-Path $env:FQ_DEPLOY_BOOTSTRAP_ROOT "
+        "$entrypoint = Join-Path $env:FQ_DEPLOY_CANONICAL_REPO_ROOT "
         "'script/ci/run_production_deploy.ps1'"
     ) in text
     assert "-File $entrypoint" in text
-    assert "-File script/ci/run_production_deploy.ps1" not in text
-    assert '-BootstrapRoot $env:FQ_DEPLOY_BOOTSTRAP_ROOT' in text
+    assert r"FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23" in text
+    assert 'FQ_DOCKER_FORCE_LOCAL_BUILD: "1"' in text
+    assert "FQ_DEPLOY_BOOTSTRAP_ROOT" not in text
+    assert "FQ_DEPLOY_MIRROR_ROOT" not in text
+    assert "FQ_DEPLOY_MIRROR_BRANCH" not in text
 
 
-def test_deploy_workflow_uses_dedicated_bootstrap_root_instead_of_pulling_canonical_root() -> (
-    None
-):
-    text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
-
-    assert (
-        r'FQ_DEPLOY_BOOTSTRAP_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap'
-        in text
-    )
-    assert "git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT fetch origin main" in text
-    assert (
-        '$remoteMainSha = (git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT rev-parse '
-        'origin/main).Trim()'
-    ) in text
-    assert 'if ($remoteMainSha -ne "${{ github.sha }}") {' in text
-    assert (
-        "git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT pull --ff-only origin main"
-        not in text
-    )
-    assert (
-        'git -C $env:FQ_DEPLOY_BOOTSTRAP_ROOT reset --hard "${{ github.sha }}"' in text
-    )
-    assert 'git -C $env:FQ_DEPLOY_BOOTSTRAP_ROOT clean -ffd' in text
-    assert (
-        'git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT worktree add --detach '
-        '$env:FQ_DEPLOY_BOOTSTRAP_ROOT "${{ github.sha }}"'
-    ) in text
-    assert "canonical repo root must be on main before deploy" not in text
-
-
-def test_run_production_deploy_bootstraps_latest_entrypoint_worktree_before_reexec() -> (
-    None
-):
+def test_run_production_deploy_syncs_local_main_before_formal_deploy() -> None:
     text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
 
-    assert '[string]$BootstrapRoot' in text
-    assert '[switch]$SkipBootstrapReexec' in text
-    assert "production-deploy-bootstrap" in text
-    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("worktree", "add"' in text
-    assert (
-        'Invoke-Git -RepoRoot $BootstrapRoot -Arguments @("reset", "--hard", $TargetSha)'
-        in text
-    )
-    assert 'Invoke-Git -RepoRoot $BootstrapRoot -Arguments @("clean", "-ffd")' in text
-    assert "'script/ci/run_production_deploy.ps1'" in text
-    assert '"-SkipBootstrapReexec"' in text
-
-
-def test_run_production_deploy_resolves_sync_helper_from_current_entrypoint_repo() -> (
-    None
-):
-    text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
-
-    assert (
-        "$syncLocalDeployMirrorScript = Join-Path $CurrentScriptRepoRoot "
-        "'script/ci/sync_local_deploy_mirror.py'"
-    ) in text
-    assert (
-        'Invoke-Python -PythonExe $pythonExe -WorkingDirectory $MirrorRoot -Arguments @('
-        in text
-    )
-    assert '$syncLocalDeployMirrorScript,' in text
-    assert '"script/ci/sync_local_deploy_mirror.py",' not in text
+    assert '[string]$CanonicalRoot' in text
+    assert '[string]$TargetSha' in text
+    assert "Invoke-Git -RepoRoot $CanonicalRoot -Arguments @(\"fetch\", \"origin\", \"main\")" in text
+    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("checkout", "-f", "main")' in text
+    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("reset", "--hard", $TargetSha)' in text
+    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("clean", "-ffd")' in text
+    assert '$currentBranch = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("branch", "--show-current")' in text
+    assert "stale push deploy trigger" in text
+    assert "BootstrapRoot" not in text
+    assert "MirrorRoot" not in text
+    assert "SkipBootstrapReexec" not in text
 
 
 def test_run_production_deploy_quiesces_host_runtime_before_retrying_uv_sync() -> None:
@@ -102,13 +55,23 @@ def test_run_production_deploy_quiesces_host_runtime_before_retrying_uv_sync() -
     assert "$hostRuntimeSurfaces = @(" in text
 
 
-def test_run_production_deploy_repairs_missing_deploy_mirror_venv_metadata() -> None:
+def test_run_production_deploy_repairs_missing_repo_venv_metadata() -> None:
     text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
 
-    assert "Repair-DeployMirrorVirtualenv" in text
+    assert "Repair-RepoVirtualenv" in text
     assert "pyvenv.cfg" in text
     assert '"-m", "uv", "venv"' in text
     assert '"--clear"' in text
+    assert "canonical repo virtualenv" in text
+
+
+def test_run_production_deploy_uses_canonical_repo_root_venv() -> None:
+    text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
+
+    assert '.venv\\Scripts\\python.exe' in text
+    assert "Test-RepoVirtualenvHealthy" in text
+    assert "Invoke-UvSyncWithHostRuntimeQuiesce" in text
+    assert '--repo-root", "."' in text
 
 
 def test_run_production_deploy_catches_py_launcher_failures_before_fallback() -> None:

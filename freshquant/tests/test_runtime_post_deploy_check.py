@@ -65,10 +65,10 @@ def _write_valid_supervisor_config_snapshot(path: Path) -> Path:
         {
             "ok": True,
             "configured_repo_root": (
-                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+                r"D:\fqpack\freshquant-2026.2.23"
             ),
             "expected_repo_root": (
-                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+                r"D:\fqpack\freshquant-2026.2.23"
             ),
             "failures": [],
             "warnings": [],
@@ -911,7 +911,7 @@ def test_verify_fails_when_supervisor_config_still_points_to_main_runtime(
                 r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-runtime"
             ),
             "expected_repo_root": (
-                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+                r"D:\fqpack\freshquant-2026.2.23"
             ),
             "failures": [
                 "supervisor config repo_root drifted to main-runtime",
@@ -1028,10 +1028,10 @@ def test_verify_passes_when_supervisor_config_matches_deploy_mirror(
         {
             "ok": True,
             "configured_repo_root": (
-                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+                r"D:\fqpack\freshquant-2026.2.23"
             ),
             "expected_repo_root": (
-                r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+                r"D:\fqpack\freshquant-2026.2.23"
             ),
             "failures": [],
             "warnings": [],

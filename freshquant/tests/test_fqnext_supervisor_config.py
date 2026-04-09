@@ -9,7 +9,7 @@ from types import SimpleNamespace
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "script" / "fqnext_supervisor_config.py"
 EXPECTED_REPO_ROOT = Path(
-    r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
+    r"D:\fqpack\freshquant-2026.2.23"
 )
 
 
@@ -25,7 +25,7 @@ def load_module():
     return module
 
 
-def test_build_supervisor_config_targets_main_deploy_production() -> None:
+def test_build_supervisor_config_targets_canonical_repo_root() -> None:
     module = load_module()
 
     config_text = module.build_supervisor_config(EXPECTED_REPO_ROOT)
@@ -110,7 +110,7 @@ def test_inspect_supervisor_config_rejects_main_runtime_and_site_packages(
     assert any("site-packages" in failure for failure in result["failures"])
 
 
-def test_inspect_supervisor_config_accepts_deploy_mirror_sources(
+def test_inspect_supervisor_config_accepts_canonical_repo_root_sources(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -192,8 +192,8 @@ def test_collect_import_sources_builds_valid_python_snippet(
         return SimpleNamespace(
             returncode=0,
             stdout=(
-                '{"freshquant":{"path":"D:/fqpack/freshquant-2026.2.23/.worktrees/'
-                'main-deploy-production/freshquant/__init__.py","error":null}}'
+                '{"freshquant":{"path":"D:/fqpack/freshquant-2026.2.23/'
+                'freshquant/__init__.py","error":null}}'
             ),
             stderr="",
         )

@@ -26,26 +26,26 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `main` 合并后的镜像发布 workflow：`.github/workflows/docker-images.yml`
 - `main` 合并后的正式自动部署 workflow：`.github/workflows/deploy-production.yml`
 - 正式 deploy canonical repo root：`D:\fqpack\freshquant-2026.2.23`
-- 正式 deploy bootstrap worktree：`D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap`
-- 本机 deploy mirror：`D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production`
+- 正式 deploy local main sync root：`D:\fqpack\freshquant-2026.2.23`
+- 本机 canonical repo root：`D:\fqpack\freshquant-2026.2.23`
 - 正式 deploy 单入口脚本：`script/ci/run_production_deploy.ps1`
 - 正式收口时由 `FQ_DOCKER_FORCE_LOCAL_BUILD=1` 强制本机构建；GHCR 不再是正式 deploy 前置
 
 ### 自动正式部署
 
 - `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
-- `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 mirror sync、`uv sync` 和 `run_formal_deploy.py`。
+- `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 canonical main sync、`uv sync` 和 `run_formal_deploy.py`。
 - `deploy-production.yml` 当前只要求 canonical repo root 能 fetch 到最新 `origin/main`；它不再要求 canonical repo root 本身先 `pull --ff-only` 到远程 main。
-- `deploy-production.yml` 会先创建或 reset `D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap` 这个 bootstrap worktree 到目标 SHA，再直接执行那里的最新 `script/ci/run_production_deploy.ps1`。
-- `script/ci/run_production_deploy.ps1` 保留 bootstrap/re-exec 逻辑，作为人工正式 deploy 或 bootstrap worktree 直接入口时的兜底；workflow 正式路径已经不再依赖 canonical repo root 上的脚本版本。
-- `script/ci/run_production_deploy.ps1` 在 mirror sync 这一步会从当前 entrypoint repo 解析 `script/ci/sync_local_deploy_mirror.py` 的绝对路径，而不是回退到 `main-deploy-production` 里可能落后的旧 helper；这样 bootstrap worktree 的最新清理策略才能真正生效。
-- 若 `uv sync --frozen` 在 live deploy mirror 的 `.venv\` 中遇到宿主机运行面占用的二进制扩展锁，`script/ci/run_production_deploy.ps1` 会先受控 quiesce 宿主机 surfaces（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`），再重试一次 `uv sync`，最后统一拉起这些 surfaces，避免原地覆盖 `.pyd` / `.dll` 时直接失败。
-- 若 live deploy mirror 的 `.venv\pyvenv.cfg` 缺失，或 `.venv\Scripts\python.exe` 已存在但不能正常启动，`script/ci/run_production_deploy.ps1` 会在 quiesce 宿主机 surfaces 后执行 `python -m uv venv .venv --python <runner-python> --clear` 重建 deploy mirror virtualenv metadata，再补一次 `uv sync --frozen`；正式 deploy 不再假设保留下来的 `.venv\` 一定完整可用。
-- `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先显式枚举并清掉 mirror 内的 ignored 产物，但保留 live deploy mirror 的 `.venv\`；这样既能继续清理历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件，也不会误删当前宿主机 runtime 正在使用的解释器环境。
+- `deploy-production.yml` 会先创建或 reset `D:\fqpack\freshquant-2026.2.23` 这个 local main sync root 到目标 SHA，再直接执行那里的最新 `script/ci/run_production_deploy.ps1`。
+- `script/ci/run_production_deploy.ps1` 保留 bootstrap/re-exec 逻辑，作为人工正式 deploy 或 local main sync root 直接入口时的兜底；workflow 正式路径已经不再依赖 canonical repo root 上的脚本版本。
+- `script/ci/run_production_deploy.ps1` 在 canonical main sync 这一步会从当前 entrypoint repo 解析 `script/ci/sync_local_deploy_mirror.py` 的绝对路径，而不是回退到 `canonical repo root` 里可能落后的旧 helper；这样 local main sync root 的最新清理策略才能真正生效。
+- 若 `uv sync --frozen` 在 live canonical repo root 的 `.venv\` 中遇到宿主机运行面占用的二进制扩展锁，`script/ci/run_production_deploy.ps1` 会先受控 quiesce 宿主机 surfaces（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`），再重试一次 `uv sync`，最后统一拉起这些 surfaces，避免原地覆盖 `.pyd` / `.dll` 时直接失败。
+- 若 live canonical repo root 的 `.venv\pyvenv.cfg` 缺失，或 `.venv\Scripts\python.exe` 已存在但不能正常启动，`script/ci/run_production_deploy.ps1` 会在 quiesce 宿主机 surfaces 后执行 `python -m uv venv .venv --python <runner-python> --clear` 重建 canonical repo root virtualenv metadata，再补一次 `uv sync --frozen`；正式 deploy 不再假设保留下来的 `.venv\` 一定完整可用。
+- `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先显式枚举并清掉 mirror 内的 ignored 产物，但保留 live canonical repo root 的 `.venv\`；这样既能继续清理历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件，也不会误删当前宿主机 runtime 正在使用的解释器环境。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
-- `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 deploy mirror repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
+- `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 canonical repo root repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
 - `script/fqnext_host_runtime_ctl.ps1` 或 `script/fqnext_supervisor_config.py` 自身发生变更时，`script/freshquant_deploy_plan.py` 现在会强制命中全部宿主机 deployment surface（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`）；这类 host-runtime infra 变更不允许再被判成 no-op deploy。
-- `script/ci/run_production_deploy.ps1` 会显式把 canonical repo root、bootstrap worktree 与本机 deploy mirror 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
+- `script/ci/run_production_deploy.ps1` 会显式把 canonical repo root、local main sync root 与本机 canonical repo root 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
 - 正式 deploy 要求 production runner 至少存在一个可用的 Python 3.12；若 `py -3.12` 因旧注册失效，入口脚本会回退到已注册的 per-user / system Python 3.12，并回补 `HKCU\Software\Python\PythonCore\3.12\InstallPath`。
 - 若 runner Python 3.12 缺少 `uv` 模块，入口脚本会先执行 `python -m pip install uv --break-system-packages` 再继续部署。
 - 本轮正式 deploy 会显式导出 `FQ_DOCKER_FORCE_LOCAL_BUILD=1`，避免 `docker_parallel_compose.py` 把 `--build` 改写成 GHCR pull 路径。
@@ -83,7 +83,7 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 ### 正式 deploy
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -CanonicalRoot D:\fqpack\freshquant-2026.2.23 -MirrorRoot D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production -MirrorBranch deploy-production-main
+powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -CanonicalRoot D:\fqpack\freshquant-2026.2.23 -MirrorRoot D:\fqpack\freshquant-2026.2.23 -MirrorBranch deploy-production-main
 ```
 
 - 正式 deploy 入口会先解析最新远程 `origin/main` SHA，再按 `last_success_sha -> latest origin/main sha` 计算部署范围。
@@ -92,16 +92,16 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 ### 正式部署最佳实践
 
 - 先确认当前代码真值是最新远程 `origin/main`；如果为了修 deploy 问题需要改代码，必须先走 `feature branch -> PR -> merge remote main`，再回到本地 `main` 与 `origin/main` 对齐。
-- 正式 deploy 统一从 `D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production` 执行，不要直接把开发 worktree 当成正式来源。
-- workflow 与人工正式 deploy 都应优先调用 `script/ci/run_production_deploy.ps1`；不要再把 mirror sync、`uv sync`、`run_formal_deploy.py` 手工拆开执行。
-- canonical repo root 即使存在无关脏改动或暂时落后于 `origin/main`，正式 deploy 也必须通过 bootstrap worktree 切到最新远程 main 代码；不要再把“先把 canonical root 拉干净”当成正式 deploy 前置。
-- 自动 workflow 当前会直接执行 bootstrap worktree 里的最新 entrypoint；如果人工会话为了复现 workflow 行为，需要优先调用 bootstrap worktree 下的 `script/ci/run_production_deploy.ps1` 或让 canonical 入口先自行 bootstrap。
+- 正式 deploy 统一从 `D:\fqpack\freshquant-2026.2.23` 执行，不要直接把开发 worktree 当成正式来源。
+- workflow 与人工正式 deploy 都应优先调用 `script/ci/run_production_deploy.ps1`；不要再把 canonical main sync、`uv sync`、`run_formal_deploy.py` 手工拆开执行。
+- canonical repo root 即使存在无关脏改动或暂时落后于 `origin/main`，正式 deploy 也必须通过 local main sync root 切到最新远程 main 代码；不要再把“先把 canonical root 拉干净”当成正式 deploy 前置。
+- 自动 workflow 当前会直接执行 local main sync root 里的最新 entrypoint；如果人工会话为了复现 workflow 行为，需要优先调用 local main sync root 下的 `script/ci/run_production_deploy.ps1` 或让 canonical 入口先自行 bootstrap。
 - `docker/compose.parallel.yaml` 变更现在按完整 Docker 并行环境运行时变更处理；`freshquant_deploy_plan.py` 必须把它解析成实际 deploy，而不是 `deployment_required=false` 的 no-op。
-- `script/ci/run_production_deploy.ps1` 会先用 runner Python 3.12 做 `uv sync`，再切换到 deploy mirror `.venv\Scripts\python.exe` 运行 `run_formal_deploy.py`；formal deploy 内部 health check 也跟随 mirror `.venv` 解释器。
-- deploy mirror `.venv\Scripts\python.exe` 只有在对应 `.venv\pyvenv.cfg` 仍完整、且解释器可实际启动时才算正式真值；若 metadata 漂移，入口脚本会先自愈再进入 `run_formal_deploy.py`。
-- formal deploy 命中宿主机面时，当前 supervisor 正式解释器、`directory` 与 `PYTHONPATH` 都必须落到 `main-deploy-production`；不再允许 `main-runtime` 或主仓 `.venv\Lib\site-packages\fqxtrade` 作为兜底真值。
+- `script/ci/run_production_deploy.ps1` 会先用 runner Python 3.12 做 `uv sync`，再切换到 canonical repo root `.venv\Scripts\python.exe` 运行 `run_formal_deploy.py`；formal deploy 内部 health check 也跟随 mirror `.venv` 解释器。
+- canonical repo root `.venv\Scripts\python.exe` 只有在对应 `.venv\pyvenv.cfg` 仍完整、且解释器可实际启动时才算正式真值；若 metadata 漂移，入口脚本会先自愈再进入 `run_formal_deploy.py`。
+- formal deploy 命中宿主机面时，当前 supervisor 正式解释器、`directory` 与 `PYTHONPATH` 都必须落到 `canonical repo root`；不再允许 `main-runtime` 或主仓 `.venv\Lib\site-packages\fqxtrade` 作为兜底真值。
 - 若 `D:\fqpack\config\supervisord.fqnext.conf` 已更新但 `fqnext-supervisord` 进程仍吃着旧内存配置，`fqnext_host_runtime_ctl.ps1` 会在 surface restart 前先做一次受控 service reload/restart。
-- 如果 formal deploy 命中 `fq_apiserver` / `fq_webui` 后仍出现“像是旧代码”的症状，先检查 deploy mirror 是否残留过往 ignored 构建产物；当前正式入口会在 mirror sync 阶段主动清掉这类文件。
+- 如果 formal deploy 命中 `fq_apiserver` / `fq_webui` 后仍出现“像是旧代码”的症状，先检查 canonical repo root 是否残留过往 ignored 构建产物；当前正式入口会在 canonical main sync 阶段主动清掉这类文件。
 - 读取 `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`、`result.json` 与 `D:/fqpack/runtime/formal-deploy/production-state.json` 作为正式 deploy 基础证据；不要只凭终端退出码判断成功。
 - 如果 `plan.json` / `result.json` 显示 `deployment_required=false`，把这轮判定为 `no-op deploy`：`runtime-verify.json 可以不存在`，但仍要确认 `result.json` 为 `ok=true`，并且 `production-state.json` 里的 `last_success_sha` 已更新到目标 SHA。
 - 如果 `plan.json` / `result.json` 显示 `deployment_required=true`，再额外读取 `runtime-baseline.json`、`runtime-verify.json`，并保留 `CaptureBaseline -> deploy -> health check -> Verify` 的完整顺序。
@@ -213,7 +213,7 @@ powershell -ExecutionPolicy Bypass -File script/check_freshquant_runtime_post_de
 - 输出 JSON 至少包含：`baseline`、`docker_checks`、`service_checks`、`process_checks`、`supervisor_config_checks`、`warnings`、`failures`、`passed`
 - 固定检查基础容器：`fq_mongodb`、`fq_redis`
 - 固定记录宿主机服务：`fqnext-supervisord`
-- 命中宿主机 deployment surface 时，`supervisor_config_checks` 还会校验 config repo root 与关键模块 import source 是否仍在 `main-deploy-production`
+- 命中宿主机 deployment surface 时，`supervisor_config_checks` 还会校验 config repo root 与关键模块 import source 是否仍在 `canonical repo root`
 
 ### 运维面辅助命令
 
@@ -239,3 +239,11 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 - 本轮有实际 deploy 时，必须先 `CaptureBaseline`，再在 health check 后执行 `Verify`。
 - 命中宿主机 deployment surface 时，统一通过 `script/fqnext_host_runtime_ctl.ps1` 控制 `fqnext-supervisord`。
 - 只有 health check 与 runtime ops check 都通过，才允许 cleanup。
+
+## Canonical Main Truth
+
+- Since `2026-04-09`, formal deploy no longer uses `production-deploy-bootstrap` or `main-deploy-production` as runtime truth.
+- `deploy-production.yml` now calls `script/ci/run_production_deploy.ps1` directly from `D:\fqpack\freshquant-2026.2.23`.
+- The production entrypoint fetches `origin/main`, rejects a stale `TargetSha`, then syncs local `main` with `git checkout -f main`, `git reset --hard <target-sha>`, and `git clean -ffd`.
+- `python -m uv sync --frozen` and `script/ci/run_formal_deploy.py` both run in `D:\fqpack\freshquant-2026.2.23`, using `D:\fqpack\freshquant-2026.2.23\.venv\Scripts\python.exe`.
+- Host-surface deploys reconcile `D:\fqpack\config\supervisord.fqnext.conf` to the canonical repo root, and `check_freshquant_runtime_post_deploy.ps1` / `fqnext_supervisor_config.py inspect` both default to `D:\fqpack\freshquant-2026.2.23`.

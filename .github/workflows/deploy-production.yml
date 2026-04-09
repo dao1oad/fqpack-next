@@ -16,9 +16,6 @@ jobs:
     runs-on: [self-hosted, windows, production]
     env:
       FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23
-      FQ_DEPLOY_BOOTSTRAP_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap
-      FQ_DEPLOY_MIRROR_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production
-      FQ_DEPLOY_MIRROR_BRANCH: "deploy-production-main"
       FQ_DOCKER_FORCE_LOCAL_BUILD: "1"
     steps:
       - name: Run production deploy entrypoint
@@ -26,53 +23,13 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
-          git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT fetch origin main
-          if ($LASTEXITCODE -ne 0) {
-            throw "failed to fetch origin/main for production deploy"
-          }
-          $remoteMainSha = (git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT rev-parse origin/main).Trim()
-          if ($LASTEXITCODE -ne 0) {
-            throw "failed to resolve latest origin/main sha"
-          }
-          if ($remoteMainSha -ne "${{ github.sha }}") {
-            throw "stale push deploy trigger: target_sha=${{ github.sha }} current_main=$remoteMainSha"
-          }
-          git config --global --add safe.directory $env:FQ_DEPLOY_BOOTSTRAP_ROOT
-          if ($LASTEXITCODE -ne 0) {
-            throw "failed to trust bootstrap worktree as git safe.directory"
-          }
-          if (-not (Test-Path $env:FQ_DEPLOY_BOOTSTRAP_ROOT)) {
-            git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT worktree prune
-            if ($LASTEXITCODE -ne 0) {
-              throw "failed to prune stale production bootstrap worktrees"
-            }
-            git -C $env:FQ_DEPLOY_CANONICAL_REPO_ROOT worktree add --detach $env:FQ_DEPLOY_BOOTSTRAP_ROOT "${{ github.sha }}"
-            if ($LASTEXITCODE -ne 0) {
-              throw "failed to create production bootstrap worktree"
-            }
-          }
-          if (-not (Test-Path (Join-Path $env:FQ_DEPLOY_BOOTSTRAP_ROOT '.git'))) {
-            throw "bootstrap worktree is not a git repository: $env:FQ_DEPLOY_BOOTSTRAP_ROOT"
-          }
-          git -C $env:FQ_DEPLOY_BOOTSTRAP_ROOT reset --hard "${{ github.sha }}"
-          if ($LASTEXITCODE -ne 0) {
-            throw "failed to reset production bootstrap worktree to target sha"
-          }
-          git -C $env:FQ_DEPLOY_BOOTSTRAP_ROOT clean -ffd
-          if ($LASTEXITCODE -ne 0) {
-            throw "failed to clean production bootstrap worktree"
-          }
-          $entrypoint = Join-Path $env:FQ_DEPLOY_BOOTSTRAP_ROOT 'script/ci/run_production_deploy.ps1'
+          $entrypoint = Join-Path $env:FQ_DEPLOY_CANONICAL_REPO_ROOT 'script/ci/run_production_deploy.ps1'
           if (-not (Test-Path $entrypoint)) {
             throw "production deploy entrypoint not found: $entrypoint"
           }
           powershell -NoProfile -ExecutionPolicy Bypass -File $entrypoint `
             -CanonicalRoot $env:FQ_DEPLOY_CANONICAL_REPO_ROOT `
-            -BootstrapRoot $env:FQ_DEPLOY_BOOTSTRAP_ROOT `
-            -MirrorRoot $env:FQ_DEPLOY_MIRROR_ROOT `
-            -MirrorBranch $env:FQ_DEPLOY_MIRROR_BRANCH `
             -TargetSha "${{ github.sha }}" `
             -GitHubRepository "${{ github.repository }}" `
             -RunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" `
-            -SkipBootstrapReexec `
             -Verbose

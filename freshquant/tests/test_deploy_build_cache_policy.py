@@ -104,18 +104,15 @@ def test_docker_images_workflow_publishes_to_ghcr() -> None:
     assert "docker/login-action" in text
 
 
-def test_current_deployment_docs_cover_local_mirror_production_deploys() -> None:
+def test_current_deployment_docs_cover_canonical_main_production_deploys() -> None:
     deployment_text = Path("docs/current/deployment.md").read_text(encoding="utf-8")
     runtime_text = Path("docs/current/runtime.md").read_text(encoding="utf-8")
 
     assert "GHCR" in deployment_text
-    assert "本机 deploy mirror" in deployment_text
-    assert (
-        r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-        in deployment_text
-    )
+    assert "Canonical Main Truth" in deployment_text
+    assert r"D:\fqpack\freshquant-2026.2.23" in deployment_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in deployment_text
-    assert "本机 deploy mirror" in runtime_text
+    assert "Canonical Main Runtime Truth" in runtime_text
 
 
 def test_powershell_compose_entry_enables_buildkit_and_env_overrides() -> None:
@@ -190,15 +187,6 @@ def test_deploy_production_workflow_runs_on_push_to_main_via_single_entrypoint()
         in text
     )
     assert r"FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23" in text
-    assert (
-        r"FQ_DEPLOY_BOOTSTRAP_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap"
-        in text
-    )
-    assert (
-        r"FQ_DEPLOY_MIRROR_ROOT: D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-        in text
-    )
-    assert 'FQ_DEPLOY_MIRROR_BRANCH: "deploy-production-main"' in text
     assert 'FQ_DOCKER_FORCE_LOCAL_BUILD: "1"' in text
     assert "working-directory: ${{ env.FQ_DEPLOY_CANONICAL_REPO_ROOT }}" in text
     assert "shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}" in text
@@ -210,10 +198,9 @@ def test_deploy_production_workflow_runs_on_push_to_main_via_single_entrypoint()
     assert "py -3.12 -m uv sync --frozen" not in text
     assert "pip install --upgrade pip uv" not in text
     assert "pull --ff-only origin main" not in text
-    assert (
-        'git -C $env:FQ_DEPLOY_BOOTSTRAP_ROOT reset --hard "${{ github.sha }}"' in text
-    )
-    assert 'git -C $env:FQ_DEPLOY_BOOTSTRAP_ROOT clean -ffd' in text
+    assert "FQ_DEPLOY_BOOTSTRAP_ROOT" not in text
+    assert "FQ_DEPLOY_MIRROR_ROOT" not in text
+    assert "FQ_DEPLOY_MIRROR_BRANCH" not in text
 
 
 def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
@@ -233,10 +220,10 @@ def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
         '$remoteMainSha = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("rev-parse", "origin/main")'
         in entrypoint_text
     )
+    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("checkout", "-f", "main")' in entrypoint_text
+    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("reset", "--hard", $TargetSha)' in entrypoint_text
+    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("clean", "-ffd")' in entrypoint_text
     assert "stale push deploy trigger" in entrypoint_text
-    assert "production-deploy-bootstrap" in entrypoint_text
-    assert '$entrypoint = Join-Path $BootstrapRoot ' in entrypoint_text
-    assert '"-SkipBootstrapReexec"' in entrypoint_text
     assert "api.github.com/repos/" not in workflow_text
     assert "api.github.com/repos/" not in entrypoint_text
 
@@ -247,39 +234,27 @@ def test_current_docs_cover_automatic_production_deploy_state() -> None:
 
     assert "deploy-production.yml" in deployment_text
     assert "production-state.json" in deployment_text
-    assert "上一次成功部署" in deployment_text
     assert "script/ci/run_production_deploy.ps1" in deployment_text
     assert "runner Python 3.12" in deployment_text
     assert "python -m pip install uv --break-system-packages" in deployment_text
-    assert (
-        r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-        in deployment_text
-    )
+    assert "Canonical Main Truth" in deployment_text
     assert r"D:\fqpack\freshquant-2026.2.23" in deployment_text
     assert "safe.directory" in deployment_text
-    assert "本机 deploy mirror" in deployment_text
-    assert "bootstrap worktree" in deployment_text
-    assert "当前 entrypoint repo" in deployment_text
+    assert "canonical repo root" in deployment_text
+    assert "git checkout -f main" in deployment_text
+    assert "git reset --hard <target-sha>" in deployment_text
     assert "quiesce 宿主机 surfaces" in deployment_text
     assert "pyvenv.cfg" in deployment_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in deployment_text
     assert r".venv\Scripts\python.exe" in deployment_text
-    assert "保留 live deploy mirror 的 `.venv\\`" in deployment_text
     assert "deploy-production.yml" in runtime_text
     assert "formal-deploy" in runtime_text
     assert "script/ci/run_production_deploy.ps1" in runtime_text
     assert "per-user / system Python 3.12" in runtime_text
     assert "python -m uv" in runtime_text
-    assert (
-        r"D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production"
-        in runtime_text
-    )
-    assert (
-        r"D:\fqpack\freshquant-2026.2.23\.worktrees\production-deploy-bootstrap"
-        in runtime_text
-    )
+    assert "Canonical Main Runtime Truth" in runtime_text
     assert r"D:\fqpack\freshquant-2026.2.23" in runtime_text
-    assert "当前 entrypoint repo" in runtime_text
+    assert "canonical repo root" in runtime_text
     assert "quiesce 宿主机 surfaces" in runtime_text
     assert "pyvenv.cfg" in runtime_text
     assert "FQ_DOCKER_FORCE_LOCAL_BUILD" in runtime_text

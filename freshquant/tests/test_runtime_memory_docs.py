@@ -171,7 +171,8 @@ def test_additional_cold_memory_files_capture_current_project_facts() -> None:
     assert "仓库交付护栏" in guardrails_text
     assert "fq_local_preflight.ps1" in guardrails_text
     assert "script/fq_open_pr.ps1" in guardrails_text
-    assert "main-deploy-production" in guardrails_text
+    assert "canonical repo root" in guardrails_text
+    assert "git checkout -f main" in guardrails_text
     assert "review threads" in guardrails_text
     assert "Symphony" not in pitfalls_text
 

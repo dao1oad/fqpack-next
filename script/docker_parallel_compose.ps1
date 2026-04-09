@@ -29,7 +29,6 @@ function Resolve-Python312Command {
 
     $fallbackExecutables = @(
         (Join-Path $repoRoot '.artifacts\bin\py.exe'),
-        (Join-Path $repoRoot '.worktrees\main-deploy-production\.venv\Scripts\python.exe'),
         (Join-Path $repoRoot '.venv\Scripts\python.exe'),
         (Join-Path $repoRoot '.venv/bin/python'),
         (Join-Path $repoRoot '.artifacts\python\cpython-3.12.13-windows-x86_64-none\python.exe')

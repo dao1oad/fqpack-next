@@ -11,12 +11,12 @@ param(
     [string]$ProcessSnapshotPath,
     [string]$SupervisorSnapshotPath,
     [string]$SupervisorConfigSnapshotPath,
-    [string]$ExpectedSupervisorRepoRoot = 'D:\fqpack\freshquant-2026.2.23\.worktrees\main-deploy-production',
+    [string]$ExpectedSupervisorRepoRoot = 'D:\fqpack\freshquant-2026.2.23',
     [string]$SupervisorConfigPath = 'D:\fqpack\config\supervisord.fqnext.conf'
 )
 
 $ErrorActionPreference = 'Stop'
-# Script lives under repo_root/script in both the canonical repo and deploy worktrees.
+# Script lives under repo_root/script and verifies the canonical repo root runtime.
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 function Write-Utf8NoBomFile {
