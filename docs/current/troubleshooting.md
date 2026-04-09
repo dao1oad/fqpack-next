@@ -221,6 +221,158 @@ pprint(svc.load_latest_snapshot())
 - 本地未 merge 的 worktree 不能直接当正式 deploy 来源
 - 先 merge，再从 deploy mirror 执行 `script/ci/run_formal_deploy.py`
 
+## formal deploy 卡在 fetch origin main
+
+现象：
+
+- `git fetch origin main` 超时、连接重置或长时间挂起
+- formal deploy 因为拿不到最新远程 `main` 无法继续
+- 但 `gh api repos/dao1oad/fqpack-next/commits/main --jq '.sha'` 仍可返回远程 SHA
+
+先检查：
+
+- `C:\Program Files\GitHub CLI\gh.exe auth status`
+- `C:\Program Files\GitHub CLI\gh.exe api repos/dao1oad/fqpack-next/commits/main --jq '.sha'`
+- `git remote -v`
+
+常见根因：
+
+- 当前机器到 GitHub HTTPS 的网络抖动，只影响 `git fetch`
+- `gh` 尚未授权，无法作为远程 SHA 只读校验入口
+
+处理：
+
+- 先修好 `gh` 授权，再用 `gh api` 校验目标 SHA 是否确实等于最新远程 `main`
+- 只有在远程 SHA 已确认、且只是 `git fetch` 临时不稳定时，才允许把 `origin` 临时指到本机 canonical repo 的 `.git` 完成本轮 formal deploy
+- deploy 完成后必须立刻把 `origin` 恢复为 `https://github.com/dao1oad/fqpack-next.git`
+- 如果远程 SHA 无法确认，不要继续正式 deploy
+
+## formal deploy 读取不到稳定 compose env
+
+现象：
+
+- `git clean -ffdx` 后仓库根 `.env` 消失
+- Docker 容器继承了错误宿主机变量，或 compose 缺少 Mongo / Redis / Dagster 配置
+- 同一份代码在人工复跑和正式 deploy 之间表现不一致
+
+先检查：
+
+- `Test-Path D:/fqpack/config/fqnext.compose.env`
+- `Get-Content D:/fqpack/config/fqnext.compose.env`
+- `Get-ChildItem Env:FQ_COMPOSE_ENV_FILE`
+
+常见根因：
+
+- 仍把仓库根 `.env` 当成 formal deploy 真值
+- `git clean` 清理了 ignored `.env`
+
+处理：
+
+- 正式 deploy 统一使用 `D:/fqpack/config/fqnext.compose.env`
+- 需要人工复跑 compose 时，显式导出 `FQ_COMPOSE_ENV_FILE=D:/fqpack/config/fqnext.compose.env`
+- 不要再依赖仓库根 `.env` 作为 production compose 输入
+
+## canonical repo root `.venv` metadata 漂移
+
+现象：
+
+- `.venv\Scripts\python.exe` 存在，但无法正常启动
+- `.venv\Scripts\python.exe` 能启动，却落到了错误的全局解释器环境
+- formal deploy 在 `uv sync` 或 `run_formal_deploy.py` 前就失败
+
+先检查：
+
+- `Test-Path D:/fqpack/freshquant-2026.2.23/.venv/pyvenv.cfg`
+- `Get-Content D:/fqpack/freshquant-2026.2.23/.venv/pyvenv.cfg`
+- `D:/fqpack/freshquant-2026.2.23/.venv/Scripts/python.exe -c "import sys; print(sys.executable); print(sys.prefix)"`
+
+常见根因：
+
+- live canonical repo root 的 virtualenv metadata 缺失或漂移
+- 保留下来的 `.venv` 被误当成一直可信，但实际已经不能代表当前仓库解释器环境
+
+处理：
+
+- 优先重新执行 `powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -CanonicalRoot D:\fqpack\freshquant-2026.2.23 -MirrorRoot D:\fqpack\freshquant-2026.2.23 -MirrorBranch deploy-production-main`
+- 由正式入口受控 quiesce 宿主机 surfaces，并在需要时重建 `.venv` metadata
+- 不要手工拆开执行一半 `uv sync`、一半 runtime restart
+
+## 宿主机 worker 误连 Redis 6379
+
+现象：
+
+- `fqnext_tpsl_worker`、`fqnext_xt_auto_repay_worker`、`fqnext_xtdata_adj_refresh_worker` 启动后快速 `Exited`
+- stderr 出现 `redis.exceptions.ConnectionError: Error 10061 connecting to 127.0.0.1:6379`
+- Docker 侧 Redis 正常，但宿主机 surface 一直起不来
+
+先检查：
+
+- `Get-Content D:/fqpack/config/envs.conf`
+- `Get-Content D:/fqdata/log/fqnext_tpsl_worker_err.log -Tail 100`
+- `Get-Content D:/fqdata/log/fqnext_xt_auto_repay_worker_err.log -Tail 100`
+- `Get-Content D:/fqdata/log/fqnext_xtdata_adj_refresh_worker_err.log -Tail 100`
+
+常见根因：
+
+- `D:/fqpack/config/envs.conf` 缺失
+- Supervisor 回退到进程默认 Redis 地址 `127.0.0.1:6379`
+
+处理：
+
+- 重建 `D:/fqpack/config/envs.conf`
+- 确认至少包含：
+  - `FRESHQUANT_REDIS__HOST=127.0.0.1`
+  - `FRESHQUANT_REDIS__PORT=6380`
+  - `FRESHQUANT_REDIS__DB=1`
+- 再执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data,guardian,position_management,tpsl,order_management -BridgeIfServiceUnavailable`
+
+## `fqnext-supervisord-restart` 管理员桥接任务超时
+
+现象：
+
+- `script/invoke_fqnext_supervisord_restart_task.ps1` 长时间等待后超时
+- `fqnext-supervisord-restart` 执行后没有生成 `restart-status.json`
+- 宿主机 surface 无法通过 bridge 恢复
+
+先检查：
+
+- `Test-Path D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`
+- `Get-ScheduledTask -TaskName fqnext-supervisord-restart | Select-Object -ExpandProperty Actions`
+- `Get-Content D:/fqpack/supervisord/artifacts/admin-bridge/restart-status.json`
+
+常见根因：
+
+- 计划任务目标脚本缺失
+- 外部脚本版本落后于仓库里的当前真值
+
+处理：
+
+- 将仓库内 `script/run_fqnext_supervisord_restart_task.ps1` 同步到 `D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`
+- 再执行 `powershell -ExecutionPolicy Bypass -File script/invoke_fqnext_supervisord_restart_task.ps1 -TaskName fqnext-supervisord-restart -ServiceName fqnext-supervisord -TimeoutSeconds 120`
+- 只有 bridge 成功后，再补做 surface restart
+
+## Docker 构建卡在拉取 `node:22-alpine`
+
+现象：
+
+- Web / TradingAgents 相关镜像构建在 `FROM node:22-alpine` 前后卡住
+- `docker compose build` 或 formal deploy 在基础镜像拉取阶段超时
+
+先检查：
+
+- `docker image inspect node:22-alpine`
+- `docker pull node:22-alpine`
+
+常见根因：
+
+- 当前机器到 Docker Hub 的外网链路抖动
+- 基础镜像本地还没有预热缓存
+
+处理：
+
+- 先单独执行 `docker pull node:22-alpine`
+- 拉取成功后再重跑 formal deploy 或命中的 Docker surface deploy
+
 ## 破坏性 order-ledger rebuild 治理不满足
 
 现象：

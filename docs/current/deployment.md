@@ -112,6 +112,24 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 - 如果 Docker 构建阶段在 `fq_apiserver` 里编译 `fqchan04` 时出现 `g++ internal compiler error`、`Segmentation fault` 一类编译器崩溃，先保留失败 run_dir artifacts，再对同一 SHA 原样重跑 1 次 formal deploy；只有稳定复现后才进入代码修复或 Dockerfile 调整。
 - 只要本轮有实际 deploy，就必须保留 `CaptureBaseline -> deploy -> health check -> Verify` 的顺序；不能跳过 baseline，也不能把 runtime verify 替换成手工肉眼检查。
 
+### 正式 deploy 外部运行文件
+
+正式 deploy 当前除了仓库代码，还依赖以下宿主机外部文件作为运行真值：
+
+- `D:/fqpack/config/fqnext.compose.env`：Docker 并行环境的正式 `env_file`。不要再依赖仓库根 `.env` 作为 production compose 真值；`git clean -ffdx` 会清理 ignored `.env`。
+- `D:/fqpack/config/envs.conf`：宿主机 Supervisor 运行环境真值。至少要显式提供 Mongo、Redis、TDX 地址，并把代理变量保持为空；当前 Redis 正式端口是 `127.0.0.1:6380`。
+- `D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`：管理员桥接任务 `fqnext-supervisord-restart` 的外部脚本。仓库内 `script/run_fqnext_supervisord_restart_task.ps1` 变更后，要同步到这里。
+- `D:/fqpack/freshquant-2026.2.23/.venv/pyvenv.cfg`：live canonical repo root virtualenv metadata。正式入口允许自愈，但它缺失时不能把 `.venv\Scripts\python.exe` 当成可信解释器真值。
+
+人工 deploy 或排障前先确认这些文件存在：
+
+```powershell
+Test-Path D:/fqpack/config/fqnext.compose.env
+Test-Path D:/fqpack/config/envs.conf
+Test-Path D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1
+Test-Path D:/fqpack/freshquant-2026.2.23/.venv/pyvenv.cfg
+```
+
 ### 宿主机同步 Python 依赖
 
 ```powershell
