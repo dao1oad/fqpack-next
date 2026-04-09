@@ -14,6 +14,7 @@ class FakeService:
         snapshot_decision=None,
         confirmed_decisions=None,
         state=None,
+        refresh_result=True,
     ):
         self.account_id = account_id
         self.account_type = account_type
@@ -59,6 +60,7 @@ class FakeService:
         self.state = dict(state or {})
         self.events = []
         self.calls = []
+        self.refresh_result = refresh_result
 
     def load_latest_snapshot(self):
         self.calls.append("load_latest_snapshot")
@@ -84,6 +86,10 @@ class FakeService:
     def update_state(self, **fields):
         self.state.update(fields)
         return dict(self.state)
+
+    def refresh_settings(self, *, strict=False):
+        self.calls.append(("refresh_settings", strict))
+        return self.refresh_result
 
 
 class FakeExecutor:
@@ -251,3 +257,67 @@ def test_retry_lock_skip_does_not_mark_retry_complete_for_the_day():
 
     assert [item["mode"] for item in second_results] == ["retry"]
     assert second_results[0]["status"] == "submitted"
+
+
+def test_worker_skips_without_persistence_when_settings_unavailable():
+    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker
+
+    service = FakeService(refresh_result=False)
+    worker = XtAutoRepayWorker(
+        service=service,
+        executor=FakeExecutor(),
+        lock_client=FakeLockClient(),
+    )
+
+    result = worker.run_mode(
+        "intraday",
+        now=datetime.fromisoformat("2026-04-05T10:30:00+08:00"),
+    )
+
+    assert result == {
+        "mode": "intraday",
+        "status": "skip",
+        "reason": "settings_unavailable",
+    }
+    assert service.events == []
+    assert service.state == {}
+
+
+def test_worker_next_sleep_uses_last_checked_due_time_instead_of_restart_time():
+    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker
+
+    service = FakeService(
+        state={"last_checked_at": "2026-04-05T08:00:57+08:00"},
+    )
+    worker = XtAutoRepayWorker(
+        service=service,
+        executor=FakeExecutor(),
+        lock_client=FakeLockClient(),
+        intraday_interval_seconds=1800,
+    )
+
+    sleep_seconds = worker.next_sleep_seconds(
+        now=datetime.fromisoformat("2026-04-05T08:14:48+08:00"),
+    )
+
+    assert sleep_seconds == 969.0
+
+
+def test_worker_next_sleep_retries_quickly_when_intraday_check_is_overdue():
+    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker
+
+    service = FakeService(
+        state={"last_checked_at": "2026-04-05T08:00:57+08:00"},
+    )
+    worker = XtAutoRepayWorker(
+        service=service,
+        executor=FakeExecutor(),
+        lock_client=FakeLockClient(),
+        intraday_interval_seconds=1800,
+    )
+
+    sleep_seconds = worker.next_sleep_seconds(
+        now=datetime.fromisoformat("2026-04-05T08:44:48+08:00"),
+    )
+
+    assert sleep_seconds == 1.0

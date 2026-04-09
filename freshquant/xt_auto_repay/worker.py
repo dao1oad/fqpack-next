@@ -56,6 +56,10 @@ class XtAutoRepayWorker:
     def run_mode(self, mode, *, now=None):
         resolved_mode = _normalize_mode(mode)
         resolved_now = now or self.now_provider()
+        if not self._refresh_settings():
+            return self._volatile_skip(
+                mode=resolved_mode, reason="settings_unavailable"
+            )
         checked_at = resolved_now.isoformat()
         state = dict(self.service.get_state() or {})
         snapshot_decision = None
@@ -198,6 +202,8 @@ class XtAutoRepayWorker:
 
     def run_pending(self, *, now=None):
         resolved_now = now or self.now_provider()
+        if not self._refresh_settings():
+            return []
         state = dict(self.service.get_state() or {})
         modes = _due_modes(resolved_now, state)
         if not modes:
@@ -208,8 +214,14 @@ class XtAutoRepayWorker:
 
     def next_sleep_seconds(self, *, now=None):
         resolved_now = now or self.now_provider()
+        if not self._refresh_settings():
+            return 1.0
         state = dict(self.service.get_state() or {})
-        candidates = [self.intraday_interval_seconds]
+        candidates = [
+            _next_intraday_delay_seconds(
+                resolved_now, state, self.intraday_interval_seconds
+            )
+        ]
         for scheduled_time, field_name in (
             (HARD_SETTLE_TIME, "last_hard_settle_at"),
             (RETRY_TIME, "last_retry_at"),
@@ -279,6 +291,16 @@ class XtAutoRepayWorker:
         if mark_mode_completed:
             state_updates.update(_mode_timestamp_fields(mode, checked_at))
         self.service.update_state(**state_updates)
+        return {"mode": mode, "status": "skip", "reason": reason}
+
+    def _refresh_settings(self):
+        refresh_fn = getattr(self.service, "refresh_settings", None)
+        if not callable(refresh_fn):
+            return True
+        return bool(refresh_fn(strict=False))
+
+    def _volatile_skip(self, *, mode, reason):
+        logger.warning("xt auto repay worker skipped without persistence: %s", reason)
         return {"mode": mode, "status": "skip", "reason": reason}
 
 
@@ -389,11 +411,26 @@ def _shanghai_now():
 
 
 def _precheck_skip_reason(service):
+    if not str(getattr(service, "account_id", "") or "").strip():
+        return "missing_account_id"
     if str(getattr(service, "account_type", "STOCK") or "STOCK").upper() != "CREDIT":
         return "non_credit_account"
     if not bool(getattr(service, "enabled", True)):
         return "disabled"
     return None
+
+
+def _next_intraday_delay_seconds(now_value, state, intraday_interval_seconds):
+    last_checked_at = _parse_datetime(state.get("last_checked_at"))
+    if last_checked_at is None:
+        return max(1.0, float(intraday_interval_seconds or 1.0))
+    due_at = last_checked_at + timedelta(
+        seconds=float(intraday_interval_seconds or 0.0)
+    )
+    remaining_seconds = (due_at - now_value).total_seconds()
+    if remaining_seconds <= 0:
+        return 1.0
+    return max(1.0, remaining_seconds)
 
 
 if __name__ == "__main__":

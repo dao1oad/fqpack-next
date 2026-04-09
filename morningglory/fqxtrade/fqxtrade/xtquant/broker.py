@@ -42,7 +42,7 @@ from freshquant.runtime_observability.failures import (
     mark_exception_emitted,
 )
 from freshquant.runtime_observability.logger import RuntimeEventLogger
-from freshquant.system_settings import system_settings
+from freshquant.system_settings import reload_system_settings, system_settings
 from freshquant.trade.trade import checkManualStrategyInstument
 from freshquant.util.code import fq_util_code_append_market_code_suffix
 
@@ -203,6 +203,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
 
 def connect(session_id: int = 100):
     try:
+        reload_system_settings(strict=False)
         path = system_settings.xtquant.path
         if not path:
             logger.error("请在配置文件中设置 xtquant.path 参数")

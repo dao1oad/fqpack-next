@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -64,6 +66,11 @@ DEFAULT_STRATEGIES = {
     },
 }
 
+DEFAULT_RELOAD_RETRY_ATTEMPTS = 3
+DEFAULT_RELOAD_RETRY_DELAY_SECONDS = 1.0
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class NotificationSettings:
@@ -108,35 +115,109 @@ class PositionManagementSettings:
 
 
 class SystemSettings:
-    def __init__(self, database=None):
+    def __init__(
+        self,
+        database=None,
+        *,
+        reload_retry_attempts=DEFAULT_RELOAD_RETRY_ATTEMPTS,
+        reload_retry_delay_seconds=DEFAULT_RELOAD_RETRY_DELAY_SECONDS,
+        sleep_fn=time.sleep,
+    ):
         if database is None:
             from freshquant.db import DBfreshquant as database  # lazy import
 
         self.database = database
+        self.reload_retry_attempts = max(int(reload_retry_attempts or 0), 1)
+        self.reload_retry_delay_seconds = max(
+            float(reload_retry_delay_seconds or 0.0),
+            0.0,
+        )
+        self.sleep_fn = sleep_fn
         self.notification = NotificationSettings()
         self.monitor = MonitorSettings()
         self.xtquant = XtquantSettings()
         self.guardian = GuardianSettings()
         self.position_management = PositionManagementSettings()
         self._strategies_by_code: dict[str, dict[str, Any]] = {}
-        self.reload()
+        self.loaded_once = False
+        self.last_reload_error: Exception | None = None
+        self.reload(strict=False)
 
-    def reload(self):
-        try:
-            notification_doc = self._find_param("notification", DEFAULT_NOTIFICATION)
-            monitor_doc = self._find_param("monitor", DEFAULT_MONITOR)
-            xtquant_doc = self._find_param("xtquant", DEFAULT_XTQUANT)
-            guardian_doc = self._find_param("guardian", DEFAULT_GUARDIAN)
-            pm_config = self._find_pm_config()
-            strategies = self._load_strategies()
-        except Exception:
-            notification_doc = DEFAULT_NOTIFICATION
-            monitor_doc = DEFAULT_MONITOR
-            xtquant_doc = DEFAULT_XTQUANT
-            guardian_doc = DEFAULT_GUARDIAN
-            pm_config = DEFAULT_PM_CONFIG
-            strategies = {}
+    def reload(
+        self,
+        *,
+        strict=False,
+        retry_attempts=None,
+        retry_delay_seconds=None,
+    ):
+        resolved_retry_attempts = max(
+            int(
+                self.reload_retry_attempts if retry_attempts is None else retry_attempts
+            ),
+            1,
+        )
+        resolved_retry_delay_seconds = max(
+            float(
+                self.reload_retry_delay_seconds
+                if retry_delay_seconds is None
+                else retry_delay_seconds
+            ),
+            0.0,
+        )
+        last_error = None
+        for attempt in range(1, resolved_retry_attempts + 1):
+            try:
+                documents = self._load_documents()
+            except Exception as exc:
+                last_error = exc
+                self.last_reload_error = exc
+                if attempt >= resolved_retry_attempts:
+                    if self.loaded_once:
+                        logger.warning(
+                            "system_settings reload failed after %s attempts; keep last good values: %s",
+                            attempt,
+                            exc,
+                        )
+                        return self
+                    if strict:
+                        raise
+                    logger.warning(
+                        "system_settings initial load failed after %s attempts; settings remain unready: %s",
+                        attempt,
+                        exc,
+                    )
+                    return self
+                if resolved_retry_delay_seconds > 0:
+                    self.sleep_fn(resolved_retry_delay_seconds)
+                continue
+            self._apply_documents(**documents)
+            self.loaded_once = True
+            self.last_reload_error = None
+            return self
+        if strict and last_error is not None:
+            raise last_error
+        return self
 
+    def _load_documents(self):
+        return {
+            "notification_doc": self._find_param("notification", DEFAULT_NOTIFICATION),
+            "monitor_doc": self._find_param("monitor", DEFAULT_MONITOR),
+            "xtquant_doc": self._find_param("xtquant", DEFAULT_XTQUANT),
+            "guardian_doc": self._find_param("guardian", DEFAULT_GUARDIAN),
+            "pm_config": self._find_pm_config(),
+            "strategies": self._load_strategies(),
+        }
+
+    def _apply_documents(
+        self,
+        *,
+        notification_doc,
+        monitor_doc,
+        xtquant_doc,
+        guardian_doc,
+        pm_config,
+        strategies,
+    ):
         self.notification = NotificationSettings(
             dingtalk_private_webhook=str(
                 get(notification_doc, "webhook.dingtalk.private", "")
@@ -293,5 +374,14 @@ class SystemSettings:
 system_settings = SystemSettings()
 
 
-def reload_system_settings():
-    return system_settings.reload()
+def reload_system_settings(
+    *,
+    strict=False,
+    retry_attempts=None,
+    retry_delay_seconds=None,
+):
+    return system_settings.reload(
+        strict=strict,
+        retry_attempts=retry_attempts,
+        retry_delay_seconds=retry_delay_seconds,
+    )
