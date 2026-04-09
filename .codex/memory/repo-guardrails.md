@@ -25,6 +25,6 @@
   - `powershell -ExecutionPolicy Bypass -File script/fq_open_pr.ps1 -- --fill`
 - 正式 deploy 已改为本机 mirror 路径：
   - canonical repo root：`D:\fqpack\freshquant-2026.2.23`
-  - local main sync：`git checkout -f main`、`git reset --hard <target-sha>`、`git clean -ffd`
+- local main sync：`git checkout -f main`、`git reset --hard <target-sha>`、`git clean -ffdx -e .venv/ -e .venv`
 - 正式 deploy workflow 会先校验目标 SHA 仍是 `main` tip，再在 mirror 中执行本地构建，不再依赖下载 zipball 或把 GHCR 当正式前置。
 - 任何 memory context 与 GitHub、`docs/current/**` 或 deploy 证据冲突时，正式真值优先。

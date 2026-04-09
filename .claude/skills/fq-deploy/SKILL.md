@@ -166,6 +166,6 @@ print(inspect.signature(resolve_stock_account))
 ## Canonical Main Deploy Truth
 
 - Current production deploy root: `D:\fqpack\freshquant-2026.2.23`
-- Current sync steps: `git checkout -f main`, `git reset --hard <target-sha>`, `git clean -ffd`
+- Current sync steps: `git checkout -f main`, `git reset --hard <target-sha>`, `git clean -ffdx -e .venv/ -e .venv`
 - Current formal deploy Python: `D:\fqpack\freshquant-2026.2.23\.venv\Scripts\python.exe`
 - Current supervisor truth check: `py -3.12 script/fqnext_supervisor_config.py inspect --config-path D:\fqpack\config\supervisord.fqnext.conf --expected-repo-root D:\fqpack\freshquant-2026.2.23`

@@ -1,9 +1,13 @@
 [CmdletBinding()]
 param(
     [string]$CanonicalRoot,
+    [string]$BootstrapRoot,
+    [string]$MirrorRoot,
+    [string]$MirrorBranch,
     [string]$TargetSha,
     [string]$RunUrl,
     [string]$GitHubRepository,
+    [switch]$SkipBootstrapReexec,
     [switch]$Help
 )
 
@@ -19,11 +23,26 @@ Run production deploy
 
 Parameters:
   -CanonicalRoot    Canonical repository root that will be synced onto local main before deploy.
+  -BootstrapRoot    Legacy compatibility alias; ignored by canonical-root deploy.
+  -MirrorRoot       Legacy compatibility alias; ignored by canonical-root deploy.
+  -MirrorBranch     Legacy compatibility alias; ignored by canonical-root deploy.
   -TargetSha        Expected latest origin/main SHA; omitted means deploy current origin/main.
   -RunUrl           Optional workflow run URL recorded into formal deploy state.
   -GitHubRepository Optional GitHub repository slug for artifact metadata.
+  -SkipBootstrapReexec Legacy compatibility switch; ignored by canonical-root deploy.
 "@ | Write-Output
     return
+}
+
+$legacyCompatibilityParameters = @(
+    "BootstrapRoot",
+    "MirrorRoot",
+    "MirrorBranch",
+    "SkipBootstrapReexec"
+) | Where-Object { $PSBoundParameters.ContainsKey($_) }
+if ($legacyCompatibilityParameters.Count -gt 0) {
+    $legacyParameterSummary = $legacyCompatibilityParameters -join ", "
+    Write-Verbose "ignoring legacy deploy parameters for canonical main rollout: $legacyParameterSummary"
 }
 
 function Test-Python312Executable {
@@ -198,6 +217,20 @@ function Ensure-SafeDirectory {
     }
 }
 
+function Invoke-GitCleanPreservingRepoVenv {
+    param([string]$RepoRoot)
+
+    # Preserve the live repo virtualenv while clearing stale ignored artifacts.
+    Invoke-Git -RepoRoot $RepoRoot -Arguments @(
+        "clean",
+        "-ffdx",
+        "-e",
+        ".venv/",
+        "-e",
+        ".venv"
+    )
+}
+
 function Invoke-Python {
     param(
         [string]$PythonExe,
@@ -355,7 +388,7 @@ function Ensure-CanonicalRepoSynced {
     }
 
     Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("reset", "--hard", $TargetSha)
-    Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("clean", "-ffd")
+    Invoke-GitCleanPreservingRepoVenv -RepoRoot $CanonicalRoot
 
     $currentBranch = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("branch", "--show-current")
     if ($currentBranch -ne "main") {

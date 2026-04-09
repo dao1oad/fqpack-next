@@ -229,9 +229,11 @@ def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
         in entrypoint_text
     )
     assert (
-        'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("clean", "-ffd")'
-        in entrypoint_text
+        "Invoke-GitCleanPreservingRepoVenv -RepoRoot $CanonicalRoot" in entrypoint_text
     )
+    assert '"-ffdx"' in entrypoint_text
+    assert '".venv/"' in entrypoint_text
+    assert '".venv"' in entrypoint_text
     assert "stale push deploy trigger" in entrypoint_text
     assert "api.github.com/repos/" not in workflow_text
     assert "api.github.com/repos/" not in entrypoint_text

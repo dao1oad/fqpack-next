@@ -244,6 +244,6 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 
 - Since `2026-04-09`, formal deploy no longer uses `production-deploy-bootstrap` or `main-deploy-production` as runtime truth.
 - `deploy-production.yml` now calls `script/ci/run_production_deploy.ps1` directly from `D:\fqpack\freshquant-2026.2.23`.
-- The production entrypoint fetches `origin/main`, rejects a stale `TargetSha`, then syncs local `main` with `git checkout -f main`, `git reset --hard <target-sha>`, and `git clean -ffd`.
+- The production entrypoint fetches `origin/main`, rejects a stale `TargetSha`, then syncs local `main` with `git checkout -f main`, `git reset --hard <target-sha>`, and `git clean -ffdx -e .venv/ -e .venv` so ignored artifacts are cleared without deleting the live repo virtualenv.
 - `python -m uv sync --frozen` and `script/ci/run_formal_deploy.py` both run in `D:\fqpack\freshquant-2026.2.23`, using `D:\fqpack\freshquant-2026.2.23\.venv\Scripts\python.exe`.
 - Host-surface deploys reconcile `D:\fqpack\config\supervisord.fqnext.conf` to the canonical repo root, and `check_freshquant_runtime_post_deploy.ps1` / `fqnext_supervisor_config.py inspect` both default to `D:\fqpack\freshquant-2026.2.23`.

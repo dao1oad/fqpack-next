@@ -47,15 +47,35 @@ def test_run_production_deploy_syncs_local_main_before_formal_deploy() -> None:
         'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("reset", "--hard", $TargetSha)'
         in text
     )
-    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("clean", "-ffd")' in text
+    assert "Invoke-GitCleanPreservingRepoVenv -RepoRoot $CanonicalRoot" in text
     assert (
         '$currentBranch = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("branch", "--show-current")'
         in text
     )
     assert "stale push deploy trigger" in text
-    assert "BootstrapRoot" not in text
-    assert "MirrorRoot" not in text
-    assert "SkipBootstrapReexec" not in text
+
+
+def test_run_production_deploy_accepts_legacy_bootstrap_parameters_as_noops() -> None:
+    text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
+
+    assert '[string]$BootstrapRoot' in text
+    assert '[string]$MirrorRoot' in text
+    assert '[string]$MirrorBranch' in text
+    assert '[switch]$SkipBootstrapReexec' in text
+    assert "Legacy compatibility alias; ignored by canonical-root deploy." in text
+    assert "Legacy compatibility switch; ignored by canonical-root deploy." in text
+    assert "ignoring legacy deploy parameters for canonical main rollout" in text
+
+
+def test_run_production_deploy_cleans_ignored_artifacts_but_keeps_repo_venv() -> None:
+    text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
+
+    assert "function Invoke-GitCleanPreservingRepoVenv" in text
+    assert 'Invoke-Git -RepoRoot $RepoRoot -Arguments @(' in text
+    assert '"clean"' in text
+    assert '"-ffdx"' in text
+    assert '".venv/"' in text
+    assert '".venv"' in text
 
 
 def test_run_production_deploy_quiesces_host_runtime_before_retrying_uv_sync() -> None:
