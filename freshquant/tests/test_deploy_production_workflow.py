@@ -35,11 +35,23 @@ def test_run_production_deploy_syncs_local_main_before_formal_deploy() -> None:
 
     assert '[string]$CanonicalRoot' in text
     assert '[string]$TargetSha' in text
-    assert "Invoke-Git -RepoRoot $CanonicalRoot -Arguments @(\"fetch\", \"origin\", \"main\")" in text
-    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("checkout", "-f", "main")' in text
-    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("reset", "--hard", $TargetSha)' in text
+    assert (
+        "Invoke-Git -RepoRoot $CanonicalRoot -Arguments @(\"fetch\", \"origin\", \"main\")"
+        in text
+    )
+    assert (
+        'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("checkout", "-f", "main")'
+        in text
+    )
+    assert (
+        'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("reset", "--hard", $TargetSha)'
+        in text
+    )
     assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("clean", "-ffd")' in text
-    assert '$currentBranch = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("branch", "--show-current")' in text
+    assert (
+        '$currentBranch = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("branch", "--show-current")'
+        in text
+    )
     assert "stale push deploy trigger" in text
     assert "BootstrapRoot" not in text
     assert "MirrorRoot" not in text

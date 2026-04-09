@@ -220,9 +220,18 @@ def test_deploy_production_workflow_rejects_stale_main_sha() -> None:
         '$remoteMainSha = Get-GitOutput -RepoRoot $CanonicalRoot -Arguments @("rev-parse", "origin/main")'
         in entrypoint_text
     )
-    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("checkout", "-f", "main")' in entrypoint_text
-    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("reset", "--hard", $TargetSha)' in entrypoint_text
-    assert 'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("clean", "-ffd")' in entrypoint_text
+    assert (
+        'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("checkout", "-f", "main")'
+        in entrypoint_text
+    )
+    assert (
+        'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("reset", "--hard", $TargetSha)'
+        in entrypoint_text
+    )
+    assert (
+        'Invoke-Git -RepoRoot $CanonicalRoot -Arguments @("clean", "-ffd")'
+        in entrypoint_text
+    )
     assert "stale push deploy trigger" in entrypoint_text
     assert "api.github.com/repos/" not in workflow_text
     assert "api.github.com/repos/" not in entrypoint_text

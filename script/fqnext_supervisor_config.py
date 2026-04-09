@@ -10,9 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 DEFAULT_CONFIG_PATH = Path(r"D:\fqpack\config\supervisord.fqnext.conf")
-DEFAULT_EXPECTED_REPO_ROOT = Path(
-    r"D:\fqpack\freshquant-2026.2.23"
-)
+DEFAULT_EXPECTED_REPO_ROOT = Path(r"D:\fqpack\freshquant-2026.2.23")
 MODULE_NAMES = (
     "freshquant",
     "fqxtrade.xtquant.broker",

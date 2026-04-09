@@ -8,9 +8,7 @@ from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "script" / "fqnext_supervisor_config.py"
-EXPECTED_REPO_ROOT = Path(
-    r"D:\fqpack\freshquant-2026.2.23"
-)
+EXPECTED_REPO_ROOT = Path(r"D:\fqpack\freshquant-2026.2.23")
 
 
 def load_module():
