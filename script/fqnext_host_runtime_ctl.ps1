@@ -219,6 +219,21 @@ function Invoke-AdminBridgeRecovery {
     return Wait-ServiceRunning -ServiceName $ServiceName -TimeoutSeconds $TimeoutSeconds
 }
 
+function Test-HostRuntimeProgramsRunning {
+    param([object]$Payload)
+
+    if ($null -eq $Payload) {
+        return $false
+    }
+
+    $programs = @($Payload.programs)
+    if ($programs.Count -eq 0) {
+        return $false
+    }
+
+    return @($programs | Where-Object { [string]$_.state -ne 'Running' }).Count -eq 0
+}
+
 function Reload-SupervisorServiceForConfig {
     param(
         [string]$ServiceName,
@@ -360,11 +375,14 @@ switch ($Mode) {
             $bridgeRetried = $true
             $originalMessage = $_.Exception.Message
             Invoke-AdminBridgeRecovery -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds | Out-Null
-            Invoke-HostRuntimePython -Command 'wait-settled' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
-            try {
-                Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
-            } catch {
-                throw "fqnext host runtime restart failed after admin bridge retry. initial_error=$originalMessage retry_error=$($_.Exception.Message)"
+            $bridgeSettledPayload = Invoke-HostRuntimePython -Command 'wait-settled' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds | ConvertFrom-Json
+            $bridgeRecoveredRunning = Test-HostRuntimeProgramsRunning -Payload $bridgeSettledPayload
+            if (-not $bridgeRecoveredRunning) {
+                try {
+                    Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
+                } catch {
+                    throw "fqnext host runtime restart failed after admin bridge retry. initial_error=$originalMessage retry_error=$($_.Exception.Message)"
+                }
             }
         }
         exit 0

@@ -103,7 +103,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="Guardian 买入层级（配置）" min-width="128">
+        <el-table-column label="Guardian 买入层级" min-width="128">
           <template #default="{ row }">
             <div class="position-subject-summary-stack">
               <div

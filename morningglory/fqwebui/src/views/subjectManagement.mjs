@@ -286,6 +286,49 @@ const buildTakeprofitSummary = (tiers = [], state = {}) => {
     })
 }
 
+const buildGuardianLevelSummary = (config = {}, state = {}) => {
+  const normalizedConfig = normalizeGuardianConfig(config)
+  const normalizedState = normalizeGuardianState(state)
+  return [
+    {
+      level: 1,
+      priceLabel: formatPrice(normalizedConfig.buy_1),
+      enabled: (
+        normalizedConfig.buy_enabled[0] !== false
+        && normalizedState.buy_active[0] !== false
+      ),
+      enabledLabel: (
+        normalizedConfig.buy_enabled[0] !== false
+        && normalizedState.buy_active[0] !== false
+      ) ? '开' : '关',
+    },
+    {
+      level: 2,
+      priceLabel: formatPrice(normalizedConfig.buy_2),
+      enabled: (
+        normalizedConfig.buy_enabled[1] !== false
+        && normalizedState.buy_active[1] !== false
+      ),
+      enabledLabel: (
+        normalizedConfig.buy_enabled[1] !== false
+        && normalizedState.buy_active[1] !== false
+      ) ? '开' : '关',
+    },
+    {
+      level: 3,
+      priceLabel: formatPrice(normalizedConfig.buy_3),
+      enabled: (
+        normalizedConfig.buy_enabled[2] !== false
+        && normalizedState.buy_active[2] !== false
+      ),
+      enabledLabel: (
+        normalizedConfig.buy_enabled[2] !== false
+        && normalizedState.buy_active[2] !== false
+      ) ? '开' : '关',
+    },
+  ]
+}
+
 const formatCompactDate = (value) => {
   const text = toText(value)
   if (/^\d{8}$/.test(text)) {
@@ -425,8 +468,10 @@ export const buildOverviewRows = (rows = []) => {
   return [...(Array.isArray(rows) ? rows : [])]
     .map((row) => {
       const mustPool = normalizeMustPool(row?.must_pool || {})
+      const guardianState = normalizeGuardianState(row?.guardian || {})
       const guardian = {
         ...normalizeGuardianConfig(row?.guardian || {}),
+        buy_active: guardianState.buy_active,
         last_hit_level: toText(row?.guardian?.last_hit_level),
         last_hit_price: toNullableNumber(row?.guardian?.last_hit_price),
         last_hit_signal_time: toText(row?.guardian?.last_hit_signal_time),
@@ -446,26 +491,7 @@ export const buildOverviewRows = (rows = []) => {
         || mustPool.initial_lot_amount !== null
         || mustPool.lot_amount !== null,
       )
-      const guardianLevelSummary = [
-        {
-          level: 1,
-          priceLabel: formatPrice(guardian.buy_1),
-          enabled: guardian.buy_enabled[0] !== false,
-          enabledLabel: guardian.buy_enabled[0] !== false ? '开' : '关',
-        },
-        {
-          level: 2,
-          priceLabel: formatPrice(guardian.buy_2),
-          enabled: guardian.buy_enabled[1] !== false,
-          enabledLabel: guardian.buy_enabled[1] !== false ? '开' : '关',
-        },
-        {
-          level: 3,
-          priceLabel: formatPrice(guardian.buy_3),
-          enabled: guardian.buy_enabled[2] !== false,
-          enabledLabel: guardian.buy_enabled[2] !== false ? '开' : '关',
-        },
-      ]
+      const guardianLevelSummary = buildGuardianLevelSummary(guardian, guardianState)
       return {
         ...row,
         symbol: toText(row?.symbol),

@@ -31,6 +31,8 @@ def test_host_runtime_ctl_can_reconcile_supervisor_config_to_repo_root() -> None
     assert "SupervisorConfigRepoRoot" in text
     assert "fqnext_supervisor_config.py" in text
     assert "Invoke-AdminBridgeRecovery" in text
+    assert "Test-HostRuntimeProgramsRunning" in text
+    assert "$bridgeRecoveredRunning = Test-HostRuntimeProgramsRunning" in text
 
 
 def test_host_runtime_ctl_handles_missing_service_start_time_when_syncing_config() -> (
