@@ -9,6 +9,7 @@ from loguru import logger
 import freshquant.util.datetime_helper as datetime_helper
 from freshquant.basic.singleton_type import SingletonType
 from freshquant.data.astock.holding import (
+    _query_grid_interval,
     get_arranged_stock_fill_list,
     get_stock_holding_codes,
 )
@@ -18,11 +19,13 @@ from freshquant.order_management.entry_adapter import list_open_entry_views
 from freshquant.order_management.guardian.sell_semantics import (
     build_guardian_sell_source_entries,
 )
+from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.sell_constraints import (
     PositionVolumeReader,
     resolve_sell_submission_quantity,
 )
 from freshquant.order_management.submit.guardian import submit_guardian_order
+from freshquant.order_management.time_helpers import beijing_datetime_from_epoch
 from freshquant.pool.general import queryMustPoolCodes
 from freshquant.position_management.errors import PositionManagementRejectedError
 from freshquant.runtime_observability.failures import (
@@ -267,23 +270,21 @@ class StrategyGuardian(metaclass=SingletonType):
     ):
         current_node = "timing_check"
         try:
-            fill_list = get_arranged_stock_fill_list(code) or []
-            last_fill = fill_list[-1] if fill_list else None
+            fill_reference = _resolve_guardian_buy_fill_reference(code)
             last_fill_dt = None
             last_fill_price = None
-            if last_fill is not None:
-                last_fill_dt = datetime.strptime(
-                    "%s %s" % (str(last_fill["date"]), last_fill["time"]),
-                    "%Y%m%d %H:%M:%S",
-                )
-                last_fill_dt = fq_util_datetime_localize(last_fill_dt)
-                last_fill_price = last_fill["price"]
+            last_fill_source = None
+            if fill_reference is not None:
+                last_fill_dt = fill_reference["fill_time"]
+                last_fill_price = fill_reference["fill_price"]
+                last_fill_source = fill_reference["fill_reference_source"]
 
             if last_fill_dt is not None:
                 timing_context = {
                     "timing": {
                         "fire_time": fire_time,
                         "last_fill_time": last_fill_dt,
+                        "fill_reference_source": last_fill_source,
                     }
                 }
                 if fire_time < last_fill_dt:
@@ -324,11 +325,16 @@ class StrategyGuardian(metaclass=SingletonType):
 
             current_node = "price_threshold_check"
             if last_fill_price is not None:
-                threshold = eval_stock_threshold_price(code, last_fill_price)
+                threshold = _resolve_guardian_buy_threshold(code, fill_reference)
                 threshold_context = {
                     "threshold": {
                         "current_price": price,
                         "last_fill_price": last_fill_price,
+                        "fill_reference_source": last_fill_source,
+                        "threshold_rule_source": threshold.get(
+                            "threshold_rule_source"
+                        ),
+                        "grid_interval": threshold.get("grid_interval"),
                         "bot_river_price": threshold.get("bot_river_price"),
                         "top_river_price": threshold.get("top_river_price"),
                     }
@@ -794,15 +800,18 @@ class StrategyGuardian(metaclass=SingletonType):
                 logger.info(message)
                 return
 
-            last_fill_dt = datetime.strptime(
-                "%s %s" % (str(last_fill["date"]), last_fill["time"]),
-                "%Y%m%d %H:%M:%S",
+            fill_reference = _build_arranged_fill_reference(
+                last_fill,
+                source="guardian_arranged_fill",
             )
-            last_fill_dt = fq_util_datetime_localize(last_fill_dt)
+            last_fill_dt = fill_reference["fill_time"]
             timing_context = {
                 "timing": {
                     "fire_time": fire_time,
                     "last_fill_time": last_fill_dt,
+                    "fill_reference_source": fill_reference[
+                        "fill_reference_source"
+                    ],
                 }
             }
             if fire_time < last_fill_dt:
@@ -842,12 +851,15 @@ class StrategyGuardian(metaclass=SingletonType):
             )
 
             current_node = "price_threshold_check"
-            last_fill_price = last_fill["price"]
+            last_fill_price = fill_reference["fill_price"]
             threshold = eval_stock_threshold_price(code, last_fill_price)
             threshold_context = {
                 "threshold": {
                     "current_price": price,
                     "last_fill_price": last_fill_price,
+                    "fill_reference_source": fill_reference[
+                        "fill_reference_source"
+                    ],
                     "bot_river_price": threshold.get("bot_river_price"),
                     "top_river_price": threshold.get("top_river_price"),
                 }
@@ -1377,6 +1389,7 @@ if __name__ == "__main__":
 
 _runtime_logger = None
 _position_reader = None
+_order_management_repository = None
 
 
 def _get_runtime_logger():
@@ -1391,6 +1404,13 @@ def _get_position_reader():
     if _position_reader is None:
         _position_reader = PositionVolumeReader(DBfreshquant)
     return _position_reader
+
+
+def _get_order_management_repository():
+    global _order_management_repository
+    if _order_management_repository is None:
+        _order_management_repository = OrderManagementRepository()
+    return _order_management_repository
 
 
 def _resolve_guardian_arrangement_scope(code):
@@ -1445,3 +1465,102 @@ def _build_guardian_sell_strategy_context(
 
 def _resolve_guardian_sell_source_entries(fill_list, *, quantity):
     return build_guardian_sell_source_entries(fill_list, quantity=quantity)
+
+
+def _resolve_guardian_buy_fill_reference(code):
+    fill_reference = _get_latest_execution_fill_reference(code)
+    if fill_reference is not None:
+        return fill_reference
+    fill_list = get_arranged_stock_fill_list(code) or []
+    last_fill = fill_list[-1] if fill_list else None
+    return _build_arranged_fill_reference(
+        last_fill,
+        source="guardian_arranged_fill_fallback",
+    )
+
+
+def _resolve_guardian_buy_threshold(code, fill_reference):
+    if fill_reference is None:
+        return None
+    if fill_reference["fill_reference_source"] == "guardian_arranged_fill_fallback":
+        return _build_guardian_slice_next_level_threshold(code, fill_reference)
+    threshold = dict(eval_stock_threshold_price(code, fill_reference["fill_price"]))
+    threshold["threshold_rule_source"] = "threshold_config"
+    return threshold
+
+
+def _get_latest_execution_fill_reference(code):
+    repository = _get_order_management_repository()
+    execution_fills = repository.list_execution_fills(symbol=code) or []
+    valid_fills = [
+        item
+        for item in execution_fills
+        if _coerce_int(item.get("trade_time")) is not None
+        and item.get("price") not in {None, ""}
+    ]
+    if not valid_fills:
+        return None
+    last_fill = max(valid_fills, key=_execution_fill_sort_key)
+    return {
+        "fill_time": beijing_datetime_from_epoch(last_fill["trade_time"]),
+        "fill_price": float(last_fill["price"]),
+        "fill_reference_source": "execution_fill",
+    }
+
+
+def _build_arranged_fill_reference(fill, *, source):
+    if fill is None:
+        return None
+    last_fill_dt = datetime.strptime(
+        "%s %s" % (str(fill["date"]), fill["time"]),
+        "%Y%m%d %H:%M:%S",
+    )
+    return {
+        "fill_time": fq_util_datetime_localize(last_fill_dt),
+        "fill_price": fill["price"],
+        "fill_reference_source": source,
+    }
+
+
+def _build_guardian_slice_next_level_threshold(code, fill_reference):
+    grid_interval = _get_guardian_buy_slice_grid_interval(code, fill_reference)
+    base_price = float(fill_reference["fill_price"])
+    next_level_price = float(f"{(base_price / grid_interval):.2f}")
+    return {
+        "instrument_code": fq_util_code_append_market_code_suffix(code),
+        "base_price": base_price,
+        "top_river_price": base_price,
+        "bot_river_price": next_level_price,
+        "config": {
+            "mode": "guardian_slice_next_level",
+            "grid_interval": grid_interval,
+        },
+        "threshold_rule_source": "guardian_slice_next_level",
+        "grid_interval": grid_interval,
+    }
+
+
+def _get_guardian_buy_slice_grid_interval(code, fill_reference):
+    fill_time = fill_reference.get("fill_time")
+    if fill_time is None:
+        raise ValueError("guardian arranged fill fallback requires fill_time")
+    grid_interval = float(_query_grid_interval(code, fill_time.strftime("%Y-%m-%d")))
+    if grid_interval <= 0:
+        raise ValueError("guardian arranged fill fallback requires positive grid_interval")
+    return grid_interval
+
+
+def _execution_fill_sort_key(item):
+    return (
+        _coerce_int(item.get("trade_time")) or -1,
+        str(item.get("created_at") or ""),
+        str(item.get("broker_trade_id") or ""),
+        str(item.get("execution_fill_id") or ""),
+    )
+
+
+def _coerce_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
