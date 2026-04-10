@@ -432,6 +432,10 @@ def test_holding_buy_fallback_uses_next_guardian_slice_threshold(monkeypatch):
         lambda _code, _fill_reference: 1.03,
     )
     monkeypatch.setattr(
+        "freshquant.strategy.guardian.fq_util_code_append_market_code_suffix",
+        lambda _code: f"SZ{_code}",
+    )
+    monkeypatch.setattr(
         "freshquant.strategy.guardian.eval_stock_threshold_price",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("threshold config should not be used for guardian fallback")

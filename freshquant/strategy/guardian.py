@@ -331,9 +331,7 @@ class StrategyGuardian(metaclass=SingletonType):
                         "current_price": price,
                         "last_fill_price": last_fill_price,
                         "fill_reference_source": last_fill_source,
-                        "threshold_rule_source": threshold.get(
-                            "threshold_rule_source"
-                        ),
+                        "threshold_rule_source": threshold.get("threshold_rule_source"),
                         "grid_interval": threshold.get("grid_interval"),
                         "bot_river_price": threshold.get("bot_river_price"),
                         "top_river_price": threshold.get("top_river_price"),
@@ -809,9 +807,7 @@ class StrategyGuardian(metaclass=SingletonType):
                 "timing": {
                     "fire_time": fire_time,
                     "last_fill_time": last_fill_dt,
-                    "fill_reference_source": fill_reference[
-                        "fill_reference_source"
-                    ],
+                    "fill_reference_source": fill_reference["fill_reference_source"],
                 }
             }
             if fire_time < last_fill_dt:
@@ -857,9 +853,7 @@ class StrategyGuardian(metaclass=SingletonType):
                 "threshold": {
                     "current_price": price,
                     "last_fill_price": last_fill_price,
-                    "fill_reference_source": fill_reference[
-                        "fill_reference_source"
-                    ],
+                    "fill_reference_source": fill_reference["fill_reference_source"],
                     "bot_river_price": threshold.get("bot_river_price"),
                     "top_river_price": threshold.get("top_river_price"),
                 }
@@ -1546,7 +1540,9 @@ def _get_guardian_buy_slice_grid_interval(code, fill_reference):
         raise ValueError("guardian arranged fill fallback requires fill_time")
     grid_interval = float(_query_grid_interval(code, fill_time.strftime("%Y-%m-%d")))
     if grid_interval <= 0:
-        raise ValueError("guardian arranged fill fallback requires positive grid_interval")
+        raise ValueError(
+            "guardian arranged fill fallback requires positive grid_interval"
+        )
     return grid_interval
 
 
