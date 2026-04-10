@@ -319,8 +319,8 @@ def test_holding_buy_prefers_latest_execution_fill_over_arranged_fill(monkeypatc
         "freshquant.strategy.guardian.get_arranged_stock_fill_list",
         lambda _code: [
             {
-                "date": int(fire_time.add(minutes=1).format("YYYYMMDD")),
-                "time": fire_time.add(minutes=1).format("HH:mm:ss"),
+                "date": int(fire_time.subtract(minutes=2).format("YYYYMMDD")),
+                "time": fire_time.subtract(minutes=2).format("HH:mm:ss"),
                 "price": 30.0,
                 "quantity": 100,
             }
@@ -376,6 +376,118 @@ def test_holding_buy_prefers_latest_execution_fill_over_arranged_fill(monkeypatc
     StrategyGuardian().on_signal(signal)
 
     assert threshold_prices == [10.0]
+    assert captured["action"] == "buy"
+    assert captured["quantity"] == 300
+    assert fake_redis.events[0][1] == "buy:000001"
+
+
+def test_holding_buy_ignores_stale_execution_fill_when_slices_are_newer(monkeypatch):
+    captured = {}
+    fake_redis = FakeRedis()
+    fake_order_alert = FakeOrderAlert()
+    decision_service = FakeGuardianBuyGridService(
+        holding_decision={
+            "path": "holding_add",
+            "quantity": 300,
+            "grid_level": "BUY-1",
+            "hit_levels": ["BUY-1"],
+            "multiplier": 2,
+            "source_price": 10.0,
+            "buy_prices_snapshot": {"BUY-1": 10.3},
+            "buy_active_before": [True],
+        }
+    )
+    signal = _make_signal(price=10.0)
+    fire_time = signal["fire_time"]
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_guardian_buy_grid_service",
+        lambda: decision_service,
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.queryMustPoolCodes",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian._get_latest_execution_fill_reference",
+        lambda _code: _make_fill_reference(fire_time.subtract(minutes=3), price=10.8),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
+        lambda _code: [
+            {
+                "date": int(fire_time.subtract(minutes=1).format("YYYYMMDD")),
+                "time": fire_time.subtract(minutes=1).format("HH:mm:ss"),
+                "price": 12.0,
+                "quantity": 100,
+            },
+            {
+                "date": int(fire_time.subtract(minutes=2).format("YYYYMMDD")),
+                "time": fire_time.subtract(minutes=2).format("HH:mm:ss"),
+                "price": 10.3,
+                "quantity": 100,
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian._get_guardian_buy_slice_grid_interval",
+        lambda _code, _fill_reference: 1.03,
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.fq_util_code_append_market_code_suffix",
+        lambda _code: f"SZ{_code}",
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.eval_stock_threshold_price",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "stale execution fill should not drive holding buy threshold"
+            )
+        ),
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", fake_redis)
+    monkeypatch.setattr("freshquant.strategy.guardian.order_alert", fake_order_alert)
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+
+    def fake_submit(
+        action,
+        symbol,
+        price,
+        quantity,
+        remark=None,
+        strategy_context=None,
+        is_profitable=None,
+    ):
+        captured.update(
+            {
+                "action": action,
+                "symbol": symbol,
+                "price": price,
+                "quantity": quantity,
+                "remark": remark,
+                "strategy_context": strategy_context,
+                "is_profitable": is_profitable,
+            }
+        )
+        return {
+            "request_id": "req_slice_stale_1",
+            "internal_order_id": "ord_slice_stale_1",
+            "queue_payload": {},
+        }
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order", fake_submit
+    )
+
+    StrategyGuardian().on_signal(signal)
+
     assert captured["action"] == "buy"
     assert captured["quantity"] == 300
     assert fake_redis.events[0][1] == "buy:000001"

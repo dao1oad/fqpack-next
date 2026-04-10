@@ -1462,15 +1462,21 @@ def _resolve_guardian_sell_source_entries(fill_list, *, quantity):
 
 
 def _resolve_guardian_buy_fill_reference(code):
-    fill_reference = _get_latest_execution_fill_reference(code)
-    if fill_reference is not None:
-        return fill_reference
     fill_list = get_arranged_stock_fill_list(code) or []
-    last_fill = fill_list[-1] if fill_list else None
-    return _build_arranged_fill_reference(
-        last_fill,
+    fallback_reference = _build_arranged_fill_reference(
+        fill_list[-1] if fill_list else None,
         source="guardian_arranged_fill_fallback",
     )
+    latest_arranged_reference = _get_latest_arranged_fill_reference(fill_list)
+    execution_fill_reference = _get_latest_execution_fill_reference(code)
+    if execution_fill_reference is not None:
+        if (
+            latest_arranged_reference is None
+            or execution_fill_reference["fill_time"]
+            >= latest_arranged_reference["fill_time"]
+        ):
+            return execution_fill_reference
+    return fallback_reference
 
 
 def _resolve_guardian_buy_threshold(code, fill_reference):
@@ -1514,6 +1520,20 @@ def _build_arranged_fill_reference(fill, *, source):
         "fill_price": fill["price"],
         "fill_reference_source": source,
     }
+
+
+def _get_latest_arranged_fill_reference(fill_list):
+    arranged_references = [
+        _build_arranged_fill_reference(
+            item,
+            source="guardian_arranged_fill_anchor",
+        )
+        for item in list(fill_list or [])
+    ]
+    arranged_references = [item for item in arranged_references if item is not None]
+    if not arranged_references:
+        return None
+    return max(arranged_references, key=lambda item: item["fill_time"])
 
 
 def _build_guardian_slice_next_level_threshold(code, fill_reference):

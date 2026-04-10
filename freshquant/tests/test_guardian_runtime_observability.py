@@ -310,7 +310,7 @@ def test_guardian_holding_buy_guardian_slice_fallback_emits_slice_threshold_rule
     monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
     monkeypatch.setattr(
         "freshquant.strategy.guardian._get_latest_execution_fill_reference",
-        lambda _code: None,
+        lambda _code: _make_fill_reference(fire_time.subtract(minutes=3), price=10.8),
     )
     monkeypatch.setattr(
         "freshquant.strategy.guardian.get_arranged_stock_fill_list",
