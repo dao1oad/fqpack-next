@@ -122,8 +122,13 @@ class FakeGuardianBuyGridService:
 
 
 def _make_fill_reference(fire_time, *, price=10.0, source="execution_fill"):
+    localized_fill_time = pendulum.from_format(
+        fire_time.format("YYYY-MM-DD HH:mm:ss"),
+        "YYYY-MM-DD HH:mm:ss",
+        tz="Asia/Shanghai",
+    )
     return {
-        "fill_time": fire_time.subtract(minutes=1),
+        "fill_time": localized_fill_time,
         "fill_price": price,
         "fill_reference_source": source,
     }
