@@ -909,6 +909,25 @@ const formatBooleanLikeLabel = (value) => {
   return parsed ? '是' : '否'
 }
 
+const formatFillReferenceSourceLabel = (value) => {
+  const normalized = toText(value)
+  if (!normalized) return ''
+  return {
+    execution_fill: '真实成交',
+    guardian_arranged_fill: 'Guardian 切片',
+    guardian_arranged_fill_fallback: 'Guardian 切片(回退)',
+  }[normalized] || normalized
+}
+
+const formatThresholdRuleSourceLabel = (value) => {
+  const normalized = toText(value)
+  if (!normalized) return ''
+  return {
+    threshold_config: '阈值配置',
+    guardian_slice_next_level: 'Guardian 下一档',
+  }[normalized] || normalized
+}
+
 const appendGuardianSignalHoverItems = (items, step = {}, options = {}) => {
   const signalSummary = step?.signal_summary || {}
   const signalDisplay = buildSymbolDisplay(
@@ -939,12 +958,16 @@ const appendGuardianContextItemsByType = (items, context = {}, type = '') => {
     appendHoverItem(items, '发现时间', context?.discover_time, { formatter: formatTimestampLabel })
     appendHoverItem(items, '截止时间', context?.cutoff_time, { formatter: formatTimestampLabel })
     appendHoverItem(items, '最大时长(分钟)', context?.max_age_minutes)
-    appendHoverItem(items, '最近成交时间', context?.last_fill_time, { formatter: formatTimestampLabel })
+    appendHoverItem(items, '基准时间', context?.last_fill_time, { formatter: formatTimestampLabel })
+    appendHoverItem(items, '基准来源', context?.fill_reference_source, { formatter: formatFillReferenceSourceLabel })
     return
   }
   if (normalizedType === 'threshold') {
     appendHoverItem(items, '当前价', context?.current_price)
-    appendHoverItem(items, '最近成交价', context?.last_fill_price)
+    appendHoverItem(items, '基准价', context?.last_fill_price)
+    appendHoverItem(items, '基准来源', context?.fill_reference_source, { formatter: formatFillReferenceSourceLabel })
+    appendHoverItem(items, '阈值规则', context?.threshold_rule_source, { formatter: formatThresholdRuleSourceLabel })
+    appendHoverItem(items, '切片间隔', context?.grid_interval)
     appendHoverItem(items, '底河价格', context?.bot_river_price)
     appendHoverItem(items, '顶河价格', context?.top_river_price)
     return

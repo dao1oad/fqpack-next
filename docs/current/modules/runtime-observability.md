@@ -173,8 +173,8 @@ Runtime Observability 当前采用“双存储”：
 - Guardian 的全局 Trace 节点 hover 当前重点展开：
   - `receive_signal`：标的、方向、周期、信号价格、触发时间、发现时间、信号备注、信号标签
   - `holding_scope_resolve`：仓位状态、是否持仓内、是否必选池内、成交次数
-  - `timing_check`：触发时间、发现时间、截止时间、最大时长、最近成交时间
-  - `price_threshold_check`：当前价、最近成交价、底河价格、顶河价格
+  - `timing_check`：触发时间、发现时间、截止时间、最大时长、基准时间、基准来源
+  - `price_threshold_check`：当前价、基准价、基准来源、阈值规则、切片间隔、底河价格、顶河价格
   - `signal_structure_check`：成交次数、中枢数量、最近成交时间、最近成交价、候选中枢、是否分离
   - `cooldown_check`：冷却键、是否命中冷却、上次值、冷却分钟
   - `quantity_check`：下单数量、路径、网格层级、来源价格、盈利成交数

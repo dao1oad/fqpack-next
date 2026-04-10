@@ -156,6 +156,7 @@ const makeGuardianTrace = ({
     threshold: {
       current_price: 9.8,
       last_fill_price: 10,
+      fill_reference_source: 'execution_fill',
       bot_river_price: 9.5,
       top_river_price: 12,
     },
@@ -1054,6 +1055,8 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
               current_price: 9.8,
               bot_river_price: 9.5,
               last_fill_price: 10,
+              fill_reference_source: 'execution_fill',
+              threshold_rule_source: 'threshold_config',
             },
           },
           decision_outcome: {
@@ -1085,12 +1088,99 @@ test('buildTraceLedgerRows returns dense table rows for recent trace list', () =
     '9.8',
   )
   assert.equal(
-    rows[0].flow_nodes[1].hover_items.find((item) => item.label === '最近成交价')?.value,
+    rows[0].flow_nodes[1].hover_items.find((item) => item.label === '基准价')?.value,
     '10',
+  )
+  assert.equal(
+    rows[0].flow_nodes[1].hover_items.find((item) => item.label === '基准来源')?.value,
+    '真实成交',
+  )
+  assert.equal(
+    rows[0].flow_nodes[1].hover_items.find((item) => item.label === '阈值规则')?.value,
+    '阈值配置',
   )
   assert.equal(
     rows[0].flow_nodes[1].hover_items.find((item) => item.label === '结果')?.value,
     '跳过',
+  )
+})
+
+test('buildTraceLedgerRows renders guardian slice fallback threshold rule', () => {
+  const rows = buildTraceLedgerRows([
+    {
+      trace_id: 'trc_dense_slice_1',
+      trace_key: 'trace:trc_dense_slice_1',
+      trace_kind: 'guardian_signal',
+      trace_status: 'failed',
+      first_ts: '2026-03-09T02:00:00Z',
+      last_ts: '2026-03-09T02:00:02Z',
+      duration_ms: 2000,
+      entry_component: 'guardian_strategy',
+      entry_node: 'receive_signal',
+      exit_component: 'guardian_strategy',
+      exit_node: 'price_threshold_check',
+      symbol: '000001',
+      steps: [
+        {
+          component: 'guardian_strategy',
+          node: 'receive_signal',
+          status: 'info',
+          ts: '2026-03-09T02:00:00Z',
+          trace_id: 'trc_dense_slice_1',
+          symbol: '000001',
+          signal_summary: {
+            code: '000001',
+            name: '平安银行',
+            price: 10.01,
+            remark: '切片回退',
+          },
+        },
+        {
+          component: 'guardian_strategy',
+          node: 'price_threshold_check',
+          status: 'skipped',
+          ts: '2026-03-09T02:00:01Z',
+          trace_id: 'trc_dense_slice_1',
+          symbol: '000001',
+          signal_summary: {
+            code: '000001',
+            name: '平安银行',
+            price: 10.01,
+            remark: '切片回退',
+          },
+          reason_code: 'price_threshold_not_met',
+          decision_expr: 'current_price <= bot_river_price',
+          decision_context: {
+            threshold: {
+              current_price: 10.01,
+              bot_river_price: 10.0,
+              top_river_price: 10.3,
+              last_fill_price: 10.3,
+              fill_reference_source: 'guardian_arranged_fill_fallback',
+              threshold_rule_source: 'guardian_slice_next_level',
+              grid_interval: 1.03,
+            },
+          },
+          decision_outcome: {
+            outcome: 'skip',
+            reason_code: 'price_threshold_not_met',
+          },
+        },
+      ],
+    },
+  ])
+
+  assert.equal(
+    rows[0].flow_nodes[1].hover_items.find((item) => item.label === '基准来源')?.value,
+    'Guardian 切片(回退)',
+  )
+  assert.equal(
+    rows[0].flow_nodes[1].hover_items.find((item) => item.label === '阈值规则')?.value,
+    'Guardian 下一档',
+  )
+  assert.equal(
+    rows[0].flow_nodes[1].hover_items.find((item) => item.label === '切片间隔')?.value,
+    '1.03',
   )
 })
 
