@@ -3,7 +3,10 @@ from datetime import datetime
 import pytest
 
 from freshquant import runtime_constants
-from freshquant.market_data.xtdata.bar_generator import OneMinuteBarGenerator
+from freshquant.market_data.xtdata.bar_generator import (
+    OneMinuteBarGenerator,
+    _should_scan_timer,
+)
 
 
 def _tick(y, m, d, hour, minute, second, *, price, volume, amount):
@@ -21,6 +24,10 @@ def _end_ts(y, m, d, hour, minute, second=0):
     return int(dt.timestamp())
 
 
+def _dt(y, m, d, hour, minute, second=0):
+    return runtime_constants.TZ.localize(datetime(y, m, d, hour, minute, second))
+
+
 @pytest.fixture
 def generator():
     g = OneMinuteBarGenerator(enable_synthetic=True, push_1m=True, redis_client=None)
@@ -28,6 +35,21 @@ def generator():
         yield g
     finally:
         g.stop()
+
+
+@pytest.mark.parametrize(
+    ("dt", "expected"),
+    [
+        (_dt(2026, 4, 13, 9, 35, 0), True),
+        (_dt(2026, 4, 13, 11, 30, 30), True),
+        (_dt(2026, 4, 13, 11, 31, 0), False),
+        (_dt(2026, 4, 13, 12, 15, 0), False),
+        (_dt(2026, 4, 13, 15, 0, 30), True),
+        (_dt(2026, 4, 13, 15, 1, 0), False),
+    ],
+)
+def test_timer_only_scans_during_trading_or_session_close_window(dt, expected):
+    assert _should_scan_timer(dt) is expected
 
 
 def test_zero_delta_snapshot_does_not_rewrite_bar_ohlc(generator):

@@ -73,6 +73,12 @@ def _timer_close_cutoff(dt: datetime) -> int:
     return int(dt.replace(hour=15, minute=1, second=0, microsecond=0).timestamp())
 
 
+def _should_scan_timer(dt: datetime) -> bool:
+    if _is_cn_a_trading_datetime(dt):
+        return True
+    return (dt.hour, dt.minute) in {(11, 30), (15, 0)}
+
+
 @dataclass(frozen=True)
 class BarEvent:
     code: str
@@ -263,6 +269,9 @@ class OneMinuteBarGenerator:
         while not self._timer_stop.is_set():
             try:
                 now = datetime.now(tz=TZ)
+                if not _should_scan_timer(now):
+                    time.sleep(1)
+                    continue
                 end_ts = _timer_close_cutoff(now)
                 to_push: list[BarEvent] = []
                 with self._lock:
