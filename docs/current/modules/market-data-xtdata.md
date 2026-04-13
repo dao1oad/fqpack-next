@@ -45,6 +45,8 @@ producer 是唯一 XTData 入口；consumer 是唯一 bar 队列消费入口。
 `XTData -> market_producer/OneMinuteBarGenerator -> REDIS_QUEUE_PREFIX:<shard> -> strategy_consumer -> realtime cache / chanlun payload / Guardian`
 
 consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catchup 模式，暂时跳过 fullcalc，只保留最新数据。
+- `OneMinuteBarGenerator` 当前只在 `whole_quote` 快照带来正向 `volume/amount` 增量时更新 1 分钟 bar 的 OHLC；无成交的 quote-only 快照不会再改写分钟高低收。
+- `11:30:00` 与 `15:00:00` 这类交易时段结束边界快照会归入最后一个有效分钟 bar，而不是落到午休或收盘后的无效分钟桶。
 
 ## 存储
 
