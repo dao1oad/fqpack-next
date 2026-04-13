@@ -40,8 +40,16 @@ def _is_noon_break(dt: datetime) -> bool:
     )
 
 
+def _is_session_terminal_boundary(dt: datetime) -> bool:
+    if dt.second != 0 or dt.microsecond != 0:
+        return False
+    return (dt.hour, dt.minute) in {(11, 30), (15, 0)}
+
+
 def _ceil_minute_end(dt: datetime) -> datetime:
     dt0 = dt.replace(second=0, microsecond=0)
+    if _is_session_terminal_boundary(dt):
+        return dt0
     return dt0 + timedelta(minutes=1)
 
 
@@ -53,6 +61,22 @@ def _bucket_end(dt: datetime, period_min: int) -> datetime:
     if delta == period_min:
         delta = 0
     return dt0 + timedelta(minutes=delta)
+
+
+def _timer_close_cutoff(dt: datetime) -> int:
+    if _is_cn_a_trading_datetime(dt):
+        return int(_ceil_minute_end(dt).timestamp())
+    if _is_noon_break(dt):
+        return int(dt.replace(hour=13, minute=1, second=0, microsecond=0).timestamp())
+    if dt.time() < datetime(dt.year, dt.month, dt.day, 9, 30).time():
+        return int(dt.replace(hour=9, minute=31, second=0, microsecond=0).timestamp())
+    return int(dt.replace(hour=15, minute=1, second=0, microsecond=0).timestamp())
+
+
+def _should_scan_timer(dt: datetime) -> bool:
+    if _is_cn_a_trading_datetime(dt):
+        return True
+    return (dt.hour, dt.minute) in {(11, 30), (15, 0)}
 
 
 @dataclass(frozen=True)
@@ -203,7 +227,12 @@ class OneMinuteBarGenerator:
         self._lock = threading.Lock()
         self._bars: dict[str, dict[str, Any]] = defaultdict(dict)
         self._tick_cache: dict[str, dict[str, Any]] = defaultdict(
-            lambda: {"last_vol": 0.0, "last_amt": 0.0}
+            lambda: {
+                "last_vol": 0.0,
+                "last_amt": 0.0,
+                "last_tick_ms": 0,
+                "trading_day": None,
+            }
         )
         self._last_close: dict[str, float] = {}
 
@@ -240,11 +269,10 @@ class OneMinuteBarGenerator:
         while not self._timer_stop.is_set():
             try:
                 now = datetime.now(tz=TZ)
-                if not _is_cn_a_trading_datetime(now):
+                if not _should_scan_timer(now):
                     time.sleep(1)
                     continue
-                end_dt = _ceil_minute_end(now)
-                end_ts = int(end_dt.timestamp())
+                end_ts = _timer_close_cutoff(now)
                 to_push: list[BarEvent] = []
                 with self._lock:
                     for code in list(self._bars.keys()):
@@ -256,6 +284,45 @@ class OneMinuteBarGenerator:
             except Exception:
                 traceback.print_exc()
             time.sleep(0.5)
+
+    def _update_tick_baseline(
+        self,
+        code: str,
+        *,
+        cum_vol: float,
+        cum_amt: float,
+        tick_time_ms: int,
+        trading_day: str,
+    ) -> None:
+        prev = self._tick_cache[code]
+        prev["last_vol"] = float(cum_vol)
+        prev["last_amt"] = float(cum_amt)
+        prev["last_tick_ms"] = int(tick_time_ms)
+        prev["trading_day"] = trading_day
+
+    def _ensure_bar(
+        self, code: str, *, end_ts: int, price: float, mark_tick: bool
+    ) -> dict[str, Any]:
+        bar = self._bars.get(code) or {}
+        if not bar or int(bar.get("time") or 0) != end_ts:
+            self._bars[code] = {
+                "time": end_ts,
+                "open": price,
+                "high": price,
+                "low": price,
+                "close": price,
+                "volume": 0.0,
+                "amount": 0.0,
+                "_had_tick": bool(mark_tick),
+            }
+            return self._bars[code]
+        if mark_tick and not bar.get("_had_tick"):
+            bar["open"] = price
+            bar["high"] = price
+            bar["low"] = price
+            bar["close"] = price
+            bar["_had_tick"] = True
+        return bar
 
     def _close_until(self, code: str, before_end_ts: int) -> list[BarEvent]:
         events: list[BarEvent] = []
@@ -338,42 +405,65 @@ class OneMinuteBarGenerator:
             return []
         end_ts = int(end_dt.timestamp())
 
+        events: list[BarEvent] = []
+        bar = self._bars.get(code) or {}
+        if bar and int(bar.get("time") or 0) < end_ts:
+            events.extend(self._close_until(code, end_ts))
+
         prev = self._tick_cache[code]
         last_vol = float(prev.get("last_vol") or 0.0)
         last_amt = float(prev.get("last_amt") or 0.0)
-        vol_delta = 0.0 if last_vol <= 0.0 else (cum_vol - last_vol)
-        amt_delta = 0.0 if last_vol <= 0.0 else (cum_amt - last_amt)
-        prev["last_vol"] = cum_vol
-        prev["last_amt"] = cum_amt
-        if vol_delta < 0:
-            return []
+        last_tick_ms = int(prev.get("last_tick_ms") or 0)
+        trading_day = dt.date().isoformat()
+        same_day = (
+            last_tick_ms > 0 and str(prev.get("trading_day") or "") == trading_day
+        )
+        last_vol_usable = same_day and last_vol > 0.0
+        last_amt_usable = same_day and last_amt > 0.0
 
-        bar = self._bars.get(code) or {}
-        events: list[BarEvent] = []
-        if bar and int(bar.get("time") or 0) < end_ts:
-            events.extend(self._close_until(code, end_ts))
-            bar = self._bars.get(code) or {}
+        if not same_day or (not last_vol_usable and not last_amt_usable):
+            self._update_tick_baseline(
+                code,
+                cum_vol=cum_vol,
+                cum_amt=cum_amt,
+                tick_time_ms=tick_time_ms,
+                trading_day=trading_day,
+            )
+            if price > 0.0 and (cum_vol > 0.0 or cum_amt > 0.0):
+                self._ensure_bar(code, end_ts=end_ts, price=price, mark_tick=True)
+                self._last_close[code] = float(price)
+            return events
 
-        if not bar or int(bar.get("time") or 0) != end_ts:
-            self._bars[code] = {
-                "time": end_ts,
-                "open": price,
-                "high": price,
-                "low": price,
-                "close": price,
-                "volume": 0.0,
-                "amount": 0.0,
-                "_had_tick": True,
-            }
-            bar = self._bars[code]
-        else:
-            if not bar.get("_had_tick"):
-                bar["open"] = price
-                bar["high"] = price
-                bar["low"] = price
-                bar["close"] = price
-                bar["_had_tick"] = True
+        vol_delta = 0.0 if not last_vol_usable else (cum_vol - last_vol)
+        amt_delta = 0.0 if not last_amt_usable else (cum_amt - last_amt)
+        if vol_delta < 0.0 or amt_delta < 0.0:
+            if cum_vol <= 0.0 and cum_amt <= 0.0:
+                return events
+            self._update_tick_baseline(
+                code,
+                cum_vol=cum_vol,
+                cum_amt=cum_amt,
+                tick_time_ms=tick_time_ms,
+                trading_day=trading_day,
+            )
+            return events
+        if vol_delta <= 0.0 and amt_delta <= 0.0:
+            if not last_vol_usable and cum_vol > 0.0:
+                prev["last_vol"] = float(cum_vol)
+            if not last_amt_usable and cum_amt > 0.0:
+                prev["last_amt"] = float(cum_amt)
+            prev["last_tick_ms"] = int(tick_time_ms)
+            prev["trading_day"] = trading_day
+            return events
 
+        self._update_tick_baseline(
+            code,
+            cum_vol=cum_vol,
+            cum_amt=cum_amt,
+            tick_time_ms=tick_time_ms,
+            trading_day=trading_day,
+        )
+        bar = self._ensure_bar(code, end_ts=end_ts, price=price, mark_tick=True)
         bar["high"] = max(float(bar["high"]), price)
         bar["low"] = min(float(bar["low"]), price)
         bar["close"] = price
