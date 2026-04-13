@@ -47,6 +47,7 @@ producer 是唯一 XTData 入口；consumer 是唯一 bar 队列消费入口。
 consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catchup 模式，暂时跳过 fullcalc，只保留最新数据。
 - `OneMinuteBarGenerator` 当前只在 `whole_quote` 快照带来正向 `volume/amount` 增量时更新 1 分钟 bar 的 OHLC；无成交的 quote-only 快照不会再改写分钟高低收。
 - `11:30:00` 与 `15:00:00` 这类交易时段结束边界快照会归入最后一个有效分钟 bar，而不是落到午休或收盘后的无效分钟桶。
+- `StrategyConsumer` 当前只允许“当天”的 realtime bar 参与 history/realtime merge；所有已完成交易日的分钟线都只信任盘后同步到 QuantAxis 的历史库，不再允许旧 `index_realtime/stock_realtime` 覆盖历史分钟线。
 
 ## 存储
 
