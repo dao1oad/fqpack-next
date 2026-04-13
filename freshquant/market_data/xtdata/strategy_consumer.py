@@ -237,6 +237,10 @@ def _load_minute_history_from_quantaxis_db(
     return hist_df.reset_index(drop=True)
 
 
+def _current_realtime_window_start(end_dt: datetime) -> datetime:
+    return end_dt.astimezone(TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
 def _worker_fullcalc(df: pd.DataFrame, model_ids: list[int]) -> dict[str, Any]:
     return run_fullcalc(df, model_ids=model_ids)
 
@@ -571,15 +575,17 @@ class StrategyConsumer:
             )
             hist_df = _empty_bar_window_df()
 
-        # realtime bars (may be empty)
+        # realtime bars are only trusted for the current calendar day; completed
+        # trading days must come from the post-close history sync.
         coll = "index_realtime" if is_index_like else "stock_realtime"
+        rt_start_dt = max(start_dt, _current_realtime_window_start(end_dt))
         rt_cur = (
             DBfreshquant[coll]
             .find(
                 {
                     "code": code,
                     "frequence": period_backend,
-                    "datetime": {"$gte": start_dt, "$lte": end_dt},
+                    "datetime": {"$gte": rt_start_dt, "$lte": end_dt},
                 },
                 {
                     "_id": 0,

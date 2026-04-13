@@ -443,3 +443,104 @@ def test_load_window_from_db_handles_mixed_datetime_shapes_in_history_docs(
         bar_1.strftime("%H:%M"),
         bar_2.strftime("%H:%M"),
     ]
+
+
+def test_load_window_from_db_ignores_completed_day_realtime_overlap(monkeypatch):
+    _disable_quantaxis_import(monkeypatch)
+
+    now_dt = cfg.TZ.localize(datetime(2026, 4, 13, 14, 30, 0))
+    prev_day_bar = cfg.TZ.localize(datetime(2026, 4, 10, 10, 2, 0))
+    today_bar = cfg.TZ.localize(datetime(2026, 4, 13, 14, 24, 0))
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return now_dt
+            return now_dt.astimezone(tz)
+
+    monkeypatch.setattr(sc, "datetime", FrozenDateTime)
+    monkeypatch.setattr(
+        sc,
+        "DBQuantAxis",
+        FakeDatabase(
+            {
+                "index_min": FakeCollection(
+                    [
+                        {
+                            "code": "512000",
+                            "type": "1min",
+                            "date": prev_day_bar.strftime("%Y-%m-%d"),
+                            "datetime": prev_day_bar.strftime("%Y-%m-%d %H:%M:%S"),
+                            "time_stamp": prev_day_bar.timestamp(),
+                            "open": 0.518,
+                            "high": 0.519,
+                            "low": 0.518,
+                            "close": 0.519,
+                            "vol": 33824800.0,
+                            "amount": 17552222.0,
+                        },
+                        {
+                            "code": "512000",
+                            "type": "1min",
+                            "date": today_bar.strftime("%Y-%m-%d"),
+                            "datetime": today_bar.strftime("%Y-%m-%d %H:%M:%S"),
+                            "time_stamp": today_bar.timestamp(),
+                            "open": 0.514,
+                            "high": 0.514,
+                            "low": 0.514,
+                            "close": 0.514,
+                            "vol": 1000.0,
+                            "amount": 514000.0,
+                        },
+                    ]
+                ),
+                "etf_adj": FakeCollection([]),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        sc,
+        "DBfreshquant",
+        FakeDatabase(
+            {
+                "index_realtime": FakeCollection(
+                    [
+                        {
+                            "code": "sh512000",
+                            "frequence": "1min",
+                            "datetime": prev_day_bar,
+                            "open": 0.518,
+                            "high": 0.519,
+                            "low": 0.493,
+                            "close": 0.519,
+                            "volume": 338248.0,
+                            "amount": 17552222.0,
+                        },
+                        {
+                            "code": "sh512000",
+                            "frequence": "1min",
+                            "datetime": today_bar,
+                            "open": 0.515,
+                            "high": 0.515,
+                            "low": 0.514,
+                            "close": 0.515,
+                            "volume": 2624.0,
+                            "amount": 134800.0,
+                        },
+                    ]
+                )
+            }
+        ),
+    )
+
+    consumer = _make_consumer(is_index_like=True)
+    result = consumer._load_window_from_db(code="sh512000", period_backend="1min")
+
+    assert result["datetime"].dt.strftime("%Y-%m-%d %H:%M").tolist() == [
+        prev_day_bar.strftime("%Y-%m-%d %H:%M"),
+        today_bar.strftime("%Y-%m-%d %H:%M"),
+    ]
+    assert result["low"].tolist() == [0.518, 0.514]
+    assert result["open"].tolist() == [0.518, 0.515]
+    assert result["close"].tolist() == [0.519, 0.515]
