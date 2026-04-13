@@ -406,7 +406,9 @@ class OneMinuteBarGenerator:
         last_amt = float(prev.get("last_amt") or 0.0)
         last_tick_ms = int(prev.get("last_tick_ms") or 0)
         trading_day = dt.date().isoformat()
-        same_day = last_tick_ms > 0 and str(prev.get("trading_day") or "") == trading_day
+        same_day = (
+            last_tick_ms > 0 and str(prev.get("trading_day") or "") == trading_day
+        )
         last_vol_usable = same_day and last_vol > 0.0
         last_amt_usable = same_day and last_amt > 0.0
 
