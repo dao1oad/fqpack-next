@@ -131,6 +131,7 @@ class PositionCreditClient:
                 pass
 
     def _call_read_only(self, operation, *, retry_on_empty=False):
+        last_error = None
         last_result = None
         for _ in range(2):
             try:
@@ -139,6 +140,7 @@ class PositionCreditClient:
             except Exception as error:
                 if not _is_retryable_xt_credit_error(error):
                     raise
+                last_error = error
                 self.reset_connection()
                 continue
             last_result = result
@@ -146,6 +148,8 @@ class PositionCreditClient:
                 self.reset_connection()
                 continue
             return result
+        if last_error is not None:
+            raise last_error
         return last_result
 
     def _refresh_runtime_config(

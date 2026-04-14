@@ -132,3 +132,61 @@ def test_query_client_reconnects_after_empty_credit_detail_response():
     assert first_trader.connect_calls == 1
     assert first_trader.stopped is True
     assert second_trader.connect_calls == 1
+
+
+def test_query_client_reraises_retryable_xt_failure_after_retry_exhaustion():
+    import pytest
+
+    from freshquant.xt_account_sync.client import XtAccountQueryClient
+
+    class FailingTrader:
+        def __init__(self):
+            self.connect_calls = 0
+            self.stopped = False
+
+        def start(self):
+            return None
+
+        def stop(self):
+            self.stopped = True
+
+        def connect(self):
+            self.connect_calls += 1
+            return 0
+
+        def subscribe(self, account):
+            return 0
+
+        def query_credit_detail(self, account):
+            raise RuntimeError("xtquant connect failed: -1")
+
+    traders = [FailingTrader(), FailingTrader()]
+    trader_iter = iter(traders)
+
+    def resolve_account(settings_provider=None):
+        xtquant = settings_provider.xtquant
+        account = SimpleNamespace(
+            account_id=xtquant.account,
+            account_type=xtquant.account_type,
+        )
+        return account, xtquant.account, xtquant.account_type
+
+    settings_provider = SimpleNamespace(
+        xtquant=SimpleNamespace(
+            path="D:/xtquant",
+            account="068000076370",
+            account_type="CREDIT",
+        )
+    )
+    client = XtAccountQueryClient(
+        session_id=123456,
+        trader_factory=lambda path, session_id: next(trader_iter),
+        settings_provider=settings_provider,
+        account_resolver=resolve_account,
+    )
+
+    with pytest.raises(RuntimeError, match="xtquant connect failed: -1"):
+        client.query_credit_detail()
+
+    assert traders[0].stopped is True
+    assert traders[1].stopped is True

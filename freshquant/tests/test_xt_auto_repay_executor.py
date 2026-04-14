@@ -272,3 +272,33 @@ def test_credit_client_reconnects_after_empty_credit_detail_response():
     assert first_trader.connect_calls == 1
     assert first_trader.stop_calls == 1
     assert second_trader.connect_calls == 1
+
+
+def test_credit_client_reraises_retryable_xt_failure_after_retry_exhaustion():
+    import pytest
+
+    from freshquant.position_management.credit_client import PositionCreditClient
+
+    class FailingQueryTrader(FakeTrader):
+        def query_credit_detail(self, account):
+            raise RuntimeError("xtquant connect failed: -1")
+
+    traders = [FailingQueryTrader(), FailingQueryTrader()]
+    trader_iter = iter(traders)
+    client = PositionCreditClient(
+        path="D:/mock/xtquant",
+        account_id="068000076370",
+        account_type="CREDIT",
+        trader_factory=lambda path, session_id: next(trader_iter),
+        account_factory=lambda account_id, account_type: type(
+            "FakeAccount",
+            (),
+            {"account_id": account_id, "account_type": account_type},
+        )(),
+    )
+
+    with pytest.raises(RuntimeError, match="xtquant connect failed: -1"):
+        client.query_credit_detail()
+
+    assert traders[0].stop_calls == 1
+    assert traders[1].stop_calls == 1

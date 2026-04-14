@@ -137,6 +137,7 @@ class XtAccountQueryClient:
                 pass
 
     def _call_read_only(self, operation, *, retry_on_empty=False):
+        last_error = None
         last_result = None
         for _ in range(2):
             try:
@@ -145,6 +146,7 @@ class XtAccountQueryClient:
             except Exception as error:
                 if not _is_retryable_xt_query_error(error):
                     raise
+                last_error = error
                 self.reset_connection()
                 continue
             last_result = result
@@ -152,6 +154,8 @@ class XtAccountQueryClient:
                 self.reset_connection()
                 continue
             return result
+        if last_error is not None:
+            raise last_error
         return last_result
 
     def _refresh_runtime_config(self, *, path=None, strict=False):
