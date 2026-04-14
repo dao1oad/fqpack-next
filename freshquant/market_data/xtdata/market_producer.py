@@ -35,6 +35,8 @@ PRODUCER_STALE_RX_THRESHOLD_S = 120.0
 PRODUCER_STALE_RETRY_INTERVAL_S = 30.0
 PRODUCER_STALE_RECONNECT_EVERY = 2
 PRODUCER_TICK_QUOTE_MAX_PENDING_BATCHES = 2048
+PRODUCER_XTDATA_RETRY_DELAY_S = 5.0
+PRODUCER_XTDATA_RETRY_DELAY_MAX_S = 60.0
 
 
 def _to_xt_symbol(code_prefixed: str) -> str:
@@ -645,7 +647,43 @@ def start_producer():
 
 @click.command()
 def main():
-    start_producer()
+    run_producer_with_xtdata_retry()
+
+
+def run_producer_with_xtdata_retry(
+    *,
+    start_fn=None,
+    sleep_fn=time.sleep,
+    retry_delay_seconds: float = PRODUCER_XTDATA_RETRY_DELAY_S,
+    retry_delay_max_seconds: float = PRODUCER_XTDATA_RETRY_DELAY_MAX_S,
+):
+    start_fn = start_fn or start_producer
+    delay_seconds = retry_delay_seconds
+    while True:
+        try:
+            return start_fn()
+        except Exception as error:
+            if not _is_retryable_xtdata_error(error):
+                raise
+            logger.warning(
+                "[Producer] XTData unavailable; retrying in %.1f seconds: %s",
+                delay_seconds,
+                error,
+            )
+            sleep_fn(delay_seconds)
+            delay_seconds = min(delay_seconds * 2, retry_delay_max_seconds)
+
+
+def _is_retryable_xtdata_error(error: Exception) -> bool:
+    message = str(error or "")
+    normalized = message.lower()
+    if normalized.startswith("xtquant connect failed:") or normalized.startswith(
+        "xtquant subscribe failed:"
+    ):
+        return True
+    if "无法连接xtquant" in message or "鏃犳硶杩炴帴xtquant" in message:
+        return True
+    return "xtquant" in normalized and "qmt" in normalized
 
 
 def _emit_runtime(runtime_logger, event) -> bool:

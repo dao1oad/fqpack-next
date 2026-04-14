@@ -47,6 +47,18 @@ def _default_code_loader() -> list[str]:
     return list(load_monitor_codes(mode=mode, max_symbols=max_symbols) or [])
 
 
+def _is_retryable_xtdata_error(error: Exception) -> bool:
+    message = str(error or "")
+    normalized = message.lower()
+    if normalized.startswith("xtquant connect failed:") or normalized.startswith(
+        "xtquant subscribe failed:"
+    ):
+        return True
+    if "无法连接xtquant" in message or "鏃犳硶杩炴帴xtquant" in message:
+        return True
+    return "xtquant" in normalized and "qmt" in normalized
+
+
 class AdjRefreshRepository:
     def get_base_anchor(
         self, kind: str, code: str, base_anchor_date: str
@@ -91,25 +103,48 @@ class XtDataAdjRefreshClient:
         self.xtdata.connect(port=self.port)
         self._connected = True
 
+    def _call_xtdata(self, operation):
+        last_error: Exception | None = None
+        for _ in range(2):
+            try:
+                self._ensure_connected()
+                return operation()
+            except Exception as error:
+                if not _is_retryable_xtdata_error(error):
+                    raise
+                last_error = error
+                self._connected = False
+        if last_error is not None:
+            raise last_error
+        return None
+
     def _load_close(
         self, code: str, trade_date: str, *, dividend_type: str
     ) -> float | None:
-        self._ensure_connected()
         xt_code = _to_xt_code(code)
         day_str = trade_date.replace("-", "")
         try:
-            self.xtdata.download_history_data(xt_code, "1d", day_str, day_str)
+            self._call_xtdata(
+                lambda: self.xtdata.download_history_data(
+                    xt_code,
+                    "1d",
+                    day_str,
+                    day_str,
+                )
+            )
         except Exception:
             pass
 
-        data = self.xtdata.get_market_data(
-            field_list=["close"],
-            stock_list=[xt_code],
-            period="1d",
-            start_time=day_str,
-            end_time=day_str,
-            dividend_type=dividend_type,
-            fill_data=False,
+        data = self._call_xtdata(
+            lambda: self.xtdata.get_market_data(
+                field_list=["close"],
+                stock_list=[xt_code],
+                period="1d",
+                start_time=day_str,
+                end_time=day_str,
+                dividend_type=dividend_type,
+                fill_data=False,
+            )
         )
         close_df = (data or {}).get("close")
         if close_df is None or getattr(close_df, "empty", True):

@@ -31,3 +31,33 @@ def test_resolve_producer_runtime_config_uses_system_settings_and_bootstrap():
         "mode": "guardian_and_clx_15_30",
         "max_symbols": 88,
     }
+
+
+def test_run_producer_with_xtdata_retry_retries_retryable_connect_errors():
+    start_calls = []
+    sleep_calls = []
+    attempts = iter(
+        [
+            Exception("无法连接xtquant服务，请检查QMT是否开启"),
+            "ok",
+        ]
+    )
+
+    def fake_start():
+        start_calls.append("called")
+        result = next(attempts)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+
+    result = market_producer.run_producer_with_xtdata_retry(
+        start_fn=fake_start,
+        sleep_fn=fake_sleep,
+    )
+
+    assert result == "ok"
+    assert start_calls == ["called", "called"]
+    assert sleep_calls == [5.0]
