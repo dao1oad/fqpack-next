@@ -34,7 +34,9 @@ def run_forever(
     retry_delay_seconds=5.0,
     retry_delay_max_seconds=60.0,
 ):
-    sync_service_factory = XtAccountSyncService.build_default if service is None else None
+    sync_service_factory = (
+        XtAccountSyncService.build_default if service is None else None
+    )
     sync_service = service or sync_service_factory()
     now_provider = now_provider or _shanghai_now
     startup_time = now_provider()

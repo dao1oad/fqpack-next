@@ -336,9 +336,7 @@ def test_worker_run_forever_rebuilds_default_service_after_retryable_xt_errors(
 ):
     from freshquant.xt_account_sync import worker as worker_module
 
-    failed_service = SequencedSyncService(
-        [RuntimeError("xtquant connect failed: -1")]
-    )
+    failed_service = SequencedSyncService([RuntimeError("xtquant connect failed: -1")])
     recovered_service = SequencedSyncService(
         [
             {"positions": {"count": 1}},
@@ -348,17 +346,17 @@ def test_worker_run_forever_rebuilds_default_service_after_retryable_xt_errors(
     built_services = []
     service_queue = iter([failed_service, recovered_service])
 
+    def _build_service():
+        built_services.append("build")
+        return next(service_queue)
+
     monkeypatch.setattr(
         worker_module,
         "XtAccountSyncService",
         type(
             "FakeXtAccountSyncService",
             (),
-            {
-                "build_default": staticmethod(
-                    lambda: built_services.append("build") or next(service_queue)
-                )
-            },
+            {"build_default": staticmethod(_build_service)},
         ),
     )
     warnings = []
