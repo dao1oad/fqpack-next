@@ -331,6 +331,94 @@ def test_worker_run_forever_retries_retryable_xt_errors_until_startup_succeeds(
     ]
 
 
+def test_worker_run_forever_rebuilds_default_service_after_retryable_xt_errors(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync import worker as worker_module
+
+    failed_service = SequencedSyncService(
+        [RuntimeError("xtquant connect failed: -1")]
+    )
+    recovered_service = SequencedSyncService(
+        [
+            {"positions": {"count": 1}},
+            {"positions": {"count": 2}},
+        ]
+    )
+    built_services = []
+    service_queue = iter([failed_service, recovered_service])
+
+    monkeypatch.setattr(
+        worker_module,
+        "XtAccountSyncService",
+        type(
+            "FakeXtAccountSyncService",
+            (),
+            {
+                "build_default": staticmethod(
+                    lambda: built_services.append("build") or next(service_queue)
+                )
+            },
+        ),
+    )
+    warnings = []
+    monkeypatch.setattr(
+        worker_module,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: warnings.append(message % args),
+        ),
+    )
+    moments = iter(
+        [
+            datetime(2026, 3, 19, 9, 19, tzinfo=timezone.utc),
+            datetime(2026, 3, 19, 9, 20, tzinfo=timezone.utc),
+        ]
+    )
+    sleep_calls = []
+
+    def fake_now():
+        return next(moments)
+
+    def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        if len(sleep_calls) >= 2:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        worker_module.run_forever(
+            interval_seconds=3,
+            sleep_fn=fake_sleep,
+            now_provider=fake_now,
+            scheduled_hour=9,
+            scheduled_minute=20,
+            retry_delay_seconds=5,
+            retry_delay_max_seconds=60,
+        )
+
+    assert built_services == ["build", "build"]
+    assert failed_service.calls == [
+        {
+            "include_credit_subjects": True,
+            "seed_symbol_snapshots": True,
+        }
+    ]
+    assert recovered_service.calls == [
+        {
+            "include_credit_subjects": True,
+            "seed_symbol_snapshots": True,
+        },
+        {
+            "include_credit_subjects": True,
+            "seed_symbol_snapshots": True,
+        },
+    ]
+    assert sleep_calls == [5, 3]
+    assert warnings == [
+        "xt_account_sync XT unavailable; retrying in 5.0 seconds: xtquant connect failed: -1"
+    ]
+
+
 def test_worker_run_forever_keeps_non_retryable_errors_fatal():
     from freshquant.xt_account_sync.worker import run_forever
 

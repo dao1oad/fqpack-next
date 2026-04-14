@@ -595,7 +595,7 @@ print(inspect.signature(resolve_stock_account))
 
 - 先确认正式 deploy 来源已经是最新远程 `main` 已合并 SHA
 - 当前仓库中的 `freshquant/xt_account_sync/client.py` 已兼容新旧 `resolve_stock_account` 签名；如果仍报这个错误，说明宿主机还没跑到最新已合并代码，先重新同步 deploy mirror 并重跑 formal deploy
-- 当前 worker 会对 `xtquant connect failed:*` 与 `xtquant subscribe failed:*` 保持 `Running` 并退避重试；如果 stderr 持续刷这两类日志，优先确认 MiniQMT 已启动且已登录正确账户
+- 当前 worker 会对 `xtquant connect failed:*` 与 `xtquant subscribe failed:*` 保持 `Running` 并退避重试，且每次可重试失败后都会重建新的 XT sync service/client；如果 stderr 持续刷这两类日志，优先确认 MiniQMT 已启动且已登录正确账户
 - 若仍需继续定位，优先以 `inspect.getsourcefile()` 与 `inspect.signature()` 的结果确认宿主机实际 import 源，而不是继续凭仓库文件内容猜测
 - worker 恢复后，再重新执行命中的 host runtime surface restart 或整轮 formal deploy，并确认 runtime verify 通过
 

@@ -34,7 +34,8 @@ def run_forever(
     retry_delay_seconds=5.0,
     retry_delay_max_seconds=60.0,
 ):
-    sync_service = service or XtAccountSyncService.build_default()
+    sync_service_factory = XtAccountSyncService.build_default if service is None else None
+    sync_service = service or sync_service_factory()
     now_provider = now_provider or _shanghai_now
     startup_time = now_provider()
 
@@ -42,8 +43,9 @@ def run_forever(
     # position management. Only credit_subjects is reduced to startup/daily sync.
     if symbol_position_service is not None:
         symbol_position_service.refresh_all_from_positions()
-    _sync_once_with_xt_retry(
+    sync_service = _sync_once_with_xt_retry(
         sync_service,
+        sync_service_factory=sync_service_factory,
         include_credit_subjects=include_credit_subjects_on_startup,
         seed_symbol_snapshots=True,
         sleep_fn=sleep_fn,
@@ -67,8 +69,9 @@ def run_forever(
             scheduled_hour,
             scheduled_minute,
         )
-        _sync_once_with_xt_retry(
+        sync_service = _sync_once_with_xt_retry(
             sync_service,
+            sync_service_factory=sync_service_factory,
             include_credit_subjects=include_credit_subjects,
             seed_symbol_snapshots=True,
             sleep_fn=sleep_fn,
@@ -147,6 +150,7 @@ def _shanghai_now():
 def _sync_once_with_xt_retry(
     sync_service,
     *,
+    sync_service_factory,
     include_credit_subjects,
     seed_symbol_snapshots,
     sleep_fn,
@@ -170,9 +174,11 @@ def _sync_once_with_xt_retry(
             )
             sleep_fn(delay_seconds)
             delay_seconds = min(delay_seconds * 2, retry_delay_max_seconds)
+            if sync_service_factory is not None:
+                sync_service = sync_service_factory()
             continue
         _log_positions_quarantine(result)
-        return result
+        return sync_service
 
 
 def _is_retryable_xt_sync_error(error):
