@@ -112,6 +112,33 @@ class FakeExecutor:
         return 9911
 
 
+class SequencedExecutor:
+    def __init__(self, outcomes, *, order_id=9911):
+        self.outcomes = list(outcomes)
+        self.query_calls = 0
+        self.submit_calls = []
+        self.order_id = order_id
+        self.reset_calls = []
+        self.credit_client = type(
+            "FakeCreditClient",
+            (),
+            {"reset_connection": lambda inner_self: self.reset_calls.append("reset")},
+        )()
+
+    def query_credit_detail(self):
+        self.query_calls += 1
+        if not self.outcomes:
+            raise AssertionError("no more outcomes configured")
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    def submit_direct_cash_repay(self, *, repay_amount, remark):
+        self.submit_calls.append({"repay_amount": repay_amount, "remark": remark})
+        return self.order_id
+
+
 class FakeLockClient:
     def __init__(self, result=True):
         if isinstance(result, list):
@@ -321,3 +348,37 @@ def test_worker_next_sleep_retries_quickly_when_intraday_check_is_overdue():
     )
 
     assert sleep_seconds == 1.0
+
+
+def test_worker_retries_retryable_xt_errors_by_rebuilding_executor():
+    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker
+
+    service = FakeService()
+    first_executor = SequencedExecutor([RuntimeError("xtquant connect failed: -1")])
+    second_executor = FakeExecutor()
+    built = []
+    sleep_calls = []
+
+    def build_executor():
+        built.append("build")
+        return second_executor
+
+    worker = XtAutoRepayWorker(
+        service=service,
+        executor=first_executor,
+        executor_factory=build_executor,
+        lock_client=FakeLockClient(),
+        retry_sleep_fn=lambda seconds: sleep_calls.append(seconds),
+    )
+
+    result = worker.run_mode(
+        "intraday",
+        now=datetime.fromisoformat("2026-04-05T10:30:00+08:00"),
+    )
+
+    assert result["status"] == "submitted"
+    assert first_executor.query_calls == 1
+    assert first_executor.reset_calls == ["reset"]
+    assert built == ["build"]
+    assert second_executor.query_calls == 1
+    assert sleep_calls == [5.0]

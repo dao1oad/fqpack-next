@@ -51,50 +51,56 @@ class XtAccountQueryClient:
         self.settings_provider = (
             settings_provider or _load_default_system_settings_provider()
         )
-        xtquant_settings = getattr(self.settings_provider, "xtquant", None)
-        self.path = path or getattr(xtquant_settings, "path", "")
+        self._path_override = path is not None
+        self.path = ""
         self.session_id = session_id or int(time.time())
         self.trader_factory = trader_factory or _load_default_trader_factory()
         self.account_resolver = account_resolver or _load_default_account_resolver()
-        self.account_id = str(getattr(xtquant_settings, "account", "") or "").strip()
-        self.account_type = (
-            str(getattr(xtquant_settings, "account_type", "STOCK") or "STOCK")
-            .strip()
-            .upper()
-            or "STOCK"
-        )
+        self.account_id = ""
+        self.account_type = "STOCK"
         self._trader = None
         self._account = None
+        self._refresh_runtime_config(path=path, strict=False)
 
     def query_stock_asset(self):
-        trader, account = self._ensure_connection()
-        return trader.query_stock_asset(account)
+        return self._call_read_only(
+            lambda trader, account: trader.query_stock_asset(account)
+        )
 
     def query_stock_positions(self):
-        trader, account = self._ensure_connection()
-        return trader.query_stock_positions(account)
+        return self._call_read_only(
+            lambda trader, account: trader.query_stock_positions(account)
+        )
 
     def query_stock_orders(self):
-        trader, account = self._ensure_connection()
-        return trader.query_stock_orders(account)
+        return self._call_read_only(
+            lambda trader, account: trader.query_stock_orders(account)
+        )
 
     def query_stock_trades(self):
-        trader, account = self._ensure_connection()
-        return trader.query_stock_trades(account)
+        return self._call_read_only(
+            lambda trader, account: trader.query_stock_trades(account)
+        )
 
     def query_credit_detail(self):
+        self._refresh_runtime_config(strict=False)
         if self.account_type != "CREDIT":
             return []
-        trader, account = self._ensure_connection()
-        return trader.query_credit_detail(account)
+        return self._call_read_only(
+            lambda trader, account: trader.query_credit_detail(account),
+            retry_on_empty=True,
+        )
 
     def query_credit_subjects(self):
+        self._refresh_runtime_config(strict=False)
         if self.account_type != "CREDIT":
             return []
-        trader, account = self._ensure_connection()
-        return trader.query_credit_subjects(account)
+        return self._call_read_only(
+            lambda trader, account: trader.query_credit_subjects(account)
+        )
 
     def _ensure_connection(self):
+        self._refresh_runtime_config(strict=True)
         if self._trader is not None and self._account is not None:
             return self._trader, self._account
         if not self.path:
@@ -118,6 +124,60 @@ class XtAccountQueryClient:
         self._trader = trader
         self._account = account
         return self._trader, self._account
+
+    def reset_connection(self):
+        trader = self._trader
+        self._trader = None
+        self._account = None
+        close_fn = getattr(trader, "stop", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:
+                pass
+
+    def _call_read_only(self, operation, *, retry_on_empty=False):
+        last_error = None
+        last_result = None
+        for _ in range(2):
+            try:
+                trader, account = self._ensure_connection()
+                result = operation(trader, account)
+            except Exception as error:
+                if not _is_retryable_xt_query_error(error):
+                    raise
+                last_error = error
+                self.reset_connection()
+                continue
+            last_result = result
+            if retry_on_empty and _is_empty_xt_query_result(result):
+                self.reset_connection()
+                continue
+            return result
+        if last_error is not None:
+            raise last_error
+        return last_result
+
+    def _refresh_runtime_config(self, *, path=None, strict=False):
+        if not self._path_override:
+            reload_fn = getattr(self.settings_provider, "reload", None)
+            if callable(reload_fn):
+                try:
+                    reload_fn(strict=strict)
+                except TypeError:
+                    reload_fn()
+        xtquant_settings = getattr(self.settings_provider, "xtquant", None)
+        if self._path_override:
+            self.path = path or self.path
+        else:
+            self.path = str(getattr(xtquant_settings, "path", "") or "")
+        self.account_id = str(getattr(xtquant_settings, "account", "") or "").strip()
+        self.account_type = (
+            str(getattr(xtquant_settings, "account_type", self.account_type) or "STOCK")
+            .strip()
+            .upper()
+            or "STOCK"
+        )
 
     def _resolve_account(self):
         supports_settings_provider = _resolver_accepts_settings_provider(
@@ -143,3 +203,23 @@ class XtAccountQueryClient:
         if key == "xtquant.account_type":
             return getattr(xtquant_settings, "account_type", default)
         return default
+
+
+def _is_retryable_xt_query_error(error):
+    message = str(error or "")
+    normalized = message.lower()
+    if normalized.startswith("xtquant connect failed:") or normalized.startswith(
+        "xtquant subscribe failed:"
+    ):
+        return True
+    if "无法连接xtquant" in message or "鏃犳硶杩炴帴xtquant" in message:
+        return True
+    return "xtquant" in normalized and "qmt" in normalized
+
+
+def _is_empty_xt_query_result(result):
+    if result is None:
+        return True
+    if isinstance(result, (list, tuple)):
+        return len(result) == 0
+    return False

@@ -331,6 +331,14 @@ def test_worker_run_forever_retries_retryable_xt_errors_until_startup_succeeds(
     ]
 
 
+def test_worker_treats_empty_credit_detail_as_retryable_xt_failure():
+    from freshquant.xt_account_sync.worker import _is_retryable_xt_sync_error
+
+    assert _is_retryable_xt_sync_error(
+        ValueError("query_credit_detail returned no records")
+    )
+
+
 def test_worker_run_forever_rebuilds_default_service_after_retryable_xt_errors(
     monkeypatch: pytest.MonkeyPatch,
 ):
