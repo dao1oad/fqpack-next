@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import logging
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from freshquant.market_data.xtdata.adj_refresh_service import AdjRefreshService
+from freshquant.market_data.xtdata.adj_refresh_service import (
+    AdjRefreshService,
+    _is_retryable_xtdata_error,
+)
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+logger = logging.getLogger(__name__)
 
 
 def run_once(service=None):
@@ -22,12 +27,21 @@ def run_forever(
     now_provider=None,
     scheduled_hour=9,
     scheduled_minute=20,
+    retry_delay_seconds=5.0,
+    retry_delay_max_seconds=60.0,
 ):
-    refresh_service = service or AdjRefreshService()
+    refresh_service_factory = AdjRefreshService if service is None else None
+    refresh_service = service or refresh_service_factory()
     now_provider = now_provider or _shanghai_now
     startup_time = now_provider()
 
-    run_once(service=refresh_service)
+    refresh_service = _sync_once_with_xt_retry(
+        refresh_service,
+        refresh_service_factory=refresh_service_factory,
+        sleep_fn=sleep_fn,
+        retry_delay_seconds=retry_delay_seconds,
+        retry_delay_max_seconds=retry_delay_max_seconds,
+    )
     last_scheduled_date = None
     if _is_schedule_due(startup_time, scheduled_hour, scheduled_minute):
         last_scheduled_date = startup_time.date()
@@ -40,7 +54,13 @@ def run_forever(
             scheduled_hour,
             scheduled_minute,
         ):
-            run_once(service=refresh_service)
+            refresh_service = _sync_once_with_xt_retry(
+                refresh_service,
+                refresh_service_factory=refresh_service_factory,
+                sleep_fn=sleep_fn,
+                retry_delay_seconds=retry_delay_seconds,
+                retry_delay_max_seconds=retry_delay_max_seconds,
+            )
             last_scheduled_date = current_time.date()
         sleep_fn(interval_seconds)
 
@@ -99,6 +119,34 @@ def _is_schedule_due(current_time, scheduled_hour, scheduled_minute):
 
 def _shanghai_now():
     return datetime.now(SHANGHAI_TZ)
+
+
+def _sync_once_with_xt_retry(
+    refresh_service,
+    *,
+    refresh_service_factory,
+    sleep_fn,
+    retry_delay_seconds,
+    retry_delay_max_seconds,
+):
+    delay_seconds = retry_delay_seconds
+    while True:
+        try:
+            refresh_service.sync_once()
+        except Exception as error:
+            if not _is_retryable_xtdata_error(error):
+                raise
+            logger.warning(
+                "xtdata adj refresh XT unavailable; retrying in %.1f seconds: %s",
+                delay_seconds,
+                error,
+            )
+            sleep_fn(delay_seconds)
+            delay_seconds = min(delay_seconds * 2, retry_delay_max_seconds)
+            if refresh_service_factory is not None:
+                refresh_service = refresh_service_factory()
+            continue
+        return refresh_service
 
 
 if __name__ == "__main__":

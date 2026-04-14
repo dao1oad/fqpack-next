@@ -41,6 +41,19 @@ class FakeSyncService:
         return dict(self.result)
 
 
+class SequencedRefreshService:
+    def __init__(self, results):
+        self.calls = 0
+        self._results = list(results)
+
+    def sync_once(self):
+        self.calls += 1
+        result = self._results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return dict(result)
+
+
 def test_sync_adj_refresh_once_writes_stock_and_etf_intraday_overrides():
     repository = InMemoryAdjRefreshRepository(
         {
@@ -169,3 +182,54 @@ def test_worker_run_forever_syncs_on_startup_then_at_schedule():
 
     assert service.calls == 2
     assert sleep_calls == [30]
+
+
+def test_worker_run_forever_rebuilds_default_service_after_retryable_xt_errors(
+    monkeypatch,
+):
+    failed_service = SequencedRefreshService(
+        [Exception("无法连接xtquant服务，请检查QMT是否开启")]
+    )
+    recovered_service = SequencedRefreshService([{"count": 1}, {"count": 1}])
+    built_services = []
+    services = iter([failed_service, recovered_service])
+
+    def build_service():
+        service = next(services)
+        built_services.append(service)
+        return service
+
+    monkeypatch.setattr(
+        "freshquant.market_data.xtdata.adj_refresh_worker.AdjRefreshService",
+        build_service,
+    )
+
+    moments = iter(
+        [
+            datetime(2026, 3, 9, 9, 19, tzinfo=timezone.utc),
+            datetime(2026, 3, 9, 9, 20, tzinfo=timezone.utc),
+        ]
+    )
+    sleep_calls = []
+
+    def fake_now():
+        return next(moments)
+
+    def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        if len(sleep_calls) >= 2:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_forever(
+            interval_seconds=30,
+            sleep_fn=fake_sleep,
+            now_provider=fake_now,
+            scheduled_hour=9,
+            scheduled_minute=20,
+        )
+
+    assert built_services == [failed_service, recovered_service]
+    assert failed_service.calls == 1
+    assert recovered_service.calls == 2
+    assert sleep_calls == [5.0, 30]

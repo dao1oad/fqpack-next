@@ -90,6 +90,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - 这两个进程通常运行在宿主机，不放进 Docker。
 - 修改 `freshquant/market_data/**` 后，至少重启 producer 与 consumer。
 - consumer 改动涉及结构缓存或 prewarm 逻辑时，建议带 `--prewarm` 重新拉起。
+- producer 启动阶段若遇到可重试的 XTData 连接失败，当前会在进程内按退避重试继续等待 XTQuant / QMT 就绪，不再只依赖 supervisor 外层重启。
 - producer 当前会在交易时段内监控 `rx_age_s`：
   - 当 `connected=1`、`subscribed_codes>0` 且 `rx_age_s >= 120` 秒时，先自动重订阅当前代码池。
   - 若 30 秒后仍持续 stale，则升级为 `xtdata.connect() + 重订阅`。
@@ -97,6 +98,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - producer 心跳当前额外暴露：
   - `tick_quote_pending_batches`
   - `tick_quote_dropped_batches`
+- `xtdata_adj_refresh_worker` 若在启动或日内计划刷新时遇到可重试的 XTData 连接失败，当前会退避后重建新的 refresh service / XTData client 再继续同步。
 
 ## 排障点
 

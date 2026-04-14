@@ -79,14 +79,15 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 
 处理：
 
-- 优先查看 `xt_producer` 心跳里的：
-  - `rx_age_s`
-  - `tick_count_5m`
-  - `tick_quote_pending_batches`
-  - `tick_quote_dropped_batches`
-- 若在交易时段出现 `connected=1`、`subscribed_codes>0`、`rx_age_s >= 120` 秒：
-  - 先看是否已有 `subscription_guard` 事件，`reason_code=stale_rx`
-  - 当前 producer 会先自动 `resubscribe`，持续 stale 时再做 `xtdata.connect() + resubscribe`
+  - 优先查看 `xt_producer` 心跳里的：
+    - `rx_age_s`
+    - `tick_count_5m`
+    - `tick_quote_pending_batches`
+    - `tick_quote_dropped_batches`
+  - 若 stderr 里出现 `无法连接xtquant服务` / `QMT` 启动竞态，先核对最新 `xt_producer` runtime jsonl 是否已经出现新的 `bootstrap`、`subscription_load`、`heartbeat`；当前 producer 会在进程内退避重试启动连接，不必因为单次历史栈就直接判定“当前仍未恢复”。
+  - 若在交易时段出现 `connected=1`、`subscribed_codes>0`、`rx_age_s >= 120` 秒：
+    - 先看是否已有 `subscription_guard` 事件，`reason_code=stale_rx`
+    - 当前 producer 会先自动 `resubscribe`，持续 stale 时再做 `xtdata.connect() + resubscribe`
 - 若自动恢复事件已经出现，但 `rx_age_s` 仍持续增长：
   - 按正式入口执行 `script/fqnext_host_runtime_ctl.ps1`
   - 重启 `market_data` 宿主机运行面，不要临时手拉 ad-hoc 进程
@@ -319,12 +320,13 @@ pprint(svc.load_latest_snapshot())
 
 处理：
 
-- 重建 `D:/fqpack/config/envs.conf`
-- 确认至少包含：
-  - `FRESHQUANT_REDIS__HOST=127.0.0.1`
-  - `FRESHQUANT_REDIS__PORT=6380`
-  - `FRESHQUANT_REDIS__DB=1`
-- 再执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data,guardian,position_management,tpsl,order_management -BridgeIfServiceUnavailable`
+  - 重建 `D:/fqpack/config/envs.conf`
+  - 确认至少包含：
+    - `FRESHQUANT_REDIS__HOST=127.0.0.1`
+    - `FRESHQUANT_REDIS__PORT=6380`
+    - `FRESHQUANT_REDIS__DB=1`
+  - 再执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data,guardian,position_management,tpsl,order_management -BridgeIfServiceUnavailable`
+  - 若 `fqnext_xtdata_adj_refresh_worker_err.log` 里是 `无法连接xtquant服务` / `QMT` 启动竞态，优先确认最新重启后是否已恢复；当前 adj refresh worker 会在进程内退避重试，并在可重试 XTData 失败后重建新的 refresh service / client。
 
 ## `fqnext-supervisord-restart` 管理员桥接任务超时
 
@@ -724,6 +726,7 @@ print(inspect.signature(resolve_stock_account))
 - 修正 `monitor.xtdata.mode` 与 `monitor.xtdata.max_symbols`
 - 重启 producer / consumer
 - 通过 `/runtime-observability` 看 `xt_producer` / `xt_consumer` 心跳与 backlog
+- 若问题集中在开机或 deploy 后的短窗口，优先核对最新 runtime jsonl 是否已出现启动后的新心跳，再区分是“历史启动失败栈”还是“当前仍未恢复”。
 
 ## 宿主机运行面没有恢复
 
