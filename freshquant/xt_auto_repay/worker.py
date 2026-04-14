@@ -51,8 +51,8 @@ class XtAutoRepayWorker:
     ):
         self.service = service or XtAutoRepayService()
         self.executor = executor or XtAutoRepayExecutor()
-        self.executor_factory = (
-            executor_factory or (XtAutoRepayExecutor if executor is None else None)
+        self.executor_factory = executor_factory or (
+            XtAutoRepayExecutor if executor is None else None
         )
         self.lock_client = lock_client or _CooldownLockClient(redis_db)
         self.intraday_interval_seconds = max(
@@ -483,7 +483,10 @@ def _next_intraday_delay_seconds(now_value, state, intraday_interval_seconds):
 
 
 def _is_retryable_xt_auto_repay_error(error):
-    if isinstance(error, ValueError) and str(error) == "query_credit_detail returned no records":
+    if (
+        isinstance(error, ValueError)
+        and str(error) == "query_credit_detail returned no records"
+    ):
         return True
     message = str(error or "")
     normalized = message.lower()

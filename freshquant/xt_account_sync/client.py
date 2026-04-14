@@ -63,7 +63,9 @@ class XtAccountQueryClient:
         self._refresh_runtime_config(path=path, strict=False)
 
     def query_stock_asset(self):
-        return self._call_read_only(lambda trader, account: trader.query_stock_asset(account))
+        return self._call_read_only(
+            lambda trader, account: trader.query_stock_asset(account)
+        )
 
     def query_stock_positions(self):
         return self._call_read_only(
@@ -71,10 +73,14 @@ class XtAccountQueryClient:
         )
 
     def query_stock_orders(self):
-        return self._call_read_only(lambda trader, account: trader.query_stock_orders(account))
+        return self._call_read_only(
+            lambda trader, account: trader.query_stock_orders(account)
+        )
 
     def query_stock_trades(self):
-        return self._call_read_only(lambda trader, account: trader.query_stock_trades(account))
+        return self._call_read_only(
+            lambda trader, account: trader.query_stock_trades(account)
+        )
 
     def query_credit_detail(self):
         self._refresh_runtime_config(strict=False)

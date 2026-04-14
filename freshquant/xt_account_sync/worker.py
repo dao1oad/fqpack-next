@@ -184,7 +184,10 @@ def _sync_once_with_xt_retry(
 
 
 def _is_retryable_xt_sync_error(error):
-    if isinstance(error, ValueError) and str(error) == "query_credit_detail returned no records":
+    if (
+        isinstance(error, ValueError)
+        and str(error) == "query_credit_detail returned no records"
+    ):
         return True
     if not isinstance(error, RuntimeError):
         return False
