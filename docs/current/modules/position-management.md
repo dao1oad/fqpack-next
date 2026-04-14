@@ -23,7 +23,7 @@
 
 - worker
   - `python -m freshquant.xt_account_sync.worker --interval 15`
-  - worker 对 XT `connect/subscribe` 暂不可用采用退避重试；只在非连接类异常时退出
+  - worker 对 XT `connect/subscribe` 暂不可用采用退避重试，并在每次可重试失败后重建新的 XT sync service/client；只在非连接类异常时退出
 - HTTP
   - `GET /api/position-management/dashboard`
   - `GET /api/position-management/config`
