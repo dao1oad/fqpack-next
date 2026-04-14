@@ -25,6 +25,8 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 DEFAULT_INTRADAY_INTERVAL_SECONDS = 1800.0
 DEFAULT_COOLDOWN_SECONDS = 1800.0
 DEFAULT_LOCK_TTL_SECONDS = 120
+DEFAULT_RETRY_DELAY_SECONDS = 5.0
+DEFAULT_RETRY_DELAY_MAX_SECONDS = 60.0
 HARD_SETTLE_TIME = (14, 55)
 RETRY_TIME = (15, 5)
 
@@ -37,20 +39,36 @@ class XtAutoRepayWorker:
         *,
         service=None,
         executor=None,
+        executor_factory=None,
         lock_client=None,
         intraday_interval_seconds=DEFAULT_INTRADAY_INTERVAL_SECONDS,
         cooldown_seconds=DEFAULT_COOLDOWN_SECONDS,
         lock_ttl_seconds=DEFAULT_LOCK_TTL_SECONDS,
+        retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
+        retry_delay_max_seconds=DEFAULT_RETRY_DELAY_MAX_SECONDS,
+        retry_sleep_fn=None,
         now_provider=None,
     ):
         self.service = service or XtAutoRepayService()
         self.executor = executor or XtAutoRepayExecutor()
+        self.executor_factory = (
+            executor_factory or (XtAutoRepayExecutor if executor is None else None)
+        )
         self.lock_client = lock_client or _CooldownLockClient(redis_db)
         self.intraday_interval_seconds = max(
             float(intraday_interval_seconds or DEFAULT_INTRADAY_INTERVAL_SECONDS), 1.0
         )
         self.cooldown_seconds = max(float(cooldown_seconds or 0.0), 0.0)
         self.lock_ttl_seconds = max(int(lock_ttl_seconds or 0), 1)
+        self.retry_delay_seconds = max(
+            float(retry_delay_seconds or DEFAULT_RETRY_DELAY_SECONDS),
+            1.0,
+        )
+        self.retry_delay_max_seconds = max(
+            float(retry_delay_max_seconds or DEFAULT_RETRY_DELAY_MAX_SECONDS),
+            self.retry_delay_seconds,
+        )
+        self.retry_sleep_fn = retry_sleep_fn or time.sleep
         self.now_provider = now_provider or _shanghai_now
 
     def run_mode(self, mode, *, now=None):
@@ -106,7 +124,7 @@ class XtAutoRepayWorker:
                 mark_mode_completed=False,
             )
 
-        detail = self.executor.query_credit_detail()
+        detail = self._query_credit_detail_with_xt_retry()
         confirmed_decision = self.service.evaluate_confirmed_detail(
             detail,
             mode=resolved_mode,
@@ -303,6 +321,37 @@ class XtAutoRepayWorker:
         logger.warning("xt auto repay worker skipped without persistence: %s", reason)
         return {"mode": mode, "status": "skip", "reason": reason}
 
+    def _query_credit_detail_with_xt_retry(self):
+        delay_seconds = self.retry_delay_seconds
+        while True:
+            try:
+                return self.executor.query_credit_detail()
+            except Exception as error:
+                if not _is_retryable_xt_auto_repay_error(error):
+                    raise
+                logger.warning(
+                    "xt auto repay XT unavailable; retrying in %.1f seconds: %s",
+                    delay_seconds,
+                    error,
+                )
+                self._reset_executor_after_retryable_xt_error()
+                self.retry_sleep_fn(delay_seconds)
+                delay_seconds = min(delay_seconds * 2, self.retry_delay_max_seconds)
+
+    def _reset_executor_after_retryable_xt_error(self):
+        credit_client = getattr(self.executor, "credit_client", None)
+        reset_fn = getattr(credit_client, "reset_connection", None)
+        if callable(reset_fn):
+            try:
+                reset_fn()
+            except Exception:
+                logger.debug(
+                    "xt auto repay credit client reset failed",
+                    exc_info=True,
+                )
+        if self.executor_factory is not None:
+            self.executor = self.executor_factory()
+
 
 class _CooldownLockClient:
     def __init__(self, redis_client):
@@ -431,6 +480,20 @@ def _next_intraday_delay_seconds(now_value, state, intraday_interval_seconds):
     if remaining_seconds <= 0:
         return 1.0
     return max(1.0, remaining_seconds)
+
+
+def _is_retryable_xt_auto_repay_error(error):
+    if isinstance(error, ValueError) and str(error) == "query_credit_detail returned no records":
+        return True
+    message = str(error or "")
+    normalized = message.lower()
+    if normalized.startswith("xtquant connect failed:") or normalized.startswith(
+        "xtquant subscribe failed:"
+    ):
+        return True
+    if "无法连接xtquant" in message or "鏃犳硶杩炴帴xtquant" in message:
+        return True
+    return "xtquant" in normalized and "qmt" in normalized
 
 
 if __name__ == "__main__":

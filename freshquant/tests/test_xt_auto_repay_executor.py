@@ -8,6 +8,7 @@ from freshquant.carnation import xtconstant
 class FakeTrader:
     def __init__(self):
         self.start_calls = 0
+        self.stop_calls = 0
         self.connect_calls = 0
         self.subscribe_calls = []
         self.order_calls = []
@@ -18,6 +19,9 @@ class FakeTrader:
     def connect(self):
         self.connect_calls += 1
         return 0
+
+    def stop(self):
+        self.stop_calls += 1
 
     def subscribe(self, account):
         self.subscribe_calls.append(account)
@@ -176,3 +180,95 @@ def test_credit_client_does_not_reload_global_settings_when_all_overrides_are_ex
 
     assert trader.connect_calls == 1
     assert len(detail) == 1
+
+
+def test_credit_client_reconnects_after_retryable_query_error():
+    from freshquant.position_management.credit_client import PositionCreditClient
+
+    class FlakyQueryTrader(FakeTrader):
+        def __init__(self, *, error=None, detail=None):
+            super().__init__()
+            self.error = error
+            self.detail = detail or [
+                type(
+                    "FakeCreditDetail",
+                    (),
+                    {
+                        "m_dAvailable": 12000.0,
+                        "m_dFinDebt": 9000.0,
+                    },
+                )()
+            ]
+
+        def query_credit_detail(self, account):
+            if self.error is not None:
+                raise self.error
+            return list(self.detail)
+
+    first_trader = FlakyQueryTrader(error=RuntimeError("xtquant connect failed: -1"))
+    second_trader = FlakyQueryTrader()
+    traders = iter([first_trader, second_trader])
+    client = PositionCreditClient(
+        path="D:/mock/xtquant",
+        account_id="068000076370",
+        account_type="CREDIT",
+        trader_factory=lambda path, session_id: next(traders),
+        account_factory=lambda account_id, account_type: type(
+            "FakeAccount",
+            (),
+            {"account_id": account_id, "account_type": account_type},
+        )(),
+    )
+
+    detail = client.query_credit_detail()
+
+    assert len(detail) == 1
+    assert first_trader.connect_calls == 1
+    assert first_trader.stop_calls == 1
+    assert second_trader.connect_calls == 1
+
+
+def test_credit_client_reconnects_after_empty_credit_detail_response():
+    from freshquant.position_management.credit_client import PositionCreditClient
+
+    class EmptyThenReadyTrader(FakeTrader):
+        def __init__(self, detail):
+            super().__init__()
+            self.detail = detail
+
+        def query_credit_detail(self, account):
+            return self.detail
+
+    first_trader = EmptyThenReadyTrader([])
+    second_trader = EmptyThenReadyTrader(
+        [
+            type(
+                "FakeCreditDetail",
+                (),
+                {
+                    "m_dAvailable": 12000.0,
+                    "m_dFinDebt": 9000.0,
+                },
+            )()
+        ]
+    )
+    traders = iter([first_trader, second_trader])
+
+    client = PositionCreditClient(
+        path="D:/mock/xtquant",
+        account_id="068000076370",
+        account_type="CREDIT",
+        trader_factory=lambda path, session_id: next(traders),
+        account_factory=lambda account_id, account_type: type(
+            "FakeAccount",
+            (),
+            {"account_id": account_id, "account_type": account_type},
+        )(),
+    )
+
+    detail = client.query_credit_detail()
+
+    assert len(detail) == 1
+    assert first_trader.connect_calls == 1
+    assert first_trader.stop_calls == 1
+    assert second_trader.connect_calls == 1

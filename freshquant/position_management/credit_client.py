@@ -54,8 +54,10 @@ class PositionCreditClient:
         )
 
     def query_credit_detail(self):
-        trader, account = self._ensure_credit_connection()
-        return trader.query_credit_detail(account)
+        return self._call_read_only(
+            lambda trader, account: trader.query_credit_detail(account),
+            retry_on_empty=True,
+        )
 
     def submit_direct_cash_repay(
         self,
@@ -67,7 +69,6 @@ class PositionCreditClient:
         price_type=None,
         price=0.0,
     ):
-        trader, account = self._ensure_credit_connection()
         from freshquant.carnation import xtconstant
 
         resolved_amount = int(float(repay_amount or 0))
@@ -76,16 +77,21 @@ class PositionCreditClient:
         resolved_price_type = (
             xtconstant.FIX_PRICE if price_type is None else int(price_type)
         )
-        return trader.order_stock(
-            account,
-            str(stock_code or "").strip(),
-            xtconstant.CREDIT_DIRECT_CASH_REPAY,
-            resolved_amount,
-            resolved_price_type,
-            float(price or 0.0),
-            strategy_name,
-            order_remark,
-        )
+        trader, account = self._ensure_credit_connection()
+        try:
+            return trader.order_stock(
+                account,
+                str(stock_code or "").strip(),
+                xtconstant.CREDIT_DIRECT_CASH_REPAY,
+                resolved_amount,
+                resolved_price_type,
+                float(price or 0.0),
+                strategy_name,
+                order_remark,
+            )
+        except Exception:
+            self.reset_connection()
+            raise
 
     def _ensure_credit_connection(self):
         self._refresh_runtime_config(strict=True)
@@ -112,6 +118,35 @@ class PositionCreditClient:
         self._trader = trader
         self._account = account
         return self._trader, self._account
+
+    def reset_connection(self):
+        trader = self._trader
+        self._trader = None
+        self._account = None
+        close_fn = getattr(trader, "stop", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:
+                pass
+
+    def _call_read_only(self, operation, *, retry_on_empty=False):
+        last_result = None
+        for _ in range(2):
+            try:
+                trader, account = self._ensure_credit_connection()
+                result = operation(trader, account)
+            except Exception as error:
+                if not _is_retryable_xt_credit_error(error):
+                    raise
+                self.reset_connection()
+                continue
+            last_result = result
+            if retry_on_empty and _is_empty_credit_detail_response(result):
+                self.reset_connection()
+                continue
+            return result
+        return last_result
 
     def _refresh_runtime_config(
         self,
@@ -154,3 +189,23 @@ class PositionCreditClient:
             self.account_type = str(
                 getattr(xtquant_settings, "account_type", "STOCK") or "STOCK"
             ).upper()
+
+
+def _is_retryable_xt_credit_error(error):
+    message = str(error or "")
+    normalized = message.lower()
+    if normalized.startswith("xtquant connect failed:") or normalized.startswith(
+        "xtquant subscribe failed:"
+    ):
+        return True
+    if "无法连接xtquant" in message or "鏃犳硶杩炴帴xtquant" in message:
+        return True
+    return "xtquant" in normalized and "qmt" in normalized
+
+
+def _is_empty_credit_detail_response(result):
+    if result is None:
+        return True
+    if isinstance(result, (list, tuple)):
+        return len(result) == 0
+    return False
