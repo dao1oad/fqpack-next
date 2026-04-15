@@ -32,6 +32,12 @@ HARD_SETTLE_TIME = (14, 55)
 RETRY_TIME = (15, 5)
 
 logger = logging.getLogger(__name__)
+_REDIS_RELEASE_LOCK_LUA = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+end
+return 0
+"""
 
 
 class XtAutoRepayWorker:
@@ -232,16 +238,22 @@ class XtAutoRepayWorker:
                     "repay_amount": repay_amount,
                     "reason": failure_reason,
                 }
-            event_type = "submitted" if int(broker_order_id or 0) > 0 else "failed"
+            broker_order_id_value = _positive_order_id_value(broker_order_id)
+            event_type = "submitted" if broker_order_id_value is not None else "failed"
             state_updates["last_submit_order_id"] = (
-                None if broker_order_id in {None, "", "None"} else str(broker_order_id)
+                None if broker_order_id_value is None else str(broker_order_id_value)
             )
             if event_type == "submitted":
                 state_updates["last_submit_at"] = checked_at
+                event_reason = confirmed_decision.get("reason")
+            else:
+                event_reason = "xtquant direct cash repay returned no order id"
+                state_updates["last_status"] = "failed"
+                state_updates["last_reason"] = event_reason
             self.service.record_event(
                 event_type=event_type,
                 mode=resolved_mode,
-                reason=confirmed_decision.get("reason"),
+                reason=event_reason,
                 snapshot_available_amount=_decision_value(
                     snapshot_decision,
                     "snapshot_available_amount",
@@ -444,17 +456,15 @@ class _CooldownLockClient:
             return False
         if self.redis_client is not None:
             try:
-                current_value = self.redis_client.get(key)
+                released = self.redis_client.eval(
+                    _REDIS_RELEASE_LOCK_LUA,
+                    1,
+                    key,
+                    token,
+                )
             except Exception as exc:
                 raise RuntimeError("xt auto repay redis lock release failed") from exc
-            if current_value is None:
-                return False
-            if isinstance(current_value, bytes):
-                current_value = current_value.decode("utf-8", errors="ignore")
-            if str(current_value) == str(token):
-                self.redis_client.delete(key)
-                return True
-            return False
+            return bool(int(released or 0) > 0)
         entry = self._memory.get(key)
         if not isinstance(entry, dict):
             return False
@@ -598,6 +608,16 @@ def _submit_failure_reason(error):
     if message:
         return message
     return error.__class__.__name__
+
+
+def _positive_order_id_value(value):
+    try:
+        resolved = int(value or 0)
+    except (TypeError, ValueError):
+        return None
+    if resolved <= 0:
+        return None
+    return resolved
 
 
 if __name__ == "__main__":
