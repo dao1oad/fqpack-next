@@ -343,7 +343,7 @@ def test_credit_client_reraises_retryable_xt_failure_after_retry_exhaustion():
 def test_credit_client_raises_when_direct_cash_repay_is_rejected():
     import pytest
 
-    from freshquant.position_management.credit_client import PositionCreditClient
+    from freshquant.position_management import credit_client as credit_client_module
 
     class CallbackTrader(FakeTrader):
         def __init__(self):
@@ -389,26 +389,32 @@ def test_credit_client_raises_when_direct_cash_repay_is_rejected():
             return order_id
 
     trader = CallbackTrader()
-    client = PositionCreditClient(
-        path="D:/mock/xtquant",
-        account_id="068000076370",
-        account_type="CREDIT",
-        session_id=9527,
-        trader_factory=lambda path, session_id: trader,
-        account_factory=lambda account_id, account_type: type(
-            "FakeAccount",
-            (),
-            {"account_id": account_id, "account_type": account_type},
-        )(),
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="xtquant direct cash repay rejected \\(-1020\\): 节点当前非交易状态,禁止做直接还款",
-    ):
-        client.submit_direct_cash_repay(
-            repay_amount=1000,
-            order_remark="xt_auto_repay:hard_settle",
+    original_loader = credit_client_module._load_default_trader_callback_base
+    credit_client_module._load_default_trader_callback_base = lambda: (
+        _ for _ in ()
+    ).throw(ImportError("xt callback base unavailable"))
+    try:
+        client = credit_client_module.PositionCreditClient(
+            path="D:/mock/xtquant",
+            account_id="068000076370",
+            account_type="CREDIT",
+            session_id=9527,
+            trader_factory=lambda path, session_id: trader,
+            account_factory=lambda account_id, account_type: type(
+                "FakeAccount",
+                (),
+                {"account_id": account_id, "account_type": account_type},
+            )(),
         )
+        with pytest.raises(
+            RuntimeError,
+            match="xtquant direct cash repay rejected \\(-1020\\): 节点当前非交易状态,禁止做直接还款",
+        ):
+            client.submit_direct_cash_repay(
+                repay_amount=1000,
+                order_remark="xt_auto_repay:hard_settle",
+            )
+    finally:
+        credit_client_module._load_default_trader_callback_base = original_loader
 
     assert trader.stop_calls == 1

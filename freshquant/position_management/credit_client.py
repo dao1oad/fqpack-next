@@ -66,7 +66,10 @@ def _default_session_id():
 
 
 def _build_order_error_callback(recorder):
-    callback_base = _load_default_trader_callback_base()
+    try:
+        callback_base = _load_default_trader_callback_base()
+    except Exception:
+        callback_base = object
 
     class _RuntimeOrderErrorCallback(callback_base):  # type: ignore[misc, valid-type]
         def on_order_error(self, order_error):
