@@ -10,11 +10,15 @@ class FakeTrader:
         self.start_calls = 0
         self.stop_calls = 0
         self.connect_calls = 0
+        self.set_timeout_calls = []
         self.subscribe_calls = []
         self.order_calls = []
 
     def start(self):
         self.start_calls += 1
+
+    def set_timeout(self, timeout):
+        self.set_timeout_calls.append(timeout)
 
     def connect(self):
         self.connect_calls += 1
@@ -130,8 +134,9 @@ def test_executor_submits_credit_direct_cash_repay():
 
     assert order_id == 7788
     assert trader.order_calls[0]["order_type"] == xtconstant.CREDIT_DIRECT_CASH_REPAY
+    assert trader.order_calls[0]["stock_code"] == "000001.SZ"
     assert trader.order_calls[0]["order_volume"] == 6000
-    assert trader.order_calls[0]["price_type"] == xtconstant.FIX_PRICE
+    assert trader.order_calls[0]["price_type"] == xtconstant.LATEST_PRICE
     assert trader.order_calls[0]["price"] == 0.0
 
 
@@ -153,6 +158,7 @@ def test_credit_client_refreshes_settings_before_connecting():
     detail = client.query_credit_detail()
 
     assert settings_provider.reload_calls == [False, True]
+    assert trader.set_timeout_calls == [5000]
     assert trader.connect_calls == 1
     assert client.path == "D:/mock/xtquant"
     assert client.account_id == "068000076370"
@@ -302,3 +308,77 @@ def test_credit_client_reraises_retryable_xt_failure_after_retry_exhaustion():
 
     assert traders[0].stop_calls == 1
     assert traders[1].stop_calls == 1
+
+
+def test_credit_client_raises_when_direct_cash_repay_is_rejected():
+    import pytest
+
+    from freshquant.position_management.credit_client import PositionCreditClient
+
+    class CallbackTrader(FakeTrader):
+        def __init__(self):
+            super().__init__()
+            self.callback = None
+
+        def register_callback(self, callback):
+            self.callback = callback
+
+        def order_stock(
+            self,
+            account,
+            stock_code,
+            order_type,
+            order_volume,
+            price_type,
+            price,
+            strategy_name="",
+            order_remark="",
+        ):
+            order_id = super().order_stock(
+                account,
+                stock_code,
+                order_type,
+                order_volume,
+                price_type,
+                price,
+                strategy_name=strategy_name,
+                order_remark=order_remark,
+            )
+            self.callback.on_order_error(
+                type(
+                    "FakeOrderError",
+                    (),
+                    {
+                        "order_id": order_id,
+                        "error_id": -1020,
+                        "error_msg": "节点当前非交易状态,禁止做直接还款",
+                        "order_remark": order_remark,
+                    },
+                )()
+            )
+            return order_id
+
+    trader = CallbackTrader()
+    client = PositionCreditClient(
+        path="D:/mock/xtquant",
+        account_id="068000076370",
+        account_type="CREDIT",
+        session_id=9527,
+        trader_factory=lambda path, session_id: trader,
+        account_factory=lambda account_id, account_type: type(
+            "FakeAccount",
+            (),
+            {"account_id": account_id, "account_type": account_type},
+        )(),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="xtquant direct cash repay rejected \\(-1020\\): 节点当前非交易状态,禁止做直接还款",
+    ):
+        client.submit_direct_cash_repay(
+            repay_amount=1000,
+            order_remark="xt_auto_repay:hard_settle",
+        )
+
+    assert trader.stop_calls == 1

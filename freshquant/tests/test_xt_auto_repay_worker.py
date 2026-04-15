@@ -112,6 +112,16 @@ class FakeExecutor:
         return 9911
 
 
+class FailingSubmitExecutor(FakeExecutor):
+    def __init__(self, message):
+        super().__init__()
+        self.message = message
+
+    def submit_direct_cash_repay(self, *, repay_amount, remark):
+        self.submit_calls.append({"repay_amount": repay_amount, "remark": remark})
+        raise RuntimeError(self.message)
+
+
 class SequencedExecutor:
     def __init__(self, outcomes, *, order_id=9911):
         self.outcomes = list(outcomes)
@@ -148,6 +158,7 @@ class FakeLockClient:
             self.results = None
             self.result = result
         self.calls = []
+        self.release_calls = []
 
     def acquire(self, key, *, ttl_seconds):
         self.calls.append({"key": key, "ttl_seconds": ttl_seconds})
@@ -156,6 +167,10 @@ class FakeLockClient:
                 return False
             return self.results.pop(0)
         return self.result
+
+    def release(self, key):
+        self.release_calls.append(key)
+        return True
 
 
 def test_worker_uses_snapshot_for_intraday_candidate_and_requeries_before_submit():
@@ -201,6 +216,62 @@ def test_worker_skips_real_submit_in_observe_only_mode():
     assert executor.query_calls == 1
     assert executor.submit_calls == []
     assert service.events[-1]["event_type"] == "observe_only"
+
+
+def test_worker_records_failed_submit_without_killing_state_progress():
+    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker
+
+    service = FakeService()
+    executor = FailingSubmitExecutor("xtquant direct cash repay rejected")
+    worker = XtAutoRepayWorker(
+        service=service,
+        executor=executor,
+        lock_client=FakeLockClient(),
+    )
+
+    result = worker.run_mode(
+        "hard_settle",
+        now=datetime.fromisoformat("2026-04-05T14:55:00+08:00"),
+    )
+
+    assert result == {
+        "mode": "hard_settle",
+        "status": "failed",
+        "repay_amount": 600.0,
+        "reason": "xtquant direct cash repay rejected",
+    }
+    assert executor.submit_calls == [
+        {
+            "repay_amount": 600.0,
+            "remark": "xt_auto_repay:hard_settle:2026-04-05T14:55:00+08:00",
+        }
+    ]
+    assert service.events[-1]["event_type"] == "failed"
+    assert service.events[-1]["reason"] == "xtquant direct cash repay rejected"
+    assert service.state["last_status"] == "failed"
+    assert service.state["last_reason"] == "xtquant direct cash repay rejected"
+    assert service.state["last_hard_settle_at"] == "2026-04-05T14:55:00+08:00"
+
+
+def test_worker_releases_lock_between_due_modes_in_same_pending_cycle():
+    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker, _CooldownLockClient
+
+    service = FakeService(state={})
+    executor = FakeExecutor()
+    worker = XtAutoRepayWorker(
+        service=service,
+        executor=executor,
+        lock_client=_CooldownLockClient(redis_client=None),
+    )
+
+    results = worker.run_pending(
+        now=datetime.fromisoformat("2026-04-05T15:05:00+08:00"),
+    )
+
+    assert [item["mode"] for item in results] == ["hard_settle", "retry"]
+    assert [item["status"] for item in results] == ["submitted", "submitted"]
+    assert executor.submit_calls[0]["repay_amount"] == 600.0
+    assert executor.submit_calls[1]["repay_amount"] == 500.0
 
 
 def test_worker_runs_hard_settle_at_1455_and_retry_at_1505():

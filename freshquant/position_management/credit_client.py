@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 
+import inspect
+import threading
 import time
+
+DEFAULT_XT_TRADER_TIMEOUT_MS = 5000
+DEFAULT_DIRECT_CASH_REPAY_PLACEHOLDER_STOCK_CODE = "000001.SZ"
+DEFAULT_DIRECT_CASH_REPAY_ERROR_GRACE_SECONDS = 1.0
 
 
 def _load_default_trader_factory():
@@ -15,10 +21,93 @@ def _load_default_account_factory():
     return StockAccount
 
 
+def _load_default_trader_callback_base():
+    from xtquant.xttrader import XtQuantTraderCallback
+
+    return XtQuantTraderCallback
+
+
 def _load_default_system_settings_provider():
     from freshquant.system_settings import system_settings
 
     return system_settings
+
+
+def _trader_factory_accepts_callback(trader_factory):
+    try:
+        signature = inspect.signature(trader_factory)
+    except (TypeError, ValueError):
+        return None
+
+    parameters = signature.parameters
+    if "callback" in parameters:
+        return True
+    if any(
+        parameter.kind == inspect.Parameter.VAR_POSITIONAL
+        for parameter in parameters.values()
+    ):
+        return True
+
+    positional_parameters = [
+        parameter
+        for parameter in parameters.values()
+        if parameter.kind
+        in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    ]
+    return len(positional_parameters) >= 3
+
+
+def _default_session_id():
+    resolved = int(time.time_ns() % 2147483647)
+    return resolved or int(time.time())
+
+
+class _OrderErrorRecorder(_load_default_trader_callback_base()):
+    def __init__(self):
+        super().__init__()
+        self._lock = threading.Lock()
+        self._errors = []
+
+    def clear(self):
+        with self._lock:
+            self._errors.clear()
+
+    def on_order_error(self, order_error):
+        with self._lock:
+            self._errors.append(order_error)
+
+    def wait_for_matching_error(
+        self,
+        *,
+        order_id=None,
+        order_remark="",
+        timeout_seconds=0.0,
+    ):
+        deadline = time.monotonic() + max(float(timeout_seconds or 0.0), 0.0)
+        normalized_remark = str(order_remark or "").strip()
+        while True:
+            error = self._take_matching_error(
+                order_id=order_id,
+                order_remark=normalized_remark,
+            )
+            if error is not None or time.monotonic() >= deadline:
+                return error
+            time.sleep(0.05)
+
+    def _take_matching_error(self, *, order_id=None, order_remark=""):
+        normalized_remark = str(order_remark or "").strip()
+        with self._lock:
+            for index, error in enumerate(self._errors):
+                error_order_id = getattr(error, "order_id", None)
+                error_remark = str(getattr(error, "order_remark", "") or "").strip()
+                if order_id is not None and int(error_order_id or 0) == int(order_id):
+                    return self._errors.pop(index)
+                if normalized_remark and error_remark == normalized_remark:
+                    return self._errors.pop(index)
+        return None
 
 
 class PositionCreditClient:
@@ -41,11 +130,15 @@ class PositionCreditClient:
         self.path = ""
         self.account_id = ""
         self.account_type = "STOCK"
-        self.session_id = session_id or int(time.time())
+        self.session_id = (
+            int(_default_session_id()) if session_id is None else int(session_id)
+        )
         self.trader_factory = trader_factory or _load_default_trader_factory()
         self.account_factory = account_factory or _load_default_account_factory()
         self._trader = None
         self._account = None
+        self._order_error_callback = _OrderErrorRecorder()
+        self._order_error_callback_enabled = False
         self._refresh_runtime_config(
             path=path,
             account_id=account_id,
@@ -65,7 +158,7 @@ class PositionCreditClient:
         repay_amount,
         strategy_name="XtAutoRepay",
         order_remark="xt_auto_repay",
-        stock_code="",
+        stock_code=DEFAULT_DIRECT_CASH_REPAY_PLACEHOLDER_STOCK_CODE,
         price_type=None,
         price=0.0,
     ):
@@ -74,14 +167,20 @@ class PositionCreditClient:
         resolved_amount = int(float(repay_amount or 0))
         if resolved_amount <= 0:
             raise ValueError("repay_amount must be positive")
+        resolved_stock_code = (
+            str(stock_code or DEFAULT_DIRECT_CASH_REPAY_PLACEHOLDER_STOCK_CODE).strip()
+            or DEFAULT_DIRECT_CASH_REPAY_PLACEHOLDER_STOCK_CODE
+        )
         resolved_price_type = (
-            xtconstant.FIX_PRICE if price_type is None else int(price_type)
+            xtconstant.LATEST_PRICE if price_type is None else int(price_type)
         )
         trader, account = self._ensure_credit_connection()
+        if self._order_error_callback_enabled:
+            self._order_error_callback.clear()
         try:
-            return trader.order_stock(
+            order_id = trader.order_stock(
                 account,
-                str(stock_code or "").strip(),
+                resolved_stock_code,
                 xtconstant.CREDIT_DIRECT_CASH_REPAY,
                 resolved_amount,
                 resolved_price_type,
@@ -89,6 +188,18 @@ class PositionCreditClient:
                 strategy_name,
                 order_remark,
             )
+            rejected_error = None
+            if self._order_error_callback_enabled:
+                rejected_error = self._order_error_callback.wait_for_matching_error(
+                    order_id=order_id if int(order_id or 0) > 0 else None,
+                    order_remark=order_remark,
+                    timeout_seconds=DEFAULT_DIRECT_CASH_REPAY_ERROR_GRACE_SECONDS,
+                )
+            if rejected_error is not None:
+                raise RuntimeError(_format_xt_order_error(rejected_error))
+            if int(order_id or 0) <= 0:
+                raise RuntimeError("xtquant direct cash repay returned no order id")
+            return order_id
         except Exception:
             self.reset_connection()
             raise
@@ -104,8 +215,15 @@ class PositionCreditClient:
         if self._trader is not None and self._account is not None:
             return self._trader, self._account
 
-        trader = self.trader_factory(self.path, self.session_id)
+        trader, callback_enabled = self._build_trader(
+            self.path,
+            self.session_id,
+            self._order_error_callback,
+        )
         trader.start()
+        set_timeout_fn = getattr(trader, "set_timeout", None)
+        if callable(set_timeout_fn):
+            set_timeout_fn(DEFAULT_XT_TRADER_TIMEOUT_MS)
         connect_result = trader.connect()
         if connect_result != 0:
             raise RuntimeError(f"xtquant connect failed: {connect_result}")
@@ -117,12 +235,27 @@ class PositionCreditClient:
 
         self._trader = trader
         self._account = account
+        self._order_error_callback_enabled = callback_enabled
         return self._trader, self._account
+
+    def _build_trader(self, path, session_id, callback):
+        supports_callback = _trader_factory_accepts_callback(self.trader_factory)
+        if supports_callback is not False:
+            trader = self.trader_factory(path, session_id, callback)
+            return trader, True
+        trader = self.trader_factory(path, session_id)
+        register_callback = getattr(trader, "register_callback", None)
+        if callable(register_callback):
+            register_callback(callback)
+            return trader, True
+        return trader, False
 
     def reset_connection(self):
         trader = self._trader
         self._trader = None
         self._account = None
+        self._order_error_callback_enabled = False
+        self._order_error_callback.clear()
         close_fn = getattr(trader, "stop", None)
         if callable(close_fn):
             try:
@@ -213,3 +346,15 @@ def _is_empty_credit_detail_response(result):
     if isinstance(result, (list, tuple)):
         return len(result) == 0
     return False
+
+
+def _format_xt_order_error(error):
+    error_id = getattr(error, "error_id", None)
+    message = str(getattr(error, "error_msg", "") or "").strip()
+    if error_id not in {None, ""} and message:
+        return f"xtquant direct cash repay rejected ({error_id}): {message}"
+    if message:
+        return f"xtquant direct cash repay rejected: {message}"
+    if error_id not in {None, ""}:
+        return f"xtquant direct cash repay rejected ({error_id})"
+    return "xtquant direct cash repay rejected"

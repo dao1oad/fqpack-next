@@ -229,8 +229,11 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 - `/system-settings -> XTQuant` 当前直接控制 `xtquant.auto_repay.enabled` 与 `xtquant.auto_repay.reserve_cash`
 - 盘中默认每 30 分钟只读一次已同步的 `credit_detail` 快照做候选判断
 - 只有候选命中后，才会即时调用 `query_credit_detail()` 二次确认
+- 真实提交当前通过 `XtQuantTrader.order_stock(..., stock_code='000001.SZ', order_type=CREDIT_DIRECT_CASH_REPAY, price_type=LATEST_PRICE, price=0)` 发起；空 `stock_code` 会被 XT 直接拒绝
 - 固定 `14:55` 做日终硬结算，固定 `15:05` 做一次补偿重试
 - `broker_submit_mode=observe_only` 时只记录事件，不真实提交还款
+- XT 柜台处于非交易状态时会拒绝直接还款；worker 当前会把这类拒单记成 `failed`，而不是误判为 `submitted`
+- 自动还款冷却锁当前只用于防并发，不再把同一轮 `run_pending()` 内串行执行的 `hard_settle -> retry` 互相挡成 `lock_unavailable`
 - `system_settings` 读取失败时当前会先重试；若进程内已经存在上一版有效配置，则保留上一版，不再回退成空 `xtquant.path/account`
 - `xt_auto_repay.worker` 启动后下一次盘中巡检当前按 `last_checked_at + 30 分钟` 对齐；若已错过应跑时间，会在 1 秒级快速补跑，而不是从重启时刻重新整等 30 分钟
 
