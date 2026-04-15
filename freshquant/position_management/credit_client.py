@@ -3,6 +3,7 @@
 import inspect
 import threading
 import time
+from typing import TYPE_CHECKING
 
 DEFAULT_XT_TRADER_TIMEOUT_MS = 5000
 DEFAULT_DIRECT_CASH_REPAY_PLACEHOLDER_STOCK_CODE = "000001.SZ"
@@ -65,7 +66,17 @@ def _default_session_id():
     return resolved or int(time.time())
 
 
-class _OrderErrorRecorder(_load_default_trader_callback_base()):
+if TYPE_CHECKING:
+
+    class _TraderCallbackBase:
+        def __init__(self):
+            pass
+
+else:
+    _TraderCallbackBase = _load_default_trader_callback_base()
+
+
+class _OrderErrorRecorder(_TraderCallbackBase):
     def __init__(self):
         super().__init__()
         self._lock = threading.Lock()

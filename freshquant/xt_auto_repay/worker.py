@@ -268,9 +268,7 @@ class XtAutoRepayWorker:
                 confirmed_fin_debt=_decision_value(
                     confirmed_decision, "confirmed_fin_debt"
                 ),
-                candidate_amount=_decision_value(
-                    snapshot_decision, "candidate_amount"
-                ),
+                candidate_amount=_decision_value(snapshot_decision, "candidate_amount"),
                 submitted_amount=repay_amount,
                 broker_order_id=broker_order_id,
             )

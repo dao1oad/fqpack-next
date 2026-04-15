@@ -308,9 +308,13 @@ def test_worker_records_failed_state_when_submit_returns_zero_order_id():
         "broker_order_id": 0,
     }
     assert service.events[-1]["event_type"] == "failed"
-    assert service.events[-1]["reason"] == "xtquant direct cash repay returned no order id"
+    assert (
+        service.events[-1]["reason"] == "xtquant direct cash repay returned no order id"
+    )
     assert service.state["last_status"] == "failed"
-    assert service.state["last_reason"] == "xtquant direct cash repay returned no order id"
+    assert (
+        service.state["last_reason"] == "xtquant direct cash repay returned no order id"
+    )
     assert service.state["last_submit_order_id"] is None
 
 
@@ -342,9 +346,7 @@ def test_cooldown_lock_client_releases_redis_lock_atomically():
     lock_client = _CooldownLockClient(redis_client=redis_client)
 
     assert lock_client.acquire("xt_auto_repay:068000076370", ttl_seconds=120) is True
-    assert (
-        lock_client.release("xt_auto_repay:068000076370") is True
-    )
+    assert lock_client.release("xt_auto_repay:068000076370") is True
     assert redis_client.values == {}
     assert redis_client.eval_calls[0]["numkeys"] == 1
     assert "redis.call('get', KEYS[1])" in redis_client.eval_calls[0]["script"]
