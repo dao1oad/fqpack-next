@@ -3,7 +3,6 @@
 import inspect
 import threading
 import time
-from typing import TYPE_CHECKING
 
 DEFAULT_XT_TRADER_TIMEOUT_MS = 5000
 DEFAULT_DIRECT_CASH_REPAY_PLACEHOLDER_STOCK_CODE = "000001.SZ"
@@ -66,19 +65,18 @@ def _default_session_id():
     return resolved or int(time.time())
 
 
-if TYPE_CHECKING:
+def _build_order_error_callback(recorder):
+    callback_base = _load_default_trader_callback_base()
 
-    class _TraderCallbackBase:
-        def __init__(self):
-            pass
+    class _RuntimeOrderErrorCallback(callback_base):  # type: ignore[misc, valid-type]
+        def on_order_error(self, order_error):
+            recorder.on_order_error(order_error)
 
-else:
-    _TraderCallbackBase = _load_default_trader_callback_base()
+    return _RuntimeOrderErrorCallback()
 
 
-class _OrderErrorRecorder(_TraderCallbackBase):
+class _OrderErrorRecorder:
     def __init__(self):
-        super().__init__()
         self._lock = threading.Lock()
         self._errors = []
 
@@ -148,7 +146,8 @@ class PositionCreditClient:
         self.account_factory = account_factory or _load_default_account_factory()
         self._trader = None
         self._account = None
-        self._order_error_callback = _OrderErrorRecorder()
+        self._order_error_recorder = _OrderErrorRecorder()
+        self._order_error_callback = None
         self._order_error_callback_enabled = False
         self._refresh_runtime_config(
             path=path,
@@ -187,7 +186,7 @@ class PositionCreditClient:
         )
         trader, account = self._ensure_credit_connection()
         if self._order_error_callback_enabled:
-            self._order_error_callback.clear()
+            self._order_error_recorder.clear()
         try:
             order_id = trader.order_stock(
                 account,
@@ -201,7 +200,7 @@ class PositionCreditClient:
             )
             rejected_error = None
             if self._order_error_callback_enabled:
-                rejected_error = self._order_error_callback.wait_for_matching_error(
+                rejected_error = self._order_error_recorder.wait_for_matching_error(
                     order_id=order_id if int(order_id or 0) > 0 else None,
                     order_remark=order_remark,
                     timeout_seconds=DEFAULT_DIRECT_CASH_REPAY_ERROR_GRACE_SECONDS,
@@ -226,10 +225,10 @@ class PositionCreditClient:
         if self._trader is not None and self._account is not None:
             return self._trader, self._account
 
-        trader, callback_enabled = self._build_trader(
+        trader, callback_enabled, callback = self._build_trader(
             self.path,
             self.session_id,
-            self._order_error_callback,
+            self._order_error_recorder,
         )
         trader.start()
         set_timeout_fn = getattr(trader, "set_timeout", None)
@@ -246,27 +245,31 @@ class PositionCreditClient:
 
         self._trader = trader
         self._account = account
+        self._order_error_callback = callback
         self._order_error_callback_enabled = callback_enabled
         return self._trader, self._account
 
-    def _build_trader(self, path, session_id, callback):
+    def _build_trader(self, path, session_id, recorder):
         supports_callback = _trader_factory_accepts_callback(self.trader_factory)
         if supports_callback is not False:
+            callback = _build_order_error_callback(recorder)
             trader = self.trader_factory(path, session_id, callback)
-            return trader, True
+            return trader, True, callback
         trader = self.trader_factory(path, session_id)
         register_callback = getattr(trader, "register_callback", None)
         if callable(register_callback):
+            callback = _build_order_error_callback(recorder)
             register_callback(callback)
-            return trader, True
-        return trader, False
+            return trader, True, callback
+        return trader, False, None
 
     def reset_connection(self):
         trader = self._trader
         self._trader = None
         self._account = None
+        self._order_error_callback = None
         self._order_error_callback_enabled = False
-        self._order_error_callback.clear()
+        self._order_error_recorder.clear()
         close_fn = getattr(trader, "stop", None)
         if callable(close_fn):
             try:

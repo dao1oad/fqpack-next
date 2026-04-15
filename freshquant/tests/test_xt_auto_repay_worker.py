@@ -164,7 +164,6 @@ class FakeLockClient:
             self.results = None
             self.result = result
         self.calls = []
-        self.release_calls = []
 
     def acquire(self, key, *, ttl_seconds):
         self.calls.append({"key": key, "ttl_seconds": ttl_seconds})
@@ -173,36 +172,6 @@ class FakeLockClient:
                 return False
             return self.results.pop(0)
         return self.result
-
-    def release(self, key):
-        self.release_calls.append(key)
-        return True
-
-
-class FakeRedisLockClient:
-    def __init__(self):
-        self.values = {}
-        self.eval_calls = []
-
-    def set(self, key, value, *, ex=None, nx=False):
-        if nx and key in self.values:
-            return False
-        self.values[key] = value
-        return True
-
-    def eval(self, script, numkeys, key, token):
-        self.eval_calls.append(
-            {
-                "script": script,
-                "numkeys": numkeys,
-                "key": key,
-                "token": token,
-            }
-        )
-        if self.values.get(key) != token:
-            return 0
-        self.values.pop(key, None)
-        return 1
 
 
 def test_worker_uses_snapshot_for_intraday_candidate_and_requeries_before_submit():
@@ -318,15 +287,16 @@ def test_worker_records_failed_state_when_submit_returns_zero_order_id():
     assert service.state["last_submit_order_id"] is None
 
 
-def test_worker_releases_lock_between_due_modes_in_same_pending_cycle():
-    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker, _CooldownLockClient
+def test_worker_uses_mode_scoped_locks_between_due_modes_in_same_pending_cycle():
+    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker
 
     service = FakeService(state={})
     executor = FakeExecutor()
+    lock_client = FakeLockClient()
     worker = XtAutoRepayWorker(
         service=service,
         executor=executor,
-        lock_client=_CooldownLockClient(redis_client=None),
+        lock_client=lock_client,
     )
 
     results = worker.run_pending(
@@ -337,19 +307,42 @@ def test_worker_releases_lock_between_due_modes_in_same_pending_cycle():
     assert [item["status"] for item in results] == ["submitted", "submitted"]
     assert executor.submit_calls[0]["repay_amount"] == 600.0
     assert executor.submit_calls[1]["repay_amount"] == 500.0
+    assert [call["key"] for call in lock_client.calls] == [
+        "xt_auto_repay:068000076370:hard_settle",
+        "xt_auto_repay:068000076370:retry",
+    ]
 
 
-def test_cooldown_lock_client_releases_redis_lock_atomically():
-    from freshquant.xt_auto_repay.worker import _CooldownLockClient
+def test_cooldown_lock_preserves_mode_dedupe_window_across_workers():
+    from freshquant.xt_auto_repay.worker import XtAutoRepayWorker, _CooldownLockClient
 
-    redis_client = FakeRedisLockClient()
-    lock_client = _CooldownLockClient(redis_client=redis_client)
+    lock_client = _CooldownLockClient(redis_client=None)
+    first_worker = XtAutoRepayWorker(
+        service=FakeService(state={}),
+        executor=FakeExecutor(),
+        lock_client=lock_client,
+    )
+    second_worker = XtAutoRepayWorker(
+        service=FakeService(state={}),
+        executor=FakeExecutor(),
+        lock_client=lock_client,
+    )
 
-    assert lock_client.acquire("xt_auto_repay:068000076370", ttl_seconds=120) is True
-    assert lock_client.release("xt_auto_repay:068000076370") is True
-    assert redis_client.values == {}
-    assert redis_client.eval_calls[0]["numkeys"] == 1
-    assert "redis.call('get', KEYS[1])" in redis_client.eval_calls[0]["script"]
+    first_result = first_worker.run_mode(
+        "hard_settle",
+        now=datetime.fromisoformat("2026-04-05T14:55:00+08:00"),
+    )
+    second_result = second_worker.run_mode(
+        "hard_settle",
+        now=datetime.fromisoformat("2026-04-05T14:55:01+08:00"),
+    )
+
+    assert first_result["status"] == "submitted"
+    assert second_result == {
+        "mode": "hard_settle",
+        "status": "skip",
+        "reason": "lock_unavailable",
+    }
 
 
 def test_worker_runs_hard_settle_at_1455_and_retry_at_1505():

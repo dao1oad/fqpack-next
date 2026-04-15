@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import logging
 import time
-import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -32,12 +31,6 @@ HARD_SETTLE_TIME = (14, 55)
 RETRY_TIME = (15, 5)
 
 logger = logging.getLogger(__name__)
-_REDIS_RELEASE_LOCK_LUA = """
-if redis.call('get', KEYS[1]) == ARGV[1] then
-    return redis.call('del', KEYS[1])
-end
-return 0
-"""
 
 
 class XtAutoRepayWorker:
@@ -119,7 +112,7 @@ class XtAutoRepayWorker:
                     snapshot_decision=snapshot_decision,
                 )
 
-        lock_key = f"xt_auto_repay:{self.service.account_id}"
+        lock_key = f"xt_auto_repay:{self.service.account_id}:{resolved_mode}"
         if not self.lock_client.acquire(
             lock_key,
             ttl_seconds=self.lock_ttl_seconds,
@@ -131,129 +124,82 @@ class XtAutoRepayWorker:
                 snapshot_decision=snapshot_decision,
                 mark_mode_completed=False,
             )
-        try:
-            detail = self._query_credit_detail_with_xt_retry()
-            confirmed_decision = self.service.evaluate_confirmed_detail(
-                detail,
+        detail = self._query_credit_detail_with_xt_retry()
+        confirmed_decision = self.service.evaluate_confirmed_detail(
+            detail,
+            mode=resolved_mode,
+            now=resolved_now,
+        )
+        if not confirmed_decision.get("eligible"):
+            return self._skip(
                 mode=resolved_mode,
                 now=resolved_now,
+                reason=confirmed_decision.get("reason"),
+                snapshot_decision=snapshot_decision,
+                confirmed_decision=confirmed_decision,
             )
-            if not confirmed_decision.get("eligible"):
-                return self._skip(
-                    mode=resolved_mode,
-                    now=resolved_now,
-                    reason=confirmed_decision.get("reason"),
-                    snapshot_decision=snapshot_decision,
-                    confirmed_decision=confirmed_decision,
-                )
 
-            state_updates = {
-                "last_checked_at": checked_at,
-                "last_status": (
-                    "observe_only" if self.service.observe_only else "submitted"
-                ),
-                "last_reason": confirmed_decision.get("reason"),
-                "last_submit_amount": confirmed_decision.get("repay_amount"),
-            }
-            state_updates.update(_mode_timestamp_fields(resolved_mode, checked_at))
+        state_updates = {
+            "last_checked_at": checked_at,
+            "last_status": (
+                "observe_only" if self.service.observe_only else "submitted"
+            ),
+            "last_reason": confirmed_decision.get("reason"),
+            "last_submit_amount": confirmed_decision.get("repay_amount"),
+        }
+        state_updates.update(_mode_timestamp_fields(resolved_mode, checked_at))
 
-            if self.service.observe_only:
-                self.service.record_event(
-                    event_type="observe_only",
-                    mode=resolved_mode,
-                    reason="observe_only",
-                    snapshot_available_amount=_decision_value(
-                        snapshot_decision,
-                        "snapshot_available_amount",
-                    ),
-                    snapshot_fin_debt=_decision_value(
-                        snapshot_decision, "snapshot_fin_debt"
-                    ),
-                    confirmed_available_amount=_decision_value(
-                        confirmed_decision,
-                        "confirmed_available_amount",
-                    ),
-                    confirmed_fin_debt=_decision_value(
-                        confirmed_decision,
-                        "confirmed_fin_debt",
-                    ),
-                    candidate_amount=_decision_value(
-                        snapshot_decision, "candidate_amount"
-                    ),
-                    submitted_amount=_decision_value(
-                        confirmed_decision, "repay_amount"
-                    ),
-                )
-                self.service.update_state(**state_updates)
-                return {
-                    "mode": resolved_mode,
-                    "status": "observe_only",
-                    "repay_amount": confirmed_decision.get("repay_amount"),
-                }
-
-            repay_amount = confirmed_decision.get("repay_amount")
-            try:
-                broker_order_id = self.executor.submit_direct_cash_repay(
-                    repay_amount=repay_amount,
-                    remark=f"xt_auto_repay:{resolved_mode}:{checked_at}",
-                )
-            except Exception as error:
-                failure_reason = _submit_failure_reason(error)
-                logger.warning(
-                    "xt auto repay submit failed for %s: %s",
-                    resolved_mode,
-                    failure_reason,
-                    exc_info=True,
-                )
-                state_updates["last_status"] = "failed"
-                state_updates["last_reason"] = failure_reason
-                state_updates["last_submit_order_id"] = None
-                self.service.record_event(
-                    event_type="failed",
-                    mode=resolved_mode,
-                    reason=failure_reason,
-                    snapshot_available_amount=_decision_value(
-                        snapshot_decision,
-                        "snapshot_available_amount",
-                    ),
-                    snapshot_fin_debt=_decision_value(
-                        snapshot_decision, "snapshot_fin_debt"
-                    ),
-                    confirmed_available_amount=_decision_value(
-                        confirmed_decision,
-                        "confirmed_available_amount",
-                    ),
-                    confirmed_fin_debt=_decision_value(
-                        confirmed_decision, "confirmed_fin_debt"
-                    ),
-                    candidate_amount=_decision_value(
-                        snapshot_decision, "candidate_amount"
-                    ),
-                    submitted_amount=repay_amount,
-                )
-                self.service.update_state(**state_updates)
-                return {
-                    "mode": resolved_mode,
-                    "status": "failed",
-                    "repay_amount": repay_amount,
-                    "reason": failure_reason,
-                }
-            broker_order_id_value = _positive_order_id_value(broker_order_id)
-            event_type = "submitted" if broker_order_id_value is not None else "failed"
-            state_updates["last_submit_order_id"] = (
-                None if broker_order_id_value is None else str(broker_order_id_value)
-            )
-            if event_type == "submitted":
-                state_updates["last_submit_at"] = checked_at
-                event_reason = confirmed_decision.get("reason")
-            else:
-                event_reason = "xtquant direct cash repay returned no order id"
-                state_updates["last_status"] = "failed"
-                state_updates["last_reason"] = event_reason
+        if self.service.observe_only:
             self.service.record_event(
-                event_type=event_type,
+                event_type="observe_only",
                 mode=resolved_mode,
-                reason=event_reason,
+                reason="observe_only",
+                snapshot_available_amount=_decision_value(
+                    snapshot_decision,
+                    "snapshot_available_amount",
+                ),
+                snapshot_fin_debt=_decision_value(
+                    snapshot_decision, "snapshot_fin_debt"
+                ),
+                confirmed_available_amount=_decision_value(
+                    confirmed_decision,
+                    "confirmed_available_amount",
+                ),
+                confirmed_fin_debt=_decision_value(
+                    confirmed_decision,
+                    "confirmed_fin_debt",
+                ),
+                candidate_amount=_decision_value(snapshot_decision, "candidate_amount"),
+                submitted_amount=_decision_value(confirmed_decision, "repay_amount"),
+            )
+            self.service.update_state(**state_updates)
+            return {
+                "mode": resolved_mode,
+                "status": "observe_only",
+                "repay_amount": confirmed_decision.get("repay_amount"),
+            }
+
+        repay_amount = confirmed_decision.get("repay_amount")
+        try:
+            broker_order_id = self.executor.submit_direct_cash_repay(
+                repay_amount=repay_amount,
+                remark=f"xt_auto_repay:{resolved_mode}:{checked_at}",
+            )
+        except Exception as error:
+            failure_reason = _submit_failure_reason(error)
+            logger.warning(
+                "xt auto repay submit failed for %s: %s",
+                resolved_mode,
+                failure_reason,
+                exc_info=True,
+            )
+            state_updates["last_status"] = "failed"
+            state_updates["last_reason"] = failure_reason
+            state_updates["last_submit_order_id"] = None
+            self.service.record_event(
+                event_type="failed",
+                mode=resolved_mode,
+                reason=failure_reason,
                 snapshot_available_amount=_decision_value(
                     snapshot_decision,
                     "snapshot_available_amount",
@@ -270,17 +216,53 @@ class XtAutoRepayWorker:
                 ),
                 candidate_amount=_decision_value(snapshot_decision, "candidate_amount"),
                 submitted_amount=repay_amount,
-                broker_order_id=broker_order_id,
             )
             self.service.update_state(**state_updates)
             return {
                 "mode": resolved_mode,
-                "status": event_type,
+                "status": "failed",
                 "repay_amount": repay_amount,
-                "broker_order_id": broker_order_id,
+                "reason": failure_reason,
             }
-        finally:
-            self.lock_client.release(lock_key)
+        broker_order_id_value = _positive_order_id_value(broker_order_id)
+        event_type = "submitted" if broker_order_id_value is not None else "failed"
+        state_updates["last_submit_order_id"] = (
+            None if broker_order_id_value is None else str(broker_order_id_value)
+        )
+        if event_type == "submitted":
+            state_updates["last_submit_at"] = checked_at
+            event_reason = confirmed_decision.get("reason")
+        else:
+            event_reason = "xtquant direct cash repay returned no order id"
+            state_updates["last_status"] = "failed"
+            state_updates["last_reason"] = event_reason
+        self.service.record_event(
+            event_type=event_type,
+            mode=resolved_mode,
+            reason=event_reason,
+            snapshot_available_amount=_decision_value(
+                snapshot_decision,
+                "snapshot_available_amount",
+            ),
+            snapshot_fin_debt=_decision_value(snapshot_decision, "snapshot_fin_debt"),
+            confirmed_available_amount=_decision_value(
+                confirmed_decision,
+                "confirmed_available_amount",
+            ),
+            confirmed_fin_debt=_decision_value(
+                confirmed_decision, "confirmed_fin_debt"
+            ),
+            candidate_amount=_decision_value(snapshot_decision, "candidate_amount"),
+            submitted_amount=repay_amount,
+            broker_order_id=broker_order_id,
+        )
+        self.service.update_state(**state_updates)
+        return {
+            "mode": resolved_mode,
+            "status": event_type,
+            "repay_amount": repay_amount,
+            "broker_order_id": broker_order_id,
+        }
 
     def run_pending(self, *, now=None):
         resolved_now = now or self.now_provider()
@@ -421,54 +403,21 @@ class _CooldownLockClient:
     def __init__(self, redis_client):
         self.redis_client = redis_client
         self._memory = {}
-        self._tokens = {}
 
     def acquire(self, key, *, ttl_seconds):
         ttl = max(int(ttl_seconds or 0), 0)
         if ttl <= 0:
             return True
-        token = uuid.uuid4().hex
         if self.redis_client is not None:
             try:
-                acquired = bool(self.redis_client.set(key, token, ex=ttl, nx=True))
+                return bool(self.redis_client.set(key, "1", ex=ttl, nx=True))
             except Exception as exc:
                 raise RuntimeError("xt auto repay redis lock failed") from exc
-            if acquired:
-                self._tokens[key] = token
-            return acquired
         now_value = time.time()
-        entry = self._memory.get(key)
-        expires_at = float(entry["expires_at"]) if isinstance(entry, dict) else 0.0
+        expires_at = float(self._memory.get(key) or 0.0)
         if expires_at > now_value:
             return False
-        self._memory[key] = {
-            "token": token,
-            "expires_at": now_value + ttl,
-        }
-        self._tokens[key] = token
-        return True
-
-    def release(self, key):
-        token = self._tokens.pop(key, None)
-        if token is None:
-            return False
-        if self.redis_client is not None:
-            try:
-                released = self.redis_client.eval(
-                    _REDIS_RELEASE_LOCK_LUA,
-                    1,
-                    key,
-                    token,
-                )
-            except Exception as exc:
-                raise RuntimeError("xt auto repay redis lock release failed") from exc
-            return bool(int(released or 0) > 0)
-        entry = self._memory.get(key)
-        if not isinstance(entry, dict):
-            return False
-        if str(entry.get("token") or "") != str(token):
-            return False
-        self._memory.pop(key, None)
+        self._memory[key] = now_value + ttl
         return True
 
 

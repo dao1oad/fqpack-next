@@ -165,6 +165,36 @@ def test_credit_client_refreshes_settings_before_connecting():
     assert len(detail) == 1
 
 
+def test_credit_client_defers_callback_base_load_until_connection():
+    from freshquant.position_management import credit_client as credit_client_module
+
+    original_loader = credit_client_module._load_default_trader_callback_base
+    callback_load_calls = []
+
+    def _unexpected_loader():
+        callback_load_calls.append("load")
+        raise AssertionError("callback base should not be loaded during client init")
+
+    credit_client_module._load_default_trader_callback_base = _unexpected_loader
+    try:
+        client = credit_client_module.PositionCreditClient(
+            path="D:/mock/xtquant",
+            account_id="068000076370",
+            account_type="CREDIT",
+            trader_factory=lambda path, session_id: FakeTrader(),
+            account_factory=lambda account_id, account_type: type(
+                "FakeAccount",
+                (),
+                {"account_id": account_id, "account_type": account_type},
+            )(),
+        )
+    finally:
+        credit_client_module._load_default_trader_callback_base = original_loader
+
+    assert callback_load_calls == []
+    assert client._order_error_callback_enabled is False
+
+
 def test_credit_client_does_not_reload_global_settings_when_all_overrides_are_explicit():
     from freshquant.position_management.credit_client import PositionCreditClient
 
