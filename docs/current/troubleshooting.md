@@ -166,6 +166,10 @@ pprint(svc.load_latest_snapshot())
 
 - 若是宿主机启动早于 Mongo 恢复，当前 `system_settings` 会先重试；重试后仍失败时不会再把已有有效配置降级成空 `xtquant.path/account`
 - 若 worker 在盘中巡检窗口之间重启，当前下一次巡检时间按 `last_checked_at` 对齐；若已逾期，会 1 秒级补跑，不需要再等满新的 30 分钟
+- 若直接还款提交后长时间没有事件推进，先核对 `XtQuantTrader.order_stock()` 的参数是否为 `CREDIT_DIRECT_CASH_REPAY + placeholder stock_code + LATEST_PRICE + 0`；空 `stock_code` 会触发 `wrong stock market format`
+- 若盘后/非交易状态出现 `节点当前非交易状态,禁止做直接还款`，说明柜台当前不受理该操作；需要等到下一个允许的交易窗口再提交
+- 当前 `PositionCreditClient` 会给 XT 同步调用设置超时，避免错误参数把 worker 卡死在 `order_stock()` 上
+- 若 worker 错过了 `14:55` 与 `15:05` 后才恢复，当前会在同一轮补跑里串行完成 `hard_settle` 与 `retry`，不再因为共享冷却锁把第二步误记成 `lock_unavailable`
 - 若 stderr 仍持续出现 `xtquant connect failed: -1`，优先排查 QMT 连接稳定性，不要先怀疑自动还款金额判定
 
 ## Memory context 缺失或过期

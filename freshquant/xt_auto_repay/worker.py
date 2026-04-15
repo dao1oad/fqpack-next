@@ -112,8 +112,9 @@ class XtAutoRepayWorker:
                     snapshot_decision=snapshot_decision,
                 )
 
+        lock_key = f"xt_auto_repay:{self.service.account_id}:{resolved_mode}"
         if not self.lock_client.acquire(
-            f"xt_auto_repay:{self.service.account_id}",
+            lock_key,
             ttl_seconds=self.lock_ttl_seconds,
         ):
             return self._skip(
@@ -123,7 +124,6 @@ class XtAutoRepayWorker:
                 snapshot_decision=snapshot_decision,
                 mark_mode_completed=False,
             )
-
         detail = self._query_credit_detail_with_xt_retry()
         confirmed_decision = self.service.evaluate_confirmed_detail(
             detail,
@@ -180,20 +180,66 @@ class XtAutoRepayWorker:
             }
 
         repay_amount = confirmed_decision.get("repay_amount")
-        broker_order_id = self.executor.submit_direct_cash_repay(
-            repay_amount=repay_amount,
-            remark=f"xt_auto_repay:{resolved_mode}:{checked_at}",
-        )
-        event_type = "submitted" if int(broker_order_id or 0) > 0 else "failed"
+        try:
+            broker_order_id = self.executor.submit_direct_cash_repay(
+                repay_amount=repay_amount,
+                remark=f"xt_auto_repay:{resolved_mode}:{checked_at}",
+            )
+        except Exception as error:
+            failure_reason = _submit_failure_reason(error)
+            logger.warning(
+                "xt auto repay submit failed for %s: %s",
+                resolved_mode,
+                failure_reason,
+                exc_info=True,
+            )
+            state_updates["last_status"] = "failed"
+            state_updates["last_reason"] = failure_reason
+            state_updates["last_submit_order_id"] = None
+            self.service.record_event(
+                event_type="failed",
+                mode=resolved_mode,
+                reason=failure_reason,
+                snapshot_available_amount=_decision_value(
+                    snapshot_decision,
+                    "snapshot_available_amount",
+                ),
+                snapshot_fin_debt=_decision_value(
+                    snapshot_decision, "snapshot_fin_debt"
+                ),
+                confirmed_available_amount=_decision_value(
+                    confirmed_decision,
+                    "confirmed_available_amount",
+                ),
+                confirmed_fin_debt=_decision_value(
+                    confirmed_decision, "confirmed_fin_debt"
+                ),
+                candidate_amount=_decision_value(snapshot_decision, "candidate_amount"),
+                submitted_amount=repay_amount,
+            )
+            self.service.update_state(**state_updates)
+            return {
+                "mode": resolved_mode,
+                "status": "failed",
+                "repay_amount": repay_amount,
+                "reason": failure_reason,
+            }
+        broker_order_id_value = _positive_order_id_value(broker_order_id)
+        event_type = "submitted" if broker_order_id_value is not None else "failed"
         state_updates["last_submit_order_id"] = (
-            None if broker_order_id in {None, "", "None"} else str(broker_order_id)
+            None if broker_order_id_value is None else str(broker_order_id_value)
         )
         if event_type == "submitted":
             state_updates["last_submit_at"] = checked_at
+            event_reason = confirmed_decision.get("reason")
+        else:
+            event_reason = "xtquant direct cash repay returned no order id"
+            state_updates["last_status"] = "failed"
+            state_updates["last_reason"] = event_reason
         self.service.record_event(
             event_type=event_type,
             mode=resolved_mode,
-            reason=confirmed_decision.get("reason"),
+            reason=event_reason,
             snapshot_available_amount=_decision_value(
                 snapshot_decision,
                 "snapshot_available_amount",
@@ -384,8 +430,13 @@ def run_forever(worker=None, *, sleep_fn=time.sleep, now_provider=None):
     auto_repay_worker = worker or XtAutoRepayWorker(now_provider=now_provider)
     while True:
         current_now = auto_repay_worker.now_provider()
-        auto_repay_worker.run_pending(now=current_now)
-        sleep_fn(auto_repay_worker.next_sleep_seconds(now=current_now))
+        try:
+            auto_repay_worker.run_pending(now=current_now)
+            sleep_seconds = auto_repay_worker.next_sleep_seconds(now=current_now)
+        except Exception:
+            logger.exception("xt auto repay worker loop failed")
+            sleep_seconds = 1.0
+        sleep_fn(sleep_seconds)
 
 
 def main(argv=None, worker=None):
@@ -497,6 +548,23 @@ def _is_retryable_xt_auto_repay_error(error):
     if "无法连接xtquant" in message or "鏃犳硶杩炴帴xtquant" in message:
         return True
     return "xtquant" in normalized and "qmt" in normalized
+
+
+def _submit_failure_reason(error):
+    message = str(error or "").strip()
+    if message:
+        return message
+    return error.__class__.__name__
+
+
+def _positive_order_id_value(value):
+    try:
+        resolved = int(value or 0)
+    except (TypeError, ValueError):
+        return None
+    if resolved <= 0:
+        return None
+    return resolved
 
 
 if __name__ == "__main__":

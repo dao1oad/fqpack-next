@@ -47,7 +47,7 @@
 
 ### 当前自动还款链
 
-`xt_account_sync.worker -> pm_credit_asset_snapshots -> xt_auto_repay.worker -> query_credit_detail confirm -> CREDIT_DIRECT_CASH_REPAY`
+`xt_account_sync.worker -> pm_credit_asset_snapshots -> xt_auto_repay.worker -> query_credit_detail confirm -> XtQuantTrader.order_stock(CREDIT_DIRECT_CASH_REPAY, placeholder stock_code, LATEST_PRICE)`
 
 ## 当前订单账本边界
 
