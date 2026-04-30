@@ -1125,6 +1125,22 @@ def test_clickhouse_store_list_traces_accepts_trace_kind_filter(monkeypatch):
 
     assert payload["items"] == []
     assert "trace_kind = 'takeprofit'" in queries[0]
+    assert "lowerUTF8(source) IN ('takeprofit', 'tpsl_takeprofit')" in queries[0]
+    assert (
+        'lowerUTF8(payload_json) LIKE \'%"scope_type": "takeprofit_batch"%\''
+        in queries[0]
+    )
+    assert (
+        "lowerUTF8(source) IN ('stoploss', 'tpsl_stoploss', " "'tpsl_symbol_stoploss')"
+    ) in queries[0]
+    assert (
+        'lowerUTF8(payload_json) LIKE \'%"scope_type": "symbol_stoploss_batch"%\''
+        in queries[0]
+    )
+    assert "lowerUTF8(source) IN ('api', 'web-order', 'manual_import')" in queries[0]
+    assert (
+        "countIf(component = 'order_submit') > 0, 'manual_api_order'" not in queries[0]
+    )
     assert len(queries) == 1
 
 
