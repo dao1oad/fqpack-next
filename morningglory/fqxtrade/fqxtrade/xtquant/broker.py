@@ -28,6 +28,7 @@ from fqxtrade.xtquant.trading_manager import TradingManager
 from loguru import logger
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 
+from freshquant.order_management.broker_match import find_order_for_broker_report
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.submit.execution_bridge import (
     dispatch_cancel_execution,
@@ -89,9 +90,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         logger.info("收到委托回报推送: {order}", order=order_dict)
         _emit_broker_event(
             "order_callback",
-            context=_resolve_runtime_context_by_broker_order_id(
-                order_dict.get("order_id")
-            ),
+            context=_resolve_runtime_context_by_broker_report(order_dict),
             symbol=str(order_dict.get("stock_code") or "")[:6],
             payload={
                 "broker_order_id": order_dict.get("order_id"),
@@ -119,9 +118,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         logger.info("收到成交变动推送: {trade}", trade=trade_dict)
         _emit_broker_event(
             "trade_callback",
-            context=_resolve_runtime_context_by_broker_order_id(
-                trade_dict.get("order_id")
-            ),
+            context=_resolve_runtime_context_by_broker_report(trade_dict),
             symbol=str(trade_dict.get("stock_code") or "")[:6],
             payload={
                 "broker_order_id": trade_dict.get("order_id"),
@@ -586,12 +583,23 @@ def _handle_cancel_action(order, *, broker_submit_mode):
         raise
 
 
-def _resolve_runtime_context_by_broker_order_id(broker_order_id):
+def _resolve_runtime_context_by_broker_report(report):
+    report = dict(report or {})
+    broker_order_id = report.get("order_id") or report.get("broker_order_id")
     if broker_order_id in (None, "", "None"):
         return {}
     try:
-        order = order_management_repository.find_order_by_broker_order_id(
-            broker_order_id
+        order = find_order_for_broker_report(
+            order_management_repository,
+            broker_order_id=broker_order_id,
+            report=report,
+            symbol=report.get("symbol") or report.get("stock_code"),
+            order_type=report.get("order_type"),
+            report_time=(
+                report.get("order_time")
+                or report.get("traded_time")
+                or report.get("trade_time")
+            ),
         )
     except Exception:
         order = None
@@ -605,6 +613,10 @@ def _resolve_runtime_context_by_broker_order_id(broker_order_id):
         "symbol": order.get("symbol"),
         "action": order.get("side"),
     }
+
+
+def _resolve_runtime_context_by_broker_order_id(broker_order_id):
+    return _resolve_runtime_context_by_broker_report({"order_id": broker_order_id})
 
 
 def _emit_broker_event(

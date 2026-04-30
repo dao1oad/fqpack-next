@@ -14,10 +14,11 @@
 - TPSL tick listener。
 - 需要直接访问券商、终端、`TDX_HOME` 或 Windows 本地目录的组件。
 
-当前运行面还有两条与订单对账相关的固定语义：
+当前运行面还有三条与订单对账相关的固定语义：
 
 - `ExternalOrderReconcileService` 对 buy gap 会同时记录 `initial/latest/chosen` 三组价格快照；运行面和排障口径里若看到 `chosen_price_policy=freeze_initial`，表示最终确认价按首次发现快照冻结，而不是跟随长时间观测漂移。
 - Guardian 遇到“持仓 entry 已确认但 arranged fills 不可用”的场景时，当前会显式区分 `arrangement_degraded` 与 `entry_without_slices`；这两种情况默认保守跳过，不再误记成“无持仓”。
+- XT 委托/成交回报匹配内部订单时，`broker_order_id` 不视为全局唯一键；同一 `broker_order_id` 命中多条 `om_orders` 时，会继续按 `symbol`、`side/order_type` 与回报时间选择候选。
 
 ### Docker 并行环境承担
 

@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from freshquant.order_management.broker_match import find_order_for_broker_report
 from freshquant.order_management.entry_aggregation import (
     build_clustered_position_entry,
     build_reconciliation_resolution_member_key,
@@ -275,9 +276,21 @@ class ExternalOrderReconcileService:
                 repository=self.repository,
             )
             ids["symbol"] = normalized.get("symbol")
-            known_order = self.repository.find_order_by_broker_order_id(
-                normalized.get("broker_order_id")
-            )
+            known_order = None
+            if normalized.get("internal_order_id"):
+                known_order = self.repository.find_order(
+                    normalized.get("internal_order_id")
+                )
+            if known_order is None:
+                known_order = find_order_for_broker_report(
+                    self.repository,
+                    broker_order_id=normalized.get("broker_order_id"),
+                    report=report,
+                    symbol=normalized.get("symbol"),
+                    side=normalized.get("side"),
+                    order_type=report.get("order_type"),
+                    report_time=normalized.get("trade_time"),
+                )
             if known_order:
                 ids.update(
                     {
